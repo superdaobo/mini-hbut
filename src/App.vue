@@ -37,6 +37,8 @@ const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
 const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
+const ELECTRICITY_REFRESH_INTERVAL = 5 * 60 * 1000
+let electricityKeepAliveTimer = null
 
 // 版本更新相关
 const showUpdateDialog = ref(false)
@@ -89,6 +91,7 @@ const handleLoginSuccess = (data) => {
   localStorage.removeItem('hbu_manual_logout')
   persistSessionCookies()
   startSessionKeepAlive()
+  startElectricityKeepAlive()
 }
 
 // 处理导航
@@ -129,6 +132,7 @@ const handleLogout = () => {
   window.history.replaceState(null, '', '#/')
 
   stopSessionKeepAlive()
+  stopElectricityKeepAlive()
   localStorage.removeItem(SESSION_COOKIE_KEY)
   localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
   localStorage.setItem('hbu_manual_logout', 'true')
@@ -297,6 +301,24 @@ const stopSessionKeepAlive = () => {
   }
 }
 
+const startElectricityKeepAlive = () => {
+  stopElectricityKeepAlive()
+  electricityKeepAliveTimer = setInterval(async () => {
+    try {
+      await invoke('refresh_electricity_token')
+    } catch (e) {
+      console.warn('[Electricity] Token refresh failed:', e)
+    }
+  }, ELECTRICITY_REFRESH_INTERVAL)
+}
+
+const stopElectricityKeepAlive = () => {
+  if (electricityKeepAliveTimer) {
+    clearInterval(electricityKeepAliveTimer)
+    electricityKeepAliveTimer = null
+  }
+}
+
 const showTabBar = computed(() => ['home', 'schedule', 'me'].includes(currentView.value))
 
 // 页面加载时检查 URL
@@ -344,6 +366,7 @@ onMounted(async () => {
 
   if (restored || relogged || studentId.value) {
     startSessionKeepAlive()
+    startElectricityKeepAlive()
   }
   
   // 启动即检查更新

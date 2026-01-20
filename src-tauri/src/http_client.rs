@@ -74,6 +74,10 @@ pub struct HbutClient {
     is_logged_in: bool,
     pub user_info: Option<UserInfo>,
     last_login_inputs: Option<HashMap<String, String>>,
+    last_username: Option<String>,
+    last_password: Option<String>,
+    electricity_token: Option<String>,
+    electricity_token_at: Option<std::time::Instant>,
 }
 
 impl HbutClient {
@@ -95,6 +99,10 @@ impl HbutClient {
             is_logged_in: false,
             user_info: None,
             last_login_inputs: None,
+            last_username: None,
+            last_password: None,
+            electricity_token: None,
+            electricity_token_at: None,
         }
     }
 
@@ -271,6 +279,10 @@ impl HbutClient {
         println!("[DEBUG] Login URL: {}", login_url);
         println!("[DEBUG] Username: {}", username);
         println!("[DEBUG] Password length (plain): {}", password.len());
+
+        // 缓存最近一次登录凭据（仅内存）
+        self.last_username = Some(username.to_string());
+        self.last_password = Some(password.to_string());
         
         // 1. 获取登录页面获取最新的 salt, execution, lt
         println!("[DEBUG] Fetching fresh login page for parameters...");
@@ -1626,7 +1638,7 @@ impl HbutClient {
     
     // ========== 电费部分 ==========
 
-    async fn get_electricity_token(&self) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_electricity_token(&mut self) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
         println!("[DEBUG] Starting electricity SSO flow...");
         
         // 创建一个不自动重定向的客户端来跟踪 SSO 流程
@@ -1641,72 +1653,122 @@ impl HbutClient {
         
         let mut auth_token = String::new();
         let mut tid = String::new();
+        let mut needs_login = false;
         
         // 1. 触发电费 SSO 流程
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[DEBUG] Step 1: Starting SSO from {}", sso_url);
         
-        let mut current_url = sso_url.to_string();
-        let mut redirect_count = 0;
         const MAX_REDIRECTS: i32 = 15;
-        
-        // 手动跟踪重定向
-        while redirect_count < MAX_REDIRECTS {
-            redirect_count += 1;
-            println!("[DEBUG] Redirect {}: {}", redirect_count, current_url);
-            
-            let response = no_redirect_client.get(&current_url)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .send()
-                .await?;
-            
-            let status = response.status();
-            
-            // 检查响应头中的 Authorization
-            if let Some(token_header) = response.headers().get("Authorization") {
-                auth_token = token_header.to_str()?.to_string();
-                println!("[DEBUG] Got token from header: {}...", &auth_token.chars().take(30).collect::<String>());
-            }
-            
-            // 提取 tid 从 URL 或 Location
-            let url_str = response.url().to_string();
-            if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
-                tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-                println!("[DEBUG] Got tid from URL: {}", tid);
-            }
-            
-            // 检查是否需要重定向
-            if status.is_redirection() {
-                if let Some(location) = response.headers().get("Location") {
-                    let location_str = location.to_str()?;
-                    
-                    // 从 Location 提取 tid
-                    if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(location_str) {
-                        tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
-                        println!("[DEBUG] Got tid from Location: {}", tid);
-                    }
-                    
-                    // 处理相对路径
-                    current_url = if location_str.starts_with("http") {
-                        location_str.to_string()
-                    } else if location_str.starts_with("/") {
-                        let base: Url = current_url.parse()?;
-                        format!("{}://{}{}", base.scheme(), base.host_str().unwrap_or(""), location_str)
+        for attempt in 0..2 {
+            auth_token.clear();
+            tid.clear();
+            needs_login = false;
+
+            let mut current_url = sso_url.to_string();
+            let mut redirect_count = 0;
+
+            // 手动跟踪重定向
+            while redirect_count < MAX_REDIRECTS {
+                redirect_count += 1;
+                println!("[DEBUG] Redirect {}: {}", redirect_count, current_url);
+
+                let response = no_redirect_client.get(&current_url)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .send()
+                    .await?;
+
+                let status = response.status();
+
+                // 检查响应头中的 Authorization
+                if let Some(token_header) = response.headers().get("Authorization") {
+                    auth_token = token_header.to_str()?.to_string();
+                    println!("[DEBUG] Got token from header: {}...", &auth_token.chars().take(30).collect::<String>());
+                }
+
+                // 提取 tid 从 URL 或 Location
+                let url_str = response.url().to_string();
+                if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
+                    tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[DEBUG] Got tid from URL: {}", tid);
+                }
+
+                // 检查是否需要重定向
+                if status.is_redirection() {
+                    if let Some(location) = response.headers().get("Location") {
+                        let location_str = location.to_str()?;
+
+                        // 从 Location 提取 tid
+                        if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(location_str) {
+                            tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[DEBUG] Got tid from Location: {}", tid);
+                        }
+
+                        // 处理相对路径
+                        current_url = if location_str.starts_with("http") {
+                            location_str.to_string()
+                        } else if location_str.starts_with("/") {
+                            let base: Url = current_url.parse()?;
+                            format!("{}://{}{}", base.scheme(), base.host_str().unwrap_or(""), location_str)
+                        } else {
+                            location_str.to_string()
+                        };
+
+                        // 如果到达了最终的 code.hbut.edu.cn 页面并且有 tid，可以停止
+                        if !tid.is_empty() && current_url.contains("code.hbut.edu.cn") && !current_url.contains("/server/auth/") {
+                            println!("[DEBUG] Reached final destination with tid");
+                            break;
+                        }
                     } else {
-                        location_str.to_string()
-                    };
-                    
-                    // 如果到达了最终的 code.hbut.edu.cn 页面并且有 tid，可以停止
-                    if !tid.is_empty() && current_url.contains("code.hbut.edu.cn") && !current_url.contains("/server/auth/") {
-                        println!("[DEBUG] Reached final destination with tid");
                         break;
                     }
                 } else {
+                    // 非重定向，尝试从最终页面提取 tid
+                    let html = response.text().await.unwrap_or_default();
+                    if tid.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r#"tid=([^&"']+)"#)?.captures(&html) {
+                            tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[DEBUG] Got tid from HTML: {}", tid);
+                        }
+                    }
+
+                    // 如果停留在认证登录页，说明需要重新登录
+                    if current_url.contains("authserver/login")
+                        && (html.contains("pwdEncryptSalt") || html.contains("统一身份认证") || html.contains("login"))
+                    {
+                        needs_login = true;
+                    }
+
                     break;
                 }
-            } else {
-                // 不再重定向
-                break;
+            }
+
+            if needs_login && attempt == 0 {
+                println!("[DEBUG] Electricity SSO requires login, re-login and retrying...");
+                let relogin_ok = self.relogin_with_cached_credentials().await.unwrap_or(false);
+                if relogin_ok {
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        // fallback: use normal client with redirects to get tid
+        if tid.is_empty() {
+            if let Ok(resp) = self.client.get(sso_url).send().await {
+                let url_str = resp.url().to_string();
+                if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
+                    tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[DEBUG] Got tid from final URL: {}", tid);
+                }
+                if tid.is_empty() {
+                    let html = resp.text().await.unwrap_or_default();
+                    if let Some(caps) = regex::Regex::new(r#"tid=([^&"']+)"#)?.captures(&html) {
+                        tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[DEBUG] Got tid from final HTML: {}", tid);
+                    }
+                }
             }
         }
         
@@ -1823,7 +1885,43 @@ impl HbutClient {
         Ok((auth_token, cookies))
     }
 
-    pub async fn fetch_electricity_balance(&self, room_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn ensure_electricity_token(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(300); // 5分钟
+        if let (Some(token), Some(instant)) = (&self.electricity_token, &self.electricity_token_at) {
+            if instant.elapsed() < TOKEN_TTL {
+                return Ok(token.clone());
+            }
+        }
+
+        let token_result = self.get_electricity_token().await;
+        let (token, _) = match token_result {
+            Ok(res) => res,
+            Err(err) => {
+                println!("[DEBUG] Electricity token failed, trying relogin: {}", err);
+                let _ = self.relogin_with_cached_credentials().await;
+                self.get_electricity_token().await?
+            }
+        };
+        self.electricity_token = Some(token.clone());
+        self.electricity_token_at = Some(std::time::Instant::now());
+        Ok(token)
+    }
+
+    async fn relogin_with_cached_credentials(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let username = match &self.last_username {
+            Some(v) => v.clone(),
+            None => return Ok(false),
+        };
+        let password = match &self.last_password {
+            Some(v) => v.clone(),
+            None => return Ok(false),
+        };
+
+        let _ = self.login(&username, &password, "", "", "").await?;
+        Ok(true)
+    }
+
+    pub async fn fetch_electricity_balance(&mut self, room_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let (token, _) = self.get_electricity_token().await?;
         
         // 查询位置信息 (Area -> Building -> Unit -> Room)
@@ -1842,8 +1940,8 @@ impl HbutClient {
         Ok(serde_json::json!({ "token": token }))
     }
     
-    pub async fn query_electricity_location(&self, payload: serde_json::Value) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let (token, _) = self.get_electricity_token().await?;
+    pub async fn query_electricity_location(&mut self, payload: serde_json::Value) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let token = self.ensure_electricity_token().await?;
         
         let url = "https://code.hbut.edu.cn/server/utilities/location";
         let resp = self.client.post(url)
@@ -1856,11 +1954,30 @@ impl HbutClient {
             .await?;
             
         let json: serde_json::Value = resp.json().await?;
+
+        // token 失效时刷新再重试一次
+        if !json.get("success").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let msg = json.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            if msg.contains("token") || msg.contains("授权") || msg.contains("Authentication") {
+                let token = self.ensure_electricity_token().await?;
+                let retry = self.client.post(url)
+                    .header("Authorization", token)
+                    .header("Content-Type", "application/json")
+                    .header("Origin", "https://code.hbut.edu.cn")
+                    .header("Referer", "https://code.hbut.edu.cn/")
+                    .json(&payload)
+                    .send()
+                    .await?;
+                let retry_json: serde_json::Value = retry.json().await?;
+                return Ok(retry_json);
+            }
+        }
+
         Ok(json)
     }
 
-    pub async fn query_electricity_account(&self, payload: serde_json::Value) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let (token, _) = self.get_electricity_token().await?;
+    pub async fn query_electricity_account(&mut self, payload: serde_json::Value) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let token = self.ensure_electricity_token().await?;
         
         let url = "https://code.hbut.edu.cn/server/utilities/account";
         let resp = self.client.post(url)
@@ -1873,6 +1990,25 @@ impl HbutClient {
             .await?;
             
         let json: serde_json::Value = resp.json().await?;
+
+        // token 失效时刷新再重试一次
+        if !json.get("success").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let msg = json.get("message").and_then(|v| v.as_str()).unwrap_or("");
+            if msg.contains("token") || msg.contains("授权") || msg.contains("Authentication") {
+                let token = self.ensure_electricity_token().await?;
+                let retry = self.client.post(url)
+                    .header("Authorization", token)
+                    .header("Content-Type", "application/json")
+                    .header("Origin", "https://code.hbut.edu.cn")
+                    .header("Referer", "https://code.hbut.edu.cn/")
+                    .json(&payload)
+                    .send()
+                    .await?;
+                let retry_json: serde_json::Value = retry.json().await?;
+                return Ok(retry_json);
+            }
+        }
+
         Ok(json)
     }
 }

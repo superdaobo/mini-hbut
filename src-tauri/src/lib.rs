@@ -384,14 +384,20 @@ async fn fetch_academic_progress(state: State<'_, AppState>, fasz: Option<i32>) 
 
 #[tauri::command]
 async fn electricity_query_location(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     client.query_electricity_location(payload).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn electricity_query_account(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     client.query_electricity_account(payload).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn refresh_electricity_token(state: State<'_, AppState>) -> Result<bool, String> {
+    let mut client = state.client.lock().await;
+    client.ensure_electricity_token().await.map(|_| true).map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -434,6 +440,7 @@ pub fn run() {
             fetch_academic_progress,
             electricity_query_location,
             electricity_query_account,
+            refresh_electricity_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

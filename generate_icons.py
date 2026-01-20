@@ -20,7 +20,10 @@ ANDROID_ICONS_DIR = ICONS_DIR / "android"
 IOS_ICONS_DIR = ICONS_DIR / "ios"
 
 # Windows/通用图标尺寸
-ICON_SIZES = [32, 64, 128, 256, 512]
+ICON_SIZES = [32, 64, 128, 256, 512, 1024]
+
+# 要求高清封面尺寸
+SOURCE_REQUIRED_SIZE = 1024
 
 # Windows Store 图标尺寸
 STORE_SIZES = {
@@ -74,6 +77,10 @@ def generate_icons(source_path: str):
         offset = ((size - img.size[0]) // 2, (size - img.size[1]) // 2)
         new_img.paste(img, offset)
         img = new_img
+
+    # 强制使用 1024x1024 作为高清封面
+    if img.size[0] != SOURCE_REQUIRED_SIZE:
+        img = resize_image(img, SOURCE_REQUIRED_SIZE)
     
     print(f"✅ 源图片尺寸: {img.size}")
     
@@ -99,11 +106,14 @@ def generate_icons(source_path: str):
             icon.save(ICONS_DIR / "128x128@2x.png")
             print(f"  ✅ 128x128@2x.png")
         elif s == 512:
+            icon.save(ICONS_DIR / "icon-512.png")
+            print(f"  ✅ icon-512.png")
+        elif s == 1024:
             icon.save(ICONS_DIR / "icon.png")
-            print(f"  ✅ icon.png")
+            print(f"  ✅ icon.png (1024x1024)")
     
     # 生成 SVG (实际上是 PNG，但作为备用)
-    resize_image(img, 512).save(ICONS_DIR / "icon.svg.png")
+    resize_image(img, 1024).save(ICONS_DIR / "icon.svg.png")
     
     # 生成 Windows Store 图标
     print("\n📦 生成 Windows Store 图标...")
@@ -126,7 +136,7 @@ def generate_icons(source_path: str):
     # 生成 ICNS 文件 (macOS)
     print("\n📦 生成 macOS ICNS...")
     # ICNS 需要特殊处理，这里生成 PNG 系列
-    resize_image(img, 512).save(ICONS_DIR / "icon.icns.png")
+    resize_image(img, 1024).save(ICONS_DIR / "icon.icns.png")
     print(f"  ✅ icon.icns (PNG fallback)")
     
     # 生成 Android 图标

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const emit = defineEmits(['back'])
 
@@ -9,37 +9,10 @@ const officialUrl = 'https://docs.qq.com/doc/DQnVTWFFFbEhNTXhx'
 
 const handleLoad = () => {
   loading.value = false
-  // 在 iframe 加载完成后，尝试拦截链接点击
-  interceptIframeLinks()
 }
 
 const handleError = () => {
   loading.value = false
-}
-
-// 拦截 iframe 内的链接点击，在外部浏览器打开
-const interceptIframeLinks = () => {
-  try {
-    const iframe = iframeRef.value
-    if (!iframe || !iframe.contentWindow || !iframe.contentDocument) {
-      console.log('[OfficialView] 无法访问 iframe 内容（跨域限制）')
-      return
-    }
-    
-    // 给 iframe 内的所有链接添加点击事件
-    const doc = iframe.contentDocument
-    doc.addEventListener('click', async (e) => {
-      const link = e.target.closest('a')
-      if (link && link.href) {
-        e.preventDefault()
-        e.stopPropagation()
-        console.log('[OfficialView] 拦截链接点击:', link.href)
-        await openInBrowser(link.href)
-      }
-    }, true)
-  } catch (e) {
-    console.log('[OfficialView] iframe 链接拦截失败（可能是跨域）:', e.message)
-  }
 }
 
 // 在外部浏览器打开链接
@@ -84,6 +57,7 @@ onMounted(() => {
       <iframe 
         ref="iframeRef"
         :src="officialUrl"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
         frameborder="0"
         allowfullscreen
         @load="handleLoad"

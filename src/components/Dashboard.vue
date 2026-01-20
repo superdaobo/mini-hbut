@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import hbutLogo from '../assets/hbut-logo.png'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -122,7 +123,7 @@ const copyShareLink = async () => {
     <!-- 头部 -->
     <header class="dashboard-header">
       <div class="brand">
-        <span class="logo">🎓</span>
+        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
         <span class="title">HBUT 校园助手</span>
       </div>
       <div class="user-info">
@@ -182,8 +183,10 @@ const copyShareLink = async () => {
   gap: 12px;
 }
 
-.brand .logo {
-  font-size: 32px;
+.logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
 .brand .title {

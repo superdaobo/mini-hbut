@@ -257,25 +257,37 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
 
       // Desktop: 保存到下载目录并自动打开安装程序
       if (isDesktop) {
-        const { writeBinaryFile } = await import('@tauri-apps/plugin-fs')
-        const { downloadDir, join } = await import('@tauri-apps/api/path')
-        const { open } = await import('@tauri-apps/plugin-shell')
+        try {
+          const { writeBinaryFile } = await import('@tauri-apps/plugin-fs')
+          const { downloadDir, join } = await import('@tauri-apps/api/path')
+          const { open } = await import('@tauri-apps/plugin-shell')
 
-        const bytes = new Uint8Array(chunks.reduce((acc, chunk) => {
-          const merged = new Uint8Array(acc.length + chunk.length)
-          merged.set(acc, 0)
-          merged.set(chunk, acc.length)
-          return merged
-        }, new Uint8Array()))
+          const bytes = new Uint8Array(chunks.reduce((acc, chunk) => {
+            const merged = new Uint8Array(acc.length + chunk.length)
+            merged.set(acc, 0)
+            merged.set(chunk, acc.length)
+            return merged
+          }, new Uint8Array()))
 
-        const dir = await downloadDir()
-        const safeName = filename || `Mini-HBUT-update-${Date.now()}`
-        const filePath = await join(dir, safeName)
-        await writeBinaryFile(filePath, bytes)
-        await open(filePath)
+          const dir = await downloadDir()
+          const safeName = filename || `Mini-HBUT-update-${Date.now()}`
+          const filePath = await join(dir, safeName)
+          await writeBinaryFile(filePath, bytes)
+          await open(filePath)
 
-        console.log('[Update] 已保存并打开安装程序:', filePath)
-        return { success: true, method: 'fs-open', size: received, url, path: filePath }
+          console.log('[Update] 已保存并打开安装程序:', filePath)
+          return { success: true, method: 'fs-open', size: received, url, path: filePath }
+        } catch (e) {
+          console.warn('[Update] 本地安装启动失败，改用系统浏览器下载:', e?.message || e)
+          try {
+            const shell = await import('@tauri-apps/plugin-shell')
+            await shell.open(downloadUrls[0])
+            return { success: true, method: 'shell-open', url: downloadUrls[0] }
+          } catch (err) {
+            window.open(downloadUrls[0], '_blank')
+            return { success: true, method: 'window-open', url: downloadUrls[0] }
+          }
+        }
       }
       
       // Web/Android: 触发浏览器下载
