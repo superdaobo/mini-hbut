@@ -503,6 +503,13 @@ impl HbutClient {
         Ok(user_info)
     }
 
+    pub async fn refresh_session(&mut self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let user_info = self.fetch_user_info().await?;
+        self.is_logged_in = true;
+        self.user_info = Some(user_info.clone());
+        Ok(user_info)
+    }
+
     pub fn get_cookies(&self) -> String {
         let url: Url = JWXT_BASE_URL.parse().unwrap();
         if let Some(header) = self.cookie_jar.cookies(&url) {

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
 import GradeView from './components/GradeView.vue'
@@ -31,6 +32,11 @@ const isLoading = ref(false)
 const showLoginPrompt = ref(false)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
+
+const SESSION_COOKIE_KEY = 'hbu_session_cookies'
+const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
+const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
+let sessionKeepAliveTimer = null
 
 // 版本更新相关
 const showUpdateDialog = ref(false)
@@ -79,6 +85,10 @@ const handleLoginSuccess = (data) => {
       return res.data
     })
   }
+
+  localStorage.removeItem('hbu_manual_logout')
+  persistSessionCookies()
+  startSessionKeepAlive()
 }
 
 // 处理导航
@@ -117,6 +127,12 @@ const handleLogout = () => {
   userUuid.value = ''
   currentModule.value = ''
   window.history.replaceState(null, '', '#/')
+
+  stopSessionKeepAlive()
+  localStorage.removeItem(SESSION_COOKIE_KEY)
+  localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+  localStorage.setItem('hbu_manual_logout', 'true')
+  invoke('logout').catch(() => {})
 }
 
 // 切换登录模式
@@ -172,7 +188,7 @@ const handleCheckUpdate = () => {
 // 自动检查更新
 const autoCheckUpdate = async () => {
   try {
-    const currentVersion = getCurrentVersion()
+    const currentVersion = await getCurrentVersion()
     const skippedVersion = localStorage.getItem('hbu_skipped_version')
     
     const result = await checkForUpdates(currentVersion)
@@ -184,10 +200,113 @@ const autoCheckUpdate = async () => {
   }
 }
 
+const persistSessionCookies = async () => {
+  try {
+    const cookies = await invoke('get_cookies')
+    if (cookies) {
+      localStorage.setItem(SESSION_COOKIE_KEY, cookies)
+      localStorage.setItem(SESSION_COOKIE_TIME_KEY, Date.now().toString())
+    }
+  } catch (e) {
+    console.warn('[Session] 保存 cookies 失败:', e)
+  }
+}
+
+const tryRestoreSession = async () => {
+  const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
+  if (!cookies) return false
+
+  try {
+    const userInfo = await invoke('restore_session', { cookies })
+    if (userInfo?.student_id) {
+      studentId.value = userInfo.student_id
+      localStorage.setItem('hbu_username', userInfo.student_id)
+      return true
+    }
+  } catch (e) {
+    console.warn('[Session] 恢复会话失败，清理缓存:', e)
+    localStorage.removeItem(SESSION_COOKIE_KEY)
+    localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+  }
+  return false
+}
+
+const getStoredPassword = () => {
+  const remember = localStorage.getItem('hbu_remember')
+  const username = localStorage.getItem('hbu_username')
+  const credential = localStorage.getItem('hbu_credentials')
+  if (remember === 'false' || !username || !credential) {
+    return null
+  }
+  if (credential.length > 50 || /[A-Za-z0-9+/=]{30,}/.test(credential)) {
+    return null
+  }
+  return { username, password: credential }
+}
+
+const attemptAutoRelogin = async () => {
+  if (localStorage.getItem('hbu_manual_logout') === 'true') {
+    return false
+  }
+  const creds = getStoredPassword()
+  if (!creds) return false
+  try {
+    await invoke('login', {
+      username: creds.username,
+      password: creds.password,
+      captcha: '',
+      lt: '',
+      execution: ''
+    })
+    await persistSessionCookies()
+    if (!studentId.value) {
+      studentId.value = creds.username
+    }
+    return true
+  } catch (e) {
+    console.warn('[Session] 自动登录失败:', e)
+    return false
+  }
+}
+
+const refreshSessionSilently = async () => {
+  const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
+  if (!cookies) return
+
+  try {
+    await invoke('refresh_session')
+    await persistSessionCookies()
+  } catch (e) {
+    console.warn('[Session] 会话刷新失败，尝试自动登录:', e)
+    const relogged = await attemptAutoRelogin()
+    if (!relogged) {
+      stopSessionKeepAlive()
+    }
+  }
+}
+
+const startSessionKeepAlive = () => {
+  stopSessionKeepAlive()
+  sessionKeepAliveTimer = setInterval(refreshSessionSilently, SESSION_REFRESH_INTERVAL)
+}
+
+const stopSessionKeepAlive = () => {
+  if (sessionKeepAliveTimer) {
+    clearInterval(sessionKeepAliveTimer)
+    sessionKeepAliveTimer = null
+  }
+}
+
 const showTabBar = computed(() => ['home', 'schedule', 'me'].includes(currentView.value))
 
 // 页面加载时检查 URL
 onMounted(async () => {
+  const restored = await tryRestoreSession()
+  let relogged = false
+  if (!restored) {
+    relogged = await attemptAutoRelogin()
+  }
+
   const hash = window.location.hash
   if (hash) {
     const match = hash.match(/^#\/(\d{10})(?:\/(\w+))?$/)
@@ -216,6 +335,15 @@ onMounted(async () => {
         activeTab.value = 'home'
       }
     }
+  }
+
+  if (restored && !hash) {
+    currentView.value = 'home'
+    activeTab.value = 'home'
+  }
+
+  if (restored || relogged || studentId.value) {
+    startSessionKeepAlive()
   }
   
   // 延迟自动检查更新，避免影响首屏加载

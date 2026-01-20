@@ -186,6 +186,12 @@ async fn get_cookies(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn refresh_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
+    let mut client = state.client.lock().await;
+    client.refresh_session().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn sync_grades(state: State<'_, AppState>) -> Result<Vec<Grade>, String> {
     let client = state.client.lock().await;
     let grades = client.fetch_grades().await.map_err(|e| e.to_string())?;
@@ -402,6 +408,7 @@ pub fn run() {
             logout,
             restore_session,
             get_cookies,
+            refresh_session,
             sync_grades,
             get_grades_local,
             sync_schedule,

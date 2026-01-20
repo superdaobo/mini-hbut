@@ -9,14 +9,16 @@ const updateInfo = ref(null)
 const downloading = ref(false)
 const downloadProgress = ref(0)
 const error = ref('')
-const currentVersion = ref(getCurrentVersion())
+const currentVersion = ref('')
 
 const checkUpdate = async () => {
   checking.value = true
   error.value = ''
   
   try {
-    const result = await checkForUpdates(currentVersion.value)
+    const version = currentVersion.value || await getCurrentVersion()
+    currentVersion.value = version
+    const result = await checkForUpdates(version)
     updateInfo.value = result
   } catch (e) {
     error.value = '检查更新失败，请稍后重试'

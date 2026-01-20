@@ -66,7 +66,8 @@ function getAssetPatterns(platform) {
 }
 
 // 尝试多个 API 端点获取 Release 信息
-async function fetchReleaseInfo() {
+async function fetchReleaseInfo(currentVersion) {
+  let lastRelease = null
   for (const apiUrl of API_PROXIES) {
     try {
       const controller = new AbortController()
@@ -85,7 +86,7 @@ async function fetchReleaseInfo() {
         
         // 如果是 package.json 格式，转换为 release 格式
         if (data.version && !data.tag_name) {
-          return {
+          const normalized = {
             tag_name: `v${data.version}`,
             name: `v${data.version}`,
             body: data.description || '版本更新',
@@ -98,21 +99,34 @@ async function fetchReleaseInfo() {
             ],
             published_at: new Date().toISOString()
           }
+          lastRelease = normalized
+          if (!currentVersion || compareVersions(data.version, currentVersion) > 0) {
+            return normalized
+          }
+          continue
         }
-        
-        return data
+
+        lastRelease = data
+        const tag = data.tag_name || data.name || ''
+        const latest = tag.replace(/^v/, '')
+        if (!currentVersion || !latest) {
+          return data
+        }
+        if (compareVersions(latest, currentVersion) > 0) {
+          return data
+        }
       }
     } catch (e) {
       console.warn('[Update] API 请求失败:', apiUrl, e.message)
     }
   }
-  return null
+  return lastRelease
 }
 
 // 检查更新
 export async function checkForUpdates(currentVersion) {
   try {
-    const release = await fetchReleaseInfo()
+    const release = await fetchReleaseInfo(currentVersion)
     
     if (!release) {
       console.warn('[Update] 无法获取版本信息')
@@ -238,8 +252,17 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
 }
 
 // 获取当前应用版本
-export function getCurrentVersion() {
-  return import.meta.env.VITE_APP_VERSION || '1.0.0'
+export async function getCurrentVersion() {
+  if (import.meta.env.VITE_APP_VERSION) {
+    return import.meta.env.VITE_APP_VERSION
+  }
+  try {
+    const { getVersion } = await import('@tauri-apps/api/app')
+    const version = await getVersion()
+    return version || '1.0.0'
+  } catch (e) {
+    return '1.0.0'
+  }
 }
 
 export default {
