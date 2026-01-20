@@ -1,10 +1,26 @@
 /**
  * 版本更新检测模块
- * 通过 GitHub Release API 检测新版本
+ * 使用 jsDelivr CDN 加速下载，适合国内用户
  */
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
-const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+
+// GitHub API 代理列表（国内可用）
+const API_PROXIES = [
+  `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,  // 原始 API
+  `https://gh-proxy.com/https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+]
+
+// 下载代理列表（按优先级）
+const DOWNLOAD_PROXIES = [
+  // jsDelivr CDN - 最稳定
+  (tag, filename) => `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@${tag}/release/${filename}`,
+  // GitHub Release 代理
+  (tag, filename) => `https://gh-proxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://mirror.ghproxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  // 原始链接（备用）
+  (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+]
 
 // 版本比较：返回 1 如果 v1 > v2, -1 如果 v1 < v2, 0 如果相等
 function compareVersions(v1, v2) {
@@ -34,10 +50,8 @@ function getPlatform() {
 function getAssetPatterns(platform) {
   switch (platform) {
     case 'android': 
-      // 优先匹配签名后的 APK (Mini-HBUT-vX.X.X-arm64.apk)
       return [/Mini-HBUT.*\.apk$/i, /\.apk$/i]
     case 'windows': 
-      // 优先匹配 setup.exe
       return [/setup\.exe$/i, /\.msi$/i, /\.exe$/i]
     case 'macos': 
       return [/\.dmg$/i, /\.app\.tar\.gz$/i]
@@ -48,51 +62,73 @@ function getAssetPatterns(platform) {
   }
 }
 
+// 尝试多个 API 端点获取 Release 信息
+async function fetchReleaseInfo() {
+  for (const apiUrl of API_PROXIES) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 8000)
+      
+      const response = await fetch(apiUrl, {
+        headers: { 'Accept': 'application/vnd.github.v3+json' },
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeout)
+      
+      if (response.ok) {
+        console.log('[Update] API 请求成功:', apiUrl)
+        return await response.json()
+      }
+    } catch (e) {
+      console.warn('[Update] API 请求失败:', apiUrl, e.message)
+    }
+  }
+  return null
+}
+
 // 检查更新
 export async function checkForUpdates(currentVersion) {
   try {
-    const response = await fetch(GITHUB_API, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json'
-      }
-    })
+    const release = await fetchReleaseInfo()
     
-    if (!response.ok) {
-      console.warn('[Update] GitHub API 请求失败:', response.status)
+    if (!release) {
+      console.warn('[Update] 无法获取版本信息')
       return null
     }
     
-    const release = await response.json()
-    // 移除版本号前缀的 v，统一格式
-    const latestVersion = (release.tag_name || release.name).replace(/^v/, '')
+    const tagName = release.tag_name || release.name
+    const latestVersion = tagName.replace(/^v/, '')
 
     if (compareVersions(latestVersion, currentVersion) > 0) {
       const platform = getPlatform()
       const patterns = getAssetPatterns(platform)
       
-      let downloadUrl = null
       let assetName = null
       
       if (patterns.length > 0 && release.assets) {
-        // 按优先级匹配资产
         for (const pattern of patterns) {
           const asset = release.assets.find(a => pattern.test(a.name))
           if (asset) {
-            // 使用 GitHub Release 直接下载链接
-            downloadUrl = asset.browser_download_url
             assetName = asset.name
             break
           }
         }
       }
       
+      // 生成所有可用的下载链接（使用代理）
+      const downloadUrls = assetName 
+        ? DOWNLOAD_PROXIES.map(proxy => proxy(tagName, assetName))
+        : []
+      
       return {
         hasUpdate: true,
         currentVersion,
         latestVersion,
+        tagName,
         releaseNotes: release.body || '暂无更新说明',
         releaseUrl: release.html_url,
-        downloadUrl,
+        downloadUrls,  // 多个下载链接
         assetName,
         platform,
         publishedAt: release.published_at
@@ -106,68 +142,80 @@ export async function checkForUpdates(currentVersion) {
   }
 }
 
-// 下载更新 - 后台下载并返回进度
-export async function downloadUpdate(url, filename, onProgress) {
-  try {
-    // 尝试使用 fetch 后台下载
-    const response = await fetch(url)
+// 下载更新 - 自动选择最快的镜像
+export async function downloadUpdate(downloadUrls, filename, onProgress) {
+  if (!downloadUrls || downloadUrls.length === 0) {
+    throw new Error('没有可用的下载链接')
+  }
+  
+  // 依次尝试每个下载链接
+  for (let i = 0; i < downloadUrls.length; i++) {
+    const url = downloadUrls[i]
+    console.log(`[Update] 尝试下载 (${i + 1}/${downloadUrls.length}):`, url)
     
-    if (!response.ok) {
-      throw new Error(`下载失败: ${response.status}`)
-    }
-    
-    const contentLength = response.headers.get('content-length')
-    const total = contentLength ? parseInt(contentLength, 10) : 0
-    
-    const reader = response.body.getReader()
-    const chunks = []
-    let received = 0
-    
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      
-      chunks.push(value)
-      received += value.length
-      
-      if (onProgress && total > 0) {
-        onProgress(Math.round((received / total) * 100))
-      }
-    }
-    
-    // 合并数据
-    const blob = new Blob(chunks)
-    
-    // 创建下载链接
-    const downloadUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = downloadUrl
-    a.download = filename || 'Mini-HBUT-update.apk'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(downloadUrl)
-    
-    return { success: true, method: 'fetch', size: received }
-  } catch (e) {
-    console.error('[Update] 后台下载失败:', e)
-    
-    // 备用方案：用 Tauri shell 打开下载链接
     try {
-      const shell = await import('@tauri-apps/plugin-shell')
-      await shell.open(url)
-      return { success: true, method: 'tauri-shell' }
-    } catch (e2) {
-      // 最后的备用方案：打开新窗口下载
-      window.open(url, '_blank')
-      return { success: true, method: 'window-open' }
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000) // 10秒超时
+      
+      const response = await fetch(url, { signal: controller.signal })
+      clearTimeout(timeout)
+      
+      if (!response.ok) {
+        console.warn(`[Update] 下载失败 (${response.status}):`, url)
+        continue
+      }
+      
+      const contentLength = response.headers.get('content-length')
+      const total = contentLength ? parseInt(contentLength, 10) : 0
+      
+      const reader = response.body.getReader()
+      const chunks = []
+      let received = 0
+      
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        chunks.push(value)
+        received += value.length
+        
+        if (onProgress && total > 0) {
+          onProgress(Math.round((received / total) * 100))
+        }
+      }
+      
+      // 合并数据并触发下载
+      const blob = new Blob(chunks)
+      const downloadUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = filename || 'Mini-HBUT-update.apk'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(downloadUrl)
+      
+      console.log('[Update] 下载成功:', url)
+      return { success: true, method: 'fetch', size: received, url }
+    } catch (e) {
+      console.warn(`[Update] 下载出错:`, url, e.message)
     }
+  }
+  
+  // 所有链接都失败，尝试打开浏览器
+  console.log('[Update] 所有下载链接失败，尝试打开浏览器')
+  try {
+    const shell = await import('@tauri-apps/plugin-shell')
+    await shell.open(downloadUrls[0])
+    return { success: true, method: 'tauri-shell' }
+  } catch (e) {
+    window.open(downloadUrls[0], '_blank')
+    return { success: true, method: 'window-open' }
   }
 }
 
 // 获取当前应用版本
 export function getCurrentVersion() {
-  // 从 package.json 或环境变量获取版本
   return import.meta.env.VITE_APP_VERSION || '1.0.0'
 }
 

@@ -27,8 +27,9 @@ const checkUpdate = async () => {
 }
 
 const handleDownload = async () => {
-  if (!updateInfo.value?.downloadUrl) {
-    // 如果没有直接下载链接，打开发布页面
+  // 使用新的 downloadUrls 数组
+  if (!updateInfo.value?.downloadUrls || updateInfo.value.downloadUrls.length === 0) {
+    // 如果没有下载链接，打开发布页面
     window.open(updateInfo.value.releaseUrl, '_blank')
     return
   }
@@ -39,7 +40,7 @@ const handleDownload = async () => {
   
   try {
     const result = await downloadUpdate(
-      updateInfo.value.downloadUrl, 
+      updateInfo.value.downloadUrls,  // 传入链接数组
       updateInfo.value.assetName,
       (progress) => {
         downloadProgress.value = progress
