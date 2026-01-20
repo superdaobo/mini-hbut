@@ -221,8 +221,8 @@ async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value
 async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     
-    // 获取当前学期
-    let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-2".to_string());
+    // 获取当前学期（基于日期计算）
+    let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
     
     // 获取校历数据计算当前周次和开始日期
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;

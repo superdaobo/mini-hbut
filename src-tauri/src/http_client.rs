@@ -518,42 +518,35 @@ impl HbutClient {
     }
 
     /// 获取当前学期 (与 Python calendar.py 一致)
+    /// 优先根据当前日期计算，而不是 API（因为 API 可能返回下学期）
     pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // 1. 尝试从 API 获取当前学期
-        for path in CURRENT_SEMESTER_URLS {
-            let url = format!("{}{}", JWXT_BASE_URL, path);
-            if let Ok(resp) = self.client.get(&url).send().await {
-                if resp.status().is_success() {
-                    if let Ok(json) = resp.json::<serde_json::Value>().await {
-                        // 尝试多种格式提取学期
-                        let semester = Self::extract_semester_from_json(&json);
-                        if let Some(sem) = semester {
-                            println!("[DEBUG] Got current semester from API: {}", sem);
-                            return Ok(sem);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 2. 根据当前日期计算学期（兜底）
+        // 先根据当前日期计算学期（更可靠）
         let now = chrono::Local::now();
         let year = now.year();
         let month = now.month();
+        let day = now.day();
         
+        // 学期划分逻辑（基于中国高校通用校历）：
+        // - 第一学期：8月下旬 ~ 次年1月（寒假前）
+        // - 第二学期：2月中旬 ~ 7月（暑假前）
+        // 
+        // 1月通常还在第一学期（期末考试/寒假），2月中旬才开始第二学期
         let (academic_year_start, term) = if month >= 9 {
-            // 9-12月是第一学期
+            // 9-12月：当年第一学期
             (year, 1)
-        } else if month >= 2 {
-            // 2-6月是第二学期（上一学年）
+        } else if month >= 3 {
+            // 3-7月：上一学年第二学期（开学后）
+            (year - 1, 2)
+        } else if month == 2 && day >= 15 {
+            // 2月15日之后：上一学年第二学期（春季开学）
             (year - 1, 2)
         } else {
-            // 1月还是上一学年第一学期
+            // 1月 和 2月上旬：上一学年第一学期（寒假期间）
             (year - 1, 1)
         };
         
         let semester = format!("{}-{}-{}", academic_year_start, academic_year_start + 1, term);
-        println!("[DEBUG] Calculated current semester: {}", semester);
+        println!("[DEBUG] Calculated current semester based on date: {} (month={}, day={})", semester, month, day);
         Ok(semester)
     }
 
@@ -1371,26 +1364,12 @@ impl HbutClient {
 
     /// 获取校历数据 (与 Python calendar.py 一致)
     pub async fn fetch_calendar_data(&self, semester: Option<String>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 1. 获取当前学期 (如果未指定)
+        // 1. 获取当前学期 (如果未指定) - 使用基于日期的计算
         let sem = if let Some(s) = semester.filter(|s| !s.is_empty()) {
             s
         } else {
-            // 尝试从 API 获取当前学期
-            let current_url = format!("{}/admin/xsd/xsdcjcx/getCurrentXnxq", JWXT_BASE_URL);
-            let resp = self.client.get(&current_url).send().await;
-            if let Ok(r) = resp {
-                if let Ok(json) = r.json::<serde_json::Value>().await {
-                    json.get("xnxq")
-                        .or_else(|| json.get("data").and_then(|d| d.get("xnxq")))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "2025-2026-1".to_string())
-                } else {
-                    "2025-2026-1".to_string()
-                }
-            } else {
-                "2025-2026-1".to_string()
-            }
+            // 使用基于日期的学期计算（更可靠）
+            self.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string())
         };
 
         println!("[DEBUG] Fetching calendar for semester: {}", sem);
@@ -1440,32 +1419,96 @@ impl HbutClient {
     fn calculate_current_week(&self, calendar_data: &serde_json::Value) -> i32 {
         if let Some(arr) = calendar_data.as_array() {
             let today = chrono::Local::now().date_naive();
+            println!("[DEBUG] Calculating current week for date: {}", today);
             
-            for item in arr {
-                let zc = item.get("zc").and_then(|v| v.as_str()).unwrap_or("");
-                let ny = item.get("ny").and_then(|v| v.as_str()).unwrap_or("");
-                let monday = item.get("monday").and_then(|v| v.as_str()).unwrap_or("");
-                let sunday = item.get("sunday").and_then(|v| v.as_str()).unwrap_or("");
+            // 首先找到学期第一周的开始日期
+            let mut semester_start: Option<chrono::NaiveDate> = None;
+            for item in arr.iter() {
+                let zc_num = item.get("zc")
+                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0);
                 
-                if ny.is_empty() || monday.is_empty() {
-                    continue;
+                if zc_num == 1 {
+                    // 第一周的周一日期
+                    if let Some(start) = self.parse_calendar_date(item, "monday") {
+                        semester_start = Some(start);
+                        println!("[DEBUG] Found semester start date: {}", start);
+                        break;
+                    }
                 }
+            }
+            
+            // 如果找到了学期开始日期，直接计算周次
+            if let Some(start) = semester_start {
+                let days = (today - start).num_days();
+                if days < 0 {
+                    println!("[DEBUG] Date is before semester start, returning week 1");
+                    return 1;
+                }
+                let week = (days / 7 + 1) as i32;
+                println!("[DEBUG] Calculated week {} (days from start: {})", week, days);
+                return week.max(1).min(25);
+            }
+            
+            // 备用方案：遍历每周，查找当前日期所在周
+            for item in arr {
+                let zc_num: i32 = item.get("zc")
+                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0) as i32;
                 
-                // 解析日期 (格式: "2025-09" + "01" => "2025-09-01")
-                let start_str = format!("{}-{}", ny, monday);
-                let end_str = format!("{}-{}", ny, sunday);
-                
-                if let (Ok(start), Ok(end)) = (
-                    chrono::NaiveDate::parse_from_str(&start_str, "%Y-%m-%d"),
-                    chrono::NaiveDate::parse_from_str(&end_str, "%Y-%m-%d")
+                if let (Some(start), Some(end)) = (
+                    self.parse_calendar_date(item, "monday"),
+                    self.parse_calendar_date(item, "sunday")
                 ) {
                     if today >= start && today <= end {
-                        return zc.parse().unwrap_or(1);
+                        println!("[DEBUG] Found current week {} ({} to {})", zc_num, start, end);
+                        return zc_num;
                     }
                 }
             }
         }
+        println!("[DEBUG] Could not determine week from calendar, defaulting to 1");
         1 // 默认第1周
+    }
+    
+    /// 解析校历中的日期（处理跨月情况）
+    fn parse_calendar_date(&self, item: &serde_json::Value, day_field: &str) -> Option<chrono::NaiveDate> {
+        let ny = item.get("ny").and_then(|v| v.as_str())?; // 格式: "2024-08" 或 "2024-09"
+        let day_str = item.get(day_field).and_then(|v| v.as_str())?;
+        
+        if ny.is_empty() || day_str.is_empty() {
+            return None;
+        }
+        
+        // 尝试直接解析
+        let date_str = format!("{}-{}", ny, day_str);
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d") {
+            return Some(date);
+        }
+        
+        // 如果是两位数日期格式（如 "01"），补零解析
+        let day: u32 = day_str.parse().ok()?;
+        let parts: Vec<&str> = ny.split('-').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        
+        let year: i32 = parts[0].parse().ok()?;
+        let month: u32 = parts[1].parse().ok()?;
+        
+        // 检查日期是否合法（处理跨月情况）
+        // 例如：ny="2024-08", monday="26", sunday="01"
+        // 这时候 sunday 应该是下个月的 01
+        if day <= 7 && day_field == "sunday" {
+            // 可能是跨月，尝试下个月
+            let next_month = if month == 12 { 1 } else { month + 1 };
+            let next_year = if month == 12 { year + 1 } else { year };
+            if let Some(date) = chrono::NaiveDate::from_ymd_opt(next_year, next_month, day) {
+                return Some(date);
+            }
+        }
+        
+        chrono::NaiveDate::from_ymd_opt(year, month, day)
     }
 
     /// 获取学业完成情况 (与 Python academic_progress.py 一致)

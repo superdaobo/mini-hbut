@@ -30,50 +30,56 @@ impl CalendarModule {
         Self { client }
     }
 
+    /// 根据当前日期计算学期（更可靠，不依赖 API）
+    pub fn calculate_current_semester() -> String {
+        use chrono::{Local, Datelike};
+        let now = Local::now();
+        let year = now.year();
+        let month = now.month();
+        let day = now.day();
+        
+        // 学期划分逻辑：
+        // - 第一学期：8月下旬 ~ 次年2月中旬（寒假结束）
+        // - 第二学期：2月中旬 ~ 7月（暑假前）
+        let (academic_year_start, term) = if month >= 9 {
+            // 9-12月：当年第一学期
+            (year, 1)
+        } else if month >= 3 {
+            // 3-7月：上一学年第二学期
+            (year - 1, 2)
+        } else if month == 2 && day >= 15 {
+            // 2月15日之后：上一学年第二学期（春季开学）
+            (year - 1, 2)
+        } else {
+            // 1月 和 2月上旬：上一学年第一学期（寒假期间）
+            (year - 1, 1)
+        };
+        
+        format!("{}-{}-{}", academic_year_start, academic_year_start + 1, term)
+    }
+
     pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let urls = [
-            "/admin/api/jcsj/xnxq/getCurrentXnxq",
-            "/admin/xsd/xsdcjcx/getCurrentXnxq",
-        ];
-
-        for path in urls {
-            let url = format!("{}{}", JWXT_BASE_URL, path);
-            println!("[DEBUG] Trying to get current semester from: {}", url);
-
-            let response = self.client.get(&url).send().await;
-            
-            if let Ok(resp) = response {
-                if resp.status().is_success() {
-                    if let Ok(json) = resp.json::<Value>().await {
-                        // 尝试各种可能的字段名
-                        let semester = json.get("data")
-                            .and_then(|d| d.get("xnxqh").or(d.get("xnxq")).and_then(|v| v.as_str()))
-                            .or_else(|| json.get("xnxqh").and_then(|v| v.as_str()))
-                            .or_else(|| json.get("xnxq").and_then(|v| v.as_str()));
-                        
-                        if let Some(s) = semester {
-                            println!("[DEBUG] Got current semester: {}", s);
-                            return Ok(s.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        // 返回默认学期
-        Ok("2024-2025-1".to_string())
+        // 优先使用日期计算的学期（更可靠）
+        let calculated = Self::calculate_current_semester();
+        println!("[DEBUG] Calculated current semester: {}", calculated);
+        Ok(calculated)
     }
 
     pub async fn get_semesters(&self) -> Result<Vec<Semester>, Box<dyn std::error::Error + Send + Sync>> {
         // 获取当前学期
-        let current = self.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
+        let current = Self::calculate_current_semester();
 
-        // 返回预定义的学期列表
+        // 返回预定义的学期列表（按时间倒序）
         let semesters = vec![
             Semester {
-                value: "2024-2025-1".to_string(),
-                label: "2024-2025学年第一学期".to_string(),
-                is_current: current == "2024-2025-1",
+                value: "2025-2026-2".to_string(),
+                label: "2025-2026学年第二学期".to_string(),
+                is_current: current == "2025-2026-2",
+            },
+            Semester {
+                value: "2025-2026-1".to_string(),
+                label: "2025-2026学年第一学期".to_string(),
+                is_current: current == "2025-2026-1",
             },
             Semester {
                 value: "2024-2025-2".to_string(),
@@ -81,14 +87,19 @@ impl CalendarModule {
                 is_current: current == "2024-2025-2",
             },
             Semester {
-                value: "2023-2024-1".to_string(),
-                label: "2023-2024学年第一学期".to_string(),
-                is_current: current == "2023-2024-1",
+                value: "2024-2025-1".to_string(),
+                label: "2024-2025学年第一学期".to_string(),
+                is_current: current == "2024-2025-1",
             },
             Semester {
                 value: "2023-2024-2".to_string(),
                 label: "2023-2024学年第二学期".to_string(),
                 is_current: current == "2023-2024-2",
+            },
+            Semester {
+                value: "2023-2024-1".to_string(),
+                label: "2023-2024学年第一学期".to_string(),
+                is_current: current == "2023-2024-1",
             },
             // 全部学期选项
             Semester {
