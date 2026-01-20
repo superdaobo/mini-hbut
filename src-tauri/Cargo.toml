@@ -1,0 +1,35 @@
+[package]
+name = "hbut-helper"
+version = "1.0.1"
+edition = "2021"
+description = "湖北工业大学教务助手 - Tauri 桌面应用"
+authors = ["HBUT Helper Team"]
+
+[lib]
+name = "hbut_helper_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart", "rustls-tls"] }
+tokio = { version = "1.0", features = ["full"] }
+scraper = "0.20"
+regex = "1.10"
+base64 = "0.22"
+aes = "0.8"
+cbc = "0.1"
+rand = "0.8"
+thiserror = "1.0"
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+chrono = { version = "0.4.43", features = ["serde"] }
+html-escape = "0.2"
+
+[features]
+default = []
+custom-protocol = ["tauri/custom-protocol"]

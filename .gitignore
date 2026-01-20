@@ -1,0 +1,57 @@
+# Node
+node_modules/
+dist/
+
+# Rust
+src-tauri/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+error.log
+check_error.log
+
+# Environment
+.env
+.env.local
+local.properties
+
+# Debug and test files
+*debug*.html
+test_*.py
+login_page_debug.html
+captured_*.json
+inputs_dump.txt
+
+# Generated Android project
+src-tauri/gen/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Build artifacts
+*.exe
+*.msi
+*.dmg
+*.apk
+
+# Database files
+*.db
+grades.db
+
+# HTML debug files
+user_info.html
+*.html.bak
