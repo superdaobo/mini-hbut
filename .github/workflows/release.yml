@@ -104,11 +104,51 @@ jobs:
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
       
-      - name: Find and upload APK
+      - name: Sign APK
+        run: |
+          # 获取版本号
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          
+          # 找到未签名的 APK
+          UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
+          echo "Found unsigned APK: $UNSIGNED_APK"
+          
+          # 生成签名密钥
+          keytool -genkeypair -v \
+            -keystore release-key.jks \
+            -alias mini-hbut \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=Mini-HBUT, OU=HBUT, O=HBUT, L=Wuhan, ST=Hubei, C=CN"
+          
+          # 对齐 APK
+          ${ANDROID_SDK_ROOT}/build-tools/35.0.0/zipalign -v -p 4 \
+            "$UNSIGNED_APK" \
+            app-aligned.apk
+          
+          # 签名 APK
+          ${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner sign \
+            --ks release-key.jks \
+            --ks-key-alias mini-hbut \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out "Mini-HBUT-v${VERSION}-arm64.apk" \
+            app-aligned.apk
+          
+          # 验证签名
+          ${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner verify -v "Mini-HBUT-v${VERSION}-arm64.apk"
+          
+          # 显示文件信息
+          ls -lh "Mini-HBUT-v${VERSION}-arm64.apk"
+      
+      - name: Upload signed APK
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          files: Mini-HBUT-*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -1,11 +1,10 @@
 /**
  * 版本更新检测模块
- * 通过 GitHub Release API 检测新版本，使用 jsDelivr CDN 下载
+ * 通过 GitHub Release API 检测新版本
  */
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
-const JSDELIVR_BASE = `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@`
 
 // 版本比较：返回 1 如果 v1 > v2, -1 如果 v1 < v2, 0 如果相等
 function compareVersions(v1, v2) {
@@ -31,14 +30,21 @@ function getPlatform() {
   return 'unknown'
 }
 
-// 获取对应平台的下载资产名
-function getAssetPattern(platform) {
+// 获取对应平台的下载资产匹配规则
+function getAssetPatterns(platform) {
   switch (platform) {
-    case 'android': return /\.apk$/i
-    case 'windows': return /\.(exe|msi)$/i
-    case 'macos': return /\.(dmg|app\.tar\.gz)$/i
-    case 'linux': return /\.(AppImage|deb)$/i
-    default: return null
+    case 'android': 
+      // 优先匹配签名后的 APK (Mini-HBUT-vX.X.X-arm64.apk)
+      return [/Mini-HBUT.*\.apk$/i, /\.apk$/i]
+    case 'windows': 
+      // 优先匹配 setup.exe
+      return [/setup\.exe$/i, /\.msi$/i, /\.exe$/i]
+    case 'macos': 
+      return [/\.dmg$/i, /\.app\.tar\.gz$/i]
+    case 'linux': 
+      return [/\.AppImage$/i, /\.deb$/i]
+    default: 
+      return []
   }
 }
 
@@ -61,20 +67,21 @@ export async function checkForUpdates(currentVersion) {
     
     if (compareVersions(latestVersion, currentVersion) > 0) {
       const platform = getPlatform()
-      const pattern = getAssetPattern(platform)
+      const patterns = getAssetPatterns(platform)
       
       let downloadUrl = null
       let assetName = null
       
-      if (pattern && release.assets) {
-        const asset = release.assets.find(a => pattern.test(a.name))
-        if (asset) {
-          // 使用 jsDelivr CDN 加速下载
-          downloadUrl = `${JSDELIVR_BASE}${latestVersion}/release/${asset.name}`
-          assetName = asset.name
-          
-          // 备用：直接使用 GitHub 下载链接
-          // downloadUrl = asset.browser_download_url
+      if (patterns.length > 0 && release.assets) {
+        // 按优先级匹配资产
+        for (const pattern of patterns) {
+          const asset = release.assets.find(a => pattern.test(a.name))
+          if (asset) {
+            // 使用 GitHub Release 直接下载链接
+            downloadUrl = asset.browser_download_url
+            assetName = asset.name
+            break
+          }
         }
       }
       
