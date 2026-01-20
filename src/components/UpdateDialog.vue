@@ -117,7 +117,7 @@ onMounted(() => {
         </template>
 
         <!-- 已是最新 -->
-        <template v-else-if="updateInfo && !updateInfo.hasUpdate">
+        <template v-else-if="updateInfo && !updateInfo.hasUpdate && !updateInfo.error">
           <div class="up-to-date">
             <span class="icon">✅</span>
             <p>已是最新版本</p>
@@ -126,9 +126,9 @@ onMounted(() => {
         </template>
 
         <!-- 错误或无法获取更新信息 -->
-        <div v-else-if="error || !updateInfo" class="error">
-          <span class="icon">{{ error ? '❌' : '⚠️' }}</span>
-          <p>{{ error || '无法获取更新信息，请检查网络连接' }}</p>
+        <div v-else-if="error || updateInfo?.error" class="error">
+          <span class="icon">⚠️</span>
+          <p>{{ error || updateInfo?.message || '无法获取更新信息，请检查网络连接' }}</p>
           <button class="retry-btn" @click="checkUpdate">重试</button>
         </div>
       </div>

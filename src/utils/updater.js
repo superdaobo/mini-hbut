@@ -7,8 +7,11 @@ const GITHUB_REPO = 'superdaobo/mini-hbut'
 
 // GitHub API 代理列表（国内可用）
 const API_PROXIES = [
-  `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,  // 原始 API
+  // jsDelivr 获取 package.json（最稳定，不会限流）
+  `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`,
+  // GitHub API 代理
   `https://gh-proxy.com/https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+  `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,  // 原始 API
 ]
 
 // 下载代理列表（按优先级）
@@ -70,7 +73,7 @@ async function fetchReleaseInfo() {
       const timeout = setTimeout(() => controller.abort(), 8000)
       
       const response = await fetch(apiUrl, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' },
+        headers: { 'Accept': 'application/json' },
         signal: controller.signal
       })
       
@@ -78,7 +81,26 @@ async function fetchReleaseInfo() {
       
       if (response.ok) {
         console.log('[Update] API 请求成功:', apiUrl)
-        return await response.json()
+        const data = await response.json()
+        
+        // 如果是 package.json 格式，转换为 release 格式
+        if (data.version && !data.tag_name) {
+          return {
+            tag_name: `v${data.version}`,
+            name: `v${data.version}`,
+            body: data.description || '版本更新',
+            html_url: `https://github.com/${GITHUB_REPO}/releases`,
+            assets: [
+              // 根据平台生成预期的资源名
+              { name: `Mini-HBUT-v${data.version}-arm64.apk` },
+              { name: `Mini-HBUT_${data.version}_x64-setup.exe` },
+              { name: `Mini-HBUT_${data.version}_x64.msi` },
+            ],
+            published_at: new Date().toISOString()
+          }
+        }
+        
+        return data
       }
     } catch (e) {
       console.warn('[Update] API 请求失败:', apiUrl, e.message)
@@ -94,7 +116,8 @@ export async function checkForUpdates(currentVersion) {
     
     if (!release) {
       console.warn('[Update] 无法获取版本信息')
-      return null
+      // 返回错误状态而非 null，便于 UI 区分
+      return { error: true, message: '无法连接到更新服务器', currentVersion }
     }
     
     const tagName = release.tag_name || release.name
@@ -138,7 +161,7 @@ export async function checkForUpdates(currentVersion) {
     return { hasUpdate: false, currentVersion, latestVersion }
   } catch (error) {
     console.error('[Update] 检查更新失败:', error)
-    return null
+    return { error: true, message: error.message || '检查更新时出错', currentVersion }
   }
 }
 
