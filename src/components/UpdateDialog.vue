@@ -7,6 +7,7 @@ const emit = defineEmits(['close'])
 const checking = ref(true)
 const updateInfo = ref(null)
 const downloading = ref(false)
+const downloadProgress = ref(0)
 const error = ref('')
 const currentVersion = ref(getCurrentVersion())
 
@@ -33,10 +34,27 @@ const handleDownload = async () => {
   }
   
   downloading.value = true
+  downloadProgress.value = 0
+  error.value = ''
+  
   try {
-    await downloadUpdate(updateInfo.value.downloadUrl, updateInfo.value.assetName)
+    const result = await downloadUpdate(
+      updateInfo.value.downloadUrl, 
+      updateInfo.value.assetName,
+      (progress) => {
+        downloadProgress.value = progress
+      }
+    )
+    
+    if (result.success) {
+      // 下载成功
+      if (result.method === 'fetch') {
+        downloadProgress.value = 100
+      }
+    }
   } catch (e) {
     error.value = '下载失败，请手动下载'
+    console.error(e)
   } finally {
     downloading.value = false
   }
@@ -75,12 +93,20 @@ onMounted(() => {
           <div class="version-info">
             <div class="version-badge new">v{{ updateInfo.latestVersion }}</div>
             <span class="arrow">→</span>
-            <div class="version-badge current">当前 v{{ updateInfo.currentVersion }}</div>
+            <div class="version-badge current">当前 v{{ currentVersion }}</div>
           </div>
           
           <div class="release-notes">
             <h4>更新内容:</h4>
             <div class="notes-content" v-html="updateInfo.releaseNotes.replace(/\n/g, '<br>')"></div>
+          </div>
+
+          <!-- 下载进度条 -->
+          <div v-if="downloading" class="download-progress">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: downloadProgress + '%' }"></div>
+            </div>
+            <span class="progress-text">{{ downloadProgress }}%</span>
           </div>
 
           <div class="platform-info">
@@ -327,5 +353,39 @@ onMounted(() => {
 .btn-secondary {
   background: #e5e7eb;
   color: #374151;
+}
+
+/* 下载进度条样式 */
+.download-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px;
+  background: #f0f9ff;
+  border-radius: 12px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: #e0e7ff;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6366f1;
+  min-width: 45px;
+  text-align: right;
 }
 </style>

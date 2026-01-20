@@ -63,8 +63,9 @@ export async function checkForUpdates(currentVersion) {
     }
     
     const release = await response.json()
-    const latestVersion = release.tag_name || release.name
-    
+    // 移除版本号前缀的 v，统一格式
+    const latestVersion = (release.tag_name || release.name).replace(/^v/, '')
+
     if (compareVersions(latestVersion, currentVersion) > 0) {
       const platform = getPlatform()
       const patterns = getAssetPatterns(platform)
@@ -105,27 +106,62 @@ export async function checkForUpdates(currentVersion) {
   }
 }
 
-// 下载更新
-export async function downloadUpdate(url, filename) {
+// 下载更新 - 后台下载并返回进度
+export async function downloadUpdate(url, filename, onProgress) {
   try {
-    // 尝试使用 Tauri 的 shell 打开下载链接
-    const shell = await import('@tauri-apps/plugin-shell')
-    await shell.open(url)
-    return { success: true, method: 'tauri-shell' }
-  } catch (e) {
-    // 如果 Tauri 插件不可用，使用浏览器下载
-    console.log('[Update] 使用浏览器下载:', url)
+    // 尝试使用 fetch 后台下载
+    const response = await fetch(url)
     
-    // 最后的备选方案：创建下载链接
+    if (!response.ok) {
+      throw new Error(`下载失败: ${response.status}`)
+    }
+    
+    const contentLength = response.headers.get('content-length')
+    const total = contentLength ? parseInt(contentLength, 10) : 0
+    
+    const reader = response.body.getReader()
+    const chunks = []
+    let received = 0
+    
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      
+      chunks.push(value)
+      received += value.length
+      
+      if (onProgress && total > 0) {
+        onProgress(Math.round((received / total) * 100))
+      }
+    }
+    
+    // 合并数据
+    const blob = new Blob(chunks)
+    
+    // 创建下载链接
+    const downloadUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.target = '_blank'
+    a.href = downloadUrl
+    a.download = filename || 'Mini-HBUT-update.apk'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
+    URL.revokeObjectURL(downloadUrl)
     
-    return { success: true, method: 'browser' }
+    return { success: true, method: 'fetch', size: received }
+  } catch (e) {
+    console.error('[Update] 后台下载失败:', e)
+    
+    // 备用方案：用 Tauri shell 打开下载链接
+    try {
+      const shell = await import('@tauri-apps/plugin-shell')
+      await shell.open(url)
+      return { success: true, method: 'tauri-shell' }
+    } catch (e2) {
+      // 最后的备用方案：打开新窗口下载
+      window.open(url, '_blank')
+      return { success: true, method: 'window-open' }
+    }
   }
 }
 
