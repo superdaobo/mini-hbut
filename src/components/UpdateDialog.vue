@@ -118,6 +118,15 @@ onMounted(() => {
           </div>
         </template>
 
+        <!-- 构建中/无可用下载资产 -->
+        <template v-else-if="updateInfo?.pending">
+          <div class="up-to-date">
+            <span class="icon">⏳</span>
+            <p>新版本正在构建中，请稍后再试</p>
+            <span class="version">v{{ updateInfo.latestVersion }}</span>
+          </div>
+        </template>
+
         <!-- 已是最新 -->
         <template v-else-if="updateInfo && !updateInfo.hasUpdate && !updateInfo.error">
           <div class="up-to-date">

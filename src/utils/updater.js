@@ -164,6 +164,20 @@ export async function checkForUpdates(currentVersion) {
         }
       }
       
+      if (!assetName || downloadUrls.length === 0) {
+        return {
+          hasUpdate: false,
+          pending: true,
+          currentVersion,
+          latestVersion,
+          tagName,
+          releaseNotes: release.body || '暂无更新说明',
+          releaseUrl: release.html_url,
+          platform,
+          publishedAt: release.published_at
+        }
+      }
+
       return {
         hasUpdate: true,
         currentVersion,
