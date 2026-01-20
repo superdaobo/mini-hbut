@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
 Mini-HBUT 版本发布脚本
-自动递增版本号并推送到 GitHub
+自动递增版本号并推送到 GitHub，触发 CI 构建
 
 使用方法:
     python release.py          # 递增 patch 版本 (1.0.0 → 1.0.1)
     python release.py minor    # 递增 minor 版本 (1.0.0 → 1.1.0)
     python release.py major    # 递增 major 版本 (1.0.0 → 2.0.0)
+    python release.py --no-confirm  # 跳过确认直接发布
 """
 
 import json
@@ -15,6 +16,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from datetime import datetime
 
 REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 # release.py 在 tauri-app 目录下，tauri-app 本身就是 git 仓库根目录
@@ -77,13 +79,16 @@ def get_current_version() -> str:
 
 def update_version_in_files(new_version: str):
     """更新所有文件中的版本号"""
+    updated_files = []
+    
     # 1. package.json
     package_json = PROJECT_DIR / "package.json"
     if package_json.exists():
         data = read_json(package_json)
         data["version"] = new_version
         write_json(package_json, data)
-        print(f"✅ 更新 package.json: {new_version}")
+        updated_files.append("package.json")
+        print(f"  ✅ package.json: {new_version}")
     
     # 2. tauri.conf.json
     tauri_conf = PROJECT_DIR / "src-tauri" / "tauri.conf.json"
@@ -91,13 +96,14 @@ def update_version_in_files(new_version: str):
         data = read_json(tauri_conf)
         data["version"] = new_version
         write_json(tauri_conf, data)
-        print(f"✅ 更新 tauri.conf.json: {new_version}")
+        updated_files.append("src-tauri/tauri.conf.json")
+        print(f"  ✅ tauri.conf.json: {new_version}")
     
     # 3. Cargo.toml
     cargo_toml = PROJECT_DIR / "src-tauri" / "Cargo.toml"
     if cargo_toml.exists():
         content = read_toml(cargo_toml)
-        # 使用正则替换版本号
+        # 使用正则替换版本号 (只替换第一个，即 package 中的版本)
         content = re.sub(
             r'^version = "[^"]*"',
             f'version = "{new_version}"',
@@ -106,110 +112,151 @@ def update_version_in_files(new_version: str):
             flags=re.MULTILINE
         )
         write_toml(cargo_toml, content)
-        print(f"✅ 更新 Cargo.toml: {new_version}")
+        updated_files.append("src-tauri/Cargo.toml")
+        print(f"  ✅ Cargo.toml: {new_version}")
+    
+    return updated_files
 
-def run_command(cmd: list, cwd: Path = None) -> bool:
-    """运行命令"""
+def run_command(cmd: list, cwd: Path = None, check: bool = True) -> tuple:
+    """运行命令，返回 (success, stdout, stderr)"""
     try:
         result = subprocess.run(
             cmd,
             cwd=cwd or PROJECT_DIR,
-            check=True,
+            check=check,
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
-        if result.stdout.strip():
-            print(result.stdout)
-        return True
+        stdout = result.stdout.strip() if result.stdout else ""
+        stderr = result.stderr.strip() if result.stderr else ""
+        return True, stdout, stderr
     except subprocess.CalledProcessError as e:
-        print(f"❌ 命令失败: {' '.join(cmd)}")
-        if e.stderr:
-            print(e.stderr)
-        return False
+        stdout = e.stdout.strip() if e.stdout else ""
+        stderr = e.stderr.strip() if e.stderr else ""
+        return False, stdout, stderr
+    except Exception as e:
+        return False, "", str(e)
+
+def get_recent_commits(count: int = 5) -> list:
+    """获取最近的 commit 信息"""
+    success, stdout, _ = run_command(["git", "log", f"-{count}", "--oneline"])
+    if success and stdout:
+        return stdout.split("\n")
+    return []
 
 def git_push(version: str, message: str = None):
     """Git 提交并推送"""
     if not message:
         message = f"🚀 Release v{version}"
     
-    # Git 操作在 tauri-app 目录（这里就是 git 仓库根目录）
     git_dir = PROJECT_DIR
-    
-    # 检查是否已有远程仓库配置
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=git_dir,
-            capture_output=True,
-            text=True
-        )
-        if result.returncode != 0 or result.stdout.strip() != REPO_URL:
-            # 配置远程仓库
-            subprocess.run(["git", "remote", "remove", "origin"], cwd=git_dir, capture_output=True)
-            run_command(["git", "remote", "add", "origin", REPO_URL], cwd=git_dir)
-    except Exception:
-        run_command(["git", "remote", "add", "origin", REPO_URL], cwd=git_dir)
-    
-    # 添加所有更改
-    run_command(["git", "add", "."], cwd=git_dir)
-    
-    # 提交
-    run_command(["git", "commit", "-m", message], cwd=git_dir)
-    
-    # 创建标签
     tag_name = f"v{version}"
-    # 删除本地已存在的同名标签
-    subprocess.run(["git", "tag", "-d", tag_name], cwd=git_dir, capture_output=True)
-    run_command(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], cwd=git_dir)
     
-    # 推送代码和标签
-    print(f"📤 推送到 {REPO_URL}...")
-    run_command(["git", "push", "-u", "origin", "main", "--force"], cwd=git_dir)
-    run_command(["git", "push", "origin", tag_name, "--force"], cwd=git_dir)
+    print(f"\n📤 Git 操作...")
     
-    print(f"✅ 成功推送 v{version} 到 GitHub!")
+    # 1. 确保远程仓库配置正确
+    success, current_remote, _ = run_command(["git", "remote", "get-url", "origin"], check=False)
+    if not success or current_remote != REPO_URL:
+        run_command(["git", "remote", "remove", "origin"], check=False)
+        run_command(["git", "remote", "add", "origin", REPO_URL])
+        print(f"  ✅ 配置远程仓库: {REPO_URL}")
+    
+    # 2. 添加所有更改
+    run_command(["git", "add", "."])
+    print("  ✅ 已暂存所有更改")
+    
+    # 3. 提交
+    success, _, _ = run_command(["git", "commit", "-m", message], check=False)
+    if success:
+        print(f"  ✅ 提交: {message}")
+    else:
+        print("  ℹ️ 没有新的更改需要提交")
+    
+    # 4. 删除本地和远程的旧标签（如果存在）
+    run_command(["git", "tag", "-d", tag_name], check=False)
+    run_command(["git", "push", "origin", "--delete", tag_name], check=False)
+    
+    # 5. 创建新标签
+    run_command(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"])
+    print(f"  ✅ 创建标签: {tag_name}")
+    
+    # 6. 推送代码
+    print(f"\n📤 推送到 {REPO_URL}...")
+    success, _, stderr = run_command(["git", "push", "-u", "origin", "main", "--force"])
+    if success:
+        print("  ✅ 推送代码成功")
+    else:
+        print(f"  ⚠️ 推送代码: {stderr}")
+    
+    # 7. 推送标签
+    success, _, stderr = run_command(["git", "push", "origin", tag_name, "--force"])
+    if success:
+        print("  ✅ 推送标签成功")
+    else:
+        print(f"  ⚠️ 推送标签: {stderr}")
+    
+    print(f"\n✅ 成功发布 {tag_name} 到 GitHub!")
     print(f"🔗 查看发布: https://github.com/superdaobo/mini-hbut/releases/tag/{tag_name}")
+    print(f"🔗 查看 Actions: https://github.com/superdaobo/mini-hbut/actions")
 
 def main():
     """主函数"""
-    print("=" * 50)
+    print("=" * 55)
     print("🚀 Mini-HBUT 版本发布脚本")
-    print("=" * 50)
+    print("=" * 55)
+    
+    # 解析参数
+    args = sys.argv[1:]
+    bump_type = "patch"
+    no_confirm = "--no-confirm" in args or "-y" in args
+    
+    for arg in args:
+        if arg in ["major", "minor", "patch"]:
+            bump_type = arg
     
     # 获取当前版本
     current_version = get_current_version()
-    print(f"📦 当前版本: v{current_version}")
-    
-    # 确定版本递增类型
-    bump_type = "patch"
-    if len(sys.argv) > 1:
-        if sys.argv[1] in ["major", "minor", "patch"]:
-            bump_type = sys.argv[1]
-        else:
-            print(f"⚠️ 未知的版本类型: {sys.argv[1]}, 使用默认 patch")
+    print(f"\n📦 当前版本: v{current_version}")
     
     # 计算新版本
     new_version = increment_version(current_version, bump_type)
     print(f"📈 新版本: v{new_version} ({bump_type})")
     
+    # 显示最近的提交
+    print(f"\n📜 最近提交:")
+    for commit in get_recent_commits(3):
+        print(f"  • {commit}")
+    
     # 确认
-    confirm = input(f"\n确认发布 v{new_version}? [y/N]: ").strip().lower()
-    if confirm != "y":
-        print("❌ 取消发布")
-        return
+    if not no_confirm:
+        print(f"\n即将发布 v{new_version}")
+        print("此操作将:")
+        print("  1. 更新 package.json, tauri.conf.json, Cargo.toml 中的版本号")
+        print("  2. 提交更改到 Git")
+        print(f"  3. 创建并推送标签 v{new_version}")
+        print("  4. 触发 GitHub Actions 自动构建")
+        
+        confirm = input(f"\n确认发布? [y/N]: ").strip().lower()
+        if confirm != "y":
+            print("❌ 取消发布")
+            return
     
     # 更新版本号
-    print("\n📝 更新版本号...")
+    print(f"\n📝 更新版本号到 {new_version}...")
     update_version_in_files(new_version)
     
     # Git 操作
-    print("\n📤 Git 推送...")
     git_push(new_version)
     
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 55)
     print(f"✅ v{new_version} 发布成功!")
-    print("GitHub Actions 将自动构建各平台应用")
-    print("=" * 50)
+    print("GitHub Actions 将自动构建:")
+    print("  • Android APK (arm64)")
+    print("  • Windows 安装包 (MSI/EXE)")
+    print("  • macOS 安装包 (DMG)")
+    print("=" * 55)
 
 if __name__ == "__main__":
     main()

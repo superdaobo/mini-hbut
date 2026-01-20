@@ -9,22 +9,55 @@ const officialUrl = 'https://docs.qq.com/doc/DQnVTWFFFbEhNTXhx'
 
 const handleLoad = () => {
   loading.value = false
+  // 在 iframe 加载完成后，尝试拦截链接点击
+  interceptIframeLinks()
 }
 
 const handleError = () => {
   loading.value = false
 }
 
-const openExternal = async () => {
+// 拦截 iframe 内的链接点击，在外部浏览器打开
+const interceptIframeLinks = () => {
   try {
-    // 尝试使用 Tauri shell 打开外部链接
+    const iframe = iframeRef.value
+    if (!iframe || !iframe.contentWindow || !iframe.contentDocument) {
+      console.log('[OfficialView] 无法访问 iframe 内容（跨域限制）')
+      return
+    }
+    
+    // 给 iframe 内的所有链接添加点击事件
+    const doc = iframe.contentDocument
+    doc.addEventListener('click', async (e) => {
+      const link = e.target.closest('a')
+      if (link && link.href) {
+        e.preventDefault()
+        e.stopPropagation()
+        console.log('[OfficialView] 拦截链接点击:', link.href)
+        await openInBrowser(link.href)
+      }
+    }, true)
+  } catch (e) {
+    console.log('[OfficialView] iframe 链接拦截失败（可能是跨域）:', e.message)
+  }
+}
+
+// 在外部浏览器打开链接
+const openInBrowser = async (url) => {
+  try {
+    // 优先使用 Tauri shell 打开外部链接
     const shell = await import('@tauri-apps/plugin-shell')
-    await shell.open(officialUrl)
+    await shell.open(url)
+    console.log('[OfficialView] 已用系统浏览器打开:', url)
   } catch (e) {
     // 如果 shell 插件不可用，尝试用 window.open
-    console.log('[OfficialView] 使用浏览器打开:', officialUrl)
-    window.open(officialUrl, '_blank')
+    console.log('[OfficialView] 使用 window.open 打开:', url)
+    window.open(url, '_blank')
   }
+}
+
+const openExternal = async () => {
+  await openInBrowser(officialUrl)
 }
 
 onMounted(() => {
