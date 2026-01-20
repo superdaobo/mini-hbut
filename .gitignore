@@ -60,3 +60,7 @@ user_info.html
 *.jks
 *.keystore
 release-key.jks
+
+# Keystore secrets
+keystore-base64.txt
+release-key.jks

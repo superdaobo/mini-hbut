@@ -15,7 +15,7 @@ except ImportError:
     sys.exit(1)
 
 SCRIPT_DIR = Path(__file__).parent
-ICONS_DIR = SCRIPT_DIR / "tauri-app" / "src-tauri" / "icons"
+ICONS_DIR = SCRIPT_DIR / "src-tauri" / "icons"
 ANDROID_ICONS_DIR = ICONS_DIR / "android"
 IOS_ICONS_DIR = ICONS_DIR / "ios"
 

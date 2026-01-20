@@ -1,10 +1,48 @@
-<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#667eea"/>
-      <stop offset="100%" style="stop-color:#764ba2"/>
+    <!-- 背景渐变 -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a5568"/>
+      <stop offset="50%" style="stop-color:#2d3748"/>
+      <stop offset="100%" style="stop-color:#1a202c"/>
+    </linearGradient>
+    <!-- 橙色渐变 -->
+    <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f6ad55"/>
+      <stop offset="100%" style="stop-color:#ed8936"/>
+    </linearGradient>
+    <!-- 青色渐变 -->
+    <linearGradient id="cyanGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4fd1c5"/>
+      <stop offset="100%" style="stop-color:#38b2ac"/>
+    </linearGradient>
+    <!-- 蓝色渐变 -->
+    <linearGradient id="blueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#63b3ed"/>
+      <stop offset="100%" style="stop-color:#4299e1"/>
     </linearGradient>
   </defs>
-  <rect width="128" height="128" rx="24" fill="url(#gradient)"/>
-  <text x="64" y="80" text-anchor="middle" font-size="60" font-weight="bold" fill="white" font-family="Arial">H</text>
+  
+  <!-- 圆角背景 -->
+  <rect width="512" height="512" rx="100" fill="url(#bgGradient)"/>
+  
+  <!-- 外圈 - 青色 -->
+  <circle cx="256" cy="256" r="180" stroke="url(#cyanGradient)" stroke-width="24" fill="none"/>
+  
+  <!-- 橙色大圆弧 -->
+  <path d="M 256 76 A 180 180 0 0 1 256 436" stroke="url(#orangeGradient)" stroke-width="24" fill="none"/>
+  
+  <!-- 内部太极图案 -->
+  <!-- 上半圆 - 橙色 -->
+  <path d="M 256 140 A 116 116 0 0 1 256 372 A 58 58 0 0 0 256 256 A 58 58 0 0 1 256 140" fill="url(#orangeGradient)"/>
+  
+  <!-- 下半圆 - 蓝色 -->
+  <path d="M 256 372 A 116 116 0 0 1 256 140 A 58 58 0 0 0 256 256 A 58 58 0 0 1 256 372" fill="url(#blueGradient)"/>
+  
+  <!-- 小圆点 -->
+  <circle cx="256" cy="198" r="24" fill="url(#blueGradient)"/>
+  <circle cx="256" cy="314" r="24" fill="url(#orangeGradient)"/>
+  
+  <!-- 中心点 -->
+  <circle cx="256" cy="256" r="16" fill="white" opacity="0.9"/>
 </svg>

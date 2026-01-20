@@ -73,6 +73,27 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init
       
+      - name: Copy Android icons
+        run: |
+          # 复制自定义图标到 Android 项目
+          ANDROID_RES="src-tauri/gen/android/app/src/main/res"
+          ICONS_SRC="src-tauri/icons/android"
+          
+          # 复制各分辨率图标
+          for density in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
+            if [ -d "$ICONS_SRC/$density" ]; then
+              mkdir -p "$ANDROID_RES/mipmap-$density"
+              cp -f "$ICONS_SRC/$density"/*.png "$ANDROID_RES/mipmap-$density/" 2>/dev/null || true
+            fi
+            if [ -d "$ICONS_SRC/mipmap-$density" ]; then
+              mkdir -p "$ANDROID_RES/mipmap-$density"
+              cp -f "$ICONS_SRC/mipmap-$density"/*.png "$ANDROID_RES/mipmap-$density/" 2>/dev/null || true
+            fi
+          done
+          
+          echo "Android icons copied successfully"
+          ls -la "$ANDROID_RES/mipmap-xxxhdpi/" || true
+      
       - name: Configure Android build for smaller APK
         run: |
           # 修改 build.gradle.kts 启用代码压缩
@@ -113,16 +134,23 @@ jobs:
           UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
           echo "Found unsigned APK: $UNSIGNED_APK"
           
-          # 生成签名密钥
-          keytool -genkeypair -v \
-            -keystore release-key.jks \
-            -alias mini-hbut \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Mini-HBUT, OU=HBUT, O=HBUT, L=Wuhan, ST=Hubei, C=CN"
+          # 从 Secrets 解码签名密钥，如果没有则生成新的
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release-key.jks
+            echo "Using keystore from secrets"
+          else
+            # 使用固定参数生成密钥（确保每次生成相同）
+            keytool -genkeypair -v \
+              -keystore release-key.jks \
+              -alias mini-hbut \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Mini-HBUT, OU=HBUT, O=HBUT, L=Wuhan, ST=Hubei, C=CN"
+            echo "Generated new keystore"
+          fi
           
           # 对齐 APK
           ${ANDROID_SDK_ROOT}/build-tools/35.0.0/zipalign -v -p 4 \

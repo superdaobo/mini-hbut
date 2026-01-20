@@ -121,14 +121,15 @@ onMounted(() => {
           <div class="up-to-date">
             <span class="icon">✅</span>
             <p>已是最新版本</p>
-            <span class="version">v{{ updateInfo.currentVersion }}</span>
+            <span class="version">v{{ currentVersion }}</span>
           </div>
         </template>
 
-        <!-- 错误 -->
-        <div v-else-if="error" class="error">
-          <span class="icon">❌</span>
-          <p>{{ error }}</p>
+        <!-- 错误或无法获取更新信息 -->
+        <div v-else-if="error || !updateInfo" class="error">
+          <span class="icon">{{ error ? '❌' : '⚠️' }}</span>
+          <p>{{ error || '无法获取更新信息，请检查网络连接' }}</p>
+          <button class="retry-btn" @click="checkUpdate">重试</button>
         </div>
       </div>
 
@@ -310,12 +311,27 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   padding: 20px 0;
-  color: #ef4444;
+  color: #6b7280;
 }
 
 .error .icon {
   font-size: 48px;
   margin-bottom: 12px;
+}
+
+.error p {
+  margin: 0 0 16px 0;
+  text-align: center;
+}
+
+.retry-btn {
+  padding: 8px 20px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 .dialog-actions {
