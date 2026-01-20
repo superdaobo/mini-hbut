@@ -64,7 +64,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          # 只构建 arm64 架构，大幅减少 APK 体积
+          targets: aarch64-linux-android
       
       - name: Install dependencies
         run: npm ci
@@ -72,8 +73,34 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init
       
-      - name: Build Android APK
-        run: npm run tauri android build -- --apk true
+      - name: Configure Android build for smaller APK
+        run: |
+          # 修改 build.gradle.kts 启用代码压缩
+          BUILD_GRADLE="src-tauri/gen/android/app/build.gradle.kts"
+          if [ -f "$BUILD_GRADLE" ]; then
+            # 启用 minify 和 shrinkResources
+            sed -i 's/isMinifyEnabled = false/isMinifyEnabled = true/' "$BUILD_GRADLE"
+            sed -i 's/isShrinkResources = false/isShrinkResources = true/' "$BUILD_GRADLE"
+            
+            # 限制只构建 arm64-v8a 架构
+            sed -i '/defaultConfig {/a\        ndk {\n            abiFilters += listOf("arm64-v8a")\n        }' "$BUILD_GRADLE"
+          fi
+          
+          # 创建 proguard 规则文件
+          PROGUARD_FILE="src-tauri/gen/android/app/proguard-rules.pro"
+          cat > "$PROGUARD_FILE" << 'EOF'
+          # Tauri 保持规则
+          -keep class com.hbut.mini.** { *; }
+          -keep class * extends android.webkit.WebView { *; }
+          -keepclassmembers class * extends android.webkit.WebView {
+              public *;
+          }
+          -dontwarn kotlin.**
+          -dontwarn kotlinx.**
+          EOF
+      
+      - name: Build Android APK (arm64 only)
+        run: npm run tauri android build -- --target aarch64 --apk true
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
       

@@ -2,6 +2,11 @@
 """
 Mini-HBUT 版本发布脚本
 自动递增版本号并推送到 GitHub
+
+使用方法:
+    python release.py          # 递增 patch 版本 (1.0.0 → 1.0.1)
+    python release.py minor    # 递增 minor 版本 (1.0.0 → 1.1.0)
+    python release.py major    # 递增 major 版本 (1.0.0 → 2.0.0)
 """
 
 import json
@@ -12,9 +17,9 @@ import sys
 from pathlib import Path
 
 REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
+# release.py 在 tauri-app 目录下，tauri-app 本身就是 git 仓库根目录
 SCRIPT_DIR = Path(__file__).parent
-# release.py 现在在 tauri-app 目录下，所以直接用 SCRIPT_DIR
-TAURI_APP_DIR = SCRIPT_DIR
+PROJECT_DIR = SCRIPT_DIR  # tauri-app 就是项目根目录
 
 def read_json(path: Path) -> dict:
     """读取 JSON 文件"""
@@ -64,7 +69,7 @@ def increment_version(version_str: str, bump: str = "patch") -> str:
 
 def get_current_version() -> str:
     """获取当前版本号"""
-    package_json = TAURI_APP_DIR / "package.json"
+    package_json = PROJECT_DIR / "package.json"
     if package_json.exists():
         data = read_json(package_json)
         return data.get("version", "1.0.0")
@@ -73,7 +78,7 @@ def get_current_version() -> str:
 def update_version_in_files(new_version: str):
     """更新所有文件中的版本号"""
     # 1. package.json
-    package_json = TAURI_APP_DIR / "package.json"
+    package_json = PROJECT_DIR / "package.json"
     if package_json.exists():
         data = read_json(package_json)
         data["version"] = new_version
@@ -81,7 +86,7 @@ def update_version_in_files(new_version: str):
         print(f"✅ 更新 package.json: {new_version}")
     
     # 2. tauri.conf.json
-    tauri_conf = TAURI_APP_DIR / "src-tauri" / "tauri.conf.json"
+    tauri_conf = PROJECT_DIR / "src-tauri" / "tauri.conf.json"
     if tauri_conf.exists():
         data = read_json(tauri_conf)
         data["version"] = new_version
@@ -89,7 +94,7 @@ def update_version_in_files(new_version: str):
         print(f"✅ 更新 tauri.conf.json: {new_version}")
     
     # 3. Cargo.toml
-    cargo_toml = TAURI_APP_DIR / "src-tauri" / "Cargo.toml"
+    cargo_toml = PROJECT_DIR / "src-tauri" / "Cargo.toml"
     if cargo_toml.exists():
         content = read_toml(cargo_toml)
         # 使用正则替换版本号
@@ -108,16 +113,18 @@ def run_command(cmd: list, cwd: Path = None) -> bool:
     try:
         result = subprocess.run(
             cmd,
-            cwd=cwd or SCRIPT_DIR,
+            cwd=cwd or PROJECT_DIR,
             check=True,
             capture_output=True,
             text=True
         )
-        print(result.stdout)
+        if result.stdout.strip():
+            print(result.stdout)
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ 命令失败: {' '.join(cmd)}")
-        print(e.stderr)
+        if e.stderr:
+            print(e.stderr)
         return False
 
 def git_push(version: str, message: str = None):
@@ -125,27 +132,40 @@ def git_push(version: str, message: str = None):
     if not message:
         message = f"🚀 Release v{version}"
     
-    # Git 操作在项目根目录（tauri-app 的上一级）
-    root_dir = SCRIPT_DIR.parent
+    # Git 操作在 tauri-app 目录（这里就是 git 仓库根目录）
+    git_dir = PROJECT_DIR
     
-    # 确保远程仓库配置正确
-    run_command(["git", "remote", "remove", "origin"], cwd=root_dir)
-    run_command(["git", "remote", "add", "origin", REPO_URL], cwd=root_dir)
+    # 检查是否已有远程仓库配置
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=git_dir,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0 or result.stdout.strip() != REPO_URL:
+            # 配置远程仓库
+            subprocess.run(["git", "remote", "remove", "origin"], cwd=git_dir, capture_output=True)
+            run_command(["git", "remote", "add", "origin", REPO_URL], cwd=git_dir)
+    except Exception:
+        run_command(["git", "remote", "add", "origin", REPO_URL], cwd=git_dir)
     
     # 添加所有更改
-    run_command(["git", "add", "."], cwd=root_dir)
+    run_command(["git", "add", "."], cwd=git_dir)
     
     # 提交
-    run_command(["git", "commit", "-m", message], cwd=root_dir)
+    run_command(["git", "commit", "-m", message], cwd=git_dir)
     
     # 创建标签
     tag_name = f"v{version}"
-    run_command(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], cwd=root_dir)
+    # 删除本地已存在的同名标签
+    subprocess.run(["git", "tag", "-d", tag_name], cwd=git_dir, capture_output=True)
+    run_command(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], cwd=git_dir)
     
     # 推送代码和标签
     print(f"📤 推送到 {REPO_URL}...")
-    run_command(["git", "push", "-u", "origin", "main", "--force"], cwd=root_dir)
-    run_command(["git", "push", "origin", tag_name, "--force"], cwd=root_dir)
+    run_command(["git", "push", "-u", "origin", "main", "--force"], cwd=git_dir)
+    run_command(["git", "push", "origin", tag_name, "--force"], cwd=git_dir)
     
     print(f"✅ 成功推送 v{version} 到 GitHub!")
     print(f"🔗 查看发布: https://github.com/superdaobo/mini-hbut/releases/tag/{tag_name}")
