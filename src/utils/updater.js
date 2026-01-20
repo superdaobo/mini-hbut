@@ -16,13 +16,13 @@ const API_PROXIES = [
 
 // 下载代理列表（按优先级）
 const DOWNLOAD_PROXIES = [
-  // jsDelivr CDN - 最稳定
-  (tag, filename) => `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@${tag}/release/${filename}`,
-  // GitHub Release 代理
+  // GitHub Release 代理（优先使用 release 资产，避免拉到旧版本）
   (tag, filename) => `https://gh-proxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://mirror.ghproxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   // 原始链接（备用）
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  // jsDelivr CDN（仅作最后兜底，避免下载到仓库旧文件）
+  (tag, filename) => `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@${tag}/release/${filename}`,
 ]
 
 // 版本比较：返回 1 如果 v1 > v2, -1 如果 v1 < v2, 0 如果相等
@@ -142,21 +142,27 @@ export async function checkForUpdates(currentVersion) {
       const patterns = getAssetPatterns(platform)
       
       let assetName = null
+      let assetUrl = null
       
       if (patterns.length > 0 && release.assets) {
         for (const pattern of patterns) {
           const asset = release.assets.find(a => pattern.test(a.name))
           if (asset) {
             assetName = asset.name
+            assetUrl = asset.browser_download_url || null
             break
           }
         }
       }
       
-      // 生成所有可用的下载链接（使用代理）
-      const downloadUrls = assetName 
-        ? DOWNLOAD_PROXIES.map(proxy => proxy(tagName, assetName))
-        : []
+      // 生成所有可用的下载链接（优先使用 release 资产）
+      let downloadUrls = []
+      if (assetName) {
+        downloadUrls = DOWNLOAD_PROXIES.map(proxy => proxy(tagName, assetName))
+        if (assetUrl) {
+          downloadUrls.unshift(assetUrl)
+        }
+      }
       
       return {
         hasUpdate: true,
