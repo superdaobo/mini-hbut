@@ -290,7 +290,7 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
             .or_else(|| item.get("cdmc"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        let location = extract_text_from_html(raw_room);
+        let room = extract_text_from_html(raw_room);
         
         // 星期几 - 新版使用 xingqi，旧版使用 xqj
         let weekday = item.get("xingqi")
@@ -304,9 +304,9 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
             .unwrap_or(1) as i32;
         
         // 连续节数 - 新版使用 djs
-        let periods = item.get("djs")
+        let djs = item.get("djs")
             .and_then(|v| v.as_i64())
-            .unwrap_or(2) as i32;
+            .unwrap_or(1) as i32;
         
         // 周次 - 新版使用 zcstr 或 zc，旧版使用 zcd
         let weeks_str = item.get("zcstr")
@@ -315,15 +315,47 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let weeks = parse_weeks(weeks_str);
+
+        let weeks_text = item.get("zc")
+            .or_else(|| item.get("zcstr"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let room_code = item.get("croombh")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let building = item.get("jxlmc")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let credit = item.get("xf")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let class_name = item.get("jxbzc")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         
         let course = ScheduleCourse {
+            id: item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             name,
             teacher,
-            location,
+            room,
+            room_code,
+            building,
             weekday,
             period,
-            periods,
+            djs,
             weeks,
+            weeks_text,
+            credit,
+            class_name,
         };
         courses.push(course);
     }

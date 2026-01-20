@@ -710,9 +710,12 @@ impl HbutClient {
         parser::parse_schedule(&json)
     }
 
-    pub async fn fetch_exams(&self) -> Result<Vec<Exam>, Box<dyn std::error::Error + Send + Sync>> {
-        // 1. 动态获取当前学期
-        let semester = self.get_current_semester().await?;
+    pub async fn fetch_exams(&self, semester: Option<&str>) -> Result<Vec<Exam>, Box<dyn std::error::Error + Send + Sync>> {
+        // 1. 动态获取当前学期或使用指定学期
+        let semester = match semester {
+            Some(s) if !s.trim().is_empty() => s.to_string(),
+            _ => self.get_current_semester().await?,
+        };
         println!("[DEBUG] Using semester for exams: {}", semester);
         
         // 使用正确的考试 API (与 Python 模块一致)

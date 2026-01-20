@@ -58,33 +58,57 @@ impl StudentInfoModule {
 
     fn parse_html(&self, html: &str) -> Result<StudentInfo, Box<dyn std::error::Error + Send + Sync>> {
         let extract_field = |label: &str| -> String {
-            let pattern = format!(
-                r#"(?s){}[：:]?\s*</label>\s*</div>\s*<div class="item-content">\s*(?:<label[^>]*>)?([^<★]+)"#,
-                regex::escape(label)
-            );
-            if let Ok(re) = Regex::new(&pattern) {
-                if let Some(cap) = re.captures(html) {
-                    let value = cap.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
-                    if !value.is_empty() && value != "★★★★" {
-                        return value;
+            let patterns = [
+                format!(
+                    r#"(?s){}[：:]?\s*</label>\s*</div>\s*<div class="item-content">\s*(?:<label[^>]*>)?([^<★]+)"#,
+                    regex::escape(label)
+                ),
+                format!(
+                    r#"(?s){}[：:]?\s*</span>\s*</div>\s*<div class="item-content">\s*(?:<label[^>]*>)?([^<★]+)"#,
+                    regex::escape(label)
+                ),
+                format!(
+                    r#"(?s){}[：:]?\s*</td>\s*<td[^>]*>\s*([^<★]+)"#,
+                    regex::escape(label)
+                ),
+            ];
+
+            for pattern in patterns {
+                if let Ok(re) = Regex::new(&pattern) {
+                    if let Some(cap) = re.captures(html) {
+                        let value = cap.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                        if !value.is_empty() && value != "★★★★" {
+                            return value;
+                        }
                     }
+                }
+            }
+
+            String::new()
+        };
+
+        let extract_any = |labels: &[&str]| -> String {
+            for label in labels {
+                let v = extract_field(label);
+                if !v.is_empty() {
+                    return v;
                 }
             }
             String::new()
         };
 
         let info = StudentInfo {
-            student_id: extract_field("学号"),
-            name: extract_field("姓名"),
-            gender: extract_field("性别"),
-            id_number: extract_field("身份证件号"),
-            ethnicity: extract_field("民族"),
-            grade: extract_field("所在年级"),
-            college: extract_field("院系信息"),
-            major: extract_field("专业信息"),
-            class_name: extract_field("班级信息"),
-            education_level: extract_field("培养层次"),
-            study_years: extract_field("学制"),
+            student_id: extract_any(&["学号"]),
+            name: extract_any(&["姓名"]),
+            gender: extract_any(&["性别"]),
+            id_number: extract_any(&["身份证件号", "身份证号", "身份证号码"]),
+            ethnicity: extract_any(&["民族", "民族(族别)", "民族（族别）"]),
+            grade: extract_any(&["所在年级", "年级"]),
+            college: extract_any(&["院系信息", "学院", "院系"]),
+            major: extract_any(&["专业信息", "专业"]),
+            class_name: extract_any(&["班级信息", "班级"]),
+            education_level: extract_any(&["培养层次", "培养类别"]),
+            study_years: extract_any(&["学制", "学制年限", "学制(年)", "学制（年）"]),
         };
 
         if info.student_id.is_empty() && info.name.is_empty() {

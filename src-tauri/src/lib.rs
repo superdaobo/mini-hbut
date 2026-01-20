@@ -52,13 +52,19 @@ pub struct Grade {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleCourse {
+    pub id: String,
     pub name: String,
     pub teacher: String,
-    pub location: String,
+    pub room: String,
+    pub room_code: String,
+    pub building: String,
     pub weekday: i32,
     pub period: i32,
-    pub periods: i32,
+    pub djs: i32,
     pub weeks: Vec<i32>,
+    pub weeks_text: String,
+    pub credit: String,
+    pub class_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,9 +287,9 @@ async fn get_schedule_local(student_id: String) -> Result<Option<serde_json::Val
 }
 
 #[tauri::command]
-async fn fetch_exams(state: State<'_, AppState>) -> Result<Vec<Exam>, String> {
+async fn fetch_exams(state: State<'_, AppState>, semester: Option<String>) -> Result<Vec<Exam>, String> {
     let client = state.client.lock().await;
-    client.fetch_exams().await.map_err(|e| e.to_string())
+    client.fetch_exams(semester.as_deref()).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

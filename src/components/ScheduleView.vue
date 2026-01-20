@@ -82,6 +82,24 @@ const currentMonth = computed(() => {
   return new Date().getMonth() + 1
 })
 
+const ensureStartDate = () => {
+  if (startDateStr.value) return
+
+  const today = new Date()
+  const day = today.getDay() === 0 ? 7 : today.getDay() // 周日=7
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - (day - 1))
+
+  const baseWeek = currentWeek.value > 0 ? currentWeek.value : 1
+  const semesterStart = new Date(monday)
+  semesterStart.setDate(monday.getDate() - (baseWeek - 1) * 7)
+
+  const yyyy = semesterStart.getFullYear()
+  const mm = String(semesterStart.getMonth() + 1).padStart(2, '0')
+  const dd = String(semesterStart.getDate()).padStart(2, '0')
+  startDateStr.value = `${yyyy}-${mm}-${dd}`
+}
+
 
 
 const applyCachedWeek = () => {
@@ -101,6 +119,7 @@ const applyCachedWeek = () => {
       // ignore parse errors
     }
   }
+  ensureStartDate()
   const cached = getCachedData(`schedule:${props.studentId}`)
   if (cached?.data?.meta) {
     const meta = cached.data.meta
@@ -112,6 +131,7 @@ const applyCachedWeek = () => {
     }
     semester.value = meta.semester || semester.value
   }
+  ensureStartDate()
 }
 
 const fetchSchedule = async () => {
@@ -143,6 +163,7 @@ const fetchSchedule = async () => {
           currentWeek.value = data.meta.current_week
           selectedWeek.value = currentWeek.value
         }
+        ensureStartDate()
         localStorage.setItem('hbu_schedule_meta', JSON.stringify({
           semester: data.meta.semester,
           start_date: data.meta.start_date,

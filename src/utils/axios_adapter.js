@@ -180,7 +180,7 @@ const adapter = {
             // ========== 考试相关 ==========
             if (url.includes('/v2/exams')) {
                 try {
-                    const exams = await invoke('fetch_exams');
+                    const exams = await invoke('fetch_exams', { semester: data.semester || null });
                     // 转换字段名以匹配前端期望格式
                     const transformedExams = exams.map(exam => ({
                         ...exam,
