@@ -346,10 +346,8 @@ onMounted(async () => {
     startSessionKeepAlive()
   }
   
-  // 延迟自动检查更新，避免影响首屏加载
-  setTimeout(() => {
-    autoCheckUpdate()
-  }, 3000)
+  // 启动即检查更新
+  autoCheckUpdate()
 })
 </script>
 
