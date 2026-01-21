@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
 
 class NotificationService : Service() {
 
@@ -44,11 +43,17 @@ class NotificationService : Service() {
     }
 
     private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, "BackgroundService")
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, "BackgroundService")
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        
+        return builder
             .setContentTitle("Mini-HBUT 正在后台运行")
             .setContentText("保持后台连接以接收成绩更新...")
             .setSmallIcon(android.R.drawable.ic_dialog_info) // Replace with your app icon
-            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 }
