@@ -94,33 +94,33 @@ jobs:
           echo "Android icons copied successfully"
           ls -la "$ANDROID_RES/mipmap-xxxhdpi/" || true
       
-      - name: Apply Android Native Changes (Service & Permissions)
-        run: |
-          ANDROID_MAIN="src-tauri/gen/android/app/src/main"
-          SETUP_DIR="src-tauri/android-native-setup"
+      # - name: Apply Android Native Changes (Service & Permissions)
+      #   run: |
+      #     ANDROID_MAIN="src-tauri/gen/android/app/src/main"
+      #     SETUP_DIR="src-tauri/android-native-setup"
           
-          # 1. Copy NotificationService.kt
-          echo "Copying NotificationService.kt..."
-          cp "$SETUP_DIR/NotificationService.kt" "$ANDROID_MAIN/java/com/hbut/mini/"
+      #     # 1. Copy NotificationService.kt
+      #     echo "Copying NotificationService.kt..."
+      #     cp "$SETUP_DIR/NotificationService.kt" "$ANDROID_MAIN/java/com/hbut/mini/"
           
-          # 2. Overwrite MainActivity.kt (using our valid version with service start logic)
-          echo "Overwriting MainActivity.kt..."
-          cp "$SETUP_DIR/MainActivity_changes.kt" "$ANDROID_MAIN/java/com/hbut/mini/MainActivity.kt"
+      #     # 2. Overwrite MainActivity.kt (using our valid version with service start logic)
+      #     echo "Overwriting MainActivity.kt..."
+      #     cp "$SETUP_DIR/MainActivity_changes.kt" "$ANDROID_MAIN/java/com/hbut/mini/MainActivity.kt"
           
-          # 3. Patch AndroidManifest.xml
-          MANIFEST="$ANDROID_MAIN/AndroidManifest.xml"
-          echo "Patching AndroidManifest.xml..."
+      #     # 3. Patch AndroidManifest.xml
+      #     MANIFEST="$ANDROID_MAIN/AndroidManifest.xml"
+      #     echo "Patching AndroidManifest.xml..."
           
-          # Insert Permissions (one by one to be safe)
-          sed -i '/<application/i <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />' "$MANIFEST"
-          sed -i '/<application/i <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
-          sed -i '/<application/i <uses-permission android:name="android.permission.WAKE_LOCK" />' "$MANIFEST"
-          sed -i '/<application/i <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' "$MANIFEST"
+      #     # Insert Permissions (one by one to be safe)
+      #     sed -i '/<application/i <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />' "$MANIFEST"
+      #     sed -i '/<application/i <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
+      #     sed -i '/<application/i <uses-permission android:name="android.permission.WAKE_LOCK" />' "$MANIFEST"
+      #     sed -i '/<application/i <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' "$MANIFEST"
           
-          # Insert Service (inside <application>)
-          sed -i '/<\/application>/i <service android:name=".NotificationService" />' "$MANIFEST"
+      #     # Insert Service (inside <application>)
+      #     sed -i '/<\/application>/i <service android:name=".NotificationService" />' "$MANIFEST"
           
-          cat "$MANIFEST" | head -n 20
+      #     cat "$MANIFEST" | head -n 20
       
       # - name: Configure Android build for smaller APK
       #   run: |
