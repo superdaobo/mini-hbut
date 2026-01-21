@@ -10,8 +10,7 @@ class MainActivity : TauriActivity() {
         super.onCreate(savedInstanceState)
         
         try {
-            // Start the background service to keep the app alive
-            val intent = Intent(this, com.hbut.mini.NotificationService::class.java)
+            val intent = Intent(this, NotificationService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
             } else {

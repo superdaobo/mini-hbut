@@ -111,15 +111,14 @@ jobs:
           MANIFEST="$ANDROID_MAIN/AndroidManifest.xml"
           echo "Patching AndroidManifest.xml..."
           
-          # Insert Permissions (before <application)
-          sed -i '/<application/i \
-          <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\
-          <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\
-          <uses-permission android:name="android.permission.WAKE_LOCK" />\
-          <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' "$MANIFEST"
+          # Insert Permissions (one by one to be safe)
+          sed -i '/<application/i <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />' "$MANIFEST"
+          sed -i '/<application/i <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
+          sed -i '/<application/i <uses-permission android:name="android.permission.WAKE_LOCK" />' "$MANIFEST"
+          sed -i '/<application/i <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' "$MANIFEST"
           
-          # Insert Service (inside <application, before </application>)
-          sed -i '/<\/application>/i \        <service android:name=".NotificationService" />' "$MANIFEST"
+          # Insert Service (inside <application>)
+          sed -i '/<\/application>/i <service android:name=".NotificationService" />' "$MANIFEST"
           
           cat "$MANIFEST" | head -n 20
       
