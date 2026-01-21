@@ -13,16 +13,22 @@ class NotificationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        try {
+            createNotificationChannel()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = createNotification()
-        startForeground(1, notification)
+        try {
+            val notification = createNotification()
+            startForeground(1, notification)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         
-        // This service runs to keep the app process alive.
-        // The Rust backend loop in the main Tauri process continues to run.
-        
+        // START_STICKY ensures the service restarts if killed
         return START_STICKY
     }
 
@@ -32,19 +38,20 @@ class NotificationService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "BackgroundService",
-                "Background Monitor",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(channel)
+            val id = "BackgroundService"
+            val name = "Background Monitor"
+            val importance = NotificationManager.IMPORTANCE_LOW
+            val channel = NotificationChannel(id, name, importance)
+            
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
+        val channelId = "BackgroundService"
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, "BackgroundService")
+            Notification.Builder(this, channelId)
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
@@ -53,7 +60,7 @@ class NotificationService : Service() {
         return builder
             .setContentTitle("Mini-HBUT 正在后台运行")
             .setContentText("保持后台连接以接收成绩更新...")
-            .setSmallIcon(android.R.drawable.ic_dialog_info) // Replace with your app icon
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
     }
 }
