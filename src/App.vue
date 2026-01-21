@@ -15,7 +15,10 @@ import AcademicProgressView from './components/AcademicProgressView.vue'
 import TrainingPlanView from './components/TrainingPlanView.vue'
 import MeView from './components/MeView.vue'
 import OfficialView from './components/OfficialView.vue'
+import FeedbackView from './components/FeedbackView.vue'
+import NotificationView from './components/NotificationView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
+import Toast from './components/Toast.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 
@@ -37,7 +40,7 @@ const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
 const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
-const ELECTRICITY_REFRESH_INTERVAL = 5 * 60 * 1000
+const ELECTRICITY_REFRESH_INTERVAL = 10 * 60 * 1000
 let electricityKeepAliveTimer = null
 
 // 版本更新相关
@@ -319,7 +322,7 @@ const stopElectricityKeepAlive = () => {
   }
 }
 
-const showTabBar = computed(() => ['home', 'schedule', 'me'].includes(currentView.value))
+const showTabBar = computed(() => ['home', 'schedule', 'me', 'notifications'].includes(currentView.value))
 
 // 页面加载时检查 URL
 onMounted(async () => {
@@ -408,11 +411,18 @@ onMounted(async () => {
         @logout="handleLogout"
         @checkUpdate="handleCheckUpdate"
         @openOfficial="handleOpenOfficial"
+        @openFeedback="currentView = 'feedback'"
       />
 
       <!-- 官方发布页 -->
       <OfficialView 
         v-else-if="currentView === 'official'"
+        @back="currentView = 'me'; activeTab = 'me'"
+      />
+
+      <!-- 问题反馈页 -->
+      <FeedbackView 
+        v-else-if="currentView === 'feedback'"
         @back="currentView = 'me'; activeTab = 'me'"
       />
       
@@ -434,6 +444,13 @@ onMounted(async () => {
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+      />
+
+      <!-- 通知设置 -->
+      <NotificationView 
+        v-else-if="currentView === 'notifications'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
       />
 
       <!-- 空教室查询 -->
@@ -512,6 +529,10 @@ onMounted(async () => {
         <span class="tab-icon">📅</span>
         <span class="tab-label">课表</span>
       </button>
+      <button class="tab-item" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
+        <span class="tab-icon">🔔</span>
+        <span class="tab-label">通知</span>
+      </button>
       <button class="tab-item" :class="{ active: activeTab === 'me' }" @click="handleTabChange('me')">
         <span class="tab-icon">👤</span>
         <span class="tab-label">我的</span>
@@ -527,6 +548,9 @@ onMounted(async () => {
       v-if="showUpdateDialog"
       @close="showUpdateDialog = false"
     />
+    
+    <!-- 全局提示 -->
+    <Toast />
   </main>
 </template>
 
@@ -600,7 +624,7 @@ onMounted(async () => {
   bottom: 16px;
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   padding: 10px 16px;
   width: min(520px, calc(100% - 32px));

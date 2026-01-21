@@ -19,6 +19,18 @@ const offline = ref(false)
 const syncTime = ref('')
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
+const getStaleCache = (cacheKey) => {
+  try {
+    const raw = localStorage.getItem(`cache:${cacheKey}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || !parsed.data) return null
+    return { data: parsed.data, timestamp: parsed.timestamp }
+  } catch (e) {
+    return null
+  }
+}
+
 // 加载宿舍数据
 onMounted(async () => {
   try {
@@ -77,6 +89,8 @@ const fetchBalance = async (retryCount = 0) => {
   
   loading.value = true
   if (retryCount === 0) errorMsg.value = ''
+
+  const cacheKey = `electricity:${props.studentId}:${selectedPath.value.join('-')}`
   
   try {
     const [area_id, building_id, layer_id, room_id] = selectedPath.value
@@ -91,7 +105,6 @@ const fetchBalance = async (retryCount = 0) => {
     }
     
     // 调用 V2 API
-    const cacheKey = `electricity:${props.studentId}:${selectedPath.value.join('-')}`
     const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
       return res.data
@@ -102,7 +115,15 @@ const fetchBalance = async (retryCount = 0) => {
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
     } else {
-      errorMsg.value = data?.error || '查询失败'
+      const cached = getStaleCache(cacheKey)
+      if (cached?.data) {
+        balanceData.value = cached.data
+        offline.value = true
+        syncTime.value = cached.data?.sync_time || new Date(cached.timestamp).toLocaleString()
+        errorMsg.value = ''
+      } else {
+        errorMsg.value = data?.error || '查询失败'
+      }
     }
   } catch (e) {
     console.error('电费查询错误:', e)
@@ -119,9 +140,17 @@ const fetchBalance = async (retryCount = 0) => {
         errorMsg.value = '服务器响应超时，请稍后再试'
       }
     } else {
-      errorMsg.value = e.message || '网络错误'
+      const cached = getStaleCache(cacheKey)
+      if (cached?.data) {
+        balanceData.value = cached.data
+        offline.value = true
+        syncTime.value = cached.data?.sync_time || new Date(cached.timestamp).toLocaleString()
+        errorMsg.value = ''
+      } else {
+        errorMsg.value = e.message || '网络错误'
+        balanceData.value = null
+      }
     }
-    balanceData.value = null
   } finally {
     // 只有在不重试的情况下才停止 loading
     if (!errorMsg.value.includes('正在重试')) {

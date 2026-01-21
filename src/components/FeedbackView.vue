@@ -6,7 +6,7 @@ const emit = defineEmits(['back'])
 
 const loading = ref(true)
 const iframeRef = ref(null)
-const officialUrl = 'https://docs.qq.com/doc/DQnVTWFFFbEhNTXhx'
+const feedbackUrl = 'https://docs.qq.com/sheet/DQkdvWHJxQ3RwWlB4?tab=BB08J2'
 
 const handleLoad = () => {
   loading.value = false
@@ -22,17 +22,17 @@ const openInBrowser = async (url) => {
     // 优先使用 Tauri shell 打开外部链接
     const shell = await import('@tauri-apps/plugin-shell')
     await shell.open(url)
-    console.log('[OfficialView] 已用系统浏览器打开:', url)
+    console.log('[FeedbackView] 已用系统浏览器打开:', url)
   } catch (e) {
     // 如果 shell 插件不可用，尝试用 window.open
-    console.log('[OfficialView] 使用 window.open 打开:', url)
+    console.log('[FeedbackView] 使用 window.open 打开:', url)
     window.open(url, '_blank')
   }
 }
 
 const copyLink = async () => {
   try {
-    await navigator.clipboard.writeText(officialUrl)
+    await navigator.clipboard.writeText(feedbackUrl)
     console.log('Link copied to clipboard')
     showToast('链接已复制到剪贴板！', 'success')
   } catch (err) {
@@ -50,10 +50,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="official-view">
+  <div class="feedback-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📢 官方发布</h1>
+      <h1>📝 问题反馈</h1>
       <button class="external-btn" @click="copyLink">🔗</button>
     </header>
 
@@ -64,8 +64,8 @@ onMounted(() => {
       </div>
       <iframe 
         ref="iframeRef"
-        :src="officialUrl"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+        :src="feedbackUrl"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
         frameborder="0"
         allowfullscreen
         @load="handleLoad"
@@ -76,7 +76,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.official-view {
+.feedback-view {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -88,7 +88,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
   color: white;
   position: sticky;
   top: 0;
@@ -152,7 +152,7 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   border: 3px solid #e5e7eb;
-  border-top-color: #6366f1;
+  border-top-color: #f59e0b;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }

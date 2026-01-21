@@ -56,7 +56,7 @@ impl ScheduleModule {
         Local::now().date_naive().weekday().num_days_from_monday() as i32 + 1
     }
 
-    pub async fn fetch_schedule(&self, student_id: &str) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_schedule(&self, _student_id: &str) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
         // 1. 获取 xhid
         let xhid = self.get_xhid().await?;
         println!("[DEBUG] Got xhid: {}", xhid);

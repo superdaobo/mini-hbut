@@ -102,10 +102,18 @@ impl TrainingPlanModule {
         let mut options = Vec::new();
         if let Some(items) = json.as_array() {
             for item in items {
-                let id = item.get("id").and_then(|v| v.as_str().or_else(|| v.as_i64().map(|n| n.to_string().as_str().to_string()).as_deref()));
+                let id = item.get("id").and_then(|v| {
+                    if let Some(s) = v.as_str() {
+                        Some(s.to_string())
+                    } else if let Some(n) = v.as_i64() {
+                        Some(n.to_string())
+                    } else {
+                        Some(v.to_string())
+                    }
+                });
                 let name = item.get("name").and_then(|v| v.as_str());
                 
-                if let (Some(id_str), Some(name_str)) = (id.or_else(|| item.get("id").and_then(|v| v.to_string().into())), name) {
+                if let (Some(id_str), Some(name_str)) = (id, name) {
                     options.push(SelectOption {
                         value: id_str.to_string(),
                         label: name_str.to_string(),

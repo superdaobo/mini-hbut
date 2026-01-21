@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use base64::Engine;
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use rand::Rng;
-use chrono::{Datelike, NaiveDate};
+use chrono::Datelike;
 
 use crate::{
     UserInfo, LoginPageInfo, Grade, ScheduleCourse, Exam, CalendarEvent,
@@ -107,7 +107,11 @@ impl HbutClient {
     }
 
     pub async fn get_login_page(&mut self) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, TARGET_SERVICE);
+        self.get_login_page_with_service(TARGET_SERVICE).await
+    }
+
+    pub async fn get_login_page_with_service(&mut self, service_url: &str) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, service_url);
         println!("[DEBUG] Fetching login page: {}", login_url);
         
         let response = self.client.get(&login_url).send().await?;
@@ -184,6 +188,122 @@ impl HbutClient {
             captcha_required,
             salt,
         })
+    }
+
+    pub async fn login_for_service(&mut self, username: &str, password: &str, service_url: &str) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, service_url);
+        println!("[DEBUG] Login URL (service): {}", login_url);
+        println!("[DEBUG] Username: {}", username);
+        println!("[DEBUG] Password length (plain): {}", password.len());
+
+        // 缓存最近一次登录凭据（仅内存）
+        self.last_username = Some(username.to_string());
+        self.last_password = Some(password.to_string());
+
+        for attempt in 0..2 {
+            // 获取登录页面参数（execution 一次性）
+            let page_info = self.get_login_page_with_service(service_url).await?;
+            let current_salt = page_info.salt;
+            let current_execution = page_info.execution;
+            let current_lt = page_info.lt;
+
+            if current_salt.is_empty() {
+                return Err("无法获取加密盐值".into());
+            }
+
+            // 加密密码
+            let encrypted_password = encrypt_password_aes(password, &current_salt)?;
+
+            let mut form_data = self.last_login_inputs.clone().unwrap_or_default();
+
+            let set_key = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: String| {
+                for key in keys {
+                    if map.contains_key(*key) {
+                        map.insert((*key).to_string(), value.clone());
+                        return;
+                    }
+                }
+                map.insert(default_key.to_string(), value);
+            };
+
+            set_key(&mut form_data, &["username", "userName", "loginname"], "username", username.to_string());
+            set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
+            if !current_execution.is_empty() {
+                set_key(&mut form_data, &["execution"], "execution", current_execution);
+            }
+            if !current_lt.is_empty() {
+                set_key(&mut form_data, &["lt"], "lt", current_lt);
+            }
+            set_key(&mut form_data, &["_eventId"], "_eventId", "submit".to_string());
+            set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
+
+            if page_info.captcha_required {
+                let captcha_code = self.fetch_and_recognize_captcha().await.unwrap_or_default();
+                if !captcha_code.is_empty() {
+                    set_key(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_code);
+                }
+            }
+
+            let response = self.client
+                .post(&login_url)
+                .header("Referer", &login_url)
+                .form(&form_data)
+                .send()
+                .await?;
+
+            let response_url = response.url().to_string();
+            let status = response.status();
+            let html = response.text().await?;
+
+            if html.contains("验证码错误") || html.contains("验证码无效") {
+                return Err("验证码错误".into());
+            }
+            if html.contains("密码错误") || html.contains("帐号或密码错误") || html.contains("认证失败") {
+                return Err("用户名或密码错误".into());
+            }
+            if html.contains("账户被锁定") || html.contains("冻结") {
+                return Err("账号已被锁定".into());
+            }
+            if status.as_u16() == 401 {
+                return Err("登录失败，请检查账号密码或验证码".into());
+            }
+
+            let is_on_auth_page = response_url.contains("authserver/login")
+                || response_url.contains("auth.hbut.edu.cn")
+                || html.contains("统一身份认证")
+                || html.contains("pwdEncryptSalt");
+
+            if is_on_auth_page {
+                if attempt == 0 {
+                    continue;
+                }
+                return Err("登录失败，请检查账号密码或验证码".into());
+            }
+
+            break;
+        }
+
+        // 成功登录后尝试获取用户信息（如不可用则忽略）
+        let _ = self.client.get(service_url).send().await;
+        let _ = self.client.get(TARGET_SERVICE).send().await;
+
+        let user_info = match self.fetch_user_info().await {
+            Ok(info) => info,
+            Err(_) => {
+                self.user_info.clone().unwrap_or(UserInfo {
+                    student_id: username.to_string(),
+                    student_name: String::new(),
+                    college: None,
+                    major: None,
+                    class_name: None,
+                    grade: None,
+                })
+            }
+        };
+
+        self.is_logged_in = true;
+        self.user_info = Some(user_info.clone());
+        Ok(user_info)
     }
 
     pub async fn get_captcha(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -1640,6 +1760,10 @@ impl HbutClient {
 
     async fn get_electricity_token(&mut self) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
         println!("[DEBUG] Starting electricity SSO flow...");
+        // 0) 先通过融合门户建立会话（对齐 Python fast_auth.py）
+        let portal_service = "https://e.hbut.edu.cn/login";
+        let portal_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, portal_service);
+        let _ = self.client.get(&portal_sso_url).send().await;
         
         // 创建一个不自动重定向的客户端来跟踪 SSO 流程
         let no_redirect_client = Client::builder()
@@ -1653,8 +1777,7 @@ impl HbutClient {
         
         let mut auth_token = String::new();
         let mut tid = String::new();
-        let mut needs_login = false;
-        
+        let mut ticket = String::new();
         // 1. 触发电费 SSO 流程
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[DEBUG] Step 1: Starting SSO from {}", sso_url);
@@ -1663,7 +1786,7 @@ impl HbutClient {
         for attempt in 0..2 {
             auth_token.clear();
             tid.clear();
-            needs_login = false;
+            let mut needs_login = false;
 
             let mut current_url = sso_url.to_string();
             let mut redirect_count = 0;
@@ -1685,12 +1808,24 @@ impl HbutClient {
                     auth_token = token_header.to_str()?.to_string();
                     println!("[DEBUG] Got token from header: {}...", &auth_token.chars().take(30).collect::<String>());
                 }
+                if auth_token.is_empty() {
+                    if let Some(token_header) = response.headers().get("token") {
+                        auth_token = token_header.to_str()?.to_string();
+                        println!("[DEBUG] Got token from token header: {}...", &auth_token.chars().take(30).collect::<String>());
+                    }
+                }
 
                 // 提取 tid 从 URL 或 Location
                 let url_str = response.url().to_string();
                 if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
                     tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
                     println!("[DEBUG] Got tid from URL: {}", tid);
+                }
+                if ticket.is_empty() {
+                    if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str) {
+                        ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[DEBUG] Got ticket from URL: {}", ticket);
+                    }
                 }
 
                 // 检查是否需要重定向
@@ -1702,6 +1837,12 @@ impl HbutClient {
                         if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(location_str) {
                             tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
                             println!("[DEBUG] Got tid from Location: {}", tid);
+                        }
+                        if ticket.is_empty() {
+                            if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(location_str) {
+                                ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                                println!("[DEBUG] Got ticket from Location: {}", ticket);
+                            }
                         }
 
                         // 处理相对路径
@@ -1731,6 +1872,18 @@ impl HbutClient {
                             println!("[DEBUG] Got tid from HTML: {}", tid);
                         }
                     }
+                    if ticket.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r#"ticket=([^&"']+)"#)?.captures(&html) {
+                            ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[DEBUG] Got ticket from HTML: {}", ticket);
+                        }
+                    }
+                    if auth_token.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r"(C2CDB[0-9A-F]{10,}(?:\.[0-9A-Za-z]+){2,})")?.captures(&html) {
+                            auth_token = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[DEBUG] Got token from HTML body: {}...", &auth_token.chars().take(30).collect::<String>());
+                        }
+                    }
 
                     // 如果停留在认证登录页，说明需要重新登录
                     if current_url.contains("authserver/login")
@@ -1745,7 +1898,7 @@ impl HbutClient {
 
             if needs_login && attempt == 0 {
                 println!("[DEBUG] Electricity SSO requires login, re-login and retrying...");
-                let relogin_ok = self.relogin_with_cached_credentials().await.unwrap_or(false);
+                let relogin_ok = self.relogin_for_code_service().await.unwrap_or(false);
                 if relogin_ok {
                     continue;
                 }
@@ -1762,21 +1915,43 @@ impl HbutClient {
                     tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
                     println!("[DEBUG] Got tid from final URL: {}", tid);
                 }
+                if ticket.is_empty() {
+                    if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str) {
+                        ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[DEBUG] Got ticket from final URL: {}", ticket);
+                    }
+                }
                 if tid.is_empty() {
                     let html = resp.text().await.unwrap_or_default();
                     if let Some(caps) = regex::Regex::new(r#"tid=([^&"']+)"#)?.captures(&html) {
                         tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
                         println!("[DEBUG] Got tid from final HTML: {}", tid);
                     }
+                    if ticket.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r#"ticket=([^&"']+)"#)?.captures(&html) {
+                            ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[DEBUG] Got ticket from final HTML: {}", ticket);
+                        }
+                    }
+                    if auth_token.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r"(C2CDB[0-9A-F]{10,}(?:\.[0-9A-Za-z]+){2,})")?.captures(&html) {
+                            auth_token = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[DEBUG] Got token from final HTML body: {}...", &auth_token.chars().take(30).collect::<String>());
+                        }
+                    }
                 }
             }
         }
         
         // 2. 如果有 tid，尝试多种方式交换 token (与 Python fast_auth.py 一致)
-        if auth_token.is_empty() && !tid.is_empty() {
+        if auth_token.is_empty() && (!tid.is_empty() || !ticket.is_empty()) {
             println!("[DEBUG] Step 2: Exchanging tid for token using multiple methods");
             
-            let referer_url = format!("https://code.hbut.edu.cn/?tid={}&orgId=2", tid);
+            let referer_url = if !tid.is_empty() {
+                format!("https://code.hbut.edu.cn/?tid={}&orgId=2", tid)
+            } else {
+                "https://code.hbut.edu.cn/".to_string()
+            };
             
             // 预先创建 URL 字符串，避免临时值借用问题
             let url_get1 = format!("https://code.hbut.edu.cn/server/auth/getToken?tid={}", tid);
@@ -1784,18 +1959,23 @@ impl HbutClient {
             let url_post = "https://code.hbut.edu.cn/server/auth/getToken".to_string();
             
             // 方法列表：先GET后POST，不同参数组合
-            let token_urls: Vec<(&str, Option<serde_json::Value>)> = vec![
-                // GET 方式
-                (&url_get1, None),
-                (&url_get2, None),
-                // POST 方式
-                (&url_post, Some(serde_json::json!({"tid": tid, "orgId": 2}))),
-            ];
+            let mut token_urls: Vec<(String, Option<serde_json::Value>)> = Vec::new();
+            if !tid.is_empty() {
+                token_urls.push((url_get1, None));
+                token_urls.push((url_get2, None));
+                token_urls.push((url_post.clone(), Some(serde_json::json!({"tid": tid, "orgId": 2}))));
+            }
+            if !ticket.is_empty() {
+                token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?ticket={}", ticket), None));
+                token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?ticket={}&org=2", ticket), None));
+                token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?ticket={}&orgId=2", ticket), None));
+                token_urls.push((url_post.clone(), Some(serde_json::json!({"ticket": ticket, "orgId": 2}))));
+            }
             
             for (url_str, post_body) in token_urls {
                 let resp_result = if let Some(body) = post_body {
                     println!("[DEBUG] Trying POST: {}", url_str);
-                    self.client.post(url_str)
+                    self.client.post(&url_str)
                         .header("Origin", "https://code.hbut.edu.cn")
                         .header("Referer", &referer_url)
                         .header("X-Requested-With", "XMLHttpRequest")
@@ -1805,7 +1985,7 @@ impl HbutClient {
                         .await
                 } else {
                     println!("[DEBUG] Trying GET: {}", url_str);
-                    self.client.get(url_str)
+                    self.client.get(&url_str)
                         .header("Origin", "https://code.hbut.edu.cn")
                         .header("Referer", &referer_url)
                         .header("X-Requested-With", "XMLHttpRequest")
@@ -1876,6 +2056,12 @@ impl HbutClient {
                 println!("[DEBUG] Got token from cookie");
             }
         }
+        if auth_token.is_empty() {
+            if let Some(caps) = regex::Regex::new(r"(C2CDB[0-9A-F]{10,}(?:\.[0-9A-Za-z]+){2,})")?.captures(&cookies) {
+                auth_token = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                println!("[DEBUG] Got token from cookie value");
+            }
+        }
         
         if auth_token.is_empty() {
             return Err(format!("无法获取电费 Authorization Token (tid={})", tid).into());
@@ -1886,19 +2072,22 @@ impl HbutClient {
     }
 
     pub async fn ensure_electricity_token(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(300); // 5分钟
+        const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(600); // 10分钟
         if let (Some(token), Some(instant)) = (&self.electricity_token, &self.electricity_token_at) {
             if instant.elapsed() < TOKEN_TTL {
                 return Ok(token.clone());
             }
         }
 
+        // 过期时主动重新登录，确保 SSO 续期
+        let _ = self.relogin_for_code_service().await;
+
         let token_result = self.get_electricity_token().await;
         let (token, _) = match token_result {
             Ok(res) => res,
             Err(err) => {
                 println!("[DEBUG] Electricity token failed, trying relogin: {}", err);
-                let _ = self.relogin_with_cached_credentials().await;
+                let _ = self.relogin_for_code_service().await;
                 self.get_electricity_token().await?
             }
         };
@@ -1921,7 +2110,26 @@ impl HbutClient {
         Ok(true)
     }
 
-    pub async fn fetch_electricity_balance(&mut self, room_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    async fn relogin_for_code_service(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let username = match &self.last_username {
+            Some(v) => v.clone(),
+            None => return Ok(false),
+        };
+        let password = match &self.last_password {
+            Some(v) => v.clone(),
+            None => return Ok(false),
+        };
+
+        // 先登录融合门户，再登录电费服务
+        let portal_service = "https://e.hbut.edu.cn/login";
+        let _ = self.login_for_service(&username, &password, portal_service).await?;
+
+        let service_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        let _ = self.login_for_service(&username, &password, service_url).await?;
+        Ok(true)
+    }
+
+    pub async fn fetch_electricity_balance(&mut self, _room_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let (token, _) = self.get_electricity_token().await?;
         
         // 查询位置信息 (Area -> Building -> Unit -> Room)

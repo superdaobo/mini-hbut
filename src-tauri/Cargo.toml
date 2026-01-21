@@ -1,6 +1,6 @@
 [package]
 name = "hbut-helper"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2021"
 description = "湖北工业大学教务助手 - Tauri 桌面应用"
 authors = ["HBUT Helper Team"]
@@ -28,6 +28,8 @@ tauri-build = { version = "2.0", features = [] }
 tauri = { version = "2.0", features = [] }
 tauri-plugin-fs = "2.0"
 tauri-plugin-shell = "2.0"
+tauri-plugin-notification = "2.0"
+tauri-plugin-autostart = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart", "rustls-tls"] }

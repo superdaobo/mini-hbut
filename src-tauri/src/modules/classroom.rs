@@ -3,7 +3,7 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::{Local, NaiveDate, Datelike};
+use chrono::{Local, NaiveDate, Datelike, Timelike};
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 

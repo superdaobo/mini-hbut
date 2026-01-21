@@ -289,13 +289,12 @@ const getCourseStyle = (course) => {
   }
 
   const theme = courseThemes[index]
-  const span = Math.max(1, course.djs || 1)
-  const rowStart = Math.max(1, course.period || 1)
+  const span = course.djs || 1
   
   return {
     backgroundColor: theme.bg,
     color: theme.text,
-    gridRow: `${rowStart} / span ${span}`,
+    gridRow: `${course.period} / span ${span}`,
     gridColumn: '1',
     zIndex: 1,
     // 增加间隔 (或者通过 margin 在 css 控制)
@@ -564,24 +563,22 @@ onMounted(() => {
 }
 
 /* 日期头 */
-.day-column {
-  flex: 1;
-  display: grid;
-  grid-template-rows: repeat(11, 65px); /* Grid 行定义 */
-  grid-template-columns: 1fr; /* 强制单列 */
-  padding: 0 3px;
-  position: relative;
+.date-header {
+  height: 50px;
+  display: flex;
+  border-bottom: 1px solid #f3f4f6;
+  background: white;
+  flex-shrink: 0;
 }
-.course-card {
-  margin: 0;
-  border-radius: 6px;
-  padding: 0 3px;
-  row-gap: 0;
-  align-items: stretch;
+
+.month-col {
+  width: 40px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  margin: 0;
+  color: #1f2937;
   font-size: 14px;
 }
 .month-label {
@@ -590,15 +587,11 @@ onMounted(() => {
   color: #6b7280;
 }
 
-  box-sizing: border-box;
 .days-row {
   flex: 1;
   display: flex;
 }
 
-  box-sizing: border-box;
-  align-self: stretch;
-  height: 100%;
 .day-col {
   flex: 1;
   display: flex;
@@ -703,13 +696,12 @@ onMounted(() => {
   display: grid;
   grid-template-rows: repeat(11, 65px); /* Grid 行定义 */
   grid-template-columns: 1fr; /* 强制单列 */
-  padding: 0 3px;
+  padding: 0 2px;
   position: relative;
-  align-items: stretch;
 }
 
 .course-card {
-  margin: 0;
+  margin: 2px; 
   border-radius: 6px;
   padding: 6px 4px;
   display: flex;
@@ -724,9 +716,6 @@ onMounted(() => {
   /* 质感：轻微阴影 + 半透明边框 */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  box-sizing: border-box;
-  align-self: stretch;
-  height: 100%;
 }
 
 .course-card:active {

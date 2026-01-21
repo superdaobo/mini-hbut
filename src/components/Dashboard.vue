@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { showToast } from '../utils/toast'
 import hbutLogo from '../assets/hbut-logo.png'
 
 const props = defineProps({
@@ -101,19 +102,13 @@ const handleLogout = () => {
 
 // 生成分享链接
 const shareLink = computed(() => {
-  if (props.userUuid) {
-    return `${window.location.origin}/#/s/${props.userUuid}`
-  }
-  if (props.studentId) {
-    return `${window.location.origin}/#/${props.studentId}`
-  }
-  return ''
+  return 'https://docs.qq.com/doc/DQnVTWFFFbEhNTXhx'
 })
 
 const copyShareLink = async () => {
   if (shareLink.value) {
     await navigator.clipboard.writeText(shareLink.value)
-    alert('链接已复制！')
+    showToast('链接已复制！', 'success')
   }
 }
 </script>
@@ -194,6 +189,7 @@ const copyShareLink = async () => {
   font-weight: 700;
   background: linear-gradient(135deg, #667eea, #764ba2);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 

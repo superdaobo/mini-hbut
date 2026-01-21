@@ -3,9 +3,10 @@ use tokio::sync::Mutex;
 use tauri::State;
 use chrono::Datelike;
 
-mod http_client;
-mod parser;
-mod db;
+pub mod http_client;
+pub mod parser;
+pub mod db;
+pub mod modules;
 
 use http_client::HbutClient;
 
@@ -408,8 +409,15 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--flag1", "--flag2"])))
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            crate::modules::notification::init_background_task(app_handle);
+            Ok(())
+        })
         .manage(AppState {
             client: Mutex::new(HbutClient::new()),
         })

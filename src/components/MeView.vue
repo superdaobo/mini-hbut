@@ -1,5 +1,6 @@
 <script setup>
 import { ref, nextTick } from 'vue'
+import { open } from '@tauri-apps/plugin-shell'
 import LoginV3 from './LoginV3.vue'
 
 const props = defineProps({
@@ -8,15 +9,26 @@ const props = defineProps({
   loginMode: { type: String, default: 'captcha' }
 })
 
-const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial'])
+const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback'])
 
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
+const showOpenSourceModal = ref(false)
 
 const handleLogout = () => emit('logout')
 const goStudentInfo = () => emit('navigate', 'studentinfo')
 const handleCheckUpdate = () => emit('checkUpdate')
 const handleOpenOfficial = () => emit('openOfficial')
+
+const handleFeedback = () => emit('openFeedback')
+
+const handleOpenSource = () => {
+    showOpenSourceModal.value = true
+}
+
+const openGithub = async () => {
+    await open('https://github.com/superdaobo/mini-hbut')
+}
 
 const handleShowLegal = async (tab) => {
   activeLegalTab.value = tab
@@ -73,6 +85,14 @@ const handleShowLegal = async (tab) => {
           <span class="link-icon">🔄</span>
           <span class="link-text">检查更新</span>
         </button>
+        <button class="link-item" @click="handleFeedback">
+          <span class="link-icon">📝</span>
+          <span class="link-text">问题反馈</span>
+        </button>
+        <button class="link-item" @click="handleOpenSource">
+          <span class="link-icon">📦</span>
+          <span class="link-text">开源说明</span>
+        </button>
       </div>
     </section>
 
@@ -117,6 +137,25 @@ const handleShowLegal = async (tab) => {
         <p>继续使用即表示你已阅读并同意本隐私政策。</p>
       </div>
     </section>
+
+    <!-- 开源说明弹窗 -->
+    <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
+        <div class="modal-card" @click.stop>
+            <h3>开源说明</h3>
+            <p>Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
+            <p><strong>项目地址：</strong></p>
+            <a class="github-link" @click="openGithub">https://github.com/superdaobo/mini-hbut</a>
+            <p>感谢以下开源项目：</p>
+            <ul class="opensource-list">
+                <li>Tauri / Vue 3 / Vite</li>
+                <li>reqwest / scraper / serde</li>
+                <li>...以及所有贡献者</li>
+            </ul>
+            <div class="modal-actions">
+                <button class="btn-primary" @click="showOpenSourceModal = false">关闭</button>
+            </div>
+        </div>
+    </div>
   </div>
 </template>
 
@@ -309,5 +348,64 @@ const handleShowLegal = async (tab) => {
 
 .legal-content li {
   margin: 6px 0;
+}
+
+/* Modal */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  background: white;
+  width: 85%;
+  max-width: 320px;
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.modal-card h3 {
+  margin-top: 0;
+  color: #1e293b;
+}
+
+.github-link {
+    display: block;
+    margin: 10px 0;
+    color: #3b82f6;
+    text-decoration: underline;
+    cursor: pointer;
+    word-break: break-all;
+}
+
+.opensource-list {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 14px;
+    color: #475569;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
 }
 </style>
