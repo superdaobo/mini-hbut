@@ -10,25 +10,16 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
-import { encryptPassword } from '../utils/crypto'
+// 使用后端自动 OCR 识别验证码
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 
 const username = ref('')
 const password = ref('')
-const captchaCode = ref('')
 const rememberMe = ref(true)
 const agreePolicy = ref(false)
 const loading = ref(false)
-const loadingCaptcha = ref(false)
 const statusMsg = ref('')
-const captchaImg = ref('')
-const jsessionId = ref('')
-const loginSalt = ref('')
-const loginExecution = ref('')
-const loginLt = ref('')
-const loginInputs = ref({})
-const loginCookies = ref({})
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -62,67 +53,8 @@ onMounted(async () => {
     rememberMe.value = true
   }
   
-  // 加载验证码
-  await loadCaptcha()
+  // 验证码由后端 OCR 自动处理
 })
-
-// 加载验证码
-const loadCaptcha = async () => {
-  loadingCaptcha.value = true
-  statusMsg.value = ''
-  
-  try {
-    // 使用 axios (适配器会接管)
-    const res = await axios.get(`${API_BASE}/v3/login_params`)
-    const data = res.data
-    
-    if (data.success) {
-      // 适配器返回的数据结构
-      captchaImg.value = data.captcha_base64 ? `data:image/jpeg;base64,${data.captcha_base64}` : ''
-      
-      // 如果后端明确说不需要验证码
-      if(data.captcha_base64 === undefined && data.captcha_required === false) {
-           captchaImg.value = '' 
-      }
-      
-      jsessionId.value = data.jsessionid || ''
-      loginSalt.value = data.salt || ''
-      loginExecution.value = data.execution || ''
-      loginLt.value = data.lt || ''
-      loginInputs.value = data.inputs || {}
-      loginCookies.value = data.cookies || {}
-      captchaCode.value = ''
-    } else {
-      statusMsg.value = '⚠️ 获取验证码失败: ' + (data.error || '未知错误')
-    }
-  } catch (e) {
-    statusMsg.value = '⚠️ 网络错误: ' + e.message
-  } finally {
-    loadingCaptcha.value = false
-  }
-}
-
-// 刷新验证码
-const refreshCaptcha = async () => {
-  loadingCaptcha.value = true
-  
-  try {
-    const res = await axios.post(`${API_BASE}/v3/refresh_captcha`, {
-      jsessionid: jsessionId.value
-    })
-    const data = res.data
-    
-    if (data.success) {
-      captchaImg.value = `data:image/jpeg;base64,${data.captcha_base64}`
-      jsessionId.value = data.jsessionid || jsessionId.value
-      captchaCode.value = ''
-    }
-  } catch (e) {
-    console.error('刷新验证码失败:', e)
-  } finally {
-    loadingCaptcha.value = false
-  }
-}
 
 // 保存凭据
 const saveCredentials = async () => {
@@ -170,17 +102,17 @@ const handleLogin = async () => {
     console.log('登录参数:', {
       username: username.value,
       password: '***',
-      captcha: captchaCode.value,
-      captchaLength: captchaCode.value?.length || 0
+      captcha: '',
+      captchaLength: 0
     })
 
     // 调用 Tauri 后端 (通过 adapter)
     const res = await axios.post(`${API_BASE}/v2/start_login`, {
       username: username.value,
       password: finalPassword,
-      captcha: captchaCode.value,
-      lt: loginLt.value,
-      execution: loginExecution.value
+      captcha: '',
+      lt: '',
+      execution: ''
     })
     
     const result = res.data
@@ -202,13 +134,13 @@ const handleLogin = async () => {
     } else {
       statusMsg.value = '❌ ' + (result.error || '登录失败')
       loading.value = false
-      await refreshCaptcha()
+      // 后端会自动刷新验证码并重试
     }
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message
     statusMsg.value = '⚠️ 登录失败: ' + errMsg
     loading.value = false
-    await refreshCaptcha()
+    // 后端会自动刷新验证码并重试
   }
 }
 
@@ -267,27 +199,6 @@ const handleKeyPress = (event) => {
           @keypress="handleKeyPress"
           :disabled="loading"
         />
-      </div>
-
-      <!-- 验证码（服务器自动OCR识别，仅显示图片供用户参考） -->
-      <div class="captcha-group" v-if="captchaImg">
-        <label>验证码</label>
-        <div class="captcha-row">
-          <input 
-            v-model="captchaCode" 
-            type="text" 
-            class="captcha-input"
-            maxlength="6"
-            placeholder="????"
-            @keypress="handleKeyPress"
-            :disabled="loading"
-          />
-          <div class="captcha-img-container" @click="refreshCaptcha" title="点击刷新验证码">
-             <img v-if="captchaImg" :src="captchaImg" class="captcha-img" alt="验证码" />
-             <div v-else class="captcha-loading">加载中...</div>
-          </div>
-        </div>
-        <p class="captcha-hint">💡 系统将自动识别验证码，无需手动输入</p>
       </div>
 
       <div class="checkbox-group">
@@ -401,86 +312,6 @@ h2 {
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
   outline: none;
-}
-
-/* 验证码样式 */
-.captcha-group {
-  text-align: left;
-  margin-bottom: 1.2rem;
-}
-
-.captcha-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  color: var(--text-color);
-}
-
-.captcha-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.captcha-input {
-  flex: 1;
-  padding: 0.75rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 1.2rem;
-  text-transform: uppercase;
-  letter-spacing: 4px;
-  text-align: center;
-}
-
-.captcha-input:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-  outline: none;
-}
-
-.captcha-img-container {
-  width: 120px;
-  height: 48px;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f9fafb;
-}
-
-.captcha-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.captcha-loading,
-.captcha-placeholder {
-  font-size: 0.8rem;
-  color: #666;
-}
-
-.refresh-btn {
-  padding: 0.75rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  background: white;
-  cursor: pointer;
-  font-size: 1.2rem;
-  transition: all 0.2s;
-}
-
-.refresh-btn:hover {
-  background: #f3f4f6;
-}
-
-.refresh-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .checkbox-group {
@@ -661,13 +492,6 @@ h2 {
   color: #0369a1;
 }
 
-.captcha-hint {
-  font-size: 0.8rem;
-  color: #059669;
-  margin-top: 0.5rem;
-  text-align: center;
-}
-
 .help-section {
   margin-top: 2rem;
   padding-top: 1.5rem;
@@ -703,13 +527,5 @@ h2 {
     font-size: 1.5rem;
   }
   
-  .captcha-row {
-    flex-wrap: wrap;
-  }
-  
-  .captcha-input {
-    width: 100%;
-    margin-bottom: 8px;
-  }
 }
 </style>

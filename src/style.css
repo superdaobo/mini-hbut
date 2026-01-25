@@ -29,6 +29,10 @@ body {
   color: var(--text-color);
 }
 
+::-webkit-scrollbar {
+  display: none;
+}
+
 #app {
   width: 100%;
   max-width: 1200px;

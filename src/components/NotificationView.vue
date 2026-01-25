@@ -77,7 +77,7 @@ const saveSettings = () => {
       <button class="icon-btn" @click="$emit('back')">
         <span class="material-icons">arrow_back</span>
       </button>
-      <h2>通知设置</h2>
+      <h2>通知设置(测试项目，暂时无法使用)</h2>
     </div>
 
     <div class="content-card">

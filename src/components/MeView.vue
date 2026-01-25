@@ -9,7 +9,7 @@ const props = defineProps({
   loginMode: { type: String, default: 'captcha' }
 })
 
-const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback'])
+const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig'])
 
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
@@ -19,6 +19,8 @@ const handleLogout = () => emit('logout')
 const goStudentInfo = () => emit('navigate', 'studentinfo')
 const handleCheckUpdate = () => emit('checkUpdate')
 const handleOpenOfficial = () => emit('openOfficial')
+const handleOpenConfig = () => emit('openConfig')
+const isConfigAdmin = () => props.studentId === '2510231106'
 
 const handleFeedback = () => emit('openFeedback')
 
@@ -80,6 +82,10 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleOpenOfficial">
           <span class="link-icon">📢</span>
           <span class="link-text">官方发布</span>
+        </button>
+        <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
+          <span class="link-icon">🛠️</span>
+          <span class="link-text">配置工具</span>
         </button>
         <button class="link-item" @click="handleCheckUpdate">
           <span class="link-icon">🔄</span>

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-shell'
 import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
 import GradeView from './components/GradeView.vue'
@@ -17,10 +18,13 @@ import MeView from './components/MeView.vue'
 import OfficialView from './components/OfficialView.vue'
 import FeedbackView from './components/FeedbackView.vue'
 import NotificationView from './components/NotificationView.vue'
+import ConfigEditor from './components/ConfigEditor.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
+import { renderMarkdown } from './utils/markdown.js'
+import { fetchRemoteConfig } from './utils/remote_config.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -45,11 +49,118 @@ let electricityKeepAliveTimer = null
 
 // 版本更新相关
 const showUpdateDialog = ref(false)
+const showForceUpdate = ref(false)
+const forceUpdateInfo = ref(null)
+
+const remoteConfig = ref(null)
+const announcementData = ref({ pinned: [], ticker: [], list: [], confirm: [] })
+const activeAnnouncement = ref(null)
+const showAnnouncementModal = ref(false)
+const blockingAnnouncement = ref(null)
+const showBlockingAnnouncement = ref(false)
 
 // 默认使用 V2 全自动识别模式
 const loginMode = ref('auto')
 
 const isLoggedIn = computed(() => !!studentId.value)
+const isConfigAdmin = computed(() => studentId.value === '2510231106')
+
+const ANNOUNCEMENT_CONFIRM_KEY = 'hbu_announcement_confirmed'
+
+const compareVersions = (v1, v2) => {
+  const parts1 = (v1 || '').replace(/^v/, '').split('.').map(Number)
+  const parts2 = (v2 || '').replace(/^v/, '').split('.').map(Number)
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0
+    const p2 = parts2[i] || 0
+    if (p1 > p2) return 1
+    if (p1 < p2) return -1
+  }
+  return 0
+}
+
+const getConfirmedAnnouncementIds = () => {
+  try {
+    const raw = localStorage.getItem(ANNOUNCEMENT_CONFIRM_KEY)
+    const parsed = JSON.parse(raw || '[]')
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+const isAnnouncementConfirmed = (id) => {
+  if (!id) return true
+  return getConfirmedAnnouncementIds().includes(id)
+}
+
+const markAnnouncementConfirmed = (id) => {
+  if (!id) return
+  const ids = new Set(getConfirmedAnnouncementIds())
+  ids.add(id)
+  localStorage.setItem(ANNOUNCEMENT_CONFIRM_KEY, JSON.stringify([...ids]))
+}
+
+const getAllAnnouncements = () => {
+  const map = new Map()
+  const lists = [
+    announcementData.value.pinned,
+    announcementData.value.ticker,
+    announcementData.value.list,
+    announcementData.value.confirm
+  ]
+  lists.flat().forEach((item) => {
+    if (item?.id && !map.has(item.id)) {
+      map.set(item.id, item)
+    }
+  })
+  return [...map.values()]
+}
+
+const findNextBlockingAnnouncement = () => {
+  const pending = getAllAnnouncements().find(
+    (item) => item?.require_confirm && !isAnnouncementConfirmed(item.id)
+  )
+  if (pending) {
+    blockingAnnouncement.value = pending
+    showBlockingAnnouncement.value = true
+  } else {
+    blockingAnnouncement.value = null
+    showBlockingAnnouncement.value = false
+  }
+}
+
+const openAnnouncement = (item) => {
+  if (!item) return
+  activeAnnouncement.value = item
+  showAnnouncementModal.value = true
+}
+
+const closeAnnouncement = () => {
+  showAnnouncementModal.value = false
+  activeAnnouncement.value = null
+}
+
+const confirmBlockingAnnouncement = () => {
+  if (blockingAnnouncement.value?.id) {
+    markAnnouncementConfirmed(blockingAnnouncement.value.id)
+  }
+  showBlockingAnnouncement.value = false
+  blockingAnnouncement.value = null
+  setTimeout(findNextBlockingAnnouncement, 200)
+}
+
+const handleContentClick = async (e) => {
+  const target = e.target.closest('a')
+  if (target && target.href) {
+    e.preventDefault()
+    try {
+      await open(target.href)
+    } catch (e) {
+      window.open(target.href, '_blank')
+    }
+  }
+}
 
 // 处理登录成功
 const handleLoginSuccess = (data) => {
@@ -147,6 +258,13 @@ const handleSwitchLoginMode = (mode) => {
   loginMode.value = mode
 }
 
+const ensureConfigAccess = () => {
+  if (currentView.value === 'config' && !isConfigAdmin.value) {
+    currentView.value = 'me'
+    activeTab.value = 'me'
+  }
+}
+
 // 从API获取成绩数据
 const fetchGradesFromAPI = async (sid) => {
   isLoading.value = true
@@ -204,6 +322,48 @@ const autoCheckUpdate = async () => {
     }
   } catch (e) {
     console.warn('[Update] 自动检查更新失败:', e)
+  }
+}
+
+const handleForceUpdate = () => {
+  if (forceUpdateInfo.value?.download_url) {
+    window.open(forceUpdateInfo.value.download_url, '_blank')
+    return
+  }
+  showUpdateDialog.value = true
+}
+
+const applyRemoteConfig = async () => {
+  try {
+    const config = await fetchRemoteConfig()
+    remoteConfig.value = config
+    announcementData.value = config.announcements || { pinned: [], ticker: [], list: [], confirm: [] }
+
+    if (config.ocr?.endpoint) {
+      localStorage.setItem('hbu_ocr_endpoint', config.ocr.endpoint)
+      try {
+        await invoke('set_ocr_endpoint', { endpoint: config.ocr.endpoint })
+      } catch (e) {
+        console.warn('[Config] OCR 端点下发失败:', e)
+      }
+    }
+
+    const minVersion = config.force_update?.min_version
+    if (minVersion) {
+      const currentVersion = await getCurrentVersion()
+      if (compareVersions(currentVersion, minVersion) < 0) {
+        forceUpdateInfo.value = {
+          min_version: minVersion,
+          message: config.force_update?.message || '当前版本过低，请更新后继续使用。',
+          download_url: config.force_update?.download_url || ''
+        }
+        showForceUpdate.value = true
+      }
+    }
+
+    findNextBlockingAnnouncement()
+  } catch (e) {
+    console.warn('[Config] 远程配置加载失败:', e)
   }
 }
 
@@ -374,6 +534,11 @@ onMounted(async () => {
   
   // 启动即检查更新
   autoCheckUpdate()
+
+  // 拉取远程配置（公告 / 强制更新 / OCR 入口）
+  applyRemoteConfig()
+
+  ensureConfigAccess()
 })
 </script>
 
@@ -386,9 +551,13 @@ onMounted(async () => {
         :student-id="studentId"
         :user-uuid="userUuid"
         :is-logged-in="isLoggedIn"
+        :ticker-notices="announcementData.ticker"
+        :pinned-notices="announcementData.pinned"
+        :notice-list="announcementData.list"
         @navigate="handleNavigate"
         @logout="handleLogout"
         @require-login="handleRequireLogin"
+        @open-notice="openAnnouncement"
       />
 
       <!-- 课表（Tab） -->
@@ -412,6 +581,7 @@ onMounted(async () => {
         @checkUpdate="handleCheckUpdate"
         @openOfficial="handleOpenOfficial"
         @openFeedback="currentView = 'feedback'"
+        @openConfig="currentView = 'config'"
       />
 
       <!-- 官方发布页 -->
@@ -423,6 +593,11 @@ onMounted(async () => {
       <!-- 问题反馈页 -->
       <FeedbackView 
         v-else-if="currentView === 'feedback'"
+        @back="currentView = 'me'; activeTab = 'me'"
+      />
+
+      <ConfigEditor
+        v-else-if="currentView === 'config' && isConfigAdmin"
         @back="currentView = 'me'; activeTab = 'me'"
       />
       
@@ -548,6 +723,49 @@ onMounted(async () => {
       v-if="showUpdateDialog"
       @close="showUpdateDialog = false"
     />
+
+    <!-- 强制更新覆盖层 -->
+    <div v-if="showForceUpdate" class="force-update-overlay">
+      <div class="force-update-card">
+        <h3>需要更新</h3>
+        <p class="force-update-message">
+          {{ forceUpdateInfo?.message || '当前版本过低，请更新后继续使用。' }}
+        </p>
+        <p class="force-update-meta">最低版本：v{{ forceUpdateInfo?.min_version }}</p>
+        <button class="btn-primary" @click="handleForceUpdate">立即更新</button>
+      </div>
+    </div>
+
+    <!-- 公告详情弹窗 -->
+    <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="closeAnnouncement">
+      <div class="notice-modal">
+        <div class="notice-modal-header">
+          <h3>{{ activeAnnouncement?.title }}</h3>
+          <button class="notice-close" @click="closeAnnouncement">×</button>
+        </div>
+        <div v-if="activeAnnouncement?.updated_at" class="notice-modal-meta">
+          更新时间：{{ activeAnnouncement.updated_at }}
+        </div>
+        <div v-if="activeAnnouncement?.image" class="notice-modal-image">
+          <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
+        </div>
+        <div class="notice-modal-content select-text" @click="handleContentClick" v-html="renderMarkdown(activeAnnouncement?.content || activeAnnouncement?.summary || '')"></div>
+        <a v-if="activeAnnouncement?.link" class="notice-link" :href="activeAnnouncement.link" target="_blank" @click.prevent="open(activeAnnouncement.link)">查看原文</a>
+      </div>
+    </div>
+
+    <!-- 确认公告弹窗 -->
+    <div v-if="showBlockingAnnouncement" class="notice-confirm-overlay">
+      <div class="notice-confirm-card">
+        <h3>重要公告</h3>
+        <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>
+        <div class="notice-confirm-content" v-html="renderMarkdown(blockingAnnouncement?.content || blockingAnnouncement?.summary || '')"></div>
+        <div class="notice-confirm-actions">
+          <button class="btn-secondary" @click="openAnnouncement(blockingAnnouncement)">查看详情</button>
+          <button class="btn-primary" @click="confirmBlockingAnnouncement">我已知晓</button>
+        </div>
+      </div>
+    </div>
     
     <!-- 全局提示 -->
     <Toast />
@@ -597,11 +815,20 @@ onMounted(async () => {
   background: white;
   color: #667eea;
   border: none;
-  border-radius: 12px;
-  font-size: 16px;
+  border-radius: 99px;
   font-weight: 600;
   cursor: pointer;
+  margin-top: 12px;
   transition: transform 0.2s;
+}
+
+.coming-soon-content button:hover {
+  transform: scale(1.05);
+}
+
+.select-text {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .coming-soon-content button:hover {
@@ -679,5 +906,136 @@ onMounted(async () => {
   font-weight: 600;
   color: #0f172a;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.force-update-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.force-update-card {
+  background: white;
+  border-radius: 18px;
+  padding: 24px;
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.force-update-card h3 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.force-update-message {
+  color: #374151;
+  margin-bottom: 12px;
+}
+
+.force-update-meta {
+  color: #6b7280;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.notice-modal-overlay,
+.notice-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 9997;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.notice-modal,
+.notice-confirm-card {
+  background: white;
+  border-radius: 18px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 82vh;
+  overflow: auto;
+  padding: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.notice-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notice-modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #111827;
+}
+
+.notice-close {
+  border: none;
+  background: #f3f4f6;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.notice-modal-meta {
+  color: #6b7280;
+  font-size: 12px;
+  margin: 8px 0 12px;
+}
+
+.notice-modal-image img {
+  width: 100%;
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+
+.notice-modal-content {
+  color: #374151;
+  line-height: 1.6;
+}
+
+.notice-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: #6366f1;
+  text-decoration: none;
+}
+
+.notice-confirm-title {
+  font-weight: 600;
+  margin: 8px 0 12px;
+}
+
+.notice-confirm-content {
+  color: #374151;
+  line-height: 1.6;
+}
+
+.notice-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
 }
 </style>

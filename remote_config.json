@@ -1,0 +1,64 @@
+{
+  "announcements": {
+    "ticker": [
+      {
+        "id": "ticker-001",
+        "title": "滚动公告1",
+        "summary": "新学期功能更新，点击查看详情",
+        "content": "<p>欢迎使用新版本，已修复多项问题。</p>",
+        "link": "",
+        "image": "https://example.com/notice/ticker-1.png",
+        "updated_at": "2026-01-25"
+      },
+      {
+        "id": "ticker-002",
+        "title": "滚动公告2",
+        "summary": "系统维护时间 22:00-23:00",
+        "content": "<p>维护期间可能无法登录。</p>",
+        "link": "",
+        "image": "https://example.com/notice/ticker-2.png",
+        "updated_at": "2026-01-25"
+      }
+    ],
+    "pinned": [
+      {
+        "id": "pinned-001",
+        "title": "置顶公告：账号激活提醒",
+        "summary": "首次登录请先完成注册中心激活",
+        "content": "<p>新入学同学请先前往注册中心激活账号。</p>",
+        "image": "https://example.com/notice/pinned-1.png",
+        "updated_at": "2026-01-25",
+        "pinned": true
+      }
+    ],
+    "confirm": [
+      {
+        "id": "confirm-001",
+        "title": "重要提示：隐私协议更新",
+        "summary": "请确认后继续使用",
+        "content": "<p>我们更新了隐私政策，请阅读并确认。</p>",
+        "updated_at": "2026-01-25",
+        "require_confirm": true
+      }
+    ],
+    "list": [
+      {
+        "id": "notice-001",
+        "title": "新功能上线：学业完成情况",
+        "summary": "支持查看学分与课程进度",
+        "content": "<p>新增学业完成情况模块。</p>",
+        "image": "https://example.com/notice/list-1.png",
+        "updated_at": "2026-01-25"
+      }
+    ]
+  },
+  "force_update": {
+    "min_version": "1.2.0",
+    "message": "当前版本过低，请更新后继续使用。",
+    "download_url": "https://example.com/download"
+  },
+  "ocr": {
+    "endpoint": "http://1.94.167.18:5080/api/ocr/recognize",
+    "enabled": true
+  }
+}

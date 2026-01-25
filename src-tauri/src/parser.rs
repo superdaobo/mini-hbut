@@ -406,6 +406,7 @@ fn parse_weeks(weeks_str: &str) -> Vec<i32> {
     weeks
 }
 
+#[allow(dead_code)]
 fn parse_periods(jcs: &str) -> (i32, i32) {
     let parts: Vec<&str> = jcs.split('-').collect();
     if parts.len() == 2 {

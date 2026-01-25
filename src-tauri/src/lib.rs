@@ -147,6 +147,37 @@ async fn recognize_captcha(image_base64: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn set_ocr_endpoint(state: State<'_, AppState>, endpoint: String) -> Result<(), String> {
+    let mut client = state.client.lock().await;
+    client.set_ocr_endpoint(endpoint);
+    Ok(())
+}
+
+#[tauri::command]
+async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建请求失败: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {}", e))?;
+
+    let status = response.status();
+    let text = response.text().await.map_err(|e| format!("读取响应失败: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("请求失败: {}", status));
+    }
+
+    serde_json::from_str(&text).map_err(|e| format!("解析 JSON 失败: {}", e))
+}
+
+#[tauri::command]
 async fn login(
     state: State<'_, AppState>,
     username: String,
@@ -431,6 +462,8 @@ pub fn run() {
             get_login_page,
             get_captcha,
             recognize_captcha,
+            set_ocr_endpoint,
+            fetch_remote_config,
             login,
             logout,
             restore_session,

@@ -13,6 +13,7 @@ use crate::{
 };
 
 // 学期URLs
+#[allow(dead_code)]
 const CURRENT_SEMESTER_URLS: &[&str] = &[
     "/admin/api/jcsj/xnxq/getCurrentXnxq",
     "/admin/xsd/xsdcjcx/getCurrentXnxq",
@@ -78,6 +79,7 @@ pub struct HbutClient {
     last_password: Option<String>,
     electricity_token: Option<String>,
     electricity_token_at: Option<std::time::Instant>,
+    ocr_endpoint: Option<String>,
 }
 
 impl HbutClient {
@@ -103,6 +105,16 @@ impl HbutClient {
             last_password: None,
             electricity_token: None,
             electricity_token_at: None,
+            ocr_endpoint: None,
+        }
+    }
+
+    pub fn set_ocr_endpoint(&mut self, endpoint: String) {
+        let trimmed = endpoint.trim();
+        if trimmed.is_empty() {
+            self.ocr_endpoint = None;
+        } else {
+            self.ocr_endpoint = Some(trimmed.to_string());
         }
     }
 
@@ -115,7 +127,13 @@ impl HbutClient {
         println!("[DEBUG] Fetching login page: {}", login_url);
         
         let response = self.client.get(&login_url).send().await?;
+        let status = response.status();
+        let final_url = response.url().to_string();
         let html = response.text().await?;
+        if html.contains("IP冻结") || html.contains("ip-freeze") || html.contains("ip冻结") {
+            return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
+        }
+        println!("[DEBUG] Login page status: {}, final_url: {}", status, final_url);
 
         // 解析并缓存表单 inputs（用于后续登录提交）
         let mut inputs = HashMap::new();
@@ -163,9 +181,78 @@ impl HbutClient {
                 .map(|m| m.as_str().to_string())
             })
             .unwrap_or_default();
+
+        let lt = if lt.is_empty() {
+            regex::Regex::new(r#"name='lt'\s+value='([^']*)'"#)
+                .ok()
+                .and_then(|re| re.captures(&html))
+                .and_then(|cap| cap.get(1))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default()
+        } else {
+            lt
+        };
+
+        let execution = if execution.is_empty() {
+            regex::Regex::new(r#"name='execution'\s+value='([^']*)'"#)
+                .ok()
+                .and_then(|re| re.captures(&html))
+                .and_then(|cap| cap.get(1))
+                .map(|m| m.as_str().to_string())
+                .or_else(|| {
+                    regex::Regex::new(r#"execution\s*[:=]\s*\"([^\"]+)\""#)
+                        .ok()
+                        .and_then(|re| re.captures(&html))
+                        .and_then(|cap| cap.get(1))
+                        .map(|m| m.as_str().to_string())
+                })
+                .unwrap_or_default()
+        } else {
+            execution
+        };
+
+        let salt = if salt.is_empty() {
+            let salt_from_selector = Selector::parse("#pwdDefaultEncryptSalt").ok()
+                .and_then(|sel| document.select(&sel).next())
+                .and_then(|el| el.value().attr("value"))
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+
+            if !salt_from_selector.is_empty() {
+                salt_from_selector
+            } else {
+                regex::Regex::new(r#"id='pwdEncryptSalt'\s+value='([^']*)'"#)
+                    .ok()
+                    .and_then(|re| re.captures(&html))
+                    .and_then(|cap| cap.get(1))
+                    .map(|m| m.as_str().to_string())
+                    .or_else(|| {
+                        regex::Regex::new(r#"pwd(Default)?EncryptSalt\s*[:=]\s*\"([^\"]+)\""#)
+                            .ok()
+                            .and_then(|re| re.captures(&html))
+                            .and_then(|cap| cap.get(2))
+                            .map(|m| m.as_str().to_string())
+                    })
+                    .unwrap_or_default()
+            }
+        } else {
+            salt
+        };
         
 
         println!("[DEBUG] Login page params: lt={}, execution={}, salt={}", lt, execution, salt);
+
+        if salt.is_empty() || execution.is_empty() {
+            let debug_path = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("debug_login_page_tauri.html");
+            let _ = std::fs::write(&debug_path, &html);
+            println!(
+                "[DEBUG] Login page params missing, wrote {} (len={})",
+                debug_path.display(),
+                html.len()
+            );
+        }
         
         // 检查是否需要验证码
         let captcha_required = html.contains("captchaResponse") 
@@ -344,9 +431,18 @@ impl HbutClient {
         // 将验证码图片转为 Base64
         let base64_image = base64::engine::general_purpose::STANDARD.encode(&bytes);
         
-        // 调用服务器 OCR API
-        const OCR_SERVER: &str = "http://1.94.167.18:5080";
-        let ocr_url = format!("{}/api/ocr/recognize", OCR_SERVER);
+        // 调用服务器 OCR API（可由前端配置覆盖）
+        let default_ocr = "http://1.94.167.18:5080/api/ocr/recognize";
+        let endpoint = self.ocr_endpoint.as_deref().unwrap_or(default_ocr);
+        let ocr_url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            if endpoint.contains("/api/ocr/recognize") {
+                endpoint.to_string()
+            } else {
+                format!("{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
+            }
+        } else {
+            format!("http://{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
+        };
         println!("[DEBUG] Calling server OCR API: {}", ocr_url);
         
         // 创建一个简单的 HTTP 客户端（不带 cookie）
@@ -391,7 +487,7 @@ impl HbutClient {
         &mut self,
         username: &str,
         password: &str,  // 原始明文密码！加密在此函数内完成
-        captcha: &str,
+        _captcha: &str,
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
@@ -406,86 +502,168 @@ impl HbutClient {
         
         // 1. 获取登录页面获取最新的 salt, execution, lt
         println!("[DEBUG] Fetching fresh login page for parameters...");
-        let page_info = self.get_login_page().await?;
-        
-        let current_salt = page_info.salt;
-        let current_execution = page_info.execution;
-        let current_lt = page_info.lt;
-        
-        if current_salt.is_empty() {
-            return Err("无法获取加密盐值".into());
-        }
-        
-        println!("[DEBUG] Got fresh params - salt: {}, execution len: {}, lt: {}", 
-            current_salt, current_execution.len(), current_lt);
-        
-        // 2. 在后端加密密码
-        let encrypted_password = encrypt_password_aes(password, &current_salt)?;
-        println!("[DEBUG] Password encrypted, length: {}", encrypted_password.len());
-        
-        // 3. 获取并识别验证码（如果未提供）
-        let captcha_code = if captcha.is_empty() {
-            println!("[DEBUG] Captcha empty, auto-fetching and recognizing...");
-            match self.fetch_and_recognize_captcha().await {
-                Ok(code) => {
-                    println!("[DEBUG] OCR recognized captcha: {}", code);
-                    code
+
+        let max_retries = 2;
+        for attempt in 0..max_retries {
+            let page_info = self.get_login_page().await?;
+            let current_salt = page_info.salt;
+            let current_execution = page_info.execution;
+            let current_lt = page_info.lt;
+            let captcha_required = page_info.captcha_required;
+            
+            if current_salt.is_empty() {
+                return Err("无法获取加密盐值".into());
+            }
+            
+            println!("[DEBUG] Got fresh params - salt: {}, execution len: {}, lt: {}", 
+                current_salt, current_execution.len(), current_lt);
+            
+            // 2. 在后端加密密码
+            let encrypted_password = encrypt_password_aes(password, &current_salt)?;
+            println!("[DEBUG] Password encrypted, length: {}", encrypted_password.len());
+            
+            // 3. 获取并识别验证码（始终后端 OCR）
+            let captcha_code = if captcha_required {
+                println!("[DEBUG] Captcha required, auto-fetching and recognizing...");
+                match self.fetch_and_recognize_captcha().await {
+                    Ok(code) => {
+                        println!("[DEBUG] OCR recognized captcha: {}", code);
+                        code
+                    }
+                    Err(e) => {
+                        println!("[DEBUG] OCR failed: {}, trying without captcha", e);
+                        String::new()
+                    }
                 }
-                Err(e) => {
-                    println!("[DEBUG] OCR failed: {}, trying without captcha", e);
-                    String::new()
+            } else {
+                String::new()
+            };
+            
+            // 4. 构建表单数据（复用登录页隐藏字段）
+            let mut form_data = self.last_login_inputs.clone().unwrap_or_default();
+
+        let set_key = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: String| {
+            for key in keys {
+                if map.contains_key(*key) {
+                    map.insert((*key).to_string(), value.clone());
+                    return;
                 }
             }
-        } else {
-            captcha.to_string()
+            map.insert(default_key.to_string(), value);
         };
-        
-        // 4. 构建表单数据
-        let mut form_data = HashMap::new();
-        form_data.insert("username".to_string(), username.to_string());
-        form_data.insert("password".to_string(), encrypted_password);
-        form_data.insert("_eventId".to_string(), "submit".to_string());
-        form_data.insert("rmShown".to_string(), "1".to_string());
-        
-        if !captcha_code.is_empty() {
-            form_data.insert("captcha".to_string(), captcha_code.clone());
-            println!("[DEBUG] Using captcha: {}", captcha_code);
-        }
+
+        set_key(&mut form_data, &["username", "userName", "loginname"], "username", username.to_string());
+        set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
+        // 某些页面会校验 passwordText 是否为空
+        set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
+        set_key(&mut form_data, &["_eventId"], "_eventId", "submit".to_string());
+        set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
+
+        // 保留登录页原始 cllt 值（与 fast_auth.py 对齐）
+
+        // 与 fast_auth.py 对齐：仅在有值时覆盖 execution/lt
         if !current_execution.is_empty() {
-            form_data.insert("execution".to_string(), current_execution);
+            set_key(&mut form_data, &["execution"], "execution", current_execution);
         }
         if !current_lt.is_empty() {
-            form_data.insert("lt".to_string(), current_lt);
+            set_key(&mut form_data, &["lt"], "lt", current_lt);
+        }
+
+        if !captcha_code.is_empty() {
+            let captcha_upper = captcha_code.to_uppercase();
+            set_key(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_upper.clone());
+            println!("[DEBUG] Using captcha: {}", captcha_upper);
+        }
+
+        // 保留登录页隐藏字段（即使为空），某些学校 CAS 会校验字段存在性
+
+        // 若页面默认是扫码登录(qrLogin)，改为用户名登录，避免 CAS 在 realSubmit 处 NPE
+        if let Some(v) = form_data.get("cllt") {
+            if v == "qrLogin" {
+                form_data.insert("cllt".to_string(), "userNameLogin".to_string());
+            }
         }
         
-        println!("[DEBUG] Form data keys: {:?}", form_data.keys().collect::<Vec<_>>());
-        
-        // 5. 提交登录请求
-        let response = self.client
-            .post(&login_url)
-            .header("Referer", &login_url)
-            .form(&form_data)
-            .send()
-            .await?;
-        
-        let response_url = response.url().to_string();
-        let status = response.status();
-        let html = response.text().await?;
+        let debug_keys = ["cllt", "dllt", "uuid", "responseJson", "dynamicCode", "lt", "execution"];
+        let mut debug_fields: Vec<String> = Vec::new();
+        for k in debug_keys {
+            if let Some(v) = form_data.get(k) {
+                let display = if k == "execution" { format!("{}(len={})", k, v.len()) } else { format!("{}={}", k, v) };
+                debug_fields.push(display);
+            }
+        }
+            println!("[DEBUG] Form data keys: {:?}", form_data.keys().collect::<Vec<_>>());
+            if !debug_fields.is_empty() {
+                println!("[DEBUG] Form data fields: {}", debug_fields.join(", "));
+            }
+            
+            // 5. 提交登录请求
+            let response = self.client
+                .post(&login_url)
+                .header("Referer", &login_url)
+                .form(&form_data)
+                .send()
+                .await?;
+            
+            let response_url = response.url().to_string();
+            let status = response.status();
+            let html = response.text().await?;
         
         println!("[DEBUG] Login response status: {}", status);
         println!("[DEBUG] Login response URL: {}", response_url);
         println!("[DEBUG] Response length: {}", html.len());
+
+        if status.as_u16() >= 400 {
+            let debug_path = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("debug_login_error_response_tauri.html");
+            let _ = std::fs::write(&debug_path, &html);
+            println!(
+                "[DEBUG] Login response status >=400, wrote {} (len={})",
+                debug_path.display(),
+                html.len()
+            );
+        }
+
+        if html.contains("IP冻结") || html.contains("ip-freeze") || html.contains("ip冻结") {
+            return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
+        }
+
+        if status.as_u16() >= 500 {
+            let debug_path = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("debug_login_response_tauri.html");
+            let _ = std::fs::write(&debug_path, &html);
+            println!(
+                "[DEBUG] Login response status >=500, wrote {} (len={})",
+                debug_path.display(),
+                html.len()
+            );
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&html) {
+                if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
+                    return Err(format!("登录失败: {}", message).into());
+                }
+                if let Some(error) = json.get("error").and_then(|v| v.as_str()) {
+                    return Err(format!("登录失败: {}", error).into());
+                }
+            }
+            return Err("登录失败，认证服务返回 5xx".into());
+        }
         
         // 5. 错误检测（与 fast_auth.py 一致）
-        if html.contains("验证码错误") || html.contains("验证码无效") {
-            return Err("验证码错误".into());
-        }
-        if html.contains("密码错误") || html.contains("帐号或密码错误") || html.contains("认证失败") {
-            return Err("用户名或密码错误".into());
-        }
-        if html.contains("账户被锁定") || html.contains("冻结") {
-            return Err("账号已被锁定".into());
-        }
+            if html.contains("验证码错误") || html.contains("验证码无效") {
+                if attempt + 1 < max_retries {
+                    println!("[DEBUG] Captcha error, retrying... ({}/{})", attempt + 1, max_retries);
+                    continue;
+                }
+                return Err("验证码错误".into());
+            }
+            if html.contains("密码错误") || html.contains("帐号或密码错误") || html.contains("认证失败") {
+                return Err("用户名或密码错误".into());
+            }
+            if html.contains("账户被锁定") || html.contains("冻结") {
+                return Err("账号已被锁定".into());
+            }
         
         // 尝试提取 span#showErrorTip
         let login_error: Option<String> = {
@@ -510,66 +688,93 @@ impl HbutClient {
         }
 
         // 明确的失败判定（避免继续走 SSO 导致“会话已过期”）
-        if status.as_u16() == 401 {
-            return Err("登录失败，请检查账号密码或验证码".into());
-        }
-        if response_url.contains("authserver/login") && html.contains("pwdEncryptSalt") {
-            return Err("登录失败，请检查账号密码或验证码".into());
-        }
+            if status.as_u16() == 401 {
+                let debug_path = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join("debug_login_401_response_tauri.html");
+                let _ = std::fs::write(&debug_path, &html);
+                println!(
+                    "[DEBUG] Login response status 401, wrote {} (len={})",
+                    debug_path.display(),
+                    html.len()
+                );
+                if attempt + 1 < max_retries {
+                    println!("[DEBUG] 401 Unauthorized, retrying... ({}/{})", attempt + 1, max_retries);
+                    continue;
+                }
+                return Err("登录失败，请检查账号密码或验证码".into());
+            }
+            if response_url.contains("authserver/login") && html.contains("pwdEncryptSalt") {
+                if attempt + 1 < max_retries {
+                    println!("[DEBUG] Still on login page, retrying... ({}/{})", attempt + 1, max_retries);
+                    continue;
+                }
+                return Err("登录失败，请检查账号密码或验证码".into());
+            }
         
         // 检查是否登录成功（URL 发生变化通常表示成功）
-        if status.is_success()
-            && (response_url.contains("ticket=") || response_url.contains("jwxt") || !response_url.contains("login"))
-        {
-            println!("[DEBUG] Login appears successful based on URL redirect");
-        } else {
-            // 备用错误检测
-            if html.contains("认证失败") || html.contains("密码错误") || html.contains("帐号或密码错误") {
-                return Err("用户名或密码错误".into());
-            }
-            
-            if html.contains("验证码") && (html.contains("错误") || html.contains("无效")) {
-                return Err("验证码错误".into());
-            }
-            
-            if html.contains("账户被锁定") || html.contains("冻结") {
-                return Err("账号已被锁定，请稍后再试".into());
-            }
-            
-            // 如果仍然停留在登录页面但没有明确错误
-            if html.contains("统一身份认证") && html.contains("pwdEncryptSalt") {
-                println!("[DEBUG] Still on login page, login may have failed");
-                return Err("登录失败，请检查账号密码和验证码".into());
-            }
-        }
-        
-        // 访问教务系统完成 SSO
-        let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
-        println!("[DEBUG] Accessing JWXT SSO: {}", jwxt_url);
-        let _ = self.client.get(&jwxt_url).send().await?;
-
-        println!("[DEBUG] Accessing JWXT service: {}", TARGET_SERVICE);
-        let _ = self.client.get(TARGET_SERVICE).send().await?;
-        
-        // 获取用户信息（若会话未建立，补偿一次重试）
-        let user_info = match self.fetch_user_info().await {
-            Ok(info) => info,
-            Err(err) => {
-                let err_msg = err.to_string();
-                if err_msg.contains("无法解析用户信息") {
-                    println!("[DEBUG] User info parse failed, retrying SSO once");
-                    let _ = self.client.get(&jwxt_url).send().await?;
-                    let _ = self.client.get(TARGET_SERVICE).send().await?;
-                    self.fetch_user_info().await?
-                } else {
-                    return Err(err);
+            if status.is_success()
+                && (response_url.contains("ticket=") || response_url.contains("jwxt") || !response_url.contains("login"))
+            {
+                println!("[DEBUG] Login appears successful based on URL redirect");
+            } else {
+                // 备用错误检测
+                if html.contains("认证失败") || html.contains("密码错误") || html.contains("帐号或密码错误") {
+                    return Err("用户名或密码错误".into());
+                }
+                
+                if html.contains("验证码") && (html.contains("错误") || html.contains("无效")) {
+                    if attempt + 1 < max_retries {
+                        println!("[DEBUG] Captcha error (fallback), retrying... ({}/{})", attempt + 1, max_retries);
+                        continue;
+                    }
+                    return Err("验证码错误".into());
+                }
+                
+                if html.contains("账户被锁定") || html.contains("冻结") {
+                    return Err("账号已被锁定，请稍后再试".into());
+                }
+                
+                // 如果仍然停留在登录页面但没有明确错误
+                if html.contains("统一身份认证") && html.contains("pwdEncryptSalt") {
+                    println!("[DEBUG] Still on login page, login may have failed");
+                    if attempt + 1 < max_retries {
+                        continue;
+                    }
+                    return Err("登录失败，请检查账号密码和验证码".into());
                 }
             }
-        };
         
-        self.is_logged_in = true;
-        self.user_info = Some(user_info.clone());
-        Ok(user_info)
+            // 访问教务系统完成 SSO
+            let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
+            println!("[DEBUG] Accessing JWXT SSO: {}", jwxt_url);
+            let _ = self.client.get(&jwxt_url).send().await?;
+
+            println!("[DEBUG] Accessing JWXT service: {}", TARGET_SERVICE);
+            let _ = self.client.get(TARGET_SERVICE).send().await?;
+            
+            // 获取用户信息（若会话未建立，补偿一次重试）
+            let user_info = match self.fetch_user_info().await {
+                Ok(info) => info,
+                Err(err) => {
+                    let err_msg = err.to_string();
+                    if err_msg.contains("无法解析用户信息") {
+                        println!("[DEBUG] User info parse failed, retrying SSO once");
+                        let _ = self.client.get(&jwxt_url).send().await?;
+                        let _ = self.client.get(TARGET_SERVICE).send().await?;
+                        self.fetch_user_info().await?
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+            
+            self.is_logged_in = true;
+            self.user_info = Some(user_info.clone());
+            return Ok(user_info);
+        }
+
+        Err("登录失败，请稍后重试".into())
     }
 
     async fn fetch_user_info(&self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
@@ -689,6 +894,7 @@ impl HbutClient {
         Ok(semester)
     }
 
+    #[allow(dead_code)]
     fn extract_semester_from_json(json: &serde_json::Value) -> Option<String> {
         // 尝试多种格式
         if let Some(s) = json.get("xnxqh").and_then(|v| v.as_str()) {
@@ -2096,6 +2302,7 @@ impl HbutClient {
         Ok(token)
     }
 
+    #[allow(dead_code)]
     async fn relogin_with_cached_credentials(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let username = match &self.last_username {
             Some(v) => v.clone(),

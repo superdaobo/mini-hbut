@@ -1,15 +1,22 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { showToast } from '../utils/toast'
+import { open } from '@tauri-apps/plugin-shell'
+import { stripMarkdown } from '../utils/markdown'
 import hbutLogo from '../assets/hbut-logo.png'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
   userUuid: { type: String, default: '' },
-  isLoggedIn: { type: Boolean, default: false }
+  isLoggedIn: { type: Boolean, default: false },
+  tickerNotices: { type: Array, default: () => [] },
+  pinnedNotices: { type: Array, default: () => [] },
+  noticeList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['navigate', 'logout', 'require-login'])
+const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice'])
+
+const brokenImages = ref(new Set())
 
 // 模块列表
 const modules = [
@@ -69,7 +76,7 @@ const modules = [
   },
   { 
     id: 'academic', 
-    name: '学业完成情况', 
+    name: '学业情况', 
     icon: '🎓', 
     color: '#10b981',
     desc: '学业完成度与课程进度',
@@ -100,6 +107,57 @@ const handleLogout = () => {
   emit('logout')
 }
 
+const tickerItems = computed(() => {
+  if (!props.tickerNotices.length) {
+    return [{ id: 'ticker-empty', title: '暂无通知' }]
+  }
+  return props.tickerNotices
+})
+
+const noticeItems = computed(() => {
+  return [...props.noticeList]
+})
+
+const allNotices = computed(() => {
+  const map = new Map()
+  ;[...props.tickerNotices, ...props.pinnedNotices, ...noticeItems.value].forEach((item) => {
+    if (!item) return
+    const key = item.id || item.title
+    if (key && !map.has(key)) {
+      map.set(key, item)
+    }
+  })
+  return [...map.values()]
+})
+
+const marqueeItems = computed(() => {
+  if (!allNotices.value.length) return []
+  return allNotices.value.length > 1
+    ? [...allNotices.value, ...allNotices.value]
+    : allNotices.value
+})
+
+const noticeSummary = (notice) => {
+  return notice?.summary || stripMarkdown(notice?.content || '') || '点击查看详情'
+}
+
+const hasBrokenImage = (notice) => {
+  const key = notice?.id || notice?.title
+  return key ? brokenImages.value.has(key) : false
+}
+
+const handleImageError = (notice) => {
+  const key = notice?.id || notice?.title
+  if (!key) return
+  const next = new Set(brokenImages.value)
+  next.add(key)
+  brokenImages.value = next
+}
+
+const openNotice = (notice) => {
+  emit('open-notice', notice)
+}
+
 // 生成分享链接
 const shareLink = computed(() => {
   return 'https://docs.qq.com/doc/DQnVTWFFFbEhNTXhx'
@@ -109,6 +167,28 @@ const copyShareLink = async () => {
   if (shareLink.value) {
     await navigator.clipboard.writeText(shareLink.value)
     showToast('链接已复制！', 'success')
+  }
+}
+
+const getRandomGradient = (idx) => {
+  const gradients = [
+    'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
+    'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
+    'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+    'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+  ]
+  return gradients[idx % gradients.length]
+}
+
+const handleContentClick = async (e) => {
+  const target = e.target.closest('a')
+  if (target && target.href) {
+    e.preventDefault()
+    try {
+      await open(target.href)
+    } catch (e) {
+      window.open(target.href, '_blank')
+    }
   }
 }
 </script>
@@ -130,6 +210,35 @@ const copyShareLink = async () => {
       </div>
     </header>
 
+    <!-- 公告区（单行滚动） -->
+    <section class="notice-panel" v-if="marqueeItems.length">
+      <div class="notice-ticker">
+        <div class="ticker-track">
+          <div class="ticker-items">
+            <div
+              v-for="(notice, idx) in marqueeItems"
+              :key="`${notice.id || notice.title}-${idx}`"
+              class="ticker-item"
+              :class="{ 'has-image': notice.image && !hasBrokenImage(notice) }"
+              @click="openNotice(notice)"
+            >
+              <img
+                v-if="notice.image && !hasBrokenImage(notice)"
+                :src="notice.image"
+                :alt="notice.title"
+                class="ticker-img"
+                @error="handleImageError(notice)"
+              />
+              <div v-else class="ticker-card" :style="{ background: getRandomGradient(idx) }">
+                <span class="ticker-card-title">{{ notice.title }}</span>
+                <span class="ticker-card-sub">查看详情</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- 模块卡片 -->
     <div class="module-grid">
       <div 
@@ -142,7 +251,6 @@ const copyShareLink = async () => {
       >
         <div class="module-icon">{{ mod.icon }}</div>
         <div class="module-name">{{ mod.name }}</div>
-        <div class="module-desc">{{ mod.desc }}</div>
         <div v-if="!mod.available" class="coming-soon">即将上线</div>
       </div>
     </div>
@@ -179,8 +287,8 @@ const copyShareLink = async () => {
 }
 
 .logo-img {
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
 }
 
@@ -236,20 +344,129 @@ const copyShareLink = async () => {
 /* 模块网格 */
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  max-width: 900px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 980px;
   margin: 0 auto;
+}
+
+.notice-panel {
+  margin: 0 auto 24px;
+  max-width: 980px;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.notice-ticker {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  height: 140px; /* Taller height for cards/images */
+}
+
+.ticker-track {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.ticker-items {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+  width: max-content;
+  animation: ticker-scroll 25s linear infinite; /* Slower scroll for larger items */
+  padding-right: 20px;
+}
+
+/* Pause on hover */
+.ticker-items:hover {
+  animation-play-state: paused;
+}
+
+.ticker-item {
+  display: inline-block;
+  height: 140px;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  flex: 0 0 auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+  background: white; /* Fallback */
+}
+
+.ticker-item:hover {
+  transform: translateY(-2px);
+}
+
+.ticker-item.has-image {
+  width: auto; /* Let image define width */
+  background: transparent;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.ticker-img {
+  height: 100%;
+  width: auto;
+  display: block;
+  object-fit: cover;
+  border-radius: 12px;
+  max-width: 320px; /* Limit max width */
+}
+
+.ticker-card {
+  height: 100%;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  color: white;
+  text-align: center;
+}
+
+.ticker-card-title {
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  white-space: normal; /* Allow title wrap */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ticker-card-sub {
+  font-size: 12px;
+  opacity: 0.8;
+  border: 1px solid rgba(255,255,255,0.4);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .module-card {
   background: white;
-  border-radius: 20px;
-  padding: 28px 20px;
+  border-radius: 16px;
+  padding: 18px 12px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   position: relative;
   overflow: hidden;
 }
@@ -265,8 +482,8 @@ const copyShareLink = async () => {
 }
 
 .module-card:hover:not(.disabled) {
-  transform: translateY(-8px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.12);
 }
 
 .module-card.disabled {
@@ -275,19 +492,19 @@ const copyShareLink = async () => {
 }
 
 .module-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-
-.module-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1f2937;
+  font-size: 26px;
   margin-bottom: 8px;
 }
 
+.module-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
 .module-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: #6b7280;
 }
 
@@ -315,16 +532,13 @@ const copyShareLink = async () => {
     gap: 12px;
   }
   
-  .module-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
   .module-card {
-    padding: 20px 16px;
+    padding: 16px 10px;
   }
-  
-  .module-icon {
-    font-size: 36px;
-  }
+}
+
+.notice-modal-content {
+  user-select: text;
+  -webkit-user-select: text;
 }
 </style>
