@@ -38,6 +38,7 @@ pub struct LoginPageInfo {
     pub execution: String,
     pub captcha_required: bool,
     pub salt: String,
+    pub is_already_logged_in: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,7 +199,14 @@ async fn login(
             &execution.unwrap_or_default()
         )
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 保存会话到本地数据库 (用于自动重连)
+    if let Err(e) = db::save_user_session(DB_FILENAME, &username, &client.get_cookies(), &password) {
+        println!("[WARN] Failed to save session: {}", e);
+    }
+
+    Ok(client.user_info.clone().unwrap())
 }
 
 #[tauri::command]
@@ -214,7 +222,19 @@ async fn restore_session(
     cookies: String,
 ) -> Result<UserInfo, String> {
     let mut client = state.client.lock().await;
-    client.restore_session(&cookies).await.map_err(|e| e.to_string())
+    let user_info = client.restore_session(&cookies).await.map_err(|e| e.to_string())?;
+
+    // 尝试从数据库加载凭据 (用于 SSO)
+    match db::get_user_session(DB_FILENAME, &user_info.student_id) {
+        Ok(Some((_, password))) => {
+            println!("[DEBUG] Restored credentials for user: {}", user_info.student_id);
+            client.set_credentials(user_info.student_id.clone(), password);
+        },
+        Ok(None) => println!("[DEBUG] No saved credentials found for user: {}", user_info.student_id),
+        Err(e) => println!("[WARN] Failed to load session credentials: {}", e),
+    }
+
+    Ok(user_info)
 }
 
 #[tauri::command]
@@ -432,6 +452,54 @@ async fn refresh_electricity_token(state: State<'_, AppState>) -> Result<bool, S
     client.ensure_electricity_token().await.map(|_| true).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn fetch_transaction_history(
+    state: State<'_, AppState>,
+    start_date: String,
+    end_date: String,
+    page_no: i32,
+    page_size: i32
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+
+    // 1. 尝试从数据库获取缓存 (仅第一页且非搜索特定日期范围时才依赖完全缓存? 
+    // 不，简单起见，我们总是先返回缓存，然后后台更新，或者由前端控制刷新)
+    // 这里实现为：如果有缓存且 page_no=1，先返回缓存的（需前端配合处理“即时响应”和“更新后刷新”）
+    // 但 Tauri command 是 request/response 模式，无法 streams。
+    // 策略：优先网络请求，失败则降级到缓存。
+    // 或者：自动请求大范围数据并缓存，前端从本地计算。
+    
+    // 根据用户需求：自动获取大范围数据缓存。
+    // 我们在这里拦截：如果是 page_no=1 且 start_date/end_date 跨度较大（即初始化加载），
+    // 我们先尝试返回本地全量缓存。
+    
+    let cache_key = format!("transaction_{}", client.user_info.as_ref().map(|u| u.student_id.as_str()).unwrap_or("unknown"));
+    
+    // 网络请求优先
+    match client.fetch_transaction_history(&start_date, &end_date, page_no, page_size).await {
+        Ok(data) => {
+             // 成功获取数据，保存到缓存 (简化：只缓存第一页或全量数据)
+             // 如果是获取大范围数据 (page_size > 50)，则视为全量同步
+             if page_size >= 200 || page_size == 1000 {
+                 if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
+                     let _ = db::save_cache(DB_FILENAME, "transaction_cache", uid, &data);
+                 }
+             }
+             Ok(data)
+        },
+        Err(e) => {
+            println!("[WARN] Transaction network fetch failed: {}, trying cache...", e);
+             // 网络失败，尝试读取缓存
+            if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
+                 if let Ok(Some((cached_data, _))) = db::get_cache(DB_FILENAME, "transaction_cache", uid) {
+                     return Ok(cached_data);
+                 }
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 初始化数据库
@@ -488,6 +556,7 @@ pub fn run() {
             electricity_query_location,
             electricity_query_account,
             refresh_electricity_token,
+            fetch_transaction_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

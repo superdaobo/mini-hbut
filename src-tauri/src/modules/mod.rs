@@ -8,4 +8,5 @@ pub mod classroom;
 pub mod calendar;
 pub mod training_plan;
 pub mod electricity;
+pub mod transaction;
 pub mod notification;

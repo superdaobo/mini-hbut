@@ -91,6 +91,15 @@ const modules = [
     desc: '培养方案与课程设置',
     available: true,
     requiresLogin: true
+  },
+  { 
+    id: 'transactions', 
+    name: '交易记录', 
+    icon: '💰', 
+    color: '#F56C6C',
+    desc: '一码通消费记录',
+    available: true,
+    requiresLogin: true
   }
 ]
 

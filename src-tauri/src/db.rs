@@ -2,6 +2,7 @@ use rusqlite::{params, Connection, Result};
 use std::path::Path;
 use serde_json::Value;
 use chrono::Local;
+use base64::Engine;
 
 // 初始化数据库
 pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
@@ -47,7 +48,9 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "training_plan_cache",
         "classroom_cache",
         "electricity_cache",
+        "transaction_cache",
         "calendar_public_cache",   // public
+
         "classroom_public_cache",  // public
     ];
 
@@ -123,6 +126,47 @@ pub fn get_cache<P: AsRef<Path>>(path: P, table: &str, key: &str) -> Result<Opti
         let sync_time: String = row.get(1)?;
         let data: Value = serde_json::from_str(&data_str).unwrap_or(Value::Null);
         Ok(Some((data, sync_time)))
+    } else {
+        Ok(None)
+    }
+}
+
+// 保存用户会话 (包括密码，用于自动重登录)
+// 注意：实际生产应使用系统密钥环 (Keytar) 或更安全的加密方式
+pub fn save_user_session<P: AsRef<Path>>(
+    path: P, 
+    student_id: &str, 
+    cookies: &str, 
+    password: &str
+) -> Result<()> {
+    let conn = Connection::open(path)?;
+    // 简单 Base64 编码作为"加密" (仅防君子)
+    let encrypted_password = base64::engine::general_purpose::STANDARD.encode(password);
+    
+    conn.execute(
+        "INSERT OR REPLACE INTO user_sessions (
+            student_id, cookies, encrypted_password, last_login
+        ) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)",
+        params![student_id, cookies, encrypted_password],
+    )?;
+    Ok(())
+}
+
+// 获取用户会话
+pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<(String, String)>> {
+    let conn = Connection::open(path)?;
+    let mut stmt = conn.prepare("SELECT cookies, encrypted_password FROM user_sessions WHERE student_id = ?1")?;
+    let mut rows = stmt.query(params![student_id])?;
+    
+    if let Some(row) = rows.next()? {
+        let cookies: String = row.get(0)?;
+        let encrypted: String = row.get(1)?;
+        
+        // 解码密码
+        let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
+        let password = String::from_utf8(password_bytes).unwrap_or_default();
+        
+        Ok(Some((cookies, password)))
     } else {
         Ok(None)
     }

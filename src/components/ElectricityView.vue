@@ -182,6 +182,12 @@ const handleLogout = () => emit('logout')
     </div>
 
     <div class="content">
+      <!-- 提示信息 -->
+      <div class="disclaimer-text">
+        <span class="icon">⚠️</span>
+        提示：此功能仅在首次登录后有效，长期未登录可能导致查询失败。若无法加载，请尝试退出后重新登录。
+      </div>
+
       <!-- 宿舍选择器 -->
       <div class="selector-card">
         <h3>📍 选择宿舍</h3>
@@ -431,6 +437,28 @@ const handleLogout = () => emit('logout')
   font-size: 16px;
   font-weight: 500;
   color: #718096;
+}
+
+.disclaimer-text {
+  background: rgba(255, 247, 237, 0.95);
+  color: #c05621;
+  padding: 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 24px;
+  line-height: 1.6;
+  border: 1px solid rgba(251, 211, 141, 0.4);
+  box-shadow: 0 4px 12px rgba(237, 137, 54, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.disclaimer-text .icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .detail-row {

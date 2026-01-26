@@ -68,6 +68,7 @@ SQLite 本地数据库，用于缓存：
 | `ranking.rs` | 排名查询 | RankingView |
 | `training_plan.rs` | 培养方案 | TrainingPlanView |
 | `student_info.rs` | 学生信息 | StudentInfoView |
+| `transaction.rs` | 交易记录 | TransactionHistory |
 
 ## 🔑 添加新功能
 

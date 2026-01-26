@@ -21,6 +21,7 @@ import NotificationView from './components/NotificationView.vue'
 import ConfigEditor from './components/ConfigEditor.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
+import TransactionHistory from './components/TransactionHistory.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
@@ -619,6 +620,13 @@ onMounted(async () => {
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+      />
+
+      <!-- 交易记录 -->
+      <TransactionHistory 
+        v-else-if="currentView === 'transactions'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
       />
 
       <!-- 通知设置 -->
