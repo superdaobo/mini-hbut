@@ -1,0 +1,461 @@
+﻿﻿<!DOCTYPE html><html class="root-main">
+<!-- 移动端 --><!-- PC端 --><!--校外用户登录--><!-- 二维码扫码登录 --><!-- 兼容性登录 --><!--校外用户登录--><!-- 帐号登录或动态码登录 --><head>
+    <meta charset="utf-8"/><meta http-equiv="Content-Type" content="text/html; charset=utf-8"/><meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/><title>统一身份认证平台</title>
+    <script>
+        var inputUserNameTip = "\u8BF7\u8F93\u5165\u7528\u6237\u540D";
+        var inputPasswordTip = "\u8BF7\u8F93\u5165\u5BC6\u7801";
+        var inputCodeTip = "\u8BF7\u8F93\u5165\u9A8C\u8BC1\u7801";
+        var qrLoginTip = "\u626B\u7801\u767B\u5F55";
+        var qrInvalidTip = "\u4E8C\u7EF4\u7801\u5DF2\u5931\u6548\uFF0C\u70B9\u51FB\u5237\u65B0";
+
+        var inputMobileTip = "\u8BF7\u8F93\u5165\u624B\u673A\u53F7\u6216\u5B66\u53F7";
+        var inputDynamicTip = "\u8BF7\u8F93\u5165\u9A8C\u8BC1\u7801";
+        var getDynamicCodeTip = "\u83B7\u53D6\u9A8C\u8BC1\u7801";
+        var inputDynamicGetCode = "\u83B7\u53D6\u9A8C\u8BC1\u7801";
+        var excludeRegular = "\u7528\u6237\u540D\u5305\u542B\u7279\u6B8A\u5B57\u7B26";
+        //不转码，防止参数丢失
+        var service = ["https:\/\/jwxt.hbut.edu.cn\/admin\/index.html"];
+        var jsonObject = {"pcLogoPath":null,"pcThemeColor":null,"officialUrl":null,"defaultWxQrCode":0,"wxQrCode":null,"defaultImage":0,"imageType":1,"shufflingTime":5,"shufflingStyle":2,"imageNames":["default_login.png"],"mobileLogoPath":null,"mobileThemeColor":null,"mobileModel":0,"mobileImages":["default_mobile_login.png"],"otherModel":0,"otherImages":["default_auth_serv_bg.png"]};
+        var reg = "[$:{}]";
+    </script>
+    <script type="text/javascript">
+        if (service == '' || !service) {
+            service = '';//saml后缀
+        }
+        var isQrLogin = "false";
+        var isQrLoginEnabled = "true"
+        var captchaSwitch = "1";
+        var needCaptcha = "";
+        var _fidoEnabled = "false";
+        var is_dynamicLogin = "true";
+        var is_userNameLogin = "true";
+        var contextPath = "/authserver";
+        var type = "userNameLogin";
+        var cllt = "";
+        var _badCredentialsCount = "0";
+        var rememberMeTip = '开启后7天内无需再次登录，主动退出登录或使用浏览器无痕模式访问后，此功能失效'
+    </script>
+    <style>
+        .change-color {
+            color: #001E61 !important;
+        }
+
+        .change-bg-color {
+            background-color: #001E61 !important;
+        }
+
+        .change-bd-color {
+            border-color: #001E61 !important;
+        }
+    </style>
+    <!--    <link rel="stylesheet" type="text/css"--><!--          th:href="@{${#themes.code('custom.static.path')}+'/static/css/toastr.min.css?v='+${@idsVersionInfo.getVersion()}}">--><!--    <link rel="stylesheet" type="text/css"--><!--          th:href="@{${#themes.code('custom.static.path')}+'/static/web/css/login.css?v='+${@idsVersionInfo.getVersion()}}"/>--><!--    <link rel="stylesheet" type="text/css"--><!--          th:href="@{${#themes.code('custom.static.path')}+'/static/web/iconfont/iconfont.css?v='+${@idsVersionInfo.getVersion()}}"/>--><!--    <link rel="stylesheet" type="text/css"--><!--          th:href="@{${#themes.code('custom.static.path')}+'/static/web/css/fido.css?v='+${@idsVersionInfo.getVersion()}}"/>--><!--    <link rel="stylesheet" type="text/css"--><!--          th:href="@{${#themes.code('custom.static.path')}+'/static/common/css/swiper.min.css?v='+${@idsVersionInfo.getVersion()}}"/>--><!--    <link rel="stylesheet" type="text/css"--><!--          th:href="@{${#themes.code('custom.static.path')}+'/web/css/gorgeous.css?v='+${@idsVersionInfo.getVersion()}}"/>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/common/swiper.min.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/common/jquery'+${#themes.code('jquery.version')}+'.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/js/plugin/toastr.min.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/common/utils.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/common/common-header.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/common/encrypt.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/web/js/fido.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript"--><!--            th:src="@{${#themes.code('custom.static.path')}+'/static/web/js/schoolCombinedLogin.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><!--    <script type="text/javascript" th:src="@{${#themes.code('custom.static.path')}+'/static/web/js/login.js?v='+${@idsVersionInfo.getVersion()}}"></script>--><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/static/css/toastr.min.css?v=20250228.142407"><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/static/web/css/login.css?v=20250228.142407"/><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/static/web/iconfont/iconfont.css?v=20250228.142407"/><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/static/web/css/fido.css?v=20250228.142407"/><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/static/common/css/swiper.min.css?v=20250228.142407"/><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/web/css/gorgeous.css?v=20250228.142407"/><link rel="stylesheet" type="text/css"
+          href="/authserver/cusTheme/customStatic/web/css/custom.css?v=20250228.142407"/>
+    tr
+
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/common/swiper.min.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/common/jquery-latest.min.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/js/plugin/toastr.min.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/common/utils.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/common/common-header.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/common/encrypt.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/web/js/fido.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/web/js/schoolCombinedLogin.js?v=20250228.142407"></script>
+    <script type="text/javascript"
+            src="/authserver/cusTheme/customStatic/static/web/js/login.js?v=20250228.142407"></script>
+
+
+    <style>
+        #rememberMeTipDiv:hover .bubbleTip {
+            display: block;
+        }
+
+        #myRememberMe {
+            overflow: visible !important;
+        }
+
+        .bubbleTip {
+            background-color: black;
+            color: white;
+            display: none;
+            padding: 8px 12px 8px 12px;
+            line-height: 18px;
+            text-align: left;
+            position: absolute;
+            top: -10px;
+            left: -5px;
+            font-size: 12px;
+            z-index: 100;
+            width: 300px;
+            white-space: break-spaces;
+            top: 50%;
+            transform: translate(30px, -50%);
+        }
+
+        .bubbleTip::before {
+            position: absolute;
+            content: '';
+            height: 0;
+            width: 0;
+            border-width: 1em;
+            border-style: solid;
+            border-color: transparent black transparent transparent;
+            left: -1.5em;
+            top: 0px;
+            bottom: 0px;
+            margin: auto;
+        }
+    </style>
+    <script type="text/javascript">
+        $(function () {
+            $("#myRememberMe").attr("title", "")
+        });
+    </script>
+</head>
+
+<body>
+<div class="container-ge">
+    <div class="auth_page_wrappers">
+        <div class="auth_page_body">
+            <div class="auth_page_top">
+                <div class="top_left">
+                    <img src="/authserver/cusTheme/customStatic/web/images/logo3.png" alt=""><div class="line"></div>
+                    <h5>融合门户</h5>
+                </div>
+                <!--                    <div class="t-language-switch">--><!--                        <a id="outUserLoginA" class="common-login-btn lang_text_ellipsis"--><!--                            th:if="${_campusScopeType=='0'}" th:href="@{/login(type=outUserLogin)}"--><!--                            th:utext="#{login.type.out.user.login}"></a>--><!--                        <a id="commonLoginA" class="common-login-btn lang_text_ellipsis"--><!--                            th:href="@{/login(type=commonLogin)}" th:if="${@systemConfigUtils.isCommonLoginEnabled()}"--><!--                            th:utext="#{ids.loginView.commonLogin}"></a>--><!--                        <div class="g-language-switch item">--><!--                            <button class="g-switch-result" style="height: 32px">--><!--                                <span id="language_switch_name" class="g-switch-btn lang_text_ellipsis"></span>--><!--                                <span class="g-switch-arrow"></span>--><!--                            </button>--><!--                            <div class="item-show">--><!--                                <ul id="language_switch" class="g-switch-list"></ul>--><!--                            </div>--><!--                        </div>--><!--                    </div>--><div class="image1">
+                    <div class="container1">
+                        <div class="text">
+                            <div class="text__listwrap">
+                                <a id="activationAccountId" target="_blank"
+                                   href="../retrieve-password/accountActivation/index.html"
+                                   class="activation-account lang_text_ellipsis"
+                                >注册中心</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="container2">
+                        <div class="text1">
+                            <div class="text1__listwrap">
+                                <a target="_blank" href="http://portal.hbut.edu.cn/"
+                                >旧门户入口</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="container3">
+                        <div class="text2">
+                            <div class="text2__listwrap">
+                                <a id="fetchOnlineGuider" href="/authserver/fetchOnlineGuider"
+                                   target="_blank" class="fetch-online lang_text_ellipsis">帮助中心</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="auth_page_content">
+                <div class="auth_login_content">
+                    <div style="position: relative;" class="left_wrap">
+                        <div class="wrap-ge">
+                            <div class="logo-wrap">
+                                <img src="/authserver/cusTheme/customStatic/web/images/logo1.png" alt=""><span class="logo-title lang_text_ellipsis"
+                                      text="#{ids.loginView.logo}">欢迎登录</span>
+                            </div>
+
+                            <!-- <a id="qrCodeA" class="qrcodeA" style="display: none;"></a>
+                        <a id="qrCodeB" class="qrcodeB" style="display: none;"></a> --><section class="main">
+                                <!--                                    <h5 class="auth_title" th:text="#{ids.login.dz.auth}"></h5>--><div class="tabHead">
+                                        <span id="pwdLoginSpan" title="账号登录"
+                                              style="display: none">
+                                            <a id="userNameLogin_a" href="javascript:void(0)"
+                                               onclick="showTabHeadAndDiv('userNameLogin',1)"
+                                               class="loginFont_a text_ellipsis">账号登录</a>
+                                            <!-- <div class='tabHead-underline change-bg-color'>&nbsp;</div> --></span>
+                                    <span id="phoneLoginSpan" title="验证码登录"
+                                          style="display: none">
+                                            <a id="dynamicLogin_a" href="javascript:void(0)"
+                                               onclick="showTabHeadAndDiv('dynamicLogin',1)"
+                                               class="loginFont_a text_ellipsis"
+                                               >短信登录</a>
+                                        <!-- <div class='tabHead-underline change-bg-color'>&nbsp;</div> --></span>
+                                    <span id="fidoLoginSpan" style="max-width: 120px;display: none"
+                                          title="生物识别">
+                                            <a id="fidoLogin_a" href="javascript:void(0)"
+                                               onclick="showTabHeadAndDiv('fidoLogin',1)"
+                                               class="loginFont_a text_ellipsis">生物识别</a>
+                                        <!-- <div class='tabHead-underline change-bg-color'>&nbsp;</div> --></span>
+                                    <span id="qrLoginSpan" title="扫码登录" style="display: none">
+                                                <a id="qrLogin_a" href="javascript:void(0)"
+                                                   onclick="showTabHeadAndDiv('qrLogin',1)"
+                                                   class="loginFont_a text_ellipsis">扫码登录</a>
+                                        <!-- <div class='tabHead-underline change-bg-color'>&nbsp;</div> --></span>
+
+
+                                    </div>
+                                <div class="login-main login-slider">
+                                    <!--登录FORM--><div id="loginViewDiv"></div>
+                                    <div class="wx-login-wrap" style="display: none;">
+                                        <div class="wx-cut">
+                                            <iframe id="iframe" src="/authserver/combinedLogin.do?type=weixin"
+                                                    frameborder="0"></iframe>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <p class="registerLink"><span>新入职教职工、新入学学生首次登录前请先前往</span>
+                                            <a
+                                                    target="_blank"
+                                                    href="../retrieve-password/accountActivation/index.html"
+                                                    class="activation-account lang_text_ellipsis">注册中心</a><span>进行注册</span>
+                                        </p>
+                                    </div>
+                                    <div class="help">
+                                        <!--                                        &lt;!&ndash; 帐号激活 &ndash;&gt;--><!--                                        <th:block th:if="${_showAccountActivationLink}">--><!--                                            <a id="activationAccountId"--><!--                                               th:href="@{../retrieve-password/accountActivation/index.html}"--><!--                                               class="activation-account lang_text_ellipsis"--><!--                                               th:text="#{login.page.account.activity.btn}"></a>--><!--                                        </th:block>--><!-- 账号解禁  --><!-- 在线帮助文档  --><!--                                        <th:block th:if="${_isOnlineGuideExist}">--><!--                                            <span class="split-lines"></span>--><!--                                            <a id="fetchOnlineGuider" th:href="@{/fetchOnlineGuider}"--><!--                                               target="_blank" class="fetch-online lang_text_ellipsis"--><!--                                               th:text="#{login.page.onlineGuider}"></a>--><!--                                        </th:block>--><!-- 忘记密码  --><span class="split-lines"></span>
+                                            <a id="retrievePassId"
+                                               href="../retrieve-password/retrievePassword/index.html"
+                                               target="_blank" class="fo-password lang_text_ellipsis">忘记密码</a>
+                                        </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+
+                    <div class="idpV2__simpleIdp___pLoH4" id="simpleIdpWrapper"><span
+                            class="idpV2__title___3EhHo">其他登录方式</span>
+                        <div class="idpV2__item___3bKEl"><img
+                                src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAaCAYAAACpSkzOAAAAAXNSR0IArs4c6QAABB5JREFUSEutVk2MFFUQ/up1z8z2z8IsJHsz/MgiB28mQgT/AoloYjjpwTUBEVQSVgniSRNjoidZ47okGBYJGIKJ8UJMRBOJP4AsCSdP4CIunvag7jjb3bPz012m3vZrp4dhd0h4SR9m3qv66qtX76sidCxmJgCKiGJmVrVabWOSJM8T0RYAawAMAJAzfwO4ycyXlFJfOY4zSUQJM1sAEiLidtdikC1xLD/EIAiCrUqpd5j5UQBivNhKAPzCzO/5vv99CsbixxhlQAKSRuREUXQEwG4AJioxkLPmE3vZM58EaHxNuK57gIgi41MHry1YwIkrlcpAoVD4GsBmAK10fyk2JuhYUgagAOBSs9l8tlwuzxowMiDM7EdRdA6A3EUzNZAg9LfYIiJJtzmibZn5gud521NmJECWXHwYhscA7M2DAKWiDdu2wFlm8pAERquVoNEU/9kygX7med4ezUq2wjB8GsA3AIS+TpWwKBRsXJ+axtTvt2DbNpIkz0wpQqsVY93a+7Bh/Ro0m612ZtoXM2/3ff87DRRF0Q/M/EQ7kInt8PgpXJuaRl+pCNuysjRKquI4xny9gfXrVuGt13d1ZlcDEdF513W3UbVa3WJZ1k/ydnJ1nzoSoFqtjpeGd8DzXcTxQsValkIYRjhx+ixcpw+HRnbq/7rcZxLH8WMUBMEoER3sZCMRi9EHhyewcsVyHNy/C41GPUuN7BWLJYyOn8I/sxW8fWiv3usAMun7iMIwvAxgU1qaGasMaPQ4yst8vLFvGI1GswOogLGjZ1D5t3onIKEvPq8I0F8AVqaPL6vRdkYD5WU4sO9F1BuNHFCpWMTHR09jtnJHIKkeLVcCZF597jLvEZDxmQiQ5DFXCKneZXfUzsjcgQTSAyMDxHedOqevpI1r8/VegHKpmwSwcclieG1YM7x89VdYSuHhhx4EgTD2aU/FMNlTea8YWI43R3ZqJkeOfaEBR159Qf8eHf+8t/KuVqubLcv6ufuDTSAPNqrNY/fwDvj9Hhr1pgYq9RUxNxfi5JmzkHQuPNj/laOtshKl1ONGgqRZbe0mQR9+chLXb9yCUypCKZUr7zhJtARtGFqtgTqWkaAfXdd9UgMFQfAUEX3bTVSv/TaNGzf/1AreXVRbGLp/FR4YWt1VVAE843neOWkTurOGYXgcwMvtbUKCKBYKsG21RJuIUW+Ict/WJiY8z3tFtyLT+GZmZrz+/n5hdU8aH4CL0n4GBwcDjZH2Hs2qo5VL85KHfDetXN6N3dHK9ZjQbThxoygaA7AnTYQY9zKcaEEBcMJ13f1EVLttOMl0YmHckgjiIAi2EdG7AB7pJlGdFUZEF5Iked/3/fPtY5s5l5vr0jTmBsi5ublNSqnniEgA17Yp/SyAP5j5olLqS8dxriw2QP4H3HyR1DjfVTcAAAAASUVORK5CYII="
+                                alt="">
+                            <div class="style__text___1VDNk idpV2__idpName___3e93B"
+                                 style="-webkit-line-clamp: 1; width: 60px;" onclick="showDynamicLogin()">短信登录
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="idpV2__simpleIdp___pLoH4" id="simpleIdpWrapper1"><span
+                            class="idpV2__title___3EhHo" onclick="notShowDynamicLogin()">返回登录页面</span>
+                    </div>
+                </div>
+
+            </div>
+            <div class="auth_page_bottom">
+                <div class="text4">
+                    <div class="text4__listwrap">
+                        版权归属©湖北工业大学 鄂ICP备05003306号-1 地址：湖北省武汉市洪山区南李路28号
+                    </div>
+                </div>
+                <div class="text5">
+                    <div class="text5__listwrap"></div>
+                </div>
+                <div class="text6">
+                    <div class="text6__listwrap"></div>
+                </div>
+                <div class="text7">
+                    <div class="text7__listwrap"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+</div>
+<!-- 滑块验证码 --><div id="sliderCaptchaDiv"></div>
+<!-- fido登录 --><div id="fidoLoginDiv" style="display: none">
+    <div style="height: 260px;margin-top: 60px">
+		<a href="javascript:void(0);" onclick="startAssertion('#loginFromId');" class="loginFont_a">
+			<div class="fidoLogo">
+				<img class="fidoLogoImage" src="/authserver/cusTheme/static/web/images/fido.jpg" alt=""/><div id="ukey_info" class="text change-color num-text-ellipsis-2" style="width: 100%;">点击开启识别登录</div>
+			</div>
+		</a>
+		<form class="loginFromClass" method="post" id="loginFromId" action="/authserver/login">
+			<div class="lang_text_ellipsis" style="width:100%;color: red;margin-top: 10px;">
+				<span id="showErrorTip"></span>
+			</div>
+			<input type="hidden" id="_eventId" name="_eventId" value="submit" /><input type="hidden" id="username-fido" name="username" value=""><input type="hidden" id="responseJson-fido" name="responseJson" value=""><input type="hidden" id="cllt" name="cllt" value="fidoLogin"><input type="hidden" id="dllt" name="dllt" value="generalLogin"><input type="hidden" name="lt" id="lt" value="" /><input type="hidden" id="execution" name="execution" value="803d1c8b-3af3-4dac-b6d9-d9c1a2411705_ZXlKaGJHY2lPaUpJVXpVeE1pSjkuQXByZ0RWSVZGT1ErMy93Q0IySllRVXg2TUl2ZUxTM1RKUUlONkwzZ0xYK2RDZnAyUFlnNTY0RGVVY2NyakdrRmNpdkJnenZIOTM4VDZpbTBSRWVkN2xmdFhaei9IRFVkblExVDVaUUkyR095bGU2WUpOWW1RNDdYc0ZzcGR3QmYzZGMyT3BoVTNWeWJCLzdGUVJwdkQ4d1N3ZXF4bURpNCtoNkdXamlMc0ZxNGJqUU5oTncvMGpHS3E3T3JDTmdwNFRGNk10Sndlb29POGVIdkNHMUwrYWxaVzdIMmRYRHhDcTQ0TFAyakowUm5odUtMbEJySE1rUFlUeFhhOW1GTUtGcmlRaThGdkhoTVA3OUh3VWZPUVFDY3dpckM0MnZDRXY4ZzJNSEZqb2VxSzRCNG1GMFVGYjF4K2lsMDU3RW9Mc0Q0OWZrU0xVL0w5RzFJNnJLTXM4YjBFY29iRUMwc05jTFpMV2lObG1VdTdYd1RYKzZaYXFrMzIyUFF2b2h6d0tSS0ZaZWJFS1RGQjMrQXVxNEJXd2QwS1VIK0VZK0FiUUYxR3VJMUJZcGYxcjlrV1VvcmZtbmZVcVJqRlhoVm5TOEpZQVByT0owaWM1d0Rzc2JCZnlGU3JGRTk3K2E5ajNrckRkRFhOeFdJMWRob3dmbkNPaTFldnZWRmVpZ25LMWRhdU05cWVLRW03SHE3cnZ5YisyMWtVRzBUZnJnY1k0THdsaURtZGlhUkdRdDBheFhSZ3VVVTh0ek1KblRqc1Yxa2NuRjlNcVR2YTlBdmE2Y1AxaUliNkMyaTFvbjJ4aGxMaEtSVEw5NzVveHVsYm5ETkN6SUJyWXdUSU1iRS9oOW5XVXpDaHFLbkpQWGlTRE92VlRVQ0UwMERNWUc4cVZQRXlPVXN4M2IzWFdmMWJzaEJVb0IxalRQR2k4Y3J5N3BHQjFLZ2tRdHdBQTUzQ3NjSTFOYkF3MnRxMlJGNnh5VHEyQmx6VVRZM21KNld6MXNZN3B0MEwrenEzVzdiM2FGZmZyNVNzcno1U05Vd1FvL3h2MVlQQkh4WlhUazF0dzlZNWIrZ3hvYkt2U1lDcnRQY2hUbE5XazNFWVVHT2h1NkxtNXF1SGppazh0NDJOYTkyRHFyN0kwVmZaSWpPa0dHaUE5UmE5eTV4VmlXR3BmWDNKT0tLNGdzSVlHcUJqbzlydGpDbG9ucTBISEFLaE44ZTNBSko1V0E5a2ZtemFuVDh4SHQveDNEZ1ZXY2NXNWtsc3lKN1lQeDRnQmw4OGRvMjVWMUJtQU1yWHVOVFh4Tk1Qd0UxTUVRNlRNWS9OK1FYYXZBWVBaUW1sT0QveVVMZjNUSDdHVGhLeEkzWGZndWlUQzBsbVFTV2JDTncvRVBzb051TGRPK3FYajJ4YTNBQTFYbjUwcUowWnBicS9TWEpTa1dwZit3eEFvT3paVXJPeldsb2N1OEgxNEVLc2ZFemNxYVgrN1NFblNmZ002dkxHS0wzTEhacDBkN3lodUxFcGRoL1dTeExxSy9DZUZ1ZnVnWUE2b0xIdlJycjg2OHpGc2hsbkN0NDhmL3VyNUlDeTV3TjZWTDVEc1RmN1ZFUmxHTm5JUEJQZnZKSnFqemExT0I4ejRvS3lsektaK1hxWFpHUVVUcVIwWll3V2xDbjRxaEo2MytKYU00QzRKZi9MejhqTWFjcHJCaEFZdVdxeE9XaHBSZW5jY21yUllnWEdwUy9LdEgrWkNyaXJKNFZURG53NkdUQmVCUGlMYXNvRlVKSmRsNUg3c2lRVS9IY2VtdHNOeXM0QnlRVW9rOWs3MjRDWG9KcWt5NGkzWDlXZFd4Mjd3WWs3cDZMa0FTd1JvMGZLMi9yV3dLK3Y0QytuOHlFUG5KMFI1NlRjWlo0K0RPTzRMQ20xbnJUTXI0N3FqSGREYjZNeHMwVVFIVVVEWUpQRmpiK2lVUDNrY1lUcjhyWStmcTFUaFpWN25sWjRuQW1GMVd0L0thV0dIb3dvTmRubVlicGt5b05QNEhWdWNsMVlQMVRMUWtkTFJCNFNSODcxUWJYekl0R1Z6Z2MvbGp4aTBMdWZvOWtVVWpyaVlkMm8xNzh2ZlJoZFZOWElKL3NUTFlkYzQ2QW84a0dhN2owb0xFVzR1cjdZNERmMGpPelFhLzBCY0tNUDR4cnVJWUVuME9ONVc3cW1Ed2JrREdjaHVzblE3am94dWduVVRnLzdmNG80YjZWcVpHZWJGYy9GbWRnbXcxVFgyRk1NcjZyMWROc0hCTDM1MlJSR1BnU3lpTGlvbXlhQ0U4NWUrY3hpcmx0UVllNkdOVkxOSnUzV090Uzl0S2FoNHlMcXZuWWdGOTRmNm9xalpZQWZQY2d2Y253UkExS3RUZXlRT2d0Z1UySmlQWno3bVFsVnZFWnMxNnZjOUFjWmFOUXVVelhpT2xsNUxkTHRQYk84L2s4Y3Q5d2JTdytlZ0NiMGZsN2RRWVhnZG56Nmh4ZW1mMVNuUVV4Q3lZeEcvVWUzcElWbi9pRzY2VjhQV01DRkJZSW43cm9rSi96QllndjNGQ3lncXlqdmQ2ZE9wcEN6NERTRkhUZWEySWJmOGVrMFpBS0N4REtPc2ZIS3AyMXBZb0dIb1BrZ25oNnJWSy8zTGpQcW4wRE91VmpETWx6dm04VW85MStZWGt2SzdwWXpobDN0VHUxK1ZRc0NCRVdpQ21WNWZVMzNYUW5HYzhVano2V2JFR2MzWHdySmJ0anRiWVVEME1VbzVxM3hydk5udDJSNWsyQkEvMUV5NWlEY2FkWUU1WlNIbjYrT3FBMjA5WU9rQmt6YVhpcFdNeUxYT2ZtNkdGQy9zNGlmNStOdnd6U0J2MHdQRWlVbXZ3eDFWNmo0MWtSemZRUFZqZ25VTHlzelZQUXdvWUc0VjhFSUFEaTFaK3pQaWlJNnZockE1UjNDTXBwb2s1OGFjZEdMT0VTYUxjM3Q5RXRFS1JaOHp4ZzBiNG1JaTJqTWtuU25jWnB1eVNZR0V4NklIWm1IdWw5dGsrcWNITVlHcllUTWFsa0lueGgyL3dDdExaU1Myc1VFVE93Zm9EWEJYRUgwVDdwUmlUMnZxU2g0TVc0QWFueEJVNWpWbE1TVlFxNUtEZDE2VzJHRzczVVFvTWZRVExkaVNzNks2L2c0NHpwR2ZpN1pGc3U5bytBSnRWQW5XRldUcGx1b3BTWDdqVXhpa3lrcHFhbGdZRDFEZ3dyNGlHOVBPUk0yYTcwVGVxdUtWcVdUWjUrWHdXREJEYVl3YnUvTU1pd3k3T3EwY0U1MWp3ZVdHbUNxRDhYSWtGQzJaVDVnREQzV2hOOTVKdDhnOG9MeldXVFNsWFVyS0FhbVF2NXVXNEtSdGZqb1c5RkJ0RnR6MHRsNVF5RTZuTUdxdXVVWm5PclhOcUxaSTB2RUdGWGphNi9sekZnSU1JN29UQXlKdXNpUzAxVE5rSjN0NXA0Wm1zZEhmdkw5VjhLdEpNQlBDRjRlQnIrcFVTY21leWVxSVRBNGdzT08rcU9RbDhJQW4rSmlRd1pGcm00d1dpZ0E0Z2ZaOWFqQkk0L2xreVF6UXpWdWpqL2VxWkE0VUtoZWpKQXBLcEY0UkZQYi9vM21WaHhDUHNqWTNSanFKVXJOYWtydHU5UTF0akVaRmpoMWt4K2pyM0pDTTdNUlpTMGlIeDBZd0t0UGlmbGF0Uy84WEVNdEZDZHdLZ1JNWmM5MGRBZE9aNkgzdlYwQVgzRGczdDJJZHVldVBHdWlsKzJOQjNNTEh2eFNVSFY4Z3l5UDE2djlNZ3I2QURnSWpXYlpwK2JlbXFpb05ocjBubHdiU2dMYmZOTEZvV0RBbnc0QlBEOHphQlh0aFVyT2JpOU8rWnlnZ3UyVXdFNmUrK0lJRnM3NXh3RUVwQW54djQ1V3V0WkErQkRLZ3ZRMmZPZXBaU05CVng3Z2hxbjI1R05ZN0RHQ2tDalFDOThjQkszNjRWa0dOSHYzQ0tML2xRdlNXZDJYbC9QUUVacjl5dE50TVNQbTRMcVEvcTZQQTY3NTFsSWhqSTRHNm96NGdYbHZ1aHNudERqdW0ycVRDY1pUSHZaZ0dOVDRoSDJGSWhWVHFXODMzVWZ5TnRiaXlKMzl3eGhlTEltcFpzODVDcTNXSmN4cm9QYVR1OXZ4UTlVY3puN0wyRHZ1b01IY2FLTWVDUUlZaUtZb2hhZFc2VDVDcEhpcDBvdU13OS9OSlhhNnVoQ1FIVFNzcmxodlRzdWlNZEJCcmFLV0V0NVVVaXVOU3NkWEJXK0JvbXpoWGZCazhrRGVLNW5rOWk4SEhGV3hlQ2dDZ203MER6MXRGRVY3UjNVTE9kNWh5L1BjWUJoTjNLR0FUeVNwQjJiK1l6L1JQWXc3TXA3MW5JcitkRDZ6MVVkcEE0U0xXeE5TVUMxNDdmejUrUWhFRFpZakhta1FqaXRaeGZ6aktOQXNxS1JiMXhXVHpPRjEyQi9Lb1ZhMkNIdmZrd0lkelpQYnZvUGVqOTUwS0toU0JYSitCa1k5aGhmN1MyWWhHWWpaTlJZa2ZQclFCV3k1NXFsbUJIYWVBbXNJYXZScjRyeG1ydE9mSTlTbUQ1cmJ5cG9BajM3L05rTXQ4SkdubVNYdDh0MVpmdjhXNE5zMWQ3eHNzcGtUUjdKbU1ZM1dkVDArSGdXNStKUzBkak02U25yMTVwenQ0U1RVU2lINVhJaXUxYlNJbmxtK3MyVVk0YkJOeFh1NG1WR2xIT2xGZ0JFLzZZZnF5MjJBd1I2UktDTDdLZVBKUnBNbmFMVnJXYVAreEcvWFNnV2RYL0c3TzRqOWsxeFExcXpPWVJ5bHFDZE1RdEQ2c1ZXM0VhQWVFTklOY3ZYWUpnUkxxeVBSUFVXN3ZvaitaenZkUW15R0taL1hNQ1ZKV2F3OG1sOWtvaE5SdWtyckk3ZFBMNXlPZ2VPUC95Mi85bVc3cXE5bkhUK09pdmFtSmpKQ1hVQzd5ejBjbnIxcmF6Z3RPdE9yYjZLU3NRZW5hTFRwSkoyV0lybzMvaEVRbFpJU3RwYTBJZUd0bnhaWlI2MjZNbkQ2dWNWVkd3eVRzUStHYUNWeEVuUnVnb2lxNld6K1F6RzRvMG5Qck5jTnhYUjNneWtxbG43ZWF3RWNXMDlYNWI2N3pCRkFFUGpHODFCdUdTU1ZJekRyaGhQNkt0R25palZFMy92ZzRBbE1CUkVSTUdOY1FML2tJRkUrRlI1QmVsNEVUbXFNWWIrcWNZZG1QeVpJQXJIcUZMYmV1dU1nN0hFUys1MkNiWTZBdldWMmFINVJ5d1RqU3JYLzZBPS5Sd0JfZEhGYm1ORFV4MGhlWDJWNVNHemJKZnp4eFJMMS0wMWlaRG1aMjFVSHExQ2MwM0hBLXVZZEpBUHdyS210c2VLU3RMSjhJNnB5bVVwVm5lck1DQQ==" /></form>
+		<div class="lang_text_ellipsis" style="width:100%;color: red;display: none;" id="showFidoErrorTip">
+			<span id="showFidoErrorTipSpan" style="font-size: 14px;"></span>
+		</div>
+	</div>
+</div>
+<!-- 手机动态码登录 --><div id="phoneLoginDiv" style="display: none">
+    <div>
+		<form class="loginFromClass" method="post" id="phoneFromId" action="/authserver/login">
+			<div class="form">
+				<!-- 动态码登录 --><div class="m-phone">
+					<div class="username item" style="overflow: visible;">
+						<!-- <p class="account-title pc-mobile">
+							<span class="lang_text_ellipsis" th:text="#{ids.mobile.getPwd.mobile}">手机号</span>
+							<span class="item" style="position: absolute;">
+								<img class="mobile-tip" th:src="@{${#themes.code('custom.static.path')}+'/web/images/question.png'}" height="16px">
+								<span class="mobile-tip-prompt mobile-item-show" th:text="#{login.page.mobile.tip}"></span>
+							</span>
+						</p> --><span class="prex-icon">
+							<img src="/authserver/cusTheme/customStatic/web/images/icon_username.png"
+								alt=""></span>
+						<input type="text" id="username" name="username" class="change-input-color"
+							   placeholder="请输入手机号/学号" title="请输入手机号/学号" value=""><div id="nameErrorTip" class="item-error-tip lang_text_ellipsis"></div>
+					</div>
+					<div class="captcha item" id="captchaDiv">
+						<span class="prex-icon">
+							<img src="/authserver/cusTheme/customStatic/web/images/icon_yzm.png"
+								alt=""></span>
+						<!-- <p id="captchaTitle" class="account-title pc-captcha lang_text_ellipsis" th:text="#{ids.loginView.graph.code}">验证码</p> --><input type="text" id="captcha" name="captcha" autocomplete="off" class="change-input-color"
+							   placeholder="请输入验证码" title="请输入验证码" maxlength="10"><span class="captcha-img">
+							<img id="captchaImg" alt="验证码错误" height="30px"><a class="mask-inner captcha-refresh" onclick="reloadCaptcha(true)" href="javascript:void(0);">刷新</a>
+						</span>
+						<div id="captchaErrorTip" class="item-error-tip lang_text_ellipsis"></div>
+					</div>
+					<div class="code item" >
+						<span class="prex-icon">
+							<img src="/authserver/cusTheme/customStatic/web/images/icon_password.png"
+								alt=""></span>
+						<!-- <p class="account-title pc-code lang_text_ellipsis" th:text="#{ids.loginView.DynamicCode}">动态码</p>
+						<i class="auth_icon auth_icon_bar"></i> --><input type="text" id="dynamicCode" name="dynamicCode" autocomplete="off" class="change-input-color"
+							   placeholder="请输入短信验证码" title="请输入短信验证码" maxlength="10"><a class="get-code text_ellipsis" href="javascript:void(0)" onclick="startDynamicCode()" title="获取验证码">
+							<span class="change-color">获取验证码</span>
+						</a>
+						<a class="get-code-tip get-code text_ellipsis" style="display: none;" href="javascript:void(0)" title="后重发">
+							<span class="getCodeText change-color">120</span>
+							<span style="color: #86909C;">后重发</span>
+						</a>
+						<div id="dynamicErrorTip" class="item-error-tip lang_text_ellipsis"></div>
+					</div>
+				</div>
+			</div>
+			<div class="ge-btn">
+				<div id="formErrorTip" class="form-errorTip lang_text_ellipsis">
+					<span id="showErrorTip" class="form-error"></span>
+					<span id="showWarnTip" class="form-warn"></span>&nbsp;
+				</div>
+				<div class="btn">
+					<a id="login_submit" href="javascript:void(0);" class="login-btn change-bg-color" onclick="startLogin(this)">登录</a>
+				</div>
+			</div>
+			<input type="hidden" id="_eventId" name="_eventId" value="submit" /><input type="hidden" id="cllt" name="cllt" value="dynamicLogin"><input type="hidden" id="dllt" name="dllt" value="generalLogin"><input type="hidden" id="lt" name="lt" value="" /><input type="hidden" id="pwdEncryptSalt" value="T3b6GeDCiNMii6oM" /><input type="hidden" id="execution" name="execution" value="803d1c8b-3af3-4dac-b6d9-d9c1a2411705_ZXlKaGJHY2lPaUpJVXpVeE1pSjkuQXByZ0RWSVZGT1ErMy93Q0IySllRVXg2TUl2ZUxTM1RKUUlONkwzZ0xYK2RDZnAyUFlnNTY0RGVVY2NyakdrRmNpdkJnenZIOTM4VDZpbTBSRWVkN2xmdFhaei9IRFVkblExVDVaUUkyR095bGU2WUpOWW1RNDdYc0ZzcGR3QmYzZGMyT3BoVTNWeWJCLzdGUVJwdkQ4d1N3ZXF4bURpNCtoNkdXamlMc0ZxNGJqUU5oTncvMGpHS3E3T3JDTmdwNFRGNk10Sndlb29POGVIdkNHMUwrYWxaVzdIMmRYRHhDcTQ0TFAyakowUm5odUtMbEJySE1rUFlUeFhhOW1GTUtGcmlRaThGdkhoTVA3OUh3VWZPUVFDY3dpckM0MnZDRXY4ZzJNSEZqb2VxSzRCNG1GMFVGYjF4K2lsMDU3RW9Mc0Q0OWZrU0xVL0w5RzFJNnJLTXM4YjBFY29iRUMwc05jTFpMV2lObG1VdTdYd1RYKzZaYXFrMzIyUFF2b2h6d0tSS0ZaZWJFS1RGQjMrQXVxNEJXd2QwS1VIK0VZK0FiUUYxR3VJMUJZcGYxcjlrV1VvcmZtbmZVcVJqRlhoVm5TOEpZQVByT0owaWM1d0Rzc2JCZnlGU3JGRTk3K2E5ajNrckRkRFhOeFdJMWRob3dmbkNPaTFldnZWRmVpZ25LMWRhdU05cWVLRW03SHE3cnZ5YisyMWtVRzBUZnJnY1k0THdsaURtZGlhUkdRdDBheFhSZ3VVVTh0ek1KblRqc1Yxa2NuRjlNcVR2YTlBdmE2Y1AxaUliNkMyaTFvbjJ4aGxMaEtSVEw5NzVveHVsYm5ETkN6SUJyWXdUSU1iRS9oOW5XVXpDaHFLbkpQWGlTRE92VlRVQ0UwMERNWUc4cVZQRXlPVXN4M2IzWFdmMWJzaEJVb0IxalRQR2k4Y3J5N3BHQjFLZ2tRdHdBQTUzQ3NjSTFOYkF3MnRxMlJGNnh5VHEyQmx6VVRZM21KNld6MXNZN3B0MEwrenEzVzdiM2FGZmZyNVNzcno1U05Vd1FvL3h2MVlQQkh4WlhUazF0dzlZNWIrZ3hvYkt2U1lDcnRQY2hUbE5XazNFWVVHT2h1NkxtNXF1SGppazh0NDJOYTkyRHFyN0kwVmZaSWpPa0dHaUE5UmE5eTV4VmlXR3BmWDNKT0tLNGdzSVlHcUJqbzlydGpDbG9ucTBISEFLaE44ZTNBSko1V0E5a2ZtemFuVDh4SHQveDNEZ1ZXY2NXNWtsc3lKN1lQeDRnQmw4OGRvMjVWMUJtQU1yWHVOVFh4Tk1Qd0UxTUVRNlRNWS9OK1FYYXZBWVBaUW1sT0QveVVMZjNUSDdHVGhLeEkzWGZndWlUQzBsbVFTV2JDTncvRVBzb051TGRPK3FYajJ4YTNBQTFYbjUwcUowWnBicS9TWEpTa1dwZit3eEFvT3paVXJPeldsb2N1OEgxNEVLc2ZFemNxYVgrN1NFblNmZ002dkxHS0wzTEhacDBkN3lodUxFcGRoL1dTeExxSy9DZUZ1ZnVnWUE2b0xIdlJycjg2OHpGc2hsbkN0NDhmL3VyNUlDeTV3TjZWTDVEc1RmN1ZFUmxHTm5JUEJQZnZKSnFqemExT0I4ejRvS3lsektaK1hxWFpHUVVUcVIwWll3V2xDbjRxaEo2MytKYU00QzRKZi9MejhqTWFjcHJCaEFZdVdxeE9XaHBSZW5jY21yUllnWEdwUy9LdEgrWkNyaXJKNFZURG53NkdUQmVCUGlMYXNvRlVKSmRsNUg3c2lRVS9IY2VtdHNOeXM0QnlRVW9rOWs3MjRDWG9KcWt5NGkzWDlXZFd4Mjd3WWs3cDZMa0FTd1JvMGZLMi9yV3dLK3Y0QytuOHlFUG5KMFI1NlRjWlo0K0RPTzRMQ20xbnJUTXI0N3FqSGREYjZNeHMwVVFIVVVEWUpQRmpiK2lVUDNrY1lUcjhyWStmcTFUaFpWN25sWjRuQW1GMVd0L0thV0dIb3dvTmRubVlicGt5b05QNEhWdWNsMVlQMVRMUWtkTFJCNFNSODcxUWJYekl0R1Z6Z2MvbGp4aTBMdWZvOWtVVWpyaVlkMm8xNzh2ZlJoZFZOWElKL3NUTFlkYzQ2QW84a0dhN2owb0xFVzR1cjdZNERmMGpPelFhLzBCY0tNUDR4cnVJWUVuME9ONVc3cW1Ed2JrREdjaHVzblE3am94dWduVVRnLzdmNG80YjZWcVpHZWJGYy9GbWRnbXcxVFgyRk1NcjZyMWROc0hCTDM1MlJSR1BnU3lpTGlvbXlhQ0U4NWUrY3hpcmx0UVllNkdOVkxOSnUzV090Uzl0S2FoNHlMcXZuWWdGOTRmNm9xalpZQWZQY2d2Y253UkExS3RUZXlRT2d0Z1UySmlQWno3bVFsVnZFWnMxNnZjOUFjWmFOUXVVelhpT2xsNUxkTHRQYk84L2s4Y3Q5d2JTdytlZ0NiMGZsN2RRWVhnZG56Nmh4ZW1mMVNuUVV4Q3lZeEcvVWUzcElWbi9pRzY2VjhQV01DRkJZSW43cm9rSi96QllndjNGQ3lncXlqdmQ2ZE9wcEN6NERTRkhUZWEySWJmOGVrMFpBS0N4REtPc2ZIS3AyMXBZb0dIb1BrZ25oNnJWSy8zTGpQcW4wRE91VmpETWx6dm04VW85MStZWGt2SzdwWXpobDN0VHUxK1ZRc0NCRVdpQ21WNWZVMzNYUW5HYzhVano2V2JFR2MzWHdySmJ0anRiWVVEME1VbzVxM3hydk5udDJSNWsyQkEvMUV5NWlEY2FkWUU1WlNIbjYrT3FBMjA5WU9rQmt6YVhpcFdNeUxYT2ZtNkdGQy9zNGlmNStOdnd6U0J2MHdQRWlVbXZ3eDFWNmo0MWtSemZRUFZqZ25VTHlzelZQUXdvWUc0VjhFSUFEaTFaK3pQaWlJNnZockE1UjNDTXBwb2s1OGFjZEdMT0VTYUxjM3Q5RXRFS1JaOHp4ZzBiNG1JaTJqTWtuU25jWnB1eVNZR0V4NklIWm1IdWw5dGsrcWNITVlHcllUTWFsa0lueGgyL3dDdExaU1Myc1VFVE93Zm9EWEJYRUgwVDdwUmlUMnZxU2g0TVc0QWFueEJVNWpWbE1TVlFxNUtEZDE2VzJHRzczVVFvTWZRVExkaVNzNks2L2c0NHpwR2ZpN1pGc3U5bytBSnRWQW5XRldUcGx1b3BTWDdqVXhpa3lrcHFhbGdZRDFEZ3dyNGlHOVBPUk0yYTcwVGVxdUtWcVdUWjUrWHdXREJEYVl3YnUvTU1pd3k3T3EwY0U1MWp3ZVdHbUNxRDhYSWtGQzJaVDVnREQzV2hOOTVKdDhnOG9MeldXVFNsWFVyS0FhbVF2NXVXNEtSdGZqb1c5RkJ0RnR6MHRsNVF5RTZuTUdxdXVVWm5PclhOcUxaSTB2RUdGWGphNi9sekZnSU1JN29UQXlKdXNpUzAxVE5rSjN0NXA0Wm1zZEhmdkw5VjhLdEpNQlBDRjRlQnIrcFVTY21leWVxSVRBNGdzT08rcU9RbDhJQW4rSmlRd1pGcm00d1dpZ0E0Z2ZaOWFqQkk0L2xreVF6UXpWdWpqL2VxWkE0VUtoZWpKQXBLcEY0UkZQYi9vM21WaHhDUHNqWTNSanFKVXJOYWtydHU5UTF0akVaRmpoMWt4K2pyM0pDTTdNUlpTMGlIeDBZd0t0UGlmbGF0Uy84WEVNdEZDZHdLZ1JNWmM5MGRBZE9aNkgzdlYwQVgzRGczdDJJZHVldVBHdWlsKzJOQjNNTEh2eFNVSFY4Z3l5UDE2djlNZ3I2QURnSWpXYlpwK2JlbXFpb05ocjBubHdiU2dMYmZOTEZvV0RBbnc0QlBEOHphQlh0aFVyT2JpOU8rWnlnZ3UyVXdFNmUrK0lJRnM3NXh3RUVwQW54djQ1V3V0WkErQkRLZ3ZRMmZPZXBaU05CVng3Z2hxbjI1R05ZN0RHQ2tDalFDOThjQkszNjRWa0dOSHYzQ0tML2xRdlNXZDJYbC9QUUVacjl5dE50TVNQbTRMcVEvcTZQQTY3NTFsSWhqSTRHNm96NGdYbHZ1aHNudERqdW0ycVRDY1pUSHZaZ0dOVDRoSDJGSWhWVHFXODMzVWZ5TnRiaXlKMzl3eGhlTEltcFpzODVDcTNXSmN4cm9QYVR1OXZ4UTlVY3puN0wyRHZ1b01IY2FLTWVDUUlZaUtZb2hhZFc2VDVDcEhpcDBvdU13OS9OSlhhNnVoQ1FIVFNzcmxodlRzdWlNZEJCcmFLV0V0NVVVaXVOU3NkWEJXK0JvbXpoWGZCazhrRGVLNW5rOWk4SEhGV3hlQ2dDZ203MER6MXRGRVY3UjNVTE9kNWh5L1BjWUJoTjNLR0FUeVNwQjJiK1l6L1JQWXc3TXA3MW5JcitkRDZ6MVVkcEE0U0xXeE5TVUMxNDdmejUrUWhFRFpZakhta1FqaXRaeGZ6aktOQXNxS1JiMXhXVHpPRjEyQi9Lb1ZhMkNIdmZrd0lkelpQYnZvUGVqOTUwS0toU0JYSitCa1k5aGhmN1MyWWhHWWpaTlJZa2ZQclFCV3k1NXFsbUJIYWVBbXNJYXZScjRyeG1ydE9mSTlTbUQ1cmJ5cG9BajM3L05rTXQ4SkdubVNYdDh0MVpmdjhXNE5zMWQ3eHNzcGtUUjdKbU1ZM1dkVDArSGdXNStKUzBkak02U25yMTVwenQ0U1RVU2lINVhJaXUxYlNJbmxtK3MyVVk0YkJOeFh1NG1WR2xIT2xGZ0JFLzZZZnF5MjJBd1I2UktDTDdLZVBKUnBNbmFMVnJXYVAreEcvWFNnV2RYL0c3TzRqOWsxeFExcXpPWVJ5bHFDZE1RdEQ2c1ZXM0VhQWVFTklOY3ZYWUpnUkxxeVBSUFVXN3ZvaitaenZkUW15R0taL1hNQ1ZKV2F3OG1sOWtvaE5SdWtyckk3ZFBMNXlPZ2VPUC95Mi85bVc3cXE5bkhUK09pdmFtSmpKQ1hVQzd5ejBjbnIxcmF6Z3RPdE9yYjZLU3NRZW5hTFRwSkoyV0lybzMvaEVRbFpJU3RwYTBJZUd0bnhaWlI2MjZNbkQ2dWNWVkd3eVRzUStHYUNWeEVuUnVnb2lxNld6K1F6RzRvMG5Qck5jTnhYUjNneWtxbG43ZWF3RWNXMDlYNWI2N3pCRkFFUGpHODFCdUdTU1ZJekRyaGhQNkt0R25palZFMy92ZzRBbE1CUkVSTUdOY1FML2tJRkUrRlI1QmVsNEVUbXFNWWIrcWNZZG1QeVpJQXJIcUZMYmV1dU1nN0hFUys1MkNiWTZBdldWMmFINVJ5d1RqU3JYLzZBPS5Sd0JfZEhGYm1ORFV4MGhlWDJWNVNHemJKZnp4eFJMMS0wMWlaRG1aMjFVSHExQ2MwM0hBLXVZZEpBUHdyS210c2VLU3RMSjhJNnB5bVVwVm5lck1DQQ==" /></form>
+	</div>
+</div>
+<!-- 用户名密码登录 --><div id="pwdLoginDiv" style="display: none">
+    <div>
+    <form class="loginFromClass" method="post" id="pwdFromId" action="/authserver/login">
+        <div class="form">
+            <!-- 用户名密码登录 --><div class="m-account">
+                <div class="username item">
+						<span class="prex-icon">
+							<img src="/authserver/cusTheme/customStatic/web/images/icon_username.png"
+                                 alt=""></span>
+                    <!-- <p class="account-title pc-name lang_text_ellipsis" th:text="#{ids.loginView.username}">用户名</p> --><input id="username" name="username" type="text" class="change-input-color"
+                           onfocusout="checkUserCaptcha()"
+                           placeholder="请输入学号/工号" title="请输入学号/工号" value=""><div id="nameErrorTip" class="item-error-tip lang_text_ellipsis"></div>
+                </div>
+                <div class="password item">
+						<span class="prex-icon">
+							<img src="/authserver/cusTheme/customStatic/web/images/icon_password.png"
+                                 alt=""></span>
+                    <!-- <p class="account-title pc-pass lang_text_ellipsis" th:text="#{ids.loginView.password}">密码</p> --><input id="password" name="passwordText" type="password"
+                           class="change-input-color no-auto-input" readonly placeholder="请输入密码"
+                           title="请输入密码" maxlength="32"><input id="saltPassword" name="password" type="hidden"><a class="ge-input-eye eye-hide"></a>
+                    <div id="pwdErrorTip" class="item-error-tip lang_text_ellipsis"></div>
+                </div>
+                <div class="captcha item hide" id="captchaDiv">
+						<span class="prex-icon">
+							<img src="/authserver/cusTheme/customStatic/web/images/icon_yzm.png" alt=""></span>
+                    <!-- <p id="captchaTitle" class="account-title pc-captcha lang_text_ellipsis hide" th:text="#{ids.mobile.password.code}">验证码</p> --><input type="text" id="captcha" name="captcha" autocomplete="off" class="change-input-color"
+                           placeholder="请输入验证码" title="请输入验证码"
+                           maxlength="10"><span class="captcha-img">
+							<img id="captchaImg" alt="验证码错误" height="30px"><a class="mask-inner captcha-refresh" onclick="reloadCaptcha(true)"
+                               href="javascript:void(0);">刷新</a>
+						</span>
+                    <div id="captchaErrorTip" class="item-error-tip lang_text_ellipsis"></div>
+                </div>
+                <div class="flex-help-between">
+                    <!--						&lt;!&ndash; 忘记密码 &ndash;&gt;--><!--						<a id="retrievePassId" th:href="@{../retrieve-password/retrievePassword/index.html}"--><!--							class="fo-password lang_text_ellipsis" th:text="#{login.page.forget.pwd}"></a>--></div>
+                <div style="clear: both"></div>
+            </div>
+            <div class="ge-btn">
+                <div id="formErrorTip" class="form-errorTip lang_text_ellipsis">
+						<span id="showErrorTip" class="form-error"></span>
+                    <span id="showWarnTip" class="form-warn"></span>
+                </div>
+                <div class="btn">
+                    <a id="login_submit" href="javascript:void(0);" class="login-btn change-bg-color"
+                       onclick="startLogin(this)">登录</a>
+                </div>
+            </div>
+        </div>
+        <input type="hidden" id="_eventId" name="_eventId" value="submit"/><input type="hidden" id="cllt" name="cllt" value="userNameLogin"><input type="hidden" id="dllt" name="dllt" value="generalLogin"><input type="hidden" id="lt" name="lt" value=""/><input type="hidden" id="pwdEncryptSalt" value="T3b6GeDCiNMii6oM"/><input type="hidden" id="execution" name="execution" value="803d1c8b-3af3-4dac-b6d9-d9c1a2411705_ZXlKaGJHY2lPaUpJVXpVeE1pSjkuQXByZ0RWSVZGT1ErMy93Q0IySllRVXg2TUl2ZUxTM1RKUUlONkwzZ0xYK2RDZnAyUFlnNTY0RGVVY2NyakdrRmNpdkJnenZIOTM4VDZpbTBSRWVkN2xmdFhaei9IRFVkblExVDVaUUkyR095bGU2WUpOWW1RNDdYc0ZzcGR3QmYzZGMyT3BoVTNWeWJCLzdGUVJwdkQ4d1N3ZXF4bURpNCtoNkdXamlMc0ZxNGJqUU5oTncvMGpHS3E3T3JDTmdwNFRGNk10Sndlb29POGVIdkNHMUwrYWxaVzdIMmRYRHhDcTQ0TFAyakowUm5odUtMbEJySE1rUFlUeFhhOW1GTUtGcmlRaThGdkhoTVA3OUh3VWZPUVFDY3dpckM0MnZDRXY4ZzJNSEZqb2VxSzRCNG1GMFVGYjF4K2lsMDU3RW9Mc0Q0OWZrU0xVL0w5RzFJNnJLTXM4YjBFY29iRUMwc05jTFpMV2lObG1VdTdYd1RYKzZaYXFrMzIyUFF2b2h6d0tSS0ZaZWJFS1RGQjMrQXVxNEJXd2QwS1VIK0VZK0FiUUYxR3VJMUJZcGYxcjlrV1VvcmZtbmZVcVJqRlhoVm5TOEpZQVByT0owaWM1d0Rzc2JCZnlGU3JGRTk3K2E5ajNrckRkRFhOeFdJMWRob3dmbkNPaTFldnZWRmVpZ25LMWRhdU05cWVLRW03SHE3cnZ5YisyMWtVRzBUZnJnY1k0THdsaURtZGlhUkdRdDBheFhSZ3VVVTh0ek1KblRqc1Yxa2NuRjlNcVR2YTlBdmE2Y1AxaUliNkMyaTFvbjJ4aGxMaEtSVEw5NzVveHVsYm5ETkN6SUJyWXdUSU1iRS9oOW5XVXpDaHFLbkpQWGlTRE92VlRVQ0UwMERNWUc4cVZQRXlPVXN4M2IzWFdmMWJzaEJVb0IxalRQR2k4Y3J5N3BHQjFLZ2tRdHdBQTUzQ3NjSTFOYkF3MnRxMlJGNnh5VHEyQmx6VVRZM21KNld6MXNZN3B0MEwrenEzVzdiM2FGZmZyNVNzcno1U05Vd1FvL3h2MVlQQkh4WlhUazF0dzlZNWIrZ3hvYkt2U1lDcnRQY2hUbE5XazNFWVVHT2h1NkxtNXF1SGppazh0NDJOYTkyRHFyN0kwVmZaSWpPa0dHaUE5UmE5eTV4VmlXR3BmWDNKT0tLNGdzSVlHcUJqbzlydGpDbG9ucTBISEFLaE44ZTNBSko1V0E5a2ZtemFuVDh4SHQveDNEZ1ZXY2NXNWtsc3lKN1lQeDRnQmw4OGRvMjVWMUJtQU1yWHVOVFh4Tk1Qd0UxTUVRNlRNWS9OK1FYYXZBWVBaUW1sT0QveVVMZjNUSDdHVGhLeEkzWGZndWlUQzBsbVFTV2JDTncvRVBzb051TGRPK3FYajJ4YTNBQTFYbjUwcUowWnBicS9TWEpTa1dwZit3eEFvT3paVXJPeldsb2N1OEgxNEVLc2ZFemNxYVgrN1NFblNmZ002dkxHS0wzTEhacDBkN3lodUxFcGRoL1dTeExxSy9DZUZ1ZnVnWUE2b0xIdlJycjg2OHpGc2hsbkN0NDhmL3VyNUlDeTV3TjZWTDVEc1RmN1ZFUmxHTm5JUEJQZnZKSnFqemExT0I4ejRvS3lsektaK1hxWFpHUVVUcVIwWll3V2xDbjRxaEo2MytKYU00QzRKZi9MejhqTWFjcHJCaEFZdVdxeE9XaHBSZW5jY21yUllnWEdwUy9LdEgrWkNyaXJKNFZURG53NkdUQmVCUGlMYXNvRlVKSmRsNUg3c2lRVS9IY2VtdHNOeXM0QnlRVW9rOWs3MjRDWG9KcWt5NGkzWDlXZFd4Mjd3WWs3cDZMa0FTd1JvMGZLMi9yV3dLK3Y0QytuOHlFUG5KMFI1NlRjWlo0K0RPTzRMQ20xbnJUTXI0N3FqSGREYjZNeHMwVVFIVVVEWUpQRmpiK2lVUDNrY1lUcjhyWStmcTFUaFpWN25sWjRuQW1GMVd0L0thV0dIb3dvTmRubVlicGt5b05QNEhWdWNsMVlQMVRMUWtkTFJCNFNSODcxUWJYekl0R1Z6Z2MvbGp4aTBMdWZvOWtVVWpyaVlkMm8xNzh2ZlJoZFZOWElKL3NUTFlkYzQ2QW84a0dhN2owb0xFVzR1cjdZNERmMGpPelFhLzBCY0tNUDR4cnVJWUVuME9ONVc3cW1Ed2JrREdjaHVzblE3am94dWduVVRnLzdmNG80YjZWcVpHZWJGYy9GbWRnbXcxVFgyRk1NcjZyMWROc0hCTDM1MlJSR1BnU3lpTGlvbXlhQ0U4NWUrY3hpcmx0UVllNkdOVkxOSnUzV090Uzl0S2FoNHlMcXZuWWdGOTRmNm9xalpZQWZQY2d2Y253UkExS3RUZXlRT2d0Z1UySmlQWno3bVFsVnZFWnMxNnZjOUFjWmFOUXVVelhpT2xsNUxkTHRQYk84L2s4Y3Q5d2JTdytlZ0NiMGZsN2RRWVhnZG56Nmh4ZW1mMVNuUVV4Q3lZeEcvVWUzcElWbi9pRzY2VjhQV01DRkJZSW43cm9rSi96QllndjNGQ3lncXlqdmQ2ZE9wcEN6NERTRkhUZWEySWJmOGVrMFpBS0N4REtPc2ZIS3AyMXBZb0dIb1BrZ25oNnJWSy8zTGpQcW4wRE91VmpETWx6dm04VW85MStZWGt2SzdwWXpobDN0VHUxK1ZRc0NCRVdpQ21WNWZVMzNYUW5HYzhVano2V2JFR2MzWHdySmJ0anRiWVVEME1VbzVxM3hydk5udDJSNWsyQkEvMUV5NWlEY2FkWUU1WlNIbjYrT3FBMjA5WU9rQmt6YVhpcFdNeUxYT2ZtNkdGQy9zNGlmNStOdnd6U0J2MHdQRWlVbXZ3eDFWNmo0MWtSemZRUFZqZ25VTHlzelZQUXdvWUc0VjhFSUFEaTFaK3pQaWlJNnZockE1UjNDTXBwb2s1OGFjZEdMT0VTYUxjM3Q5RXRFS1JaOHp4ZzBiNG1JaTJqTWtuU25jWnB1eVNZR0V4NklIWm1IdWw5dGsrcWNITVlHcllUTWFsa0lueGgyL3dDdExaU1Myc1VFVE93Zm9EWEJYRUgwVDdwUmlUMnZxU2g0TVc0QWFueEJVNWpWbE1TVlFxNUtEZDE2VzJHRzczVVFvTWZRVExkaVNzNks2L2c0NHpwR2ZpN1pGc3U5bytBSnRWQW5XRldUcGx1b3BTWDdqVXhpa3lrcHFhbGdZRDFEZ3dyNGlHOVBPUk0yYTcwVGVxdUtWcVdUWjUrWHdXREJEYVl3YnUvTU1pd3k3T3EwY0U1MWp3ZVdHbUNxRDhYSWtGQzJaVDVnREQzV2hOOTVKdDhnOG9MeldXVFNsWFVyS0FhbVF2NXVXNEtSdGZqb1c5RkJ0RnR6MHRsNVF5RTZuTUdxdXVVWm5PclhOcUxaSTB2RUdGWGphNi9sekZnSU1JN29UQXlKdXNpUzAxVE5rSjN0NXA0Wm1zZEhmdkw5VjhLdEpNQlBDRjRlQnIrcFVTY21leWVxSVRBNGdzT08rcU9RbDhJQW4rSmlRd1pGcm00d1dpZ0E0Z2ZaOWFqQkk0L2xreVF6UXpWdWpqL2VxWkE0VUtoZWpKQXBLcEY0UkZQYi9vM21WaHhDUHNqWTNSanFKVXJOYWtydHU5UTF0akVaRmpoMWt4K2pyM0pDTTdNUlpTMGlIeDBZd0t0UGlmbGF0Uy84WEVNdEZDZHdLZ1JNWmM5MGRBZE9aNkgzdlYwQVgzRGczdDJJZHVldVBHdWlsKzJOQjNNTEh2eFNVSFY4Z3l5UDE2djlNZ3I2QURnSWpXYlpwK2JlbXFpb05ocjBubHdiU2dMYmZOTEZvV0RBbnc0QlBEOHphQlh0aFVyT2JpOU8rWnlnZ3UyVXdFNmUrK0lJRnM3NXh3RUVwQW54djQ1V3V0WkErQkRLZ3ZRMmZPZXBaU05CVng3Z2hxbjI1R05ZN0RHQ2tDalFDOThjQkszNjRWa0dOSHYzQ0tML2xRdlNXZDJYbC9QUUVacjl5dE50TVNQbTRMcVEvcTZQQTY3NTFsSWhqSTRHNm96NGdYbHZ1aHNudERqdW0ycVRDY1pUSHZaZ0dOVDRoSDJGSWhWVHFXODMzVWZ5TnRiaXlKMzl3eGhlTEltcFpzODVDcTNXSmN4cm9QYVR1OXZ4UTlVY3puN0wyRHZ1b01IY2FLTWVDUUlZaUtZb2hhZFc2VDVDcEhpcDBvdU13OS9OSlhhNnVoQ1FIVFNzcmxodlRzdWlNZEJCcmFLV0V0NVVVaXVOU3NkWEJXK0JvbXpoWGZCazhrRGVLNW5rOWk4SEhGV3hlQ2dDZ203MER6MXRGRVY3UjNVTE9kNWh5L1BjWUJoTjNLR0FUeVNwQjJiK1l6L1JQWXc3TXA3MW5JcitkRDZ6MVVkcEE0U0xXeE5TVUMxNDdmejUrUWhFRFpZakhta1FqaXRaeGZ6aktOQXNxS1JiMXhXVHpPRjEyQi9Lb1ZhMkNIdmZrd0lkelpQYnZvUGVqOTUwS0toU0JYSitCa1k5aGhmN1MyWWhHWWpaTlJZa2ZQclFCV3k1NXFsbUJIYWVBbXNJYXZScjRyeG1ydE9mSTlTbUQ1cmJ5cG9BajM3L05rTXQ4SkdubVNYdDh0MVpmdjhXNE5zMWQ3eHNzcGtUUjdKbU1ZM1dkVDArSGdXNStKUzBkak02U25yMTVwenQ0U1RVU2lINVhJaXUxYlNJbmxtK3MyVVk0YkJOeFh1NG1WR2xIT2xGZ0JFLzZZZnF5MjJBd1I2UktDTDdLZVBKUnBNbmFMVnJXYVAreEcvWFNnV2RYL0c3TzRqOWsxeFExcXpPWVJ5bHFDZE1RdEQ2c1ZXM0VhQWVFTklOY3ZYWUpnUkxxeVBSUFVXN3ZvaitaenZkUW15R0taL1hNQ1ZKV2F3OG1sOWtvaE5SdWtyckk3ZFBMNXlPZ2VPUC95Mi85bVc3cXE5bkhUK09pdmFtSmpKQ1hVQzd5ejBjbnIxcmF6Z3RPdE9yYjZLU3NRZW5hTFRwSkoyV0lybzMvaEVRbFpJU3RwYTBJZUd0bnhaWlI2MjZNbkQ2dWNWVkd3eVRzUStHYUNWeEVuUnVnb2lxNld6K1F6RzRvMG5Qck5jTnhYUjNneWtxbG43ZWF3RWNXMDlYNWI2N3pCRkFFUGpHODFCdUdTU1ZJekRyaGhQNkt0R25palZFMy92ZzRBbE1CUkVSTUdOY1FML2tJRkUrRlI1QmVsNEVUbXFNWWIrcWNZZG1QeVpJQXJIcUZMYmV1dU1nN0hFUys1MkNiWTZBdldWMmFINVJ5d1RqU3JYLzZBPS5Sd0JfZEhGYm1ORFV4MGhlWDJWNVNHemJKZnp4eFJMMS0wMWlaRG1aMjFVSHExQ2MwM0hBLXVZZEpBUHdyS210c2VLU3RMSjhJNnB5bVVwVm5lck1DQQ=="/></form>
+</div>
+</div>
+<!-- 嵌入二维码登录 --><div id="qrLoginDiv" style="display: none">
+    <div>
+<script type="text/javascript" src="/authserver/cusTheme/static/custom/js/qrcode.js?v=20250228.142407"></script>
+<div class="qr_scan_box">
+    <form method="post" id="qrLoginForm" action="/authserver/login" role="form">
+        <div id="qr_code">
+             <div class="qr_scan_code"><img id="qr_img" src=""/></div>
+             <!-- <span class="title lang_text_ellipsis" th:text="#{ids.qr.login.tip}"></span> --></div>
+
+        <div id="qr_success" style="display: none">
+            <div class="qr_scan_success">
+                <img src="/authserver/cusTheme/static/custom/images/Success.png"/><span class="title title_h1 ">扫描成功</span>
+                <span class="sub_title lang_text_ellipsis">请在手机上「确认登录」</span>
+            </div>
+            <div class="scan_footer lang_text_ellipsis"><a class="scan_a" href="javascript:refresh();">返回二维码</a></div>
+        </div>
+
+        <div id="qr_invalid" style="display: none">
+            <div class="qr_scan_code">
+                <img id="invalid_img" src=""/><div class="qr_scan_Invalid">
+                    <img id="qr_refresh" src="/authserver/cusTheme/static/custom/images/refresh.png" onclick="refresh()"/></div>
+            </div>
+            <!-- <span class="title lang_text_ellipsis" th:text="#{ids.qr.login.tip}"></span> --></div>
+
+        <input type="hidden" name="lt" id="lt" value="" /><input type="hidden" name="uuid" id="uuid" value=""/><input type="hidden" name="cllt" value="qrLogin"/><input type="hidden" id="dllt" name="dllt" value="generalLogin"><input type="hidden" name="execution" value="803d1c8b-3af3-4dac-b6d9-d9c1a2411705_ZXlKaGJHY2lPaUpJVXpVeE1pSjkuQXByZ0RWSVZGT1ErMy93Q0IySllRVXg2TUl2ZUxTM1RKUUlONkwzZ0xYK2RDZnAyUFlnNTY0RGVVY2NyakdrRmNpdkJnenZIOTM4VDZpbTBSRWVkN2xmdFhaei9IRFVkblExVDVaUUkyR095bGU2WUpOWW1RNDdYc0ZzcGR3QmYzZGMyT3BoVTNWeWJCLzdGUVJwdkQ4d1N3ZXF4bURpNCtoNkdXamlMc0ZxNGJqUU5oTncvMGpHS3E3T3JDTmdwNFRGNk10Sndlb29POGVIdkNHMUwrYWxaVzdIMmRYRHhDcTQ0TFAyakowUm5odUtMbEJySE1rUFlUeFhhOW1GTUtGcmlRaThGdkhoTVA3OUh3VWZPUVFDY3dpckM0MnZDRXY4ZzJNSEZqb2VxSzRCNG1GMFVGYjF4K2lsMDU3RW9Mc0Q0OWZrU0xVL0w5RzFJNnJLTXM4YjBFY29iRUMwc05jTFpMV2lObG1VdTdYd1RYKzZaYXFrMzIyUFF2b2h6d0tSS0ZaZWJFS1RGQjMrQXVxNEJXd2QwS1VIK0VZK0FiUUYxR3VJMUJZcGYxcjlrV1VvcmZtbmZVcVJqRlhoVm5TOEpZQVByT0owaWM1d0Rzc2JCZnlGU3JGRTk3K2E5ajNrckRkRFhOeFdJMWRob3dmbkNPaTFldnZWRmVpZ25LMWRhdU05cWVLRW03SHE3cnZ5YisyMWtVRzBUZnJnY1k0THdsaURtZGlhUkdRdDBheFhSZ3VVVTh0ek1KblRqc1Yxa2NuRjlNcVR2YTlBdmE2Y1AxaUliNkMyaTFvbjJ4aGxMaEtSVEw5NzVveHVsYm5ETkN6SUJyWXdUSU1iRS9oOW5XVXpDaHFLbkpQWGlTRE92VlRVQ0UwMERNWUc4cVZQRXlPVXN4M2IzWFdmMWJzaEJVb0IxalRQR2k4Y3J5N3BHQjFLZ2tRdHdBQTUzQ3NjSTFOYkF3MnRxMlJGNnh5VHEyQmx6VVRZM21KNld6MXNZN3B0MEwrenEzVzdiM2FGZmZyNVNzcno1U05Vd1FvL3h2MVlQQkh4WlhUazF0dzlZNWIrZ3hvYkt2U1lDcnRQY2hUbE5XazNFWVVHT2h1NkxtNXF1SGppazh0NDJOYTkyRHFyN0kwVmZaSWpPa0dHaUE5UmE5eTV4VmlXR3BmWDNKT0tLNGdzSVlHcUJqbzlydGpDbG9ucTBISEFLaE44ZTNBSko1V0E5a2ZtemFuVDh4SHQveDNEZ1ZXY2NXNWtsc3lKN1lQeDRnQmw4OGRvMjVWMUJtQU1yWHVOVFh4Tk1Qd0UxTUVRNlRNWS9OK1FYYXZBWVBaUW1sT0QveVVMZjNUSDdHVGhLeEkzWGZndWlUQzBsbVFTV2JDTncvRVBzb051TGRPK3FYajJ4YTNBQTFYbjUwcUowWnBicS9TWEpTa1dwZit3eEFvT3paVXJPeldsb2N1OEgxNEVLc2ZFemNxYVgrN1NFblNmZ002dkxHS0wzTEhacDBkN3lodUxFcGRoL1dTeExxSy9DZUZ1ZnVnWUE2b0xIdlJycjg2OHpGc2hsbkN0NDhmL3VyNUlDeTV3TjZWTDVEc1RmN1ZFUmxHTm5JUEJQZnZKSnFqemExT0I4ejRvS3lsektaK1hxWFpHUVVUcVIwWll3V2xDbjRxaEo2MytKYU00QzRKZi9MejhqTWFjcHJCaEFZdVdxeE9XaHBSZW5jY21yUllnWEdwUy9LdEgrWkNyaXJKNFZURG53NkdUQmVCUGlMYXNvRlVKSmRsNUg3c2lRVS9IY2VtdHNOeXM0QnlRVW9rOWs3MjRDWG9KcWt5NGkzWDlXZFd4Mjd3WWs3cDZMa0FTd1JvMGZLMi9yV3dLK3Y0QytuOHlFUG5KMFI1NlRjWlo0K0RPTzRMQ20xbnJUTXI0N3FqSGREYjZNeHMwVVFIVVVEWUpQRmpiK2lVUDNrY1lUcjhyWStmcTFUaFpWN25sWjRuQW1GMVd0L0thV0dIb3dvTmRubVlicGt5b05QNEhWdWNsMVlQMVRMUWtkTFJCNFNSODcxUWJYekl0R1Z6Z2MvbGp4aTBMdWZvOWtVVWpyaVlkMm8xNzh2ZlJoZFZOWElKL3NUTFlkYzQ2QW84a0dhN2owb0xFVzR1cjdZNERmMGpPelFhLzBCY0tNUDR4cnVJWUVuME9ONVc3cW1Ed2JrREdjaHVzblE3am94dWduVVRnLzdmNG80YjZWcVpHZWJGYy9GbWRnbXcxVFgyRk1NcjZyMWROc0hCTDM1MlJSR1BnU3lpTGlvbXlhQ0U4NWUrY3hpcmx0UVllNkdOVkxOSnUzV090Uzl0S2FoNHlMcXZuWWdGOTRmNm9xalpZQWZQY2d2Y253UkExS3RUZXlRT2d0Z1UySmlQWno3bVFsVnZFWnMxNnZjOUFjWmFOUXVVelhpT2xsNUxkTHRQYk84L2s4Y3Q5d2JTdytlZ0NiMGZsN2RRWVhnZG56Nmh4ZW1mMVNuUVV4Q3lZeEcvVWUzcElWbi9pRzY2VjhQV01DRkJZSW43cm9rSi96QllndjNGQ3lncXlqdmQ2ZE9wcEN6NERTRkhUZWEySWJmOGVrMFpBS0N4REtPc2ZIS3AyMXBZb0dIb1BrZ25oNnJWSy8zTGpQcW4wRE91VmpETWx6dm04VW85MStZWGt2SzdwWXpobDN0VHUxK1ZRc0NCRVdpQ21WNWZVMzNYUW5HYzhVano2V2JFR2MzWHdySmJ0anRiWVVEME1VbzVxM3hydk5udDJSNWsyQkEvMUV5NWlEY2FkWUU1WlNIbjYrT3FBMjA5WU9rQmt6YVhpcFdNeUxYT2ZtNkdGQy9zNGlmNStOdnd6U0J2MHdQRWlVbXZ3eDFWNmo0MWtSemZRUFZqZ25VTHlzelZQUXdvWUc0VjhFSUFEaTFaK3pQaWlJNnZockE1UjNDTXBwb2s1OGFjZEdMT0VTYUxjM3Q5RXRFS1JaOHp4ZzBiNG1JaTJqTWtuU25jWnB1eVNZR0V4NklIWm1IdWw5dGsrcWNITVlHcllUTWFsa0lueGgyL3dDdExaU1Myc1VFVE93Zm9EWEJYRUgwVDdwUmlUMnZxU2g0TVc0QWFueEJVNWpWbE1TVlFxNUtEZDE2VzJHRzczVVFvTWZRVExkaVNzNks2L2c0NHpwR2ZpN1pGc3U5bytBSnRWQW5XRldUcGx1b3BTWDdqVXhpa3lrcHFhbGdZRDFEZ3dyNGlHOVBPUk0yYTcwVGVxdUtWcVdUWjUrWHdXREJEYVl3YnUvTU1pd3k3T3EwY0U1MWp3ZVdHbUNxRDhYSWtGQzJaVDVnREQzV2hOOTVKdDhnOG9MeldXVFNsWFVyS0FhbVF2NXVXNEtSdGZqb1c5RkJ0RnR6MHRsNVF5RTZuTUdxdXVVWm5PclhOcUxaSTB2RUdGWGphNi9sekZnSU1JN29UQXlKdXNpUzAxVE5rSjN0NXA0Wm1zZEhmdkw5VjhLdEpNQlBDRjRlQnIrcFVTY21leWVxSVRBNGdzT08rcU9RbDhJQW4rSmlRd1pGcm00d1dpZ0E0Z2ZaOWFqQkk0L2xreVF6UXpWdWpqL2VxWkE0VUtoZWpKQXBLcEY0UkZQYi9vM21WaHhDUHNqWTNSanFKVXJOYWtydHU5UTF0akVaRmpoMWt4K2pyM0pDTTdNUlpTMGlIeDBZd0t0UGlmbGF0Uy84WEVNdEZDZHdLZ1JNWmM5MGRBZE9aNkgzdlYwQVgzRGczdDJJZHVldVBHdWlsKzJOQjNNTEh2eFNVSFY4Z3l5UDE2djlNZ3I2QURnSWpXYlpwK2JlbXFpb05ocjBubHdiU2dMYmZOTEZvV0RBbnc0QlBEOHphQlh0aFVyT2JpOU8rWnlnZ3UyVXdFNmUrK0lJRnM3NXh3RUVwQW54djQ1V3V0WkErQkRLZ3ZRMmZPZXBaU05CVng3Z2hxbjI1R05ZN0RHQ2tDalFDOThjQkszNjRWa0dOSHYzQ0tML2xRdlNXZDJYbC9QUUVacjl5dE50TVNQbTRMcVEvcTZQQTY3NTFsSWhqSTRHNm96NGdYbHZ1aHNudERqdW0ycVRDY1pUSHZaZ0dOVDRoSDJGSWhWVHFXODMzVWZ5TnRiaXlKMzl3eGhlTEltcFpzODVDcTNXSmN4cm9QYVR1OXZ4UTlVY3puN0wyRHZ1b01IY2FLTWVDUUlZaUtZb2hhZFc2VDVDcEhpcDBvdU13OS9OSlhhNnVoQ1FIVFNzcmxodlRzdWlNZEJCcmFLV0V0NVVVaXVOU3NkWEJXK0JvbXpoWGZCazhrRGVLNW5rOWk4SEhGV3hlQ2dDZ203MER6MXRGRVY3UjNVTE9kNWh5L1BjWUJoTjNLR0FUeVNwQjJiK1l6L1JQWXc3TXA3MW5JcitkRDZ6MVVkcEE0U0xXeE5TVUMxNDdmejUrUWhFRFpZakhta1FqaXRaeGZ6aktOQXNxS1JiMXhXVHpPRjEyQi9Lb1ZhMkNIdmZrd0lkelpQYnZvUGVqOTUwS0toU0JYSitCa1k5aGhmN1MyWWhHWWpaTlJZa2ZQclFCV3k1NXFsbUJIYWVBbXNJYXZScjRyeG1ydE9mSTlTbUQ1cmJ5cG9BajM3L05rTXQ4SkdubVNYdDh0MVpmdjhXNE5zMWQ3eHNzcGtUUjdKbU1ZM1dkVDArSGdXNStKUzBkak02U25yMTVwenQ0U1RVU2lINVhJaXUxYlNJbmxtK3MyVVk0YkJOeFh1NG1WR2xIT2xGZ0JFLzZZZnF5MjJBd1I2UktDTDdLZVBKUnBNbmFMVnJXYVAreEcvWFNnV2RYL0c3TzRqOWsxeFExcXpPWVJ5bHFDZE1RdEQ2c1ZXM0VhQWVFTklOY3ZYWUpnUkxxeVBSUFVXN3ZvaitaenZkUW15R0taL1hNQ1ZKV2F3OG1sOWtvaE5SdWtyckk3ZFBMNXlPZ2VPUC95Mi85bVc3cXE5bkhUK09pdmFtSmpKQ1hVQzd5ejBjbnIxcmF6Z3RPdE9yYjZLU3NRZW5hTFRwSkoyV0lybzMvaEVRbFpJU3RwYTBJZUd0bnhaWlI2MjZNbkQ2dWNWVkd3eVRzUStHYUNWeEVuUnVnb2lxNld6K1F6RzRvMG5Qck5jTnhYUjNneWtxbG43ZWF3RWNXMDlYNWI2N3pCRkFFUGpHODFCdUdTU1ZJekRyaGhQNkt0R25palZFMy92ZzRBbE1CUkVSTUdOY1FML2tJRkUrRlI1QmVsNEVUbXFNWWIrcWNZZG1QeVpJQXJIcUZMYmV1dU1nN0hFUys1MkNiWTZBdldWMmFINVJ5d1RqU3JYLzZBPS5Sd0JfZEhGYm1ORFV4MGhlWDJWNVNHemJKZnp4eFJMMS0wMWlaRG1aMjFVSHExQ2MwM0hBLXVZZEpBUHdyS210c2VLU3RMSjhJNnB5bVVwVm5lck1DQQ=="/><input type="hidden" name="_eventId" value="submit"/><input type="hidden" name="rmShown" value="1"></form>
+</div>
+</div>
+</div>
+</body>
+<script src="/authserver/cusTheme/customStatic/static/custom/js/login-language.js?v=20250228.142407"
+        type="text/javascript"></script>
+
+<!-- <script type="text/javascript">
+    $(document).ready(function () {
+        $("#iframe").attr("src", $("#iframe").attr("src") + "&success=" + encodeURIComponent(service));
+    })
+</script>
+
+<script>
+    $(function () {
+        $(".other-ways .item").click(function () {
+            $(this).addClass('active-item').siblings().removeClass('active-item');
+        })
+    })
+
+</script> --><script>
+    $.ajax({
+        url: "https://idaas-idp.hbut.edu.cn/api/v1/idaas-idp.hbut.edu.cn/pv",
+        type: 'get',
+        data: {},
+        success: function (data) {
+            $(".text5__listwrap").html("");
+            $(".text6__listwrap").html("");
+            $(".text7__listwrap").html("");
+            $(".text5__listwrap").html("总访问量：" + data.totalPv);
+            $(".text6__listwrap").html("当日访问量：" + data.todayPv);
+            $(".text7__listwrap").html("日均访问量：" + data.averageDailyPv);
+        }
+    })
+</script>
+
+</html>

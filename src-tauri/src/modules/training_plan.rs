@@ -1,4 +1,11 @@
-//! 📚 培养方案模块 - 与 Python modules/training_plan.py 对应
+//! 📚 培养方案查询模块
+//! 
+//! 该模块对应教务系统的“学生培养方案查询”功能。
+//! 主要提供以下能力：
+//! 1. `fetch_options`: 抓取页面上的下拉框选项（年级、学期、学院等），用于构建前端筛选器。
+//! 2. `fetch_courses`: 根据筛选条件，查询具体的执行计划课程列表。
+//! 
+//! 这里的逻辑与 `http_client.rs` 中的实现可能存在重叠，`http_client.rs` 是目前的实际调用路径。
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -8,15 +15,19 @@ use html_escape::decode_html_entities;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
+/// 通用下拉选项结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectOption {
     pub value: String,
     pub label: String,
 }
 
+/// 筛选器选项集合
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrainingPlanOptions {
+    /// 年级选项 (如 2021, 2022)
     pub grade: Vec<SelectOption>,
+    /// 开课学期选项
     pub kkxq: Vec<SelectOption>,
     pub kkyx: Vec<SelectOption>,
     pub kcxz: Vec<SelectOption>,

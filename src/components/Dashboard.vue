@@ -100,6 +100,15 @@ const modules = [
     desc: '一码通消费记录',
     available: true,
     requiresLogin: true
+  },
+  { 
+    id: 'ai', 
+    name: '校园助手', 
+    icon: '🤖', 
+    color: '#8b5cf6',
+    desc: 'AI智能问答助手',
+    available: true,
+    requiresLogin: true
   }
 ]
 

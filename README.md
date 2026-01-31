@@ -31,6 +31,7 @@
 - 🔋 **电费查询** - 宿舍电费余额实时查询
 - 📈 **排名查询** - 班级/专业/年级排名
 - 📆 **校历** - 当前学期校历、周次信息
+- 🤖 **AI 助手** - 支持多模型、Markdown/LaTeX 渲染、历史记录
 - 🔔 **自动更新** - 检测新版本，一键下载更新
 
 ## 📱 支持平台
@@ -168,6 +169,40 @@ tauri-app/
 ### 配置示例
 
 参考文件：[tauri-app/public/remote_config.sample.json](public/remote_config.sample.json)
+
+### AI 模型与管理员配置
+
+远程配置支持以下字段：
+
+```json
+{
+  "ai_models": [
+    { "label": "Qwen-Plus", "value": "qwen-plus" },
+    { "label": "Qwen-Max", "value": "qwen-max" },
+    { "label": "DeepSeek-R1", "value": "deepseek-r1" },
+    { "label": "Doubao1.5-Pro", "value": "doubao-1.5-pro" }
+  ],
+  "config_admin_ids": []
+}
+```
+
+- `ai_models`：AI 模型列表（显示名称与请求值）。
+- `config_admin_ids`：可访问配置工具的学号列表。
+
+### AI 模型爬虫工具
+
+提供测试脚本从官网接口抓取可用模型并写回配置：
+
+```bash
+cd tauri-app
+python tools/scrape_ai_models.py --capture ..\captured_requests.json
+```
+
+可选参数：
+
+- `--entry-url`：直接指定 digitalPeople3 入口 URL
+- `--cookie`：如需携带 Cookie
+- `--output`：输出到指定配置文件
 
 ### 公告功能说明
 

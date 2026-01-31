@@ -1,5 +1,16 @@
 import { marked } from 'marked'
+import markedKatex from 'marked-katex-extension'
 import DOMPurify from 'dompurify'
+
+marked.setOptions({
+  gfm: true,
+  breaks: true
+})
+
+marked.use(markedKatex({
+  throwOnError: false,
+  output: 'html'
+}))
 
 export function renderMarkdown(content = '') {
   return DOMPurify.sanitize(marked.parse(content || ''))

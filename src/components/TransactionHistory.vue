@@ -15,17 +15,67 @@ const errorMsg = ref('')
 const selectedMonth = ref('') // Format: YYYY-MM
 const monthStats = ref({ income: 0, expense: 0 })
 
+const parseDateString = (value) => {
+  if (!value) return ''
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return ''
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed
+    const parsed = new Date(trimmed)
+    if (!isNaN(parsed.getTime())) return parsed.toISOString().replace('T', ' ').slice(0, 19)
+    return trimmed
+  }
+  if (typeof value === 'number') {
+    const parsed = new Date(value)
+    if (!isNaN(parsed.getTime())) return parsed.toISOString().replace('T', ' ').slice(0, 19)
+  }
+  return ''
+}
+
+const normalizeAmount = (value, item) => {
+  if (value == null) return ''
+  if (typeof value === 'number') return value.toFixed(2)
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+  }
+  if (item && item.money != null) return String(item.money)
+  return ''
+}
+
+const normalizeTransactions = (list) => {
+  if (!Array.isArray(list)) return []
+  return list.map((item) => {
+    const date = parseDateString(
+      item.date || item.tradeTime || item.time || item.createTime || item.tradeDate || item.orderTime
+    )
+    const amt = normalizeAmount(
+      item.amt || item.amount || item.money || item.fee || item.tradeAmount || item.transAmount,
+      item
+    )
+    const merchantName = item.merchantName || item.merchant || item.merchant_name || ''
+    const summary = item.summary || item.remark || item.title || item.description || ''
+    const balance = item.balance || item.afterBalance || item.leftBalance || item.cardBalance || ''
+    return {
+      ...item,
+      date,
+      amt,
+      merchantName,
+      summary,
+      balance
+    }
+  }).filter((item) => item.date || item.amt || item.merchantName || item.summary)
+}
+
 // Computed: Extract available months from data
 const availableMonths = computed(() => {
   const months = new Set()
   rawTransactions.value.forEach(t => {
     if (t.date) {
-      // date format usually "YYYY-MM-DD HH:mm:ss"
       const m = t.date.substring(0, 7)
-      months.add(m)
+      if (m) months.add(m)
     }
   })
-  // Sort descending (newest first)
   return Array.from(months).sort((a, b) => b.localeCompare(a))
 })
 
@@ -72,15 +122,17 @@ const initLoad = async () => {
       pageSize: 1000 
     })
 
-    if (res.success) {
-      rawTransactions.value = res.resultData || []
+    const isSuccess = res?.success === true || res?.code === '' || Array.isArray(res?.resultData) || Array.isArray(res?.data)
+    if (isSuccess) {
+      const rawList = res.resultData || res.data || res.rows || res.result || res.list || []
+      rawTransactions.value = normalizeTransactions(rawList)
       
       // Auto-select newest month if available
       if (availableMonths.value.length > 0) {
         selectedMonth.value = availableMonths.value[0]
       }
     } else {
-      errorMsg.value = res.message || '获取数据失败'
+      errorMsg.value = res.message || res.msg || '获取数据失败'
       
       // If valid cache exists (from backend logic), rawTransactions might still be empty if error occurred on refresh?
       // Our backend implementation tailored cached returns on failure, so if we are here with success=false, 

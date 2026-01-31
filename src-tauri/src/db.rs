@@ -1,3 +1,13 @@
+// db.rs
+//
+// 逻辑文档: N/A (简单的 SQLite 包装)
+// 模块功能: 本地数据持久化与缓存
+// 
+// 本文件主要职责:
+// 1. 初始化 SQLite 数据库连接和表结构 (grades 表, cache 表)。
+// 2. 提供通用的 JSON 缓存存取接口 (get_cache/save_cache)。
+// 3. 这里的缓存策略主要是为了支持离线模式 (Offline Mode) 和提升首屏加载速度。
+
 use rusqlite::{params, Connection, Result};
 use std::path::Path;
 use serde_json::Value;
@@ -82,6 +92,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
             authorization TEXT,
             electricity_cookies TEXT,
             electricity_token_updated_at TEXT,
+            one_code_token TEXT,
             last_login TIMESTAMP,
             expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -137,36 +148,82 @@ pub fn save_user_session<P: AsRef<Path>>(
     path: P, 
     student_id: &str, 
     cookies: &str, 
-    password: &str
+    password: &str,
+    one_code_token: &str
 ) -> Result<()> {
     let conn = Connection::open(path)?;
     // 简单 Base64 编码作为"加密" (仅防君子)
     let encrypted_password = base64::engine::general_purpose::STANDARD.encode(password);
     
+    // 检查是否有 one_code_token 列，如果没有则添加 (为了兼容性)
+    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT", []);
+
     conn.execute(
         "INSERT OR REPLACE INTO user_sessions (
-            student_id, cookies, encrypted_password, last_login
-        ) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)",
-        params![student_id, cookies, encrypted_password],
+            student_id, cookies, encrypted_password, one_code_token, last_login
+        ) VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)",
+        params![student_id, cookies, encrypted_password, one_code_token],
     )?;
     Ok(())
 }
 
 // 获取用户会话
-pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<(String, String)>> {
+pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<(String, String, String)>> {
     let conn = Connection::open(path)?;
-    let mut stmt = conn.prepare("SELECT cookies, encrypted_password FROM user_sessions WHERE student_id = ?1")?;
+    
+    // 检查是否有 one_code_token 列
+    let has_token_col = conn.prepare("SELECT one_code_token FROM user_sessions LIMIT 1").is_ok();
+    
+    let sql = if has_token_col {
+        "SELECT cookies, encrypted_password, one_code_token FROM user_sessions WHERE student_id = ?1"
+    } else {
+        "SELECT cookies, encrypted_password, '' FROM user_sessions WHERE student_id = ?1"
+    };
+
+    let mut stmt = conn.prepare(sql)?;
     let mut rows = stmt.query(params![student_id])?;
     
     if let Some(row) = rows.next()? {
         let cookies: String = row.get(0)?;
         let encrypted: String = row.get(1)?;
+        let token: String = row.get(2).unwrap_or_default();
         
         // 解码密码
         let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
         let password = String::from_utf8(password_bytes).unwrap_or_default();
         
-        Ok(Some((cookies, password)))
+        Ok(Some((cookies, password, token)))
+    } else {
+        Ok(None)
+    }
+}
+
+// 获取最近一次用户会话
+pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<(String, String, String, String)>> {
+    let conn = Connection::open(path)?;
+
+    // 检查是否有 one_code_token 列
+    let has_token_col = conn.prepare("SELECT one_code_token FROM user_sessions LIMIT 1").is_ok();
+
+    let sql = if has_token_col {
+        "SELECT student_id, cookies, encrypted_password, one_code_token FROM user_sessions ORDER BY last_login DESC LIMIT 1"
+    } else {
+        "SELECT student_id, cookies, encrypted_password, '' FROM user_sessions ORDER BY last_login DESC LIMIT 1"
+    };
+
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query([])?;
+
+    if let Some(row) = rows.next()? {
+        let student_id: String = row.get(0)?;
+        let cookies: String = row.get(1)?;
+        let encrypted: String = row.get(2)?;
+        let token: String = row.get(3).unwrap_or_default();
+
+        let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
+        let password = String::from_utf8(password_bytes).unwrap_or_default();
+
+        Ok(Some((student_id, cookies, password, token)))
     } else {
         Ok(None)
     }

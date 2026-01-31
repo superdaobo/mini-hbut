@@ -1,4 +1,8 @@
-//! 👤 个人信息查询模块 - 与 Python modules/student_info.py 对应
+//! 👤 个人信息查询模块
+//! 
+//! 负责获取学生的学籍基本信息。
+//! 数据来源：教务系统学籍卡片页面。
+//! 解析方式：通常使用正则表达式从 HTML 中提取字段。
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -6,17 +10,28 @@ use regex::Regex;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
+/// 学生详细信息实体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StudentInfo {
+    /// 学号
     pub student_id: String,
+    /// 姓名
     pub name: String,
+    /// 性别
     pub gender: String,
+    /// 身份证号 (通常需脱敏)
     pub id_number: String,
+    /// 民族
     pub ethnicity: String,
+    /// 年级 (如 2021)
     pub grade: String,
+    /// 学院
     pub college: String,
+    /// 专业
     pub major: String,
+    /// 班级
     pub class_name: String,
+    /// 培养层次 (本科/硕士)
     pub education_level: String,
     pub study_years: String,
 }

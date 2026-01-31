@@ -1,16 +1,39 @@
+// lib.rs
+//
+// 逻辑文档: lib_logic.md
+// 模块功能: Tauri 后端逻辑入口
+// 
+// 本文件主要职责:
+// 1. 定义应用状态 (AppState) 和全局单例 HbutClient
+// 2. 将 HbutClient 的功能包装为 Tauri Commands 供前端调用
+// 3. 定义数据传输对象 (DTOs)
+// 4. 实现简单的缓存/持久化策略 (调用 db 模块)
+//
+// 依赖关系:
+// lib.rs -> http_client.rs (业务逻辑)
+// lib.rs -> db.rs (数据存储)
+// lib.rs -> modules/ (特定功能模块)
+
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tauri::State;
+use std::sync::Arc;
+use tauri::{State, Manager};
 use chrono::Datelike;
 
 pub mod http_client;
 pub mod parser;
 pub mod db;
 pub mod modules;
+pub mod http_server;
 
 use http_client::HbutClient;
 
+
+use modules::ai::*;
+use modules::one_code::*;
+
 // ... imports
+
 
 const DB_FILENAME: &str = "grades.db";
 
@@ -18,7 +41,7 @@ const DB_FILENAME: &str = "grades.db";
 
 // 应用状态
 pub struct AppState {
-    pub client: Mutex<HbutClient>,
+    pub client: Arc<Mutex<HbutClient>>,
 }
 
 // 数据结构
@@ -201,8 +224,20 @@ async fn login(
         .await
         .map_err(|e| e.to_string())?;
 
+    // 尝试获取电费 Token (One Code)
+    let one_code_token = match client.ensure_electricity_token().await {
+        Ok(t) => {
+            println!("[DEBUG] Login: Successfully obtained one_code_token");
+            t
+        },
+        Err(e) => {
+            println!("[WARN] Login: Failed to get one_code_token: {}", e);
+            String::new()
+        }
+    };
+
     // 保存会话到本地数据库 (用于自动重连)
-    if let Err(e) = db::save_user_session(DB_FILENAME, &username, &client.get_cookies(), &password) {
+    if let Err(e) = db::save_user_session(DB_FILENAME, &username, &client.get_cookies(), &password, &one_code_token) {
         println!("[WARN] Failed to save session: {}", e);
     }
 
@@ -226,9 +261,13 @@ async fn restore_session(
 
     // 尝试从数据库加载凭据 (用于 SSO)
     match db::get_user_session(DB_FILENAME, &user_info.student_id) {
-        Ok(Some((_, password))) => {
+        Ok(Some((_, password, token))) => {
             println!("[DEBUG] Restored credentials for user: {}", user_info.student_id);
             client.set_credentials(user_info.student_id.clone(), password);
+            if !token.is_empty() {
+                client.set_electricity_token(token);
+                println!("[DEBUG] Restored one_code_token");
+            }
         },
         Ok(None) => println!("[DEBUG] No saved credentials found for user: {}", user_info.student_id),
         Err(e) => println!("[WARN] Failed to load session credentials: {}", e),
@@ -462,25 +501,17 @@ async fn fetch_transaction_history(
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.lock().await;
 
-    // 1. 尝试从数据库获取缓存 (仅第一页且非搜索特定日期范围时才依赖完全缓存? 
-    // 不，简单起见，我们总是先返回缓存，然后后台更新，或者由前端控制刷新)
-    // 这里实现为：如果有缓存且 page_no=1，先返回缓存的（需前端配合处理“即时响应”和“更新后刷新”）
-    // 但 Tauri command 是 request/response 模式，无法 streams。
-    // 策略：优先网络请求，失败则降级到缓存。
-    // 或者：自动请求大范围数据并缓存，前端从本地计算。
+    // 缓存键名构造: transaction_{学号}
+    // 只有在已登录状态下才能正确读写缓存
     
-    // 根据用户需求：自动获取大范围数据缓存。
-    // 我们在这里拦截：如果是 page_no=1 且 start_date/end_date 跨度较大（即初始化加载），
-    // 我们先尝试返回本地全量缓存。
-    
-    let cache_key = format!("transaction_{}", client.user_info.as_ref().map(|u| u.student_id.as_str()).unwrap_or("unknown"));
-    
-    // 网络请求优先
+    // 策略: Network First (优先网络请求)
+    // 如果网络请求成功，且数据量较大(>=50条)，则视为可以更新缓存
+    // 如果网络请求失败，侧降级读取本地缓存
     match client.fetch_transaction_history(&start_date, &end_date, page_no, page_size).await {
         Ok(data) => {
-             // 成功获取数据，保存到缓存 (简化：只缓存第一页或全量数据)
-             // 如果是获取大范围数据 (page_size > 50)，则视为全量同步
-             if page_size >= 200 || page_size == 1000 {
+             // 成功获取数据
+             // 仅当请求数据量足够覆盖常规显示时，更新缓存
+             if page_size >= 50 {
                  if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
                      let _ = db::save_cache(DB_FILENAME, "transaction_cache", uid, &data);
                  }
@@ -489,12 +520,13 @@ async fn fetch_transaction_history(
         },
         Err(e) => {
             println!("[WARN] Transaction network fetch failed: {}, trying cache...", e);
-             // 网络失败，尝试读取缓存
+            // 网络失败，尝试读取缓存
             if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
                  if let Ok(Some((cached_data, _))) = db::get_cache(DB_FILENAME, "transaction_cache", uid) {
                      return Ok(cached_data);
                  }
             }
+            // 既无网络也无缓存，返回错误
             Err(e.to_string())
         }
     }
@@ -519,12 +551,171 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            fn find_file_in_parents(file_name: &str, max_depth: usize) -> Option<std::path::PathBuf> {
+                let mut dir = std::env::current_dir().ok()?;
+                for _ in 0..=max_depth {
+                    let candidate = dir.join(file_name);
+                    if candidate.exists() {
+                        return Some(candidate);
+                    }
+                    if !dir.pop() {
+                        break;
+                    }
+                }
+                None
+            }
+            fn extract_cookie_segment(raw: &str, label: &str) -> Option<String> {
+                let marker = format!("{}:", label);
+                let pos = raw.find(&marker)?;
+                let after = &raw[pos + marker.len()..];
+                let end = after.find('|').unwrap_or(after.len());
+                let segment = after[..end].trim();
+                if segment.is_empty() { None } else { Some(segment.to_string()) }
+            }
+
+            fn clean_cookie_string(raw: &str) -> String {
+                raw.replace("Code:", "")
+                    .replace("Auth:", "")
+                    .replace("Jwxt:", "")
+                    .replace(" | ", "; ")
+                    .trim()
+                    .to_string()
+            }
+
+            fn read_access_token_from_capture(paths: &[std::path::PathBuf]) -> Option<String> {
+                let token_re = regex::Regex::new(r#"\"accessToken\"\s*:\s*\"([^\"]+)\""#).ok()?;
+                let auth_re = regex::Regex::new(r#"\"authorization\"\s*:\s*\"([^\"]+)\""#).ok()?;
+                for path in paths {
+                    let text = std::fs::read_to_string(path).ok()?;
+                    let mut last: Option<String> = None;
+                    for cap in token_re.captures_iter(&text) {
+                        if let Some(m) = cap.get(1) {
+                            let value = m.as_str().trim().to_string();
+                            if !value.is_empty() {
+                                last = Some(value);
+                            }
+                        }
+                    }
+                    if last.is_none() {
+                        for cap in auth_re.captures_iter(&text) {
+                            if let Some(m) = cap.get(1) {
+                                let value = m.as_str().trim().to_string();
+                                if !value.is_empty() {
+                                    last = Some(value);
+                                }
+                            }
+                        }
+                    }
+                    if last.is_some() {
+                        return last;
+                    }
+                }
+                None
+            }
+
             let app_handle = app.handle().clone();
             crate::modules::notification::init_background_task(app_handle);
+            // 启动时尝试加载最近一次会话凭据
+            let mut restored_any = false;
+            let mut token_loaded = false;
+            if let Ok(Some((student_id, cookies, password, token))) = db::get_latest_user_session(DB_FILENAME) {
+                let mut code_cookie = None;
+                let mut auth_cookie = None;
+                let mut jwxt_cookie = None;
+                if !cookies.is_empty() {
+                    code_cookie = extract_cookie_segment(&cookies, "Code");
+                    auth_cookie = extract_cookie_segment(&cookies, "Auth");
+                    jwxt_cookie = extract_cookie_segment(&cookies, "Jwxt");
+                }
+
+                let should_restore = code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some();
+                let should_set_credentials = !password.is_empty();
+                let should_set_token = !token.is_empty();
+
+                if should_restore {
+                    restored_any = true;
+                }
+                if should_set_token {
+                    token_loaded = true;
+                }
+
+                if should_restore || should_set_credentials || should_set_token {
+                    let state = app.state::<AppState>();
+                    tauri::async_runtime::block_on(async {
+                        let mut client = state.client.lock().await;
+                        if should_restore {
+                            let _ = client.restore_cookie_snapshot(code_cookie, auth_cookie, jwxt_cookie);
+                        }
+                        if should_set_credentials {
+                            client.set_credentials(student_id, password);
+                        }
+                        if should_set_token {
+                            client.set_electricity_token(token);
+                        }
+                    });
+                }
+            }
+            if !restored_any {
+                if let Some(path) = find_file_in_parents("rust_backend_session.json", 6) {
+                    if let Ok(text) = std::fs::read_to_string(path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(snapshot) = json.get("cookie_snapshot") {
+                            let code_raw = snapshot.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                            let auth_raw = snapshot.get("auth").and_then(|v| v.as_str()).unwrap_or("");
+                            let jwxt_raw = snapshot.get("jwxt").and_then(|v| v.as_str()).unwrap_or("");
+
+                            let cleaned_code = clean_cookie_string(code_raw);
+                            let cleaned_auth = clean_cookie_string(auth_raw);
+                            let cleaned_jwxt = clean_cookie_string(jwxt_raw);
+
+                            let code_cookie = extract_cookie_segment(code_raw, "Code")
+                                .or_else(|| extract_cookie_segment(auth_raw, "Code"))
+                                .or_else(|| extract_cookie_segment(jwxt_raw, "Code"))
+                                .or_else(|| if cleaned_code.is_empty() { None } else { Some(cleaned_code) });
+                            let auth_cookie = extract_cookie_segment(auth_raw, "Auth")
+                                .or_else(|| extract_cookie_segment(code_raw, "Auth"))
+                                .or_else(|| extract_cookie_segment(jwxt_raw, "Auth"))
+                                .or_else(|| if cleaned_auth.is_empty() { None } else { Some(cleaned_auth) });
+                            let jwxt_cookie = extract_cookie_segment(jwxt_raw, "Jwxt")
+                                .or_else(|| extract_cookie_segment(code_raw, "Jwxt"))
+                                .or_else(|| extract_cookie_segment(auth_raw, "Jwxt"))
+                                .or_else(|| if cleaned_jwxt.is_empty() { None } else { Some(cleaned_jwxt) });
+
+                            if code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some() {
+                                let state = app.state::<AppState>();
+                                tauri::async_runtime::block_on(async {
+                                    let mut client = state.client.lock().await;
+                                    let _ = client.restore_cookie_snapshot(code_cookie, auth_cookie, jwxt_cookie);
+                                });
+                            }
+                        }
+                        }
+                    }
+                }
+            }
+            if !token_loaded {
+                let mut capture_paths: Vec<std::path::PathBuf> = Vec::new();
+                if let Some(path) = find_file_in_parents("captured_requests1.json", 6) {
+                    capture_paths.push(path);
+                }
+                if let Some(path) = find_file_in_parents("captured_requests.json", 6) {
+                    capture_paths.push(path);
+                }
+                if let Some(token) = read_access_token_from_capture(&capture_paths) {
+                    let state = app.state::<AppState>();
+                    tauri::async_runtime::block_on(async {
+                        let mut client = state.client.lock().await;
+                        client.set_electricity_token(token);
+                    });
+                }
+            }
+            // 启动本地 HTTP 测试桥接服务（用于外部 Python 验证脚本）
+            let client = app.state::<AppState>().client.clone();
+            crate::http_server::spawn_http_server(client);
             Ok(())
         })
         .manage(AppState {
-            client: Mutex::new(HbutClient::new()),
+            client: Arc::new(Mutex::new(HbutClient::new())),
         })
         .invoke_handler(tauri::generate_handler![
             get_login_page,
@@ -557,7 +748,12 @@ pub fn run() {
             electricity_query_account,
             refresh_electricity_token,
             fetch_transaction_history,
+            hbut_ai_init,
+            hbut_ai_upload,
+            hbut_ai_chat,
+            hbut_one_code_token,
         ])
+
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

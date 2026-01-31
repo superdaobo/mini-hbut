@@ -1,4 +1,11 @@
-//! 📝 考试查询模块 - 与 Python modules/exam.py 对应
+//! 📝 考试安排查询模块
+//! 
+//! 本模块处理考试信息的查询。
+//! 主要功能：
+//! 1. 查询指定学期的考试安排。
+//! 2. 解析考场、座位号、考试时间等关键信息。
+//! 
+//! API: 通常涉及教务系统的 `kwgl` (考务管理) 路径。
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -6,15 +13,24 @@ use serde_json::Value;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
+/// 考试信息实体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Exam {
+    /// 课程名称
     pub course_name: String,
+    /// 考试日期 (YYYY-MM-DD)
     pub exam_date: String,
+    /// 考试时间段 (如 "14:00-16:00")
     pub exam_time: String,
+    /// 考场地点 (教学楼+教室)
     pub location: String,
+    /// 详细地址
     pub address: String,
+    /// 座位号 (可能为空)
     pub seat_number: Option<String>,
+    /// 考试性质 (正常/补考)
     pub exam_type: String,
+    /// 学期
     pub semester: String,
 }
 

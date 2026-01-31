@@ -1,4 +1,11 @@
 //! ⚡ 电费查询模块 - 与 Python modules/electricity.py 对应
+//!
+//! 主要职责:
+//! 1. 封装 Fusion Portal (能耗系统) 的 API。
+//! 2. 提供位置层级 (Location) 的递归查询 (区域 -> 楼栋 -> 楼层 -> 房间)。
+//! 3. 查询特定房间的电费账户余额和状态。
+//! 
+//! 注意: 使用前必须先通过 OAuth 流程获取 Token (由 `http_client.rs` 负责)。
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -6,23 +13,32 @@ use serde_json::Value;
 
 const CODE_BASE_URL: &str = "https://code.hbut.edu.cn";
 
+/// 电费账户余额信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElectricityBalance {
+    /// 查询是否成功
     pub success: bool,
+    /// 账户余额 (元)
     pub balance: String,
+    /// 剩余电量 (度)
     pub quantity: String,
+    /// 供电状态 (如 "正常供电")
     pub status: String,
+    /// 房间名称 (可选)
     pub room_name: String,
 }
 
+/// 位置节点信息 (区域/楼栋/房间通用)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationItem {
     pub id: String,
     pub name: String,
 }
 
+/// 电费模块封装
 pub struct ElectricityModule {
     client: Client,
+    /// JWT 认证令牌
     auth_token: Option<String>,
 }
 
@@ -34,10 +50,15 @@ impl ElectricityModule {
         }
     }
 
+    /// 设置认证 Token
     pub fn set_auth_token(&mut self, token: &str) {
         self.auth_token = Some(token.to_string());
     }
 
+    /// 通用位置查询接口
+    /// 
+    /// 向 /server/utilities/location 发送 POST 请求。
+    /// payload 决定了查询的层级 (area, building, unit, room)。
     pub async fn query_location(&self, payload: &Value) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/server/utilities/location", CODE_BASE_URL);
         
@@ -60,6 +81,7 @@ impl ElectricityModule {
         Ok(json)
     }
 
+    /// 查询账户详情 (余额/电量)
     pub async fn query_account(&self, payload: &Value) -> Result<ElectricityBalance, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/server/utilities/account", CODE_BASE_URL);
         

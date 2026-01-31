@@ -2,6 +2,7 @@
 use scraper::{Html, Selector};
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use base64::Engine;
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use rand::Rng;
@@ -45,9 +46,10 @@ fn encrypt_password_aes(password: &str, salt: &str) -> Result<String, Box<dyn st
         return Err(format!("Salt must be 16 bytes, got {}", salt.len()).into());
     }
     
-    // Salt 作为密钥和 IV（与学校 CAS 相同）
+    // Salt 作为密钥，IV 使用随机 16 字符（与前端 encrypt.js 一致）
     let key = salt.as_bytes();
-    let iv = salt.as_bytes();
+    let iv = get_random_string(16);
+    let iv_bytes = iv.as_bytes();
     
     // 生成随机前缀 + 密码
     let random_prefix = get_random_string(64);
@@ -61,7 +63,7 @@ fn encrypt_password_aes(password: &str, salt: &str) -> Result<String, Box<dyn st
     buf[..plain_bytes.len()].copy_from_slice(plain_bytes);
     
     // AES-CBC 加密
-    let cipher = Aes128CbcEnc::new(key.into(), iv.into());
+    let cipher = Aes128CbcEnc::new(key.into(), iv_bytes.into());
     let encrypted = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plain_bytes.len())
         .map_err(|e| format!("Encryption failed: {:?}", e))?;
     
@@ -96,7 +98,7 @@ impl HbutClient {
             .build()
             .expect("Failed to create HTTP client");
         
-        Self {
+        let mut instance = Self {
             client,
             cookie_jar: jar,
             is_logged_in: false,
@@ -108,7 +110,9 @@ impl HbutClient {
             electricity_token_at: None,
             ocr_endpoint: None,
             last_login_time: None,
-        }
+        };
+        instance.load_cookie_snapshot_from_file();
+        instance
     }
 
     pub fn set_ocr_endpoint(&mut self, endpoint: String) {
@@ -123,6 +127,13 @@ impl HbutClient {
     pub fn set_credentials(&mut self, username: String, password: String) {
         self.last_username = Some(username);
         self.last_password = Some(password);
+    }
+
+    pub fn set_electricity_token(&mut self, token: String) {
+        if !token.trim().is_empty() {
+            self.electricity_token = Some(token);
+            self.electricity_token_at = Some(std::time::Instant::now());
+        }
     }
 
     pub async fn get_login_page(&mut self) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
@@ -308,7 +319,8 @@ impl HbutClient {
         let cookies_before = self.get_cookies();
         println!("[DEBUG] Cookies before login: {}", cookies_before);
 
-        for attempt in 0..1 {
+        let max_attempts = 3;
+        for attempt in 0..max_attempts {
             // 获取登录页面参数（execution 一次性），增加重试次数以应对验证码识别错误
             let page_info = self.get_login_page_with_service(service_url).await?;
             let current_salt = page_info.salt;
@@ -342,6 +354,9 @@ impl HbutClient {
 
             set_key(&mut form_data, &["username", "userName", "loginname"], "username", username.to_string());
             set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
+            set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
+            set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
+            set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
             if !current_execution.is_empty() {
                 set_key(&mut form_data, &["execution"], "execution", current_execution);
             }
@@ -354,7 +369,8 @@ impl HbutClient {
             if page_info.captcha_required {
                 let captcha_code = self.fetch_and_recognize_captcha().await.unwrap_or_default();
                 if !captcha_code.is_empty() {
-                    set_key(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_code);
+                    let captcha_upper = captcha_code.to_uppercase();
+                    set_key(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_upper);
                 }
             }
 
@@ -370,6 +386,10 @@ impl HbutClient {
             let html = response.text().await?;
 
             if html.contains("验证码错误") || html.contains("验证码无效") {
+                if attempt + 1 < max_attempts {
+                    println!("[DEBUG] Captcha error, retrying... ({}/{})", attempt + 1, max_attempts);
+                    continue;
+                }
                 return Err("验证码错误，请重新登录".into());
             }
             if html.contains("密码错误") || html.contains("帐号或密码错误") || html.contains("认证失败") {
@@ -388,6 +408,10 @@ impl HbutClient {
                 || html.contains("pwdEncryptSalt");
 
             if is_on_auth_page {
+                if attempt + 1 < max_attempts {
+                    println!("[DEBUG] Still on auth page, retrying... ({}/{})", attempt + 1, max_attempts);
+                    continue;
+                }
                 return Err("登录失败，请检查账号密码或验证码".into());
             }
 
@@ -420,12 +444,14 @@ impl HbutClient {
             };
             self.is_logged_in = true;
             self.user_info = Some(user_info.clone());
+            self.save_cookie_snapshot_to_file();
             return Ok(user_info);
         } else {
              // 对于其他服务（如 code.hbut.edu.cn），登录成功后的重定向通常已经包含了 Ticket
              // 不需要额外访问 JWXT SSO
              println!("[DEBUG] Login successful for service: {}", service_url);
              self.is_logged_in = true;
+             self.save_cookie_snapshot_to_file();
              // 尝试从缓存返回用户信息 (若无则返回仅包含学号的默认信息)
              return Ok(self.user_info.clone().unwrap_or(UserInfo {
                 student_id: username.to_string(),
@@ -556,7 +582,11 @@ impl HbutClient {
             // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到 JWXT
             if page_info.is_already_logged_in {
                 println!("[DEBUG] Already logged in (detected), skipping login POST");
-                return self.fetch_user_info().await;
+                let user_info = self.fetch_user_info().await?;
+                self.is_logged_in = true;
+                self.user_info = Some(user_info.clone());
+                self.save_cookie_snapshot_to_file();
+                return Ok(user_info);
             }
             
             let current_salt = page_info.salt;
@@ -830,6 +860,7 @@ impl HbutClient {
         self.last_login_time = Some(std::time::Instant::now());
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
+        self.save_cookie_snapshot_to_file();
 
         // 自动预热 SSO Token (如电费)
         let _ = self.ensure_electricity_token().await;
@@ -840,7 +871,7 @@ impl HbutClient {
         Err("登录失败，请稍后重试".into())
     }
 
-    async fn fetch_user_info(&self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_user_info(&self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let info_url = format!("{}/admin/xsd/xsjbxx/xskp", JWXT_BASE_URL);
         println!("[DEBUG] Fetching user info from: {}", info_url);
         
@@ -899,6 +930,7 @@ impl HbutClient {
         let user_info = self.fetch_user_info().await?;
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
+        self.save_cookie_snapshot_to_file();
         
         Ok(user_info)
     }
@@ -909,6 +941,7 @@ impl HbutClient {
         self.last_login_time = Some(std::time::Instant::now());
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
+        self.save_cookie_snapshot_to_file();
 
         // 自动预热 SSO Token (如电费)
         let _ = self.ensure_electricity_token().await;
@@ -926,6 +959,145 @@ impl HbutClient {
         if let Some(c) = self.cookie_jar.cookies(&auth_url) { all_cookies.push(format!("Auth: {}", c.to_str().unwrap_or_default())); }
         if let Some(c) = self.cookie_jar.cookies(&jwxt_url) { all_cookies.push(format!("Jwxt: {}", c.to_str().unwrap_or_default())); }
         all_cookies.join(" | ")
+    }
+
+    /// 导出 Cookie 快照（不带前缀，适合外部缓存/导入）
+    pub fn get_cookie_snapshot(&self) -> serde_json::Value {
+        let code_url: Url = "https://code.hbut.edu.cn".parse().unwrap();
+        let auth_url: Url = "https://auth.hbut.edu.cn".parse().unwrap();
+        let jwxt_url: Url = "https://jwxt.hbut.edu.cn".parse().unwrap();
+
+        let code = self.cookie_jar.cookies(&code_url)
+            .map(|c| c.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+        let auth = self.cookie_jar.cookies(&auth_url)
+            .map(|c| c.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+        let jwxt = self.cookie_jar.cookies(&jwxt_url)
+            .map(|c| c.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+
+        serde_json::json!({
+            "code": code,
+            "auth": auth,
+            "jwxt": jwxt
+        })
+    }
+
+    /// 从 Cookie 快照恢复（仅写入 Cookie，不做登录校验）
+    pub fn restore_cookie_snapshot(
+        &mut self,
+        code: Option<String>,
+        auth: Option<String>,
+        jwxt: Option<String>
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let code_url: Url = "https://code.hbut.edu.cn".parse()?;
+        let auth_url: Url = "https://auth.hbut.edu.cn".parse()?;
+        let jwxt_url: Url = "https://jwxt.hbut.edu.cn".parse()?;
+
+        if let Some(raw) = code {
+            for cookie_str in raw.split(';') {
+                let cookie_str = cookie_str.trim();
+                if let Some((name, value)) = cookie_str.split_once('=') {
+                    self.cookie_jar.add_cookie_str(
+                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
+                        &code_url,
+                    );
+                }
+            }
+        }
+        if let Some(raw) = auth {
+            for cookie_str in raw.split(';') {
+                let cookie_str = cookie_str.trim();
+                if let Some((name, value)) = cookie_str.split_once('=') {
+                    self.cookie_jar.add_cookie_str(
+                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
+                        &auth_url,
+                    );
+                }
+            }
+        }
+        if let Some(raw) = jwxt {
+            for cookie_str in raw.split(';') {
+                let cookie_str = cookie_str.trim();
+                if let Some((name, value)) = cookie_str.split_once('=') {
+                    self.cookie_jar.add_cookie_str(
+                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
+                        &jwxt_url,
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn app_data_dir() -> Option<PathBuf> {
+        let base = std::env::var("LOCALAPPDATA")
+            .or_else(|_| std::env::var("APPDATA"))
+            .ok()?;
+        let dir = PathBuf::from(base).join("Mini-HBUT");
+        let _ = std::fs::create_dir_all(&dir);
+        Some(dir)
+    }
+
+    fn cookie_snapshot_path() -> Option<PathBuf> {
+        Self::app_data_dir().map(|dir| dir.join("hbut_cookie_snapshot.json"))
+    }
+
+    fn legacy_cookie_snapshot_path() -> Option<PathBuf> {
+        std::env::current_dir().ok().map(|dir| dir.join("hbut_cookie_snapshot.json"))
+    }
+
+    pub fn save_cookie_snapshot_to_file(&self) {
+        if let Some(path) = Self::cookie_snapshot_path() {
+            let payload = self.get_cookie_snapshot();
+            if let Ok(text) = serde_json::to_string(&payload) {
+                let _ = std::fs::write(path, text);
+            }
+        }
+    }
+
+    pub fn load_cookie_snapshot_from_file(&mut self) {
+        let primary = Self::cookie_snapshot_path();
+        let legacy = Self::legacy_cookie_snapshot_path();
+        let path = primary
+            .as_ref()
+            .filter(|p| p.exists())
+            .cloned()
+            .or_else(|| legacy.as_ref().filter(|p| p.exists()).cloned());
+        let path = match path {
+            Some(p) => p,
+            None => return,
+        };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+            let raw_code = json.get("code").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let raw_auth = json.get("auth").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let raw_jwxt = json.get("jwxt").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+            let extract_segment = |raw: Option<String>, label: &str| -> Option<String> {
+                let raw = raw.unwrap_or_default();
+                if raw.contains("Code:") || raw.contains("Auth:") || raw.contains("Jwxt:") {
+                    if let Ok(re) = regex::Regex::new(&format!(r"(?:^|\\|)\\s*{}:\\s*([^|]+)", label)) {
+                        if let Some(cap) = re.captures(&raw) {
+                            if let Some(m) = cap.get(1) {
+                                return Some(m.as_str().trim().to_string());
+                            }
+                        }
+                    }
+                }
+                if raw.trim().is_empty() { None } else { Some(raw) }
+            };
+
+            let code = extract_segment(raw_code, "Code");
+            let auth = extract_segment(raw_auth, "Auth");
+            let jwxt = extract_segment(raw_jwxt, "Jwxt");
+            let _ = self.restore_cookie_snapshot(code, auth, jwxt);
+        }
     }
 
     pub fn clear_session(&mut self) {
@@ -986,6 +1158,575 @@ impl HbutClient {
             return Self::extract_semester_from_json(data);
         }
         None
+    }
+
+    pub async fn init_ai_session(&mut self) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+        const REDIRECT_URLS_ENCODED: &[&str] = &[
+            "https%3A%2F%2Fhub.17wanxiao.com%2Fbsacs%2Fdklight.action%3Fstate%3Dbjdk_hbgy_dk_echar",
+        ];
+
+        fn load_entry_url_template() -> Option<String> {
+            let mut dir = std::env::current_dir().ok()?;
+            for _ in 0..=6 {
+                let candidate = dir.join("captured_requests.json");
+                if candidate.exists() {
+                    if let Ok(text) = std::fs::read_to_string(candidate) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(arr) = json.as_array() {
+                                for item in arr.iter().rev() {
+                                    if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
+                                        if url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                                            return Some(url.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let remote_cfg = dir.join("remote_config.json");
+                if remote_cfg.exists() {
+                    if let Ok(text) = std::fs::read_to_string(remote_cfg) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(url) = json.get("ai_entry_url_template").and_then(|v| v.as_str()) {
+                                if !url.trim().is_empty() {
+                                    return Some(url.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
+            None
+        }
+
+        fn default_entry_url_template() -> Option<String> {
+            Some("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?NCPNavBarAlpha=0&customerServiceConfId=122&response_type=code&identityTypeCode=null&flag=bjdk_hbgy_dk_echar&hidden=true&isBindEcard=true&customerCode=2002135&force_login=false&client_id=c20653ee0dd54a8faca19fb127680714&token=".to_string())
+        }
+
+        fn load_cached_entry_url() -> Option<String> {
+            if let Some(dir) = HbutClient::app_data_dir() {
+                let candidate = dir.join("ai_entry_url_cache.json");
+                if candidate.exists() {
+                    if let Ok(text) = std::fs::read_to_string(candidate) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(url) = json.get("entry_url").and_then(|v| v.as_str()) {
+                                if !url.trim().is_empty() {
+                                    return Some(url.to_string());
+                                }
+                            }
+                        } else if !text.trim().is_empty() {
+                            return Some(text.trim().to_string());
+                        }
+                    }
+                }
+            }
+            let mut dir = std::env::current_dir().ok()?;
+            for _ in 0..=6 {
+                let candidate = dir.join("ai_entry_url_cache.json");
+                if candidate.exists() {
+                    if let Ok(text) = std::fs::read_to_string(candidate) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(url) = json.get("entry_url").and_then(|v| v.as_str()) {
+                                if !url.trim().is_empty() {
+                                    return Some(url.to_string());
+                                }
+                            }
+                        } else if !text.trim().is_empty() {
+                            return Some(text.trim().to_string());
+                        }
+                    }
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
+            None
+        }
+
+        fn save_cached_entry_url(entry_url: &str) {
+            if entry_url.trim().is_empty() {
+                return;
+            }
+            if let Some(dir) = HbutClient::app_data_dir() {
+                let path = dir.join("ai_entry_url_cache.json");
+                let payload = serde_json::json!({ "entry_url": entry_url });
+                let _ = std::fs::write(path, payload.to_string());
+                return;
+            }
+            if let Ok(dir) = std::env::current_dir() {
+                let path = dir.join("ai_entry_url_cache.json");
+                let payload = serde_json::json!({ "entry_url": entry_url });
+                let _ = std::fs::write(path, payload.to_string());
+            }
+        }
+
+        fn replace_token_in_entry_url(entry_url: &str, token: &str) -> Option<String> {
+            let mut url: Url = entry_url.parse().ok()?;
+            let mut pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let mut replaced = false;
+            for (k, v) in pairs.iter_mut() {
+                if k == "token" {
+                    *v = token.to_string();
+                    replaced = true;
+                }
+            }
+            if !replaced {
+                pairs.push(("token".to_string(), token.to_string()));
+            }
+            url.set_query(None);
+            url.query_pairs_mut().extend_pairs(pairs);
+            Some(url.to_string())
+        }
+
+        fn encode_redirect_url_without_token(entry_url: &str) -> Option<String> {
+            let mut url: Url = entry_url.parse().ok()?;
+            let pairs: Vec<(String, String)> = url.query_pairs()
+                .filter(|(k, _)| k != "token")
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            url.set_query(None);
+            if !pairs.is_empty() {
+                url.query_pairs_mut().extend_pairs(pairs);
+            }
+            Some(urlencoding::encode(url.as_str()).to_string())
+        }
+
+        fn extract_token_from_url(url: &str) -> Option<String> {
+            regex::Regex::new(r"token=([^&]+)").ok()?
+                .captures(url)
+                .and_then(|cap| cap.get(1))
+                .map(|m| m.as_str().to_string())
+        }
+
+        fn is_hub_dklight(url: &str) -> bool {
+            url.contains("hub.17wanxiao.com/bsacs/dklight.action")
+        }
+
+        async fn get_entry_url_via_hub(client: &Client, access_token: &str) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+            if access_token.trim().is_empty() {
+                return Ok(None);
+            }
+            let redirect_encoded = "https%3A%2F%2Fhub.17wanxiao.com%2Fbsacs%2Fdklight.action%3Fstate%3Dbjdk_hbgy_dk_echar";
+            let open_url = format!(
+                "https://code.hbut.edu.cn/server/third/open?redirectUrl={}&accessToken={}",
+                redirect_encoded,
+                access_token
+            );
+            let open_resp = client.get(&open_url).send().await?;
+            let mut hub_url = open_resp.headers().get("Location")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            if hub_url.is_empty() && open_resp.url().as_str().contains("hub.17wanxiao.com/bsacs/dklight.action") {
+                hub_url = open_resp.url().as_str().to_string();
+            }
+            if hub_url.is_empty() || !is_hub_dklight(&hub_url) {
+                return Ok(None);
+            }
+            let _ = client.get(&hub_url)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .send()
+                .await;
+            let token = extract_token_from_url(&hub_url).unwrap_or_default();
+            if token.is_empty() {
+                return Ok(None);
+            }
+            let payload = serde_json::json!({
+                "flag": "bjdk_hbgy_dk_echar",
+                "state": "bjdk_hbgy_dk_echar",
+                "token": token
+            });
+            let redirect_resp = client.post("https://hub.17wanxiao.com/bsacs/redirect.action")
+                .header("Origin", "https://hub.17wanxiao.com")
+                .header("Referer", "https://hub.17wanxiao.com/bsacs/dklight.action")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .form(&[("userData", payload.to_string())])
+                .send()
+                .await?;
+            let redirect_text = redirect_resp.text().await.unwrap_or_default();
+            if redirect_text.contains("token已失效") || redirect_text.contains("Access timeout") {
+                return Ok(None);
+            }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&redirect_text) {
+                if let Some(url) = json.get("url").and_then(|v| v.as_str()) {
+                    if url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                        return Ok(Some(url.to_string()));
+                    }
+                }
+                if let Some(token) = json.get("token").and_then(|v| v.as_str()) {
+                    return Ok(Some(format!(
+                        "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+                        token
+                    )));
+                }
+            }
+            Ok(None)
+        }
+
+        async fn fetch_blade_auth(client: &Client, entry_url: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            let url = "https://virtualhuman2h5.59wanmei.com/apis/blade-auth/oauth/token";
+            let referer_url: Url = entry_url.parse()?;
+            let mut params: Vec<(String, String)> = referer_url
+                .query_pairs()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            params.push(("grant_type".to_string(), "wmxy".to_string()));
+            params.push(("scope".to_string(), "all".to_string()));
+
+            let _ = client.get(entry_url)
+                .header("Origin", "https://virtualhuman2h5.59wanmei.com")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .send()
+                .await;
+
+            let resp = client.post(url)
+                .header("Origin", "https://virtualhuman2h5.59wanmei.com")
+                .header("Referer", entry_url)
+                .header("Accept", "application/json, text/plain, */*")
+                .header("authorization", "Basic d214eTp3bXh5X3NlY3JldA==")
+                .header("tenant-id", "000000")
+                .header("role-id", "1664528453134516226")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+                .form(&params)
+                .send()
+                .await?;
+
+            let text = resp.text().await.unwrap_or_default();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+            let access_token = json.get("access_token")
+                .or_else(|| json.get("accessToken"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if access_token.is_empty() {
+                println!("[DEBUG] fetch_blade_auth empty response: {}", text);
+                return Ok(String::new());
+            }
+
+            let token_type = json.get("token_type")
+                .or_else(|| json.get("tokenType"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("bearer");
+
+            Ok(format!("{} {}", token_type, access_token))
+        }
+
+        async fn follow_redirect_for_entry(client: &Client, start_url: &str) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+            let mut current_url = start_url.to_string();
+            for _ in 0..10 {
+                let resp = client.get(&current_url)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .send()
+                    .await?;
+
+                if let Some(_token) = extract_token_from_url(resp.url().as_str()) {
+                    let url_str = resp.url().as_str().to_string();
+                    if !is_hub_dklight(&url_str) {
+                        return Ok(Some(url_str));
+                    }
+                    println!("[DEBUG] follow_redirect_for_entry: hub token detected, continue to redirect.action");
+                }
+
+                if resp.status().is_redirection() {
+                    if let Some(location) = resp.headers().get("Location") {
+                        let location_str = location.to_str().unwrap_or("");
+                        current_url = if location_str.starts_with("http") {
+                            location_str.to_string()
+                        } else if location_str.starts_with("/") {
+                            let base: Url = current_url.parse()?;
+                            format!("{}://{}{}", base.scheme(), base.host_str().unwrap_or(""), location_str)
+                        } else {
+                            location_str.to_string()
+                        };
+                        if current_url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                            return Ok(Some(current_url));
+                        }
+                        if extract_token_from_url(&current_url).is_some() && !is_hub_dklight(&current_url) {
+                            return Ok(Some(current_url));
+                        }
+                        continue;
+                    }
+                }
+
+                let body = resp.text().await.unwrap_or_default();
+                if body.contains("/bsacs/redirect.action") {
+                    let token = regex::Regex::new(r#""token"\s*:\s*"([^"]+)""#)
+                        .ok()
+                        .and_then(|re| re.captures(&body))
+                        .and_then(|cap| cap.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
+                    let flag = regex::Regex::new(r#""flag"\s*:\s*"([^"]+)""#)
+                        .ok()
+                        .and_then(|re| re.captures(&body))
+                        .and_then(|cap| cap.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_else(|| "bjdk_hbgy_dk_echar".to_string());
+                    let state = regex::Regex::new(r#""state"\s*:\s*"([^"]+)""#)
+                        .ok()
+                        .and_then(|re| re.captures(&body))
+                        .and_then(|cap| cap.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_else(|| flag.clone());
+                    if !token.is_empty() {
+                        let payload = serde_json::json!({
+                            "flag": flag,
+                            "state": state,
+                            "token": token
+                        });
+                        let redirect_resp = client.post("https://hub.17wanxiao.com/bsacs/redirect.action")
+                            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                            .header("X-Requested-With", "XMLHttpRequest")
+                            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                            .form(&[("userData", payload.to_string())])
+                            .send()
+                            .await?;
+                        let redirect_text = redirect_resp.text().await.unwrap_or_default();
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&redirect_text) {
+                            if let Some(url) = json.get("url").and_then(|v| v.as_str()) {
+                                if url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                                    return Ok(Some(url.to_string()));
+                                }
+                            }
+                            if let Some(token) = json.get("token").and_then(|v| v.as_str()) {
+                                return Ok(Some(format!(
+                                    "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+                                    token
+                                )));
+                            }
+                        }
+                    }
+                }
+                if body.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                    if let Ok(re) = regex::Regex::new(r#"(https?://[^"'\s]+virtualhuman2h5\.59wanmei\.com/digitalPeople3/index\.html[^"'\s]*)"#) {
+                        if let Some(cap) = re.captures(&body) {
+                            if let Some(m) = cap.get(1) {
+                                return Ok(Some(m.as_str().to_string()));
+                            }
+                        }
+                    }
+                }
+                if let Some(token) = extract_token_from_url(&body) {
+                    return Ok(Some(format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token)));
+                }
+                break;
+            }
+            Ok(None)
+        }
+
+        // 0) 先尝试使用本地抓包入口模板
+        let jump_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        println!("[DEBUG] init_ai_session: Requesting {}", jump_url);
+
+        let direct_client = Client::builder()
+            .cookie_store(true)
+            .cookie_provider(Arc::clone(&self.cookie_jar))
+            .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(true)
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+
+        let template_entry_url = load_entry_url_template()
+            .or_else(load_cached_entry_url)
+            .or_else(default_entry_url_template);
+        if let Some(template) = &template_entry_url {
+            let blade_auth = fetch_blade_auth(&self.client, template).await.unwrap_or_default();
+            if !blade_auth.is_empty() {
+                if let Some(token) = extract_token_from_url(template) {
+                    println!("[DEBUG] init_ai_session: Using template entry_url token");
+                    save_cached_entry_url(template);
+                    return Ok((token, blade_auth));
+                }
+            }
+        }
+
+        // 1) 先尝试直接跳转
+        if let Some(entry_url) = follow_redirect_for_entry(&direct_client, jump_url).await? {
+            if let Some(token) = extract_token_from_url(&entry_url) {
+                println!("[DEBUG] init_ai_session: Found token from direct jump: {}", token);
+                let mut candidates = vec![entry_url.clone()];
+                if let Some(template) = &template_entry_url {
+                    if let Some(merged_url) = replace_token_in_entry_url(template, &token) {
+                        candidates.insert(0, merged_url);
+                    }
+                }
+                for candidate in candidates {
+                    let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
+                    if !blade_auth.is_empty() {
+                        save_cached_entry_url(&candidate);
+                        return Ok((token, blade_auth));
+                    }
+                }
+            }
+        }
+
+        // 2) 通过已有电费/一码通 token 走 third/open
+        let mut access_token = self.electricity_token.clone().unwrap_or_default();
+        if access_token.is_empty() {
+            access_token = match self.ensure_electricity_token().await {
+                Ok(t) => t,
+                Err(_) => String::new(),
+            };
+        }
+
+        if access_token.is_empty() {
+            if let Ok(resp) = self.client.get("https://code.hbut.edu.cn/server/auth/getLoginUser").send().await {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    access_token = json.get("resultData")
+                        .and_then(|v| v.get("accessToken"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                }
+            }
+        }
+
+        // 备用：尝试 One Code getToken
+        if access_token.is_empty() {
+            if let Ok(one_code) = self.get_one_code_token().await {
+                access_token = one_code.get("resultData")
+                    .and_then(|v| v.get("accessToken"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+        }
+
+        if access_token.is_empty() {
+            return Err("Failed to get accessToken for AI session".into());
+        }
+
+        if let Some(entry_url) = get_entry_url_via_hub(&direct_client, &access_token).await? {
+            if let Some(token) = extract_token_from_url(&entry_url) {
+                println!("[DEBUG] init_ai_session: Found token via hub redirect: {}", token);
+                let mut candidates = vec![entry_url.clone()];
+                if let Some(template) = &template_entry_url {
+                    if let Some(merged_url) = replace_token_in_entry_url(template, &token) {
+                        candidates.insert(0, merged_url);
+                    }
+                }
+                for candidate in candidates {
+                    let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
+                    if !blade_auth.is_empty() {
+                        save_cached_entry_url(&candidate);
+                        return Ok((token, blade_auth));
+                    }
+                }
+            }
+        }
+
+        let mut redirect_candidates: Vec<String> = REDIRECT_URLS_ENCODED.iter().map(|s| s.to_string()).collect();
+        if let Some(template) = &template_entry_url {
+            if let Some(encoded) = encode_redirect_url_without_token(template) {
+                redirect_candidates.push(encoded);
+            }
+        }
+
+        for redirect_encoded in redirect_candidates.iter() {
+            let open_url = format!(
+                "https://code.hbut.edu.cn/server/third/open?redirectUrl={}&accessToken={}",
+                redirect_encoded,
+                access_token
+            );
+            if let Some(entry_url) = follow_redirect_for_entry(&direct_client, &open_url).await? {
+                if let Some(token) = extract_token_from_url(&entry_url) {
+                    println!("[DEBUG] init_ai_session: Found token from third/open: {}", token);
+                    let mut candidates = vec![entry_url.clone()];
+                    if let Some(template) = &template_entry_url {
+                        if let Some(merged_url) = replace_token_in_entry_url(template, &token) {
+                            candidates.insert(0, merged_url);
+                        }
+                    }
+                    for candidate in candidates {
+                        let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
+                        if !blade_auth.is_empty() {
+                            save_cached_entry_url(&candidate);
+                            return Ok((token, blade_auth));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 备用：若 third/open 无 token，尝试直接用 access_token 申请 blade-auth
+        let access_entry_url = if let Some(template) = &template_entry_url {
+            replace_token_in_entry_url(template, &access_token).unwrap_or_else(|| format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", access_token))
+        } else {
+            format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", access_token)
+        };
+        let blade_auth_direct = fetch_blade_auth(&self.client, &access_entry_url).await.unwrap_or_default();
+        if !blade_auth_direct.is_empty() {
+            println!("[DEBUG] init_ai_session: Using accessToken directly for blade-auth");
+            save_cached_entry_url(&access_entry_url);
+            return Ok((access_token, blade_auth_direct));
+        }
+
+        if let Ok((new_token, _)) = self.get_electricity_token().await {
+            if let Some(entry_url) = get_entry_url_via_hub(&direct_client, &new_token).await? {
+                if let Some(token) = extract_token_from_url(&entry_url) {
+                    println!("[DEBUG] init_ai_session: Found token after refresh via hub: {}", token);
+                    let mut candidates = vec![entry_url.clone()];
+                    if let Some(template) = &template_entry_url {
+                        if let Some(merged_url) = replace_token_in_entry_url(template, &token) {
+                            candidates.insert(0, merged_url);
+                        }
+                    }
+                    for candidate in candidates {
+                        let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
+                        if !blade_auth.is_empty() {
+                            save_cached_entry_url(&candidate);
+                            return Ok((token, blade_auth));
+                        }
+                    }
+                }
+            }
+            for redirect_encoded in redirect_candidates.iter() {
+                let open_url = format!(
+                    "https://code.hbut.edu.cn/server/third/open?redirectUrl={}&accessToken={}",
+                    redirect_encoded,
+                    new_token
+                );
+                if let Some(entry_url) = follow_redirect_for_entry(&direct_client, &open_url).await? {
+                    if let Some(token) = extract_token_from_url(&entry_url) {
+                        println!("[DEBUG] init_ai_session: Found token after refresh: {}", token);
+                        let mut candidates = vec![entry_url.clone()];
+                        if let Some(template) = &template_entry_url {
+                            if let Some(merged_url) = replace_token_in_entry_url(template, &token) {
+                                candidates.insert(0, merged_url);
+                            }
+                        }
+                        for candidate in candidates {
+                            let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
+                            if !blade_auth.is_empty() {
+                                save_cached_entry_url(&candidate);
+                                return Ok((token, blade_auth));
+                            }
+                        }
+                    }
+                }
+            }
+
+            let refresh_entry_url = if let Some(template) = &template_entry_url {
+                replace_token_in_entry_url(template, &new_token).unwrap_or_else(|| format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", new_token))
+            } else {
+                format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", new_token)
+            };
+            let blade_auth_refresh = fetch_blade_auth(&self.client, &refresh_entry_url).await.unwrap_or_default();
+            if !blade_auth_refresh.is_empty() {
+                println!("[DEBUG] init_ai_session: Using refreshed accessToken directly for blade-auth");
+                save_cached_entry_url(&refresh_entry_url);
+                return Ok((new_token, blade_auth_refresh));
+            }
+        }
+
+        Err("Failed to find token in redirect URL".into())
     }
 
     pub async fn fetch_grades(&self) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
@@ -2394,6 +3135,8 @@ impl HbutClient {
                      }
                  }
                  println!("[DEBUG] Cached electricity token is invalid or expired");
+                 self.electricity_token = None;
+                 self.electricity_token_at = None;
             }
         }
 
@@ -2416,9 +3159,17 @@ impl HbutClient {
                         self.get_electricity_token().await?
                     },
                     Ok(false) => {
+                        if let Some(cached) = &self.electricity_token {
+                            println!("[WARN] Relogin skipped, using cached electricity token");
+                            return Ok(cached.clone());
+                        }
                         return Err("无法获取电费授权：未找到登录凭据，请重新登录".into());
                     },
                     Err(e) => {
+                        if let Some(cached) = &self.electricity_token {
+                            println!("[WARN] Relogin failed, using cached electricity token: {}", e);
+                            return Ok(cached.clone());
+                        }
                         return Err(format!("无法获取电费授权：登录失败 - {}", e).into());
                     }
                 }
@@ -2427,6 +3178,60 @@ impl HbutClient {
         self.electricity_token = Some(token.clone());
         self.electricity_token_at = Some(std::time::Instant::now());
         Ok(token)
+    }
+
+    /// 获取一码通 Token（对齐 backend/modules/fast_auth.py 的 get_code_token）
+    pub async fn get_one_code_token(&mut self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        println!("[DEBUG] OneCode: Starting SSO from {}", sso_url);
+
+        let resp = self.client.get(sso_url).send().await?;
+        let final_url = resp.url().to_string();
+
+        let mut tid = regex::Regex::new(r"tid=([^&]+)")?
+            .captures(&final_url)
+            .and_then(|cap| cap.get(1))
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+
+        let body = resp.text().await.unwrap_or_default();
+        if tid.is_empty() {
+            tid = regex::Regex::new(r#"tid=([^&\"']+)"#)?
+                .captures(&body)
+                .and_then(|cap| cap.get(1))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
+        }
+
+        if tid.is_empty() {
+            return Err("Failed to capture tid for One Code".into());
+        }
+
+        let referer = format!("https://code.hbut.edu.cn/?tid={}&orgId=2", tid);
+        let token_url = "https://code.hbut.edu.cn/server/auth/getToken";
+        let payload = serde_json::json!({"tid": tid});
+
+        let token_resp = self.client.post(token_url)
+            .header("Origin", "https://code.hbut.edu.cn")
+            .header("Referer", &referer)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+
+        let json = token_resp.json::<serde_json::Value>().await?;
+        let success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        if !success {
+            return Err(format!("One Code getToken failed: {}", json).into());
+        }
+
+        let result_data = json.get("resultData").cloned().unwrap_or_else(|| serde_json::json!({}));
+        Ok(serde_json::json!({
+            "success": true,
+            "tid": tid,
+            "resultData": result_data
+        }))
     }
 
     pub async fn fetch_transaction_history(
@@ -2450,7 +3255,7 @@ impl HbutClient {
         println!("[DEBUG] Fetching transaction history: {} to {}, page {}", start_date, end_date, page_no);
         
         let resp = self.client.post(url)
-            .header("Authorization", token)
+            .header("Authorization", token.clone())
             .header("Content-Type", "application/json")
             .header("Origin", "https://code.hbut.edu.cn")
             .header("Referer", "https://code.hbut.edu.cn/")
@@ -2460,8 +3265,59 @@ impl HbutClient {
             
         let response_text = resp.text().await?;
         println!("[DEBUG] Transaction history response (raw): {}", response_text);
-        
+
+        if response_text.trim().is_empty() {
+            println!("[WARN] Empty transaction response, attempting token refresh...");
+            if let Ok((new_token, _)) = self.get_electricity_token().await {
+                let retry = self.client.post(url)
+                    .header("Authorization", new_token)
+                    .header("Content-Type", "application/json")
+                    .header("Origin", "https://code.hbut.edu.cn")
+                    .header("Referer", "https://code.hbut.edu.cn/")
+                    .json(&payload)
+                    .send()
+                    .await?;
+                let retry_text = retry.text().await?;
+                if !retry_text.trim().is_empty() {
+                    let retry_json: serde_json::Value = serde_json::from_str(&retry_text)?;
+                    return Ok(retry_json);
+                }
+            }
+            return Err("交易记录返回空响应".into());
+        }
+
         let json: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        // 若成功但列表为空，兼容 pageNo=0 的接口行为
+        let list_len = json.get("resultData")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.len())
+            .unwrap_or(0);
+        if list_len == 0 && page_no > 0 {
+            let retry_payload = serde_json::json!({
+                "pageSize": page_size.to_string(),
+                "tradeType": "1,2,3",
+                "fromDate": start_date,
+                "toDate": end_date,
+                "pageNo": 0
+            });
+            if let Ok(retry_resp) = self.client.post(url)
+                .header("Authorization", token.clone())
+                .header("Content-Type", "application/json")
+                .header("Origin", "https://code.hbut.edu.cn")
+                .header("Referer", "https://code.hbut.edu.cn/")
+                .json(&retry_payload)
+                .send()
+                .await
+            {
+                let retry_text = retry_resp.text().await.unwrap_or_default();
+                if !retry_text.trim().is_empty() {
+                    if let Ok(retry_json) = serde_json::from_str::<serde_json::Value>(&retry_text) {
+                        return Ok(retry_json);
+                    }
+                }
+            }
+        }
         
         // token 失效重试
          if !json.get("success").and_then(|v| v.as_bool()).unwrap_or(true) {
@@ -2641,7 +3497,7 @@ mod tests {
 
     #[test]
     fn test_encrypt_password() {
-        let password = "TRTtVVWj4-AiGqA";
+        let password = "TEST_PASSWORD";
         let salt = "bs2jwEB0FWpj6MW0";
         
         let result = encrypt_password_aes(password, salt).unwrap();

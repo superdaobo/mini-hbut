@@ -16,7 +16,9 @@ const DEFAULT_CONFIG = {
   ocr: {
     endpoint: '',
     enabled: true
-  }
+  },
+  ai_models: [],
+  config_admin_ids: []
 }
 
 const CONFIG_URL = 'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'
@@ -42,7 +44,9 @@ export function normalizeRemoteConfig(raw) {
     ocr: {
       endpoint: cfg.ocr?.endpoint || '',
       enabled: cfg.ocr?.enabled !== false
-    }
+    },
+    ai_models: Array.isArray(cfg.ai_models) ? cfg.ai_models : [],
+    config_admin_ids: Array.isArray(cfg.config_admin_ids) ? cfg.config_admin_ids : []
   }
 }
 

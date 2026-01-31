@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-shell'
 import axios from 'axios'
@@ -22,6 +22,7 @@ import ConfigEditor from './components/ConfigEditor.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
+import AiChatView from './components/AiChatView.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
@@ -64,7 +65,15 @@ const showBlockingAnnouncement = ref(false)
 const loginMode = ref('auto')
 
 const isLoggedIn = computed(() => !!studentId.value)
-const isConfigAdmin = computed(() => studentId.value === '2510231106')
+const configAdminIds = computed(() => {
+  const ids = remoteConfig.value?.config_admin_ids
+  return Array.isArray(ids) ? ids : []
+})
+const isConfigAdmin = computed(() => configAdminIds.value.includes(studentId.value))
+const aiModelOptions = computed(() => {
+  const models = remoteConfig.value?.ai_models
+  return Array.isArray(models) ? models : []
+})
 
 const ANNOUNCEMENT_CONFIRM_KEY = 'hbu_announcement_confirmed'
 
@@ -484,8 +493,17 @@ const stopElectricityKeepAlive = () => {
 }
 
 const showTabBar = computed(() => ['home', 'schedule', 'me', 'notifications'].includes(currentView.value))
+const appShellRef = ref(null)
 
 // 页面加载时检查 URL
+watch(currentView, () => {
+  nextTick(() => {
+    if (appShellRef.value) {
+      appShellRef.value.scrollTop = 0
+    }
+  })
+})
+
 onMounted(async () => {
   const restored = await tryRestoreSession()
   let relogged = false
@@ -544,7 +562,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :class="{ 'no-scroll': currentView === 'ai' }" ref="appShellRef">
     <Transition name="fade" mode="out-in">
       <!-- 首页 -->
       <Dashboard 
@@ -575,6 +593,7 @@ onMounted(async () => {
         :student-id="studentId"
         :is-logged-in="isLoggedIn"
         :login-mode="loginMode"
+        :config-admin-ids="configAdminIds"
         @success="handleLoginSuccess"
         @switchMode="handleSwitchLoginMode"
         @navigate="handleNavigate"
@@ -690,6 +709,14 @@ onMounted(async () => {
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+      />
+
+      <!-- AI 助手 -->
+      <AiChatView 
+        v-else-if="currentView === 'ai'"
+        :student-id="studentId"
+        :model-options="aiModelOptions"
+        @back="handleBackToDashboard"
       />
       
       <!-- 其他模块占位 -->
@@ -846,11 +873,18 @@ onMounted(async () => {
 .app-shell {
   min-height: 100vh;
   position: relative;
+  padding-top: env(safe-area-inset-top);
   padding-bottom: 90px;
-  height: 100vh;
+  height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+.app-shell.no-scroll {
+  height: 100vh;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .tab-bar {

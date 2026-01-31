@@ -1,0 +1,695 @@
+[
+  {
+    "name": "JSESSIONID",
+    "value": "AA4101FBF3E4F7E663EC8AB3A6494DB9",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/authserver",
+    "expires": null,
+    "secure": true,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "CASTGC",
+    "value": "TGT-1135581-6f-mOb7fk9kgZotfslE5ucEvsxN0zY7t9p6preVXax3aKHeztmsg1ThIbW9jGW90X7onull_main",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/authserver",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "happyVoyage",
+    "value": "H931+owXRwHJGafWeRP7ANoHi2x7s6o3OkZ6YhUijq4etFoikzrmt4lsRjDJkAgs36/EyXOjekmjuiQk17JcX3rMVG4VaKP1JRtztp9DBPujs6ecpWzW06B9fg35Cs5ZXXCq/gfkUbwrM7biQptMP7nMYKUk31XL6td9oni4Vrs=",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf_u",
+    "value": "hbut",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf_d",
+    "value": "1769795922434",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "username",
+    "value": "2510231106",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "uid",
+    "value": "93662a7a-27ec-4e84-b94b-2eacf2f8f76c",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: username",
+    "value": "2510231106",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: route",
+    "value": "1f2495dc35fd847a318468d681f71018",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "yysz",
+    "value": "ch",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "platformMultilingual",
+    "value": "zh_CN",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: initPass",
+    "value": "0",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "twiceAuthSign",
+    "value": "2c5926bfc3a84662a4fac5ad47441f11",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "puid",
+    "value": "406591160",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: platformMultilingual",
+    "value": "zh_CN | Auth: platformMultilingual=zh_CN",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "defaultMsg",
+    "value": "1",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "route",
+    "value": "1f2495dc35fd847a318468d681f71018",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "defaultPass",
+    "value": "0",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf",
+    "value": "77f02715e9ed0cdc810a3c40eb3f96da",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "JSESSIONID",
+    "value": "5A1297AA1B2F65E64F9132A0C9BA114F.Service",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "initPass",
+    "value": "0",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: jw_uf_u",
+    "value": "hbut",
+    "domain": "auth.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "platformMultilingual",
+    "value": "zh_CN",
+    "domain": ".edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf_u",
+    "value": "hbut",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf_d",
+    "value": "1769795922434",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "username",
+    "value": "2510231106",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "uid",
+    "value": "93662a7a-27ec-4e84-b94b-2eacf2f8f76c",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: username",
+    "value": "2510231106",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: route",
+    "value": "1f2495dc35fd847a318468d681f71018",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "yysz",
+    "value": "ch",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "platformMultilingual",
+    "value": "zh_CN",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: initPass",
+    "value": "0",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "twiceAuthSign",
+    "value": "2c5926bfc3a84662a4fac5ad47441f11",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "puid",
+    "value": "406591160",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: platformMultilingual",
+    "value": "zh_CN | Auth: platformMultilingual=zh_CN",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "defaultMsg",
+    "value": "1",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "route",
+    "value": "1f2495dc35fd847a318468d681f71018",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "defaultPass",
+    "value": "0",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "happyVoyage",
+    "value": "bANEHwV6rOkGXH2r47iNyIJ+t4bHYL44oFLD51HazeWm7LwAAp5tklX8mFIP6E0eUmmzaXdfmk4WwRFnshOaKytA5WPMBJZOXwVshsfU9SlGFmaKTNNerkDn3Q6NZ/5mM9VWOM9Pm3aY9s+4yLEHWrLdnUCHoJ6dR7uqKWnc43k= | Jwxt: platformMultilingual=zh_CN",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf",
+    "value": "77f02715e9ed0cdc810a3c40eb3f96da",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "JSESSIONID",
+    "value": "5A1297AA1B2F65E64F9132A0C9BA114F.Service",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "initPass",
+    "value": "0",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: jw_uf_u",
+    "value": "hbut",
+    "domain": "code.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf_d",
+    "value": "1769795922434",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "puid",
+    "value": "406591160",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf_u",
+    "value": "hbut",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "username",
+    "value": "2510231106",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "jw_uf",
+    "value": "77f02715e9ed0cdc810a3c40eb3f96da",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "uid",
+    "value": "93662a7a-27ec-4e84-b94b-2eacf2f8f76c",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: username",
+    "value": "2510231106",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: route",
+    "value": "1f2495dc35fd847a318468d681f71018",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "yysz",
+    "value": "ch",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "platformMultilingual",
+    "value": "zh_CN",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: initPass",
+    "value": "0",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "twiceAuthSign",
+    "value": "2c5926bfc3a84662a4fac5ad47441f11",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: platformMultilingual",
+    "value": "zh_CN | Auth: platformMultilingual=zh_CN",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "defaultMsg",
+    "value": "1",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "route",
+    "value": "1f2495dc35fd847a318468d681f71018",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "defaultPass",
+    "value": "0",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "happyVoyage",
+    "value": "bANEHwV6rOkGXH2r47iNyIJ+t4bHYL44oFLD51HazeWm7LwAAp5tklX8mFIP6E0eUmmzaXdfmk4WwRFnshOaKytA5WPMBJZOXwVshsfU9SlGFmaKTNNerkDn3Q6NZ/5mM9VWOM9Pm3aY9s+4yLEHWrLdnUCHoJ6dR7uqKWnc43k= | Jwxt: platformMultilingual=zh_CN",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "JSESSIONID",
+    "value": "5A1297AA1B2F65E64F9132A0C9BA114F.Service",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "initPass",
+    "value": "0",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  },
+  {
+    "name": "Code: jw_uf_u",
+    "value": "hbut",
+    "domain": "jwxt.hbut.edu.cn",
+    "path": "/",
+    "expires": null,
+    "secure": false,
+    "rest": {
+      "HttpOnly": null
+    }
+  }
+]

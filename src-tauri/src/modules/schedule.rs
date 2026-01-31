@@ -1,4 +1,9 @@
 //! 📅 课表查询模块 - 与 Python modules/schedule.py 对应
+//! 
+//! 主要功能：
+//! 1. 获取包含原始课表数据的 JSON。
+//! 2. 解析复杂的周次字符串 (如 "1-16周(单)", "3,5-7周")。
+//! 3. 计算当前周次。
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -8,43 +13,63 @@ use regex::Regex;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
+/// 课表课程实体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScheduleCourse {
+    /// 课程ID
     pub id: String,
+    /// 课程名称
     pub name: String,
+    /// 教师名称
     pub teacher: String,
+    /// 上课地点 (完整)
     pub location: String,
+    /// 教室代码
     pub room_code: String,
+    /// 教学楼
     pub building: String,
+    /// 星期 (1=周一, 7=周日)
     pub weekday: i32,
+    /// 开始节次 (1-12)
     pub period: i32,
+    /// 持续节数
     pub periods: i32,
+    /// 上课周次列表
     pub weeks: Vec<i32>,
+    /// 周次原始文本
     pub weeks_text: String,
+    /// 学分
     pub credit: String,
+    /// 课程类型
     pub course_type: String,
 }
 
+/// 课表模块封装
 pub struct ScheduleModule {
     client: Client,
+    /// 当前查询的学期
     semester: String,
+    /// 学期开始日期 (用于计算周次)
     semester_start: NaiveDate,
 }
 
 impl ScheduleModule {
+    /// 初始化
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            semester: "2024-2025-1".to_string(),
+            semester: "2024-2025-1".to_string(), // 默认值，应从配置读取
             semester_start: NaiveDate::from_ymd_opt(2024, 8, 26).unwrap(),
         }
     }
 
+    ///设置当前学期上下文
     pub fn set_semester(&mut self, semester: &str, start_date: NaiveDate) {
         self.semester = semester.to_string();
         self.semester_start = start_date;
     }
 
+    /// 计算当前是第几周
     pub fn get_current_week(&self) -> i32 {
         let today = Local::now().date_naive();
         let days = (today - self.semester_start).num_days();

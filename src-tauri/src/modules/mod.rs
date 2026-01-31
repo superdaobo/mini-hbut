@@ -10,3 +10,5 @@ pub mod training_plan;
 pub mod electricity;
 pub mod transaction;
 pub mod notification;
+pub mod ai;
+pub mod one_code;

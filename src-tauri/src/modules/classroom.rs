@@ -1,4 +1,11 @@
-//! 🏫 空教室查询模块 - 与 Python modules/classroom.py 对应
+//! 🏫 空教室查询模块
+//! 
+//! 该模块用于查询全校的空闲教室资源。
+//! 主要功能：
+//! 1. `get_buildings`: 获取所有教学楼列表。
+//! 2. `get_available_classrooms`: 根据时间（周次、星期、节次）查询空教室。
+//! 
+//! 目前 `http_client.rs` 中的空教室查询处于暂未实现状态 (Stub)，本模块保留了相关的数据结构定义和部分逻辑骨架。
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -7,15 +14,22 @@ use chrono::{Local, NaiveDate, Datelike, Timelike};
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
+/// 教室实体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Classroom {
+    /// 教室名称 (如 "教一-101")
     pub name: String,
+    /// 所属教学楼
     pub building: String,
+    /// 容量 (座位数)
     pub capacity: i32,
+    /// 具体地址
     pub address: String,
+    /// 校区
     pub campus: String,
 }
 
+/// 教学楼实体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Building {
     pub id: String,

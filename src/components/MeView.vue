@@ -6,7 +6,8 @@ import LoginV3 from './LoginV3.vue'
 const props = defineProps({
   studentId: { type: String, default: '' },
   isLoggedIn: { type: Boolean, default: false },
-  loginMode: { type: String, default: 'captcha' }
+  loginMode: { type: String, default: 'captcha' },
+  configAdminIds: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig'])
@@ -20,7 +21,7 @@ const goStudentInfo = () => emit('navigate', 'studentinfo')
 const handleCheckUpdate = () => emit('checkUpdate')
 const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
-const isConfigAdmin = () => props.studentId === '2510231106'
+const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const handleFeedback = () => emit('openFeedback')
 

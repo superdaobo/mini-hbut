@@ -105,15 +105,19 @@ const fetchBalance = async (retryCount = 0) => {
     }
     
     // 调用 V2 API
-    const { data } = await fetchWithCache(cacheKey, async () => {
+    const { data, fromCache, timestamp } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
       return res.data
     })
     
     if (data?.success) {
       balanceData.value = data
-      offline.value = !!data.offline
-      syncTime.value = data.sync_time || ''
+      offline.value = !!data.offline || !!fromCache
+      if (offline.value) {
+        syncTime.value = data.sync_time || (timestamp ? new Date(timestamp).toLocaleString() : '')
+      } else {
+        syncTime.value = data.sync_time || ''
+      }
     } else {
       const cached = getStaleCache(cacheKey)
       if (cached?.data) {

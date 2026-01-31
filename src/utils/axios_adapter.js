@@ -307,7 +307,7 @@ const adapter = {
                     const res = await invoke('electricity_query_account', { payload: accountPayload });
 
                     if (!res.success) {
-                        return mockResponse({ success: false, error: res.message });
+                        return mockResponse({ success: false, error: res.message || res.error || '电费查询失败' });
                     }
 
                     const resultData = res.resultData || {};
@@ -320,12 +320,15 @@ const adapter = {
                         if (item.code === 'quantity') quantity = item.value;
                     });
 
+                    const offline = !!res.offline;
+                    const syncTime = res.sync_time || resultData.sync_time;
                     return mockResponse({
                         success: true,
                         balance,
                         quantity,
                         status: resultData.utilityStatusName || "未知",
-                        sync_time: new Date().toISOString()
+                        offline,
+                        sync_time: syncTime || (offline ? '' : new Date().toISOString())
                     });
                 } catch (err) {
                     return mockResponse({ success: false, error: err.toString() });
