@@ -24,5 +24,12 @@ export default defineConfig({
     watch: {
       ignored: ["**/src-tauri/**"],
     },
+    proxy: {
+      '/font/deyihei.ttf': {
+        target: 'https://raw.gitcode.com',
+        changeOrigin: true,
+        rewrite: () => '/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf'
+      }
+    }
   },
 })

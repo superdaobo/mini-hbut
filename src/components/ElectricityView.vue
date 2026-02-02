@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
+import { useAppSettings } from '../utils/app_settings'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -18,6 +19,9 @@ const errorMsg = ref('')
 const offline = ref(false)
 const syncTime = ref('')
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const appSettings = useAppSettings()
+const maxRetry = computed(() => appSettings.retry.electricity)
+const retryDelayMs = computed(() => appSettings.retryDelayMs)
 
 const getStaleCache = (cacheKey) => {
   try {
@@ -134,11 +138,11 @@ const fetchBalance = async (retryCount = 0) => {
     
     // 针对 502/504 错误进行重试 (后端冷启动)
     if ((e.response && (e.response.status === 502 || e.response.status === 504)) || e.message.includes('Network Error')) {
-      if (retryCount < 2) {
-        errorMsg.value = `系统预热中，正在重试 (${retryCount + 1}/2)...`
+      if (retryCount < maxRetry.value) {
+        errorMsg.value = `系统预热中，正在重试 (${retryCount + 1}/${maxRetry.value})...`
         setTimeout(() => {
           fetchBalance(retryCount + 1)
-        }, 2000)
+        }, retryDelayMs.value)
         return // 保持 loading 为 true
       } else {
         errorMsg.value = '服务器响应超时，请稍后再试'

@@ -27,6 +27,8 @@ pub struct AiInitResponse {
     pub token: String,
     /// 鉴权头，用于 Headers["blade-auth"]
     pub blade_auth: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<AiModelOption>>,
 }
 
 /// AI 上传响应
@@ -36,6 +38,115 @@ pub struct AiUploadResponse {
     /// 文件 OSS 链接
     pub link: String,
     pub msg: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiModelOption {
+    pub label: String,
+    pub value: String,
+}
+
+fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
+    match item {
+        Value::String(s) => {
+            let label = s.trim();
+            if label.is_empty() {
+                None
+            } else {
+                Some(AiModelOption { label: label.to_string(), value: label.to_string() })
+            }
+        }
+        Value::Object(map) => {
+            let label = map.get("label")
+                .or_else(|| map.get("name"))
+                .or_else(|| map.get("modelName"))
+                .or_else(|| map.get("title"))
+                .or_else(|| map.get("display"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let value = map.get("value")
+                .or_else(|| map.get("model"))
+                .or_else(|| map.get("code"))
+                .or_else(|| map.get("id"))
+                .or_else(|| map.get("key"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            match (label, value) {
+                (Some(l), Some(v)) => Some(AiModelOption { label: l, value: v }),
+                (Some(l), None) => Some(AiModelOption { label: l.clone(), value: l }),
+                (None, Some(v)) => Some(AiModelOption { label: v.clone(), value: v }),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn extract_models_from_value(value: &Value) -> Vec<AiModelOption> {
+    let mut models: Vec<AiModelOption> = Vec::new();
+    let mut candidates: Vec<Value> = Vec::new();
+
+    if let Value::Object(map) = value {
+        for key in ["modelList", "models", "model_list", "aiModels", "modelOptions"] {
+            if let Some(Value::Array(list)) = map.get(key) {
+                candidates.extend(list.clone());
+                break;
+            }
+        }
+        if candidates.is_empty() {
+            for child in map.values() {
+                if let Value::Object(_) = child {
+                    let nested = extract_models_from_value(child);
+                    if !nested.is_empty() {
+                        models.extend(nested);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(Value::Array(list)) = value.get("data") {
+        candidates.extend(list.clone());
+    } else if let Some(data) = value.get("data") {
+        if let Value::Object(_) = data {
+            let nested = extract_models_from_value(data);
+            models.extend(nested);
+        }
+    }
+
+    for item in candidates {
+        if let Some(normalized) = normalize_model_item(&item) {
+            models.push(normalized);
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    models.retain(|item| seen.insert(item.value.clone()));
+    models
+}
+
+async fn fetch_ai_models(token: &str, blade_auth: &str) -> Result<Vec<AiModelOption>, String> {
+    if blade_auth.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let client = reqwest::Client::new();
+    let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
+    let mut headers = HeaderMap::new();
+    headers.insert("blade-auth", HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?);
+    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| e.to_string())?);
+    headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"));
+
+    let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/config/initParam";
+    let response = client.post(url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
+    let models = extract_models_from_value(&json);
+    Ok(models)
 }
 
 async fn upload_text_file(
@@ -101,12 +212,16 @@ pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, 
         }
     }
     match client.init_ai_session().await {
-        Ok((token, blade_auth)) => Ok(AiInitResponse {
-            success: true,
-            msg: "AI Session Initialized".into(),
-            token,
-            blade_auth,
-        }),
+        Ok((token, blade_auth)) => {
+            let models = fetch_ai_models(&token, &blade_auth).await.ok().filter(|list| !list.is_empty());
+            Ok(AiInitResponse {
+                success: true,
+                msg: "AI Session Initialized".into(),
+                token,
+                blade_auth,
+                models,
+            })
+        }
         Err(e) => Err(format!("Failed to init AI session: {}", e)),
     }
 }
@@ -286,10 +401,10 @@ pub(crate) fn extract_text_from_value(value: &Value) -> Option<String> {
             }
         }
         Value::Object(map) => {
-            if let Some((t, content, _thinking)) = extract_stream_fields(value) {
+            if let Some((t, content, thinking)) = extract_stream_fields(value) {
                 match t {
                     Some(1) => {
-                        if let Some(text) = content {
+                        if let Some(text) = content.or(thinking) {
                             return Some(text);
                         }
                     }

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 /**
  * V3 登录组件 - 客户端验证码登录
  * 解决服务器 IP 被封的问题
@@ -10,6 +10,7 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
+import hbutLogo from '../assets/hbut-logo.png'
 // 使用后端自动 OCR 识别验证码
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
@@ -163,7 +164,9 @@ const handleKeyPress = (event) => {
 
 <template>
   <div class="login-container glass-card">
-    <div class="logo">🎓</div>
+    <div class="logo">
+      <img class="logo-img" :src="hbutLogo" alt="Mini-HBUT" />
+    </div>
     <h2>HBUT 成绩查询系统</h2>
     
     <p class="subtitle">🚀 极速自动登录模式</p>
@@ -261,11 +264,17 @@ const handleKeyPress = (event) => {
 }
 
 .logo {
-  font-size: 4rem;
   margin-bottom: 1rem;
   animation: bounce 2s infinite;
+  display: flex;
+  justify-content: center;
 }
 
+.logo-img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
@@ -332,7 +341,7 @@ h2 {
   cursor: pointer;
   font-size: 0.95rem;
   color: #4b5563;
-  user-select: none;
+  user-select: text;
   transition: all 0.2s;
 }
 
@@ -529,3 +538,4 @@ h2 {
   
 }
 </style>
+

@@ -1,8 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="HandheldFriendly" content="true" />
@@ -14,15 +15,14 @@
       padding: 0;
       box-sizing: border-box;
       -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
+      -webkit-user-select: text;\n      user-select: text;
     }
 
     html,
     body,
     #app {
       height: 100%;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-family: var(--ui-font-family);
       touch-action: manipulation;
       overscroll-behavior: none;
     }
@@ -36,7 +36,11 @@
 
 <body>
   <div id="app"></div>
-  <script type="module" src="/src/main.ts"></script>
+  <script type="module" charset="utf-8" src="/src/main.ts"></script>
 </body>
 
 </html>
+
+
+
+

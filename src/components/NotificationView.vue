@@ -1,7 +1,8 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
+import hbutLogo from '../assets/hbut-logo.png'
 
 // State
 const enableBackground = ref(false)
@@ -15,8 +16,11 @@ const props = defineProps({
 
 const emit = defineEmits(['back'])
 
+const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window
+
 // Check permissions on mount
 onMounted(async () => {
+  if (!isTauri()) return
   // Load settings from localStorage
   const savedBg = localStorage.getItem('hbu_notify_bg')
   if (savedBg === 'true') enableBackground.value = true
@@ -55,6 +59,7 @@ const cancelBatterySettings = () => {
 }
 
 const handleTestNotification = async () => {
+  if (!isTauri()) return
   let permissionGranted = await isPermissionGranted()
   if (!permissionGranted) {
     const permission = await requestPermission()
@@ -72,13 +77,18 @@ const saveSettings = () => {
 </script>
 
 <template>
-  <div class="notification-view fade-in">
-    <div class="header">
-      <button class="icon-btn" @click="$emit('back')">
-        <span class="material-icons">arrow_back</span>
-      </button>
-      <h2>通知设置(测试项目，暂时无法使用)</h2>
-    </div>
+  <div class="notification-view fade-in unavailable">
+    <header class="dashboard-header">
+      <div class="brand">
+        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+        <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
+        <span class="page-tag">通知 · 暂不可用</span>
+      </div>
+      <div class="user-info">
+        <span class="student-id">👤 {{ studentId || '未登录' }}</span>
+        <button class="header-btn btn-ripple" @click="$emit('back')">返回</button>
+      </div>
+    </header>
 
     <div class="content-card">
       <div class="setting-item">
@@ -87,7 +97,7 @@ const saveSettings = () => {
           <p>应用在后台时自动检查成绩更新 (Android需保活)</p>
         </div>
         <label class="switch">
-          <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle">
+          <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle" disabled>
           <span class="slider round"></span>
         </label>
       </div>
@@ -98,7 +108,7 @@ const saveSettings = () => {
           <p>如果明日有考试，发送通知提醒</p>
         </div>
         <label class="switch">
-          <input type="checkbox" v-model="enableExamReminders">
+          <input type="checkbox" v-model="enableExamReminders" disabled>
           <span class="slider round"></span>
         </label>
       </div>
@@ -113,7 +123,7 @@ const saveSettings = () => {
       </div>
       
       <div class="actions">
-        <button class="btn-primary" @click="handleTestNotification">发送测试通知</button>
+        <button class="btn-primary" @click="handleTestNotification" disabled>发送测试通知</button>
       </div>
     </div>
 
@@ -136,6 +146,41 @@ const saveSettings = () => {
 .notification-view {
   padding: 20px;
   padding-bottom: 100px;
+}
+
+.notification-view.unavailable {
+  filter: grayscale(1);
+  opacity: 0.85;
+}
+
+.notification-view.unavailable .content-card {
+  pointer-events: none;
+}
+
+.notification-view.unavailable .content-title {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.notification-view.unavailable .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .dashboard-header .user-info {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }
 
 .header {
@@ -322,4 +367,12 @@ input:checked + .slider:before {
   cursor: pointer;
   font-weight: 600;
 }
+
+.content-title {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-weight: 700;
+  color: var(--ui-text);
+}
 </style>
+

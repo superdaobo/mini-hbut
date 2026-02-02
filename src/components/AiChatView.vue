@@ -20,6 +20,7 @@ const isLoading = ref(false)
 const chatContainer = ref(null)
 const fileInput = ref(null)
 const attachment = ref(null) // { name: '...', url: '...' }
+const dynamicModelOptions = ref([])
 const defaultModelOptions = [
   { label: 'Qwen-Plus', value: 'qwen-plus' },
   { label: 'Qwen-Max', value: 'qwen-max' },
@@ -27,12 +28,22 @@ const defaultModelOptions = [
   { label: 'Doubao1.5-Pro', value: 'doubao-1.5-pro' }
 ]
 const normalizedModelOptions = computed(() => {
+  if (Array.isArray(dynamicModelOptions.value) && dynamicModelOptions.value.length) {
+    return dynamicModelOptions.value
+  }
   if (Array.isArray(props.modelOptions) && props.modelOptions.length) {
     return props.modelOptions
   }
   return defaultModelOptions
 })
 const selectedModel = ref(normalizedModelOptions.value[0]?.value || 'qwen-max')
+watch(normalizedModelOptions, (next) => {
+  if (!Array.isArray(next) || !next.length) return
+  const exists = next.some((m) => m?.value === selectedModel.value)
+  if (!exists) {
+    selectedModel.value = next[0]?.value || selectedModel.value
+  }
+})
 
 // Auth State
 const token = ref('')
@@ -44,6 +55,7 @@ const sessions = ref([])
 const activeSessionId = ref('')
 const STREAM_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_stream'
 const AI_DEBUG = (() => {
+  let assistantMsg = null
   try {
     return localStorage.getItem('hbu_ai_debug') === '1'
   } catch {
@@ -59,6 +71,9 @@ const initAiSession = async () => {
     if (res.success) {
       token.value = res.token
       bladeAuth.value = res.blade_auth
+      if (Array.isArray(res.models) && res.models.length) {
+        dynamicModelOptions.value = res.models
+      }
       initStatus.value = 'success'
     } else {
       initStatus.value = 'error'
@@ -437,15 +452,22 @@ const isNoiseMessage = (value) => {
     || trimmed.startsWith('正在读取文件')
 }
 
+
+const normalizeLatex = (value) => {
+  if (!value || typeof value !== 'string') return ''
+  // Fix common missing-space cases like \partialx -> \partial x
+  return value.replace(/\\partial([a-zA-Z])/g, '\\partial $1')
+}
+
 const renderMessage = (msg) => {
   if (!msg?.content) return ''
   if (msg.role === 'assistant' && typeof msg.content === 'string' && /^\s*[{[]/.test(msg.content)) {
     const parsed = parseAiResponseText(msg.content)
     if (parsed) {
-      return renderMarkdown(parsed)
+      return renderMarkdown(normalizeLatex(parsed))
     }
   }
-  return renderMarkdown(msg.content)
+  return renderMarkdown(normalizeLatex(msg.content))
 }
 
 const skipInitialScroll = ref(true)
@@ -548,11 +570,20 @@ watch(normalizedModelOptions, (list) => {
   }
 }, { immediate: true })
 
+const EMPTY_CONTEXT_PROMPT = `You are the "Campus AI Assistant".
+Please follow these rules strictly:
+1. Use the full conversation history and the current question to answer.
+2. Respond in Markdown (tables/lists/code blocks are allowed).
+3. Math must use LaTeX (inline $...$, block $$...$$).
+4. Start your reply by repeating the user's question in this exact format: "\u4f60\u95ee\uff1a{question}".
+5. If information is missing or ambiguous, ask a clear follow-up question first.
+6. Do not output meaningless placeholders or repetitive filler.`
+
 const uploadEmptyFile = async () => {
   const res = await invoke('hbut_ai_upload', {
     token: token.value,
     bladeAuth: bladeAuth.value,
-    fileContent: '',
+    fileContent: EMPTY_CONTEXT_PROMPT,
     fileName: `empty_${Date.now()}.txt`
   })
   if (!res.success) {
@@ -585,7 +616,7 @@ const sendMessage = async () => {
       throw new Error('AI 初始化失败')
     }
     const emptyUploadUrl = await uploadEmptyFile()
-    const assistantMsg = { role: 'assistant', content: '', thinking: '', showThinking: false }
+    assistantMsg = { role: 'assistant', content: '', thinking: '', showThinking: false, isStreaming: true }
     messages.value.push(assistantMsg)
     await streamChatResponse({
       token: token.value,
@@ -606,7 +637,14 @@ const sendMessage = async () => {
     if (!assistantMsg.content.trim()) {
       assistantMsg.content = '（未返回可解析内容）'
     }
+    assistantMsg.isStreaming = false
   } catch (e) {
+    if (assistantMsg) {
+      if (!assistantMsg.content.trim()) {
+        assistantMsg.content = '（未返回可解析内容）'
+      }
+      assistantMsg.isStreaming = false
+    }
     messages.value.push({
       role: 'error',
       content: '发送失败：' + e
@@ -695,6 +733,7 @@ const onChunkWrapped = (chunk) => {
             console.debug('[AI] sse line', raw.slice(0, 200))
           }
           handleStreamPayload(raw, onChunkWrapped, onThinkingWrapped)
+          await new Promise((resolve) => setTimeout(resolve, 0))
         }
       }
     }
@@ -868,7 +907,8 @@ const handleFileChange = async (e) => {
               </button>
               <div v-if="msg.showThinking" class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
             </div>
-            <div class="text" v-html="renderMessage(msg)"></div>
+            <div v-if="msg.role === 'assistant' && msg.isStreaming" class="text" v-text="msg.content"></div>
+            <div v-else class="text" v-html="renderMessage(msg)"></div>
           </div>
         </div>
         

@@ -1,5 +1,5 @@
 use axum::{routing::{get, post}, Json, Router, extract::State};
-use axum::response::sse::{Event, Sse};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -486,6 +486,7 @@ async fn ai_chat_stream(
     let mut stream = response.bytes_stream();
     let event_stream = async_stream::stream! {
         let mut buffer = String::new();
+        let mut emitted_count: usize = 0;
         use tokio::time::{timeout, Duration};
         let start = Instant::now();
         let max_duration = Duration::from_secs(180);
@@ -523,7 +524,9 @@ async fn ai_chat_stream(
                         yield Ok(Event::default().data("[DONE]"));
                         return;
                     }
+                    emitted_count += 1;
                     yield Ok(Event::default().data(payload));
+                    tokio::time::sleep(Duration::from_millis(8)).await;
                 }
             }
             for raw in drain_json_objects(&mut buffer) {
@@ -535,21 +538,35 @@ async fn ai_chat_stream(
                         yield Ok(Event::default().data("[DONE]"));
                         return;
                     }
+                    emitted_count += 1;
                     yield Ok(Event::default().data(payload));
+                    tokio::time::sleep(Duration::from_millis(8)).await;
                 }
             }
         }
         if !buffer.trim().is_empty() {
             let final_text = crate::modules::ai::parse_ai_stream_text(&buffer);
             if !final_text.trim().is_empty() {
-                let payload = serde_json::json!({"type": 1, "content": final_text}).to_string();
-                yield Ok(Event::default().data(payload));
+                if emitted_count == 0 {
+                    for chunk in chunk_stream_text(&final_text) {
+                        let payload = serde_json::json!({"type": 1, "content": chunk}).to_string();
+                        yield Ok(Event::default().data(payload));
+                        tokio::time::sleep(Duration::from_millis(25)).await;
+                    }
+                } else {
+                    let payload = serde_json::json!({"type": 1, "content": final_text}).to_string();
+                    yield Ok(Event::default().data(payload));
+                }
             }
         }
         yield Ok(Event::default().data("[DONE]"));
     };
 
-    Ok(Sse::new(event_stream))
+    Ok(Sse::new(event_stream).keep_alive(
+        KeepAlive::new()
+            .interval(std::time::Duration::from_secs(10))
+            .text("keep-alive"),
+    ))
 }
 
 fn handle_ai_stream_line(raw_line: &str) -> Vec<String> {
@@ -584,17 +601,28 @@ fn handle_ai_stream_line(raw_line: &str) -> Vec<String> {
                     return out;
                 }
                 if t == Some(1) {
-                    if let Some(content_text) = content {
+                    let content_text = content.or(thinking);
+                    if let Some(content_text) = content_text {
                         if content_text.trim().is_empty() {
                             return out;
                         }
-                        out.push(serde_json::json!({"type": 1, "content": content_text}).to_string());
+                        for chunk in chunk_stream_text(&content_text) {
+                            out.push(serde_json::json!({"type": 1, "content": chunk}).to_string());
+                        }
                         return out;
                     }
                 }
             }
             if let Some(t) = found_type {
                 if t != 1 && t != 11 {
+                    if let Some(extracted_text) = crate::modules::ai::extract_text_from_value(&json) {
+                        let cleaned = crate::modules::ai::clean_stream_chunk(&extracted_text);
+                        if let Some(cleaned) = cleaned {
+                            for chunk in chunk_stream_text(&cleaned) {
+                                out.push(serde_json::json!({"type": 1, "content": chunk}).to_string());
+                            }
+                        }
+                    }
                     return out;
                 }
             }
@@ -603,7 +631,9 @@ fn handle_ai_stream_line(raw_line: &str) -> Vec<String> {
     }
     let candidate = extracted.unwrap_or_else(|| raw.to_string());
     if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&candidate) {
-        out.push(serde_json::json!({"type": 1, "content": cleaned}).to_string());
+        for chunk in chunk_stream_text(&cleaned) {
+            out.push(serde_json::json!({"type": 1, "content": chunk}).to_string());
+        }
     }
     out
 }
@@ -663,5 +693,25 @@ fn drain_json_objects(buffer: &mut String) -> Vec<String> {
         buffer.clear();
     }
 
+    out
+}
+
+fn chunk_stream_text(text: &str) -> Vec<String> {
+    let trimmed = text.trim();
+    if trimmed.len() <= 80 {
+        return vec![text.to_string()];
+    }
+    let mut out = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        current.push(ch);
+        if current.len() >= 24 {
+            out.push(current);
+            current = String::new();
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
     out
 }

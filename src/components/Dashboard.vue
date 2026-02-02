@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { showToast } from '../utils/toast'
 import { open } from '@tauri-apps/plugin-shell'
 import { stripMarkdown } from '../utils/markdown'
@@ -17,6 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice'])
 
 const brokenImages = ref(new Set())
+const cardListeners = []
 
 // 模块列表
 const modules = [
@@ -105,9 +106,9 @@ const modules = [
     id: 'ai', 
     name: '校园助手', 
     icon: '🤖', 
-    color: '#8b5cf6',
-    desc: 'AI智能问答助手',
-    available: true,
+    color: '#94a3b8',
+    desc: '暂不可用',
+    available: false,
     requiresLogin: true
   }
 ]
@@ -209,6 +210,36 @@ const handleContentClick = async (e) => {
     }
   }
 }
+
+const attachCardSpotlight = () => {
+  const cards = document.querySelectorAll('.module-card')
+  cards.forEach((card) => {
+    const handleMove = (event) => {
+      const rect = card.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      card.style.setProperty('--hover-x', `${x}px`)
+      card.style.setProperty('--hover-y', `${y}px`)
+    }
+    card.addEventListener('mousemove', handleMove)
+    cardListeners.push({ card, handleMove })
+  })
+}
+
+const detachCardSpotlight = () => {
+  cardListeners.forEach(({ card, handleMove }) => {
+    card.removeEventListener('mousemove', handleMove)
+  })
+  cardListeners.length = 0
+}
+
+onMounted(() => {
+  attachCardSpotlight()
+})
+
+onBeforeUnmount(() => {
+  detachCardSpotlight()
+})
 </script>
 
 <template>
@@ -217,14 +248,15 @@ const handleContentClick = async (e) => {
     <header class="dashboard-header">
       <div class="brand">
         <img class="logo-img" :src="hbutLogo" alt="HBUT" />
-        <span class="title">HBUT 校园助手</span>
+        <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
+        <span class="page-tag">首页</span>
       </div>
       <div class="user-info">
         <span class="student-id">👤 {{ studentId || '未登录' }}</span>
-        <button class="share-btn" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
+        <button class="share-btn btn-ripple" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
           🔗
         </button>
-        <button v-if="isLoggedIn" class="logout-btn" @click="handleLogout">退出</button>
+        <button v-if="isLoggedIn" class="logout-btn btn-ripple" @click="handleLogout">退出</button>
       </div>
     </header>
 
@@ -275,7 +307,7 @@ const handleContentClick = async (e) => {
 
     <!-- 页脚 -->
     <footer class="dashboard-footer">
-      <p>💡 点击模块卡片进入功能</p>
+      <p class="neon-marquee">💡 点击模块卡片进入功能</p>
     </footer>
   </div>
 </template>
@@ -283,8 +315,30 @@ const handleContentClick = async (e) => {
 <style scoped>
 .dashboard {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--ui-bg-gradient);
   padding: 20px;
+}
+
+html[data-theme='cyberpunk'] .dashboard {
+  position: relative;
+  background: var(--ui-bg-gradient);
+}
+
+html[data-theme='cyberpunk'] .dashboard::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(41, 200, 224, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(41, 200, 224, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+html[data-theme='cyberpunk'] .dashboard > * {
+  position: relative;
+  z-index: 1;
 }
 
 .dashboard-header {
@@ -296,6 +350,12 @@ const handleContentClick = async (e) => {
   border-radius: 16px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   margin-bottom: 24px;
+}
+
+html[data-theme='cyberpunk'] .dashboard-header {
+  background: rgba(10, 15, 28, 0.82);
+  border: 1px solid rgba(41, 200, 224, 0.35);
+  box-shadow: 0 0 18px rgba(41, 200, 224, 0.25);
 }
 
 .brand {
@@ -319,6 +379,14 @@ const handleContentClick = async (e) => {
   -webkit-text-fill-color: transparent;
 }
 
+html[data-theme='cyberpunk'] .brand .title {
+  background: linear-gradient(135deg, var(--ui-neon-cyan), var(--ui-neon-pink), var(--ui-neon-purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 10px rgba(41, 200, 224, 0.6);
+}
+
 .user-info {
   display: flex;
   align-items: center;
@@ -326,7 +394,7 @@ const handleContentClick = async (e) => {
 }
 
 .student-id {
-  color: #374151;
+  color: var(--ui-text);
   font-weight: 500;
 }
 
@@ -340,8 +408,8 @@ const handleContentClick = async (e) => {
 }
 
 .share-btn {
-  background: #f0f4ff;
-  color: #667eea;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .share-btn:hover {
@@ -350,8 +418,8 @@ const handleContentClick = async (e) => {
 }
 
 .logout-btn {
-  background: #fee2e2;
-  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--ui-danger);
 }
 
 .logout-btn:hover {
@@ -489,6 +557,107 @@ const handleContentClick = async (e) => {
   overflow: hidden;
 }
 
+html[data-theme='cyberpunk'] .module-card {
+  background: rgba(10, 15, 28, 0.85);
+  border: 1px solid rgba(41, 200, 224, 0.35);
+  box-shadow: 0 0 12px rgba(41, 200, 224, 0.25);
+  animation: cyber-pulse 5s ease-in-out infinite;
+}
+
+html[data-theme='cyberpunk'] .module-card::before {
+  height: 3px;
+  background: linear-gradient(90deg, var(--ui-neon-cyan), var(--ui-neon-pink));
+  box-shadow: 0 0 12px rgba(41, 200, 224, 0.5);
+}
+
+html[data-theme='cyberpunk'] .module-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--hover-x, 50%) var(--hover-y, 50%), rgba(41, 200, 224, 0.25), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+html[data-theme='cyberpunk'] .module-card:hover::after {
+  opacity: 1;
+}
+
+html[data-theme='cyberpunk'] .module-card:hover:not(.disabled) {
+  box-shadow: 0 0 18px rgba(41, 200, 224, 0.5), 0 0 28px rgba(183, 76, 192, 0.35);
+  transform: translateY(-6px);
+}
+
+html[data-theme='cyberpunk'] .module-name {
+  color: var(--ui-text);
+  text-shadow: 0 0 8px rgba(41, 200, 224, 0.35);
+}
+
+html[data-theme='cyberpunk'] .module-icon {
+  text-shadow: 0 0 12px rgba(41, 200, 224, 0.6);
+  animation: cyber-float 3.5s ease-in-out infinite;
+}
+
+html[data-theme='cyberpunk'] .share-btn,
+html[data-theme='cyberpunk'] .logout-btn {
+  background: transparent;
+  border: 1px solid rgba(41, 200, 224, 0.4);
+  color: var(--ui-neon-cyan);
+  box-shadow: 0 0 10px rgba(41, 200, 224, 0.35);
+}
+
+html[data-theme='cyberpunk'] .logout-btn {
+  color: var(--ui-neon-pink);
+  border-color: rgba(183, 76, 192, 0.5);
+  box-shadow: 0 0 12px rgba(183, 76, 192, 0.35);
+}
+
+html[data-theme='minimal'] .dashboard {
+  background: #ffffff;
+}
+
+html[data-theme='minimal'] .dashboard-header {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: none;
+}
+
+html[data-theme='minimal'] .module-card {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: none;
+}
+
+html[data-theme='minimal'] .module-card::before {
+  height: 4px;
+  background: linear-gradient(90deg, #38bdf8 0%, #0ea5e9 100%);
+  top: auto;
+  bottom: 0;
+}
+
+html[data-theme='minimal'] .tab-bar {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: none;
+}
+
+html[data-theme='minimal'] .share-btn,
+html[data-theme='minimal'] .logout-btn {
+  background: rgba(14, 165, 233, 0.08);
+  color: #0ea5e9;
+  border: 1px solid rgba(14, 165, 233, 0.25);
+}
+
+@keyframes cyber-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
 .module-card::before {
   content: '';
   position: absolute;
@@ -505,8 +674,13 @@ const handleContentClick = async (e) => {
 }
 
 .module-card.disabled {
-  opacity: 0.7;
+  opacity: 0.65;
   cursor: not-allowed;
+  filter: grayscale(1);
+  background: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  box-shadow: none;
+  --accent-color: #94a3b8;
 }
 
 .module-icon {
@@ -517,13 +691,13 @@ const handleContentClick = async (e) => {
 .module-name {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--ui-text);
   margin-bottom: 4px;
 }
 
 .module-desc {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .coming-soon {
@@ -541,7 +715,8 @@ const handleContentClick = async (e) => {
 .dashboard-footer {
   text-align: center;
   margin-top: 32px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--ui-muted);
+  overflow: hidden;
 }
 
 @media (max-width: 640px) {

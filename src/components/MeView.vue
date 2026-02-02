@@ -1,7 +1,8 @@
-<script setup>
+﻿<script setup>
 import { ref, nextTick } from 'vue'
 import { open } from '@tauri-apps/plugin-shell'
 import LoginV3 from './LoginV3.vue'
+import hbutLogo from '../assets/hbut-logo.png'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -10,7 +11,7 @@ const props = defineProps({
   configAdminIds: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig'])
+const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig', 'openSettings'])
 
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
@@ -21,6 +22,7 @@ const goStudentInfo = () => emit('navigate', 'studentinfo')
 const handleCheckUpdate = () => emit('checkUpdate')
 const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
+const handleOpenSettings = () => emit('openSettings')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const handleFeedback = () => emit('openFeedback')
@@ -44,13 +46,21 @@ const handleShowLegal = async (tab) => {
 
 <template>
   <div class="me-view">
-    <header class="me-hero">
-      <div class="hero-card">
-        <div class="avatar">🎓</div>
-        <div class="hero-info">
-          <h2>个人中心</h2>
-          <p>{{ isLoggedIn ? '已登录' : '未登录' }}</p>
+    <header class="dashboard-header">
+      <div class="brand">
+        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+        <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
+        <span class="page-tag">我的</span>
+      </div>
+      <div class="user-info">
+        <div class="profile-inline">
+          <div class="avatar">👤</div>
+          <div class="hero-info">
+            <h2>个人中心</h2>
+            <p>{{ isLoggedIn ? '欢迎回来' : '请先登录' }}</p>
+          </div>
         </div>
+        <span class="student-id">👤 {{ studentId || (isLoggedIn ? '已登录' : '未登录') }}</span>
       </div>
     </header>
 
@@ -81,8 +91,12 @@ const handleShowLegal = async (tab) => {
       <h3 class="section-title">更多功能</h3>
       <div class="links-grid">
         <button class="link-item" @click="handleOpenOfficial">
-          <span class="link-icon">📢</span>
+          <span class="link-icon">📣</span>
           <span class="link-text">官方发布</span>
+        </button>
+        <button class="link-item" @click="handleOpenSettings">
+          <span class="link-icon">🎚️</span>
+          <span class="link-text">设置</span>
         </button>
         <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
           <span class="link-icon">🛠️</span>
@@ -97,7 +111,7 @@ const handleShowLegal = async (tab) => {
           <span class="link-text">问题反馈</span>
         </button>
         <button class="link-item" @click="handleOpenSource">
-          <span class="link-icon">📦</span>
+          <span class="link-icon">📖</span>
           <span class="link-text">开源说明</span>
         </button>
       </div>
@@ -126,7 +140,7 @@ const handleShowLegal = async (tab) => {
         <p>本应用为学习与信息查询工具，非学校官方系统或官方网站。</p>
         <ul>
           <li>数据来源于学校相关系统接口或公开信息，仅用于展示与查询参考。</li>
-          <li>我们会尽力保证展示信息的及时性与准确性，但不对其完整性、准确性、时效性做保证。</li>
+          <li>我们会尽力保证展示信息的及时性与准确性，但不对其完整性、准确性、时效性作保证。</li>
           <li>因网络、系统维护、第三方服务变化等导致的服务中断或信息错误，我们不承担责任。</li>
           <li>请勿将本应用用于任何违法、违规或侵害他人权益的用途。</li>
         </ul>
@@ -147,21 +161,21 @@ const handleShowLegal = async (tab) => {
 
     <!-- 开源说明弹窗 -->
     <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
-        <div class="modal-card" @click.stop>
-            <h3>开源说明</h3>
-            <p>Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
-            <p><strong>项目地址：</strong></p>
-            <a class="github-link" @click="openGithub">https://github.com/superdaobo/mini-hbut</a>
-            <p>感谢以下开源项目：</p>
-            <ul class="opensource-list">
-                <li>Tauri / Vue 3 / Vite</li>
-                <li>reqwest / scraper / serde</li>
-                <li>...以及所有贡献者</li>
-            </ul>
-            <div class="modal-actions">
-                <button class="btn-primary" @click="showOpenSourceModal = false">关闭</button>
-            </div>
+      <div class="modal-card" @click.stop>
+        <h3>开源说明</h3>
+        <p>Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
+        <p><strong>项目地址：</strong></p>
+        <a class="github-link" @click="openGithub">https://github.com/superdaobo/mini-hbut</a>
+        <p>感谢以下开源项目：</p>
+        <ul class="opensource-list">
+          <li>Tauri / Vue 3 / Vite</li>
+          <li>reqwest / scraper / serde</li>
+          <li>...以及所有贡献者</li>
+        </ul>
+        <div class="modal-actions">
+          <button class="btn-primary" @click="showOpenSourceModal = false">关闭</button>
         </div>
+      </div>
     </div>
   </div>
 </template>
@@ -170,44 +184,38 @@ const handleShowLegal = async (tab) => {
 .me-view {
   min-height: 100vh;
   padding: 20px 20px 110px;
-  background: linear-gradient(135deg, #7c3aed 0%, #6366f1 55%, #22d3ee 100%);
+  background: var(--ui-bg-gradient);
 }
 
-.me-hero {
-  margin-bottom: 20px;
-}
-
-.hero-card {
+.profile-inline {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--ui-primary-soft);
 }
 
 .avatar {
-  width: 52px;
-  height: 52px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
-  border-radius: 16px;
-  background: rgba(99, 102, 241, 0.15);
-  font-size: 28px;
+  border-radius: 12px;
+  background: var(--ui-primary-soft-strong);
+  font-size: 20px;
 }
 
 .hero-info h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
+  margin: 0 0 2px;
+  font-size: 16px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--ui-text);
 }
 
 .hero-info p {
   margin: 0;
-  color: #475569;
+  color: var(--ui-muted);
   font-weight: 600;
 }
 
@@ -219,17 +227,33 @@ const handleShowLegal = async (tab) => {
   display: flex;
   justify-content: space-between;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  border-bottom: 1px solid var(--ui-surface-border);
   font-size: 15px;
 }
 
 .me-row .label {
-  color: #64748b;
+  color: var(--ui-muted);
 }
 
 .me-row .value {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--ui-text);
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .dashboard-header .user-info {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }
 
 .me-actions {
@@ -248,12 +272,12 @@ const handleShowLegal = async (tab) => {
 }
 
 .me-actions .primary {
-  background: #6366f1;
+  background: var(--ui-primary);
   color: white;
 }
 
 .me-actions .danger {
-  background: #ef4444;
+  background: var(--ui-danger);
   color: white;
 }
 
@@ -266,7 +290,7 @@ const handleShowLegal = async (tab) => {
   margin: 0 0 16px;
   font-size: 16px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--ui-text);
 }
 
 .quick-links {
@@ -286,15 +310,15 @@ const handleShowLegal = async (tab) => {
   align-items: center;
   gap: 8px;
   padding: 16px 12px;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: var(--ui-primary-soft);
+  border: 1px solid var(--ui-primary-soft-strong);
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .link-item:hover {
-  background: rgba(99, 102, 241, 0.15);
+  background: var(--ui-primary-soft-strong);
   transform: translateY(-2px);
 }
 
@@ -309,14 +333,14 @@ const handleShowLegal = async (tab) => {
 .link-text {
   font-size: 14px;
   font-weight: 600;
-  color: #374151;
+  color: var(--ui-muted);
 }
 
 .legal-title {
   margin: 0 0 12px;
   font-size: 18px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--ui-text);
 }
 
 .legal-tabs {
@@ -328,22 +352,22 @@ const handleShowLegal = async (tab) => {
 
 .legal-tab {
   padding: 10px 12px;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid var(--ui-primary-soft-strong);
   border-radius: 12px;
-  background: rgba(99, 102, 241, 0.08);
-  color: #1e293b;
+  background: var(--ui-primary-soft);
+  color: var(--ui-text);
   font-weight: 600;
   cursor: pointer;
 }
 
 .legal-tab.active {
-  background: #6366f1;
+  background: var(--ui-primary);
   color: white;
-  border-color: #6366f1;
+  border-color: var(--ui-primary);
 }
 
 .legal-content {
-  color: #334155;
+  color: var(--ui-muted);
   line-height: 1.7;
   font-size: 14px;
 }
@@ -370,23 +394,23 @@ const handleShowLegal = async (tab) => {
 }
 
 .modal-card {
-  background: white;
+  background: var(--ui-surface);
   width: 85%;
   max-width: 320px;
   padding: 24px;
   border-radius: 16px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 .modal-card h3 {
   margin-top: 0;
-  color: #1e293b;
+  color: var(--ui-text);
 }
 
 .github-link {
     display: block;
     margin: 10px 0;
-    color: #3b82f6;
+    color: var(--ui-primary);
     text-decoration: underline;
     cursor: pointer;
     word-break: break-all;
@@ -396,7 +420,7 @@ const handleShowLegal = async (tab) => {
     margin: 0;
     padding-left: 20px;
     font-size: 14px;
-    color: #475569;
+    color: var(--ui-muted);
 }
 
 .modal-actions {
@@ -407,7 +431,7 @@ const handleShowLegal = async (tab) => {
 }
 
 .btn-primary {
-  background: #3b82f6;
+  background: var(--ui-primary);
   color: white;
   border: none;
   padding: 8px 20px;
@@ -415,4 +439,16 @@ const handleShowLegal = async (tab) => {
   font-weight: 600;
   cursor: pointer;
 }
+
+.profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
 </style>
+
+
+
+
+

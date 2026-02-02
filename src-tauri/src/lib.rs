@@ -17,7 +17,9 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{State, Manager};
+use tauri::path::BaseDirectory;
 use chrono::Datelike;
 
 pub mod http_client;
@@ -199,6 +201,51 @@ async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
     }
 
     serde_json::from_str(&text).map_err(|e| format!("解析 JSON 失败: {}", e))
+}
+
+#[tauri::command]
+async fn download_deyihei_font(app: tauri::AppHandle, url: String, force: Option<bool>) -> Result<String, String> {
+    let force = force.unwrap_or(false);
+    let cache_dir = app
+        .path()
+        .resolve("fonts", BaseDirectory::AppCache)
+        .map_err(|e| format!("解析缓存目录失败: {}", e))?;
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| format!("创建缓存目录失败: {}", e))?;
+
+    let font_path = cache_dir.join("SmileySans-Oblique.ttf");
+    if !force {
+        if let Ok(meta) = tokio::fs::metadata(&font_path).await {
+            if meta.len() > 50_000 {
+                return Ok(font_path.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("创建下载请求失败: {}", e))?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("下载字体失败: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!("字体下载失败: {}", response.status()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取字体数据失败: {}", e))?;
+    if bytes.len() < 50_000 {
+        return Err("字体文件过小，下载失败。".to_string());
+    }
+    tokio::fs::write(&font_path, &bytes)
+        .await
+        .map_err(|e| format!("写入缓存失败: {}", e))?;
+    Ok(font_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -723,6 +770,7 @@ pub fn run() {
             recognize_captcha,
             set_ocr_endpoint,
             fetch_remote_config,
+            download_deyihei_font,
             login,
             logout,
             restore_session,

@@ -1,3 +1,5 @@
+﻿@charset "UTF-8";
+
 :root {
   --primary: #667eea;
   --primary-dark: #764ba2;
@@ -134,3 +136,4 @@ html, body {
 .fade-leave-to {
   opacity: 0;
 }
+

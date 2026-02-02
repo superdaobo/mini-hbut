@@ -1,5 +1,5 @@
-<script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+﻿<script setup>
+import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-shell'
 import axios from 'axios'
@@ -19,6 +19,7 @@ import OfficialView from './components/OfficialView.vue'
 import FeedbackView from './components/FeedbackView.vue'
 import NotificationView from './components/NotificationView.vue'
 import ConfigEditor from './components/ConfigEditor.vue'
+import SettingsView from './components/SettingsView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
@@ -169,6 +170,19 @@ const handleContentClick = async (e) => {
     } catch (e) {
       window.open(target.href, '_blank')
     }
+  }
+}
+
+const handleGlobalLinkClick = async (e) => {
+  const target = e.target.closest('a')
+  if (!target || !target.href) return
+  const href = target.href
+  if (!/^https?:/i.test(href)) return
+  e.preventDefault()
+  try {
+    await open(href)
+  } catch (err) {
+    window.open(href, '_blank')
   }
 }
 
@@ -505,6 +519,7 @@ watch(currentView, () => {
 })
 
 onMounted(async () => {
+  document.addEventListener('click', handleGlobalLinkClick, true)
   const restored = await tryRestoreSession()
   let relogged = false
   if (!restored) {
@@ -559,6 +574,10 @@ onMounted(async () => {
 
   ensureConfigAccess()
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleGlobalLinkClick, true)
+})
 </script>
 
 <template>
@@ -602,6 +621,7 @@ onMounted(async () => {
         @openOfficial="handleOpenOfficial"
         @openFeedback="currentView = 'feedback'"
         @openConfig="currentView = 'config'"
+        @openSettings="currentView = 'settings'"
       />
 
       <!-- 官方发布页 -->
@@ -618,6 +638,11 @@ onMounted(async () => {
 
       <ConfigEditor
         v-else-if="currentView === 'config' && isConfigAdmin"
+        @back="currentView = 'me'; activeTab = 'me'"
+      />
+
+      <SettingsView
+        v-else-if="currentView === 'settings'"
         @back="currentView = 'me'; activeTab = 'me'"
       />
       
@@ -731,19 +756,19 @@ onMounted(async () => {
     </Transition>
 
     <nav v-if="showTabBar" class="tab-bar glass-card">
-      <button class="tab-item" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
+      <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
         <span class="tab-icon">🏠</span>
         <span class="tab-label">首页</span>
       </button>
-      <button class="tab-item" :class="{ active: activeTab === 'schedule' }" @click="handleTabChange('schedule')">
+      <button class="tab-item btn-ripple" :class="{ active: activeTab === 'schedule' }" @click="handleTabChange('schedule')">
         <span class="tab-icon">📅</span>
         <span class="tab-label">课表</span>
       </button>
-      <button class="tab-item" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
+      <button class="tab-item btn-ripple" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
         <span class="tab-icon">🔔</span>
         <span class="tab-label">通知</span>
       </button>
-      <button class="tab-item" :class="{ active: activeTab === 'me' }" @click="handleTabChange('me')">
+      <button class="tab-item btn-ripple" :class="{ active: activeTab === 'me' }" @click="handleTabChange('me')">
         <span class="tab-icon">👤</span>
         <span class="tab-label">我的</span>
       </button>
@@ -819,7 +844,7 @@ onMounted(async () => {
 
 .coming-soon-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--ui-bg-gradient);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -827,7 +852,7 @@ onMounted(async () => {
 
 .coming-soon-content {
   text-align: center;
-  color: white;
+  color: #fff;
 }
 
 .coming-soon-content .emoji {
@@ -847,8 +872,8 @@ onMounted(async () => {
 
 .coming-soon-content button {
   padding: 12px 32px;
-  background: white;
-  color: #667eea;
+  background: var(--ui-surface);
+  color: var(--ui-primary);
   border: none;
   border-radius: 99px;
   font-weight: 600;
@@ -877,6 +902,8 @@ onMounted(async () => {
   padding-bottom: 90px;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -899,9 +926,9 @@ onMounted(async () => {
   width: min(520px, calc(100% - 32px));
   border-radius: 18px;
   backdrop-filter: blur(18px);
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
   z-index: 10;
 }
 
@@ -914,7 +941,7 @@ onMounted(async () => {
   padding: 8px 6px;
   border: none;
   background: transparent;
-  color: #475569;
+  color: var(--ui-muted);
   font-size: 12px;
   border-radius: 12px;
   cursor: pointer;
@@ -922,8 +949,8 @@ onMounted(async () => {
 }
 
 .tab-item.active {
-  color: #1d4ed8;
-  background: rgba(59, 130, 246, 0.12);
+  color: var(--ui-primary);
+  background: var(--ui-primary-soft);
 }
 
 .tab-icon {
@@ -943,11 +970,11 @@ onMounted(async () => {
 
 .login-mask-card {
   padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--ui-surface);
   border-radius: 16px;
   font-weight: 600;
-  color: #0f172a;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .force-update-overlay {
@@ -965,13 +992,13 @@ onMounted(async () => {
 }
 
 .force-update-card {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 18px;
   padding: 24px;
   width: 100%;
   max-width: 360px;
   text-align: center;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 .force-update-card h3 {
@@ -980,12 +1007,12 @@ onMounted(async () => {
 }
 
 .force-update-message {
-  color: #374151;
+  color: var(--ui-muted);
   margin-bottom: 12px;
 }
 
 .force-update-meta {
-  color: #6b7280;
+  color: var(--ui-muted);
   font-size: 13px;
   margin-bottom: 16px;
 }
@@ -1007,14 +1034,14 @@ onMounted(async () => {
 
 .notice-modal,
 .notice-confirm-card {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 18px;
   width: 100%;
   max-width: 520px;
   max-height: 82vh;
   overflow: auto;
   padding: 20px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 .notice-modal-header {
@@ -1027,12 +1054,12 @@ onMounted(async () => {
 .notice-modal-header h3 {
   margin: 0;
   font-size: 20px;
-  color: #111827;
+  color: var(--ui-text);
 }
 
 .notice-close {
   border: none;
-  background: #f3f4f6;
+  background: var(--ui-primary-soft);
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -1041,7 +1068,7 @@ onMounted(async () => {
 }
 
 .notice-modal-meta {
-  color: #6b7280;
+  color: var(--ui-muted);
   font-size: 12px;
   margin: 8px 0 12px;
 }
@@ -1053,14 +1080,14 @@ onMounted(async () => {
 }
 
 .notice-modal-content {
-  color: #374151;
+  color: var(--ui-muted);
   line-height: 1.6;
 }
 
 .notice-link {
   display: inline-block;
   margin-top: 12px;
-  color: #6366f1;
+  color: var(--ui-primary);
   text-decoration: none;
 }
 
@@ -1070,7 +1097,7 @@ onMounted(async () => {
 }
 
 .notice-confirm-content {
-  color: #374151;
+  color: var(--ui-muted);
   line-height: 1.6;
 }
 
@@ -1081,3 +1108,4 @@ onMounted(async () => {
   margin-top: 16px;
 }
 </style>
+

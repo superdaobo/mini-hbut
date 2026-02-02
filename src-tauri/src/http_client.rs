@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use base64::Engine;
+use crate::db;
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use rand::Rng;
 use chrono::Datelike;
@@ -83,6 +84,8 @@ pub struct HbutClient {
     electricity_token_at: Option<std::time::Instant>,
     ocr_endpoint: Option<String>,
     last_login_time: Option<std::time::Instant>,
+    last_relogin_attempt: Option<std::time::Instant>,
+    last_relogin_failed_at: Option<std::time::Instant>,
 }
 
 impl HbutClient {
@@ -110,6 +113,8 @@ impl HbutClient {
             electricity_token_at: None,
             ocr_endpoint: None,
             last_login_time: None,
+            last_relogin_attempt: None,
+            last_relogin_failed_at: None,
         };
         instance.load_cookie_snapshot_from_file();
         instance
@@ -136,12 +141,24 @@ impl HbutClient {
         }
     }
 
+    fn relogin_cooldown_remaining(&self) -> Option<std::time::Duration> {
+        const COOLDOWN: std::time::Duration = std::time::Duration::from_secs(180);
+        let last = self.last_relogin_failed_at.or(self.last_relogin_attempt)?;
+        let elapsed = last.elapsed();
+        if elapsed >= COOLDOWN {
+            None
+        } else {
+            Some(COOLDOWN - elapsed)
+        }
+    }
+
     pub async fn get_login_page(&mut self) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
         self.get_login_page_with_service(TARGET_SERVICE).await
     }
 
     pub async fn get_login_page_with_service(&mut self, service_url: &str) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, service_url);
+        let encoded_service = urlencoding::encode(service_url);
+        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
         println!("[DEBUG] Fetching login page: {}", login_url);
         
         let response = self.client.get(&login_url).send().await?;
@@ -306,7 +323,8 @@ impl HbutClient {
     }
 
     pub async fn login_for_service(&mut self, username: &str, password: &str, service_url: &str) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, service_url);
+        let encoded_service = urlencoding::encode(service_url);
+        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
         println!("[DEBUG] Login URL (service): {}", login_url);
         println!("[DEBUG] Username: {}", username);
         println!("[DEBUG] Password length (plain): {}", password.len());
@@ -351,10 +369,25 @@ impl HbutClient {
                 }
                 map.insert(default_key.to_string(), value);
             };
+            let set_all_keys = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: &str| {
+                let mut set_any = false;
+                for key in keys {
+                    if map.contains_key(*key) {
+                        map.insert((*key).to_string(), value.to_string());
+                        set_any = true;
+                    }
+                }
+                if !set_any {
+                    map.insert(default_key.to_string(), value.to_string());
+                }
+            };
 
             set_key(&mut form_data, &["username", "userName", "loginname"], "username", username.to_string());
             set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
-            set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
+            // 若页面存在 passwordText 字段，填入明文以贴近官方表单
+            if form_data.contains_key("passwordText") {
+                set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
+            }
             set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
             set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
             if !current_execution.is_empty() {
@@ -368,9 +401,9 @@ impl HbutClient {
 
             if page_info.captcha_required {
                 let captcha_code = self.fetch_and_recognize_captcha().await.unwrap_or_default();
+                let captcha_code = captcha_code.trim().to_string();
                 if !captcha_code.is_empty() {
-                    let captcha_upper = captcha_code.to_uppercase();
-                    set_key(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_upper);
+                    set_all_keys(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", &captcha_code);
                 }
             }
 
@@ -408,11 +441,33 @@ impl HbutClient {
                 || html.contains("pwdEncryptSalt");
 
             if is_on_auth_page {
+                if service_url.contains("code.hbut.edu.cn") {
+                    if self.check_code_login().await {
+                        println!("[DEBUG] Login for code service verified via getLoginUser");
+                        break;
+                    }
+                }
                 if attempt + 1 < max_attempts {
                     println!("[DEBUG] Still on auth page, retrying... ({}/{})", attempt + 1, max_attempts);
                     continue;
                 }
                 return Err("登录失败，请检查账号密码或验证码".into());
+            }
+
+            // 验证是否已建立 CAS 会话（避免 OCR 误识导致“看似成功”）
+            let verify_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(service_url));
+            let verify_resp = self.client.get(&verify_url).send().await?;
+            let verify_final = verify_resp.url().to_string();
+            if verify_final.contains("authserver/login") {
+                if service_url.contains("code.hbut.edu.cn") && self.check_code_login().await {
+                    println!("[DEBUG] CAS verify redirect but code session is valid");
+                    break;
+                }
+                if attempt + 1 < max_attempts {
+                    println!("[WARN] CAS session not established, retrying... ({}/{})", attempt + 1, max_attempts);
+                    continue;
+                }
+                return Err("登录未生效，请重试或稍后再试".into());
             }
 
             break;
@@ -447,8 +502,6 @@ impl HbutClient {
             self.save_cookie_snapshot_to_file();
             return Ok(user_info);
         } else {
-             // 对于其他服务（如 code.hbut.edu.cn），登录成功后的重定向通常已经包含了 Ticket
-             // 不需要额外访问 JWXT SSO
              println!("[DEBUG] Login successful for service: {}", service_url);
              self.is_logged_in = true;
              self.save_cookie_snapshot_to_file();
@@ -485,6 +538,24 @@ impl HbutClient {
         println!("[DEBUG] Captcha base64 length: {}", base64_str.len());
         
         Ok(format!("data:image/png;base64,{}", base64_str))
+    }
+
+    async fn check_code_login(&self) -> bool {
+        let url = "https://code.hbut.edu.cn/server/auth/getLoginUser";
+        let resp = self.client.get(url)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Origin", "https://code.hbut.edu.cn")
+            .header("Referer", "https://code.hbut.edu.cn/")
+            .send()
+            .await;
+        if let Ok(resp) = resp {
+            if let Ok(text) = resp.text().await {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                    return json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                }
+            }
+        }
+        false
     }
 
     /// 获取验证码并调用服务器 OCR API 识别
@@ -560,7 +631,7 @@ impl HbutClient {
         &mut self,
         username: &str,
         password: &str,  // 原始明文密码！加密在此函数内完成
-        _captcha: &str,
+        captcha_input: &str,
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
@@ -607,15 +678,20 @@ impl HbutClient {
             
             // 3. 获取并识别验证码（始终后端 OCR）
             let captcha_code = if captcha_required {
-                println!("[DEBUG] Captcha required, auto-fetching and recognizing...");
-                match self.fetch_and_recognize_captcha().await {
-                    Ok(code) => {
-                        println!("[DEBUG] OCR recognized captcha: {}", code);
-                        code
-                    }
-                    Err(e) => {
-                        println!("[DEBUG] OCR failed: {}, trying without captcha", e);
-                        String::new()
+                if !captcha_input.trim().is_empty() {
+                    println!("[DEBUG] Captcha required, using user input.");
+                    captcha_input.trim().to_string()
+                } else {
+                    println!("[DEBUG] Captcha required, auto-fetching and recognizing...");
+                    match self.fetch_and_recognize_captcha().await {
+                        Ok(code) => {
+                            println!("[DEBUG] OCR recognized captcha: {}", code);
+                            code
+                        }
+                        Err(e) => {
+                            println!("[DEBUG] OCR failed: {}, trying without captcha", e);
+                            String::new()
+                        }
                     }
                 }
             } else {
@@ -634,11 +710,28 @@ impl HbutClient {
             }
             map.insert(default_key.to_string(), value);
         };
+        let set_all_keys = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: &str| {
+            let mut set_any = false;
+            for key in keys {
+                if map.contains_key(*key) {
+                    map.insert((*key).to_string(), value.to_string());
+                    set_any = true;
+                }
+            }
+            if !set_any {
+                map.insert(default_key.to_string(), value.to_string());
+            }
+        };
 
         set_key(&mut form_data, &["username", "userName", "loginname"], "username", username.to_string());
         set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
-        // 某些页面会校验 passwordText 是否为空 ? NO, usually we should leave it as is (empty)
-        // set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
+        // 若页面存在 passwordText 字段，填入明文以贴近官方表单
+        if form_data.contains_key("passwordText") {
+            set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
+        }
+        // 强制使用用户名登录模式，避免落入 dynamic/fido/qr 登录流程
+        set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
+        set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
         set_key(&mut form_data, &["_eventId"], "_eventId", "submit".to_string());
         set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
 
@@ -653,9 +746,9 @@ impl HbutClient {
         }
 
         if !captcha_code.is_empty() {
-            let captcha_upper = captcha_code.to_uppercase();
-            set_key(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_upper.clone());
-            println!("[DEBUG] Using captcha: {}", captcha_upper);
+            let captcha_clean = captcha_code.trim();
+            set_all_keys(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_clean);
+            println!("[DEBUG] Using captcha: {}", captcha_clean);
         }
 
         // 保留登录页隐藏字段（即使为空），某些学校 CAS 会校验字段存在性
@@ -862,8 +955,7 @@ impl HbutClient {
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
 
-        // 自动预热 SSO Token (如电费)
-        let _ = self.ensure_electricity_token().await;
+        // 避免启动时触发频繁登录/验证码，SSO Token 改为按需获取
         
         return Ok(user_info);
         }
@@ -1165,22 +1257,56 @@ impl HbutClient {
             "https%3A%2F%2Fhub.17wanxiao.com%2Fbsacs%2Fdklight.action%3Fstate%3Dbjdk_hbgy_dk_echar",
         ];
 
+        fn find_entry_url_in_text(text: &str) -> Option<String> {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
+                if let Some(arr) = json.as_array() {
+                    for item in arr.iter().rev() {
+                        if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
+                            if url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                                return Some(url.to_string());
+                            }
+                        }
+                    }
+                }
+            } else {
+                let mut iter = serde_json::Deserializer::from_str(text).into_iter::<serde_json::Value>();
+                if let Some(Ok(json)) = iter.next() {
+                    if let Some(arr) = json.as_array() {
+                        for item in arr.iter().rev() {
+                            if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
+                                if url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
+                                    return Some(url.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if let Ok(re) = regex::Regex::new(
+                r#"https://virtualhuman2h5\.59wanmei\.com/digitalPeople3/index\.html[^\s"']+"#,
+            ) {
+                let mut last_match: Option<String> = None;
+                for cap in re.captures_iter(text) {
+                    if let Some(m) = cap.get(0) {
+                        last_match = Some(m.as_str().to_string());
+                    }
+                }
+                if let Some(found) = last_match {
+                    return Some(found);
+                }
+            }
+            None
+        }
+
         fn load_entry_url_template() -> Option<String> {
             let mut dir = std::env::current_dir().ok()?;
             for _ in 0..=6 {
                 let candidate = dir.join("captured_requests.json");
                 if candidate.exists() {
                     if let Ok(text) = std::fs::read_to_string(candidate) {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                            if let Some(arr) = json.as_array() {
-                                for item in arr.iter().rev() {
-                                    if let Some(url) = item.get("url").and_then(|v| v.as_str()) {
-                                        if url.contains("virtualhuman2h5.59wanmei.com/digitalPeople3/index.html") {
-                                            return Some(url.to_string());
-                                        }
-                                    }
-                                }
-                            }
+                        if let Some(url) = find_entry_url_in_text(&text) {
+                            return Some(url);
                         }
                     }
                 }
@@ -1520,7 +1646,19 @@ impl HbutClient {
             Ok(None)
         }
 
-        // 0) 先尝试使用本地抓包入口模板
+        // 0) 尝试从本地会话恢复 one_code_token（避免当次登录未能获取 token）
+        if self.electricity_token.is_none() {
+            if let Some(dir) = HbutClient::app_data_dir() {
+                let path = dir.join("grades.db");
+                if let Ok(Some((_sid, _cookies, _password, token))) = db::get_latest_user_session(&path) {
+                    if !token.trim().is_empty() {
+                        self.set_electricity_token(token);
+                    }
+                }
+            }
+        }
+
+        // 1) 先尝试使用本地抓包入口模板
         let jump_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[DEBUG] init_ai_session: Requesting {}", jump_url);
 
@@ -1547,6 +1685,24 @@ impl HbutClient {
             }
         }
 
+        if let Some(cached_token) = self.electricity_token.clone() {
+            if !cached_token.trim().is_empty() {
+                let access_entry_url = if let Some(template) = &template_entry_url {
+                    replace_token_in_entry_url(template, &cached_token)
+                        .unwrap_or_else(|| format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", cached_token))
+                } else {
+                    format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", cached_token)
+                };
+                let blade_auth = fetch_blade_auth(&self.client, &access_entry_url).await.unwrap_or_default();
+                if !blade_auth.is_empty() {
+                    println!("[DEBUG] init_ai_session: Using cached one_code_token for blade-auth");
+                    save_cached_entry_url(&access_entry_url);
+                    return Ok((cached_token, blade_auth));
+                }
+                println!("[DEBUG] init_ai_session: cached one_code_token failed to get blade-auth");
+            }
+        }
+
         // 1) 先尝试直接跳转
         if let Some(entry_url) = follow_redirect_for_entry(&direct_client, jump_url).await? {
             if let Some(token) = extract_token_from_url(&entry_url) {
@@ -1568,12 +1724,27 @@ impl HbutClient {
         }
 
         // 2) 通过已有电费/一码通 token 走 third/open
-        let mut access_token = self.electricity_token.clone().unwrap_or_default();
-        if access_token.is_empty() {
-            access_token = match self.ensure_electricity_token().await {
-                Ok(t) => t,
-                Err(_) => String::new(),
-            };
+        let cached_auth = self.electricity_token.clone().unwrap_or_default();
+        let mut access_token = String::new();
+
+        // 优先用已缓存 Authorization 获取 accessToken，避免触发重新登录
+        if !cached_auth.is_empty() {
+            if let Ok(resp) = self.client
+                .get("https://code.hbut.edu.cn/server/auth/getLoginUser")
+                .header("Authorization", &cached_auth)
+                .header("Origin", "https://code.hbut.edu.cn")
+                .header("Referer", "https://code.hbut.edu.cn/")
+                .send()
+                .await
+            {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    access_token = json.get("resultData")
+                        .and_then(|v| v.get("accessToken"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                }
+            }
         }
 
         if access_token.is_empty() {
@@ -1588,7 +1759,7 @@ impl HbutClient {
             }
         }
 
-        // 备用：尝试 One Code getToken
+        // 备用：尝试 One Code getToken（尽量不触发频繁登录）
         if access_token.is_empty() {
             if let Ok(one_code) = self.get_one_code_token().await {
                 access_token = one_code.get("resultData")
@@ -1597,6 +1768,13 @@ impl HbutClient {
                     .unwrap_or("")
                     .to_string();
             }
+        }
+
+        if access_token.is_empty() {
+            access_token = match self.ensure_electricity_token().await {
+                Ok(t) => t,
+                Err(_) => String::new(),
+            };
         }
 
         if access_token.is_empty() {
@@ -2781,8 +2959,11 @@ impl HbutClient {
         println!("[DEBUG] Starting electricity SSO flow...");
         // 0) 先通过融合门户建立会话（对齐 Python fast_auth.py）
         let portal_service = "https://e.hbut.edu.cn/login";
-        let portal_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, portal_service);
+        let code_service = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        let portal_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(portal_service));
+        let code_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(code_service));
         let _ = self.client.get(&portal_sso_url).send().await;
+        let _ = self.client.get(&code_sso_url).send().await;
         
         // 创建一个不自动重定向的客户端来跟踪 SSO 流程
         let no_redirect_client = Client::builder()
@@ -3112,6 +3293,7 @@ impl HbutClient {
 
     pub async fn ensure_electricity_token(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(600); // 10分钟
+        let cached_token = self.electricity_token.clone();
         if let (Some(token), Some(instant)) = (&self.electricity_token, &self.electricity_token_at) {
             if instant.elapsed() < TOKEN_TTL {
                  // 验证 token 有效性
@@ -3126,12 +3308,22 @@ impl HbutClient {
                  
                  if let Ok(resp) = check_resp {
                      if resp.status().is_success() {
-                         if let Ok(json) = resp.json::<serde_json::Value>().await {
+                         let text = resp.text().await.unwrap_or_default();
+                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                              if json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
                                  println!("[DEBUG] Cached electricity token is valid");
                                  return Ok(token.clone());
                              }
+                         } else if text.contains("IP冻结") || text.contains("ip-freeze") {
+                             println!("[WARN] Token check blocked by IP freeze, keeping cached token");
+                             return Ok(token.clone());
+                         } else if !text.trim().is_empty() {
+                             println!("[WARN] Token check returned non-JSON, keeping cached token");
+                             return Ok(token.clone());
                          }
+                     } else {
+                         println!("[WARN] Token check failed with status {}, keeping cached token", resp.status());
+                         return Ok(token.clone());
                      }
                  }
                  println!("[DEBUG] Cached electricity token is invalid or expired");
@@ -3150,9 +3342,23 @@ impl HbutClient {
                 println!("[DEBUG] Electricity token failed: {}", err_msg);
                 
                 if err_msg.contains("tid=") && err_msg.contains("ticket=") {
+                    if let Some(fallback) = cached_token.clone() {
+                        println!("[WARN] Using cached electricity token after SSO failure");
+                        return Ok(fallback);
+                    }
                     return Err(format!("无法获取电费授权，请重新登录后再试。{}", err_msg).into());
                 }
                 
+                if let Some(remaining) = self.relogin_cooldown_remaining() {
+                    if let Some(fallback) = cached_token.clone() {
+                        println!("[WARN] Relogin cooldown active, using cached electricity token");
+                        return Ok(fallback);
+                    }
+                    return Err(format!(
+                        "登录频率过高，请{}秒后再试",
+                        remaining.as_secs()
+                    ).into());
+                }
                 println!("[DEBUG] Trying to relogin and retry...");
                 match self.relogin_for_code_service().await {
                     Ok(true) => {
@@ -3163,12 +3369,20 @@ impl HbutClient {
                             println!("[WARN] Relogin skipped, using cached electricity token");
                             return Ok(cached.clone());
                         }
+                        if let Some(fallback) = cached_token.clone() {
+                            println!("[WARN] Using cached electricity token after relogin skipped");
+                            return Ok(fallback);
+                        }
                         return Err("无法获取电费授权：未找到登录凭据，请重新登录".into());
                     },
                     Err(e) => {
                         if let Some(cached) = &self.electricity_token {
                             println!("[WARN] Relogin failed, using cached electricity token: {}", e);
                             return Ok(cached.clone());
+                        }
+                        if let Some(fallback) = cached_token.clone() {
+                            println!("[WARN] Using cached electricity token after relogin failure");
+                            return Ok(fallback);
                         }
                         return Err(format!("无法获取电费授权：登录失败 - {}", e).into());
                     }
@@ -3185,22 +3399,89 @@ impl HbutClient {
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[DEBUG] OneCode: Starting SSO from {}", sso_url);
 
-        let resp = self.client.get(sso_url).send().await?;
-        let final_url = resp.url().to_string();
+        let mut tid = String::new();
+        let no_redirect_client = Client::builder()
+            .cookie_store(true)
+            .cookie_provider(Arc::clone(&self.cookie_jar))
+            .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(true)
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
 
-        let mut tid = regex::Regex::new(r"tid=([^&]+)")?
-            .captures(&final_url)
-            .and_then(|cap| cap.get(1))
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default();
+        for attempt in 0..2 {
+            let mut current_url = sso_url.to_string();
+            let mut needs_login = false;
+            for _ in 0..10 {
+                let resp = no_redirect_client.get(&current_url)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .send()
+                    .await?;
 
-        let body = resp.text().await.unwrap_or_default();
-        if tid.is_empty() {
-            tid = regex::Regex::new(r#"tid=([^&\"']+)"#)?
-                .captures(&body)
-                .and_then(|cap| cap.get(1))
-                .map(|m| m.as_str().to_string())
-                .unwrap_or_default();
+                let status = resp.status();
+                let url_str = resp.url().to_string();
+                println!("[DEBUG] OneCode: status={}, url={}", status, url_str);
+                if tid.is_empty() {
+                    if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
+                        tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[DEBUG] OneCode: tid from url={}", tid);
+                    }
+                }
+
+                if status.is_redirection() {
+                    if let Some(location) = resp.headers().get("Location") {
+                        let location_str = location.to_str().unwrap_or("");
+                        println!("[DEBUG] OneCode: redirect location={}", location_str);
+                        if tid.is_empty() {
+                            if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(location_str) {
+                                tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                                println!("[DEBUG] OneCode: tid from location={}", tid);
+                            }
+                        }
+                        current_url = if location_str.starts_with("http") {
+                            location_str.to_string()
+                        } else if location_str.starts_with("/") {
+                            let base: Url = current_url.parse()?;
+                            format!("{}://{}{}", base.scheme(), base.host_str().unwrap_or(""), location_str)
+                        } else {
+                            location_str.to_string()
+                        };
+                        continue;
+                    }
+                }
+
+                let body = resp.text().await.unwrap_or_default();
+                if tid.is_empty() {
+                    tid = regex::Regex::new(r#"tid=([^&\"']+)"#)?
+                        .captures(&body)
+                        .and_then(|cap| cap.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
+                    if !tid.is_empty() {
+                        println!("[DEBUG] OneCode: tid from body={}", tid);
+                    }
+                }
+
+                if url_str.contains("authserver/login")
+                    || body.contains("统一身份认证")
+                    || body.contains("pwdEncryptSalt")
+                {
+                    needs_login = true;
+                    println!("[DEBUG] OneCode: detected auth login page");
+                }
+                break;
+            }
+
+            if tid.is_empty() && needs_login && attempt == 0 {
+                println!("[DEBUG] OneCode: SSO requires login, re-login and retrying...");
+                if let Some(remaining) = self.relogin_cooldown_remaining() {
+                    println!("[WARN] OneCode: relogin cooldown active ({}s), skip relogin", remaining.as_secs());
+                    break;
+                }
+                let _ = self.relogin_for_code_service().await?;
+                continue;
+            }
+            break;
         }
 
         if tid.is_empty() {
@@ -3368,25 +3649,36 @@ impl HbutClient {
             return Ok(false);
         }
 
-        let portal_service = "https://e.hbut.edu.cn/login";
-        let portal_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, portal_service);
+        if let Some(remaining) = self.relogin_cooldown_remaining() {
+            println!(
+                "[WARN] relogin_for_code_service: Cooldown active, skip relogin for {}s",
+                remaining.as_secs()
+            );
+            return Ok(false);
+        }
+
+        self.last_relogin_attempt = Some(std::time::Instant::now());
+        let code_service = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        let code_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(code_service));
         
         println!("[DEBUG] relogin_for_code_service: Checking if CAS session is still valid...");
-        let check_resp = self.client.get(&portal_sso_url).send().await?;
+        let check_resp = self.client.get(&code_sso_url).send().await?;
         let check_url = check_resp.url().to_string();
-        
         let needs_login = check_url.contains("authserver/login") && !check_url.contains("ticket=");
-        
+
         if needs_login {
-            println!("[DEBUG] relogin_for_code_service: CAS session expired, need to login...");
-            let _ = self.login_for_service(&username, &password, portal_service).await?;
+            println!("[DEBUG] relogin_for_code_service: CAS session expired for code service, need to login...");
+            if let Err(err) = self.login_for_service(&username, &password, code_service).await {
+                self.last_relogin_failed_at = Some(std::time::Instant::now());
+                println!("[WARN] relogin_for_code_service: code service login failed: {}", err);
+                return Err(err);
+            }
         } else {
-            println!("[DEBUG] relogin_for_code_service: CAS session still valid, skipping portal login");
+            println!("[DEBUG] relogin_for_code_service: CAS session still valid for code service, skipping login");
         }
 
         println!("[DEBUG] relogin_for_code_service: Establishing code.hbut.edu.cn session...");
-        let code_sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
-        let _ = self.client.get(code_sso_url).send().await;
+        let _ = self.client.get(code_service).send().await;
         
         println!("[DEBUG] relogin_for_code_service finished. Cookies: {}", self.get_cookies());
         Ok(true)
@@ -3513,4 +3805,3 @@ mod tests {
         assert_eq!(result.len(), 108, "Encrypted password should be 108 chars, got {}", result.len());
     }
 }
-

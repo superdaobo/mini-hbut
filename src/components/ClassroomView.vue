@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, LONG_TTL, SHORT_TTL, DEFAULT_TTL } from '../utils/api.js'
+import { useAppSettings } from '../utils/app_settings'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -10,6 +11,9 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const appSettings = useAppSettings()
+const maxRetry = computed(() => appSettings.retry.classroom)
+const retryDelayMs = computed(() => appSettings.retryDelayMs)
 
 // 状态
 const loading = ref(false)
@@ -205,14 +209,14 @@ const queryClassrooms = async (retryCount = 0) => {
     
     // 自动重试逻辑
     if ((e.response && (e.response.status === 502 || e.response.status === 504)) || e.message.includes('Network Error')) {
-      if (retryCount < 2) {
+      if (retryCount < maxRetry.value) {
         // 使用本地数据填充部分 UI，避免完全空白
         if (retryCount === 0 && !currentMeta.value.date_str) initLocalMeta()
         
-        errorMsg.value = `系统预热中，自动重试 (${retryCount + 1}/2)...`
+        errorMsg.value = `系统预热中，自动重试 (${retryCount + 1}/${maxRetry.value})...`
         setTimeout(() => {
           queryClassrooms(retryCount + 1)
-        }, 2000)
+        }, retryDelayMs.value)
         return
       } else {
         errorMsg.value = '服务器响应超时，请手动刷新'

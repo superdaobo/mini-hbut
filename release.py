@@ -22,6 +22,26 @@ REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 # release.py 在 tauri-app 目录下，tauri-app 本身就是 git 仓库根目录
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_DIR = SCRIPT_DIR  # tauri-app 就是项目根目录
+# 不要上传到 GitHub 的调试文件/工具目录
+EXCLUDE_GLOBS = [
+    "debug_*",
+]
+EXCLUDE_DIRS = [
+    "tools",
+]
+
+def collect_excluded_paths() -> list:
+    """收集需要排除提交的文件/目录（相对路径）"""
+    excluded = set()
+    for pattern in EXCLUDE_GLOBS:
+        for path in PROJECT_DIR.rglob(pattern):
+            if path.is_file():
+                excluded.add(path.relative_to(PROJECT_DIR).as_posix())
+    for dirname in EXCLUDE_DIRS:
+        dir_path = PROJECT_DIR / dirname
+        if dir_path.exists():
+            excluded.add(dir_path.relative_to(PROJECT_DIR).as_posix())
+    return sorted(excluded)
 
 def read_json(path: Path) -> dict:
     """读取 JSON 文件"""
@@ -163,9 +183,14 @@ def git_push(version: str, message: str = None):
         run_command(["git", "remote", "add", "origin", REPO_URL])
         print(f"  ✅ 配置远程仓库: {REPO_URL}")
     
-    # 2. 添加所有更改
-    run_command(["git", "add", "."])
-    print("  ✅ 已暂存所有更改")
+    # 2. 添加所有更改（排除调试文件/tools）
+    run_command(["git", "add", "-A"])
+    excluded = collect_excluded_paths()
+    if excluded:
+        run_command(["git", "reset", "--"] + excluded, check=False)
+        print("  ✅ 已暂存所有更改（已排除调试文件/tools）")
+    else:
+        print("  ✅ 已暂存所有更改")
     
     # 3. 提交
     success, _, _ = run_command(["git", "commit", "-m", message], check=False)

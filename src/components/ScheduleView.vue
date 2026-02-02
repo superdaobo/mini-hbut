@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, getCachedData } from '../utils/api.js'
@@ -350,12 +350,8 @@ onMounted(() => {
 <template>
   <div class="schedule-view" @touchstart="handleTouchStart" @touchend="handleTouchEnd">
     <!-- 头部导航 -->
-    <header class="schedule-header">
-      <button class="back-btn" @click="handleBack">← 返回</button>
-      <div class="title">
-        <span class="icon">📅</span>
-        <span>课程表</span>
-      </div>
+    <div class="schedule-topbar">
+      <button class="back-btn btn-ripple" @click="handleBack">返回</button>
       <div class="week-selector">
         <select v-model="selectedWeek">
           <option disabled value="0">请选择周次</option>
@@ -363,7 +359,7 @@ onMounted(() => {
         </select>
         <span class="arrow">▼</span>
       </div>
-    </header>
+    </div>
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，同步时间：{{ syncTime || '未知' }}
@@ -486,54 +482,37 @@ onMounted(() => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--ui-bg-gradient);
+  font-family: var(--ui-font-family);
   overflow: hidden;
 }
 
-.schedule-header {
-  height: 50px;
+.schedule-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  flex-shrink: 0;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--ui-surface);
+  border-bottom: 1px solid var(--ui-surface-border);
 }
 
-.back-btn {
-  background: rgba(255, 255, 255, 0.2);
+.schedule-topbar .back-btn {
   border: none;
-  color: white;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.back-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.schedule-header .title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 16px;
+  border-radius: 10px;
+  padding: 8px 14px;
   font-weight: 600;
-}
-
-.schedule-header .icon {
-  font-size: 18px;
+  cursor: pointer;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .week-selector {
   position: relative;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--ui-surface);
   padding: 6px 12px;
   border-radius: 12px;
+  border: 1px solid var(--ui-surface-border);
 }
 
 .week-selector select {
@@ -542,14 +521,14 @@ onMounted(() => {
   background: transparent;
   font-size: 14px;
   font-weight: 600;
-  color: white;
+  color: var(--ui-text);
   padding-right: 16px;
   outline: none;
   cursor: pointer;
 }
 
 .week-selector select option {
-  color: #333;
+  color: #1f2937;
 }
 
 .week-selector .arrow {
@@ -558,7 +537,7 @@ onMounted(() => {
   top: 50%;
   transform: translateY(-50%);
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--ui-muted);
   pointer-events: none;
 }
 
@@ -857,4 +836,63 @@ onMounted(() => {
   cursor: pointer;
   z-index: 12;
 }
+
+@media (max-width: 768px) {
+  .schedule-topbar {
+    padding: 10px 12px;
+  }
+
+  .week-selector {
+    padding: 4px 10px;
+  }
+
+  .week-selector select {
+    font-size: 12px;
+  }
+
+  .date-header {
+    height: 44px;
+  }
+
+  .month-col {
+    width: 32px;
+  }
+
+  .time-axis {
+    width: 32px;
+  }
+
+  .time-slot {
+    height: 48px;
+    font-size: 9px;
+  }
+
+  .period-num {
+    font-size: 12px;
+  }
+
+  .day-column {
+    grid-template-rows: repeat(11, 48px);
+  }
+
+  .line-row {
+    height: 48px;
+  }
+
+  .course-card {
+    padding: 4px 2px;
+    font-size: 10px;
+  }
+
+  .course-name {
+    font-size: 10px;
+  }
+
+  .course-room {
+    font-size: 9px;
+  }
+}
 </style>
+
+
+
