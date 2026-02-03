@@ -11,13 +11,22 @@
 //! - 部分接口会返回空响应，需要兜底重试
 
 use super::*;
-use reqwest::{Client, Url};
+use reqwest::{Client, Url, StatusCode};
 use reqwest::cookie::CookieStore;
 use std::sync::Arc;
+use chrono::{Utc, Duration as ChronoDuration};
+
+#[derive(Debug, Clone)]
+pub struct ElectricityTokenBundle {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_in: Option<i64>,
+    pub cookies: String,
+}
 
 impl HbutClient {
     /// 获取电费 token（SSO -> tid/ticket -> token 交换）
-    pub(super) async fn get_electricity_token(&mut self) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    pub(super) async fn get_electricity_token(&mut self) -> Result<ElectricityTokenBundle, Box<dyn std::error::Error + Send + Sync>> {
         println!("[调试] 开始电费 SSO 流程...");
         // 0) 先通过融合门户建立会话（对齐 Python fast_auth.py）
         let portal_service = "https://e.hbut.edu.cn/login";
@@ -40,6 +49,8 @@ impl HbutClient {
         let mut auth_token = String::new();
         let mut tid = String::new();
         let mut ticket = String::new();
+        let mut refresh_token: Option<String> = None;
+        let mut expires_in: Option<i64> = None;
         // 1. 触发电费 SSO 流程
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[调试] 步骤 1: 开始 SSO {}", sso_url);
@@ -277,6 +288,11 @@ impl HbutClient {
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string())
                                     .unwrap_or_default();
+                                refresh_token = result_data.get("refreshToken")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                expires_in = result_data.get("accessTokenExpire")
+                                    .and_then(|v| v.as_i64());
                                 
                                 if !auth_token.is_empty() {
                                     println!("[调试] 获取到令牌交换结果: {}...", &auth_token.chars().take(30).collect::<String>());
@@ -350,60 +366,189 @@ impl HbutClient {
         }
         
         println!("[调试] 电费令牌获取成功");
-        Ok((auth_token, cookies))
+        Ok(ElectricityTokenBundle {
+            access_token: auth_token,
+            refresh_token,
+            expires_in,
+            cookies,
+        })
+    }
+
+    /// 使用 refreshToken 刷新电费授权
+    async fn refresh_electricity_token(&mut self) -> Result<ElectricityTokenBundle, Box<dyn std::error::Error + Send + Sync>> {
+        let refresh_token = match self.electricity_refresh_token.clone() {
+            Some(rt) if !rt.trim().is_empty() => rt,
+            _ => return Err("缺少 refreshToken，无法刷新电费授权".into()),
+        };
+
+        let current_token = self.electricity_token.clone().unwrap_or_default();
+        let url = "https://code.hbut.edu.cn/server/auth/updateToken";
+        let payloads = vec![
+            serde_json::json!({
+                "refreshToken": refresh_token,
+                "token": current_token,
+                "transferType": 0
+            }),
+            serde_json::json!({
+                "refreshToken": refresh_token,
+                "accessToken": current_token,
+                "transferType": 0
+            }),
+            serde_json::json!({
+                "refreshToken": refresh_token
+            }),
+        ];
+
+        for body in payloads {
+            let resp = self.client.post(url)
+                .header("Origin", "https://code.hbut.edu.cn")
+                .header("Referer", "https://code.hbut.edu.cn/")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?;
+
+            let json: serde_json::Value = match resp.json().await {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let result = json.get("resultData").unwrap_or(&json);
+                let access_token = result.get("accessToken")
+                    .or(result.get("token"))
+                    .or(result.get("access_token"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if access_token.is_empty() {
+                    continue;
+                }
+                let refresh = result.get("refreshToken")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| self.electricity_refresh_token.clone().filter(|s| !s.trim().is_empty()));
+                let expires_in = result.get("accessTokenExpire").and_then(|v| v.as_i64());
+                let code_url: Url = "https://code.hbut.edu.cn".parse()?;
+                let cookies = if let Some(c) = self.cookie_jar.cookies(&code_url) {
+                    c.to_str()?.to_string()
+                } else {
+                    String::new()
+                };
+                return Ok(ElectricityTokenBundle {
+                    access_token,
+                    refresh_token: refresh,
+                    expires_in,
+                    cookies,
+                });
+            }
+        }
+
+        Err("刷新电费授权失败".into())
     }
 
     /// 确保电费 token 可用（必要时刷新）
     pub async fn ensure_electricity_token(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         const TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(600); // 10分钟
         let cached_token = self.electricity_token.clone();
-        if let (Some(token), Some(instant)) = (&self.electricity_token, &self.electricity_token_at) {
-            if instant.elapsed() < TOKEN_TTL {
-                 // 验证 token 有效性
-                 println!("[调试] 检查电费令牌有效性...");
-                 let check_url = "https://code.hbut.edu.cn/server/auth/getLoginUser";
-                 let check_resp = self.client.get(check_url)
-                     .header("Authorization", token)
-                     .header("Origin", "https://code.hbut.edu.cn")
-                     .header("Referer", "https://code.hbut.edu.cn/")
-                     .send()
-                     .await;
-                 
-                 if let Ok(resp) = check_resp {
-                     if resp.status().is_success() {
-                         let text = resp.text().await.unwrap_or_default();
-                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                             if json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                 println!("[调试] 缓存电费令牌有效");
-                                 return Ok(token.clone());
-                             }
-                         } else if text.contains("IP冻结") || text.contains("ip-freeze") {
-                             println!("[警告] 令牌校验被 IP 冻结阻断, 保留缓存令牌");
-                             return Ok(token.clone());
-                         } else if !text.trim().is_empty() {
-                             println!("[警告] 令牌校验返回非 JSON, 保留缓存令牌");
-                             return Ok(token.clone());
-                         }
-                     } else {
-                         println!("[警告] 令牌校验失败，状态 {}, 保留缓存令牌", resp.status());
-                         return Ok(token.clone());
-                     }
-                 }
-                 println!("[调试] 缓存电费令牌无效或过期");
-                 self.electricity_token = None;
-                 self.electricity_token_at = None;
+        let now = Utc::now();
+        let mut token_expiring = false;
+
+        if let Some(token) = &self.electricity_token {
+            let mut within_ttl = false;
+            if let Some(exp) = self.electricity_token_expires_at.clone() {
+                if exp > now + ChronoDuration::seconds(60) {
+                    within_ttl = true;
+                } else {
+                    token_expiring = true;
+                }
+            } else if let Some(instant) = self.electricity_token_at {
+                if instant.elapsed() < TOKEN_TTL {
+                    within_ttl = true;
+                }
+            }
+
+            if within_ttl {
+                // 验证 token 有效性
+                println!("[调试] 检查电费令牌有效性...");
+                let check_url = "https://code.hbut.edu.cn/server/auth/getLoginUser";
+                let check_resp = self.client.get(check_url)
+                    .header("Authorization", token)
+                    .header("Origin", "https://code.hbut.edu.cn")
+                    .header("Referer", "https://code.hbut.edu.cn/")
+                    .send()
+                    .await;
+
+                if let Ok(resp) = check_resp {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    let text_lower = text.to_lowercase();
+                    let is_ip_freeze = text.contains("IP冻结") || text.contains("ip-freeze");
+                    let looks_like_login = text_lower.contains("unauthorized")
+                        || text_lower.contains("login")
+                        || text.contains("未登录")
+                        || text.contains("统一身份认证");
+
+                    if status.is_success() {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                println!("[调试] 缓存电费令牌有效");
+                                return Ok(token.clone());
+                            }
+                        } else if is_ip_freeze {
+                            println!("[警告] 令牌校验被 IP 冻结阻断, 保留缓存令牌");
+                            return Ok(token.clone());
+                        }
+                        println!("[警告] 令牌校验未通过，准备刷新");
+                    } else if is_ip_freeze {
+                        println!("[警告] 令牌校验被 IP 冻结阻断, 保留缓存令牌");
+                        return Ok(token.clone());
+                    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN || looks_like_login {
+                        println!("[警告] 令牌校验失败，状态 {}, 将尝试刷新", status);
+                    } else if status.is_server_error() {
+                        println!("[警告] 令牌校验服务异常 {}，保留缓存令牌", status);
+                        return Ok(token.clone());
+                    } else if !text.trim().is_empty() {
+                        println!("[警告] 令牌校验异常响应（状态 {}），准备刷新", status);
+                    } else {
+                        println!("[警告] 令牌校验失败，状态 {}，准备刷新", status);
+                    }
+                } else {
+                    println!("[警告] 令牌校验请求失败，保留缓存令牌");
+                    return Ok(token.clone());
+                }
+                println!("[调试] 缓存电费令牌无效或过期");
+                self.electricity_token = None;
+                self.electricity_token_at = None;
+                self.electricity_token_expires_at = None;
+                token_expiring = true;
+            }
+        }
+
+        // 优先使用 refreshToken 刷新（若可用）
+        if self.electricity_refresh_token.is_some() {
+            println!("[调试] 尝试使用 refreshToken 刷新电费令牌...");
+            if let Ok(bundle) = self.refresh_electricity_token().await {
+                let refresh = bundle.refresh_token.clone().or(self.electricity_refresh_token.clone());
+                let expires_at = bundle.expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+                self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
+                return Ok(bundle.access_token);
+            }
+            if token_expiring {
+                println!("[警告] refreshToken 刷新失败，继续走 SSO...");
             }
         }
 
         println!("[调试] 令牌无效或缺失，尝试 SSO...");
 
         let token_result = self.get_electricity_token().await;
-        let (token, _) = match token_result {
+        let bundle = match token_result {
             Ok(res) => res,
             Err(err) => {
                 let err_msg = err.to_string();
                 println!("[调试] 电费令牌失败: {}", err_msg);
-                
+
                 if err_msg.contains("tid=") && err_msg.contains("ticket=") {
                     if let Some(fallback) = cached_token.clone() {
                         println!("[警告] 使用缓存电费令牌 after SSO failure");
@@ -411,7 +556,7 @@ impl HbutClient {
                     }
                     return Err(format!("无法获取电费授权，请重新登录后再试。{}", err_msg).into());
                 }
-                
+
                 if let Some(remaining) = self.relogin_cooldown_remaining() {
                     if let Some(fallback) = cached_token.clone() {
                         println!("[警告] 重登冷却中，使用缓存电费令牌");
@@ -452,9 +597,11 @@ impl HbutClient {
                 }
             }
         };
-        self.electricity_token = Some(token.clone());
-        self.electricity_token_at = Some(std::time::Instant::now());
-        Ok(token)
+
+        let refresh = bundle.refresh_token.clone().or(self.electricity_refresh_token.clone());
+        let expires_at = bundle.expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+        self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
+        Ok(bundle.access_token)
     }
 
     /// 获取一码通 Token（对齐 backend/modules/fast_auth.py 的 get_code_token）
@@ -463,7 +610,16 @@ impl HbutClient {
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[调试] 一码通: 开始 SSO {}", sso_url);
 
+        // 预热门户与 code SSO
+        let portal_service = "https://e.hbut.edu.cn/login";
+        let code_service = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        let portal_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(portal_service));
+        let code_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(code_service));
+        let _ = self.client.get(&portal_sso_url).send().await;
+        let _ = self.client.get(&code_sso_url).send().await;
+
         let mut tid = String::new();
+        let mut ticket = String::new();
         let no_redirect_client = Client::builder()
             .cookie_store(true)
             .cookie_provider(Arc::clone(&self.cookie_jar))
@@ -476,7 +632,7 @@ impl HbutClient {
         for attempt in 0..2 {
             let mut current_url = sso_url.to_string();
             let mut needs_login = false;
-            for _ in 0..10 {
+            for _ in 0..15 {
                 let resp = no_redirect_client.get(&current_url)
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .send()
@@ -491,6 +647,12 @@ impl HbutClient {
                         println!("[调试] 一码通：tid 地址={}", tid);
                     }
                 }
+                if ticket.is_empty() {
+                    if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str) {
+                        ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[调试] 一码通：ticket 地址={}", ticket);
+                    }
+                }
 
                 if status.is_redirection() {
                     if let Some(location) = resp.headers().get("Location") {
@@ -500,6 +662,12 @@ impl HbutClient {
                             if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(location_str) {
                                 tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
                                 println!("[调试] 一码通：tid 重定向={}", tid);
+                            }
+                        }
+                        if ticket.is_empty() {
+                            if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(location_str) {
+                                ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                                println!("[调试] 一码通：ticket 重定向={}", ticket);
                             }
                         }
                         current_url = if location_str.starts_with("http") {
@@ -525,6 +693,16 @@ impl HbutClient {
                         println!("[调试] 一码通：tid 内容={}", tid);
                     }
                 }
+                if ticket.is_empty() {
+                    ticket = regex::Regex::new(r#"ticket=([^&\"']+)"#)?
+                        .captures(&body)
+                        .and_then(|cap| cap.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
+                    if !ticket.is_empty() {
+                        println!("[调试] 一码通：ticket 内容={}", ticket);
+                    }
+                }
 
                 if url_str.contains("authserver/login")
                     || body.contains("统一身份认证")
@@ -542,41 +720,140 @@ impl HbutClient {
                     println!("[警告] 一码通：重登冷却中（{}s），跳过重登", remaining.as_secs());
                     break;
                 }
-                let _ = self.relogin_for_code_service().await?;
-                continue;
+                match self.relogin_for_code_service().await {
+                    Ok(true) => {
+                        println!("[调试] 一码通：重登成功，重试 SSO...");
+                        continue;
+                    }
+                    Ok(false) => {
+                        println!("[警告] 一码通：重登被跳过（无凭据）");
+                        break;
+                    }
+                    Err(e) => {
+                        println!("[警告] 一码通：重登失败: {}", e);
+                        break;
+                    }
+                }
             }
             break;
         }
 
-        if tid.is_empty() {
+        if tid.is_empty() && ticket.is_empty() {
+            if let Ok(resp) = self.client.get(sso_url).send().await {
+                let url_str = resp.url().to_string();
+                if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
+                    tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[调试] 一码通：最终 tid 地址={}", tid);
+                }
+                if ticket.is_empty() {
+                    if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str) {
+                        ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[调试] 一码通：最终 ticket 地址={}", ticket);
+                    }
+                }
+                if tid.is_empty() && ticket.is_empty() {
+                    let html = resp.text().await.unwrap_or_default();
+                    if let Some(caps) = regex::Regex::new(r#"tid=([^&\"']+)"#)?.captures(&html) {
+                        tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[调试] 一码通：最终 tid HTML={}", tid);
+                    }
+                    if ticket.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r#"ticket=([^&\"']+)"#)?.captures(&html) {
+                            ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[调试] 一码通：最终 ticket HTML={}", ticket);
+                        }
+                    }
+                }
+            }
+        }
+
+        if tid.is_empty() && ticket.is_empty() {
+            println!("[警告] 一码通获取 tid/ticket 失败，尝试使用缓存/刷新令牌回退...");
+            if let Some(token) = self.electricity_token.clone() {
+                return Ok(serde_json::json!({
+                    "success": true,
+                    "tid": "",
+                    "resultData": { "accessToken": token }
+                }));
+            }
+            if self.electricity_refresh_token.is_some() {
+                if let Ok(bundle) = self.refresh_electricity_token().await {
+                    let refresh = bundle.refresh_token.clone().or(self.electricity_refresh_token.clone());
+                    let expires_at = bundle.expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+                    self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
+                    return Ok(serde_json::json!({
+                        "success": true,
+                        "tid": "",
+                        "resultData": { "accessToken": bundle.access_token }
+                    }));
+                }
+            }
             return Err("一码通获取 tid 失败".into());
         }
 
-        let referer = format!("https://code.hbut.edu.cn/?tid={}&orgId=2", tid);
+        let referer = if !tid.is_empty() {
+            format!("https://code.hbut.edu.cn/?tid={}&orgId=2", tid)
+        } else {
+            "https://code.hbut.edu.cn/".to_string()
+        };
         let token_url = "https://code.hbut.edu.cn/server/auth/getToken";
-        let payload = serde_json::json!({"tid": tid});
 
-        let token_resp = self.client.post(token_url)
-            .header("Origin", "https://code.hbut.edu.cn")
-            .header("Referer", &referer)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await?;
-
-        let json = token_resp.json::<serde_json::Value>().await?;
-        let success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
-        if !success {
-            return Err(format!("一码通 getToken 失败: {}", json).into());
+        let mut token_urls: Vec<(String, Option<serde_json::Value>)> = Vec::new();
+        if !tid.is_empty() {
+            token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?tid={}", tid), None));
+            token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?tid={}&orgId=2", tid), None));
+            token_urls.push((token_url.to_string(), Some(serde_json::json!({"tid": tid, "orgId": 2}))));
+        }
+        if !ticket.is_empty() {
+            token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?ticket={}", ticket), None));
+            token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?ticket={}&org=2", ticket), None));
+            token_urls.push((format!("https://code.hbut.edu.cn/server/auth/getToken?ticket={}&orgId=2", ticket), None));
+            token_urls.push((token_url.to_string(), Some(serde_json::json!({"ticket": ticket, "orgId": 2}))));
         }
 
-        let result_data = json.get("resultData").cloned().unwrap_or_else(|| serde_json::json!({}));
-        Ok(serde_json::json!({
-            "success": true,
-            "tid": tid,
-            "resultData": result_data
-        }))
+        for (url, body) in token_urls {
+            let resp = if let Some(payload) = body {
+                self.client.post(&url)
+                    .header("Origin", "https://code.hbut.edu.cn")
+                    .header("Referer", &referer)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("Content-Type", "application/json")
+                    .json(&payload)
+                    .send()
+                    .await?
+            } else {
+                self.client.get(&url)
+                    .header("Origin", "https://code.hbut.edu.cn")
+                    .header("Referer", &referer)
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .send()
+                    .await?
+            };
+
+            let json = resp.json::<serde_json::Value>().await?;
+            let success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            if success {
+                let result_data = json.get("resultData").cloned().unwrap_or_else(|| serde_json::json!({}));
+                let access = result_data.get("accessToken")
+                    .or(result_data.get("token"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                if !access.is_empty() {
+                    let refresh = result_data.get("refreshToken").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let expires_in = result_data.get("accessTokenExpire").and_then(|v| v.as_i64());
+                    let expires_at = expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+                    self.set_electricity_session(access.clone(), refresh.clone(), expires_at);
+                }
+                return Ok(serde_json::json!({
+                    "success": true,
+                    "tid": tid,
+                    "resultData": result_data
+                }));
+            }
+        }
+
+        Err("一码通 getToken 失败".into())
     }
 
     /// 获取交易记录（带空响应/失效重试）
@@ -587,7 +864,21 @@ impl HbutClient {
         page_no: i32,
         page_size: i32
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let token = self.ensure_electricity_token().await?;
+        let token = match self.ensure_electricity_token().await {
+            Ok(token) => token,
+            Err(e) => {
+                println!("[警告] 获取电费令牌失败: {}", e);
+                if let Ok(one_code) = self.get_one_code_token().await {
+                    if let Some(auth) = Self::extract_one_code_token(&one_code) {
+                        auth
+                    } else {
+                        return Err(e);
+                    }
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         
         let url = "https://code.hbut.edu.cn/server/user/tradeList";
         let payload = serde_json::json!({
@@ -620,14 +911,46 @@ impl HbutClient {
             response_text.len()
         );
 
-        if response_text.trim().is_empty() {
-            println!("[警告] 交易记录响应为空，尝试刷新令牌...");
-            if let Ok((new_token, _)) = self.get_electricity_token().await {
-                self.electricity_token = Some(new_token.clone());
-                self.electricity_token_at = Some(std::time::Instant::now());
+        let should_retry = response_text.trim().is_empty()
+            || status == StatusCode::UNAUTHORIZED
+            || status == StatusCode::FORBIDDEN
+            || response_text.contains("未获取到电费授权")
+            || response_text.contains("未登录")
+            || response_text.to_lowercase().contains("unauthorized");
+
+        if should_retry {
+            println!("[警告] 交易记录响应异常，尝试刷新令牌...");
+            if self.electricity_refresh_token.is_some() {
+                if let Ok(bundle) = self.refresh_electricity_token().await {
+                    let refresh = bundle.refresh_token.clone().or(self.electricity_refresh_token.clone());
+                    let expires_at = bundle.expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+                    self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
+                    let retry_token = bundle.access_token;
+                    let retry = self.client.post(url)
+                        .header("Authorization", retry_token.clone())
+                        .header("token", retry_token.clone())
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "application/json")
+                        .header("Origin", "https://code.hbut.edu.cn")
+                        .header("Referer", "https://code.hbut.edu.cn/")
+                        .json(&payload)
+                        .send()
+                        .await?;
+                    let retry_text = retry.text().await.unwrap_or_default();
+                    if !retry_text.trim().is_empty() {
+                        let retry_json: serde_json::Value = serde_json::from_str(&retry_text)?;
+                        return Ok(retry_json);
+                    }
+                }
+            }
+            if let Ok(bundle) = self.get_electricity_token().await {
+                let refresh = bundle.refresh_token.clone().or(self.electricity_refresh_token.clone());
+                let expires_at = bundle.expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+                self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
+                let token = bundle.access_token;
                 let retry = self.client.post(url)
-                    .header("Authorization", new_token)
-                    .header("token", self.electricity_token.clone().unwrap_or_default())
+                    .header("Authorization", token.clone())
+                    .header("token", token.clone())
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
                     .header("Origin", "https://code.hbut.edu.cn")
@@ -669,6 +992,9 @@ impl HbutClient {
                     }
                 }
             }
+        }
+
+        if response_text.trim().is_empty() {
             return Err("交易记录返回空响应".into());
         }
 
@@ -816,7 +1142,11 @@ impl HbutClient {
 
     /// 电费余额接口（目前为占位实现）
     pub async fn fetch_electricity_balance(&mut self, _room_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let (token, _) = self.get_electricity_token().await?;
+        let bundle = self.get_electricity_token().await?;
+        let refresh = bundle.refresh_token.clone().or(self.electricity_refresh_token.clone());
+        let expires_at = bundle.expires_in.map(|s| Utc::now() + ChronoDuration::seconds(s));
+        self.set_electricity_session(bundle.access_token.clone(), refresh, expires_at);
+        let token = bundle.access_token;
         
         // 查询位置信息 (Area -> Building -> Unit -> Room)
         // 为简化，我们假设用户已经知道 room_id 或者我们先只实现余额查询

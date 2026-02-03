@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { formatRelativeTime } from '../utils/time.js'
 
 const props = defineProps({
   grades: { type: Array, default: () => [] },
@@ -140,7 +141,7 @@ const handleLogout = () => emit('logout')
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，同步时间：{{ syncTime || '未知' }}
+      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
     <!-- 筛选栏 -->

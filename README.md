@@ -13,12 +13,17 @@
   <a href="https://github.com/superdaobo/mini-hbut/releases">
     <img src="https://img.shields.io/github/v/release/superdaobo/mini-hbut?style=flat-square" alt="Latest Release">
   </a>
-  <a href="https://github.com/superdaobo/mini-hbut/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/superdaobo/mini-hbut/build.yml?style=flat-square" alt="Build Status">
+  <a href="https://github.com/superdaobo/mini-hbut/actions/workflows/release.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/superdaobo/mini-hbut/release.yml?style=flat-square" alt="Build Status">
   </a>
-  <a href="https://github.com/superdaobo/mini-hbut/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/superdaobo/mini-hbut?style=flat-square" alt="License">
+  <a href="#license">
+    <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
   </a>
+</p>
+
+<p align="center">
+  <a href="https://hbut.6661111.xyz">官网</a> ·
+  <a href="https://docs.qq.com/sheet/DQkdvWHJxQ3RwWlB4?tab=BB08J2">问题反馈</a>
 </p>
 
 ## ✨ 功能特性
@@ -42,7 +47,7 @@
 | macOS | DMG | ✅ |
 | Android | APK | ✅ |
 | iOS | - | 🚧 计划中 |
-| Linux | AppImage | 🚧 计划中 |
+| Linux | AppImage | ✅ |
 
 ## 📥 下载安装
 
@@ -149,6 +154,70 @@ tauri-app/
 └── package.json              # Node.js 配置
 ```
 
+
+
+> 说明：网页端后端复用与桌面端一致的 HTTP API 与登录流程，OCR 仍使用远程 Python 服务地址（未做改动）。
+
+## 🔌 本地 HTTP API（NoneBot 友好）
+
+桌面应用启动后会自动开启本地 API，默认地址：
+
+- `http://127.0.0.1:4399`
+
+可通过环境变量自定义：
+
+- `HBUT_HTTP_BRIDGE_HOST`（默认 `127.0.0.1`）
+- `HBUT_HTTP_BRIDGE_PORT`（默认 `4399`）
+
+### 远程请求（不读本地缓存）
+
+这些接口会直接请求教务/一码通服务：
+
+- `POST /login`
+- `POST /sync_grades`
+- `POST /sync_schedule`
+- `POST /fetch_exams`
+- `POST /fetch_ranking`
+- `POST /fetch_student_info`
+- `POST /fetch_semesters`
+- `POST /fetch_classroom_buildings`
+- `POST /fetch_classrooms`
+- `POST /fetch_training_plan/options`
+- `POST /fetch_training_plan/jys`
+- `POST /fetch_training_plan`
+- `POST /fetch_calendar_data`
+- `POST /fetch_academic_progress`
+- `POST /electricity_query_location`
+- `POST /electricity_query_account`
+- `POST /fetch_transaction_history`
+- `GET  /qxzkb/options`
+- `POST /qxzkb/jcinfo`
+- `POST /qxzkb/zyxx`
+- `POST /qxzkb/kkjys`
+- `POST /qxzkb/query`
+
+### 本地缓存读取（需要签名）
+
+本地缓存读取接口仅用于读取 SQLite 缓存数据，必须携带 JWT 令牌：
+
+```
+GET /cache/get?table=grades_cache&key=251023xxxx
+```
+
+要求：
+
+- Header：`Authorization: Bearer <JWT>`
+- JWT 签名算法：`RS256`
+- `scope` 必须包含 `cache:read`
+
+密钥位置（已生成）：
+
+- 公钥：`D:\Documents\C_learn\成绩查询\tauri-app\keys\local_api_public.pem`
+- 私钥：`D:\Documents\C_learn\成绩查询\tauri-app\keys\local_api_private.pem`
+
+> 私钥不会写入仓库，可用于你在 NoneBot 中签发 JWT。  
+> 你也可以通过环境变量指定公钥：`HBUT_LOCAL_API_PUBLIC_KEY` 或 `HBUT_LOCAL_API_PUBLIC_KEY_PATH`。
+
 ## 🔄 版本更新机制
 
 应用内置自动更新检测功能：
@@ -231,9 +300,11 @@ python tools/scrape_ai_models.py --capture ..\captured_requests.json
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 创建 Pull Request
 
+<a id="license"></a>
+
 ## 📄 许可证
 
-本项目仅供学习交流使用，请勿用于商业用途。
+MIT License
 
 ## 🙏 致谢
 
@@ -254,10 +325,6 @@ A: 确保 GitHub Actions runner 有正确的 Android SDK 和 NDK。工作流会�
 ### Q: macOS 构建的 DMG 无法打开？
 
 A: 未签名的应用需要在「系统偏好设置」「安全性与隐私」中允许打开。
-
-##  许可证
-
-MIT License
 
 ##  维护者
 

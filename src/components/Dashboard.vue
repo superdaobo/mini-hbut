@@ -58,6 +58,15 @@ const modules = [
     requiresLogin: true
   },
   { 
+    id: 'qxzkb', 
+    name: '全校课表', 
+    icon: '🏫', 
+    color: '#6366f1',
+    desc: '查询全校课程与排课',
+    available: true,
+    requiresLogin: true
+  },
+  { 
     id: 'ranking', 
     name: '绩点排名', 
     icon: '🏆', 
@@ -714,6 +723,10 @@ html[data-theme='minimal'] .logout-btn {
   font-weight: 600;
   color: var(--ui-text);
   margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .module-desc {
@@ -740,14 +753,39 @@ html[data-theme='minimal'] .logout-btn {
   overflow: hidden;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .dashboard-header {
     flex-direction: column;
     gap: 12px;
   }
-  
+
   .module-card {
-    padding: 16px 10px;
+    padding: 12px 6px;
+  }
+
+  .module-name {
+    font-size: clamp(12px, 3.2vw, 13.5px);
+    line-height: 1.2;
+  }
+
+  .module-icon {
+    font-size: 22px;
+    margin-bottom: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .module-card {
+    padding: 10px 4px;
+  }
+
+  .module-name {
+    font-size: 12px;
+  }
+
+  .module-icon {
+    font-size: 20px;
+    margin-bottom: 6px;
   }
 }
 

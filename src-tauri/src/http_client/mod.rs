@@ -14,6 +14,7 @@ use reqwest::{Client, cookie::Jar};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use chrono::{DateTime, Utc};
 
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::Engine;
@@ -28,6 +29,7 @@ mod auth;
 mod session;
 mod academic;
 mod electricity;
+mod qxzkb;
 mod ai;
 mod utils;
 
@@ -101,6 +103,8 @@ pub struct HbutClient {
     pub(super) last_password: Option<String>,
     pub(super) electricity_token: Option<String>,
     pub(super) electricity_token_at: Option<std::time::Instant>,
+    pub(super) electricity_refresh_token: Option<String>,
+    pub(super) electricity_token_expires_at: Option<DateTime<Utc>>,
     pub(super) ocr_endpoint: Option<String>,
     pub(super) last_login_time: Option<std::time::Instant>,
     pub(super) last_relogin_attempt: Option<std::time::Instant>,
@@ -138,6 +142,8 @@ impl HbutClient {
             last_password: None,
             electricity_token: None,
             electricity_token_at: None,
+            electricity_refresh_token: None,
+            electricity_token_expires_at: None,
             ocr_endpoint: None,
             last_login_time: None,
             last_relogin_attempt: None,
@@ -169,6 +175,36 @@ impl HbutClient {
             self.electricity_token = Some(token);
             self.electricity_token_at = Some(std::time::Instant::now());
         }
+    }
+
+    /// 设置电费授权会话（access token + refresh token + 过期时间）
+    pub fn set_electricity_session(
+        &mut self,
+        token: String,
+        refresh_token: Option<String>,
+        expires_at: Option<DateTime<Utc>>,
+    ) {
+        if !token.trim().is_empty() {
+            self.electricity_token = Some(token);
+            self.electricity_token_at = Some(std::time::Instant::now());
+        }
+        if let Some(rt) = refresh_token {
+            if !rt.trim().is_empty() {
+                self.electricity_refresh_token = Some(rt);
+            }
+        }
+        if let Some(exp) = expires_at {
+            self.electricity_token_expires_at = Some(exp);
+        }
+    }
+
+    /// 获取当前电费会话快照（用于持久化）
+    pub fn get_electricity_session(&self) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
+        (
+            self.electricity_token.clone(),
+            self.electricity_refresh_token.clone(),
+            self.electricity_token_expires_at.clone(),
+        )
     }
 
     /// 计算“重登冷却期”剩余时间，避免频繁触发登录导致风控

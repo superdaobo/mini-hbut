@@ -64,3 +64,7 @@ release-key.jks
 # Keystore secrets
 keystore-base64.txt
 release-key.jks
+
+# Local API keys
+keys/
+**/local_api_private.pem

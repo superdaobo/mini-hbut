@@ -197,12 +197,20 @@ pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, 
     let mut client = state.client.lock().await;
     if let Some(info) = client.user_info.clone() {
         let student_id = info.student_id.clone();
-        if let Ok(Some((_cookies, password, token))) = db::get_user_session(DB_FILENAME, &student_id) {
-            if !password.is_empty() {
-                client.set_credentials(student_id, password);
+        if let Ok(Some(session)) = db::get_user_session(DB_FILENAME, &student_id) {
+            if !session.password.is_empty() {
+                client.set_credentials(student_id, session.password);
             }
-            if !token.is_empty() {
-                client.set_electricity_token(token);
+            if !session.one_code_token.is_empty() {
+                let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&chrono::Utc));
+                let refresh = if session.refresh_token.trim().is_empty() {
+                    None
+                } else {
+                    Some(session.refresh_token)
+                };
+                client.set_electricity_session(session.one_code_token, refresh, expires_at);
             }
         }
     }

@@ -25,6 +25,31 @@ use serde_json::Value;
 use chrono::Local;
 use base64::Engine;
 
+#[derive(Debug, Clone)]
+pub struct UserSessionData {
+    pub cookies: String,
+    pub password: String,
+    pub one_code_token: String,
+    pub refresh_token: String,
+    pub token_expires_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct LatestUserSessionData {
+    pub student_id: String,
+    pub cookies: String,
+    pub password: String,
+    pub one_code_token: String,
+    pub refresh_token: String,
+    pub token_expires_at: String,
+}
+
+fn ensure_user_session_columns(conn: &Connection) {
+    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT", []);
+    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN electricity_refresh_token TEXT", []);
+    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN electricity_token_expires_at TEXT", []);
+}
+
 // 初始化数据库
 pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     let conn = Connection::open(path)?;
@@ -73,6 +98,8 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "calendar_public_cache",   // public
 
         "classroom_public_cache",  // public
+        "semesters_public_cache",  // public
+        "qxzkb_public_cache",      // public
     ];
 
     for table in cache_tables {
@@ -104,12 +131,16 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
             electricity_cookies TEXT,
             electricity_token_updated_at TEXT,
             one_code_token TEXT,
+            electricity_refresh_token TEXT,
+            electricity_token_expires_at TEXT,
             last_login TIMESTAMP,
             expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )",
         [],
     )?;
+
+    ensure_user_session_columns(&conn);
 
     Ok(())
 }
@@ -160,69 +191,76 @@ pub fn save_user_session<P: AsRef<Path>>(
     student_id: &str, 
     cookies: &str, 
     password: &str,
-    one_code_token: &str
+    one_code_token: &str,
+    refresh_token: Option<&str>,
+    token_expires_at: Option<&str>,
 ) -> Result<()> {
     let conn = Connection::open(path)?;
     // 简单 Base64 编码作为"加密" (仅防君子)
     let encrypted_password = base64::engine::general_purpose::STANDARD.encode(password);
     
-    // 检查是否有 one_code_token 列，如果没有则添加 (为了兼容性)
-    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT", []);
+    ensure_user_session_columns(&conn);
 
     conn.execute(
         "INSERT OR REPLACE INTO user_sessions (
-            student_id, cookies, encrypted_password, one_code_token, last_login
-        ) VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)",
-        params![student_id, cookies, encrypted_password, one_code_token],
+            student_id, cookies, encrypted_password, one_code_token,
+            electricity_refresh_token, electricity_token_expires_at, last_login
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)",
+        params![
+            student_id,
+            cookies,
+            encrypted_password,
+            one_code_token,
+            refresh_token.unwrap_or_default(),
+            token_expires_at.unwrap_or_default()
+        ],
     )?;
     Ok(())
 }
 
 // 获取用户会话
-pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<(String, String, String)>> {
+pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<UserSessionData>> {
     let conn = Connection::open(path)?;
-    
-    // 检查是否有 one_code_token 列
-    let has_token_col = conn.prepare("SELECT one_code_token FROM user_sessions LIMIT 1").is_ok();
-    
-    let sql = if has_token_col {
-        "SELECT cookies, encrypted_password, one_code_token FROM user_sessions WHERE student_id = ?1"
-    } else {
-        "SELECT cookies, encrypted_password, '' FROM user_sessions WHERE student_id = ?1"
-    };
+    ensure_user_session_columns(&conn);
 
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(
+        "SELECT cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at
+         FROM user_sessions WHERE student_id = ?1"
+    )?;
     let mut rows = stmt.query(params![student_id])?;
     
     if let Some(row) = rows.next()? {
         let cookies: String = row.get(0)?;
         let encrypted: String = row.get(1)?;
         let token: String = row.get(2).unwrap_or_default();
+        let refresh_token: String = row.get(3).unwrap_or_default();
+        let token_expires_at: String = row.get(4).unwrap_or_default();
         
         // 解码密码
         let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
         let password = String::from_utf8(password_bytes).unwrap_or_default();
         
-        Ok(Some((cookies, password, token)))
+        Ok(Some(UserSessionData {
+            cookies,
+            password,
+            one_code_token: token,
+            refresh_token,
+            token_expires_at,
+        }))
     } else {
         Ok(None)
     }
 }
 
 // 获取最近一次用户会话
-pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<(String, String, String, String)>> {
+pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestUserSessionData>> {
     let conn = Connection::open(path)?;
+    ensure_user_session_columns(&conn);
 
-    // 检查是否有 one_code_token 列
-    let has_token_col = conn.prepare("SELECT one_code_token FROM user_sessions LIMIT 1").is_ok();
-
-    let sql = if has_token_col {
-        "SELECT student_id, cookies, encrypted_password, one_code_token FROM user_sessions ORDER BY last_login DESC LIMIT 1"
-    } else {
-        "SELECT student_id, cookies, encrypted_password, '' FROM user_sessions ORDER BY last_login DESC LIMIT 1"
-    };
-
-    let mut stmt = conn.prepare(sql)?;
+    let mut stmt = conn.prepare(
+        "SELECT student_id, cookies, encrypted_password, one_code_token, electricity_refresh_token, electricity_token_expires_at
+         FROM user_sessions ORDER BY last_login DESC LIMIT 1"
+    )?;
     let mut rows = stmt.query([])?;
 
     if let Some(row) = rows.next()? {
@@ -230,12 +268,48 @@ pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<(String
         let cookies: String = row.get(1)?;
         let encrypted: String = row.get(2)?;
         let token: String = row.get(3).unwrap_or_default();
+        let refresh_token: String = row.get(4).unwrap_or_default();
+        let token_expires_at: String = row.get(5).unwrap_or_default();
 
         let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
         let password = String::from_utf8(password_bytes).unwrap_or_default();
 
-        Ok(Some((student_id, cookies, password, token)))
+        Ok(Some(LatestUserSessionData {
+            student_id,
+            cookies,
+            password,
+            one_code_token: token,
+            refresh_token,
+            token_expires_at,
+        }))
     } else {
         Ok(None)
     }
+}
+
+// 仅更新电费授权相关字段（access/refresh/expire）
+pub fn save_electricity_tokens<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    one_code_token: &str,
+    refresh_token: &str,
+    token_expires_at: &str,
+) -> Result<()> {
+    let conn = Connection::open(path)?;
+    ensure_user_session_columns(&conn);
+    // 确保记录存在
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO user_sessions (student_id, last_login) VALUES (?1, CURRENT_TIMESTAMP)",
+        params![student_id],
+    );
+    conn.execute(
+        "UPDATE user_sessions
+         SET one_code_token = ?2,
+             electricity_refresh_token = ?3,
+             electricity_token_expires_at = ?4,
+             electricity_token_updated_at = CURRENT_TIMESTAMP
+         WHERE student_id = ?1",
+        params![student_id, one_code_token, refresh_token, token_expires_at],
+    )?;
+    Ok(())
 }

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
+import { formatRelativeTime } from '../utils/time.js'
 import AcademicTreeNode from './AcademicTreeNode.vue'
 
 const props = defineProps({
@@ -75,7 +76,7 @@ onMounted(() => {
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，同步时间：{{ syncTime || '未知' }}
+      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
     <div class="controls">

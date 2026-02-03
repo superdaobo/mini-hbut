@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
+import { formatRelativeTime } from '../utils/time.js'
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -193,7 +194,7 @@ onMounted(async () => {
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，同步时间：{{ syncTime || '未知' }}
+      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
     <div class="controls">

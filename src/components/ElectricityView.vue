@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
+import { formatRelativeTime } from '../utils/time.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -186,7 +187,7 @@ const handleLogout = () => emit('logout')
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，同步时间：{{ syncTime || '未知' }}
+      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
     <div class="content">

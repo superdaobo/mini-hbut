@@ -411,9 +411,17 @@ impl HbutClient {
         if self.electricity_token.is_none() {
             if let Some(dir) = HbutClient::app_data_dir() {
                 let path = dir.join("grades.db");
-                if let Ok(Some((_sid, _cookies, _password, token))) = db::get_latest_user_session(&path) {
-                    if !token.trim().is_empty() {
-                        self.set_electricity_token(token);
+                if let Ok(Some(session)) = db::get_latest_user_session(&path) {
+                    if !session.one_code_token.trim().is_empty() {
+                        let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&chrono::Utc));
+                        let refresh = if session.refresh_token.trim().is_empty() {
+                            None
+                        } else {
+                            Some(session.refresh_token)
+                        };
+                        self.set_electricity_session(session.one_code_token, refresh, expires_at);
                     }
                 }
             }
@@ -607,7 +615,8 @@ impl HbutClient {
             return Ok((access_token, blade_auth_direct));
         }
 
-        if let Ok((new_token, _)) = self.get_electricity_token().await {
+        if let Ok(bundle) = self.get_electricity_token().await {
+            let new_token = bundle.access_token;
             if let Some(entry_url) = get_entry_url_via_hub(&direct_client, &new_token).await? {
                 if let Some(token) = extract_token_from_url(&entry_url) {
                     println!("[调试] 初始化AI会话：刷新后从 hub 获取令牌: {}", token);

@@ -79,6 +79,21 @@ const adapter = {
                     return mockResponse({ success: false, error: err.toString() });
                 }
             }
+
+            // 全校课表 - 选项
+            if (url.includes('/v2/qxzkb/options')) {
+                try {
+                    if (!hasTauri) {
+                        const res = await fetch(`${BRIDGE_BASE}/qxzkb/options`);
+                        const payload = await res.json();
+                        return mockResponse(unwrapBridge(payload));
+                    }
+                    const options = await invoke('fetch_qxzkb_options');
+                    return mockResponse(options);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
             
             // 鏁欏妤煎垪琛?
             if (url.includes('/v2/classroom/buildings')) {
@@ -215,12 +230,12 @@ const adapter = {
                 if (!hasTauri) {
                     const res = await bridgePost('/sync_grades');
                     if (res?.success) {
-                        return mockResponse({ success: true, data: res.data });
+                        return mockResponse(unwrapBridge(res));
                     }
                     return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取成绩失败' });
                 }
                 const grades = await invoke('sync_grades');
-                return mockResponse({ success: true, data: grades });
+                return mockResponse(grades);
             }
 
             // 璇捐〃
@@ -237,44 +252,44 @@ const adapter = {
                 return mockResponse({ success: true, ...schedule });
             }
 
-            // ========== 鑰冭瘯鐩稿叧 ==========
+            // ========== 考试相关 ==========
 
             if (url.includes('/v2/exams')) {
                 try {
+                    const { semester } = data;
+                    let payload = null;
                     if (!hasTauri) {
-                        const res = await bridgePost('/fetch_exams', { semester: data.semester || null });
-                        if (res?.success) {
-                            const transformedExams = (res.data || []).map(exam => ({
-                                ...exam,
-                                exam_date: exam.date || exam.exam_date || '',
-                                exam_time: exam.start_time && exam.end_time 
-                                    ? `${exam.start_time}-${exam.end_time}` 
-                                    : (exam.start_time || exam.exam_time || ''),
-                                seat_no: exam.seat_number || exam.seat_no || ''
-                            }));
-                            return mockResponse({ success: true, data: transformedExams });
+                        const res = await bridgePost('/fetch_exams', { semester: semester || null });
+                        if (!res?.success) {
+                            return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取考试失败' });
                         }
-                        return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取考试安排失败' });
+                        payload = unwrapBridge(res);
+                    } else {
+                        payload = await invoke('fetch_exams', { semester: semester || null });
                     }
-                    const exams = await invoke('fetch_exams', { semester: data.semester || null });
-                    // 杞崲瀛楁鍚嶄互鍖归厤鍓嶇鏈熸湜鏍煎紡
 
-                    const transformedExams = exams.map(exam => ({
-                        ...exam,
-                        exam_date: exam.date || exam.exam_date || '',
-                        exam_time: exam.start_time && exam.end_time 
-                            ? `${exam.start_time}-${exam.end_time}` 
-                            : (exam.start_time || exam.exam_time || ''),
-                        seat_no: exam.seat_number || exam.seat_no || ''
-                    }));
-                    return mockResponse({ success: true, data: transformedExams });
+                    const base = payload && !Array.isArray(payload) && typeof payload === 'object' ? payload : {};
+                    const isSuccess = payload ? payload.success !== false : false;
+                    if (isSuccess) {
+                        const rawList = Array.isArray(payload) ? payload : (payload.data || []);
+                        const transformedExams = rawList.map(exam => ({
+                            ...exam,
+                            exam_date: exam.date || exam.exam_date || '',
+                            exam_time: exam.start_time && exam.end_time
+                                ? `${exam.start_time}-${exam.end_time}`
+                                : (exam.start_time || exam.exam_time || ''),
+                            seat_no: exam.seat_number || exam.seat_no || ''
+                        }));
+                        return mockResponse({ ...base, success: true, data: transformedExams });
+                    }
+
+                    return mockResponse(base || { success: false, error: '获取考试失败' });
                 } catch (err) {
                     return mockResponse({ success: false, error: err.toString() });
                 }
             }
 
-            // ========== 鎺掑悕鐩稿叧 ==========
-
+            // ========== 排名相关 ==========
             if (url.includes('/v2/ranking')) {
                 try {
                     const { student_id, semester } = data;
@@ -338,7 +353,7 @@ const adapter = {
                 }
             }
 
-            // ========== 鍩瑰吇鏂规 ==========
+            // ========== 培养方案 ==========
 
             if (url.includes('/v2/training_plan/options')) {
                 try {
@@ -414,7 +429,65 @@ const adapter = {
                 }
             }
 
-            // ========== 鐢佃垂鐩稿叧 ==========
+            // ========== 全校课表 ==========
+
+            if (url.includes('/v2/qxzkb/jcinfo')) {
+                try {
+                    const { xnxq } = data;
+                    if (!hasTauri) {
+                        const res = await bridgePost('/qxzkb/jcinfo', { xnxq });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const info = await invoke('fetch_qxzkb_jcinfo', { xnxq });
+                    return mockResponse(info);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/qxzkb/zyxx')) {
+                try {
+                    const { yxid, nj } = data;
+                    if (!hasTauri) {
+                        const res = await bridgePost('/qxzkb/zyxx', { yxid, nj });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const info = await invoke('fetch_qxzkb_zyxx', { yxid, nj });
+                    return mockResponse(info);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/qxzkb/kkjys')) {
+                try {
+                    const { kkyxid } = data;
+                    if (!hasTauri) {
+                        const res = await bridgePost('/qxzkb/kkjys', { kkyxid });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const info = await invoke('fetch_qxzkb_kkjys', { kkyxid });
+                    return mockResponse(info);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/qxzkb/query')) {
+                try {
+                    const queryPayload = { ...data };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/qxzkb/query', queryPayload);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const result = await invoke('fetch_qxzkb_list', { query: queryPayload });
+                    return mockResponse(result);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            // ========== 电费相关 ==========
 
             if (url.includes('/v2/electricity/balance')) {
                 const { area_id, building_id, layer_id, room_id } = data;
@@ -430,10 +503,16 @@ const adapter = {
                 };
 
                 try {
-                    const res = await invoke('electricity_query_account', { payload: accountPayload });
+                    let res = null;
+                    if (!hasTauri) {
+                        const bridge = await bridgePost('/electricity_query_account', { payload: accountPayload });
+                        res = unwrapBridge(bridge);
+                    } else {
+                        res = await invoke('electricity_query_account', { payload: accountPayload });
+                    }
 
                     if (!res.success) {
-                        return mockResponse({ success: false, error: res.message || res.error || '鐢佃垂鏌ヨ澶辫触' });
+                        return mockResponse({ success: false, error: res.message || res.error || '电费查询失败' });
                     }
 
                     const resultData = res.resultData || {};
@@ -452,7 +531,7 @@ const adapter = {
                         success: true,
                         balance,
                         quantity,
-                        status: resultData.utilityStatusName || "鏈煡",
+                        status: resultData.utilityStatusName || "未知",
                         offline,
                         sync_time: syncTime || (offline ? '' : new Date().toISOString())
                     });
@@ -461,7 +540,7 @@ const adapter = {
                 }
             }
 
-            // ========== 鏍″巻鐩稿叧 ==========
+            // ========== 校历相关 ==========
 
             if (url.includes('/v2/calendar')) {
                 try {
@@ -479,7 +558,7 @@ const adapter = {
                 }
             }
 
-            // ========== 瀛︿笟瀹屾垚鎯呭喌 ==========
+            // ========== 学业完成情况 ==========
 
             if (url.includes('/v2/academic_progress')) {
                 try {

@@ -17,16 +17,18 @@
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::Duration;
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
-use chrono::Datelike;
+use chrono::{Datelike, Utc};
 
 pub mod http_client;
 pub mod parser;
 pub mod db;
 pub mod modules;
 pub mod http_server;
+pub mod qxzkb_options;
 
 use http_client::HbutClient;
 
@@ -40,6 +42,46 @@ use modules::one_code::*;
 const DB_FILENAME: &str = "grades.db";
 
 // ... existing code ...
+
+fn persist_electricity_tokens(client: &HbutClient) {
+    let student_id = match client.user_info.as_ref() {
+        Some(info) => info.student_id.clone(),
+        None => return,
+    };
+    let (token_opt, refresh_opt, expires_opt) = client.get_electricity_session();
+    let token = match token_opt {
+        Some(t) if !t.trim().is_empty() => t,
+        _ => return,
+    };
+    let refresh_token = refresh_opt.unwrap_or_default();
+    let expires_at = expires_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
+    let _ = db::save_electricity_tokens(
+        DB_FILENAME,
+        &student_id,
+        &token,
+        &refresh_token,
+        &expires_at,
+    );
+}
+
+fn attach_sync_time(payload: serde_json::Value, sync_time: &str, offline: bool) -> serde_json::Value {
+    match payload {
+        serde_json::Value::Object(mut map) => {
+            if !map.contains_key("success") {
+                map.insert("success".to_string(), serde_json::Value::Bool(true));
+            }
+            map.insert("sync_time".to_string(), serde_json::Value::String(sync_time.to_string()));
+            map.insert("offline".to_string(), serde_json::Value::Bool(offline));
+            serde_json::Value::Object(map)
+        }
+        _ => serde_json::json!({
+            "success": true,
+            "data": payload,
+            "sync_time": sync_time,
+            "offline": offline
+        })
+    }
+}
 
 // 应用状态
 /// 全局状态：共享 HbutClient 实例
@@ -131,6 +173,39 @@ pub struct CalendarEvent {
     pub date: String,
     pub title: String,
     pub event_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QxzkbQuery {
+    pub xnxq: String,
+    pub xqid: Option<String>,
+    pub nj: Option<String>,
+    pub yxid: Option<String>,
+    pub zyid: Option<String>,
+    pub kkyxid: Option<String>,
+    pub kkjysid: Option<String>,
+    pub kcxz: Option<String>,
+    pub kclb: Option<String>,
+    pub xslx: Option<String>,
+    pub kcmc: Option<String>,
+    pub skjs: Option<String>,
+    pub jxlid: Option<String>,
+    pub jslx: Option<String>,
+    pub ksxs: Option<String>,
+    pub ksfs: Option<String>,
+    pub jsmc: Option<String>,
+    pub zxjc: Option<String>,
+    pub zdjc: Option<String>,
+    pub zxzc: Option<String>,
+    pub zdzc: Option<String>,
+    pub zxxq: Option<String>,
+    pub zdxq: Option<String>,
+    pub xsqbkb: Option<String>,
+    pub kklx: Option<Vec<String>>,
+    pub page: Option<i32>,
+    pub page_size: Option<i32>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
 }
 
 // Tauri 命令
@@ -285,7 +360,18 @@ async fn login(
     };
 
     // 保存会话到本地数据库 (用于自动重连)
-    if let Err(e) = db::save_user_session(DB_FILENAME, &username, &client.get_cookies(), &password, &one_code_token) {
+    let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
+    let refresh_token = refresh_opt.unwrap_or_default();
+    let expires_at = expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
+    if let Err(e) = db::save_user_session(
+        DB_FILENAME,
+        &username,
+        &client.get_cookies(),
+        &password,
+        &one_code_token,
+        Some(refresh_token.as_str()),
+        Some(expires_at.as_str()),
+    ) {
         println!("[警告] 保存会话失败: {}", e);
     }
 
@@ -309,11 +395,21 @@ async fn restore_session(
 
     // 尝试从数据库加载凭据 (用于 SSO)
     match db::get_user_session(DB_FILENAME, &user_info.student_id) {
-        Ok(Some((_, password, token))) => {
+        Ok(Some(session)) => {
             println!("[调试] Restored credentials for user: {}", user_info.student_id);
-            client.set_credentials(user_info.student_id.clone(), password);
-            if !token.is_empty() {
-                client.set_electricity_token(token);
+            if !session.password.is_empty() {
+                client.set_credentials(user_info.student_id.clone(), session.password);
+            }
+            if !session.one_code_token.is_empty() {
+                let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&chrono::Utc));
+                let refresh = if session.refresh_token.trim().is_empty() {
+                    None
+                } else {
+                    Some(session.refresh_token)
+                };
+                client.set_electricity_session(session.one_code_token, refresh, expires_at);
                 println!("[调试] Restored one_code_令牌");
             }
         },
@@ -337,18 +433,32 @@ async fn refresh_session(state: State<'_, AppState>) -> Result<UserInfo, String>
 }
 
 #[tauri::command]
-async fn sync_grades(state: State<'_, AppState>) -> Result<Vec<Grade>, String> {
+async fn sync_grades(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    let grades = client.fetch_grades().await.map_err(|e| e.to_string())?;
-    
-    // 保存到本地数据库
-    if let Some(user_info) = &client.user_info {
-        if let Ok(json) = serde_json::to_value(&grades) {
-            let _ = db::save_cache(DB_FILENAME, "grades_cache", &user_info.student_id, &json);
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    match client.fetch_grades().await {
+        Ok(grades) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = serde_json::json!({
+                "success": true,
+                "data": grades,
+                "sync_time": sync_time,
+                "offline": false
+            });
+            if let Some(uid) = &uid {
+                let _ = db::save_cache(DB_FILENAME, "grades_cache", uid, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(uid) = &uid {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "grades_cache", uid) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
         }
     }
-    
-    Ok(grades)
 }
 
 #[tauri::command]
@@ -371,6 +481,7 @@ async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value
 #[tauri::command]
 async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     
     // 获取当前学期（基于日期计算）
     let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
@@ -386,28 +497,39 @@ async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, 
         (1, String::new())
     };
     
-    let (course_list, _now_week) = client.fetch_schedule().await.map_err(|e| e.to_string())?;
-    
-    // 使用 Python 格式的响应结构
-    let result = serde_json::json!({
-        "success": true,
-        "data": course_list,
-        "meta": {
-            "semester": semester,
-            "current_week": current_week,
-            "current_weekday": chrono::Local::now().weekday().num_days_from_monday() as i32 + 1,
-            "start_date": start_date,
-            "total_courses": course_list.len(),
-            "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
-        },
-        "sync_time": chrono::Local::now().to_rfc3339()
-    });
+    match client.fetch_schedule().await {
+        Ok((course_list, _now_week)) => {
+            // 使用 Python 格式的响应结构
+            let result = serde_json::json!({
+                "success": true,
+                "data": course_list,
+                "meta": {
+                    "semester": semester,
+                    "current_week": current_week,
+                    "current_weekday": chrono::Local::now().weekday().num_days_from_monday() as i32 + 1,
+                    "start_date": start_date,
+                    "total_courses": course_list.len(),
+                    "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+                },
+                "sync_time": chrono::Local::now().to_rfc3339(),
+                "offline": false
+            });
 
-    if let Some(user_info) = &client.user_info {
-        let _ = db::save_cache(DB_FILENAME, "schedule_cache", &user_info.student_id, &result);
+            if let Some(uid) = &uid {
+                let _ = db::save_cache(DB_FILENAME, "schedule_cache", uid, &result);
+            }
+            
+            Ok(result)
+        }
+        Err(e) => {
+            if let Some(uid) = &uid {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "schedule_cache", uid) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
     }
-    
-    Ok(result)
 }
 
 #[tauri::command]
@@ -426,9 +548,35 @@ async fn get_schedule_local(student_id: String) -> Result<Option<serde_json::Val
 }
 
 #[tauri::command]
-async fn fetch_exams(state: State<'_, AppState>, semester: Option<String>) -> Result<Vec<Exam>, String> {
+async fn fetch_exams(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_exams(semester.as_deref()).await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
+    let cache_key = uid.as_ref().map(|u| format!("{}:{}", u, sem_key));
+
+    match client.fetch_exams(semester.as_deref()).await {
+        Ok(exams) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = serde_json::json!({
+                "success": true,
+                "data": exams,
+                "sync_time": sync_time,
+                "offline": false
+            });
+            if let (Some(_uid), Some(key)) = (uid.as_ref(), cache_key.as_ref()) {
+                let _ = db::save_cache(DB_FILENAME, "exams_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "exams_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -439,25 +587,89 @@ async fn fetch_ranking(
 ) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let sid = student_id.or_else(|| client.user_info.as_ref().map(|u| u.student_id.clone()));
-    client.fetch_ranking(sid.as_deref(), semester.as_deref()).await.map_err(|e| e.to_string())
+    let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
+    let cache_key = sid.as_ref().map(|s| format!("{}:{}", s, sem_key));
+
+    match client.fetch_ranking(sid.as_deref(), semester.as_deref()).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "ranking_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "ranking_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_student_info().await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    match client.fetch_student_info().await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(uid) = &uid {
+                let _ = db::save_cache(DB_FILENAME, "studentinfo_cache", uid, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(uid) = &uid {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "studentinfo_cache", uid) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn fetch_semesters(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_semesters().await.map_err(|e| e.to_string())
+    match client.fetch_semesters().await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "semesters_public_cache", "semesters", &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "semesters_public_cache", "semesters") {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn fetch_classroom_buildings(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_classroom_buildings().await.map_err(|e| e.to_string())
+    match client.fetch_classroom_buildings().await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "classroom_public_cache", "buildings", &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "classroom_public_cache", "buildings") {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -469,19 +681,86 @@ async fn fetch_classrooms(
     building: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_classrooms_query(week, weekday, periods, building).await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let periods_key = periods.as_ref().map(|p| p.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")).unwrap_or_default();
+    let building_key = building.clone().unwrap_or_default();
+    let cache_key = uid.as_ref().map(|u| format!(
+        "{}:classroom:{}:{}:{}:{}",
+        u,
+        week.unwrap_or_default(),
+        weekday.unwrap_or_default(),
+        periods_key,
+        building_key
+    ));
+
+    match client.fetch_classrooms_query(week, weekday, periods, building).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "classroom_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "classroom_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn fetch_training_plan_options(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_training_plan_options().await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let cache_key = uid.as_ref().map(|u| format!("{}:options", u));
+    match client.fetch_training_plan_options().await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "training_plan_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "training_plan_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn fetch_training_plan_jys(state: State<'_, AppState>, yxid: String) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_training_plan_jys(&yxid).await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let cache_key = uid.as_ref().map(|u| format!("{}:jys:{}", u, yxid));
+    match client.fetch_training_plan_jys(&yxid).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "training_plan_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "training_plan_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -499,8 +778,40 @@ async fn fetch_training_plan_courses(
     page_size: Option<i32>,
 ) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_training_plan_courses(grade, kkxq, kkyx, kkjys, kcxz, kcgs, kcbh, kcmc, page, page_size)
-        .await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let cache_key = uid.as_ref().map(|u| format!(
+        "{}:courses:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+        u,
+        grade.clone().unwrap_or_default(),
+        kkxq.clone().unwrap_or_default(),
+        kkyx.clone().unwrap_or_default(),
+        kkjys.clone().unwrap_or_default(),
+        kcxz.clone().unwrap_or_default(),
+        kcgs.clone().unwrap_or_default(),
+        kcbh.clone().unwrap_or_default(),
+        kcmc.clone().unwrap_or_default(),
+        page.unwrap_or(1),
+        page_size.unwrap_or(50)
+    ));
+
+    match client.fetch_training_plan_courses(grade, kkxq, kkyx, kkjys, kcxz, kcgs, kcbh, kcmc, page, page_size).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "training_plan_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "training_plan_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -512,25 +823,275 @@ async fn fetch_calendar(state: State<'_, AppState>) -> Result<Vec<CalendarEvent>
 #[tauri::command]
 async fn fetch_calendar_data(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_calendar_data(semester).await.map_err(|e| e.to_string())
+    let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
+    match client.fetch_calendar_data(semester).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "calendar_public_cache", &sem_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "calendar_public_cache", &sem_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn fetch_academic_progress(state: State<'_, AppState>, fasz: Option<i32>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    client.fetch_academic_progress(fasz.unwrap_or(1)).await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let fasz_val = fasz.unwrap_or(1);
+    let cache_key = uid.as_ref().map(|u| format!("{}:{}", u, fasz_val));
+    match client.fetch_academic_progress(fasz_val).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "academic_progress_cache", key, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "academic_progress_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn fetch_qxzkb_options() -> Result<serde_json::Value, String> {
+    Ok(crate::qxzkb_options::qxzkb_options())
+}
+
+#[tauri::command]
+async fn fetch_qxzkb_jcinfo(state: State<'_, AppState>, xnxq: String) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let cache_key = format!("jcinfo:{}", xnxq);
+    match client.fetch_qxzkb_jcinfo(&xnxq).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn fetch_qxzkb_zyxx(state: State<'_, AppState>, yxid: String, nj: String) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let cache_key = format!("zyxx:{}:{}", yxid, nj);
+    match client.fetch_qxzkb_zyxx(&yxid, &nj).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn fetch_qxzkb_kkjys(state: State<'_, AppState>, kkyxid: String) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let cache_key = format!("kkjys:{}", kkyxid);
+    match client.fetch_qxzkb_kkjys(&kkyxid).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Result<serde_json::Value, String> {
+    if query.xnxq.trim().is_empty() {
+        return Err("请选择学年学期".to_string());
+    }
+
+    let client = state.client.lock().await;
+    let mut params: HashMap<String, String> = HashMap::new();
+    params.insert("queryFields".to_string(), crate::qxzkb_options::QXZKB_QUERY_FIELDS.to_string());
+    params.insert("_search".to_string(), "false".to_string());
+    params.insert("nd".to_string(), Utc::now().timestamp_millis().to_string());
+    params.insert("xnxq".to_string(), query.xnxq.clone());
+
+    let get_val = |val: &Option<String>| -> String {
+        val.as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    params.insert("xqid".to_string(), get_val(&query.xqid));
+    params.insert("nj".to_string(), get_val(&query.nj));
+    params.insert("yxid".to_string(), get_val(&query.yxid));
+    params.insert("zyid".to_string(), get_val(&query.zyid));
+    params.insert("kkyxid".to_string(), get_val(&query.kkyxid));
+    params.insert("kkjysid".to_string(), get_val(&query.kkjysid));
+    params.insert("kcxz".to_string(), get_val(&query.kcxz));
+    params.insert("kclb".to_string(), get_val(&query.kclb));
+    params.insert("xslx".to_string(), get_val(&query.xslx));
+    params.insert("kcmc".to_string(), get_val(&query.kcmc));
+    params.insert("skjs".to_string(), get_val(&query.skjs));
+    params.insert("jxlid".to_string(), get_val(&query.jxlid));
+    params.insert("jslx".to_string(), get_val(&query.jslx));
+    params.insert("ksxs".to_string(), get_val(&query.ksxs));
+    params.insert("ksfs".to_string(), get_val(&query.ksfs));
+    params.insert("jsmc".to_string(), get_val(&query.jsmc));
+    params.insert("zxjc".to_string(), get_val(&query.zxjc));
+    params.insert("zdjc".to_string(), get_val(&query.zdjc));
+    params.insert("zxxq".to_string(), get_val(&query.zxxq));
+    params.insert("zdxq".to_string(), get_val(&query.zdxq));
+
+    let xsqbkb = query.xsqbkb.clone().unwrap_or_else(|| "0".to_string());
+    params.insert("xsqbkb".to_string(), xsqbkb.clone());
+    if xsqbkb != "1" {
+        params.insert("zxzc".to_string(), get_val(&query.zxzc));
+        params.insert("zdzc".to_string(), get_val(&query.zdzc));
+    }
+
+    let kklx = query.kklx.as_ref()
+        .map(|list| list.iter()
+            .filter(|v| !v.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(","))
+        .unwrap_or_default();
+    params.insert("kklx".to_string(), kklx.clone());
+
+    let page = query.page.unwrap_or(1);
+    let page_size = query.page_size.unwrap_or(50);
+    params.insert("page.pn".to_string(), page.to_string());
+    params.insert("page.size".to_string(), page_size.to_string());
+    let sort = query.sort.as_deref().unwrap_or("kcmc");
+    let sort = if sort.trim().is_empty() { "kcmc" } else { sort };
+    let order = query.order.as_deref().unwrap_or("asc");
+    let order = if order.trim().is_empty() { "asc" } else { order };
+    params.insert("sort".to_string(), sort.to_string());
+    params.insert("order".to_string(), order.to_string());
+
+    let query_fields = vec![
+        "xnxq", "xqid", "nj", "yxid", "zyid", "kkyxid", "kkjysid", "kcxz", "kclb",
+        "xslx", "kcmc", "skjs", "jxlid", "jslx", "ksxs", "ksfs", "jsmc",
+        "zxjc", "zdjc", "zxzc", "zdzc", "zxxq", "zdxq", "xsqbkb", "kklx"
+    ];
+    for key in query_fields {
+        if xsqbkb == "1" && (key == "zxzc" || key == "zdzc") {
+            continue;
+        }
+        let value = params.get(key).cloned().unwrap_or_default();
+        params.insert(format!("query.{}||", key), value);
+    }
+
+    let mut items: Vec<(&String, &String)> = params.iter()
+        .filter(|(k, _)| k.as_str() != "nd")
+        .collect();
+    items.sort_by(|a, b| a.0.cmp(b.0));
+    let cache_key = items.iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    match client.fetch_qxzkb_list(&params).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn electricity_query_location(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let mut client = state.client.lock().await;
-    client.query_electricity_location(payload).await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let key_suffix = payload.to_string();
+    let cache_key = uid.as_ref().map(|u| format!("{}:loc:{}", u, key_suffix));
+
+    match client.query_electricity_location(payload).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "electricity_cache", key, &payload);
+            }
+            persist_electricity_tokens(&client);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "electricity_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
 async fn electricity_query_account(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let mut client = state.client.lock().await;
-    client.query_electricity_account(payload).await.map_err(|e| e.to_string())
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let key_suffix = payload.to_string();
+    let cache_key = uid.as_ref().map(|u| format!("{}:acct:{}", u, key_suffix));
+
+    match client.query_electricity_account(payload).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "electricity_cache", key, &payload);
+            }
+            persist_electricity_tokens(&client);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "electricity_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -548,33 +1109,33 @@ async fn fetch_transaction_history(
     page_size: i32
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.lock().await;
+    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let cache_key = uid.as_ref().map(|u| format!(
+        "{}:{}:{}:{}:{}",
+        u,
+        start_date,
+        end_date,
+        page_no,
+        page_size
+    ));
 
-    // 缓存键名构造: transaction_{学号}
-    // 只有在已登录状态下才能正确读写缓存
-    
-    // 策略: Network First (优先网络请求)
-    // 如果网络请求成功，且数据量较大(>=50条)，则视为可以更新缓存
-    // 如果网络请求失败，侧降级读取本地缓存
     match client.fetch_transaction_history(&start_date, &end_date, page_no, page_size).await {
         Ok(data) => {
-             // 成功获取数据
-             // 仅当请求数据量足够覆盖常规显示时，更新缓存
-             if page_size >= 50 {
-                 if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
-                     let _ = db::save_cache(DB_FILENAME, "transaction_cache", uid, &data);
-                 }
-             }
-             Ok(data)
-        },
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(key) = cache_key.as_ref() {
+                let _ = db::save_cache(DB_FILENAME, "transaction_cache", key, &payload);
+            }
+            persist_electricity_tokens(&client);
+            Ok(payload)
+        }
         Err(e) => {
             println!("[警告] Transaction network fetch failed: {}, trying cache...", e);
-            // 网络失败，尝试读取缓存
-            if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
-                 if let Ok(Some((cached_data, _))) = db::get_cache(DB_FILENAME, "transaction_cache", uid) {
-                     return Ok(cached_data);
-                 }
+            if let Some(key) = cache_key.as_ref() {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "transaction_cache", key) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
             }
-            // 既无网络也无缓存，返回错误
             Err(e.to_string())
         }
     }
@@ -666,7 +1227,11 @@ pub fn run() {
             // 启动时尝试加载最近一次会话凭据
             let mut restored_any = false;
             let mut token_loaded = false;
-            if let Ok(Some((student_id, cookies, password, token))) = db::get_latest_user_session(DB_FILENAME) {
+            if let Ok(Some(session)) = db::get_latest_user_session(DB_FILENAME) {
+                let student_id = session.student_id.clone();
+                let cookies = session.cookies.clone();
+                let password = session.password.clone();
+                let token = session.one_code_token.clone();
                 let mut code_cookie = None;
                 let mut auth_cookie = None;
                 let mut jwxt_cookie = None;
@@ -698,7 +1263,15 @@ pub fn run() {
                             client.set_credentials(student_id, password);
                         }
                         if should_set_token {
-                            client.set_electricity_token(token);
+                            let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
+                                .ok()
+                                .map(|dt| dt.with_timezone(&chrono::Utc));
+                            let refresh = if session.refresh_token.trim().is_empty() {
+                                None
+                            } else {
+                                Some(session.refresh_token.clone())
+                            };
+                            client.set_electricity_session(token, refresh, expires_at);
                         }
                     });
                 }
@@ -793,6 +1366,11 @@ pub fn run() {
             fetch_calendar,
             fetch_calendar_data,
             fetch_academic_progress,
+            fetch_qxzkb_options,
+            fetch_qxzkb_jcinfo,
+            fetch_qxzkb_zyxx,
+            fetch_qxzkb_kkjys,
+            fetch_qxzkb_list,
             electricity_query_location,
             electricity_query_account,
             refresh_electricity_token,

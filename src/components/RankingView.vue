@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
+import { formatRelativeTime } from '../utils/time.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -85,7 +86,7 @@ onMounted(async () => {
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，同步时间：{{ syncTime || '未知' }}
+      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
     <!-- 学期选择 -->

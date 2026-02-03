@@ -9,7 +9,7 @@
 //! - è¿æ¯æµè¯æ¡¥æ¥ï¼ä¸åºæ´é²å°å¬ç½
 //! - è¿åä½åºå®ä¸º { success, data, error, time }
 
-use axum::{routing::{get, post}, Json, Router, extract::State};
+use axum::{routing::{get, post}, Json, Router, extract::State, extract::Query};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use serde::Deserialize;
 use serde::Serialize;
@@ -26,6 +26,98 @@ struct ApiResponse<T> {
     data: Option<T>,
     error: Option<ApiError>,
     time: String,
+}
+
+const DB_FILENAME: &str = "grades.db";
+const LOCAL_API_SCOPE: &str = "cache:read";
+
+#[derive(Debug, Deserialize)]
+struct LocalClaims {
+    sub: String,
+    exp: usize,
+    scope: Option<String>,
+}
+
+fn load_local_api_public_key() -> Option<DecodingKey> {
+    if let Ok(pem) = std::env::var("HBUT_LOCAL_API_PUBLIC_KEY") {
+        if let Ok(key) = DecodingKey::from_rsa_pem(pem.as_bytes()) {
+            return Some(key);
+        }
+    }
+
+    let path = std::env::var("HBUT_LOCAL_API_PUBLIC_KEY_PATH")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join("keys")
+                .join("local_api_public.pem")
+        });
+    if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(key) = DecodingKey::from_rsa_pem(&bytes) {
+            return Some(key);
+        }
+    }
+    None
+}
+
+fn extract_bearer(headers: &HeaderMap) -> Option<String> {
+    if let Some(value) = headers.get("authorization") {
+        if let Ok(raw) = value.to_str() {
+            let raw = raw.trim();
+            if raw.to_lowercase().starts_with("bearer ") {
+                return Some(raw[7..].trim().to_string());
+            }
+            if !raw.is_empty() {
+                return Some(raw.to_string());
+            }
+        }
+    }
+    headers.get("x-local-token").and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn ensure_local_cache_auth(headers: &HeaderMap, state: &HttpState) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let key = state.local_api_key.as_ref().ok_or_else(|| {
+        err(StatusCode::UNAUTHORIZED, "权限不足", "本地缓存 API 未配置公钥".to_string())
+    })?;
+    let token = extract_bearer(headers).ok_or_else(|| {
+        err(StatusCode::UNAUTHORIZED, "权限不足", "缺少本地缓存 API 令牌".to_string())
+    })?;
+
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.validate_exp = true;
+    let data = decode::<LocalClaims>(&token, key, &validation)
+        .map_err(|e| err(StatusCode::UNAUTHORIZED, "权限不足", format!("令牌无效: {}", e)))?;
+
+    if let Some(scope) = data.claims.scope.as_ref() {
+        let scopes: Vec<&str> = scope.split(|c| c == ' ' || c == ',').collect();
+        if !scopes.iter().any(|s| s.trim() == LOCAL_API_SCOPE) {
+            return Err(err(StatusCode::FORBIDDEN, "权限不足", "令牌无缓存读取权限".to_string()));
+        }
+    }
+    Ok(())
+}
+
+fn is_allowed_cache_table(table: &str) -> bool {
+    matches!(
+        table,
+        "grades_cache"
+            | "schedule_cache"
+            | "exams_cache"
+            | "studentinfo_cache"
+            | "calendar_cache"
+            | "ranking_cache"
+            | "academic_progress_cache"
+            | "training_plan_cache"
+            | "classroom_cache"
+            | "electricity_cache"
+            | "transaction_cache"
+            | "calendar_public_cache"
+            | "classroom_public_cache"
+            | "semesters_public_cache"
+            | "qxzkb_public_cache"
+    )
 }
 
 fn ok<T: Serialize>(data: T) -> Json<ApiResponse<T>> {
@@ -52,7 +144,8 @@ fn err(status: StatusCode, kind: &str, message: String) -> (StatusCode, Json<Api
         }),
     )
 }
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
+use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -65,12 +158,15 @@ use std::time::Instant;
 use std::convert::Infallible;
 use reqwest::header::{HeaderMap, HeaderValue};
 use tower_http::cors::{Any, CorsLayer};
-use crate::{UserInfo, Grade, Exam};
+use crate::{UserInfo, QxzkbQuery};
+use crate::db;
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use crate::http_client::HbutClient;
 
 #[derive(Clone)]
 struct HttpState {
     client: Arc<Mutex<HbutClient>>,
+    local_api_key: Option<DecodingKey>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +239,28 @@ struct AcademicProgressRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CacheGetQuery {
+    table: String,
+    key: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct QxzkbJcinfoRequest {
+    xnxq: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct QxzkbZyxxRequest {
+    yxid: String,
+    nj: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct QxzkbKkjysRequest {
+    kkyxid: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct ElectricityRequest {
     payload: serde_json::Value,
 }
@@ -174,7 +292,10 @@ struct AiChatRequest {
 
 /// å¯å¨æ¬å° Bridge æå¡
 pub fn spawn_http_server(client: Arc<Mutex<HbutClient>>) {
-    let state = HttpState { client };
+    let state = HttpState { 
+        client,
+        local_api_key: load_local_api_public_key(),
+    };
     tauri::async_runtime::spawn(async move {
         if let Err(e) = run_http_server(state).await {
             eprintln!("[HTTP] æå¡éè¯¯: {}", e);
@@ -187,7 +308,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(4399);
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let host = std::env::var("HBUT_HTTP_BRIDGE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let ip: IpAddr = host.parse().unwrap_or_else(|_| IpAddr::from([127, 0, 0, 1]));
+    let addr = SocketAddr::from((ip, port));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -208,6 +331,12 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/fetch_training_plan_courses", post(fetch_training_plan_courses))
         .route("/fetch_calendar_data", post(fetch_calendar_data))
         .route("/fetch_academic_progress", post(fetch_academic_progress))
+        .route("/cache/get", get(cache_get))
+        .route("/qxzkb/options", get(fetch_qxzkb_options))
+        .route("/qxzkb/jcinfo", post(fetch_qxzkb_jcinfo))
+        .route("/qxzkb/zyxx", post(fetch_qxzkb_zyxx))
+        .route("/qxzkb/kkjys", post(fetch_qxzkb_kkjys))
+        .route("/qxzkb/query", post(fetch_qxzkb_list))
         .route("/electricity_query_location", post(electricity_query_location))
         .route("/electricity_query_account", post(electricity_query_account))
         .route("/fetch_transaction_history", post(fetch_transaction_history))
@@ -281,11 +410,20 @@ async fn import_cookies(State(state): State<HttpState>, Json(req): Json<CookieSn
     }
 }
 
-async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<Vec<Grade>>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
-    client.fetch_grades().await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+    match client.fetch_grades().await {
+        Ok(grades) => {
+            let payload = serde_json::json!({
+                "success": true,
+                "data": grades,
+                "sync_time": chrono::Local::now().to_rfc3339(),
+                "offline": false
+            });
+            Ok(ok(payload))
+        }
+        Err(e) => Err(err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+    }
 }
 
 async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
@@ -316,17 +454,27 @@ async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<ApiRespons
             "total_courses": course_list.len(),
             "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
         },
-        "sync_time": chrono::Local::now().to_rfc3339()
+        "sync_time": chrono::Local::now().to_rfc3339(),
+        "offline": false
     });
 
     Ok(ok(result))
 }
 
-async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<ApiResponse<Vec<Exam>>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
-    client.fetch_exams(req.semester.as_deref()).await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+    match client.fetch_exams(req.semester.as_deref()).await {
+        Ok(exams) => {
+            let payload = serde_json::json!({
+                "success": true,
+                "data": exams,
+                "sync_time": chrono::Local::now().to_rfc3339(),
+                "offline": false
+            });
+            Ok(ok(payload))
+        }
+        Err(e) => Err(err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+    }
 }
 
 async fn fetch_ranking(State(state): State<HttpState>, Json(req): Json<RankingRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
@@ -406,6 +554,148 @@ async fn fetch_calendar_data(State(state): State<HttpState>, Json(req): Json<Cal
 async fn fetch_academic_progress(State(state): State<HttpState>, Json(req): Json<AcademicProgressRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_academic_progress(req.fasz.unwrap_or(1)).await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+}
+
+async fn cache_get(
+    State(state): State<HttpState>,
+    Query(req): Query<CacheGetQuery>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_local_cache_auth(&headers, &state)?;
+
+    let table = req.table.trim();
+    let key = req.key.trim();
+    if table.is_empty() || key.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "table 和 key 不能为空".to_string()));
+    }
+    if !is_allowed_cache_table(table) {
+        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "不允许访问该缓存表".to_string()));
+    }
+
+    match db::get_cache(DB_FILENAME, table, key) {
+        Ok(Some((data, sync_time))) => {
+            let payload = serde_json::json!({
+                "success": true,
+                "data": data,
+                "sync_time": sync_time,
+                "offline": true
+            });
+            Ok(ok(payload))
+        }
+        Ok(None) => Err(err(StatusCode::NOT_FOUND, "未找到", "缓存不存在".to_string())),
+        Err(e) => Err(err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", e.to_string())),
+    }
+}
+
+async fn fetch_qxzkb_options() -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    Ok(ok(crate::qxzkb_options::qxzkb_options()))
+}
+
+async fn fetch_qxzkb_jcinfo(State(state): State<HttpState>, Json(req): Json<QxzkbJcinfoRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    client.fetch_qxzkb_jcinfo(&req.xnxq).await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+}
+
+async fn fetch_qxzkb_zyxx(State(state): State<HttpState>, Json(req): Json<QxzkbZyxxRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    client.fetch_qxzkb_zyxx(&req.yxid, &req.nj).await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+}
+
+async fn fetch_qxzkb_kkjys(State(state): State<HttpState>, Json(req): Json<QxzkbKkjysRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    client.fetch_qxzkb_kkjys(&req.kkyxid).await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+}
+
+async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<QxzkbQuery>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if query.xnxq.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", "请选择学年学期".to_string()));
+    }
+
+    let client = state.client.lock().await;
+    let mut params: HashMap<String, String> = HashMap::new();
+    params.insert("queryFields".to_string(), crate::qxzkb_options::QXZKB_QUERY_FIELDS.to_string());
+    params.insert("_search".to_string(), "false".to_string());
+    params.insert("nd".to_string(), Utc::now().timestamp_millis().to_string());
+    params.insert("xnxq".to_string(), query.xnxq.clone());
+
+    let get_val = |val: &Option<String>| -> String {
+        val.as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .unwrap_or("")
+            .to_string()
+    };
+
+    params.insert("xqid".to_string(), get_val(&query.xqid));
+    params.insert("nj".to_string(), get_val(&query.nj));
+    params.insert("yxid".to_string(), get_val(&query.yxid));
+    params.insert("zyid".to_string(), get_val(&query.zyid));
+    params.insert("kkyxid".to_string(), get_val(&query.kkyxid));
+    params.insert("kkjysid".to_string(), get_val(&query.kkjysid));
+    params.insert("kcxz".to_string(), get_val(&query.kcxz));
+    params.insert("kclb".to_string(), get_val(&query.kclb));
+    params.insert("xslx".to_string(), get_val(&query.xslx));
+    params.insert("kcmc".to_string(), get_val(&query.kcmc));
+    params.insert("skjs".to_string(), get_val(&query.skjs));
+    params.insert("jxlid".to_string(), get_val(&query.jxlid));
+    params.insert("jslx".to_string(), get_val(&query.jslx));
+    params.insert("ksxs".to_string(), get_val(&query.ksxs));
+    params.insert("ksfs".to_string(), get_val(&query.ksfs));
+    params.insert("jsmc".to_string(), get_val(&query.jsmc));
+    params.insert("zxjc".to_string(), get_val(&query.zxjc));
+    params.insert("zdjc".to_string(), get_val(&query.zdjc));
+    params.insert("zxxq".to_string(), get_val(&query.zxxq));
+    params.insert("zdxq".to_string(), get_val(&query.zdxq));
+
+    let xsqbkb = query.xsqbkb.clone().unwrap_or_else(|| "0".to_string());
+    params.insert("xsqbkb".to_string(), xsqbkb.clone());
+    if xsqbkb != "1" {
+        params.insert("zxzc".to_string(), get_val(&query.zxzc));
+        params.insert("zdzc".to_string(), get_val(&query.zdzc));
+    }
+
+    let kklx = query.kklx.as_ref()
+        .map(|list| list.iter()
+            .filter(|v| !v.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(","))
+        .unwrap_or_default();
+    params.insert("kklx".to_string(), kklx.clone());
+
+    let page = query.page.unwrap_or(1);
+    let page_size = query.page_size.unwrap_or(50);
+    params.insert("page.pn".to_string(), page.to_string());
+    params.insert("page.size".to_string(), page_size.to_string());
+    let sort = query.sort.as_deref().unwrap_or("kcmc");
+    let sort = if sort.trim().is_empty() { "kcmc" } else { sort };
+    let order = query.order.as_deref().unwrap_or("asc");
+    let order = if order.trim().is_empty() { "asc" } else { order };
+    params.insert("sort".to_string(), sort.to_string());
+    params.insert("order".to_string(), order.to_string());
+
+    let query_fields = vec![
+        "xnxq", "xqid", "nj", "yxid", "zyid", "kkyxid", "kkjysid", "kcxz", "kclb",
+        "xslx", "kcmc", "skjs", "jxlid", "jslx", "ksxs", "ksfs", "jsmc",
+        "zxjc", "zdjc", "zxzc", "zdzc", "zxxq", "zdxq", "xsqbkb", "kklx"
+    ];
+    for key in query_fields {
+        if xsqbkb == "1" && (key == "zxzc" || key == "zdzc") {
+            continue;
+        }
+        let value = params.get(key).cloned().unwrap_or_default();
+        params.insert(format!("query.{}||", key), value);
+    }
+
+    client.fetch_qxzkb_list(&params).await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }

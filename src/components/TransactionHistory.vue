@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { formatRelativeTime } from '../utils/time.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -14,6 +15,8 @@ const rawTransactions = ref([])
 const errorMsg = ref('')
 const selectedMonth = ref('') // Format: YYYY-MM
 const monthStats = ref({ income: 0, expense: 0 })
+const offline = ref(false)
+const syncTime = ref('')
 
 const parseDateString = (value) => {
   if (!value) return ''
@@ -124,6 +127,8 @@ const initLoad = async () => {
 
     const isSuccess = res?.success === true || res?.code === '' || Array.isArray(res?.resultData) || Array.isArray(res?.data)
     if (isSuccess) {
+      offline.value = !!res.offline
+      syncTime.value = res.sync_time || ''
       const rawList = res.resultData || res.data || res.rows || res.result || res.list || []
       rawTransactions.value = normalizeTransactions(rawList)
       
@@ -164,6 +169,10 @@ onMounted(() => {
       </div>
       <div class="placeholder"></div>
     </header>
+
+    <div v-if="offline" class="offline-banner">
+      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+    </div>
 
     <div class="content">
       <!-- Month Selector & Stats -->
@@ -252,6 +261,14 @@ onMounted(() => {
   top: 0;
   z-index: 10;
   box-shadow: 0 4px 12px rgba(238, 82, 83, 0.3);
+}
+
+.offline-banner {
+  background: #fff3cd;
+  color: #856404;
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 14px;
 }
 
 .trans-header .title {
