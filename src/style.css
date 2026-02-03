@@ -383,6 +383,38 @@ html[data-theme='cyberpunk'] .preview-btn:hover {
   box-shadow: 0 0 18px rgba(41, 200, 224, 0.6), 0 0 28px rgba(183, 76, 192, 0.35);
 }
 
+/* 主题统一覆盖：保证各页面切换主题时同步生效 */
+html[data-theme] [class$="-view"],
+html[data-theme] .page-view,
+html[data-theme] .screen-view {
+  background: var(--ui-bg-gradient) !important;
+  color: var(--ui-text) !important;
+}
+
+html[data-theme] [class$="-header"],
+html[data-theme] .view-header,
+html[data-theme] .page-header,
+html[data-theme] .section-header {
+  background: var(--ui-surface) !important;
+  border: 1px solid var(--ui-surface-border) !important;
+  color: var(--ui-text) !important;
+  box-shadow: var(--ui-shadow-soft) !important;
+}
+
+html[data-theme] [class$="card"]:not(.course-card):not(.ticker-card),
+html[data-theme] [class*="panel"],
+html[data-theme] .glass-card {
+  background: var(--ui-surface) !important;
+  border-color: var(--ui-surface-border) !important;
+  color: var(--ui-text) !important;
+}
+
+html[data-theme] [class*="tag"],
+html[data-theme] [class*="badge"] {
+  background: var(--ui-primary-soft) !important;
+  color: var(--ui-primary) !important;
+}
+
 ::-webkit-scrollbar {
   display: none;
 }

@@ -311,8 +311,9 @@ const handleLogout = () => emit('logout')
 <style scoped>
 .grade-view {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--ui-bg-gradient);
   padding-bottom: 40px;
+  color: var(--ui-text);
 }
 
 .grade-header {
@@ -320,11 +321,13 @@ const handleLogout = () => emit('logout')
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  border: 1px solid var(--ui-surface-border);
   position: sticky;
   top: 0;
   z-index: 100;
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .grade-header .title {
@@ -349,17 +352,18 @@ const handleLogout = () => emit('logout')
 }
 
 .back-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .back-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--ui-primary);
+  color: #ffffff;
 }
 
 .logout-btn {
-  background: rgba(255, 255, 255, 0.9);
-  color: #764ba2;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--ui-danger);
 }
 
 .user-info {
@@ -370,11 +374,12 @@ const handleLogout = () => emit('logout')
 
 /* 筛选栏 */
 .filter-bar {
-  background: white;
+  background: var(--ui-surface);
   padding: 16px 20px;
   margin: 16px 20px;
   border-radius: 16px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .filter-row {
@@ -387,7 +392,7 @@ const handleLogout = () => emit('logout')
 .filter-row + .filter-row {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--ui-surface-border);
 }
 
 .search-box {
@@ -395,7 +400,7 @@ const handleLogout = () => emit('logout')
   min-width: 200px;
   display: flex;
   align-items: center;
-  background: #f5f7fa;
+  background: var(--ui-surface);
   border-radius: 10px;
   padding: 0 12px;
 }
@@ -415,11 +420,12 @@ const handleLogout = () => emit('logout')
 
 .filter-select {
   padding: 12px 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ui-surface-border);
   border-radius: 10px;
   font-size: 14px;
   min-width: 140px;
-  background: white;
+  background: var(--ui-surface);
+  color: var(--ui-text);
   cursor: pointer;
 }
 
@@ -431,7 +437,7 @@ const handleLogout = () => emit('logout')
 
 .filter-group label:first-child {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--ui-muted);
   white-space: nowrap;
 }
 
@@ -445,7 +451,7 @@ const handleLogout = () => emit('logout')
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  background: #f3f4f6;
+  background: var(--ui-primary-soft);
   transition: all 0.2s;
 }
 
@@ -454,8 +460,8 @@ const handleLogout = () => emit('logout')
 }
 
 .radio-label.active {
-  background: #667eea;
-  color: white;
+  background: var(--ui-primary);
+  color: #ffffff;
 }
 
 .reset-btn {
@@ -484,22 +490,23 @@ const handleLogout = () => emit('logout')
 
 .stat-card {
   flex: 1;
-  background: white;
+  background: var(--ui-surface);
   border-radius: 12px;
   padding: 16px;
   text-align: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 700;
-  color: #667eea;
+  color: var(--ui-primary);
 }
 
 .stat-label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
   margin-top: 4px;
 }
 
@@ -515,7 +522,7 @@ const handleLogout = () => emit('logout')
 .term-header {
   font-size: 16px;
   font-weight: 600;
-  color: #374151;
+  color: var(--ui-text);
   margin-bottom: 12px;
 }
 
@@ -526,12 +533,13 @@ const handleLogout = () => emit('logout')
 }
 
 .grade-card {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 14px;
   padding: 16px;
   cursor: pointer;
   transition: all 0.3s;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
   position: relative;
   overflow: hidden;
 }
@@ -569,7 +577,7 @@ const handleLogout = () => emit('logout')
 .card-name {
   font-size: 14px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--ui-text);
   margin-bottom: 6px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -579,7 +587,7 @@ const handleLogout = () => emit('logout')
 
 .card-meta {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--ui-muted);
   display: flex;
   gap: 8px;
   margin-bottom: 6px;
@@ -587,8 +595,8 @@ const handleLogout = () => emit('logout')
 
 .card-teacher {
   font-size: 11px;
-  color: #6b7280;
-  background: #f3f4f6;
+  color: var(--ui-muted);
+  background: var(--ui-primary-soft);
   padding: 4px 8px;
   border-radius: 6px;
   margin-top: 8px;
@@ -601,7 +609,7 @@ const handleLogout = () => emit('logout')
 .no-results {
   text-align: center;
   padding: 60px 20px;
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .empty-icon {
@@ -635,13 +643,15 @@ const handleLogout = () => emit('logout')
 }
 
 .modal-content {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 20px;
   padding: 32px;
   max-width: 480px;
   width: 100%;
   position: relative;
   animation: slideUp 0.3s ease;
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 @keyframes slideUp {
@@ -662,7 +672,7 @@ const handleLogout = () => emit('logout')
   width: 32px;
   height: 32px;
   border: none;
-  background: #f3f4f6;
+  background: var(--ui-primary-soft);
   border-radius: 50%;
   font-size: 20px;
   cursor: pointer;
@@ -689,7 +699,7 @@ const handleLogout = () => emit('logout')
 
 .detail-header h2 {
   font-size: 20px;
-  color: #1f2937;
+  color: var(--ui-text);
   margin: 0;
 }
 
@@ -700,7 +710,7 @@ const handleLogout = () => emit('logout')
 }
 
 .detail-item {
-  background: #f9fafb;
+  background: var(--ui-surface);
   padding: 12px;
   border-radius: 10px;
 }
@@ -712,14 +722,14 @@ const handleLogout = () => emit('logout')
 .detail-label {
   display: block;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
   margin-bottom: 4px;
 }
 
 .detail-value {
   font-size: 15px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--ui-text);
 }
 
 @media (max-width: 640px) {

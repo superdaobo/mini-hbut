@@ -1,4 +1,4 @@
-//! 📅 课表查询模块 - 与 Python modules/schedule.py 对应
+﻿//! 📅 课表查询模块 - 与 Python modules/schedule.py 对应
 //! 
 //! 主要功能：
 //! 1. 获取包含原始课表数据的 JSON。
@@ -84,7 +84,7 @@ impl ScheduleModule {
     pub async fn fetch_schedule(&self, _student_id: &str) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
         // 1. 获取 xhid
         let xhid = self.get_xhid().await?;
-        println!("[DEBUG] Got xhid: {}", xhid);
+        println!("[调试] 获取到 xhid: {}", xhid);
         
         // 2. 获取课表数据
         let schedule_url = format!("{}/admin/pkgl/xskb/sdpkkbList", JWXT_BASE_URL);
@@ -98,7 +98,7 @@ impl ScheduleModule {
             ("xskbxslx", "0"),
         ];
         
-        println!("[DEBUG] Fetching schedule from: {}", schedule_url);
+        println!("[调试] 获取 schedule 来自: {}", schedule_url);
         
         let response = self.client
             .get(&schedule_url)
@@ -111,7 +111,7 @@ impl ScheduleModule {
         
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Schedule response status: {}, URL: {}", status, final_url);
+        println!("[调试] Schedule 响应 status: {}, 地址: {}", status, final_url);
         
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
@@ -159,7 +159,7 @@ impl ScheduleModule {
             let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
             let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
             
-            println!("[DEBUG] Schedule API ret={}, msg={}, data count={}", ret, msg, data.len());
+            println!("[调试] Schedule API ret={}, msg={}, data count={}", ret, msg, data.len());
             
             if ret != 0 {
                 return Err(format!("课表 API 返回错误: ret={}, msg={}", ret, msg).into());
@@ -223,7 +223,7 @@ impl ScheduleModule {
             courses.push(course);
         }
         
-        println!("[DEBUG] Parsed {} courses for current week {}", courses.len(), current_week);
+        println!("[调试] 已解析 {} courses for current week {}", courses.len(), current_week);
         Ok((courses, current_week))
     }
 

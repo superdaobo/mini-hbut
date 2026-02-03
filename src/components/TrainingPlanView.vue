@@ -374,7 +374,8 @@ onMounted(async () => {
 <style scoped>
 .training-plan-view {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--ui-bg-gradient);
+  color: var(--ui-text);
 }
 
 .view-header {
@@ -382,8 +383,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
-  color: white;
+  background: var(--ui-surface);
+  color: var(--ui-text);
 }
 
 .back-btn,
@@ -392,16 +393,17 @@ onMounted(async () => {
   border-radius: 8px;
   border: none;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .filters {
-  background: white;
+  background: var(--ui-surface);
   margin: 16px;
   padding: 16px;
   border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .filter-grid {
@@ -415,15 +417,17 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: #374151;
+  color: var(--ui-text);
 }
 
 .filter-grid select,
 .filter-grid input {
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--ui-surface-border);
   font-size: 13px;
+  background: var(--ui-surface);
+  color: var(--ui-text);
 }
 
 .filter-actions {
@@ -441,13 +445,13 @@ onMounted(async () => {
 }
 
 .filter-actions .primary {
-  background: #2563eb;
-  color: white;
+  background: var(--ui-primary);
+  color: #ffffff;
 }
 
 .filter-actions .ghost {
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .content {
@@ -456,11 +460,11 @@ onMounted(async () => {
 
 .state {
   padding: 16px;
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .state.error {
-  color: #dc2626;
+  color: var(--ui-danger);
 }
 
 .course-grid {
@@ -470,23 +474,24 @@ onMounted(async () => {
 }
 
 .course-card {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .course-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 .course-title {
   font-size: 16px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--ui-text);
   margin-bottom: 10px;
 }
 
@@ -501,32 +506,32 @@ onMounted(async () => {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
   font-weight: 600;
 }
 
 .tag.primary {
-  background: rgba(59, 130, 246, 0.15);
-  color: #1d4ed8;
+  background: var(--ui-primary-soft-strong);
+  color: var(--ui-primary);
 }
 
 .tag.ghost {
   background: rgba(16, 185, 129, 0.12);
-  color: #047857;
+  color: var(--ui-success);
 }
 
 .course-sub {
   display: flex;
   justify-content: space-between;
-  color: #94a3b8;
+  color: var(--ui-muted);
   font-size: 12px;
   font-weight: 600;
 }
 
 .empty {
   text-align: center;
-  color: #9ca3af;
+  color: var(--ui-muted);
   padding: 20px;
 }
 
@@ -540,8 +545,9 @@ onMounted(async () => {
 .pagination button {
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid #e5e7eb;
-  background: white;
+  border: 1px solid var(--ui-surface-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
   cursor: pointer;
 }
 
@@ -562,11 +568,12 @@ onMounted(async () => {
 }
 
 .modal-content {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 16px;
   width: min(520px, 100%);
   padding: 20px;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 .modal-header {
@@ -579,7 +586,7 @@ onMounted(async () => {
 .modal-header h3 {
   margin: 0;
   font-size: 18px;
-  color: #0f172a;
+  color: var(--ui-text);
 }
 
 .close-btn {
@@ -587,8 +594,8 @@ onMounted(async () => {
   height: 28px;
   border-radius: 50%;
   border: none;
-  background: #f1f5f9;
-  color: #64748b;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
   font-size: 18px;
   cursor: pointer;
 }
@@ -603,13 +610,13 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 12px;
   font-size: 13px;
-  color: #334155;
-  border-bottom: 1px solid #f1f5f9;
+  color: var(--ui-text);
+  border-bottom: 1px solid var(--ui-surface-border);
   padding-bottom: 8px;
 }
 
 .detail-item .label {
-  color: #94a3b8;
+  color: var(--ui-muted);
 }
 
 .detail-item .value {

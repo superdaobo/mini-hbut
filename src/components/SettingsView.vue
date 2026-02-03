@@ -15,6 +15,9 @@ const fontSettings = useFontSettings()
 const presetEntries = computed(() => Object.entries(UI_PRESETS))
 const downloading = ref(false)
 const showFontModal = ref(false)
+const downloadProgress = ref(0)
+const downloadStatus = ref('idle')
+const downloadError = ref('')
 
 const handlePreset = (key) => {
   applyPreset(key)
@@ -48,12 +51,20 @@ const handleDownloadFont = async (force = false) => {
   if (downloading.value) return
   downloading.value = true
   showFontModal.value = true
+  downloadProgress.value = 10
+  downloadStatus.value = 'downloading'
+  downloadError.value = ''
   try {
     await loadDeyiHeiFont(force)
+    downloadProgress.value = 100
+    downloadStatus.value = 'success'
     fontSettings.font = 'deyihei'
     showToast('字体下载完成，已应用得意黑。', 'success')
     showFontModal.value = false
   } catch (e) {
+    downloadStatus.value = 'failed'
+    downloadError.value = '字体下载失败，请检查网络后重试。'
+    downloadProgress.value = 0
     showToast('字体下载失败，请检查网络后重试。', 'error')
     console.warn('[Font] download failed', e)
   } finally {
@@ -204,17 +215,17 @@ const handleDownloadFont = async (force = false) => {
       <div class="slider-grid">
         <label class="slider-field">
           <span>卡片透明度</span>
-          <input type="range" min="0.72" max="1" step="0.02" v-model.number="uiSettings.surfaceOpacity" />
+          <input type="range" min="0.5" max="1" step="0.02" v-model.number="uiSettings.surfaceOpacity" />
           <em>{{ uiSettings.surfaceOpacity.toFixed(2) }}</em>
         </label>
         <label class="slider-field">
           <span>边框透明度</span>
-          <input type="range" min="0.12" max="0.6" step="0.02" v-model.number="uiSettings.borderOpacity" />
+          <input type="range" min="0.05" max="0.8" step="0.02" v-model.number="uiSettings.borderOpacity" />
           <em>{{ uiSettings.borderOpacity.toFixed(2) }}</em>
         </label>
         <label class="slider-field">
           <span>圆角大小</span>
-          <input type="range" min="0.8" max="1.4" step="0.05" v-model.number="uiSettings.radiusScale" />
+          <input type="range" min="0.6" max="2" step="0.05" v-model.number="uiSettings.radiusScale" />
           <em>{{ uiSettings.radiusScale.toFixed(2) }}</em>
         </label>
       </div>
@@ -225,17 +236,17 @@ const handleDownloadFont = async (force = false) => {
       <div class="slider-grid">
         <label class="slider-field">
           <span>字体大小</span>
-          <input type="range" min="0.85" max="1.2" step="0.05" v-model.number="uiSettings.fontScale" />
+          <input type="range" min="0.7" max="1.6" step="0.05" v-model.number="uiSettings.fontScale" />
           <em>{{ uiSettings.fontScale.toFixed(2) }}</em>
         </label>
         <label class="slider-field">
           <span>间距密度</span>
-          <input type="range" min="0.8" max="1.3" step="0.05" v-model.number="uiSettings.spaceScale" />
+          <input type="range" min="0.6" max="1.8" step="0.05" v-model.number="uiSettings.spaceScale" />
           <em>{{ uiSettings.spaceScale.toFixed(2) }}</em>
         </label>
         <label class="slider-field">
           <span>动效强度</span>
-          <input type="range" min="0" max="1.2" step="0.1" v-model.number="uiSettings.motionScale" />
+          <input type="range" min="0" max="2" step="0.1" v-model.number="uiSettings.motionScale" />
           <em>{{ uiSettings.motionScale.toFixed(1) }}</em>
         </label>
       </div>
@@ -255,11 +266,18 @@ const handleDownloadFont = async (force = false) => {
         <p>首次使用需要下载字体文件，完成后会自动应用。</p>
         <div class="font-modal-progress">
           <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: downloading ? '70%' : '100%' }"></div>
+            <div class="progress-fill" :style="{ width: `${downloadProgress}%` }"></div>
           </div>
-          <span>{{ downloading ? '下载中...' : '下载完成' }}</span>
+          <span v-if="downloadStatus === 'downloading'">下载中...</span>
+          <span v-else-if="downloadStatus === 'success'">下载完成</span>
+          <span v-else-if="downloadStatus === 'failed'">下载失败</span>
+          <span v-else>准备下载</span>
         </div>
-        <button class="btn-primary btn-ripple" @click="showFontModal = false">我知道了</button>
+        <p v-if="downloadError" class="font-error">{{ downloadError }}</p>
+        <div class="font-modal-actions">
+          <button v-if="downloadStatus === 'failed'" class="btn-secondary btn-ripple" @click="handleDownloadFont(true)">重试下载</button>
+          <button class="btn-primary btn-ripple" @click="showFontModal = false">我知道了</button>
+        </div>
       </div>
     </div>
 
@@ -607,6 +625,18 @@ const handleDownloadFont = async (force = false) => {
   height: 100%;
   background: linear-gradient(to right, var(--ui-primary), var(--ui-secondary));
   transition: width 0.3s ease;
+}
+
+.font-error {
+  margin: 0 0 12px;
+  color: var(--ui-danger);
+  font-size: 13px;
+}
+
+.font-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
 }
 
 @media (max-width: 640px) {

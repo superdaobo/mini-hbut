@@ -292,8 +292,8 @@ const getCourseStyle = (course) => {
   const span = course.djs || 1
   
   return {
-    backgroundColor: theme.bg,
-    color: theme.text,
+    '--course-bg': theme.bg,
+    '--course-text': theme.text,
     gridRow: `${course.period} / span ${span}`,
     gridColumn: '1',
     zIndex: 1,
@@ -683,6 +683,9 @@ onMounted(() => {
   margin: 2px; 
   border-radius: 6px;
   padding: 6px 4px;
+  background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
+  color: var(--course-text, #0f172a) !important;
+  border-color: rgba(255, 255, 255, 0.55) !important;
   display: flex;
   flex-direction: column;
   justify-content: center;

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { checkForUpdates, downloadUpdate, getCurrentVersion } from '../utils/updater.js'
+import { openExternal } from '../utils/external_link'
 
 const emit = defineEmits(['close'])
 
@@ -32,7 +33,7 @@ const handleDownload = async () => {
   // 使用新的 downloadUrls 数组
   if (!updateInfo.value?.downloadUrls || updateInfo.value.downloadUrls.length === 0) {
     // 如果没有下载链接，打开发布页面
-    window.open(updateInfo.value.releaseUrl, '_blank')
+    openExternal(updateInfo.value.releaseUrl)
     return
   }
   

@@ -1,12 +1,6 @@
-//! 🤖 数字人 AI 聊天模块
-//! 
-//! 该模块封装了与第三方数字人服务 (virtualhuman2h5.59wanmei.com) 的交互接口。
-//! 主要功能：
-//! 1. 初始化会话 (通过校园网 SSO 获取 Token)。
-//! 2. 上传文件 (作为知识库上下文)。
-//! 3. 原生问答 (不支持流式 WebSocket，通过 HTTP 请求)。
-//! 
-//! 本模块中的命令直接暴露给 Tauri 前端使用，不完全依赖 `HbutClient` 的内部方法（除 init 外）。
+//! AI 模块封装。
+//!
+//! 将 http_client 的 AI 能力封装为统一接口，供前端调用。
 
 use crate::AppState;
 use crate::db;
@@ -198,6 +192,7 @@ async fn upload_text_file(
 /// 命令: 初始化 AI 会话
 /// 调用 HbutClient 的 SSO 逻辑获取第三方服务的凭证
 #[tauri::command]
+/// 初始化 AI 会话入口
 pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, String> {
     let mut client = state.client.lock().await;
     if let Some(info) = client.user_info.clone() {
@@ -222,13 +217,14 @@ pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, 
                 models,
             })
         }
-        Err(e) => Err(format!("Failed to init AI session: {}", e)),
+        Err(e) => Err(format!("初始化 AI 会话失败: {}", e)),
     }
 }
 
 /// 命令: 上传文件到数字人知识库
 /// 独立使用 reqwest Client，因为是跨域请求到第三方服务
 #[tauri::command]
+/// 上传文件入口
 pub async fn hbut_ai_upload(
     token: String,
     blade_auth: String,
@@ -239,6 +235,7 @@ pub async fn hbut_ai_upload(
 }
 
 #[tauri::command]
+/// AI 对话入口
 pub async fn hbut_ai_chat(
     token: String,
     blade_auth: String,

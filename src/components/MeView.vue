@@ -1,6 +1,6 @@
 ﻿<script setup>
 import { ref, nextTick } from 'vue'
-import { open } from '@tauri-apps/plugin-shell'
+import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
 import hbutLogo from '../assets/hbut-logo.png'
 
@@ -32,7 +32,7 @@ const handleOpenSource = () => {
 }
 
 const openGithub = async () => {
-    await open('https://github.com/superdaobo/mini-hbut')
+    await openExternal('https://github.com/superdaobo/mini-hbut')
 }
 
 const handleShowLegal = async (tab) => {

@@ -1,3 +1,7 @@
+//! 业务模块注册入口。
+//!
+//! 该模块负责集中导出各业务子模块，方便 lib.rs 统一引用。
+
 // 模块化设计 - 与 Python backend/modules 对应
 pub mod grades;
 pub mod schedule;

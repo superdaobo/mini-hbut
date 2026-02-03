@@ -7,14 +7,16 @@ const FONT_NAME = 'DeyiHei'
 const FONT_URL = 'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf'
 const DEV_FONT_PROXY = '/font/deyihei.ttf'
 
-const FONT_FALLBACK = "'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Source Han Sans SC', 'WenQuanYi Micro Hei', sans-serif"
+const ANDROID_SANS = "'Noto Sans SC', 'Noto Sans CJK SC', 'Roboto', sans-serif"
+const ANDROID_SERIF = "'Noto Serif SC', 'Noto Serif CJK SC', serif"
+const FONT_FALLBACK = `'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Source Han Sans SC', 'WenQuanYi Micro Hei', ${ANDROID_SANS}`
 const FONT_STACKS = {
   default: FONT_FALLBACK,
   deyihei: `'DeyiHei', ${FONT_FALLBACK}`,
-  kaiti: "'KaiTi', 'STKaiti', 'KaiTi_GB2312', 'Kaiti SC', serif",
-  heiti: "'SimHei', 'Heiti SC', 'Microsoft YaHei', sans-serif",
-  songti: "'SimSun', 'Songti SC', 'STSong', serif",
-  fangsong: "'FangSong', 'STFangsong', serif"
+  kaiti: `'KaiTi', 'STKaiti', 'KaiTi_GB2312', 'Kaiti SC', ${ANDROID_SERIF}`,
+  heiti: `'SimHei', 'Heiti SC', 'Microsoft YaHei', ${ANDROID_SANS}`,
+  songti: `'SimSun', 'Songti SC', 'STSong', ${ANDROID_SERIF}`,
+  fangsong: `'FangSong', 'STFangsong', ${ANDROID_SERIF}`
 }
 const SUPPORTED_FONTS = new Set(Object.keys(FONT_STACKS))
 
@@ -62,6 +64,41 @@ const applyFont = (fontKey) => {
   root.style.setProperty('--ui-font-family', stack)
 }
 
+const ensureFontFaceStyle = (src) => {
+  if (typeof document === 'undefined') return
+  const id = 'deyihei-font-face'
+  const existing = document.getElementById(id)
+  const css = `@font-face { font-family: '${FONT_NAME}'; src: url('${src}') format('truetype'); font-display: swap; }`
+  if (existing) {
+    existing.textContent = css
+    return
+  }
+  const style = document.createElement('style')
+  style.id = id
+  style.textContent = css
+  document.head.appendChild(style)
+}
+
+const loadFontFromUrl = async (src) => {
+  if (typeof document === 'undefined') return false
+  try {
+    if (typeof FontFace !== 'undefined') {
+      const font = new FontFace(FONT_NAME, `url(${src})`)
+      await font.load()
+      document.fonts.add(font)
+      await document.fonts.load(`12px ${FONT_NAME}`)
+      return true
+    }
+  } catch {
+    // fallback to injected @font-face
+  }
+  ensureFontFaceStyle(src)
+  if (document.fonts?.load) {
+    await document.fonts.load(`12px ${FONT_NAME}`)
+  }
+  return true
+}
+
 const loadDeyiHeiFont = async (force = false) => {
   if (!force && document.fonts?.check(`12px ${FONT_NAME}`)) {
     state.loaded = true
@@ -77,9 +114,7 @@ const loadDeyiHeiFont = async (force = false) => {
       force: !!force
     })
     const fileSrc = convertFileSrc(filePath)
-    const font = new FontFace(FONT_NAME, `url(${fileSrc})`)
-    await font.load()
-    document.fonts.add(font)
+    await loadFontFromUrl(fileSrc)
     state.loaded = true
     return true
   }

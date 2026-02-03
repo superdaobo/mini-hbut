@@ -37,12 +37,12 @@ const normalizeSettings = (raw) => {
   }
   merged.customCss = typeof merged.customCss === 'string' ? merged.customCss : ''
   merged.customJs = typeof merged.customJs === 'string' ? merged.customJs : ''
-  merged.surfaceOpacity = clamp(Number(merged.surfaceOpacity) || base.surfaceOpacity, 0.72, 1)
-  merged.borderOpacity = clamp(Number(merged.borderOpacity) || base.borderOpacity, 0.12, 0.6)
-  merged.radiusScale = clamp(Number(merged.radiusScale) || base.radiusScale, 0.8, 1.4)
-  merged.fontScale = clamp(Number(merged.fontScale) || base.fontScale, 0.85, 1.2)
-  merged.spaceScale = clamp(Number(merged.spaceScale) || base.spaceScale, 0.8, 1.3)
-  merged.motionScale = clamp(Number(merged.motionScale) || base.motionScale, 0, 1.2)
+  merged.surfaceOpacity = clamp(Number(merged.surfaceOpacity) || base.surfaceOpacity, 0.5, 1)
+  merged.borderOpacity = clamp(Number(merged.borderOpacity) || base.borderOpacity, 0.05, 0.8)
+  merged.radiusScale = clamp(Number(merged.radiusScale) || base.radiusScale, 0.6, 2)
+  merged.fontScale = clamp(Number(merged.fontScale) || base.fontScale, 0.7, 1.6)
+  merged.spaceScale = clamp(Number(merged.spaceScale) || base.spaceScale, 0.6, 1.8)
+  merged.motionScale = clamp(Number(merged.motionScale) || base.motionScale, 0, 2)
   return merged
 }
 
@@ -101,8 +101,13 @@ const applyCustomCode = (settings) => {
 const applyUiSettings = (settings) => {
   if (typeof document === 'undefined') return
   const root = document.documentElement
-  const surface = `rgba(255, 255, 255, ${settings.surfaceOpacity})`
-  const border = `rgba(255, 255, 255, ${settings.borderOpacity})`
+  const isCyberpunk = settings.preset === 'cyberpunk'
+  const surface = isCyberpunk
+    ? `rgba(10, 15, 28, ${settings.surfaceOpacity})`
+    : `rgba(255, 255, 255, ${settings.surfaceOpacity})`
+  const border = isCyberpunk
+    ? `rgba(41, 200, 224, ${settings.borderOpacity})`
+    : `rgba(255, 255, 255, ${settings.borderOpacity})`
 
   root.style.setProperty('--ui-primary', settings.primary)
   root.style.setProperty('--ui-secondary', settings.secondary)

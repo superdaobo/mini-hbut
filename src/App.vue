@@ -1,7 +1,6 @@
 ﻿<script setup>
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-shell'
 import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
 import GradeView from './components/GradeView.vue'
@@ -28,8 +27,11 @@ import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
 import { fetchRemoteConfig } from './utils/remote_config.js'
+import { openExternal, isHttpLink } from './utils/external_link'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const hasTauri = typeof window !== 'undefined' && window.__TAURI__ && typeof window.__TAURI__.invoke === 'function'
+const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
 
 // 视图状态: home, schedule, me, grades...
 const currentView = ref('home')
@@ -45,6 +47,7 @@ const gradesSyncTime = ref('')
 
 const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
+const COOKIE_SNAPSHOT_KEY = 'hbu_cookie_snapshot'
 const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
 const ELECTRICITY_REFRESH_INTERVAL = 10 * 60 * 1000
@@ -68,7 +71,9 @@ const loginMode = ref('auto')
 const isLoggedIn = computed(() => !!studentId.value)
 const configAdminIds = computed(() => {
   const ids = remoteConfig.value?.config_admin_ids
-  return Array.isArray(ids) ? ids : []
+  const merged = new Set(Array.isArray(ids) ? ids : [])
+  merged.add('2510231106')
+  return [...merged]
 })
 const isConfigAdmin = computed(() => configAdminIds.value.includes(studentId.value))
 const aiModelOptions = computed(() => {
@@ -165,11 +170,7 @@ const handleContentClick = async (e) => {
   const target = e.target.closest('a')
   if (target && target.href) {
     e.preventDefault()
-    try {
-      await open(target.href)
-    } catch (e) {
-      window.open(target.href, '_blank')
-    }
+    await openExternal(target.href)
   }
 }
 
@@ -177,13 +178,14 @@ const handleGlobalLinkClick = async (e) => {
   const target = e.target.closest('a')
   if (!target || !target.href) return
   const href = target.href
-  if (!/^https?:/i.test(href)) return
+  if (!isHttpLink(href)) return
   e.preventDefault()
-  try {
-    await open(href)
-  } catch (err) {
-    window.open(href, '_blank')
-  }
+  await openExternal(href)
+}
+
+const handleExternalOpen = async (url) => {
+  if (!url) return
+  await openExternal(url)
 }
 
 // 处理登录成功
@@ -351,7 +353,7 @@ const autoCheckUpdate = async () => {
 
 const handleForceUpdate = () => {
   if (forceUpdateInfo.value?.download_url) {
-    window.open(forceUpdateInfo.value.download_url, '_blank')
+    openExternal(forceUpdateInfo.value.download_url)
     return
   }
   showUpdateDialog.value = true
@@ -391,7 +393,33 @@ const applyRemoteConfig = async () => {
   }
 }
 
+const bridgePost = async (path, payload = {}) => {
+  const res = await fetch(`${BRIDGE_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {})
+  })
+  return res.json()
+}
+
+const restoreSessionViaBridge = async (cookies) => {
+  const res = await bridgePost('/restore_session', { cookies })
+  if (res?.success && res?.data?.student_id) {
+    return res.data
+  }
+  throw new Error(res?.error?.message || '恢复会话失败')
+}
+
+const importCookiesViaBridge = async (snapshot) => {
+  const res = await bridgePost('/import_cookies', snapshot || {})
+  if (res?.success && res?.data?.user?.student_id) {
+    return res.data.user
+  }
+  throw new Error(res?.error?.message || '导入 cookies 失败')
+}
+
 const persistSessionCookies = async () => {
+  if (!hasTauri) return
   try {
     const cookies = await invoke('get_cookies')
     if (cookies) {
@@ -405,10 +433,28 @@ const persistSessionCookies = async () => {
 
 const tryRestoreSession = async () => {
   const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
+  if (!cookies && !hasTauri) {
+    try {
+      const snapshotRaw = localStorage.getItem(COOKIE_SNAPSHOT_KEY)
+      if (!snapshotRaw) return false
+      const snapshot = JSON.parse(snapshotRaw)
+      const info = await importCookiesViaBridge(snapshot)
+      if (info?.student_id) {
+        studentId.value = info.student_id
+        localStorage.setItem('hbu_username', info.student_id)
+        return true
+      }
+    } catch (e) {
+      console.warn('[Session] 导入 cookies 失败:', e)
+    }
+    return false
+  }
   if (!cookies) return false
 
   try {
-    const userInfo = await invoke('restore_session', { cookies })
+    const userInfo = hasTauri
+      ? await invoke('restore_session', { cookies })
+      : await restoreSessionViaBridge(cookies)
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
       localStorage.setItem('hbu_username', userInfo.student_id)
@@ -436,6 +482,7 @@ const getStoredPassword = () => {
 }
 
 const attemptAutoRelogin = async () => {
+  if (!hasTauri) return false
   if (localStorage.getItem('hbu_manual_logout') === 'true') {
     return false
   }
@@ -463,6 +510,7 @@ const attemptAutoRelogin = async () => {
 const refreshSessionSilently = async () => {
   const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
   if (!cookies) return
+  if (!hasTauri) return
 
   try {
     await invoke('refresh_session')
@@ -810,7 +858,7 @@ onBeforeUnmount(() => {
           <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
         </div>
         <div class="notice-modal-content select-text" @click="handleContentClick" v-html="renderMarkdown(activeAnnouncement?.content || activeAnnouncement?.summary || '')"></div>
-        <a v-if="activeAnnouncement?.link" class="notice-link" :href="activeAnnouncement.link" target="_blank" @click.prevent="open(activeAnnouncement.link)">查看原文</a>
+        <a v-if="activeAnnouncement?.link" class="notice-link" :href="activeAnnouncement.link" target="_blank" @click.prevent="handleExternalOpen(activeAnnouncement.link)">查看原文</a>
       </div>
     </div>
 

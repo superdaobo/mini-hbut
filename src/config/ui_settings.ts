@@ -59,7 +59,7 @@ export const SYSTEM_UI_SETTINGS = {
   muted: UI_PRESETS.aurora.muted,
   customCss: '',
   customJs: '',
-  surfaceOpacity: 0.9,
+  surfaceOpacity: 0.6,
   borderOpacity: 0.28,
   radiusScale: 1,
   fontScale: 1,

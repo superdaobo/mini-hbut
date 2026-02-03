@@ -1,4 +1,4 @@
-// lib.rs
+﻿// lib.rs
 //
 // 逻辑文档: lib_logic.md
 // 模块功能: Tauri 后端逻辑入口
@@ -42,6 +42,7 @@ const DB_FILENAME: &str = "grades.db";
 // ... existing code ...
 
 // 应用状态
+/// 全局状态：共享 HbutClient 实例
 pub struct AppState {
     pub client: Arc<Mutex<HbutClient>>,
 }
@@ -257,7 +258,7 @@ async fn login(
     lt: Option<String>,
     execution: Option<String>,
 ) -> Result<UserInfo, String> {
-    println!("[DEBUG] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
+    println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
              username, password.len(), captcha, lt, execution);
     let mut client = state.client.lock().await;
     client
@@ -274,18 +275,18 @@ async fn login(
     // 尝试获取电费 Token (One Code)
     let one_code_token = match client.ensure_electricity_token().await {
         Ok(t) => {
-            println!("[DEBUG] Login: Successfully obtained one_code_token");
+            println!("[调试] Login: Successfully obtained one_code_令牌");
             t
         },
         Err(e) => {
-            println!("[WARN] Login: Failed to get one_code_token: {}", e);
+            println!("[警告] 登录：获取 one_code_令牌 失败: {}", e);
             String::new()
         }
     };
 
     // 保存会话到本地数据库 (用于自动重连)
     if let Err(e) = db::save_user_session(DB_FILENAME, &username, &client.get_cookies(), &password, &one_code_token) {
-        println!("[WARN] Failed to save session: {}", e);
+        println!("[警告] 保存会话失败: {}", e);
     }
 
     Ok(client.user_info.clone().unwrap())
@@ -309,15 +310,15 @@ async fn restore_session(
     // 尝试从数据库加载凭据 (用于 SSO)
     match db::get_user_session(DB_FILENAME, &user_info.student_id) {
         Ok(Some((_, password, token))) => {
-            println!("[DEBUG] Restored credentials for user: {}", user_info.student_id);
+            println!("[调试] Restored credentials for user: {}", user_info.student_id);
             client.set_credentials(user_info.student_id.clone(), password);
             if !token.is_empty() {
                 client.set_electricity_token(token);
-                println!("[DEBUG] Restored one_code_token");
+                println!("[调试] Restored one_code_令牌");
             }
         },
-        Ok(None) => println!("[DEBUG] No saved credentials found for user: {}", user_info.student_id),
-        Err(e) => println!("[WARN] Failed to load session credentials: {}", e),
+        Ok(None) => println!("[调试] No saved credentials found for user: {}", user_info.student_id),
+        Err(e) => println!("[警告] 加载会话凭据失败: {}", e),
     }
 
     Ok(user_info)
@@ -566,7 +567,7 @@ async fn fetch_transaction_history(
              Ok(data)
         },
         Err(e) => {
-            println!("[WARN] Transaction network fetch failed: {}, trying cache...", e);
+            println!("[警告] Transaction network fetch failed: {}, trying cache...", e);
             // 网络失败，尝试读取缓存
             if let Some(uid) = &client.user_info.as_ref().map(|u| u.student_id.clone()) {
                  if let Ok(Some((cached_data, _))) = db::get_cache(DB_FILENAME, "transaction_cache", uid) {
@@ -583,7 +584,7 @@ async fn fetch_transaction_history(
 pub fn run() {
     // 初始化数据库
     if let Err(e) = db::init_db(DB_FILENAME) {
-        eprintln!("Failed to initialize database: {}", e);
+        eprintln!("初始化数据库失败: {}", e);
     }
 
     let mut builder = tauri::Builder::default();

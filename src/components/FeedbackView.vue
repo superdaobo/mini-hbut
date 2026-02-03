@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { showToast } from '../utils/toast'
+import { openExternal } from '../utils/external_link'
 
 const emit = defineEmits(['back'])
 
@@ -18,16 +19,7 @@ const handleError = () => {
 
 // 在外部浏览器打开链接
 const openInBrowser = async (url) => {
-  try {
-    // 优先使用 Tauri shell 打开外部链接
-    const shell = await import('@tauri-apps/plugin-shell')
-    await shell.open(url)
-    console.log('[FeedbackView] 已用系统浏览器打开:', url)
-  } catch (e) {
-    // 如果 shell 插件不可用，尝试用 window.open
-    console.log('[FeedbackView] 使用 window.open 打开:', url)
-    window.open(url, '_blank')
-  }
+  await openExternal(url)
 }
 
 const copyLink = async () => {

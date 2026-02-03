@@ -1,4 +1,4 @@
-//! 📚 培养方案查询模块
+﻿//! 📚 培养方案查询模块
 //! 
 //! 该模块对应教务系统的“学生培养方案查询”功能。
 //! 主要提供以下能力：
@@ -62,7 +62,7 @@ impl TrainingPlanModule {
     pub async fn fetch_options(&self) -> Result<TrainingPlanOptions, Box<dyn std::error::Error + Send + Sync>> {
         let page_url = format!("{}/admin/xsd/studentpyfa", JWXT_BASE_URL);
         
-        println!("[DEBUG] Fetching training plan options from: {}", page_url);
+        println!("[调试] 获取 training plan options 来自: {}", page_url);
 
         let response = self.client
             .get(&page_url)
@@ -72,7 +72,7 @@ impl TrainingPlanModule {
 
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Training plan page status: {}, URL: {}", status, final_url);
+        println!("[调试] Training plan page status: {}, 地址: {}", status, final_url);
 
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
@@ -96,7 +96,7 @@ impl TrainingPlanModule {
 
         let jys_url = format!("{}/admin/pygcgl/kckgl/queryJYSNoAuth", JWXT_BASE_URL);
         
-        println!("[DEBUG] Fetching JYS from: {} with yxid={}", jys_url, yxid);
+        println!("[调试] 获取 JYS 来自: {} with yxid={}", jys_url, yxid);
 
         let response = self.client
             .get(&jys_url)
@@ -172,7 +172,7 @@ impl TrainingPlanModule {
             ("kcmc", kcmc.unwrap_or("")),
         ];
 
-        println!("[DEBUG] Fetching training plan courses from: {}", list_url);
+        println!("[调试] 获取 training plan courses 来自: {}", list_url);
 
         let response = self.client
             .get(&list_url)
@@ -185,7 +185,7 @@ impl TrainingPlanModule {
 
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Training plan courses status: {}, URL: {}", status, final_url);
+        println!("[调试] Training plan courses status: {}, 地址: {}", status, final_url);
 
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());

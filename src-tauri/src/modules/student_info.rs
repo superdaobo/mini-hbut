@@ -1,4 +1,4 @@
-//! 👤 个人信息查询模块
+﻿//! 👤 个人信息查询模块
 //! 
 //! 负责获取学生的学籍基本信息。
 //! 数据来源：教务系统学籍卡片页面。
@@ -48,7 +48,7 @@ impl StudentInfoModule {
     pub async fn fetch_info(&self) -> Result<StudentInfo, Box<dyn std::error::Error + Send + Sync>> {
         let info_url = format!("{}/admin/xsd/xsjbxx/xskp", JWXT_BASE_URL);
         
-        println!("[DEBUG] Fetching student info from: {}", info_url);
+        println!("[调试] 获取 student info 来自: {}", info_url);
         
         let response = self.client
             .get(&info_url)
@@ -59,14 +59,14 @@ impl StudentInfoModule {
         
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Student info response status: {}, URL: {}", status, final_url);
+        println!("[调试] Student info 响应 status: {}, 地址: {}", status, final_url);
         
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
         
         let html = response.text().await?;
-        println!("[DEBUG] Student info HTML length: {}", html.len());
+        println!("[调试] Student info HTML length: {}", html.len());
         
         self.parse_html(&html)
     }
@@ -130,7 +130,7 @@ impl StudentInfoModule {
             return Err("无法解析学生信息，可能会话已过期".into());
         }
 
-        println!("[DEBUG] Parsed student info: {} - {}", info.student_id, info.name);
+        println!("[调试] 已解析 student info: {} - {}", info.student_id, info.name);
         Ok(info)
     }
 }

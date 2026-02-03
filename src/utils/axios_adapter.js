@@ -1,6 +1,27 @@
-import { invoke } from '@tauri-apps/api/core';
+﻿import { invoke } from '@tauri-apps/api/core';
 
-// 模拟 Axios 响应结构
+const hasTauri = typeof window !== 'undefined' && window.__TAURI__ && typeof window.__TAURI__.invoke === 'function';
+const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge';
+
+
+const bridgePost = async (path, payload = {}) => {
+    const res = await fetch(`${BRIDGE_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {})
+    });
+    return res.json();
+};
+
+const unwrapBridge = (payload) => {
+    if (payload && typeof payload === 'object' && 'data' in payload) {
+        return payload.data;
+    }
+    return payload;
+};
+
+// 妯℃嫙 Axios 鍝嶅簲缁撴瀯
+
 const mockResponse = (data) => ({
     data,
     status: 200,
@@ -25,31 +46,33 @@ const adapter = {
         try {
             if (url.includes('/v3/login_params')) {
                 const data = await invoke('get_login_page');
-                // 适配前端期望的格式
+                // 閫傞厤鍓嶇鏈熸湜鐨勬牸寮?
                 return mockResponse({
                     success: true,
                     lt: data.lt,
                     execution: data.execution,
                     salt: data.salt,
                     captcha_required: data.captcha_required,
-                    // 必须包含 inputs 即使为空，前端可能依赖
-                    inputs: {}
+                    // 蹇呴』鍖呭惈 inputs 鍗充娇涓虹┖锛屽墠绔彲鑳戒緷璧?                    inputs: {}
                 });
             }
             if (url.includes('/dormitory_data.json')) {
-                // 这是一个静态文件请求，应该让它通过? 
-                // 或者我们在 Rust 端提供？或者直接 import json?
-                // 如果是 public 目录下的文件，fetch 可以直接请求。
-                // 但 axios adapter 会拦截所有 axios 请求。
-                // 我们可以使用原生 fetch 来请求静态资源
+                // 杩欐槸涓€涓潤鎬佹枃浠惰姹傦紝搴旇璁╁畠閫氳繃? 
+                // 鎴栬€呮垜浠湪 Rust 绔彁渚涳紵鎴栬€呯洿鎺?import json?
+                // 濡傛灉鏄?public 鐩綍涓嬬殑鏂囦欢锛宖etch 鍙互鐩存帴璇锋眰銆?                // 浣?axios adapter 浼氭嫤鎴墍鏈?axios 璇锋眰銆?                // 鎴戜滑鍙互浣跨敤鍘熺敓 fetch 鏉ヨ姹傞潤鎬佽祫婧?
                 const res = await fetch(url);
                 const data = await res.json();
                 return mockResponse(data);
             }
             
-            // 学期列表
+            // 瀛︽湡鍒楄〃
+
             if (url.includes('/v2/semesters')) {
                 try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_semesters');
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const semesters = await invoke('fetch_semesters');
                     return mockResponse(semesters);
                 } catch (err) {
@@ -57,9 +80,13 @@ const adapter = {
                 }
             }
             
-            // 教学楼列表
+            // 鏁欏妤煎垪琛?
             if (url.includes('/v2/classroom/buildings')) {
                 try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_classroom_buildings');
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const buildings = await invoke('fetch_classroom_buildings');
                     console.log('[Axios Adapter] Buildings response:', JSON.stringify(buildings));
                     return mockResponse(buildings);
@@ -79,7 +106,8 @@ const adapter = {
         console.log('[Axios Adapter] POST request received:', url);
         console.log('[Axios Adapter] POST data:', JSON.stringify(data));
         try {
-            // 登录
+            // 鐧诲綍
+
             if (url.includes('/v2/start_login')) {
                 // LoginV3 (modified) passes plain structure
                 console.log('[Axios Adapter] Login data received:', JSON.stringify(data));
@@ -87,7 +115,7 @@ const adapter = {
                 console.log('[Axios Adapter] Extracted captcha:', captcha);
 
                 try {
-                    // 加密密码 (Rust 端 login expects PLAIN password maybe? 
+                    // 鍔犲瘑瀵嗙爜 (Rust 绔?login expects PLAIN password maybe? 
                     // Wait, HbutClient::login sends password to form. 
                     // If HBU requires AES encrypted password, HbutClient does NOT implement it yet?
                     // Checked http_client.rs: it puts password into form directly.
@@ -131,13 +159,25 @@ const adapter = {
                     console.log('  - password first 20 chars:', password?.substring(0, 20));
                     console.log('  - captcha:', captcha, '(length:', captcha?.length || 0, ')');
                     
-                    // 安全检查：密码长度不应超过50（正常密码），移除这个检查让 Rust 后端处理
-                    // 因为这个检查可能误判
-                    
+                    // 瀹夊叏妫€鏌ワ細瀵嗙爜闀垮害涓嶅簲瓒呰繃50锛堟甯稿瘑鐮侊級锛岀Щ闄よ繖涓鏌ヨ Rust 鍚庣澶勭悊
+                    // 鍥犱负杩欎釜妫€鏌ュ彲鑳借鍒?
+                    if (!hasTauri) {
+                        const res = await bridgePost('/login', {
+                            username,
+                            password,
+                            captcha: captcha || '',
+                            lt: lt || '',
+                            execution: execution || ''
+                        });
+                        if (res?.success) {
+                            return mockResponse({ success: true, data: res.data });
+                        }
+                        return mockResponse({ success: false, error: res?.error?.message || res?.error || '登录失败' });
+                    }
                     const res = await invoke('login', {
                         username,
                         password,
-                        captcha: captcha || '', // 传递空字符串而不是 null
+                        captcha: captcha || '', // 浼犻€掔┖瀛楃涓茶€屼笉鏄?null
                         lt: lt || '',
                         execution: execution || ''
                     });
@@ -148,14 +188,18 @@ const adapter = {
                 }
             }
 
-            // 验证码刷新
+            // 楠岃瘉鐮佸埛鏂?
             if (url.includes('/v3/refresh_captcha')) {
+                if (!hasTauri) {
+                    return mockResponse({ success: false, error: '浏览器模式不支持验证码接口' });
+                }
                 const imgBase64 = await invoke('get_captcha');
                 // Tauri command returns "data:image/png;base64,..."
                 // Frontend expects plain base64 usually? 
                 // LoginV3: `captchaImg.value = data:image/jpeg;base64,${data.captcha_base64}`
                 // My Rust: returns full data URI.
                 // Adapter needs to strip prefix?
+
                 const parts = imgBase64.split(',');
                 const base64 = parts.length > 1 ? parts[1] : parts[0];
                 return mockResponse({
@@ -165,23 +209,56 @@ const adapter = {
                 });
             }
 
-            // 成绩
+            // 鎴愮哗
+
             if (url.includes('/v2/quick_fetch')) {
+                if (!hasTauri) {
+                    const res = await bridgePost('/sync_grades');
+                    if (res?.success) {
+                        return mockResponse({ success: true, data: res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取成绩失败' });
+                }
                 const grades = await invoke('sync_grades');
                 return mockResponse({ success: true, data: grades });
             }
 
-            // 课表
+            // 璇捐〃
+
             if (url.includes('/v2/schedule/query')) {
+                if (!hasTauri) {
+                    const res = await bridgePost('/sync_schedule');
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取课表失败' });
+                }
                 const schedule = await invoke('sync_schedule');
                 return mockResponse({ success: true, ...schedule });
             }
 
-            // ========== 考试相关 ==========
+            // ========== 鑰冭瘯鐩稿叧 ==========
+
             if (url.includes('/v2/exams')) {
                 try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_exams', { semester: data.semester || null });
+                        if (res?.success) {
+                            const transformedExams = (res.data || []).map(exam => ({
+                                ...exam,
+                                exam_date: exam.date || exam.exam_date || '',
+                                exam_time: exam.start_time && exam.end_time 
+                                    ? `${exam.start_time}-${exam.end_time}` 
+                                    : (exam.start_time || exam.exam_time || ''),
+                                seat_no: exam.seat_number || exam.seat_no || ''
+                            }));
+                            return mockResponse({ success: true, data: transformedExams });
+                        }
+                        return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取考试安排失败' });
+                    }
                     const exams = await invoke('fetch_exams', { semester: data.semester || null });
-                    // 转换字段名以匹配前端期望格式
+                    // 杞崲瀛楁鍚嶄互鍖归厤鍓嶇鏈熸湜鏍煎紡
+
                     const transformedExams = exams.map(exam => ({
                         ...exam,
                         exam_date: exam.date || exam.exam_date || '',
@@ -196,10 +273,18 @@ const adapter = {
                 }
             }
 
-            // ========== 排名相关 ==========
+            // ========== 鎺掑悕鐩稿叧 ==========
+
             if (url.includes('/v2/ranking')) {
                 try {
                     const { student_id, semester } = data;
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_ranking', { 
+                            student_id: student_id || '',
+                            semester: semester || '' 
+                        });
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const ranking = await invoke('fetch_ranking', { 
                         studentId: student_id || '',
                         semester: semester || '' 
@@ -210,9 +295,14 @@ const adapter = {
                 }
             }
 
-            // ========== 学生信息 ==========
+            // ========== 瀛︾敓淇℃伅 ==========
+
             if (url.includes('/v2/student_info')) {
                 try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_student_info');
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const info = await invoke('fetch_student_info');
                     return mockResponse(info);
                 } catch (err) {
@@ -220,10 +310,20 @@ const adapter = {
                 }
             }
 
-            // ========== 空教室 ==========
+            // ========== 绌烘暀瀹?==========
+
             if (url.includes('/v2/classroom/query')) {
                 try {
                     console.log('[Axios Adapter] Classroom query with data:', data);
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_classrooms', {
+                            week: data.week || null,
+                            weekday: data.weekday || null,
+                            periods: data.periods || null,
+                            building: data.building || null,
+                        });
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const classrooms = await invoke('fetch_classrooms', {
                         week: data.week || null,
                         weekday: data.weekday || null,
@@ -238,10 +338,15 @@ const adapter = {
                 }
             }
 
-            // ========== 培养方案 ==========
+            // ========== 鍩瑰吇鏂规 ==========
+
             if (url.includes('/v2/training_plan/options')) {
                 try {
                     console.log('[Axios Adapter] Training plan options request');
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_training_plan_options');
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const options = await invoke('fetch_training_plan_options');
                     console.log('[Axios Adapter] Training plan options response:', options);
                     return mockResponse(options);
@@ -253,9 +358,14 @@ const adapter = {
 
             if (url.includes('/v2/training_plan/jys')) {
                 try {
-                    // 前端可能传 kkyx 或 yxid，都支持
+                    // 鍓嶇鍙兘浼?kkyx 鎴?yxid锛岄兘鏀寔
+
                     const yxid = data.yxid || data.kkyx || '';
                     console.log('[Axios Adapter] Training plan JYS request for yxid:', yxid);
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_training_plan_jys', { yxid });
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const jys = await invoke('fetch_training_plan_jys', { yxid });
                     return mockResponse(jys);
                 } catch (err) {
@@ -267,8 +377,23 @@ const adapter = {
             if (url.includes('/v2/training_plan') && !url.includes('/options') && !url.includes('/jys')) {
                 try {
                     console.log('[Axios Adapter] Training plan courses request:', JSON.stringify(data));
-                    // Rust 端期望 Option<String>，所以空字符串和 null 都可以
-                    // 但为了保持一致性，我们使用 null 表示"未选择"
+                    // Rust 绔湡鏈?Option<String>锛屾墍浠ョ┖瀛楃涓插拰 null 閮藉彲浠?                    // 浣嗕负浜嗕繚鎸佷竴鑷存€э紝鎴戜滑浣跨敤 null 琛ㄧず"鏈€夋嫨"
+
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_training_plan_courses', {
+                            grade: data.grade || null,
+                            kkxq: data.kkxq || null,
+                            kkyx: data.kkyx || null,
+                            kkjys: data.kkjys || null,
+                            kcxz: data.kcxz || null,
+                            kcgs: data.kcgs || null,
+                            kcbh: data.kcbh || null,
+                            kcmc: data.kcmc || null,
+                            page: data.page ? parseInt(data.page) : 1,
+                            page_size: data.page_size ? parseInt(data.page_size) : 50,
+                        });
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const courses = await invoke('fetch_training_plan_courses', {
                         grade: data.grade || null,
                         kkxq: data.kkxq || null,
@@ -289,7 +414,8 @@ const adapter = {
                 }
             }
 
-            // ========== 电费相关 ==========
+            // ========== 鐢佃垂鐩稿叧 ==========
+
             if (url.includes('/v2/electricity/balance')) {
                 const { area_id, building_id, layer_id, room_id } = data;
                 const accountPayload = {
@@ -307,7 +433,7 @@ const adapter = {
                     const res = await invoke('electricity_query_account', { payload: accountPayload });
 
                     if (!res.success) {
-                        return mockResponse({ success: false, error: res.message || res.error || '电费查询失败' });
+                        return mockResponse({ success: false, error: res.message || res.error || '鐢佃垂鏌ヨ澶辫触' });
                     }
 
                     const resultData = res.resultData || {};
@@ -326,7 +452,7 @@ const adapter = {
                         success: true,
                         balance,
                         quantity,
-                        status: resultData.utilityStatusName || "未知",
+                        status: resultData.utilityStatusName || "鏈煡",
                         offline,
                         sync_time: syncTime || (offline ? '' : new Date().toISOString())
                     });
@@ -335,10 +461,15 @@ const adapter = {
                 }
             }
 
-            // ========== 校历相关 ==========
+            // ========== 鏍″巻鐩稿叧 ==========
+
             if (url.includes('/v2/calendar')) {
                 try {
                     const { semester } = data;
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_calendar_data', { semester: semester || null });
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const calendar = await invoke('fetch_calendar_data', { 
                         semester: semester || null 
                     });
@@ -348,10 +479,15 @@ const adapter = {
                 }
             }
 
-            // ========== 学业完成情况 ==========
+            // ========== 瀛︿笟瀹屾垚鎯呭喌 ==========
+
             if (url.includes('/v2/academic_progress')) {
                 try {
                     const { fasz } = data;
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_academic_progress', { fasz: fasz || 1 });
+                        return mockResponse(unwrapBridge(res));
+                    }
                     const progress = await invoke('fetch_academic_progress', { 
                         fasz: fasz || 1 
                     });
@@ -370,13 +506,13 @@ const adapter = {
     }
 };
 
-// 创建一个模拟 axios 的对象，让组件可以直接使用
+// 鍒涘缓涓€涓ā鎷?axios 鐨勫璞★紝璁╃粍浠跺彲浠ョ洿鎺ヤ娇鐢?
 const axiosInstance = {
     get: adapter.get,
     post: adapter.post,
-    // 支持 axios.create() 返回自身
+    // 鏀寔 axios.create() 杩斿洖鑷韩
     create: () => axiosInstance,
-    // 支持拦截器（空实现）
+    // 鏀寔鎷︽埅鍣紙绌哄疄鐜帮級
     interceptors: {
         request: { use: () => {}, eject: () => {} },
         response: { use: () => {}, eject: () => {} }
@@ -391,3 +527,5 @@ const axiosInstance = {
 };
 
 export default axiosInstance;
+
+

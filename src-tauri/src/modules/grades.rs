@@ -1,4 +1,4 @@
-//! 📊 成绩查询模块 - 与 Python modules/grades.py 对应
+﻿//! 📊 成绩查询模块 - 与 Python modules/grades.py 对应
 //! 
 //! 该模块主要负责：
 //! 1. 向教务系统发送 jqgrid 格式的 POST 请求获取成绩列表。
@@ -66,7 +66,7 @@ impl GradesModule {
             JWXT_BASE_URL
         );
         
-        println!("[DEBUG] Fetching grades from: {}", grades_url);
+        println!("[调试] 获取 grades 来自: {}", grades_url);
         
         // 构建 JQGrid 请求参数
         // page.size 设置为 500 以一次性获取大部分成绩
@@ -93,7 +93,7 @@ impl GradesModule {
         
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Grades response status: {}, URL: {}", status, final_url);
+        println!("[调试] Grades 响应 status: {}, 地址: {}", status, final_url);
         
         // 检查是否被重定向到登录页
         if final_url.contains("authserver/login") {
@@ -101,7 +101,7 @@ impl GradesModule {
         }
         
         let text = response.text().await?;
-        println!("[DEBUG] Grades response length: {}", text.len());
+        println!("[调试] Grades 响应 length: {}", text.len());
         
         let json: Value = serde_json::from_str(&text)?;
         self.parse_grades(&json)
@@ -116,7 +116,7 @@ impl GradesModule {
             let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
             let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
             
-            println!("[DEBUG] Grades API ret={}, msg={}, results count={}", ret, msg, results.len());
+            println!("[调试] Grades API ret={}, msg={}, results count={}", ret, msg, results.len());
             
             if ret != 0 {
                 return Err(format!("成绩 API 返回错误: ret={}, msg={}", ret, msg).into());
@@ -166,7 +166,7 @@ impl GradesModule {
             });
         }
         
-        println!("[DEBUG] Parsed {} grades", grades.len());
+        println!("[调试] 已解析 {} grades", grades.len());
         Ok(grades)
     }
 

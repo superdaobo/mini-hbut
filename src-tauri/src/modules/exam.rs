@@ -1,4 +1,4 @@
-//! 📝 考试安排查询模块
+﻿//! 📝 考试安排查询模块
 //! 
 //! 本模块处理考试信息的查询。
 //! 主要功能：
@@ -62,7 +62,7 @@ impl ExamModule {
             ("xnxq", semester_value),
         ];
         
-        println!("[DEBUG] Fetching exams from: {}", exams_url);
+        println!("[调试] 获取 exams 来自: {}", exams_url);
         
         let response = self.client
             .get(&exams_url)
@@ -75,7 +75,7 @@ impl ExamModule {
         
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Exams response status: {}, URL: {}", status, final_url);
+        println!("[调试] Exams 响应 status: {}, 地址: {}", status, final_url);
         
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
@@ -92,7 +92,7 @@ impl ExamModule {
             let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
             let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
             
-            println!("[DEBUG] Exams API ret={}, msg={}, results count={}", ret, msg, results.len());
+            println!("[调试] Exams API ret={}, msg={}, results count={}", ret, msg, results.len());
             
             if ret != 0 {
                 return Err(format!("考试 API 返回错误: ret={}, msg={}", ret, msg).into());
@@ -142,7 +142,7 @@ impl ExamModule {
             });
         }
         
-        println!("[DEBUG] Parsed {} exams", exams.len());
+        println!("[调试] 已解析 {} exams", exams.len());
         Ok(exams)
     }
 }

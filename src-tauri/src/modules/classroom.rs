@@ -1,4 +1,4 @@
-//! 🏫 空教室查询模块
+﻿//! 🏫 空教室查询模块
 //! 
 //! 该模块用于查询全校的空闲教室资源。
 //! 主要功能：
@@ -153,7 +153,7 @@ impl ClassroomModule {
             params.push(("jxlmc", b.to_string()));
         }
 
-        println!("[DEBUG] Querying empty classrooms: week={}, weekday={}, periods={:?}", 
+        println!("[调试] 查询 empty classrooms: week={}, weekday={}, periods={:?}", 
             week_value, weekday_value, periods_value);
 
         let response = self.client
@@ -166,7 +166,7 @@ impl ClassroomModule {
 
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Classrooms response status: {}, URL: {}", status, final_url);
+        println!("[调试] Classrooms 响应 status: {}, 地址: {}", status, final_url);
 
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
@@ -185,7 +185,7 @@ impl ClassroomModule {
             .and_then(|v| v.as_array());
 
         if let Some(items) = items {
-            println!("[DEBUG] Found {} classrooms", items.len());
+            println!("[调试] 找到 {} classrooms", items.len());
             for item in items {
                 let classroom = Classroom {
                     name: item.get("jsmc").and_then(|v| v.as_str()).unwrap_or("").to_string(),

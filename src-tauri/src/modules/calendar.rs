@@ -1,4 +1,4 @@
-//! 📅 校历模块 - 与 Python modules/calendar.py 对应
+﻿//! 📅 校历模块 - 与 Python modules/calendar.py 对应
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ impl CalendarModule {
     pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // 优先使用日期计算的学期（更可靠）
         let calculated = Self::calculate_current_semester();
-        println!("[DEBUG] Calculated current semester: {}", calculated);
+        println!("[调试] Calculated current semester: {}", calculated);
         Ok(calculated)
     }
 
@@ -115,7 +115,7 @@ impl CalendarModule {
     pub async fn fetch_calendar(&self, semester: &str) -> Result<Vec<CalendarWeek>, Box<dyn std::error::Error + Send + Sync>> {
         let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", JWXT_BASE_URL, semester);
         
-        println!("[DEBUG] Fetching calendar from: {}", calendar_url);
+        println!("[调试] 获取 calendar 来自: {}", calendar_url);
 
         let response = self.client
             .get(&calendar_url)
@@ -125,7 +125,7 @@ impl CalendarModule {
             .await?;
 
         let status = response.status();
-        println!("[DEBUG] Calendar response status: {}", status);
+        println!("[调试] Calendar 响应 status: {}", status);
 
         if !status.is_success() {
             return Err(format!("获取校历失败: {}", status).into());
@@ -139,7 +139,7 @@ impl CalendarModule {
         let mut weeks = Vec::new();
 
         if let Some(items) = json.as_array() {
-            println!("[DEBUG] Found {} calendar weeks", items.len());
+            println!("[调试] 找到 {} calendar weeks", items.len());
             for item in items {
                 let week = item.get("zc")
                     .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))

@@ -1,3 +1,7 @@
+//! 通知模块（后台任务）。
+//!
+//! 负责后台定时任务与通知推送逻辑的初始化。
+
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::time::{sleep, Duration};
@@ -7,6 +11,7 @@ use chrono::Local;
 // Default check interval: 30 minutes
 const CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
+/// 初始化后台通知任务
 pub fn init_background_task(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         println!("[Background] Service started");

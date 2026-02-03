@@ -1,4 +1,4 @@
-//! 🏆 绩点排名查询模块 - 与 Python modules/ranking.py 对应
+﻿//! 🏆 绩点排名查询模块 - 与 Python modules/ranking.py 对应
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -59,7 +59,7 @@ impl RankingModule {
             ("xnxq", semester_value),
         ];
         
-        println!("[DEBUG] Fetching ranking from: {} with params: xh={}, sznj={}, xnxq={}", 
+        println!("[调试] 获取 ranking 来自: {} with params: xh={}, sznj={}, xnxq={}", 
             ranking_url, student_id, grade_value, semester_value);
         
         let response = self.client
@@ -72,14 +72,14 @@ impl RankingModule {
         
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[DEBUG] Ranking response status: {}, URL: {}", status, final_url);
+        println!("[调试] Ranking 响应 status: {}, 地址: {}", status, final_url);
         
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
         
         let html = response.text().await?;
-        println!("[DEBUG] Ranking HTML length: {}", html.len());
+        println!("[调试] Ranking HTML length: {}", html.len());
         
         self.parse_html(&html, student_id, semester_value)
     }
@@ -172,7 +172,7 @@ impl RankingModule {
             }
         }
 
-        println!("[DEBUG] Parsed ranking: GPA={:?}, Major={:?}/{:?}, Class={:?}/{:?}", 
+        println!("[调试] 已解析 ranking: GPA={:?}, Major={:?}/{:?}, Class={:?}/{:?}", 
             ranking.gpa, ranking.major_rank, ranking.major_total, 
             ranking.class_rank, ranking.class_total);
 

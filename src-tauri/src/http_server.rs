@@ -1,7 +1,59 @@
+//! æ¬å° HTTP Bridge æå¡ã?
+//!
+//! ç¨éï¼
+//! - æä¾ç»å¤é¨èæ?æµè¯å·¥å·è°ç¨åç«¯è½å
+//! - ç»ä¸è¿åç»æï¼ApiResponseï¼ä¸éè¯¯ç±»åï¼ApiErrorï¼?
+//! - ä»çå¬æ¬å°å°åï¼é¿åå¤é¨è®¿é?
+//!
+//! æ³¨æï¼?
+//! - è¿æ¯æµè¯æ¡¥æ¥ï¼ä¸åºæ´é²å°å¬ç½
+//! - è¿åä½åºå®ä¸º { success, data, error, time }
+
 use axum::{routing::{get, post}, Json, Router, extract::State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use serde::Deserialize;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct ApiError {
+    kind: String,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct ApiResponse<T> {
+    success: bool,
+    data: Option<T>,
+    error: Option<ApiError>,
+    time: String,
+}
+
+fn ok<T: Serialize>(data: T) -> Json<ApiResponse<T>> {
+    Json(ApiResponse {
+        success: true,
+        data: Some(data),
+        error: None,
+        time: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    })
+}
+
+/// å¤±è´¥ååºåè£
+fn err(status: StatusCode, kind: &str, message: String) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    (
+        status,
+        Json(ApiResponse {
+            success: false,
+            data: None,
+            error: Some(ApiError {
+                kind: kind.to_string(),
+                message,
+            }),
+            time: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        }),
+    )
+}
 use std::net::SocketAddr;
+use std::io::ErrorKind;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use axum::http::StatusCode;
@@ -120,11 +172,12 @@ struct AiChatRequest {
     model: String,
 }
 
+/// å¯å¨æ¬å° Bridge æå¡
 pub fn spawn_http_server(client: Arc<Mutex<HbutClient>>) {
     let state = HttpState { client };
     tauri::async_runtime::spawn(async move {
         if let Err(e) = run_http_server(state).await {
-            eprintln!("[HTTP] Server error: {}", e);
+            eprintln!("[HTTP] æå¡éè¯¯: {}", e);
         }
     });
 }
@@ -166,21 +219,28 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .with_state(state)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("[HTTP] Bridge server listening on http://{}", addr);
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(err) if err.kind() == ErrorKind::AddrInUse => {
+            eprintln!("[HTTP] ¶Ë¿ÚÒÑ±»Õ¼ÓÃ£¬ÇÅ½Ó·þÎñÎ´Æô¶¯: http://{}", addr);
+            return Ok(());
+        }
+        Err(err) => return Err(err.into()),
+    };
+    println!("[HTTP] ÇÅ½Ó·þÎñ¼àÌý: http://{}", addr);
     axum::serve(listener, app).await?;
     Ok(())
 }
 
-async fn health(State(state): State<HttpState>) -> Json<serde_json::Value> {
+async fn health(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
     let client = state.client.lock().await;
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "success": true,
         "logged_in": client.user_info.is_some()
     }))
 }
 
-async fn login(State(state): State<HttpState>, Json(req): Json<LoginRequest>) -> Result<Json<UserInfo>, (StatusCode, String)> {
+async fn login(State(state): State<HttpState>, Json(req): Json<LoginRequest>) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.login(
         &req.username,
@@ -190,45 +250,45 @@ async fn login(State(state): State<HttpState>, Json(req): Json<LoginRequest>) ->
         &req.execution.unwrap_or_default(),
     )
     .await
-    .map(Json)
-    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn restore_session(State(state): State<HttpState>, Json(req): Json<RestoreRequest>) -> Result<Json<UserInfo>, (StatusCode, String)> {
+async fn restore_session(State(state): State<HttpState>, Json(req): Json<RestoreRequest>) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.restore_session(&req.cookies)
         .await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn export_cookies(State(state): State<HttpState>) -> Json<serde_json::Value> {
+async fn export_cookies(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
     let client = state.client.lock().await;
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "success": true,
         "data": client.get_cookie_snapshot()
     }))
 }
 
-async fn import_cookies(State(state): State<HttpState>, Json(req): Json<CookieSnapshotRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn import_cookies(State(state): State<HttpState>, Json(req): Json<CookieSnapshotRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.restore_cookie_snapshot(req.code, req.auth, req.jwxt)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?;
 
     match client.fetch_user_info().await {
-        Ok(info) => Ok(Json(serde_json::json!({"success": true, "user": info}))),
-        Err(e) => Err((StatusCode::BAD_REQUEST, e.to_string()))
+        Ok(info) => Ok(ok(serde_json::json!({"success": true, "user": info}))),
+        Err(e) => Err(err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
     }
 }
 
-async fn sync_grades(State(state): State<HttpState>) -> Result<Json<Vec<Grade>>, (StatusCode, String)> {
+async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<Vec<Grade>>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_grades().await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
 
     let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
@@ -243,7 +303,7 @@ async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<serde_json
     };
 
     let (course_list, _now_week) = client.fetch_schedule().await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?;
 
     let result = serde_json::json!({
         "success": true,
@@ -259,66 +319,66 @@ async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<serde_json
         "sync_time": chrono::Local::now().to_rfc3339()
     });
 
-    Ok(Json(result))
+    Ok(ok(result))
 }
 
-async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<Vec<Exam>>, (StatusCode, String)> {
+async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<ApiResponse<Vec<Exam>>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_exams(req.semester.as_deref()).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_ranking(State(state): State<HttpState>, Json(req): Json<RankingRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_ranking(State(state): State<HttpState>, Json(req): Json<RankingRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_ranking(req.student_id.as_deref(), req.semester.as_deref()).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_student_info(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_student_info(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_student_info().await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_semesters(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_semesters(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_semesters().await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_classroom_buildings(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_classroom_buildings(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_classroom_buildings().await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_classrooms(State(state): State<HttpState>, Json(req): Json<ClassroomQueryRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_classrooms(State(state): State<HttpState>, Json(req): Json<ClassroomQueryRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_classrooms_query(req.week, req.weekday, req.periods, req.building).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_training_plan_options(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_training_plan_options(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_training_plan_options().await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_training_plan_jys(State(state): State<HttpState>, Json(req): Json<TrainingPlanJysRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_training_plan_jys(State(state): State<HttpState>, Json(req): Json<TrainingPlanJysRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_training_plan_jys(&req.yxid).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_training_plan_courses(State(state): State<HttpState>, Json(req): Json<TrainingPlanCoursesRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_training_plan_courses(State(state): State<HttpState>, Json(req): Json<TrainingPlanCoursesRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_training_plan_courses(
         req.grade,
@@ -332,64 +392,64 @@ async fn fetch_training_plan_courses(State(state): State<HttpState>, Json(req): 
         req.page,
         req.page_size,
     ).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_calendar_data(State(state): State<HttpState>, Json(req): Json<CalendarRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_calendar_data(State(state): State<HttpState>, Json(req): Json<CalendarRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_calendar_data(req.semester).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_academic_progress(State(state): State<HttpState>, Json(req): Json<AcademicProgressRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_academic_progress(State(state): State<HttpState>, Json(req): Json<AcademicProgressRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_academic_progress(req.fasz.unwrap_or(1)).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn electricity_query_location(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn electricity_query_location(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.query_electricity_location(req.payload).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn electricity_query_account(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn electricity_query_account(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.query_electricity_account(req.payload).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn fetch_transaction_history(State(state): State<HttpState>, Json(req): Json<TransactionRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn fetch_transaction_history(State(state): State<HttpState>, Json(req): Json<TransactionRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.fetch_transaction_history(&req.start_date, &req.end_date, req.page_no, req.page_size).await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn one_code_token(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn one_code_token(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.get_one_code_token().await
-        .map(Json)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
-async fn ai_init(State(state): State<HttpState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn ai_init(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     let result = std::panic::AssertUnwindSafe(client.init_ai_session())
         .catch_unwind()
         .await;
     match result {
-        Ok(Ok((token, blade_auth))) => Ok(Json(serde_json::json!({
+        Ok(Ok((token, blade_auth))) => Ok(ok(serde_json::json!({
             "success": true,
             "token": token,
             "blade_auth": blade_auth
         }))),
-        Ok(Err(e)) => Err((StatusCode::BAD_REQUEST, e.to_string())),
+        Ok(Err(e)) => Err(err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string())),
         Err(panic) => {
             let msg = if let Some(s) = panic.downcast_ref::<&str>() {
                 s.to_string()
@@ -398,37 +458,37 @@ async fn ai_init(State(state): State<HttpState>) -> Result<Json<serde_json::Valu
             } else {
                 "unknown panic".to_string()
             };
-            eprintln!("[HTTP] ai_init panic: {}", msg);
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("ai_init panic: {}", msg)))
+            eprintln!("[HTTP] AI åå§å?panic: {}", msg);
+            Err(err(StatusCode::INTERNAL_SERVER_ERROR, "ç³»ç»éè¯¯", format!("ai_init panic: {}", msg)))
         }
     }
 }
 
-async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let res = crate::modules::ai::hbut_ai_upload(req.token, req.blade_auth, req.file_content, req.file_name).await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    Ok(Json(serde_json::json!({
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?;
+    Ok(ok(serde_json::json!({
         "success": res.success,
         "link": res.link,
         "msg": res.msg
     })))
 }
 
-async fn ai_chat(State(_state): State<HttpState>, Json(req): Json<AiChatRequest>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn ai_chat(State(_state): State<HttpState>, Json(req): Json<AiChatRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let res = crate::modules::ai::hbut_ai_chat(
         req.token,
         req.blade_auth,
         req.question,
         req.upload_url.unwrap_or_default(),
         req.model,
-    ).await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    Ok(Json(serde_json::json!({"success": true, "data": res})))
+    ).await.map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?;
+    Ok(ok(serde_json::json!({"success": true, "data": res})))
 }
 
 async fn ai_chat_stream(
     State(_state): State<HttpState>,
     Json(req): Json<AiChatRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, String)> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let token = req.token;
     let blade_auth = req.blade_auth;
     let question = req.question;
@@ -444,20 +504,20 @@ async fn ai_chat_stream(
             empty_name,
         )
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?;
         final_upload_url = upload.link;
     }
 
     let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
     let mut headers = HeaderMap::new();
     if !blade_auth.is_empty() {
-        headers.insert("blade-auth", HeaderValue::from_str(&blade_auth).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?);
+        headers.insert("blade-auth", HeaderValue::from_str(&blade_auth).map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?);
     }
     headers.insert("Accept", HeaderValue::from_static("text/event-stream"));
     headers.insert("Accept-Encoding", HeaderValue::from_static("identity"));
     headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
     let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
-    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?);
+    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?);
 
     let session_id = format!("session-{}", Utc::now().timestamp_millis());
     let timestamp = Utc::now().timestamp_millis().to_string();
@@ -481,7 +541,7 @@ async fn ai_chat_stream(
         .form(&params)
         .send()
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))?;
 
     let mut stream = response.bytes_stream();
     let event_stream = async_stream::stream! {

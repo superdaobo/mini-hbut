@@ -192,8 +192,9 @@ onMounted(async () => {
 <style scoped>
 .exam-view {
   min-height: 100vh;
-  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  background: var(--ui-bg-gradient);
   padding: 20px;
+  color: var(--ui-text);
 }
 
 .view-header {
@@ -201,16 +202,18 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--ui-shadow-soft);
   margin-bottom: 16px;
 }
 
 .view-header h1 {
   font-size: 20px;
   margin: 0;
-  color: #22543d;
+  color: var(--ui-text);
+  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
 }
 
 .back-btn, .logout-btn {
@@ -223,13 +226,13 @@ onMounted(async () => {
 }
 
 .back-btn {
-  background: #c6f6d5;
-  color: #22543d;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .back-btn:hover {
-  background: #48bb78;
-  color: white;
+  background: var(--ui-primary);
+  color: #ffffff;
 }
 
 .logout-btn {
@@ -243,32 +246,36 @@ onMounted(async () => {
 }
 
 .semester-selector {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
   padding: 16px 24px;
   border-radius: 12px;
   margin-bottom: 16px;
   display: flex;
   align-items: center;
   gap: 12px;
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .semester-selector label {
   font-weight: 500;
-  color: #22543d;
+  color: var(--ui-text);
 }
 
 .semester-selector select {
   padding: 10px 16px;
   border-radius: 8px;
-  border: 2px solid #c6f6d5;
+  border: 1px solid var(--ui-surface-border);
   font-size: 14px;
   min-width: 180px;
   cursor: pointer;
+  background: var(--ui-surface);
+  color: var(--ui-text);
 }
 
 .semester-selector select:focus {
   outline: none;
-  border-color: #48bb78;
+  border-color: var(--ui-primary);
 }
 
 .view-content {
@@ -279,16 +286,18 @@ onMounted(async () => {
 .loading-state, .error-state, .empty-state {
   text-align: center;
   padding: 60px 20px;
-  background: white;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
   border-radius: 20px;
-  color: #374151;
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
   border: 4px solid #e5e7eb;
-  border-top-color: #48bb78;
+  border-top-color: var(--ui-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 16px;
@@ -306,8 +315,8 @@ onMounted(async () => {
 .error-state button {
   margin-top: 16px;
   padding: 10px 24px;
-  background: #48bb78;
-  color: white;
+  background: var(--ui-primary);
+  color: #ffffff;
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -315,26 +324,26 @@ onMounted(async () => {
 
 /* 已结束考试样式 */
 .exam-card.is-passed {
-  background: #f3f4f6;
+  background: var(--ui-surface);
   opacity: 0.8;
-  box-shadow: none;
-  border: 1px dashed #d1d5db;
+  box-shadow: var(--ui-shadow-soft);
+  border: 1px dashed var(--ui-surface-border);
 }
 
 .exam-card.is-passed .course-name {
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .exam-card.is-passed .exam-type {
-  background: #e5e7eb;
-  color: #6b7280;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .exam-status-badge {
   display: inline-block;
   padding: 4px 10px;
-  background: #9ca3af;
-  color: white;
+  background: rgba(148, 163, 184, 0.6);
+  color: #ffffff;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -348,23 +357,24 @@ onMounted(async () => {
 }
 
 .exam-card {
-  background: white;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
   padding: 20px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--ui-shadow-soft);
 }
 
 .exam-header {
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--ui-surface-border);
 }
 
 .exam-type {
   display: inline-block;
   padding: 4px 10px;
-  background: #c6f6d5;
-  color: #22543d;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -374,7 +384,7 @@ onMounted(async () => {
 .course-name {
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--ui-text);
 }
 
 .exam-details {
@@ -387,7 +397,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #4b5563;
+  color: var(--ui-muted);
   font-size: 14px;
 }
 

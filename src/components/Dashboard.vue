@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { showToast } from '../utils/toast'
-import { open } from '@tauri-apps/plugin-shell'
+import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown'
 import hbutLogo from '../assets/hbut-logo.png'
 
@@ -179,7 +179,7 @@ const openNotice = (notice) => {
 
 // 生成分享链接
 const shareLink = computed(() => {
-  return 'https://docs.qq.com/doc/DQnVTWFFFbEhNTXhx'
+  return 'https://hbut.6661111.xyz'
 })
 
 const copyShareLink = async () => {
@@ -203,11 +203,7 @@ const handleContentClick = async (e) => {
   const target = e.target.closest('a')
   if (target && target.href) {
     e.preventDefault()
-    try {
-      await open(target.href)
-    } catch (e) {
-      window.open(target.href, '_blank')
-    }
+    await openExternal(target.href)
   }
 }
 
@@ -346,7 +342,8 @@ html[data-theme='cyberpunk'] .dashboard > * {
   justify-content: space-between;
   align-items: center;
   padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   margin-bottom: 24px;
@@ -356,6 +353,11 @@ html[data-theme='cyberpunk'] .dashboard-header {
   background: rgba(10, 15, 28, 0.82);
   border: 1px solid rgba(41, 200, 224, 0.35);
   box-shadow: 0 0 18px rgba(41, 200, 224, 0.25);
+}
+
+html[data-theme='aurora'] .dashboard-header {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
 }
 
 .brand {
@@ -373,10 +375,13 @@ html[data-theme='cyberpunk'] .dashboard-header {
 .brand .title {
   font-size: 22px;
   font-weight: 700;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--ui-text);
+  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
+}
+
+html[data-theme='aurora'] .brand .title {
+  color: var(--ui-text);
+  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
 }
 
 html[data-theme='cyberpunk'] .brand .title {
@@ -439,13 +444,19 @@ html[data-theme='cyberpunk'] .brand .title {
 .notice-panel {
   margin: 0 auto 24px;
   max-width: 980px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--ui-surface);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--ui-surface-border);
   border-radius: 20px;
   padding: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+html[data-theme='aurora'] .notice-panel {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: 0 12px 28px rgba(79, 70, 229, 0.12);
 }
 
 .notice-ticker {
@@ -486,7 +497,12 @@ html[data-theme='cyberpunk'] .brand .title {
   flex: 0 0 auto;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   transition: transform 0.2s;
-  background: white; /* Fallback */
+  background: transparent; /* Fallback */
+}
+
+html[data-theme='aurora'] .ticker-item {
+  background: transparent;
+  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.18);
 }
 
 .ticker-item:hover {
@@ -518,6 +534,11 @@ html[data-theme='cyberpunk'] .brand .title {
   padding: 16px;
   color: white;
   text-align: center;
+  backdrop-filter: blur(6px);
+}
+
+html[data-theme='aurora'] .ticker-card {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .ticker-card-title {

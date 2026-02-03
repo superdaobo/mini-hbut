@@ -1,3 +1,10 @@
+﻿//! 页面解析与数据清洗模块。
+//!
+//! 负责：
+//! - 从 HTML/JSON 中提取成绩、课表、考试等结构化数据
+//! - 兼容教务系统字段不一致的问题
+//! - 处理时间/周次等格式转换
+
 use scraper::{Html, Selector};
 use serde_json::Value;
 use chrono::Datelike;
@@ -125,6 +132,7 @@ pub fn parse_user_info(html: &str) -> Result<UserInfo, Box<dyn std::error::Error
     })
 }
 
+/// 解析成绩数据
 pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
     let mut grades = Vec::new();
     
@@ -134,7 +142,7 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
         let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
         let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
         
-        println!("[DEBUG] Grades API ret={}, msg={}, results count={}", ret, msg, results.len());
+        println!("[调试] Grades API ret={}, msg={}, results count={}", ret, msg, results.len());
         
         if ret != 0 {
             return Err(format!("成绩 API 返回错误: ret={}, msg={}", ret, msg).into());
@@ -145,7 +153,7 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
         // 旧版 API 格式: {"items": [...]}
         items.clone()
     } else {
-        println!("[DEBUG] Unknown grades JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+        println!("[调试] 未知 grades JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
         return Err("成绩数据格式不正确".into());
     };
     
@@ -205,7 +213,7 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
         grades.push(grade);
     }
     
-    println!("[DEBUG] Parsed {} grades", grades.len());
+    println!("[调试] 已解析 {} grades", grades.len());
     Ok(grades)
 }
 
@@ -232,6 +240,7 @@ fn value_to_string(v: &Value) -> String {
     }
 }
 
+/// 解析课表数据
 pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
     let mut courses = Vec::new();
     
@@ -255,7 +264,7 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
         let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
         let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
         
-        println!("[DEBUG] Schedule API ret={}, msg={}, data count={}", ret, msg, data.len());
+        println!("[调试] Schedule API ret={}, msg={}, data count={}", ret, msg, data.len());
         
         if ret != 0 {
             return Err(format!("课表 API 返回错误: ret={}, msg={}", ret, msg).into());
@@ -269,7 +278,7 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
         }
         kb_list.clone()
     } else {
-        println!("[DEBUG] Unknown schedule JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+        println!("[调试] 未知 schedule JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
         return Err("课表数据格式不正确".into());
     };
     
@@ -360,7 +369,7 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
         courses.push(course);
     }
     
-    println!("[DEBUG] Parsed {} courses for current week {}", courses.len(), current_week);
+    println!("[调试] 已解析 {} courses for current week {}", courses.len(), current_week);
     Ok((courses, current_week))
 }
 
@@ -425,7 +434,7 @@ pub fn parse_exams(json: &Value) -> Result<Vec<Exam>, Box<dyn std::error::Error 
         let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
         let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
         
-        println!("[DEBUG] Exams API ret={}, msg={}, results count={}", ret, msg, results.len());
+        println!("[调试] Exams API ret={}, msg={}, results count={}", ret, msg, results.len());
         
         if ret != 0 {
             return Err(format!("考试 API 返回错误: ret={}, msg={}", ret, msg).into());
@@ -436,7 +445,7 @@ pub fn parse_exams(json: &Value) -> Result<Vec<Exam>, Box<dyn std::error::Error 
         // 旧版 API 格式
         items.clone()
     } else {
-        println!("[DEBUG] Unknown exams JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+        println!("[调试] 未知 exams JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
         return Ok(vec![]); // 考试数据可能为空，不报错
     };
     
@@ -491,7 +500,7 @@ pub fn parse_exams(json: &Value) -> Result<Vec<Exam>, Box<dyn std::error::Error 
         exams.push(exam);
     }
     
-    println!("[DEBUG] Parsed {} exams", exams.len());
+    println!("[调试] 已解析 {} exams", exams.len());
     Ok(exams)
 }
 
@@ -637,7 +646,7 @@ pub fn parse_ranking_html(html: &str, student_id: &str, semester: &str, grade: &
         }
     }
 
-    println!("[DEBUG] Parsed {} unique ranks: {:?}", unique_ranks.len(), unique_ranks);
+    println!("[调试] 已解析 {} unique ranks: {:?}", unique_ranks.len(), unique_ranks);
 
     // GPA 排名 (学院、专业、班级)
     if unique_ranks.len() >= 3 {

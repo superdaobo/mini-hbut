@@ -25,6 +25,11 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
     proxy: {
+      '/bridge': {
+        target: 'http://127.0.0.1:4399',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/bridge/, '')
+      },
       '/font/deyihei.ttf': {
         target: 'https://raw.gitcode.com',
         changeOrigin: true,

@@ -1,4 +1,4 @@
-//! ⚡ 电费查询模块 - 与 Python modules/electricity.py 对应
+﻿//! ⚡ 电费查询模块 - 与 Python modules/electricity.py 对应
 //!
 //! 主要职责:
 //! 1. 封装 Fusion Portal (能耗系统) 的 API。
@@ -65,7 +65,7 @@ impl ElectricityModule {
         let token = self.auth_token.as_ref()
             .ok_or("未设置电费查询授权 Token")?;
         
-        println!("[DEBUG] Querying electricity location: {}", url);
+        println!("[调试] 查询 electricity location: {}", url);
 
         let response = self.client
             .post(&url)
@@ -88,8 +88,8 @@ impl ElectricityModule {
         let token = self.auth_token.as_ref()
             .ok_or("未设置电费查询授权 Token")?;
         
-        println!("[DEBUG] Querying electricity account: {}", url);
-        println!("[DEBUG] Payload: {}", payload);
+        println!("[调试] 查询 electricity account: {}", url);
+        println!("[调试] Payload: {}", payload);
 
         let response = self.client
             .post(&url)
@@ -102,7 +102,7 @@ impl ElectricityModule {
             .await?;
 
         let status = response.status();
-        println!("[DEBUG] Electricity account response status: {}", status);
+        println!("[调试] Electricity account 响应 status: {}", status);
 
         if !status.is_success() {
             return Ok(ElectricityBalance {
