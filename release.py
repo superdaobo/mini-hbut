@@ -28,6 +28,7 @@ EXCLUDE_GLOBS = [
 ]
 EXCLUDE_DIRS = [
     "tools",
+    "src-tauri\exports",
 ]
 
 def collect_excluded_paths() -> list:

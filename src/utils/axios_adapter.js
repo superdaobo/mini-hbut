@@ -1,21 +1,81 @@
-﻿import { invoke } from '@tauri-apps/api/core';
+﻿import { invoke, isTauri } from '@tauri-apps/api/core';
 
-const hasTauri = typeof window !== 'undefined' && window.__TAURI__ && typeof window.__TAURI__.invoke === 'function';
-const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge';
+const detectTauri = () => {
+    try {
+        if (typeof isTauri === 'function' && isTauri()) {
+            return true;
+        }
+    } catch (e) {
+        // ignore
+    }
+    if (typeof window === 'undefined') return false;
+    if (window.__TAURI__ || window.__TAURI_INTERNALS__) return true;
+    const protocol = window.location?.protocol || '';
+    if (protocol === 'tauri:') return true;
+    const host = window.location?.hostname || '';
+    if (host === 'tauri.localhost') return true;
+    return false;
+};
 
+const hasTauri = detectTauri();
+const LOCAL_BRIDGE = 'http://127.0.0.1:4399';
+const BRIDGE_BASE = hasTauri ? LOCAL_BRIDGE : '/bridge';
+
+const looksLikeJson = (contentType, text) => {
+    if (contentType.includes('application/json')) return true;
+    const trimmed = (text || '').trim();
+    return trimmed.startsWith('{') || trimmed.startsWith('[');
+};
+
+const looksLikeHtml = (contentType, text) => {
+    if (contentType.includes('text/html')) return true;
+    const trimmed = (text || '').trim().toLowerCase();
+    return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html');
+};
+
+const parseJsonSafely = (text) => {
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        return null;
+    }
+};
+
+const fetchBridgeJson = async (url, options = {}, fallbackUrl = null) => {
+    try {
+        const res = await fetch(url, options);
+        const contentType = res.headers.get('content-type') || '';
+        const text = await res.text();
+        if (looksLikeJson(contentType, text)) {
+            const parsed = parseJsonSafely(text);
+            if (parsed !== null) return parsed;
+        }
+        if (fallbackUrl && looksLikeHtml(contentType, text)) {
+            return fetchBridgeJson(fallbackUrl, options, null);
+        }
+        return { success: false, error: `非JSON响应: ${text.slice(0, 200)}` };
+    } catch (err) {
+        if (fallbackUrl) {
+            return fetchBridgeJson(fallbackUrl, options, null);
+        }
+        return { success: false, error: `请求失败: ${err?.message || err}` };
+    }
+};
 
 const bridgePost = async (path, payload = {}) => {
-    const res = await fetch(`${BRIDGE_BASE}${path}`, {
+    const url = `${BRIDGE_BASE}${path}`;
+    const fallbackUrl = hasTauri ? null : `${LOCAL_BRIDGE}${path}`;
+    return fetchBridgeJson(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
-    });
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-        const text = await res.text();
-        return { success: false, error: `非JSON响应: ${text.slice(0, 200)}` };
-    }
-    return res.json();
+    }, fallbackUrl);
+};
+
+const bridgeGet = async (path) => {
+    const url = `${BRIDGE_BASE}${path}`;
+    const fallbackUrl = hasTauri ? null : `${LOCAL_BRIDGE}${path}`;
+    return fetchBridgeJson(url, { method: 'GET' }, fallbackUrl);
 };
 
 const unwrapBridge = (payload) => {
@@ -89,8 +149,7 @@ const adapter = {
             if (url.includes('/v2/qxzkb/options')) {
                 try {
                     if (!hasTauri) {
-                        const res = await fetch(`${BRIDGE_BASE}/qxzkb/options`);
-                        const payload = await res.json();
+                        const payload = await bridgeGet('/qxzkb/options');
                         return mockResponse(unwrapBridge(payload));
                     }
                     const options = await invoke('fetch_qxzkb_options');
@@ -619,5 +678,6 @@ const axiosInstance = {
 };
 
 export default axiosInstance;
+
 
 
