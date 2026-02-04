@@ -10,6 +10,11 @@ const bridgePost = async (path, payload = {}) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || {})
     });
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        const text = await res.text();
+        return { success: false, error: `非JSON响应: ${text.slice(0, 200)}` };
+    }
     return res.json();
 };
 
