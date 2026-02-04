@@ -257,6 +257,14 @@ const adapter = {
                 return mockResponse({ success: true, ...schedule });
             }
 
+            if (url.includes('/v2/schedule/export_calendar')) {
+                const res = await bridgePost('/export_schedule_calendar', data || {});
+                if (res?.success && res?.data) {
+                    return mockResponse({ success: true, ...res.data });
+                }
+                return mockResponse({ success: false, error: res?.error?.message || res?.error || '导出日历失败' });
+            }
+
             // ========== 考试相关 ==========
 
             if (url.includes('/v2/exams')) {

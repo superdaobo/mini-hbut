@@ -470,59 +470,101 @@ impl HbutClient {
             }
 
             if within_ttl {
-                // 验证 token 有效性
+                // 验证 token 有效性（优先使用官方 App 走的接口）
                 println!("[调试] 检查电费令牌有效性...");
-                let check_url = "https://code.hbut.edu.cn/server/auth/getLoginUser";
-                let check_resp = self.client.get(check_url)
-                    .header("Authorization", token)
-                    .header("Origin", "https://code.hbut.edu.cn")
-                    .header("Referer", "https://code.hbut.edu.cn/")
-                    .send()
-                    .await;
+                let mut invalid = false;
+                let mut uncertain = false;
+                let check_endpoints = vec![
+                    ("POST", "https://code.hbut.edu.cn/server/user/info"),
+                    ("GET", "https://code.hbut.edu.cn/server/auth/getLoginUser"),
+                    ("GET", "https://code.hbut.edu.cn/server/auth/getUserInfo"),
+                ];
 
-                if let Ok(resp) = check_resp {
-                    let status = resp.status();
-                    let text = resp.text().await.unwrap_or_default();
-                    let text_lower = text.to_lowercase();
-                    let is_ip_freeze = text.contains("IP冻结") || text.contains("ip-freeze");
-                    let looks_like_login = text_lower.contains("unauthorized")
-                        || text_lower.contains("login")
-                        || text.contains("未登录")
-                        || text.contains("统一身份认证");
+                for (method, check_url) in check_endpoints {
+                    let request = if method == "POST" {
+                        self.client.post(check_url)
+                            .header("Content-Type", "application/json")
+                            .body("")
+                    } else {
+                        self.client.get(check_url)
+                    };
 
-                    if status.is_success() {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                            if json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-                                println!("[调试] 缓存电费令牌有效");
+                    let check_resp = request
+                        .header("Authorization", token)
+                        .header("token", token)
+                        .header("Accept", "*/*")
+                        .header("Origin", "https://code.hbut.edu.cn")
+                        .header("Referer", "https://code.hbut.edu.cn/")
+                        .send()
+                        .await;
+
+                    if let Ok(resp) = check_resp {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_default();
+                        let text_lower = text.to_lowercase();
+                        let is_ip_freeze = text.contains("IP冻结") || text.contains("ip-freeze");
+                        let looks_like_login = text_lower.contains("unauthorized")
+                            || text_lower.contains("login")
+                            || text.contains("未登录")
+                            || text.contains("统一身份认证");
+
+                        if status.is_success() {
+                            if is_ip_freeze {
+                                println!("[警告] 令牌校验被 IP 冻结阻断, 保留缓存令牌");
                                 return Ok(token.clone());
                             }
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                                let success = json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                                if success || json.get("data").is_some() || json.get("resultData").is_some() {
+                                    println!("[调试] 缓存电费令牌有效");
+                                    return Ok(token.clone());
+                                }
+                            } else if !looks_like_login && !text.trim().is_empty() {
+                                println!("[调试] 缓存电费令牌有效（非标准响应）");
+                                return Ok(token.clone());
+                            }
+                            println!("[警告] 令牌校验未通过（{}），准备刷新", status);
+                            invalid = true;
+                            break;
                         } else if is_ip_freeze {
                             println!("[警告] 令牌校验被 IP 冻结阻断, 保留缓存令牌");
                             return Ok(token.clone());
+                        } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN || looks_like_login {
+                            println!("[警告] 令牌校验失败，状态 {}, 将尝试刷新", status);
+                            invalid = true;
+                            break;
+                        } else if status == StatusCode::NOT_FOUND {
+                            uncertain = true;
+                            continue;
+                        } else if status.is_server_error() {
+                            uncertain = true;
+                            continue;
+                        } else if !text.trim().is_empty() {
+                            println!("[警告] 令牌校验异常响应（状态 {}），准备刷新", status);
+                            invalid = true;
+                            break;
+                        } else {
+                            uncertain = true;
+                            continue;
                         }
-                        println!("[警告] 令牌校验未通过，准备刷新");
-                    } else if is_ip_freeze {
-                        println!("[警告] 令牌校验被 IP 冻结阻断, 保留缓存令牌");
-                        return Ok(token.clone());
-                    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN || looks_like_login {
-                        println!("[警告] 令牌校验失败，状态 {}, 将尝试刷新", status);
-                    } else if status.is_server_error() {
-                        println!("[警告] 令牌校验服务异常 {}，保留缓存令牌", status);
-                        return Ok(token.clone());
-                    } else if !text.trim().is_empty() {
-                        println!("[警告] 令牌校验异常响应（状态 {}），准备刷新", status);
                     } else {
-                        println!("[警告] 令牌校验失败，状态 {}，准备刷新", status);
+                        uncertain = true;
+                        continue;
                     }
-                } else {
-                    println!("[警告] 令牌校验请求失败，保留缓存令牌");
+                }
+
+                if !invalid && uncertain {
+                    println!("[警告] 令牌校验结果不确定，保留缓存令牌");
                     return Ok(token.clone());
                 }
-                println!("[调试] 缓存电费令牌无效或过期");
-                self.electricity_token = None;
-                self.electricity_token_at = None;
-                self.electricity_token_expires_at = None;
-                token_expiring = true;
+
+                if invalid {
+                    println!("[调试] 缓存电费令牌无效或过期");
+                    self.electricity_token = None;
+                    self.electricity_token_at = None;
+                    self.electricity_token_expires_at = None;
+                    token_expiring = true;
+                }
             }
         }
 

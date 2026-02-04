@@ -9,8 +9,11 @@
 //! - è¿æ¯æµè¯æ¡¥æ¥ï¼ä¸åºæ´é²å°å¬ç½
 //! - è¿åä½åºå®ä¸º { success, data, error, time }
 
-use axum::{routing::{get, post}, Json, Router, extract::State, extract::Query};
+use axum::{routing::{get, post}, Json, Router, extract::State, extract::Query, extract::Path};
 use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
+use axum::body::Body;
+use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -234,6 +237,23 @@ struct CalendarRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ScheduleExportRequest {
+    student_id: Option<String>,
+    semester: Option<String>,
+    week: Option<i32>,
+    events: Vec<ScheduleExportEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScheduleExportEvent {
+    summary: String,
+    start: String,
+    end: String,
+    description: Option<String>,
+    location: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct AcademicProgressRequest {
     fasz: Option<i32>,
 }
@@ -331,6 +351,8 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/fetch_training_plan_courses", post(fetch_training_plan_courses))
         .route("/fetch_calendar_data", post(fetch_calendar_data))
         .route("/fetch_academic_progress", post(fetch_academic_progress))
+        .route("/export_schedule_calendar", post(export_schedule_calendar))
+        .route("/exports/:filename", get(download_export))
         .route("/cache/get", get(cache_get))
         .route("/qxzkb/options", get(fetch_qxzkb_options))
         .route("/qxzkb/jcinfo", post(fetch_qxzkb_jcinfo))
@@ -459,6 +481,152 @@ async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<ApiRespons
     });
 
     Ok(ok(result))
+}
+
+fn sanitize_filename_part(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>()
+}
+
+fn escape_ics_text(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace("\r\n", "\\n")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
+        return Some(dt.naive_local());
+    }
+    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S").ok()
+        .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
+}
+
+fn export_dir() -> std::path::PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("exports")
+}
+
+fn export_base_url(headers: &HeaderMap) -> String {
+    if let Ok(base) = std::env::var("HBUT_PUBLIC_BASE") {
+        if !base.trim().is_empty() {
+            return base.trim_end_matches('/').to_string();
+        }
+    }
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("http");
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get("host"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("127.0.0.1:4399");
+    format!("{}://{}", scheme, host)
+}
+
+async fn export_schedule_calendar(
+    State(_state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<ScheduleExportRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if req.events.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "没有可导出的课程数据".to_string()));
+    }
+
+    let export_root = export_dir();
+    if let Err(e) = std::fs::create_dir_all(&export_root) {
+        return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("创建导出目录失败: {}", e)));
+    }
+
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let sid = sanitize_filename_part(req.student_id.as_deref().unwrap_or("student"));
+    let semester = sanitize_filename_part(req.semester.as_deref().unwrap_or("semester"));
+    let week = req.week.unwrap_or(0);
+    let filename = format!("schedule_{}_{}_w{}_{}.ics", sid, semester, week, ts);
+    let file_path = export_root.join(&filename);
+
+    let mut ics = String::new();
+    ics.push_str("BEGIN:VCALENDAR\r\n");
+    ics.push_str("VERSION:2.0\r\n");
+    ics.push_str("CALSCALE:GREGORIAN\r\n");
+    ics.push_str("METHOD:PUBLISH\r\n");
+    ics.push_str("X-WR-CALNAME:HBUT 课表\r\n");
+    ics.push_str("X-WR-TIMEZONE:Asia/Shanghai\r\n");
+    ics.push_str("PRODID:-//Mini-HBUT//Schedule Export//CN\r\n");
+
+    let dtstamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    for (idx, ev) in req.events.iter().enumerate() {
+        let start = match parse_ics_datetime(&ev.start) {
+            Some(v) => v,
+            None => continue,
+        };
+        let end = match parse_ics_datetime(&ev.end) {
+            Some(v) => v,
+            None => continue,
+        };
+        let summary = escape_ics_text(ev.summary.as_str());
+        let desc = ev.description.as_deref().map(escape_ics_text);
+        let location = ev.location.as_deref().map(escape_ics_text);
+        let uid = format!("hbut-{}-{}@mini-hbut", ts, idx);
+
+        ics.push_str("BEGIN:VEVENT\r\n");
+        ics.push_str(&format!("UID:{}\r\n", uid));
+        ics.push_str(&format!("DTSTAMP:{}\r\n", dtstamp));
+        ics.push_str(&format!("DTSTART;TZID=Asia/Shanghai:{}\r\n", start.format("%Y%m%dT%H%M%S")));
+        ics.push_str(&format!("DTEND;TZID=Asia/Shanghai:{}\r\n", end.format("%Y%m%dT%H%M%S")));
+        ics.push_str(&format!("SUMMARY:{}\r\n", summary));
+        if let Some(desc) = desc {
+            ics.push_str(&format!("DESCRIPTION:{}\r\n", desc));
+        }
+        if let Some(location) = location {
+            ics.push_str(&format!("LOCATION:{}\r\n", location));
+        }
+        ics.push_str("END:VEVENT\r\n");
+    }
+    ics.push_str("END:VCALENDAR\r\n");
+
+    if let Err(e) = std::fs::write(&file_path, ics) {
+        return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("写入导出文件失败: {}", e)));
+    }
+
+    let base = export_base_url(&headers);
+    let url = format!("{}/exports/{}", base.trim_end_matches('/'), filename);
+    let payload = serde_json::json!({
+        "success": true,
+        "url": url,
+        "filename": filename,
+        "count": req.events.len()
+    });
+    Ok(ok(payload))
+}
+
+async fn download_export(Path(filename): Path<String>) -> impl IntoResponse {
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return (StatusCode::BAD_REQUEST, "invalid filename").into_response();
+    }
+    let file_path = export_dir().join(&filename);
+    if !file_path.exists() {
+        return (StatusCode::NOT_FOUND, "file not found").into_response();
+    }
+    let bytes = match tokio::fs::read(&file_path).await {
+        Ok(bytes) => bytes,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "read error").into_response(),
+    };
+    let mut resp = Response::new(Body::from(bytes));
+    resp.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/calendar; charset=utf-8"));
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        resp.headers_mut().insert(CONTENT_DISPOSITION, value);
+    }
+    resp
 }
 
 async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {

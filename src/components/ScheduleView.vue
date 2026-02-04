@@ -25,6 +25,12 @@ const showDetail = ref(false)
 const selectedCourse = ref(null)
 const offline = ref(false)
 const syncTime = ref('')
+const showMenu = ref(false)
+const exporting = ref(false)
+const exportingMode = ref('')
+const exportUrl = ref('')
+const exportError = ref('')
+const exportCopied = ref(false)
 
 const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
 
@@ -68,9 +74,14 @@ const weekDates = computed(() => {
   for (let i = 0; i < 7; i++) {
     const d = new Date(start)
     d.setDate(start.getDate() + i)
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
     dates.push({
+      year: yyyy,
       month: d.getMonth() + 1,
       date: d.getDate(),
+      iso: `${yyyy}-${mm}-${dd}`,
       dayLabel: weekDays[i],
       isToday: d.toDateString() === today.toDateString()
     })
@@ -208,6 +219,54 @@ const processScheduleData = (courses) => {
   return courses
 }
 
+const mergeDailyCourses = (dailyCourses, applyColor = true) => {
+  if (!dailyCourses.length) return []
+  const merged = []
+  let i = 0
+
+  while (i < dailyCourses.length) {
+    const current = dailyCourses[i]
+    const startPeriod = current.period
+    let endPeriod = current.period
+
+    let j = i + 1
+    while (j < dailyCourses.length) {
+      const next = dailyCourses[j]
+      if (next.name === current.name && next.period <= endPeriod + 1) {
+        endPeriod = Math.max(endPeriod, next.period)
+        j++
+      } else {
+        break
+      }
+    }
+
+    const span = endPeriod - startPeriod + 1
+    merged.push({
+      ...current,
+      djs: span
+    })
+    i = j
+  }
+
+  if (applyColor) {
+    let lastColorIndex = -1
+    merged.forEach(course => {
+      let hash = 0
+      for (let k = 0; k < course.name.length; k++) {
+        hash = course.name.charCodeAt(k) + ((hash << 5) - hash)
+      }
+      let colorIndex = Math.abs(hash) % courseThemes.length
+      if (colorIndex === lastColorIndex) {
+        colorIndex = (colorIndex + 1) % courseThemes.length
+      }
+      course.colorIndex = colorIndex
+      lastColorIndex = colorIndex
+    })
+  }
+
+  return merged
+}
+
 // 获取某一天的所有课程（并在此处合并）
 const getCoursesForDay = (dayIndex) => { 
   // 1. 过滤出本周课程
@@ -218,59 +277,26 @@ const getCoursesForDay = (dayIndex) => {
   
   // 2. 排序（按节次）
   dailyCourses.sort((a, b) => a.period - b.period)
-  
-  // 3. 新的合并逻辑：完全忽略 API 的 djs，通过统计连续记录计算实际跨度
-  const merged = []
-  let i = 0
-  
-  while (i < dailyCourses.length) {
-    const current = dailyCourses[i]
-    const startPeriod = current.period
-    let endPeriod = current.period
-    
-    // 查找同一门课的所有连续记录
-    let j = i + 1
-    while (j < dailyCourses.length) {
-      const next = dailyCourses[j]
-      // 同一门课（名字相同）且节次连续（差1）或重叠
-      if (next.name === current.name && next.period <= endPeriod + 1) {
-        endPeriod = Math.max(endPeriod, next.period)
-        j++
-      } else {
-        break
-      }
-    }
-    
-    // 计算实际跨度
-    const span = endPeriod - startPeriod + 1
-    
-    merged.push({
-      ...current,
-      djs: span // 使用计算的跨度，而非 API 的 djs
-    })
-    
-    i = j // 跳过已处理的记录
-  }
-  
-  // 4. 分配颜色：确保相邻课程颜色不同
-  let lastColorIndex = -1
-  
-  merged.forEach(course => {
-    let hash = 0
-    for (let k = 0; k < course.name.length; k++) {
-        hash = course.name.charCodeAt(k) + ((hash << 5) - hash)
-    }
-    let colorIndex = Math.abs(hash) % courseThemes.length
-    
-    if (colorIndex === lastColorIndex) {
-        colorIndex = (colorIndex + 1) % courseThemes.length
-    }
-    
-    course.colorIndex = colorIndex
-    lastColorIndex = colorIndex
+
+  return mergeDailyCourses(dailyCourses, true)
+}
+
+const getCoursesForDayAndWeek = (dayIndex, weekNumber) => {
+  const dailyCourses = scheduleData.value.filter(course => {
+    return course.weekday === dayIndex && course.weeks.includes(weekNumber)
   })
-  
-  return merged
+  dailyCourses.sort((a, b) => a.period - b.period)
+  return mergeDailyCourses(dailyCourses, false)
+}
+
+const getDateForWeekDay = (weekNumber, weekday) => {
+  if (!startDateStr.value) return null
+  const base = new Date(startDateStr.value)
+  base.setDate(base.getDate() + (weekNumber - 1) * 7 + (weekday - 1))
+  const yyyy = base.getFullYear()
+  const mm = String(base.getMonth() + 1).padStart(2, '0')
+  const dd = String(base.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
 }
 
 const getCourseStyle = (course) => {
@@ -342,6 +368,159 @@ const jumpToCurrentWeek = () => {
   }
 }
 
+const toggleMenu = () => {
+  showMenu.value = !showMenu.value
+  if (!showMenu.value) {
+    exportCopied.value = false
+  }
+}
+
+const buildExportEventsForWeek = (weekNumber) => {
+  const events = []
+  if (!startDateStr.value) return events
+
+  for (let day = 1; day <= 7; day++) {
+    const iso = getDateForWeekDay(weekNumber, day)
+    if (!iso) continue
+    const courses = getCoursesForDayAndWeek(day, weekNumber)
+    courses.forEach(course => {
+      const startPeriod = course.period
+      const span = course.djs || 1
+      const endPeriod = startPeriod + span - 1
+      const startSlot = timeSchedule.find(t => t.p === startPeriod)
+      const endSlot = timeSchedule.find(t => t.p === endPeriod)
+      if (!startSlot || !endSlot) return
+
+      const start = `${iso}T${startSlot.start}:00`
+      const end = `${iso}T${endSlot.end}:00`
+      const room = course.room_code || course.room || ''
+      const location = [course.building, room].filter(Boolean).join(' ')
+      const timeLabel = `第${weekNumber}周 周${day} 第${startPeriod}-${endPeriod}节 ${startSlot.start}-${endSlot.end}`
+      const description = `时间: ${timeLabel}\n地点: ${location || '未标注'}`
+
+      events.push({
+        summary: course.name,
+        description,
+        location: location || undefined,
+        start,
+        end
+      })
+    })
+  }
+  return events
+}
+
+const buildExportEventsForSemester = () => {
+  const events = []
+  if (!startDateStr.value) return events
+  const maxWeek = scheduleData.value.reduce((acc, course) => {
+    const maxCourseWeek = Array.isArray(course.weeks) ? Math.max(...course.weeks) : 0
+    return Math.max(acc, maxCourseWeek)
+  }, 0)
+  const totalWeeks = maxWeek || 25
+  const seen = new Set()
+
+  for (let week = 1; week <= totalWeeks; week++) {
+    for (let day = 1; day <= 7; day++) {
+      const iso = getDateForWeekDay(week, day)
+      if (!iso) continue
+      const courses = getCoursesForDayAndWeek(day, week)
+      courses.forEach(course => {
+        const startPeriod = course.period
+        const span = course.djs || 1
+        const endPeriod = startPeriod + span - 1
+        const startSlot = timeSchedule.find(t => t.p === startPeriod)
+        const endSlot = timeSchedule.find(t => t.p === endPeriod)
+        if (!startSlot || !endSlot) return
+        const start = `${iso}T${startSlot.start}:00`
+        const end = `${iso}T${endSlot.end}:00`
+        const room = course.room_code || course.room || ''
+        const location = [course.building, room].filter(Boolean).join(' ')
+        const timeLabel = `第${week}周 周${day} 第${startPeriod}-${endPeriod}节 ${startSlot.start}-${endSlot.end}`
+        const description = `时间: ${timeLabel}\n地点: ${location || '未标注'}`
+        const key = `${course.name}|${start}|${end}|${location}`
+        if (seen.has(key)) return
+        seen.add(key)
+        events.push({
+          summary: course.name,
+          description,
+          location: location || undefined,
+          start,
+          end
+        })
+      })
+    }
+  }
+  return events
+}
+
+const exportCalendar = async (mode = 'week') => {
+  exportError.value = ''
+  exportUrl.value = ''
+  exportCopied.value = false
+  if (exporting.value) return
+  if (!props.studentId) {
+    exportError.value = '请先登录后再导出'
+    return
+  }
+  if (!startDateStr.value) {
+    exportError.value = '缺少学期开始日期，暂无法导出'
+    return
+  }
+  exportingMode.value = mode
+  const events = mode === 'semester'
+    ? buildExportEventsForSemester()
+    : buildExportEventsForWeek(selectedWeek.value)
+  if (!events.length) {
+    exportError.value = '当前周暂无可导出的课表数据'
+    return
+  }
+  exporting.value = true
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/export_calendar`, {
+      student_id: props.studentId,
+      semester: semester.value,
+      week: selectedWeek.value,
+      events
+    })
+    if (res.data?.success) {
+      exportUrl.value = res.data.url || ''
+      if (!exportUrl.value) {
+        exportError.value = '导出成功但未返回链接'
+      }
+    } else {
+      exportError.value = res.data?.error || '导出失败'
+    }
+  } catch (e) {
+    exportError.value = e.response?.data?.error || e.message || '导出失败'
+  } finally {
+    exporting.value = false
+    exportingMode.value = ''
+  }
+}
+
+const copyExportUrl = async () => {
+  if (!exportUrl.value) return
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(exportUrl.value)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = exportUrl.value
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    exportCopied.value = true
+    setTimeout(() => { exportCopied.value = false }, 2000)
+  } catch (e) {
+    exportError.value = '复制失败，请手动复制'
+  }
+}
+
 onMounted(() => {
   applyCachedWeek()
   fetchSchedule()
@@ -352,7 +531,11 @@ onMounted(() => {
   <div class="schedule-view" @touchstart="handleTouchStart" @touchend="handleTouchEnd">
     <!-- 头部导航 -->
     <div class="schedule-topbar">
-      <button class="back-btn btn-ripple" @click="handleBack">返回</button>
+      <button class="menu-btn btn-ripple" @click="toggleMenu" aria-label="打开课表菜单">
+        <span class="menu-bar"></span>
+        <span class="menu-bar"></span>
+        <span class="menu-bar"></span>
+      </button>
       <div class="week-selector">
         <select v-model="selectedWeek">
           <option disabled value="0">请选择周次</option>
@@ -361,6 +544,35 @@ onMounted(() => {
         <span class="arrow">▼</span>
       </div>
     </div>
+
+    <Transition name="drawer-fade">
+      <div v-if="showMenu" class="drawer-overlay" @click="showMenu = false"></div>
+    </Transition>
+    <Transition name="drawer-slide">
+      <aside v-if="showMenu" class="drawer-panel" @click.stop>
+        <div class="drawer-title">课表工具</div>
+        <div class="drawer-actions">
+          <button class="drawer-action" :disabled="exporting" @click="exportCalendar('week')">
+            {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
+          </button>
+          <button class="drawer-action ghost" :disabled="exporting" @click="exportCalendar('semester')">
+            {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
+          </button>
+        </div>
+        <div class="drawer-tip">生成后复制链接，用浏览器打开即可导入手机日历</div>
+
+        <div v-if="exportUrl" class="export-result">
+          <div class="export-label">本地导入链接</div>
+          <div class="export-row">
+            <input class="export-input" type="text" :value="exportUrl" readonly />
+            <button class="export-copy" @click="copyExportUrl">复制</button>
+          </div>
+          <div v-if="exportCopied" class="export-copied">已复制链接</div>
+        </div>
+
+        <div v-if="exportError" class="export-error">{{ exportError }}</div>
+      </aside>
+    </Transition>
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -498,14 +710,32 @@ onMounted(() => {
   border-bottom: 1px solid var(--ui-surface-border);
 }
 
-.schedule-topbar .back-btn {
-  border: none;
+.schedule-topbar .menu-btn {
+  width: 36px;
+  height: 32px;
+  border: 1px solid var(--ui-surface-border);
   border-radius: 10px;
-  padding: 8px 14px;
-  font-weight: 600;
+  background: var(--ui-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   cursor: pointer;
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
+  box-shadow: var(--ui-shadow-soft);
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.schedule-topbar .menu-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--ui-shadow-strong);
+}
+
+.menu-bar {
+  width: 16px;
+  height: 2px;
+  background: var(--ui-text);
+  border-radius: 2px;
 }
 
 .week-selector {
@@ -540,6 +770,142 @@ onMounted(() => {
   font-size: 10px;
   color: var(--ui-muted);
   pointer-events: none;
+}
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+}
+
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: min(78vw, 320px);
+  height: 100vh;
+  background: var(--ui-surface);
+  border-right: 1px solid var(--ui-surface-border);
+  padding: 18px 16px;
+  box-shadow: 12px 0 24px rgba(15, 23, 42, 0.16);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.drawer-action {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, var(--ui-primary), #22d3ee);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.22);
+}
+
+.drawer-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.drawer-action.ghost {
+  background: #111827;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+}
+
+.drawer-action:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.drawer-tip {
+  font-size: 12px;
+  color: var(--ui-muted);
+  line-height: 1.5;
+}
+
+.export-result {
+  padding: 10px;
+  background: rgba(248, 250, 252, 0.85);
+  border-radius: 12px;
+  border: 1px solid var(--ui-surface-border);
+}
+
+.export-label {
+  font-size: 12px;
+  color: var(--ui-muted);
+  margin-bottom: 6px;
+}
+
+.export-row {
+  display: flex;
+  gap: 8px;
+}
+
+.export-input {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-surface-border);
+  font-size: 12px;
+  color: var(--ui-text);
+  background: white;
+}
+
+.export-copy {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: none;
+  background: #111827;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.export-copied {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #059669;
+  font-weight: 600;
+}
+
+.export-error {
+  font-size: 12px;
+  color: #dc2626;
+  background: #fff1f2;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #fecdd3;
+}
+
+.drawer-fade-enter-active,
+.drawer-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.drawer-fade-enter-from,
+.drawer-fade-leave-to {
+  opacity: 0;
+}
+
+.drawer-slide-enter-active,
+.drawer-slide-leave-active {
+  transition: transform 0.25s ease;
+}
+
+.drawer-slide-enter-from,
+.drawer-slide-leave-to {
+  transform: translateX(-100%);
 }
 
 /* 日期头 */
@@ -897,6 +1263,8 @@ onMounted(() => {
   }
 }
 </style>
+
+
 
 
 

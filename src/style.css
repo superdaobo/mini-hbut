@@ -18,6 +18,11 @@
   --ui-success: #10b981;
   --ui-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.12);
   --ui-shadow-strong: 0 20px 45px rgba(15, 23, 42, 0.18);
+  --ui-back-btn-bg: rgba(255, 255, 255, 0.95);
+  --ui-back-btn-text: #0f172a;
+  --ui-back-btn-border: rgba(15, 23, 42, 0.16);
+  --ui-back-btn-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  --ui-back-btn-hover-bg: #ffffff;
   --ui-neon-cyan: #29c8e0;
   --ui-neon-pink: #b74cc0;
   --ui-neon-purple: rgba(110, 44, 193, 0.85);
@@ -588,4 +593,15 @@ h3 {
   color: var(--ui-primary);
   font-weight: 600;
   cursor: pointer;
+}
+
+.back-btn {
+  background: var(--ui-back-btn-bg) !important;
+  color: var(--ui-back-btn-text) !important;
+  border: 1px solid var(--ui-back-btn-border) !important;
+  box-shadow: var(--ui-back-btn-shadow) !important;
+}
+
+.back-btn:hover {
+  background: var(--ui-back-btn-hover-bg) !important;
 }
