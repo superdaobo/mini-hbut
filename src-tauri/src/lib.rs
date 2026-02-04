@@ -176,6 +176,23 @@ pub struct CalendarEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleExportEvent {
+    pub summary: String,
+    pub start: String,
+    pub end: String,
+    pub description: Option<String>,
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleExportRequest {
+    pub student_id: Option<String>,
+    pub semester: Option<String>,
+    pub week: Option<i32>,
+    pub events: Vec<ScheduleExportEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QxzkbQuery {
     pub xnxq: String,
     pub xqid: Option<String>,
@@ -421,6 +438,37 @@ async fn restore_session(
 }
 
 #[tauri::command]
+async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
+    let session = db::get_latest_user_session(DB_FILENAME)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "无可用的历史会话".to_string())?;
+
+    if session.cookies.trim().is_empty() {
+        return Err("历史会话缺少 cookies".to_string());
+    }
+
+    let mut client = state.client.lock().await;
+    let user_info = client.restore_session(&session.cookies).await.map_err(|e| e.to_string())?;
+
+    if !session.password.is_empty() {
+        client.set_credentials(user_info.student_id.clone(), session.password);
+    }
+    if !session.one_code_token.is_empty() {
+        let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
+            .ok()
+            .map(|dt| dt.with_timezone(&chrono::Utc));
+        let refresh = if session.refresh_token.trim().is_empty() {
+            None
+        } else {
+            Some(session.refresh_token)
+        };
+        client.set_electricity_session(session.one_code_token, refresh, expires_at);
+    }
+
+    Ok(user_info)
+}
+
+#[tauri::command]
 async fn get_cookies(state: State<'_, AppState>) -> Result<String, String> {
     let client = state.client.lock().await;
     Ok(client.get_cookies())
@@ -545,6 +593,118 @@ async fn get_schedule_local(student_id: String) -> Result<Option<serde_json::Val
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+fn sanitize_filename_part(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>()
+}
+
+fn escape_ics_text(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(',', "\\,")
+        .replace("\r\n", "\\n")
+        .replace('\n', "\\n")
+        .replace('\r', "")
+}
+
+fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
+        return Some(dt.naive_local());
+    }
+    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S").ok()
+        .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
+}
+
+fn export_dir() -> std::path::PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("exports")
+}
+
+fn export_base_url() -> String {
+    if let Ok(base) = std::env::var("HBUT_PUBLIC_BASE") {
+        if !base.trim().is_empty() {
+            return base.trim_end_matches('/').to_string();
+        }
+    }
+    "http://127.0.0.1:4399".to_string()
+}
+
+#[tauri::command]
+async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_json::Value, String> {
+    if req.events.is_empty() {
+        return Err("没有可导出的课程数据".to_string());
+    }
+
+    let export_root = export_dir();
+    if let Err(e) = std::fs::create_dir_all(&export_root) {
+        return Err(format!("创建导出目录失败: {}", e));
+    }
+
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let sid = sanitize_filename_part(req.student_id.as_deref().unwrap_or("student"));
+    let semester = sanitize_filename_part(req.semester.as_deref().unwrap_or("semester"));
+    let week = req.week.unwrap_or(0);
+    let filename = format!("schedule_{}_{}_w{}_{}.ics", sid, semester, week, ts);
+    let file_path = export_root.join(&filename);
+
+    let mut ics = String::new();
+    ics.push_str("BEGIN:VCALENDAR\r\n");
+    ics.push_str("VERSION:2.0\r\n");
+    ics.push_str("CALSCALE:GREGORIAN\r\n");
+    ics.push_str("METHOD:PUBLISH\r\n");
+    ics.push_str("X-WR-CALNAME:HBUT 课表\r\n");
+    ics.push_str("X-WR-TIMEZONE:Asia/Shanghai\r\n");
+    ics.push_str("PRODID:-//Mini-HBUT//Schedule Export//CN\r\n");
+
+    let dtstamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    for (idx, ev) in req.events.iter().enumerate() {
+        let start = match parse_ics_datetime(&ev.start) {
+            Some(v) => v,
+            None => continue,
+        };
+        let end = match parse_ics_datetime(&ev.end) {
+            Some(v) => v,
+            None => continue,
+        };
+        let summary = escape_ics_text(ev.summary.as_str());
+        let desc = ev.description.as_deref().map(escape_ics_text);
+        let location = ev.location.as_deref().map(escape_ics_text);
+        let uid = format!("hbut-{}-{}@mini-hbut", ts, idx);
+
+        ics.push_str("BEGIN:VEVENT\r\n");
+        ics.push_str(&format!("UID:{}\r\n", uid));
+        ics.push_str(&format!("DTSTAMP:{}\r\n", dtstamp));
+        ics.push_str(&format!("DTSTART;TZID=Asia/Shanghai:{}\r\n", start.format("%Y%m%dT%H%M%S")));
+        ics.push_str(&format!("DTEND;TZID=Asia/Shanghai:{}\r\n", end.format("%Y%m%dT%H%M%S")));
+        ics.push_str(&format!("SUMMARY:{}\r\n", summary));
+        if let Some(desc) = desc {
+            ics.push_str(&format!("DESCRIPTION:{}\r\n", desc));
+        }
+        if let Some(location) = location {
+            ics.push_str(&format!("LOCATION:{}\r\n", location));
+        }
+        ics.push_str("END:VEVENT\r\n");
+    }
+    ics.push_str("END:VCALENDAR\r\n");
+
+    if let Err(e) = std::fs::write(&file_path, ics) {
+        return Err(format!("写入导出文件失败: {}", e));
+    }
+
+    let base = export_base_url();
+    let url = format!("{}/exports/{}", base.trim_end_matches('/'), filename);
+    Ok(serde_json::json!({
+        "success": true,
+        "url": url,
+        "filename": filename,
+        "count": req.events.len()
+    }))
 }
 
 #[tauri::command]
@@ -1348,12 +1508,14 @@ pub fn run() {
             login,
             logout,
             restore_session,
+            restore_latest_session,
             get_cookies,
             refresh_session,
             sync_grades,
             get_grades_local,
             sync_schedule,
             get_schedule_local,
+            export_schedule_calendar,
             fetch_exams,
             fetch_ranking,
             fetch_student_info,

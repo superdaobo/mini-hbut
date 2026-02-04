@@ -317,11 +317,19 @@ const adapter = {
             }
 
             if (url.includes('/v2/schedule/export_calendar')) {
-                const res = await bridgePost('/export_schedule_calendar', data || {});
-                if (res?.success && res?.data) {
-                    return mockResponse({ success: true, ...res.data });
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('export_schedule_calendar', { req: data || {} });
+                        return mockResponse({ success: true, ...payload });
+                    }
+                    const res = await bridgePost('/export_schedule_calendar', data || {});
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '导出日历失败' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
                 }
-                return mockResponse({ success: false, error: res?.error?.message || res?.error || '导出日历失败' });
             }
 
             // ========== 考试相关 ==========

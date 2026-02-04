@@ -469,6 +469,25 @@ const tryRestoreSession = async () => {
   return false
 }
 
+const tryRestoreLatestSession = async () => {
+  if (!hasTauri) return false
+  if (localStorage.getItem('hbu_manual_logout') === 'true') {
+    return false
+  }
+  try {
+    const userInfo = await invoke('restore_latest_session')
+    if (userInfo?.student_id) {
+      studentId.value = userInfo.student_id
+      localStorage.setItem('hbu_username', userInfo.student_id)
+      await persistSessionCookies()
+      return true
+    }
+  } catch (e) {
+    console.warn('[Session] 自动恢复历史会话失败:', e)
+  }
+  return false
+}
+
 const getStoredPassword = () => {
   const remember = localStorage.getItem('hbu_remember')
   const username = localStorage.getItem('hbu_username')
@@ -569,7 +588,10 @@ watch(currentView, () => {
 
 onMounted(async () => {
   document.addEventListener('click', handleGlobalLinkClick, true)
-  const restored = await tryRestoreSession()
+  let restored = await tryRestoreSession()
+  if (!restored) {
+    restored = await tryRestoreLatestSession()
+  }
   let relogged = false
   if (!restored) {
     relogged = await attemptAutoRelogin()
