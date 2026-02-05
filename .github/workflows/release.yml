@@ -299,7 +299,7 @@ jobs:
       - name: Build Project
         run: |
           npm run tauri ios init
-          npm run tauri ios build -- --target aarch64 --export-method ad-hoc
+          npm run tauri ios build -- --target aarch64 --export-method debugging
 
       - name: Package IPA for SideStore
         env:
