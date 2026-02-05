@@ -343,17 +343,28 @@ jobs:
           s.close()
           PY
           )
+          export PORT
           echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
-          TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" &
+          LOG="$TMPDIR/tauri-cli-options-server.log"
+          TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" >"$LOG" 2>&1 &
           OPTIONS_PID=$!
-          for i in {1..40}; do
-            if [ -f "${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr" ]; then
-              break
-            fi
-            sleep 0.5
-          done
-          if [ ! -f "${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr" ]; then
-            echo "Missing addr file: ${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr"
+          python - <<'PY'
+          import os, socket, time, sys
+          port = int(os.environ.get('PORT', '0'))
+          for _ in range(60):
+              s = socket.socket()
+              s.settimeout(0.2)
+              try:
+                  s.connect(('127.0.0.1', port))
+                  s.close()
+                  sys.exit(0)
+              except OSError:
+                  time.sleep(0.2)
+          sys.exit(1)
+          PY
+          if [ $? -ne 0 ]; then
+            echo "WS server failed to start on port $PORT"
+            cat "$LOG"
             exit 1
           fi
           TMPDIR="$TMPDIR" xcodebuild \
