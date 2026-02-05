@@ -335,33 +335,13 @@ jobs:
           process.stdin.resume();
           NODE
           IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
-          PORT=$(python - <<'PY'
-          import socket
-          s = socket.socket()
-          s.bind(('127.0.0.1', 0))
-          print(s.getsockname()[1])
-          s.close()
-          PY
-          )
+          PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
           export PORT
           echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
           LOG="$TMPDIR/tauri-cli-options-server.log"
           TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" >"$LOG" 2>&1 &
           OPTIONS_PID=$!
-          python - <<'PY'
-          import os, socket, time, sys
-          port = int(os.environ.get('PORT', '0'))
-          for _ in range(60):
-              s = socket.socket()
-              s.settimeout(0.2)
-              try:
-                  s.connect(('127.0.0.1', port))
-                  s.close()
-                  sys.exit(0)
-              except OSError:
-                  time.sleep(0.2)
-          sys.exit(1)
-          PY
+          python -c 'import os,socket,time,sys; port=int(os.environ.get("PORT","0")); [(lambda s: (s.settimeout(0.2), s.connect(("127.0.0.1",port)), s.close(), sys.exit(0)))(socket.socket()) for _ in range(60) if not time.sleep(0.2)] or sys.exit(1)'
           if [ $? -ne 0 ]; then
             echo "WS server failed to start on port $PORT"
             cat "$LOG"
