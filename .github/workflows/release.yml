@@ -305,7 +305,7 @@ jobs:
           mkdir -p "$TMPDIR"
           npm install ws --no-save --no-audit --no-fund
           node -e "require(\"ws\"); console.log(\"ws ok\")"
-          python -c "import os; p=os.path.join(os.environ['TMPDIR'],'tauri-cli-options-server.js'); open(p,'w',encoding='utf-8').write('''const WebSocket = require(\'ws\');\n\nconst options = {\n  dev: false,\n  features: null,\n  args: [\'--lib\'],\n  noise_level: \'Polite\',\n  vars: {},\n  config: [],\n  target_device: null,\n};\n\nconst port = parseInt(process.env.TAURI_CLI_OPTIONS_PORT || \'0\', 10);\nconst server = new WebSocket.Server({ host: \'127.0.0.1\', port }, () => {\n  const addr = server.address();\n  const addrStr = addr.address + \':\' + addr.port;\n  console.log(\'CLI options WS server \' + addrStr);\n});\n\nserver.on(\'connection\', (ws) => {\n  ws.on(\'message\', (data) => {\n    let msg;\n    try { msg = JSON.parse(data.toString()); } catch { return; }\n    if (msg && msg.method === \'options\') {\n      ws.send(JSON.stringify({ jsonrpc: \'2.0\', id: msg.id ?? 1, result: options }));\n    }\n  });\n});\n\nprocess.stdin.resume();''')"
+          cp tools/ci/tauri-cli-options-server.js "$TMPDIR/tauri-cli-options-server.js"
           IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
           PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
           export PORT
@@ -313,12 +313,13 @@ jobs:
           LOG="$TMPDIR/tauri-cli-options-server.log"
           TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" >"$LOG" 2>&1 &
           OPTIONS_PID=$!
-          python -c 'import os,socket,time,sys; port=int(os.environ.get("PORT","0")); code="""for _ in range(60):\n    try:\n        s=socket.socket(); s.settimeout(0.2); s.connect((\"127.0.0.1\",port)); s.close(); sys.exit(0)\n    except Exception:\n        time.sleep(0.2)\nsys.exit(1)\n"""; exec(code)'
-          if [ $? -ne 0 ]; then
-            echo "WS server failed to start on port $PORT"
+          sleep 1
+          if ! kill -0 $OPTIONS_PID 2>/dev/null; then
+            echo "WS server process exited early"
             cat "$LOG"
             exit 1
           fi
+          python -c 'import os,socket,time,sys; port=int(os.environ.get("PORT","0")); code="""for _ in range(60):\n    try:\n        s=socket.socket(); s.settimeout(0.2); s.connect((\"127.0.0.1\",port)); s.close(); sys.exit(0)\n    except Exception:\n        time.sleep(0.2)\nsys.exit(1)\n"""; exec(code)' || { echo "WS server failed to start on port $PORT"; cat "$LOG"; exit 1; }
           TMPDIR="$TMPDIR" xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
