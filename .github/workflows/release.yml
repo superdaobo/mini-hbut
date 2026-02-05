@@ -302,7 +302,7 @@ jobs:
           export TMPDIR="$PWD/.tauri-tmp"
           mkdir -p "$TMPDIR"
           npm install ws --no-save
-          cat > /tmp/tauri-cli-options-server.js <<'NODE'
+          cat > "$TMPDIR/tauri-cli-options-server.js" <<'NODE'
           const fs = require('fs');
           const os = require('os');
           const path = require('path');
@@ -346,7 +346,7 @@ jobs:
 
           process.stdin.resume();
           NODE
-          node /tmp/tauri-cli-options-server.js &
+          TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" &
           OPTIONS_PID=$!
           IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
           for i in {1..20}; do
@@ -355,7 +355,7 @@ jobs:
             fi
             sleep 0.5
           done
-          TMPDIR="$TMPDIR" xcodebuild \\
+          TMPDIR="$TMPDIR" xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
             -configuration Release \
@@ -431,6 +431,11 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+
+
+
 
 
 
