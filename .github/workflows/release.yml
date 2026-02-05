@@ -299,13 +299,60 @@ jobs:
         run: |
           npm run tauri ios init
           npm run build
-          python - <<'PY'
-          import tempfile, pathlib
-          tmp = pathlib.Path(tempfile.gettempdir())
-          target = tmp / 'com.hbut.mini-server-addr'
-          target.write_text('http://127.0.0.1:1420')
-          print(f'Wrote dev server addr to {target}')
-          PY
+          npm install ws --no-save
+          cat > /tmp/tauri-cli-options-server.js <<'NODE'
+          const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
+          const WebSocket = require('ws');
+
+          const configPath = path.join(process.cwd(), 'src-tauri', 'tauri.conf.json');
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          const identifier = config.identifier || (config.bundle && config.bundle.identifier) || (config.tauri && config.tauri.bundle && config.tauri.bundle.identifier);
+          if (!identifier) {
+            console.error('Missing identifier in tauri.conf.json');
+            process.exit(1);
+          }
+
+          const options = {
+            dev: false,
+            features: null,
+            args: ['--lib'],
+            noise_level: 'Polite',
+            vars: {},
+            config: [],
+            target_device: null,
+          };
+
+          const server = new WebSocket.Server({ host: '127.0.0.1', port: 0 }, () => {
+            const addr = server.address();
+            const addrStr = `${addr.address}:${addr.port}`;
+            const addrFile = path.join(os.tmpdir(), `${identifier}-server-addr`);
+            fs.writeFileSync(addrFile, addrStr, 'utf8');
+            console.log(`CLI options WS server ${addrStr}, wrote ${addrFile}`);
+          });
+
+          server.on('connection', (ws) => {
+            ws.on('message', (data) => {
+              let msg;
+              try { msg = JSON.parse(data.toString()); } catch { return; }
+              if (msg && msg.method === 'options') {
+                ws.send(JSON.stringify({ jsonrpc: '2.0', id: msg.id ?? 1, result: options }));
+              }
+            });
+          });
+
+          process.stdin.resume();
+          NODE
+          node /tmp/tauri-cli-options-server.js &
+          OPTIONS_PID=$!
+          IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
+          for i in {1..20}; do
+            if [ -f "${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr" ]; then
+              break
+            fi
+            sleep 0.5
+          done
           xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
@@ -317,7 +364,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \
             DEVELOPMENT_TEAM=""
-
+          kill $OPTIONS_PID
       - name: Package IPA for SideStore
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
@@ -382,4 +429,11 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+
+
+
+
+
 
