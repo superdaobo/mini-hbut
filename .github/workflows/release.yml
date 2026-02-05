@@ -270,6 +270,60 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  build-ios:
+    needs: create-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli
+
+      - name: Build Project
+        run: |
+          npm run tauri ios init
+          npm run tauri ios build -- --target aarch64 --export-method ad-hoc
+
+      - name: Package IPA for SideStore
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          mkdir -p Payload
+          APP_PATH=$(find src-tauri/gen/apple -type d -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found under src-tauri/gen/apple"
+            exit 1
+          fi
+          cp -R "$APP_PATH" Payload/
+          IPA_NAME="Mini-HBUT_${VERSION}_iOS.ipa"
+          zip -r "$IPA_NAME" Payload
+          ls -lh "$IPA_NAME"
+
+      - name: Upload iOS IPA
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: Mini-HBUT_${{ steps.version.outputs.VERSION }}_iOS.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-linux:
     needs: create-release
     runs-on: ubuntu-latest
