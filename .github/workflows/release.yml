@@ -300,8 +300,11 @@ jobs:
           npm run tauri ios init
           npm run build
           export TMPDIR="$PWD/.tauri-tmp"
+          export NPM_CONFIG_AUDIT=false
+          export NPM_CONFIG_FUND=false
           mkdir -p "$TMPDIR"
-          npm install ws --no-save
+          npm install ws --no-save --no-audit --no-fund
+          node -e "require(\"ws\"); console.log(\"ws ok\")"
           cat > "$TMPDIR/tauri-cli-options-server.js" <<'NODE'
           const WebSocket = require('ws');
 
