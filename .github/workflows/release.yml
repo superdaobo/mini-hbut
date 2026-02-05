@@ -299,6 +299,8 @@ jobs:
         run: |
           npm run tauri ios init
           npm run build
+          export TMPDIR="$PWD/.tauri-tmp"
+          mkdir -p "$TMPDIR"
           npm install ws --no-save
           cat > /tmp/tauri-cli-options-server.js <<'NODE'
           const fs = require('fs');
@@ -353,7 +355,7 @@ jobs:
             fi
             sleep 0.5
           done
-          xcodebuild \
+          TMPDIR="$TMPDIR" xcodebuild \\
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
             -configuration Release \
@@ -429,6 +431,7 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
