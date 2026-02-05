@@ -305,13 +305,13 @@ jobs:
           mkdir -p "$TMPDIR"
           npm install ws --no-save --no-audit --no-fund
           node -e "require(\"ws\"); console.log(\"ws ok\")"
-          cp tools/ci/tauri-cli-options-server.js "$TMPDIR/tauri-cli-options-server.js"
+          cp tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
           IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
           PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
           export PORT
           echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
           LOG="$TMPDIR/tauri-cli-options-server.log"
-          TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" >"$LOG" 2>&1 &
+          TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.cjs" >"$LOG" 2>&1 &
           OPTIONS_PID=$!
           sleep 1
           if ! kill -0 $OPTIONS_PID 2>/dev/null; then
@@ -396,6 +396,7 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
