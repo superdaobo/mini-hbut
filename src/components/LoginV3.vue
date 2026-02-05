@@ -82,7 +82,7 @@ const handleLogin = async () => {
     statusMsg.value = '请先阅读并同意免责声明与隐私政策'
     return
   }
-  
+
   // 检查密码是否是旧的加密密码（正常密码不会超过50字符）
   // 只是警告，不阻止登录
   if (password.value.length > 50) {
@@ -135,13 +135,11 @@ const handleLogin = async () => {
     } else {
       statusMsg.value = '❌ ' + (result.error || '登录失败')
       loading.value = false
-      // 后端会自动刷新验证码并重试
     }
   } catch (e) {
     const errMsg = e.response?.data?.error || e.message
     statusMsg.value = '⚠️ 登录失败: ' + errMsg
     loading.value = false
-    // 后端会自动刷新验证码并重试
   }
 }
 

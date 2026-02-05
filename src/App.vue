@@ -1,6 +1,6 @@
 ﻿<script setup>
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri } from '@tauri-apps/api/core'
 import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
 import GradeView from './components/GradeView.vue'
@@ -31,7 +31,23 @@ import { fetchRemoteConfig } from './utils/remote_config.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const hasTauri = typeof window !== 'undefined' && window.__TAURI__ && typeof window.__TAURI__.invoke === 'function'
+const detectTauri = () => {
+  try {
+    if (typeof isTauri === 'function' && isTauri()) {
+      return true
+    }
+  } catch (e) {
+    // ignore
+  }
+  if (typeof window === 'undefined') return false
+  if (window.__TAURI__ || window.__TAURI_INTERNALS__) return true
+  const protocol = window.location?.protocol || ''
+  if (protocol === 'tauri:') return true
+  const host = window.location?.hostname || ''
+  if (host === 'tauri.localhost') return true
+  return false
+}
+const hasTauri = detectTauri()
 const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
 
 // 视图状态: home, schedule, me, grades...

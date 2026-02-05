@@ -23,6 +23,7 @@
 
 <p align="center">
   <a href="https://hbut.6661111.xyz">官网</a> ·
+  <a href="https://hbut.6661111.xyz/docs">文档</a> ·
   <a href="https://docs.qq.com/sheet/DQkdvWHJxQ3RwWlB4?tab=BB08J2">问题反馈</a>
 </p>
 
