@@ -337,16 +337,16 @@ jobs:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           mkdir -p Payload
-          APP_PATH=$(find build-ios/Build/Products/Release-iphoneos -type d -name "*.app" | head -n 1)
+          APP_PATH=$(find build-ios/Build/Products -type d -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "No .app found under build-ios/Build/Products/Release-iphoneos"
+            echo "No .app found under build-ios/Build/Products"
+            find build-ios/Build/Products -maxdepth 4 -type d -print || true
             exit 1
           fi
           cp -R "$APP_PATH" Payload/
           IPA_NAME="Mini-HBUT_${VERSION}_iOS.ipa"
           zip -r "$IPA_NAME" Payload
           ls -lh "$IPA_NAME"
-
       - name: Upload iOS IPA
         uses: softprops/action-gh-release@v1
         with:
