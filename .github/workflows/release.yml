@@ -1,4 +1,4 @@
-name: Release Build
+﻿name: Release Build
 
 on:
   push:
@@ -64,7 +64,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # 只构建 arm64 架构，大幅减少 APK 体积
+          # 鍙瀯寤?arm64 鏋舵瀯锛屽ぇ骞呭噺灏?APK 浣撶Н
           targets: aarch64-linux-android
       
       - name: Install dependencies
@@ -75,11 +75,11 @@ jobs:
       
       - name: Copy Android icons
         run: |
-          # 复制自定义图标到 Android 项目
+          # 澶嶅埗鑷畾涔夊浘鏍囧埌 Android 椤圭洰
           ANDROID_RES="src-tauri/gen/android/app/src/main/res"
           ICONS_SRC="src-tauri/icons/android"
           
-          # 复制各分辨率图标
+          # 澶嶅埗鍚勫垎杈ㄧ巼鍥炬爣
           for density in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
             if [ -d "$ICONS_SRC/$density" ]; then
               mkdir -p "$ANDROID_RES/mipmap-$density"
@@ -124,21 +124,21 @@ jobs:
       
       # - name: Configure Android build for smaller APK
       #   run: |
-      #     # 修改 build.gradle.kts 启用代码压缩
+      #     # 淇敼 build.gradle.kts 鍚敤浠ｇ爜鍘嬬缉
       #     BUILD_GRADLE="src-tauri/gen/android/app/build.gradle.kts"
       #     if [ -f "$BUILD_GRADLE" ]; then
-      #       # 启用 minify 和 shrinkResources
+      #       # 鍚敤 minify 鍜?shrinkResources
       #       sed -i 's/isMinifyEnabled = false/isMinifyEnabled = true/' "$BUILD_GRADLE"
       #       sed -i 's/isShrinkResources = false/isShrinkResources = true/' "$BUILD_GRADLE"
             
-      #       # 限制只构建 arm64-v8a 架构
+      #       # 闄愬埗鍙瀯寤?arm64-v8a 鏋舵瀯
       #       sed -i '/defaultConfig {/a\        ndk {\n            abiFilters += listOf("arm64-v8a")\n        }' "$BUILD_GRADLE"
       #     fi
           
-      #     # 创建 proguard 规则文件
+      #     # 鍒涘缓 proguard 瑙勫垯鏂囦欢
       #     PROGUARD_FILE="src-tauri/gen/android/app/proguard-rules.pro"
       #     cat > "$PROGUARD_FILE" << 'EOF'
-      #     # Tauri 保持规则
+      #     # Tauri 淇濇寔瑙勫垯
       #     -keep class com.hbut.mini.** { *; }
       #     -keep class * extends android.webkit.WebView { *; }
       #     -keepclassmembers class * extends android.webkit.WebView {
@@ -155,19 +155,18 @@ jobs:
       
       - name: Sign APK
         run: |
-          # 获取版本号
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          # 鑾峰彇鐗堟湰鍙?          VERSION="${GITHUB_REF#refs/tags/v}"
           
-          # 找到未签名的 APK
+          # 鎵惧埌鏈鍚嶇殑 APK
           UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
           echo "Found unsigned APK: $UNSIGNED_APK"
           
-          # 从 Secrets 解码签名密钥，如果没有则生成新的
+          # 浠?Secrets 瑙ｇ爜绛惧悕瀵嗛挜锛屽鏋滄病鏈夊垯鐢熸垚鏂扮殑
           if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release-key.jks
             echo "Using keystore from secrets"
           else
-            # 使用固定参数生成密钥（确保每次生成相同）
+            # 浣跨敤鍥哄畾鍙傛暟鐢熸垚瀵嗛挜锛堢‘淇濇瘡娆＄敓鎴愮浉鍚岋級
             keytool -genkeypair -v \
               -keystore release-key.jks \
               -alias mini-hbut \
@@ -180,12 +179,12 @@ jobs:
             echo "Generated new keystore"
           fi
           
-          # 对齐 APK
+          # 瀵归綈 APK
           ${ANDROID_SDK_ROOT}/build-tools/35.0.0/zipalign -v -p 4 \
             "$UNSIGNED_APK" \
             app-aligned.apk
           
-          # 签名 APK
+          # 绛惧悕 APK
           ${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner sign \
             --ks release-key.jks \
             --ks-key-alias mini-hbut \
@@ -194,10 +193,10 @@ jobs:
             --out "Mini-HBUT-v${VERSION}-arm64.apk" \
             app-aligned.apk
           
-          # 验证签名
+          # 楠岃瘉绛惧悕
           ${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner verify -v "Mini-HBUT-v${VERSION}-arm64.apk"
           
-          # 显示文件信息
+          # 鏄剧ず鏂囦欢淇℃伅
           ls -lh "Mini-HBUT-v${VERSION}-arm64.apk"
       
       - name: Upload signed APK
@@ -300,6 +299,13 @@ jobs:
         run: |
           npm run tauri ios init
           npm run build
+          python - <<'PY'
+          import tempfile, pathlib
+          tmp = pathlib.Path(tempfile.gettempdir())
+          target = tmp / 'com.hbut.mini-server-addr'
+          target.write_text('http://127.0.0.1:1420')
+          print(f'Wrote dev server addr to {target}')
+          PY
           xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
@@ -376,3 +382,4 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
