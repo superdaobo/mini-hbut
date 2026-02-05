@@ -299,16 +299,27 @@ jobs:
       - name: Build Project
         run: |
           npm run tauri ios init
-          npm run tauri ios build -- --target aarch64 --export-method debugging
+          npm run build
+          xcodebuild \
+            -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
+            -scheme hbut-helper_iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build-ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
 
       - name: Package IPA for SideStore
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           mkdir -p Payload
-          APP_PATH=$(find src-tauri/gen/apple -type d -name "*.app" | head -n 1)
+          APP_PATH=$(find build-ios/Build/Products/Release-iphoneos -type d -name "*.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "No .app found under src-tauri/gen/apple"
+            echo "No .app found under build-ios/Build/Products/Release-iphoneos"
             exit 1
           fi
           cp -R "$APP_PATH" Payload/
