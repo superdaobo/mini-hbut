@@ -336,12 +336,12 @@ jobs:
           NODE
           IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
           PORT=$(python - <<'PY'
-import socket
-s = socket.socket()
-s.bind(('127.0.0.1', 0))
-print(s.getsockname()[1])
-s.close()
-PY
+          import socket
+          s = socket.socket()
+          s.bind(('127.0.0.1', 0))
+          print(s.getsockname()[1])
+          s.close()
+          PY
           )
           echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
           TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" &
