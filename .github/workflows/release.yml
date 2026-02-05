@@ -303,18 +303,7 @@ jobs:
           mkdir -p "$TMPDIR"
           npm install ws --no-save
           cat > "$TMPDIR/tauri-cli-options-server.js" <<'NODE'
-          const fs = require('fs');
-          const os = require('os');
-          const path = require('path');
           const WebSocket = require('ws');
-
-          const configPath = path.join(process.cwd(), 'src-tauri', 'tauri.conf.json');
-          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-          const identifier = config.identifier || (config.bundle && config.bundle.identifier) || (config.tauri && config.tauri.bundle && config.tauri.bundle.identifier);
-          if (!identifier) {
-            console.error('Missing identifier in tauri.conf.json');
-            process.exit(1);
-          }
 
           const options = {
             dev: false,
@@ -326,12 +315,11 @@ jobs:
             target_device: null,
           };
 
-          const server = new WebSocket.Server({ host: '127.0.0.1', port: 0 }, () => {
+          const port = parseInt(process.env.TAURI_CLI_OPTIONS_PORT || '0', 10);
+          const server = new WebSocket.Server({ host: '127.0.0.1', port }, () => {
             const addr = server.address();
             const addrStr = `${addr.address}:${addr.port}`;
-            const addrFile = path.join(os.tmpdir(), `${identifier}-server-addr`);
-            fs.writeFileSync(addrFile, addrStr, 'utf8');
-            console.log(`CLI options WS server ${addrStr}, wrote ${addrFile}`);
+            console.log(`CLI options WS server ${addrStr}`);
           });
 
           server.on('connection', (ws) => {
@@ -346,15 +334,28 @@ jobs:
 
           process.stdin.resume();
           NODE
-          TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" &
-          OPTIONS_PID=$!
           IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
-          for i in {1..20}; do
+          PORT=$(python - <<'PY'
+import socket
+s = socket.socket()
+s.bind(('127.0.0.1', 0))
+print(s.getsockname()[1])
+s.close()
+PY
+          )
+          echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
+          TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.js" &
+          OPTIONS_PID=$!
+          for i in {1..40}; do
             if [ -f "${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr" ]; then
               break
             fi
             sleep 0.5
           done
+          if [ ! -f "${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr" ]; then
+            echo "Missing addr file: ${TMPDIR:-/tmp}/${IDENTIFIER}-server-addr"
+            exit 1
+          fi
           TMPDIR="$TMPDIR" xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
