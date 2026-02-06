@@ -4,7 +4,7 @@ const options = {
   dev: false,
   features: null,
   // Force release build behavior to avoid dev server usage in CI iOS builds.
-  args: ['--lib', '--release', '--no-dev-server'],
+  args: ['--lib', '--release'],
   noise_level: 'Polite',
   vars: {},
   config: [],

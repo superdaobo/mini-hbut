@@ -524,7 +524,7 @@ impl HbutClient {
         // 1. 获取登录页面获取最新的 salt, execution, lt
         println!("[调试] 获取登录页参数...");
 
-        let max_retries = 2;
+        let max_retries = 4;
         for attempt in 0..max_retries {
             let page_info = self.get_login_page().await?;
             // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到 JWXT
@@ -574,6 +574,16 @@ impl HbutClient {
             } else {
                 String::new()
             };
+
+            if captcha_required {
+                let trimmed = captcha_code.trim();
+                if trimmed.len() < 4 {
+                    println!("[调试] OCR 验证码长度异常，重新获取验证码");
+                    if attempt + 1 < max_retries {
+                        continue;
+                    }
+                }
+            }
             
             // 4. 构建表单数据（复用登录页隐藏字段）
             let mut form_data = self.last_login_inputs.clone().unwrap_or_default();
