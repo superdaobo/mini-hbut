@@ -13,6 +13,51 @@
 use super::*;
 use reqwest::Url;
 use reqwest::cookie::CookieStore;
+use std::collections::HashSet;
+
+fn normalize_cookie_blob(raw: &str) -> String {
+    raw.replace('\r', "")
+        .replace('\n', "")
+        .replace("Code:", "")
+        .replace("Auth:", "")
+        .replace("Jwxt:", "")
+        .replace('|', ";")
+}
+
+fn is_valid_cookie_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 128 {
+        return false;
+    }
+    name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+fn parse_cookie_pairs(raw: &str) -> Vec<(String, String)> {
+    let normalized = normalize_cookie_blob(raw);
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut pairs = Vec::new();
+    for chunk in normalized.split(';') {
+        let item = chunk.trim();
+        if item.is_empty() {
+            continue;
+        }
+        let Some((name_raw, value_raw)) = item.split_once('=') else {
+            continue;
+        };
+        let name = name_raw.trim();
+        if !is_valid_cookie_name(name) {
+            continue;
+        }
+        let value = value_raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if seen.insert(name.to_string()) {
+            pairs.push((name.to_string(), value.to_string()));
+        }
+    }
+    pairs
+}
+
 impl HbutClient {
     /// 拉取当前登录用户信息
     pub async fn fetch_user_info(&self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
@@ -57,18 +102,15 @@ impl HbutClient {
 
     /// 使用 Cookie 字符串恢复会话并返回用户信息
     pub async fn restore_session(&mut self, cookies: &str) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
-        // 恢复 cookies
-        for cookie_str in cookies.split(';') {
-            let cookie_str = cookie_str.trim();
-            if !cookie_str.is_empty() {
-                if let Some((name, value)) = cookie_str.split_once('=') {
-                    let url: Url = JWXT_BASE_URL.parse()?;
-                    self.cookie_jar.add_cookie_str(
-                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
-                        &url,
-                    );
-                }
-            }
+        // 先重置会话，避免历史脏 cookie 污染。
+        self.reset_http_state();
+
+        let url: Url = JWXT_BASE_URL.parse()?;
+        for (name, value) in parse_cookie_pairs(cookies) {
+            self.cookie_jar.add_cookie_str(
+                &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
+                &url,
+            );
         }
         
         // 验证会话
@@ -145,36 +187,27 @@ impl HbutClient {
         let jwxt_url: Url = "https://jwxt.hbut.edu.cn".parse()?;
 
         if let Some(raw) = code {
-            for cookie_str in raw.split(';') {
-                let cookie_str = cookie_str.trim();
-                if let Some((name, value)) = cookie_str.split_once('=') {
-                    self.cookie_jar.add_cookie_str(
-                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
-                        &code_url,
-                    );
-                }
+            for (name, value) in parse_cookie_pairs(&raw) {
+                self.cookie_jar.add_cookie_str(
+                    &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
+                    &code_url,
+                );
             }
         }
         if let Some(raw) = auth {
-            for cookie_str in raw.split(';') {
-                let cookie_str = cookie_str.trim();
-                if let Some((name, value)) = cookie_str.split_once('=') {
-                    self.cookie_jar.add_cookie_str(
-                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
-                        &auth_url,
-                    );
-                }
+            for (name, value) in parse_cookie_pairs(&raw) {
+                self.cookie_jar.add_cookie_str(
+                    &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
+                    &auth_url,
+                );
             }
         }
         if let Some(raw) = jwxt {
-            for cookie_str in raw.split(';') {
-                let cookie_str = cookie_str.trim();
-                if let Some((name, value)) = cookie_str.split_once('=') {
-                    self.cookie_jar.add_cookie_str(
-                        &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name.trim(), value.trim()),
-                        &jwxt_url,
-                    );
-                }
+            for (name, value) in parse_cookie_pairs(&raw) {
+                self.cookie_jar.add_cookie_str(
+                    &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
+                    &jwxt_url,
+                );
             }
         }
 
@@ -233,16 +266,24 @@ impl HbutClient {
 
             let extract_segment = |raw: Option<String>, label: &str| -> Option<String> {
                 let raw = raw.unwrap_or_default();
-                if raw.contains("Code:") || raw.contains("Auth:") || raw.contains("Jwxt:") {
-                    if let Ok(re) = regex::Regex::new(&format!(r"(?:^|\\|)\\s*{}:\\s*([^|]+)", label)) {
-                        if let Some(cap) = re.captures(&raw) {
-                            if let Some(m) = cap.get(1) {
-                                return Some(m.as_str().trim().to_string());
-                            }
-                        }
-                    }
+                if raw.trim().is_empty() {
+                    return None;
                 }
-                if raw.trim().is_empty() { None } else { Some(raw) }
+                if !(raw.contains("Code:") || raw.contains("Auth:") || raw.contains("Jwxt:")) {
+                    return Some(raw);
+                }
+                let marker = format!("{}:", label);
+                let Some(pos) = raw.find(&marker) else {
+                    return None;
+                };
+                let after = &raw[pos + marker.len()..];
+                let end = after.find('|').unwrap_or(after.len());
+                let segment = after[..end].trim();
+                if segment.is_empty() {
+                    None
+                } else {
+                    Some(segment.to_string())
+                }
             };
 
             let code = extract_segment(raw_code, "Code");
@@ -254,8 +295,16 @@ impl HbutClient {
 
     /// 清理会话缓存与用户信息
     pub fn clear_session(&mut self) {
+        self.reset_http_state();
         self.is_logged_in = false;
         self.user_info = None;
+        self.last_login_inputs = None;
+        self.last_username = None;
+        self.last_password = None;
+        self.electricity_token = None;
+        self.electricity_token_at = None;
+        self.electricity_refresh_token = None;
+        self.electricity_token_expires_at = None;
     }
 
 }

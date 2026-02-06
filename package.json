@@ -1,6 +1,6 @@
 {
   "name": "mini-hbut",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "Mini-HBUT - 湖北工业大学教务助手",
   "type": "module",
   "scripts": {

@@ -28,8 +28,21 @@ impl HbutClient {
         let encoded_service = urlencoding::encode(service_url);
         let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
         println!("[调试] 获取登录页: {}", login_url);
-        
-        let response = self.client.get(&login_url).send().await?;
+
+        let response = match self.client.get(&login_url).send().await {
+            Ok(resp) => resp,
+            Err(first_err) => {
+                println!("[警告] 获取登录页失败，尝试清理会话后重试: {}", first_err);
+                self.clear_session();
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                self.client.get(&login_url).send().await.map_err(|retry_err| {
+                    format!(
+                        "获取登录页失败: {}; 重试仍失败: {}",
+                        first_err, retry_err
+                    )
+                })?
+            }
+        };
         let status = response.status();
         let final_url = response.url().to_string();
         let html = response.text().await?;
@@ -512,7 +525,13 @@ impl HbutClient {
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
     ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
-        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, TARGET_SERVICE);
+        if let Some(remaining) = self.login_cooldown_remaining() {
+            return Err(format!("登录频率过高，请{}秒后再试", remaining.as_secs()).into());
+        }
+        self.last_login_attempt = Some(std::time::Instant::now());
+
+        let encoded_service = urlencoding::encode(TARGET_SERVICE);
+        let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
         println!("[调试] 登录地址: {}", login_url);
         println!("[调试] 用户名: {}", username);
         println!("[调试] 密码长度 (plain): {}", password.len());

@@ -106,30 +106,41 @@ pub struct HbutClient {
     pub(super) electricity_refresh_token: Option<String>,
     pub(super) electricity_token_expires_at: Option<DateTime<Utc>>,
     pub(super) ocr_endpoint: Option<String>,
+    pub(super) last_login_attempt: Option<std::time::Instant>,
     pub(super) last_login_time: Option<std::time::Instant>,
     pub(super) last_relogin_attempt: Option<std::time::Instant>,
     pub(super) last_relogin_failed_at: Option<std::time::Instant>,
 }
 
 impl HbutClient {
-    /// 创建默认客户端并加载历史会话快照
-    pub fn new() -> Self {
-        let jar = Arc::new(Jar::default());
-        let client = Client::builder()
+    fn build_http_client(jar: Arc<Jar>) -> Client {
+        Client::builder()
             .cookie_store(true)
-            .cookie_provider(Arc::clone(&jar))
+            .cookie_provider(jar)
             .redirect(reqwest::redirect::Policy::limited(10))
             .danger_accept_invalid_certs(true)
+            // DNS 兜底：某些环境 getaddrinfo 失败时，强制使用已知可用 IP。
+            .resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
+            .resolve("jwxt.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
+            .resolve("code.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 2], 443)))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .expect("创建 HTTP 客户端失败");
+            .expect("创建 HTTP 客户端失败")
+    }
 
-        // OCR 客户端：不携带 Cookie，超时更短
-        let ocr_client = Client::builder()
+    fn build_ocr_client() -> Client {
+        Client::builder()
             .timeout(std::time::Duration::from_secs(12))
             .build()
-            .expect("创建 OCR 客户端失败");
+            .expect("创建 OCR 客户端失败")
+    }
+
+    /// 创建默认客户端并加载历史会话快照
+    pub fn new() -> Self {
+        let jar = Arc::new(Jar::default());
+        let client = Self::build_http_client(Arc::clone(&jar));
+        let ocr_client = Self::build_ocr_client();
 
         let mut instance = Self {
             client,
@@ -145,6 +156,7 @@ impl HbutClient {
             electricity_refresh_token: None,
             electricity_token_expires_at: None,
             ocr_endpoint: None,
+            last_login_attempt: None,
             last_login_time: None,
             last_relogin_attempt: None,
             last_relogin_failed_at: None,
@@ -205,6 +217,26 @@ impl HbutClient {
             self.electricity_refresh_token.clone(),
             self.electricity_token_expires_at.clone(),
         )
+    }
+
+    /// 彻底重置 Cookie Jar 与 HTTP 客户端，清理异常会话污染。
+    pub(super) fn reset_http_state(&mut self) {
+        let jar = Arc::new(Jar::default());
+        self.cookie_jar = Arc::clone(&jar);
+        self.client = Self::build_http_client(jar);
+        self.ocr_client = Self::build_ocr_client();
+    }
+
+    /// 登录频率控制：至少间隔 60 秒，降低 CAS 风控风险。
+    pub(super) fn login_cooldown_remaining(&self) -> Option<std::time::Duration> {
+        const COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
+        let last = self.last_login_attempt?;
+        let elapsed = last.elapsed();
+        if elapsed >= COOLDOWN {
+            None
+        } else {
+            Some(COOLDOWN - elapsed)
+        }
     }
 
     /// 计算“重登冷却期”剩余时间，避免频繁触发登录导致风控
