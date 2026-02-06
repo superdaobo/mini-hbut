@@ -265,7 +265,7 @@ impl HbutClient {
             if form_data.contains_key("passwordText") {
                 set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
             }
-            set_key(&mut form_data, &["cllt"], "cllt", "usernameLogin".to_string());
+            set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
             set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
             if !current_execution.is_empty() {
                 set_key(&mut form_data, &["execution"], "execution", current_execution);
@@ -607,7 +607,7 @@ impl HbutClient {
             set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
         }
         // 强制使用username登录模式，避免落入 dynamic/fido/qr 登录流程
-        set_key(&mut form_data, &["cllt"], "cllt", "usernameLogin".to_string());
+        set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
         set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
         set_key(&mut form_data, &["_eventId"], "_eventId", "submit".to_string());
         set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
@@ -633,7 +633,7 @@ impl HbutClient {
         // 若页面默认是扫码登录(qrLogin)，改为username登录，避免 CAS 在 realSubmit 处 NPE
         if let Some(v) = form_data.get("cllt") {
             if v == "qrLogin" {
-                form_data.insert("cllt".to_string(), "usernameLogin".to_string());
+                form_data.insert("cllt".to_string(), "userNameLogin".to_string());
             }
         }
         
