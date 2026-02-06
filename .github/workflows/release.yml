@@ -302,18 +302,23 @@ jobs:
           if [ -n "$PBX" ]; then
           python - <<'PY'
           import os
+          import re
           path = os.environ.get("PBX")
           if not path:
               raise SystemExit(0)
           with open(path, "r", encoding="utf-8") as f:
               data = f.read()
-          old = "--configuration ${CONFIGURATION}"
-          new = "--configuration $(echo \"$CONFIGURATION\" | tr '[:upper:]' '[:lower:]')"
-          if old in data:
-              data = data.replace(old, new)
+          replaced = False
+          data, n = re.subn(r'--configuration\\s+\\$\\{CONFIGURATION[^}]*\\}', '--configuration release', data)
+          if n > 0:
+              replaced = True
+          if "--configuration ${CONFIGURATION}" in data:
+              data = data.replace("--configuration ${CONFIGURATION}", "--configuration release")
+              replaced = True
+          if replaced:
               with open(path, "w", encoding="utf-8") as f:
                   f.write(data)
-              print("Patched CONFIGURATION to lowercase in xcode script.")
+              print("Patched CONFIGURATION to release in xcode script.")
           else:
               print("CONFIGURATION placeholder not found; skip patch.")
           PY
