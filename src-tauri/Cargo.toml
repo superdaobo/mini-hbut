@@ -52,5 +52,5 @@ urlencoding = "2.1"
 jsonwebtoken = "9.3"
 
 [features]
-default = []
+default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

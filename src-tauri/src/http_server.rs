@@ -509,6 +509,12 @@ fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
 }
 
 fn export_dir() -> std::path::PathBuf {
+    if let Ok(raw) = std::env::var("HBUT_EXPORT_DIR") {
+        let path = std::path::PathBuf::from(raw);
+        if !path.as_os_str().is_empty() {
+            return path;
+        }
+    }
     std::env::current_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("exports")

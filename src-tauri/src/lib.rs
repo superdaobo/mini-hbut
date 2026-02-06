@@ -392,7 +392,28 @@ async fn login(
         println!("[警告] 保存会话失败: {}", e);
     }
 
-    Ok(client.user_info.clone().unwrap())
+    let user_info = client
+        .user_info
+        .clone()
+        .ok_or_else(|| "登录成功但未读取到用户信息".to_string())?;
+    let session_key = if user_info.student_id.trim().is_empty() {
+        username.clone()
+    } else {
+        user_info.student_id.clone()
+    };
+    if session_key != username {
+        let _ = db::save_user_session(
+            DB_FILENAME,
+            &session_key,
+            &client.get_cookies(),
+            &password,
+            &one_code_token,
+            Some(refresh_token.as_str()),
+            Some(expires_at.as_str()),
+        );
+    }
+
+    Ok(user_info)
 }
 
 #[tauri::command]
@@ -410,12 +431,33 @@ async fn restore_session(
     let mut client = state.client.lock().await;
     let user_info = client.restore_session(&cookies).await.map_err(|e| e.to_string())?;
 
-    // 尝试从数据库加载凭据 (用于 SSO)
-    match db::get_user_session(DB_FILENAME, &user_info.student_id) {
-        Ok(Some(session)) => {
+    // 优先按学号加载，失败时回退到最近一次会话并自动迁移为学号主键。
+    let mut session_opt = match db::get_user_session(DB_FILENAME, &user_info.student_id) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("[警告] 加载会话凭据失败: {}", e);
+            None
+        }
+    };
+    if session_opt.is_none() {
+        if let Ok(Some(latest)) = db::get_latest_user_session(DB_FILENAME) {
+            if !latest.password.is_empty() {
+                session_opt = Some(db::UserSessionData {
+                    cookies: latest.cookies,
+                    password: latest.password,
+                    one_code_token: latest.one_code_token,
+                    refresh_token: latest.refresh_token,
+                    token_expires_at: latest.token_expires_at,
+                });
+            }
+        }
+    }
+
+    match session_opt {
+        Some(session) => {
             println!("[调试] Restored credentials for user: {}", user_info.student_id);
             if !session.password.is_empty() {
-                client.set_credentials(user_info.student_id.clone(), session.password);
+                client.set_credentials(user_info.student_id.clone(), session.password.clone());
             }
             if !session.one_code_token.is_empty() {
                 let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
@@ -424,14 +466,22 @@ async fn restore_session(
                 let refresh = if session.refresh_token.trim().is_empty() {
                     None
                 } else {
-                    Some(session.refresh_token)
+                    Some(session.refresh_token.clone())
                 };
-                client.set_electricity_session(session.one_code_token, refresh, expires_at);
+                client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
                 println!("[调试] Restored one_code_令牌");
             }
-        },
-        Ok(None) => println!("[调试] No saved credentials found for user: {}", user_info.student_id),
-        Err(e) => println!("[警告] 加载会话凭据失败: {}", e),
+            let _ = db::save_user_session(
+                DB_FILENAME,
+                &user_info.student_id,
+                &client.get_cookies(),
+                &session.password,
+                &session.one_code_token,
+                Some(session.refresh_token.as_str()),
+                Some(session.token_expires_at.as_str()),
+            );
+        }
+        None => println!("[调试] No saved credentials found for user: {}", user_info.student_id),
     }
 
     Ok(user_info)
@@ -621,6 +671,12 @@ fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
 }
 
 fn export_dir() -> std::path::PathBuf {
+    if let Ok(raw) = std::env::var("HBUT_EXPORT_DIR") {
+        let path = std::path::PathBuf::from(raw);
+        if !path.as_os_str().is_empty() {
+            return path;
+        }
+    }
     std::env::current_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("exports")
@@ -1303,11 +1359,6 @@ async fn fetch_transaction_history(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 初始化数据库
-    if let Err(e) = db::init_db(DB_FILENAME) {
-        eprintln!("初始化数据库失败: {}", e);
-    }
-
     let mut builder = tauri::Builder::default();
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1320,6 +1371,20 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            if let Ok(db_path) = app.path().resolve("grades.db", BaseDirectory::AppData) {
+                if let Some(parent) = db_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::env::set_var("HBUT_DB_PATH", db_path.to_string_lossy().to_string());
+            }
+            if let Ok(export_path) = app.path().resolve("exports", BaseDirectory::AppCache) {
+                let _ = std::fs::create_dir_all(&export_path);
+                std::env::set_var("HBUT_EXPORT_DIR", export_path.to_string_lossy().to_string());
+            }
+            if let Err(e) = db::init_db(DB_FILENAME) {
+                eprintln!("初始化数据库失败: {}", e);
+            }
+
             fn find_file_in_parents(file_name: &str, max_depth: usize) -> Option<std::path::PathBuf> {
                 let mut dir = std::env::current_dir().ok()?;
                 for _ in 0..=max_depth {

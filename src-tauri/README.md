@@ -1,147 +1,89 @@
-# 🦀 Rust 后端 (Tauri)
+# Mini-HBUT Rust Backend (Tauri)
 
-Mini-HBUT 的 Rust 后端部分，负责处理所有与教务系统的网络请求、数据解析和本地存储。
+`src-tauri` 是 Mini-HBUT 的后端与打包入口，负责登录会话、教务/电费请求、缓存数据库、本地 HTTP Bridge 和多平台构建。
 
-## 📁 目录结构
+## 目录说明
 
-```
+```text
 src-tauri/
-├── src/                      # Rust 源码
-│   ├── lib.rs                # Tauri 命令定义
-│   ├── main.rs               # 主入口
-│   ├── http_client.rs        # HTTP 客户端
-│   ├── parser.rs             # HTML 解析器
-│   ├── db.rs                 # SQLite 数据库
-│   └── modules/              # 功能模块
-├── icons/                    # 应用图标
-├── gen/                      # 生成的代码 (Android/iOS)
-├── Cargo.toml                # Rust 依赖配置
-├── tauri.conf.json           # Tauri 配置
-├── build.rs                  # 构建脚本
-└── .taurignore               # 忽略文件
+  src/
+    lib.rs                 # Tauri commands 与应用启动逻辑
+    http_client/           # 教务、电费、交易、全校课表等网络模块
+    http_server.rs         # 本地 HTTP Bridge（默认 127.0.0.1:4399）
+    db.rs                  # SQLite 缓存与会话
+  icons/
+    ios/                   # iOS AppIcon 资源
+  tauri.conf.json          # Tauri 配置
+  Cargo.toml               # Rust 依赖与特性
 ```
 
-## 🔧 核心模块
+## 本地开发
 
-### lib.rs - Tauri 命令
-
-定义所有前端可调用的命令：
-
-```rust
-#[tauri::command]
-async fn login(username: String, password: String) -> Result<String, String> {
-    // 登录逻辑
-}
+```bash
+npm install
+npm run tauri dev
 ```
 
-### http_client.rs - HTTP 客户端
+## 构建产物
 
-封装所有与教务系统的 HTTP 请求：
+- Windows: `Mini-HBUT_<version>_x64-setup.exe` / `Mini-HBUT_<version>_x64_en-US.msi`
+- macOS: `Mini-HBUT_<version>_universal.dmg`
+- Android: `Mini-HBUT_<version>_arm64.apk`
+- iOS: `Mini-HBUT_<version>_iOS.ipa`（未签名）
+- Linux: `Mini-HBUT_<version>_amd64.AppImage` / `Mini-HBUT_<version>_amd64.deb`
 
-- Cookie 管理
-- Session 保持
-- 请求重试
-- 学期/周次计算
+统一下载地址：`https://github.com/superdaobo/mini-hbut/releases`
 
-### parser.rs - HTML 解析器
+## iOS 侧载安装（iLoader + LiveContainer + SideStore）
 
-解析教务系统返回的 HTML 页面，提取所需数据。
+以下流程用于把 CI 产出的未签名 `IPA` 安装到 iPhone。
 
-### db.rs - 数据库
+### 1. 前置条件
 
-SQLite 本地数据库，用于缓存：
+- 一台 iPhone（已登录 Apple ID）
+- 一台电脑（Windows 或 macOS）
+- 数据线或同一局域网（用于首次配对）
+- 已下载 `Mini-HBUT_<version>_iOS.ipa`
 
-- 登录凭据
-- 成绩数据
-- 课表数据
+### 2. 安装 SideStore
 
-## 📦 功能模块 (modules/)
+1. 在电脑端安装并运行 SideStore 配套的配对工具（SideServer/Jitter 相关组件按官方文档配置）。
+2. 在 iPhone 安装 SideStore（通过官方推荐安装方式完成首次签名）。
+3. 打开 iPhone 设置：`设置 > 通用 > VPN 与设备管理`，信任对应开发者证书。
+4. 首次打开 SideStore，确认可正常刷新应用签名。
 
-| 模块 | 功能 | 对应前端页面 |
-|------|------|-------------|
-| `grades.rs` | 成绩查询 | GradeView |
-| `schedule.rs` | 课表查询 | ScheduleView |
-| `classroom.rs` | 空教室查询 | ClassroomView |
-| `exam.rs` | 考试安排 | ExamView |
-| `calendar.rs` | 校历信息 | CalendarView |
-| `electricity.rs` | 电费查询 | ElectricityView |
-| `ranking.rs` | 排名查询 | RankingView |
-| `training_plan.rs` | 培养方案 | TrainingPlanView |
-| `student_info.rs` | 学生信息 | StudentInfoView |
-| `transaction.rs` | 交易记录 | TransactionHistory |
+### 3. 在 SideStore 安装 LiveContainer 与 iLoader
 
-## 🔑 添加新功能
+1. 打开 SideStore 的应用源/商店，安装 `LiveContainer`。
+2. 在 SideStore 中安装 `iLoader`（若商店无该项，可通过 IPA 手动导入方式安装）。
+3. 启动一次 `LiveContainer` 与 `iLoader`，确认没有证书报错。
 
-### 1. 创建模块文件
+### 4. 导入并签名 Mini-HBUT IPA
 
-```rust
-// src/modules/new_feature.rs
-pub async fn get_data(client: &HttpClient) -> Result<Vec<Data>, String> {
-    // 实现逻辑
-}
-```
+1. 将 `Mini-HBUT_<version>_iOS.ipa` 分享到 iPhone（AirDrop/网盘/文件 App）。
+2. 在 `iLoader` 中选择该 IPA，执行导入与签名。
+3. 导入后，按 iLoader 提示把应用安装到 `LiveContainer` 或直接安装到系统桌面。
+4. 回到 SideStore，执行一次刷新，确保签名有效期正常。
 
-### 2. 在 mod.rs 中导出
+### 5. 首次启动校验
 
-```rust
-// src/modules/mod.rs
-pub mod new_feature;
-```
+1. 打开 Mini-HBUT，确认首页可加载（不应出现 `localhost:1420` 或 `tauri://localhost` 错误）。
+2. 登录后测试：
+   - 电费查询
+   - 交易记录
+   - 课表导出（会写入应用缓存目录）
 
-### 3. 在 lib.rs 中添加命令
+### 6. 常见问题
 
-```rust
-#[tauri::command]
-async fn get_new_feature(state: State<'_, AppState>) -> Result<Vec<Data>, String> {
-    let client = state.client.lock().await;
-    modules::new_feature::get_data(&client).await
-}
-```
+- 提示“无法验证应用完整性”：
+  - 重新信任证书并在 SideStore 刷新签名。
+- 提示 “AFC was unable to manage files / invalid pairing”：
+  - 重新完成手机与电脑配对，再重试 SideStore 刷新。
+- 提示打开即请求 `localhost:1420`：
+  - 使用最新 Release 的 IPA，旧包可能是开发模式构建。
 
-### 4. 注册命令
+## 说明：缓存与导出目录
 
-```rust
-.invoke_handler(tauri::generate_handler![
-    // ... 其他命令
-    get_new_feature,
-])
-```
-
-## ⚙️ 配置文件
-
-### tauri.conf.json
-
-主要配置项：
-
-```json
-{
-  "productName": "Mini-HBUT",
-  "version": "1.0.0",
-  "identifier": "com.minihbut.app",
-  "app": {
-    "windows": [...],
-    "security": {...}
-  },
-  "bundle": {
-    "android": {...},
-    "windows": {...}
-  }
-}
-```
-
-### Cargo.toml
-
-Rust 依赖：
-
-- `tauri` - Tauri 框架
-- `reqwest` - HTTP 客户端
-- `scraper` - HTML 解析
-- `rusqlite` - SQLite
-- `serde` - 序列化
-- `chrono` - 日期时间
-
-## 🛡️ 安全说明
-
-- 密码使用 RSA 加密传输
-- 本地存储使用 SQLite 加密
-- 敏感信息不上传云端
+- SQLite 数据库默认写入应用可写目录（`AppData`）。
+- 课表导出 `.ics` 默认写入应用缓存目录（`AppCache/exports`）。
+- 移动端不再使用进程当前目录，避免只读文件系统错误。

@@ -20,7 +20,7 @@
 // 3. 这里的缓存策略主要是为了支持离线模式 (Offline Mode) 和提升首屏加载速度。
 
 use rusqlite::{params, Connection, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde_json::Value;
 use chrono::Local;
 use base64::Engine;
@@ -50,9 +50,29 @@ fn ensure_user_session_columns(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN electricity_token_expires_at TEXT", []);
 }
 
+fn resolve_db_path<P: AsRef<Path>>(path: P) -> PathBuf {
+    if let Ok(raw) = std::env::var("HBUT_DB_PATH") {
+        let candidate = PathBuf::from(raw);
+        if !candidate.as_os_str().is_empty() {
+            return candidate;
+        }
+    }
+    path.as_ref().to_path_buf()
+}
+
+fn open_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
+    let resolved = resolve_db_path(path);
+    if let Some(parent) = resolved.parent() {
+        if !parent.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
+    Connection::open(resolved)
+}
+
 // 初始化数据库
 pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
 
     // 1. 创建 grades 表
     conn.execute(
@@ -147,7 +167,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
 
 // 保存缓存
 pub fn save_cache<P: AsRef<Path>>(path: P, table: &str, key: &str, data: &Value) -> Result<()> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
     let payload = serde_json::to_string(data).unwrap_or_default();
     let sync_time = Local::now().to_rfc3339();
 
@@ -163,7 +183,7 @@ pub fn save_cache<P: AsRef<Path>>(path: P, table: &str, key: &str, data: &Value)
 
 // 读取缓存
 pub fn get_cache<P: AsRef<Path>>(path: P, table: &str, key: &str) -> Result<Option<(Value, String)>> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
     
     let sql = if table.contains("public") {
         format!("SELECT data, sync_time FROM {} WHERE cache_key = ?1", table)
@@ -195,7 +215,7 @@ pub fn save_user_session<P: AsRef<Path>>(
     refresh_token: Option<&str>,
     token_expires_at: Option<&str>,
 ) -> Result<()> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
     // 简单 Base64 编码作为"加密" (仅防君子)
     let encrypted_password = base64::engine::general_purpose::STANDARD.encode(password);
     
@@ -220,7 +240,7 @@ pub fn save_user_session<P: AsRef<Path>>(
 
 // 获取用户会话
 pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<UserSessionData>> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
     ensure_user_session_columns(&conn);
 
     let mut stmt = conn.prepare(
@@ -254,7 +274,7 @@ pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Opt
 
 // 获取最近一次用户会话
 pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestUserSessionData>> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
     ensure_user_session_columns(&conn);
 
     let mut stmt = conn.prepare(
@@ -295,7 +315,7 @@ pub fn save_electricity_tokens<P: AsRef<Path>>(
     refresh_token: &str,
     token_expires_at: &str,
 ) -> Result<()> {
-    let conn = Connection::open(path)?;
+    let conn = open_connection(path)?;
     ensure_user_session_columns(&conn);
     // 确保记录存在
     let _ = conn.execute(

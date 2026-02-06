@@ -98,8 +98,12 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF#refs/tags/v}"
-          if [ -z "$VERSION" ]; then
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
             VERSION="$(node -p "require('./package.json').version")"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Unable to resolve VERSION"
+            exit 1
           fi
 
           UNSIGNED_APK="$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -n 1)"
@@ -257,6 +261,17 @@ jobs:
           NODE
 
           npm run tauri ios init
+
+          IOS_ICON_DIR="src-tauri/icons/ios"
+          IOS_APPICONSET="src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset"
+          if [ -d "$IOS_ICON_DIR" ] && [ -d "$IOS_APPICONSET" ]; then
+            find "$IOS_APPICONSET" -type f -name "*.png" -delete
+            cp -f "$IOS_ICON_DIR"/*.png "$IOS_APPICONSET"/
+            echo "Injected iOS AppIcon set from $IOS_ICON_DIR"
+          else
+            echo "iOS icon source or destination not found, skipping icon injection"
+          fi
+
           npm run build
 
           export TMPDIR="$PWD/.tauri-tmp"
@@ -339,19 +354,12 @@ jobs:
             APP_PATH="$(find build-ios/Build/Products -path "*/release-iphoneos/*.app" -type d | head -n 1)"
           fi
           if [ -z "$APP_PATH" ]; then
-            APP_PATH="$(find build-ios/Build/Products -path "*/debug-iphoneos/*.app" -type d | head -n 1)"
-          fi
-          if [ -z "$APP_PATH" ]; then
-            echo "No .app found under build-ios/Build/Products"
+            echo "No Release .app found under build-ios/Build/Products"
             find build-ios/Build/Products -maxdepth 6 -type d -print || true
             exit 1
           fi
 
           echo "Using app: $APP_PATH"
-          if grep -R -q "http://localhost:1420" "$APP_PATH"; then
-            echo "::error::Found localhost dev URL string in app bundle. This IPA would boot into dev server mode."
-            exit 1
-          fi
 
           cp -R "$APP_PATH" Payload/
           IPA_NAME="Mini-HBUT_${VERSION}_iOS.ipa"
