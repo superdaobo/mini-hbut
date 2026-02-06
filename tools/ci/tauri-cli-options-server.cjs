@@ -3,9 +3,13 @@
 const options = {
   dev: false,
   features: null,
-  args: ['--lib'],
+  // Force release build behavior to avoid dev server usage in CI iOS builds.
+  args: ['--lib', '--release', '--no-dev-server'],
   noise_level: 'Polite',
-  vars: {},
+  vars: {
+    TAURI_DEV_URL: '',
+    TAURI_DEVSERVER_PORT: '0',
+  },
   config: [],
   target_device: null,
 };
