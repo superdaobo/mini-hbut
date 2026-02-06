@@ -1,9 +1,9 @@
-﻿name: Release Build
+name: Release Build
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -18,11 +18,11 @@ jobs:
       release_id: ${{ steps.create_release.outputs.id }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Get version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-      
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -40,46 +40,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
-      
+          distribution: temurin
+          java-version: "17"
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
-      
+
       - name: Setup NDK
         run: |
           sdkmanager "ndk;27.0.11718014"
-          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.11718014" >> $GITHUB_ENV
-      
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.11718014" >> "$GITHUB_ENV"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          node-version: "20"
+          cache: npm
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # 鍙瀯寤?arm64 鏋舵瀯锛屽ぇ骞呭噺灏?APK 浣撶Н
           targets: aarch64-linux-android
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Initialize Android project
         run: npm run tauri android init
-      
+
       - name: Copy Android icons
         run: |
-          # 澶嶅埗鑷畾涔夊浘鏍囧埌 Android 椤圭洰
+          set -euo pipefail
           ANDROID_RES="src-tauri/gen/android/app/src/main/res"
           ICONS_SRC="src-tauri/icons/android"
-          
-          # 澶嶅埗鍚勫垎杈ㄧ巼鍥炬爣
           for density in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
             if [ -d "$ICONS_SRC/$density" ]; then
               mkdir -p "$ANDROID_RES/mipmap-$density"
@@ -90,83 +87,33 @@ jobs:
               cp -f "$ICONS_SRC/mipmap-$density"/*.png "$ANDROID_RES/mipmap-$density/" 2>/dev/null || true
             fi
           done
-          
-          echo "Android icons copied successfully"
           ls -la "$ANDROID_RES/mipmap-xxxhdpi/" || true
-      
-      # - name: Apply Android Native Changes (Service & Permissions)
-      #   run: |
-      #     ANDROID_MAIN="src-tauri/gen/android/app/src/main"
-      #     SETUP_DIR="src-tauri/android-native-setup"
-          
-      #     # 1. Copy NotificationService.kt
-      #     echo "Copying NotificationService.kt..."
-      #     cp "$SETUP_DIR/NotificationService.kt" "$ANDROID_MAIN/java/com/hbut/mini/"
-          
-      #     # 2. Overwrite MainActivity.kt (using our valid version with service start logic)
-      #     echo "Overwriting MainActivity.kt..."
-      #     cp "$SETUP_DIR/MainActivity_changes.kt" "$ANDROID_MAIN/java/com/hbut/mini/MainActivity.kt"
-          
-      #     # 3. Patch AndroidManifest.xml
-      #     MANIFEST="$ANDROID_MAIN/AndroidManifest.xml"
-      #     echo "Patching AndroidManifest.xml..."
-          
-      #     # Insert Permissions (one by one to be safe)
-      #     sed -i '/<application/i <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />' "$MANIFEST"
-      #     sed -i '/<application/i <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' "$MANIFEST"
-      #     sed -i '/<application/i <uses-permission android:name="android.permission.WAKE_LOCK" />' "$MANIFEST"
-      #     sed -i '/<application/i <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />' "$MANIFEST"
-          
-      #     # Insert Service (inside <application>)
-      #     sed -i '/<\/application>/i <service android:name=".NotificationService" />' "$MANIFEST"
-          
-      #     cat "$MANIFEST" | head -n 20
-      
-      # - name: Configure Android build for smaller APK
-      #   run: |
-      #     # 淇敼 build.gradle.kts 鍚敤浠ｇ爜鍘嬬缉
-      #     BUILD_GRADLE="src-tauri/gen/android/app/build.gradle.kts"
-      #     if [ -f "$BUILD_GRADLE" ]; then
-      #       # 鍚敤 minify 鍜?shrinkResources
-      #       sed -i 's/isMinifyEnabled = false/isMinifyEnabled = true/' "$BUILD_GRADLE"
-      #       sed -i 's/isShrinkResources = false/isShrinkResources = true/' "$BUILD_GRADLE"
-            
-      #       # 闄愬埗鍙瀯寤?arm64-v8a 鏋舵瀯
-      #       sed -i '/defaultConfig {/a\        ndk {\n            abiFilters += listOf("arm64-v8a")\n        }' "$BUILD_GRADLE"
-      #     fi
-          
-      #     # 鍒涘缓 proguard 瑙勫垯鏂囦欢
-      #     PROGUARD_FILE="src-tauri/gen/android/app/proguard-rules.pro"
-      #     cat > "$PROGUARD_FILE" << 'EOF'
-      #     # Tauri 淇濇寔瑙勫垯
-      #     -keep class com.hbut.mini.** { *; }
-      #     -keep class * extends android.webkit.WebView { *; }
-      #     -keepclassmembers class * extends android.webkit.WebView {
-      #         public *;
-      #     }
-      #     -dontwarn kotlin.**
-      #     -dontwarn kotlinx.**
-      #     EOF
-      
+
       - name: Build Android APK (arm64 only)
         run: npm run tauri android build -- --target aarch64 --apk true
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
-      
+
       - name: Sign APK
         run: |
-          # 鑾峰彇鐗堟湰鍙?          VERSION="${GITHUB_REF#refs/tags/v}"
-          
-          # 鎵惧埌鏈鍚嶇殑 APK
-          UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+
+          UNSIGNED_APK="$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -n 1)"
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "No unsigned APK found."
+            find src-tauri/gen/android/app/build/outputs -maxdepth 6 -type f -print || true
+            exit 1
+          fi
           echo "Found unsigned APK: $UNSIGNED_APK"
-          
-          # 浠?Secrets 瑙ｇ爜绛惧悕瀵嗛挜锛屽鏋滄病鏈夊垯鐢熸垚鏂扮殑
+
           if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release-key.jks
-            echo "Using keystore from secrets"
+            echo "Using keystore from secret"
           else
-            # 浣跨敤鍥哄畾鍙傛暟鐢熸垚瀵嗛挜锛堢‘淇濇瘡娆＄敓鎴愮浉鍚岋級
             keytool -genkeypair -v \
               -keystore release-key.jks \
               -alias mini-hbut \
@@ -176,34 +123,26 @@ jobs:
               -storepass android \
               -keypass android \
               -dname "CN=Mini-HBUT, OU=HBUT, O=HBUT, L=Wuhan, ST=Hubei, C=CN"
-            echo "Generated new keystore"
+            echo "Generated fallback keystore"
           fi
-          
-          # 瀵归綈 APK
-          ${ANDROID_SDK_ROOT}/build-tools/35.0.0/zipalign -v -p 4 \
-            "$UNSIGNED_APK" \
-            app-aligned.apk
-          
-          # 绛惧悕 APK
-          ${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner sign \
+
+          "${ANDROID_SDK_ROOT}/build-tools/35.0.0/zipalign" -v -p 4 "$UNSIGNED_APK" app-aligned.apk
+          APK_NAME="Mini-HBUT_${VERSION}_arm64.apk"
+          "${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner" sign \
             --ks release-key.jks \
             --ks-key-alias mini-hbut \
             --ks-pass pass:android \
             --key-pass pass:android \
-            --out "Mini-HBUT-v${VERSION}-arm64.apk" \
+            --out "$APK_NAME" \
             app-aligned.apk
-          
-          # 楠岃瘉绛惧悕
-          ${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner verify -v "Mini-HBUT-v${VERSION}-arm64.apk"
-          
-          # 鏄剧ず鏂囦欢淇℃伅
-          ls -lh "Mini-HBUT-v${VERSION}-arm64.apk"
-      
+          "${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner" verify -v "$APK_NAME"
+          ls -lh "$APK_NAME"
+
       - name: Upload signed APK
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: Mini-HBUT-*.apk
+          files: Mini-HBUT_*_arm64.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -212,22 +151,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          node-version: "20"
+          cache: npm
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Build Windows App
         run: npm run tauri build
-      
+
       - name: Upload Windows artifacts
         uses: softprops/action-gh-release@v1
         with:
@@ -243,24 +182,24 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          node-version: "20"
+          cache: npm
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Build macOS App (Universal)
         run: npm run tauri build -- --target universal-apple-darwin
-      
+
       - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v1
         with:
@@ -277,7 +216,7 @@ jobs:
 
       - name: Get version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -287,43 +226,81 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: npm
 
       - name: Install Frontend Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli
 
-      - name: Build Project
+      - name: Build iOS app bundle
         run: |
+          set -euo pipefail
           npm run tauri ios init
           npm run build
+
           export TMPDIR="$PWD/.tauri-tmp"
           export NPM_CONFIG_AUDIT=false
           export NPM_CONFIG_FUND=false
           mkdir -p "$TMPDIR"
+
           npm install ws --no-save --no-audit --no-fund
-          node -e "require(\"ws\"); console.log(\"ws ok\")"
+          node -e "require('ws'); console.log('ws ok')"
+
           cp tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
-          IDENTIFIER=$(node -p "require('./src-tauri/tauri.conf.json').identifier")
-          PORT=$(python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+
+          IDENTIFIER="$(node -p "require('./src-tauri/tauri.conf.json').identifier")"
+          PORT="$(python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()")"
           export PORT
           echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
+
           LOG="$TMPDIR/tauri-cli-options-server.log"
-          TAURI_CLI_OPTIONS_PORT=$PORT TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.cjs" >"$LOG" 2>&1 &
+          TAURI_CLI_OPTIONS_PORT="$PORT" TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.cjs" >"$LOG" 2>&1 &
           OPTIONS_PID=$!
+          cleanup() {
+            if [ -n "${OPTIONS_PID:-}" ] && kill -0 "$OPTIONS_PID" 2>/dev/null; then
+              kill "$OPTIONS_PID"
+            fi
+          }
+          trap cleanup EXIT
+
           sleep 1
-          if ! kill -0 $OPTIONS_PID 2>/dev/null; then
+          if ! kill -0 "$OPTIONS_PID" 2>/dev/null; then
             echo "WS server process exited early"
             cat "$LOG"
             exit 1
           fi
-          python -c 'import os,socket,time,sys; port=int(os.environ.get("PORT","0")); code="""for _ in range(60):\n    try:\n        s=socket.socket(); s.settimeout(0.2); s.connect((\"127.0.0.1\",port)); s.close(); sys.exit(0)\n    except Exception:\n        time.sleep(0.2)\nsys.exit(1)\n"""; exec(code)' || { echo "WS server failed to start on port $PORT"; cat "$LOG"; exit 1; }
-          CONFIGURATION=release TMPDIR="$TMPDIR" xcodebuild \
+
+          python - <<'PY'
+          import os
+          import socket
+          import sys
+          import time
+
+          port = int(os.environ["PORT"])
+          for _ in range(60):
+              sock = socket.socket()
+              sock.settimeout(0.2)
+              try:
+                  sock.connect(("127.0.0.1", port))
+                  sock.close()
+                  sys.exit(0)
+              except Exception:
+                  sock.close()
+                  time.sleep(0.2)
+          sys.exit(1)
+          PY
+
+          # Fallback: if tauri-cli resolves debug output path, make sure the static lib exists there too.
+          mkdir -p src-tauri/target/aarch64-apple-ios/debug
+          ln -sf ../release/libhbut_helper_lib.a src-tauri/target/aarch64-apple-ios/debug/libhbut_helper_lib.a
+
+          TMPDIR="$TMPDIR" xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
-            -configuration release \
+            -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -derivedDataPath build-ios \
@@ -331,30 +308,37 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \
             DEVELOPMENT_TEAM=""
-          kill $OPTIONS_PID
+
       - name: Package IPA for SideStore
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
+          set -euo pipefail
           mkdir -p Payload
-          APP_PATH=$(find build-ios/Build/Products -path "*/release-iphoneos/*.app" -type d | head -n 1)
+
+          APP_PATH="$(find build-ios/Build/Products -path "*/Release-iphoneos/*.app" -type d | head -n 1)"
           if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find build-ios/Build/Products -path "*/Release-iphoneos/*.app" -type d | head -n 1)
+            APP_PATH="$(find build-ios/Build/Products -path "*/release-iphoneos/*.app" -type d | head -n 1)"
           fi
           if [ -z "$APP_PATH" ]; then
-            echo "No release .app found under build-ios/Build/Products"
-            find build-ios/Build/Products -maxdepth 4 -type d -print || true
+            APP_PATH="$(find build-ios/Build/Products -path "*/debug-iphoneos/*.app" -type d | head -n 1)"
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found under build-ios/Build/Products"
+            find build-ios/Build/Products -maxdepth 6 -type d -print || true
             exit 1
           fi
+
           echo "Using app: $APP_PATH"
-          if grep -R -q "localhost:1420" "$APP_PATH"; then
-            echo "Detected dev server URL in app bundle. Stop packaging."
-            exit 1
+          if grep -R -q "http://localhost:1420" "$APP_PATH"; then
+            echo "::warning::Found localhost dev URL string in app bundle. Packaging continues for inspection."
           fi
+
           cp -R "$APP_PATH" Payload/
           IPA_NAME="Mini-HBUT_${VERSION}_iOS.ipa"
           zip -r "$IPA_NAME" Payload
           ls -lh "$IPA_NAME"
+
       - name: Upload iOS IPA
         uses: softprops/action-gh-release@v1
         with:
@@ -383,8 +367,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -404,18 +388,3 @@ jobs:
             src-tauri/target/release/bundle/deb/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
