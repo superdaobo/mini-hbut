@@ -238,6 +238,24 @@ jobs:
       - name: Build iOS app bundle
         run: |
           set -euo pipefail
+          # Force production web assets for iOS CI builds.
+          # If devUrl is present, runtime may try to open localhost:1420.
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const p = 'src-tauri/tauri.conf.json';
+          const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+          conf.build = conf.build || {};
+          delete conf.build.devUrl;
+          delete conf.build.beforeDevCommand;
+          conf.build.beforeBuildCommand = 'npm run build';
+          conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
+          console.log('Patched tauri.conf.json for iOS CI:', {
+            frontendDist: conf.build.frontendDist,
+            hasDevUrl: Object.prototype.hasOwnProperty.call(conf.build, 'devUrl'),
+          });
+          NODE
+
           npm run tauri ios init
           npm run build
 
@@ -331,7 +349,8 @@ jobs:
 
           echo "Using app: $APP_PATH"
           if grep -R -q "http://localhost:1420" "$APP_PATH"; then
-            echo "::warning::Found localhost dev URL string in app bundle. Packaging continues for inspection."
+            echo "::error::Found localhost dev URL string in app bundle. This IPA would boot into dev server mode."
+            exit 1
           fi
 
           cp -R "$APP_PATH" Payload/
