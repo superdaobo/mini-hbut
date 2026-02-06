@@ -315,6 +315,15 @@ jobs:
           if "--configuration ${CONFIGURATION}" in data:
               data = data.replace("--configuration ${CONFIGURATION}", "--configuration release")
               replaced = True
+          marker = "tauri ios xcode-script"
+          idx = data.find(marker)
+          if idx != -1:
+              anchor = data.rfind("set -e\\n", 0, idx)
+              if anchor != -1:
+                  snippet = data[anchor:idx]
+                  if "CONFIGURATION=release\\n" not in snippet:
+                      data = data[:anchor] + "set -e\\nCONFIGURATION=release\\n" + data[anchor + len("set -e\\n"):]
+                      replaced = True
           if replaced:
               with open(path, "w", encoding="utf-8") as f:
                   f.write(data)
