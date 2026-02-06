@@ -298,40 +298,6 @@ jobs:
       - name: Build Project
         run: |
           npm run tauri ios init
-          PBX=$(find src-tauri/gen/apple -name project.pbxproj | head -n 1)
-          if [ -n "$PBX" ]; then
-          python - "$PBX" <<'PY'
-          import sys
-          import re
-          if len(sys.argv) < 2:
-              raise SystemExit(0)
-          path = sys.argv[1]
-          with open(path, "r", encoding="utf-8") as f:
-              data = f.read()
-          replaced = False
-          data, n = re.subn(r'--configuration\\s+\\$\\{CONFIGURATION[^}]*\\}', '--configuration release', data)
-          if n > 0:
-              replaced = True
-          if "--configuration ${CONFIGURATION}" in data:
-              data = data.replace("--configuration ${CONFIGURATION}", "--configuration release")
-              replaced = True
-          marker = "tauri ios xcode-script"
-          idx = data.find(marker)
-          if idx != -1:
-              anchor = data.rfind("set -e\\n", 0, idx)
-              if anchor != -1:
-                  snippet = data[anchor:idx]
-                  if "CONFIGURATION=release\\n" not in snippet:
-                      data = data[:anchor] + "set -e\\nCONFIGURATION=release\\n" + data[anchor + len("set -e\\n"):]
-                      replaced = True
-          if replaced:
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(data)
-              print("Patched CONFIGURATION to release in xcode script.")
-          else:
-              print("CONFIGURATION placeholder not found; skip patch.")
-          PY
-          fi
           npm run build
           export TMPDIR="$PWD/.tauri-tmp"
           export NPM_CONFIG_AUDIT=false
@@ -354,10 +320,10 @@ jobs:
             exit 1
           fi
           python -c 'import os,socket,time,sys; port=int(os.environ.get("PORT","0")); code="""for _ in range(60):\n    try:\n        s=socket.socket(); s.settimeout(0.2); s.connect((\"127.0.0.1\",port)); s.close(); sys.exit(0)\n    except Exception:\n        time.sleep(0.2)\nsys.exit(1)\n"""; exec(code)' || { echo "WS server failed to start on port $PORT"; cat "$LOG"; exit 1; }
-          CONFIGURATION=Release TMPDIR="$TMPDIR" xcodebuild \
+          CONFIGURATION=release TMPDIR="$TMPDIR" xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
-            -configuration Release \
+            -configuration release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -derivedDataPath build-ios \
@@ -371,17 +337,20 @@ jobs:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           mkdir -p Payload
-          APP_PATH=$(find build-ios/Build/Products -path "*/Release-iphoneos/*.app" -type d | head -n 1)
+          APP_PATH=$(find build-ios/Build/Products -path "*/release-iphoneos/*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "No Release .app found under build-ios/Build/Products"
-            APP_PATH=$(find build-ios/Build/Products -path "*/debug-iphoneos/*.app" -type d | head -n 1)
+            APP_PATH=$(find build-ios/Build/Products -path "*/Release-iphoneos/*.app" -type d | head -n 1)
           fi
           if [ -z "$APP_PATH" ]; then
-            echo "No .app found under build-ios/Build/Products"
+            echo "No release .app found under build-ios/Build/Products"
             find build-ios/Build/Products -maxdepth 4 -type d -print || true
             exit 1
           fi
           echo "Using app: $APP_PATH"
+          if grep -R -q "localhost:1420" "$APP_PATH"; then
+            echo "Detected dev server URL in app bundle. Stop packaging."
+            exit 1
+          fi
           cp -R "$APP_PATH" Payload/
           IPA_NAME="Mini-HBUT_${VERSION}_iOS.ipa"
           zip -r "$IPA_NAME" Payload
