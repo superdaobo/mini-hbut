@@ -300,12 +300,12 @@ jobs:
           npm run tauri ios init
           PBX=$(find src-tauri/gen/apple -name project.pbxproj | head -n 1)
           if [ -n "$PBX" ]; then
-          python - <<'PY'
-          import os
+          python - "$PBX" <<'PY'
+          import sys
           import re
-          path = os.environ.get("PBX")
-          if not path:
+          if len(sys.argv) < 2:
               raise SystemExit(0)
+          path = sys.argv[1]
           with open(path, "r", encoding="utf-8") as f:
               data = f.read()
           replaced = False
