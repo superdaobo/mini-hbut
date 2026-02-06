@@ -2,9 +2,10 @@
 
 const options = {
   dev: false,
-  features: null,
-  // Keep iOS CI builds in release mode and avoid dev-server runtime.
-  args: ['--lib', '--release'],
+  // Ensure production protocol handler is compiled into mobile build.
+  features: ['custom-protocol'],
+  // Keep iOS CI builds in release mode and force custom-protocol feature.
+  args: ['--lib', '--release', '--features', 'custom-protocol'],
   noise_level: 'Polite',
   vars: {},
   config: [],
