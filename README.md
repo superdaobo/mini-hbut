@@ -47,7 +47,7 @@
 | Windows | MSI / EXE | ✅ |
 | macOS | DMG | ✅ |
 | Android | APK | ✅ |
-| iOS | - | 🚧 计划中 |
+| iOS | IPA | ✅(自行签名安装) |
 | Linux | AppImage | ✅ |
 
 ## 📥 下载安装

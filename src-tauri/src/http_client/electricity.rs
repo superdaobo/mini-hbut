@@ -35,17 +35,7 @@ impl HbutClient {
         let code_sso_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(code_service));
         let _ = self.client.get(&portal_sso_url).send().await;
         let _ = self.client.get(&code_sso_url).send().await;
-        
-        // 创建一个不自动重定向的客户端来跟踪 SSO 流程
-        let no_redirect_client = Client::builder()
-            .cookie_store(true)
-            .cookie_provider(Arc::clone(&self.cookie_jar))
-            .redirect(reqwest::redirect::Policy::none()) // 禁用自动重定向
-            .danger_accept_invalid_certs(true)
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
-        
+
         let mut auth_token = String::new();
         let mut tid = String::new();
         let mut ticket = String::new();
@@ -54,9 +44,64 @@ impl HbutClient {
         // 1. 触发电费 SSO 流程
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
         println!("[调试] 步骤 1: 开始 SSO {}", sso_url);
+
+        // 优先走“现有门户 Cookie 直连”路径（自动重定向），减少额外登录。
+        match self.client.get(sso_url).send().await {
+            Ok(resp) => {
+                let final_url = resp.url().to_string();
+                if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&final_url) {
+                    tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[调试] 直连 SSO 获取 tid: {}", tid);
+                }
+                if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&final_url) {
+                    ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[调试] 直连 SSO 获取 ticket: {}", ticket);
+                }
+                if let Some(token_header) = resp.headers().get("Authorization") {
+                    auth_token = token_header.to_str()?.to_string();
+                    println!("[调试] 直连 SSO 获取令牌头: {}...", &auth_token.chars().take(30).collect::<String>());
+                }
+                if auth_token.is_empty() {
+                    if let Some(token_header) = resp.headers().get("token") {
+                        auth_token = token_header.to_str()?.to_string();
+                        println!("[调试] 直连 SSO 获取 token 头: {}...", &auth_token.chars().take(30).collect::<String>());
+                    }
+                }
+                if tid.is_empty() && ticket.is_empty() && auth_token.is_empty() {
+                    let html = resp.text().await.unwrap_or_default();
+                    if let Some(caps) = regex::Regex::new(r#"tid=([^&"']+)"#)?.captures(&html) {
+                        tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        println!("[调试] 直连 SSO 获取 tid HTML: {}", tid);
+                    }
+                    if ticket.is_empty() {
+                        if let Some(caps) = regex::Regex::new(r#"ticket=([^&"']+)"#)?.captures(&html) {
+                            ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                            println!("[调试] 直连 SSO 获取 ticket HTML: {}", ticket);
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                println!("[警告] 直连 SSO 请求失败，将回退手动重定向: {}", err);
+            }
+        }
         
         const MAX_重定向S: i32 = 15;
-        for attempt in 0..2 {
+        if tid.is_empty() && ticket.is_empty() && auth_token.is_empty() {
+            // 创建一个不自动重定向的客户端来跟踪 SSO 流程
+            let no_redirect_client = Client::builder()
+                .cookie_store(true)
+                .cookie_provider(Arc::clone(&self.cookie_jar))
+                .redirect(reqwest::redirect::Policy::none()) // 禁用自动重定向
+                .danger_accept_invalid_certs(true)
+                .resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
+                .resolve("jwxt.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
+                .resolve("code.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 2], 443)))
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .timeout(std::time::Duration::from_secs(30))
+                .build()?;
+
+            for attempt in 0..2 {
             auth_token.clear();
             tid.clear();
             let mut needs_login = false;
@@ -69,10 +114,21 @@ impl HbutClient {
                 redirect_count += 1;
                 println!("[调试] 重定向 {}: {}", redirect_count, current_url);
 
-                let response = no_redirect_client.get(&current_url)
+                let response = match no_redirect_client.get(&current_url)
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .send()
-                    .await?;
+                    .await
+                {
+                    Ok(resp) => resp,
+                    Err(err) => {
+                        println!("[警告] SSO 请求失败: {} -> {}", current_url, err);
+                        if current_url.contains("authserver/login") || current_url.contains("auth.hbut.edu.cn") {
+                            needs_login = true;
+                            break;
+                        }
+                        return Err(format!("电费 SSO 请求失败: {}", err).into());
+                    }
+                };
 
                 let status = response.status();
 
@@ -187,7 +243,8 @@ impl HbutClient {
                 }
             }
 
-            break;
+                break;
+            }
         }
 
         // fallback: use normal client with 重定向s to get tid
@@ -662,23 +719,55 @@ impl HbutClient {
 
         let mut tid = String::new();
         let mut ticket = String::new();
-        let no_redirect_client = Client::builder()
-            .cookie_store(true)
-            .cookie_provider(Arc::clone(&self.cookie_jar))
-            .redirect(reqwest::redirect::Policy::none())
-            .danger_accept_invalid_certs(true)
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
+        match self.client.get(sso_url).send().await {
+            Ok(resp) => {
+                let final_url = resp.url().to_string();
+                if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&final_url) {
+                    tid = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[调试] 一码通：直连 tid={}", tid);
+                }
+                if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&final_url) {
+                    ticket = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+                    println!("[调试] 一码通：直连 ticket={}", ticket);
+                }
+            }
+            Err(err) => {
+                println!("[警告] 一码通直连 SSO 失败，将回退手动重定向: {}", err);
+            }
+        }
 
-        for attempt in 0..2 {
+        if tid.is_empty() && ticket.is_empty() {
+            let no_redirect_client = Client::builder()
+                .cookie_store(true)
+                .cookie_provider(Arc::clone(&self.cookie_jar))
+                .redirect(reqwest::redirect::Policy::none())
+                .danger_accept_invalid_certs(true)
+                .resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
+                .resolve("jwxt.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
+                .resolve("code.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 2], 443)))
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .timeout(std::time::Duration::from_secs(30))
+                .build()?;
+
+            for attempt in 0..2 {
             let mut current_url = sso_url.to_string();
             let mut needs_login = false;
             for _ in 0..15 {
-                let resp = no_redirect_client.get(&current_url)
+                let resp = match no_redirect_client.get(&current_url)
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .send()
-                    .await?;
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(err) => {
+                        println!("[警告] 一码通 SSO 请求失败: {} -> {}", current_url, err);
+                        if current_url.contains("authserver/login") || current_url.contains("auth.hbut.edu.cn") {
+                            needs_login = true;
+                            break;
+                        }
+                        return Err(format!("一码通 SSO 请求失败: {}", err).into());
+                    }
+                };
 
                 let status = resp.status();
                 let url_str = resp.url().to_string();
@@ -778,6 +867,7 @@ impl HbutClient {
                 }
             }
             break;
+            }
         }
 
         if tid.is_empty() && ticket.is_empty() {
