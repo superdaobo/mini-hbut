@@ -298,6 +298,26 @@ jobs:
       - name: Build Project
         run: |
           npm run tauri ios init
+          PBX=$(find src-tauri/gen/apple -name project.pbxproj | head -n 1)
+          if [ -n "$PBX" ]; then
+            python - <<'PY'
+import os
+path = os.environ.get("PBX")
+if not path:
+    raise SystemExit(0)
+with open(path, "r", encoding="utf-8") as f:
+    data = f.read()
+old = "--configuration ${CONFIGURATION}"
+new = "--configuration $(echo \"$CONFIGURATION\" | tr '[:upper:]' '[:lower:]')"
+if old in data:
+    data = data.replace(old, new)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(data)
+    print("Patched CONFIGURATION to lowercase in xcode script.")
+else:
+    print("CONFIGURATION placeholder not found; skip patch.")
+PY
+          fi
           npm run build
           export TMPDIR="$PWD/.tauri-tmp"
           export NPM_CONFIG_AUDIT=false

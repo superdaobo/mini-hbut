@@ -524,7 +524,7 @@ impl HbutClient {
         // 1. 获取登录页面获取最新的 salt, execution, lt
         println!("[调试] 获取登录页参数...");
 
-        let max_retries = 4;
+        let max_retries = 2;
         for attempt in 0..max_retries {
             let page_info = self.get_login_page().await?;
             // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到 JWXT
