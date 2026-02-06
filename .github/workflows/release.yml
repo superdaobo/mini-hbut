@@ -374,6 +374,10 @@ jobs:
           APP_PATH=$(find build-ios/Build/Products -path "*/Release-iphoneos/*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "No Release .app found under build-ios/Build/Products"
+            APP_PATH=$(find build-ios/Build/Products -path "*/debug-iphoneos/*.app" -type d | head -n 1)
+          fi
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found under build-ios/Build/Products"
             find build-ios/Build/Products -maxdepth 4 -type d -print || true
             exit 1
           fi
