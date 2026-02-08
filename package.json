@@ -22,7 +22,6 @@
     "marked-katex-extension": "^5.1.0",
     "pinia": "^2.1.7",
     "tauri-plugin-keep-screen-on-api": "^0.1.4",
-    "tauri-plugin-nosleep-api": "^0.1.1",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },

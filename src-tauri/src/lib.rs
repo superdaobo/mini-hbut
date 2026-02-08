@@ -1447,8 +1447,7 @@ pub fn run() {
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
     let builder = builder
-        .plugin(tauri_plugin_keep_screen_on::init())
-        .plugin(tauri_plugin_nosleep::init());
+        .plugin(tauri_plugin_keep_screen_on::init());
 
     builder
         .plugin(tauri_plugin_notification::init())
