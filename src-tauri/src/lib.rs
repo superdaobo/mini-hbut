@@ -1,24 +1,25 @@
 ﻿// lib.rs
 //
-// 逻辑文档: lib_logic.md
-// 模块功能: Tauri 后端逻辑入口
+// 閫昏緫鏂囨。: lib_logic.md
+// 妯″潡鍔熻兘: Tauri 鍚庣閫昏緫鍏ュ彛
 // 
-// 本文件主要职责:
-// 1. 定义应用状态 (AppState) 和全局单例 HbutClient
-// 2. 将 HbutClient 的功能包装为 Tauri Commands 供前端调用
-// 3. 定义数据传输对象 (DTOs)
-// 4. 实现简单的缓存/持久化策略 (调用 db 模块)
+// 鏈枃浠朵富瑕佽亴璐?
+// 1. 瀹氫箟搴旂敤鐘舵€?(AppState) 鍜屽叏灞€鍗曚緥 HbutClient
+// 2. 灏?HbutClient 鐨勫姛鑳藉寘瑁呬负 Tauri Commands 渚涘墠绔皟鐢?
+// 3. 瀹氫箟鏁版嵁浼犺緭瀵硅薄 (DTOs)
+// 4. 瀹炵幇绠€鍗曠殑缂撳瓨/鎸佷箙鍖栫瓥鐣?(璋冪敤 db 妯″潡)
 //
-// 依赖关系:
-// lib.rs -> http_client.rs (业务逻辑)
-// lib.rs -> db.rs (数据存储)
-// lib.rs -> modules/ (特定功能模块)
+// 渚濊禆鍏崇郴:
+// lib.rs -> http_client.rs (涓氬姟閫昏緫)
+// lib.rs -> db.rs (鏁版嵁瀛樺偍)
+// lib.rs -> modules/ (鐗瑰畾鍔熻兘妯″潡)
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Duration;
+use base64::{engine::general_purpose, Engine as _};
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
 use chrono::{Datelike, Utc};
@@ -83,13 +84,13 @@ fn attach_sync_time(payload: serde_json::Value, sync_time: &str, offline: bool) 
     }
 }
 
-// 应用状态
-/// 全局状态：共享 HbutClient 实例
+// 搴旂敤鐘舵€?
+/// 鍏ㄥ眬鐘舵€侊細鍏变韩 HbutClient 瀹炰緥
 pub struct AppState {
     pub client: Arc<Mutex<HbutClient>>,
 }
 
-// 数据结构
+// 鏁版嵁缁撴瀯
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
     pub student_id: String,
@@ -225,7 +226,7 @@ pub struct QxzkbQuery {
     pub order: Option<String>,
 }
 
-// Tauri 命令
+// Tauri 鍛戒护
 
 #[tauri::command]
 async fn get_login_page(state: State<'_, AppState>) -> Result<LoginPageInfo, String> {
@@ -241,28 +242,28 @@ async fn get_captcha(state: State<'_, AppState>) -> Result<String, String> {
 
 #[tauri::command]
 async fn recognize_captcha(image_base64: String) -> Result<String, String> {
-    // 调用 OCR 服务识别验证码
-    // 这里可以使用本地 OCR 或远程服务
+    // 璋冪敤 OCR 鏈嶅姟璇嗗埆楠岃瘉鐮?
+    // 杩欓噷鍙互浣跨敤鏈湴 OCR 鎴栬繙绋嬫湇鍔?
     let client = reqwest::Client::new();
     
-    // 尝试调用本地 Python 后端的 OCR
+    // 灏濊瘯璋冪敤鏈湴 Python 鍚庣鐨?OCR
     let response = client
         .post("http://127.0.0.1:8000/api/ocr/base64")
         .json(&serde_json::json!({ "image": image_base64 }))
         .send()
         .await
-        .map_err(|e| format!("OCR 请求失败: {}", e))?;
+        .map_err(|e| format!("OCR 璇锋眰澶辫触: {}", e))?;
     
     if response.status().is_success() {
         let result: serde_json::Value = response.json().await
-            .map_err(|e| format!("解析 OCR 响应失败: {}", e))?;
+            .map_err(|e| format!("瑙ｆ瀽 OCR 鍝嶅簲澶辫触: {}", e))?;
         
         if let Some(code) = result.get("code").and_then(|v| v.as_str()) {
             return Ok(code.to_string());
         }
     }
     
-    Err("OCR 识别失败".to_string())
+    Err("OCR 璇嗗埆澶辫触".to_string())
 }
 
 #[tauri::command]
@@ -277,35 +278,40 @@ async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("创建请求失败: {}", e))?;
+        .map_err(|e| format!("鍒涘缓璇锋眰澶辫触: {}", e))?;
 
     let response = client
         .get(&url)
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| format!("请求失败: {}", e))?;
+        .map_err(|e| format!("璇锋眰澶辫触: {}", e))?;
 
     let status = response.status();
-    let text = response.text().await.map_err(|e| format!("读取响应失败: {}", e))?;
+    let text = response.text().await.map_err(|e| format!("璇诲彇鍝嶅簲澶辫触: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("请求失败: {}", status));
+        return Err(format!("璇锋眰澶辫触: {}", status));
     }
 
-    serde_json::from_str(&text).map_err(|e| format!("解析 JSON 失败: {}", e))
+    serde_json::from_str(&text).map_err(|e| format!("瑙ｆ瀽 JSON 澶辫触: {}", e))
 }
 
 #[tauri::command]
-async fn download_deyihei_font(app: tauri::AppHandle, url: String, force: Option<bool>) -> Result<String, String> {
+async fn download_deyihei_font(
+    app: tauri::AppHandle,
+    url: Option<String>,
+    urls: Option<Vec<String>>,
+    force: Option<bool>,
+) -> Result<String, String> {
     let force = force.unwrap_or(false);
     let cache_dir = app
         .path()
         .resolve("fonts", BaseDirectory::AppCache)
-        .map_err(|e| format!("解析缓存目录失败: {}", e))?;
+        .map_err(|e| format!("resolve cache dir failed: {}", e))?;
     tokio::fs::create_dir_all(&cache_dir)
         .await
-        .map_err(|e| format!("创建缓存目录失败: {}", e))?;
+        .map_err(|e| format!("create cache dir failed: {}", e))?;
 
     let font_path = cache_dir.join("SmileySans-Oblique.ttf");
     if !force {
@@ -316,31 +322,103 @@ async fn download_deyihei_font(app: tauri::AppHandle, url: String, force: Option
         }
     }
 
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(primary) = url {
+        if !primary.trim().is_empty() {
+            candidates.push(primary);
+        }
+    }
+    if let Some(extra) = urls {
+        for item in extra {
+            if !item.trim().is_empty() {
+                candidates.push(item);
+            }
+        }
+    }
+    for builtin in [
+        "https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf",
+    ] {
+        candidates.push(builtin.to_string());
+    }
+    candidates.sort();
+    candidates.dedup();
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("创建下载请求失败: {}", e))?;
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("下载字体失败: {}", e))?;
-    if !response.status().is_success() {
-        return Err(format!("字体下载失败: {}", response.status()));
+        .map_err(|e| format!("create download client failed: {}", e))?;
+
+    let mut last_error = "font download failed".to_string();
+    for candidate in candidates {
+        for _ in 0..2 {
+            let response = match client
+                .get(&candidate)
+                .header(
+                    reqwest::header::USER_AGENT,
+                    "Mini-HBUT/1.0 (font-downloader; +https://github.com/superdaobo/mini-hbut)",
+                )
+                .header(reqwest::header::ACCEPT, "font/ttf,application/octet-stream,*/*")
+                .send()
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    last_error = format!("request failed: {} ({})", candidate, e);
+                    continue;
+                }
+            };
+
+            if !response.status().is_success() {
+                last_error = format!("non-success status: {} ({})", candidate, response.status());
+                continue;
+            }
+
+            let bytes = match response.bytes().await {
+                Ok(data) => data,
+                Err(e) => {
+                    last_error = format!("read bytes failed: {} ({})", candidate, e);
+                    continue;
+                }
+            };
+
+            if bytes.len() < 50_000 {
+                last_error = format!("downloaded file too small: {} ({} bytes)", candidate, bytes.len());
+                continue;
+            }
+
+            tokio::fs::write(&font_path, &bytes)
+                .await
+                .map_err(|e| format!("write cached font failed: {}", e))?;
+            return Ok(font_path.to_string_lossy().to_string());
+        }
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("读取字体数据失败: {}", e))?;
-    if bytes.len() < 50_000 {
-        return Err("字体文件过小，下载失败。".to_string());
-    }
-    tokio::fs::write(&font_path, &bytes)
-        .await
-        .map_err(|e| format!("写入缓存失败: {}", e))?;
-    Ok(font_path.to_string_lossy().to_string())
+
+    Err(last_error)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FontDownloadPayload {
+    path: String,
+    base64: String,
+}
+
+#[tauri::command]
+async fn download_deyihei_font_payload(
+    app: tauri::AppHandle,
+    url: Option<String>,
+    urls: Option<Vec<String>>,
+    force: Option<bool>,
+) -> Result<FontDownloadPayload, String> {
+    let path = download_deyihei_font(app, url, urls, force).await?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| format!("read font file failed: {}", e))?;
+    Ok(FontDownloadPayload {
+        path,
+        base64: general_purpose::STANDARD.encode(bytes),
+    })
+}
 #[tauri::command]
 async fn login(
     state: State<'_, AppState>,
@@ -350,7 +428,7 @@ async fn login(
     lt: Option<String>,
     execution: Option<String>,
 ) -> Result<UserInfo, String> {
-    println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
+    println!("[璋冭瘯] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
              username, password.len(), captcha, lt, execution);
     let mut client = state.client.lock().await;
     client
@@ -364,19 +442,19 @@ async fn login(
         .await
         .map_err(|e| e.to_string())?;
 
-    // 尝试获取电费 Token (One Code)
+    // 灏濊瘯鑾峰彇鐢佃垂 Token (One Code)
     let one_code_token = match client.ensure_electricity_token().await {
         Ok(t) => {
-            println!("[调试] Login: Successfully obtained one_code_令牌");
+            println!("[璋冭瘯] Login: Successfully obtained one_code_浠ょ墝");
             t
         },
         Err(e) => {
-            println!("[警告] 登录：获取 one_code_令牌 失败: {}", e);
+            println!("[璀﹀憡] 鐧诲綍锛氳幏鍙?one_code_浠ょ墝 澶辫触: {}", e);
             String::new()
         }
     };
 
-    // 保存会话到本地数据库 (用于自动重连)
+    // 淇濆瓨浼氳瘽鍒版湰鍦版暟鎹簱 (鐢ㄤ簬鑷姩閲嶈繛)
     let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
     let refresh_token = refresh_opt.unwrap_or_default();
     let expires_at = expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
@@ -389,13 +467,13 @@ async fn login(
         Some(refresh_token.as_str()),
         Some(expires_at.as_str()),
     ) {
-        println!("[警告] 保存会话失败: {}", e);
+        println!("[璀﹀憡] 淇濆瓨浼氳瘽澶辫触: {}", e);
     }
 
     let user_info = client
         .user_info
         .clone()
-        .ok_or_else(|| "登录成功但未读取到用户信息".to_string())?;
+        .ok_or_else(|| "login succeeded but user info is missing".to_string())?;
     let session_key = if user_info.student_id.trim().is_empty() {
         username.clone()
     } else {
@@ -431,11 +509,11 @@ async fn restore_session(
     let mut client = state.client.lock().await;
     let user_info = client.restore_session(&cookies).await.map_err(|e| e.to_string())?;
 
-    // 优先按学号加载，失败时回退到最近一次会话并自动迁移为学号主键。
+    // Prefer session by student id; fallback to latest session if needed.
     let mut session_opt = match db::get_user_session(DB_FILENAME, &user_info.student_id) {
         Ok(v) => v,
         Err(e) => {
-            println!("[警告] 加载会话凭据失败: {}", e);
+            println!("[璀﹀憡] 鍔犺浇浼氳瘽鍑嵁澶辫触: {}", e);
             None
         }
     };
@@ -455,7 +533,7 @@ async fn restore_session(
 
     match session_opt {
         Some(session) => {
-            println!("[调试] Restored credentials for user: {}", user_info.student_id);
+            println!("[璋冭瘯] Restored credentials for user: {}", user_info.student_id);
             if !session.password.is_empty() {
                 client.set_credentials(user_info.student_id.clone(), session.password.clone());
             }
@@ -469,7 +547,7 @@ async fn restore_session(
                     Some(session.refresh_token.clone())
                 };
                 client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
-                println!("[调试] Restored one_code_令牌");
+                println!("[璋冭瘯] Restored one_code_浠ょ墝");
             }
             let _ = db::save_user_session(
                 DB_FILENAME,
@@ -481,7 +559,7 @@ async fn restore_session(
                 Some(session.token_expires_at.as_str()),
             );
         }
-        None => println!("[调试] No saved credentials found for user: {}", user_info.student_id),
+        None => println!("[璋冭瘯] No saved credentials found for user: {}", user_info.student_id),
     }
 
     Ok(user_info)
@@ -491,10 +569,10 @@ async fn restore_session(
 async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
     let session = db::get_latest_user_session(DB_FILENAME)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "无可用的历史会话".to_string())?;
+        .ok_or_else(|| "鏃犲彲鐢ㄧ殑鍘嗗彶浼氳瘽".to_string())?;
 
     if session.cookies.trim().is_empty() {
-        return Err("历史会话缺少 cookies".to_string());
+        return Err("鍘嗗彶浼氳瘽缂哄皯 cookies".to_string());
     }
 
     let mut client = state.client.lock().await;
@@ -581,10 +659,10 @@ async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, 
     let client = state.client.lock().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     
-    // 获取当前学期（基于日期计算）
+    // 鑾峰彇褰撳墠瀛︽湡锛堝熀浜庢棩鏈熻绠楋級
     let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
     
-    // 获取校历数据计算当前周次和开始日期
+    // 鑾峰彇鏍″巻鏁版嵁璁＄畻褰撳墠鍛ㄦ鍜屽紑濮嬫棩鏈?
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
     let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
         let meta = cal.get("meta");
@@ -597,7 +675,7 @@ async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, 
     
     match client.fetch_schedule().await {
         Ok((course_list, _now_week)) => {
-            // 使用 Python 格式的响应结构
+            // Keep response shape consistent with Python backend.
             let result = serde_json::json!({
                 "success": true,
                 "data": course_list,
@@ -694,12 +772,12 @@ fn export_base_url() -> String {
 #[tauri::command]
 async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_json::Value, String> {
     if req.events.is_empty() {
-        return Err("没有可导出的课程数据".to_string());
+        return Err("娌℃湁鍙鍑虹殑璇剧▼鏁版嵁".to_string());
     }
 
     let export_root = export_dir();
     if let Err(e) = std::fs::create_dir_all(&export_root) {
-        return Err(format!("创建导出目录失败: {}", e));
+        return Err(format!("鍒涘缓瀵煎嚭鐩綍澶辫触: {}", e));
     }
 
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -714,7 +792,7 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
     ics.push_str("VERSION:2.0\r\n");
     ics.push_str("CALSCALE:GREGORIAN\r\n");
     ics.push_str("METHOD:PUBLISH\r\n");
-    ics.push_str("X-WR-CALNAME:HBUT 课表\r\n");
+    ics.push_str("X-WR-CALNAME:HBUT 璇捐〃\r\n");
     ics.push_str("X-WR-TIMEZONE:Asia/Shanghai\r\n");
     ics.push_str("PRODID:-//Mini-HBUT//Schedule Export//CN\r\n");
 
@@ -750,7 +828,7 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
     ics.push_str("END:VCALENDAR\r\n");
 
     if let Err(e) = std::fs::write(&file_path, ics) {
-        return Err(format!("写入导出文件失败: {}", e));
+        return Err(format!("鍐欏叆瀵煎嚭鏂囦欢澶辫触: {}", e));
     }
 
     let base = export_base_url();
@@ -1150,7 +1228,7 @@ async fn fetch_qxzkb_kkjys(state: State<'_, AppState>, kkyxid: String) -> Result
 #[tauri::command]
 async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Result<serde_json::Value, String> {
     if query.xnxq.trim().is_empty() {
-        return Err("请选择学年学期".to_string());
+        return Err("璇烽€夋嫨瀛﹀勾瀛︽湡".to_string());
     }
 
     let client = state.client.lock().await;
@@ -1346,7 +1424,7 @@ async fn fetch_transaction_history(
             Ok(payload)
         }
         Err(e) => {
-            println!("[警告] Transaction network fetch failed: {}, trying cache...", e);
+            println!("[璀﹀憡] Transaction network fetch failed: {}, trying cache...", e);
             if let Some(key) = cache_key.as_ref() {
                 if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "transaction_cache", key) {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
@@ -1359,12 +1437,18 @@ async fn fetch_transaction_history(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut builder = tauri::Builder::default();
+    let builder = tauri::Builder::default();
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        builder = builder.plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--flag1", "--flag2"])));
-    }
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec!["--flag1", "--flag2"]),
+    ));
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let builder = builder
+        .plugin(tauri_plugin_keep_screen_on::init())
+        .plugin(tauri_plugin_nosleep::init());
 
     builder
         .plugin(tauri_plugin_notification::init())
@@ -1382,7 +1466,7 @@ pub fn run() {
                 std::env::set_var("HBUT_EXPORT_DIR", export_path.to_string_lossy().to_string());
             }
             if let Err(e) = db::init_db(DB_FILENAME) {
-                eprintln!("初始化数据库失败: {}", e);
+                eprintln!("鍒濆鍖栨暟鎹簱澶辫触: {}", e);
             }
 
             fn find_file_in_parents(file_name: &str, max_depth: usize) -> Option<std::path::PathBuf> {
@@ -1449,7 +1533,7 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             crate::modules::notification::init_background_task(app_handle);
-            // 启动时尝试加载最近一次会话凭据
+            // 鍚姩鏃跺皾璇曞姞杞芥渶杩戜竴娆′細璇濆嚟鎹?
             let mut restored_any = false;
             let mut token_loaded = false;
             if let Ok(Some(session)) = db::get_latest_user_session(DB_FILENAME) {
@@ -1555,7 +1639,7 @@ pub fn run() {
                     });
                 }
             }
-            // 启动本地 HTTP 测试桥接服务（用于外部 Python 验证脚本）
+            // 鍚姩鏈湴 HTTP 娴嬭瘯妗ユ帴鏈嶅姟锛堢敤浜庡閮?Python 楠岃瘉鑴氭湰锛?
             let client = app.state::<AppState>().client.clone();
             crate::http_server::spawn_http_server(client);
             Ok(())
@@ -1570,6 +1654,7 @@ pub fn run() {
             set_ocr_endpoint,
             fetch_remote_config,
             download_deyihei_font,
+            download_deyihei_font_payload,
             login,
             logout,
             restore_session,

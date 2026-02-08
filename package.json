@@ -1,6 +1,6 @@
 {
   "name": "mini-hbut",
-  "version": "1.0.22",
+  "version": "1.0.23",
   "description": "Mini-HBUT - 湖北工业大学教务助手",
   "type": "module",
   "scripts": {
@@ -21,6 +21,8 @@
     "marked": "^12.0.2",
     "marked-katex-extension": "^5.1.0",
     "pinia": "^2.1.7",
+    "tauri-plugin-keep-screen-on-api": "^0.1.4",
+    "tauri-plugin-nosleep-api": "^0.1.1",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },

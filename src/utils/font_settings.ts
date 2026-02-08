@@ -1,11 +1,15 @@
 import { reactive, watch } from 'vue'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { readFile } from '@tauri-apps/plugin-fs'
 
 const STORAGE_KEY = 'hbu_font_settings_v1'
 const CACHE_NAME = 'hbu-font-cache-v1'
 const FONT_NAME = 'DeyiHei'
-const FONT_URL = 'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf'
-const DEV_FONT_PROXY = '/font/deyihei.ttf'
+
+const FONT_SOURCES = [
+  'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf'
+]
+
 
 const ANDROID_SANS = "'Noto Sans SC', 'Noto Sans CJK SC', 'Roboto', sans-serif"
 const ANDROID_SERIF = "'Noto Serif SC', 'Noto Serif CJK SC', serif"
@@ -17,15 +21,27 @@ const FONT_STACKS = {
   heiti: `'SimHei', 'Heiti SC', 'Microsoft YaHei', ${ANDROID_SANS}`,
   songti: `'SimSun', 'Songti SC', 'STSong', ${ANDROID_SERIF}`,
   fangsong: `'FangSong', 'STFangsong', ${ANDROID_SERIF}`
-}
+} as const
+
 const SUPPORTED_FONTS = new Set(Object.keys(FONT_STACKS))
 
-const DEFAULT_SETTINGS = {
+type FontKey = keyof typeof FONT_STACKS
+type FontState = {
+  font: FontKey
+  loaded: boolean
+}
+
+type FontDownloadPayload = {
+  path: string
+  base64?: string
+}
+
+const DEFAULT_SETTINGS: FontState = {
   font: 'default',
   loaded: false
 }
 
-const loadStoredSettings = () => {
+const loadStoredSettings = (): Partial<FontState> | null => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
@@ -35,36 +51,34 @@ const loadStoredSettings = () => {
   }
 }
 
-const normalizeSettings = (raw) => {
+const normalizeSettings = (raw: unknown): FontState => {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
-  const requested = typeof raw.font === 'string' ? raw.font : 'default'
+  const obj = raw as Record<string, unknown>
+  const requested = typeof obj.font === 'string' ? obj.font : 'default'
   return {
-    font: SUPPORTED_FONTS.has(requested) ? requested : 'default',
-    loaded: !!raw.loaded
+    font: (SUPPORTED_FONTS.has(requested) ? requested : 'default') as FontKey,
+    loaded: !!obj.loaded
   }
 }
 
-const state = reactive(normalizeSettings(loadStoredSettings()))
+const state = reactive<FontState>(normalizeSettings(loadStoredSettings()))
 
 const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window
 
 let deyiheiLoading = false
 
 const resolveWebFontUrl = () => {
-  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-    return DEV_FONT_PROXY
-  }
-  return FONT_URL
+  return FONT_SOURCES[0]
 }
 
-const applyFont = (fontKey) => {
+const applyFont = (fontKey: FontKey) => {
   const root = document.documentElement
   if (!root) return
   const stack = FONT_STACKS[fontKey] || FONT_STACKS.default
   root.style.setProperty('--ui-font-family', stack)
 }
 
-const ensureFontFaceStyle = (src) => {
+const ensureFontFaceStyle = (src: string) => {
   if (typeof document === 'undefined') return
   const id = 'deyihei-font-face'
   const existing = document.getElementById(id)
@@ -79,7 +93,31 @@ const ensureFontFaceStyle = (src) => {
   document.head.appendChild(style)
 }
 
-const loadFontFromUrl = async (src) => {
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+}
+
+const decodeBase64 = (base64Text: string): Uint8Array => {
+  const normalized = base64Text.replace(/\s+/g, '')
+  const binary = atob(normalized)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
+const loadFontFromBytes = async (bytes: Uint8Array) => {
+  if (typeof document === 'undefined') return false
+  if (typeof FontFace === 'undefined') return false
+  const font = new FontFace(FONT_NAME, toArrayBuffer(bytes))
+  await font.load()
+  document.fonts.add(font)
+  await document.fonts.load(`12px ${FONT_NAME}`)
+  return true
+}
+
+const loadFontFromUrl = async (src: string) => {
   if (typeof document === 'undefined') return false
   try {
     if (typeof FontFace !== 'undefined') {
@@ -99,46 +137,79 @@ const loadFontFromUrl = async (src) => {
   return true
 }
 
-const loadDeyiHeiFont = async (force = false) => {
-  if (!force && document.fonts?.check(`12px ${FONT_NAME}`)) {
-    state.loaded = true
-    return true
-  }
-  if (typeof FontFace === 'undefined') {
-    throw new Error('当前环境不支持字体加载')
+const loadDeyiHeiFontInTauri = async (force = false) => {
+  const payload = await invoke<FontDownloadPayload>('download_deyihei_font_payload', {
+    url: FONT_SOURCES[0],
+    urls: FONT_SOURCES,
+    force: !!force
+  })
+
+  if (payload.base64) {
+    const bytes = decodeBase64(payload.base64)
+    const loaded = await loadFontFromBytes(bytes)
+    if (loaded) return true
   }
 
-  if (isTauri()) {
-    const filePath = await invoke<string>('download_deyihei_font', {
-      url: FONT_URL,
-      force: !!force
-    })
-    const fileSrc = convertFileSrc(filePath)
-    await loadFontFromUrl(fileSrc)
-    state.loaded = true
-    return true
+  if (payload.path) {
+    try {
+      const bytes = await readFile(payload.path)
+      const loaded = await loadFontFromBytes(bytes)
+      if (loaded) return true
+    } catch {
+      // fallback to asset protocol loading
+    }
+    const fileSrc = convertFileSrc(payload.path)
+    return loadFontFromUrl(fileSrc)
   }
 
+  // fallback to legacy command
+  const path = await invoke<string>('download_deyihei_font', {
+    url: FONT_SOURCES[0],
+    urls: FONT_SOURCES,
+    force: !!force
+  })
+  const fileSrc = convertFileSrc(path)
+  return loadFontFromUrl(fileSrc)
+}
+
+const loadDeyiHeiFontInWeb = async (force = false) => {
   const resolvedUrl = resolveWebFontUrl()
-  let response = null
+  let response: Response | null = null
+
   if (!force && typeof caches !== 'undefined') {
     const cache = await caches.open(CACHE_NAME)
     response = await cache.match(resolvedUrl)
   }
   if (!response) {
     response = await fetch(resolvedUrl, { mode: 'cors' })
-    if (!response.ok) throw new Error('下载失败')
+    if (!response.ok) throw new Error(`font download failed: ${response.status}`)
     if (typeof caches !== 'undefined') {
       const cache = await caches.open(CACHE_NAME)
       await cache.put(resolvedUrl, response.clone())
     }
   }
+
   const buffer = await response.arrayBuffer()
-  const font = new FontFace(FONT_NAME, buffer)
-  await font.load()
-  document.fonts.add(font)
-  state.loaded = true
-  return true
+  const bytes = new Uint8Array(buffer)
+  return loadFontFromBytes(bytes)
+}
+
+const loadDeyiHeiFont = async (force = false) => {
+  if (!force && document.fonts?.check(`12px ${FONT_NAME}`)) {
+    state.loaded = true
+    return true
+  }
+
+  if (typeof FontFace === 'undefined') {
+    throw new Error('当前环境不支持字体动态加载')
+  }
+
+  const ok = isTauri()
+    ? await loadDeyiHeiFontInTauri(force)
+    : await loadDeyiHeiFontInWeb(force)
+
+  state.loaded = !!ok
+  return ok
 }
 
 const ensureDeyiHeiFont = async (force = false) => {
@@ -147,7 +218,7 @@ const ensureDeyiHeiFont = async (force = false) => {
   try {
     await loadDeyiHeiFont(force)
   } catch {
-    // leave loaded state untouched on failure
+    // keep current state
   } finally {
     deyiheiLoading = false
   }
@@ -158,7 +229,7 @@ const initFontSettings = () => {
     state,
     () => {
       const normalized = normalizeSettings(state)
-      const changed = Object.keys(normalized).some((key) => normalized[key] !== state[key])
+      const changed = Object.keys(normalized).some((key) => normalized[key as keyof FontState] !== state[key as keyof FontState])
       if (changed) {
         Object.assign(state, normalized)
       }
@@ -190,7 +261,7 @@ const resetFontSettings = () => {
 
 export {
   FONT_NAME,
-  FONT_URL,
+  FONT_SOURCES,
   initFontSettings,
   useFontSettings,
   loadDeyiHeiFont,

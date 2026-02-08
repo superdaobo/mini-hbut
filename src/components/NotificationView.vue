@@ -1,103 +1,129 @@
-﻿<script setup>
+<script setup>
 import { ref, onMounted } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import hbutLogo from '../assets/hbut-logo.png'
+import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
 
-// State
 const enableBackground = ref(false)
 const enableExamReminders = ref(true)
-const checkInterval = ref(30) // minutes
+const checkInterval = ref(30)
 const showBatteryPrompt = ref(false)
+const permissionGranted = ref(false)
+const backgroundLockEnabled = ref(false)
+const backgroundLockSource = ref('')
 
 const props = defineProps({
   studentId: String
 })
 
-const emit = defineEmits(['back'])
-
 const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window
+const isAndroid = () => /Android/i.test(navigator.userAgent)
 
-// Check permissions on mount
 onMounted(async () => {
-  if (!isTauri()) return
-  // Load settings from localStorage
   const savedBg = localStorage.getItem('hbu_notify_bg')
-  if (savedBg === 'true') enableBackground.value = true
-  
+  enableBackground.value = savedBg === 'true'
+
   const savedExam = localStorage.getItem('hbu_notify_exam')
-  if (savedExam === 'true') enableExamReminders.value = true
-  
-  let permissionGranted = await isPermissionGranted()
-  if (!permissionGranted) {
+  enableExamReminders.value = savedExam !== 'false'
+
+  const savedInterval = Number(localStorage.getItem('hbu_notify_interval') || 30)
+  if ([15, 30, 60].includes(savedInterval)) {
+    checkInterval.value = savedInterval
+  }
+
+  if (!isTauri()) return
+
+  let granted = await isPermissionGranted()
+  if (!granted) {
     const permission = await requestPermission()
-    permissionGranted = permission === 'granted'
+    granted = permission === 'granted'
+  }
+  permissionGranted.value = granted
+
+  if (enableBackground.value) {
+    const result = await enableBackgroundPowerLock()
+    backgroundLockEnabled.value = result.enabled
+    backgroundLockSource.value = result.source.join(' + ')
   }
 })
 
 const handleBackgroundToggle = async () => {
+  localStorage.setItem('hbu_notify_bg', enableBackground.value ? 'true' : 'false')
+
+  if (!isTauri()) return
+
   if (enableBackground.value) {
-    // User turned ON
-    showBatteryPrompt.value = true
-    localStorage.setItem('hbu_notify_bg', 'true')
+    const result = await enableBackgroundPowerLock()
+    backgroundLockEnabled.value = result.enabled
+    backgroundLockSource.value = result.source.join(' + ')
+    if (isAndroid()) {
+      showBatteryPrompt.value = true
+    }
   } else {
-    // User turned OFF
-    localStorage.setItem('hbu_notify_bg', 'false')
+    const result = await disableBackgroundPowerLock()
+    backgroundLockEnabled.value = false
+    backgroundLockSource.value = result.source.join(' + ')
   }
 }
 
 const confirmBatterySettings = () => {
   showBatteryPrompt.value = false
-  // Here we would ideally invoke a command to open Android battery settings
-  // invoke('open_battery_settings').catch(...)
 }
 
 const cancelBatterySettings = () => {
   showBatteryPrompt.value = false
-  enableBackground.value = false // Revert
-  localStorage.setItem('hbu_notify_bg', 'false')
 }
 
 const handleTestNotification = async () => {
   if (!isTauri()) return
-  let permissionGranted = await isPermissionGranted()
-  if (!permissionGranted) {
-    const permission = await requestPermission()
-    permissionGranted = permission === 'granted'
-  }
 
-  if (permissionGranted) {
-    sendNotification({ title: 'Mini-HBUT', body: '这是一个测试通知！' })
+  let granted = await isPermissionGranted()
+  if (!granted) {
+    const permission = await requestPermission()
+    granted = permission === 'granted'
+  }
+  permissionGranted.value = granted
+
+  if (granted) {
+    sendNotification({
+      title: 'Mini-HBUT',
+      body: '这是一个测试通知，用于验证通知权限和推送能力。'
+    })
   }
 }
 
 const saveSettings = () => {
-  // Save other settings if needed
+  localStorage.setItem('hbu_notify_exam', enableExamReminders.value ? 'true' : 'false')
+  localStorage.setItem('hbu_notify_interval', String(checkInterval.value))
 }
 </script>
 
 <template>
-  <div class="notification-view fade-in unavailable">
+  <div class="notification-view fade-in">
     <header class="dashboard-header">
       <div class="brand">
         <img class="logo-img" :src="hbutLogo" alt="HBUT" />
         <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
-        <span class="page-tag">通知 · 暂不可用</span>
+        <span class="page-tag">通知</span>
       </div>
       <div class="user-info">
-        <span class="student-id">👤 {{ studentId || '未登录' }}</span>
+        <span class="student-id">👤 {{ props.studentId || '未登录' }}</span>
         <button class="header-btn btn-ripple" @click="$emit('back')">返回</button>
       </div>
     </header>
 
     <div class="content-card">
+      <div class="content-title">
+        通知权限：{{ permissionGranted ? '已授权' : '未授权' }}
+      </div>
+
       <div class="setting-item">
         <div class="setting-label">
           <h3>后台自动检查</h3>
-          <p>应用在后台时自动检查成绩更新 (Android需保活)</p>
+          <p>启用后保持设备常亮/阻止休眠（移动端保活，尽量降低被系统挂起概率）</p>
         </div>
         <label class="switch">
-          <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle" disabled>
+          <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle">
           <span class="slider round"></span>
         </label>
       </div>
@@ -108,34 +134,38 @@ const saveSettings = () => {
           <p>如果明日有考试，发送通知提醒</p>
         </div>
         <label class="switch">
-          <input type="checkbox" v-model="enableExamReminders" disabled>
+          <input type="checkbox" v-model="enableExamReminders" @change="saveSettings">
           <span class="slider round"></span>
         </label>
       </div>
 
       <div class="setting-item">
         <div class="setting-label">
-           <h3>检查频率 (分钟)</h3>
+          <h3>检查频率 (分钟)</h3>
         </div>
-        <select v-model="checkInterval" disabled class="select-disabled">
+        <select v-model="checkInterval" @change="saveSettings" class="select-disabled">
+          <option :value="15">15 分钟</option>
           <option :value="30">30 分钟 (默认)</option>
+          <option :value="60">60 分钟</option>
         </select>
       </div>
-      
+
+      <div class="content-title" v-if="enableBackground">
+        保活状态：{{ backgroundLockEnabled ? ('已启用 (' + (backgroundLockSource || '插件') + ')') : '未启用（当前平台不支持或插件不可用）' }}
+      </div>
+
       <div class="actions">
-        <button class="btn-primary" @click="handleTestNotification" disabled>发送测试通知</button>
+        <button class="btn-primary" @click="handleTestNotification">发送测试通知</button>
       </div>
     </div>
 
-    <!-- Battery Optimization Prompt Modal -->
     <div v-if="showBatteryPrompt" class="modal-mask">
       <div class="modal-card">
-        <h3>⚠️ 重要提示</h3>
-        <p>为了确保后台检查正常工作，Android 系统需要您允许应用<b>即使划掉也能运行</b>，并<b>忽略电池优化</b>。</p>
-        <p class="scary-text">如果不设置，系统会在锁屏后杀死应用，导致无法收到通知！</p>
+        <h3>电池优化提示</h3>
+        <p>Android 建议将本应用加入后台白名单，避免系统回收后无法按时通知。</p>
         <div class="modal-actions">
-          <button class="btn-text" @click="cancelBatterySettings">取消</button>
-          <button class="btn-primary" @click="confirmBatterySettings">去设置 / 我知道了</button>
+          <button class="btn-text" @click="cancelBatterySettings">稍后</button>
+          <button class="btn-primary" @click="confirmBatterySettings">我知道了</button>
         </div>
       </div>
     </div>
@@ -146,25 +176,6 @@ const saveSettings = () => {
 .notification-view {
   padding: 20px;
   padding-bottom: 100px;
-}
-
-.notification-view.unavailable {
-  filter: grayscale(1);
-  opacity: 0.85;
-}
-
-.notification-view.unavailable .content-card {
-  pointer-events: none;
-}
-
-.notification-view.unavailable .content-title {
-  color: #64748b;
-  font-weight: 700;
-}
-
-.notification-view.unavailable .btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 @media (max-width: 768px) {
@@ -181,32 +192,6 @@ const saveSettings = () => {
     flex-wrap: wrap;
     gap: 8px;
   }
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.header h2 {
-  margin: 0;
-  font-size: 20px;
-  color: #1e293b;
-}
-
-.icon-btn {
-  background: none;
-  border: none;
-  padding: 8px;
-  cursor: pointer;
-  border-radius: 50%;
-  transition: background 0.2s;
-}
-
-.icon-btn:hover {
-  background: rgba(0,0,0,0.05);
 }
 
 .content-card {
@@ -241,7 +226,6 @@ const saveSettings = () => {
   color: #64748b;
 }
 
-/* Switch CSS */
 .switch {
   position: relative;
   display: inline-block;
@@ -298,7 +282,7 @@ input:checked + .slider:before {
   border-radius: 8px;
   border: 1px solid #e2e8f0;
   background: #f8fafc;
-  color: #94a3b8;
+  color: #334155;
 }
 
 .actions {
@@ -322,7 +306,6 @@ input:checked + .slider:before {
   background: #2563eb;
 }
 
-/* Modal */
 .modal-mask {
   position: fixed;
   inset: 0;
@@ -345,12 +328,7 @@ input:checked + .slider:before {
 
 .modal-card h3 {
   margin-top: 0;
-  color: #f59e0b;
-}
-
-.scary-text {
-  color: #ef4444;
-  font-weight: bold;
+  color: #0f172a;
 }
 
 .modal-actions {
@@ -375,4 +353,3 @@ input:checked + .slider:before {
   color: var(--ui-text);
 }
 </style>
-

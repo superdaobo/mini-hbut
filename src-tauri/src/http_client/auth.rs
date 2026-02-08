@@ -1,4 +1,4 @@
-﻿//! 登录与验证码模块。
+//! 登录与验证码模块。
 //!
 //! 负责：
 //! - 获取登录页与隐藏表单参数（lt / execution / salt）
@@ -16,6 +16,100 @@ use scraper::{Html, Selector};
 use std::collections::HashMap;
 
 use super::utils::chrono_timestamp;
+
+fn normalize_login_text(input: &str) -> String {
+    input
+        .replace('\u{00a0}', " ")
+        .replace(['\r', '\n', '\t'], "")
+        .trim()
+        .to_string()
+}
+
+/// 识别 CAS 登录失败原因。
+/// 返回 (错误消息, 是否可按验证码错误重试)
+fn classify_login_error_text(raw_text: &str) -> Option<(String, bool)> {
+    let text = normalize_login_text(raw_text);
+    if text.is_empty() {
+        return None;
+    }
+
+    // 一些登录页固定文案，不能当成错误
+    if text.contains("username密码登录") || text.contains("统一身份认证") {
+        return None;
+    }
+
+    let has_password_error = [
+        "用户名或密码错误",
+        "账号或密码错误",
+        "帐号或密码错误",
+        "密码错误",
+        "密码不正确",
+        "认证失败",
+        "用户不存在",
+        "账号不存在",
+        "帐号不存在",
+    ]
+    .iter()
+    .any(|k| text.contains(k));
+
+    let has_account_locked = ["账户被锁定", "账号被锁定", "帐号被锁定", "冻结", "已锁定"]
+        .iter()
+        .any(|k| text.contains(k));
+
+    let has_captcha_error = ["验证码错误", "验证码无效", "验证码不正确", "验证码有误", "请输入验证码"]
+        .iter()
+        .any(|k| text.contains(k));
+
+    let has_rate_limit = ["操作过于频繁", "请稍后再试", "请求过于频繁", "访问过于频繁"]
+        .iter()
+        .any(|k| text.contains(k));
+
+    if has_account_locked {
+        return Some(("账号已被锁定".to_string(), false));
+    }
+
+    // 关键修复：如果同页同时出现“验证码”和“密码”字样，优先判定为密码错误。
+    if has_password_error {
+        return Some(("username或密码错误".to_string(), false));
+    }
+
+    if has_captcha_error {
+        return Some(("验证码错误".to_string(), true));
+    }
+
+    if has_rate_limit {
+        return Some(("登录过于频繁，请稍后再试".to_string(), false));
+    }
+
+    None
+}
+
+fn detect_login_error_from_html(html: &str) -> Option<(String, bool)> {
+    let document = Html::parse_document(html);
+    let selectors = [
+        "span#showErrorTip",
+        "#showErrorTip",
+        "#errorTip",
+        "#errorMsg",
+        ".authError",
+        ".error",
+        ".tips-error",
+    ];
+
+    for css in selectors {
+        if let Ok(sel) = Selector::parse(css) {
+            for node in document.select(&sel) {
+                let txt = node.text().collect::<String>();
+                if let Some(classified) = classify_login_error_text(&txt) {
+                    return Some(classified);
+                }
+            }
+        }
+    }
+
+    // 兜底：直接扫描全文关键字
+    classify_login_error_text(html)
+}
 
 impl HbutClient {
     /// 获取默认登录页并解析参数
@@ -307,23 +401,17 @@ impl HbutClient {
             let response_url = response.url().to_string();
             let status = response.status();
             let html = response.text().await?;
-
-            if html.contains("验证码错误") || html.contains("验证码无效") {
-                if attempt + 1 < max_attempts {
+            if let Some((login_err, retryable_captcha)) = detect_login_error_from_html(&html) {
+                if retryable_captcha && attempt + 1 < max_attempts {
                     println!("[调试] 验证码错误，重试... ({}/{})", attempt + 1, max_attempts);
                     continue;
                 }
-                return Err("验证码错误，请重新登录".into());
-            }
-            if html.contains("密码错误") || html.contains("帐号或密码错误") || html.contains("认证失败") {
-                return Err("username或密码错误".into());
-            }
-            if html.contains("账户被锁定") || html.contains("冻结") {
-                return Err("账号已被锁定".into());
+                return Err(login_err.into());
             }
             if status.as_u16() == 401 {
-                return Err("登录失败，请检查账号密码或验证码".into());
+                return Err("登录失败，请检查账号或密码".into());
             }
+
 
             let is_on_auth_page = response_url.contains("authserver/login")
                 || response_url.contains("auth.hbut.edu.cn")
@@ -736,45 +824,15 @@ impl HbutClient {
             }
             return Err("登录失败，认证服务返回 5xx".into());
         }
-        
-        // 5. 错误检测（与 fast_auth.py 一致）
-            if html.contains("验证码错误") || html.contains("验证码无效") {
-                if attempt + 1 < max_retries {
+            if let Some((login_err, retryable_captcha)) = detect_login_error_from_html(&html) {
+                if retryable_captcha && attempt + 1 < max_retries {
                     println!("[调试] 验证码错误，重试... ({}/{})", attempt + 1, max_retries);
                     continue;
                 }
-                return Err("验证码错误".into());
+                return Err(login_err.into());
             }
-            if html.contains("密码错误") || html.contains("帐号或密码错误") || html.contains("认证失败") {
-                return Err("username或密码错误".into());
-            }
-            if html.contains("账户被锁定") || html.contains("冻结") {
-                return Err("账号已被锁定".into());
-            }
-        
-        // 尝试提取 span#showErrorTip
-        let login_error: Option<String> = {
-            let document = Html::parse_document(&html);
-            
-            let error_selector = Selector::parse("span#showErrorTip").unwrap();
-            if let Some(error_elem) = document.select(&error_selector).next() {
-                let error_text: String = error_elem.text().collect::<String>().trim().to_string();
-                if !error_text.is_empty() && !error_text.contains("username密码登录") {
-                    println!("[调试] Error showErrorTip: {}", error_text);
-                    Some(error_text)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-        
-        if let Some(err) = login_error {
-            return Err(err.into());
-        }
 
-        // 明确的失败判定（避免继续走 SSO 导致“会话已过期”）
+            // 明确的失败判定（避免继续走 SSO 导致“会话已过期”）
             if status.as_u16() == 401 {
                 let debug_path = std::env::current_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
@@ -789,49 +847,34 @@ impl HbutClient {
                     println!("[调试] 401 未授权，重试... ({}/{})", attempt + 1, max_retries);
                     continue;
                 }
-                return Err("登录失败，请检查账号密码或验证码".into());
+                return Err("登录失败，请检查账号或密码".into());
             }
-            if response_url.contains("authserver/login") && html.contains("pwdEncryptSalt") {
+
+            let is_on_auth_page = response_url.contains("authserver/login")
+                || response_url.contains("auth.hbut.edu.cn")
+                || html.contains("统一身份认证")
+                || html.contains("pwdEncryptSalt");
+
+            if is_on_auth_page {
                 if attempt + 1 < max_retries {
                     println!("[调试] 仍在登录页，重试... ({}/{})", attempt + 1, max_retries);
                     continue;
                 }
-                return Err("登录失败，请检查账号密码或验证码".into());
+                return Err("登录失败，请检查账号或密码".into());
             }
-        
-        // 检查是否登录成功（URL 发生变化通常表示成功）
+
+            // 检查是否登录成功（URL 发生变化通常表示成功）
             if status.is_success()
                 && (response_url.contains("ticket=") || response_url.contains("jwxt") || !response_url.contains("login"))
             {
                 println!("[调试] 登录成功（基于重定向）");
+            } else if attempt + 1 < max_retries {
+                println!("[调试] 登录状态不明确，重试... ({}/{})", attempt + 1, max_retries);
+                continue;
             } else {
-                // 备用错误检测
-                if html.contains("认证失败") || html.contains("密码错误") || html.contains("帐号或密码错误") {
-                    return Err("username或密码错误".into());
-                }
-                
-                if html.contains("验证码") && (html.contains("错误") || html.contains("无效")) {
-                    if attempt + 1 < max_retries {
-                        println!("[调试] 验证码错误（兜底），重试... ({}/{})", attempt + 1, max_retries);
-                        continue;
-                    }
-                    return Err("验证码错误".into());
-                }
-                
-                if html.contains("账户被锁定") || html.contains("冻结") {
-                    return Err("账号已被锁定，请稍后再试".into());
-                }
-                
-                // 如果仍然停留在登录页面但没有明确错误
-                if html.contains("统一身份认证") && html.contains("pwdEncryptSalt") {
-                    println!("[调试] 仍在登录页, login may have failed");
-                    if attempt + 1 < max_retries {
-                        continue;
-                    }
-                    return Err("登录失败，请检查账号密码和验证码".into());
-                }
+                return Err("登录失败，请稍后重试".into());
             }
-        
+
             // 访问教务系统完成 SSO
             let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
             println!("[调试] 访问教务 SSO: {}", jwxt_url);
@@ -871,5 +914,31 @@ impl HbutClient {
 
 }
 
+#[cfg(test)]
+mod login_error_tests {
+    use super::*;
 
+    #[test]
+    fn password_error_should_win_over_captcha_error() {
+        let html = r#"<span id=\"showErrorTip\">验证码错误，用户名或密码错误</span>"#;
+        let (msg, retryable) = detect_login_error_from_html(html).expect("should classify");
+        assert_eq!(msg, "username或密码错误");
+        assert!(!retryable);
+    }
 
+    #[test]
+    fn pure_captcha_error_should_be_retryable() {
+        let html = r#"<span id=\"showErrorTip\">验证码错误</span>"#;
+        let (msg, retryable) = detect_login_error_from_html(html).expect("should classify");
+        assert_eq!(msg, "验证码错误");
+        assert!(retryable);
+    }
+
+    #[test]
+    fn account_locked_should_not_retry() {
+        let html = r#"<span id=\"showErrorTip\">账户被锁定，请联系管理员</span>"#;
+        let (msg, retryable) = detect_login_error_from_html(html).expect("should classify");
+        assert_eq!(msg, "账号已被锁定");
+        assert!(!retryable);
+    }
+}
