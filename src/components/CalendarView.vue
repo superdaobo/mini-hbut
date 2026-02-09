@@ -40,6 +40,85 @@ const isHolidayRemark = (text) => {
   return /(节|假|休|放假)/.test(text)
 }
 
+const normalizeDayNumber = (value) => {
+  if (value === null || value === undefined) return ''
+  const raw = String(value).trim()
+  if (!raw) return ''
+  const parts = raw.split(',').map(s => s.trim()).filter(Boolean)
+  const dayText = parts.length > 0 ? parts[parts.length - 1] : raw
+  const day = Number(dayText)
+  if (!Number.isFinite(day) || day <= 0) return ''
+  return String(day)
+}
+
+const buildDateFromNyDay = (ny, dayValue) => {
+  const day = normalizeDayNumber(dayValue)
+  if (!ny || !day) return null
+  const [yearText, monthText] = String(ny).split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const dayNum = Number(day)
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(dayNum)) {
+    return null
+  }
+  return new Date(year, month - 1, dayNum)
+}
+
+const chineseLunarFormatter = (() => {
+  try {
+    return new Intl.DateTimeFormat('zh-CN-u-ca-chinese', {
+      month: 'long',
+      day: 'numeric'
+    })
+  } catch {
+    return null
+  }
+})()
+
+const solarFestivalMap = {
+  '01-01': '元旦',
+  '02-14': '情人节',
+  '03-08': '妇女节',
+  '05-01': '劳动节',
+  '06-01': '儿童节',
+  '09-10': '教师节',
+  '10-01': '国庆节',
+  '12-25': '圣诞节'
+}
+
+const lunarFestivalMap = {
+  '正月初一': '春节',
+  '正月十五': '元宵节',
+  '五月初五': '端午节',
+  '七月初七': '七夕',
+  '八月十五': '中秋节',
+  '九月初九': '重阳节',
+  '腊月初八': '腊八节',
+  '腊月廿九': '除夕',
+  '腊月三十': '除夕'
+}
+
+const formatLunarText = (date) => {
+  if (!date || !chineseLunarFormatter) return ''
+  try {
+    const raw = chineseLunarFormatter.format(date).replace(/\s+/g, '')
+    const yearPos = raw.indexOf('年')
+    return yearPos >= 0 ? raw.slice(yearPos + 1) : raw
+  } catch {
+    return ''
+  }
+}
+
+const formatMonthDay = (value) => String(value).padStart(2, '0')
+
+const getFestivalLabel = (date, lunarText) => {
+  if (!date) return ''
+  const mmdd = `${formatMonthDay(date.getMonth() + 1)}-${formatMonthDay(date.getDate())}`
+  if (solarFestivalMap[mmdd]) return solarFestivalMap[mmdd]
+  if (lunarFestivalMap[lunarText]) return lunarFestivalMap[lunarText]
+  return ''
+}
+
 const getDayRemark = (item, dayKey) => {
   const candidates = [
     `${dayKey}remark`,
@@ -83,20 +162,33 @@ const getMonthRemark = (item) => {
   return ''
 }
 
+const buildDayCell = (item, dayKey) => {
+  const rawDate = normalizeDayNumber(item[dayKey])
+  const remark = getDayRemark(item, dayKey)
+  const dateObj = buildDateFromNyDay(item.ny, item[dayKey])
+  const lunar = formatLunarText(dateObj)
+  const computedFestival = getFestivalLabel(dateObj, lunar)
+  const holiday = isHolidayRemark(remark) ? remark : computedFestival
+  return {
+    date: rawDate,
+    remark,
+    lunar,
+    holiday,
+    isHoliday: !!holiday
+  }
+}
+
 const calendarRows = computed(() => {
   const rows = (calendarData.value || []).map((item) => {
     const days = [
-      { date: item.monday, remark: getDayRemark(item, 'monday') },
-      { date: item.tuesday, remark: getDayRemark(item, 'tuesday') },
-      { date: item.wednesday, remark: getDayRemark(item, 'wednesday') },
-      { date: item.thursday, remark: getDayRemark(item, 'thursday') },
-      { date: item.friday, remark: getDayRemark(item, 'friday') },
-      { date: item.saturday, remark: getDayRemark(item, 'saturday') },
-      { date: item.sunday, remark: getDayRemark(item, 'sunday') }
-    ].map((day) => ({
-      ...day,
-      isHoliday: isHolidayRemark(day.remark)
-    }))
+      buildDayCell(item, 'monday'),
+      buildDayCell(item, 'tuesday'),
+      buildDayCell(item, 'wednesday'),
+      buildDayCell(item, 'thursday'),
+      buildDayCell(item, 'friday'),
+      buildDayCell(item, 'saturday'),
+      buildDayCell(item, 'sunday')
+    ]
 
     const weekRemark = getWeekRemark(item, days.map(d => d.remark))
     const monthRemark = getMonthRemark(item)
@@ -234,7 +326,9 @@ onMounted(async () => {
             <td class="week-cell">{{ row.zc }}</td>
             <td v-for="(day, dIndex) in row.days" :key="dIndex" class="day-cell">
               <div class="day-num">{{ day.date }}</div>
-              <div v-if="day.remark" class="day-remark" :class="{ holiday: day.isHoliday }">{{ day.remark }}</div>
+              <div v-if="day.lunar" class="day-lunar">{{ day.lunar }}</div>
+              <div v-if="day.holiday" class="day-remark holiday">{{ day.holiday }}</div>
+              <div v-else-if="day.remark" class="day-remark">{{ day.remark }}</div>
             </td>
             <td class="remark-cell">{{ row.weekRemark || '-' }}</td>
             <td class="remark-cell">{{ row.monthRemark || '-' }}</td>
@@ -362,6 +456,12 @@ onMounted(async () => {
 .day-num {
   font-weight: 600;
   color: #111827;
+}
+
+.day-lunar {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b7280;
 }
 
 .day-remark {

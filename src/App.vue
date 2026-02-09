@@ -50,6 +50,16 @@ const detectTauri = () => {
 }
 const hasTauri = detectTauri()
 const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
+const IOS_RESUME_RELOAD_MS = 3 * 60 * 1000
+const isIOSLike = (() => {
+  if (typeof window === 'undefined') return false
+  const ua = window.navigator.userAgent || ''
+  const platform = window.navigator.platform || ''
+  const maxTouchPoints = window.navigator.maxTouchPoints || 0
+  return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
+})()
+let hiddenAt = 0
+let delayedViewportTimer = null
 
 // 视图状态: home, schedule, me, grades...
 const currentView = ref('home')
@@ -62,6 +72,7 @@ const isLoading = ref(false)
 const showLoginPrompt = ref(false)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
+const appShellRef = ref(null)
 
 const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
@@ -206,6 +217,82 @@ const handleExternalOpen = async (url) => {
   await openExternal(url)
 }
 
+const forceScrollTop = () => {
+  try {
+    window.scrollTo(0, 0)
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    if (appShellRef.value) {
+      appShellRef.value.scrollTop = 0
+    }
+  } catch {
+    // ignore
+  }
+}
+
+const updateViewportUnit = () => {
+  if (typeof window === 'undefined') return
+  const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
+  if (!viewportHeight) return
+  document.documentElement.style.setProperty('--app-vh', `${viewportHeight * 0.01}px`)
+}
+
+const recoverViewportAfterTransition = () => {
+  const activeEl = document.activeElement
+  if (activeEl && typeof activeEl.blur === 'function') {
+    activeEl.blur()
+  }
+  updateViewportUnit()
+  nextTick(() => {
+    forceScrollTop()
+    requestAnimationFrame(() => {
+      forceScrollTop()
+      updateViewportUnit()
+    })
+  })
+}
+
+const nudgeWebViewPaint = () => {
+  const root = document.getElementById('app')
+  if (!root) return
+  root.style.opacity = '0.999'
+  root.style.transform = 'translateZ(0)'
+  requestAnimationFrame(() => {
+    root.style.opacity = '1'
+    root.style.transform = ''
+  })
+}
+
+const scheduleViewportUpdate = () => {
+  if (delayedViewportTimer) {
+    clearTimeout(delayedViewportTimer)
+    delayedViewportTimer = null
+  }
+  updateViewportUnit()
+  delayedViewportTimer = setTimeout(() => {
+    updateViewportUnit()
+    forceScrollTop()
+  }, 120)
+}
+
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    hiddenAt = Date.now()
+    return
+  }
+  const idle = hiddenAt ? Date.now() - hiddenAt : 0
+  hiddenAt = 0
+  scheduleViewportUpdate()
+  nudgeWebViewPaint()
+
+  // iOS 长时间后台后，WebView 偶发黑屏；主动重载可恢复渲染上下文
+  if (isIOSLike && idle >= IOS_RESUME_RELOAD_MS) {
+    setTimeout(() => {
+      window.location.reload()
+    }, 120)
+  }
+}
+
 // 处理登录成功
 const handleLoginSuccess = (data) => {
   gradeData.value = data
@@ -250,6 +337,7 @@ const handleLoginSuccess = (data) => {
   persistSessionCookies()
   startSessionKeepAlive()
   startElectricityKeepAlive()
+  recoverViewportAfterTransition()
 }
 
 // 处理导航
@@ -592,7 +680,6 @@ const stopElectricityKeepAlive = () => {
 }
 
 const showTabBar = computed(() => ['home', 'schedule', 'me', 'notifications'].includes(currentView.value))
-const appShellRef = ref(null)
 
 // 页面加载时检查 URL
 watch(currentView, () => {
@@ -605,6 +692,16 @@ watch(currentView, () => {
 
 onMounted(async () => {
   document.addEventListener('click', handleGlobalLinkClick, true)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', scheduleViewportUpdate)
+  window.addEventListener('resize', scheduleViewportUpdate)
+  window.addEventListener('pageshow', scheduleViewportUpdate)
+  window.addEventListener('orientationchange', scheduleViewportUpdate)
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', scheduleViewportUpdate)
+  }
+  scheduleViewportUpdate()
+
   let restored = await tryRestoreSession()
   if (!restored) {
     restored = await tryRestoreLatestSession()
@@ -665,6 +762,18 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleGlobalLinkClick, true)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('focus', scheduleViewportUpdate)
+  window.removeEventListener('resize', scheduleViewportUpdate)
+  window.removeEventListener('pageshow', scheduleViewportUpdate)
+  window.removeEventListener('orientationchange', scheduleViewportUpdate)
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', scheduleViewportUpdate)
+  }
+  if (delayedViewportTimer) {
+    clearTimeout(delayedViewportTimer)
+    delayedViewportTimer = null
+  }
 })
 </script>
 
@@ -947,7 +1056,7 @@ onBeforeUnmount(() => {
 }
 
 .coming-soon-page {
-  min-height: 100vh;
+  min-height: calc(var(--app-vh, 1vh) * 100);
   background: var(--ui-bg-gradient);
   display: flex;
   align-items: center;
@@ -1000,11 +1109,11 @@ onBeforeUnmount(() => {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: calc(var(--app-vh, 1vh) * 100);
+  height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
   padding-bottom: 90px;
-  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
@@ -1013,7 +1122,7 @@ onBeforeUnmount(() => {
 }
 
 .app-shell.no-scroll {
-  height: 100vh;
+  height: calc(var(--app-vh, 1vh) * 100);
   overflow: hidden;
   padding-bottom: env(safe-area-inset-bottom);
 }

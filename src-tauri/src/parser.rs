@@ -712,8 +712,19 @@ pub fn parse_student_info_html(html: &str) -> Result<serde_json::Value, Box<dyn 
     if let Some(v) = extract_field("出生日期") {
         info.insert("birth_date".to_string(), serde_json::json!(v));
     }
-    if let Some(v) = extract_field("身份证号") {
-        info.insert("id_card".to_string(), serde_json::json!(v));
+    if let Some(v) = extract_field("身份证件号")
+        .or_else(|| extract_field("身份证号"))
+        .or_else(|| extract_field("身份证号码"))
+    {
+        // 兼容历史字段 id_card，并提供前端当前使用的 id_number
+        info.insert("id_card".to_string(), serde_json::json!(v.clone()));
+        info.insert("id_number".to_string(), serde_json::json!(v));
+    }
+    if let Some(v) = extract_field("民族")
+        .or_else(|| extract_field("民族(族别)"))
+        .or_else(|| extract_field("民族（族别）"))
+    {
+        info.insert("ethnicity".to_string(), serde_json::json!(v));
     }
 
     // 学籍信息

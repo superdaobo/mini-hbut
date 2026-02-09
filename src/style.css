@@ -1,6 +1,7 @@
 ﻿@charset "UTF-8";
 
 :root {
+  --app-vh: 1vh;
   --ui-primary: #6366f1;
   --ui-secondary: #a855f7;
   --ui-primary-soft: rgba(99, 102, 241, 0.12);
