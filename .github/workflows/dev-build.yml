@@ -17,13 +17,74 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch source (git fallback to tarball)
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf source source.tar.gz .git-tmp .tar-tmp
+          mkdir -p source
+
+          fetched=0
+          for i in 1 2 3 4 5; do
+            echo "[source] git fetch attempt ${i}"
+            rm -rf .git-tmp
+            mkdir -p .git-tmp
+            if (
+              cd .git-tmp
+              git init
+              git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+              git -c protocol.version=2 fetch --depth=1 origin "${GH_SHA}"
+              git checkout --detach FETCH_HEAD
+            ); then
+              fetched=1
+              break
+            fi
+            sleep $((i * 5))
+          done
+
+          if [ "${fetched}" -eq 1 ]; then
+            echo "[source] git fetch succeeded"
+            cp -a .git-tmp/. source/
+            rm -rf source/.git
+          else
+            echo "[source] git fetch failed, fallback to codeload tarball"
+            curl -fL --retry 8 --retry-all-errors --retry-delay 3 \
+              "https://codeload.github.com/${GH_REPO}/tar.gz/${GH_SHA}" -o source.tar.gz
+            mkdir -p .tar-tmp
+            tar -xzf source.tar.gz -C .tar-tmp --strip-components=1
+            cp -a .tar-tmp/. source/
+          fi
+
+          test -f source/package.json
+          tar -czf source.tar.gz -C source .
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-tar
+          path: source.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
   meta:
+    needs: source
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       beta_version: ${{ steps.version.outputs.beta_version }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        run: tar -xzf source.tar.gz
 
       - name: Resolve build version
         id: version
@@ -41,10 +102,15 @@ jobs:
           echo "BETA_VERSION=$BETA_VERSION"
 
   build-android:
-    needs: meta
+    needs: [source, meta]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        run: tar -xzf source.tar.gz
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -129,10 +195,16 @@ jobs:
           retention-days: 14
 
   build-windows:
-    needs: meta
+    needs: [source, meta]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        shell: powershell
+        run: tar -xzf source.tar.gz
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -178,10 +250,15 @@ jobs:
           retention-days: 14
 
   build-macos:
-    needs: meta
+    needs: [source, meta]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        run: tar -xzf source.tar.gz
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -223,10 +300,15 @@ jobs:
           retention-days: 14
 
   build-ios:
-    needs: meta
+    needs: [source, meta]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        run: tar -xzf source.tar.gz
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -368,10 +450,15 @@ jobs:
           retention-days: 14
 
   build-linux:
-    needs: meta
+    needs: [source, meta]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        run: tar -xzf source.tar.gz
 
       - name: Install Linux dependencies
         run: |
