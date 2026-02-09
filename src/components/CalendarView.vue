@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -16,6 +17,7 @@ const loading = ref(false)
 const error = ref('')
 const semesters = ref([])
 const selectedSemester = ref('')
+const currentSemester = ref('')
 const calendarData = ref([])
 const offline = ref(false)
 const syncTime = ref('')
@@ -225,9 +227,11 @@ const fetchSemesters = async () => {
       return res.data
     }, EXTRA_LONG_TTL)
     if (data?.success) {
-      semesters.value = data.semesters || []
-      if (semesters.value.length > 0) {
-        selectedSemester.value = semesters.value[0]
+      const sorted = normalizeSemesterList(data.semesters || [])
+      semesters.value = sorted
+      currentSemester.value = resolveCurrentSemester(sorted, data.current || '')
+      if (!selectedSemester.value) {
+        selectedSemester.value = currentSemester.value || sorted[0] || ''
       }
     }
   } catch (e) {
@@ -251,6 +255,9 @@ const fetchCalendar = async () => {
     if (data?.success) {
       calendarData.value = data.data || []
       meta.value = data.meta || meta.value
+      if (data.meta?.semester && !selectedSemester.value) {
+        selectedSemester.value = data.meta.semester
+      }
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
     } else {

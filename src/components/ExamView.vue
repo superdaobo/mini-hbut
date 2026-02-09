@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -17,6 +18,7 @@ const error = ref('')
 const exams = ref([])
 const semesters = ref([])
 const selectedSemester = ref('')
+const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
 
@@ -62,9 +64,11 @@ const fetchSemesters = async () => {
       return res.data
     })
     if (data?.success) {
-      semesters.value = data.semesters
-      if (semesters.value.length > 0) {
-        selectedSemester.value = semesters.value[0]
+      const sorted = normalizeSemesterList(data.semesters || [])
+      semesters.value = sorted
+      currentSemester.value = resolveCurrentSemester(sorted, data.current || '')
+      if (!selectedSemester.value) {
+        selectedSemester.value = currentSemester.value || sorted[0] || ''
       }
     }
   } catch (e) {

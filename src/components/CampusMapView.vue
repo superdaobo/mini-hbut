@@ -52,6 +52,26 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 const getMapSrc = (item: CampusMapItem) => cachedSrcMap.value[item.id] || item.url
 
+const fallbackToRemote = (item: CampusMapItem) => {
+  const current = cachedSrcMap.value[item.id]
+  if (current === item.url) {
+    loadStateMap.value[item.id] = 'error'
+    return
+  }
+  console.warn(`[CampusMap] local cache image failed, fallback to remote: ${item.id}`)
+  cachedSrcMap.value[item.id] = item.url
+  loadStateMap.value[item.id] = 'error'
+}
+
+const handleCoverImageError = (item: CampusMapItem) => {
+  fallbackToRemote(item)
+}
+
+const handleViewerImageError = () => {
+  if (!activeMap.value) return
+  fallbackToRemote(activeMap.value)
+}
+
 const maxPan = () => {
   const el = viewportRef.value
   if (!el) return { x: 240, y: 320 }
@@ -211,7 +231,7 @@ onMounted(() => {
     <section class="maps-grid">
       <article v-for="item in maps" :key="item.id" class="map-card">
         <div class="map-cover">
-          <img :src="getMapSrc(item)" :alt="item.title" loading="lazy" />
+          <img :src="getMapSrc(item)" :alt="item.title" loading="lazy" @error="handleCoverImageError(item)" />
           <div v-if="loadStateMap[item.id] === 'loading'" class="cover-badge">缓存中</div>
         </div>
         <div class="map-meta">
@@ -253,6 +273,7 @@ onMounted(() => {
             :src="getMapSrc(activeMap)"
             :alt="activeMap.title"
             :style="{ transform: imageTransform }"
+            @error="handleViewerImageError"
             draggable="false"
           />
         </div>
@@ -490,4 +511,3 @@ onMounted(() => {
   }
 }
 </style>
-

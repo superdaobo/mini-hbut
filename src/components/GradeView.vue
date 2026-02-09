@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { formatRelativeTime } from '../utils/time.js'
+import { compareSemesterDesc, normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 
 const props = defineProps({
   grades: { type: Array, default: () => [] },
@@ -27,7 +28,7 @@ const terms = computed(() => {
   props.grades.forEach(g => {
     if (g.term) termSet.add(g.term)
   })
-  return Array.from(termSet).sort().reverse()
+  return normalizeSemesterList(Array.from(termSet))
 })
 
 // 筛选后的成绩
@@ -74,7 +75,7 @@ const groupedGrades = computed(() => {
   })
   
   return Object.entries(groups)
-    .sort((a, b) => b[0].localeCompare(a[0]))
+    .sort((a, b) => compareSemesterDesc(a[0], b[0]))
     .map(([term, items]) => ({ term, items }))
 })
 
@@ -123,6 +124,32 @@ const resetFilters = () => {
 
 const handleBack = () => emit('back')
 const handleLogout = () => emit('logout')
+
+const readPreferredSemester = () => {
+  try {
+    const raw = localStorage.getItem('hbu_schedule_meta')
+    if (!raw) return ''
+    const parsed = JSON.parse(raw)
+    return String(parsed?.semester || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+watch(
+  terms,
+  (list) => {
+    if (!Array.isArray(list) || list.length === 0) {
+      filterTerm.value = ''
+      return
+    }
+    if (filterTerm.value && list.includes(filterTerm.value)) {
+      return
+    }
+    filterTerm.value = resolveCurrentSemester(list, readPreferredSemester())
+  },
+  { immediate: true }
+)
 </script>
 
 <template>

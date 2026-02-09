@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -17,6 +18,7 @@ const error = ref('')
 const ranking = ref(null)
 const semesters = ref([])
 const selectedSemester = ref('')
+const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
 
@@ -28,8 +30,12 @@ const fetchSemesters = async () => {
       return res.data
     })
     if (data?.success) {
-      semesters.value = data.semesters
-      selectedSemester.value = ''
+      const sorted = normalizeSemesterList(data.semesters || [])
+      semesters.value = sorted
+      currentSemester.value = resolveCurrentSemester(sorted, data.current || '')
+      if (!selectedSemester.value) {
+        selectedSemester.value = currentSemester.value || ''
+      }
     }
   } catch (e) {
     console.error('获取学期列表失败:', e)
