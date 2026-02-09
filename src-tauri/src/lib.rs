@@ -22,6 +22,7 @@ use std::time::Duration;
 use base64::{engine::general_purpose, Engine as _};
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
+use tauri_plugin_shell::ShellExt;
 use chrono::{Datelike, Utc};
 
 pub mod http_client;
@@ -419,6 +420,140 @@ async fn download_deyihei_font_payload(
         base64: general_purpose::STANDARD.encode(bytes),
     })
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RemoteImageCachePayload {
+    path: String,
+    from_cache: bool,
+    updated_at: String,
+    size: u64,
+}
+
+fn sanitize_cache_key(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let out = out.trim_matches('_');
+    if out.is_empty() {
+        "asset".to_string()
+    } else {
+        out.to_string()
+    }
+}
+
+fn infer_image_extension(url: &str) -> &'static str {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains(".png") {
+        ".png"
+    } else if lower.contains(".webp") {
+        ".webp"
+    } else if lower.contains(".jpeg") || lower.contains(".jpg") {
+        ".jpg"
+    } else {
+        ".jpg"
+    }
+}
+
+#[tauri::command]
+async fn cache_remote_image(
+    app: tauri::AppHandle,
+    cache_key: String,
+    url: String,
+    force: Option<bool>,
+) -> Result<RemoteImageCachePayload, String> {
+    // 缓存目录固定放到 AppCache/maps，避免污染业务数据目录
+    let cache_dir = app
+        .path()
+        .resolve("maps", BaseDirectory::AppCache)
+        .map_err(|e| format!("resolve map cache dir failed: {}", e))?;
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| format!("create map cache dir failed: {}", e))?;
+
+    let key = sanitize_cache_key(&cache_key);
+    let ext = infer_image_extension(&url);
+    let file_name = format!("{}{}", key, ext);
+    let file_path = cache_dir.join(file_name);
+    let force = force.unwrap_or(false);
+
+    if !force {
+        if let Ok(meta) = tokio::fs::metadata(&file_path).await {
+            if meta.len() > 1_024 {
+                return Ok(RemoteImageCachePayload {
+                    path: file_path.to_string_lossy().to_string(),
+                    from_cache: true,
+                    updated_at: chrono::Local::now().to_rfc3339(),
+                    size: meta.len(),
+                });
+            }
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(25))
+        .connect_timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("create image download client failed: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mini-HBUT/1.0 (map-cache; +https://github.com/superdaobo/mini-hbut)",
+        )
+        .send()
+        .await
+        .map_err(|e| format!("download map failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("download map failed: HTTP {}", response.status()));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("read map bytes failed: {}", e))?;
+    if bytes.len() < 1_024 {
+        return Err(format!("downloaded map too small: {} bytes", bytes.len()));
+    }
+
+    tokio::fs::write(&file_path, &bytes)
+        .await
+        .map_err(|e| format!("write map cache failed: {}", e))?;
+
+    Ok(RemoteImageCachePayload {
+        path: file_path.to_string_lossy().to_string(),
+        from_cache: false,
+        updated_at: chrono::Local::now().to_rfc3339(),
+        size: bytes.len() as u64,
+    })
+}
+
+#[tauri::command]
+fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let target = url.trim();
+    if target.is_empty() {
+        return Err("url is empty".to_string());
+    }
+    if !(target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("mailto:")
+        || target.starts_with("tel:"))
+    {
+        return Err("unsupported url scheme".to_string());
+    }
+
+    #[allow(deprecated)]
+    app.shell()
+        .open(target, None)
+        .map_err(|e| format!("open external url failed: {}", e))
+}
+
 #[tauri::command]
 async fn login(
     state: State<'_, AppState>,
@@ -1654,6 +1789,8 @@ pub fn run() {
             fetch_remote_config,
             download_deyihei_font,
             download_deyihei_font_payload,
+            cache_remote_image,
+            open_external_url,
             login,
             logout,
             restore_session,

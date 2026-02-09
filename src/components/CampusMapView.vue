@@ -1,35 +1,46 @@
-<script setup>
-import { computed, ref } from 'vue'
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
+import { resolveCachedImage } from '../utils/image_cache'
 
-const props = defineProps({
+defineProps({
   studentId: { type: String, default: '' }
 })
 
 const emit = defineEmits(['back', 'logout'])
 
-const maps = [
+type CampusMapItem = {
+  id: string
+  title: string
+  subtitle: string
+  url: string
+}
+
+const maps: CampusMapItem[] = [
   {
     id: 'map1',
     title: '校园地图 A',
     subtitle: '主校区总览',
-    url: 'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/bc015faeb54a8d1aa82f10d055106356446f9123/map/map1.jpg'
+    url: 'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/map/map1.jpg'
   },
   {
     id: 'map2',
     title: '校园地图 B',
-    subtitle: '楼宇分布',
-    url: 'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/2fec75dfea5fd35025500008956a9aa8602c49cf/map/map2.jpg'
+    subtitle: '建筑分布',
+    url: 'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/map/map2.jpg'
   }
 ]
 
-const activeMap = ref(null)
+const cachedSrcMap = ref<Record<string, string>>({})
+const loadStateMap = ref<Record<string, 'idle' | 'loading' | 'ready' | 'error'>>({})
+const activeMap = ref<CampusMapItem | null>(null)
+
 const scale = ref(1)
 const offset = ref({ x: 0, y: 0 })
-const viewportRef = ref(null)
+const viewportRef = ref<HTMLElement | null>(null)
 
-const pointers = new Map()
-const lastPanPoint = ref(null)
+const pointers = new Map<number, { x: number; y: number }>()
+const lastPanPoint = ref<{ x: number; y: number } | null>(null)
 const lastPinchDistance = ref(0)
 
 const zoomText = computed(() => `${Math.round(scale.value * 100)}%`)
@@ -37,7 +48,9 @@ const imageTransform = computed(
   () => `translate(-50%, -50%) translate3d(${offset.value.x}px, ${offset.value.y}px, 0) scale(${scale.value})`
 )
 
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+const getMapSrc = (item: CampusMapItem) => cachedSrcMap.value[item.id] || item.url
 
 const maxPan = () => {
   const el = viewportRef.value
@@ -49,7 +62,7 @@ const maxPan = () => {
   }
 }
 
-const clampOffset = (next) => {
+const clampOffset = (next: { x: number; y: number }) => {
   const lim = maxPan()
   return {
     x: clamp(next.x, -lim.x, lim.x),
@@ -64,7 +77,7 @@ const resetView = () => {
   lastPinchDistance.value = 0
 }
 
-const openMap = (map) => {
+const openMap = (map: CampusMapItem) => {
   activeMap.value = map
   resetView()
 }
@@ -75,7 +88,7 @@ const closeMap = () => {
   pointers.clear()
 }
 
-const zoomBy = (delta) => {
+const zoomBy = (delta: number) => {
   const nextScale = clamp(scale.value + delta, 1, 6)
   scale.value = nextScale
   if (nextScale <= 1) {
@@ -85,16 +98,17 @@ const zoomBy = (delta) => {
   }
 }
 
-const onWheel = (event) => {
+const onWheel = (event: WheelEvent) => {
   event.preventDefault()
   zoomBy(event.deltaY < 0 ? 0.2 : -0.2)
 }
 
-const pointDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+const pointDistance = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  Math.hypot(a.x - b.x, a.y - b.y)
 
-const onPointerDown = (event) => {
+const onPointerDown = (event: PointerEvent) => {
   if (!activeMap.value) return
-  event.currentTarget.setPointerCapture(event.pointerId)
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
 
   if (pointers.size === 1) {
@@ -106,7 +120,7 @@ const onPointerDown = (event) => {
   }
 }
 
-const onPointerMove = (event) => {
+const onPointerMove = (event: PointerEvent) => {
   if (!activeMap.value || !pointers.has(event.pointerId)) return
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
 
@@ -117,11 +131,7 @@ const onPointerMove = (event) => {
       const ratio = distance / lastPinchDistance.value
       const nextScale = clamp(scale.value * ratio, 1, 6)
       scale.value = nextScale
-      if (nextScale <= 1) {
-        offset.value = { x: 0, y: 0 }
-      } else {
-        offset.value = clampOffset(offset.value)
-      }
+      offset.value = nextScale <= 1 ? { x: 0, y: 0 } : clampOffset(offset.value)
     }
     lastPinchDistance.value = distance
     return
@@ -138,11 +148,9 @@ const onPointerMove = (event) => {
   }
 }
 
-const onPointerUp = (event) => {
+const onPointerUp = (event: PointerEvent) => {
   pointers.delete(event.pointerId)
-  if (pointers.size < 2) {
-    lastPinchDistance.value = 0
-  }
+  if (pointers.size < 2) lastPinchDistance.value = 0
   if (pointers.size === 1) {
     const only = [...pointers.values()][0]
     lastPanPoint.value = { x: only.x, y: only.y }
@@ -156,25 +164,55 @@ const openRaw = async () => {
   if (!activeMap.value) return
   await openExternal(activeMap.value.url)
 }
+
+const loadSingleMap = async (item: CampusMapItem) => {
+  loadStateMap.value[item.id] = 'loading'
+  try {
+    // 缓存策略：
+    // 1) 首次进入下载并写入 AppCache/maps
+    // 2) TTL 7 天内直接复用本地缓存，避免重复网络请求
+    // 3) 失败时回退远程 URL，不阻断页面展示
+    const localSrc = await resolveCachedImage({
+      cacheKey: `campus-map-${item.id}`,
+      url: item.url,
+      ttlHours: 24 * 7
+    })
+    cachedSrcMap.value[item.id] = localSrc
+    loadStateMap.value[item.id] = 'ready'
+  } catch (e) {
+    console.warn(`[CampusMap] cache failed for ${item.id}`, e)
+    cachedSrcMap.value[item.id] = item.url
+    loadStateMap.value[item.id] = 'error'
+  }
+}
+
+const warmupMaps = async () => {
+  await Promise.allSettled(maps.map((item) => loadSingleMap(item)))
+}
+
+onMounted(() => {
+  warmupMaps()
+})
 </script>
 
 <template>
   <div class="campus-map-view">
     <header class="view-header">
-      <button class="header-btn" @click="emit('back')">← 返回</button>
-      <h1>🗺️ 校园地图</h1>
+      <button class="header-btn" @click="emit('back')">返回</button>
+      <h1>校园地图</h1>
       <button class="header-btn danger" @click="emit('logout')">退出</button>
     </header>
 
     <section class="intro-card">
-      <p>当前账号：{{ props.studentId || '未登录' }}</p>
-      <p>支持双指缩放、拖拽移动、滚轮缩放和一键打开原图。</p>
+      <p>支持缩放、拖拽和手势查看，地图会自动缓存到本地。</p>
+      <p>缓存有效期 7 天，到期后会自动后台刷新。</p>
     </section>
 
     <section class="maps-grid">
       <article v-for="item in maps" :key="item.id" class="map-card">
         <div class="map-cover">
-          <img :src="item.url" :alt="item.title" loading="lazy" />
+          <img :src="getMapSrc(item)" :alt="item.title" loading="lazy" />
+          <div v-if="loadStateMap[item.id] === 'loading'" class="cover-badge">缓存中</div>
         </div>
         <div class="map-meta">
           <h3>{{ item.title }}</h3>
@@ -212,7 +250,7 @@ const openRaw = async () => {
         >
           <img
             class="viewer-image"
-            :src="activeMap.url"
+            :src="getMapSrc(activeMap)"
             :alt="activeMap.title"
             :style="{ transform: imageTransform }"
             draggable="false"
@@ -259,7 +297,7 @@ const openRaw = async () => {
 }
 
 .header-btn.danger {
-  color: var(--ui-danger);
+  color: #dc2626;
 }
 
 .intro-card {
@@ -269,18 +307,22 @@ const openRaw = async () => {
   background: var(--ui-surface);
   border: 1px solid var(--ui-surface-border);
   color: var(--ui-muted);
-  line-height: 1.5;
 }
 
 .intro-card p {
-  margin: 4px 0;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.intro-card p + p {
+  margin-top: 6px;
 }
 
 .maps-grid {
-  margin-top: 16px;
+  margin-top: 18px;
   display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
 }
 
 .map-card {
@@ -289,97 +331,100 @@ const openRaw = async () => {
   border-radius: 16px;
   overflow: hidden;
   box-shadow: var(--ui-shadow-soft);
-  display: grid;
-  grid-template-rows: 180px auto auto;
 }
 
 .map-cover {
   position: relative;
-  overflow: hidden;
-  background: linear-gradient(135deg, #dbeafe, #cffafe);
+  height: 170px;
+  background: rgba(15, 23, 42, 0.07);
 }
 
 .map-cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.35s ease;
 }
 
-.map-card:hover .map-cover img {
-  transform: scale(1.03);
+.cover-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(30, 64, 175, 0.82);
 }
 
 .map-meta {
-  padding: 12px 12px 6px;
+  padding: 12px 14px 8px;
 }
 
 .map-meta h3 {
   margin: 0;
   color: var(--ui-text);
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .map-meta p {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   color: var(--ui-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .open-btn {
-  margin: 0 12px 12px;
+  margin: 0 14px 14px;
+  width: calc(100% - 28px);
   border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  border-radius: 12px;
+  background: linear-gradient(120deg, #2563eb, #0891b2);
   color: #fff;
-  padding: 10px 12px;
   font-weight: 700;
+  padding: 10px 12px;
   cursor: pointer;
 }
 
 .viewer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 10, 24, 0.78);
-  backdrop-filter: blur(6px);
-  z-index: 40;
+  z-index: 90;
+  background: rgba(3, 7, 18, 0.86);
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 16px;
+  align-items: center;
+  padding: 12px;
 }
 
 .viewer-shell {
-  width: min(1080px, 100%);
-  height: min(88vh, 900px);
-  border-radius: 16px;
+  width: min(1100px, 100%);
+  height: min(88vh, 850px);
+  background: #0b1220;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 18px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  box-shadow: 0 24px 42px rgba(0, 0, 0, 0.35);
-  background: rgba(15, 23, 42, 0.88);
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
 }
 
 .viewer-toolbar {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(15, 23, 42, 0.9);
   color: #e2e8f0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .viewer-title h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
 }
 
 .viewer-title span {
-  font-size: 13px;
-  color: #94a3b8;
+  font-size: 12px;
+  opacity: 0.88;
 }
 
 .viewer-actions {
@@ -388,57 +433,61 @@ const openRaw = async () => {
 }
 
 .viewer-actions button {
-  border: none;
-  border-radius: 8px;
-  background: rgba(51, 65, 85, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.64);
   color: #e2e8f0;
-  padding: 7px 11px;
-  font-size: 13px;
+  padding: 6px 10px;
   cursor: pointer;
 }
 
 .viewer-actions .close-btn {
-  background: rgba(190, 24, 93, 0.9);
+  color: #fca5a5;
 }
 
 .viewer-viewport {
   position: relative;
+  flex: 1;
   overflow: hidden;
   touch-action: none;
   background:
-    linear-gradient(45deg, rgba(15, 23, 42, 0.85), rgba(30, 41, 59, 0.85)),
-    repeating-conic-gradient(from 0deg, rgba(255, 255, 255, 0.02) 0 25%, rgba(255, 255, 255, 0.05) 0 50%) 50% / 24px 24px;
+    radial-gradient(circle at 12% 18%, rgba(56, 189, 248, 0.12), transparent 42%),
+    radial-gradient(circle at 85% 85%, rgba(59, 130, 246, 0.14), transparent 45%),
+    #020617;
 }
 
 .viewer-image {
   position: absolute;
   left: 50%;
   top: 50%;
-  transform-origin: center center;
-  width: auto;
   max-width: 100%;
   max-height: 100%;
   user-select: none;
-  -webkit-user-drag: none;
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.4));
+  transform-origin: center center;
+  transition: transform 0.08s linear;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 768px) {
+  .campus-map-view {
+    padding: 14px 14px 100px;
+  }
+
+  .view-header h1 {
+    font-size: 20px;
+  }
+
   .maps-grid {
     grid-template-columns: 1fr;
   }
 
   .viewer-shell {
-    height: min(90vh, 100%);
+    height: 84vh;
   }
 
   .viewer-toolbar {
-    flex-direction: column;
     align-items: flex-start;
-  }
-
-  .viewer-actions {
-    flex-wrap: wrap;
+    flex-direction: column;
   }
 }
 </style>
+
