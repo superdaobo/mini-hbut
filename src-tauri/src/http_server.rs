@@ -154,10 +154,11 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use axum::http::StatusCode;
 use chrono::{Datelike, Utc};
+use base64::{engine::general_purpose, Engine as _};
 use futures::Stream;
 use futures::StreamExt;
 use futures::FutureExt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::convert::Infallible;
 use reqwest::header::{HeaderMap, HeaderValue};
 use tower_http::cors::{Any, CorsLayer};
@@ -242,6 +243,8 @@ struct ScheduleExportRequest {
     semester: Option<String>,
     week: Option<i32>,
     events: Vec<ScheduleExportEvent>,
+    upload_endpoint: Option<String>,
+    ttl_seconds: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -520,36 +523,27 @@ fn export_dir() -> std::path::PathBuf {
         .join("exports")
 }
 
-fn export_base_url(headers: &HeaderMap) -> String {
-    if let Ok(base) = std::env::var("HBUT_PUBLIC_BASE") {
-        if !base.trim().is_empty() {
-            return base.trim_end_matches('/').to_string();
+fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
+    if let Some(v) = req.upload_endpoint.as_ref() {
+        if !v.trim().is_empty() {
+            return v.trim().to_string();
         }
     }
-    let scheme = headers
-        .get("x-forwarded-proto")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("http");
-    let host = headers
-        .get("x-forwarded-host")
-        .or_else(|| headers.get("host"))
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("127.0.0.1:4399");
-    format!("{}://{}", scheme, host)
+    if let Ok(v) = std::env::var("HBUT_TEMP_UPLOAD_ENDPOINT") {
+        if !v.trim().is_empty() {
+            return v.trim().to_string();
+        }
+    }
+    "https://superdaobo-ocr-service.hf.space/api/temp/upload".to_string()
 }
 
 async fn export_schedule_calendar(
     State(_state): State<HttpState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(req): Json<ScheduleExportRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     if req.events.is_empty() {
         return Err(err(StatusCode::BAD_REQUEST, "参数错误", "没有可导出的课程数据".to_string()));
-    }
-
-    let export_root = export_dir();
-    if let Err(e) = std::fs::create_dir_all(&export_root) {
-        return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("创建导出目录失败: {}", e)));
     }
 
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -557,7 +551,6 @@ async fn export_schedule_calendar(
     let semester = sanitize_filename_part(req.semester.as_deref().unwrap_or("semester"));
     let week = req.week.unwrap_or(0);
     let filename = format!("schedule_{}_{}_w{}_{}.ics", sid, semester, week, ts);
-    let file_path = export_root.join(&filename);
 
     let mut ics = String::new();
     ics.push_str("BEGIN:VCALENDAR\r\n");
@@ -598,18 +591,61 @@ async fn export_schedule_calendar(
         ics.push_str("END:VEVENT\r\n");
     }
     ics.push_str("END:VCALENDAR\r\n");
+    let upload_url = export_upload_endpoint(&req);
+    let ttl = req.ttl_seconds.unwrap_or(24 * 3600).clamp(3600, 72 * 3600);
+    let upload_payload = serde_json::json!({
+        "filename": filename.clone(),
+        "content_base64": general_purpose::STANDARD.encode(ics.as_bytes()),
+        "content_type": "text/calendar; charset=utf-8",
+        "ttl_seconds": ttl
+    });
 
-    if let Err(e) = std::fs::write(&file_path, ics) {
-        return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("写入导出文件失败: {}", e)));
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("创建上传客户端失败: {}", e)))?;
+    let resp = http
+        .post(upload_url.as_str())
+        .json(&upload_payload)
+        .send()
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "导出失败", format!("上传临时存储失败: {}", e)))?;
+    let status = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "导出失败", format!("解析上传响应失败: {}", e)))?;
+
+    if !status.is_success() || !body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let msg = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("上传服务返回失败")
+            .to_string();
+        return Err(err(StatusCode::BAD_GATEWAY, "导出失败", msg));
     }
 
-    let base = export_base_url(&headers);
-    let url = format!("{}/exports/{}", base.trim_end_matches('/'), filename);
+    let url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| err(StatusCode::BAD_GATEWAY, "导出失败", "上传成功但未返回链接".to_string()))?;
+    let remote_filename = body
+        .get("filename")
+        .and_then(|v| v.as_str())
+        .unwrap_or(filename.as_str())
+        .to_string();
+    let expires_at = body
+        .get("expires_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let payload = serde_json::json!({
         "success": true,
         "url": url,
-        "filename": filename,
-        "count": req.events.len()
+        "filename": remote_filename,
+        "count": req.events.len(),
+        "expires_at": expires_at,
+        "provider": "hf-temp-storage"
     });
     Ok(ok(payload))
 }
@@ -1239,3 +1275,4 @@ fn chunk_stream_text(text: &str) -> Vec<String> {
     }
     out
 }
+

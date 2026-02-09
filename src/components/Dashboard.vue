@@ -1,5 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import axios from 'axios'
+import { fetchWithCache, getCachedData } from '../utils/api'
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown'
@@ -18,6 +20,180 @@ const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice'])
 
 const brokenImages = ref(new Set())
 const cardListeners = []
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+const todayCourses = ref([])
+const todayLoading = ref(false)
+const todayError = ref('')
+const nowTick = ref(Date.now())
+let clockTimer = null
+
+const periodTimeMap = {
+  1: { start: '08:20', end: '09:05' },
+  2: { start: '09:10', end: '09:55' },
+  3: { start: '10:15', end: '11:00' },
+  4: { start: '11:05', end: '11:50' },
+  5: { start: '14:00', end: '14:45' },
+  6: { start: '14:50', end: '15:35' },
+  7: { start: '15:55', end: '16:40' },
+  8: { start: '16:45', end: '17:30' },
+  9: { start: '18:30', end: '19:15' },
+  10: { start: '19:20', end: '20:05' },
+  11: { start: '20:10', end: '20:55' }
+}
+
+const toMinutes = (timeText) => {
+  if (!timeText || !timeText.includes(':')) return 0
+  const [h, m] = timeText.split(':').map(Number)
+  return h * 60 + m
+}
+
+const currentMinute = computed(() => {
+  const now = new Date(nowTick.value)
+  return now.getHours() * 60 + now.getMinutes()
+})
+
+const currentTimeText = computed(() => {
+  const now = new Date(nowTick.value)
+  const h = String(now.getHours()).padStart(2, '0')
+  const m = String(now.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+})
+
+const timelineCourses = computed(() => {
+  return todayCourses.value.filter((course) => course.endMinutes >= currentMinute.value).slice(0, 4)
+})
+
+const todayBlockTitle = computed(() => {
+  if (!props.isLoggedIn) return '今日课程'
+  if (timelineCourses.value.length === 0) return '今日课程'
+  const first = timelineCourses.value[0]
+  if (first.startMinutes <= currentMinute.value && first.endMinutes >= currentMinute.value) {
+    return '正在进行'
+  }
+  return '即将开始'
+})
+
+const getTodayWeekday = () => {
+  const day = new Date(nowTick.value).getDay()
+  return day === 0 ? 7 : day
+}
+
+const getCurrentWeek = (metaWeek) => {
+  if (Number(metaWeek) > 0) return Number(metaWeek)
+  try {
+    const cachedMeta = localStorage.getItem('hbu_schedule_meta')
+    if (!cachedMeta) return 1
+    const parsed = JSON.parse(cachedMeta)
+    const week = Number(parsed?.current_week || 1)
+    return week > 0 ? week : 1
+  } catch (e) {
+    return 1
+  }
+}
+
+const normalizeWeeks = (weeks) => {
+  if (!Array.isArray(weeks)) return []
+  return weeks
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+}
+
+const buildTodayCourses = (courses, currentWeek) => {
+  const todayWeekday = getTodayWeekday()
+  const daily = (courses || [])
+    .filter((course) => Number(course.weekday) === todayWeekday)
+    .filter((course) => normalizeWeeks(course.weeks).includes(currentWeek))
+    .sort((a, b) => Number(a.period) - Number(b.period))
+
+  const merged = []
+  let index = 0
+  while (index < daily.length) {
+    const current = daily[index]
+    const room = current.room_code || current.room || '-'
+    const teacher = current.teacher || '-'
+    let startPeriod = Number(current.period)
+    let endPeriod = Number(current.period)
+
+    let nextIndex = index + 1
+    while (nextIndex < daily.length) {
+      const next = daily[nextIndex]
+      const nextRoom = next.room_code || next.room || '-'
+      if (
+        next.name === current.name &&
+        nextRoom === room &&
+        Number(next.period) <= endPeriod + 1
+      ) {
+        endPeriod = Math.max(endPeriod, Number(next.period))
+        nextIndex += 1
+      } else {
+        break
+      }
+    }
+
+    const startText = periodTimeMap[startPeriod]?.start || '--:--'
+    const endText = periodTimeMap[endPeriod]?.end || '--:--'
+    merged.push({
+      key: `${current.name}-${startPeriod}-${room}`,
+      name: current.name,
+      teacher,
+      room,
+      start: startText,
+      end: endText,
+      startMinutes: toMinutes(startText),
+      endMinutes: toMinutes(endText)
+    })
+    index = nextIndex
+  }
+  return merged
+}
+
+const fetchTodayCourses = async () => {
+  if (!props.isLoggedIn || !props.studentId) {
+    todayCourses.value = []
+    todayError.value = ''
+    return
+  }
+  todayLoading.value = true
+  todayError.value = ''
+  try {
+    const cacheKey = `schedule:${props.studentId}`
+    const cached = getCachedData(cacheKey)
+    let payload = cached?.data
+    if (!payload?.success) {
+      const res = await fetchWithCache(cacheKey, async () => {
+        const rsp = await axios.post(`${API_BASE}/v2/schedule/query`, {
+          student_id: props.studentId
+        })
+        return rsp.data
+      })
+      payload = res?.data
+    }
+
+    if (!payload?.success) {
+      todayCourses.value = []
+      todayError.value = payload?.error || '今日课程加载失败'
+      return
+    }
+
+    if (payload?.meta?.current_week) {
+      localStorage.setItem('hbu_schedule_meta', JSON.stringify({
+        semester: payload.meta.semester || '',
+        start_date: payload.meta.start_date || '',
+        current_week: payload.meta.current_week || 1
+      }))
+    }
+
+    const week = getCurrentWeek(payload?.meta?.current_week)
+    todayCourses.value = buildTodayCourses(payload?.data || [], week)
+    todayError.value = ''
+  } catch (error) {
+    todayCourses.value = []
+    todayError.value = '今日课程加载失败'
+  } finally {
+    todayLoading.value = false
+  }
+}
 
 // 模块列表
 const modules = [
@@ -249,11 +425,27 @@ const detachCardSpotlight = () => {
 
 onMounted(() => {
   attachCardSpotlight()
+  clockTimer = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 60 * 1000)
 })
 
 onBeforeUnmount(() => {
   detachCardSpotlight()
+  if (clockTimer) {
+    window.clearInterval(clockTimer)
+    clockTimer = null
+  }
 })
+
+watch(
+  () => [props.studentId, props.isLoggedIn],
+  () => {
+    nowTick.value = Date.now()
+    fetchTodayCourses()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -320,6 +512,32 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 页脚 -->
+    <section class="today-panel">
+      <div class="today-panel-header" style="background: transparent !important; box-shadow: none !important;">
+        <h3 style="background: transparent !important; background-image: none !important; border: none !important; box-shadow: none !important;">{{ todayBlockTitle }}</h3>
+        <span class="today-time">{{ currentTimeText }}</span>
+      </div>
+
+      <div v-if="!isLoggedIn" class="today-empty">登录后可查看今日课程</div>
+      <div v-else-if="todayLoading" class="today-empty">正在加载今日课程...</div>
+      <div v-else-if="todayError" class="today-empty today-error">{{ todayError }}</div>
+      <div v-else-if="timelineCourses.length === 0" class="today-empty">今日课程已上完</div>
+
+      <div v-else class="today-timeline">
+        <div v-for="course in timelineCourses" :key="course.key" class="today-item">
+          <div class="today-item-time">{{ course.start }}</div>
+          <div class="today-item-line">
+            <span class="today-item-dot"></span>
+          </div>
+          <div class="today-item-main">
+            <div class="today-item-name">{{ course.name }}</div>
+            <div class="today-item-meta">上课地点：{{ course.room }}</div>
+            <div class="today-item-meta">授课教师：{{ course.teacher }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <footer class="dashboard-footer">
       <p class="neon-marquee">💡 点击模块卡片进入功能</p>
     </footer>
@@ -755,6 +973,142 @@ html[data-theme='minimal'] .logout-btn {
   font-weight: 600;
 }
 
+.today-panel {
+  max-width: 980px;
+  margin: 26px auto 0;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 22px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+  padding: 22px 20px;
+}
+
+html[data-theme='cyberpunk'] .today-panel {
+  background: rgba(10, 15, 28, 0.9);
+  border: 1px solid rgba(41, 200, 224, 0.35);
+  box-shadow: 0 0 18px rgba(41, 200, 224, 0.25);
+}
+
+.today-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.today-panel-header h3 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--ui-text);
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.today-time {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4f46e5;
+  background: rgba(79, 70, 229, 0.12);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+.today-empty {
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(203, 213, 225, 0.7);
+  color: #475569;
+  font-weight: 600;
+  padding: 14px 16px;
+}
+
+.today-error {
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.9);
+  border-color: rgba(252, 165, 165, 0.8);
+}
+
+.today-timeline {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.today-item {
+  display: grid;
+  grid-template-columns: 72px 26px 1fr;
+  align-items: stretch;
+}
+
+.today-item-time {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  color: #0f172a;
+  padding-top: 2px;
+}
+
+.today-item-line {
+  position: relative;
+}
+
+.today-item-line::after {
+  content: '';
+  position: absolute;
+  top: 18px;
+  bottom: -10px;
+  left: 12px;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.5), rgba(226, 232, 240, 0.6));
+}
+
+.today-item:last-child .today-item-line::after {
+  display: none;
+}
+
+.today-item-dot {
+  position: absolute;
+  top: 10px;
+  left: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18);
+}
+
+.today-item-main {
+  padding: 3px 0 10px;
+}
+
+.today-item-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.today-item-meta {
+  font-size: 15px;
+  color: #64748b;
+  line-height: 1.65;
+}
+
+html[data-theme='cyberpunk'] .today-item-time,
+html[data-theme='cyberpunk'] .today-item-name {
+  color: #e2f7ff;
+}
+
+html[data-theme='cyberpunk'] .today-item-meta {
+  color: #94a3b8;
+}
+
 .dashboard-footer {
   text-align: center;
   margin-top: 32px;
@@ -772,6 +1126,31 @@ html[data-theme='minimal'] .logout-btn {
     padding: 12px 6px;
   }
 
+  .today-panel {
+    padding: 16px 14px;
+    border-radius: 16px;
+  }
+
+  .today-panel-header h3 {
+    font-size: 26px;
+  }
+
+  .today-item {
+    grid-template-columns: 56px 22px 1fr;
+  }
+
+  .today-item-time {
+    font-size: 24px;
+  }
+
+  .today-item-name {
+    font-size: 18px;
+  }
+
+  .today-item-meta {
+    font-size: 13px;
+  }
+
   .module-name {
     font-size: clamp(12px, 3.2vw, 13.5px);
     line-height: 1.2;
@@ -786,6 +1165,38 @@ html[data-theme='minimal'] .logout-btn {
 @media (max-width: 480px) {
   .module-card {
     padding: 10px 4px;
+  }
+
+  .today-panel {
+    margin-top: 20px;
+    padding: 14px 12px;
+  }
+
+  .today-panel-header h3 {
+    font-size: 22px;
+  }
+
+  .today-time {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+
+  .today-item {
+    grid-template-columns: 48px 20px 1fr;
+  }
+
+  .today-item-time {
+    font-size: 20px;
+  }
+
+  .today-item-name {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .today-item-meta {
+    font-size: 12px;
+    line-height: 1.5;
   }
 
   .module-name {

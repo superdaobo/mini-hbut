@@ -1,4 +1,4 @@
-﻿// lib.rs
+// lib.rs
 //
 // 閫昏緫鏂囨。: lib_logic.md
 // 妯″潡鍔熻兘: Tauri 鍚庣閫昏緫鍏ュ彛
@@ -192,6 +192,8 @@ pub struct ScheduleExportRequest {
     pub semester: Option<String>,
     pub week: Option<i32>,
     pub events: Vec<ScheduleExportEvent>,
+    pub upload_endpoint: Option<String>,
+    pub ttl_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -883,25 +885,18 @@ fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
         .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
-fn export_dir() -> std::path::PathBuf {
-    if let Ok(raw) = std::env::var("HBUT_EXPORT_DIR") {
-        let path = std::path::PathBuf::from(raw);
-        if !path.as_os_str().is_empty() {
-            return path;
+fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
+    if let Some(v) = req.upload_endpoint.as_ref() {
+        if !v.trim().is_empty() {
+            return v.trim().to_string();
         }
     }
-    std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("exports")
-}
-
-fn export_base_url() -> String {
-    if let Ok(base) = std::env::var("HBUT_PUBLIC_BASE") {
-        if !base.trim().is_empty() {
-            return base.trim_end_matches('/').to_string();
+    if let Ok(v) = std::env::var("HBUT_TEMP_UPLOAD_ENDPOINT") {
+        if !v.trim().is_empty() {
+            return v.trim().to_string();
         }
     }
-    "http://127.0.0.1:4399".to_string()
+    "https://superdaobo-ocr-service.hf.space/api/temp/upload".to_string()
 }
 
 #[tauri::command]
@@ -910,17 +905,11 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
         return Err("娌℃湁鍙鍑虹殑璇剧▼鏁版嵁".to_string());
     }
 
-    let export_root = export_dir();
-    if let Err(e) = std::fs::create_dir_all(&export_root) {
-        return Err(format!("鍒涘缓瀵煎嚭鐩綍澶辫触: {}", e));
-    }
-
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let sid = sanitize_filename_part(req.student_id.as_deref().unwrap_or("student"));
     let semester = sanitize_filename_part(req.semester.as_deref().unwrap_or("semester"));
     let week = req.week.unwrap_or(0);
     let filename = format!("schedule_{}_{}_w{}_{}.ics", sid, semester, week, ts);
-    let file_path = export_root.join(&filename);
 
     let mut ics = String::new();
     ics.push_str("BEGIN:VCALENDAR\r\n");
@@ -961,18 +950,61 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
         ics.push_str("END:VEVENT\r\n");
     }
     ics.push_str("END:VCALENDAR\r\n");
+    let upload_url = export_upload_endpoint(&req);
+    let ttl = req.ttl_seconds.unwrap_or(24 * 3600).clamp(3600, 72 * 3600);
+    let payload = serde_json::json!({
+        "filename": filename.clone(),
+        "content_base64": general_purpose::STANDARD.encode(ics.as_bytes()),
+        "content_type": "text/calendar; charset=utf-8",
+        "ttl_seconds": ttl
+    });
 
-    if let Err(e) = std::fs::write(&file_path, ics) {
-        return Err(format!("鍐欏叆瀵煎嚭鏂囦欢澶辫触: {}", e));
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("鍒涘缓涓婁紶瀹㈡埛绔け璐? {}", e))?;
+    let resp = http
+        .post(upload_url.as_str())
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("涓婁紶璇剧▼鏂囦欢澶辫触: {}", e))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("瑙ｆ瀽涓婁紶鍝嶅簲澶辫触: {}", e))?;
+
+    if !status.is_success() || !body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let msg = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("涓婁紶鏈嶅姟杩斿洖澶辫触");
+        return Err(format!("璇剧▼瀵煎嚭涓婁紶澶辫触: {}", msg));
     }
 
-    let base = export_base_url();
-    let url = format!("{}/exports/{}", base.trim_end_matches('/'), filename);
+    let url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "涓婁紶鎴愬姛浣嗘湭杩斿洖閾炬帴".to_string())?;
+    let remote_filename = body
+        .get("filename")
+        .and_then(|v| v.as_str())
+        .unwrap_or(filename.as_str())
+        .to_string();
+    let expires_at = body
+        .get("expires_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     Ok(serde_json::json!({
         "success": true,
         "url": url,
-        "filename": filename,
-        "count": req.events.len()
+        "filename": remote_filename,
+        "count": req.events.len(),
+        "expires_at": expires_at,
+        "provider": "hf-temp-storage"
     }))
 }
 

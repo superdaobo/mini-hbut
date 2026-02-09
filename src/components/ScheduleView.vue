@@ -49,16 +49,20 @@ const timeSchedule = [
   { p: 11, start: '20:10', end: '20:55' }
 ]
 
-// 丰富的莫兰迪/糖果色系
+// 课表卡片配色：更高对比的雅致亮色，保证可读性与辨识度
 const courseThemes = [
-  { bg: '#dbeafe', text: '#1e40af' }, // 蓝
-  { bg: '#dcfce7', text: '#166534' }, // 绿
-  { bg: '#f3e8ff', text: '#6b21a8' }, // 紫
-  { bg: '#ffedd5', text: '#9a3412' }, // 橙
-  { bg: '#fae8ff', text: '#86198f' }, // 粉紫
-  { bg: '#ccfbf1', text: '#115e59' }, // 青
-  { bg: '#fee2e2', text: '#991b1b' }, // 红
-  { bg: '#fef9c3', text: '#854d0e' }, // 黄
+  { bg: '#e7f4ff', text: '#0f5da8', border: '#72b9ff' }, // 湖蓝
+  { bg: '#fff0e8', text: '#cb4f2f', border: '#ffb390' }, // 珊瑚橘
+  { bg: '#efe9ff', text: '#5f52cf', border: '#b8aaff' }, // 紫藤
+  { bg: '#fff4db', text: '#be7a07', border: '#efc465' }, // 琥珀
+  { bg: '#ffeaf2', text: '#c33f73', border: '#f3a8c4' }, // 玫瑰
+  { bg: '#e8faf5', text: '#117f67', border: '#8adcc4' }, // 青绿
+  { bg: '#e8efff', text: '#335ccb', border: '#9eb4ff' }, // 靛蓝
+  { bg: '#fff1f5', text: '#b63f58', border: '#f0acbb' }, // 浅莓
+  { bg: '#edf8ef', text: '#2f8c3d', border: '#9dd7a7' }, // 春绿
+  { bg: '#e8f9ff', text: '#007893', border: '#84d6ec' }, // 青空
+  { bg: '#f4edff', text: '#7548c1', border: '#c6adf1' }, // 兰紫
+  { bg: '#fff2e2', text: '#b05c16', border: '#efb67f' }, // 暖杏
 ]
 
 const weekDates = computed(() => {
@@ -219,7 +223,32 @@ const processScheduleData = (courses) => {
   return courses
 }
 
-const mergeDailyCourses = (dailyCourses, applyColor = true) => {
+const hashText = (value) => {
+  let hash = 0
+  const text = String(value || '')
+  for (let i = 0; i < text.length; i += 1) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return Math.abs(hash)
+}
+
+const periodsOverlap = (aStart, aEnd, bStart, bEnd) => {
+  return !(aEnd < bStart || bEnd < aStart)
+}
+
+const areAdjacentCourses = (a, b) => {
+  if (a._day === b._day) {
+    // 同一天只处理上下相邻
+    return a._end + 1 === b._start || b._end + 1 === a._start
+  }
+  if (Math.abs(a._day - b._day) === 1) {
+    // 左右列在时间上有重叠即视为相邻
+    return periodsOverlap(a._start, a._end, b._start, b._end)
+  }
+  return false
+}
+
+const mergeDailyCourses = (dailyCourses) => {
   if (!dailyCourses.length) return []
   const merged = []
   let i = 0
@@ -247,38 +276,94 @@ const mergeDailyCourses = (dailyCourses, applyColor = true) => {
     })
     i = j
   }
-
-  if (applyColor) {
-    let lastColorIndex = -1
-    merged.forEach(course => {
-      let hash = 0
-      for (let k = 0; k < course.name.length; k++) {
-        hash = course.name.charCodeAt(k) + ((hash << 5) - hash)
-      }
-      let colorIndex = Math.abs(hash) % courseThemes.length
-      if (colorIndex === lastColorIndex) {
-        colorIndex = (colorIndex + 1) % courseThemes.length
-      }
-      course.colorIndex = colorIndex
-      lastColorIndex = colorIndex
-    })
-  }
-
   return merged
 }
 
-// 获取某一天的所有课程（并在此处合并）
-const getCoursesForDay = (dayIndex) => { 
-  // 1. 过滤出本周课程
-  const dailyCourses = scheduleData.value.filter(course => {
-     return course.weekday === dayIndex && 
-            course.weeks.includes(selectedWeek.value)
-  })
-  
-  // 2. 排序（按节次）
-  dailyCourses.sort((a, b) => a.period - b.period)
+const buildWeekCoursesWithColors = (weekNumber) => {
+  const byDay = {}
+  const nodes = []
 
-  return mergeDailyCourses(dailyCourses, true)
+  for (let day = 1; day <= 7; day += 1) {
+    const dailyCourses = scheduleData.value
+      .filter(course => course.weekday === day && course.weeks.includes(weekNumber))
+      .sort((a, b) => a.period - b.period)
+
+    const merged = mergeDailyCourses(dailyCourses).map((course, index) => {
+      const span = course.djs || 1
+      const start = Number(course.period)
+      const end = start + span - 1
+      return {
+        ...course,
+        _day: day,
+        _start: start,
+        _end: end,
+        _uid: `${day}-${start}-${end}-${course.name}-${index}`
+      }
+    })
+
+    byDay[day] = merged
+    nodes.push(...merged)
+  }
+
+  if (!nodes.length) return byDay
+
+  const neighbors = new Map(nodes.map(node => [node._uid, new Set()]))
+  for (let i = 0; i < nodes.length; i += 1) {
+    for (let j = i + 1; j < nodes.length; j += 1) {
+      const a = nodes[i]
+      const b = nodes[j]
+      if (areAdjacentCourses(a, b)) {
+        neighbors.get(a._uid).add(b._uid)
+        neighbors.get(b._uid).add(a._uid)
+      }
+    }
+  }
+
+  const ordered = [...nodes].sort((a, b) => {
+    const degreeDiff = neighbors.get(b._uid).size - neighbors.get(a._uid).size
+    if (degreeDiff !== 0) return degreeDiff
+    if (a._start !== b._start) return a._start - b._start
+    return a._day - b._day
+  })
+
+  const colorMap = new Map()
+  ordered.forEach(node => {
+    const used = new Set()
+    neighbors.get(node._uid).forEach(id => {
+      if (colorMap.has(id)) used.add(colorMap.get(id))
+    })
+
+    const seed = hashText(`${node.name}-${node._day}-${node._start}`) % courseThemes.length
+    let chosen = seed
+    for (let offset = 0; offset < courseThemes.length; offset += 1) {
+      const candidate = (seed + offset) % courseThemes.length
+      if (!used.has(candidate)) {
+        chosen = candidate
+        break
+      }
+    }
+    colorMap.set(node._uid, chosen)
+  })
+
+  for (let day = 1; day <= 7; day += 1) {
+    byDay[day] = (byDay[day] || []).map(course => ({
+      ...course,
+      colorIndex: colorMap.get(course._uid) ?? 0
+    }))
+  }
+
+  return byDay
+}
+
+const weekCoursesWithColor = computed(() => {
+  const week = Number(selectedWeek.value)
+  if (!Number.isFinite(week) || week <= 0) return {}
+  return buildWeekCoursesWithColors(week)
+})
+
+// 获取某一天的所有课程（并在此处合并）
+const getCoursesForDay = (dayIndex) => {
+  return weekCoursesWithColor.value[dayIndex] || []
 }
 
 const getCoursesForDayAndWeek = (dayIndex, weekNumber) => {
@@ -286,7 +371,7 @@ const getCoursesForDayAndWeek = (dayIndex, weekNumber) => {
     return course.weekday === dayIndex && course.weeks.includes(weekNumber)
   })
   dailyCourses.sort((a, b) => a.period - b.period)
-  return mergeDailyCourses(dailyCourses, false)
+  return mergeDailyCourses(dailyCourses)
 }
 
 const getDateForWeekDay = (weekNumber, weekday) => {
@@ -321,6 +406,7 @@ const getCourseStyle = (course) => {
   return {
     '--course-bg': theme.bg,
     '--course-text': theme.text,
+    '--course-border': theme.border || '#cbd5e1',
     gridRow: `${course.period} / span ${span}`,
     gridColumn: '1',
     zIndex: 1,
@@ -1047,24 +1133,23 @@ onMounted(() => {
 }
 
 .course-card {
-  margin: 2px; 
-  border-radius: 6px;
-  padding: 6px 4px;
+  margin: 2px;
+  border-radius: 12px;
+  padding: 7px 5px;
   background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
   color: var(--course-text, #0f172a) !important;
-  border-color: rgba(255, 255, 255, 0.55) !important;
+  border-color: var(--course-border, rgba(148, 163, 184, 0.55)) !important;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
-  font-size: 12px; /* 放大字体 */
+  font-size: 12px;
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  /* 质感：轻微阴影 + 半透明边框 */
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 6px 14px rgba(71, 85, 105, 0.16);
+  border: 1px solid var(--course-border, rgba(148, 163, 184, 0.55));
 }
 
 .course-card:active {
@@ -1074,7 +1159,7 @@ onMounted(() => {
 
 .course-name {
   font-weight: 600;
-  font-size: 12px; /* 放大课程名 */
+  font-size: 12px;
   margin-bottom: 4px;
   line-height: 1.3;
   display: -webkit-box;
@@ -1085,8 +1170,8 @@ onMounted(() => {
 }
 
 .course-room {
-  font-size: 11px; /* 放大教室号 */
-  opacity: 0.85;
+  font-size: 11px;
+  opacity: 0.88;
   font-weight: 500;
 }
 
