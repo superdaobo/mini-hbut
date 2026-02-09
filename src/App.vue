@@ -24,6 +24,7 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
 import AiChatView from './components/AiChatView.vue'
+import CampusMapView from './components/CampusMapView.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
@@ -837,6 +838,14 @@ onBeforeUnmount(() => {
         :student-id="studentId"
         :model-options="aiModelOptions"
         @back="handleBackToDashboard"
+      />
+
+      <!-- 校园地图 -->
+      <CampusMapView
+        v-else-if="currentView === 'campus_map'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
       />
       
       <!-- 其他模块占位 -->

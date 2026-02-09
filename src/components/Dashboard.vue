@@ -111,6 +111,15 @@ const modules = [
     available: true,
     requiresLogin: true
   },
+  {
+    id: 'campus_map',
+    name: '校园地图',
+    icon: '🗺️',
+    color: '#14b8a6',
+    desc: '校园地图查看',
+    available: true,
+    requiresLogin: true
+  },
   { 
     id: 'ai', 
     name: '校园助手', 
