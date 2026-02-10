@@ -5,7 +5,6 @@ import {
   isPermissionGranted,
   requestPermission,
   sendNotification,
-  channels,
   createChannel,
   Importance,
   Visibility
@@ -117,19 +116,25 @@ const ensureAndroidChannel = async () => {
   if (!isTauriRuntime() || !isAndroid()) return
 
   try {
-    const list = await channels()
-    const exists = list.some((item) => item.id === 'hbut-default')
-    if (!exists) {
-      await createChannel({
-        id: 'hbut-default',
-        name: 'Mini-HBUT 通知',
-        description: '课程、考试与系统提醒',
-        importance: Importance.High,
-        visibility: Visibility.Private
-      })
-    }
+    await createChannel({
+      id: 'hbut-default',
+      name: 'Mini-HBUT 通知',
+      description: '课程、考试与系统提醒',
+      importance: Importance.High,
+      visibility: Visibility.Private
+    })
   } catch (error) {
-    lastError.value = String(error)
+    const message = String(error || '')
+    // 频道已存在或 ACL 限制时不向用户抛错，通知发送仍可走默认通道或 Rust 兜底。
+    if (
+      message.includes('already exists') ||
+      message.includes('ChannelAlreadyExists') ||
+      message.includes('not allowed by ACL') ||
+      message.includes('listChannels')
+    ) {
+      return
+    }
+    lastError.value = message
   }
 }
 

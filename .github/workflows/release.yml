@@ -232,14 +232,45 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build macOS App (Universal)
-        run: npm run tauri build -- --target universal-apple-darwin
+      - name: Build macOS App (Universal, app only)
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app
+
+      - name: Package macOS DMG manually
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          APP_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name "*.app" | head -n 1 || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No macOS .app found."
+            find src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -type d -print || true
+            exit 1
+          fi
+
+          APP_NAME="$(basename "$APP_PATH" .app)"
+          DMG_NAME="${APP_NAME}_${VERSION}_universal.dmg"
+          ZIP_NAME="${APP_NAME}_${VERSION}_universal.app.zip"
+
+          WORK_DIR="$(mktemp -d)"
+          cp -R "$APP_PATH" "$WORK_DIR/"
+
+          hdiutil create \
+            -volname "$APP_NAME" \
+            -srcfolder "$WORK_DIR" \
+            -ov \
+            -format UDZO \
+            "$DMG_NAME"
+
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_NAME"
+
+          ls -lh "$DMG_NAME" "$ZIP_NAME"
 
       - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          files: |
+            Mini-HBUT_*_universal.dmg
+            Mini-HBUT_*_universal.app.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -305,28 +305,44 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build macOS app (universal)
-        run: npm run tauri build -- --target universal-apple-darwin
+      - name: Build macOS app (universal, app only)
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app
 
-      - name: Rename macOS bundle
+      - name: Package macOS bundle
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: |
           set -euo pipefail
           mkdir -p dist-dev
-          DMG="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -n 1)"
-          if [ -z "$DMG" ]; then
-            echo "DMG not found"
+          APP_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -type d -name '*.app' | head -n 1 || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "macOS .app not found"
+            find src-tauri/target/universal-apple-darwin/release/bundle -maxdepth 4 -type d -print || true
             exit 1
           fi
-          cp "$DMG" "dist-dev/Mini-HBUT_${BETA_VERSION}_universal.dmg"
+
+          APP_NAME="$(basename "$APP_PATH" .app)"
+          DMG_OUT="dist-dev/Mini-HBUT_${BETA_VERSION}_universal.dmg"
+          ZIP_OUT="dist-dev/Mini-HBUT_${BETA_VERSION}_universal.app.zip"
+
+          WORK_DIR="$(mktemp -d)"
+          cp -R "$APP_PATH" "$WORK_DIR/"
+
+          hdiutil create \
+            -volname "$APP_NAME" \
+            -srcfolder "$WORK_DIR" \
+            -ov \
+            -format UDZO \
+            "$DMG_OUT"
+
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_OUT"
           ls -lh dist-dev
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ needs.meta.outputs.beta_version }}
-          path: dist-dev/Mini-HBUT_${{ needs.meta.outputs.beta_version }}_universal.dmg
+          path: dist-dev/*
           if-no-files-found: error
           retention-days: 14
 
