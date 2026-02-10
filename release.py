@@ -313,9 +313,9 @@ def main():
     print("\n" + "=" * 55)
     print(f"[OK] v{target} 发布完成")
     print("GitHub Actions 将自动构建:")
-    print("  • Android APK (arm64)")
-    print("  • Windows 安装包 (MSI/EXE)")
-    print("  • macOS 安装包 (DMG)")
+    print("  - Android APK (arm64)")
+    print("  - Windows 安装包 (MSI/EXE)")
+    print("  - macOS 安装包 (DMG)")
     print("=" * 55)
 
 
