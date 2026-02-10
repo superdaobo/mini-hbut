@@ -55,6 +55,10 @@ jsonwebtoken = "9.3"
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "0.15"
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

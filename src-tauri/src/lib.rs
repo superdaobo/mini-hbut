@@ -333,6 +333,60 @@ async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
     serde_json::from_str(&text).map_err(|e| format!("瑙ｆ瀽 JSON 澶辫触: {}", e))
 }
 
+#[cfg(target_os = "android")]
+fn notify_android_media_scanner(file_path: &std::path::Path, mime_type: &str) -> Result<(), String> {
+    use jni::objects::{JObject, JValue};
+
+    let ctx = ndk_context::android_context();
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
+        .map_err(|e| format!("获取 Android VM 失败: {}", e))?;
+    let mut env = vm
+        .attach_current_thread()
+        .map_err(|e| format!("附加 Android 线程失败: {}", e))?;
+
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+    let string_cls = env
+        .find_class("java/lang/String")
+        .map_err(|e| format!("加载 String 类失败: {}", e))?;
+    let path_arr = env
+        .new_object_array(1, &string_cls, JObject::null())
+        .map_err(|e| format!("创建路径数组失败: {}", e))?;
+    let mime_arr = env
+        .new_object_array(1, &string_cls, JObject::null())
+        .map_err(|e| format!("创建类型数组失败: {}", e))?;
+
+    let path_str = env
+        .new_string(file_path.to_string_lossy().to_string())
+        .map_err(|e| format!("创建路径字符串失败: {}", e))?;
+    let mime_str = env
+        .new_string(mime_type)
+        .map_err(|e| format!("创建类型字符串失败: {}", e))?;
+    env.set_object_array_element(&path_arr, 0, &path_str)
+        .map_err(|e| format!("写入路径数组失败: {}", e))?;
+    env.set_object_array_element(&mime_arr, 0, &mime_str)
+        .map_err(|e| format!("写入类型数组失败: {}", e))?;
+
+    let media_cls = env
+        .find_class("android/media/MediaScannerConnection")
+        .map_err(|e| format!("加载 MediaScannerConnection 失败: {}", e))?;
+    env.call_static_method(
+        media_cls,
+        "scanFile",
+        "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+        &[
+            (&context).into(),
+            (&path_arr).into(),
+            (&mime_arr).into(),
+            JValue::Object(&JObject::null()),
+        ],
+    )
+    .map_err(|e| format!("触发媒体扫描失败: {}", e))?;
+
+    // context 由 Android 生命周期管理，这里仅借用 JNI 句柄
+    std::mem::forget(context);
+    Ok(())
+}
+
 #[tauri::command]
 fn set_temp_upload_endpoint(endpoint: Option<String>) -> Result<(), String> {
     set_temp_upload_endpoint_config(endpoint)
@@ -590,6 +644,12 @@ fn save_export_file(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result
         let prefer_media = req.prefer_media.unwrap_or(false);
 
         if prefer_media {
+            #[cfg(target_os = "android")]
+            {
+                if let Ok(dir) = app.path().resolve("Pictures", BaseDirectory::Public) {
+                    candidates.push((dir, "public_picture"));
+                }
+            }
             if let Ok(dir) = app.path().picture_dir() {
                 candidates.push((dir, "picture"));
             }
@@ -620,8 +680,20 @@ fn save_export_file(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result
             let file_path = export_dir.join(&file_name);
             match std::fs::write(&file_path, &bytes) {
                 Ok(_) => {
-                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    #[cfg(target_os = "android")]
+                    let needs_manual_import = {
+                        let wants_image_album =
+                            prefer_media && req.mime_type.to_ascii_lowercase().starts_with("image/");
+                        if wants_image_album {
+                            notify_android_media_scanner(&file_path, &req.mime_type).is_err()
+                        } else {
+                            false
+                        }
+                    };
+
+                    #[cfg(target_os = "ios")]
                     let needs_manual_import = true;
+
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     let needs_manual_import = false;
 

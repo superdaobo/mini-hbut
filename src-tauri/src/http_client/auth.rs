@@ -14,6 +14,7 @@ use super::*;
 use base64::Engine;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use super::utils::chrono_timestamp;
 
@@ -23,6 +24,119 @@ fn normalize_login_text(input: &str) -> String {
         .replace(['\r', '\n', '\t'], "")
         .trim()
         .to_string()
+}
+
+fn selector_input() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("input").expect("selector input"))
+}
+
+fn selector_pwd_encrypt_salt() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#pwdEncryptSalt").expect("selector #pwdEncryptSalt"))
+}
+
+fn selector_pwd_default_encrypt_salt() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#pwdDefaultEncryptSalt").expect("selector #pwdDefaultEncryptSalt"))
+}
+
+fn selector_captcha_response() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#captchaResponse").expect("selector #captchaResponse"))
+}
+
+fn selector_c_response() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#c_response").expect("selector #c_response"))
+}
+
+fn selector_show_error_tip_span() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("span#showErrorTip").expect("selector span#showErrorTip"))
+}
+
+fn selector_show_error_tip() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#showErrorTip").expect("selector #showErrorTip"))
+}
+
+fn selector_error_tip() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#errorTip").expect("selector #errorTip"))
+}
+
+fn selector_error_msg() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse("#errorMsg").expect("selector #errorMsg"))
+}
+
+fn selector_auth_error() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse(".authError").expect("selector .authError"))
+}
+
+fn selector_error() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse(".error").expect("selector .error"))
+}
+
+fn selector_tips_error() -> &'static Selector {
+    static SELECTOR: OnceLock<Selector> = OnceLock::new();
+    SELECTOR.get_or_init(|| Selector::parse(".tips-error").expect("selector .tips-error"))
+}
+
+fn re_lt_double() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"name="lt"\s+value="([^"]*)""#).expect("regex lt double"))
+}
+
+fn re_execution_double() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"name="execution"\s+value="([^"]*)""#).expect("regex execution double"))
+}
+
+fn re_salt_double() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"id="pwdEncryptSalt"\s+value="([^"]*)""#).expect("regex salt double"))
+}
+
+fn re_lt_single() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"name='lt'\s+value='([^']*)'"#).expect("regex lt single"))
+}
+
+fn re_execution_single() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"name='execution'\s+value='([^']*)'"#).expect("regex execution single"))
+}
+
+fn re_execution_js() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"execution\s*[:=]\s*\"([^\"]+)\""#).expect("regex execution js"))
+}
+
+fn re_salt_single() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"id='pwdEncryptSalt'\s+value='([^']*)'"#).expect("regex salt single"))
+}
+
+fn re_salt_js() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r#"pwd(Default)?EncryptSalt\s*[:=]\s*\"([^\"]+)\""#).expect("regex salt js"))
+}
+
+fn response_indicates_service_success(response_url: &str, service_url: &str) -> bool {
+    if response_url.contains("authserver/login") {
+        return false;
+    }
+    let Some(host) = reqwest::Url::parse(service_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+    else {
+        return false;
+    };
+    response_url.contains(&host)
 }
 
 /// 识别 CAS 登录失败原因。
@@ -87,22 +201,20 @@ fn classify_login_error_text(raw_text: &str) -> Option<(String, bool)> {
 fn detect_login_error_from_html(html: &str) -> Option<(String, bool)> {
     let document = Html::parse_document(html);
     let selectors = [
-        "span#showErrorTip",
-        "#showErrorTip",
-        "#errorTip",
-        "#errorMsg",
-        ".authError",
-        ".error",
-        ".tips-error",
+        selector_show_error_tip_span(),
+        selector_show_error_tip(),
+        selector_error_tip(),
+        selector_error_msg(),
+        selector_auth_error(),
+        selector_error(),
+        selector_tips_error(),
     ];
 
-    for css in selectors {
-        if let Ok(sel) = Selector::parse(css) {
-            for node in document.select(&sel) {
-                let txt = node.text().collect::<String>();
-                if let Some(classified) = classify_login_error_text(&txt) {
-                    return Some(classified);
-                }
+    for sel in selectors {
+        for node in document.select(sel) {
+            let txt = node.text().collect::<String>();
+            if let Some(classified) = classify_login_error_text(&txt) {
+                return Some(classified);
             }
         }
     }
@@ -153,12 +265,12 @@ impl HbutClient {
 
         // 解析并缓存表单 inputs（用于后续登录提交）
         let mut inputs = HashMap::new();
-        let input_selector = Selector::parse("input").unwrap();
+        let input_selector = selector_input();
         let document = Html::parse_document(&html);
         
         // DEBUG: Dump form inputs
         println!("[调试] 解析登录页表单...");
-        for el in document.select(&input_selector) {
+        for el in document.select(input_selector) {
             if let Some(name) = el.value().attr("name") {
                 let value = el.value().attr("value").unwrap_or("");
                 inputs.insert(name.to_string(), value.to_string());
@@ -167,17 +279,15 @@ impl HbutClient {
         // 使用正则提取参数（更稳健）
         // 优先从 inputs 中获取参数
         let lt = inputs.get("lt").cloned().or_else(|| {
-             regex::Regex::new(r#"name="lt"\s+value="([^"]*)""#)
-            .ok()
-            .and_then(|re| re.captures(&html))
+            re_lt_double()
+            .captures(&html)
             .and_then(|cap| cap.get(1))
             .map(|m| m.as_str().to_string())
         }).unwrap_or_default();
 
         let execution = inputs.get("execution").cloned().or_else(|| {
-             regex::Regex::new(r#"name="execution"\s+value="([^"]*)""#)
-            .ok()
-            .and_then(|re| re.captures(&html))
+            re_execution_double()
+            .captures(&html)
             .and_then(|cap| cap.get(1))
             .map(|m| m.as_str().to_string())
         }).unwrap_or_default();
@@ -186,25 +296,23 @@ impl HbutClient {
             .or_else(|| inputs.get("pwdDefaultEncryptSalt").cloned())
             .or_else(|| {
                 // 尝试使用 Selector 查找 ID (比正则更稳健)
-                let salt_selector = Selector::parse("#pwdEncryptSalt").unwrap();
-                document.select(&salt_selector).next()
+                let salt_selector = selector_pwd_encrypt_salt();
+                document.select(salt_selector).next()
                     .and_then(|el| el.value().attr("value"))
                     .map(|s| s.to_string())
             })
             .or_else(|| {
                 // 最后尝试正则
-                regex::Regex::new(r#"id="pwdEncryptSalt"\s+value="([^"]*)""#)
-                .ok()
-                .and_then(|re| re.captures(&html))
+                re_salt_double()
+                .captures(&html)
                 .and_then(|cap| cap.get(1))
                 .map(|m| m.as_str().to_string())
             })
             .unwrap_or_default();
 
         let lt = if lt.is_empty() {
-            regex::Regex::new(r#"name='lt'\s+value='([^']*)'"#)
-                .ok()
-                .and_then(|re| re.captures(&html))
+            re_lt_single()
+                .captures(&html)
                 .and_then(|cap| cap.get(1))
                 .map(|m| m.as_str().to_string())
                 .unwrap_or_default()
@@ -213,15 +321,13 @@ impl HbutClient {
         };
 
         let execution = if execution.is_empty() {
-            regex::Regex::new(r#"name='execution'\s+value='([^']*)'"#)
-                .ok()
-                .and_then(|re| re.captures(&html))
+            re_execution_single()
+                .captures(&html)
                 .and_then(|cap| cap.get(1))
                 .map(|m| m.as_str().to_string())
                 .or_else(|| {
-                    regex::Regex::new(r#"execution\s*[:=]\s*\"([^\"]+)\""#)
-                        .ok()
-                        .and_then(|re| re.captures(&html))
+                    re_execution_js()
+                        .captures(&html)
                         .and_then(|cap| cap.get(1))
                         .map(|m| m.as_str().to_string())
                 })
@@ -231,8 +337,7 @@ impl HbutClient {
         };
 
         let salt = if salt.is_empty() {
-            let salt_from_selector = Selector::parse("#pwdDefaultEncryptSalt").ok()
-                .and_then(|sel| document.select(&sel).next())
+            let salt_from_selector = document.select(selector_pwd_default_encrypt_salt()).next()
                 .and_then(|el| el.value().attr("value"))
                 .map(|s| s.to_string())
                 .unwrap_or_default();
@@ -240,15 +345,13 @@ impl HbutClient {
             if !salt_from_selector.is_empty() {
                 salt_from_selector
             } else {
-                regex::Regex::new(r#"id='pwdEncryptSalt'\s+value='([^']*)'"#)
-                    .ok()
-                    .and_then(|re| re.captures(&html))
+                re_salt_single()
+                    .captures(&html)
                     .and_then(|cap| cap.get(1))
                     .map(|m| m.as_str().to_string())
                     .or_else(|| {
-                        regex::Regex::new(r#"pwd(Default)?EncryptSalt\s*[:=]\s*\"([^\"]+)\""#)
-                            .ok()
-                            .and_then(|re| re.captures(&html))
+                        re_salt_js()
+                            .captures(&html)
                             .and_then(|cap| cap.get(2))
                             .map(|m| m.as_str().to_string())
                     })
@@ -283,8 +386,8 @@ impl HbutClient {
             || html.contains("getCaptcha") 
             || inputs.contains_key("captchaResponse")
             || inputs.contains_key("captcha")
-            || document.select(&Selector::parse("#captchaResponse").unwrap()).next().is_some()
-            || document.select(&Selector::parse("#c_response").unwrap()).next().is_some();
+            || document.select(selector_captcha_response()).next().is_some()
+            || document.select(selector_c_response()).next().is_some();
             
         println!("[调试] 需要验证码: {}", captcha_required);
         
@@ -432,20 +535,23 @@ impl HbutClient {
                 return Err("登录失败，请检查账号密码或验证码".into());
             }
 
-            // 验证是否已建立 CAS 会话（避免 OCR 误识导致“看似成功”）
-            let verify_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(service_url));
-            let verify_resp = self.client.get(&verify_url).send().await?;
-            let verify_final = verify_resp.url().to_string();
-            if verify_final.contains("authserver/login") {
-                if service_url.contains("code.hbut.edu.cn") && self.check_code_login().await {
-                    println!("[调试] CAS 校验重定向 but code 会话 is valid");
-                    break;
+            // 快路径：已回到目标服务域名，直接认为服务登录成功，避免额外一次 CAS 校验请求。
+            if !response_indicates_service_success(&response_url, service_url) {
+                // 回退路径：做一次 CAS 会话校验，避免 OCR 误识导致“看似成功”。
+                let verify_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(service_url));
+                let verify_resp = self.client.get(&verify_url).send().await?;
+                let verify_final = verify_resp.url().to_string();
+                if verify_final.contains("authserver/login") {
+                    if service_url.contains("code.hbut.edu.cn") && self.check_code_login().await {
+                        println!("[调试] CAS 校验重定向 but code 会话 is valid");
+                        break;
+                    }
+                    if attempt + 1 < max_attempts {
+                        println!("[警告] CAS 会话未建立，重试... ({}/{})", attempt + 1, max_attempts);
+                        continue;
+                    }
+                    return Err("登录未生效，请重试或稍后再试".into());
                 }
-                if attempt + 1 < max_attempts {
-                    println!("[警告] CAS 会话未建立，重试... ({}/{})", attempt + 1, max_attempts);
-                    continue;
-                }
-                return Err("登录未生效，请重试或稍后再试".into());
             }
 
             break;
@@ -454,20 +560,16 @@ impl HbutClient {
         // 成功登录后尝试获取用户信息（如不可用则忽略）
         if service_url.contains("jwxt.hbut.edu.cn") {
             let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
-            println!("[调试] 访问教务 SSO: {}", jwxt_url);
-            let _ = self.client.get(&jwxt_url).send().await?;
-
-            println!("[调试] 访问教务服务: {}", TARGET_SERVICE);
-            let _ = self.client.get(TARGET_SERVICE).send().await?;
-            
-            // 获取用户信息（若会话未建立，补偿一次重试）
+            // 快路径：先直接取用户信息，失败再补偿 SSO，减少 2 次固定请求。
             let user_info = match self.fetch_user_info().await {
                 Ok(info) => info,
                 Err(err) => {
                     let err_msg = err.to_string();
-                    if err_msg.contains("无法解析用户信息") {
-                        println!("[调试] 用户信息解析失败，补偿一次 SSO 请求");
+                    if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
+                        println!("[调试] 用户信息获取失败，补偿一次 SSO 请求");
+                        println!("[调试] 访问教务 SSO: {}", jwxt_url);
                         let _ = self.client.get(&jwxt_url).send().await?;
+                        println!("[调试] 访问教务服务: {}", TARGET_SERVICE);
                         let _ = self.client.get(TARGET_SERVICE).send().await?;
                         self.fetch_user_info().await?
                     } else {
@@ -875,22 +977,17 @@ impl HbutClient {
                 return Err("登录失败，请稍后重试".into());
             }
 
-            // 访问教务系统完成 SSO
             let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
-            println!("[调试] 访问教务 SSO: {}", jwxt_url);
-            let _ = self.client.get(&jwxt_url).send().await?;
-
-            println!("[调试] 访问教务服务: {}", TARGET_SERVICE);
-            let _ = self.client.get(TARGET_SERVICE).send().await?;
-            
-            // 获取用户信息（若会话未建立，补偿一次重试）
+            // 快路径：先直接取用户信息，失败再补偿 SSO，减少 2 次固定请求。
             let user_info = match self.fetch_user_info().await {
                 Ok(info) => info,
                 Err(err) => {
                     let err_msg = err.to_string();
-                    if err_msg.contains("无法解析用户信息") {
-                    println!("[调试] 用户信息解析失败，补偿一次 SSO 请求");
+                    if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
+                        println!("[调试] 用户信息获取失败，补偿一次 SSO 请求");
+                        println!("[调试] 访问教务 SSO: {}", jwxt_url);
                         let _ = self.client.get(&jwxt_url).send().await?;
+                        println!("[调试] 访问教务服务: {}", TARGET_SERVICE);
                         let _ = self.client.get(TARGET_SERVICE).send().await?;
                         self.fetch_user_info().await?
                     } else {

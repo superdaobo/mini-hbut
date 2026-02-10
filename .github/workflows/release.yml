@@ -120,6 +120,76 @@ jobs:
           done
           ls -la "$ANDROID_RES/mipmap-xxxhdpi/" || true
 
+      - name: Optimize Android package size
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          candidates = [
+              Path("src-tauri/gen/android/app/build.gradle.kts"),
+              Path("src-tauri/gen/android/app/build.gradle"),
+          ]
+          gradle = next((p for p in candidates if p.exists()), None)
+          if gradle is None:
+              raise SystemExit("Android Gradle file not found")
+
+          text = gradle.read_text(encoding="utf-8")
+          original = text
+
+          release_match = re.search(r'getByName\("release"\)\s*\{', text)
+          if release_match:
+              inject = []
+              if "isMinifyEnabled = true" not in text:
+                  inject.append("            isMinifyEnabled = true")
+              if "isShrinkResources = true" not in text:
+                  inject.append("            isShrinkResources = true")
+              if "proguard-android-optimize.txt" not in text:
+                  inject.append('            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")')
+              if inject:
+                  text = text[: release_match.end()] + "\n" + "\n".join(inject) + text[release_match.end() :]
+
+          if "packaging {" not in text:
+              android_match = re.search(r'android\s*\{', text)
+              if android_match:
+                  packaging_block = (
+                      "\n"
+                      "    packaging {\n"
+                      "        resources {\n"
+                      "            excludes += \"/META-INF/{AL2.0,LGPL2.1}\"\n"
+                      "            excludes += \"META-INF/*.version\"\n"
+                      "            excludes += \"**/*.kotlin_module\"\n"
+                      "        }\n"
+                      "    }\n"
+                  )
+                  text = (
+                      text[: android_match.end()]
+                      + packaging_block
+                      + text[android_match.end() :]
+                  )
+
+          if text != original:
+              gradle.write_text(text, encoding="utf-8")
+              print(f"Patched {gradle}")
+          else:
+              print(f"No patch needed for {gradle}")
+
+          proguard = Path("src-tauri/gen/android/app/proguard-rules.pro")
+          if not proguard.exists():
+              proguard.write_text(
+                  "# Keep Tauri bridge and WebView JS interfaces to avoid runtime issues after minify.\n"
+                  "-keep class app.tauri.** { *; }\n"
+                  "-keep class com.tauri.** { *; }\n"
+                  "-keep class androidx.webkit.** { *; }\n"
+                  "-keepclassmembers class * {\n"
+                  "    @android.webkit.JavascriptInterface <methods>;\n"
+                  "}\n",
+                  encoding="utf-8",
+              )
+              print(f"Created {proguard}")
+          PY
+
       - name: Build Android APK (arm64 only)
         run: npm run tauri android build -- --target aarch64 --apk true
         env:
@@ -429,9 +499,14 @@ jobs:
 
           echo "Using app: $APP_PATH"
 
+          APP_BIN="$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist" 2>/dev/null || basename "$APP_PATH" .app)"
+          if [ -f "$APP_PATH/$APP_BIN" ]; then
+            xcrun strip -x -S "$APP_PATH/$APP_BIN" || true
+          fi
+
           cp -R "$APP_PATH" Payload/
           IPA_NAME="Mini-HBUT_${VERSION}_iOS.ipa"
-          zip -r "$IPA_NAME" Payload
+          zip -9 -r "$IPA_NAME" Payload
           ls -lh "$IPA_NAME"
 
       - name: Upload iOS IPA

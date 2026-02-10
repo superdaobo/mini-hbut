@@ -36,7 +36,7 @@ const periodTimeMap = {
   11: { start: '20:10', end: '20:55' }
 }
 
-const weekdayText = ['鍛ㄤ竴', '鍛ㄤ簩', '鍛ㄤ笁', '鍛ㄥ洓', '鍛ㄤ簲', '鍛ㄥ叚', '鍛ㄦ棩']
+const weekdayText = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 
 const moduleGroups = [
   {
@@ -116,16 +116,16 @@ const selectedModuleMetas = computed(() =>
 )
 
 const studentInfoFieldMap = {
-  name: '濮撳悕',
-  student_id: '瀛﹀彿',
-  class_name: '鐝骇',
-  college: '瀛﹂櫌',
-  major: '涓撲笟',
-  grade: '骞寸骇',
-  gender: '鎬у埆',
-  ethnicity: '姘戞棌',
-  id_card: '韬唤璇佸彿',
-  id_number: '韬唤璇佸彿'
+  name: '姓名',
+  student_id: '学号',
+  class_name: '班级',
+  college: '学院',
+  major: '专业',
+  grade: '年级',
+  gender: '性别',
+  ethnicity: '民族',
+  id_card: '身份证号',
+  id_number: '身份证号'
 }
 
 const studentInfoFieldOrder = [
@@ -382,7 +382,7 @@ const loadSemesters = async () => {
 const fetchGradesData = async (selected) => {
   const res = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '鎴愮哗鏌ヨ澶辫触')
+  if (!payload.success) throw new Error(payload.error || '成绩查询失败')
   const allGrades = Array.isArray(payload.data) ? payload.data : []
   const sourceSemesters = normalizeSemesterList(
     allGrades.map((item) => String(item.term || '').trim()).filter(Boolean)
@@ -437,9 +437,9 @@ const fetchRankingData = async (selected) => {
 const fetchScheduleData = async (selected) => {
   const res = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '璇捐〃鏌ヨ澶辫触')
+  if (!payload.success) throw new Error(payload.error || '课表查询失败')
 
-  const metaSemester = String(payload?.meta?.semester || '').trim() || '褰撳墠瀛︽湡'
+  const metaSemester = String(payload?.meta?.semester || '').trim() || '当前学期'
   const courses = Array.isArray(payload.data) ? payload.data : []
   const groups = new Map()
   courses.forEach((course) => {
@@ -470,14 +470,14 @@ const fetchExamsData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       grouped.push({
-        semester: sem || '鍏ㄩ儴瀛︽湡',
+        semester: sem || '全部学期',
         error: payload.error || '鑾峰彇澶辫触',
         list: []
       })
       continue
     }
     grouped.push({
-      semester: sem || '鍏ㄩ儴瀛︽湡',
+      semester: sem || '全部学期',
       list: Array.isArray(payload.data) ? payload.data : [],
       offline: !!payload.offline,
       syncTime: payload.sync_time || ''
@@ -497,7 +497,7 @@ const fetchCalendarData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       grouped.push({
-        semester: sem || '褰撳墠瀛︽湡',
+        semester: sem || '当前学期',
         error: payload.error || '鑾峰彇澶辫触',
         list: [],
         meta: {}
@@ -505,7 +505,7 @@ const fetchCalendarData = async (selected) => {
       continue
     }
     grouped.push({
-      semester: payload?.meta?.semester || sem || '褰撳墠瀛︽湡',
+      semester: payload?.meta?.semester || sem || '当前学期',
       list: Array.isArray(payload.data) ? payload.data : [],
       meta: payload.meta || {},
       offline: !!payload.offline,
@@ -518,7 +518,7 @@ const fetchCalendarData = async (selected) => {
 const fetchStudentInfoData = async () => {
   const res = await axios.post(`${API_BASE}/v2/student_info`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '涓汉淇℃伅鏌ヨ澶辫触')
+  if (!payload.success) throw new Error(payload.error || '个人信息查询失败')
   return {
     data: payload.data || {},
     offline: !!payload.offline,
@@ -532,7 +532,7 @@ const fetchAcademicProgressData = async () => {
     fasz: 1
   })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '瀛︿笟瀹屾垚鎯呭喌鏌ヨ澶辫触')
+  if (!payload.success) throw new Error(payload.error || '学业完成情况查询失败')
   return {
     data: payload.data || {},
     offline: !!payload.offline,
@@ -570,7 +570,7 @@ const fetchTrainingPlanData = async () => {
 
   const res = await axios.post(`${API_BASE}/v2/training_plan`, payload)
   const data = res.data || {}
-  if (!data.success) throw new Error(data.error || '鍩瑰吇鏂规鏌ヨ澶辫触')
+  if (!data.success) throw new Error(data.error || '培养方案查询失败')
   return {
     list: Array.isArray(data.data) ? data.data : [],
     total: Number(data.total || 0),
@@ -671,7 +671,7 @@ const fetchByModule = async (moduleId, semesterList) => {
   if (moduleId === 'electricity') return fetchCachedOnlyData('electricity')
   if (moduleId === 'transactions') return fetchTransactionsData()
   if (moduleId === 'campus_map') return fetchCachedOnlyData('campus_map')
-  return { error: '鏈疄鐜扮殑鏁版嵁妯″潡' }
+  return { error: '未实现的数据模块' }
 }
 
 const collectExportData = async () => {
@@ -995,7 +995,7 @@ onMounted(async () => {
           <template v-else>
             <div v-if="meta.id === 'grades'" class="module-block">
               <div class="module-kv">
-                <span>鎬昏绋嬫暟</span>
+                <span>总课程数</span>
                 <strong>{{ getModuleResult(meta.id).data.total }}</strong>
               </div>
               <div
@@ -1007,11 +1007,11 @@ onMounted(async () => {
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>璇剧▼</th>
-                      <th>鎴愮哗</th>
-                      <th>瀛﹀垎</th>
-                      <th>璇剧▼鎬ц川</th>
-                      <th>鏁欏笀</th>
+                      <th>课程</th>
+                      <th>成绩</th>
+                      <th>学分</th>
+                      <th>课程性质</th>
+                      <th>教师</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1023,7 +1023,7 @@ onMounted(async () => {
                       <td>{{ item.teacher || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="5">璇ュ鏈熸棤鏁版嵁</td>
+                      <td colspan="5">该学期无数据</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1036,10 +1036,10 @@ onMounted(async () => {
                 <p v-if="row.error" class="warn-text">{{ row.error }}</p>
                 <template v-else>
                   <div class="module-kv-grid">
-                    <div class="module-kv"><span>骞冲潎瀛﹀垎缁╃偣</span><strong>{{ row.data?.gpa || '-' }}</strong></div>
+                    <div class="module-kv"><span>平均学分绩点</span><strong>{{ row.data?.gpa || '-' }}</strong></div>
                     <div class="module-kv"><span>算术平均分</span><strong>{{ row.data?.avg_score || '-' }}</strong></div>
-                    <div class="module-kv"><span>涓撲笟缁╃偣鎺掑悕</span><strong>{{ row.data?.gpa_major_rank || '-' }}/{{ row.data?.gpa_major_total || '-' }}</strong></div>
-                    <div class="module-kv"><span>鐝骇缁╃偣鎺掑悕</span><strong>{{ row.data?.gpa_class_rank || '-' }}/{{ row.data?.gpa_class_total || '-' }}</strong></div>
+                    <div class="module-kv"><span>专业绩点排名</span><strong>{{ row.data?.gpa_major_rank || '-' }}/{{ row.data?.gpa_major_total || '-' }}</strong></div>
+                    <div class="module-kv"><span>班级绩点排名</span><strong>{{ row.data?.gpa_class_rank || '-' }}/{{ row.data?.gpa_class_total || '-' }}</strong></div>
                   </div>
                 </template>
               </div>
@@ -1055,12 +1055,12 @@ onMounted(async () => {
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>鏄熸湡</th>
-                      <th>鑺傛</th>
-                      <th>璇剧▼</th>
-                      <th>鍦扮偣</th>
-                      <th>鏁欏笀</th>
-                      <th>鍛ㄦ</th>
+                      <th>星期</th>
+                      <th>节次</th>
+                      <th>课程</th>
+                      <th>地点</th>
+                      <th>教师</th>
+                      <th>周次</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1073,7 +1073,7 @@ onMounted(async () => {
                       <td>{{ item.weeks || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="6">璇ュ鏈熸棤璇捐〃鏁版嵁</td>
+                      <td colspan="6">该学期无课表数据</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1087,10 +1087,10 @@ onMounted(async () => {
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>璇剧▼</th>
-                      <th>鑰冭瘯鏃ユ湡</th>
-                      <th>鑰冭瘯鏃堕棿</th>
-                      <th>鍦扮偣</th>
+                      <th>课程</th>
+                      <th>考试日期</th>
+                      <th>考试时间</th>
+                      <th>地点</th>
                       <th>座位号</th>
                     </tr>
                   </thead>
@@ -1103,7 +1103,7 @@ onMounted(async () => {
                       <td>{{ item.seat_no || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="5">璇ュ鏈熸棤鑰冭瘯瀹夋帓</td>
+                      <td colspan="5">该学期无考试安排</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1117,15 +1117,15 @@ onMounted(async () => {
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>鏈堜唤</th>
-                      <th>鍛ㄦ</th>
-                      <th>鍛ㄤ竴</th>
-                      <th>鍛ㄤ簩</th>
-                      <th>鍛ㄤ笁</th>
-                      <th>鍛ㄥ洓</th>
-                      <th>鍛ㄤ簲</th>
-                      <th>鍛ㄥ叚</th>
-                      <th>鍛ㄦ棩</th>
+                      <th>月份</th>
+                      <th>周次</th>
+                      <th>周一</th>
+                      <th>周二</th>
+                      <th>周三</th>
+                      <th>周四</th>
+                      <th>周五</th>
+                      <th>周六</th>
+                      <th>周日</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1141,7 +1141,7 @@ onMounted(async () => {
                       <td>{{ item.sunday || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="9">璇ュ鏈熸棤鏍″巻鏁版嵁</td>
+                      <td colspan="9">该学期无校历数据</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1170,14 +1170,14 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="meta.id === 'training_plan'" class="module-block">
-              <div class="module-kv"><span>璇剧▼鎬绘暟</span><strong>{{ getModuleResult(meta.id).data.total || getModuleResult(meta.id).data.list.length }}</strong></div>
+              <div class="module-kv"><span>课程总数</span><strong>{{ getModuleResult(meta.id).data.total || getModuleResult(meta.id).data.list.length }}</strong></div>
               <table class="detail-table">
                 <thead>
                   <tr>
-                    <th>璇剧▼缂栧彿</th>
-                    <th>璇剧▼鍚嶇О</th>
-                    <th>瀛﹀垎</th>
-                    <th>璇剧▼鎬ц川</th>
+                    <th>课程编号</th>
+                    <th>课程名称</th>
+                    <th>学分</th>
+                    <th>课程性质</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1188,7 +1188,7 @@ onMounted(async () => {
                     <td>{{ item.kcxzmc || item.course_nature || '-' }}</td>
                   </tr>
                   <tr v-if="(getModuleResult(meta.id).data.list || []).length === 0">
-                    <td colspan="4">鏆傛棤鍩瑰吇鏂规鏁版嵁</td>
+                    <td colspan="4">暂无培养方案数据</td>
                   </tr>
                 </tbody>
               </table>
@@ -1319,6 +1319,7 @@ onMounted(async () => {
   min-height: 100vh;
   padding: 20px 20px 120px;
   background: var(--ui-bg-gradient);
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans CN", sans-serif;
 }
 
 .view-header {
