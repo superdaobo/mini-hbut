@@ -91,7 +91,7 @@ def run_with_retry(
         if ok:
             return True, out, err
         if attempt < retries and should_retry(out, err):
-            print(f"  ⚠️ 命令失败(第 {attempt}/{retries} 次)，{delay:.0f}s 后重试: {' '.join(cmd)}")
+            print(f"  [WARN] 命令失败(第 {attempt}/{retries} 次)，{delay:.0f}s 后重试: {' '.join(cmd)}")
             time.sleep(delay)
             delay *= 1.8
             continue
@@ -146,7 +146,7 @@ def current_version() -> str:
 
 
 def update_version_in_files(new_version: str):
-    print(f"\n📝 更新版本号到 {new_version}...")
+    print(f"\n[STEP] 更新版本号到 {new_version}...")
     updated = []
 
     package_json = PROJECT_DIR / "package.json"
@@ -154,14 +154,14 @@ def update_version_in_files(new_version: str):
     data["version"] = new_version
     write_json(package_json, data)
     updated.append("package.json")
-    print(f"  ✅ package.json: {new_version}")
+    print(f"  [OK] package.json: {new_version}")
 
     tauri_conf = PROJECT_DIR / "src-tauri" / "tauri.conf.json"
     data = read_json(tauri_conf)
     data["version"] = new_version
     write_json(tauri_conf, data)
     updated.append("src-tauri/tauri.conf.json")
-    print(f"  ✅ tauri.conf.json: {new_version}")
+    print(f"  [OK] tauri.conf.json: {new_version}")
 
     cargo_toml = PROJECT_DIR / "src-tauri" / "Cargo.toml"
     content = read_text(cargo_toml)
@@ -174,7 +174,7 @@ def update_version_in_files(new_version: str):
     )
     write_text(cargo_toml, content)
     updated.append("src-tauri/Cargo.toml")
-    print(f"  ✅ Cargo.toml: {new_version}")
+    print(f"  [OK] Cargo.toml: {new_version}")
 
     return updated
 
@@ -199,7 +199,7 @@ def ensure_origin_remote():
         ok, _, err = run_command(["git", "remote", "add", "origin", REPO_URL], check=False)
         if not ok:
             raise RuntimeError(f"配置远程仓库失败: {err}")
-        print(f"  ✅ 已设置 origin: {REPO_URL}")
+        print(f"  [OK] 已设置 origin: {REPO_URL}")
 
 
 def stage_release_files():
@@ -209,20 +209,20 @@ def stage_release_files():
     excluded = collect_excluded_paths()
     if excluded:
         run_command(["git", "reset", "--"] + excluded, check=False)
-        print("  ✅ 已暂存所有更改（已排除调试文件/tools）")
+        print("  [OK] 已暂存所有更改（已排除调试文件/tools）")
     else:
-        print("  ✅ 已暂存所有更改")
+        print("  [OK] 已暂存所有更改")
 
 
 def maybe_commit(message: str):
     ok, _, _ = run_command(["git", "diff", "--cached", "--quiet"], check=False)
     if ok:
-        print("  ℹ️ 没有新的暂存变更，跳过 commit")
+        print("  [INFO] 没有新的暂存变更，跳过 commit")
         return
     ok, _, err = run_command(["git", "commit", "-m", message], check=False)
     if not ok:
         raise RuntimeError(f"git commit 失败: {err}")
-    print(f"  ✅ 提交: {message}")
+    print(f"  [OK] 提交: {message}")
 
 
 def recreate_tag(tag_name: str):
@@ -230,42 +230,42 @@ def recreate_tag(tag_name: str):
     ok, _, err = run_command(["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"], check=False)
     if not ok:
         raise RuntimeError(f"创建标签失败: {err}")
-    print(f"  ✅ 创建标签: {tag_name}")
+    print(f"  [OK] 创建标签: {tag_name}")
 
 
 def push_main_and_tag(tag_name: str):
-    print(f"\n📤 推送到 {REPO_URL}...")
+    print(f"\n[STEP] 推送到 {REPO_URL}...")
 
     ok_main, _, err_main = run_with_retry(["git", "push", "-u", "origin", "main"])
     if ok_main:
-        print("  ✅ 推送代码成功")
+        print("  [OK] 推送代码成功")
     else:
         raise RuntimeError(f"推送代码失败: {err_main}")
 
     ok_tag, _, err_tag = run_with_retry(["git", "push", "origin", f"refs/tags/{tag_name}", "--force"])
     if ok_tag:
-        print("  ✅ 推送标签成功")
+        print("  [OK] 推送标签成功")
     else:
         raise RuntimeError(f"推送标签失败: {err_tag}")
 
 
 def publish(version: str, *, push_only: bool):
     tag_name = f"v{version}"
-    print("\n📤 Git 操作...")
+    print("\n[STEP] Git 操作...")
     ensure_origin_remote()
 
     if not push_only:
         stage_release_files()
-        maybe_commit(f"🚀 Release v{version}")
+        maybe_commit(f"Release v{version}")
     else:
-        print("  ✅ push-only 模式：跳过版本文件更新和 commit")
+        print("  [OK] push-only 模式：跳过版本文件更新和 commit")
 
     recreate_tag(tag_name)
     push_main_and_tag(tag_name)
 
-    print(f"\n✅ 成功发布 {tag_name} 到 GitHub!")
-    print(f"🔗 查看发布: https://github.com/superdaobo/mini-hbut/releases/tag/{tag_name}")
-    print("🔗 查看 Actions: https://github.com/superdaobo/mini-hbut/actions")
+    print(f"\n[OK] 成功发布 {tag_name} 到 GitHub!")
+    print(f"[LINK] 查看发布: https://github.com/superdaobo/mini-hbut/releases/tag/{tag_name}")
+    print("[LINK] 查看 Actions: https://github.com/superdaobo/mini-hbut/actions")
 
 
 def parse_args() -> argparse.Namespace:
@@ -279,17 +279,17 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     print("=" * 55)
-    print("🚀 Mini-HBUT 版本发布脚本")
+    print("Mini-HBUT 版本发布脚本")
     print("=" * 55)
 
     args = parse_args()
     now = current_version()
     target = args.version if args.version else bump_version(now, args.bump)
 
-    print(f"\n📌 当前版本: v{now}")
-    print(f"🎯 目标版本: v{target}")
+    print(f"\n[INFO] 当前版本: v{now}")
+    print(f"[INFO] 目标版本: v{target}")
     if args.push_only:
-        print("🛠️  模式: push-only（不改版本文件）")
+        print("[INFO] 模式: push-only（不改版本文件）")
 
     if not args.no_confirm:
         print("\n将执行:")
@@ -302,7 +302,7 @@ def main():
         print("  4. 推送 main 分支")
         answer = input("\n确认继续? [y/N]: ").strip().lower()
         if answer != "y":
-            print("❌ 已取消")
+            print("[ABORT] 已取消")
             return
 
     if not args.push_only:
@@ -311,7 +311,7 @@ def main():
     publish(target, push_only=args.push_only)
 
     print("\n" + "=" * 55)
-    print(f"✅ v{target} 发布完成")
+    print(f"[OK] v{target} 发布完成")
     print("GitHub Actions 将自动构建:")
     print("  • Android APK (arm64)")
     print("  • Windows 安装包 (MSI/EXE)")
@@ -323,5 +323,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(f"\n❌ 发布失败: {exc}")
+        print(f"\n[ERROR] 发布失败: {exc}")
         sys.exit(1)
