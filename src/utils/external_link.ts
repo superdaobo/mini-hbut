@@ -1,4 +1,4 @@
-import { open } from '@tauri-apps/plugin-shell'
+﻿import { open } from '@tauri-apps/plugin-shell'
 import { invoke } from '@tauri-apps/api/core'
 
 const isTauriRuntime = () => {
@@ -14,6 +14,32 @@ const normalizeHttpUrl = (href: string) => {
   } catch {
     return null
   }
+}
+
+const isLikelyMiniProgramCode = (value: string) => {
+  const trimmed = (value || '').trim()
+  return trimmed.startsWith('#小程序://') || trimmed.startsWith('小程序://')
+}
+
+const miniProgramCandidates = (value: string) => {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return []
+
+  const clean = trimmed.replace(/^#/, '')
+  const candidates = new Set<string>()
+
+  // 保留用户原始口令（有些系统可直接处理）
+  candidates.add(trimmed)
+  candidates.add(clean)
+
+  // 解析口令尾部 token，转换成 weixin 深链，兼容 iOS/Android。
+  const tokenMatch = clean.match(/\/([A-Za-z0-9_-]{6,})$/)
+  const token = tokenMatch?.[1]
+  if (token) {
+    candidates.add(`weixin://dl/business/?t=${token}`)
+  }
+
+  return [...candidates].filter(Boolean)
 }
 
 export const openExternal = async (href: string) => {
@@ -61,23 +87,46 @@ export const openExternal = async (href: string) => {
 }
 
 export const openExternalRaw = async (target: string) => {
-  if (!target || !isTauriRuntime()) return false
-  try {
-    await open(target)
-    return true
-  } catch {
-    try {
-      await open(encodeURI(target))
-      return true
-    } catch {
+  const raw = (target || '').trim()
+  if (!raw) return false
+
+  const tryTargets = isLikelyMiniProgramCode(raw) ? miniProgramCandidates(raw) : [raw, encodeURI(raw)]
+
+  if (isTauriRuntime()) {
+    for (const item of tryTargets) {
       try {
-        await invoke('open_external_url', { url: target })
+        await open(item)
         return true
       } catch {
-        return false
+        try {
+          await invoke('open_external_url', { url: item })
+          return true
+        } catch {
+          // continue
+        }
       }
     }
+    return false
   }
+
+  for (const item of tryTargets) {
+    try {
+      window.location.href = item
+      return true
+    } catch {
+      // continue
+    }
+  }
+  return false
+}
+
+export const openWeChatMiniProgram = async (code: string) => {
+  const candidates = miniProgramCandidates(code)
+  for (const target of candidates) {
+    const ok = await openExternalRaw(target)
+    if (ok) return true
+  }
+  return false
 }
 
 export const isHttpLink = (href: string) => !!normalizeHttpUrl(href)

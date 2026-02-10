@@ -794,21 +794,37 @@ async fn cache_remote_image(
 
 #[tauri::command]
 fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let target = url.trim();
+    let mut target = url.trim().to_string();
     if target.is_empty() {
         return Err("url is empty".to_string());
     }
+
+    // 兼容微信小程序口令：#小程序://校园导览/AWm9BvLlALOD9xG
+    // 若收到该口令，自动转换为微信深链，提升 iOS/Android 唤起成功率。
+    if target.starts_with("#小程序://") || target.starts_with("小程序://") {
+        let normalized = target.trim_start_matches('#').to_string();
+        if let Some(token) = normalized.rsplit('/').next() {
+            if !token.is_empty() {
+                target = format!("weixin://dl/business/?t={}", token);
+            }
+        }
+    }
+
     if !(target.starts_with("http://")
         || target.starts_with("https://")
         || target.starts_with("mailto:")
-        || target.starts_with("tel:"))
+        || target.starts_with("tel:")
+        || target.starts_with("weixin://")
+        || target.starts_with("wechat://")
+        || target.starts_with("小程序://")
+        || target.starts_with("#小程序://"))
     {
         return Err("unsupported url scheme".to_string());
     }
 
     #[allow(deprecated)]
     app.shell()
-        .open(target, None)
+        .open(&target, None)
         .map_err(|e| format!("open external url failed: {}", e))
 }
 

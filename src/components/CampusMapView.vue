@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { openExternal } from '../utils/external_link'
+import { openExternal, openWeChatMiniProgram } from '../utils/external_link'
 import { resolveCachedImage } from '../utils/image_cache'
+import { showToast } from '../utils/toast'
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -34,6 +35,9 @@ const maps: CampusMapItem[] = [
 const cachedSrcMap = ref<Record<string, string>>({})
 const loadStateMap = ref<Record<string, 'idle' | 'loading' | 'ready' | 'error'>>({})
 const activeMap = ref<CampusMapItem | null>(null)
+const openingMiniProgram = ref(false)
+
+const WECHAT_CAMPUS_GUIDE_CODE = '#小程序://校园导览/AWm9BvLlALOD9xG'
 
 const scale = ref(1)
 const offset = ref({ x: 0, y: 0 })
@@ -185,6 +189,39 @@ const openRaw = async () => {
   await openExternal(activeMap.value.url)
 }
 
+const copyGuideCode = async () => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(WECHAT_CAMPUS_GUIDE_CODE)
+      return true
+    }
+  } catch {
+    // ignore
+  }
+  return false
+}
+
+const openCampusGuideMiniProgram = async () => {
+  if (openingMiniProgram.value) return
+  openingMiniProgram.value = true
+  try {
+    const opened = await openWeChatMiniProgram(WECHAT_CAMPUS_GUIDE_CODE)
+    if (opened) {
+      showToast('已尝试唤起微信小程序，请在微信中确认打开', 'success', 2600)
+      return
+    }
+
+    const copied = await copyGuideCode()
+    if (copied) {
+      showToast('无法直接唤起微信，口令已复制，请粘贴到微信打开', 'warning', 3200)
+    } else {
+      showToast('打开失败，请手动复制口令到微信打开', 'error', 3200)
+    }
+  } finally {
+    openingMiniProgram.value = false
+  }
+}
+
 const loadSingleMap = async (item: CampusMapItem) => {
   loadStateMap.value[item.id] = 'loading'
   try {
@@ -240,6 +277,18 @@ onMounted(() => {
         </div>
         <button class="open-btn" @click="openMap(item)">查看地图</button>
       </article>
+    </section>
+
+    <section class="mini-program-card">
+      <div class="mini-program-head">
+        <h2>微信校园导览</h2>
+        <span>iOS / Android</span>
+      </div>
+      <p class="mini-program-desc">点击按钮直接跳转微信小程序，若系统拦截会自动复制口令，粘贴到微信即可打开。</p>
+      <button class="mini-program-btn" :disabled="openingMiniProgram" @click="openCampusGuideMiniProgram">
+        {{ openingMiniProgram ? '正在唤起微信...' : '打开微信校园导览' }}
+      </button>
+      <div class="mini-program-code">{{ WECHAT_CAMPUS_GUIDE_CODE }}</div>
     </section>
 
     <div v-if="activeMap" class="viewer-overlay" @click.self="closeMap">
@@ -344,6 +393,73 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
+}
+
+.mini-program-card {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
+}
+
+.mini-program-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mini-program-head h2 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 20px;
+}
+
+.mini-program-head span {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.mini-program-desc {
+  margin: 10px 0 0;
+  color: var(--ui-muted);
+  line-height: 1.6;
+}
+
+.mini-program-btn {
+  margin-top: 12px;
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(125deg, #059669, #16a34a);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.mini-program-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.mini-program-code {
+  margin-top: 10px;
+  border-radius: 10px;
+  border: 1px dashed rgba(30, 41, 59, 0.18);
+  background: rgba(148, 163, 184, 0.12);
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-all;
+  padding: 8px 10px;
 }
 
 .map-card {
@@ -499,6 +615,10 @@ onMounted(() => {
 
   .maps-grid {
     grid-template-columns: 1fr;
+  }
+
+  .mini-program-head h2 {
+    font-size: 18px;
   }
 
   .viewer-shell {
