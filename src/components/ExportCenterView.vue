@@ -471,7 +471,7 @@ const fetchExamsData = async (selected) => {
     if (!payload.success) {
       grouped.push({
         semester: sem || '全部学期',
-        error: payload.error || '鑾峰彇澶辫触',
+        error: payload.error || '获取失败',
         list: []
       })
       continue
@@ -498,7 +498,7 @@ const fetchCalendarData = async (selected) => {
     if (!payload.success) {
       grouped.push({
         semester: sem || '当前学期',
-        error: payload.error || '鑾峰彇澶辫触',
+        error: payload.error || '获取失败',
         list: [],
         meta: {}
       })

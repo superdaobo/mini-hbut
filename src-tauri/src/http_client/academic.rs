@@ -1,42 +1,44 @@
-//! 教务相关查询模块（成绩/课表/考试/排名/校历等）。
+//! ??????/??/??/??/????
 //!
-//! 负责：
-//! - 学期、成绩、课表、考试、排名等核心教务数据
+//! 璐熻矗锛?
+//! - 瀛︽、成┿€课ㄣ€佽€试、排名等核心教务数据
 //! - 学生信息、空教室、培养方案、校历、学业进度
 //!
-//! 注意：
-//! - 依赖登录态 Cookie；未登录会返回错误或空数据
-//! - 部分接口字段名较为混乱，解析逻辑集中在 parser 模块
+//! 娉ㄦ剰锛?
+//! - 依赖登录?Cookie；未登录会返回错误或空数?
+//! - 閮ㄥ垎鎺ュ字段名较为混乱，解析逻辑集中?parser 妯″潡
 
 use super::*;
 use chrono::Datelike;
 use super::utils::chrono_timestamp;
+use std::cmp::Ordering;
+use std::collections::HashSet;
 
 impl HbutClient {
-    /// 获取当前学期字符串（自动回退）
+    /// ???????????????
     pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        // 先根据当前日期计算学期（更可靠）
+        // ???????????
         let now = chrono::Local::now();
         let year = now.year();
         let month = now.month();
         let day = now.day();
         
-        // 学期划分逻辑（基于中国高校通用校历）：
-        // - 第一学期：8月下旬 ~ 次年1月（寒假前）
-        // - 第二学期：2月中旬 ~ 7月（暑假前）
+        // ???????????????????
+        // - ?????9??? ~ ??1??????
+        // - ?????2??? ~ 7??????
         // 
-        // 1月通常还在第一学期（期末考试/寒假），2月中旬才开始第二学期
+        // 1??????????????/????2??????????
         let (academic_year_start, term) = if month >= 9 {
-            // 9-12月：当年第一学期
+            // 9-12????????
             (year, 1)
         } else if month >= 3 {
-            // 3-7月：上一学年第二学期（开学后）
+            // 3-7???????????????
             (year - 1, 2)
         } else if month == 2 && day >= 15 {
-            // 2月15日之后：上一学年第二学期（春季开学）
+            // 2?15??????????????????
             (year - 1, 2)
         } else {
-            // 1月 和 2月上旬：上一学年第一学期（寒假期间）
+            // 1??2??????????????????
             (year - 1, 1)
         };
         
@@ -47,7 +49,7 @@ impl HbutClient {
 
     #[allow(dead_code)]
     fn extract_semester_from_json(json: &serde_json::Value) -> Option<String> {
-        // 尝试多种格式
+        // 尝试多种ʽ
         if let Some(s) = json.get("xnxqh").and_then(|v| v.as_str()) {
             if !s.is_empty() { return Some(s.to_string()); }
         }
@@ -77,15 +79,6 @@ impl HbutClient {
             Some(serde_json::Value::Bool(v)) => Some(v.to_string()),
             _ => None,
         }
-    }
-
-    fn pick_json_string(object: &serde_json::Value, keys: &[&str]) -> Option<String> {
-        for key in keys {
-            if let Some(v) = Self::to_json_string(object.get(*key)) {
-                return Some(v);
-            }
-        }
-        None
     }
 
     fn split_ip_and_location(raw: &str) -> (Option<String>, Option<String>) {
@@ -137,6 +130,430 @@ impl HbutClient {
             }
             _ => None,
         }
+    }
+
+    fn pick_json_string_ci(object: &serde_json::Value, keys: &[&str]) -> Option<String> {
+        if let serde_json::Value::Object(map) = object {
+            for key in keys {
+                if let Some(v) = Self::to_json_string(map.get(*key)) {
+                    return Some(v);
+                }
+            }
+
+            let lower_keys: Vec<String> = keys.iter().map(|k| k.to_ascii_lowercase()).collect();
+            for (key, value) in map {
+                if lower_keys.iter().any(|k| k == &key.to_ascii_lowercase()) {
+                    if let Some(v) = Self::to_json_string(Some(value)) {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn json_to_i64(value: Option<&serde_json::Value>) -> Option<i64> {
+        match value {
+            Some(serde_json::Value::Number(num)) => num.as_i64(),
+            Some(serde_json::Value::String(text)) => text.trim().parse::<i64>().ok(),
+            Some(serde_json::Value::Bool(flag)) => Some(if *flag { 1 } else { 0 }),
+            _ => None,
+        }
+    }
+
+    fn collect_personal_data_ids(value: &serde_json::Value) -> Vec<String> {
+        let mut result = Vec::new();
+        let keys = ["personalDatas", "personalDataIds", "dataIds", "dataList"];
+
+        if let serde_json::Value::Object(map) = value {
+            for key in keys {
+                if let Some(items) = map.get(key).and_then(|v| v.as_array()) {
+                    for item in items {
+                        if let Some(text) = Self::to_json_string(Some(item)) {
+                            let trimmed = text.trim();
+                            if !trimmed.is_empty() {
+                                result.push(trimmed.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    fn normalize_auth_result(value: Option<String>) -> String {
+        let text = value.unwrap_or_default();
+        let lower = text.to_lowercase();
+
+        if lower.contains("success")
+            || lower.contains("pass")
+            || lower.contains("allow")
+            || lower.contains("approved")
+        {
+            return "success".to_string();
+        }
+
+        if lower.contains("fail")
+            || lower.contains("deny")
+            || lower.contains("reject")
+            || lower.contains("error")
+            || lower.contains("abnormal")
+        {
+            return "fail".to_string();
+        }
+
+        if text.trim().is_empty() {
+            "unknown".to_string()
+        } else {
+            text
+        }
+    }
+
+    fn parse_time_to_order(raw: &str) -> Option<i64> {
+        let text = raw.trim();
+        if text.is_empty() || text == "-" {
+            return None;
+        }
+
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(text) {
+            return Some(dt.timestamp_millis());
+        }
+
+        let datetime_formats = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y/%m/%d %H:%M:%S",
+            "%Y/%m/%d %H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S%.f",
+        ];
+        for fmt in datetime_formats {
+            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(text, fmt) {
+                return Some(dt.and_utc().timestamp_millis());
+            }
+        }
+
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+            if let Some(dt) = date.and_hms_opt(0, 0, 0) {
+                return Some(dt.and_utc().timestamp_millis());
+            }
+        }
+        if let Ok(date) = chrono::NaiveDate::parse_from_str(text, "%Y/%m/%d") {
+            if let Some(dt) = date.and_hms_opt(0, 0, 0) {
+                return Some(dt.and_utc().timestamp_millis());
+            }
+        }
+
+        None
+    }
+
+    fn compare_time_desc(a: &str, b: &str) -> Ordering {
+        match (Self::parse_time_to_order(a), Self::parse_time_to_order(b)) {
+            (Some(ta), Some(tb)) => tb.cmp(&ta),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => b.cmp(a),
+        }
+    }
+
+    fn walk_json_objects<F>(value: &serde_json::Value, callback: &mut F)
+    where
+        F: FnMut(&serde_json::Value),
+    {
+        match value {
+            serde_json::Value::Object(map) => {
+                callback(value);
+                for child in map.values() {
+                    Self::walk_json_objects(child, callback);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    Self::walk_json_objects(item, callback);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn looks_like_login_object(object: &serde_json::Value) -> bool {
+        let has_login_hint = Self::pick_json_string_ci(
+            object,
+            &[
+                "lastLogIp",
+                "lastLoginIp",
+                "loginIp",
+                "clientIp",
+                "ip",
+                "lastLogTime",
+                "lastLoginTime",
+                "loginTime",
+                "lastLogBrowser",
+                "lastLoginBrowser",
+                "clientBrowser",
+            ],
+        )
+        .is_some();
+
+        let has_app_hint = Self::pick_json_string_ci(
+            object,
+            &[
+                "appName",
+                "serviceName",
+                "itemName",
+                "authResult",
+                "authStatus",
+                "linkUrl",
+            ],
+        )
+        .is_some();
+
+        has_login_hint && !has_app_hint
+    }
+
+    fn extract_login_session(
+        object: &serde_json::Value,
+        fallback_ip: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        if !Self::looks_like_login_object(object)
+            && Self::pick_json_string_ci(object, &["ip", "clientIp", "lastLogIp"]).is_none()
+        {
+            return None;
+        }
+
+        let mut login_ip = Self::pick_json_string_ci(
+            object,
+            &[
+                "client_ip",
+                "clientIp",
+                "ip",
+                "ipAddr",
+                "ipAddress",
+                "lastLogIp",
+                "lastLoginIp",
+                "loginIp",
+            ],
+        );
+        let mut ip_location = Self::pick_json_string_ci(
+            object,
+            &[
+                "ip_location",
+                "ipLocation",
+                "location",
+                "city",
+                "area",
+                "address",
+                "lastLogIpLocation",
+                "lastLogArea",
+                "lastLogAddress",
+            ],
+        );
+
+        if login_ip.is_none() {
+            login_ip = fallback_ip.map(|v| v.to_string());
+        }
+
+        if let Some(ip_raw) = login_ip.clone() {
+            let (normalized_ip, parsed_location) = Self::split_ip_and_location(&ip_raw);
+            if normalized_ip.is_some() {
+                login_ip = normalized_ip;
+            }
+            if ip_location.is_none() && parsed_location.is_some() {
+                ip_location = parsed_location;
+            }
+        }
+
+        let login_time = Self::pick_json_string_ci(
+            object,
+            &[
+                "login_time",
+                "loginTime",
+                "lastLogTime",
+                "lastLoginTime",
+                "time",
+                "createTime",
+                "accessTime",
+            ],
+        )
+        .unwrap_or_else(|| "-".to_string());
+
+        let browser = Self::pick_json_string_ci(
+            object,
+            &[
+                "browser",
+                "browserName",
+                "clientBrowser",
+                "lastLogBrowser",
+                "lastLoginBrowser",
+                "userAgent",
+                "deviceName",
+            ],
+        )
+        .unwrap_or_else(|| "-".to_string());
+
+        let client_ip = login_ip.unwrap_or_else(|| "-".to_string());
+        if client_ip == "-" && login_time == "-" && browser == "-" {
+            return None;
+        }
+
+        Some(serde_json::json!({
+            "client_ip": client_ip,
+            "ip_location": ip_location.unwrap_or_else(|| "unknown".to_string()),
+            "login_time": login_time,
+            "browser": browser
+        }))
+    }
+
+    fn looks_like_app_access_object(object: &serde_json::Value) -> bool {
+        let has_app_name = Self::pick_json_string_ci(
+            object,
+            &[
+                "app_name",
+                "appName",
+                "serviceName",
+                "service_name",
+                "itemName",
+                "applicationName",
+                "title",
+            ],
+        )
+        .is_some();
+        let has_access_hint = Self::pick_json_string_ci(
+            object,
+            &[
+                "accessTime",
+                "visitTime",
+                "authTime",
+                "authResult",
+                "authStatus",
+                "verifyResult",
+            ],
+        )
+        .is_some();
+        has_app_name && has_access_hint
+    }
+
+    fn extract_access_record(object: &serde_json::Value) -> Option<serde_json::Value> {
+        if !Self::looks_like_app_access_object(object)
+            && Self::pick_json_string_ci(object, &["title", "appName", "serviceName"]).is_none()
+        {
+            return None;
+        }
+
+        // Skip personal profile objects.
+        if Self::pick_json_string_ci(object, &["stuNumber", "organizationName", "userAvatar"]).is_some()
+            && Self::pick_json_string_ci(object, &["accessTime", "visitTime", "authResult"]).is_none()
+        {
+            return None;
+        }
+
+        let app_name = Self::pick_json_string_ci(
+            object,
+            &[
+                "app_name",
+                "appName",
+                "serviceName",
+                "service_name",
+                "applicationName",
+                "itemName",
+                "title",
+                "name",
+                "bizDomain",
+            ],
+        )
+        .unwrap_or_else(|| "-".to_string());
+        if app_name.trim().is_empty() || app_name == "-" {
+            return None;
+        }
+
+        let access_time = Self::pick_json_string_ci(
+            object,
+            &[
+                "access_time",
+                "accessTime",
+                "visitTime",
+                "lastAccessTime",
+                "authTime",
+                "time",
+                "createTime",
+                "operateTime",
+                "logTime",
+            ],
+        )
+        .unwrap_or_else(|| "-".to_string());
+
+        let mut auth_result = Self::pick_json_string_ci(
+            object,
+            &["auth_result", "authResult", "authStatus", "verifyResult", "result", "status"],
+        );
+        if auth_result.is_none() {
+            if let Some(text) = Self::pick_json_string_ci(object, &["subInfo", "mainInfo", "extraInfo"]) {
+                auth_result = Some(text);
+            }
+        }
+
+        Some(serde_json::json!({
+            "access_time": if access_time.trim().is_empty() { "-".to_string() } else { access_time },
+            "app_name": app_name,
+            "auth_result": Self::normalize_auth_result(auth_result),
+            "browser": Self::pick_json_string_ci(object, &["browser", "browserName", "clientBrowser", "lastLogBrowser"]).unwrap_or_else(|| "-".to_string()),
+            "link_url": Self::pick_json_string_ci(object, &["linkUrl", "url", "targetUrl"]).unwrap_or_default(),
+            "extra_info": Self::pick_json_string_ci(object, &["extraInfo", "subInfo"]).unwrap_or_default()
+        }))
+    }
+
+    fn extract_pagination_meta(value: &serde_json::Value) -> Option<(i64, i64, i64, i64)> {
+        let serde_json::Value::Object(map) = value else {
+            return None;
+        };
+
+        let total = Self::json_to_i64(
+            map.get("total")
+                .or_else(|| map.get("totalCount"))
+                .or_else(|| map.get("count"))
+                .or_else(|| map.get("recordsTotal")),
+        )?;
+
+        let mut page = Self::json_to_i64(
+            map.get("page")
+                .or_else(|| map.get("pageNo"))
+                .or_else(|| map.get("current"))
+                .or_else(|| map.get("pageNum")),
+        )
+        .unwrap_or(1);
+
+        let mut page_size = Self::json_to_i64(
+            map.get("pageSize")
+                .or_else(|| map.get("page_size"))
+                .or_else(|| map.get("rows"))
+                .or_else(|| map.get("size"))
+                .or_else(|| map.get("limit")),
+        )
+        .unwrap_or(10);
+
+        let mut total_pages = Self::json_to_i64(
+            map.get("totalPages")
+                .or_else(|| map.get("pages"))
+                .or_else(|| map.get("pageCount")),
+        )
+        .unwrap_or(0);
+
+        if page < 1 {
+            page = 1;
+        }
+        if page_size < 1 {
+            page_size = 10;
+        }
+        if total_pages < 1 {
+            total_pages = (total + page_size - 1) / page_size;
+            if total_pages < 1 {
+                total_pages = 1;
+            }
+        }
+
+        Some((page, page_size, total, total_pages))
     }
 
     async fn ensure_portal_session(
@@ -213,7 +630,7 @@ impl HbutClient {
         
         println!("[调试] 获取成绩: {}", grades_url);
         
-        // 使用正确的成绩查询参数
+        // 使用正‘的成╂煡璇㈠弬鏁?
         let params = [
             ("fxbz", "0"),
             ("gridtype", "jqgrid"),
@@ -239,7 +656,7 @@ impl HbutClient {
         let final_url = response.url().to_string();
         println!("[调试] 成绩响应状态: {}, 地址: {}", status, final_url);
         
-        // 检查是否被重定向到登录页
+        // ????????????
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
@@ -260,19 +677,19 @@ impl HbutClient {
         parser::parse_grades(&json)
     }
 
-    /// 拉取课表并计算当前周次
+    /// ???????????
     pub async fn fetch_schedule(&self) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
-        // 1. 动态获取当前学期
+        // 1. ????????
         let semester = self.get_current_semester().await?;
         println!("[调试] 课表学期: {}", semester);
         
-        // 2. 先获取 xhid（加密学号）
+        // 2. ??? xhid??????
         let xhid_url = format!(
             "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
             JWXT_BASE_URL, semester
         );
         
-        println!("[调试] 获取 xhid： {}", xhid_url);
+        println!("[调试] 获取 xhid：{}", xhid_url);
         
         let xhid_resp = self.client
             .get(&xhid_url)
@@ -282,7 +699,7 @@ impl HbutClient {
         
         let xhid_html = xhid_resp.text().await?;
         
-        // 从 HTML 中提取 xhid
+        // ? HTML ??? xhid
         let xhid = if let Some(cap) = regex::Regex::new(r#"xhid['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]"#)?
             .captures(&xhid_html) {
             cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default()
@@ -290,12 +707,12 @@ impl HbutClient {
             .captures(&xhid_html) {
             cap.get(0).map(|m| m.as_str().to_string()).unwrap_or_default()
         } else {
-            return Err("无法获取学号ID (xhid)".into());
+            return Err("??????ID (xhid)".into());
         };
         
         println!("[调试] 已获取 xhid: {}", xhid);
         
-        // 3. 使用正确的课表 API
+        // 3. ??????? API
         let schedule_url = format!(
             "{}/admin/pkgl/xskb/sdpkkbList",
             JWXT_BASE_URL
@@ -310,7 +727,7 @@ impl HbutClient {
             ("xskbxslx", "0"),
         ];
         
-        println!("[调试] 获取课表： {}", schedule_url);
+        println!("[调试] 获取课表：{}", schedule_url);
         
         let response = self.client
             .get(&schedule_url)
@@ -338,16 +755,16 @@ impl HbutClient {
         parser::parse_schedule(&json)
     }
 
-    /// 拉取考试安排（可指定学期）
+    /// ?????????????
     pub async fn fetch_exams(&self, semester: Option<&str>) -> Result<Vec<Exam>, Box<dyn std::error::Error + Send + Sync>> {
-        // 1. 动态获取当前学期或使用指定学期
+        // 1. ???????????????
         let semester = match semester {
             Some(s) if !s.trim().is_empty() => s.to_string(),
             _ => self.get_current_semester().await?,
         };
         println!("[调试] 考试学期: {}", semester);
         
-        // 使用正确的考试 API (与 Python 模块一致)
+        // ??????? API?? Python ?????
         let exams_url = format!(
             "{}/admin/xsd/kwglXsdKscx/ajaxXsksList",
             JWXT_BASE_URL
@@ -364,7 +781,7 @@ impl HbutClient {
             ("xnxq", semester.as_str()),
         ];
         
-        println!("[调试] 获取考试： {}", exams_url);
+        println!("[调试] 获取考试：{}", exams_url);
         
         let response = self.client
             .get(&exams_url)
@@ -392,15 +809,15 @@ impl HbutClient {
         parser::parse_exams(&json)
     }
 
-    /// 拉取绩点/排名数据（可指定学号/学期）
+    /// ????/??????????/???
     pub async fn fetch_ranking(&self, student_id: Option<&str>, semester: Option<&str>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 使用正确的排名 API (与 Python 模块一致)
+        // 使用正‘的排?API (涓?Python 妯″潡涓€鑷?
         let ranking_url = format!(
             "{}/admin/cjgl/xscjbbdy/getXscjpm",
             JWXT_BASE_URL
         );
         
-        // 获取学号
+        // 获取﹀彿
         let xh = student_id.map(|s| s.to_string())
             .or_else(|| self.user_info.as_ref().map(|u| u.student_id.clone()))
             .unwrap_or_default();
@@ -409,7 +826,7 @@ impl HbutClient {
             return Err("未提供学号".into());
         }
         
-        // 从学号推断年级
+        // 从学号推断年?
         let grade = if xh.len() >= 2 {
             let prefix = &xh[..2];
             if prefix.chars().all(|c| c.is_ascii_digit()) {
@@ -429,7 +846,7 @@ impl HbutClient {
             ("xnxq", semester_value.as_str()),
         ];
         
-        println!("[调试] 获取排名： {} with params: {:?}", ranking_url, params);
+        println!("[调试] 获取排名：{} with params: {:?}", ranking_url, params);
         
         let response = self.client
             .get(&ranking_url)
@@ -453,14 +870,14 @@ impl HbutClient {
         parser::parse_ranking_html(&html, &xh, &semester_value, &grade)
     }
 
-    /// 拉取学生基本信息
+    /// ????????
     pub async fn fetch_student_info(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let info_url = format!(
             "{}/admin/xsd/xsjbxx/xskp",
             JWXT_BASE_URL
         );
         
-        println!("[调试] 获取学生信息： {}", info_url);
+        println!("[调试] 获取学生信息：{}", info_url);
         
         let response = self.client
             .get(&info_url)
@@ -480,12 +897,17 @@ impl HbutClient {
         parser::parse_student_info_html(&html)
     }
 
-    /// 拉取“当前登录 + 应用访问记录”（融合门户个人信息卡片）
-    pub async fn fetch_personal_login_access_info(&mut self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_personal_login_access_info(
+        &mut self,
+        page: Option<i32>,
+        page_size: Option<i32>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         const PORTAL_LOGIN_URL: &str = "https://e.hbut.edu.cn/login";
         const PORTAL_HOME_URL: &str = "https://e.hbut.edu.cn/stu/index.html#/";
         const CARD_ID: &str = "CUS_CARD_STUPERSONALDATA";
         const DEFAULT_CARD_WID: &str = "9120396937204363";
+        let requested_page = page.unwrap_or(1).max(1) as i64;
+        let requested_page_size = page_size.unwrap_or(10).clamp(1, 100) as i64;
 
         self.ensure_portal_session(PORTAL_LOGIN_URL).await?;
         let _ = self.client.get(PORTAL_HOME_URL).send().await;
@@ -520,156 +942,348 @@ impl HbutClient {
             }
         }
 
+        let render_result = self
+            .exec_portal_card_method(&card_wid, CARD_ID, "renderData", serde_json::json!({ "lang": "zh_CN" }))
+            .await;
         let configured_result = self
             .exec_portal_card_method(&card_wid, CARD_ID, "configuredData", serde_json::json!({ "lang": "zh_CN" }))
+            .await;
+        let unsubscribe_result = self
+            .exec_portal_card_method(&card_wid, CARD_ID, "getUnsubscribeList", serde_json::json!({ "lang": "zh_CN" }))
             .await;
         let list_result = self
             .exec_portal_card_method(&card_wid, CARD_ID, "getPersonalDataList", serde_json::json!({ "lang": "zh_CN" }))
             .await;
-        if configured_result.is_err() && list_result.is_err() {
-            let config_err = configured_result
-                .as_ref()
-                .err()
-                .map(|e| e.to_string())
-                .unwrap_or_default();
-            let list_err = list_result
-                .as_ref()
-                .err()
-                .map(|e| e.to_string())
-                .unwrap_or_default();
-            return Err(format!("获取个人信息卡片数据失败: {} | {}", config_err, list_err).into());
+
+        if render_result.is_err()
+            && configured_result.is_err()
+            && unsubscribe_result.is_err()
+            && list_result.is_err()
+        {
+            let mut reasons = Vec::new();
+            if let Err(e) = render_result {
+                reasons.push(format!("renderData: {}", e));
+            }
+            if let Err(e) = configured_result {
+                reasons.push(format!("configuredData: {}", e));
+            }
+            if let Err(e) = unsubscribe_result {
+                reasons.push(format!("getUnsubscribeList: {}", e));
+            }
+            if let Err(e) = list_result {
+                reasons.push(format!("getPersonalDataList: {}", e));
+            }
+            return Err(format!("failed to load personal card data: {}", reasons.join(" | ")).into());
         }
 
+        let render_data = render_result.unwrap_or_else(|_| serde_json::json!({}));
         let configured_data = configured_result.unwrap_or_else(|_| serde_json::json!({}));
+        let unsubscribe_data = unsubscribe_result.unwrap_or_else(|_| serde_json::json!([]));
         let list_data = list_result.unwrap_or_else(|_| serde_json::json!([]));
 
-        let mut records: Vec<serde_json::Value> = Vec::new();
+        let mut source_values: Vec<serde_json::Value> = vec![
+            render_data.clone(),
+            configured_data.clone(),
+            unsubscribe_data.clone(),
+            list_data.clone(),
+        ];
+
+        let mut detail_targets: Vec<(String, String)> = Vec::new();
+        let mut target_seen: HashSet<String> = HashSet::new();
+        let mut push_detail_target = |wid: String, extra_info: String| {
+            let wid = wid.trim().to_string();
+            if wid.is_empty() {
+                return;
+            }
+            let extra_info = extra_info.trim().to_string();
+            let key = format!("{}|{}", wid, extra_info);
+            if target_seen.insert(key) {
+                detail_targets.push((wid, extra_info));
+            }
+        };
+
         if let Some(items) = list_data.as_array() {
             for item in items {
-                let mut merged = item.clone();
-                let need_retrieve = item
-                    .get("needRetrieve")
-                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-                    .unwrap_or(0);
-                if need_retrieve == 1 {
-                    let wid = Self::pick_json_string(item, &["wid"]).unwrap_or_default();
-                    let extra_info = Self::pick_json_string(item, &["extraInfo"]).unwrap_or_default();
-                    if !wid.is_empty() {
-                        if let Ok(detail_data) = self
-                            .exec_portal_card_method(
-                                &card_wid,
-                                CARD_ID,
-                                "getPersonalDataDetail",
-                                serde_json::json!({
-                                    "wid": wid,
-                                    "extraInfo": extra_info
-                                }),
-                            )
-                            .await
-                        {
-                            if let (Some(base_obj), Some(detail_obj)) = (merged.as_object_mut(), detail_data.as_object()) {
-                                for (key, value) in detail_obj {
-                                    if !value.is_null() {
-                                        base_obj.insert(key.clone(), value.clone());
-                                    }
-                                }
-                            }
-                        }
+                let wid = Self::pick_json_string_ci(item, &["wid", "id", "dataWid", "personalDataId"])
+                    .unwrap_or_default();
+                let extra = Self::pick_json_string_ci(item, &["extraInfo"]).unwrap_or_default();
+                push_detail_target(wid, extra);
+            }
+        }
+
+        for id in Self::collect_personal_data_ids(&render_data) {
+            push_detail_target(id, String::new());
+        }
+
+        if let Some(items) = unsubscribe_data.as_array() {
+            for item in items {
+                if let Some(id) = Self::to_json_string(Some(item)) {
+                    push_detail_target(id, String::new());
+                }
+            }
+        }
+
+        let mut detail_values: Vec<serde_json::Value> = Vec::new();
+        for (wid, extra_info) in &detail_targets {
+            let mut param_variants = vec![
+                serde_json::json!({
+                    "wid": wid,
+                    "page": requested_page,
+                    "pageSize": requested_page_size,
+                    "lang": "zh_CN"
+                }),
+                serde_json::json!({
+                    "wid": wid,
+                    "pageNum": requested_page,
+                    "pageSize": requested_page_size,
+                    "lang": "zh_CN"
+                }),
+                serde_json::json!({
+                    "wid": wid,
+                    "current": requested_page,
+                    "size": requested_page_size,
+                    "lang": "zh_CN"
+                }),
+                serde_json::json!({
+                    "wid": wid,
+                    "lang": "zh_CN"
+                }),
+            ];
+
+            if !extra_info.is_empty() {
+                for param in &mut param_variants {
+                    param["extraInfo"] = serde_json::Value::String(extra_info.clone());
+                }
+            }
+
+            let mut loaded = false;
+            for param in param_variants {
+                if let Ok(detail_data) = self
+                    .exec_portal_card_method(&card_wid, CARD_ID, "getPersonalDataDetail", param)
+                    .await
+                {
+                    source_values.push(detail_data.clone());
+                    detail_values.push(detail_data);
+                    loaded = true;
+                    break;
+                }
+            }
+
+            if !loaded {
+                continue;
+            }
+        }
+
+        let candidate_extra_methods: [(&str, serde_json::Value); 24] = [
+            ("getCurrentLoginList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getCurrentLogin", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getCurrentLoginInfo", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getCurrentLoginRecord", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getLoginRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getLoginRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getLoginLog", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getLoginHistory", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getLoginList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getAppAccessList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("getAppAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getAppAccessRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getAccessRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getVisitRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getVisitRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getAuthRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("getAuthRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("queryCurrentLoginList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("queryLoginRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("queryAppAccessList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
+            ("queryAppAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("queryAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            ("queryVisitRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+        ];
+        for (method, param) in candidate_extra_methods {
+            if let Ok(extra_value) = self
+                .exec_portal_card_method(&card_wid, CARD_ID, method, param)
+                .await
+            {
+                source_values.push(extra_value);
+            }
+        }
+
+        let mut login_sessions: Vec<serde_json::Value> = Vec::new();
+        let mut login_seen: HashSet<String> = HashSet::new();
+        for source in &source_values {
+            Self::walk_json_objects(source, &mut |object| {
+                if let Some(session) = Self::extract_login_session(object, client_ip.as_deref()) {
+                    let ip = session.get("client_ip").and_then(|v| v.as_str()).unwrap_or("-");
+                    let login_time = session.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
+                    let browser = session.get("browser").and_then(|v| v.as_str()).unwrap_or("-");
+                    let key = format!("{}|{}|{}", ip.trim(), login_time.trim(), browser.trim());
+                    if login_seen.insert(key) {
+                        login_sessions.push(session);
                     }
                 }
+            });
+        }
 
-                let app_name = Self::pick_json_string(
-                    &merged,
-                    &["title", "name", "appName", "serviceName", "itemName", "bizDomain"],
-                )
-                .unwrap_or_else(|| "-".to_string());
-                let mut access_time = Self::pick_json_string(
-                    &merged,
-                    &["accessTime", "visitTime", "lastAccessTime", "authTime", "time"],
-                )
-                .unwrap_or_else(|| "-".to_string());
-                if access_time.trim().is_empty() {
-                    access_time = "-".to_string();
-                }
+        if login_sessions.is_empty() {
+            login_sessions.push(serde_json::json!({
+                "client_ip": client_ip.clone().unwrap_or_else(|| "-".to_string()),
+                "ip_location": "unknown",
+                "login_time": "-",
+                "browser": "-"
+            }));
+        }
 
-                let mut auth_result = Self::pick_json_string(
-                    &merged,
-                    &["authResult", "authStatus", "verifyResult", "result", "status"],
-                );
-                if auth_result.is_none() {
-                    if let Some(text) = Self::pick_json_string(&merged, &["subInfo", "mainInfo", "extraInfo"]) {
-                        let lower = text.to_lowercase();
-                        if text.contains("成功") || lower.contains("success") {
-                            auth_result = Some("成功".to_string());
-                        } else if text.contains("失败") || lower.contains("fail") {
-                            auth_result = Some("失败".to_string());
-                        }
+        login_sessions.sort_by(|a, b| {
+            let a_time = a.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
+            let b_time = b.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
+            Self::compare_time_desc(a_time, b_time)
+        });
+
+        let current_login = login_sessions.first().cloned().unwrap_or_else(|| {
+            serde_json::json!({
+                "client_ip": "-",
+                "ip_location": "unknown",
+                "login_time": "-",
+                "browser": "-"
+            })
+        });
+
+        let mut access_records: Vec<serde_json::Value> = Vec::new();
+        let mut access_seen: HashSet<String> = HashSet::new();
+        for source in &source_values {
+            Self::walk_json_objects(source, &mut |object| {
+                if let Some(record) = Self::extract_access_record(object) {
+                    let app_name = record.get("app_name").and_then(|v| v.as_str()).unwrap_or("-");
+                    let access_time = record.get("access_time").and_then(|v| v.as_str()).unwrap_or("-");
+                    let auth_result = record.get("auth_result").and_then(|v| v.as_str()).unwrap_or("-");
+                    let browser = record.get("browser").and_then(|v| v.as_str()).unwrap_or("-");
+                    let key = format!(
+                        "{}|{}|{}|{}",
+                        app_name.trim(),
+                        access_time.trim(),
+                        auth_result.trim(),
+                        browser.trim()
+                    );
+                    if access_seen.insert(key) {
+                        access_records.push(record);
                     }
                 }
-
-                records.push(serde_json::json!({
-                    "access_time": access_time,
-                    "app_name": app_name,
-                    "auth_result": auth_result.unwrap_or_else(|| "未知".to_string()),
-                    "browser": Self::pick_json_string(&merged, &["browser", "browserName", "clientBrowser", "lastLogBrowser"]).unwrap_or_else(|| "-".to_string()),
-                    "link_url": Self::pick_json_string(&merged, &["linkUrl", "url"]).unwrap_or_default(),
-                    "extra_info": Self::pick_json_string(&merged, &["extraInfo"]).unwrap_or_default()
-                }));
-            }
+            });
         }
 
-        let mut login_ip = Self::pick_json_string(&configured_data, &["lastLogIp", "lastLoginIp", "loginIp"]);
-        let mut ip_location = Self::pick_json_string(
-            &configured_data,
-            &["lastLogIpLocation", "lastLogArea", "lastLogAddress", "ipLocation", "location"],
-        );
-        if login_ip.is_none() {
-            login_ip = client_ip.clone();
+        access_records.sort_by(|a, b| {
+            let a_time = a.get("access_time").and_then(|v| v.as_str()).unwrap_or("-");
+            let b_time = b.get("access_time").and_then(|v| v.as_str()).unwrap_or("-");
+            Self::compare_time_desc(a_time, b_time)
+        });
+
+        let mut pagination_candidates: Vec<(i64, i64, i64, i64)> = Vec::new();
+        for source in &source_values {
+            Self::walk_json_objects(source, &mut |object| {
+                if let Some(meta) = Self::extract_pagination_meta(object) {
+                    pagination_candidates.push(meta);
+                }
+            });
         }
-        if let Some(raw_ip) = login_ip.clone() {
-            let (normalized_ip, parsed_location) = Self::split_ip_and_location(&raw_ip);
-            if normalized_ip.is_some() {
-                login_ip = normalized_ip;
+
+        let mut page: i64 = requested_page;
+        let mut page_size: i64 = requested_page_size;
+        let mut total: i64 = access_records.len() as i64;
+        let mut total_pages: i64 = if total > 0 {
+            (total + page_size - 1) / page_size
+        } else {
+            1
+        };
+
+        if let Some((candidate_page, candidate_page_size, candidate_total, candidate_total_pages)) =
+            pagination_candidates.into_iter().max_by(|a, b| {
+                let a_total = a.2.max(a.1 * a.3);
+                let b_total = b.2.max(b.1 * b.3);
+                a_total.cmp(&b_total)
+            })
+        {
+            if candidate_page_size > 0 {
+                page_size = candidate_page_size;
             }
-            if ip_location.is_none() && parsed_location.is_some() {
-                ip_location = parsed_location;
+            if candidate_total > total {
+                total = candidate_total;
+            }
+            if candidate_total_pages > 0 {
+                total_pages = candidate_total_pages;
+            }
+            // 优先尊重调用方请求的页码，其次使用服务端返回页码。
+            if requested_page <= 1 && candidate_page > 0 {
+                page = candidate_page;
             }
         }
-        let login_time = Self::pick_json_string(&configured_data, &["lastLogTime", "lastLoginTime", "loginTime"])
-            .unwrap_or_else(|| "-".to_string());
-        let mut browser = Self::pick_json_string(
-            &configured_data,
-            &["lastLogBrowser", "lastLoginBrowser", "browser", "browserName", "clientBrowser"],
-        );
-        if browser.is_none() {
-            browser = records
-                .iter()
-                .find_map(|item| item.get("browser").and_then(|v| v.as_str()))
-                .map(|s| s.to_string())
-                .filter(|s| !s.trim().is_empty() && s != "-");
+
+        if page_size <= 0 {
+            page_size = 10;
         }
+        if total < access_records.len() as i64 {
+            total = access_records.len() as i64;
+        }
+        let expected_pages = if total > 0 {
+            (total + page_size - 1) / page_size
+        } else {
+            1
+        };
+        if total_pages < expected_pages {
+            total_pages = expected_pages;
+        }
+        if total_pages < 1 {
+            total_pages = 1;
+        }
+        if page > total_pages {
+            page = total_pages;
+        }
+        if page < 1 {
+            page = 1;
+        }
+
+        // 若抓到的是完整记录集，按请求页做后端分页；否则直接透传服务端返回页。
+        let page_records = if access_records.len() as i64 > page_size {
+            let start = ((page - 1) * page_size).max(0) as usize;
+            let end = (start + page_size as usize).min(access_records.len());
+            if start >= access_records.len() {
+                Vec::new()
+            } else {
+                access_records[start..end].to_vec()
+            }
+        } else {
+            access_records
+        };
 
         Ok(serde_json::json!({
             "success": true,
             "data": {
-                "current_login": {
-                    "client_ip": login_ip.or(client_ip).unwrap_or_else(|| "-".to_string()),
-                    "ip_location": ip_location.unwrap_or_else(|| "未知".to_string()),
-                    "login_time": login_time,
-                    "browser": browser.unwrap_or_else(|| "-".to_string())
+                "current_login": current_login,
+                "current_logins": login_sessions.clone(),
+                "login_records": login_sessions,
+                "app_access_records": page_records,
+                "app_access_pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": total_pages
                 },
-                "app_access_records": records,
                 "meta": {
                     "card_id": CARD_ID,
-                    "card_wid": card_wid
+                    "card_wid": card_wid,
+                    "detail_target_count": detail_targets.len(),
+                    "detail_loaded_count": detail_values.len(),
+                    "source_count": source_values.len(),
+                    "requested_page": requested_page,
+                    "requested_page_size": requested_page_size
                 }
             }
         }))
     }
 
-    /// 拉取学期列表
+    /// ??????
     pub async fn fetch_semesters(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 获取当前学期 (使用统一的方法)
+        // ???????????????
         let current_semester = self.get_current_semester().await.unwrap_or_else(|_| {
             let now = chrono::Local::now();
             let year = now.year();
@@ -683,7 +1297,7 @@ impl HbutClient {
             }
         });
         
-        // 生成学期列表 (近5年)
+        // ????????5??
         let current_year: i32 = chrono::Local::now().format("%Y").to_string().parse().unwrap_or(2025);
         let mut semesters = vec![];
         
@@ -693,11 +1307,11 @@ impl HbutClient {
         }
         semesters.reverse();
         
-        // 确保当前学期在列表最前面（如果不存在则添加）
+        // ??????????????????????
         if !semesters.contains(&current_semester) {
             semesters.insert(0, current_semester.clone());
         } else {
-            // 将当前学期移到最前面
+            // ??????????
             semesters.retain(|s| s != &current_semester);
             semesters.insert(0, current_semester.clone());
         }
@@ -709,9 +1323,9 @@ impl HbutClient {
         }))
     }
 
-    /// 拉取空教室楼栋信息
+    /// 拉取空教ゆゼ栋信?
     pub async fn fetch_classroom_buildings(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 教学楼列表 (与 Python classroom.py 一致)
+        // 教学楼列?(涓?Python classroom.py 涓€鑷?
         let buildings = vec![
             serde_json::json!({"code": "", "name": "全部教学楼"}),
             serde_json::json!({"code": "4教", "name": "4教"}),
@@ -730,7 +1344,7 @@ impl HbutClient {
         }))
     }
 
-    /// 按条件查询空教室
+    /// 按条件查㈢┖教室
     pub async fn fetch_classrooms_query(
         &self,
         week: Option<i32>,
@@ -743,20 +1357,20 @@ impl HbutClient {
             JWXT_BASE_URL
         );
         
-        // 从校历计算当前周次
+        // 从校历计算当前周?
         let now = chrono::Local::now();
-        let default_weekday = now.weekday().num_days_from_monday() as i32 + 1; // 1=周一
+        let default_weekday = now.weekday().num_days_from_monday() as i32 + 1; // 1=鍛ㄤ竴
         
-        // 获取当前学期和校历数据来计算周次
+        // ?????????
         let semester = self.get_current_semester().await.unwrap_or_else(|_| "2025-2026-1".to_string());
         let calendar_data = self.fetch_calendar_data(Some(semester.clone())).await;
         let default_week = if let Ok(ref cal) = calendar_data {
             self.calculate_current_week(cal.get("data").unwrap_or(&serde_json::json!(null)))
         } else {
-            1 // 如果无法获取校历，默认第1周
+            1 // ???????1?
         };
         
-        // 构建节次参数
+        // 构建节次
         let jc_str = periods.as_ref()
             .filter(|p| !p.is_empty())
             .map(|p| p.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
@@ -766,13 +1380,13 @@ impl HbutClient {
         let weekday_val = weekday.unwrap_or(default_weekday);
         let building_str = building.clone().unwrap_or_default();
         
-        // 使用 form 表单格式 (与 Python 一致)
+        // 使用 form 琛ㄥ格式 (涓?Python 涓€鑷?
         let params = [
             ("zcStr", week_val.to_string()),
             ("xqStr", weekday_val.to_string()),
             ("jcStr", jc_str.clone()),
-            ("xqdm", "1".to_string()), // 校区: 1=本部
-            ("xnxq", semester.clone()), // 使用动态学期
+            ("xqdm", "1".to_string()), // ??: 1=??
+            ("xnxq", semester.clone()), // ??????
             ("type", "1".to_string()),
             ("jsrlMin", "".to_string()),
             ("jsrlMax", "".to_string()),
@@ -782,7 +1396,7 @@ impl HbutClient {
             ("pxfs", "5".to_string()), // 按座位数排序
         ];
         
-        println!("[调试] 获取教室s： {} with params: {:?}", classrooms_url, params);
+        println!("[调试] 获取教室：{} with params: {:?}", classrooms_url, params);
         
         let response = self.client
             .post(&classrooms_url)
@@ -818,7 +1432,7 @@ impl HbutClient {
         let mut classrooms = vec![];
         if let Some(arr) = data.as_array() {
             for room in arr {
-                // 如果指定了教学楼，进行筛选
+                // 如果指定了教︽ゼ，进行筛?
                 if !building_str.is_empty() {
                     let jxlmc = room.get("jxlmc").and_then(|v| v.as_str()).unwrap_or("");
                     if !jxlmc.to_lowercase().contains(&building_str.to_lowercase()) {
@@ -836,13 +1450,13 @@ impl HbutClient {
                     "floor": room.get("szlc").and_then(|v| v.as_str()).unwrap_or(""),
                     "type": room.get("jslx").and_then(|v| v.as_str()).unwrap_or(""),
                     "department": room.get("jsglbmmc").and_then(|v| v.as_str()).unwrap_or(""),
-                    "status": if room.get("jyzt").and_then(|v| v.as_str()) == Some("0") { "可用" } else { "已借用" }
+                    "status": if room.get("jyzt").and_then(|v| v.as_str()) == Some("0") { "可用" } else { "已€用" }
                 }));
             }
         }
         
-        // 计算星期几名称
-        let weekday_names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+        // 计算星期几名?
+        let weekday_names = ["", "鍛ㄤ竴", "鍛ㄤ簩", "鍛ㄤ笁", "鍛ㄥ洓", "鍛ㄤ簲", "鍛ㄥ叚", "鍛ㄦ棩"];
         let weekday_name = weekday_names.get(weekday_val as usize).unwrap_or(&"");
         
         // 解析节次
@@ -868,12 +1482,12 @@ impl HbutClient {
         }))
     }
 
-    /// 拉取培养方案筛选项
+    /// 拉取培养方案筛€夐」
     pub async fn fetch_training_plan_options(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 从培养方案页面获取真正的筛选选项 (与 Python training_plan.py 一致)
         let url = format!("{}/admin/xsd/studentpyfa", JWXT_BASE_URL);
         
-        println!("[调试] 获取培养方案 options： {}", url);
+        println!("[DEBUG] Fetching training plan options from: {}", url);
         
         let response = self.client
             .get(&url)
@@ -915,7 +1529,7 @@ impl HbutClient {
         let semester = self.get_current_semester().await.unwrap_or_default();
         let default_kkxq = Self::infer_term_from_semester(&semester);
         
-        println!("[调试] 培养方案选项: grade={} kkxq={} kkyx={} kcxz={} kcgs={}", 
+        println!("[DEBUG] Training plan options: grade={} kkxq={} kkyx={} kcxz={} kcgs={}", 
             grade_options.len(), kkxq_options.len(), kkyx_options.len(), kcxz_options.len(), kcgs_options.len());
         
         Ok(serde_json::json!({
@@ -1015,12 +1629,11 @@ impl HbutClient {
         String::new()
     }
 
-    /// 拉取教研室列表
     pub async fn fetch_training_plan_jys(&self, yxid: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 获取教研室列表 (与 Python training_plan.py 一致)
         let url = format!("{}/admin/pygcgl/kckgl/queryJYSNoAuth", JWXT_BASE_URL);
         
-        println!("[调试] 获取 JYS： {} with yxid={}", url, yxid);
+        println!("[DEBUG] Fetching JYS from: {} with yxid={}", url, yxid);
         
         let response = self.client
             .get(&url)
@@ -1052,7 +1665,6 @@ impl HbutClient {
         }))
     }
 
-    /// 拉取培养方案课程列表
     pub async fn fetch_training_plan_courses(
         &self,
         grade: Option<String>,
@@ -1109,7 +1721,7 @@ impl HbutClient {
             ("query.kcmc||", &kcmc_str),
         ];
         
-        println!("[调试] 获取培养方案 courses： {}", url);
+        println!("[DEBUG] Fetching training plan courses from: {}", url);
         
         let response = self.client
             .get(&url)
@@ -1146,7 +1758,7 @@ impl HbutClient {
         let total_pages = json.get("totalPages").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
         let current_page = json.get("page").and_then(|v| v.as_i64()).unwrap_or(page_num as i64) as i32;
         
-        println!("[调试] 培养方案课程: {} results, page {}/{}", results.len(), current_page, total_pages);
+        println!("[DEBUG] Training plan courses: {} results, page {}/{}", results.len(), current_page, total_pages);
         
         Ok(serde_json::json!({
             "success": true,
@@ -1157,7 +1769,6 @@ impl HbutClient {
         }))
     }
 
-    /// 拉取默认空教室列表（兼容旧接口）
     pub async fn fetch_classrooms(&self) -> Result<Vec<crate::Classroom>, Box<dyn std::error::Error + Send + Sync>> {
         let classrooms_url = format!(
             "{}/cdjy/cdjy_cxKxcdlb.html?doType=query&gnmkdm=N2155",
@@ -1176,7 +1787,6 @@ impl HbutClient {
 
     // ... existing methods ...
 
-    /// 拉取校历事件列表
     pub async fn fetch_calendar(&self) -> Result<Vec<CalendarEvent>, Box<dyn std::error::Error + Send + Sync>> {
         // 校历数据通常是静态的，这里返回示例数据
         Ok(vec![
@@ -1199,7 +1809,6 @@ impl HbutClient {
     }
 
     /// 获取校历数据 (与 Python calendar.py 一致)
-    /// 拉取校历原始数据并解析当前周次
     pub async fn fetch_calendar_data(&self, semester: Option<String>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 1. 获取当前学期 (如果未指定) - 使用基于日期的计算
         let sem = if let Some(s) = semester.filter(|s| !s.is_empty()) {
@@ -1209,7 +1818,7 @@ impl HbutClient {
             self.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string())
         };
 
-        println!("[调试] 获取校历学期: {}", sem);
+        println!("[DEBUG] Fetching calendar for semester: {}", sem);
 
         // 2. 获取校历数据
         let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", JWXT_BASE_URL, sem);
@@ -1256,7 +1865,7 @@ impl HbutClient {
     fn calculate_current_week(&self, calendar_data: &serde_json::Value) -> i32 {
         if let Some(arr) = calendar_data.as_array() {
             let today = chrono::Local::now().date_naive();
-            println!("[调试] 计算当前周: {}", today);
+            println!("[DEBUG] Calculating current week for date: {}", today);
             
             // 首先找到学期第一周的开始日期
             let mut semester_start: Option<chrono::NaiveDate> = None;
@@ -1269,7 +1878,7 @@ impl HbutClient {
                     // 第一周的周一日期
                     if let Some(start) = self.parse_calendar_date(item, "monday") {
                         semester_start = Some(start);
-                        println!("[调试] 找到学期起始日期: {}", start);
+                        println!("[DEBUG] Found semester start date: {}", start);
                         break;
                     }
                 }
@@ -1279,11 +1888,11 @@ impl HbutClient {
             if let Some(start) = semester_start {
                 let days = (today - start).num_days();
                 if days < 0 {
-                    println!("[调试] 日期早于学期开始，返回第 1 周");
+                    println!("[DEBUG] Date is before semester start, returning week 1");
                     return 1;
                 }
                 let week = (days / 7 + 1) as i32;
-                println!("[调试] 计算得到周次 {} (days start: {})", week, days);
+                println!("[DEBUG] Calculated week {} (days from start: {})", week, days);
                 return week.max(1).min(25);
             }
             
@@ -1298,13 +1907,13 @@ impl HbutClient {
                     self.parse_calendar_date(item, "sunday")
                 ) {
                     if today >= start && today <= end {
-                        println!("[调试] 找到当前周 {} ({} to {})", zc_num, start, end);
+                        println!("[DEBUG] Found current week {} ({} to {})", zc_num, start, end);
                         return zc_num;
                     }
                 }
             }
         }
-        println!("[调试] 无法确定校历周次，默认 1");
+        println!("[DEBUG] Could not determine week from calendar, defaulting to 1");
         1 // 默认第1周
     }
     
@@ -1349,9 +1958,8 @@ impl HbutClient {
     }
 
     /// 获取学业完成情况 (与 Python academic_progress.py 一致)
-    /// 拉取学业完成情况统计
     pub async fn fetch_academic_progress(&self, fasz: i32) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        println!("[调试] 获取学业进度 with fasz={}", fasz);
+        println!("[DEBUG] Fetching academic progress with fasz={}", fasz);
         
         // 1. 获取 xhid
         let base_url = format!("{}/admin/xsd/xskp?fasz={}", JWXT_BASE_URL, fasz);
@@ -1391,7 +1999,7 @@ impl HbutClient {
             }
         };
         
-        println!("[调试] 已获取 xhid: {}", xhid);
+        println!("[DEBUG] Got xhid: {}", xhid);
         
         // 2. 获取基本信息
         let info_url = format!("{}/admin/xsd/xskp/xskp", JWXT_BASE_URL);
@@ -1451,10 +2059,6 @@ impl HbutClient {
             "sync_time": chrono::Local::now().to_rfc3339()
         }))
     }
-    
     // ========== 电费部分 ==========
 
 }
-
-
-

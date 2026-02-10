@@ -1,10 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
-const props = defineProps({
+defineProps({
   studentId: { type: String, default: '' }
 })
 
@@ -14,6 +14,8 @@ const loading = ref(false)
 const detailLoading = ref(false)
 const error = ref('')
 const detailError = ref('')
+const hasSearched = ref(false)
+
 const keyword = ref('')
 const searchField = ref('keyWord')
 const matchMode = ref('2')
@@ -28,7 +30,8 @@ const facetResult = ref({})
 const dictData = ref({})
 
 const isMobile = ref(false)
-const filterPanelOpen = ref(true)
+const filterPanelOpen = ref(false)
+const brokenCovers = ref(new Set())
 
 const selectedFilters = ref({
   resourceType: [],
@@ -47,10 +50,10 @@ const filterMeta = [
   { key: 'resourceType', title: '资源类型' },
   { key: 'publisher', title: '出版社' },
   { key: 'author', title: '作者' },
-  { key: 'discode1', title: '学科类目' },
+  { key: 'discode1', title: '学科分类' },
   { key: 'langCode', title: '语种' },
-  { key: 'countryCode', title: '国家地区' },
-  { key: 'locationId', title: '馆藏地点' }
+  { key: 'countryCode', title: '出版地区' },
+  { key: 'locationId', title: '馆藏位置' }
 ]
 
 const totalPages = computed(() => {
@@ -59,9 +62,96 @@ const totalPages = computed(() => {
 })
 
 const searchSummary = computed(() => {
-  if (!keyword.value.trim()) return '请输入关键字搜索图书'
+  if (!keyword.value.trim()) return '请输入关键词搜索图书'
   return `“${keyword.value.trim()}” 共检索到 ${total.value} 条记录`
 })
+
+const canShowFilters = computed(() => hasSearched.value)
+const showFilterPanel = computed(() => canShowFilters.value && (!isMobile.value || filterPanelOpen.value))
+
+const hasActiveFilters = computed(() =>
+  Object.values(selectedFilters.value).some((arr) => Array.isArray(arr) && arr.length > 0)
+)
+
+const holdingData = computed(() => selectedBookDetail.value?.holding || {})
+
+const detailBook = computed(() => {
+  const detail = selectedBookDetail.value?.detail || {}
+  const base = selectedBook.value || {}
+  return {
+    title: detail.title || base.title || '-',
+    author: detail.author || base.author || '-',
+    publisher: detail.publisher || base.publisher || '-',
+    publishYear: detail.publishYear || base.publishYear || '-',
+    isbn: detail.isbn || base.isbn || '-',
+    callNo:
+      (Array.isArray(detail.callNo) ? detail.callNo[0] : detail.callNo) ||
+      (Array.isArray(base.callNo) ? base.callNo[0] : base.callNo) ||
+      base.callNoOne ||
+      '-',
+    location:
+      detail.locationName ||
+      detail.location ||
+      base.locationName ||
+      base.locationIdName ||
+      base.location ||
+      '-',
+    abstract:
+      detail.adstract ||
+      detail.ddAbstract ||
+      base.adstract ||
+      base.ddAbstract ||
+      '暂无简介'
+  }
+})
+
+const detailBorrowStatus = computed(() => {
+  const detail = selectedBookDetail.value?.detail || {}
+  const base = selectedBook.value || {}
+  const status = detail.processTypeName || detail.statusName || base.processTypeName || base.statusName
+  if (status) return status
+  const orderFlag = String(holdingData.value?.orderFlag || '')
+  if (orderFlag === '0') return '可借'
+  if (orderFlag === '1') return '可预约'
+  if (orderFlag === '2') return '不可预约'
+  return '-'
+})
+
+const normalizeCoverUrl = (raw) => {
+  if (!raw || typeof raw !== 'string') return ''
+  const url = raw.trim()
+  if (!url) return ''
+  if (url.startsWith('//')) return `https:${url}`
+  if (url.startsWith('/')) return `https://opac.hbut.edu.cn:8013${url}`
+  return url
+}
+
+const getBookCover = (book = {}) => {
+  const candidates = [
+    book.duxiuImageUrl,
+    book.cover,
+    book.coverUrl,
+    book.imgUrl,
+    book.imageUrl,
+    book.image,
+    book.picUrl
+  ]
+  for (const candidate of candidates) {
+    const normalized = normalizeCoverUrl(candidate)
+    if (normalized) return normalized
+  }
+  return ''
+}
+
+const getDetailCover = () => {
+  const detail = selectedBookDetail.value?.detail || {}
+  const holding = selectedBookDetail.value?.holding || {}
+  const fromDetail = getBookCover(detail)
+  if (fromDetail) return fromDetail
+  const fromHolding = getBookCover(holding)
+  if (fromHolding) return fromHolding
+  return getBookCover(selectedBook.value || {})
+}
 
 const normalizeFacetEntries = (raw) => {
   if (!raw || typeof raw !== 'object') return []
@@ -81,9 +171,7 @@ const getDictLabelMap = (key) => {
   source.forEach((item) => {
     const code = item?.code ?? item?.value ?? item?.id
     const name = item?.name ?? item?.label ?? item?.text
-    if (code != null && name != null) {
-      labelMap.set(String(code), String(name))
-    }
+    if (code != null && name != null) labelMap.set(String(code), String(name))
   })
   return labelMap
 }
@@ -102,17 +190,27 @@ const facetOptions = computed(() => {
   return output
 })
 
-const hasActiveFilters = computed(() =>
-  Object.values(selectedFilters.value).some((arr) => Array.isArray(arr) && arr.length > 0)
-)
+const coverKeyOf = (book) => `${book?.recordId || ''}|${book?.isbn || ''}|${book?.title || ''}`
+
+const isCoverAvailable = (book) => {
+  const url = getBookCover(book)
+  if (!url) return false
+  return !brokenCovers.value.has(coverKeyOf(book))
+}
+
+const handleCoverError = (book) => {
+  const next = new Set(brokenCovers.value)
+  next.add(coverKeyOf(book))
+  brokenCovers.value = next
+}
 
 const updateMobileState = () => {
   const mobile = window.innerWidth <= 900
   isMobile.value = mobile
-  if (mobile) {
+  if (!mobile) {
+    filterPanelOpen.value = hasSearched.value
+  } else if (!hasSearched.value) {
     filterPanelOpen.value = false
-  } else {
-    filterPanelOpen.value = true
   }
 }
 
@@ -137,20 +235,20 @@ const buildSearchPayload = (nextPage = 1) => ({
 const loadDict = async () => {
   try {
     const res = await axios.post(`${API_BASE}/v2/library/dict`, {})
-    const payload = res.data
-    if (payload?.success) {
-      dictData.value = payload?.data || {}
+    if (res.data?.success) {
+      const root = res.data?.data || {}
+      dictData.value = root.data || {}
     }
-  } catch (e) {
-    // 字典失败不阻塞主流程
+  } catch {
+    // 字典加载失败不影响主流程
   }
 }
 
-const executeSearch = async (nextPage = 1) => {
+const executeSearch = async (nextPage = 1, skipEmptyValidation = false) => {
   error.value = ''
   const query = keyword.value.trim()
-  if (!query) {
-    error.value = '请输入图书关键字'
+  if (!skipEmptyValidation && !query) {
+    error.value = '请输入图书关键词'
     return
   }
 
@@ -165,13 +263,13 @@ const executeSearch = async (nextPage = 1) => {
     }
 
     const root = data?.data || {}
-    results.value = Array.isArray(root.searchResult) ? root.searchResult : []
-    facetResult.value = root.facetResult || {}
-    total.value = Number(root.numFound || 0)
+    const dataNode = root.data || {}
+    results.value = Array.isArray(dataNode.searchResult) ? dataNode.searchResult : []
+    facetResult.value = dataNode.facetResult || {}
+    total.value = Number(dataNode.numFound || 0)
     page.value = nextPage
-    if (isMobile.value) {
-      filterPanelOpen.value = false
-    }
+    hasSearched.value = true
+    filterPanelOpen.value = !isMobile.value
   } catch (e) {
     error.value = e?.response?.data?.error || e?.message || '图书检索失败'
   } finally {
@@ -179,24 +277,31 @@ const executeSearch = async (nextPage = 1) => {
   }
 }
 
-const toggleFilter = (key, value) => {
+const applyFilters = async () => {
+  if (!hasSearched.value || !keyword.value.trim()) return
+  await executeSearch(1, true)
+}
+
+const toggleFilter = async (key, value) => {
   const list = selectedFilters.value[key] || []
   if (list.includes(value)) {
     selectedFilters.value[key] = list.filter((item) => item !== value)
   } else {
     selectedFilters.value[key] = [...list, value]
   }
+  await applyFilters()
 }
 
-const clearFilters = () => {
+const clearFilters = async () => {
   for (const key of Object.keys(selectedFilters.value)) {
     selectedFilters.value[key] = []
   }
+  await applyFilters()
 }
 
 const changePage = async (target) => {
   if (target < 1 || target > totalPages.value || target === page.value) return
-  await executeSearch(target)
+  await executeSearch(target, true)
 }
 
 const openDetail = async (book) => {
@@ -216,7 +321,7 @@ const openDetail = async (book) => {
       detailError.value = payload?.error || '加载图书详情失败'
       return
     }
-    selectedBookDetail.value = payload
+    selectedBookDetail.value = payload?.data || {}
   } catch (e) {
     detailError.value = e?.response?.data?.error || e?.message || '加载图书详情失败'
   } finally {
@@ -231,8 +336,12 @@ const closeDetail = () => {
 }
 
 const submitSearch = async () => {
-  await executeSearch(1)
+  await executeSearch(1, false)
 }
+
+watch(onlyOnShelf, async () => {
+  await applyFilters()
+})
 
 onMounted(async () => {
   updateMobileState()
@@ -263,26 +372,40 @@ onBeforeUnmount(() => {
           @keyup.enter="submitSearch"
         />
         <button class="search-btn" :disabled="loading" @click="submitSearch">
-          {{ loading ? '检索中...' : '检索图书' }}
-        </button>
-        <button v-if="isMobile" class="filter-toggle" @click="filterPanelOpen = !filterPanelOpen">
-          {{ filterPanelOpen ? '收起筛选' : '展开筛选' }}
+          {{ loading ? '检索中...' : '搜索图书' }}
         </button>
       </div>
 
-      <div class="search-ops">
+      <div v-if="canShowFilters" class="search-ops">
+        <label class="select-line">
+          检索字段
+          <select v-model="searchField">
+            <option value="keyWord">综合</option>
+            <option value="title">书名</option>
+            <option value="author">作者</option>
+            <option value="isbn">ISBN</option>
+          </select>
+        </label>
         <label class="checkbox-line">
           <input v-model="onlyOnShelf" type="checkbox" />
           仅显示在架馆藏
         </label>
         <button class="ghost-btn" :disabled="!hasActiveFilters" @click="clearFilters">清空筛选</button>
+        <button
+          v-if="isMobile"
+          class="filter-toggle"
+          @click="filterPanelOpen = !filterPanelOpen"
+        >
+          {{ filterPanelOpen ? '收起筛选' : '展开筛选' }}
+        </button>
       </div>
+
       <p class="summary">{{ searchSummary }}</p>
       <p v-if="error" class="error">{{ error }}</p>
     </section>
 
-    <section class="content-layout">
-      <aside v-if="filterPanelOpen" class="filter-panel">
+    <section class="content-layout" :class="{ 'with-filter': showFilterPanel }">
+      <aside v-if="showFilterPanel" class="filter-panel">
         <article v-for="group in filterMeta" :key="group.key" class="filter-group">
           <h3>{{ group.title }}</h3>
           <div class="chips">
@@ -303,7 +426,9 @@ onBeforeUnmount(() => {
 
       <div class="result-panel">
         <div v-if="loading" class="loading-box">正在检索图书...</div>
-        <div v-else-if="!results.length" class="empty-box">暂无检索结果</div>
+        <div v-else-if="!results.length" class="empty-box">
+          {{ hasSearched ? '暂无检索结果' : '请输入关键词后点击“搜索图书”开始查询' }}
+        </div>
         <div v-else class="result-list">
           <article
             v-for="book in results"
@@ -311,17 +436,28 @@ onBeforeUnmount(() => {
             class="book-card"
             @click="openDetail(book)"
           >
-            <h3 class="book-title">{{ book.title || '-' }}</h3>
-            <p class="book-meta">作者：{{ book.author || '-' }}</p>
-            <p class="book-meta">出版社：{{ book.publisher || '-' }}</p>
-            <p class="book-meta">
-              索书号：{{ (book.callNo && book.callNo[0]) || book.callNoOne || '-' }}
-              <span class="split">|</span>
-              出版年：{{ book.publishYear || '-' }}
-            </p>
-            <p class="book-badge">
-              在架 {{ book.onShelfCountI ?? 0 }} / 馆藏 {{ book.physicalCount ?? 0 }}
-            </p>
+            <div class="book-cover-wrap">
+              <img
+                v-if="isCoverAvailable(book)"
+                :src="getBookCover(book)"
+                :alt="book.title || '封面'"
+                class="book-cover"
+                loading="lazy"
+                @error="handleCoverError(book)"
+              />
+              <div v-else class="book-cover-empty">暂无封面</div>
+            </div>
+            <div class="book-info">
+              <h3 class="book-title">{{ book.title || '-' }}</h3>
+              <p class="book-meta">作者：{{ book.author || '-' }}</p>
+              <p class="book-meta">出版社：{{ book.publisher || '-' }}</p>
+              <p class="book-meta">
+                索书号：{{ (book.callNo && book.callNo[0]) || book.callNoOne || '-' }}
+                <span class="split">|</span>
+                出版年：{{ book.publishYear || '-' }}
+              </p>
+              <p class="book-badge">在架 {{ book.onShelfCountI ?? 0 }} / 馆藏 {{ book.physicalCount ?? 0 }}</p>
+            </div>
           </article>
         </div>
 
@@ -336,57 +472,80 @@ onBeforeUnmount(() => {
     <div v-if="selectedBook" class="detail-mask" @click.self="closeDetail">
       <div class="detail-card">
         <header class="detail-head">
-          <h2>{{ selectedBook.title || '图书详情' }}</h2>
+          <h2>{{ detailBook.title }}</h2>
           <button class="close-btn" @click="closeDetail">关闭</button>
         </header>
 
         <div v-if="detailLoading" class="loading-box">正在加载详情...</div>
         <div v-else>
           <p v-if="detailError" class="error">{{ detailError }}</p>
-          <div class="detail-grid">
-            <article class="detail-item">
-              <span class="label">ISBN</span>
-              <span class="value">{{ selectedBook.isbn || '-' }}</span>
-            </article>
-            <article class="detail-item">
-              <span class="label">作者</span>
-              <span class="value">{{ selectedBook.author || '-' }}</span>
-            </article>
-            <article class="detail-item">
-              <span class="label">出版社</span>
-              <span class="value">{{ selectedBook.publisher || '-' }}</span>
-            </article>
-            <article class="detail-item">
-              <span class="label">出版年</span>
-              <span class="value">{{ selectedBook.publishYear || '-' }}</span>
-            </article>
-          </div>
+
+          <section class="detail-main">
+            <div class="detail-cover-wrap">
+              <img v-if="getDetailCover()" :src="getDetailCover()" :alt="detailBook.title" class="detail-cover" />
+              <div v-else class="detail-cover-empty">暂无封面</div>
+            </div>
+            <div class="detail-grid">
+              <article class="detail-item">
+                <span class="label">ISBN</span>
+                <span class="value">{{ detailBook.isbn }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">作者</span>
+                <span class="value">{{ detailBook.author }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">出版社</span>
+                <span class="value">{{ detailBook.publisher }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">出版年</span>
+                <span class="value">{{ detailBook.publishYear }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">索书号</span>
+                <span class="value">{{ detailBook.callNo }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">馆藏地</span>
+                <span class="value">{{ detailBook.location }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">借阅状态</span>
+                <span class="value">{{ detailBorrowStatus }}</span>
+              </article>
+              <article class="detail-item">
+                <span class="label">馆藏记录号</span>
+                <span class="value">{{ selectedBook?.recordId || '-' }}</span>
+              </article>
+            </div>
+          </section>
 
           <section class="holding-panel">
             <h3>馆藏信息</h3>
             <div class="holding-grid">
               <article class="detail-item">
                 <span class="label">在架数量</span>
-                <span class="value">{{ selectedBookDetail?.holding?.onShelfCount ?? selectedBook?.onShelfCountI ?? 0 }}</span>
+                <span class="value">{{ holdingData.onShelfCount ?? selectedBook?.onShelfCountI ?? 0 }}</span>
               </article>
               <article class="detail-item">
                 <span class="label">实体馆藏</span>
-                <span class="value">{{ selectedBookDetail?.holding?.pCount ?? selectedBook?.physicalCount ?? 0 }}</span>
+                <span class="value">{{ holdingData.pCount ?? selectedBook?.physicalCount ?? 0 }}</span>
               </article>
               <article class="detail-item">
                 <span class="label">元数据数量</span>
-                <span class="value">{{ selectedBookDetail?.holding?.metadataCount ?? '-' }}</span>
+                <span class="value">{{ holdingData.metadataCount ?? '-' }}</span>
               </article>
               <article class="detail-item">
-                <span class="label">预约状态</span>
-                <span class="value">{{ selectedBookDetail?.holding?.orderFlag ?? '-' }}</span>
+                <span class="label">预约标记</span>
+                <span class="value">{{ holdingData.orderFlag ?? '-' }}</span>
               </article>
             </div>
           </section>
 
           <section class="detail-desc">
             <h3>内容简介</h3>
-            <p>{{ selectedBook.adstract || selectedBook.ddAbstract || '暂无简介' }}</p>
+            <p>{{ detailBook.abstract }}</p>
           </section>
         </div>
       </div>
@@ -397,7 +556,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .library-view {
   min-height: 100%;
-  padding: 20px;
+  padding: 14px;
   color: #10213a;
 }
 
@@ -405,8 +564,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px;
-  border-radius: 22px;
+  padding: 10px 12px;
+  border-radius: 16px;
   background: rgba(245, 247, 255, 0.95);
   border: 1px solid rgba(96, 114, 176, 0.2);
   backdrop-filter: blur(10px);
@@ -414,18 +573,18 @@ onBeforeUnmount(() => {
 
 .view-header h1 {
   margin: 0;
-  font-size: clamp(30px, 5.2vw, 42px);
+  font-size: clamp(16px, 2.4vw, 20px);
   font-weight: 900;
 }
 
 .header-btn {
   border: none;
-  border-radius: 16px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #f8fafc, #e2e8f0);
   color: #14213d;
-  font-size: 22px;
+  font-size: 12px;
   font-weight: 800;
-  padding: 12px 18px;
+  padding: 6px 9px;
   cursor: pointer;
 }
 
@@ -434,16 +593,16 @@ onBeforeUnmount(() => {
 }
 
 .search-panel {
-  margin-top: 16px;
-  border-radius: 20px;
-  padding: 16px;
+  margin-top: 10px;
+  border-radius: 14px;
+  padding: 10px;
   background: rgba(245, 247, 255, 0.94);
   border: 1px solid rgba(96, 114, 176, 0.2);
 }
 
 .search-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -451,9 +610,9 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   border: 1px solid #b8c6e5;
-  border-radius: 14px;
-  padding: 12px 14px;
-  font-size: 20px;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 12px;
   font-weight: 600;
   color: #0f172a;
 }
@@ -469,12 +628,12 @@ onBeforeUnmount(() => {
 }
 
 .search-btn {
-  border-radius: 14px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #2563eb, #0ea5e9);
   color: #fff;
-  font-size: 18px;
+  font-size: 11px;
   font-weight: 800;
-  padding: 12px 18px;
+  padding: 9px 12px;
 }
 
 .search-btn:disabled {
@@ -482,27 +641,45 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-.filter-toggle {
-  border-radius: 14px;
-  background: #e2e8f0;
-  color: #0f172a;
-  font-size: 16px;
-  font-weight: 700;
-  padding: 12px 14px;
-}
-
 .search-ops {
-  margin-top: 12px;
+  margin-top: 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-toggle {
+  border-radius: 10px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.select-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.select-line select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .checkbox-line {
   display: inline-flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  font-size: 16px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -510,64 +687,68 @@ onBeforeUnmount(() => {
   background: transparent;
   color: #1d4ed8;
   border: 1px solid #93c5fd;
-  border-radius: 12px;
-  padding: 8px 12px;
-  font-size: 14px;
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .summary {
-  margin: 12px 0 0;
-  font-size: 15px;
+  margin: 8px 0 0;
+  font-size: 11px;
   font-weight: 700;
   color: #475569;
 }
 
 .error {
-  margin-top: 10px;
+  margin-top: 8px;
   color: #b91c1c;
-  font-size: 15px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .content-layout {
-  margin-top: 16px;
+  margin-top: 10px;
   display: grid;
-  grid-template-columns: minmax(230px, 280px) 1fr;
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.content-layout.with-filter {
+  grid-template-columns: minmax(210px, 260px) 1fr;
 }
 
 .filter-panel,
 .result-panel {
-  border-radius: 20px;
-  padding: 14px;
+  border-radius: 14px;
+  padding: 10px;
   background: rgba(245, 247, 255, 0.94);
   border: 1px solid rgba(96, 114, 176, 0.2);
 }
 
 .filter-group + .filter-group {
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .filter-group h3 {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 6px;
+  font-size: 12px;
   font-weight: 900;
 }
 
 .chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   border-radius: 999px;
-  padding: 7px 11px;
-  font-size: 13px;
+  padding: 5px 8px;
+  font-size: 10px;
   font-weight: 700;
   background: #e2e8f0;
   color: #1e293b;
@@ -588,83 +769,118 @@ onBeforeUnmount(() => {
 
 .empty-chip {
   color: #64748b;
-  font-size: 13px;
+  font-size: 10px;
 }
 
 .result-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .book-card {
-  border-radius: 16px;
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 10px;
+  border-radius: 12px;
   border: 1px solid #cbd5e1;
   background: #fff;
-  padding: 12px;
+  padding: 9px;
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .book-card:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.12);
+}
+
+.book-cover-wrap {
+  width: 78px;
+  height: 106px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.book-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.book-cover-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #64748b;
+  background: linear-gradient(135deg, #eef2ff, #f8fafc);
+}
+
+.book-info {
+  min-width: 0;
 }
 
 .book-title {
   margin: 0;
   color: #0f172a;
-  font-size: 21px;
+  font-size: 14px;
   font-weight: 900;
-  line-height: 1.28;
+  line-height: 1.35;
 }
 
 .book-meta {
-  margin: 8px 0 0;
+  margin: 5px 0 0;
   color: #334155;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .split {
-  margin: 0 7px;
+  margin: 0 6px;
   color: #94a3b8;
 }
 
 .book-badge {
-  margin: 10px 0 0;
+  margin: 7px 0 0;
   display: inline-block;
   border-radius: 999px;
   background: #dbeafe;
   color: #1d4ed8;
-  padding: 4px 10px;
-  font-size: 13px;
+  padding: 4px 8px;
+  font-size: 10px;
   font-weight: 800;
 }
 
 .loading-box,
 .empty-box {
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px dashed #94a3b8;
-  padding: 20px;
+  padding: 16px;
   text-align: center;
   color: #475569;
   font-weight: 700;
+  font-size: 11px;
 }
 
 .pager {
-  margin-top: 12px;
+  margin-top: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .pager-btn {
-  border-radius: 10px;
+  border-radius: 8px;
   background: #e2e8f0;
   color: #0f172a;
-  padding: 7px 14px;
-  font-size: 14px;
+  padding: 6px 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -674,7 +890,7 @@ onBeforeUnmount(() => {
 }
 
 .pager-info {
-  font-size: 14px;
+  font-size: 11px;
   color: #334155;
   font-weight: 700;
 }
@@ -687,22 +903,22 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 14px;
 }
 
 .detail-card {
-  width: min(900px, 100%);
+  width: min(940px, 100%);
   max-height: 92vh;
   overflow: auto;
-  border-radius: 20px;
+  border-radius: 16px;
   background: #f8fafc;
   border: 1px solid #cbd5e1;
-  padding: 16px;
+  padding: 12px;
 }
 
 .detail-head {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
   justify-content: space-between;
 }
@@ -710,47 +926,82 @@ onBeforeUnmount(() => {
 .detail-head h2 {
   margin: 0;
   color: #0f172a;
-  font-size: 25px;
+  font-size: 16px;
   font-weight: 900;
   line-height: 1.3;
 }
 
 .close-btn {
-  border-radius: 10px;
+  border-radius: 8px;
   background: #e2e8f0;
   color: #0f172a;
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 7px 12px;
+  padding: 6px 9px;
+}
+
+.detail-main {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 10px;
+}
+
+.detail-cover-wrap {
+  width: 120px;
+  height: 160px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #dbe4f0;
+  background: #eef2ff;
+}
+
+.detail-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-cover-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #64748b;
 }
 
 .detail-grid,
 .holding-grid {
-  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+
+.holding-grid {
+  margin-top: 10px;
 }
 
 .detail-item {
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid #cbd5e1;
   background: #fff;
-  padding: 10px 12px;
+  padding: 7px 9px;
 }
 
 .detail-item .label {
   display: block;
   color: #64748b;
-  font-size: 13px;
+  font-size: 10px;
   font-weight: 700;
 }
 
 .detail-item .value {
-  margin-top: 5px;
+  margin-top: 4px;
   display: block;
   color: #0f172a;
-  font-size: 16px;
+  font-size: 11px;
   font-weight: 800;
   line-height: 1.4;
   word-break: break-all;
@@ -758,22 +1009,22 @@ onBeforeUnmount(() => {
 
 .holding-panel,
 .detail-desc {
-  margin-top: 16px;
+  margin-top: 10px;
 }
 
 .holding-panel h3,
 .detail-desc h3 {
   margin: 0;
   color: #0f172a;
-  font-size: 20px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .detail-desc p {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: #334155;
-  line-height: 1.7;
-  font-size: 15px;
+  line-height: 1.6;
+  font-size: 11px;
   white-space: pre-wrap;
 }
 
@@ -782,30 +1033,34 @@ onBeforeUnmount(() => {
     padding: 12px;
   }
 
-  .view-header {
-    padding: 12px;
-  }
-
   .view-header h1 {
-    font-size: 34px;
-  }
-
-  .header-btn {
-    font-size: 18px;
-    padding: 9px 12px;
+    font-size: 16px;
   }
 
   .search-row {
     flex-wrap: wrap;
   }
 
-  .search-btn,
-  .filter-toggle {
-    width: calc(50% - 5px);
+  .search-btn {
+    width: 100%;
   }
 
-  .content-layout {
+  .book-card {
+    grid-template-columns: 68px 1fr;
+  }
+
+  .book-cover-wrap {
+    width: 68px;
+    height: 92px;
+  }
+
+  .detail-main {
     grid-template-columns: 1fr;
+  }
+
+  .detail-cover-wrap {
+    width: 110px;
+    height: 148px;
   }
 
   .detail-grid,

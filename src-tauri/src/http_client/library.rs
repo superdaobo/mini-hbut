@@ -20,19 +20,22 @@ fn ensure_opac_success(
     payload: &Value,
     action: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ok = payload.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ok = payload
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if ok {
         return Ok(());
     }
 
-    let msg = payload
+    let message = payload
         .get("message")
         .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
         .or_else(|| payload.get("errorCode").and_then(|v| v.as_str()))
-        .or_else(|| payload.get("errCode").and_then(|v| v.as_i64()).map(|v| if v == 0 { "" } else { "接口返回失败" }))
         .unwrap_or("接口返回失败");
 
-    Err(format!("{}失败: {}", action, msg).into())
+    Err(format!("{}失败: {}", action, message).into())
 }
 
 fn to_array(input: Option<&Value>) -> Value {
@@ -121,8 +124,14 @@ fn build_library_search_payload(params: Value) -> Value {
         payload.insert(key.to_string(), to_array(obj.get(key)));
     }
 
-    payload.insert("publishBegin".to_string(), obj.get("publishBegin").cloned().unwrap_or(Value::Null));
-    payload.insert("publishEnd".to_string(), obj.get("publishEnd").cloned().unwrap_or(Value::Null));
+    payload.insert(
+        "publishBegin".to_string(),
+        obj.get("publishBegin").cloned().unwrap_or(Value::Null),
+    );
+    payload.insert(
+        "publishEnd".to_string(),
+        obj.get("publishEnd").cloned().unwrap_or(Value::Null),
+    );
     payload.insert(
         "sortField".to_string(),
         Value::String(to_string_or(obj.get("sortField"), "issued_sort")),
@@ -131,16 +140,34 @@ fn build_library_search_payload(params: Value) -> Value {
         "sortClause".to_string(),
         Value::String(to_string_or(obj.get("sortClause"), "desc")),
     );
-    payload.insert("page".to_string(), Value::Number(to_i64_or(obj.get("page"), 1).into()));
-    payload.insert("rows".to_string(), Value::Number(to_i64_or(obj.get("rows"), 10).into()));
+    payload.insert(
+        "page".to_string(),
+        Value::Number(to_i64_or(obj.get("page"), 1).into()),
+    );
+    payload.insert(
+        "rows".to_string(),
+        Value::Number(to_i64_or(obj.get("rows"), 10).into()),
+    );
     payload.insert("onlyOnShelf".to_string(), to_nullable_bool(obj.get("onlyOnShelf")));
-    payload.insert("searchItems".to_string(), obj.get("searchItems").cloned().unwrap_or(Value::Null));
+    payload.insert(
+        "searchItems".to_string(),
+        obj.get("searchItems").cloned().unwrap_or(Value::Null),
+    );
     payload.insert("indexSearch".to_string(), Value::Number(1_i64.into()));
 
     Value::Object(payload)
 }
 
 impl HbutClient {
+    async fn ensure_opac_session(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}/", OPAC_BASE_URL);
+        let response = self.client.get(url).send().await?;
+        if !response.status().is_success() {
+            return Err(format!("初始化图书检索会话失败: {}", response.status()).into());
+        }
+        Ok(())
+    }
+
     async fn post_opac_json(
         &self,
         path: &str,
@@ -162,7 +189,10 @@ impl HbutClient {
             .map_err(|e| format!("图书接口响应解析失败: {}", e).into())
     }
 
-    pub async fn fetch_library_dict(&self) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_library_dict(
+        &self,
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        self.ensure_opac_session().await?;
         let payload = json!({});
         let result = self.post_opac_json("/find/groupResource/dict", &payload).await?;
         ensure_opac_success(&result, "获取图书筛选项")?;
@@ -173,6 +203,7 @@ impl HbutClient {
         &self,
         params: Value,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        self.ensure_opac_session().await?;
         let payload = build_library_search_payload(params);
         let result = self.post_opac_json("/find/unify/search", &payload).await?;
         ensure_opac_success(&result, "图书检索")?;
@@ -189,10 +220,15 @@ impl HbutClient {
             return Err("图书标题不能为空".into());
         }
 
-        let detail_payload = json!({
+        self.ensure_opac_session().await?;
+
+        let mut detail_payload = json!({
             "title": title,
             "isbn": isbn
         });
+        if let Some(id) = record_id {
+            detail_payload["recordId"] = json!(id);
+        }
 
         let mut holding_payload = json!({
             "title": title,
@@ -203,9 +239,13 @@ impl HbutClient {
         }
 
         let detail_result = self
-            .post_opac_json("/find/searchResultDetail/getBookInfoFromCxCkb", &detail_payload)
+            .post_opac_json(
+                "/find/searchResultDetail/getBookInfoFromCxCkb",
+                &detail_payload,
+            )
             .await
             .ok();
+
         let holding_result = self
             .post_opac_json(
                 "/find/unify/getPItemAndOnShelfCountAndDuxiuImageUrl",

@@ -1,18 +1,18 @@
 // lib.rs
 //
-// 閫昏緫鏂囨。: lib_logic.md
-// 妯″潡鍔熻兘: Tauri 鍚庣閫昏緫鍏ュ彛
+// 逻辑文档: lib_logic.md
+// 妯″功能: Tauri 后端逻辑ュ彛
 // 
-// 鏈枃浠朵富瑕佽亴璐?
-// 1. 瀹氫箟搴旂敤鐘舵€?(AppState) 鍜屽叏灞€鍗曚緥 HbutClient
-// 2. 灏?HbutClient 鐨勫姛鑳藉寘瑁呬负 Tauri Commands 渚涘墠绔皟鐢?
-// 3. 瀹氫箟鏁版嵁浼犺緭瀵硅薄 (DTOs)
-// 4. 瀹炵幇绠€鍗曠殑缂撳瓨/鎸佷箙鍖栫瓥鐣?(璋冪敤 db 妯″潡)
+// 本文件主要职?
+// 1. 定义应用状态(AppState) 和全局单例 HbutClient
+// 2. 灏?HbutClient 的功能包装为 Tauri Commands 供前端调?
+// 3. 定义数据传输对象 (DTOs)
+// 4. 实现€单的缓存/持久化策?(调用 db 妯″潡)
 //
-// 渚濊禆鍏崇郴:
-// lib.rs -> http_client.rs (涓氬姟閫昏緫)
-// lib.rs -> db.rs (鏁版嵁瀛樺偍)
-// lib.rs -> modules/ (鐗瑰畾鍔熻兘妯″潡)
+// 依赖关系:
+// lib.rs -> http_client.rs (业务逻辑)
+// lib.rs -> db.rs (数据存储)
+// lib.rs -> modules/ (特定功能″潡)
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -118,13 +118,13 @@ fn attach_sync_time(payload: serde_json::Value, sync_time: &str, offline: bool) 
     }
 }
 
-// 搴旂敤鐘舵€?
-/// 鍏ㄥ眬鐘舵€侊細鍏变韩 HbutClient 瀹炰緥
+// 应用状态
+/// 鍏ㄥ眬鐘舵€侊細鍏变韩 HbutClient 实例
 pub struct AppState {
     pub client: Arc<Mutex<HbutClient>>,
 }
 
-// 鏁版嵁缁撴瀯
+// 数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
     pub student_id: String,
@@ -267,7 +267,7 @@ pub struct QxzkbQuery {
     pub order: Option<String>,
 }
 
-// Tauri 鍛戒护
+// Tauri 命令
 
 #[tauri::command]
 async fn get_login_page(state: State<'_, AppState>) -> Result<LoginPageInfo, String> {
@@ -283,28 +283,28 @@ async fn get_captcha(state: State<'_, AppState>) -> Result<String, String> {
 
 #[tauri::command]
 async fn recognize_captcha(image_base64: String) -> Result<String, String> {
-    // 璋冪敤 OCR 鏈嶅姟璇嗗埆楠岃瘉鐮?
-    // 杩欓噷鍙互浣跨敤鏈湴 OCR 鎴栬繙绋嬫湇鍔?
+    // 调用 OCR 服务识别验证?
+    // 这里可以使用本地 OCR 或远程服?
     let client = reqwest::Client::new();
     
-    // 灏濊瘯璋冪敤鏈湴 Python 鍚庣鐨?OCR
+    // 尝试调用本地 Python 后端?OCR
     let response = client
         .post("http://127.0.0.1:8000/api/ocr/base64")
         .json(&serde_json::json!({ "image": image_base64 }))
         .send()
         .await
-        .map_err(|e| format!("OCR 璇锋眰澶辫触: {}", e))?;
+        .map_err(|e| format!("OCR 请求失败: {}", e))?;
     
     if response.status().is_success() {
         let result: serde_json::Value = response.json().await
-            .map_err(|e| format!("瑙ｆ瀽 OCR 鍝嶅簲澶辫触: {}", e))?;
+            .map_err(|e| format!("解析 OCR 响应失败: {}", e))?;
         
         if let Some(code) = result.get("code").and_then(|v| v.as_str()) {
             return Ok(code.to_string());
         }
     }
     
-    Err("OCR 璇嗗埆澶辫触".to_string())
+    Err("OCR 识别失败".to_string())
 }
 
 #[tauri::command]
@@ -319,23 +319,23 @@ async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("鍒涘缓璇锋眰澶辫触: {}", e))?;
+        .map_err(|e| format!("创建请求失败: {}", e))?;
 
     let response = client
         .get(&url)
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| format!("璇锋眰澶辫触: {}", e))?;
+        .map_err(|e| format!("请求失败: {}", e))?;
 
     let status = response.status();
-    let text = response.text().await.map_err(|e| format!("璇诲彇鍝嶅簲澶辫触: {}", e))?;
+    let text = response.text().await.map_err(|e| format!("读取响应失败: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("璇锋眰澶辫触: {}", status));
+        return Err(format!("请求失败: {}", status));
     }
 
-    serde_json::from_str(&text).map_err(|e| format!("瑙ｆ瀽 JSON 澶辫触: {}", e))
+    serde_json::from_str(&text).map_err(|e| format!("解析 JSON 失败: {}", e))
 }
 
 #[cfg(target_os = "android")]
@@ -884,7 +884,7 @@ async fn login(
     lt: Option<String>,
     execution: Option<String>,
 ) -> Result<UserInfo, String> {
-    println!("[璋冭瘯] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
+    println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
              username, password.len(), captcha, lt, execution);
     let mut client = state.client.lock().await;
     client
@@ -898,19 +898,19 @@ async fn login(
         .await
         .map_err(|e| e.to_string())?;
 
-    // 灏濊瘯鑾峰彇鐢佃垂 Token (One Code)
+    // 尝试获取电费 Token (One Code)
     let one_code_token = match client.ensure_electricity_token().await {
         Ok(t) => {
-            println!("[璋冭瘯] Login: Successfully obtained one_code_浠ょ墝");
+            println!("[调试] Login: Successfully obtained one_code_浠ょ墝");
             t
         },
         Err(e) => {
-            println!("[璀﹀憡] 鐧诲綍锛氳幏鍙?one_code_浠ょ墝 澶辫触: {}", e);
+            println!("[璀﹀憡] 登录：获?one_code_浠ょ墝 失败: {}", e);
             String::new()
         }
     };
 
-    // 淇濆瓨浼氳瘽鍒版湰鍦版暟鎹簱 (鐢ㄤ簬鑷姩閲嶈繛)
+    // 保存会话到本地数据库 (鐢ㄤ自动重连)
     let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
     let refresh_token = refresh_opt.unwrap_or_default();
     let expires_at = expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
@@ -923,7 +923,7 @@ async fn login(
         Some(refresh_token.as_str()),
         Some(expires_at.as_str()),
     ) {
-        println!("[璀﹀憡] 淇濆瓨浼氳瘽澶辫触: {}", e);
+        println!("[璀﹀憡] 保存会话失败: {}", e);
     }
 
     let user_info = client
@@ -969,7 +969,7 @@ async fn restore_session(
     let mut session_opt = match db::get_user_session(DB_FILENAME, &user_info.student_id) {
         Ok(v) => v,
         Err(e) => {
-            println!("[璀﹀憡] 鍔犺浇浼氳瘽鍑嵁澶辫触: {}", e);
+            println!("[璀﹀憡] 加载会话凭据失败: {}", e);
             None
         }
     };
@@ -989,7 +989,7 @@ async fn restore_session(
 
     match session_opt {
         Some(session) => {
-            println!("[璋冭瘯] Restored credentials for user: {}", user_info.student_id);
+            println!("[调试] Restored credentials for user: {}", user_info.student_id);
             if !session.password.is_empty() {
                 client.set_credentials(user_info.student_id.clone(), session.password.clone());
             }
@@ -1003,7 +1003,7 @@ async fn restore_session(
                     Some(session.refresh_token.clone())
                 };
                 client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
-                println!("[璋冭瘯] Restored one_code_浠ょ墝");
+                println!("[调试] Restored one_code_浠ょ墝");
             }
             let _ = db::save_user_session(
                 DB_FILENAME,
@@ -1015,7 +1015,7 @@ async fn restore_session(
                 Some(session.token_expires_at.as_str()),
             );
         }
-        None => println!("[璋冭瘯] No saved credentials found for user: {}", user_info.student_id),
+        None => println!("[调试] No saved credentials found for user: {}", user_info.student_id),
     }
 
     Ok(user_info)
@@ -1025,10 +1025,10 @@ async fn restore_session(
 async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
     let session = db::get_latest_user_session(DB_FILENAME)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "鏃犲彲鐢ㄧ殑鍘嗗彶浼氳瘽".to_string())?;
+        .ok_or_else(|| "无可ㄧ历史会话".to_string())?;
 
     if session.cookies.trim().is_empty() {
-        return Err("鍘嗗彶浼氳瘽缂哄皯 cookies".to_string());
+        return Err("历史会话缺少 cookies".to_string());
     }
 
     let mut client = state.client.lock().await;
@@ -1115,10 +1115,10 @@ async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, 
     let client = state.client.lock().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     
-    // 鑾峰彇褰撳墠瀛︽湡锛堝熀浜庢棩鏈熻绠楋級
+    // 获取当前︽（基于日期计算）
     let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
     
-    // 鑾峰彇鏍″巻鏁版嵁璁＄畻褰撳墠鍛ㄦ鍜屽紑濮嬫棩鏈?
+    // 获取″数据计算当前ㄦ和开始日?
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
     let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
         let meta = cal.get("meta");
@@ -1226,7 +1226,7 @@ fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
 #[tauri::command]
 async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_json::Value, String> {
     if req.events.is_empty() {
-        return Err("娌℃湁鍙鍑虹殑璇剧▼鏁版嵁".to_string());
+        return Err("娌℃可导出的课▼数据".to_string());
     }
 
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -1240,7 +1240,7 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
     ics.push_str("VERSION:2.0\r\n");
     ics.push_str("CALSCALE:GREGORIAN\r\n");
     ics.push_str("METHOD:PUBLISH\r\n");
-    ics.push_str("X-WR-CALNAME:HBUT 璇捐〃\r\n");
+    ics.push_str("X-WR-CALNAME:HBUT 课表\r\n");
     ics.push_str("X-WR-TIMEZONE:Asia/Shanghai\r\n");
     ics.push_str("PRODID:-//Mini-HBUT//Schedule Export//CN\r\n");
 
@@ -1286,32 +1286,32 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|e| format!("鍒涘缓涓婁紶瀹㈡埛绔け璐? {}", e))?;
+        .map_err(|e| format!("创建上传㈡端け璐? {}", e))?;
     let resp = http
         .post(upload_url.as_str())
         .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("涓婁紶璇剧▼鏂囦欢澶辫触: {}", e))?;
+        .map_err(|e| format!("上传课▼文件失败: {}", e))?;
 
     let status = resp.status();
     let body: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("瑙ｆ瀽涓婁紶鍝嶅簲澶辫触: {}", e))?;
+        .map_err(|e| format!("解析上传响应失败: {}", e))?;
 
     if !status.is_success() || !body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
         let msg = body
             .get("error")
             .and_then(|v| v.as_str())
-            .unwrap_or("涓婁紶鏈嶅姟杩斿洖澶辫触");
-        return Err(format!("璇剧▼瀵煎嚭涓婁紶澶辫触: {}", msg));
+            .unwrap_or("上传服务返回失败");
+        return Err(format!("课▼导出上传失败: {}", msg));
     }
 
     let url = body
         .get("url")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| "涓婁紶鎴愬姛浣嗘湭杩斿洖閾炬帴".to_string())?;
+        .ok_or_else(|| "上传成功但未返回链接".to_string())?;
     let remote_filename = body
         .get("filename")
         .and_then(|v| v.as_str())
@@ -1420,26 +1420,40 @@ async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Va
 }
 
 #[tauri::command]
-async fn fetch_personal_login_access_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn fetch_personal_login_access_info(
+    state: State<'_, AppState>,
+    page: Option<i32>,
+    page_size: Option<i32>,
+) -> Result<serde_json::Value, String> {
     let mut client = state.client.lock().await;
     let uid = client
         .user_info
         .as_ref()
         .map(|u| u.student_id.clone())
         .or_else(|| client.last_username.clone());
+    let page = page.unwrap_or(1).max(1);
+    let page_size = page_size.unwrap_or(10).clamp(1, 100);
+    let cache_key = uid
+        .as_ref()
+        .map(|u| format!("{}:p{}:s{}", u, page, page_size));
 
-    match client.fetch_personal_login_access_info().await {
+    match client
+        .fetch_personal_login_access_info(Some(page), Some(page_size))
+        .await
+    {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
-            if let Some(uid) = &uid {
-                let _ = db::save_cache(DB_FILENAME, "student_login_access_cache", uid, &payload);
+            if let Some(cache_key) = &cache_key {
+                let _ = db::save_cache(DB_FILENAME, "student_login_access_cache", cache_key, &payload);
             }
             Ok(payload)
         }
         Err(e) => {
-            if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "student_login_access_cache", uid) {
+            if let Some(cache_key) = &cache_key {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "student_login_access_cache", cache_key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -1748,7 +1762,7 @@ async fn fetch_qxzkb_kkjys(state: State<'_, AppState>, kkyxid: String) -> Result
 #[tauri::command]
 async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Result<serde_json::Value, String> {
     if query.xnxq.trim().is_empty() {
-        return Err("璇烽€夋嫨瀛﹀勾瀛︽湡".to_string());
+        return Err("请选择学年学期".to_string());
     }
 
     let client = state.client.lock().await;
@@ -2057,7 +2071,7 @@ pub fn run() {
                 std::env::set_var("HBUT_EXPORT_DIR", export_path.to_string_lossy().to_string());
             }
             if let Err(e) = db::init_db(DB_FILENAME) {
-                eprintln!("鍒濆鍖栨暟鎹簱澶辫触: {}", e);
+                eprintln!("初始化数据库失败: {}", e);
             }
 
             fn find_file_in_parents(file_name: &str, max_depth: usize) -> Option<std::path::PathBuf> {
@@ -2124,7 +2138,7 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             crate::modules::notification::init_background_task(app_handle);
-            // 鍚姩鏃跺皾璇曞姞杞芥渶杩戜竴娆′細璇濆嚟鎹?
+            // 启动时尝试加载最近一′话凭?
             let mut restored_any = false;
             let mut token_loaded = false;
             if let Ok(Some(session)) = db::get_latest_user_session(DB_FILENAME) {
@@ -2230,7 +2244,7 @@ pub fn run() {
                     });
                 }
             }
-            // 鍚姩鏈湴 HTTP 娴嬭瘯妗ユ帴鏈嶅姟锛堢敤浜庡閮?Python 楠岃瘉鑴氭湰锛?
+            // 启动本地 HTTP 测试桥接服务（用于外部 Python 验证脚本）
             let client = app.state::<AppState>().client.clone();
             crate::http_server::spawn_http_server(client);
             Ok(())

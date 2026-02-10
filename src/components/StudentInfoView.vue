@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
@@ -13,14 +13,30 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const loading = ref(true)
+const accessLoading = ref(false)
 const error = ref('')
 const infoError = ref('')
 const accessError = ref('')
 const activeTab = ref('basic')
 const info = ref(null)
-const loginAccess = ref({ current_login: {}, app_access_records: [] })
 const offline = ref(false)
 const syncTime = ref('')
+
+const pageSizeOptions = [10, 20, 50]
+const accessPage = ref(1)
+const accessPageSize = ref(10)
+
+const loginAccess = ref({
+  current_login: {},
+  current_logins: [],
+  app_access_records: [],
+  app_access_pagination: {
+    page: 1,
+    page_size: 10,
+    total: 0,
+    total_pages: 1
+  }
+})
 
 const fieldLabels = [
   { key: 'student_id', label: '学号' },
@@ -43,26 +59,83 @@ const normalizeString = (value, fallback = '-') => {
   return text || fallback
 }
 
-const normalizeLoginAccess = (payload) => {
-  const data = payload && typeof payload === 'object' ? payload : {}
-  const current = data.current_login && typeof data.current_login === 'object' ? data.current_login : {}
-  const recordsRaw = Array.isArray(data.app_access_records) ? data.app_access_records : []
+const normalizeAuthResult = (value) => {
+  const text = normalizeString(value, 'unknown')
+  const lower = text.toLowerCase()
+  if (lower.includes('success') || lower.includes('pass') || lower === 'ok' || text.includes('成功')) {
+    return '成功'
+  }
+  if (lower.includes('fail') || lower.includes('deny') || lower.includes('reject') || text.includes('失败')) {
+    return '失败'
+  }
+  if (lower === 'unknown') return '未知'
+  return text
+}
+
+const normalizeLoginItem = (item) => ({
+  client_ip: normalizeString(item.client_ip ?? item.clientIp ?? item.ip),
+  ip_location: normalizeString(item.ip_location ?? item.ipLocation ?? item.location, '未知'),
+  login_time: normalizeString(item.login_time ?? item.loginTime ?? item.last_login_time),
+  browser: normalizeString(item.browser ?? item.browser_name ?? item.client_browser)
+})
+
+const normalizeAccessItem = (item, index) => ({
+  id: `${normalizeString(item.app_name ?? item.appName ?? item.title ?? item.name, 'app')}-${index}`,
+  app_name: normalizeString(item.app_name ?? item.appName ?? item.title ?? item.name),
+  access_time: normalizeString(item.access_time ?? item.accessTime ?? item.time),
+  auth_result: normalizeAuthResult(item.auth_result ?? item.authResult ?? item.status),
+  browser: normalizeString(item.browser),
+  link_url: typeof item.link_url === 'string' ? item.link_url : ''
+})
+
+const normalizePagination = (raw, fallbackTotal, fallbackPage = 1, fallbackPageSize = 10) => {
+  const page = Number(raw?.page) || fallbackPage
+  const pageSize = Number(raw?.page_size ?? raw?.pageSize) || fallbackPageSize
+  const total = Number(raw?.total ?? raw?.totalCount) || fallbackTotal
+  const totalPages = Number(raw?.total_pages ?? raw?.totalPages) || Math.max(1, Math.ceil(total / Math.max(pageSize, 1)))
 
   return {
-    current_login: {
-      client_ip: normalizeString(current.client_ip ?? current.clientIp ?? current.ip),
-      ip_location: normalizeString(current.ip_location ?? current.ipLocation ?? current.location, '未知'),
-      login_time: normalizeString(current.login_time ?? current.loginTime ?? current.last_login_time),
-      browser: normalizeString(current.browser ?? current.browser_name ?? current.client_browser)
-    },
-    app_access_records: recordsRaw.map((item, index) => ({
-      id: `${normalizeString(item.app_name ?? item.appName ?? item.title ?? item.name, 'app')}-${index}`,
-      app_name: normalizeString(item.app_name ?? item.appName ?? item.title ?? item.name),
-      access_time: normalizeString(item.access_time ?? item.accessTime ?? item.time),
-      auth_result: normalizeString(item.auth_result ?? item.authResult ?? item.status, '未知'),
-      browser: normalizeString(item.browser),
-      link_url: typeof item.link_url === 'string' ? item.link_url : ''
-    }))
+    page,
+    page_size: pageSize,
+    total,
+    total_pages: totalPages
+  }
+}
+
+const normalizeLoginAccess = (payload, fallbackPage = 1, fallbackPageSize = 10) => {
+  const data = payload && typeof payload === 'object' ? payload : {}
+
+  const listSource = Array.isArray(data.current_logins)
+    ? data.current_logins
+    : Array.isArray(data.login_records)
+      ? data.login_records
+      : []
+
+  const currentRaw = data.current_login && typeof data.current_login === 'object' ? data.current_login : null
+
+  const currentLogins = listSource
+    .map(normalizeLoginItem)
+    .filter((item) => item.client_ip !== '-' || item.login_time !== '-' || item.browser !== '-')
+
+  if (currentLogins.length === 0 && currentRaw) {
+    currentLogins.push(normalizeLoginItem(currentRaw))
+  }
+
+  const appRecordsRaw = Array.isArray(data.app_access_records) ? data.app_access_records : []
+  const appAccessRecords = appRecordsRaw.map((item, index) => normalizeAccessItem(item, index))
+
+  const pagination = normalizePagination(
+    data.app_access_pagination,
+    appAccessRecords.length,
+    fallbackPage,
+    fallbackPageSize
+  )
+
+  return {
+    current_login: currentLogins[0] || normalizeLoginItem({}),
+    current_logins: currentLogins,
+    app_access_records: appAccessRecords,
+    app_access_pagination: pagination
   }
 }
 
@@ -93,26 +166,46 @@ const fetchStudentInfo = async () => {
   }
 }
 
-const fetchLoginAccess = async () => {
+const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSize.value, options = {}) => {
+  const normalizedPage = Math.max(1, Number(page) || 1)
+  const normalizedPageSize = pageSizeOptions.includes(Number(pageSize)) ? Number(pageSize) : 10
+  const showLoading = options.showLoading !== false
+
+  if (showLoading) {
+    accessLoading.value = true
+  }
+
   try {
-    const { data } = await fetchWithCache(`student-login-access:${props.studentId}`, async () => {
+    const cacheKey = `student-login-access:${props.studentId}:${normalizedPage}:${normalizedPageSize}`
+    const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/student_login_access`, {
-        student_id: props.studentId
+        student_id: props.studentId,
+        page: normalizedPage,
+        page_size: normalizedPageSize
       })
       return res.data
     })
 
     if (data?.success) {
-      loginAccess.value = normalizeLoginAccess(data.data)
+      loginAccess.value = normalizeLoginAccess(data.data, normalizedPage, normalizedPageSize)
       accessError.value = ''
+
+      const serverPage = Number(loginAccess.value.app_access_pagination?.page) || normalizedPage
+      const serverPageSize = Number(loginAccess.value.app_access_pagination?.page_size) || normalizedPageSize
+      accessPage.value = Math.max(1, serverPage)
+      accessPageSize.value = pageSizeOptions.includes(serverPageSize) ? serverPageSize : 10
       return data
     }
 
-    accessError.value = data?.error || '获取登录记录失败'
+    accessError.value = data?.error || '获取登录访问信息失败'
     return null
   } catch (e) {
-    accessError.value = e.response?.data?.error || '获取登录记录失败'
+    accessError.value = e.response?.data?.error || '获取登录访问信息失败'
     return null
+  } finally {
+    if (showLoading) {
+      accessLoading.value = false
+    }
   }
 }
 
@@ -122,7 +215,7 @@ const refreshData = async () => {
 
   const [basicRes, accessRes] = await Promise.all([
     fetchStudentInfo(),
-    fetchLoginAccess()
+    fetchLoginAccess(1, accessPageSize.value, { showLoading: false })
   ])
 
   offline.value = !!(basicRes?.offline || accessRes?.offline)
@@ -143,25 +236,80 @@ const basicRows = computed(() => {
   }))
 })
 
-const currentLogin = computed(() => {
-  return loginAccess.value?.current_login || {}
+const currentLogins = computed(() => {
+  return Array.isArray(loginAccess.value?.current_logins) ? loginAccess.value.current_logins : []
 })
 
 const appAccessRecords = computed(() => {
-  return Array.isArray(loginAccess.value?.app_access_records)
-    ? loginAccess.value.app_access_records
-    : []
+  return Array.isArray(loginAccess.value?.app_access_records) ? loginAccess.value.app_access_records : []
+})
+
+const accessTotal = computed(() => {
+  const total = Number(loginAccess.value?.app_access_pagination?.total)
+  if (Number.isFinite(total) && total >= 0) {
+    return total
+  }
+  return appAccessRecords.value.length
+})
+
+const accessTotalPages = computed(() => {
+  const totalPages = Number(loginAccess.value?.app_access_pagination?.total_pages)
+  if (Number.isFinite(totalPages) && totalPages > 0) {
+    return Math.max(1, totalPages)
+  }
+  return Math.max(1, Math.ceil(accessTotal.value / Math.max(accessPageSize.value, 1)))
+})
+
+const pagedAppAccessRecords = computed(() => {
+  return appAccessRecords.value
+})
+
+const visiblePageNumbers = computed(() => {
+  const total = accessTotalPages.value
+  const current = accessPage.value
+  const windowSize = 5
+
+  if (total <= windowSize) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+
+  let start = Math.max(1, current - 2)
+  let end = Math.min(total, start + windowSize - 1)
+  if (end - start + 1 < windowSize) {
+    start = Math.max(1, end - windowSize + 1)
+  }
+
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i)
 })
 
 const canShowContent = computed(() => {
-  return !!info.value || appAccessRecords.value.length > 0 || !!currentLogin.value?.client_ip
+  return !!info.value || currentLogins.value.length > 0 || appAccessRecords.value.length > 0
 })
 
 const authResultClass = (text) => {
   const value = String(text || '').toLowerCase()
-  if (value.includes('成功') || value.includes('success') || value.includes('已认证')) return 'success'
-  if (value.includes('失败') || value.includes('fail') || value.includes('拒绝')) return 'fail'
+  if (value.includes('成功') || value.includes('success') || value.includes('pass') || value === 'ok') return 'success'
+  if (value.includes('失败') || value.includes('fail') || value.includes('deny') || value.includes('reject')) return 'fail'
   return 'neutral'
+}
+
+const setAccessPage = async (page) => {
+  const total = accessTotalPages.value
+  const nextPage = Math.min(Math.max(1, page), total)
+  if (nextPage === accessPage.value || accessLoading.value) {
+    return
+  }
+  await fetchLoginAccess(nextPage, accessPageSize.value, { showLoading: true })
+}
+
+const handlePageSizeChange = async (event) => {
+  const value = Number(event.target.value) || 10
+  const nextPageSize = pageSizeOptions.includes(value) ? value : 10
+  if (nextPageSize === accessPageSize.value || accessLoading.value) {
+    return
+  }
+  accessPageSize.value = nextPageSize
+  await fetchLoginAccess(1, nextPageSize, { showLoading: true })
 }
 
 onMounted(() => {
@@ -195,25 +343,13 @@ onMounted(() => {
 
       <div v-else class="panel-stack">
         <nav class="tab-nav">
-          <button
-            class="tab-btn"
-            :class="{ active: activeTab === 'basic' }"
-            @click="activeTab = 'basic'"
-          >
+          <button class="tab-btn" :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">
             基本信息
           </button>
-          <button
-            class="tab-btn"
-            :class="{ active: activeTab === 'login' }"
-            @click="activeTab = 'login'"
-          >
+          <button class="tab-btn" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">
             当前登录
           </button>
-          <button
-            class="tab-btn"
-            :class="{ active: activeTab === 'access' }"
-            @click="activeTab = 'access'"
-          >
+          <button class="tab-btn" :class="{ active: activeTab === 'access' }" @click="activeTab = 'access'">
             应用访问
           </button>
         </nav>
@@ -237,52 +373,145 @@ onMounted(() => {
 
         <section v-show="activeTab === 'login'" class="surface-card">
           <div v-if="accessError" class="inline-error">{{ accessError }}</div>
-          <div class="metric-grid">
-            <article class="metric-item">
-              <span class="label">客户端 IP</span>
-              <span class="value">{{ normalizeString(currentLogin.client_ip) }}</span>
-            </article>
-            <article class="metric-item">
-              <span class="label">IP 归属地</span>
-              <span class="value">{{ normalizeString(currentLogin.ip_location, '未知') }}</span>
-            </article>
-            <article class="metric-item">
-              <span class="label">登录时间</span>
-              <span class="value">{{ normalizeString(currentLogin.login_time) }}</span>
-            </article>
-            <article class="metric-item">
-              <span class="label">浏览器</span>
-              <span class="value">{{ normalizeString(currentLogin.browser) }}</span>
-            </article>
-          </div>
-        </section>
 
-        <section v-show="activeTab === 'access'" class="surface-card">
-          <div v-if="appAccessRecords.length === 0" class="empty-state">
-            <div class="empty-icon">🗂</div>
-            <p>暂无应用访问记录</p>
+          <div v-if="currentLogins.length === 0" class="empty-state compact">
+            <div class="empty-icon">📭</div>
+            <p>暂无当前登录记录</p>
           </div>
 
-          <div v-else class="records-grid">
-            <article v-for="record in appAccessRecords" :key="record.id" class="record-card">
-              <div class="record-head">
-                <h3>{{ record.app_name }}</h3>
-                <span class="auth-badge" :class="authResultClass(record.auth_result)">
-                  {{ record.auth_result }}
-                </span>
-              </div>
-              <div class="record-meta">
+          <template v-else>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>客户端IP</th>
+                    <th>IP归属地</th>
+                    <th>登录时间</th>
+                    <th>浏览器</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, index) in currentLogins" :key="`${item.client_ip}-${item.login_time}-${index}`">
+                    <td>{{ item.client_ip }}</td>
+                    <td>{{ item.ip_location }}</td>
+                    <td>{{ item.login_time }}</td>
+                    <td>{{ item.browser }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mobile-list">
+              <article v-for="(item, index) in currentLogins" :key="`m-${item.client_ip}-${item.login_time}-${index}`" class="record-card">
                 <div class="meta-row">
-                  <span class="label">访问时间</span>
-                  <span class="value">{{ record.access_time }}</span>
+                  <span class="label">客户端IP</span>
+                  <span class="value">{{ item.client_ip }}</span>
+                </div>
+                <div class="meta-row">
+                  <span class="label">IP归属地</span>
+                  <span class="value">{{ item.ip_location }}</span>
+                </div>
+                <div class="meta-row">
+                  <span class="label">登录时间</span>
+                  <span class="value">{{ item.login_time }}</span>
                 </div>
                 <div class="meta-row">
                   <span class="label">浏览器</span>
-                  <span class="value">{{ record.browser }}</span>
+                  <span class="value">{{ item.browser }}</span>
                 </div>
-              </div>
-            </article>
+              </article>
+            </div>
+          </template>
+        </section>
+
+        <section v-show="activeTab === 'access'" class="surface-card">
+          <div v-if="accessLoading" class="inline-loading">
+            <div class="mini-spinner"></div>
+            <span>正在加载访问记录...</span>
           </div>
+
+          <div v-if="!accessLoading && appAccessRecords.length === 0" class="empty-state compact">
+            <div class="empty-icon">📭</div>
+            <p>暂无应用访问记录</p>
+          </div>
+
+          <template v-else-if="appAccessRecords.length > 0">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>访问时间</th>
+                    <th>应用名称</th>
+                    <th>认证结果</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="record in pagedAppAccessRecords" :key="record.id">
+                    <td>{{ record.access_time }}</td>
+                    <td>{{ record.app_name }}</td>
+                    <td>
+                      <span class="auth-inline" :class="authResultClass(record.auth_result)">
+                        <span class="auth-dot"></span>
+                        {{ record.auth_result }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mobile-list">
+              <article v-for="record in pagedAppAccessRecords" :key="`m-${record.id}`" class="record-card">
+                <div class="record-head">
+                  <h3>{{ record.app_name }}</h3>
+                  <span class="auth-badge" :class="authResultClass(record.auth_result)">
+                    {{ record.auth_result }}
+                  </span>
+                </div>
+                <div class="record-meta">
+                  <div class="meta-row">
+                    <span class="label">访问时间</span>
+                    <span class="value">{{ record.access_time }}</span>
+                  </div>
+                  <div class="meta-row">
+                    <span class="label">浏览器</span>
+                    <span class="value">{{ record.browser }}</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <div class="pagination-bar">
+              <span class="total-text">共 {{ accessTotal }} 条</span>
+
+              <div class="pager-controls">
+                <button class="pager-btn" :disabled="accessPage <= 1 || accessLoading" @click="setAccessPage(accessPage - 1)">
+                  上一页
+                </button>
+                <button
+                  v-for="page in visiblePageNumbers"
+                  :key="page"
+                  class="pager-btn"
+                  :disabled="accessLoading"
+                  :class="{ active: page === accessPage }"
+                  @click="setAccessPage(page)"
+                >
+                  {{ page }}
+                </button>
+                <button class="pager-btn" :disabled="accessPage >= accessTotalPages || accessLoading" @click="setAccessPage(accessPage + 1)">
+                  下一页
+                </button>
+              </div>
+
+              <label class="page-size">
+                每页
+                <select :value="accessPageSize" :disabled="accessLoading" @change="handlePageSizeChange">
+                  <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
+                </select>
+                条
+              </label>
+            </div>
+          </template>
         </section>
       </div>
     </div>
@@ -370,6 +599,11 @@ onMounted(() => {
   border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
   box-shadow: var(--ui-shadow-soft);
+}
+
+.empty-state.compact {
+  padding: 30px 16px;
+  border-radius: 12px;
 }
 
 .spinner {
@@ -486,14 +720,32 @@ onMounted(() => {
   font-weight: 600;
 }
 
+.inline-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--ui-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(148, 163, 184, 0.3);
+  border-top-color: var(--ui-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 .info-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.info-item,
-.metric-item {
+.info-item {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -512,19 +764,44 @@ onMounted(() => {
   color: var(--ui-text);
   font-size: 15px;
   font-weight: 600;
-  word-break: break-all;
+  word-break: break-word;
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.75);
 }
 
-.records-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.data-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ui-surface-border);
+  text-align: left;
+  font-size: 14px;
+}
+
+.data-table th {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--ui-text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.mobile-list {
+  display: none;
 }
 
 .record-card {
@@ -532,6 +809,10 @@ onMounted(() => {
   border: 1px solid var(--ui-surface-border);
   background: rgba(255, 255, 255, 0.7);
   padding: 14px;
+}
+
+.record-card + .record-card {
+  margin-top: 10px;
 }
 
 .record-head {
@@ -559,19 +840,45 @@ onMounted(() => {
   font-weight: 700;
 }
 
+.auth-badge.success,
+.auth-inline.success {
+  color: #047857;
+}
+
 .auth-badge.success {
   background: rgba(16, 185, 129, 0.16);
-  color: #047857;
+}
+
+.auth-badge.fail,
+.auth-inline.fail {
+  color: #b91c1c;
 }
 
 .auth-badge.fail {
   background: rgba(239, 68, 68, 0.16);
-  color: #b91c1c;
+}
+
+.auth-badge.neutral,
+.auth-inline.neutral {
+  color: var(--ui-primary);
 }
 
 .auth-badge.neutral {
-  background: rgba(99, 102, 241, 0.16);
-  color: var(--ui-primary);
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.auth-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.auth-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .record-meta {
@@ -583,7 +890,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .meta-row .value {
@@ -591,11 +898,82 @@ onMounted(() => {
   font-size: 14px;
 }
 
+.pagination-bar {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.total-text {
+  color: var(--ui-muted);
+  font-size: 14px;
+}
+
+.pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pager-btn {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--ui-surface-border);
+  background: #ffffff;
+  color: var(--ui-text);
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+.pager-btn.active {
+  border-color: var(--ui-primary);
+  background: var(--ui-primary);
+  color: #ffffff;
+}
+
+.pager-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ui-muted);
+  font-size: 14px;
+}
+
+.page-size select {
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 10px;
+  background: #ffffff;
+}
+
 @media (max-width: 900px) {
-  .info-grid,
-  .metric-grid,
-  .records-grid {
+  .info-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .table-wrap {
+    display: none;
+  }
+
+  .mobile-list {
+    display: block;
+  }
+
+  .pagination-bar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -632,6 +1010,16 @@ onMounted(() => {
 
   .profile-meta h2 {
     font-size: 20px;
+  }
+
+  .meta-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .meta-row .value {
+    text-align: left;
   }
 }
 </style>

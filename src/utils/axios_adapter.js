@@ -85,7 +85,7 @@ const unwrapBridge = (payload) => {
     return payload;
 };
 
-// 妯℃嫙 Axios 鍝嶅簲缁撴瀯
+// 妯℃嫙 Axios 响应结构
 
 const mockResponse = (data) => ({
     data,
@@ -111,26 +111,26 @@ const adapter = {
         try {
             if (url.includes('/v3/login_params')) {
                 const data = await invoke('get_login_page');
-                // 閫傞厤鍓嶇鏈熸湜鐨勬牸寮?
+                // 适配前端期望的格?
                 return mockResponse({
                     success: true,
                     lt: data.lt,
                     execution: data.execution,
                     salt: data.salt,
                     captcha_required: data.captcha_required,
-                    // 蹇呴』鍖呭惈 inputs 鍗充娇涓虹┖锛屽墠绔彲鑳戒緷璧?                    inputs: {}
+                    // 必须包含 inputs 即使为┖，前端可能依?                    inputs: {}
                 });
             }
             if (url.includes('/dormitory_data.json')) {
-                // 杩欐槸涓€涓潤鎬佹枃浠惰姹傦紝搴旇璁╁畠閫氳繃? 
-                // 鎴栬€呮垜浠湪 Rust 绔彁渚涳紵鎴栬€呯洿鎺?import json?
-                // 濡傛灉鏄?public 鐩綍涓嬬殑鏂囦欢锛宖etch 鍙互鐩存帴璇锋眰銆?                // 浣?axios adapter 浼氭嫤鎴墍鏈?axios 璇锋眰銆?                // 鎴戜滑鍙互浣跨敤鍘熺敓 fetch 鏉ヨ姹傞潤鎬佽祫婧?
+                // 这是€个静态文件请求，应该╁通过? 
+                // 或€我们在 Rust 端提供？或€直?import json?
+                // 如果?public 目录下的文件，fetch 可以直接请求?                // 浣?axios adapter 会拦截所?axios 请求?                // 我们可以使用原生 fetch 鏉ヨ求静态资?
                 const res = await fetch(url);
                 const data = await res.json();
                 return mockResponse(data);
             }
             
-            // 瀛︽湡鍒楄〃
+            // 瀛︽列表
 
             if (url.includes('/v2/semesters')) {
                 try {
@@ -159,7 +159,7 @@ const adapter = {
                 }
             }
             
-            // 鏁欏妤煎垪琛?
+            // 教学楼列?
             if (url.includes('/v2/classroom/buildings')) {
                 try {
                     if (!hasTauri) {
@@ -185,7 +185,7 @@ const adapter = {
         console.log('[Axios Adapter] POST request received:', url);
         console.log('[Axios Adapter] POST data:', JSON.stringify(data));
         try {
-            // 鐧诲綍
+            // 登录
 
             if (url.includes('/v2/start_login')) {
                 // LoginV3 (modified) passes plain structure
@@ -194,7 +194,7 @@ const adapter = {
                 console.log('[Axios Adapter] Extracted captcha:', captcha);
 
                 try {
-                    // 鍔犲瘑瀵嗙爜 (Rust 绔?login expects PLAIN password maybe? 
+                    // 加密密码 (Rust 绔?login expects PLAIN password maybe? 
                     // Wait, HbutClient::login sends password to form. 
                     // If HBU requires AES encrypted password, HbutClient does NOT implement it yet?
                     // Checked http_client.rs: it puts password into form directly.
@@ -238,8 +238,8 @@ const adapter = {
                     console.log('  - password first 20 chars:', password?.substring(0, 20));
                     console.log('  - captcha:', captcha, '(length:', captcha?.length || 0, ')');
                     
-                    // 瀹夊叏妫€鏌ワ細瀵嗙爜闀垮害涓嶅簲瓒呰繃50锛堟甯稿瘑鐮侊級锛岀Щ闄よ繖涓鏌ヨ Rust 鍚庣澶勭悊
-                    // 鍥犱负杩欎釜妫€鏌ュ彲鑳借鍒?
+                    // ????????????? 50??????????????? Rust ??
+                    // ??????????????????
                     if (!hasTauri) {
                         const res = await bridgePost('/login', {
                             username,
@@ -256,7 +256,7 @@ const adapter = {
                     const res = await invoke('login', {
                         username,
                         password,
-                        captcha: captcha || '', // 浼犻€掔┖瀛楃涓茶€屼笉鏄?null
+                        captcha: captcha || '', // 传€掔┖字符串€不?null
                         lt: lt || '',
                         execution: execution || ''
                     });
@@ -288,7 +288,7 @@ const adapter = {
                 });
             }
 
-            // 鎴愮哗
+            // 成绩
 
             if (url.includes('/v2/quick_fetch')) {
                 if (!hasTauri) {
@@ -302,7 +302,7 @@ const adapter = {
                 return mockResponse(grades);
             }
 
-            // 璇捐〃
+            // 课表
 
             if (url.includes('/v2/schedule/query')) {
                 if (!hasTauri) {
@@ -390,7 +390,7 @@ const adapter = {
                 }
             }
 
-            // ========== 瀛︾敓淇℃伅 ==========
+            // ========== 学生信息 ==========
 
             if (url.includes('/v2/student_info')) {
                 try {
@@ -407,11 +407,20 @@ const adapter = {
 
             if (url.includes('/v2/student_login_access')) {
                 try {
+                    const page = Number(data?.page) > 0 ? Number(data.page) : 1;
+                    const pageSizeRaw = Number(data?.page_size ?? data?.pageSize);
+                    const pageSize = pageSizeRaw > 0 ? pageSizeRaw : 10;
                     if (!hasTauri) {
-                        const res = await bridgePost('/fetch_personal_login_access_info');
+                        const res = await bridgePost('/fetch_personal_login_access_info', {
+                            page,
+                            page_size: pageSize
+                        });
                         return mockResponse(unwrapBridge(res));
                     }
-                    const payload = await invoke('fetch_personal_login_access_info');
+                    const payload = await invoke('fetch_personal_login_access_info', {
+                        page,
+                        pageSize
+                    });
                     return mockResponse(payload);
                 } catch (err) {
                     return mockResponse({ success: false, error: err.toString() });
@@ -466,7 +475,7 @@ const adapter = {
 
             if (url.includes('/v2/training_plan/jys')) {
                 try {
-                    // 鍓嶇鍙兘浼?kkyx 鎴?yxid锛岄兘鏀寔
+                    // 前端可能?kkyx 鎴?yxid，都支持
 
                     const yxid = data.yxid || data.kkyx || '';
                     console.log('[Axios Adapter] Training plan JYS request for yxid:', yxid);
@@ -485,7 +494,7 @@ const adapter = {
             if (url.includes('/v2/training_plan') && !url.includes('/options') && !url.includes('/jys')) {
                 try {
                     console.log('[Axios Adapter] Training plan courses request:', JSON.stringify(data));
-                    // Rust 绔湡鏈?Option<String>锛屾墍浠ョ┖瀛楃涓插拰 null 閮藉彲浠?                    // 浣嗕负浜嗕繚鎸佷竴鑷存€э紝鎴戜滑浣跨敤 null 琛ㄧず"鏈€夋嫨"
+                    // Rust 端期?Option<String>，所ョ┖字符 null 都可?                    // 但为了保持一致€э我们使用 null 琛ㄧず"未€夋嫨"
 
                     if (!hasTauri) {
                         const res = await bridgePost('/fetch_training_plan_courses', {
@@ -727,13 +736,13 @@ const adapter = {
     }
 };
 
-// 鍒涘缓涓€涓ā鎷?axios 鐨勫璞★紝璁╃粍浠跺彲浠ョ洿鎺ヤ娇鐢?
+// 创建€个ā鎷?axios 的对★紝璁╃件可ョ洿鎺ヤ娇鐢?
 const axiosInstance = {
     get: adapter.get,
     post: adapter.post,
-    // 鏀寔 axios.create() 杩斿洖鑷韩
+    // 支持 axios.create() 返回自身
     create: () => axiosInstance,
-    // 鏀寔鎷︽埅鍣紙绌哄疄鐜帮級
+    // 支持︽器（空实现）
     interceptors: {
         request: { use: () => {}, eject: () => {} },
         response: { use: () => {}, eject: () => {} }
@@ -748,6 +757,5 @@ const axiosInstance = {
 };
 
 export default axiosInstance;
-
 
 
