@@ -513,7 +513,7 @@ watch(
 
     <!-- 页脚 -->
     <section class="today-panel">
-      <div class="today-panel-header">
+      <div class="today-panel-head">
         <h3 class="today-title">{{ todayBlockTitle }}</h3>
         <span class="today-time">{{ currentTimeText }}</span>
       </div>
@@ -989,7 +989,7 @@ html[data-theme='cyberpunk'] .today-panel {
   box-shadow: 0 0 18px rgba(41, 200, 224, 0.25);
 }
 
-.today-panel-header {
+.today-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1000,7 +1000,7 @@ html[data-theme='cyberpunk'] .today-panel {
   border: none !important;
 }
 
-.today-panel-header h3,
+.today-panel-head h3,
 .today-title {
   margin: 0;
   font-size: 34px;
@@ -1015,8 +1015,8 @@ html[data-theme='cyberpunk'] .today-panel {
   align-items: center;
 }
 
-.today-panel-header h3::before,
-.today-panel-header h3::after,
+.today-panel-head h3::before,
+.today-panel-head h3::after,
 .today-title::before,
 .today-title::after {
   content: none !important;
@@ -1143,7 +1143,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
     border-radius: 16px;
   }
 
-  .today-panel-header h3 {
+  .today-panel-head h3 {
     font-size: 26px;
   }
 
@@ -1184,7 +1184,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
     padding: 14px 12px;
   }
 
-  .today-panel-header h3 {
+  .today-panel-head h3 {
     font-size: 22px;
   }
 

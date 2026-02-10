@@ -529,6 +529,11 @@ fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
             return v.trim().to_string();
         }
     }
+    if let Some(v) = crate::get_temp_upload_endpoint_config() {
+        if !v.trim().is_empty() {
+            return v;
+        }
+    }
     if let Ok(v) = std::env::var("HBUT_TEMP_UPLOAD_ENDPOINT") {
         if !v.trim().is_empty() {
             return v.trim().to_string();

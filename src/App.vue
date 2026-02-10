@@ -481,6 +481,20 @@ const applyRemoteConfig = async () => {
       }
     }
 
+    // 课表临时文件上传地址：每次启动后由远程配置覆盖。
+    // 优先由前端显式透传，Rust 侧也会缓存一份用于兜底。
+    const uploadEndpoint = String(config?.temp_file_server?.schedule_upload_endpoint || '').trim()
+    if (uploadEndpoint) {
+      localStorage.setItem('hbu_temp_upload_endpoint', uploadEndpoint)
+    } else {
+      localStorage.removeItem('hbu_temp_upload_endpoint')
+    }
+    try {
+      await invoke('set_temp_upload_endpoint', { endpoint: uploadEndpoint || null })
+    } catch (e) {
+      console.warn('[Config] 课表上传地址下发失败:', e)
+    }
+
     const minVersion = config.force_update?.min_version
     if (minVersion) {
       const currentVersion = await getCurrentVersion()

@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::collections::HashMap;
 use std::time::Duration;
 use base64::{engine::general_purpose, Engine as _};
@@ -43,6 +43,38 @@ use modules::one_code::*;
 
 
 const DB_FILENAME: &str = "grades.db";
+const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://superdaobo-ocr-service.hf.space/api/temp/upload";
+static TEMP_UPLOAD_ENDPOINT: OnceLock<StdMutex<Option<String>>> = OnceLock::new();
+
+fn temp_upload_endpoint_store() -> &'static StdMutex<Option<String>> {
+    TEMP_UPLOAD_ENDPOINT.get_or_init(|| StdMutex::new(None))
+}
+
+fn normalize_upload_endpoint(input: Option<String>) -> Option<String> {
+    input.and_then(|v| {
+        let s = v.trim();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        }
+    })
+}
+
+fn set_temp_upload_endpoint_config(endpoint: Option<String>) -> Result<(), String> {
+    let mut guard = temp_upload_endpoint_store()
+        .lock()
+        .map_err(|e| format!("lock temp upload endpoint failed: {}", e))?;
+    *guard = normalize_upload_endpoint(endpoint);
+    Ok(())
+}
+
+pub(crate) fn get_temp_upload_endpoint_config() -> Option<String> {
+    temp_upload_endpoint_store()
+        .lock()
+        .ok()
+        .and_then(|v| v.clone())
+}
 
 // ... existing code ...
 
@@ -299,6 +331,11 @@ async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
     }
 
     serde_json::from_str(&text).map_err(|e| format!("瑙ｆ瀽 JSON 澶辫触: {}", e))
+}
+
+#[tauri::command]
+fn set_temp_upload_endpoint(endpoint: Option<String>) -> Result<(), String> {
+    set_temp_upload_endpoint_config(endpoint)
 }
 
 #[tauri::command]
@@ -720,6 +757,31 @@ fn send_test_notification_native(
         .map_err(|e| format!("send native notification failed: {}", e))
 }
 
+fn map_notification_permission_state(state: tauri_plugin_notification::PermissionState) -> String {
+    match state {
+        tauri_plugin_notification::PermissionState::Granted => "granted".to_string(),
+        tauri_plugin_notification::PermissionState::Denied => "denied".to_string(),
+        tauri_plugin_notification::PermissionState::Prompt
+        | tauri_plugin_notification::PermissionState::PromptWithRationale => "default".to_string(),
+    }
+}
+
+#[tauri::command]
+fn get_notification_permission_native(app: tauri::AppHandle) -> Result<String, String> {
+    app.notification()
+        .permission_state()
+        .map(map_notification_permission_state)
+        .map_err(|e| format!("get native notification permission failed: {}", e))
+}
+
+#[tauri::command]
+fn request_notification_permission_native(app: tauri::AppHandle) -> Result<String, String> {
+    app.notification()
+        .request_permission()
+        .map(map_notification_permission_state)
+        .map_err(|e| format!("request native notification permission failed: {}", e))
+}
+
 #[tauri::command]
 async fn login(
     state: State<'_, AppState>,
@@ -1055,12 +1117,17 @@ fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
             return v.trim().to_string();
         }
     }
+    if let Some(v) = get_temp_upload_endpoint_config() {
+        if !v.trim().is_empty() {
+            return v;
+        }
+    }
     if let Ok(v) = std::env::var("HBUT_TEMP_UPLOAD_ENDPOINT") {
         if !v.trim().is_empty() {
             return v.trim().to_string();
         }
     }
-    "https://superdaobo-ocr-service.hf.space/api/temp/upload".to_string()
+    DEFAULT_TEMP_UPLOAD_ENDPOINT.to_string()
 }
 
 #[tauri::command]
@@ -1982,6 +2049,7 @@ pub fn run() {
             get_captcha,
             recognize_captcha,
             set_ocr_endpoint,
+            set_temp_upload_endpoint,
             fetch_remote_config,
             download_deyihei_font,
             download_deyihei_font_payload,
@@ -1989,6 +2057,8 @@ pub fn run() {
             save_export_file,
             open_external_url,
             send_test_notification_native,
+            get_notification_permission_native,
+            request_notification_permission_native,
             login,
             logout,
             restore_session,

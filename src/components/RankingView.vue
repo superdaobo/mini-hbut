@@ -34,7 +34,7 @@ const fetchSemesters = async () => {
       semesters.value = sorted
       currentSemester.value = resolveCurrentSemester(sorted, data.current || '')
       if (!selectedSemester.value) {
-        selectedSemester.value = currentSemester.value || ''
+        selectedSemester.value = ''
       }
     }
   } catch (e) {

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import axios from 'axios'
@@ -36,7 +36,7 @@ const periodTimeMap = {
   11: { start: '20:10', end: '20:55' }
 }
 
-const weekdayText = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const weekdayText = ['鍛ㄤ竴', '鍛ㄤ簩', '鍛ㄤ笁', '鍛ㄥ洓', '鍛ㄤ簲', '鍛ㄥ叚', '鍛ㄦ棩']
 
 const moduleGroups = [
   {
@@ -84,6 +84,8 @@ const selectedModules = ref([...defaultSelected])
 const semesters = ref([])
 const currentSemester = ref('')
 const selectedSemesters = ref([])
+const rankingIncludeAll = ref(true)
+const selectedTransactionMonths = ref([])
 
 const loadingSemesters = ref(false)
 const preparing = ref(false)
@@ -113,6 +115,47 @@ const selectedModuleMetas = computed(() =>
     .filter(Boolean)
 )
 
+const studentInfoFieldMap = {
+  name: '濮撳悕',
+  student_id: '瀛﹀彿',
+  class_name: '鐝骇',
+  college: '瀛﹂櫌',
+  major: '涓撲笟',
+  grade: '骞寸骇',
+  gender: '鎬у埆',
+  ethnicity: '姘戞棌',
+  id_card: '韬唤璇佸彿',
+  id_number: '韬唤璇佸彿'
+}
+
+const studentInfoFieldOrder = [
+  'name',
+  'student_id',
+  'class_name',
+  'college',
+  'major',
+  'grade',
+  'gender',
+  'ethnicity',
+  'id_card',
+  'id_number'
+]
+
+const transactionMonthOptions = computed(() => {
+  const now = new Date()
+  const list = []
+  for (let i = 0; i < 12; i += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    list.push({
+      value: `${year}-${month}`,
+      label: `${year}/${month}`
+    })
+  }
+  return list
+})
+
 const readCacheEntry = (matcher) => {
   let latest = null
   for (let i = 0; i < localStorage.length; i += 1) {
@@ -138,6 +181,11 @@ const ensureModuleSelected = () => {
   }
 }
 
+const safeText = (value) => {
+  if (value === null || value === undefined || value === '') return '-'
+  return String(value)
+}
+
 const toggleModule = (moduleId) => {
   const idx = selectedModules.value.indexOf(moduleId)
   if (idx >= 0) {
@@ -160,10 +208,29 @@ const toggleSemester = (semester) => {
 
 const semesterChecked = (semester) => selectedSemesters.value.includes(semester)
 
+const toggleTransactionMonth = (monthValue) => {
+  const idx = selectedTransactionMonths.value.indexOf(monthValue)
+  if (idx >= 0) {
+    selectedTransactionMonths.value.splice(idx, 1)
+  } else {
+    selectedTransactionMonths.value.push(monthValue)
+  }
+  if (selectedTransactionMonths.value.length === 0 && transactionMonthOptions.value.length) {
+    selectedTransactionMonths.value = [transactionMonthOptions.value[0].value]
+  }
+}
+
+const monthChecked = (monthValue) => selectedTransactionMonths.value.includes(monthValue)
+
 const semesterHint = computed(() => {
   if (!requiresSemester.value) return '当前已选模块无需学期过滤。'
   if (!effectiveSemesters.value.length) return '暂无可用学期，请先登录并同步数据。'
   return `已选择 ${effectiveSemesters.value.length} 个学期`
+})
+
+const transactionHint = computed(() => {
+  if (!selectedModules.value.includes('transactions')) return '未选择交易记录模块。'
+  return `交易记录将导出 ${selectedTransactionMonths.value.length} 个月份`
 })
 
 const formatScore = (value) => {
@@ -197,6 +264,99 @@ const formatWeekday = (weekday) => {
   return weekdayText[idx]
 }
 
+const formatTimestampText = (timestamp) => {
+  if (!timestamp) return '-'
+  return formatRelativeTime(new Date(timestamp).toISOString())
+}
+
+const normalizeStudentInfoEntries = (raw) => {
+  const data = raw && typeof raw === 'object' ? raw : {}
+  const entries = []
+  const used = new Set()
+
+  studentInfoFieldOrder.forEach((key) => {
+    if (!(key in data)) return
+    const label = studentInfoFieldMap[key] || key
+    if (label === '身份证号' && used.has('身份证号')) return
+    if (label === '身份证号') used.add('身份证号')
+    entries.push({ label, value: safeText(data[key]) })
+  })
+
+  Object.keys(data).forEach((key) => {
+    if (studentInfoFieldOrder.includes(key)) return
+    entries.push({ label: key, value: safeText(data[key]) })
+  })
+
+  return entries
+}
+
+const currentDormitoryLabel = () => {
+  try {
+    const raw = localStorage.getItem('last_dorm_selection')
+    if (!raw) return '-'
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed) || !parsed.length) return '-'
+    return parsed
+      .map((item) => {
+        if (!item) return ''
+        if (typeof item === 'string') return item
+        return String(item.name || item.label || item.value || '').trim()
+      })
+      .filter(Boolean)
+      .join(' / ') || '-'
+  } catch {
+    return '-'
+  }
+}
+
+const normalizeClassroomRows = (cachePayload) => {
+  const inner = cachePayload?.data
+  const list = Array.isArray(inner?.data) ? inner.data : Array.isArray(inner) ? inner : []
+  return list.map((item, index) => ({
+    id: item.id || `${item.building || ''}-${item.name || ''}-${index}`,
+    name: safeText(item.name),
+    building: safeText(item.building),
+    campus: safeText(item.campus),
+    floor: safeText(item.floor),
+    seats: safeText(item.seats),
+    status: safeText(item.status),
+    roomType: safeText(item.type)
+  }))
+}
+
+const normalizeElectricityInfo = (cachePayload) => {
+  const inner = cachePayload?.data && typeof cachePayload.data === 'object' ? cachePayload.data : {}
+  return {
+    dormitory: currentDormitoryLabel(),
+    quantity: safeText(inner.quantity ?? inner.power),
+    balance: safeText(inner.balance),
+    status: safeText(inner.status),
+    syncTime: safeText(inner.sync_time)
+  }
+}
+
+const normalizeCampusMaps = (cachePayload) => {
+  const inner = cachePayload?.data
+  if (Array.isArray(inner)) return inner
+  if (Array.isArray(inner?.maps)) return inner.maps
+  if (Array.isArray(inner?.list)) return inner.list
+  return []
+}
+
+const monthRange = (monthValue) => {
+  const [yearText, monthText] = String(monthValue || '').split('-')
+  const year = Number(yearText)
+  const month = Number(monthText)
+  if (!year || !month) return null
+  const start = new Date(year, month - 1, 1)
+  const end = new Date(year, month, 0)
+  const format = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return {
+    start: format(start),
+    end: format(end)
+  }
+}
+
 const loadSemesters = async () => {
   loadingSemesters.value = true
   try {
@@ -222,7 +382,7 @@ const loadSemesters = async () => {
 const fetchGradesData = async (selected) => {
   const res = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '成绩查询失败')
+  if (!payload.success) throw new Error(payload.error || '鎴愮哗鏌ヨ澶辫触')
   const allGrades = Array.isArray(payload.data) ? payload.data : []
   const sourceSemesters = normalizeSemesterList(
     allGrades.map((item) => String(item.term || '').trim()).filter(Boolean)
@@ -245,9 +405,13 @@ const fetchGradesData = async (selected) => {
 }
 
 const fetchRankingData = async (selected) => {
-  const targetSemesters = selected.length ? selected : ['']
+  const semesterSet = new Set()
+  if (rankingIncludeAll.value) semesterSet.add('')
+  ;(selected.length ? selected : []).forEach((value) => semesterSet.add(value))
+  if (semesterSet.size === 0) semesterSet.add('')
+
   const rows = []
-  for (const sem of targetSemesters) {
+  for (const sem of semesterSet) {
     const res = await axios.post(`${API_BASE}/v2/ranking`, {
       student_id: props.studentId,
       semester: sem
@@ -255,13 +419,13 @@ const fetchRankingData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       rows.push({
-        semester: sem || '全部学期',
+        semester: sem || '全部（从入学至今）',
         error: payload.error || '获取失败'
       })
       continue
     }
     rows.push({
-      semester: sem || '全部学期',
+      semester: sem || '全部（从入学至今）',
       data: payload.data || {},
       offline: !!payload.offline,
       syncTime: payload.sync_time || ''
@@ -273,9 +437,9 @@ const fetchRankingData = async (selected) => {
 const fetchScheduleData = async (selected) => {
   const res = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '课表查询失败')
+  if (!payload.success) throw new Error(payload.error || '璇捐〃鏌ヨ澶辫触')
 
-  const metaSemester = String(payload?.meta?.semester || '').trim() || '当前学期'
+  const metaSemester = String(payload?.meta?.semester || '').trim() || '褰撳墠瀛︽湡'
   const courses = Array.isArray(payload.data) ? payload.data : []
   const groups = new Map()
   courses.forEach((course) => {
@@ -306,14 +470,14 @@ const fetchExamsData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       grouped.push({
-        semester: sem || '全部学期',
-        error: payload.error || '获取失败',
+        semester: sem || '鍏ㄩ儴瀛︽湡',
+        error: payload.error || '鑾峰彇澶辫触',
         list: []
       })
       continue
     }
     grouped.push({
-      semester: sem || '全部学期',
+      semester: sem || '鍏ㄩ儴瀛︽湡',
       list: Array.isArray(payload.data) ? payload.data : [],
       offline: !!payload.offline,
       syncTime: payload.sync_time || ''
@@ -333,15 +497,15 @@ const fetchCalendarData = async (selected) => {
     const payload = res.data || {}
     if (!payload.success) {
       grouped.push({
-        semester: sem || '当前学期',
-        error: payload.error || '获取失败',
+        semester: sem || '褰撳墠瀛︽湡',
+        error: payload.error || '鑾峰彇澶辫触',
         list: [],
         meta: {}
       })
       continue
     }
     grouped.push({
-      semester: payload?.meta?.semester || sem || '当前学期',
+      semester: payload?.meta?.semester || sem || '褰撳墠瀛︽湡',
       list: Array.isArray(payload.data) ? payload.data : [],
       meta: payload.meta || {},
       offline: !!payload.offline,
@@ -354,7 +518,7 @@ const fetchCalendarData = async (selected) => {
 const fetchStudentInfoData = async () => {
   const res = await axios.post(`${API_BASE}/v2/student_info`, { student_id: props.studentId })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '个人信息查询失败')
+  if (!payload.success) throw new Error(payload.error || '涓汉淇℃伅鏌ヨ澶辫触')
   return {
     data: payload.data || {},
     offline: !!payload.offline,
@@ -368,7 +532,7 @@ const fetchAcademicProgressData = async () => {
     fasz: 1
   })
   const payload = res.data || {}
-  if (!payload.success) throw new Error(payload.error || '学业完成情况查询失败')
+  if (!payload.success) throw new Error(payload.error || '瀛︿笟瀹屾垚鎯呭喌鏌ヨ澶辫触')
   return {
     data: payload.data || {},
     offline: !!payload.offline,
@@ -406,7 +570,7 @@ const fetchTrainingPlanData = async () => {
 
   const res = await axios.post(`${API_BASE}/v2/training_plan`, payload)
   const data = res.data || {}
-  if (!data.success) throw new Error(data.error || '培养方案查询失败')
+  if (!data.success) throw new Error(data.error || '鍩瑰吇鏂规鏌ヨ澶辫触')
   return {
     list: Array.isArray(data.data) ? data.data : [],
     total: Number(data.total || 0),
@@ -438,30 +602,59 @@ const fetchCachedOnlyData = (id) => {
   return { found: false, message: '暂无缓存数据。' }
 }
 
+const parseTransactionPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return { ok: false, list: [], message: '返回为空' }
+  const list = Array.isArray(payload.resultData)
+    ? payload.resultData
+    : (Array.isArray(payload.data) ? payload.data : [])
+  const ok = payload.success === true || payload.code === '' || list.length > 0
+  return {
+    ok,
+    list,
+    message: payload.message || payload.error || ''
+  }
+}
+
 const fetchTransactionsData = async () => {
   if (!isNative) {
-    return { list: [], error: '浏览器模式不支持交易记录导出。' }
+    return { grouped: [], total: 0, error: '浏览器模式不支持交易记录导出。' }
   }
-  const end = new Date()
-  const start = new Date()
-  start.setMonth(start.getMonth() - 12)
-  const payload = await invoke('fetch_transaction_history', {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
-    pageNo: 1,
-    pageSize: 1000
-  })
-  const success = payload?.success === true || payload?.code === '' || Array.isArray(payload?.resultData) || Array.isArray(payload?.data)
-  if (!success) {
-    return {
-      list: [],
-      error: payload?.message || payload?.error || '交易记录查询失败'
+
+  const selected = Array.isArray(selectedTransactionMonths.value) && selectedTransactionMonths.value.length
+    ? selectedTransactionMonths.value
+    : (transactionMonthOptions.value.length ? [transactionMonthOptions.value[0].value] : [])
+
+  const grouped = []
+  for (const month of selected) {
+    const range = monthRange(month)
+    if (!range) continue
+    try {
+      const payload = await invoke('fetch_transaction_history', {
+        startDate: range.start,
+        endDate: range.end,
+        pageNo: 1,
+        pageSize: 1200
+      })
+      const parsed = parseTransactionPayload(payload)
+      grouped.push({
+        month,
+        label: transactionMonthOptions.value.find((item) => item.value === month)?.label || month,
+        list: parsed.list,
+        error: parsed.ok ? '' : (parsed.message || '查询失败')
+      })
+    } catch (e) {
+      grouped.push({
+        month,
+        label: transactionMonthOptions.value.find((item) => item.value === month)?.label || month,
+        list: [],
+        error: e?.message || String(e)
+      })
     }
   }
+
   return {
-    list: Array.isArray(payload?.resultData) ? payload.resultData : (Array.isArray(payload?.data) ? payload.data : []),
-    offline: !!payload?.offline,
-    syncTime: payload?.sync_time || ''
+    grouped,
+    total: grouped.reduce((sum, item) => sum + (item.list?.length || 0), 0)
   }
 }
 
@@ -478,7 +671,7 @@ const fetchByModule = async (moduleId, semesterList) => {
   if (moduleId === 'electricity') return fetchCachedOnlyData('electricity')
   if (moduleId === 'transactions') return fetchTransactionsData()
   if (moduleId === 'campus_map') return fetchCachedOnlyData('campus_map')
-  return { error: '未实现的数据模块' }
+  return { error: '鏈疄鐜扮殑鏁版嵁妯″潡' }
 }
 
 const collectExportData = async () => {
@@ -490,6 +683,8 @@ const collectExportData = async () => {
       studentId: props.studentId,
       generatedAt: new Date().toISOString(),
       semesters: [...effectiveSemesters.value],
+      ranking_include_all: rankingIncludeAll.value,
+      transaction_months: [...selectedTransactionMonths.value],
       modules: {}
     }
 
@@ -578,6 +773,42 @@ const exportJson = async () => {
   }
 }
 
+const renderWideCanvas = async () => {
+  if (!previewRef.value) throw new Error('导出画布未准备完成')
+
+  const wrapper = document.createElement('div')
+  wrapper.style.position = 'fixed'
+  wrapper.style.left = '-100000px'
+  wrapper.style.top = '0'
+  wrapper.style.width = '1280px'
+  wrapper.style.background = '#f4f7ff'
+  wrapper.style.padding = '16px'
+  wrapper.style.zIndex = '-1'
+
+  const clone = previewRef.value.cloneNode(true)
+  clone.style.width = '1280px'
+  clone.style.maxWidth = '1280px'
+  clone.style.boxSizing = 'border-box'
+  wrapper.appendChild(clone)
+  document.body.appendChild(wrapper)
+
+  try {
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    return await html2canvas(clone, {
+      useCORS: true,
+      allowTaint: false,
+      scale: 2,
+      backgroundColor: '#f4f7ff',
+      logging: false,
+      windowWidth: 1280,
+      width: 1280
+    })
+  } finally {
+    if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper)
+  }
+}
+
 const exportImage = async () => {
   if (!exportPayload.value) {
     await collectExportData()
@@ -588,16 +819,7 @@ const exportImage = async () => {
   exportError.value = ''
   exportSuccess.value = ''
   try {
-    await nextTick()
-    if (!previewRef.value) throw new Error('导出画布未准备完成')
-
-    const canvas = await html2canvas(previewRef.value, {
-      useCORS: true,
-      allowTaint: false,
-      scale: Math.max(2, window.devicePixelRatio || 1),
-      backgroundColor: '#f0f4ff',
-      logging: false
-    })
+    const canvas = await renderWideCanvas()
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((value) => {
         if (value) resolve(value)
@@ -638,6 +860,9 @@ const topSummary = computed(() => {
 
 onMounted(async () => {
   await loadSemesters()
+  if (transactionMonthOptions.value.length) {
+    selectedTransactionMonths.value = [transactionMonthOptions.value[0].value]
+  }
 })
 </script>
 
@@ -675,6 +900,36 @@ onMounted(async () => {
             @change="toggleSemester(sem)"
           />
           <span>{{ sem }}</span>
+        </label>
+      </div>
+    </section>
+
+    <section v-if="selectedModules.includes('ranking')" class="config-card">
+      <h3>绩点排名导出</h3>
+      <label class="inline-switch">
+        <input v-model="rankingIncludeAll" type="checkbox" />
+        <span>包含“全部（从入学至今）”统计</span>
+      </label>
+    </section>
+
+    <section v-if="selectedModules.includes('transactions')" class="config-card">
+      <div class="card-title-row">
+        <h3>交易记录月份</h3>
+        <span class="semester-hint">{{ transactionHint }}</span>
+      </div>
+      <div class="month-grid">
+        <label
+          v-for="item in transactionMonthOptions"
+          :key="item.value"
+          class="month-chip"
+          :class="{ active: monthChecked(item.value) }"
+        >
+          <input
+            type="checkbox"
+            :checked="monthChecked(item.value)"
+            @change="toggleTransactionMonth(item.value)"
+          />
+          <span>{{ item.label }}</span>
         </label>
       </div>
     </section>
@@ -740,7 +995,7 @@ onMounted(async () => {
           <template v-else>
             <div v-if="meta.id === 'grades'" class="module-block">
               <div class="module-kv">
-                <span>总课程数</span>
+                <span>鎬昏绋嬫暟</span>
                 <strong>{{ getModuleResult(meta.id).data.total }}</strong>
               </div>
               <div
@@ -752,11 +1007,11 @@ onMounted(async () => {
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>课程</th>
-                      <th>成绩</th>
-                      <th>学分</th>
-                      <th>课程性质</th>
-                      <th>教师</th>
+                      <th>璇剧▼</th>
+                      <th>鎴愮哗</th>
+                      <th>瀛﹀垎</th>
+                      <th>璇剧▼鎬ц川</th>
+                      <th>鏁欏笀</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -768,7 +1023,7 @@ onMounted(async () => {
                       <td>{{ item.teacher || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="5">该学期无数据</td>
+                      <td colspan="5">璇ュ鏈熸棤鏁版嵁</td>
                     </tr>
                   </tbody>
                 </table>
@@ -781,10 +1036,10 @@ onMounted(async () => {
                 <p v-if="row.error" class="warn-text">{{ row.error }}</p>
                 <template v-else>
                   <div class="module-kv-grid">
-                    <div class="module-kv"><span>平均学分绩点</span><strong>{{ row.data?.gpa || '-' }}</strong></div>
+                    <div class="module-kv"><span>骞冲潎瀛﹀垎缁╃偣</span><strong>{{ row.data?.gpa || '-' }}</strong></div>
                     <div class="module-kv"><span>算术平均分</span><strong>{{ row.data?.avg_score || '-' }}</strong></div>
-                    <div class="module-kv"><span>专业绩点排名</span><strong>{{ row.data?.gpa_major_rank || '-' }}/{{ row.data?.gpa_major_total || '-' }}</strong></div>
-                    <div class="module-kv"><span>班级绩点排名</span><strong>{{ row.data?.gpa_class_rank || '-' }}/{{ row.data?.gpa_class_total || '-' }}</strong></div>
+                    <div class="module-kv"><span>涓撲笟缁╃偣鎺掑悕</span><strong>{{ row.data?.gpa_major_rank || '-' }}/{{ row.data?.gpa_major_total || '-' }}</strong></div>
+                    <div class="module-kv"><span>鐝骇缁╃偣鎺掑悕</span><strong>{{ row.data?.gpa_class_rank || '-' }}/{{ row.data?.gpa_class_total || '-' }}</strong></div>
                   </div>
                 </template>
               </div>
@@ -800,12 +1055,12 @@ onMounted(async () => {
                 <table class="detail-table">
                   <thead>
                     <tr>
-                      <th>星期</th>
-                      <th>节次</th>
-                      <th>课程</th>
-                      <th>地点</th>
-                      <th>教师</th>
-                      <th>周次</th>
+                      <th>鏄熸湡</th>
+                      <th>鑺傛</th>
+                      <th>璇剧▼</th>
+                      <th>鍦扮偣</th>
+                      <th>鏁欏笀</th>
+                      <th>鍛ㄦ</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -818,7 +1073,7 @@ onMounted(async () => {
                       <td>{{ item.weeks || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="6">该学期无课表数据</td>
+                      <td colspan="6">璇ュ鏈熸棤璇捐〃鏁版嵁</td>
                     </tr>
                   </tbody>
                 </table>
@@ -832,10 +1087,10 @@ onMounted(async () => {
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>课程</th>
-                      <th>考试日期</th>
-                      <th>考试时间</th>
-                      <th>地点</th>
+                      <th>璇剧▼</th>
+                      <th>鑰冭瘯鏃ユ湡</th>
+                      <th>鑰冭瘯鏃堕棿</th>
+                      <th>鍦扮偣</th>
                       <th>座位号</th>
                     </tr>
                   </thead>
@@ -848,7 +1103,7 @@ onMounted(async () => {
                       <td>{{ item.seat_no || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="5">该学期无考试安排</td>
+                      <td colspan="5">璇ュ鏈熸棤鑰冭瘯瀹夋帓</td>
                     </tr>
                   </tbody>
                 </table>
@@ -862,15 +1117,15 @@ onMounted(async () => {
                 <table v-else class="detail-table">
                   <thead>
                     <tr>
-                      <th>月份</th>
-                      <th>周次</th>
-                      <th>周一</th>
-                      <th>周二</th>
-                      <th>周三</th>
-                      <th>周四</th>
-                      <th>周五</th>
-                      <th>周六</th>
-                      <th>周日</th>
+                      <th>鏈堜唤</th>
+                      <th>鍛ㄦ</th>
+                      <th>鍛ㄤ竴</th>
+                      <th>鍛ㄤ簩</th>
+                      <th>鍛ㄤ笁</th>
+                      <th>鍛ㄥ洓</th>
+                      <th>鍛ㄤ簲</th>
+                      <th>鍛ㄥ叚</th>
+                      <th>鍛ㄦ棩</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -886,7 +1141,7 @@ onMounted(async () => {
                       <td>{{ item.sunday || '-' }}</td>
                     </tr>
                     <tr v-if="term.list.length === 0">
-                      <td colspan="9">该学期无校历数据</td>
+                      <td colspan="9">璇ュ鏈熸棤鏍″巻鏁版嵁</td>
                     </tr>
                   </tbody>
                 </table>
@@ -894,9 +1149,13 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="meta.id === 'student_info'" class="module-block module-kv-grid">
-              <div v-for="(value, key) in getModuleResult(meta.id).data.data" :key="`stu-${key}`" class="module-kv">
-                <span>{{ key }}</span>
-                <strong>{{ value || '-' }}</strong>
+              <div
+                v-for="item in normalizeStudentInfoEntries(getModuleResult(meta.id).data.data)"
+                :key="`stu-${item.label}`"
+                class="module-kv"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
               </div>
             </div>
 
@@ -911,14 +1170,14 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="meta.id === 'training_plan'" class="module-block">
-              <div class="module-kv"><span>课程总数</span><strong>{{ getModuleResult(meta.id).data.total || getModuleResult(meta.id).data.list.length }}</strong></div>
+              <div class="module-kv"><span>璇剧▼鎬绘暟</span><strong>{{ getModuleResult(meta.id).data.total || getModuleResult(meta.id).data.list.length }}</strong></div>
               <table class="detail-table">
                 <thead>
                   <tr>
-                    <th>课程编号</th>
-                    <th>课程名称</th>
-                    <th>学分</th>
-                    <th>课程性质</th>
+                    <th>璇剧▼缂栧彿</th>
+                    <th>璇剧▼鍚嶇О</th>
+                    <th>瀛﹀垎</th>
+                    <th>璇剧▼鎬ц川</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -929,46 +1188,124 @@ onMounted(async () => {
                     <td>{{ item.kcxzmc || item.course_nature || '-' }}</td>
                   </tr>
                   <tr v-if="(getModuleResult(meta.id).data.list || []).length === 0">
-                    <td colspan="4">暂无培养方案数据</td>
+                    <td colspan="4">鏆傛棤鍩瑰吇鏂规鏁版嵁</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <div v-else-if="meta.id === 'transactions'" class="module-block">
-              <p v-if="getModuleResult(meta.id).data.error" class="warn-text">{{ getModuleResult(meta.id).data.error }}</p>
-              <table v-else class="detail-table">
-                <thead>
-                  <tr>
-                    <th>时间</th>
-                    <th>商户</th>
-                    <th>金额</th>
-                    <th>备注</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="(item, idx) in getModuleResult(meta.id).data.list"
-                    :key="`tx-${idx}-${item.date || item.tradeTime || ''}`"
+              <div class="module-kv">
+                <span>交易总条数</span>
+                <strong>{{ safeText(getModuleResult(meta.id).data.total) }}</strong>
+              </div>
+              <div v-for="item in getModuleResult(meta.id).data.grouped" :key="`tx-${item.month}`" class="term-block">
+                <h4>{{ item.label }}（{{ item.list.length }} 条）</h4>
+                <p v-if="item.error" class="warn-text">{{ item.error }}</p>
+                <table v-else class="detail-table">
+                  <thead>
+                    <tr>
+                      <th>时间</th>
+                      <th>商户</th>
+                      <th>金额</th>
+                      <th>备注</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(row, idx) in item.list"
+                      :key="`tx-row-${item.month}-${idx}`"
+                    >
+                      <td>{{ safeText(row.date || row.tradeTime || row.time) }}</td>
+                      <td>{{ safeText(row.merchantName || row.summary || row.title) }}</td>
+                      <td>{{ safeText(row.amt || row.amount || row.money) }}</td>
+                      <td>{{ safeText(row.summary || row.remark) }}</td>
+                    </tr>
+                    <tr v-if="item.list.length === 0">
+                      <td colspan="4">该月份无交易记录</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div v-else-if="meta.id === 'electricity'" class="module-block">
+              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无电费缓存数据' }}</p>
+              <template v-else>
+                <p class="hint-line">命中缓存时间：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
+                <div class="module-kv-grid">
+                  <div class="module-kv">
+                    <span>宿舍</span>
+                    <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).dormitory }}</strong>
+                  </div>
+                  <div class="module-kv">
+                    <span>剩余电量</span>
+                    <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).quantity }}</strong>
+                  </div>
+                  <div class="module-kv">
+                    <span>余额</span>
+                    <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).balance }}</strong>
+                  </div>
+                  <div class="module-kv">
+                    <span>状态</span>
+                    <strong>{{ normalizeElectricityInfo(getModuleResult(meta.id).data).status }}</strong>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div v-else-if="meta.id === 'classroom'" class="module-block">
+              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无空教室缓存数据' }}</p>
+              <template v-else>
+                <p class="hint-line">命中缓存时间：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
+                <div class="classroom-grid">
+                  <div
+                    v-for="room in normalizeClassroomRows(getModuleResult(meta.id).data).slice(0, 24)"
+                    :key="`cls-${room.id}`"
+                    class="classroom-card"
                   >
-                    <td>{{ item.date || item.tradeTime || item.time || '-' }}</td>
-                    <td>{{ item.merchantName || item.summary || item.title || '-' }}</td>
-                    <td>{{ item.amt || item.amount || item.money || '-' }}</td>
-                    <td>{{ item.summary || item.remark || '-' }}</td>
-                  </tr>
-                  <tr v-if="(getModuleResult(meta.id).data.list || []).length === 0">
-                    <td colspan="4">暂无交易记录</td>
-                  </tr>
-                </tbody>
-              </table>
+                    <h5>{{ room.name }}</h5>
+                    <p>{{ room.campus }} · {{ room.building }} · {{ room.floor }}层</p>
+                    <p>座位：{{ room.seats }} · 状态：{{ room.status }}</p>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div v-else-if="meta.id === 'campus_map'" class="module-block">
+              <p v-if="!getModuleResult(meta.id).data.found" class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无校园地图缓存数据' }}</p>
+              <template v-else>
+                <p class="hint-line">命中缓存时间：{{ formatTimestampText(getModuleResult(meta.id).data.timestamp) }}</p>
+                <div class="module-kv-grid">
+                  <div class="module-kv">
+                    <span>地图数量</span>
+                    <strong>{{ normalizeCampusMaps(getModuleResult(meta.id).data).length }}</strong>
+                  </div>
+                </div>
+                <table class="detail-table">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th>说明</th>
+                      <th>链接</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(item, idx) in normalizeCampusMaps(getModuleResult(meta.id).data)" :key="`map-${idx}`">
+                      <td>{{ safeText(item.name || item.title) }}</td>
+                      <td>{{ safeText(item.desc || item.description) }}</td>
+                      <td>{{ safeText(item.url || item.image) }}</td>
+                    </tr>
+                    <tr v-if="normalizeCampusMaps(getModuleResult(meta.id).data).length === 0">
+                      <td colspan="3">缓存中没有地图详情列表</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </template>
             </div>
 
             <div v-else class="module-block">
-              <p v-if="getModuleResult(meta.id).data.found" class="hint-line">
-                命中缓存时间：{{ formatRelativeTime(new Date(getModuleResult(meta.id).data.timestamp).toISOString()) }}
-              </p>
-              <p v-else class="warn-text">{{ getModuleResult(meta.id).data.message || '暂无数据' }}</p>
-              <pre class="cache-preview">{{ JSON.stringify(getModuleResult(meta.id).data.data || {}, null, 2) }}</pre>
+              <pre class="cache-preview">{{ JSON.stringify(getModuleResult(meta.id).data || {}, null, 2) }}</pre>
             </div>
           </template>
         </article>
@@ -1059,6 +1396,19 @@ onMounted(async () => {
   color: var(--ui-text);
 }
 
+.inline-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  color: var(--ui-text);
+}
+
+.inline-switch input {
+  width: 18px;
+  height: 18px;
+}
+
 .semester-hint,
 .hint-line {
   font-size: 22px;
@@ -1071,33 +1421,37 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.semester-grid {
+.semester-grid,
+.month-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 
-.semester-chip {
+.semester-chip,
+.month-chip {
   display: flex;
   align-items: center;
   gap: 8px;
   border: 1px solid rgba(59, 130, 246, 0.35);
   border-radius: 12px;
   padding: 9px 12px;
-  font-size: 22px;
+  font-size: 20px;
   color: #1d4ed8;
   cursor: pointer;
   user-select: none;
   background: rgba(239, 246, 255, 0.75);
 }
 
-.semester-chip input {
+.semester-chip input,
+.month-chip input {
   width: 16px;
   height: 16px;
   margin: 0;
 }
 
-.semester-chip.active {
+.semester-chip.active,
+.month-chip.active {
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
@@ -1109,18 +1463,17 @@ onMounted(async () => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 10px;
 }
 
 .module-item {
-  display: grid;
-  grid-template-columns: 18px 28px 1fr auto;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 16px;
-  padding: 9px 10px;
+  padding: 10px 12px;
   background: rgba(248, 250, 252, 0.9);
   cursor: pointer;
 }
@@ -1129,6 +1482,7 @@ onMounted(async () => {
   width: 16px;
   height: 16px;
   margin: 0;
+  flex: 0 0 auto;
 }
 
 .module-item.active {
@@ -1141,22 +1495,28 @@ onMounted(async () => {
   justify-content: center;
   font-size: 22px;
   line-height: 1;
+  flex: 0 0 auto;
 }
 
 .module-name {
-  font-size: 24px;
+  font-size: 20px;
   color: #1f2937;
   line-height: 1.3;
   font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .semester-tag {
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.14);
   color: #4f46e5;
-  font-size: 18px;
+  font-size: 15px;
   padding: 3px 8px;
   font-weight: 700;
+  flex: 0 0 auto;
 }
 
 .actions-card {
@@ -1219,6 +1579,12 @@ onMounted(async () => {
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   padding: 16px;
+}
+
+.preview-content.capture-mode {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
 }
 
 .preview-header {
@@ -1344,6 +1710,31 @@ onMounted(async () => {
   font-weight: 700;
 }
 
+.classroom-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.classroom-card {
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(248, 250, 252, 0.85);
+  padding: 10px;
+}
+
+.classroom-card h5 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: #1e3a8a;
+}
+
+.classroom-card p {
+  margin: 4px 0;
+  color: #475569;
+  font-size: 14px;
+}
+
 .cache-preview {
   margin: 10px 0 0;
   max-height: 220px;
@@ -1429,3 +1820,4 @@ onMounted(async () => {
   }
 }
 </style>
+

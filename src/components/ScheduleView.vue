@@ -563,12 +563,17 @@ const exportCalendar = async (mode = 'week') => {
   }
   exporting.value = true
   try {
-    const res = await axios.post(`${API_BASE}/v2/schedule/export_calendar`, {
+    const uploadEndpoint = String(localStorage.getItem('hbu_temp_upload_endpoint') || '').trim()
+    const payload = {
       student_id: props.studentId,
       semester: semester.value,
       week: selectedWeek.value,
       events
-    })
+    }
+    if (uploadEndpoint) {
+      payload.upload_endpoint = uploadEndpoint
+    }
+    const res = await axios.post(`${API_BASE}/v2/schedule/export_calendar`, payload)
     if (res.data?.success) {
       exportUrl.value = res.data.url || ''
       if (!exportUrl.value) {

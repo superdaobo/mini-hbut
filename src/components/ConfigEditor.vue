@@ -21,6 +21,10 @@ const defaultConfig = {
   ocr: {
     endpoint: '',
     enabled: true
+  },
+  temp_file_server: {
+    schedule_upload_endpoint: '',
+    enabled: true
   }
 }
 
@@ -62,6 +66,12 @@ const loadRemoteConfig = async () => {
   try {
     const remote = await fetchRemoteConfig()
     config.value = remote
+    if (!config.value.temp_file_server) {
+      config.value.temp_file_server = {
+        schedule_upload_endpoint: '',
+        enabled: true
+      }
+    }
     rawJson.value = JSON.stringify(remote, null, 2)
   } catch (e) {
     jsonError.value = '加载远程配置失败'
@@ -117,6 +127,17 @@ onMounted(() => {
         <label class="toggle">
           <input type="checkbox" v-model="config.ocr.enabled" />
           OCR 启用
+        </label>
+        <label>
+          课表临时文件上传地址
+          <input
+            v-model="config.temp_file_server.schedule_upload_endpoint"
+            placeholder="https://superdaobo-ocr-service.hf.space/api/temp/upload"
+          />
+        </label>
+        <label class="toggle">
+          <input type="checkbox" v-model="config.temp_file_server.enabled" />
+          临时文件服务器启用
         </label>
       </div>
     </section>

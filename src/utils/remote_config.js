@@ -17,6 +17,10 @@ const DEFAULT_CONFIG = {
     endpoint: '',
     enabled: true
   },
+  temp_file_server: {
+    schedule_upload_endpoint: '',
+    enabled: true
+  },
   ai_models: [],
   config_admin_ids: []
 }
@@ -44,6 +48,13 @@ export function normalizeRemoteConfig(raw) {
     ocr: {
       endpoint: cfg.ocr?.endpoint || '',
       enabled: cfg.ocr?.enabled !== false
+    },
+    temp_file_server: {
+      schedule_upload_endpoint:
+        cfg.temp_file_server?.schedule_upload_endpoint ||
+        cfg.temp_file_server?.upload_endpoint ||
+        '',
+      enabled: cfg.temp_file_server?.enabled !== false
     },
     ai_models: Array.isArray(cfg.ai_models) ? cfg.ai_models : [],
     config_admin_ids: Array.isArray(cfg.config_admin_ids) ? cfg.config_admin_ids : []

@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Main capability for Mini-HBUT window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "notification:allow-request-permission",
+    "notification:allow-is-permission-granted",
+    "notification:allow-notify",
+    "notification:allow-create-channel",
+    "notification:allow-list-channels",
+    "shell:default"
+  ]
+}

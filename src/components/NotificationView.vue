@@ -29,6 +29,24 @@ const statusMessage = ref('')
 const lastError = ref('')
 const sending = ref(false)
 
+const isAclDeniedError = (err) => {
+  const text = String(err || '')
+  return text.includes('not allowed by ACL') || text.includes('plugin:notification')
+}
+
+const getNativePermissionState = async (requestNow = false) => {
+  try {
+    if (requestNow) {
+      const state = await invoke('request_notification_permission_native')
+      return String(state || 'default')
+    }
+    const state = await invoke('get_notification_permission_native')
+    return String(state || 'default')
+  } catch (error) {
+    throw new Error(String(error))
+  }
+}
+
 const isAndroid = () => /Android/i.test(navigator.userAgent)
 const isTauriRuntime = () => {
   try {
@@ -71,6 +89,23 @@ const updatePermissionState = async (requestNow = false) => {
     permissionState.value = 'default'
     return false
   } catch (error) {
+    if (isAclDeniedError(error)) {
+      try {
+        const nativeState = await getNativePermissionState(requestNow)
+        permissionState.value = nativeState
+        const granted = nativeState === 'granted'
+        if (requestNow) {
+          statusMessage.value = granted ? '通知权限已授权。' : '通知权限未授权，请在系统设置中允许通知。'
+        }
+        return granted
+      } catch (nativeErr) {
+        permissionState.value = 'denied'
+        lastError.value = String(nativeErr)
+        statusMessage.value = `查询通知权限失败：${lastError.value}`
+        return false
+      }
+    }
+
     permissionState.value = 'denied'
     lastError.value = String(error)
     statusMessage.value = `查询通知权限失败：${lastError.value}`
@@ -170,11 +205,17 @@ const handleTestNotification = async () => {
 
     await ensureAndroidChannel()
 
-    sendNotification({
-      channelId: 'hbut-default',
-      title: 'Mini-HBUT',
-      body: '这是一个测试通知，用于验证通知权限和推送能力。'
-    })
+    try {
+      await sendNotification({
+        channelId: 'hbut-default',
+        title: 'Mini-HBUT',
+        body: '这是一个测试通知，用于验证通知权限和推送能力。'
+      })
+    } catch (notifyError) {
+      if (!isAclDeniedError(notifyError)) {
+        throw notifyError
+      }
+    }
 
     // Rust 侧兜底：确保桌面端和部分移动环境都能触发系统通知。
     await invoke('send_test_notification_native', {
