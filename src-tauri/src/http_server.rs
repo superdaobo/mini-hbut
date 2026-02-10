@@ -116,10 +116,12 @@ fn is_allowed_cache_table(table: &str) -> bool {
             | "classroom_cache"
             | "electricity_cache"
             | "transaction_cache"
+            | "student_login_access_cache"
             | "calendar_public_cache"
             | "classroom_public_cache"
             | "semesters_public_cache"
             | "qxzkb_public_cache"
+            | "library_public_cache"
     )
 }
 
@@ -284,6 +286,18 @@ struct QxzkbKkjysRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct LibrarySearchRequest {
+    params: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct LibraryDetailRequest {
+    title: String,
+    isbn: String,
+    record_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ElectricityRequest {
     payload: serde_json::Value,
 }
@@ -346,6 +360,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/fetch_exams", post(fetch_exams))
         .route("/fetch_ranking", post(fetch_ranking))
         .route("/fetch_student_info", post(fetch_student_info))
+        .route("/fetch_personal_login_access_info", post(fetch_personal_login_access_info))
         .route("/fetch_semesters", post(fetch_semesters))
         .route("/fetch_classroom_buildings", post(fetch_classroom_buildings))
         .route("/fetch_classrooms", post(fetch_classrooms))
@@ -362,6 +377,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/qxzkb/zyxx", post(fetch_qxzkb_zyxx))
         .route("/qxzkb/kkjys", post(fetch_qxzkb_kkjys))
         .route("/qxzkb/query", post(fetch_qxzkb_list))
+        .route("/library/dict", post(fetch_library_dict))
+        .route("/library/search", post(search_library_books))
+        .route("/library/detail", post(fetch_library_book_detail))
         .route("/electricity_query_location", post(electricity_query_location))
         .route("/electricity_query_account", post(electricity_query_account))
         .route("/fetch_transaction_history", post(fetch_transaction_history))
@@ -706,6 +724,13 @@ async fn fetch_student_info(State(state): State<HttpState>) -> Result<Json<ApiRe
         .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
 }
 
+async fn fetch_personal_login_access_info(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    client.fetch_personal_login_access_info().await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "请求失败", e.to_string()))
+}
+
 async fn fetch_semesters(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     client.fetch_semesters().await
@@ -913,6 +938,41 @@ async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<Qxzk
     client.fetch_qxzkb_list(&params).await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "ä¸å¡éè¯¯", e.to_string()))
+}
+
+async fn fetch_library_dict(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    client
+        .fetch_library_dict()
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn search_library_books(
+    State(state): State<HttpState>,
+    Json(req): Json<LibrarySearchRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    client
+        .search_library_books(req.params)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_library_book_detail(
+    State(state): State<HttpState>,
+    Json(req): Json<LibraryDetailRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    client
+        .fetch_library_book_detail(&req.title, &req.isbn, req.record_id)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn electricity_query_location(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {

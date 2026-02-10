@@ -30,6 +30,7 @@ mod session;
 mod academic;
 mod electricity;
 mod qxzkb;
+mod library;
 mod ai;
 mod utils;
 

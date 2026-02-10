@@ -115,11 +115,13 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "classroom_cache",
         "electricity_cache",
         "transaction_cache",
+        "student_login_access_cache",
         "calendar_public_cache",   // public
 
         "classroom_public_cache",  // public
         "semesters_public_cache",  // public
         "qxzkb_public_cache",      // public
+        "library_public_cache",    // public
     ];
 
     for table in cache_tables {

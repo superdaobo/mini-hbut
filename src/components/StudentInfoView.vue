@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
@@ -14,100 +14,276 @@ const emit = defineEmits(['back', 'logout'])
 
 const loading = ref(true)
 const error = ref('')
+const infoError = ref('')
+const accessError = ref('')
+const activeTab = ref('basic')
 const info = ref(null)
+const loginAccess = ref({ current_login: {}, app_access_records: [] })
 const offline = ref(false)
 const syncTime = ref('')
 
-const fetchInfo = async () => {
-  loading.value = true
-  error.value = ''
-  
-  try {
-    const { data } = await fetchWithCache(`studentinfo:${props.studentId}`, async () => {
-      const res = await axios.post(`${API_BASE}/v2/student_info`, {
-        student_id: props.studentId
-      })
-      return res.data
-    }, EXTRA_LONG_TTL)
-    
-    if (data?.success) {
-      info.value = data.data
-      offline.value = !!data.offline
-      syncTime.value = data.sync_time || ''
-    } else {
-      error.value = data?.error || '获取信息失败'
-    }
-  } catch (e) {
-    error.value = e.response?.data?.error || '网络错误'
-  } finally {
-    loading.value = false
+const fieldLabels = [
+  { key: 'student_id', label: '学号' },
+  { key: 'name', label: '姓名' },
+  { key: 'gender', label: '性别' },
+  { key: 'grade', label: '年级' },
+  { key: 'college', label: '学院' },
+  { key: 'major', label: '专业' },
+  { key: 'class_name', label: '班级' },
+  { key: 'id_number', label: '身份证号' },
+  { key: 'ethnicity', label: '民族' },
+  { key: 'birth_date', label: '出生日期' },
+  { key: 'phone', label: '手机号' },
+  { key: 'email', label: '邮箱' }
+]
+
+const normalizeString = (value, fallback = '-') => {
+  if (value === null || value === undefined) return fallback
+  const text = String(value).trim()
+  return text || fallback
+}
+
+const normalizeLoginAccess = (payload) => {
+  const data = payload && typeof payload === 'object' ? payload : {}
+  const current = data.current_login && typeof data.current_login === 'object' ? data.current_login : {}
+  const recordsRaw = Array.isArray(data.app_access_records) ? data.app_access_records : []
+
+  return {
+    current_login: {
+      client_ip: normalizeString(current.client_ip ?? current.clientIp ?? current.ip),
+      ip_location: normalizeString(current.ip_location ?? current.ipLocation ?? current.location, '未知'),
+      login_time: normalizeString(current.login_time ?? current.loginTime ?? current.last_login_time),
+      browser: normalizeString(current.browser ?? current.browser_name ?? current.client_browser)
+    },
+    app_access_records: recordsRaw.map((item, index) => ({
+      id: `${normalizeString(item.app_name ?? item.appName ?? item.title ?? item.name, 'app')}-${index}`,
+      app_name: normalizeString(item.app_name ?? item.appName ?? item.title ?? item.name),
+      access_time: normalizeString(item.access_time ?? item.accessTime ?? item.time),
+      auth_result: normalizeString(item.auth_result ?? item.authResult ?? item.status, '未知'),
+      browser: normalizeString(item.browser),
+      link_url: typeof item.link_url === 'string' ? item.link_url : ''
+    }))
   }
 }
 
-onMounted(() => {
-  fetchInfo()
+const fetchStudentInfo = async () => {
+  try {
+    const { data } = await fetchWithCache(
+      `studentinfo:${props.studentId}`,
+      async () => {
+        const res = await axios.post(`${API_BASE}/v2/student_info`, {
+          student_id: props.studentId
+        })
+        return res.data
+      },
+      EXTRA_LONG_TTL
+    )
+
+    if (data?.success) {
+      info.value = data.data || {}
+      infoError.value = ''
+      return data
+    }
+
+    infoError.value = data?.error || '获取基本信息失败'
+    return null
+  } catch (e) {
+    infoError.value = e.response?.data?.error || '获取基本信息失败'
+    return null
+  }
+}
+
+const fetchLoginAccess = async () => {
+  try {
+    const { data } = await fetchWithCache(`student-login-access:${props.studentId}`, async () => {
+      const res = await axios.post(`${API_BASE}/v2/student_login_access`, {
+        student_id: props.studentId
+      })
+      return res.data
+    })
+
+    if (data?.success) {
+      loginAccess.value = normalizeLoginAccess(data.data)
+      accessError.value = ''
+      return data
+    }
+
+    accessError.value = data?.error || '获取登录记录失败'
+    return null
+  } catch (e) {
+    accessError.value = e.response?.data?.error || '获取登录记录失败'
+    return null
+  }
+}
+
+const refreshData = async () => {
+  loading.value = true
+  error.value = ''
+
+  const [basicRes, accessRes] = await Promise.all([
+    fetchStudentInfo(),
+    fetchLoginAccess()
+  ])
+
+  offline.value = !!(basicRes?.offline || accessRes?.offline)
+  const timeList = [basicRes?.sync_time, accessRes?.sync_time].filter(Boolean)
+  syncTime.value = timeList.length ? timeList.sort().at(-1) : ''
+
+  if (!basicRes && !accessRes) {
+    error.value = '个人信息与登录记录均获取失败'
+  }
+
+  loading.value = false
+}
+
+const basicRows = computed(() => {
+  return fieldLabels.map((item) => ({
+    label: item.label,
+    value: normalizeString(info.value?.[item.key])
+  }))
 })
 
-// 信息字段映射
-const fieldLabels = {
-  student_id: '学号',
-  name: '姓名',
-  gender: '性别',
-  id_number: '身份证号',
-  ethnicity: '民族',
-  grade: '年级',
-  college: '学院',
-  major: '专业',
-  class_name: '班级',
-  education_level: '培养层次',
-  study_years: '学制'
+const currentLogin = computed(() => {
+  return loginAccess.value?.current_login || {}
+})
+
+const appAccessRecords = computed(() => {
+  return Array.isArray(loginAccess.value?.app_access_records)
+    ? loginAccess.value.app_access_records
+    : []
+})
+
+const canShowContent = computed(() => {
+  return !!info.value || appAccessRecords.value.length > 0 || !!currentLogin.value?.client_ip
+})
+
+const authResultClass = (text) => {
+  const value = String(text || '').toLowerCase()
+  if (value.includes('成功') || value.includes('success') || value.includes('已认证')) return 'success'
+  if (value.includes('失败') || value.includes('fail') || value.includes('拒绝')) return 'fail'
+  return 'neutral'
 }
+
+onMounted(() => {
+  refreshData()
+})
 </script>
 
 <template>
   <div class="student-info-view">
-    <!-- 头部 -->
     <header class="view-header">
-      <button class="back-btn" @click="emit('back')">
-        ← 返回
-      </button>
-      <h1>👤 个人信息</h1>
+      <button class="back-btn" @click="emit('back')">← 返回</button>
+      <h1>个人信息</h1>
       <button class="logout-btn" @click="emit('logout')">退出</button>
     </header>
 
     <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      当前显示离线数据，更新于 {{ formatRelativeTime(syncTime) }}
     </div>
 
-    <!-- 内容区 -->
     <div class="view-content">
-      <!-- 加载中 -->
       <div v-if="loading" class="loading-state">
         <div class="spinner"></div>
-        <p>正在获取个人信息...</p>
+        <p>正在加载个人信息与访问记录...</p>
       </div>
 
-      <!-- 错误状态 -->
-      <div v-else-if="error" class="error-state">
-        <div class="error-icon">❌</div>
+      <div v-else-if="error && !canShowContent" class="error-state">
+        <div class="error-icon">✕</div>
         <p>{{ error }}</p>
-        <button @click="fetchInfo">重试</button>
+        <button @click="refreshData">重试</button>
       </div>
 
-      <!-- 信息卡片 -->
-      <div v-else-if="info" class="info-card">
-        <div class="avatar-section">
-          <div class="avatar">{{ info.name?.charAt(0) || '?' }}</div>
-          <h2>{{ info.name }}</h2>
-          <p class="student-id-badge">{{ info.student_id }}</p>
-        </div>
-        
-        <div class="info-grid">
-          <div v-for="(label, key) in fieldLabels" :key="key" class="info-item">
-            <span class="label">{{ label }}</span>
-            <span class="value">{{ info[key] || '-' }}</span>
+      <div v-else class="panel-stack">
+        <nav class="tab-nav">
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'basic' }"
+            @click="activeTab = 'basic'"
+          >
+            基本信息
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'login' }"
+            @click="activeTab = 'login'"
+          >
+            当前登录
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'access' }"
+            @click="activeTab = 'access'"
+          >
+            应用访问
+          </button>
+        </nav>
+
+        <section v-show="activeTab === 'basic'" class="surface-card">
+          <div v-if="info" class="profile-top">
+            <div class="avatar">{{ info.name?.charAt(0) || '?' }}</div>
+            <div class="profile-meta">
+              <h2>{{ normalizeString(info.name) }}</h2>
+              <p class="student-id">{{ normalizeString(info.student_id) }}</p>
+            </div>
           </div>
-        </div>
+          <div v-if="infoError" class="inline-error">{{ infoError }}</div>
+          <div class="info-grid">
+            <article v-for="row in basicRows" :key="row.label" class="info-item">
+              <span class="label">{{ row.label }}</span>
+              <span class="value">{{ row.value }}</span>
+            </article>
+          </div>
+        </section>
+
+        <section v-show="activeTab === 'login'" class="surface-card">
+          <div v-if="accessError" class="inline-error">{{ accessError }}</div>
+          <div class="metric-grid">
+            <article class="metric-item">
+              <span class="label">客户端 IP</span>
+              <span class="value">{{ normalizeString(currentLogin.client_ip) }}</span>
+            </article>
+            <article class="metric-item">
+              <span class="label">IP 归属地</span>
+              <span class="value">{{ normalizeString(currentLogin.ip_location, '未知') }}</span>
+            </article>
+            <article class="metric-item">
+              <span class="label">登录时间</span>
+              <span class="value">{{ normalizeString(currentLogin.login_time) }}</span>
+            </article>
+            <article class="metric-item">
+              <span class="label">浏览器</span>
+              <span class="value">{{ normalizeString(currentLogin.browser) }}</span>
+            </article>
+          </div>
+        </section>
+
+        <section v-show="activeTab === 'access'" class="surface-card">
+          <div v-if="appAccessRecords.length === 0" class="empty-state">
+            <div class="empty-icon">🗂</div>
+            <p>暂无应用访问记录</p>
+          </div>
+
+          <div v-else class="records-grid">
+            <article v-for="record in appAccessRecords" :key="record.id" class="record-card">
+              <div class="record-head">
+                <h3>{{ record.app_name }}</h3>
+                <span class="auth-badge" :class="authResultClass(record.auth_result)">
+                  {{ record.auth_result }}
+                </span>
+              </div>
+              <div class="record-meta">
+                <div class="meta-row">
+                  <span class="label">访问时间</span>
+                  <span class="value">{{ record.access_time }}</span>
+                </div>
+                <div class="meta-row">
+                  <span class="label">浏览器</span>
+                  <span class="value">{{ record.browser }}</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -116,8 +292,9 @@ const fieldLabels = {
 <style scoped>
 .student-info-view {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--ui-bg-gradient);
   padding: 20px;
+  color: var(--ui-text);
 }
 
 .view-header {
@@ -125,21 +302,21 @@ const fieldLabels = {
   justify-content: space-between;
   align-items: center;
   padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  margin-bottom: 24px;
+  box-shadow: var(--ui-shadow-soft);
+  margin-bottom: 16px;
 }
 
 .view-header h1 {
-  font-size: 20px;
   margin: 0;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-size: 20px;
+  color: var(--ui-text);
 }
 
-.back-btn, .logout-btn {
+.back-btn,
+.logout-btn {
   padding: 8px 16px;
   border-radius: 8px;
   border: none;
@@ -149,13 +326,13 @@ const fieldLabels = {
 }
 
 .back-btn {
-  background: #f0f4ff;
-  color: #667eea;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
 }
 
 .back-btn:hover {
-  background: #667eea;
-  color: white;
+  background: var(--ui-primary);
+  color: #ffffff;
 }
 
 .logout-btn {
@@ -165,60 +342,12 @@ const fieldLabels = {
 
 .logout-btn:hover {
   background: #dc2626;
-  color: white;
-}
-
-.view-content {
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.loading-state, .error-state {
-  text-align: center;
-  padding: 60px 20px;
-  background: white;
-  border-radius: 20px;
-  color: #374151;
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #e5e7eb;
-  border-top-color: #667eea;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.error-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.error-state button {
-  margin-top: 16px;
-  padding: 10px 24px;
-  background: #667eea;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.info-card {
-  background: white;
-  border-radius: 20px;
-  padding: 32px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  color: #ffffff;
 }
 
 .offline-banner {
-  margin: 12px 0 0;
+  margin: 12px auto 0;
+  max-width: 1024px;
   padding: 10px 14px;
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.4);
@@ -226,76 +355,283 @@ const fieldLabels = {
   border-radius: 12px;
   font-weight: 600;
 }
-.avatar-section {
-  text-align: center;
-  margin-bottom: 32px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #e5e7eb;
+
+.view-content {
+  max-width: 1024px;
+  margin: 16px auto 0;
 }
 
-.avatar {
-  width: 80px;
-  height: 80px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
-  font-size: 36px;
-  font-weight: bold;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.loading-state,
+.error-state,
+.empty-state {
+  text-align: center;
+  padding: 56px 24px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 16px;
+  box-shadow: var(--ui-shadow-soft);
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(148, 163, 184, 0.28);
+  border-top-color: var(--ui-primary);
   border-radius: 50%;
+  animation: spin 1s linear infinite;
   margin: 0 auto 16px;
 }
 
-.avatar-section h2 {
-  margin: 0 0 8px;
-  font-size: 24px;
-  color: #1f2937;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.student-id-badge {
-  display: inline-block;
-  padding: 6px 16px;
-  background: #f0f4ff;
-  color: #667eea;
-  border-radius: 20px;
+.error-icon,
+.empty-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+}
+
+.error-state button {
+  margin-top: 14px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--ui-primary);
+  color: #ffffff;
+}
+
+.panel-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.tab-nav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 10px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 14px;
+  box-shadow: var(--ui-shadow-soft);
+}
+
+.tab-btn {
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ui-muted);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  padding: 10px 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn.active {
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+}
+
+.surface-card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 16px;
+  box-shadow: var(--ui-shadow-soft);
+  padding: 22px;
+}
+
+.profile-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.avatar {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--ui-primary), #22d3ee);
+}
+
+.profile-meta h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.student-id {
+  margin: 6px 0 0;
+  color: var(--ui-muted);
+  font-size: 14px;
+}
+
+.inline-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.info-item {
+.info-item,
+.metric-item {
   display: flex;
   flex-direction: column;
+  gap: 6px;
   padding: 12px;
-  background: #f9fafb;
   border-radius: 12px;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid var(--ui-surface-border);
 }
 
-.info-item .label {
+.label {
+  color: var(--ui-muted);
   font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 4px;
 }
 
-.info-item .value {
+.value {
+  color: var(--ui-text);
   font-size: 15px;
-  color: #1f2937;
-  font-weight: 500;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.records-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.record-card {
+  border-radius: 12px;
+  border: 1px solid var(--ui-surface-border);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 14px;
+}
+
+.record-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.record-head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ui-text);
+}
+
+.auth-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auth-badge.success {
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+
+.auth-badge.fail {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+}
+
+.auth-badge.neutral {
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--ui-primary);
+}
+
+.record-meta {
+  display: grid;
+  gap: 8px;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+
+.meta-row .value {
+  text-align: right;
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .info-grid,
+  .metric-grid,
+  .records-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
-  .info-grid {
+  .student-info-view {
+    padding: 14px;
+  }
+
+  .view-header {
+    padding: 12px;
+  }
+
+  .view-header h1 {
+    font-size: 17px;
+  }
+
+  .back-btn,
+  .logout-btn {
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+
+  .tab-nav {
     grid-template-columns: 1fr;
   }
-  
-  .view-header h1 {
-    font-size: 16px;
+
+  .surface-card {
+    padding: 16px;
+  }
+
+  .profile-top {
+    align-items: flex-start;
+  }
+
+  .profile-meta h2 {
+    font-size: 20px;
   }
 }
 </style>

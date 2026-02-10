@@ -26,6 +26,7 @@ import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
 import AiChatView from './components/AiChatView.vue'
 import CampusMapView from './components/CampusMapView.vue'
+import LibraryView from './components/LibraryView.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
@@ -974,6 +975,14 @@ onBeforeUnmount(() => {
       <!-- 校园地图 -->
       <CampusMapView
         v-else-if="currentView === 'campus_map'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
+      />
+
+      <!-- 图书查询 -->
+      <LibraryView
+        v-else-if="currentView === 'library'"
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"

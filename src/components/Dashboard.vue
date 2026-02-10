@@ -288,6 +288,15 @@ const modules = [
     requiresLogin: true
   },
   {
+    id: 'library',
+    name: '图书查询',
+    icon: '📖',
+    color: '#0f766e',
+    desc: '馆藏检索与定位',
+    available: true,
+    requiresLogin: true
+  },
+  {
     id: 'campus_map',
     name: '校园地图',
     icon: '🗺️',

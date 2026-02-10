@@ -1,4 +1,4 @@
-﻿import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 
 const detectTauri = () => {
     try {
@@ -405,6 +405,19 @@ const adapter = {
                 }
             }
 
+            if (url.includes('/v2/student_login_access')) {
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/fetch_personal_login_access_info');
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_personal_login_access_info');
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             // ========== 绌烘暀瀹?==========
 
             if (url.includes('/v2/classroom/query')) {
@@ -505,6 +518,55 @@ const adapter = {
                     return mockResponse(courses);
                 } catch (err) {
                     console.error('[Axios Adapter] Training plan courses error:', err);
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            // ========== 图书查询 ==========
+            if (url.includes('/v2/library/dict')) {
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/library/dict', {});
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_library_dict');
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/library/search')) {
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/library/search', { params: data || {} });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('search_library_books', { params: data || {} });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/library/detail')) {
+                try {
+                    const payloadData = data || {};
+                    if (!hasTauri) {
+                        const res = await bridgePost('/library/detail', {
+                            title: payloadData.title || '',
+                            isbn: payloadData.isbn || '',
+                            record_id: payloadData.record_id ?? payloadData.recordId ?? null
+                        });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_library_book_detail', {
+                        title: payloadData.title || '',
+                        isbn: payloadData.isbn || '',
+                        recordId: payloadData.record_id ?? payloadData.recordId ?? null
+                    });
+                    return mockResponse(payload);
+                } catch (err) {
                     return mockResponse({ success: false, error: err.toString() });
                 }
             }

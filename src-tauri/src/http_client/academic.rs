@@ -1,4 +1,4 @@
-﻿//! 教务相关查询模块（成绩/课表/考试/排名/校历等）。
+//! 教务相关查询模块（成绩/课表/考试/排名/校历等）。
 //!
 //! 负责：
 //! - 学期、成绩、课表、考试、排名等核心教务数据
@@ -65,6 +65,143 @@ impl HbutClient {
             return Self::extract_semester_from_json(data);
         }
         None
+    }
+
+    fn to_json_string(value: Option<&serde_json::Value>) -> Option<String> {
+        match value {
+            Some(serde_json::Value::String(v)) => {
+                let trimmed = v.trim();
+                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            }
+            Some(serde_json::Value::Number(v)) => Some(v.to_string()),
+            Some(serde_json::Value::Bool(v)) => Some(v.to_string()),
+            _ => None,
+        }
+    }
+
+    fn pick_json_string(object: &serde_json::Value, keys: &[&str]) -> Option<String> {
+        for key in keys {
+            if let Some(v) = Self::to_json_string(object.get(*key)) {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    fn split_ip_and_location(raw: &str) -> (Option<String>, Option<String>) {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return (None, None);
+        }
+
+        let mut parts = trimmed.split_whitespace();
+        let first = parts.next().unwrap_or_default();
+        let is_ip_like = first
+            .chars()
+            .all(|ch| ch.is_ascii_hexdigit() || ch == '.' || ch == ':');
+        if is_ip_like {
+            let location = parts.collect::<Vec<_>>().join(" ").trim().to_string();
+            let location = if location.is_empty() { None } else { Some(location) };
+            return (Some(first.to_string()), location);
+        }
+
+        (Some(trimmed.to_string()), None)
+    }
+
+    fn find_card_wid_in_layout(node: &serde_json::Value, target_card_id: &str) -> Option<String> {
+        match node {
+            serde_json::Value::Object(map) => {
+                if map.get("cardId").and_then(|v| v.as_str()) == Some(target_card_id) {
+                    if let Some(card_wid) = map.get("cardWid").and_then(|v| v.as_str()) {
+                        let trimmed = card_wid.trim();
+                        if !trimmed.is_empty() {
+                            return Some(trimmed.to_string());
+                        }
+                    }
+                }
+
+                for value in map.values() {
+                    if let Some(found) = Self::find_card_wid_in_layout(value, target_card_id) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            serde_json::Value::Array(list) => {
+                for item in list {
+                    if let Some(found) = Self::find_card_wid_in_layout(item, target_card_id) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    async fn ensure_portal_session(
+        &mut self,
+        service_url: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let response = self.client.get(service_url).send().await?;
+        let final_url = response.url().to_string();
+        if !final_url.contains("authserver/login") {
+            return Ok(());
+        }
+
+        let username = self
+            .last_username
+            .clone()
+            .or_else(|| self.user_info.as_ref().map(|u| u.student_id.clone()));
+        let password = self.last_password.clone();
+        let (username, password) = match (username, password) {
+            (Some(u), Some(p)) if !u.trim().is_empty() && !p.trim().is_empty() => (u, p),
+            _ => return Err("融合门户会话已过期，请重新登录".into()),
+        };
+
+        self.login_for_service(&username, &password, service_url).await?;
+
+        let verify = self.client.get(service_url).send().await?;
+        if verify.url().to_string().contains("authserver/login") {
+            return Err("融合门户会话已过期，请重新登录".into());
+        }
+        Ok(())
+    }
+
+    async fn fetch_portal_client_ip(&self) -> Option<String> {
+        let response = self.client.get("https://e.hbut.edu.cn/common/clientIp").send().await.ok()?;
+        let payload = response.json::<serde_json::Value>().await.ok()?;
+        Self::to_json_string(payload.get("data"))
+    }
+
+    async fn exec_portal_card_method(
+        &self,
+        card_wid: &str,
+        card_id: &str,
+        method: &str,
+        param: serde_json::Value,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("https://e.hbut.edu.cn/execCardMethod/{}/{}", card_wid, card_id);
+        let payload = serde_json::json!({
+            "cardId": card_id,
+            "cardWid": card_wid,
+            "method": method,
+            "param": param,
+            "n": chrono_timestamp().to_string()
+        });
+
+        let response = self.client.post(&url).json(&payload).send().await?;
+        let json: serde_json::Value = response.json().await?;
+        let errcode = json.get("errcode");
+        let ok = matches!(errcode, None | Some(serde_json::Value::Null))
+            || errcode.and_then(|v| v.as_i64()) == Some(0)
+            || errcode.and_then(|v| v.as_str()) == Some("0");
+        if !ok {
+            let err_msg = Self::to_json_string(json.get("errmsg")).unwrap_or_else(|| "未知错误".to_string());
+            return Err(format!("{} 调用失败: {}", method, err_msg).into());
+        }
+
+        Ok(json.get("data").cloned().unwrap_or_else(|| serde_json::json!(null)))
     }
 
     /// 拉取成绩列表
@@ -341,6 +478,193 @@ impl HbutClient {
         
         let html = response.text().await?;
         parser::parse_student_info_html(&html)
+    }
+
+    /// 拉取“当前登录 + 应用访问记录”（融合门户个人信息卡片）
+    pub async fn fetch_personal_login_access_info(&mut self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        const PORTAL_LOGIN_URL: &str = "https://e.hbut.edu.cn/login";
+        const PORTAL_HOME_URL: &str = "https://e.hbut.edu.cn/stu/index.html#/";
+        const CARD_ID: &str = "CUS_CARD_STUPERSONALDATA";
+        const DEFAULT_CARD_WID: &str = "9120396937204363";
+
+        self.ensure_portal_session(PORTAL_LOGIN_URL).await?;
+        let _ = self.client.get(PORTAL_HOME_URL).send().await;
+
+        let client_ip = self.fetch_portal_client_ip().await;
+        let mut card_wid = DEFAULT_CARD_WID.to_string();
+
+        let page_params = vec![
+            ("_t", chrono_timestamp().to_string()),
+            ("pageCode", "".to_string()),
+            ("originalUrl", urlencoding::encode(PORTAL_HOME_URL).to_string()),
+            ("lang", "zh_CN".to_string()),
+        ];
+        if let Ok(response) = self
+            .client
+            .get("https://e.hbut.edu.cn/getPageView")
+            .query(&page_params)
+            .send()
+            .await
+        {
+            if let Ok(page_json) = response.json::<serde_json::Value>().await {
+                if let Some(layout_str) = page_json
+                    .pointer("/data/pageContext/pageInfoEntity/cardLayout")
+                    .and_then(|v| v.as_str())
+                {
+                    if let Ok(layout_json) = serde_json::from_str::<serde_json::Value>(layout_str) {
+                        if let Some(found) = Self::find_card_wid_in_layout(&layout_json, CARD_ID) {
+                            card_wid = found;
+                        }
+                    }
+                }
+            }
+        }
+
+        let configured_result = self
+            .exec_portal_card_method(&card_wid, CARD_ID, "configuredData", serde_json::json!({ "lang": "zh_CN" }))
+            .await;
+        let list_result = self
+            .exec_portal_card_method(&card_wid, CARD_ID, "getPersonalDataList", serde_json::json!({ "lang": "zh_CN" }))
+            .await;
+        if configured_result.is_err() && list_result.is_err() {
+            let config_err = configured_result
+                .as_ref()
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            let list_err = list_result
+                .as_ref()
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            return Err(format!("获取个人信息卡片数据失败: {} | {}", config_err, list_err).into());
+        }
+
+        let configured_data = configured_result.unwrap_or_else(|_| serde_json::json!({}));
+        let list_data = list_result.unwrap_or_else(|_| serde_json::json!([]));
+
+        let mut records: Vec<serde_json::Value> = Vec::new();
+        if let Some(items) = list_data.as_array() {
+            for item in items {
+                let mut merged = item.clone();
+                let need_retrieve = item
+                    .get("needRetrieve")
+                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    .unwrap_or(0);
+                if need_retrieve == 1 {
+                    let wid = Self::pick_json_string(item, &["wid"]).unwrap_or_default();
+                    let extra_info = Self::pick_json_string(item, &["extraInfo"]).unwrap_or_default();
+                    if !wid.is_empty() {
+                        if let Ok(detail_data) = self
+                            .exec_portal_card_method(
+                                &card_wid,
+                                CARD_ID,
+                                "getPersonalDataDetail",
+                                serde_json::json!({
+                                    "wid": wid,
+                                    "extraInfo": extra_info
+                                }),
+                            )
+                            .await
+                        {
+                            if let (Some(base_obj), Some(detail_obj)) = (merged.as_object_mut(), detail_data.as_object()) {
+                                for (key, value) in detail_obj {
+                                    if !value.is_null() {
+                                        base_obj.insert(key.clone(), value.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let app_name = Self::pick_json_string(
+                    &merged,
+                    &["title", "name", "appName", "serviceName", "itemName", "bizDomain"],
+                )
+                .unwrap_or_else(|| "-".to_string());
+                let mut access_time = Self::pick_json_string(
+                    &merged,
+                    &["accessTime", "visitTime", "lastAccessTime", "authTime", "time"],
+                )
+                .unwrap_or_else(|| "-".to_string());
+                if access_time.trim().is_empty() {
+                    access_time = "-".to_string();
+                }
+
+                let mut auth_result = Self::pick_json_string(
+                    &merged,
+                    &["authResult", "authStatus", "verifyResult", "result", "status"],
+                );
+                if auth_result.is_none() {
+                    if let Some(text) = Self::pick_json_string(&merged, &["subInfo", "mainInfo", "extraInfo"]) {
+                        let lower = text.to_lowercase();
+                        if text.contains("成功") || lower.contains("success") {
+                            auth_result = Some("成功".to_string());
+                        } else if text.contains("失败") || lower.contains("fail") {
+                            auth_result = Some("失败".to_string());
+                        }
+                    }
+                }
+
+                records.push(serde_json::json!({
+                    "access_time": access_time,
+                    "app_name": app_name,
+                    "auth_result": auth_result.unwrap_or_else(|| "未知".to_string()),
+                    "browser": Self::pick_json_string(&merged, &["browser", "browserName", "clientBrowser", "lastLogBrowser"]).unwrap_or_else(|| "-".to_string()),
+                    "link_url": Self::pick_json_string(&merged, &["linkUrl", "url"]).unwrap_or_default(),
+                    "extra_info": Self::pick_json_string(&merged, &["extraInfo"]).unwrap_or_default()
+                }));
+            }
+        }
+
+        let mut login_ip = Self::pick_json_string(&configured_data, &["lastLogIp", "lastLoginIp", "loginIp"]);
+        let mut ip_location = Self::pick_json_string(
+            &configured_data,
+            &["lastLogIpLocation", "lastLogArea", "lastLogAddress", "ipLocation", "location"],
+        );
+        if login_ip.is_none() {
+            login_ip = client_ip.clone();
+        }
+        if let Some(raw_ip) = login_ip.clone() {
+            let (normalized_ip, parsed_location) = Self::split_ip_and_location(&raw_ip);
+            if normalized_ip.is_some() {
+                login_ip = normalized_ip;
+            }
+            if ip_location.is_none() && parsed_location.is_some() {
+                ip_location = parsed_location;
+            }
+        }
+        let login_time = Self::pick_json_string(&configured_data, &["lastLogTime", "lastLoginTime", "loginTime"])
+            .unwrap_or_else(|| "-".to_string());
+        let mut browser = Self::pick_json_string(
+            &configured_data,
+            &["lastLogBrowser", "lastLoginBrowser", "browser", "browserName", "clientBrowser"],
+        );
+        if browser.is_none() {
+            browser = records
+                .iter()
+                .find_map(|item| item.get("browser").and_then(|v| v.as_str()))
+                .map(|s| s.to_string())
+                .filter(|s| !s.trim().is_empty() && s != "-");
+        }
+
+        Ok(serde_json::json!({
+            "success": true,
+            "data": {
+                "current_login": {
+                    "client_ip": login_ip.or(client_ip).unwrap_or_else(|| "-".to_string()),
+                    "ip_location": ip_location.unwrap_or_else(|| "未知".to_string()),
+                    "login_time": login_time,
+                    "browser": browser.unwrap_or_else(|| "-".to_string())
+                },
+                "app_access_records": records,
+                "meta": {
+                    "card_id": CARD_ID,
+                    "card_wid": card_wid
+                }
+            }
+        }))
     }
 
     /// 拉取学期列表

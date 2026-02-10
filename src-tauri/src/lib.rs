@@ -229,6 +229,11 @@ pub struct ScheduleExportRequest {
     pub ttl_seconds: Option<i64>,
 }
 
+fn build_public_cache_key(prefix: &str, payload: &str) -> String {
+    let encoded = general_purpose::STANDARD.encode(payload.as_bytes());
+    format!("{}:{}", prefix, encoded)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QxzkbQuery {
     pub xnxq: String,
@@ -1415,6 +1420,35 @@ async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Va
 }
 
 #[tauri::command]
+async fn fetch_personal_login_access_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let uid = client
+        .user_info
+        .as_ref()
+        .map(|u| u.student_id.clone())
+        .or_else(|| client.last_username.clone());
+
+    match client.fetch_personal_login_access_info().await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            if let Some(uid) = &uid {
+                let _ = db::save_cache(DB_FILENAME, "student_login_access_cache", uid, &payload);
+            }
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Some(uid) = &uid {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "student_login_access_cache", uid) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
 async fn fetch_semesters(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     match client.fetch_semesters().await {
@@ -1819,6 +1853,78 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
 }
 
 #[tauri::command]
+async fn fetch_library_dict(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let cache_key = "dict";
+    match client.fetch_library_dict().await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "library_public_cache", cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "library_public_cache", cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn search_library_books(
+    state: State<'_, AppState>,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let raw = params.to_string();
+    let cache_key = build_public_cache_key("search", &raw);
+
+    match client.search_library_books(params).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "library_public_cache", &cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "library_public_cache", &cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
+async fn fetch_library_book_detail(
+    state: State<'_, AppState>,
+    title: String,
+    isbn: String,
+    record_id: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let raw = format!("{}|{}|{}", title, isbn, record_id.unwrap_or_default());
+    let cache_key = build_public_cache_key("detail", &raw);
+
+    match client.fetch_library_book_detail(&title, &isbn, record_id).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            let payload = attach_sync_time(data, &sync_time, false);
+            let _ = db::save_cache(DB_FILENAME, "library_public_cache", &cache_key, &payload);
+            Ok(payload)
+        }
+        Err(e) => {
+            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "library_public_cache", &cache_key) {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Err(e.to_string())
+        }
+    }
+}
+
+#[tauri::command]
 async fn electricity_query_location(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
     let mut client = state.client.lock().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
@@ -2161,6 +2267,7 @@ pub fn run() {
             fetch_exams,
             fetch_ranking,
             fetch_student_info,
+            fetch_personal_login_access_info,
             fetch_semesters,
             fetch_classroom_buildings,
             fetch_classrooms,
@@ -2175,6 +2282,9 @@ pub fn run() {
             fetch_qxzkb_zyxx,
             fetch_qxzkb_kkjys,
             fetch_qxzkb_list,
+            fetch_library_dict,
+            search_library_books,
+            fetch_library_book_detail,
             electricity_query_location,
             electricity_query_account,
             refresh_electricity_token,
