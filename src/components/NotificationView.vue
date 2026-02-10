@@ -1,23 +1,107 @@
-<script setup>
-import { ref, onMounted } from 'vue'
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
+﻿<script setup>
+import { computed, onMounted, ref } from 'vue'
+import { invoke, isTauri } from '@tauri-apps/api/core'
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+  channels,
+  createChannel,
+  Importance,
+  Visibility
+} from '@tauri-apps/plugin-notification'
 import hbutLogo from '../assets/hbut-logo.png'
 import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
-
-const enableBackground = ref(false)
-const enableExamReminders = ref(true)
-const checkInterval = ref(30)
-const showBatteryPrompt = ref(false)
-const permissionGranted = ref(false)
-const backgroundLockEnabled = ref(false)
-const backgroundLockSource = ref('')
 
 const props = defineProps({
   studentId: String
 })
 
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window
+const enableBackground = ref(false)
+const enableExamReminders = ref(true)
+const checkInterval = ref(30)
+const showBatteryPrompt = ref(false)
+const backgroundLockEnabled = ref(false)
+const backgroundLockSource = ref('')
+
+const permissionState = ref('unknown')
+const statusMessage = ref('')
+const lastError = ref('')
+const sending = ref(false)
+
 const isAndroid = () => /Android/i.test(navigator.userAgent)
+const isTauriRuntime = () => {
+  try {
+    return isTauri()
+  } catch {
+    return false
+  }
+}
+
+const permissionLabel = computed(() => {
+  if (permissionState.value === 'granted') return '已授权'
+  if (permissionState.value === 'denied') return '已拒绝'
+  if (permissionState.value === 'default') return '未授权'
+  if (permissionState.value === 'unsupported') return '当前环境不支持'
+  return '未知'
+})
+
+const updatePermissionState = async (requestNow = false) => {
+  if (!isTauriRuntime()) {
+    permissionState.value = 'unsupported'
+    statusMessage.value = '仅在 Tauri 应用内支持系统通知。'
+    return false
+  }
+
+  try {
+    let granted = await isPermissionGranted()
+    if (granted) {
+      permissionState.value = 'granted'
+      return true
+    }
+
+    if (requestNow) {
+      const result = await requestPermission()
+      permissionState.value = result
+      granted = result === 'granted'
+      statusMessage.value = granted ? '通知权限已授权。' : '通知权限未授权，请在系统设置中允许通知。'
+      return granted
+    }
+
+    permissionState.value = 'default'
+    return false
+  } catch (error) {
+    permissionState.value = 'denied'
+    lastError.value = String(error)
+    statusMessage.value = `查询通知权限失败：${lastError.value}`
+    return false
+  }
+}
+
+const ensureAndroidChannel = async () => {
+  if (!isTauriRuntime() || !isAndroid()) return
+
+  try {
+    const list = await channels()
+    const exists = list.some((item) => item.id === 'hbut-default')
+    if (!exists) {
+      await createChannel({
+        id: 'hbut-default',
+        name: 'Mini-HBUT 通知',
+        description: '课程、考试与系统提醒',
+        importance: Importance.High,
+        visibility: Visibility.Private
+      })
+    }
+  } catch (error) {
+    lastError.value = String(error)
+  }
+}
+
+const handleRequestPermission = async () => {
+  statusMessage.value = ''
+  await updatePermissionState(true)
+}
 
 onMounted(async () => {
   const savedBg = localStorage.getItem('hbu_notify_bg')
@@ -31,16 +115,10 @@ onMounted(async () => {
     checkInterval.value = savedInterval
   }
 
-  if (!isTauri()) return
+  await updatePermissionState(true)
+  await ensureAndroidChannel()
 
-  let granted = await isPermissionGranted()
-  if (!granted) {
-    const permission = await requestPermission()
-    granted = permission === 'granted'
-  }
-  permissionGranted.value = granted
-
-  if (enableBackground.value) {
+  if (enableBackground.value && isTauriRuntime()) {
     const result = await enableBackgroundPowerLock()
     backgroundLockEnabled.value = result.enabled
     backgroundLockSource.value = result.source.join(' + ')
@@ -49,8 +127,7 @@ onMounted(async () => {
 
 const handleBackgroundToggle = async () => {
   localStorage.setItem('hbu_notify_bg', enableBackground.value ? 'true' : 'false')
-
-  if (!isTauri()) return
+  if (!isTauriRuntime()) return
 
   if (enableBackground.value) {
     const result = await enableBackgroundPowerLock()
@@ -75,20 +152,42 @@ const cancelBatterySettings = () => {
 }
 
 const handleTestNotification = async () => {
-  if (!isTauri()) return
-
-  let granted = await isPermissionGranted()
-  if (!granted) {
-    const permission = await requestPermission()
-    granted = permission === 'granted'
+  if (!isTauriRuntime()) {
+    statusMessage.value = '当前不是 Tauri 运行环境，无法发送系统通知。'
+    return
   }
-  permissionGranted.value = granted
 
-  if (granted) {
+  sending.value = true
+  statusMessage.value = ''
+  lastError.value = ''
+
+  try {
+    const granted = await updatePermissionState(true)
+    if (!granted) {
+      statusMessage.value = '通知权限未授权，测试通知未发送。'
+      return
+    }
+
+    await ensureAndroidChannel()
+
     sendNotification({
+      channelId: 'hbut-default',
       title: 'Mini-HBUT',
       body: '这是一个测试通知，用于验证通知权限和推送能力。'
     })
+
+    // Rust 侧兜底：确保桌面端和部分移动环境都能触发系统通知。
+    await invoke('send_test_notification_native', {
+      title: 'Mini-HBUT',
+      body: '这是一个测试通知（Rust 兜底通道）。'
+    })
+
+    statusMessage.value = '测试通知已发送，请查看系统通知栏。'
+  } catch (error) {
+    lastError.value = String(error)
+    statusMessage.value = `发送测试通知失败：${lastError.value}`
+  } finally {
+    sending.value = false
   }
 }
 
@@ -107,20 +206,22 @@ const saveSettings = () => {
         <span class="page-tag">通知</span>
       </div>
       <div class="user-info">
-        <span class="student-id">👤 {{ props.studentId || '未登录' }}</span>
+        <span class="student-id">👁 {{ props.studentId || '未登录' }}</span>
         <button class="header-btn btn-ripple" @click="$emit('back')">返回</button>
       </div>
     </header>
 
     <div class="content-card">
-      <div class="content-title">
-        通知权限：{{ permissionGranted ? '已授权' : '未授权' }}
+      <div class="content-title">通知权限：{{ permissionLabel }}</div>
+
+      <div class="actions actions-left" style="margin-top: 0;">
+        <button class="btn-primary" @click="handleRequestPermission">请求通知权限</button>
       </div>
 
       <div class="setting-item">
         <div class="setting-label">
           <h3>后台自动检查</h3>
-          <p>启用后保持设备常亮/阻止休眠（移动端保活，尽量降低被系统挂起概率）</p>
+          <p>开启后尽量保持设备活跃，降低移动端被系统回收导致通知丢失的概率。</p>
         </div>
         <label class="switch">
           <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle">
@@ -131,7 +232,7 @@ const saveSettings = () => {
       <div class="setting-item">
         <div class="setting-label">
           <h3>考试前一天提醒</h3>
-          <p>如果明日有考试，发送通知提醒</p>
+          <p>如果明日有考试，发送系统通知提醒。</p>
         </div>
         <label class="switch">
           <input type="checkbox" v-model="enableExamReminders" @change="saveSettings">
@@ -141,22 +242,27 @@ const saveSettings = () => {
 
       <div class="setting-item">
         <div class="setting-label">
-          <h3>检查频率 (分钟)</h3>
+          <h3>检查频率（分钟）</h3>
         </div>
         <select v-model="checkInterval" @change="saveSettings" class="select-disabled">
           <option :value="15">15 分钟</option>
-          <option :value="30">30 分钟 (默认)</option>
+          <option :value="30">30 分钟（默认）</option>
           <option :value="60">60 分钟</option>
         </select>
       </div>
 
       <div class="content-title" v-if="enableBackground">
-        保活状态：{{ backgroundLockEnabled ? ('已启用 (' + (backgroundLockSource || '插件') + ')') : '未启用（当前平台不支持或插件不可用）' }}
+        保活状态：{{ backgroundLockEnabled ? ('已启用（' + (backgroundLockSource || '插件') + '）') : '未启用（当前平台不支持或插件不可用）' }}
       </div>
 
       <div class="actions">
-        <button class="btn-primary" @click="handleTestNotification">发送测试通知</button>
+        <button class="btn-primary" :disabled="sending" @click="handleTestNotification">
+          {{ sending ? '发送中...' : '发送测试通知' }}
+        </button>
       </div>
+
+      <p v-if="statusMessage" class="status-msg">{{ statusMessage }}</p>
+      <p v-if="lastError" class="status-err">错误详情：{{ lastError }}</p>
     </div>
 
     <div v-if="showBatteryPrompt" class="modal-mask">
@@ -291,6 +397,10 @@ input:checked + .slider:before {
   justify-content: center;
 }
 
+.actions-left {
+  justify-content: flex-start;
+}
+
 .btn-primary {
   background: #3b82f6;
   color: white;
@@ -304,6 +414,11 @@ input:checked + .slider:before {
 
 .btn-primary:hover {
   background: #2563eb;
+}
+
+.btn-primary:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
 }
 
 .modal-mask {
@@ -351,5 +466,18 @@ input:checked + .slider:before {
   margin-bottom: 16px;
   font-weight: 700;
   color: var(--ui-text);
+}
+
+.status-msg {
+  margin: 14px 0 0;
+  color: #1e40af;
+  font-size: 14px;
+}
+
+.status-err {
+  margin: 8px 0 0;
+  color: #dc2626;
+  font-size: 12px;
+  word-break: break-all;
 }
 </style>

@@ -513,8 +513,8 @@ watch(
 
     <!-- 页脚 -->
     <section class="today-panel">
-      <div class="today-panel-header" style="background: transparent !important; box-shadow: none !important;">
-        <h3 style="background: transparent !important; background-image: none !important; border: none !important; box-shadow: none !important;">{{ todayBlockTitle }}</h3>
+      <div class="today-panel-header">
+        <h3 class="today-title">{{ todayBlockTitle }}</h3>
         <span class="today-time">{{ currentTimeText }}</span>
       </div>
 
@@ -995,10 +995,13 @@ html[data-theme='cyberpunk'] .today-panel {
   justify-content: space-between;
   margin-bottom: 14px;
   background: transparent !important;
+  background-image: none !important;
   box-shadow: none !important;
+  border: none !important;
 }
 
-.today-panel-header h3 {
+.today-panel-header h3,
+.today-title {
   margin: 0;
   font-size: 34px;
   font-weight: 800;
@@ -1008,6 +1011,15 @@ html[data-theme='cyberpunk'] .today-panel {
   background-image: none !important;
   border: none !important;
   box-shadow: none !important;
+  display: inline-flex;
+  align-items: center;
+}
+
+.today-panel-header h3::before,
+.today-panel-header h3::after,
+.today-title::before,
+.today-title::after {
+  content: none !important;
 }
 
 .today-time {

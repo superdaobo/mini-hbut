@@ -20,6 +20,7 @@ import FeedbackView from './components/FeedbackView.vue'
 import NotificationView from './components/NotificationView.vue'
 import ConfigEditor from './components/ConfigEditor.vue'
 import SettingsView from './components/SettingsView.vue'
+import ExportCenterView from './components/ExportCenterView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
@@ -849,6 +850,13 @@ onBeforeUnmount(() => {
       <SettingsView
         v-else-if="currentView === 'settings'"
         @back="currentView = 'me'; activeTab = 'me'"
+      />
+
+      <ExportCenterView
+        v-else-if="currentView === 'export_center'"
+        :student-id="studentId"
+        @back="currentView = 'me'; activeTab = 'me'"
+        @logout="handleLogout"
       />
       
       <!-- 成绩查看 -->

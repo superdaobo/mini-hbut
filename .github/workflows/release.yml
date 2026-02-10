@@ -72,6 +72,37 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init
 
+      - name: Patch Android notification permissions
+        run: |
+          set -euo pipefail
+          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "AndroidManifest.xml not found: $MANIFEST"
+            exit 1
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("src-tauri/gen/android/app/src/main/AndroidManifest.xml")
+          text = p.read_text(encoding="utf-8")
+          perms = [
+              "android.permission.POST_NOTIFICATIONS",
+              "android.permission.WAKE_LOCK",
+              "android.permission.FOREGROUND_SERVICE",
+              "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+          ]
+          for perm in perms:
+              marker = f'android:name="{perm}"'
+              if marker not in text:
+                  text = text.replace(
+                      "<application",
+                      f'    <uses-permission android:name="{perm}" />\\n\\n    <application',
+                      1,
+                  )
+          p.write_text(text, encoding="utf-8")
+          print("Patched AndroidManifest permissions.")
+          PY
+          grep -n "POST_NOTIFICATIONS\\|WAKE_LOCK\\|FOREGROUND_SERVICE\\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
+
       - name: Copy Android icons
         run: |
           set -euo pipefail

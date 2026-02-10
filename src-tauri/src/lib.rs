@@ -23,6 +23,7 @@ use base64::{engine::general_purpose, Engine as _};
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_notification::NotificationExt;
 use chrono::{Datelike, Utc};
 
 pub mod http_client;
@@ -431,6 +432,23 @@ struct RemoteImageCachePayload {
     size: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveExportFileRequest {
+    file_name: String,
+    mime_type: String,
+    content_base64: String,
+    prefer_media: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SaveExportFileResult {
+    path: String,
+    saved_to: String,
+    size: u64,
+    needs_manual_import: bool,
+}
+
 fn sanitize_cache_key(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
@@ -458,6 +476,135 @@ fn infer_image_extension(url: &str) -> &'static str {
         ".jpg"
     } else {
         ".jpg"
+    }
+}
+
+fn extension_from_mime(mime_type: &str) -> &'static str {
+    let normalized = mime_type.to_ascii_lowercase();
+    if normalized.contains("json") {
+        ".json"
+    } else if normalized.contains("png") {
+        ".png"
+    } else if normalized.contains("jpeg") || normalized.contains("jpg") {
+        ".jpg"
+    } else if normalized.contains("webp") {
+        ".webp"
+    } else {
+        ".bin"
+    }
+}
+
+fn sanitize_export_file_name(raw: &str, default_ext: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let mut out = out.trim_matches('_').to_string();
+    if out.is_empty() {
+        out = format!("mini-hbut-export{}", default_ext);
+    }
+    if !out.to_ascii_lowercase().ends_with(default_ext) {
+        out.push_str(default_ext);
+    }
+    out
+}
+
+#[cfg(target_os = "windows")]
+fn pick_export_directory() -> Option<std::path::PathBuf> {
+    rfd::FileDialog::new()
+        .set_title("请选择导出目录")
+        .pick_folder()
+}
+
+#[tauri::command]
+#[allow(unused_variables)]
+fn save_export_file(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result<SaveExportFileResult, String> {
+    let ext = extension_from_mime(&req.mime_type);
+    let file_name = sanitize_export_file_name(&req.file_name, ext);
+    let bytes = general_purpose::STANDARD
+        .decode(req.content_base64.trim())
+        .map_err(|e| format!("导出数据解析失败: {}", e))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 导出要求用户选择目录，便于企业环境下做路径管理
+        let selected_dir = pick_export_directory().ok_or_else(|| "已取消选择保存目录".to_string())?;
+        std::fs::create_dir_all(&selected_dir)
+            .map_err(|e| format!("创建目录失败: {}", e))?;
+        let file_path = selected_dir.join(file_name);
+        std::fs::write(&file_path, &bytes)
+            .map_err(|e| format!("写入导出文件失败: {}", e))?;
+        return Ok(SaveExportFileResult {
+            path: file_path.to_string_lossy().to_string(),
+            saved_to: "windows-selected-dir".to_string(),
+            size: bytes.len() as u64,
+            needs_manual_import: false,
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // 移动端与非 Windows 平台优先写入系统媒体目录，失败时回退到文档/缓存目录
+        let mut candidates: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
+        let prefer_media = req.prefer_media.unwrap_or(false);
+
+        if prefer_media {
+            if let Ok(dir) = app.path().picture_dir() {
+                candidates.push((dir, "picture"));
+            }
+            if let Ok(dir) = app.path().download_dir() {
+                candidates.push((dir, "download"));
+            }
+        } else if let Ok(dir) = app.path().download_dir() {
+            candidates.push((dir, "download"));
+        }
+
+        if let Ok(dir) = app.path().document_dir() {
+            candidates.push((dir, "document"));
+        }
+        if let Ok(dir) = app.path().app_data_dir() {
+            candidates.push((dir, "app_data"));
+        }
+        if let Ok(dir) = app.path().app_cache_dir() {
+            candidates.push((dir, "app_cache"));
+        }
+
+        let mut last_error = String::new();
+        for (base_dir, label) in candidates {
+            let export_dir = base_dir.join("Mini-HBUT-Export");
+            if let Err(e) = std::fs::create_dir_all(&export_dir) {
+                last_error = format!("创建目录失败({}): {}", label, e);
+                continue;
+            }
+            let file_path = export_dir.join(&file_name);
+            match std::fs::write(&file_path, &bytes) {
+                Ok(_) => {
+                    #[cfg(any(target_os = "android", target_os = "ios"))]
+                    let needs_manual_import = true;
+                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                    let needs_manual_import = false;
+
+                    return Ok(SaveExportFileResult {
+                        path: file_path.to_string_lossy().to_string(),
+                        saved_to: label.to_string(),
+                        size: bytes.len() as u64,
+                        needs_manual_import,
+                    });
+                }
+                Err(e) => {
+                    last_error = format!("写入失败({}): {}", label, e);
+                }
+            }
+        }
+        Err(if last_error.is_empty() {
+            "没有可用的导出目录".to_string()
+        } else {
+            last_error
+        })
     }
 }
 
@@ -554,6 +701,23 @@ fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     app.shell()
         .open(target, None)
         .map_err(|e| format!("open external url failed: {}", e))
+}
+
+#[tauri::command]
+fn send_test_notification_native(
+    app: tauri::AppHandle,
+    title: Option<String>,
+    body: Option<String>,
+) -> Result<(), String> {
+    let real_title = title.unwrap_or_else(|| "Mini-HBUT".to_string());
+    let real_body = body.unwrap_or_else(|| "这是一个测试通知。".to_string());
+
+    app.notification()
+        .builder()
+        .title(&real_title)
+        .body(&real_body)
+        .show()
+        .map_err(|e| format!("send native notification failed: {}", e))
 }
 
 #[tauri::command]
@@ -1822,7 +1986,9 @@ pub fn run() {
             download_deyihei_font,
             download_deyihei_font_payload,
             cache_remote_image,
+            save_export_file,
             open_external_url,
+            send_test_notification_native,
             login,
             logout,
             restore_session,

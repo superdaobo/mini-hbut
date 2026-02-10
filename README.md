@@ -219,6 +219,82 @@ GET /cache/get?table=grades_cache&key=251023xxxx
 > 私钥不会写入仓库，可用于你在 NoneBot 中签发 JWT。  
 > 你也可以通过环境变量指定公钥：`HBUT_LOCAL_API_PUBLIC_KEY` 或 `HBUT_LOCAL_API_PUBLIC_KEY_PATH`。
 
+## 🤖 HF 接口（OCR / 临时文件上传）
+
+当前线上 OCR 与临时文件服务建议使用：
+
+- `https://superdaobo-ocr-service.hf.space`
+
+### OCR 识别
+
+- `POST /api/ocr/recognize`
+- `POST /api/ocr/base64`
+
+请求体（任选字段）：
+
+```json
+{
+  "image": "data:image/png;base64,xxxx"
+}
+```
+
+或：
+
+```json
+{
+  "base64": "xxxx"
+}
+```
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "result": "bdrg"
+}
+```
+
+### 临时文件上传（课表/导出文件）
+
+- `POST /api/temp/upload`
+
+请求示例：
+
+```json
+{
+  "filename": "schedule_2510231106_2025-2026-2_w3.ics",
+  "content_base64": "QkVHSU46VkNBTEVOREFS...",
+  "content_type": "text/calendar; charset=utf-8",
+  "ttl_seconds": 86400
+}
+```
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "file_id": "6d7d0cb17f9f4ea39c7c51f7777ce8e6",
+  "filename": "schedule_2510231106_2025-2026-2_w3.ics",
+  "size": 8192,
+  "content_type": "text/calendar; charset=utf-8",
+  "ttl_seconds": 86400,
+  "expires_at": "2026-02-11T08:00:00+00:00",
+  "url": "https://superdaobo-ocr-service.hf.space/api/temp/files/6d7d0cb17f9f4ea39c7c51f7777ce8e6/schedule_2510231106_2025-2026-2_w3.ics"
+}
+```
+
+下载地址：
+
+- `GET /api/temp/files/{file_id}/{filename}`
+
+### 导出中心平台策略
+
+- Windows：导出时弹出目录选择，文件保存到用户指定目录。
+- Android / iOS：优先写入系统图片/下载目录，失败自动回退到应用文档或缓存目录。
+- Web 调试：走浏览器下载行为。
+
 ## 🔄 版本更新机制
 
 应用内置自动更新检测功能：
