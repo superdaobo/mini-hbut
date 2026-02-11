@@ -57,13 +57,18 @@ def run_command(cmd: list[str], cwd: Path | None = None, check: bool = True) -> 
         result = subprocess.run(
             cmd,
             cwd=str(cwd or PROJECT_DIR),
-            check=check,
+            check=False,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
         )
-        return True, (result.stdout or "").strip(), (result.stderr or "").strip()
+        ok = result.returncode == 0
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        if check and not ok:
+            return False, stdout, stderr
+        return ok, stdout, stderr
     except subprocess.CalledProcessError as exc:
         return False, (exc.stdout or "").strip(), (exc.stderr or "").strip()
     except Exception as exc:  # pragma: no cover

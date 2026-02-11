@@ -1,6 +1,7 @@
 ﻿<script setup>
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
 import GradeView from './components/GradeView.vue'
@@ -62,6 +63,8 @@ const isIOSLike = (() => {
 })()
 let hiddenAt = 0
 let delayedViewportTimer = null
+let unlistenCloseRequested = null
+let isClosingByUser = false
 
 // 视图状态: home, schedule, me, grades...
 const currentView = ref('home')
@@ -88,6 +91,9 @@ let electricityKeepAliveTimer = null
 const showUpdateDialog = ref(false)
 const showForceUpdate = ref(false)
 const forceUpdateInfo = ref(null)
+
+const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
+const ME_SUB_VIEWS = ['official', 'feedback', 'config', 'settings', 'export_center']
 
 const remoteConfig = ref(null)
 const announcementData = ref({ pinned: [], ticker: [], list: [], confirm: [] })
@@ -295,15 +301,98 @@ const handleVisibilityChange = () => {
   }
 }
 
+const resolveHash = (sid, view) => {
+  if (!sid) return '#/'
+  if (!view || view === 'home') return `#/${sid}`
+  return `#/${sid}/${view}`
+}
+
+const replaceHistorySnapshot = (view = currentView.value) => {
+  const sid = studentId.value || ''
+  const state = {
+    __hbu: true,
+    sid,
+    view,
+    tab: activeTab.value,
+    module: currentModule.value
+  }
+  window.history.replaceState(state, '', resolveHash(sid, view))
+}
+
+const pushHistorySnapshot = (view = currentView.value) => {
+  const sid = studentId.value || ''
+  const state = {
+    __hbu: true,
+    sid,
+    view,
+    tab: activeTab.value,
+    module: currentModule.value
+  }
+  window.history.pushState(state, '', resolveHash(sid, view))
+}
+
+const applyViewState = (view) => {
+  currentView.value = view
+  if (MAIN_TABS.includes(view)) {
+    activeTab.value = view
+    currentModule.value = ''
+    return
+  }
+  if (ME_SUB_VIEWS.includes(view)) {
+    activeTab.value = 'me'
+  }
+  currentModule.value = view
+}
+
+const goToView = (view, { push = true } = {}) => {
+  applyViewState(view)
+  if (push) {
+    pushHistorySnapshot(view)
+  } else {
+    replaceHistorySnapshot(view)
+  }
+}
+
+const parseHashRoute = () => {
+  const hash = window.location.hash || '#/'
+  const m = hash.match(/^#\/(\d{10})(?:\/(\w+))?$/)
+  if (!m) return null
+  return {
+    sid: m[1],
+    view: m[2] || 'home'
+  }
+}
+
+const syncFromHash = async () => {
+  const route = parseHashRoute()
+  if (!route) {
+    if (currentView.value !== 'home' || studentId.value) {
+      studentId.value = ''
+      applyViewState('home')
+    }
+    return
+  }
+
+  studentId.value = route.sid
+  localStorage.setItem('hbu_username', route.sid)
+  applyViewState(route.view)
+
+  if (route.view === 'grades' && gradeData.value.length === 0) {
+    const ok = await fetchGradesFromAPI(route.sid)
+    if (!ok) {
+      applyViewState('me')
+      replaceHistorySnapshot('me')
+    }
+  }
+}
+
 // 处理登录成功
 const handleLoginSuccess = (data) => {
   gradeData.value = data
   studentId.value = localStorage.getItem('hbu_username') || ''
   // 跳转到 Dashboard 显示所有模块
-  currentView.value = 'home'
-  activeTab.value = 'home'
-  currentModule.value = ''
-  window.history.replaceState(null, '', `#/${studentId.value}`)
+  applyViewState('home')
+  replaceHistorySnapshot('home')
 
   // 预取课表/培养方案默认数据并落地缓存
   if (studentId.value) {
@@ -344,40 +433,34 @@ const handleLoginSuccess = (data) => {
 
 // 处理导航
 const handleNavigate = async (moduleId) => {
-  currentModule.value = moduleId
-  window.history.replaceState(null, '', `#/${studentId.value}/${moduleId}`)
-  
+  applyViewState(moduleId)
+
   // 如果是成绩页面且数据为空，先获取数据
   if (moduleId === 'grades' && gradeData.value.length === 0) {
     const success = await fetchGradesFromAPI(studentId.value)
     if (!success) {
       // 获取失败，跳转到个人中心
-      currentView.value = 'me'
-      activeTab.value = 'me'
+      applyViewState('me')
+      pushHistorySnapshot('me')
       return
     }
   }
-  
-  currentView.value = moduleId
+
+  pushHistorySnapshot(moduleId)
 }
 
 // 处理返回仪表盘
 const handleBackToDashboard = () => {
-  currentView.value = 'home'
-  activeTab.value = 'home'
-  currentModule.value = ''
-  window.history.replaceState(null, '', `#/${studentId.value}`)
+  goToView('home')
 }
 
 // 处理登出
 const handleLogout = () => {
-  currentView.value = 'home'
-  activeTab.value = 'home'
+  applyViewState('home')
   gradeData.value = []
   studentId.value = ''
   userUuid.value = ''
-  currentModule.value = ''
-  window.history.replaceState(null, '', '#/')
+  replaceHistorySnapshot('home')
 
   stopSessionKeepAlive()
   stopElectricityKeepAlive()
@@ -394,8 +477,8 @@ const handleSwitchLoginMode = (mode) => {
 
 const ensureConfigAccess = () => {
   if (currentView.value === 'config' && !isConfigAdmin.value) {
-    currentView.value = 'me'
-    activeTab.value = 'me'
+    applyViewState('me')
+    replaceHistorySnapshot('me')
   }
 }
 
@@ -430,13 +513,28 @@ const handleRequireLogin = () => {
 }
 
 const handleTabChange = (tab) => {
-  activeTab.value = tab
-  currentView.value = tab
+  goToView(tab)
 }
 
 // 打开官方发布页
 const handleOpenOfficial = () => {
-  currentView.value = 'official'
+  goToView('official')
+}
+
+const handleBackToMe = () => {
+  goToView('me')
+}
+
+const handleOpenFeedback = () => {
+  goToView('feedback')
+}
+
+const handleOpenConfig = () => {
+  goToView('config')
+}
+
+const handleOpenSettings = () => {
+  goToView('settings')
 }
 
 // 检查更新
@@ -695,7 +793,46 @@ const stopElectricityKeepAlive = () => {
   }
 }
 
-const showTabBar = computed(() => ['home', 'schedule', 'me', 'notifications'].includes(currentView.value))
+const showTabBar = computed(() => MAIN_TABS.includes(currentView.value))
+
+const handlePopState = async () => {
+  await syncFromHash()
+}
+
+const installCloseInterceptor = async () => {
+  if (!hasTauri) return
+  try {
+    const appWindow = getCurrentWindow()
+    unlistenCloseRequested = await appWindow.onCloseRequested(async (event) => {
+      if (isClosingByUser) return
+
+      if (currentView.value !== 'home') {
+        event.preventDefault()
+        if ((window.history.length > 1) && (window.location.hash || '#/') !== '#/') {
+          window.history.back()
+        } else {
+          goToView('home')
+        }
+        return
+      }
+
+      event.preventDefault()
+      const shouldExit = window.confirm('是否退出 Mini-HBUT？')
+      if (!shouldExit) {
+        replaceHistorySnapshot('home')
+        return
+      }
+      isClosingByUser = true
+      try {
+        await appWindow.close()
+      } finally {
+        isClosingByUser = false
+      }
+    })
+  } catch (e) {
+    console.warn('[Navigation] 安装关闭拦截失败:', e)
+  }
+}
 
 // 页面加载时检查 URL
 watch(currentView, () => {
@@ -709,6 +846,7 @@ watch(currentView, () => {
 onMounted(async () => {
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('popstate', handlePopState)
   window.addEventListener('focus', scheduleViewportUpdate)
   window.addEventListener('resize', scheduleViewportUpdate)
   window.addEventListener('pageshow', scheduleViewportUpdate)
@@ -717,6 +855,7 @@ onMounted(async () => {
     window.visualViewport.addEventListener('resize', scheduleViewportUpdate)
   }
   scheduleViewportUpdate()
+  await installCloseInterceptor()
 
   let restored = await tryRestoreSession()
   if (!restored) {
@@ -727,45 +866,18 @@ onMounted(async () => {
     relogged = await attemptAutoRelogin()
   }
 
-  const hash = window.location.hash
-  if (hash) {
-    const match = hash.match(/^#\/(\d{10})(?:\/(\w+))?$/)
-    if (match) {
-      studentId.value = match[1]
-      localStorage.setItem('hbu_username', match[1])
-      
-      if (match[2]) {
-        currentModule.value = match[2]
-        
-        // 如果是成绩页面，尝试从API获取数据
-        if (match[2] === 'grades' && gradeData.value.length === 0) {
-          const success = await fetchGradesFromAPI(match[1])
-          if (success) {
-            currentView.value = 'grades'
-          } else {
-            // 获取失败，跳转到个人中心
-            currentView.value = 'me'
-            activeTab.value = 'me'
-          }
-        } else {
-          currentView.value = match[2]
-        }
-      } else {
-        currentView.value = 'home'
-        activeTab.value = 'home'
-      }
-    }
-  }
+  await syncFromHash()
 
-  if (restored && !hash) {
-    currentView.value = 'home'
-    activeTab.value = 'home'
+  if (restored && !window.location.hash) {
+    applyViewState('home')
   }
 
   if (restored || relogged || studentId.value) {
     startSessionKeepAlive()
     startElectricityKeepAlive()
   }
+
+  replaceHistorySnapshot(currentView.value)
   
   // 启动即检查更新
   autoCheckUpdate()
@@ -779,6 +891,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleGlobalLinkClick, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('popstate', handlePopState)
   window.removeEventListener('focus', scheduleViewportUpdate)
   window.removeEventListener('resize', scheduleViewportUpdate)
   window.removeEventListener('pageshow', scheduleViewportUpdate)
@@ -789,6 +902,10 @@ onBeforeUnmount(() => {
   if (delayedViewportTimer) {
     clearTimeout(delayedViewportTimer)
     delayedViewportTimer = null
+  }
+  if (typeof unlistenCloseRequested === 'function') {
+    unlistenCloseRequested()
+    unlistenCloseRequested = null
   }
 })
 </script>
@@ -840,37 +957,37 @@ onBeforeUnmount(() => {
         @logout="handleLogout"
         @checkUpdate="handleCheckUpdate"
         @openOfficial="handleOpenOfficial"
-        @openFeedback="currentView = 'feedback'"
-        @openConfig="currentView = 'config'"
-        @openSettings="currentView = 'settings'"
+        @openFeedback="handleOpenFeedback"
+        @openConfig="handleOpenConfig"
+        @openSettings="handleOpenSettings"
       />
 
       <!-- 官方发布页 -->
       <OfficialView 
         v-else-if="currentView === 'official'"
-        @back="currentView = 'me'; activeTab = 'me'"
+        @back="handleBackToMe"
       />
 
       <!-- 问题反馈页 -->
       <FeedbackView 
         v-else-if="currentView === 'feedback'"
-        @back="currentView = 'me'; activeTab = 'me'"
+        @back="handleBackToMe"
       />
 
       <ConfigEditor
         v-else-if="currentView === 'config' && isConfigAdmin"
-        @back="currentView = 'me'; activeTab = 'me'"
+        @back="handleBackToMe"
       />
 
       <SettingsView
         v-else-if="currentView === 'settings'"
-        @back="currentView = 'me'; activeTab = 'me'"
+        @back="handleBackToMe"
       />
 
       <ExportCenterView
         v-else-if="currentView === 'export_center'"
         :student-id="studentId"
-        @back="currentView = 'me'; activeTab = 'me'"
+        @back="handleBackToMe"
         @logout="handleLogout"
       />
       
