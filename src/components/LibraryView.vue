@@ -20,10 +20,10 @@ const keyword = ref('')
 const searchField = ref('keyWord')
 const matchMode = ref('2')
 const sortField = ref('issued_sort')
-const sortClause = ref('desc')
+const sortClause = ref('asc')
 const onlyOnShelf = ref(false)
 const page = ref(1)
-const rows = ref(10)
+const rows = ref(50)
 const total = ref(0)
 const results = ref([])
 const facetResult = ref({})
@@ -32,6 +32,7 @@ const dictData = ref({})
 const isMobile = ref(false)
 const filterPanelOpen = ref(false)
 const brokenCovers = ref(new Set())
+const coverOverrides = ref(new Map())
 
 const selectedFilters = ref({
   resourceType: [],
@@ -74,6 +75,12 @@ const hasActiveFilters = computed(() =>
 )
 
 const holdingData = computed(() => selectedBookDetail.value?.holding || {})
+const holdingItems = computed(() => {
+  const node = selectedBookDetail.value?.holding_items
+  if (Array.isArray(node?.list)) return node.list
+  if (Array.isArray(node)) return node
+  return []
+})
 
 const detailBook = computed(() => {
   const detail = selectedBookDetail.value?.detail || {}
@@ -126,7 +133,30 @@ const normalizeCoverUrl = (raw) => {
   return url
 }
 
+const getBookIsbn = (book = {}) => {
+  const direct = String(book?.isbn || '').trim()
+  if (direct) return direct
+  if (Array.isArray(book?.isbns)) {
+    const first = String(book.isbns.find((item) => String(item || '').trim()) || '').trim()
+    if (first) return first
+  }
+  const eIsbn = String(book?.eIsbn || '').trim()
+  if (eIsbn) return eIsbn
+  return ''
+}
+
+const buildBookcoversUrl = (isbn) => {
+  const text = String(isbn || '').trim()
+  if (!text) return ''
+  return `https://www.bookcovers.cn/index.php?client=800512&isbn=${encodeURIComponent(text)}/cover`
+}
+
+const coverKeyOf = (book) => `${book?.recordId || ''}|${getBookIsbn(book)}|${book?.title || ''}`
+
 const getBookCover = (book = {}) => {
+  const override = coverOverrides.value.get(coverKeyOf(book))
+  if (override) return override
+
   const candidates = [
     book.duxiuImageUrl,
     book.cover,
@@ -140,10 +170,12 @@ const getBookCover = (book = {}) => {
     const normalized = normalizeCoverUrl(candidate)
     if (normalized) return normalized
   }
-  return ''
+  return buildBookcoversUrl(getBookIsbn(book))
 }
 
 const getDetailCover = () => {
+  const fromApi = normalizeCoverUrl(selectedBookDetail.value?.cover_url)
+  if (fromApi) return fromApi
   const detail = selectedBookDetail.value?.detail || {}
   const holding = selectedBookDetail.value?.holding || {}
   const fromDetail = getBookCover(detail)
@@ -151,6 +183,21 @@ const getDetailCover = () => {
   const fromHolding = getBookCover(holding)
   if (fromHolding) return fromHolding
   return getBookCover(selectedBook.value || {})
+}
+
+const formatHoldingValue = (value) => {
+  if (value === null || value === undefined) return '-'
+  const text = String(value).trim()
+  return text ? text : '-'
+}
+
+const holdingStatusClass = (status) => {
+  const text = String(status || '').trim()
+  if (!text) return 'holding-status-default'
+  if (/在架|可借|available|on\s?shelf/i.test(text)) return 'holding-status-available'
+  if (/借出|应还|loan|borrow/i.test(text)) return 'holding-status-borrowed'
+  if (/预约|预订|reserve/i.test(text)) return 'holding-status-reserved'
+  return 'holding-status-default'
 }
 
 const normalizeFacetEntries = (raw) => {
@@ -190,7 +237,34 @@ const facetOptions = computed(() => {
   return output
 })
 
-const coverKeyOf = (book) => `${book?.recordId || ''}|${book?.isbn || ''}|${book?.title || ''}`
+const unwrapLibraryEnvelope = (payload) => {
+  if (!payload || typeof payload !== 'object') return {}
+  // 场景1：直接返回 OPAC 结构 { success, data: {...} }
+  if (payload.data && typeof payload.data === 'object') {
+    return payload.data
+  }
+  // 场景2：已经是 OPAC 的 data 节点
+  return payload
+}
+
+const normalizeSearchNode = (payload) => {
+  const root = unwrapLibraryEnvelope(payload)
+  if (root && typeof root === 'object') {
+    if (Array.isArray(root.searchResult) || root.numFound != null) return root
+    if (root.data && typeof root.data === 'object') return root.data
+  }
+  return {}
+}
+
+const normalizeDetailNode = (payload) => {
+  if (!payload || typeof payload !== 'object') return {}
+  if (payload.detail || payload.holding) return payload
+  const root = payload.data
+  if (root && typeof root === 'object' && (root.detail || root.holding)) {
+    return root
+  }
+  return {}
+}
 
 const isCoverAvailable = (book) => {
   const url = getBookCover(book)
@@ -199,8 +273,21 @@ const isCoverAvailable = (book) => {
 }
 
 const handleCoverError = (book) => {
+  const key = coverKeyOf(book)
+  const current = getBookCover(book)
+  const fallback = buildBookcoversUrl(getBookIsbn(book))
+  if (fallback && current !== fallback) {
+    const nextOverrides = new Map(coverOverrides.value)
+    nextOverrides.set(key, fallback)
+    coverOverrides.value = nextOverrides
+    const cleared = new Set(brokenCovers.value)
+    cleared.delete(key)
+    brokenCovers.value = cleared
+    return
+  }
+
   const next = new Set(brokenCovers.value)
-  next.add(coverKeyOf(book))
+  next.add(key)
   brokenCovers.value = next
 }
 
@@ -235,9 +322,9 @@ const buildSearchPayload = (nextPage = 1) => ({
 const loadDict = async () => {
   try {
     const res = await axios.post(`${API_BASE}/v2/library/dict`, {})
-    if (res.data?.success) {
-      const root = res.data?.data || {}
-      dictData.value = root.data || {}
+    const payload = res.data
+    if (payload?.success) {
+      dictData.value = unwrapLibraryEnvelope(payload) || {}
     }
   } catch {
     // 字典加载失败不影响主流程
@@ -262,8 +349,7 @@ const executeSearch = async (nextPage = 1, skipEmptyValidation = false) => {
       return
     }
 
-    const root = data?.data || {}
-    const dataNode = root.data || {}
+    const dataNode = normalizeSearchNode(data)
     results.value = Array.isArray(dataNode.searchResult) ? dataNode.searchResult : []
     facetResult.value = dataNode.facetResult || {}
     total.value = Number(dataNode.numFound || 0)
@@ -321,7 +407,7 @@ const openDetail = async (book) => {
       detailError.value = payload?.error || '加载图书详情失败'
       return
     }
-    selectedBookDetail.value = payload?.data || {}
+    selectedBookDetail.value = normalizeDetailNode(payload)
   } catch (e) {
     detailError.value = e?.response?.data?.error || e?.message || '加载图书详情失败'
   } finally {
@@ -359,7 +445,7 @@ onBeforeUnmount(() => {
     <header class="view-header">
       <button class="header-btn" @click="emit('back')">返回</button>
       <h1>图书查询</h1>
-      <button class="header-btn danger" @click="emit('logout')">退出</button>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <section class="search-panel">
@@ -400,12 +486,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <p class="summary">{{ searchSummary }}</p>
-      <p v-if="error" class="error">{{ error }}</p>
-    </section>
-
-    <section class="content-layout" :class="{ 'with-filter': showFilterPanel }">
-      <aside v-if="showFilterPanel" class="filter-panel">
+      <section v-if="showFilterPanel" class="filter-panel top-filter-panel">
         <article v-for="group in filterMeta" :key="group.key" class="filter-group">
           <h3>{{ group.title }}</h3>
           <div class="chips">
@@ -422,8 +503,13 @@ onBeforeUnmount(() => {
             <span v-if="!(facetOptions[group.key] || []).length" class="empty-chip">暂无可筛选项</span>
           </div>
         </article>
-      </aside>
+      </section>
 
+      <p class="summary">{{ searchSummary }}</p>
+      <p v-if="error" class="error">{{ error }}</p>
+    </section>
+
+    <section class="content-layout">
       <div class="result-panel">
         <div v-if="loading" class="loading-box">正在检索图书...</div>
         <div v-else-if="!results.length" class="empty-box">
@@ -443,6 +529,8 @@ onBeforeUnmount(() => {
                 :alt="book.title || '封面'"
                 class="book-cover"
                 loading="lazy"
+                referrerpolicy="no-referrer"
+                crossorigin="anonymous"
                 @error="handleCoverError(book)"
               />
               <div v-else class="book-cover-empty">暂无封面</div>
@@ -482,7 +570,14 @@ onBeforeUnmount(() => {
 
           <section class="detail-main">
             <div class="detail-cover-wrap">
-              <img v-if="getDetailCover()" :src="getDetailCover()" :alt="detailBook.title" class="detail-cover" />
+              <img
+                v-if="getDetailCover()"
+                :src="getDetailCover()"
+                :alt="detailBook.title"
+                class="detail-cover"
+                referrerpolicy="no-referrer"
+                crossorigin="anonymous"
+              />
               <div v-else class="detail-cover-empty">暂无封面</div>
             </div>
             <div class="detail-grid">
@@ -543,6 +638,47 @@ onBeforeUnmount(() => {
             </div>
           </section>
 
+          <section class="holding-list-panel" v-if="holdingItems.length">
+            <h3>馆藏明细</h3>
+            <div class="holding-table-wrap">
+              <table class="holding-table">
+                <thead>
+                  <tr>
+                    <th>序号</th>
+                    <th>索书号</th>
+                    <th>条码号</th>
+                    <th>年代</th>
+                    <th>卷期</th>
+                    <th>馆藏地</th>
+                    <th>入藏时间</th>
+                    <th>书刊状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(item, idx) in holdingItems" :key="`${item.itemId || item.barcode || idx}`">
+                    <td>{{ idx + 1 }}</td>
+                    <td>{{ formatHoldingValue(item.callNo) }}</td>
+                    <td>{{ formatHoldingValue(item.barcode) }}</td>
+                    <td>{{ formatHoldingValue(item.year) }}</td>
+                    <td>{{ formatHoldingValue(item.vol) }}</td>
+                    <td>
+                      <span class="holding-location">{{ formatHoldingValue(item.locationName || item.realLocationName) }}</span>
+                    </td>
+                    <td>{{ formatHoldingValue(item.inDate) }}</td>
+                    <td>
+                      <span
+                        class="holding-status"
+                        :class="holdingStatusClass(item.processType)"
+                      >
+                        {{ formatHoldingValue(item.processType) }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <section class="detail-desc">
             <h3>内容简介</h3>
             <p>{{ detailBook.abstract }}</p>
@@ -575,6 +711,12 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: clamp(16px, 2.4vw, 20px);
   font-weight: 900;
+}
+
+.header-spacer {
+  width: 44px;
+  height: 30px;
+  display: inline-block;
 }
 
 .header-btn {
@@ -714,8 +856,8 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.content-layout.with-filter {
-  grid-template-columns: minmax(210px, 260px) 1fr;
+.top-filter-panel {
+  margin-top: 10px;
 }
 
 .filter-panel,
@@ -1012,12 +1154,94 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
+.holding-list-panel {
+  margin-top: 10px;
+}
+
 .holding-panel h3,
-.detail-desc h3 {
+.detail-desc h3,
+.holding-list-panel h3 {
   margin: 0;
   color: #0f172a;
   font-size: 13px;
   font-weight: 900;
+}
+
+.holding-table-wrap {
+  margin-top: 10px;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+}
+
+.holding-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.holding-table th,
+.holding-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.holding-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f1f5f9;
+  font-weight: 800;
+}
+
+.holding-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.holding-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.holding-location {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+  color: #1e40af;
+  font-weight: 700;
+}
+
+.holding-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.holding-status-available {
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+  color: #166534;
+}
+
+.holding-status-borrowed {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #b91c1c;
+}
+
+.holding-status-reserved {
+  background: linear-gradient(135deg, #ffedd5, #fed7aa);
+  color: #c2410c;
+}
+
+.holding-status-default {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .detail-desc p {

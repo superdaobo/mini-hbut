@@ -1,8 +1,10 @@
-use super::*;
+﻿use super::*;
 use reqwest::RequestBuilder;
 use serde_json::{json, Map, Value};
 
 const OPAC_BASE_URL: &str = "https://opac.hbut.edu.cn:8013";
+const OPAC_SERVICE_URL: &str = "https://opac.hbut.edu.cn:8013/";
+const BOOKCOVERS_CLIENT_ID: &str = "800512";
 
 fn with_opac_headers(builder: RequestBuilder) -> RequestBuilder {
     builder
@@ -138,7 +140,7 @@ fn build_library_search_payload(params: Value) -> Value {
     );
     payload.insert(
         "sortClause".to_string(),
-        Value::String(to_string_or(obj.get("sortClause"), "desc")),
+        Value::String(to_string_or(obj.get("sortClause"), "asc")),
     );
     payload.insert(
         "page".to_string(),
@@ -146,7 +148,7 @@ fn build_library_search_payload(params: Value) -> Value {
     );
     payload.insert(
         "rows".to_string(),
-        Value::Number(to_i64_or(obj.get("rows"), 10).into()),
+        Value::Number(to_i64_or(obj.get("rows"), 50).into()),
     );
     payload.insert("onlyOnShelf".to_string(), to_nullable_bool(obj.get("onlyOnShelf")));
     payload.insert(
@@ -159,13 +161,91 @@ fn build_library_search_payload(params: Value) -> Value {
 }
 
 impl HbutClient {
-    async fn ensure_opac_session(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_cover_from_bookcovers(
+        &self,
+        isbn: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+        let isbn = isbn.trim();
+        if isbn.is_empty() {
+            return Ok(None);
+        }
+
+        let callback = "lanbo";
+        let url = format!(
+            "https://www.bookcovers.cn/indexc.php?client={}&isbn={}&callback={}",
+            BOOKCOVERS_CLIENT_ID,
+            urlencoding::encode(isbn),
+            callback
+        );
+
+        let response = self.client.get(url).send().await?;
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let text = response.text().await?;
+        let trimmed = text.trim().trim_end_matches(';').trim();
+        let prefix = format!("{}(", callback);
+        if !trimmed.starts_with(&prefix) || !trimmed.ends_with(')') {
+            return Ok(None);
+        }
+
+        let json_text = &trimmed[prefix.len()..trimmed.len() - 1];
+        let payload: Value = serde_json::from_str(json_text)?;
+        let cover = payload
+            .get("result")
+            .and_then(|v| v.get("coverUrl").or_else(|| v.get("coverPath")))
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string());
+
+        Ok(cover)
+    }
+
+    async fn ensure_opac_session(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/", OPAC_BASE_URL);
         let response = self.client.get(url).send().await?;
         if !response.status().is_success() {
             return Err(format!("初始化图书检索会话失败: {}", response.status()).into());
         }
+        if response.url().as_str().contains("authserver/login") {
+            let _ = self.establish_opac_sso_session().await;
+        }
         Ok(())
+    }
+
+    /// Establish OPAC CAS session so follow-up OPAC APIs can be called.
+    async fn establish_opac_sso_session(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let cas_url = format!(
+            "{}/login?service={}",
+            AUTH_BASE_URL,
+            urlencoding::encode(OPAC_SERVICE_URL)
+        );
+
+        let check_resp = self.client.get(&cas_url).send().await?;
+        let check_url = check_resp.url().to_string();
+        let need_login = check_url.contains("authserver/login") && !check_url.contains("ticket=");
+
+        if need_login {
+            let username = self.last_username.clone().unwrap_or_default();
+            let password = self.last_password.clone().unwrap_or_default();
+            if username.is_empty() || password.is_empty() {
+                println!("[调试] 图书会话兜底：未找到登录凭据，跳过 OPAC SSO");
+                return Ok(false);
+            }
+            println!("[调试] 图书会话兜底：执行 OPAC SSO 登录");
+            self.login_for_service(&username, &password, OPAC_SERVICE_URL).await?;
+        } else {
+            println!("[调试] 图书会话兜底：CAS 会话可用，直接建立 OPAC 会话");
+        }
+
+        let final_resp = self.client.get(OPAC_SERVICE_URL).send().await?;
+        if !final_resp.status().is_success() {
+            return Err(format!("建立 OPAC 会话失败: {}", final_resp.status()).into());
+        }
+        Ok(true)
     }
 
     async fn post_opac_json(
@@ -189,8 +269,29 @@ impl HbutClient {
             .map_err(|e| format!("图书接口响应解析失败: {}", e).into())
     }
 
-    pub async fn fetch_library_dict(
+    async fn get_opac_json(
         &self,
+        path: &str,
+        query: &[(String, String)],
+    ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}{}", OPAC_BASE_URL, path);
+        let response = with_opac_headers(self.client.get(url).query(query))
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await?;
+        if !status.is_success() {
+            let preview = body.chars().take(200).collect::<String>();
+            return Err(format!("图书 GET 接口请求失败({}): {}", status, preview).into());
+        }
+
+        serde_json::from_str::<Value>(&body)
+            .map_err(|e| format!("图书 GET 接口响应解析失败: {}", e).into())
+    }
+
+    pub async fn fetch_library_dict(
+        &mut self,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         self.ensure_opac_session().await?;
         let payload = json!({});
@@ -200,24 +301,55 @@ impl HbutClient {
     }
 
     pub async fn search_library_books(
-        &self,
+        &mut self,
         params: Value,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         self.ensure_opac_session().await?;
         let payload = build_library_search_payload(params);
+        let query = payload
+            .get("searchFieldContent")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
         let result = self.post_opac_json("/find/unify/search", &payload).await?;
         ensure_opac_success(&result, "图书检索")?;
+
+        let num_found = result
+            .get("data")
+            .and_then(|v| v.get("numFound"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        if !query.is_empty() && num_found == 0 {
+            println!("[调试] 图书检索命中 0 条，尝试 OPAC SSO 后重试");
+            match self.establish_opac_sso_session().await {
+                Ok(true) => {
+                    let retry = self.post_opac_json("/find/unify/search", &payload).await?;
+                    ensure_opac_success(&retry, "图书检索重试")?;
+                    return Ok(retry);
+                }
+                Ok(false) => {
+                    println!("[调试] 图书检索重试跳过：无可用凭据");
+                }
+                Err(err) => {
+                    println!("[警告] 图书检索重试失败：{}", err);
+                }
+            }
+        }
+
         Ok(result)
     }
 
     pub async fn fetch_library_book_detail(
-        &self,
+        &mut self,
         title: &str,
         isbn: &str,
         record_id: Option<i64>,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         if title.trim().is_empty() {
-            return Err("图书标题不能为空".into());
+            return Err("book title is required".into());
         }
 
         self.ensure_opac_session().await?;
@@ -254,6 +386,40 @@ impl HbutClient {
             .await
             .ok();
 
+        let holding_items_result = if let Some(id) = record_id {
+            self.post_opac_json(
+                "/find/physical/groupitems",
+                &json!({
+                    "page": 1,
+                    "rows": 100,
+                    "entrance": Value::Null,
+                    "recordId": id,
+                    "isUnify": true,
+                    "sortType": 0
+                }),
+            )
+            .await
+            .ok()
+        } else {
+            None
+        };
+
+        let mut cover_query = vec![
+            ("title".to_string(), title.to_string()),
+            ("isbn".to_string(), isbn.to_string()),
+        ];
+        if let Some(id) = record_id {
+            cover_query.push(("recordId".to_string(), id.to_string()));
+        }
+        let should_try_cover = record_id.is_some() || !title.trim().is_empty() || !isbn.trim().is_empty();
+        let cover_result = if should_try_cover {
+            self.get_opac_json("/find/book/getDuxiuImageUrl", &cover_query)
+                .await
+                .ok()
+        } else {
+            None
+        };
+
         let detail_data = detail_result
             .as_ref()
             .and_then(|v| v.get("data").cloned())
@@ -264,8 +430,37 @@ impl HbutClient {
             .and_then(|v| v.get("data").cloned())
             .unwrap_or(Value::Null);
 
-        if detail_result.is_none() && holding_result.is_none() {
-            return Err("图书详情与馆藏均获取失败".into());
+        let holding_items_data = holding_items_result
+            .as_ref()
+            .and_then(|v| v.get("data").cloned())
+            .unwrap_or(Value::Null);
+
+        let mut cover_url = cover_result
+            .as_ref()
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .or_else(|| {
+                holding_data
+                    .get("duxiuImageUrl")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.trim())
+                    .filter(|v| !v.is_empty())
+                    .map(|v| v.to_string())
+            })
+            .unwrap_or_default();
+
+        // OPAC 的独秀封面经常返回空字符串，额外走 bookcovers 兜底。
+        if cover_url.is_empty() {
+            if let Ok(Some(fallback_cover)) = self.fetch_cover_from_bookcovers(isbn).await {
+                cover_url = fallback_cover;
+            }
+        }
+
+        if detail_result.is_none() && holding_result.is_none() && holding_items_result.is_none() {
+            return Err("failed to fetch library detail data".into());
         }
 
         Ok(json!({
@@ -273,7 +468,10 @@ impl HbutClient {
             "title": title,
             "isbn": isbn,
             "detail": detail_data,
-            "holding": holding_data
+            "holding": holding_data,
+            "holding_items": holding_items_data,
+            "cover_url": cover_url
         }))
     }
 }
+

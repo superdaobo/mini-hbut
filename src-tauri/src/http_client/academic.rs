@@ -9,7 +9,8 @@
 //! - 閮ㄥ垎鎺ュ字段名较为混乱，解析逻辑集中?parser 妯″潡
 
 use super::*;
-use chrono::Datelike;
+use chrono::{Datelike, Local, TimeZone};
+use reqwest::{cookie::CookieStore, Url};
 use super::utils::chrono_timestamp;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -897,6 +898,7 @@ impl HbutClient {
         parser::parse_student_info_html(&html)
     }
 
+    #[allow(unreachable_code)]
     pub async fn fetch_personal_login_access_info(
         &mut self,
         page: Option<i32>,
@@ -908,6 +910,411 @@ impl HbutClient {
         const DEFAULT_CARD_WID: &str = "9120396937204363";
         let requested_page = page.unwrap_or(1).max(1) as i64;
         let requested_page_size = page_size.unwrap_or(10).clamp(1, 100) as i64;
+
+        // 新策略：直接使用 auth.hbut.edu.cn/personalInfo 三个接口（仅依赖现有 Cookie）
+        const PERSON_CENTER_URL: &str = "https://auth.hbut.edu.cn/personalInfo/personCenter/index.html";
+        const USER_ONLINE_URL: &str = "https://auth.hbut.edu.cn/personalInfo/UserOnline/user/queryUserOnline";
+        const USER_LOGS_URL: &str = "https://auth.hbut.edu.cn/personalInfo/UserLogs/user/queryUserLogs";
+        const ACCOUNT_SETTING_URL: &str = "https://auth.hbut.edu.cn/personalInfo/accountSecurity/accountSetting";
+
+        self.ensure_portal_session(PERSON_CENTER_URL).await?;
+        let _ = self.client.get(PERSON_CENTER_URL).send().await;
+
+        let auth_url = Url::parse("https://auth.hbut.edu.cn")?;
+        let referer_token = self
+            .cookie_jar
+            .cookies(&auth_url)
+            .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            .and_then(|cookie_line| {
+                cookie_line.split(';').find_map(|item| {
+                    let (k, v) = item.trim().split_once('=')?;
+                    if k.trim().eq_ignore_ascii_case("REFERERCE_TOKEN") {
+                        Some(v.trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_default();
+
+        let with_common_headers = |req: reqwest::RequestBuilder| {
+            let req = req
+                .header("Accept", "application/json")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Origin", "https://auth.hbut.edu.cn")
+                .header("Referer", PERSON_CENTER_URL);
+            if referer_token.is_empty() {
+                req
+            } else {
+                req.header("referertoken", referer_token.clone())
+            }
+        };
+
+        let is_ok_response = |json: &serde_json::Value| {
+            json.get("code").and_then(|v| v.as_str()) == Some("0")
+                || json.get("code").and_then(|v| v.as_i64()) == Some(0)
+        };
+
+        let response_msg = |json: &serde_json::Value| {
+            json.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("未知错误")
+                .to_string()
+        };
+
+        let format_time = |item: &serde_json::Value, text_keys: &[&str], ts_keys: &[&str]| -> String {
+            for key in text_keys {
+                if let Some(raw) = item.get(*key).and_then(|v| v.as_str()) {
+                    let trimmed = raw.trim();
+                    if !trimmed.is_empty() {
+                        return trimmed.to_string();
+                    }
+                }
+            }
+            for key in ts_keys {
+                if let Some(ts) = Self::json_to_i64(item.get(*key)) {
+                    if let Some(dt) = Local.timestamp_millis_opt(ts).single() {
+                        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+                    }
+                }
+            }
+            "-".to_string()
+        };
+
+        let build_location = |item: &serde_json::Value| -> String {
+            if let Some(v) = Self::pick_json_string_ci(item, &["loginLocation", "ipLocation", "location"]) {
+                if !v.trim().is_empty() {
+                    return v;
+                }
+            }
+            let mut parts: Vec<String> = Vec::new();
+            if let Some(v) = Self::pick_json_string_ci(item, &["provincesName", "provinceName", "province"]) {
+                if !v.trim().is_empty() {
+                    parts.push(v);
+                }
+            }
+            if let Some(v) = Self::pick_json_string_ci(item, &["cityName", "city"]) {
+                if !v.trim().is_empty() {
+                    parts.push(v);
+                }
+            }
+            if let Some(v) = Self::pick_json_string_ci(item, &["operatorName", "isp"]) {
+                if !v.trim().is_empty() {
+                    parts.push(v);
+                }
+            }
+            if parts.is_empty() {
+                "未知".to_string()
+            } else {
+                parts.join(" ")
+            }
+        };
+
+        let mut errors: Vec<String> = Vec::new();
+
+        let online_json = match with_common_headers(
+            self.client
+                .get(format!("{}?t={}", USER_ONLINE_URL, Local::now().timestamp())),
+        )
+        .send()
+        .await
+        {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if is_ok_response(&json) {
+                        Some(json)
+                    } else {
+                        errors.push(format!("queryUserOnline: {}", response_msg(&json)));
+                        None
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("queryUserOnline JSON 解析失败: {}", e));
+                    None
+                }
+            },
+            Err(e) => {
+                errors.push(format!("queryUserOnline 请求失败: {}", e));
+                None
+            }
+        };
+
+        let login_logs_json = match with_common_headers(self.client.post(USER_LOGS_URL).json(&serde_json::json!({
+            "operType": 0,
+            "startTime": serde_json::Value::Null,
+            "endTime": serde_json::Value::Null,
+            "pageIndex": 1,
+            "pageSize": requested_page_size,
+            "result": "",
+            "loginLocation": "",
+            "typeCode": "",
+            "appName": "",
+            "n": format!("{:.16}", rand::random::<f64>())
+        })))
+        .send()
+        .await
+        {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if is_ok_response(&json) {
+                        Some(json)
+                    } else {
+                        errors.push(format!("queryUserLogs(operType=0): {}", response_msg(&json)));
+                        None
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("queryUserLogs(operType=0) JSON 解析失败: {}", e));
+                    None
+                }
+            },
+            Err(e) => {
+                errors.push(format!("queryUserLogs(operType=0) 请求失败: {}", e));
+                None
+            }
+        };
+
+        let app_logs_json = match with_common_headers(self.client.post(USER_LOGS_URL).json(&serde_json::json!({
+            "operType": 3,
+            "startTime": serde_json::Value::Null,
+            "endTime": serde_json::Value::Null,
+            "pageIndex": requested_page,
+            "pageSize": requested_page_size,
+            "result": "",
+            "typeCode": "",
+            "appName": "",
+            "appId": "",
+            "n": format!("{:.16}", rand::random::<f64>())
+        })))
+        .send()
+        .await
+        {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if is_ok_response(&json) {
+                        Some(json)
+                    } else {
+                        errors.push(format!("queryUserLogs(operType=3): {}", response_msg(&json)));
+                        None
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("queryUserLogs(operType=3) JSON 解析失败: {}", e));
+                    None
+                }
+            },
+            Err(e) => {
+                errors.push(format!("queryUserLogs(operType=3) 请求失败: {}", e));
+                None
+            }
+        };
+
+        let account_setting_json = match with_common_headers(self.client.post(ACCOUNT_SETTING_URL).json(&serde_json::json!({
+            "n": format!("{:.16}", rand::random::<f64>())
+        })))
+        .send()
+        .await
+        {
+            Ok(resp) => match resp.json::<serde_json::Value>().await {
+                Ok(json) => {
+                    if is_ok_response(&json) {
+                        Some(json)
+                    } else {
+                        errors.push(format!("accountSetting: {}", response_msg(&json)));
+                        None
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("accountSetting JSON 解析失败: {}", e));
+                    None
+                }
+            },
+            Err(e) => {
+                errors.push(format!("accountSetting 请求失败: {}", e));
+                None
+            }
+        };
+
+        if online_json.is_none()
+            && login_logs_json.is_none()
+            && app_logs_json.is_none()
+            && account_setting_json.is_none()
+        {
+            return Err(if errors.is_empty() {
+                "未能获取 personalInfo 数据".to_string()
+            } else {
+                errors.join(" | ")
+            }
+            .into());
+        }
+
+        let mut login_sessions: Vec<serde_json::Value> = Vec::new();
+        let mut login_seen: HashSet<String> = HashSet::new();
+
+        if let Some(payload) = &online_json {
+            if let Some(items) = payload.pointer("/datas/userOnline").and_then(|v| v.as_array()) {
+                for item in items {
+                    let session = serde_json::json!({
+                        "client_ip": Self::pick_json_string_ci(item, &["ip", "clientIp", "client_ip"]).unwrap_or_else(|| "-".to_string()),
+                        "ip_location": build_location(item),
+                        "login_time": format_time(item, &["logintimeStr", "loginTimeStr"], &["logintime", "loginTime"]),
+                        "browser": Self::pick_json_string_ci(item, &["useragent", "browser"]).unwrap_or_else(|| "-".to_string())
+                    });
+                    let key = format!(
+                        "{}|{}|{}",
+                        session.get("client_ip").and_then(|v| v.as_str()).unwrap_or("-"),
+                        session.get("login_time").and_then(|v| v.as_str()).unwrap_or("-"),
+                        session.get("browser").and_then(|v| v.as_str()).unwrap_or("-"),
+                    );
+                    if login_seen.insert(key) {
+                        login_sessions.push(session);
+                    }
+                }
+            }
+        }
+
+        if let Some(payload) = &login_logs_json {
+            if let Some(items) = payload.pointer("/datas/data").and_then(|v| v.as_array()) {
+                for item in items {
+                    let session = serde_json::json!({
+                        "client_ip": Self::pick_json_string_ci(item, &["clientIp", "ip"]).unwrap_or_else(|| "-".to_string()),
+                        "ip_location": build_location(item),
+                        "login_time": format_time(item, &["createtimeStr", "createTimeStr"], &["createtime", "createTime"]),
+                        "browser": Self::pick_json_string_ci(item, &["useragent", "browser"]).unwrap_or_else(|| "-".to_string())
+                    });
+                    let key = format!(
+                        "{}|{}|{}",
+                        session.get("client_ip").and_then(|v| v.as_str()).unwrap_or("-"),
+                        session.get("login_time").and_then(|v| v.as_str()).unwrap_or("-"),
+                        session.get("browser").and_then(|v| v.as_str()).unwrap_or("-"),
+                    );
+                    if login_seen.insert(key) {
+                        login_sessions.push(session);
+                    }
+                }
+            }
+        }
+
+        if login_sessions.is_empty() {
+            login_sessions.push(serde_json::json!({
+                "client_ip": "-",
+                "ip_location": "未知",
+                "login_time": "-",
+                "browser": "-"
+            }));
+        }
+
+        login_sessions.sort_by(|a, b| {
+            let a_time = a.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
+            let b_time = b.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
+            Self::compare_time_desc(a_time, b_time)
+        });
+        let current_login = login_sessions.first().cloned().unwrap_or_else(|| serde_json::json!({
+            "client_ip": "-",
+            "ip_location": "未知",
+            "login_time": "-",
+            "browser": "-"
+        }));
+
+        let mut app_access_records: Vec<serde_json::Value> = Vec::new();
+        let mut total: i64 = 0;
+        if let Some(payload) = &app_logs_json {
+            if let Some(datas) = payload.get("datas") {
+                total = Self::json_to_i64(datas.get("total")).unwrap_or(0);
+                if let Some(items) = datas.get("data").and_then(|v| v.as_array()) {
+                    for (idx, item) in items.iter().enumerate() {
+                        let numeric_result = Self::json_to_i64(item.get("result")).unwrap_or(-1);
+                        let auth_result = if numeric_result == 1 {
+                            "success".to_string()
+                        } else if numeric_result == 0 {
+                            "fail".to_string()
+                        } else {
+                            Self::normalize_auth_result(Self::pick_json_string_ci(item, &["authResult", "resultText"]))
+                        };
+                        app_access_records.push(serde_json::json!({
+                            "id": Self::pick_json_string_ci(item, &["id"]).unwrap_or_else(|| format!("access-{}", idx)),
+                            "app_name": Self::pick_json_string_ci(item, &["appname", "appName"]).unwrap_or_else(|| "-".to_string()),
+                            "access_time": format_time(item, &["createtimeStr", "createTimeStr"], &["createtime", "createTime"]),
+                            "auth_result": auth_result,
+                            "browser": Self::pick_json_string_ci(item, &["useragent", "browser"]).unwrap_or_else(|| "-".to_string()),
+                            "link_url": Self::pick_json_string_ci(item, &["appurl", "appUrl"]).unwrap_or_default()
+                        }));
+                    }
+                }
+            }
+        }
+        app_access_records.sort_by(|a, b| {
+            let a_time = a.get("access_time").and_then(|v| v.as_str()).unwrap_or("-");
+            let b_time = b.get("access_time").and_then(|v| v.as_str()).unwrap_or("-");
+            Self::compare_time_desc(a_time, b_time)
+        });
+        if total < app_access_records.len() as i64 {
+            total = app_access_records.len() as i64;
+        }
+        let mut total_pages = if total > 0 {
+            (total + requested_page_size - 1) / requested_page_size
+        } else {
+            1
+        };
+        if total_pages < 1 {
+            total_pages = 1;
+        }
+        let mut page = requested_page;
+        if page > total_pages {
+            page = total_pages;
+        }
+        if page < 1 {
+            page = 1;
+        }
+
+        let auth_info = if let Some(payload) = &account_setting_json {
+            let data = payload.get("datas").cloned().unwrap_or_else(|| serde_json::json!({}));
+            let phone_verified = Self::pick_json_string_ci(&data, &["isPhoneValidated"])
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            let email_verified = Self::pick_json_string_ci(&data, &["isEmailValidated"])
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
+            serde_json::json!({
+                "phone_verified": phone_verified,
+                "phone": Self::pick_json_string_ci(&data, &["telephoneNumber"]).unwrap_or_else(|| "-".to_string()),
+                "email_verified": email_verified,
+                "email": Self::pick_json_string_ci(&data, &["securityEmail"]).unwrap_or_else(|| "-".to_string()),
+                "password_hint": Self::pick_json_string_ci(&data, &["pwdStrengthCurrent"]).unwrap_or_else(|| "-".to_string())
+            })
+        } else {
+            serde_json::json!({
+                "phone_verified": false,
+                "phone": "-",
+                "email_verified": false,
+                "email": "-",
+                "password_hint": "-"
+            })
+        };
+
+        return Ok(serde_json::json!({
+            "success": true,
+            "data": {
+                "current_login": current_login,
+                "current_logins": login_sessions.clone(),
+                "login_records": login_sessions,
+                "app_access_records": app_access_records,
+                "app_access_pagination": {
+                    "page": page,
+                    "page_size": requested_page_size,
+                    "total": total,
+                    "total_pages": total_pages
+                },
+                "auth_info": auth_info,
+                "meta": {
+                    "source": "personal_info_cookie",
+                    "requested_page": requested_page,
+                    "requested_page_size": requested_page_size,
+                    "error_count": errors.len(),
+                    "errors": errors
+                }
+            }
+        }));
 
         self.ensure_portal_session(PORTAL_LOGIN_URL).await?;
         let _ = self.client.get(PORTAL_HOME_URL).send().await;

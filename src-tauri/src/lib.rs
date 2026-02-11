@@ -1398,7 +1398,19 @@ async fn fetch_ranking(
 #[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
-    let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let uid = client
+        .user_info
+        .as_ref()
+        .map(|u| u.student_id.clone())
+        .or_else(|| client.last_username.clone());
+
+    // 基础个人信息优先走本地缓存，避免重复请求教务页面。
+    if let Some(uid) = &uid {
+        if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "studentinfo_cache", uid) {
+            return Ok(attach_sync_time(cached_data, &sync_time, true));
+        }
+    }
+
     match client.fetch_student_info().await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -1409,11 +1421,6 @@ async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Va
             Ok(payload)
         }
         Err(e) => {
-            if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "studentinfo_cache", uid) {
-                    return Ok(attach_sync_time(cached_data, &sync_time, true));
-                }
-            }
             Err(e.to_string())
         }
     }
@@ -1868,7 +1875,7 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
 
 #[tauri::command]
 async fn fetch_library_dict(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     let cache_key = "dict";
     match client.fetch_library_dict().await {
         Ok(data) => {
@@ -1891,7 +1898,7 @@ async fn search_library_books(
     state: State<'_, AppState>,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     let raw = params.to_string();
     let cache_key = build_public_cache_key("search", &raw);
 
@@ -1918,7 +1925,7 @@ async fn fetch_library_book_detail(
     isbn: String,
     record_id: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     let raw = format!("{}|{}|{}", title, isbn, record_id.unwrap_or_default());
     let cache_key = build_public_cache_key("detail", &raw);
 

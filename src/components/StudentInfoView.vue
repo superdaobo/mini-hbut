@@ -30,6 +30,13 @@ const loginAccess = ref({
   current_login: {},
   current_logins: [],
   app_access_records: [],
+  auth_info: {
+    phone_verified: false,
+    phone: '-',
+    email_verified: false,
+    email: '-',
+    password_hint: '-'
+  },
   app_access_pagination: {
     page: 1,
     page_size: 10,
@@ -88,6 +95,14 @@ const normalizeAccessItem = (item, index) => ({
   link_url: typeof item.link_url === 'string' ? item.link_url : ''
 })
 
+const normalizeAuthInfo = (item) => ({
+  phone_verified: item?.phone_verified === true || item?.phone_verified === 'true' || item?.phone_verified === 1 || item?.phone_verified === '1',
+  phone: normalizeString(item?.phone, '-'),
+  email_verified: item?.email_verified === true || item?.email_verified === 'true' || item?.email_verified === 1 || item?.email_verified === '1',
+  email: normalizeString(item?.email, '-'),
+  password_hint: normalizeString(item?.password_hint, '-')
+})
+
 const normalizePagination = (raw, fallbackTotal, fallbackPage = 1, fallbackPageSize = 10) => {
   const page = Number(raw?.page) || fallbackPage
   const pageSize = Number(raw?.page_size ?? raw?.pageSize) || fallbackPageSize
@@ -135,6 +150,7 @@ const normalizeLoginAccess = (payload, fallbackPage = 1, fallbackPageSize = 10) 
     current_login: currentLogins[0] || normalizeLoginItem({}),
     current_logins: currentLogins,
     app_access_records: appAccessRecords,
+    auth_info: normalizeAuthInfo(data.auth_info || data.authInfo || {}),
     app_access_pagination: pagination
   }
 }
@@ -176,15 +192,12 @@ const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSi
   }
 
   try {
-    const cacheKey = `student-login-access:${props.studentId}:${normalizedPage}:${normalizedPageSize}`
-    const { data } = await fetchWithCache(cacheKey, async () => {
-      const res = await axios.post(`${API_BASE}/v2/student_login_access`, {
-        student_id: props.studentId,
-        page: normalizedPage,
-        page_size: normalizedPageSize
-      })
-      return res.data
+    const res = await axios.post(`${API_BASE}/v2/student_login_access`, {
+      student_id: props.studentId,
+      page: normalizedPage,
+      page_size: normalizedPageSize
     })
+    const data = res.data
 
     if (data?.success) {
       loginAccess.value = normalizeLoginAccess(data.data, normalizedPage, normalizedPageSize)
@@ -240,6 +253,8 @@ const currentLogins = computed(() => {
   return Array.isArray(loginAccess.value?.current_logins) ? loginAccess.value.current_logins : []
 })
 
+const authInfo = computed(() => normalizeAuthInfo(loginAccess.value?.auth_info || {}))
+
 const appAccessRecords = computed(() => {
   return Array.isArray(loginAccess.value?.app_access_records) ? loginAccess.value.app_access_records : []
 })
@@ -293,6 +308,8 @@ const authResultClass = (text) => {
   return 'neutral'
 }
 
+const authStatusClass = (status) => (status ? 'ok' : 'warn')
+
 const setAccessPage = async (page) => {
   const total = accessTotalPages.value
   const nextPage = Math.min(Math.max(1, page), total)
@@ -344,17 +361,18 @@ onMounted(() => {
       <div v-else class="panel-stack">
         <nav class="tab-nav">
           <button class="tab-btn" :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">
-            基本信息
+            基本信息(缓存)
           </button>
           <button class="tab-btn" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">
             当前登录
           </button>
           <button class="tab-btn" :class="{ active: activeTab === 'access' }" @click="activeTab = 'access'">
-            应用访问
+            登录信息
           </button>
         </nav>
 
         <section v-show="activeTab === 'basic'" class="surface-card">
+          <div class="cache-tip">该分区仅读取本地缓存，避免重复请求教务系统。</div>
           <div v-if="info" class="profile-top">
             <div class="avatar">{{ info.name?.charAt(0) || '?' }}</div>
             <div class="profile-meta">
@@ -373,6 +391,32 @@ onMounted(() => {
 
         <section v-show="activeTab === 'login'" class="surface-card">
           <div v-if="accessError" class="inline-error">{{ accessError }}</div>
+
+          <div class="auth-info-box">
+            <div class="auth-title">认证信息</div>
+            <div class="auth-grid">
+              <div class="auth-item">
+                <span>手机认证</span>
+                <b :class="authStatusClass(authInfo.phone_verified)">{{ authInfo.phone_verified ? '已认证' : '未认证' }}</b>
+              </div>
+              <div class="auth-item">
+                <span>手机号</span>
+                <b>{{ authInfo.phone }}</b>
+              </div>
+              <div class="auth-item">
+                <span>邮箱认证</span>
+                <b :class="authStatusClass(authInfo.email_verified)">{{ authInfo.email_verified ? '已认证' : '未认证' }}</b>
+              </div>
+              <div class="auth-item">
+                <span>邮箱</span>
+                <b>{{ authInfo.email }}</b>
+              </div>
+              <div class="auth-item auth-item-full">
+                <span>密码状态</span>
+                <b>{{ authInfo.password_hint }}</b>
+              </div>
+            </div>
+          </div>
 
           <div v-if="currentLogins.length === 0" class="empty-state compact">
             <div class="empty-icon">📭</div>
@@ -583,6 +627,65 @@ onMounted(() => {
   color: #b91c1c;
   border-radius: 12px;
   font-weight: 600;
+}
+
+.cache-tip {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #dbe5ff;
+  background: #f3f7ff;
+  color: #345178;
+  font-size: 13px;
+}
+
+.auth-info-box {
+  margin-bottom: 16px;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 12px;
+}
+
+.auth-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-text);
+  margin-bottom: 10px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.auth-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e5ebf5;
+}
+
+.auth-item b {
+  font-size: 13px;
+  color: #1f2d3d;
+}
+
+.auth-item .ok {
+  color: #137333;
+}
+
+.auth-item .warn {
+  color: #b45309;
+}
+
+.auth-item-full {
+  grid-column: 1 / -1;
 }
 
 .view-content {

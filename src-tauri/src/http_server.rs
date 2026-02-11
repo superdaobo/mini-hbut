@@ -957,7 +957,7 @@ async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<Qxzk
 async fn fetch_library_dict(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     client
         .fetch_library_dict()
         .await
@@ -969,7 +969,7 @@ async fn search_library_books(
     State(state): State<HttpState>,
     Json(req): Json<LibrarySearchRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     client
         .search_library_books(req.params)
         .await
@@ -981,7 +981,7 @@ async fn fetch_library_book_detail(
     State(state): State<HttpState>,
     Json(req): Json<LibraryDetailRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+    let mut client = state.client.lock().await;
     client
         .fetch_library_book_detail(&req.title, &req.isbn, req.record_id)
         .await
@@ -1354,5 +1354,4 @@ fn chunk_stream_text(text: &str) -> Vec<String> {
     }
     out
 }
-
 
