@@ -3,6 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import hbutLogo from '../assets/hbut-logo.png'
 import { encryptData, decryptData } from '../utils/encryption.js'
+import { invoke } from '@tauri-apps/api/core'
+import { fetchRemoteConfig } from '../utils/remote_config.js'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 
@@ -13,6 +15,7 @@ const agreePolicy = ref(false)
 const loading = ref(false)
 const statusMsg = ref('')
 const userUuid = ref('') // 用户 UUID (用于分享链接)
+const ocrConfigMode = ref('本地')
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -59,7 +62,54 @@ onMounted(async () => {
     }
     rememberMe.value = true
   }
+
+  await ensureOcrEndpointReady()
 })
+
+const resolveOcrModeLabel = (status, endpoint) => {
+  const activeSource = String(status?.active_source || '').trim()
+  if (activeSource === 'remote_config') return '远程'
+  if (activeSource === 'fallback') return '本地'
+
+  const configured = String(status?.configured_endpoint || '').trim()
+  if (configured || endpoint) return '远程'
+  return '本地'
+}
+
+const refreshOcrMode = async (endpointHint = '') => {
+  try {
+    const runtime = await invoke('get_ocr_runtime_status')
+    ocrConfigMode.value = resolveOcrModeLabel(runtime, endpointHint)
+  } catch {
+    ocrConfigMode.value = endpointHint ? '远程' : '本地'
+  }
+}
+
+const ensureOcrEndpointReady = async () => {
+  let endpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+  if (!endpoint) {
+    try {
+      const cfg = await fetchRemoteConfig()
+      const enabled = cfg?.ocr?.enabled !== false
+      endpoint = enabled ? String(cfg?.ocr?.endpoint || '').trim() : ''
+      if (endpoint) {
+        localStorage.setItem('hbu_ocr_endpoint', endpoint)
+      } else {
+        localStorage.removeItem('hbu_ocr_endpoint')
+      }
+    } catch (e) {
+      console.warn('[OCR] 拉取远程配置失败，使用内置兜底 OCR:', e)
+    }
+  }
+
+  try {
+    await invoke('set_ocr_endpoint', { endpoint })
+  } catch (e) {
+    console.warn('[OCR] 下发 OCR 端点失败:', e)
+  }
+
+  await refreshOcrMode(endpoint)
+}
 
 // 保存凭据到 localStorage
 const saveCredentials = async () => {
@@ -122,6 +172,7 @@ const autoLogin = async () => {
   
   loading.value = true
   statusMsg.value = '🤖 正在自动识别验证码...'
+  await ensureOcrEndpointReady()
   
   // 保存凭据
   await saveCredentials()
@@ -165,6 +216,8 @@ const autoLogin = async () => {
   } catch (e) {
     loading.value = false
     statusMsg.value = '网络错误: ' + e.message
+  } finally {
+    await refreshOcrMode(String(localStorage.getItem('hbu_ocr_endpoint') || '').trim())
   }
 }
 
@@ -256,12 +309,14 @@ const handleKeyPress = (event) => {
       </p>
 
       <!-- 帮助信息 -->
+      <div class="mode-info">
+        <span class="info-text">🤖 OCR配置：{{ ocrConfigMode }}</span>
+      </div>
+
+      <!-- 帮助信息 -->
       <div class="help-section">
         <p class="help-text">
           💡 <strong>提示</strong>：使用 <a href="https://e.hbut.edu.cn/stu/index.html#/" target="_blank" rel="noopener noreferrer">新融合门户</a> 的账号密码登录
-        </p>
-        <p class="help-text">
-          🔐 系统采用 OCR 自动识别验证码，无需手动输入
         </p>
         <p class="help-text">
           <a href="https://auth.hbut.edu.cn/retrieve-password/retrievePassword/index.html?service=https%3A%2F%2Fe.hbut.edu.cn%2Flogin%23%2F#/" target="_blank" rel="noopener noreferrer">忘记密码？</a>
@@ -485,6 +540,19 @@ h2 {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.mode-info {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.info-text {
+  font-size: 0.9rem;
+  color: #0369a1;
 }
 
 .help-section {

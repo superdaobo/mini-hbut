@@ -12,6 +12,8 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import hbutLogo from '../assets/hbut-logo.png'
 // 使用后端自动 OCR 识别验证码
+import { invoke } from '@tauri-apps/api/core'
+import { fetchRemoteConfig } from '../utils/remote_config.js'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 
@@ -21,6 +23,7 @@ const rememberMe = ref(true)
 const agreePolicy = ref(false)
 const loading = ref(false)
 const statusMsg = ref('')
+const ocrConfigMode = ref('本地')
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -55,7 +58,55 @@ onMounted(async () => {
   }
   
   // 验证码由后端 OCR 自动处理
+  await ensureOcrEndpointReady()
 })
+
+const resolveOcrModeLabel = (status, endpoint) => {
+  const activeSource = String(status?.active_source || '').trim()
+  if (activeSource === 'remote_config') return '远程'
+  if (activeSource === 'fallback') return '本地'
+
+  const configured = String(status?.configured_endpoint || '').trim()
+  if (configured || endpoint) return '远程'
+  return '本地'
+}
+
+const refreshOcrMode = async (endpointHint = '') => {
+  try {
+    const runtime = await invoke('get_ocr_runtime_status')
+    ocrConfigMode.value = resolveOcrModeLabel(runtime, endpointHint)
+  } catch {
+    ocrConfigMode.value = endpointHint ? '远程' : '本地'
+  }
+}
+
+const ensureOcrEndpointReady = async () => {
+  let endpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+
+  // 没有缓存时主动拉取远程配置，确保首次登录也优先使用远程 OCR。
+  if (!endpoint) {
+    try {
+      const cfg = await fetchRemoteConfig()
+      const enabled = cfg?.ocr?.enabled !== false
+      endpoint = enabled ? String(cfg?.ocr?.endpoint || '').trim() : ''
+      if (endpoint) {
+        localStorage.setItem('hbu_ocr_endpoint', endpoint)
+      } else {
+        localStorage.removeItem('hbu_ocr_endpoint')
+      }
+    } catch (e) {
+      console.warn('[OCR] 拉取远程配置失败，使用内置兜底 OCR:', e)
+    }
+  }
+
+  try {
+    await invoke('set_ocr_endpoint', { endpoint })
+  } catch (e) {
+    console.warn('[OCR] 下发 OCR 端点失败:', e)
+  }
+
+  await refreshOcrMode(endpoint)
+}
 
 // 保存凭据
 const saveCredentials = async () => {
@@ -95,6 +146,7 @@ const handleLogin = async () => {
   
   loading.value = true
   statusMsg.value = '🔒 正在登录...'
+  await ensureOcrEndpointReady()
   await saveCredentials()
   
   try {
@@ -130,7 +182,6 @@ const handleLogin = async () => {
       } else {
         statusMsg.value = '⚠️ 获取成绩失败: ' + (gradesData.error || '')
         loading.value = false
-        await refreshCaptcha()
       }
     } else {
       statusMsg.value = '❌ ' + (result.error || '登录失败')
@@ -140,6 +191,8 @@ const handleLogin = async () => {
     const errMsg = e.response?.data?.error || e.message
     statusMsg.value = '⚠️ 登录失败: ' + errMsg
     loading.value = false
+  } finally {
+    await refreshOcrMode(String(localStorage.getItem('hbu_ocr_endpoint') || '').trim())
   }
 }
 
@@ -237,7 +290,7 @@ const handleKeyPress = (event) => {
 
       <!-- 帮助提示 -->
       <div class="mode-info">
-        <span class="info-text">🤖 服务器自动识别验证码，登录更便捷</span>
+        <span class="info-text">🤖 OCR配置：{{ ocrConfigMode }}</span>
       </div>
 
       <!-- 帮助信息 -->
