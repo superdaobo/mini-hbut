@@ -443,7 +443,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="library-view">
     <header class="view-header">
-      <button class="header-btn" @click="emit('back')">返回</button>
+      <button class="header-btn" @click="emit('back')">← 返回</button>
       <h1>图书查询</h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>

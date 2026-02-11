@@ -75,6 +75,8 @@ const userUuid = ref('')
 const currentModule = ref('')
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
+const showExitDialog = ref(false)
+const exitingApp = ref(false)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
 const appShellRef = ref(null)
@@ -366,8 +368,7 @@ const parseHashRoute = () => {
 const syncFromHash = async () => {
   const route = parseHashRoute()
   if (!route) {
-    if (currentView.value !== 'home' || studentId.value) {
-      studentId.value = ''
+    if (currentView.value !== 'home') {
       applyViewState('home')
     }
     return
@@ -565,19 +566,35 @@ const handleForceUpdate = () => {
   showUpdateDialog.value = true
 }
 
+const primeOcrEndpointFromCache = async () => {
+  if (!hasTauri) return
+  const cachedEndpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+  try {
+    await invoke('set_ocr_endpoint', { endpoint: cachedEndpoint })
+  } catch (e) {
+    console.warn('[Config] 启动预设 OCR 端点失败:', e)
+  }
+}
+
 const applyRemoteConfig = async () => {
   try {
     const config = await fetchRemoteConfig()
     remoteConfig.value = config
     announcementData.value = config.announcements || { pinned: [], ticker: [], list: [], confirm: [] }
 
-    if (config.ocr?.endpoint) {
-      localStorage.setItem('hbu_ocr_endpoint', config.ocr.endpoint)
-      try {
-        await invoke('set_ocr_endpoint', { endpoint: config.ocr.endpoint })
-      } catch (e) {
-        console.warn('[Config] OCR 端点下发失败:', e)
-      }
+    const remoteOcrEnabled = config.ocr?.enabled !== false
+    const remoteOcrEndpoint = remoteOcrEnabled
+      ? String(config.ocr?.endpoint || '').trim()
+      : ''
+    if (remoteOcrEndpoint) {
+      localStorage.setItem('hbu_ocr_endpoint', remoteOcrEndpoint)
+    } else {
+      localStorage.removeItem('hbu_ocr_endpoint')
+    }
+    try {
+      await invoke('set_ocr_endpoint', { endpoint: remoteOcrEndpoint })
+    } catch (e) {
+      console.warn('[Config] OCR 端点下发失败:', e)
     }
 
     // 课表临时文件上传地址：每次启动后由远程配置覆盖。
@@ -817,20 +834,40 @@ const installCloseInterceptor = async () => {
       }
 
       event.preventDefault()
-      const shouldExit = window.confirm('是否退出 Mini-HBUT？')
-      if (!shouldExit) {
-        replaceHistorySnapshot('home')
-        return
-      }
-      isClosingByUser = true
-      try {
-        await appWindow.close()
-      } finally {
-        isClosingByUser = false
-      }
+      showExitDialog.value = true
+      replaceHistorySnapshot('home')
     })
   } catch (e) {
     console.warn('[Navigation] 安装关闭拦截失败:', e)
+  }
+}
+
+const cancelExitDialog = () => {
+  showExitDialog.value = false
+}
+
+const confirmExitDialog = async () => {
+  if (exitingApp.value) return
+  exitingApp.value = true
+  isClosingByUser = true
+  try {
+    if (hasTauri) {
+      await invoke('exit_app')
+    } else {
+      window.close()
+    }
+  } catch (e) {
+    console.warn('[Navigation] 退出应用失败:', e)
+    try {
+      const appWindow = getCurrentWindow()
+      await appWindow.destroy()
+    } catch (fallbackErr) {
+      console.warn('[Navigation] destroy 回退失败:', fallbackErr)
+    }
+  } finally {
+    showExitDialog.value = false
+    exitingApp.value = false
+    isClosingByUser = false
   }
 }
 
@@ -856,6 +893,9 @@ onMounted(async () => {
   }
   scheduleViewportUpdate()
   await installCloseInterceptor()
+  await primeOcrEndpointFromCache()
+  // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
+  await applyRemoteConfig()
 
   let restored = await tryRestoreSession()
   if (!restored) {
@@ -881,9 +921,6 @@ onMounted(async () => {
   
   // 启动即检查更新
   autoCheckUpdate()
-
-  // 拉取远程配置（公告 / 强制更新 / OCR 入口）
-  applyRemoteConfig()
 
   ensureConfigAccess()
 })
@@ -1139,6 +1176,19 @@ onBeforeUnmount(() => {
       <div class="login-mask-card">请先在个人中心登录</div>
     </div>
 
+    <div v-if="showExitDialog" class="exit-dialog-overlay">
+      <div class="exit-dialog-card">
+        <h3>退出应用</h3>
+        <p>是否退出 Mini-HBUT？</p>
+        <div class="exit-dialog-actions">
+          <button class="btn-secondary" :disabled="exitingApp" @click="cancelExitDialog">取消</button>
+          <button class="btn-danger" :disabled="exitingApp" @click="confirmExitDialog">
+            {{ exitingApp ? '退出中...' : '退出' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 版本更新对话框 -->
     <UpdateDialog 
       v-if="showUpdateDialog"
@@ -1338,6 +1388,81 @@ onBeforeUnmount(() => {
   box-shadow: var(--ui-shadow-soft);
 }
 
+.exit-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.exit-dialog-card {
+  width: min(420px, 100%);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 18px;
+  box-shadow: var(--ui-shadow-strong);
+  padding: 22px;
+}
+
+.exit-dialog-card h3 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  color: var(--ui-text);
+}
+
+.exit-dialog-card p {
+  margin: 0;
+  font-size: 18px;
+  color: var(--ui-muted);
+}
+
+.exit-dialog-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-secondary,
+.btn-danger,
+.btn-primary {
+  height: 42px;
+  min-width: 96px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-secondary {
+  background: var(--ui-primary-soft);
+  color: var(--ui-text);
+}
+
+.btn-primary {
+  background: var(--ui-primary);
+  color: #fff;
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn-secondary:disabled,
+.btn-primary:disabled,
+.btn-danger:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .force-update-overlay {
   position: fixed;
   top: 0;
@@ -1467,6 +1592,116 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 16px;
+}
+
+/* 统一模块页头部：左返回 + 中标题 + 右占位 */
+:deep(.view-header),
+:deep(.app-header),
+:deep(.grade-header),
+:deep(.elec-header),
+:deep(.qxzkb-header),
+:deep(.trans-header) {
+  display: grid !important;
+  grid-template-columns: 112px 1fr 112px !important;
+  align-items: center !important;
+}
+
+:deep(.view-header > h1),
+:deep(.app-header > h1),
+:deep(.grade-header > h1),
+:deep(.elec-header > h1),
+:deep(.qxzkb-header > h1),
+:deep(.trans-header > h1) {
+  margin: 0;
+  text-align: center;
+  justify-self: center;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap;
+}
+
+:deep(.view-header > .title),
+:deep(.app-header > .title),
+:deep(.grade-header > .title),
+:deep(.elec-header > .title),
+:deep(.qxzkb-header > .title),
+:deep(.trans-header > .title) {
+  width: 100%;
+  justify-content: center !important;
+  justify-self: center;
+  text-align: center;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap;
+}
+
+:deep(.view-header .back-btn),
+:deep(.app-header .back-btn),
+:deep(.grade-header .back-btn),
+:deep(.elec-header .back-btn),
+:deep(.qxzkb-header .back-btn),
+:deep(.trans-header .back-btn),
+:deep(.view-header .header-btn),
+:deep(.app-header .header-btn),
+:deep(.grade-header .header-btn),
+:deep(.elec-header .header-btn),
+:deep(.qxzkb-header .header-btn),
+:deep(.trans-header .header-btn) {
+  width: 112px;
+  justify-self: start;
+}
+
+:deep(.header-spacer) {
+  width: 112px;
+  height: 1px;
+  justify-self: end;
+}
+
+/* 模块页头部禁止显示“退出”按钮与右上角学号区域 */
+:deep(.view-header .logout-btn),
+:deep(.app-header .logout-btn),
+:deep(.grade-header .logout-btn),
+:deep(.elec-header .logout-btn),
+:deep(.qxzkb-header .logout-btn),
+:deep(.trans-header .logout-btn),
+:deep(.view-header .header-btn.danger),
+:deep(.app-header .header-btn.danger),
+:deep(.grade-header .header-btn.danger),
+:deep(.elec-header .header-btn.danger),
+:deep(.qxzkb-header .header-btn.danger),
+:deep(.trans-header .header-btn.danger),
+:deep(.grade-header .user-info),
+:deep(.elec-header .user-info) {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  :deep(.view-header),
+  :deep(.app-header),
+  :deep(.grade-header),
+  :deep(.elec-header),
+  :deep(.qxzkb-header),
+  :deep(.trans-header) {
+    grid-template-columns: 94px 1fr 94px !important;
+  }
+
+  :deep(.view-header .back-btn),
+  :deep(.app-header .back-btn),
+  :deep(.grade-header .back-btn),
+  :deep(.elec-header .back-btn),
+  :deep(.qxzkb-header .back-btn),
+  :deep(.trans-header .back-btn),
+  :deep(.view-header .header-btn),
+  :deep(.app-header .header-btn),
+  :deep(.grade-header .header-btn),
+  :deep(.elec-header .header-btn),
+  :deep(.qxzkb-header .header-btn),
+  :deep(.trans-header .header-btn),
+  :deep(.header-spacer) {
+    width: 94px;
+  }
 }
 </style>
 

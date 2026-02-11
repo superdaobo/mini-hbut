@@ -21,6 +21,14 @@ const isLikelyMiniProgramCode = (value: string) => {
   return trimmed.startsWith('#小程序://') || trimmed.startsWith('小程序://')
 }
 
+const extractMiniProgramToken = (value: string) => {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return ''
+  const clean = trimmed.replace(/^#/, '')
+  const tokenMatch = clean.match(/\/([A-Za-z0-9_-]{6,})$/)
+  return tokenMatch?.[1] || ''
+}
+
 const miniProgramCandidates = (value: string) => {
   const trimmed = (value || '').trim()
   if (!trimmed) return []
@@ -28,16 +36,18 @@ const miniProgramCandidates = (value: string) => {
   const clean = trimmed.replace(/^#/, '')
   const candidates = new Set<string>()
 
-  // 保留用户原始口令（有些系统可直接处理）
-  candidates.add(trimmed)
-  candidates.add(clean)
-
-  // 解析口令尾部 token，转换成 weixin 深链，兼容 iOS/Android。
-  const tokenMatch = clean.match(/\/([A-Za-z0-9_-]{6,})$/)
-  const token = tokenMatch?.[1]
+  // 解析口令尾部 token，优先转换成 weixin 深链，兼容 iOS/Android。
+  const token = extractMiniProgramToken(clean)
   if (token) {
     candidates.add(`weixin://dl/business/?t=${token}`)
+    candidates.add(`wechat://dl/business/?t=${token}`)
+    // 兜底：至少先拉起微信，由用户粘贴口令打开。
+    candidates.add('weixin://')
   }
+
+  // 原始口令放在后面，避免“已打开但落到无效页”导致后续深链不再尝试。
+  candidates.add(trimmed)
+  candidates.add(clean)
 
   return [...candidates].filter(Boolean)
 }
@@ -121,6 +131,13 @@ export const openExternalRaw = async (target: string) => {
 }
 
 export const openWeChatMiniProgram = async (code: string) => {
+  const token = extractMiniProgramToken(code)
+  if (token) {
+    // 先直接走 weixin deep link，成功率最高。
+    const direct = await openExternalRaw(`weixin://dl/business/?t=${token}`)
+    if (direct) return true
+  }
+
   const candidates = miniProgramCandidates(code)
   for (const target of candidates) {
     const ok = await openExternalRaw(target)

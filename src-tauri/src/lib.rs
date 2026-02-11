@@ -282,29 +282,12 @@ async fn get_captcha(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn recognize_captcha(image_base64: String) -> Result<String, String> {
-    // 调用 OCR 服务识别验证?
-    // 这里可以使用本地 OCR 或远程服?
-    let client = reqwest::Client::new();
-    
-    // 尝试调用本地 Python 后端?OCR
-    let response = client
-        .post("http://127.0.0.1:8000/api/ocr/base64")
-        .json(&serde_json::json!({ "image": image_base64 }))
-        .send()
+async fn recognize_captcha(state: State<'_, AppState>, image_base64: String) -> Result<String, String> {
+    let mut hbut = state.client.lock().await;
+    hbut
+        .recognize_captcha_base64(&image_base64)
         .await
-        .map_err(|e| format!("OCR 请求失败: {}", e))?;
-    
-    if response.status().is_success() {
-        let result: serde_json::Value = response.json().await
-            .map_err(|e| format!("解析 OCR 响应失败: {}", e))?;
-        
-        if let Some(code) = result.get("code").and_then(|v| v.as_str()) {
-            return Ok(code.to_string());
-        }
-    }
-    
-    Err("OCR 识别失败".to_string())
+        .map_err(|e| format!("OCR recognize failed: {}", e))
 }
 
 #[tauri::command]
@@ -315,27 +298,72 @@ async fn set_ocr_endpoint(state: State<'_, AppState>, endpoint: String) -> Resul
 }
 
 #[tauri::command]
-async fn fetch_remote_config(url: String) -> Result<serde_json::Value, String> {
+async fn get_ocr_runtime_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    Ok(client.get_ocr_runtime_status())
+}
+
+#[tauri::command]
+async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("创建请求失败: {}", e))?;
+        .map_err(|e| format!("??????: {}", e))?;
 
     let response = client
         .get(&url)
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| format!("请求失败: {}", e))?;
+        .map_err(|e| format!("????: {}", e))?;
 
     let status = response.status();
-    let text = response.text().await.map_err(|e| format!("读取响应失败: {}", e))?;
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("??????: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("请求失败: {}", status));
+        return Err(format!("????: {}", status));
     }
 
-    serde_json::from_str(&text).map_err(|e| format!("解析 JSON 失败: {}", e))
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("?? JSON ??: {}", e))?;
+
+    let ocr_enabled = parsed
+        .get("ocr")
+        .and_then(|v| v.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let ocr_endpoint = if ocr_enabled {
+        parsed
+            .get("ocr")
+            .and_then(|v| v.get("endpoint"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    } else {
+        String::new()
+    };
+
+    {
+        let mut hbut = state.client.lock().await;
+        hbut.set_ocr_endpoint(ocr_endpoint.clone());
+    }
+
+    println!(
+        "[??] ???? OCR ???: enabled={}, endpoint={}",
+        ocr_enabled, ocr_endpoint
+    );
+
+    Ok(parsed)
+}
+
+#[tauri::command]
+fn exit_app(app_handle: tauri::AppHandle) -> Result<(), String> {
+    app_handle.exit(0);
+    Ok(())
 }
 
 #[cfg(target_os = "android")]
@@ -2264,8 +2292,10 @@ pub fn run() {
             get_captcha,
             recognize_captcha,
             set_ocr_endpoint,
+            get_ocr_runtime_status,
             set_temp_upload_endpoint,
             fetch_remote_config,
+            exit_app,
             download_deyihei_font,
             download_deyihei_font_payload,
             cache_remote_image,

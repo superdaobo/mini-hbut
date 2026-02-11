@@ -88,7 +88,7 @@ onMounted(async () => {
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
       <h1>🏆 绩点排名</h1>
-      <button class="logout-btn" @click="emit('logout')">退出</button>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <div v-if="offline" class="offline-banner">

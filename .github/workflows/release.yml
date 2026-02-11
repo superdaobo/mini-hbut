@@ -31,13 +31,8 @@ jobs:
           name: Mini-HBUT ${{ steps.version.outputs.VERSION }}
           draft: false
           prerelease: false
-          body: |
-            本次版本重点更新：
-            - 完善图书查询功能：检索、筛选、馆藏详情与封面展示可用性优化。
-            - 个人信息模块升级：支持查询最近登录设备与账号授权信息。
-            - 移动端体验增强：安卓与 iOS 端返回逻辑统一，应用内优先返回上一级页面，首页返回时二次确认退出。
-            - 功能完整性提升：核心学习与生活模块已基本完备，可稳定日常使用。
-          generate_release_notes: true
+          body: ""
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Clean old packaged assets of this tag

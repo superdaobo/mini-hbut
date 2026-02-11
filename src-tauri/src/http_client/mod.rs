@@ -48,6 +48,7 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/index.html";
+pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
 
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）
 pub(super) fn get_random_string(length: usize) -> String {
@@ -107,6 +108,9 @@ pub struct HbutClient {
     pub(super) electricity_refresh_token: Option<String>,
     pub(super) electricity_token_expires_at: Option<DateTime<Utc>>,
     pub(super) ocr_endpoint: Option<String>,
+    pub(super) ocr_active_endpoint: Option<String>,
+    pub(super) ocr_active_source: Option<String>,
+    pub(super) ocr_last_error: Option<String>,
     pub(super) last_login_attempt: Option<std::time::Instant>,
     pub(super) last_login_time: Option<std::time::Instant>,
     pub(super) last_relogin_attempt: Option<std::time::Instant>,
@@ -157,6 +161,9 @@ impl HbutClient {
             electricity_refresh_token: None,
             electricity_token_expires_at: None,
             ocr_endpoint: None,
+            ocr_active_endpoint: None,
+            ocr_active_source: None,
+            ocr_last_error: None,
             last_login_attempt: None,
             last_login_time: None,
             last_relogin_attempt: None,
@@ -174,6 +181,46 @@ impl HbutClient {
         } else {
             self.ocr_endpoint = Some(trimmed.to_string());
         }
+        // 每次配置更新后清理运行态，下一次 OCR 请求会重新填充状态。
+        self.ocr_active_endpoint = None;
+        self.ocr_active_source = None;
+        self.ocr_last_error = None;
+    }
+
+    pub(super) fn normalize_ocr_endpoint(input: &str) -> String {
+        let endpoint = input.trim();
+        if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+            if endpoint.contains("/api/ocr/recognize") {
+                endpoint.to_string()
+            } else {
+                format!("{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
+            }
+        } else {
+            format!("http://{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
+        }
+    }
+
+    pub(super) fn set_ocr_runtime_success(&mut self, source: &str, endpoint: &str) {
+        self.ocr_active_source = Some(source.to_string());
+        self.ocr_active_endpoint = Some(endpoint.to_string());
+        self.ocr_last_error = None;
+    }
+
+    pub(super) fn set_ocr_runtime_error(&mut self, source: &str, endpoint: &str, error: &str) {
+        self.ocr_active_source = Some(source.to_string());
+        self.ocr_active_endpoint = Some(endpoint.to_string());
+        self.ocr_last_error = Some(error.to_string());
+    }
+
+    pub fn get_ocr_runtime_status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "configured_endpoint": self.ocr_endpoint.clone().unwrap_or_default(),
+            "fallback_endpoint": DEFAULT_OCR_ENDPOINT,
+            "active_endpoint": self.ocr_active_endpoint.clone(),
+            "active_source": self.ocr_active_source.clone().unwrap_or_else(|| "unknown".to_string()),
+            "fallback_used": self.ocr_active_source.as_deref() == Some("fallback"),
+            "last_error": self.ocr_last_error.clone(),
+        })
     }
 
     /// 缓存用户名/密码，用于后续 SSO 自动重登

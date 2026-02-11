@@ -167,7 +167,7 @@ onMounted(() => {
         <span class="icon">💰</span>
         <span>交易记录</span>
       </div>
-      <div class="placeholder"></div>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <div v-if="offline" class="offline-banner">
@@ -295,7 +295,10 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.3);
 }
 
-.placeholder { width: 60px; }
+.header-spacer {
+  width: 112px;
+  height: 1px;
+}
 
 .content {
   padding: 20px;

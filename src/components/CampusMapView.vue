@@ -205,13 +205,19 @@ const openCampusGuideMiniProgram = async () => {
   if (openingMiniProgram.value) return
   openingMiniProgram.value = true
   try {
+    const copied = await copyGuideCode()
     const opened = await openWeChatMiniProgram(WECHAT_CAMPUS_GUIDE_CODE)
     if (opened) {
-      showToast('已尝试唤起微信小程序，请在微信中确认打开', 'success', 2600)
+      showToast(
+        copied
+          ? '已尝试唤起微信；若提示当前页面无法访问，请直接在微信粘贴口令打开'
+          : '已尝试唤起微信小程序，请在微信中确认打开',
+        'success',
+        3200
+      )
       return
     }
 
-    const copied = await copyGuideCode()
     if (copied) {
       showToast('无法直接唤起微信，口令已复制，请粘贴到微信打开', 'warning', 3200)
     } else {
@@ -255,9 +261,9 @@ onMounted(() => {
 <template>
   <div class="campus-map-view">
     <header class="view-header">
-      <button class="header-btn" @click="emit('back')">返回</button>
+      <button class="header-btn" @click="emit('back')">← 返回</button>
       <h1>校园地图</h1>
-      <button class="header-btn danger" @click="emit('logout')">退出</button>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <section class="intro-card">

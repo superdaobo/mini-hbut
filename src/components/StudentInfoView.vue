@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
@@ -339,7 +339,7 @@ onMounted(() => {
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
       <h1>个人信息</h1>
-      <button class="logout-btn" @click="emit('logout')">退出</button>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <div v-if="offline" class="offline-banner">

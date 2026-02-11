@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import axios from 'axios'
@@ -869,9 +869,9 @@ onMounted(async () => {
 <template>
   <div class="export-view">
     <header class="view-header">
-      <button class="back-btn" @click="emit('back')">返回</button>
+      <button class="back-btn" @click="emit('back')">← 返回</button>
       <h1>📦 导出中心</h1>
-      <button class="logout-btn" @click="emit('logout')">退出</button>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <section class="intro-card">

@@ -268,7 +268,7 @@ onMounted(async () => {
         <span class="icon">🏫</span>
         <span>空教室查询</span>
       </div>
-      <button class="logout-btn" @click="$emit('logout')">退出</button>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <div v-if="offline" class="offline-banner">

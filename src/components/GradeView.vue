@@ -161,10 +161,7 @@ watch(
         <span class="icon">📊</span>
         <span>成绩查询</span>
       </div>
-      <div class="user-info">
-        <span>{{ studentId }}</span>
-        <button class="logout-btn" @click="handleLogout">退出</button>
-      </div>
+      <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
     <div v-if="offline" class="offline-banner">

@@ -640,70 +640,116 @@ impl HbutClient {
         false
     }
 
-    /// 获取验证码并调用服务器 OCR API 识别
-    /// 拉取验证码并调用 OCR 识别
-    async fn fetch_and_recognize_captcha(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    /// 使用 OCR 识别传入的 base64 图片内容。
+    /// 规则：优先远程配置端点，失败后回退到内置端点。
+    pub async fn recognize_captcha_base64(
+        &mut self,
+        image_base64: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let normalized = image_base64
+            .trim()
+            .split_once(',')
+            .map(|(_, b64)| b64)
+            .unwrap_or(image_base64)
+            .trim();
+        if normalized.is_empty() {
+            return Err("OCR image base64 is empty".into());
+        }
+
+        let mut endpoints: Vec<(&str, String)> = Vec::new();
+        if let Some(cfg_ep) = self
+            .ocr_endpoint
+            .as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+        {
+            endpoints.push(("remote_config", Self::normalize_ocr_endpoint(cfg_ep)));
+        }
+        let fallback = super::DEFAULT_OCR_ENDPOINT.to_string();
+        if endpoints.is_empty() || endpoints.iter().all(|(_, ep)| ep != &fallback) {
+            endpoints.push(("fallback", fallback));
+        }
+
+        let mut last_err = String::new();
+        for (source, ocr_url) in endpoints {
+            println!("[调试] 调用 OCR 来源({}): {}", source, ocr_url);
+            let request = self
+                .ocr_client
+                .post(&ocr_url)
+                .json(&serde_json::json!({ "image": normalized }));
+            let ocr_response = match request.send().await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    let msg = format!("OCR request failed: {}", e);
+                    println!("[警告] {}", msg);
+                    self.set_ocr_runtime_error(source, &ocr_url, &msg);
+                    last_err = msg;
+                    continue;
+                }
+            };
+
+            let ocr_status = ocr_response.status();
+            let ocr_text = ocr_response.text().await.unwrap_or_default();
+            println!(
+                "[调试] OCR 响应({}): status={}, body={}",
+                source, ocr_status, ocr_text
+            );
+
+            if !ocr_status.is_success() {
+                let msg = format!("OCR status {}", ocr_status);
+                self.set_ocr_runtime_error(source, &ocr_url, &msg);
+                last_err = msg;
+                continue;
+            }
+
+            let ocr_result: serde_json::Value = match serde_json::from_str(&ocr_text) {
+                Ok(v) => v,
+                Err(e) => {
+                    let msg = format!("OCR json parse failed: {}", e);
+                    self.set_ocr_runtime_error(source, &ocr_url, &msg);
+                    last_err = msg;
+                    continue;
+                }
+            };
+
+            if ocr_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if let Some(result) = ocr_result.get("result").and_then(|v| v.as_str()) {
+                    let captcha_code = result.trim().to_string();
+                    if !captcha_code.is_empty() {
+                        self.set_ocr_runtime_success(source, &ocr_url);
+                        println!("[调试] OCR 识别成功({}): {}", source, captcha_code);
+                        return Ok(captcha_code);
+                    }
+                }
+            }
+
+            let msg = ocr_result
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("OCR recognition failed")
+                .to_string();
+            self.set_ocr_runtime_error(source, &ocr_url, &msg);
+            last_err = msg;
+        }
+
+        Err(format!("OCR all endpoints failed: {}", last_err).into())
+    }
+
+    /// 获取验证码并调用 OCR 识别
+    async fn fetch_and_recognize_captcha(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let captcha_url = format!("{}/getCaptcha.htl?{}", AUTH_BASE_URL, chrono_timestamp());
         println!("[调试] 获取验证码用于 OCR: {}", captcha_url);
-        
+
         let response = self.client.get(&captcha_url).send().await?;
         let bytes = response.bytes().await?;
-        
+
         if bytes.is_empty() || bytes.len() < 100 {
-            return Err("验证码图片太小".into());
+            return Err("验证码图片为空或过小".into());
         }
-        
+
         println!("[调试] 验证码图片大小: {} bytes", bytes.len());
-        
-        // 将验证码图片转为 Base64
         let base64_image = base64::engine::general_purpose::STANDARD.encode(&bytes);
-        
-        // 调用服务器 OCR API（可由前端配置覆盖）
-        let default_ocr = "http://1.94.167.18:5080/api/ocr/recognize";
-        let endpoint = self.ocr_endpoint.as_deref().unwrap_or(default_ocr);
-        let ocr_url = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
-            if endpoint.contains("/api/ocr/recognize") {
-                endpoint.to_string()
-            } else {
-                format!("{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
-            }
-        } else {
-            format!("http://{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
-        };
-        println!("[调试] 调用 OCR 服务: {}", ocr_url);
-        
-        // 使用独立 OCR 客户端（不带 cookie）
-        let ocr_response = self.ocr_client
-            .post(&ocr_url)
-            .json(&serde_json::json!({
-                "image": base64_image
-            }))
-            .send()
-            .await?;
-        
-        let ocr_status = ocr_response.status();
-        let ocr_text = ocr_response.text().await?;
-        println!("[调试] OCR 返回状态: {}, body: {}", ocr_status, ocr_text);
-        
-        if !ocr_status.is_success() {
-            return Err(format!("OCR API 请求失败: {}", ocr_status).into());
-        }
-        
-        // 解析 JSON 响应
-        let ocr_result: serde_json::Value = serde_json::from_str(&ocr_text)?;
-        
-        if ocr_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-            if let Some(result) = ocr_result.get("result").and_then(|v| v.as_str()) {
-                let captcha_code = result.trim().to_string();
-                println!("[调试] OCR 识别验证码: {}", captcha_code);
-                return Ok(captcha_code);
-            }
-        }
-        
-        let error_msg = ocr_result.get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("未知错误");
-        Err(format!("OCR 识别失败: {}", error_msg).into())
+        self.recognize_captcha_base64(&base64_image).await
     }
 
     /// 主登录入口（含验证码流程与会话保存）
