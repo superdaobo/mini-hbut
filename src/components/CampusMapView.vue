@@ -8,7 +8,7 @@ defineProps({
   studentId: { type: String, default: '' }
 })
 
-const emit = defineEmits(['back', 'logout'])
+const emit = defineEmits(['back'])
 
 type CampusMapItem = {
   id: string
@@ -38,6 +38,9 @@ const activeMap = ref<CampusMapItem | null>(null)
 const openingMiniProgram = ref(false)
 
 const WECHAT_CAMPUS_GUIDE_CODE = '#小程序://校园导览/AWm9BvLlALOD9xG'
+const WECHAT_CAMPUS_GUIDE_APP_ID = 'wx22aea6eb3fe08ad7'
+const WECHAT_CAMPUS_GUIDE_ORIGIN_ID = 'gh_403c3ddb4411'
+const WECHAT_CAMPUS_GUIDE_PATHS = ['pages/index/index', 'pages/home/index', 'pages/map/index', '']
 
 const scale = ref(1)
 const offset = ref({ x: 0, y: 0 })
@@ -49,11 +52,11 @@ const lastPinchDistance = ref(0)
 
 const zoomText = computed(() => `${Math.round(scale.value * 100)}%`)
 const imageTransform = computed(
-  () => `translate(-50%, -50%) translate3d(${offset.value.x}px, ${offset.value.y}px, 0) scale(${scale.value})`
+  () =>
+    `translate(-50%, -50%) translate3d(${offset.value.x}px, ${offset.value.y}px, 0) scale(${scale.value})`
 )
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
 const getMapSrc = (item: CampusMapItem) => cachedSrcMap.value[item.id] || item.url
 
 const fallbackToRemote = (item: CampusMapItem) => {
@@ -62,18 +65,13 @@ const fallbackToRemote = (item: CampusMapItem) => {
     loadStateMap.value[item.id] = 'error'
     return
   }
-  console.warn(`[CampusMap] local cache image failed, fallback to remote: ${item.id}`)
   cachedSrcMap.value[item.id] = item.url
   loadStateMap.value[item.id] = 'error'
 }
 
-const handleCoverImageError = (item: CampusMapItem) => {
-  fallbackToRemote(item)
-}
-
+const handleCoverImageError = (item: CampusMapItem) => fallbackToRemote(item)
 const handleViewerImageError = () => {
-  if (!activeMap.value) return
-  fallbackToRemote(activeMap.value)
+  if (activeMap.value) fallbackToRemote(activeMap.value)
 }
 
 const maxPan = () => {
@@ -134,7 +132,6 @@ const onPointerDown = (event: PointerEvent) => {
   if (!activeMap.value) return
   ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-
   if (pointers.size === 1) {
     lastPanPoint.value = { x: event.clientX, y: event.clientY }
   } else if (pointers.size === 2) {
@@ -179,9 +176,7 @@ const onPointerUp = (event: PointerEvent) => {
     const only = [...pointers.values()][0]
     lastPanPoint.value = { x: only.x, y: only.y }
   }
-  if (pointers.size === 0) {
-    lastPanPoint.value = null
-  }
+  if (pointers.size === 0) lastPanPoint.value = null
 }
 
 const openRaw = async () => {
@@ -206,12 +201,24 @@ const openCampusGuideMiniProgram = async () => {
   openingMiniProgram.value = true
   try {
     const copied = await copyGuideCode()
-    const opened = await openWeChatMiniProgram(WECHAT_CAMPUS_GUIDE_CODE)
+    let opened = false
+
+    for (const path of WECHAT_CAMPUS_GUIDE_PATHS) {
+      opened = await openWeChatMiniProgram({
+        code: WECHAT_CAMPUS_GUIDE_CODE,
+        appId: WECHAT_CAMPUS_GUIDE_APP_ID,
+        ghId: WECHAT_CAMPUS_GUIDE_ORIGIN_ID,
+        path,
+        envVersion: 'release'
+      })
+      if (opened) break
+    }
+
     if (opened) {
       showToast(
         copied
-          ? '已尝试唤起微信；若提示当前页面无法访问，请直接在微信粘贴口令打开'
-          : '已尝试唤起微信小程序，请在微信中确认打开',
+          ? '已尝试唤起微信；若仍提示不可访问，请在微信粘贴口令打开。'
+          : '已尝试唤起微信小程序，请在微信内确认打开。',
         'success',
         3200
       )
@@ -219,9 +226,9 @@ const openCampusGuideMiniProgram = async () => {
     }
 
     if (copied) {
-      showToast('无法直接唤起微信，口令已复制，请粘贴到微信打开', 'warning', 3200)
+      showToast('未能直接唤起微信，口令已复制，请粘贴到微信打开。', 'warning', 3200)
     } else {
-      showToast('打开失败，请手动复制口令到微信打开', 'error', 3200)
+      showToast('唤起失败，请手动复制口令到微信打开。', 'error', 3200)
     }
   } finally {
     openingMiniProgram.value = false
@@ -232,9 +239,9 @@ const loadSingleMap = async (item: CampusMapItem) => {
   loadStateMap.value[item.id] = 'loading'
   try {
     // 缓存策略：
-    // 1) 首次进入下载并写入 AppCache/maps
-    // 2) TTL 7 天内直接复用本地缓存，避免重复网络请求
-    // 3) 失败时回退远程 URL，不阻断页面展示
+    // 1. 首次进入下载并缓存到本地
+    // 2. 7 天内优先读缓存，减少重复下载
+    // 3. 缓存失败时回退到远程 URL，不阻断展示
     const localSrc = await resolveCachedImage({
       cacheKey: `campus-map-${item.id}`,
       url: item.url,
@@ -242,8 +249,7 @@ const loadSingleMap = async (item: CampusMapItem) => {
     })
     cachedSrcMap.value[item.id] = localSrc
     loadStateMap.value[item.id] = 'ready'
-  } catch (e) {
-    console.warn(`[CampusMap] cache failed for ${item.id}`, e)
+  } catch {
     cachedSrcMap.value[item.id] = item.url
     loadStateMap.value[item.id] = 'error'
   }
@@ -290,11 +296,16 @@ onMounted(() => {
         <h2>微信校园导览</h2>
         <span>iOS / Android</span>
       </div>
-      <p class="mini-program-desc">点击按钮直接跳转微信小程序，若系统拦截会自动复制口令，粘贴到微信即可打开。</p>
+      <p class="mini-program-desc">
+        点击按钮直接跳转微信小程序。若系统拦截，会自动复制口令，粘贴到微信即可打开。
+      </p>
       <button class="mini-program-btn" :disabled="openingMiniProgram" @click="openCampusGuideMiniProgram">
         {{ openingMiniProgram ? '正在唤起微信...' : '打开微信校园导览' }}
       </button>
-      <div class="mini-program-code">{{ WECHAT_CAMPUS_GUIDE_CODE }}</div>
+      <div class="mini-program-code">
+        <div>口令：{{ WECHAT_CAMPUS_GUIDE_CODE }}</div>
+        <div>AppID：{{ WECHAT_CAMPUS_GUIDE_APP_ID }}</div>
+      </div>
     </section>
 
     <div v-if="activeMap" class="viewer-overlay" @click.self="closeMap">
@@ -345,9 +356,9 @@ onMounted(() => {
 }
 
 .view-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 112px 1fr 112px;
   align-items: center;
-  justify-content: space-between;
   padding: 16px 20px;
   border-radius: 16px;
   background: var(--ui-surface);
@@ -357,7 +368,8 @@ onMounted(() => {
 
 .view-header h1 {
   margin: 0;
-  font-size: 24px;
+  text-align: center;
+  font-size: 22px;
   color: var(--ui-text);
 }
 
@@ -370,10 +382,14 @@ onMounted(() => {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  width: 112px;
+  justify-self: start;
 }
 
-.header-btn.danger {
-  color: #dc2626;
+.header-spacer {
+  width: 112px;
+  height: 1px;
+  justify-self: end;
 }
 
 .intro-card {
@@ -615,8 +631,18 @@ onMounted(() => {
     padding: 14px 14px 100px;
   }
 
+  .view-header {
+    grid-template-columns: 94px 1fr 94px;
+    padding: 12px 14px;
+  }
+
   .view-header h1 {
     font-size: 20px;
+  }
+
+  .header-btn,
+  .header-spacer {
+    width: 94px;
   }
 
   .maps-grid {
@@ -637,3 +663,4 @@ onMounted(() => {
   }
 }
 </style>
+

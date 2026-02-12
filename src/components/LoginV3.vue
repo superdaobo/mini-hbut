@@ -81,22 +81,24 @@ const refreshOcrMode = async (endpointHint = '') => {
 }
 
 const ensureOcrEndpointReady = async () => {
-  let endpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+  let endpoint = ''
+  try {
+    // 每次登录都优先读取远程配置，避免被旧缓存“锁死”在本地 OCR。
+    const cfg = await fetchRemoteConfig()
+    const enabled = cfg?.ocr?.enabled !== false
+    endpoint = enabled ? String(cfg?.ocr?.endpoint || '').trim() : ''
+  } catch (e) {
+    console.warn('[OCR] 拉取远程配置失败，将使用缓存/内置兜底:', e)
+  }
 
-  // 没有缓存时主动拉取远程配置，确保首次登录也优先使用远程 OCR。
   if (!endpoint) {
-    try {
-      const cfg = await fetchRemoteConfig()
-      const enabled = cfg?.ocr?.enabled !== false
-      endpoint = enabled ? String(cfg?.ocr?.endpoint || '').trim() : ''
-      if (endpoint) {
-        localStorage.setItem('hbu_ocr_endpoint', endpoint)
-      } else {
-        localStorage.removeItem('hbu_ocr_endpoint')
-      }
-    } catch (e) {
-      console.warn('[OCR] 拉取远程配置失败，使用内置兜底 OCR:', e)
-    }
+    endpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+  }
+
+  if (endpoint) {
+    localStorage.setItem('hbu_ocr_endpoint', endpoint)
+  } else {
+    localStorage.removeItem('hbu_ocr_endpoint')
   }
 
   try {

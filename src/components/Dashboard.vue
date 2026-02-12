@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, getCachedData } from '../utils/api'
@@ -302,6 +302,15 @@ const modules = [
     icon: '🗺️',
     color: '#14b8a6',
     desc: '校园地图查看',
+    available: true,
+    requiresLogin: true
+  },
+  {
+    id: 'resource_share',
+    name: '资料分享',
+    icon: '🗂️',
+    color: '#0ea5e9',
+    desc: 'WebDAV 资料浏览与下载',
     available: true,
     requiresLogin: true
   },

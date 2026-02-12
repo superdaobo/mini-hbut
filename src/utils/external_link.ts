@@ -52,6 +52,41 @@ const miniProgramCandidates = (value: string) => {
   return [...candidates].filter(Boolean)
 }
 
+const miniProgramAppIdCandidates = (
+  appId: string,
+  path?: string,
+  envVersion: 'release' | 'trial' | 'develop' = 'release'
+) => {
+  const normalizedAppId = (appId || '').trim()
+  if (!normalizedAppId) return []
+  const candidates = new Set<string>()
+  const normalizedPath = (path || '').trim()
+  const encodedPath = normalizedPath ? encodeURIComponent(normalizedPath) : ''
+
+  if (encodedPath) {
+    candidates.add(
+      `weixin://dl/business/?appid=${normalizedAppId}&path=${encodedPath}&env_version=${envVersion}`
+    )
+    candidates.add(
+      `weixin://dl/business/?appid=${normalizedAppId}&path=${normalizedPath}&env_version=${envVersion}`
+    )
+    candidates.add(`wechat://dl/business/?appid=${normalizedAppId}&path=${encodedPath}`)
+  }
+
+  candidates.add(`weixin://dl/business/?appid=${normalizedAppId}&env_version=${envVersion}`)
+  candidates.add(`weixin://dl/business/?appid=${normalizedAppId}`)
+  candidates.add(`wechat://dl/business/?appid=${normalizedAppId}`)
+  return [...candidates]
+}
+
+type MiniProgramOpenOptions = {
+  code?: string
+  appId?: string
+  path?: string
+  ghId?: string
+  envVersion?: 'release' | 'trial' | 'develop'
+}
+
 export const openExternal = async (href: string) => {
   const url = normalizeHttpUrl(href)
   if (!url) return false
@@ -130,16 +165,47 @@ export const openExternalRaw = async (target: string) => {
   return false
 }
 
-export const openWeChatMiniProgram = async (code: string) => {
-  const token = extractMiniProgramToken(code)
-  if (token) {
-    // 先直接走 weixin deep link，成功率最高。
-    const direct = await openExternalRaw(`weixin://dl/business/?t=${token}`)
-    if (direct) return true
+export const openWeChatMiniProgram = async (input: string | MiniProgramOpenOptions) => {
+  const opts: MiniProgramOpenOptions =
+    typeof input === 'string' ? { code: input } : (input || {})
+
+  const allCandidates = new Set<string>()
+  const appId = String(opts.appId || '').trim()
+  const ghId = String(opts.ghId || '').trim()
+  const code = String(opts.code || '').trim()
+  const envVersion = opts.envVersion || 'release'
+
+  if (appId) {
+    for (const item of miniProgramAppIdCandidates(appId, opts.path, envVersion)) {
+      allCandidates.add(item)
+    }
   }
 
-  const candidates = miniProgramCandidates(code)
-  for (const target of candidates) {
+  if (ghId) {
+    allCandidates.add(`weixin://dl/businessTempSession/?username=${encodeURIComponent(ghId)}`)
+    allCandidates.add(`wechat://dl/businessTempSession/?username=${encodeURIComponent(ghId)}`)
+    if (appId) {
+      allCandidates.add(
+        `weixin://dl/businessTempSession/?username=${encodeURIComponent(ghId)}&appid=${encodeURIComponent(appId)}`
+      )
+    }
+  }
+
+  const token = extractMiniProgramToken(code)
+  if (token) {
+    allCandidates.add(`weixin://dl/business/?t=${token}`)
+    allCandidates.add(`wechat://dl/business/?t=${token}`)
+  }
+
+  if (code) {
+    for (const item of miniProgramCandidates(code)) {
+      allCandidates.add(item)
+    }
+  }
+
+  allCandidates.add('weixin://')
+
+  for (const target of allCandidates) {
     const ok = await openExternalRaw(target)
     if (ok) return true
   }

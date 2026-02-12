@@ -862,6 +862,18 @@ fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_file_with_system(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let target = path.trim().to_string();
+    if target.is_empty() {
+        return Err("path is empty".to_string());
+    }
+    #[allow(deprecated)]
+    app.shell()
+        .open(&target, None)
+        .map_err(|e| format!("open file failed: {}", e))
+}
+
+#[tauri::command]
 fn send_test_notification_native(
     app: tauri::AppHandle,
     title: Option<String>,
@@ -2301,6 +2313,7 @@ pub fn run() {
             cache_remote_image,
             save_export_file,
             open_external_url,
+            open_file_with_system,
             send_test_notification_native,
             get_notification_permission_native,
             request_notification_permission_native,

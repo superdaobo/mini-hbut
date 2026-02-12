@@ -24,6 +24,7 @@ const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
 const handleOpenSettings = () => emit('openSettings')
 const handleOpenExport = () => emit('navigate', 'export_center')
+const handleOpenResourceShare = () => emit('navigate', 'resource_share')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const handleFeedback = () => emit('openFeedback')
@@ -102,6 +103,10 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleOpenExport">
           <span class="link-icon">📦</span>
           <span class="link-text">导出中心</span>
+        </button>
+        <button class="link-item" @click="handleOpenResourceShare">
+          <span class="link-icon">🗂️</span>
+          <span class="link-text">资料分享</span>
         </button>
         <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
           <span class="link-icon">🛠️</span>

@@ -48,6 +48,7 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/index.html";
+pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
 
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）
@@ -215,6 +216,7 @@ impl HbutClient {
     pub fn get_ocr_runtime_status(&self) -> serde_json::Value {
         serde_json::json!({
             "configured_endpoint": self.ocr_endpoint.clone().unwrap_or_default(),
+            "default_remote_endpoint": DEFAULT_REMOTE_OCR_ENDPOINT,
             "fallback_endpoint": DEFAULT_OCR_ENDPOINT,
             "active_endpoint": self.ocr_active_endpoint.clone(),
             "active_source": self.ocr_active_source.clone().unwrap_or_else(|| "unknown".to_string()),

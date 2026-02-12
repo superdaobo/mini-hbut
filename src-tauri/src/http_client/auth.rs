@@ -664,9 +664,14 @@ impl HbutClient {
             .filter(|v| !v.is_empty())
         {
             endpoints.push(("remote_config", Self::normalize_ocr_endpoint(cfg_ep)));
+        } else {
+            endpoints.push((
+                "remote_default",
+                super::DEFAULT_REMOTE_OCR_ENDPOINT.to_string(),
+            ));
         }
         let fallback = super::DEFAULT_OCR_ENDPOINT.to_string();
-        if endpoints.is_empty() || endpoints.iter().all(|(_, ep)| ep != &fallback) {
+        if endpoints.iter().all(|(_, ep)| ep != &fallback) {
             endpoints.push(("fallback", fallback));
         }
 

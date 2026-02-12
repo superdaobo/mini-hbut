@@ -28,6 +28,7 @@ import TransactionHistory from './components/TransactionHistory.vue'
 import AiChatView from './components/AiChatView.vue'
 import CampusMapView from './components/CampusMapView.vue'
 import LibraryView from './components/LibraryView.vue'
+import ResourceShareView from './components/ResourceShareView.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
@@ -1140,6 +1141,13 @@ onBeforeUnmount(() => {
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+      />
+
+      <!-- 资料分享 -->
+      <ResourceShareView
+        v-else-if="currentView === 'resource_share'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
       />
       
       <!-- 其他模块占位 -->
