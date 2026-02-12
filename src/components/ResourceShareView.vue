@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
+import { useAppSettings } from '../utils/app_settings'
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -38,6 +39,11 @@ const defaultConfig: ShareConfig = {
   temp_upload_endpoint: ''
 }
 
+const DIR_CACHE_TTL_MS = 30 * 1000
+const PARALLEL_MIN_SIZE = 2 * 1024 * 1024
+const dirCache = new Map<string, { ts: number; items: DavItem[] }>()
+const appSettings = useAppSettings()
+
 const isNative = (() => {
   try {
     return typeof isTauri === 'function' && isTauri()
@@ -71,8 +77,11 @@ const previewText = ref('')
 const previewHint = ref('')
 const previewLoading = ref(false)
 const previewProgress = ref(0)
+const previewFullscreen = ref(false)
 const downloading = ref(false)
 const downloadProgress = ref(0)
+const downloadSpeedMbps = ref(0)
+const downloadEtaSeconds = ref(0)
 
 const PROPFIND_BODY = `<?xml version="1.0" encoding="utf-8" ?>
 <d:propfind xmlns:d="DAV:">
@@ -107,6 +116,11 @@ const authHeader = computed(() => {
   return `Basic ${btoa(raw)}`
 })
 
+const buildAuthHeaders = (headers: Record<string, string> = {}) => ({
+  Authorization: authHeader.value,
+  ...headers
+})
+
 const filteredFiles = computed(() => {
   const key = keyword.value.trim().toLowerCase()
   let out = files.value.filter((item) => {
@@ -133,6 +147,53 @@ const filteredFiles = computed(() => {
 
 const fileCountText = computed(() => `共 ${filteredFiles.value.length} 项`)
 const canPreview = computed(() => !!activeFile.value && previewMode.value !== 'none')
+const previewThreadCount = computed(() =>
+  Math.max(
+    1,
+    Number(
+      isMobile
+        ? appSettings.resourceShare?.previewThreadsMobile
+        : appSettings.resourceShare?.previewThreadsDesktop
+    ) || 1
+  )
+)
+const downloadThreadCount = computed(() =>
+  Math.max(
+    1,
+    Number(
+      isMobile
+        ? appSettings.resourceShare?.downloadThreadsMobile
+        : appSettings.resourceShare?.downloadThreadsDesktop
+    ) || 1
+  )
+)
+
+const formatEta = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '--'
+  if (seconds < 60) return `${Math.ceil(seconds)}秒`
+  const min = Math.floor(seconds / 60)
+  const sec = Math.ceil(seconds % 60)
+  return `${min}分${sec}秒`
+}
+
+const downloadSpeedText = computed(() => {
+  if (!downloading.value || downloadSpeedMbps.value <= 0) return '--'
+  return `${downloadSpeedMbps.value.toFixed(2)} MB/s`
+})
+
+const downloadEtaText = computed(() => {
+  if (!downloading.value) return '--'
+  return formatEta(downloadEtaSeconds.value)
+})
+
+const applyDownloadStat = (stat: DownloadProgressStat) => {
+  downloadProgress.value = stat.percent
+  const elapsedSeconds = Math.max(0.001, stat.elapsedMs / 1000)
+  const speedBytesPerSec = stat.loaded / elapsedSeconds
+  downloadSpeedMbps.value = speedBytesPerSec / 1024 / 1024
+  const remainingBytes = Math.max(0, stat.total - stat.loaded)
+  downloadEtaSeconds.value = speedBytesPerSec > 1 ? remainingBytes / speedBytesPerSec : 0
+}
 
 const normalizePath = (path: string) => {
   const raw = String(path || '/').replace(/\\/g, '/').trim()
@@ -256,15 +317,42 @@ const fileIcon = (item: DavItem) => {
   return '📦'
 }
 
-const fetchBlobWithProgress = async (
-  path: string,
-  onProgress?: (percent: number) => void
-): Promise<Blob> => {
+type FetchBlobOptions = {
+  preferParallel?: boolean
+  threadCount?: number
+}
+
+type DownloadProgressStat = {
+  percent: number
+  loaded: number
+  total: number
+  elapsedMs: number
+}
+
+const detectRangeSupport = async (path: string) => {
   const resp = await fetch(buildDavUrl(path), {
     method: 'GET',
-    headers: {
-      Authorization: authHeader.value
-    }
+    headers: buildAuthHeaders({ Range: 'bytes=0-0' })
+  })
+  if (resp.status !== 206) return null
+  const contentRange = String(resp.headers.get('content-range') || '')
+  const match = contentRange.match(/bytes\s+\d+-\d+\/(\d+)/i)
+  const total = Number(match?.[1] || 0)
+  const contentType = resp.headers.get('content-type') || 'application/octet-stream'
+  // 读取并释放响应体
+  await resp.arrayBuffer().catch(() => {})
+  if (!Number.isFinite(total) || total <= 0) return null
+  return { total, contentType }
+}
+
+const fetchBlobSequential = async (
+  path: string,
+  onProgress?: (stat: DownloadProgressStat) => void
+): Promise<Blob> => {
+  const startedAt = Date.now()
+  const resp = await fetch(buildDavUrl(path), {
+    method: 'GET',
+    headers: buildAuthHeaders()
   })
   if (!resp.ok) {
     throw new Error(`下载失败: HTTP ${resp.status}`)
@@ -274,7 +362,12 @@ const fetchBlobWithProgress = async (
   const contentType = resp.headers.get('content-type') || 'application/octet-stream'
   if (!resp.body) {
     const blob = await resp.blob()
-    onProgress?.(100)
+    onProgress?.({
+      percent: 100,
+      loaded: blob.size || total || 0,
+      total: total || blob.size || 0,
+      elapsedMs: Date.now() - startedAt
+    })
     return blob.type ? blob : new Blob([blob], { type: contentType })
   }
 
@@ -288,12 +381,94 @@ const fetchBlobWithProgress = async (
       chunks.push(value)
       loaded += value.byteLength
       if (total > 0) {
-        onProgress?.(Math.min(99, Math.floor((loaded / total) * 100)))
+        onProgress?.({
+          percent: Math.min(99, Math.floor((loaded / total) * 100)),
+          loaded,
+          total,
+          elapsedMs: Date.now() - startedAt
+        })
       }
     }
   }
-  onProgress?.(100)
+  onProgress?.({
+    percent: 100,
+    loaded: total > 0 ? total : loaded,
+    total: total > 0 ? total : loaded,
+    elapsedMs: Date.now() - startedAt
+  })
   return new Blob(chunks, { type: contentType })
+}
+
+const fetchBlobParallel = async (
+  path: string,
+  total: number,
+  contentType: string,
+  threadCount: number,
+  onProgress?: (stat: DownloadProgressStat) => void
+): Promise<Blob> => {
+  const startedAt = Date.now()
+  const chunks: Array<{ start: number; end: number; index: number }> = []
+  const eachSize = Math.max(1024 * 1024, Math.ceil(total / Math.max(1, threadCount)))
+  for (let start = 0; start < total; start += eachSize) {
+    const end = Math.min(total - 1, start + eachSize - 1)
+    chunks.push({ start, end, index: chunks.length })
+  }
+  const buffers = new Array<Uint8Array>(chunks.length)
+  let loaded = 0
+  let cursor = 0
+
+  const workers = Array.from({ length: Math.min(threadCount, chunks.length) }, async () => {
+    while (true) {
+      const i = cursor++
+      if (i >= chunks.length) break
+      const chunk = chunks[i]
+      const resp = await fetch(buildDavUrl(path), {
+        method: 'GET',
+        headers: buildAuthHeaders({ Range: `bytes=${chunk.start}-${chunk.end}` })
+      })
+      if (!(resp.ok || resp.status === 206)) {
+        throw new Error(`分片下载失败: HTTP ${resp.status}`)
+      }
+      const arr = new Uint8Array(await resp.arrayBuffer())
+      buffers[chunk.index] = arr
+      loaded += arr.byteLength
+      onProgress?.({
+        percent: Math.min(99, Math.floor((loaded / total) * 100)),
+        loaded,
+        total,
+        elapsedMs: Date.now() - startedAt
+      })
+    }
+  })
+
+  await Promise.all(workers)
+  onProgress?.({
+    percent: 100,
+    loaded: total,
+    total,
+    elapsedMs: Date.now() - startedAt
+  })
+  return new Blob(buffers, { type: contentType || 'application/octet-stream' })
+}
+
+const fetchBlobWithProgress = async (
+  path: string,
+  onProgress?: (stat: DownloadProgressStat) => void,
+  options: FetchBlobOptions = {}
+): Promise<Blob> => {
+  const preferParallel = options.preferParallel !== false
+  if (preferParallel) {
+    try {
+      const support = await detectRangeSupport(path)
+      const threadCount = Math.max(2, Number(options.threadCount || 4))
+      if (support && support.total >= PARALLEL_MIN_SIZE) {
+        return await fetchBlobParallel(path, support.total, support.contentType, threadCount, onProgress)
+      }
+    } catch (e) {
+      console.warn('[资源分享] 并发下载不可用，自动回退顺序下载:', e)
+    }
+  }
+  return fetchBlobSequential(path, onProgress)
 }
 
 const blobToDataBase64 = (blob: Blob): Promise<string> =>
@@ -333,11 +508,15 @@ const uploadTempForOffice = async (fileName: string, blob: Blob) => {
 const previewFile = async (file: DavItem) => {
   activeFile.value = file
   previewLoading.value = true
+  previewFullscreen.value = false
   resetPreview()
   try {
     const ext = extOf(file.name)
     const blob = await fetchBlobWithProgress(file.path, (v) => {
-      previewProgress.value = v
+      previewProgress.value = v.percent
+    }, {
+      preferParallel: true,
+      threadCount: previewThreadCount.value
     })
 
     if (imageExt.has(ext)) {
@@ -425,9 +604,14 @@ const shareSavedFile = async (path: string) => {
 const downloadFile = async (file: DavItem, shareAfter = false) => {
   downloading.value = true
   downloadProgress.value = 0
+  downloadSpeedMbps.value = 0
+  downloadEtaSeconds.value = 0
   try {
     const blob = await fetchBlobWithProgress(file.path, (v) => {
-      downloadProgress.value = v
+      applyDownloadStat(v)
+    }, {
+      preferParallel: true,
+      threadCount: downloadThreadCount.value
     })
     const saved = await saveDownloadedBlob(file, blob)
     showToast(`下载成功：${saved.path}`, 'success')
@@ -438,6 +622,9 @@ const downloadFile = async (file: DavItem, shareAfter = false) => {
     showToast(e?.message || '下载失败', 'error')
   } finally {
     downloading.value = false
+    downloadProgress.value = 0
+    downloadSpeedMbps.value = 0
+    downloadEtaSeconds.value = 0
   }
 }
 
@@ -459,39 +646,52 @@ const parseAndSetConfig = async () => {
           defaultConfig.temp_upload_endpoint
       )
     }
+    dirCache.clear()
   } catch {
     config.value = { ...defaultConfig }
+    dirCache.clear()
   } finally {
     loadingConfig.value = false
   }
 }
 
-const loadPath = async (path: string) => {
+const loadPath = async (path: string, forceRefresh = false) => {
   if (!hasValidConfig.value) {
     listError.value = '资料分享配置不完整，请在配置工具中检查。'
     files.value = []
     return
   }
+  const normalized = normalizePath(path)
+  const cached = dirCache.get(normalized)
+  if (!forceRefresh && cached && Date.now() - cached.ts < DIR_CACHE_TTL_MS) {
+    files.value = cached.items
+    currentPath.value = normalized
+    breadcrumb.value = buildBreadCrumb(normalized)
+    listError.value = ''
+    return
+  }
+
   loadingList.value = true
   listError.value = ''
   try {
-    const url = buildDavUrl(path === '/' ? '/' : `${normalizePath(path)}/`)
+    const url = buildDavUrl(normalized === '/' ? '/' : `${normalized}/`)
     const resp = await fetch(url, {
       method: 'PROPFIND',
-      headers: {
-        Authorization: authHeader.value,
+      headers: buildAuthHeaders({
         Depth: '1',
         'Content-Type': 'application/xml; charset=utf-8'
-      },
+      }),
       body: PROPFIND_BODY
     })
     if (!resp.ok) {
       throw new Error(`目录读取失败: HTTP ${resp.status}`)
     }
     const text = await resp.text()
-    files.value = parseDavItems(text, path)
-    currentPath.value = normalizePath(path)
-    breadcrumb.value = buildBreadCrumb(path)
+    const parsed = parseDavItems(text, normalized)
+    dirCache.set(normalized, { ts: Date.now(), items: parsed })
+    files.value = parsed
+    currentPath.value = normalized
+    breadcrumb.value = buildBreadCrumb(normalized)
   } catch (e: any) {
     listError.value = e?.message || '目录读取失败'
     files.value = []
@@ -518,11 +718,12 @@ const toggleSortDirection = () => {
 
 const closePreview = () => {
   activeFile.value = null
+  previewFullscreen.value = false
   resetPreview()
 }
 
 const refreshList = async () => {
-  await loadPath(currentPath.value)
+  await loadPath(currentPath.value, true)
 }
 
 onMounted(async () => {
@@ -543,12 +744,6 @@ onBeforeUnmount(() => {
       <button class="ghost-btn" @click="refreshList">刷新</button>
     </header>
 
-    <section class="status-card">
-      <p><strong>WebDAV：</strong>{{ config.endpoint }}</p>
-      <p><strong>账号：</strong>{{ config.username }}</p>
-      <p><strong>状态：</strong>{{ hasValidConfig ? '可用' : '不可用' }}</p>
-    </section>
-
     <section class="toolbar-card">
       <div class="toolbar-row">
         <button class="ghost-btn" :disabled="currentPath === '/'" @click="goParent">上一级</button>
@@ -560,6 +755,7 @@ onBeforeUnmount(() => {
           {{ showFilter ? '收起筛选' : '展开筛选' }}
         </button>
       </div>
+      <div v-if="loadingConfig" class="toolbar-hint">正在同步远程配置...</div>
       <div v-if="showFilter" class="toolbar-row filter-row">
         <label class="check-item">
           <input v-model="onlyFolder" type="checkbox" />
@@ -609,33 +805,44 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="activeFile" class="preview-card">
-      <div class="preview-head">
-        <div>
-          <h3>{{ activeFile.name }}</h3>
-          <p>{{ activeFile.path }}</p>
-        </div>
-        <div class="preview-actions">
-          <button class="primary-btn" :disabled="downloading" @click="downloadFile(activeFile, false)">
-            {{ downloading ? `下载中 ${downloadProgress}%` : '下载' }}
-          </button>
-          <button class="ghost-btn" :disabled="downloading" @click="downloadFile(activeFile, true)">下载并分享</button>
-          <button class="ghost-btn" @click="closePreview">关闭</button>
-        </div>
-      </div>
+    <Teleport to="body">
+      <div v-if="activeFile" class="preview-modal-overlay" @click.self="closePreview">
+        <div class="preview-modal" :class="{ fullscreen: previewFullscreen }">
+          <div class="preview-head">
+            <div>
+              <h3>{{ activeFile.name }}</h3>
+              <p>{{ activeFile.path }}</p>
+            </div>
+            <div class="preview-actions">
+              <button class="ghost-btn" @click="previewFullscreen = !previewFullscreen">
+                {{ previewFullscreen ? '退出全屏' : '全屏预览' }}
+              </button>
+              <button class="primary-btn" :disabled="downloading" @click="downloadFile(activeFile, false)">
+                {{ downloading ? `下载中 ${downloadProgress}%` : '下载' }}
+              </button>
+              <button class="ghost-btn" :disabled="downloading" @click="downloadFile(activeFile, true)">下载并分享</button>
+              <button class="ghost-btn" @click="closePreview">关闭</button>
+            </div>
+          </div>
+          <div v-if="downloading" class="download-stats">
+            <span>速度：{{ downloadSpeedText }}</span>
+            <span>预计剩余：{{ downloadEtaText }}</span>
+          </div>
 
-      <div v-if="previewLoading" class="loading-box">
-        正在加载预览... {{ previewProgress }}%
+          <div v-if="previewLoading" class="loading-box">
+            正在加载预览... {{ previewProgress }}%
+          </div>
+          <p v-if="previewHint" class="hint-text">{{ previewHint }}</p>
+          <template v-if="canPreview && !previewLoading">
+            <img v-if="previewMode === 'image'" class="preview-image" :src="previewUrl" alt="preview" />
+            <video v-else-if="previewMode === 'video'" class="preview-media" :src="previewUrl" controls />
+            <audio v-else-if="previewMode === 'audio'" class="preview-media" :src="previewUrl" controls />
+            <iframe v-else-if="previewMode === 'pdf' || previewMode === 'iframe'" class="preview-frame" :src="previewUrl" />
+            <pre v-else-if="previewMode === 'text'" class="preview-text">{{ previewText }}</pre>
+          </template>
+        </div>
       </div>
-      <p v-if="previewHint" class="hint-text">{{ previewHint }}</p>
-      <template v-if="canPreview && !previewLoading">
-        <img v-if="previewMode === 'image'" class="preview-image" :src="previewUrl" alt="preview" />
-        <video v-else-if="previewMode === 'video'" class="preview-media" :src="previewUrl" controls />
-        <audio v-else-if="previewMode === 'audio'" class="preview-media" :src="previewUrl" controls />
-        <iframe v-else-if="previewMode === 'pdf' || previewMode === 'iframe'" class="preview-frame" :src="previewUrl" />
-        <pre v-else-if="previewMode === 'text'" class="preview-text">{{ previewText }}</pre>
-      </template>
-    </section>
+    </Teleport>
   </div>
 </template>
 
@@ -647,10 +854,8 @@ onBeforeUnmount(() => {
 }
 
 .view-header,
-.status-card,
 .toolbar-card,
-.files-card,
-.preview-card {
+.files-card {
   max-width: 1080px;
   margin: 0 auto 16px;
   background: rgba(255, 255, 255, 0.94);
@@ -673,18 +878,14 @@ onBeforeUnmount(() => {
   color: #0f172a;
 }
 
-.status-card {
-  padding: 12px 16px;
-  font-size: 14px;
-  color: #334155;
-}
-
-.status-card p {
-  margin: 6px 0;
-}
-
 .toolbar-card {
   padding: 14px;
+}
+
+.toolbar-hint {
+  margin: -2px 0 10px;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .toolbar-row {
@@ -851,8 +1052,36 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.preview-card {
+.preview-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.preview-modal {
+  width: min(1260px, 96vw);
+  height: min(88vh, 920px);
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
   padding: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-modal.fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  padding: 12px;
 }
 
 .preview-head {
@@ -883,6 +1112,15 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
+.download-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: -2px 0 10px;
+  color: #475569;
+  font-size: 13px;
+}
+
 .loading-box,
 .hint-text {
   font-size: 13px;
@@ -892,22 +1130,27 @@ onBeforeUnmount(() => {
 
 .preview-image {
   width: 100%;
-  max-height: 60vh;
+  max-height: calc(100vh - 180px);
   object-fit: contain;
   border-radius: 12px;
   background: #0f172a;
+  flex: 1;
 }
 
 .preview-media {
   width: 100%;
+  max-height: calc(100vh - 180px);
+  flex: 1;
 }
 
 .preview-frame {
   width: 100%;
-  min-height: 60vh;
+  height: calc(100vh - 180px);
+  min-height: 320px;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   background: #fff;
+  flex: 1;
 }
 
 .preview-text {
@@ -916,10 +1159,11 @@ onBeforeUnmount(() => {
   color: #e2e8f0;
   border-radius: 12px;
   padding: 12px;
-  max-height: 60vh;
+  max-height: calc(100vh - 180px);
   overflow: auto;
   font-size: 12px;
   line-height: 1.5;
+  flex: 1;
 }
 
 @media (max-width: 820px) {
@@ -957,6 +1201,12 @@ onBeforeUnmount(() => {
 
   .preview-head {
     flex-direction: column;
+  }
+
+  .preview-modal {
+    width: 100%;
+    height: 92vh;
+    padding: 12px;
   }
 }
 </style>

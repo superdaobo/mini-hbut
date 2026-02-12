@@ -296,8 +296,49 @@ const handleDownloadFont = async (force = false) => {
           <span>重试间隔（毫秒）</span>
           <input type="number" min="500" max="10000" step="100" v-model.number="appSettings.retryDelayMs" />
         </label>
+        <label class="field">
+          <span>移动端预览并发线程</span>
+          <input
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+            v-model.number="appSettings.resourceShare.previewThreadsMobile"
+          />
+        </label>
+        <label class="field">
+          <span>桌面端预览并发线程</span>
+          <input
+            type="number"
+            min="1"
+            max="12"
+            step="1"
+            v-model.number="appSettings.resourceShare.previewThreadsDesktop"
+          />
+        </label>
+        <label class="field">
+          <span>移动端下载并发线程</span>
+          <input
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+            v-model.number="appSettings.resourceShare.downloadThreadsMobile"
+          />
+        </label>
+        <label class="field">
+          <span>桌面端下载并发线程</span>
+          <input
+            type="number"
+            min="1"
+            max="12"
+            step="1"
+            v-model.number="appSettings.resourceShare.downloadThreadsDesktop"
+          />
+        </label>
       </div>
       <p class="hint">数值会自动限制在合理范围内，设置后立即生效。</p>
+      <p class="hint">线程数越高，下载/预览可能更快，但会增加网络和设备占用。</p>
     </section>
   </div>
 </template>

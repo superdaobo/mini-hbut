@@ -7,7 +7,13 @@ const DEFAULT_SETTINGS = {
     electricity: 2,
     classroom: 2
   },
-  retryDelayMs: 2000
+  retryDelayMs: 2000,
+  resourceShare: {
+    previewThreadsMobile: 3,
+    previewThreadsDesktop: 4,
+    downloadThreadsMobile: 4,
+    downloadThreadsDesktop: 6
+  }
 }
 
 const clampNumber = (value, min, max, fallback) => {
@@ -21,9 +27,34 @@ const normalizeSettings = (raw) => {
   if (!raw || typeof raw !== 'object') return base
   const next = { ...base, ...raw }
   next.retry = { ...base.retry, ...(raw.retry || {}) }
+  next.resourceShare = { ...base.resourceShare, ...(raw.resourceShare || {}) }
   next.retry.electricity = clampNumber(next.retry.electricity, 0, 5, base.retry.electricity)
   next.retry.classroom = clampNumber(next.retry.classroom, 0, 5, base.retry.classroom)
   next.retryDelayMs = clampNumber(next.retryDelayMs, 500, 10000, base.retryDelayMs)
+  next.resourceShare.previewThreadsMobile = clampNumber(
+    next.resourceShare.previewThreadsMobile,
+    1,
+    8,
+    base.resourceShare.previewThreadsMobile
+  )
+  next.resourceShare.previewThreadsDesktop = clampNumber(
+    next.resourceShare.previewThreadsDesktop,
+    1,
+    12,
+    base.resourceShare.previewThreadsDesktop
+  )
+  next.resourceShare.downloadThreadsMobile = clampNumber(
+    next.resourceShare.downloadThreadsMobile,
+    1,
+    8,
+    base.resourceShare.downloadThreadsMobile
+  )
+  next.resourceShare.downloadThreadsDesktop = clampNumber(
+    next.resourceShare.downloadThreadsDesktop,
+    1,
+    12,
+    base.resourceShare.downloadThreadsDesktop
+  )
   return next
 }
 
@@ -48,9 +79,15 @@ const initAppSettings = () => {
         state.retry.electricity !== normalized.retry.electricity ||
         state.retry.classroom !== normalized.retry.classroom
       const delayChanged = state.retryDelayMs !== normalized.retryDelayMs
-      if (retryChanged || delayChanged) {
+      const resourceShareChanged =
+        state.resourceShare.previewThreadsMobile !== normalized.resourceShare.previewThreadsMobile ||
+        state.resourceShare.previewThreadsDesktop !== normalized.resourceShare.previewThreadsDesktop ||
+        state.resourceShare.downloadThreadsMobile !== normalized.resourceShare.downloadThreadsMobile ||
+        state.resourceShare.downloadThreadsDesktop !== normalized.resourceShare.downloadThreadsDesktop
+      if (retryChanged || delayChanged || resourceShareChanged) {
         state.retry = { ...normalized.retry }
         state.retryDelayMs = normalized.retryDelayMs
+        state.resourceShare = { ...normalized.resourceShare }
       }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
