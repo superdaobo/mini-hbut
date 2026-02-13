@@ -1367,7 +1367,7 @@ onBeforeUnmount(() => {
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: 90px;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
   overflow-y: scroll;
   overflow-x: hidden;
   scrollbar-gutter: stable;
@@ -1383,7 +1383,7 @@ onBeforeUnmount(() => {
 
 .app-shell.schedule-full {
   padding-top: 0;
-  padding-bottom: 0;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
   overflow: hidden;
 }
 
@@ -1392,9 +1392,9 @@ onBeforeUnmount(() => {
   width: 100% !important;
   max-width: none !important;
   margin: 0 !important;
-  min-height: calc(var(--app-vh, 1vh) * 100) !important;
-  height: calc(var(--app-vh, 1vh) * 100) !important;
-  padding: 0 0 calc(92px + env(safe-area-inset-bottom)) !important;
+  min-height: calc(var(--app-vh, 1vh) * 100 - env(safe-area-inset-top)) !important;
+  height: calc(var(--app-vh, 1vh) * 100 - env(safe-area-inset-top)) !important;
+  padding: 0 !important;
 }
 
 /* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放 */
@@ -1409,10 +1409,10 @@ onBeforeUnmount(() => {
 .bottom-tab-bar {
   position: fixed;
   top: auto;
-  left: 0;
-  right: 0;
-  bottom: max(12px, env(safe-area-inset-bottom));
-  margin-inline: auto;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  bottom: calc(8px + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
@@ -1421,10 +1421,10 @@ onBeforeUnmount(() => {
   padding: 10px 16px;
   height: auto;
   min-height: 70px;
-  max-height: 106px;
+  max-height: 110px;
   width: min(
     540px,
-    calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 28px)
+    calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)
   );
   border-radius: 20px;
   backdrop-filter: blur(20px);
@@ -1433,6 +1433,11 @@ onBeforeUnmount(() => {
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
   z-index: 60;
   pointer-events: auto;
+}
+
+.bottom-tab-bar:hover,
+.bottom-tab-bar:focus-within {
+  transform: translateX(-50%);
 }
 
 .tab-item {

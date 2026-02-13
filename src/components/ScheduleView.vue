@@ -795,8 +795,23 @@ onMounted(() => {
 
 <style scoped>
 .schedule-view {
-  --slot-height: 65px;
   --time-axis-width: 40px;
+  --topbar-height: 52px;
+  --date-header-height: 50px;
+  --schedule-bottom-gap: calc(94px + env(safe-area-inset-bottom));
+  --slot-height: clamp(
+    46px,
+    calc(
+      (
+          var(--app-vh, 1vh) * 100
+          - env(safe-area-inset-top)
+          - var(--topbar-height)
+          - var(--date-header-height)
+          - var(--schedule-bottom-gap)
+        ) / 11
+    ),
+    70px
+  );
   width: 100%;
   height: calc(var(--app-vh, 1vh) * 100);
   min-height: calc(var(--app-vh, 1vh) * 100);
@@ -805,6 +820,8 @@ onMounted(() => {
   background: var(--ui-bg-gradient);
   font-family: var(--ui-font-family);
   overflow: hidden;
+  box-sizing: border-box;
+  padding-top: calc(env(safe-area-inset-top) + 4px);
 }
 
 .schedule-topbar {
@@ -813,8 +830,10 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
+  min-height: var(--topbar-height);
   background: var(--ui-surface);
   border-bottom: 1px solid var(--ui-surface-border);
+  box-sizing: border-box;
 }
 
 .schedule-topbar .menu-btn {
@@ -1036,7 +1055,7 @@ onMounted(() => {
 
 /* 日期头 */
 .date-header {
-  height: 50px;
+  height: var(--date-header-height);
   display: flex;
   border-bottom: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-surface-border));
   background: var(--ui-surface);
@@ -1113,6 +1132,8 @@ onMounted(() => {
   align-items: stretch;
   overflow-y: auto;
   min-height: 0;
+  padding-bottom: var(--schedule-bottom-gap);
+  box-sizing: border-box;
   position: relative;
   background:
     linear-gradient(
@@ -1134,11 +1155,13 @@ onMounted(() => {
   border-right: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.35));
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
   height: 100%;
+  padding-bottom: var(--schedule-bottom-gap);
   overflow: hidden;
   position: relative;
   align-self: stretch;
+  box-sizing: border-box;
 }
 
 .time-slot {
@@ -1164,8 +1187,10 @@ onMounted(() => {
   flex: 1;
   display: flex;
   position: relative;
-  min-height: calc(var(--slot-height) * 11);
+  min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
+  padding-bottom: var(--schedule-bottom-gap);
   height: 100%;
+  box-sizing: border-box;
 }
 
 .grid-lines {
@@ -1358,8 +1383,9 @@ onMounted(() => {
   }
 
   .schedule-view {
-    --slot-height: 48px;
     --time-axis-width: 32px;
+    --topbar-height: 50px;
+    --date-header-height: 44px;
   }
 
   .week-selector {
@@ -1373,10 +1399,6 @@ onMounted(() => {
     font-size: 12px;
     font-weight: 800;
     border-radius: 13px !important;
-  }
-
-  .date-header {
-    height: 44px;
   }
 
   .month-col,

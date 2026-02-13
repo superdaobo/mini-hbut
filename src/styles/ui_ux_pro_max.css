@@ -395,7 +395,7 @@ html[data-ui-card='outline'] :is(
   border-width: 1.5px !important;
 }
 
-:is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card):not(.disabled):hover {
+:is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card):not(.disabled):not(.bottom-tab-bar):hover {
   transform: translateY(-2px);
   box-shadow: var(--ux-card-shadow-hover) !important;
 }

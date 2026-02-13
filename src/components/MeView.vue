@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, nextTick } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
@@ -84,9 +84,10 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleOpenOfficial">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M3 13v-2l10-5v12L3 13Z" />
-              <path d="M13 8h3a4 4 0 0 1 0 8h-3" />
-              <path d="M7 14v4a2 2 0 0 0 2 2h1" />
+              <path d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3z" />
+              <path d="M19 10v1a7 7 0 01-14 0v-1" />
+              <path d="M12 19v3" />
+              <path d="M8 22h8" />
             </svg>
           </span>
           <span class="link-text">官方发布</span>
@@ -94,10 +95,8 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleOpenSettings">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M4 7h10" />
-              <path d="M4 17h16" />
-              <circle cx="17" cy="7" r="3" />
-              <circle cx="9" cy="17" r="3" />
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
             </svg>
           </span>
           <span class="link-text">设置</span>
@@ -105,9 +104,9 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleOpenExport">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M3 8 12 3l9 5-9 5-9-5Z" />
-              <path d="M3 8v8l9 5 9-5V8" />
-              <path d="M12 13v8" />
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <path d="M7 10l5 5 5-5" />
+              <path d="M12 15V3" />
             </svg>
           </span>
           <span class="link-text">导出中心</span>
@@ -115,8 +114,7 @@ const handleShowLegal = async (tab) => {
         <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M14 5a4 4 0 1 0 5 5l-7 7-3-3 7-7a4 4 0 0 0-2-2Z" />
-              <path d="m3 21 4-1 9-9-3-3-9 9-1 4Z" />
+              <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
             </svg>
           </span>
           <span class="link-text">配置工具</span>
@@ -124,8 +122,9 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleCheckUpdate">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M20 11a8 8 0 1 1-2.3-5.6" />
-              <path d="M20 4v7h-7" />
+              <path d="M23 4v6h-6" />
+              <path d="M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
             </svg>
           </span>
           <span class="link-text">检查更新</span>
@@ -133,8 +132,7 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleFeedback">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M4 4h16v12H8l-4 4V4Z" />
-              <path d="M8 9h8M8 12h6" />
+              <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
             </svg>
           </span>
           <span class="link-text">问题反馈</span>
@@ -142,8 +140,8 @@ const handleShowLegal = async (tab) => {
         <button class="link-item" @click="handleOpenSource">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M4 5h7a3 3 0 0 1 3 3v11H7a3 3 0 0 0-3 3V5Z" />
-              <path d="M20 5h-7a3 3 0 0 0-3 3v11h7a3 3 0 0 1 3 3V5Z" />
+              <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
+              <path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72M2.8 10.3c6.02-.6 9.43-.25 17.72-2.33M2.08 14.5c4.13-.56 10.3.1 17.18-1.94" />
             </svg>
           </span>
           <span class="link-text">开源说明</span>

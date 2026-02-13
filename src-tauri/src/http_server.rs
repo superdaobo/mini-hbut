@@ -304,6 +304,14 @@ struct LibraryDetailRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ResourceShareProxyQuery {
+    endpoint: String,
+    path: String,
+    username: Option<String>,
+    password: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ElectricityRequest {
     payload: serde_json::Value,
 }
@@ -386,6 +394,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
+        .route("/resource_share/proxy", get(resource_share_proxy))
         .route("/electricity_query_location", post(electricity_query_location))
         .route("/electricity_query_account", post(electricity_query_account))
         .route("/fetch_transaction_history", post(fetch_transaction_history))
@@ -954,6 +963,111 @@ async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<Qxzk
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
+fn normalize_resource_share_path(path: &str) -> String {
+    let replaced = path.replace('\\', "/");
+    let mut normalized = replaced.trim().to_string();
+    if normalized.is_empty() {
+        return "/".to_string();
+    }
+    if !normalized.starts_with('/') {
+        normalized = format!("/{}", normalized);
+    }
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+    if normalized.len() > 1 {
+        normalized = normalized.trim_end_matches('/').to_string();
+    }
+    if normalized.is_empty() {
+        "/".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn encode_resource_share_path(path: &str) -> String {
+    normalize_resource_share_path(path)
+        .split('/')
+        .map(urlencoding::encode)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+async fn resource_share_proxy(
+    State(_state): State<HttpState>,
+    headers: HeaderMap,
+    Query(req): Query<ResourceShareProxyQuery>,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let endpoint = req.endpoint.trim().trim_end_matches('/').to_string();
+    if endpoint.is_empty() || !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "endpoint 非法或为空".to_string(),
+        ));
+    }
+
+    let username = req.username.unwrap_or_default();
+    let password = req.password.unwrap_or_default();
+    if username.trim().is_empty() || password.trim().is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "缺少 WebDAV 账号或密码".to_string(),
+        ));
+    }
+
+    let encoded_path = encode_resource_share_path(&req.path);
+    let remote_url = format!("{}/dav{}", endpoint, encoded_path);
+    let auth = format!(
+        "Basic {}",
+        general_purpose::STANDARD.encode(format!("{}:{}", username, password).as_bytes())
+    );
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建代理客户端失败: {}", e)))?;
+
+    let mut request_builder = client.get(remote_url).header("Authorization", auth);
+    if let Some(range) = headers.get("range") {
+        request_builder = request_builder.header("Range", range.clone());
+    }
+    if let Some(if_range) = headers.get("if-range") {
+        request_builder = request_builder.header("If-Range", if_range.clone());
+    }
+
+    let upstream = request_builder
+        .send()
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("资源代理请求失败: {}", e)))?;
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let stream = upstream
+        .bytes_stream()
+        .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
+
+    let mut response = Response::new(Body::from_stream(stream));
+    *response.status_mut() = status;
+    for key in [
+        "content-type",
+        "content-length",
+        "content-range",
+        "accept-ranges",
+        "cache-control",
+        "etag",
+        "last-modified",
+        "content-disposition",
+    ] {
+        if let Some(value) = upstream_headers.get(key) {
+            response.headers_mut().insert(key, value.clone());
+        }
+    }
+    Ok(response)
+}
+
 async fn fetch_library_dict(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
@@ -1354,4 +1468,3 @@ fn chunk_stream_text(text: &str) -> Vec<String> {
     }
     out
 }
-

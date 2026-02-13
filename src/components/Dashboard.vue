@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, getCachedData } from '../utils/api'
@@ -28,20 +28,115 @@ const todayError = ref('')
 const nowTick = ref(Date.now())
 let clockTimer = null
 const moduleIconMap = {
-  grades: ['M4 18h16', 'M7 14v3', 'M12 10v7', 'M17 7v10'],
-  classroom: ['M3 21h18', 'M5 21V7l7-4 7 4v14', 'M9 11h6', 'M9 15h2', 'M13 15h2'],
-  electricity: ['M13 2 5 13h6l-1 9 9-12h-6l0-8z'],
-  exams: ['M4 6h16', 'M8 3v4', 'M16 3v4', 'M5 6v14h14V6', 'M8 11h8', 'M8 15h5'],
-  qxzkb: ['M3 4h18v4H3z', 'M3 10h18v10H3z', 'M8 14h3', 'M13 14h3', 'M8 18h3'],
-  ranking: ['M8 21V10', 'M12 21V6', 'M16 21V13', 'M5 21h14'],
-  calendar: ['M4 5h16v15H4z', 'M8 3v4', 'M16 3v4', 'M4 9h16', 'M8 13h3', 'M13 13h3'],
-  academic: ['M12 3 3 8l9 5 9-5-9-5z', 'M5 10v4c0 2.2 3.1 4 7 4s7-1.8 7-4v-4'],
-  training: ['M5 5h14v14H5z', 'M9 9h6', 'M9 13h6', 'M9 17h4'],
-  transactions: ['M3 7h18v10H3z', 'M3 10h18', 'M8 15h3', 'M16 15h2'],
-  library: ['M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4z', 'M8 23V7a3 3 0 0 1 3-3'],
-  campus_map: ['M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6z', 'M9 4v14', 'M15 6v14'],
-  resource_share: ['M4 6h8l2 2h6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z', 'M8 13h8', 'M12 10v6'],
-  ai: ['M9 3h6', 'M8 7h8a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z', 'M9 14h.01', 'M15 14h.01']
+  // 成绩查询 - 精美成绩/分数图标（A+带星星）
+  grades: [
+    'M12 3l1.5 3h3.5l-2.5 2 1 3.5L12 9l-3.5 2.5 1-3.5L7 6h3.5z',
+    'M5 13h14v2H5z',
+    'M6 16h4v5H6z',
+    'M10 17.5h4v3.5h-4z',
+    'M14 16h4v5h-4z'
+  ],
+  // 空教室 - 精美教室/座位图标
+  classroom: [
+    'M5 5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5z',
+    'M9 9h6v2H9z',
+    'M9 13h6v2H9z',
+    'M8 3v2',
+    'M16 3v2'
+  ],
+  // 电费查询 - 精美闪电/能源图标
+  electricity: [
+    'M13.5 2L4 13h7l-2 9 9.5-11h-7l2-9z',
+    'M18 20h4v2h-4z',
+    'M20 18v4'
+  ],
+  // 考试安排 - 精美考试/计时器图标
+  exams: [
+    'M12 21a9 9 0 100-18 9 9 0 000 18z',
+    'M12 7v6l4 2',
+    'M18 3h3v3',
+    'M3 3h3v3',
+    'M3 18h3v3',
+    'M18 18h3v3'
+  ],
+  // 全校课表 - 精美课程表/日程图标
+  qxzkb: [
+    'M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5z',
+    'M4 9h16',
+    'M8 3v4',
+    'M16 3v4',
+    'M8 13h3v3H8z',
+    'M13 13h3v3h-3z'
+  ],
+  // 绩点排名 - 精美奖杯/排名图标
+  ranking: [
+    'M7 4h10v5a5 5 0 01-10 0V4z',
+    'M9 4V3a1 1 0 011-1h4a1 1 0 011 1v1',
+    'M12 14v7',
+    'M8 21h8',
+    'M5 4H3v3a3 3 0 003 3',
+    'M19 4h2v3a3 3 0 01-3 3'
+  ],
+  // 校历 - 精美日历/日期图标
+  calendar: [
+    'M4 6a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
+    'M4 10h16',
+    'M8 4V2',
+    'M16 4V2',
+    'M8 14h2v2H8z',
+    'M11 14h2v2h-2z',
+    'M14 14h2v2h-2z'
+  ],
+  // 学业情况 - 精美学业/毕业帽图标
+  academic: [
+    'M12 4L2 9l10 5 10-5-10-5z',
+    'M5 11v4c0 2.5 3 4.5 7 4.5s7-2 7-4.5v-4',
+    'M12 14v7',
+    'M9 21h6'
+  ],
+  // 培养方案 - 精美计划/清单图标
+  training: [
+    'M9 11l2 2 4-4',
+    'M4 6a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
+    'M8 12h2',
+    'M8 16h2',
+    'M8 8h2'
+  ],
+  // 交易记录 - 精美钱包/支付图标
+  transactions: [
+    'M20 7a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7z',
+    'M2 11h20',
+    'M16 11v2',
+    'M16 15a2 2 0 100-4 2 2 0 000 4z'
+  ],
+  // 图书查询 - 精美书籍/图书馆图标
+  library: [
+    'M4 19.5A2.5 2.5 0 016.5 17H20',
+    'M4 4.5A2.5 2.5 0 016.5 7H20v13H6.5A2.5 2.5 0 014 17.5v-13z',
+    'M12 7v10',
+    'M16 7v10'
+  ],
+  // 校园地图 - 精美定位/地图图标
+  campus_map: [
+    'M12 2a7 7 0 00-7 7c0 2.5 1.5 5 3.5 7l3.5 6 3.5-6c2-2 3.5-4.5 3.5-7a7 7 0 00-7-7z',
+    'M12 7a2 2 0 100 4 2 2 0 000-4z'
+  ],
+  // 资料分享 - 精美云盘/分享图标
+  resource_share: [
+    'M8 17l4 4 4-4',
+    'M12 12v9',
+    'M19 8a4.5 4.5 0 00-8-1.5A6 6 0 004 13a1 1 0 001 1h2',
+    'M6 19h12'
+  ],
+  // AI助手 - 精美机器人/智能图标
+  ai: [
+    'M9 3h6',
+    'M9 5h6a4 4 0 014 4v9a4 4 0 01-4 4H9a4 4 0 01-4-4V9a4 4 0 014-4z',
+    'M9 13a1 1 0 100 2 1 1 0 000-2z',
+    'M15 13a1 1 0 100 2 1 1 0 000-2z',
+    'M8 17h8',
+    'M12 2v3'
+  ]
 }
 
 const periodTimeMap = {
@@ -1047,12 +1142,13 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .module-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  fill: none;
 }
 
 .module-name {
@@ -1296,8 +1392,8 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon svg {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
   }
 }
 
@@ -1362,8 +1458,8 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon svg {
-    width: 15px;
-    height: 15px;
+    width: 17px;
+    height: 17px;
   }
 }
 
