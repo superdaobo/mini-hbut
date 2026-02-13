@@ -45,8 +45,8 @@ onMounted(() => {
   <div class="official-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📢 官方发布</h1>
-      <button class="external-btn" @click="copyLink">🔗</button>
+      <h1>官方发布</h1>
+      <button class="external-btn" @click="copyLink" aria-label="复制发布链接">↗</button>
     </header>
 
     <div class="iframe-container">

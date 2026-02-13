@@ -220,7 +220,7 @@ onMounted(async () => {
   <div class="training-plan-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📚 培养方案</h1>
+      <h1>培养方案</h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 

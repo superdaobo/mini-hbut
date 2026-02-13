@@ -870,7 +870,7 @@ onMounted(async () => {
   <div class="export-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📦 导出中心</h1>
+      <h1>导出中心</h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 

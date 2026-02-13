@@ -118,13 +118,13 @@ const adapter = {
                     execution: data.execution,
                     salt: data.salt,
                     captcha_required: data.captcha_required,
-                    // 必须包含 inputs 即使为┖，前端可能依?                    inputs: {}
+                    // 必须包含 inputs 字段，即使为空对象，避免前端空判断报错
+                    inputs: {}
                 });
             }
             if (url.includes('/dormitory_data.json')) {
-                // 这是€个静态文件请求，应该╁通过? 
-                // 或€我们在 Rust 端提供？或€直?import json?
-                // 如果?public 目录下的文件，fetch 可以直接请求?                // 浣?axios adapter 会拦截所?axios 请求?                // 我们可以使用原生 fetch 鏉ヨ求静态资?
+                // 这是静态 JSON 文件请求，直接使用原生 fetch 读取 public 目录资源
+                // 避免 axios adapter 再次拦截导致循环调用
                 const res = await fetch(url);
                 const data = await res.json();
                 return mockResponse(data);
@@ -475,7 +475,7 @@ const adapter = {
 
             if (url.includes('/v2/training_plan/jys')) {
                 try {
-                    // 前端可能?kkyx 鎴?yxid，都支持
+                    // 前端可能传 kkyx 或 yxid，这里统一兼容
 
                     const yxid = data.yxid || data.kkyx || '';
                     console.log('[Axios Adapter] Training plan JYS request for yxid:', yxid);
@@ -757,5 +757,4 @@ const axiosInstance = {
 };
 
 export default axiosInstance;
-
 

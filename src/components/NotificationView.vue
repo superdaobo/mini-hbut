@@ -252,7 +252,7 @@ const saveSettings = () => {
         <span class="page-tag">通知</span>
       </div>
       <div class="user-info">
-        <span class="student-id">👁 {{ props.studentId || '未登录' }}</span>
+        <span class="student-id">{{ props.studentId || '未登录' }}</span>
         <button class="header-btn btn-ripple" @click="$emit('back')">返回</button>
       </div>
     </header>

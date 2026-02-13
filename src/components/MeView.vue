@@ -56,13 +56,24 @@ const handleShowLegal = async (tab) => {
       </div>
       <div class="user-info">
         <div class="profile-inline">
-          <div class="avatar">👤</div>
+          <div class="avatar" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
+            </svg>
+          </div>
           <div class="hero-info">
             <h2>个人中心</h2>
             <p>{{ isLoggedIn ? '欢迎回来' : '请先登录' }}</p>
           </div>
         </div>
-        <span class="student-id">👤 {{ studentId || (isLoggedIn ? '已登录' : '未登录') }}</span>
+        <span class="student-id">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
+          </svg>
+          {{ studentId || (isLoggedIn ? '已登录' : '未登录') }}
+        </span>
       </div>
     </header>
 
@@ -93,35 +104,80 @@ const handleShowLegal = async (tab) => {
       <h3 class="section-title">更多功能</h3>
       <div class="links-grid">
         <button class="link-item" @click="handleOpenOfficial">
-          <span class="link-icon">📣</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M3 13v-2l10-5v12L3 13Z" />
+              <path d="M13 8h3a4 4 0 0 1 0 8h-3" />
+              <path d="M7 14v4a2 2 0 0 0 2 2h1" />
+            </svg>
+          </span>
           <span class="link-text">官方发布</span>
         </button>
         <button class="link-item" @click="handleOpenSettings">
-          <span class="link-icon">🎚️</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M4 7h10" />
+              <path d="M4 17h16" />
+              <circle cx="17" cy="7" r="3" />
+              <circle cx="9" cy="17" r="3" />
+            </svg>
+          </span>
           <span class="link-text">设置</span>
         </button>
         <button class="link-item" @click="handleOpenExport">
-          <span class="link-icon">📦</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M3 8 12 3l9 5-9 5-9-5Z" />
+              <path d="M3 8v8l9 5 9-5V8" />
+              <path d="M12 13v8" />
+            </svg>
+          </span>
           <span class="link-text">导出中心</span>
         </button>
         <button class="link-item" @click="handleOpenResourceShare">
-          <span class="link-icon">🗂️</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M4 6h7l2 2h7v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" />
+              <path d="M8 12h8" />
+              <path d="M8 16h5" />
+            </svg>
+          </span>
           <span class="link-text">资料分享</span>
         </button>
         <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
-          <span class="link-icon">🛠️</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M14 5a4 4 0 1 0 5 5l-7 7-3-3 7-7a4 4 0 0 0-2-2Z" />
+              <path d="m3 21 4-1 9-9-3-3-9 9-1 4Z" />
+            </svg>
+          </span>
           <span class="link-text">配置工具</span>
         </button>
         <button class="link-item" @click="handleCheckUpdate">
-          <span class="link-icon">🔄</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M20 11a8 8 0 1 1-2.3-5.6" />
+              <path d="M20 4v7h-7" />
+            </svg>
+          </span>
           <span class="link-text">检查更新</span>
         </button>
         <button class="link-item" @click="handleFeedback">
-          <span class="link-icon">📝</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M4 4h16v12H8l-4 4V4Z" />
+              <path d="M8 9h8M8 12h6" />
+            </svg>
+          </span>
           <span class="link-text">问题反馈</span>
         </button>
         <button class="link-item" @click="handleOpenSource">
-          <span class="link-icon">📖</span>
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M4 5h7a3 3 0 0 1 3 3v11H7a3 3 0 0 0-3 3V5Z" />
+              <path d="M20 5h-7a3 3 0 0 0-3 3v11h7a3 3 0 0 1 3 3V5Z" />
+            </svg>
+          </span>
           <span class="link-text">开源说明</span>
         </button>
       </div>
@@ -197,6 +253,62 @@ const handleShowLegal = async (tab) => {
   background: var(--ui-bg-gradient);
 }
 
+.dashboard-header .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.dashboard-header .title {
+  font-size: clamp(20px, 2.2vw, 26px);
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent !important;
+  text-shadow: 0 8px 20px color-mix(in oklab, var(--ui-primary) 26%, transparent);
+  position: relative;
+}
+
+.dashboard-header .title::selection {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  background: color-mix(in oklab, var(--ui-primary) 70%, #111827 30%);
+}
+
+.dashboard-header .title.glitch-text::before {
+  opacity: 0.35;
+  transform: translate(1px, -1px);
+}
+
+.dashboard-header .title.glitch-text::after {
+  opacity: 0.3;
+  transform: translate(-1px, 1px);
+}
+
+.page-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  min-width: 42px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ui-primary);
+  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
+}
+
 .profile-inline {
   display: flex;
   align-items: center;
@@ -207,13 +319,23 @@ const handleShowLegal = async (tab) => {
 }
 
 .avatar {
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--ui-primary-soft-strong);
-  font-size: 20px;
+}
+
+.avatar svg,
+.student-id svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
 }
 
 .hero-info h2 {
@@ -337,7 +459,24 @@ const handleShowLegal = async (tab) => {
 }
 
 .link-icon {
-  font-size: 28px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.link-svg {
+  width: 14px;
+  height: 14px;
+  stroke: color-mix(in oklab, var(--ui-primary) 82%, var(--ui-secondary) 18%);
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
 }
 
 .link-text {

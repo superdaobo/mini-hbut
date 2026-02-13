@@ -288,7 +288,7 @@ onMounted(async () => {
   <div class="calendar-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📘 校历信息</h1>
+      <h1>校历信息</h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 

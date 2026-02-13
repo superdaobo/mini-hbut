@@ -45,8 +45,8 @@ onMounted(() => {
   <div class="feedback-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📝 问题反馈</h1>
-      <button class="external-btn" @click="copyLink">🔗</button>
+      <h1>问题反馈</h1>
+      <button class="external-btn" @click="copyLink" aria-label="复制反馈链接">↗</button>
     </header>
 
     <div class="iframe-container">

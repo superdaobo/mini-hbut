@@ -1,0 +1,410 @@
+@charset "UTF-8";
+
+:root {
+  --ux-max-width: 1220px;
+  --ux-page-x: clamp(10px, 2.2vw, 22px);
+  --ux-page-y: clamp(10px, 2vw, 18px);
+  --ux-bottom-safe: calc(112px + env(safe-area-inset-bottom));
+  --ux-header-height: clamp(64px, 8vw, 84px);
+  --ux-header-title-size: clamp(20px, 2.2vw, 28px);
+  --ux-header-title-size-mobile: clamp(18px, 4.8vw, 23px);
+  --ux-card-radius: calc(18px * var(--ui-radius-scale));
+  --ux-card-radius-sm: calc(12px * var(--ui-radius-scale));
+  --ux-card-border: color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.34));
+  --ux-card-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
+  --ux-card-shadow-hover: 0 20px 42px rgba(15, 23, 42, 0.2);
+}
+
+.app-shell {
+  background-image:
+    radial-gradient(1100px at 8% -10%, color-mix(in oklab, var(--ui-primary) 15%, transparent), transparent 58%),
+    radial-gradient(1000px at 92% 108%, color-mix(in oklab, var(--ui-secondary) 16%, transparent), transparent 60%),
+    var(--ui-bg-gradient);
+  background-attachment: fixed, fixed, fixed;
+}
+
+html[data-ui-decor='mesh'] .app-shell::before,
+html[data-ui-decor='grain'] .app-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+html[data-ui-decor='mesh'] .app-shell::before {
+  background:
+    linear-gradient(transparent 96%, color-mix(in oklab, var(--ui-primary) 12%, transparent) 100%),
+    linear-gradient(90deg, transparent 96%, color-mix(in oklab, var(--ui-secondary) 11%, transparent) 100%);
+  background-size: 22px 22px, 22px 22px;
+  opacity: 0.2;
+}
+
+html[data-ui-decor='grain'] .app-shell::before {
+  background-image: radial-gradient(rgba(15, 23, 42, 0.08) 0.5px, transparent 0.5px);
+  background-size: 3px 3px;
+  opacity: 0.22;
+}
+
+html[data-ui-decor='none'] .app-shell::before {
+  content: none;
+}
+
+.app-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+.dashboard,
+.me-view,
+.settings-view,
+.notification-view,
+.resource-share-view,
+[class$='-view'] {
+  width: min(var(--ux-max-width), 100%);
+  margin-inline: auto;
+  padding-inline: var(--ux-page-x);
+  padding-top: var(--ux-page-y);
+  padding-bottom: var(--ux-bottom-safe);
+}
+
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) {
+  width: min(var(--ux-max-width), 100%);
+  min-height: var(--ux-header-height);
+  margin: 0 auto 14px;
+  padding: clamp(10px, 2vw, 16px);
+  border-radius: calc(20px * var(--ui-radius-scale));
+  border: 1px solid var(--ux-card-border) !important;
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%) 0%,
+    color-mix(in oklab, var(--ui-surface) 84%, var(--ui-primary) 16%) 100%
+  ) !important;
+  box-shadow: var(--ux-card-shadow) !important;
+  display: grid !important;
+  grid-template-columns: minmax(90px, 124px) 1fr minmax(90px, 124px) !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > h1,
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > .title {
+  margin: 0 !important;
+  justify-self: center !important;
+  text-align: center !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  font-size: var(--ux-header-title-size) !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  color: var(--ui-text) !important;
+}
+
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .back-btn,
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-btn {
+  min-width: 86px;
+  height: 42px;
+  border-radius: 12px !important;
+}
+
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-spacer {
+  justify-self: end;
+  width: min(124px, 100%);
+}
+
+:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) :is(
+  .logout-btn,
+  .header-btn.danger,
+  .student-id,
+  .student-number,
+  .student-no,
+  .user-info
+) {
+  display: none !important;
+}
+
+:is(
+  .glass-card,
+  .module-card,
+  .search-card,
+  .filter-card,
+  .result-card,
+  .summary-card,
+  .stats-card,
+  .info-card,
+  .list-card,
+  .setting-card,
+  .settings-section,
+  .today-panel,
+  .notice-panel,
+  .results-info,
+  .room-card,
+  .calendar-card,
+  .exam-item,
+  .course-card,
+  .transaction-card,
+  .book-card,
+  .resource-card
+) {
+  border-radius: var(--ux-card-radius) !important;
+  border: 1px solid var(--ux-card-border) !important;
+  box-shadow: var(--ux-card-shadow) !important;
+  transition:
+    transform calc(0.18s * var(--ui-motion-scale)) ease,
+    box-shadow calc(0.18s * var(--ui-motion-scale)) ease !important;
+}
+
+html[data-ui-card='glass'] :is(
+  .glass-card,
+  .module-card,
+  .search-card,
+  .filter-card,
+  .result-card,
+  .summary-card,
+  .stats-card,
+  .info-card,
+  .list-card,
+  .setting-card,
+  .settings-section,
+  .today-panel,
+  .notice-panel,
+  .results-info,
+  .room-card,
+  .calendar-card,
+  .exam-item,
+  .course-card,
+  .transaction-card,
+  .book-card,
+  .resource-card
+) {
+  background: linear-gradient(
+    154deg,
+    color-mix(in oklab, #ffffff 92%, var(--ui-primary) 8%),
+    color-mix(in oklab, #f8fafc 84%, var(--ui-secondary) 16%)
+  ) !important;
+  backdrop-filter: blur(15px);
+}
+
+html[data-ui-card='solid'] :is(
+  .glass-card,
+  .module-card,
+  .search-card,
+  .filter-card,
+  .result-card,
+  .summary-card,
+  .stats-card,
+  .info-card,
+  .list-card,
+  .setting-card,
+  .settings-section,
+  .today-panel,
+  .notice-panel,
+  .results-info,
+  .room-card,
+  .calendar-card,
+  .exam-item,
+  .course-card,
+  .transaction-card,
+  .book-card,
+  .resource-card
+) {
+  background: color-mix(in oklab, #ffffff 94%, var(--ui-primary) 6%) !important;
+}
+
+html[data-ui-card='outline'] :is(
+  .glass-card,
+  .module-card,
+  .search-card,
+  .filter-card,
+  .result-card,
+  .summary-card,
+  .stats-card,
+  .info-card,
+  .list-card,
+  .setting-card,
+  .settings-section,
+  .today-panel,
+  .notice-panel,
+  .results-info,
+  .room-card,
+  .calendar-card,
+  .exam-item,
+  .course-card,
+  .transaction-card,
+  .book-card,
+  .resource-card
+) {
+  background: color-mix(in oklab, #ffffff 70%, transparent) !important;
+  border-width: 1.5px !important;
+}
+
+:is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card):not(.disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--ux-card-shadow-hover) !important;
+}
+
+.module-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: clamp(10px, 1.2vw, 14px) !important;
+}
+
+.module-card .module-name {
+  font-size: clamp(0.94rem, 2.2vw, 1.08rem) !important;
+  line-height: 1.26 !important;
+  font-weight: 700 !important;
+}
+
+html[data-ui-icon='line'] .module-card .module-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-icon='mono'] .module-card .module-icon,
+html[data-ui-icon='mono'] .module-card .module-icon svg {
+  color: var(--ui-text) !important;
+  stroke: currentColor !important;
+}
+
+html[data-ui-density='comfortable'] {
+  --ui-space-scale: 1.08;
+  --ui-font-scale: 1.03;
+}
+
+html[data-ui-density='balanced'] {
+  --ui-space-scale: 1;
+  --ui-font-scale: 1;
+}
+
+html[data-ui-density='compact'] {
+  --ui-space-scale: 0.9;
+  --ui-font-scale: 0.95;
+}
+
+.app-shell :is(input, select, textarea) {
+  min-height: 44px;
+  border-radius: var(--ux-card-radius-sm) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.42)) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: var(--ui-text) !important;
+}
+
+.app-shell :is(input, select, textarea):focus {
+  outline: none;
+  border-color: var(--ui-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-primary) 20%, transparent) !important;
+}
+
+:is(.back-btn, .header-btn, .tab-btn, .query-btn, .download-btn, .font-btn, .preview-btn, .btn, .action-btn) {
+  border-radius: var(--ux-card-radius-sm) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 26%, rgba(148, 163, 184, 0.3));
+  font-weight: 700 !important;
+}
+
+.bottom-tab-bar {
+  transition: all calc(0.2s * var(--ui-motion-scale)) ease;
+}
+
+html[data-ui-nav='floating'] .bottom-tab-bar {
+  border-radius: 20px !important;
+  border: 1px solid rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.18) !important;
+}
+
+html[data-ui-nav='pill'] .bottom-tab-bar {
+  border-radius: 999px !important;
+  padding-inline: 14px !important;
+}
+
+html[data-ui-nav='pill'] .tab-item {
+  border-radius: 999px !important;
+}
+
+html[data-ui-nav='compact'] .bottom-tab-bar {
+  width: min(640px, calc(100% - 26px)) !important;
+  padding: 8px 12px !important;
+  bottom: 10px !important;
+}
+
+html[data-ui-nav='compact'] .tab-item {
+  gap: 2px !important;
+  padding: 6px 4px !important;
+}
+
+html[data-theme='graphite_night'] :is(input, select, textarea),
+html[data-theme='graphite_night'] :is(.bottom-tab-bar, .exit-dialog-card, .font-modal-card) {
+  background: rgba(15, 23, 42, 0.82) !important;
+  color: #e2e8f0 !important;
+}
+
+html[data-theme='graphite_night'] :is(
+  .glass-card,
+  .module-card,
+  .search-card,
+  .filter-card,
+  .result-card,
+  .summary-card,
+  .stats-card,
+  .info-card,
+  .list-card,
+  .setting-card,
+  .settings-section,
+  .today-panel,
+  .notice-panel,
+  .results-info,
+  .room-card,
+  .calendar-card,
+  .exam-item,
+  .course-card,
+  .transaction-card,
+  .book-card,
+  .resource-card
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.86), rgba(30, 41, 59, 0.82)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 28%, rgba(148, 163, 184, 0.28)) !important;
+}
+
+html[data-theme='graphite_night'] :is(.today-item-name, .module-name, .title, h1, h2, h3) {
+  color: #e2e8f0 !important;
+}
+
+@media (max-width: 900px) {
+  .dashboard,
+  .me-view,
+  .settings-view,
+  .notification-view,
+  .resource-share-view,
+  [class$='-view'] {
+    padding-inline: clamp(8px, 3vw, 14px);
+  }
+}
+
+@media (max-width: 640px) {
+  .module-grid {
+    gap: 8px !important;
+  }
+
+  :is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) {
+    grid-template-columns: minmax(80px, auto) 1fr minmax(80px, auto) !important;
+    padding: 10px !important;
+  }
+
+  :is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > h1,
+  :is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > .title {
+    font-size: var(--ux-header-title-size-mobile) !important;
+  }
+
+  .module-card .module-name {
+    font-size: clamp(12px, 3.2vw, 14px) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card, .btn, .back-btn, .header-btn) {
+    transition: none !important;
+    animation: none !important;
+  }
+}

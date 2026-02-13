@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import './style.css'
+import './styles/ui_ux_pro_max.css'
 import 'katex/dist/katex.min.css'
 import App from './App.vue'
 import { initUiSettings } from './utils/ui_settings'

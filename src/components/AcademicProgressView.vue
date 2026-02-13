@@ -71,7 +71,7 @@ onMounted(() => {
   <div class="progress-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>🎓 学业完成情况</h1>
+      <h1>学业完成情况</h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 

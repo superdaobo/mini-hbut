@@ -121,7 +121,7 @@ onMounted(async () => {
     <!-- 头部 -->
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>📝 考试安排</h1>
+      <h1>考试安排</h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 

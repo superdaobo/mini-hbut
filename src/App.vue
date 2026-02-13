@@ -1161,21 +1161,40 @@ onBeforeUnmount(() => {
       </div>
     </Transition>
 
-    <nav v-if="showTabBar" class="tab-bar glass-card">
+    <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
-        <span class="tab-icon">🏠</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-5V21H4a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          </svg>
+        </span>
         <span class="tab-label">首页</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'schedule' }" @click="handleTabChange('schedule')">
-        <span class="tab-icon">📅</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="4.5" width="18" height="16.5" rx="3" stroke="currentColor" stroke-width="1.8" />
+            <path d="M7 3v3M17 3v3M3 9h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </span>
         <span class="tab-label">课表</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
-        <span class="tab-icon">🔔</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 3a5 5 0 0 0-5 5v2.6c0 .9-.3 1.8-.9 2.5L4.5 15a1 1 0 0 0 .8 1.6h13.4a1 1 0 0 0 .8-1.6l-1.6-1.9a3.9 3.9 0 0 1-.9-2.5V8a5 5 0 0 0-5-5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+            <path d="M9.5 18a2.5 2.5 0 0 0 5 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </span>
         <span class="tab-label">通知</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'me' }" @click="handleTabChange('me')">
-        <span class="tab-icon">👤</span>
+        <span class="tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8" />
+            <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </span>
         <span class="tab-label">我的</span>
       </button>
     </nav>
@@ -1333,22 +1352,27 @@ onBeforeUnmount(() => {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-.tab-bar {
+.bottom-tab-bar {
   position: fixed;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  margin-inline: auto;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   padding: 10px 16px;
-  width: min(520px, calc(100% - 32px));
-  border-radius: 18px;
-  backdrop-filter: blur(18px);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
-  z-index: 10;
+  width: min(
+    540px,
+    calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 28px)
+  );
+  border-radius: 20px;
+  backdrop-filter: blur(20px);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78));
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  z-index: 60;
+  pointer-events: auto;
 }
 
 .tab-item {
@@ -1370,10 +1394,25 @@ onBeforeUnmount(() => {
 .tab-item.active {
   color: var(--ui-primary);
   background: var(--ui-primary-soft);
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.2);
 }
 
 .tab-icon {
-  font-size: 18px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.tab-label {
+  font-size: 13px;
+  letter-spacing: 0.2px;
 }
 
 .login-mask {
@@ -1393,6 +1432,7 @@ onBeforeUnmount(() => {
   border-radius: 16px;
   font-weight: 600;
   color: var(--ui-text);
+  border: 1px solid rgba(148, 163, 184, 0.3);
   box-shadow: var(--ui-shadow-soft);
 }
 
@@ -1410,9 +1450,9 @@ onBeforeUnmount(() => {
 
 .exit-dialog-card {
   width: min(420px, 100%);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.95));
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 20px;
   box-shadow: var(--ui-shadow-strong);
   padding: 22px;
 }
@@ -1602,114 +1642,5 @@ onBeforeUnmount(() => {
   margin-top: 16px;
 }
 
-/* 统一模块页头部：左返回 + 中标题 + 右占位 */
-:deep(.view-header),
-:deep(.app-header),
-:deep(.grade-header),
-:deep(.elec-header),
-:deep(.qxzkb-header),
-:deep(.trans-header) {
-  display: grid !important;
-  grid-template-columns: 112px 1fr 112px !important;
-  align-items: center !important;
-}
-
-:deep(.view-header > h1),
-:deep(.app-header > h1),
-:deep(.grade-header > h1),
-:deep(.elec-header > h1),
-:deep(.qxzkb-header > h1),
-:deep(.trans-header > h1) {
-  margin: 0;
-  text-align: center;
-  justify-self: center;
-  font-size: 18px !important;
-  font-weight: 600 !important;
-  line-height: 1.2 !important;
-  white-space: nowrap;
-}
-
-:deep(.view-header > .title),
-:deep(.app-header > .title),
-:deep(.grade-header > .title),
-:deep(.elec-header > .title),
-:deep(.qxzkb-header > .title),
-:deep(.trans-header > .title) {
-  width: 100%;
-  justify-content: center !important;
-  justify-self: center;
-  text-align: center;
-  font-size: 18px !important;
-  font-weight: 600 !important;
-  line-height: 1.2 !important;
-  white-space: nowrap;
-}
-
-:deep(.view-header .back-btn),
-:deep(.app-header .back-btn),
-:deep(.grade-header .back-btn),
-:deep(.elec-header .back-btn),
-:deep(.qxzkb-header .back-btn),
-:deep(.trans-header .back-btn),
-:deep(.view-header .header-btn),
-:deep(.app-header .header-btn),
-:deep(.grade-header .header-btn),
-:deep(.elec-header .header-btn),
-:deep(.qxzkb-header .header-btn),
-:deep(.trans-header .header-btn) {
-  width: 112px;
-  justify-self: start;
-}
-
-:deep(.header-spacer) {
-  width: 112px;
-  height: 1px;
-  justify-self: end;
-}
-
-/* 模块页头部禁止显示“退出”按钮与右上角学号区域 */
-:deep(.view-header .logout-btn),
-:deep(.app-header .logout-btn),
-:deep(.grade-header .logout-btn),
-:deep(.elec-header .logout-btn),
-:deep(.qxzkb-header .logout-btn),
-:deep(.trans-header .logout-btn),
-:deep(.view-header .header-btn.danger),
-:deep(.app-header .header-btn.danger),
-:deep(.grade-header .header-btn.danger),
-:deep(.elec-header .header-btn.danger),
-:deep(.qxzkb-header .header-btn.danger),
-:deep(.trans-header .header-btn.danger),
-:deep(.grade-header .user-info),
-:deep(.elec-header .user-info) {
-  display: none !important;
-}
-
-@media (max-width: 640px) {
-  :deep(.view-header),
-  :deep(.app-header),
-  :deep(.grade-header),
-  :deep(.elec-header),
-  :deep(.qxzkb-header),
-  :deep(.trans-header) {
-    grid-template-columns: 94px 1fr 94px !important;
-  }
-
-  :deep(.view-header .back-btn),
-  :deep(.app-header .back-btn),
-  :deep(.grade-header .back-btn),
-  :deep(.elec-header .back-btn),
-  :deep(.qxzkb-header .back-btn),
-  :deep(.trans-header .back-btn),
-  :deep(.view-header .header-btn),
-  :deep(.app-header .header-btn),
-  :deep(.grade-header .header-btn),
-  :deep(.elec-header .header-btn),
-  :deep(.qxzkb-header .header-btn),
-  :deep(.trans-header .header-btn),
-  :deep(.header-spacer) {
-    width: 94px;
-  }
-}
 </style>
 

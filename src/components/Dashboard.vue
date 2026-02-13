@@ -27,6 +27,22 @@ const todayLoading = ref(false)
 const todayError = ref('')
 const nowTick = ref(Date.now())
 let clockTimer = null
+const moduleIconMap = {
+  grades: ['M4 18h16', 'M7 14v3', 'M12 10v7', 'M17 7v10'],
+  classroom: ['M3 21h18', 'M5 21V7l7-4 7 4v14', 'M9 11h6', 'M9 15h2', 'M13 15h2'],
+  electricity: ['M13 2 5 13h6l-1 9 9-12h-6l0-8z'],
+  exams: ['M4 6h16', 'M8 3v4', 'M16 3v4', 'M5 6v14h14V6', 'M8 11h8', 'M8 15h5'],
+  qxzkb: ['M3 4h18v4H3z', 'M3 10h18v10H3z', 'M8 14h3', 'M13 14h3', 'M8 18h3'],
+  ranking: ['M8 21V10', 'M12 21V6', 'M16 21V13', 'M5 21h14'],
+  calendar: ['M4 5h16v15H4z', 'M8 3v4', 'M16 3v4', 'M4 9h16', 'M8 13h3', 'M13 13h3'],
+  academic: ['M12 3 3 8l9 5 9-5-9-5z', 'M5 10v4c0 2.2 3.1 4 7 4s7-1.8 7-4v-4'],
+  training: ['M5 5h14v14H5z', 'M9 9h6', 'M9 13h6', 'M9 17h4'],
+  transactions: ['M3 7h18v10H3z', 'M3 10h18', 'M8 15h3', 'M16 15h2'],
+  library: ['M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 0-3 3V4z', 'M8 23V7a3 3 0 0 1 3-3'],
+  campus_map: ['M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6z', 'M9 4v14', 'M15 6v14'],
+  resource_share: ['M4 6h8l2 2h6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z', 'M8 13h8', 'M12 10v6'],
+  ai: ['M9 3h6', 'M8 7h8a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z', 'M9 14h.01', 'M15 14h.01']
+}
 
 const periodTimeMap = {
   1: { start: '08:20', end: '09:05' },
@@ -200,7 +216,7 @@ const modules = [
   { 
     id: 'grades', 
     name: '成绩查询', 
-    icon: '📊', 
+    icon: '成绩',
     color: '#667eea',
     desc: '查看所有学期成绩',
     available: true,
@@ -209,7 +225,7 @@ const modules = [
   { 
     id: 'classroom', 
     name: '空教室', 
-    icon: '🏫', 
+    icon: '空教',
     color: '#ed8936',
     desc: '查询空闲教室',
     available: true,
@@ -218,7 +234,7 @@ const modules = [
   { 
     id: 'electricity', 
     name: '电费查询', 
-    icon: '⚡', 
+    icon: '电费',
     color: '#e53e3e',
     desc: '宿舍电费余额',
     available: true,
@@ -227,7 +243,7 @@ const modules = [
   { 
     id: 'exams', 
     name: '考试安排', 
-    icon: '📝', 
+    icon: '考试',
     color: '#38b2ac',
     desc: '查询考试时间地点',
     available: true,
@@ -236,7 +252,7 @@ const modules = [
   { 
     id: 'qxzkb', 
     name: '全校课表', 
-    icon: '🏫', 
+    icon: '课表',
     color: '#6366f1',
     desc: '查询全校课程与排课',
     available: true,
@@ -245,7 +261,7 @@ const modules = [
   { 
     id: 'ranking', 
     name: '绩点排名', 
-    icon: '🏆', 
+    icon: '绩点',
     color: '#f6ad55',
     desc: '专业班级排名',
     available: true,
@@ -254,7 +270,7 @@ const modules = [
   { 
     id: 'calendar', 
     name: '校历', 
-    icon: '📘', 
+    icon: '校历',
     color: '#3b82f6',
     desc: '查看学期校历',
     available: true,
@@ -263,7 +279,7 @@ const modules = [
   { 
     id: 'academic', 
     name: '学业情况', 
-    icon: '🎓', 
+    icon: '学业',
     color: '#10b981',
     desc: '学业完成度与课程进度',
     available: true,
@@ -272,7 +288,7 @@ const modules = [
   { 
     id: 'training', 
     name: '培养方案', 
-    icon: '📚', 
+    icon: '培养',
     color: '#0ea5e9',
     desc: '培养方案与课程设置',
     available: true,
@@ -281,7 +297,7 @@ const modules = [
   { 
     id: 'transactions', 
     name: '交易记录', 
-    icon: '💰', 
+    icon: '交易',
     color: '#F56C6C',
     desc: '一码通消费记录',
     available: true,
@@ -290,7 +306,7 @@ const modules = [
   {
     id: 'library',
     name: '图书查询',
-    icon: '📖',
+    icon: '图书',
     color: '#0f766e',
     desc: '馆藏检索与定位',
     available: true,
@@ -299,7 +315,7 @@ const modules = [
   {
     id: 'campus_map',
     name: '校园地图',
-    icon: '🗺️',
+    icon: '地图',
     color: '#14b8a6',
     desc: '校园地图查看',
     available: true,
@@ -308,7 +324,7 @@ const modules = [
   {
     id: 'resource_share',
     name: '资料分享',
-    icon: '🗂️',
+    icon: '资料',
     color: '#0ea5e9',
     desc: 'WebDAV 资料浏览与下载',
     available: true,
@@ -317,7 +333,7 @@ const modules = [
   { 
     id: 'ai', 
     name: '校园助手', 
-    icon: '🤖', 
+    icon: 'AI',
     color: '#94a3b8',
     desc: '暂不可用',
     available: false,
@@ -332,10 +348,6 @@ const navigateTo = (moduleId) => {
     return
   }
   emit('navigate', moduleId)
-}
-
-const handleLogout = () => {
-  emit('logout')
 }
 
 const tickerItems = computed(() => {
@@ -476,11 +488,19 @@ watch(
         <span class="page-tag">首页</span>
       </div>
       <div class="user-info">
-        <span class="student-id">👤 {{ studentId || '未登录' }}</span>
+        <span class="student-id">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
+          </svg>
+          {{ studentId || '未登录' }}
+        </span>
         <button class="share-btn btn-ripple" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
-          🔗
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L9.5 6.42" />
+            <path d="M14 11a5 5 0 0 0-7.07 0L4.8 13.12a5 5 0 0 0 7.07 7.07l2.62-2.62" />
+          </svg>
         </button>
-        <button v-if="isLoggedIn" class="logout-btn btn-ripple" @click="handleLogout">退出</button>
       </div>
     </header>
 
@@ -523,7 +543,16 @@ watch(
         :style="{ '--accent-color': mod.color }"
         @click="mod.available && navigateTo(mod.id)"
       >
-        <div class="module-icon">{{ mod.icon }}</div>
+        <div class="module-icon" aria-hidden="true">
+          <svg v-if="moduleIconMap[mod.id]" viewBox="0 0 24 24" fill="none">
+            <path
+              v-for="(segment, segIndex) in moduleIconMap[mod.id]"
+              :key="`${mod.id}-${segIndex}`"
+              :d="segment"
+            />
+          </svg>
+          <span v-else>{{ mod.icon }}</span>
+        </div>
         <div class="module-name">{{ mod.name }}</div>
         <div v-if="!mod.available" class="coming-soon">即将上线</div>
       </div>
@@ -557,7 +586,7 @@ watch(
     </section>
 
     <footer class="dashboard-footer">
-      <p class="neon-marquee">💡 点击模块卡片进入功能</p>
+      <p class="neon-marquee">点击模块卡片进入功能</p>
     </footer>
   </div>
 </template>
@@ -567,6 +596,8 @@ watch(
   min-height: 100vh;
   background: var(--ui-bg-gradient);
   padding: 20px;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 
 html[data-theme='cyberpunk'] .dashboard {
@@ -654,16 +685,44 @@ html[data-theme='cyberpunk'] .brand .title {
 
 .student-id {
   color: var(--ui-text);
-  font-weight: 500;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  padding: 6px 12px;
+}
+
+.student-id svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .share-btn, .logout-btn {
-  padding: 8px 16px;
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
   border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  font-size: 14px;
   transition: all 0.2s;
+}
+
+.share-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .share-btn {
@@ -821,15 +880,22 @@ html[data-theme='aurora'] .ticker-card {
 }
 
 .module-card {
-  background: white;
-  border-radius: 16px;
-  padding: 18px 12px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.86));
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  padding: 14px 10px 12px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
   position: relative;
   overflow: hidden;
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
 }
 
 html[data-theme='cyberpunk'] .module-card {
@@ -959,18 +1025,39 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .module-icon {
-  font-size: 26px;
-  margin-bottom: 8px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.module-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .module-name {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--ui-text);
   margin-bottom: 4px;
-  white-space: nowrap;
+  line-height: 1.32;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
 }
 
@@ -1021,9 +1108,9 @@ html[data-theme='cyberpunk'] .today-panel {
 .today-panel-head h3,
 .today-title {
   margin: 0;
-  font-size: 34px;
+  font-size: 20px;
   font-weight: 800;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.2px;
   color: var(--ui-text);
   background: transparent !important;
   background-image: none !important;
@@ -1077,7 +1164,7 @@ html[data-theme='cyberpunk'] .today-panel {
 }
 
 .today-item-time {
-  font-size: 30px;
+  font-size: 22px;
   font-weight: 800;
   line-height: 1;
   color: #0f172a;
@@ -1118,7 +1205,7 @@ html[data-theme='cyberpunk'] .today-panel {
 }
 
 .today-item-name {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 800;
   color: #111827;
   margin-bottom: 8px;
@@ -1153,7 +1240,8 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-card {
-    padding: 12px 6px;
+    padding: 10px 6px;
+    min-height: 96px;
   }
 
   .today-panel {
@@ -1162,7 +1250,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .today-panel-head h3 {
-    font-size: 26px;
+    font-size: 18px;
   }
 
   .today-item {
@@ -1170,11 +1258,11 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .today-item-time {
-    font-size: 24px;
+    font-size: 18px;
   }
 
   .today-item-name {
-    font-size: 18px;
+    font-size: 16px;
   }
 
   .today-item-meta {
@@ -1182,13 +1270,18 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-name {
-    font-size: clamp(12px, 3.2vw, 13.5px);
-    line-height: 1.2;
+    font-size: clamp(12px, 3.2vw, 14px);
+    line-height: 1.25;
   }
 
   .module-icon {
-    font-size: 22px;
-    margin-bottom: 6px;
+    width: 36px;
+    height: 36px;
+  }
+
+  .module-icon svg {
+    width: 19px;
+    height: 19px;
   }
 }
 
@@ -1203,7 +1296,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .today-panel-head h3 {
-    font-size: 22px;
+    font-size: 17px;
   }
 
   .today-time {
@@ -1216,11 +1309,11 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .today-item-time {
-    font-size: 20px;
+    font-size: 16px;
   }
 
   .today-item-name {
-    font-size: 16px;
+    font-size: 15px;
     margin-bottom: 6px;
   }
 
@@ -1234,8 +1327,13 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon {
-    font-size: 20px;
-    margin-bottom: 6px;
+    width: 34px;
+    height: 34px;
+  }
+
+  .module-icon svg {
+    width: 18px;
+    height: 18px;
   }
 }
 
