@@ -62,6 +62,10 @@ const isIOSLike = (() => {
   const maxTouchPoints = window.navigator.maxTouchPoints || 0
   return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
 })()
+const isAndroidLike = (() => {
+  if (typeof window === 'undefined') return false
+  return /Android/i.test(window.navigator.userAgent || '')
+})()
 let hiddenAt = 0
 let unlistenCloseRequested = null
 let isClosingByUser = false
@@ -242,12 +246,16 @@ const forceScrollTop = () => {
 
 const updateViewportUnit = () => {
   if (typeof window === 'undefined') return
-  // 优先 innerHeight，避免 visualViewport 在页面切换后短时间波动导致界面“二次缩放”
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || window.visualViewport?.height
+  // 优先 clientHeight，避免地址栏/键盘/可视窗口瞬时波动导致“二次缩放”
+  const viewportHeight =
+    document.documentElement.clientHeight ||
+    window.innerHeight ||
+    window.visualViewport?.height
   if (!viewportHeight) return
   const nextVh = viewportHeight * 0.01
   const prevVh = Number.parseFloat(document.documentElement.style.getPropertyValue('--app-vh'))
-  if (Number.isFinite(prevVh) && Math.abs(prevVh - nextVh) < 0.02) return
+  // 忽略小于约 10px 的抖动（0.1vh * 100），避免页面进入后瞬时缩放
+  if (Number.isFinite(prevVh) && Math.abs(prevVh - nextVh) < 0.1) return
   document.documentElement.style.setProperty('--app-vh', `${nextVh}px`)
 }
 
@@ -278,7 +286,13 @@ const nudgeWebViewPaint = () => {
 }
 
 const scheduleViewportUpdate = () => {
-  // 仅做一次同步更新，避免“先铺满再二次缩放”
+  // 桌面端避免频繁重算 vh 导致“进入后瞬间缩放”；
+  // 移动端仍保留实时同步（地址栏/刘海安全区会变化）。
+  if (!isIOSLike && !isAndroidLike) {
+    const hasVh = !!document.documentElement.style.getPropertyValue('--app-vh')
+    if (!hasVh) updateViewportUnit()
+    return
+  }
   updateViewportUnit()
 }
 
@@ -933,8 +947,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="app-shell" :class="{ 'no-scroll': currentView === 'ai' }" ref="appShellRef">
-    <Transition name="fade" mode="out-in">
+  <main
+    class="app-shell"
+    :class="{ 'no-scroll': currentView === 'ai', 'schedule-full': currentView === 'schedule' }"
+    ref="appShellRef"
+  >
+    <Transition name="module-fade" mode="out-in">
+      <div :key="currentView" class="view-transition-root">
       <!-- 首页 -->
       <Dashboard 
         v-if="currentView === 'home'"
@@ -1143,6 +1162,7 @@ onBeforeUnmount(() => {
           <button @click="handleBackToDashboard">返回仪表盘</button>
         </div>
       </div>
+      </div>
     </Transition>
 
     <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
@@ -1317,6 +1337,31 @@ onBeforeUnmount(() => {
   transform: scale(1.05);
 }
 
+.view-transition-root {
+  width: 100%;
+  min-height: 100%;
+}
+
+.module-fade-enter-active,
+.module-fade-leave-active {
+  transition:
+    opacity calc(0.16s * var(--ui-motion-scale)) ease,
+    transform calc(0.16s * var(--ui-motion-scale)) ease;
+}
+
+.module-fade-enter-from,
+.module-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .module-fade-enter-active,
+  .module-fade-leave-active {
+    transition: none;
+  }
+}
+
 .app-shell {
   min-height: calc(var(--app-vh, 1vh) * 100);
   height: calc(var(--app-vh, 1vh) * 100);
@@ -1336,9 +1381,27 @@ onBeforeUnmount(() => {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+.app-shell.schedule-full {
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.app-shell.schedule-full > .schedule-view,
+.app-shell.schedule-full > .view-transition-root > .schedule-view {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  min-height: calc(var(--app-vh, 1vh) * 100) !important;
+  height: calc(var(--app-vh, 1vh) * 100) !important;
+  padding: 0 0 calc(92px + env(safe-area-inset-bottom)) !important;
+}
+
 /* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放 */
 .app-shell > .dashboard,
-.app-shell > [class$='-view'] {
+.app-shell > [class$='-view']:not(.schedule-view),
+.app-shell > .view-transition-root > .dashboard,
+.app-shell > .view-transition-root > [class$='-view']:not(.schedule-view) {
   min-height: calc(var(--app-vh, 1vh) * 100) !important;
   height: auto !important;
 }

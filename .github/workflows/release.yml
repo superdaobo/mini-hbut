@@ -18,10 +18,53 @@ jobs:
       release_id: ${{ steps.create_release.outputs.id }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes with changed files
+        id: release_notes
+        shell: bash
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags
+
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+          COMPARE_URL=""
+          if [ -n "$PREVIOUS_TAG" ]; then
+            COMPARE_URL="$REPO_URL/compare/$PREVIOUS_TAG...$CURRENT_TAG"
+          fi
+
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          {
+            echo "## Changed Files"
+            echo
+            if [ -z "$PREVIOUS_TAG" ]; then
+              echo "- No previous tag found."
+              echo "- [View current tag source]($REPO_URL/tree/$CURRENT_TAG)"
+            else
+              echo "- Compare range: [\`$PREVIOUS_TAG...$CURRENT_TAG\`]($COMPARE_URL)"
+              echo
+
+              mapfile -t CHANGED_FILES < <(git diff --name-only "$PREVIOUS_TAG" "$CURRENT_TAG")
+              if [ "${#CHANGED_FILES[@]}" -eq 0 ]; then
+                echo "- No file changes detected."
+              else
+                for file in "${CHANGED_FILES[@]}"; do
+                  DIFF_HASH="$(printf '%s' "$file" | sha256sum | cut -d ' ' -f1)"
+                  echo "- [\`$file\`]($COMPARE_URL#diff-$DIFF_HASH)"
+                done
+              fi
+            fi
+          } > "$NOTES_FILE"
+
+          echo "body_path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         id: create_release
@@ -31,7 +74,7 @@ jobs:
           name: Mini-HBUT ${{ steps.version.outputs.VERSION }}
           draft: false
           prerelease: false
-          body: ""
+          body_path: ${{ steps.release_notes.outputs.body_path }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -68,6 +111,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prune non-runtime files (Android)
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/exports .tauri-tmp dist-release captures tools/.session_cookies.json || true
+          find src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
+          find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -285,6 +335,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prune non-runtime files (Windows)
+        shell: pwsh
+        run: |
+          if (Test-Path "src-tauri/exports") { Remove-Item "src-tauri/exports" -Recurse -Force }
+          if (Test-Path ".tauri-tmp") { Remove-Item ".tauri-tmp" -Recurse -Force }
+          if (Test-Path "dist-release") { Remove-Item "dist-release" -Recurse -Force }
+          if (Test-Path "captures") { Remove-Item "captures" -Recurse -Force }
+          if (Test-Path "tools/.session_cookies.json") { Remove-Item "tools/.session_cookies.json" -Force }
+          Get-ChildItem "src-tauri" -Recurse -File -Include *.ics,*.bak,*.tmp | Remove-Item -Force
+          Get-ChildItem "." -Recurse -File -Include *.log,*.cache | Remove-Item -Force
+
       - name: Get version from tag
         id: version
         shell: pwsh
@@ -400,6 +461,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prune non-runtime files (iOS)
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/exports .tauri-tmp dist-release captures tools/.session_cookies.json || true
+          find src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
+          find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
 
       - name: Get version from tag
         id: version

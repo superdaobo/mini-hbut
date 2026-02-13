@@ -278,7 +278,7 @@ onMounted(async () => {
     <div class="content-container">
       <!-- 筛选区 -->
       <div class="filter-card">
-        <div class="filter-row">
+        <div class="filter-row top-filter-row">
           <div class="filter-item">
             <label>教学楼</label>
             <select v-model="filters.building">
@@ -421,9 +421,32 @@ onMounted(async () => {
   align-items: flex-end;
 }
 
+.top-filter-row {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  flex-wrap: nowrap !important;
+  gap: 12px;
+  align-items: end;
+  width: 100%;
+}
+
 .filter-item {
   flex: 1;
   min-width: 100px;
+}
+
+.top-filter-row .filter-item {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-filter-row select {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 auto;
 }
 
 .filter-item label {
@@ -725,6 +748,10 @@ input {
 @media (max-width: 700px) {
   .content-container {
     padding: 0 10px;
+  }
+
+  .top-filter-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .results-info {

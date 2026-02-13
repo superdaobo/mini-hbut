@@ -350,6 +350,10 @@ const navigateTo = (moduleId) => {
   emit('navigate', moduleId)
 }
 
+const handleProfileClick = () => {
+  emit('navigate', 'me')
+}
+
 const tickerItems = computed(() => {
   if (!props.tickerNotices.length) {
     return [{ id: 'ticker-empty', title: '暂无通知' }]
@@ -481,26 +485,29 @@ watch(
 <template>
   <div class="dashboard">
     <!-- 头部 -->
-    <header class="dashboard-header">
-      <div class="brand">
-        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
-        <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
+    <header class="dashboard-header dashboard-header--home">
+      <div class="home-header-top">
+        <div class="brand">
+          <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+          <span class="title">HBUT 校园助手</span>
+        </div>
         <span class="page-tag">首页</span>
       </div>
-      <div class="user-info">
-        <span class="student-id">
+      <div class="home-header-bottom">
+        <button class="student-id student-entry" @click="handleProfileClick" title="进入我的页面">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle cx="12" cy="8" r="4" />
             <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
           </svg>
           {{ studentId || '未登录' }}
-        </span>
+        </button>
         <button class="share-btn btn-ripple" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L9.5 6.42" />
             <path d="M14 11a5 5 0 0 0-7.07 0L4.8 13.12a5 5 0 0 0 7.07 7.07l2.62-2.62" />
           </svg>
         </button>
+        <button v-if="isLoggedIn" class="logout-btn btn-ripple" @click="$emit('logout')" title="退出登录">退出</button>
       </div>
     </header>
 
@@ -585,9 +592,6 @@ watch(
       </div>
     </section>
 
-    <footer class="dashboard-footer">
-      <p class="neon-marquee">点击模块卡片进入功能</p>
-    </footer>
   </div>
 </template>
 
@@ -623,76 +627,58 @@ html[data-theme='cyberpunk'] .dashboard > * {
 }
 
 .dashboard-header {
+  margin-bottom: 14px;
+}
+
+.dashboard-header--home {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-header-top,
+.home-header-bottom {
+  display: flex;
   align-items: center;
-  padding: 16px 24px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  margin-bottom: 24px;
-}
-
-html[data-theme='cyberpunk'] .dashboard-header {
-  background: rgba(10, 15, 28, 0.82);
-  border: 1px solid rgba(41, 200, 224, 0.35);
-  box-shadow: 0 0 18px rgba(41, 200, 224, 0.25);
-}
-
-html[data-theme='aurora'] .dashboard-header {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .logo-img {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
 }
 
 .brand .title {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: clamp(15px, 4vw, 18px);
+  font-weight: 800;
   color: var(--ui-text);
-  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
-}
-
-html[data-theme='aurora'] .brand .title {
-  color: var(--ui-text);
-  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
-}
-
-html[data-theme='cyberpunk'] .brand .title {
-  background: linear-gradient(135deg, var(--ui-neon-cyan), var(--ui-neon-pink), var(--ui-neon-purple));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-shadow: 0 0 10px rgba(41, 200, 224, 0.6);
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  text-shadow: none;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .student-id {
   color: var(--ui-text);
-  font-weight: 600;
+  font-weight: 700;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.32);
+  min-height: 32px;
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
   border-radius: 999px;
-  padding: 6px 12px;
+  padding: 0 12px;
 }
 
 .student-id svg {
@@ -704,7 +690,18 @@ html[data-theme='cyberpunk'] .brand .title {
   stroke-linejoin: round;
 }
 
-.share-btn, .logout-btn {
+.student-entry {
+  border: none;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.student-entry:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.2);
+}
+
+.share-btn {
   width: 36px;
   height: 36px;
   border-radius: 8px;
@@ -723,6 +720,18 @@ html[data-theme='cyberpunk'] .brand .title {
   stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.logout-btn {
+  min-width: 68px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .share-btn {
@@ -776,7 +785,7 @@ html[data-theme='aurora'] .notice-panel {
   display: flex;
   align-items: center;
   overflow: hidden;
-  height: 140px; /* Taller height for cards/images */
+  height: 120px;
 }
 
 .ticker-track {
@@ -803,7 +812,7 @@ html[data-theme='aurora'] .notice-panel {
 
 .ticker-item {
   display: inline-block;
-  height: 140px;
+  height: 120px;
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
@@ -834,12 +843,12 @@ html[data-theme='aurora'] .ticker-item {
   display: block;
   object-fit: cover;
   border-radius: 12px;
-  max-width: 320px; /* Limit max width */
+  max-width: 300px;
 }
 
 .ticker-card {
   height: 100%;
-  min-width: 240px;
+  min-width: 214px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -883,14 +892,14 @@ html[data-theme='aurora'] .ticker-card {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.86));
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  padding: 14px 10px 12px;
+  padding: 12px 10px 10px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
   position: relative;
   overflow: hidden;
-  min-height: 104px;
+  min-height: 92px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1047,7 +1056,7 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .module-name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ui-text);
   margin-bottom: 4px;
@@ -1226,17 +1235,24 @@ html[data-theme='cyberpunk'] .today-item-meta {
   color: #94a3b8;
 }
 
-.dashboard-footer {
-  text-align: center;
-  margin-top: 32px;
-  color: var(--ui-muted);
-  overflow: hidden;
-}
-
 @media (max-width: 720px) {
-  .dashboard-header {
-    flex-direction: column;
-    gap: 12px;
+  .dashboard-header--home {
+    gap: 8px;
+  }
+
+  .home-header-top,
+  .home-header-bottom {
+    gap: 8px;
+  }
+
+  .brand .title {
+    font-size: clamp(14px, 4vw, 17px);
+  }
+
+  .student-id {
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .module-card {
@@ -1288,6 +1304,20 @@ html[data-theme='cyberpunk'] .today-item-meta {
 @media (max-width: 480px) {
   .module-card {
     padding: 10px 4px;
+  }
+
+  .home-header-top {
+    gap: 6px;
+  }
+
+  .student-id {
+    max-width: 148px;
+    padding: 0 10px;
+  }
+
+  .logout-btn {
+    min-width: 60px;
+    padding: 0 10px;
   }
 
   .today-panel {

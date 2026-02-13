@@ -50,29 +50,8 @@ const handleShowLegal = async (tab) => {
     <header class="dashboard-header">
       <div class="brand">
         <img class="logo-img" :src="hbutLogo" alt="HBUT" />
-        <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
+        <span class="title">HBUT 校园助手</span>
         <span class="page-tag">我的</span>
-      </div>
-      <div class="user-info">
-        <div class="profile-inline">
-          <div class="avatar" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
-            </svg>
-          </div>
-          <div class="hero-info">
-            <h2>个人中心</h2>
-            <p>{{ isLoggedIn ? '欢迎回来' : '请先登录' }}</p>
-          </div>
-        </div>
-        <span class="student-id">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
-          </svg>
-          {{ studentId || (isLoggedIn ? '已登录' : '未登录') }}
-        </span>
       </div>
     </header>
 
@@ -246,6 +225,7 @@ const handleShowLegal = async (tab) => {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .logo-img {
@@ -261,16 +241,17 @@ const handleShowLegal = async (tab) => {
 }
 
 .dashboard-header .title {
-  font-size: clamp(20px, 2.2vw, 26px);
+  font-size: clamp(16px, 4.2vw, 20px);
   font-weight: 800;
   letter-spacing: 0.2px;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent !important;
-  text-shadow: 0 8px 20px color-mix(in oklab, var(--ui-primary) 26%, transparent);
+  color: var(--ui-text) !important;
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  text-shadow: none !important;
   position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dashboard-header .title::selection {
@@ -280,13 +261,11 @@ const handleShowLegal = async (tab) => {
 }
 
 .dashboard-header .title.glitch-text::before {
-  opacity: 0.35;
-  transform: translate(1px, -1px);
+  content: none;
 }
 
 .dashboard-header .title.glitch-text::after {
-  opacity: 0.3;
-  transform: translate(-1px, 1px);
+  content: none;
 }
 
 .page-tag {
@@ -388,17 +367,22 @@ const handleShowLegal = async (tab) => {
 
 @media (max-width: 768px) {
   .dashboard-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 12px 14px;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
   .dashboard-header .user-info {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
+    max-width: 62%;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .dashboard-header .student-id {
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

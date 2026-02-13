@@ -248,12 +248,8 @@ const saveSettings = () => {
     <header class="dashboard-header">
       <div class="brand">
         <img class="logo-img" :src="hbutLogo" alt="HBUT" />
-        <span class="title glitch-text" data-text="HBUT 校园助手">HBUT 校园助手</span>
+        <span class="title">HBUT 校园助手</span>
         <span class="page-tag">通知</span>
-      </div>
-      <div class="user-info">
-        <span class="student-id">{{ props.studentId || '未登录' }}</span>
-        <button class="header-btn btn-ripple" @click="$emit('back')">返回</button>
       </div>
     </header>
 
@@ -340,6 +336,18 @@ const saveSettings = () => {
   object-fit: contain;
 }
 
+.dashboard-header .brand {
+  min-width: 0;
+}
+
+.dashboard-header .user-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
 .student-id {
   display: inline-flex;
   align-items: center;
@@ -373,17 +381,22 @@ const saveSettings = () => {
 
 @media (max-width: 768px) {
   .dashboard-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 12px 14px;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
   .dashboard-header .user-info {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 8px;
+    max-width: 52%;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .dashboard-header .student-id {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

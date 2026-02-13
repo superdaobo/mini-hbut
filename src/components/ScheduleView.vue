@@ -282,6 +282,7 @@ const mergeDailyCourses = (dailyCourses) => {
 const buildWeekCoursesWithColors = (weekNumber) => {
   const byDay = {}
   const nodes = []
+  const nameBuckets = new Map()
 
   for (let day = 1; day <= 7; day += 1) {
     const dailyCourses = scheduleData.value
@@ -302,38 +303,49 @@ const buildWeekCoursesWithColors = (weekNumber) => {
     })
 
     byDay[day] = merged
-    nodes.push(...merged)
+    merged.forEach((node) => {
+      nodes.push(node)
+      const nameKey = String(node.name || '')
+      if (!nameBuckets.has(nameKey)) {
+        nameBuckets.set(nameKey, [])
+      }
+      nameBuckets.get(nameKey).push(node)
+    })
   }
 
   if (!nodes.length) return byDay
 
-  const neighbors = new Map(nodes.map(node => [node._uid, new Set()]))
+  // 颜色规则：
+  // 1) 同名课程在整周内使用同一配色。
+  // 2) 仅当课程名称不同且在时间/空间上相邻时，配色必须不同。
+  const nameNeighbors = new Map([...nameBuckets.keys()].map((name) => [name, new Set()]))
   for (let i = 0; i < nodes.length; i += 1) {
     for (let j = i + 1; j < nodes.length; j += 1) {
       const a = nodes[i]
       const b = nodes[j]
-      if (areAdjacentCourses(a, b)) {
-        neighbors.get(a._uid).add(b._uid)
-        neighbors.get(b._uid).add(a._uid)
+      const nameA = String(a.name || '')
+      const nameB = String(b.name || '')
+      if (nameA !== nameB && areAdjacentCourses(a, b)) {
+        nameNeighbors.get(nameA)?.add(nameB)
+        nameNeighbors.get(nameB)?.add(nameA)
       }
     }
   }
 
-  const ordered = [...nodes].sort((a, b) => {
-    const degreeDiff = neighbors.get(b._uid).size - neighbors.get(a._uid).size
+  const orderedNames = [...nameBuckets.keys()].sort((a, b) => {
+    const degreeDiff = (nameNeighbors.get(b)?.size || 0) - (nameNeighbors.get(a)?.size || 0)
     if (degreeDiff !== 0) return degreeDiff
-    if (a._start !== b._start) return a._start - b._start
-    return a._day - b._day
+    return hashText(a) - hashText(b)
   })
 
-  const colorMap = new Map()
-  ordered.forEach(node => {
+  const colorByName = new Map()
+  orderedNames.forEach((name) => {
     const used = new Set()
-    neighbors.get(node._uid).forEach(id => {
-      if (colorMap.has(id)) used.add(colorMap.get(id))
+    nameNeighbors.get(name)?.forEach((neighborName) => {
+      if (colorByName.has(neighborName)) used.add(colorByName.get(neighborName))
     })
 
-    const seed = hashText(`${node.name}-${node._day}-${node._start}`) % courseThemes.length
+    const seed = hashText(name) % courseThemes.length
     let chosen = seed
     for (let offset = 0; offset < courseThemes.length; offset += 1) {
       const candidate = (seed + offset) % courseThemes.length
@@ -342,13 +354,13 @@ const buildWeekCoursesWithColors = (weekNumber) => {
         break
       }
     }
-    colorMap.set(node._uid, chosen)
+    colorByName.set(name, chosen)
   })
 
   for (let day = 1; day <= 7; day += 1) {
     byDay[day] = (byDay[day] || []).map(course => ({
       ...course,
-      colorIndex: colorMap.get(course._uid) ?? 0
+      colorIndex: colorByName.get(String(course.name || '')) ?? 0
     }))
   }
 
@@ -785,8 +797,9 @@ onMounted(() => {
 .schedule-view {
   --slot-height: 65px;
   --time-axis-width: 40px;
-  height: 100%;
-  min-height: 100%;
+  width: 100%;
+  height: calc(var(--app-vh, 1vh) * 100);
+  min-height: calc(var(--app-vh, 1vh) * 100);
   display: flex;
   flex-direction: column;
   background: var(--ui-bg-gradient);
@@ -834,37 +847,53 @@ onMounted(() => {
 
 .week-selector {
   position: relative;
-  background: var(--ui-surface);
-  padding: 4px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--ui-surface-border);
+  background: transparent !important;
+  padding: 0;
+  min-height: 32px;
+  border-radius: 0;
+  border: none !important;
+  box-shadow: none !important;
+  display: flex;
+  align-items: center;
 }
 
 .week-selector select {
-  appearance: none;
-  border: none;
-  background: transparent;
-  min-height: 34px !important;
-  height: 34px;
-  line-height: 34px;
-  font-size: 14px;
-  font-weight: 600;
+  all: unset !important;
+  appearance: none !important;
+  display: block !important;
+  width: 100% !important;
+  min-height: 32px !important;
+  height: 32px;
+  line-height: 32px;
+  font-size: 13px;
+  font-weight: 800;
   color: var(--ui-text);
-  padding: 0 18px 0 0 !important;
+  padding: 0 28px 0 11px !important;
   outline: none;
   cursor: pointer;
+  border-radius: 14px !important;
+  background: var(--ui-surface) !important;
+  box-shadow: none !important;
+  border: 1px solid var(--ui-surface-border) !important;
+}
+
+.week-selector select:focus {
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .week-selector select option {
-  color: #1f2937;
+  color: #111827;
+  background: #ffffff;
 }
 
 .week-selector .arrow {
   position: absolute;
-  right: 9px;
+  right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 10px;
+  font-size: 9px;
+  font-weight: 700;
   color: var(--ui-muted);
   pointer-events: none;
 }
@@ -1083,8 +1112,15 @@ onMounted(() => {
   display: flex;
   align-items: stretch;
   overflow-y: auto;
+  min-height: 0;
   position: relative;
-  background: transparent;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%) 0,
+      color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%) var(--time-axis-width),
+      transparent var(--time-axis-width)
+    );
   /* 隐藏滚动条 */
   scrollbar-width: none; 
 }
@@ -1098,15 +1134,11 @@ onMounted(() => {
   border-right: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.35));
   display: flex;
   flex-direction: column;
-  min-height: calc(var(--slot-height) * 11);
+  min-height: 100%;
+  height: 100%;
   overflow: hidden;
   position: relative;
-}
-
-.time-axis::after {
-  content: '';
-  flex: 1 0 auto;
-  background: color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%);
+  align-self: stretch;
 }
 
 .time-slot {
@@ -1133,6 +1165,7 @@ onMounted(() => {
   display: flex;
   position: relative;
   min-height: calc(var(--slot-height) * 11);
+  height: 100%;
 }
 
 .grid-lines {
@@ -1330,13 +1363,16 @@ onMounted(() => {
   }
 
   .week-selector {
-    padding: 2px 8px;
+    padding: 0;
   }
 
   .week-selector select {
     min-height: 30px !important;
     height: 30px;
+    line-height: 30px;
     font-size: 12px;
+    font-weight: 800;
+    border-radius: 13px !important;
   }
 
   .date-header {

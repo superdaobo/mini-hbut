@@ -20,7 +20,7 @@
     radial-gradient(1100px at 8% -10%, color-mix(in oklab, var(--ui-primary) 15%, transparent), transparent 58%),
     radial-gradient(1000px at 92% 108%, color-mix(in oklab, var(--ui-secondary) 16%, transparent), transparent 60%),
     var(--ui-bg-gradient);
-  background-attachment: fixed, fixed, fixed;
+  background-attachment: scroll, scroll, scroll;
 }
 
 html[data-ui-decor='mesh'] .app-shell::before,
@@ -55,17 +55,150 @@ html[data-ui-decor='none'] .app-shell::before {
   z-index: 1;
 }
 
+.dashboard-header {
+  width: min(var(--ux-max-width), 100%);
+  min-height: var(--ux-header-height);
+  margin: 0 auto 14px;
+  padding: clamp(10px, 2vw, 16px);
+  border-radius: calc(20px * var(--ui-radius-scale));
+  border: 1px solid var(--ux-card-border);
+  background: linear-gradient(
+    155deg,
+    color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%) 0%,
+    color-mix(in oklab, var(--ui-surface) 90%, var(--ui-primary-soft) 10%) 100%
+  );
+  box-shadow: var(--ux-card-shadow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+  z-index: 2;
+}
+
+.dashboard-header .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.dashboard-header .logo-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.dashboard-header .title {
+  margin: 0;
+  font-size: clamp(16px, 4.4vw, 20px);
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  line-height: 1.1;
+  color: var(--ui-text) !important;
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  text-shadow: none !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-header .title.glitch-text::before,
+.dashboard-header .title.glitch-text::after {
+  content: none !important;
+}
+
+.dashboard-header .user-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: nowrap !important;
+}
+
+.app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) .brand {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) .title {
+  font-size: clamp(17px, 4.4vw, 21px) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.app-shell > :is(.notification-view, .me-view) .dashboard-header {
+  justify-content: center !important;
+}
+
+.app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) .user-info {
+  flex: 0 0 auto;
+  max-width: 48%;
+  flex-wrap: nowrap !important;
+}
+
+.app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) .student-id {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+  .dashboard-header {
+    padding: 10px 12px;
+    min-height: 62px;
+  }
+
+  .dashboard-header .logo-img {
+    width: 20px;
+    height: 20px;
+  }
+
+  .dashboard-header .title {
+    font-size: var(--ux-header-title-size-mobile);
+  }
+
+  .app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) .user-info {
+    max-width: 56%;
+  }
+
+  .app-shell > :is(.dashboard, .notification-view, .me-view) .dashboard-header:not(.dashboard-header--home) .student-id {
+    max-width: 150px;
+  }
+}
+
 .dashboard,
 .me-view,
 .settings-view,
 .notification-view,
 .resource-share-view,
-[class$='-view'] {
+[class$='-view']:not(.schedule-view) {
   width: min(var(--ux-max-width), 100%);
   margin-inline: auto;
   padding-inline: var(--ux-page-x);
   padding-top: var(--ux-page-y);
   padding-bottom: var(--ux-bottom-safe);
+}
+
+.app-shell > .schedule-view {
+  width: 100% !important;
+  max-width: none !important;
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+  padding-top: 0 !important;
 }
 
 :is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) {
@@ -374,6 +507,7 @@ html[data-ui-density='compact'] {
   color: var(--ui-text);
   font-size: 12px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .kpi-pill {

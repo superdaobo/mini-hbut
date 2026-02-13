@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { openExternal, openWeChatMiniProgram } from '../utils/external_link'
+import { openExternal, openExternalRaw, openWeChatMiniProgram } from '../utils/external_link'
 import { resolveCachedImage } from '../utils/image_cache'
 import { showToast } from '../utils/toast'
 
@@ -41,6 +41,13 @@ const WECHAT_CAMPUS_GUIDE_CODE = '#小程序://校园导览/AWm9BvLlALOD9xG'
 const WECHAT_CAMPUS_GUIDE_APP_ID = 'wx22aea6eb3fe08ad7'
 const WECHAT_CAMPUS_GUIDE_ORIGIN_ID = 'gh_403c3ddb4411'
 const WECHAT_CAMPUS_GUIDE_PATHS = ['pages/index/index', 'pages/home/index', 'pages/map/index', '']
+const WECHAT_CAMPUS_GUIDE_APPID_SCHEMES = [
+  `weixin://dl/business/?appid=${WECHAT_CAMPUS_GUIDE_APP_ID}&env_version=release`,
+  `weixin://dl/business/?appid=${WECHAT_CAMPUS_GUIDE_APP_ID}&path=pages%2Findex%2Findex&env_version=release`,
+  `weixin://dl/business/?appid=${WECHAT_CAMPUS_GUIDE_APP_ID}&path=pages%2Fhome%2Findex&env_version=release`,
+  `weixin://dl/businessTempSession/?username=${encodeURIComponent(WECHAT_CAMPUS_GUIDE_ORIGIN_ID)}&appid=${WECHAT_CAMPUS_GUIDE_APP_ID}`,
+  `weixin://dl/businessTempSession/?username=${encodeURIComponent(WECHAT_CAMPUS_GUIDE_ORIGIN_ID)}`
+]
 
 const scale = ref(1)
 const offset = ref({ x: 0, y: 0 })
@@ -203,7 +210,23 @@ const openCampusGuideMiniProgram = async () => {
     const copied = await copyGuideCode()
     let opened = false
 
+    // 优先走 AppID 直链，避免 token 链接失效时直接落到“无法访问”页面。
+    for (const scheme of WECHAT_CAMPUS_GUIDE_APPID_SCHEMES) {
+      opened = await openExternalRaw(scheme)
+      if (opened) break
+    }
+
+    if (!opened) {
+      opened = await openWeChatMiniProgram({
+        code: WECHAT_CAMPUS_GUIDE_CODE,
+        appId: WECHAT_CAMPUS_GUIDE_APP_ID,
+        ghId: WECHAT_CAMPUS_GUIDE_ORIGIN_ID,
+        envVersion: 'release'
+      })
+    }
+
     for (const path of WECHAT_CAMPUS_GUIDE_PATHS) {
+      if (opened) break
       opened = await openWeChatMiniProgram({
         code: WECHAT_CAMPUS_GUIDE_CODE,
         appId: WECHAT_CAMPUS_GUIDE_APP_ID,
@@ -663,4 +686,3 @@ onMounted(() => {
   }
 }
 </style>
-
