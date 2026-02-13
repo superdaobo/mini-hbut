@@ -821,7 +821,7 @@ onMounted(() => {
   font-family: var(--ui-font-family);
   overflow: hidden;
   box-sizing: border-box;
-  padding-top: calc(env(safe-area-inset-top) + 4px);
+  padding-top: calc(env(safe-area-inset-top) + 12px);
 }
 
 .schedule-topbar {

@@ -1367,7 +1367,7 @@ onBeforeUnmount(() => {
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
   overflow-y: scroll;
   overflow-x: hidden;
   scrollbar-gutter: stable;
@@ -1383,7 +1383,7 @@ onBeforeUnmount(() => {
 
 .app-shell.schedule-full {
   padding-top: 0;
-  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
   overflow: hidden;
 }
 
@@ -1412,13 +1412,13 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: calc(8px + env(safe-area-inset-bottom));
+  bottom: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
   align-content: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
   height: auto;
   min-height: 70px;
   max-height: 110px;

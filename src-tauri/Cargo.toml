@@ -1,6 +1,6 @@
 [package]
 name = "hbut-helper"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2021"
 description = "湖北工业大学教务助手 - Tauri 桌面应用"
 authors = ["HBUT Helper Team"]

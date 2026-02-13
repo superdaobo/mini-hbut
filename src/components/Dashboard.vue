@@ -336,20 +336,20 @@ const modules = [
     requiresLogin: true
   },
   { 
+    id: 'transactions', 
+    name: '交易记录', 
+    icon: '交易',
+    color: '#F56C6C',
+    desc: '一码通消费记录',
+    available: true,
+    requiresLogin: true
+  },
+  { 
     id: 'exams', 
     name: '考试安排', 
     icon: '考试',
     color: '#38b2ac',
     desc: '查询考试时间地点',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'qxzkb', 
-    name: '全校课表', 
-    icon: '课表',
-    color: '#6366f1',
-    desc: '查询全校课程与排课',
     available: true,
     requiresLogin: true
   },
@@ -381,20 +381,20 @@ const modules = [
     requiresLogin: true
   },
   { 
+    id: 'qxzkb', 
+    name: '全校课表', 
+    icon: '课表',
+    color: '#6366f1',
+    desc: '查询全校课程与排课',
+    available: true,
+    requiresLogin: true
+  },
+  { 
     id: 'training', 
     name: '培养方案', 
     icon: '培养',
     color: '#0ea5e9',
     desc: '培养方案与课程设置',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'transactions', 
-    name: '交易记录', 
-    icon: '交易',
-    color: '#F56C6C',
-    desc: '一码通消费记录',
     available: true,
     requiresLogin: true
   },
@@ -405,7 +405,7 @@ const modules = [
     color: '#0f766e',
     desc: '馆藏检索与定位',
     available: true,
-    requiresLogin: true
+    requiresLogin: false
   },
   {
     id: 'campus_map',
@@ -414,7 +414,7 @@ const modules = [
     color: '#14b8a6',
     desc: '校园地图查看',
     available: true,
-    requiresLogin: true
+    requiresLogin: false
   },
   {
     id: 'resource_share',
