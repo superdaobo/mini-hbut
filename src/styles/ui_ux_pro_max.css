@@ -109,6 +109,28 @@ html[data-ui-decor='none'] .app-shell::before {
   border-radius: 12px !important;
 }
 
+.app-shell :is(.back-btn, .header-btn) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 90px !important;
+  height: 42px !important;
+  padding: 0 14px !important;
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.44)) !important;
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%) !important;
+  color: var(--ui-text) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 14%, transparent) !important;
+}
+
+.app-shell :is(.back-btn, .header-btn):hover {
+  background: color-mix(in oklab, var(--ui-primary-soft) 74%, #fff 26%) !important;
+  transform: translateY(-1px);
+}
+
 :is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-spacer {
   justify-self: end;
   width: min(124px, 100%);
@@ -298,6 +320,70 @@ html[data-ui-density='compact'] {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-primary) 20%, transparent) !important;
 }
 
+.kpi-pill,
+.meta-pill,
+.head-pill,
+.status-pill {
+  border-radius: 999px !important;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 26%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  color: var(--ui-text);
+  font-weight: 700;
+}
+
+.student-pill,
+.student-id,
+.semester-pill,
+.week-pill,
+.time-pill,
+.info-pill,
+.badge-pill,
+.cache-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  color: var(--ui-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.app-shell :is(
+  .page-tag,
+  .semester-tag,
+  .semester-badge,
+  .week-tag,
+  .status-tag,
+  .status-badge,
+  .cache-status,
+  .sync-tag,
+  .device-tag,
+  .meta-tag,
+  .quick-tag
+) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 68%, #fff 32%);
+  color: var(--ui-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kpi-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 14px;
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 18%, transparent);
+}
+
 :is(.back-btn, .header-btn, .tab-btn, .query-btn, .download-btn, .font-btn, .preview-btn, .btn, .action-btn) {
   border-radius: var(--ux-card-radius-sm) !important;
   border: 1px solid color-mix(in oklab, var(--ui-primary) 26%, rgba(148, 163, 184, 0.3));
@@ -306,6 +392,13 @@ html[data-ui-density='compact'] {
 
 .bottom-tab-bar {
   transition: all calc(0.2s * var(--ui-motion-scale)) ease;
+  /* 强约束底栏尺寸，避免主题样式叠加后撑满整屏 */
+  top: auto !important;
+  inset-block-start: auto !important;
+  height: auto !important;
+  min-height: 70px !important;
+  max-height: 106px !important;
+  overflow: hidden;
 }
 
 html[data-ui-nav='floating'] .bottom-tab-bar {
@@ -361,7 +454,9 @@ html[data-theme='graphite_night'] :is(
   .course-card,
   .transaction-card,
   .book-card,
-  .resource-card
+  .resource-card,
+  .content-card,
+  .modal-card
 ) {
   background: linear-gradient(160deg, rgba(15, 23, 42, 0.86), rgba(30, 41, 59, 0.82)) !important;
   border-color: color-mix(in oklab, var(--ui-primary) 28%, rgba(148, 163, 184, 0.28)) !important;
@@ -369,6 +464,30 @@ html[data-theme='graphite_night'] :is(
 
 html[data-theme='graphite_night'] :is(.today-item-name, .module-name, .title, h1, h2, h3) {
   color: #e2e8f0 !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(
+  .content-card,
+  .glass-card,
+  .module-card,
+  .settings-section,
+  .resource-card,
+  .book-card,
+  .exam-item,
+  .result-card,
+  .summary-card
+) :is(p, span, label, small, strong, li, h4, h5, h6) {
+  color: #dbe6f7 !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(input, select, textarea, option) {
+  color: #e2e8f0 !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+html[data-theme='graphite_night'] .app-shell ::placeholder {
+  color: #9fb0cb !important;
 }
 
 @media (max-width: 900px) {

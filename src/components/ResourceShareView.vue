@@ -91,12 +91,42 @@ const buildAuthHeaders = (headers: Record<string, string> = {}) => ({ Authorizat
 const normalizePath = (p: string) => { const raw = String(p || '/').replace(/\\/g, '/').trim(); if (!raw || raw === '/') return '/'; const cleaned = raw.startsWith('/') ? raw : `/${raw}`; return cleaned.replace(/\/{2,}/g, '/').replace(/\/$/, '') || '/' }
 const encodeDavPath = (p: string) => normalizePath(p).split('/').map((seg) => encodeURIComponent(seg)).join('/')
 const buildDavUrl = (p: string) => `${endpointBase.value}/dav${encodeDavPath(p)}`
+const buildDavAuthUrl = (p: string) => {
+  const base = new URL(endpointBase.value)
+  base.username = config.value.username || ''
+  base.password = config.value.password || ''
+  base.pathname = `/dav${encodeDavPath(p)}`
+  base.search = ''
+  base.hash = ''
+  return base.toString()
+}
 const buildBreadCrumb = (p: string) => { const n = normalizePath(p); if (n === '/') return ['/']; const parts = n.split('/').filter(Boolean); const out = ['/']; let cur = ''; parts.forEach((part) => { cur += `/${part}`; out.push(cur) }); return out }
 const formatEta = (s: number) => (!Number.isFinite(s) || s <= 0 ? '--' : s < 60 ? `${Math.ceil(s)} 秒` : `${Math.floor(s / 60)} 分 ${Math.ceil(s % 60)} 秒`)
 const formatSize = (n: number) => (n <= 0 ? '-' : n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`)
 const formatTime = (t: string) => { if (!t) return '-'; const d = new Date(t); return Number.isNaN(d.getTime()) ? t : d.toLocaleString('zh-CN', { hour12: false }) }
-const fileIcon = (it: DavItem) => it.is_dir ? '📁' : imageExt.has(extOf(it.name)) ? '🖼️' : videoExt.has(extOf(it.name)) ? '🎬' : audioExt.has(extOf(it.name)) ? '🎵' : extOf(it.name) === 'pdf' ? '📕' : officeExt.has(extOf(it.name)) ? '📘' : textExt.has(extOf(it.name)) ? '📄' : '📦'
 const extOf = (name: string) => (String(name || '').split('.').pop() || '').toLowerCase()
+const fileKind = (it: DavItem) => {
+  if (it.is_dir) return 'folder'
+  const ext = extOf(it.name)
+  if (imageExt.has(ext)) return 'image'
+  if (videoExt.has(ext)) return 'video'
+  if (audioExt.has(ext)) return 'audio'
+  if (ext === 'pdf') return 'pdf'
+  if (officeExt.has(ext)) return 'office'
+  if (textExt.has(ext)) return 'text'
+  return 'file'
+}
+const iconPathMap: Record<string, string[]> = {
+  folder: ['M3 6h8l2 2h8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z', 'M3 10h18'],
+  image: ['M4 6h16v12H4z', 'M8 12l2.5-2.5L14 13l2-2 3 3', 'M9 10h.01'],
+  video: ['M4 6h11v12H4z', 'M15 10l5-3v10l-5-3z'],
+  audio: ['M9 18V7l9-2v11', 'M9 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0z', 'M18 16a2 2 0 1 1-4 0 2 2 0 0 1 4 0z'],
+  pdf: ['M6 3h8l4 4v14H6z', 'M14 3v4h4', 'M8 14h8', 'M8 18h5'],
+  office: ['M6 3h8l4 4v14H6z', 'M14 3v4h4', 'M8 12h8', 'M8 16h8'],
+  text: ['M6 4h12v16H6z', 'M9 8h6', 'M9 12h6', 'M9 16h4'],
+  file: ['M6 3h8l4 4v14H6z', 'M14 3v4h4']
+}
+const iconPathsFor = (it: DavItem) => iconPathMap[fileKind(it)] || iconPathMap.file
 
 const cleanupPreviewUrl = () => { if (previewUrl.value?.startsWith('blob:')) URL.revokeObjectURL(previewUrl.value); previewUrl.value = '' }
 const resetPreview = () => { cleanupPreviewUrl(); previewMode.value = 'none'; previewText.value = ''; previewHint.value = ''; previewProgress.value = 0 }
@@ -235,11 +265,13 @@ const previewFile = async (file: DavItem) => {
   resetPreview()
   try {
     const ext = extOf(file.name)
+    const directUrl = buildDavAuthUrl(file.path)
+    if (imageExt.has(ext)) { previewMode.value = 'image'; previewUrl.value = directUrl; return }
+    if (videoExt.has(ext)) { previewMode.value = 'video'; previewUrl.value = directUrl; return }
+    if (audioExt.has(ext)) { previewMode.value = 'audio'; previewUrl.value = directUrl; return }
+    if (ext === 'pdf') { previewMode.value = 'pdf'; previewUrl.value = directUrl; return }
+
     const blob = await fetchBlobWithProgress(file.path, (s) => { previewProgress.value = s.percent }, true, previewThreadCount.value)
-    if (imageExt.has(ext)) { previewMode.value = 'image'; previewUrl.value = URL.createObjectURL(blob); return }
-    if (videoExt.has(ext)) { previewMode.value = 'video'; previewUrl.value = URL.createObjectURL(blob); return }
-    if (audioExt.has(ext)) { previewMode.value = 'audio'; previewUrl.value = URL.createObjectURL(blob); return }
-    if (ext === 'pdf') { previewMode.value = 'pdf'; previewUrl.value = URL.createObjectURL(blob); return }
     if (textExt.has(ext) || (blob.type || '').includes('text')) { previewMode.value = 'text'; previewText.value = await blob.text(); return }
     if (officeExt.has(ext)) {
       const url = await uploadTempForOffice(file.name, blob)
@@ -250,7 +282,7 @@ const previewFile = async (file: DavItem) => {
     }
     previewHint.value = '该文件类型暂不支持在线预览，请下载后查看。'
   } catch (e: any) {
-    previewHint.value = e?.message || '预览失败'
+    previewHint.value = `预览失败：${e?.message || '未知错误'}`
   } finally {
     previewLoading.value = false
   }
@@ -331,31 +363,49 @@ onBeforeUnmount(() => { resetPreview(); resetDownloadStat() })
 <template>
   <div class="resource-share-view">
     <header class="view-header">
-      <button class="btn" @click="emit('back')">← 返回</button>
-      <h1>资料分享</h1>
-      <button class="btn" @click="refreshList">刷新</button>
+      <button class="btn btn-ghost" @click="emit('back')">← 返回</button>
+      <h1 class="page-title">资料分享</h1>
+      <button class="btn btn-primary-solid" @click="refreshList">刷新</button>
     </header>
 
-    <section class="card">
-      <div class="row"><button class="btn" :disabled="currentPath === '/'" @click="goParent">上一级</button><div class="path">{{ currentPath }}</div></div>
-      <div class="row"><input v-model.trim="keyword" class="input" placeholder="搜索文件或文件夹..." /><button class="btn" @click="showFilter = !showFilter">{{ showFilter ? '收起筛选' : '展开筛选' }}</button></div>
-      <div v-if="loadingConfig" class="hint">正在同步远程配置...</div>
-      <div v-else class="hint">{{ threadConfigHint }}</div>
+    <section class="card control-card">
+      <div class="row">
+        <button class="btn btn-ghost" :disabled="currentPath === '/'" @click="goParent">上一级</button>
+        <div class="path">{{ currentPath }}</div>
+      </div>
+      <div class="row">
+        <input v-model.trim="keyword" class="input" placeholder="搜索文件或文件夹..." />
+        <button class="btn btn-primary-solid" @click="showFilter = !showFilter">{{ showFilter ? '收起筛选' : '展开筛选' }}</button>
+      </div>
+      <div class="hint-row">
+        <span class="meta-pill" v-if="loadingConfig">正在同步远程配置...</span>
+        <span class="meta-pill" v-else>{{ threadConfigHint }}</span>
+      </div>
       <div v-if="showFilter" class="row wrap">
         <label class="check"><input v-model="onlyFolder" type="checkbox" />仅文件夹</label>
         <select v-model="sortBy" class="input short"><option value="name">按名称</option><option value="size">按大小</option><option value="modified">按时间</option></select>
-        <button class="btn" @click="sortAsc = !sortAsc">{{ sortAsc ? '升序' : '降序' }}</button>
+        <button class="btn btn-ghost" @click="sortAsc = !sortAsc">{{ sortAsc ? '升序' : '降序' }}</button>
       </div>
       <div class="crumbs"><button v-for="node in breadcrumb" :key="node" class="crumb" @click="openBreadcrumb(node)">{{ node === '/' ? '根目录' : node.split('/').pop() }}</button></div>
     </section>
 
     <section class="card">
-      <div class="head"><span>{{ fileCountText }}</span><span v-if="loadingList">正在加载...</span></div>
+      <div class="head">
+        <span class="head-pill">{{ fileCountText }}</span>
+        <span class="head-pill soft" v-if="loadingList">正在加载...</span>
+      </div>
       <p v-if="listError" class="error">{{ listError }}</p>
       <div v-else-if="filteredFiles.length === 0" class="empty">暂无文件</div>
       <div v-else class="list">
         <button v-for="item in filteredFiles" :key="item.path" class="item" @click="item.is_dir ? loadPath(item.path) : previewFile(item)">
-          <span>{{ fileIcon(item) }}</span><span class="name">{{ item.name }}</span><span class="meta">{{ item.is_dir ? '文件夹' : formatSize(item.size) }}</span><span class="meta">{{ formatTime(item.modified) }}</span>
+          <span class="item-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path v-for="(d, i) in iconPathsFor(item)" :key="`icon-${item.path}-${i}`" :d="d" />
+            </svg>
+          </span>
+          <span class="name">{{ item.name }}</span>
+          <span class="meta">{{ item.is_dir ? '文件夹' : formatSize(item.size) }}</span>
+          <span class="meta">{{ formatTime(item.modified) }}</span>
         </button>
       </div>
     </section>
@@ -366,10 +416,10 @@ onBeforeUnmount(() => { resetPreview(); resetDownloadStat() })
           <div class="modal-head">
             <div><h3>{{ activeFile.name }}</h3><p>{{ activeFile.path }}</p></div>
             <div class="actions">
-              <button class="btn" @click="previewFullscreen = !previewFullscreen">{{ previewFullscreen ? '退出全屏' : '全屏预览' }}</button>
-              <button class="btn primary" :disabled="downloading" @click="downloadFile(activeFile, false)">{{ downloading ? `下载中 ${downloadProgress}%` : '下载' }}</button>
-              <button class="btn" :disabled="downloading" @click="downloadFile(activeFile, true)">下载并分享</button>
-              <button class="btn" @click="closePreview">关闭</button>
+              <button class="btn btn-ghost" @click="previewFullscreen = !previewFullscreen">{{ previewFullscreen ? '退出全屏' : '全屏预览' }}</button>
+              <button class="btn btn-primary-solid" :disabled="downloading" @click="downloadFile(activeFile, false)">{{ downloading ? `下载中 ${downloadProgress}%` : '下载' }}</button>
+              <button class="btn btn-ghost" :disabled="downloading" @click="downloadFile(activeFile, true)">下载并分享</button>
+              <button class="btn btn-ghost" @click="closePreview">关闭</button>
             </div>
           </div>
           <div v-if="downloading" class="stats"><span>速度：{{ downloadSpeedText }}</span><span>预计剩余：{{ downloadEtaText }}</span><span>进度：{{ downloadProgress }}%</span></div>
@@ -388,26 +438,424 @@ onBeforeUnmount(() => { resetPreview(); resetDownloadStat() })
 </template>
 
 <style scoped>
-.resource-share-view{min-height:100vh;padding:20px 20px 110px;background:linear-gradient(135deg,#7c3aed 0%,#4f46e5 45%,#22d3ee 100%)}
-.view-header,.card{max-width:1080px;margin:0 auto 16px;background:rgba(255,255,255,.94);border:1px solid rgba(148,163,184,.3);border-radius:18px;box-shadow:0 10px 24px rgba(15,23,42,.14)}
-.view-header{display:grid;grid-template-columns:110px 1fr 110px;align-items:center;padding:14px}
-.view-header h1{margin:0;text-align:center;font-size:22px;color:#0f172a}
-.card{padding:14px}
-.row{display:flex;align-items:center;gap:10px;margin-bottom:10px}.row.wrap{flex-wrap:wrap}
-.path,.input{height:38px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;padding:0 12px}.path{flex:1;display:flex;align-items:center;background:#f8fafc;font-size:13px;color:#1e293b}
-.input{flex:1;font-size:14px;color:#0f172a}.input.short{width:auto;flex:none}
-.btn{height:38px;border:none;border-radius:10px;background:rgba(99,102,241,.14);padding:0 14px;font-size:14px;font-weight:600;color:#1e293b;cursor:pointer}.btn:disabled{opacity:.6;cursor:not-allowed}.btn.primary{background:linear-gradient(120deg,#2563eb,#0891b2);color:#fff}
-.check{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#334155}
-.hint{margin:0 0 10px;font-size:12px;color:#64748b}
-.crumbs{display:flex;flex-wrap:wrap;gap:8px}.crumb{border:1px solid rgba(37,99,235,.26);background:rgba(219,234,254,.65);color:#1d4ed8;border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}
-.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px;color:#334155}
-.list{display:grid;gap:8px}.item{display:grid;grid-template-columns:28px 1fr 120px 160px;gap:8px;align-items:center;border:1px solid rgba(148,163,184,.25);border-radius:12px;background:#fff;padding:8px 10px;text-align:left;cursor:pointer}
-.name{font-size:14px;font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta{font-size:12px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.empty{padding:16px;text-align:center;color:#64748b;border:1px dashed #94a3b8;border-radius:12px}.error{margin:0;color:#dc2626;font-size:13px}
-.overlay{position:fixed;inset:0;z-index:90;background:rgba(15,23,42,.55);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px}
-.modal{width:min(1260px,96vw);height:min(88vh,920px);background:rgba(255,255,255,.98);border:1px solid rgba(148,163,184,.3);border-radius:18px;box-shadow:0 12px 30px rgba(15,23,42,.3);padding:14px;display:flex;flex-direction:column;overflow:hidden}.modal.fullscreen{width:100vw;height:100vh;border-radius:0;padding:12px}
-.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}.modal-head h3{margin:0;font-size:18px;color:#0f172a}.modal-head p{margin:6px 0 0;font-size:12px;color:#64748b;word-break:break-all}.actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
-.stats{display:flex;gap:12px;flex-wrap:wrap;margin:-2px 0 10px;color:#475569;font-size:13px}.track{width:100%;height:8px;border-radius:999px;background:rgba(148,163,184,.26);overflow:hidden;margin:-2px 0 10px}.fill{height:100%;background:linear-gradient(90deg,#2563eb,#06b6d4);transition:width .18s ease}
-.preview{width:100%;max-height:calc(100vh - 180px);object-fit:contain;background:#0f172a;border-radius:12px;flex:1}.frame{width:100%;height:calc(100vh - 180px);min-height:320px;border:1px solid #cbd5e1;border-radius:12px;background:#fff;flex:1}.text{margin:0;background:#0f172a;color:#e2e8f0;border-radius:12px;padding:12px;max-height:calc(100vh - 180px);overflow:auto;font-size:12px;line-height:1.5;flex:1}
-@media (max-width:820px){.resource-share-view{padding:14px 12px 100px}.view-header{grid-template-columns:88px 1fr 88px;padding:10px}.view-header h1{font-size:19px}.row{flex-wrap:wrap}.input,.path{width:100%}.item{grid-template-columns:26px 1fr;gap:6px}.meta{grid-column:2 / 3}.modal-head{flex-direction:column}.modal{width:100%;height:92vh;padding:12px}}
+.resource-share-view {
+  min-height: 100vh;
+  padding: 18px 18px 112px;
+  background: var(--ui-bg-gradient);
+}
+
+.view-header,
+.card {
+  max-width: 1080px;
+  margin: 0 auto 14px;
+  background: color-mix(in oklab, var(--ui-surface) 94%, transparent 6%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.35));
+  border-radius: 20px;
+  box-shadow: var(--ui-shadow-soft);
+}
+
+.view-header {
+  display: grid;
+  grid-template-columns: 108px 1fr 108px;
+  align-items: center;
+  padding: 12px;
+}
+
+.page-title {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(20px, 2.2vw, 26px);
+  font-weight: 800;
+  color: var(--ui-text);
+  letter-spacing: 0.3px;
+}
+
+.card {
+  padding: 14px;
+}
+
+.control-card {
+  position: sticky;
+  top: 10px;
+  z-index: 6;
+  backdrop-filter: blur(10px);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.row.wrap {
+  flex-wrap: wrap;
+}
+
+.path,
+.input {
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(148, 163, 184, 0.36));
+  background: color-mix(in oklab, var(--ui-surface) 95%, #fff 5%);
+  color: var(--ui-text);
+  padding: 0 12px;
+}
+
+.path {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+}
+
+.input {
+  flex: 1;
+  font-size: 14px;
+}
+
+.input.short {
+  width: auto;
+  min-width: 108px;
+  flex: none;
+}
+
+.btn {
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, rgba(148, 163, 184, 0.35));
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
+  color: var(--ui-text);
+}
+
+.btn-primary-solid {
+  background: linear-gradient(120deg, var(--ui-primary), var(--ui-secondary));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 10px 24px color-mix(in oklab, var(--ui-primary) 36%, transparent);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+
+.hint-row {
+  margin-bottom: 10px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in oklab, var(--ui-text) 82%, var(--ui-primary) 18%);
+  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 28%, transparent);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.crumb {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 28%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 74%, #fff 26%);
+  color: var(--ui-primary);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.head-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+}
+
+.head-pill.soft {
+  color: var(--ui-muted);
+  background: color-mix(in oklab, var(--ui-primary-soft) 44%, #fff 56%);
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 130px 168px;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 14%, rgba(148, 163, 184, 0.32));
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--ui-surface) 94%, #fff 6%);
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.item:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklab, var(--ui-primary) 38%, transparent);
+  box-shadow: 0 10px 22px color-mix(in oklab, var(--ui-primary) 16%, transparent);
+}
+
+.item-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  color: var(--ui-primary);
+}
+
+.item-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--ui-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--ui-muted);
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+  border-radius: 12px;
+}
+
+.error {
+  margin: 0;
+  color: #dc2626;
+  font-size: 13px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal {
+  width: min(1260px, 96vw);
+  height: min(88vh, 920px);
+  background: color-mix(in oklab, var(--ui-surface) 96%, #fff 4%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(148, 163, 184, 0.35));
+  border-radius: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal.fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  padding: 12px;
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--ui-text);
+}
+
+.modal-head p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ui-muted);
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: -2px 0 10px;
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+
+.track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ui-primary-soft) 52%, rgba(148, 163, 184, 0.42));
+  overflow: hidden;
+  margin: -2px 0 10px;
+}
+
+.fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ui-primary), var(--ui-secondary));
+  transition: width 0.18s ease;
+}
+
+.hint {
+  margin: 4px 0 10px;
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+
+.preview {
+  width: 100%;
+  max-height: calc(100vh - 180px);
+  object-fit: contain;
+  background: #0f172a;
+  border-radius: 12px;
+  flex: 1;
+}
+
+.frame {
+  width: 100%;
+  height: calc(100vh - 180px);
+  min-height: 320px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, rgba(148, 163, 184, 0.5));
+  border-radius: 12px;
+  background: #fff;
+  flex: 1;
+}
+
+.text {
+  margin: 0;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  flex: 1;
+}
+
+@media (max-width: 820px) {
+  .resource-share-view {
+    padding: 14px 12px 100px;
+  }
+
+  .view-header {
+    grid-template-columns: 88px 1fr 88px;
+    padding: 10px;
+  }
+
+  .page-title {
+    font-size: 20px;
+  }
+
+  .row {
+    flex-wrap: wrap;
+  }
+
+  .input,
+  .path {
+    width: 100%;
+  }
+
+  .item {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .meta {
+    grid-column: 2 / 3;
+  }
+
+  .modal-head {
+    flex-direction: column;
+  }
+
+  .modal {
+    width: 100%;
+    height: 92vh;
+    padding: 12px;
+  }
+}
 </style>

@@ -24,7 +24,6 @@ const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
 const handleOpenSettings = () => emit('openSettings')
 const handleOpenExport = () => emit('navigate', 'export_center')
-const handleOpenResourceShare = () => emit('navigate', 'resource_share')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const handleFeedback = () => emit('openFeedback')
@@ -133,16 +132,6 @@ const handleShowLegal = async (tab) => {
             </svg>
           </span>
           <span class="link-text">导出中心</span>
-        </button>
-        <button class="link-item" @click="handleOpenResourceShare">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M4 6h7l2 2h7v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" />
-              <path d="M8 12h8" />
-              <path d="M8 16h5" />
-            </svg>
-          </span>
-          <span class="link-text">资料分享</span>
         </button>
         <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
           <span class="link-icon" aria-hidden="true">
@@ -260,9 +249,15 @@ const handleShowLegal = async (tab) => {
 }
 
 .logo-img {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   object-fit: contain;
+}
+
+.dashboard-header .user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .dashboard-header .title {
@@ -336,6 +331,25 @@ const handleShowLegal = async (tab) => {
   stroke-linecap: round;
   stroke-linejoin: round;
   fill: none;
+}
+
+.student-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ui-text);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-primary) 20%, #fff 80%),
+    color-mix(in oklab, var(--ui-secondary) 15%, #fff 85%)
+  );
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 20%, transparent);
 }
 
 .hero-info h2 {

@@ -258,7 +258,9 @@ const saveSettings = () => {
     </header>
 
     <div class="content-card">
-      <div class="content-title">通知权限：{{ permissionLabel }}</div>
+      <div class="content-title">
+        <span class="status-pill">通知权限：{{ permissionLabel }}</span>
+      </div>
 
       <div class="actions actions-left" style="margin-top: 0;">
         <button class="btn-primary" @click="handleRequestPermission">请求通知权限</button>
@@ -298,7 +300,9 @@ const saveSettings = () => {
       </div>
 
       <div class="content-title" v-if="enableBackground">
-        保活状态：{{ backgroundLockEnabled ? ('已启用（' + (backgroundLockSource || '插件') + '）') : '未启用（当前平台不支持或插件不可用）' }}
+        <span class="status-pill soft">
+          保活状态：{{ backgroundLockEnabled ? ('已启用（' + (backgroundLockSource || '插件') + '）') : '未启用（当前平台不支持或插件不可用）' }}
+        </span>
       </div>
 
       <div class="actions">
@@ -330,6 +334,43 @@ const saveSettings = () => {
   padding-bottom: 100px;
 }
 
+.logo-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.student-id {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  color: var(--ui-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
+}
+
+.status-pill.soft {
+  color: var(--ui-muted);
+  background: color-mix(in oklab, var(--ui-primary-soft) 48%, #fff 52%);
+}
+
 @media (max-width: 768px) {
   .dashboard-header {
     flex-direction: column;
@@ -347,10 +388,11 @@ const saveSettings = () => {
 }
 
 .content-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: color-mix(in oklab, var(--ui-surface) 90%, #fff 10%);
   padding: 20px;
   border-radius: 16px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(148, 163, 184, 0.32));
+  box-shadow: var(--ui-shadow-soft);
   backdrop-filter: blur(10px);
 }
 
@@ -359,7 +401,7 @@ const saveSettings = () => {
   justify-content: space-between;
   align-items: center;
   padding: 16px 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid color-mix(in oklab, var(--ui-primary) 12%, rgba(148, 163, 184, 0.35));
 }
 
 .setting-item:last-child {
@@ -369,13 +411,13 @@ const saveSettings = () => {
 .setting-label h3 {
   margin: 0 0 4px 0;
   font-size: 16px;
-  color: #334155;
+  color: var(--ui-text);
 }
 
 .setting-label p {
   margin: 0;
   font-size: 13px;
-  color: #64748b;
+  color: var(--ui-muted);
 }
 
 .switch {
@@ -398,7 +440,7 @@ const saveSettings = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #cbd5e1;
+  background-color: color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.42));
   transition: .4s;
 }
 
@@ -414,7 +456,7 @@ const saveSettings = () => {
 }
 
 input:checked + .slider {
-  background-color: #3b82f6;
+  background-color: var(--ui-primary);
 }
 
 input:checked + .slider:before {
@@ -432,9 +474,9 @@ input:checked + .slider:before {
 .select-disabled {
   padding: 8px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #334155;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.38));
+  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
+  color: var(--ui-text);
 }
 
 .actions {
@@ -448,7 +490,7 @@ input:checked + .slider:before {
 }
 
 .btn-primary {
-  background: #3b82f6;
+  background: linear-gradient(130deg, var(--ui-primary), var(--ui-secondary));
   color: white;
   border: none;
   padding: 10px 20px;
@@ -459,7 +501,7 @@ input:checked + .slider:before {
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  filter: brightness(1.04);
 }
 
 .btn-primary:disabled {
@@ -479,7 +521,7 @@ input:checked + .slider:before {
 }
 
 .modal-card {
-  background: white;
+  background: color-mix(in oklab, var(--ui-surface) 90%, #fff 10%);
   width: 85%;
   max-width: 320px;
   padding: 24px;
@@ -489,7 +531,7 @@ input:checked + .slider:before {
 
 .modal-card h3 {
   margin-top: 0;
-  color: #0f172a;
+  color: var(--ui-text);
 }
 
 .modal-actions {
@@ -502,13 +544,13 @@ input:checked + .slider:before {
 .btn-text {
   background: none;
   border: none;
-  color: #64748b;
+  color: var(--ui-muted);
   cursor: pointer;
   font-weight: 600;
 }
 
 .content-title {
-  padding: 12px 16px;
+  padding: 4px 0 12px;
   margin-bottom: 16px;
   font-weight: 700;
   color: var(--ui-text);
@@ -516,7 +558,7 @@ input:checked + .slider:before {
 
 .status-msg {
   margin: 14px 0 0;
-  color: #1e40af;
+  color: color-mix(in oklab, var(--ui-primary) 82%, #111827 18%);
   font-size: 14px;
 }
 

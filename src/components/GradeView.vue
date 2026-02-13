@@ -335,32 +335,22 @@ watch(
 
 <style scoped>
 .grade-view {
-  min-height: 100vh;
+  min-height: 100%;
   background: var(--ui-bg-gradient);
-  padding-bottom: 40px;
+  padding: 16px 14px 120px;
   color: var(--ui-text);
 }
 
 .grade-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  border: 1px solid var(--ui-surface-border);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: var(--ui-shadow-soft);
+  margin-bottom: 12px;
 }
 
 .grade-header .title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 20px;
-  font-weight: 600;
+  font-size: clamp(19px, 2.2vw, 24px);
+  font-weight: 800;
 }
 
 .grade-header .icon {
@@ -379,6 +369,7 @@ watch(
 .back-btn {
   background: var(--ui-primary-soft);
   color: var(--ui-primary);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .back-btn:hover {
@@ -400,8 +391,8 @@ watch(
 /* 筛选栏 */
 .filter-bar {
   background: var(--ui-surface);
-  padding: 16px 20px;
-  margin: 16px 20px;
+  padding: 16px;
+  margin: 16px 0;
   border-radius: 16px;
   border: 1px solid var(--ui-surface-border);
   box-shadow: var(--ui-shadow-soft);
@@ -417,7 +408,7 @@ watch(
 .filter-row + .filter-row {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--ui-surface-border);
+  border-top: 1px dashed color-mix(in oklab, var(--ui-primary) 24%, var(--ui-surface-border));
 }
 
 .search-box {
@@ -428,6 +419,7 @@ watch(
   background: var(--ui-surface);
   border-radius: 10px;
   padding: 0 12px;
+  border: 1px solid var(--ui-surface-border);
 }
 
 .search-icon {
@@ -436,9 +428,12 @@ watch(
 
 .search-input {
   flex: 1;
-  border: none;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+  height: auto !important;
   background: transparent;
-  padding: 12px 0;
+  padding: 12px 0 !important;
   font-size: 14px;
   outline: none;
 }
@@ -477,6 +472,7 @@ watch(
   font-size: 13px;
   cursor: pointer;
   background: var(--ui-primary-soft);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
   transition: all 0.2s;
 }
 
@@ -485,23 +481,25 @@ watch(
 }
 
 .radio-label.active {
-  background: var(--ui-primary);
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
   color: #ffffff;
+  border-color: transparent;
 }
 
 .reset-btn {
   padding: 8px 16px;
-  background: #fee2e2;
-  color: #dc2626;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  color: var(--ui-danger);
   border: none;
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 30%, transparent);
 }
 
 .reset-btn:hover {
-  background: #dc2626;
+  background: var(--ui-danger);
   color: white;
 }
 
@@ -509,14 +507,14 @@ watch(
 .stats-row {
   display: flex;
   gap: 12px;
-  padding: 0 20px;
+  padding: 0;
   margin-bottom: 16px;
 }
 
 .stat-card {
   flex: 1;
   background: var(--ui-surface);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 16px;
   text-align: center;
   border: 1px solid var(--ui-surface-border);
@@ -527,6 +525,15 @@ watch(
   font-size: 24px;
   font-weight: 700;
   color: var(--ui-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .stat-label {
@@ -537,7 +544,7 @@ watch(
 
 /* 成绩卡片网格 */
 .grade-list {
-  padding: 0 20px;
+  padding: 0;
 }
 
 .term-group {
@@ -545,10 +552,17 @@ watch(
 }
 
 .term-header {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 800;
   color: var(--ui-text);
   margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
 }
 
 .grade-grid {
@@ -585,7 +599,7 @@ watch(
 
 .grade-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--ui-shadow-strong);
 }
 
 .card-score {
@@ -622,8 +636,9 @@ watch(
   font-size: 11px;
   color: var(--ui-muted);
   background: var(--ui-primary-soft);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, transparent);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: 999px;
   margin-top: 8px;
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -645,11 +660,12 @@ watch(
 .no-results button {
   margin-top: 16px;
   padding: 12px 24px;
-  background: #667eea;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
   color: white;
   border: none;
   border-radius: 10px;
   cursor: pointer;
+  font-weight: 700;
 }
 
 /* 详情弹窗 */
@@ -698,6 +714,7 @@ watch(
   height: 32px;
   border: none;
   background: var(--ui-primary-soft);
+  color: var(--ui-text);
   border-radius: 50%;
   font-size: 20px;
   cursor: pointer;
@@ -738,6 +755,7 @@ watch(
   background: var(--ui-surface);
   padding: 12px;
   border-radius: 10px;
+  border: 1px solid var(--ui-surface-border);
 }
 
 .detail-item.full-width {
@@ -784,9 +802,9 @@ watch(
 .offline-banner {
   margin: 12px 0 0;
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
+  color: var(--ui-danger);
   border-radius: 12px;
   font-weight: 600;
 }

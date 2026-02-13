@@ -384,67 +384,33 @@ onMounted(async () => {
 <style scoped>
 .classroom-view {
   min-height: 100vh;
-  background: #f0f2f5;
+  background: var(--ui-bg-gradient);
+  color: var(--ui-text);
   padding-bottom: 20px;
 }
 
-/* ... headers ... */
 .app-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+  margin-bottom: 12px;
 }
 
 .title {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.back-btn, .logout-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.back-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-}
-
-.back-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.logout-btn {
-  background: rgba(255, 255, 255, 0.9);
-  color: #059669;
-  font-weight: 600;
 }
 
 .content-container {
-  padding: 16px;
-  max-width: 800px;
+  padding: 0 14px;
+  max-width: 860px;
   margin: 0 auto;
 }
 
 .filter-card {
-  background: white;
-  border-radius: 12px;
+  background: var(--ui-surface);
+  border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid var(--ui-surface-border);
   margin-bottom: 16px;
 }
 
@@ -463,17 +429,19 @@ onMounted(async () => {
 .filter-item label {
   display: block;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
   margin-bottom: 4px;
 }
 
-select, input {
+select,
+input {
   width: 100%;
-  padding: 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 10px;
   font-size: 14px;
-  background: white;
+  background: color-mix(in oklab, var(--ui-surface) 86%, #fff 14%);
+  color: var(--ui-text);
 }
 
 .periods-row {
@@ -491,12 +459,12 @@ select, input {
 
 .periods-label label {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .quick-actions span {
   font-size: 12px;
-  color: #10b981;
+  color: var(--ui-primary);
   margin-left: 12px;
   cursor: pointer;
 }
@@ -513,18 +481,19 @@ select, input {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, var(--ui-surface-border));
+  border-radius: 10px;
   font-size: 14px;
-  color: #374151;
+  color: var(--ui-text);
   cursor: pointer;
   transition: all 0.2s;
+  background: color-mix(in oklab, var(--ui-surface) 90%, #fff 10%);
 }
 
 .period-tag.active {
-  background: #10b981;
-  color: white;
-  border-color: #10b981;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  color: #ffffff;
+  border-color: transparent;
 }
 
 .seats-input {
@@ -543,15 +512,15 @@ select, input {
 
 .query-btn {
   flex: 1;
-  min-width: 120px;
-  padding: 10px;
-  background: #10b981;
-  color: white;
+  min-width: 130px;
+  height: 42px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  color: #ffffff;
   border: none;
-  border-radius: 8px;
-  font-weight: 600;
+  border-radius: 10px;
+  font-weight: 700;
   cursor: pointer;
-  height: 40px; /* Match input height */
 }
 
 .query-btn:disabled {
@@ -563,7 +532,10 @@ select, input {
   grid-column: 1 / -1;
   text-align: center;
   padding: 40px;
-  color: #9ca3af;
+  color: var(--ui-muted);
+  background: var(--ui-surface);
+  border-radius: 16px;
+  border: 1px dashed var(--ui-surface-border);
 }
 
 .empty-state .emoji {
@@ -572,13 +544,14 @@ select, input {
 }
 
 .error-msg {
-  background: #fee2e2;
-  color: #dc2626;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  color: var(--ui-danger);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   margin-bottom: 16px;
   text-align: center;
   font-size: 14px;
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 38%, transparent);
 }
 
 .results-info {
@@ -586,10 +559,11 @@ select, input {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
+  background: var(--ui-surface);
   padding: 12px 16px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+  border-radius: 14px;
+  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid var(--ui-surface-border);
 }
 
 .date-container {
@@ -604,47 +578,54 @@ select, input {
   margin-bottom: 2px;
 }
 
+.week-info,
+.weekday,
+.semester-info {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .week-info {
-  font-weight: 600;
-  color: #374151;
+  color: var(--ui-text);
 }
 
 .weekday {
-  font-weight: 600;
-  color: #10b981;
+  color: var(--ui-primary);
 }
 
 .date-row {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--ui-muted);
+  margin-top: 4px;
 }
 
 .semester-info {
-  font-size: 12px;
-  color: #9ca3af;
-  background: #f3f4f6;
-  padding: 4px 8px;
-  border-radius: 6px;
+  color: var(--ui-muted);
 }
 
 .classroom-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); /* 更小的卡片，展示更多 */
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 16px;
 }
 
 .room-card {
-  background: white;
+  background: var(--ui-surface);
   border-radius: 16px;
   padding: 16px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  box-shadow: var(--ui-shadow-soft);
   display: flex;
   flex-direction: column;
-  justify-content: height;
   position: relative;
   overflow: hidden;
-  border: 1px solid #f0fdf4;
-  transition: transform 0.2s;
+  border: 1px solid var(--ui-surface-border);
 }
 
 .room-card:active {
@@ -658,7 +639,7 @@ select, input {
   left: 0;
   width: 6px;
   height: 100%;
-  background: #10b981;
+  background: linear-gradient(180deg, var(--ui-primary), var(--ui-secondary));
 }
 
 .card-top {
@@ -670,18 +651,19 @@ select, input {
 .room-seats {
   font-size: 14px;
   font-weight: 700;
-  color: #059669;
-  background: #ecfdf5;
-  padding: 2px 6px;
-  border-radius: 6px;
+  color: var(--ui-primary);
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .room-type {
   font-size: 10px;
-  color: #9ca3af;
-  border: 1px solid #e5e7eb;
-  padding: 1px 4px;
-  border-radius: 4px;
+  color: var(--ui-muted);
+  border: 1px solid var(--ui-surface-border);
+  padding: 1px 6px;
+  border-radius: 999px;
 }
 
 .room-main {
@@ -691,13 +673,13 @@ select, input {
 .room-name {
   font-size: 18px;
   font-weight: 800;
-  color: #1f2937;
+  color: var(--ui-text);
   line-height: 1.2;
 }
 
 .room-building {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--ui-muted);
   margin-top: 4px;
 }
 
@@ -710,28 +692,45 @@ select, input {
 
 .floor-tag {
   font-size: 12px;
-  color: #9ca3af;
-  background: #f9fafb;
-  padding: 2px 6px;
-  border-radius: 4px;
+  color: var(--ui-muted);
+  background: color-mix(in oklab, var(--ui-primary-soft) 58%, #fff 42%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, transparent);
 }
 
 .status-tag {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .status-tag.available {
-  color: #10b981;
+  color: var(--ui-success);
+  background: color-mix(in oklab, var(--ui-success) 13%, #fff 87%);
+  border: 1px solid color-mix(in oklab, var(--ui-success) 24%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .offline-banner {
-  margin: 12px 20px 0;
+  margin: 12px 14px 0;
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
+  color: var(--ui-danger);
   border-radius: 12px;
   font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .content-container {
+    padding: 0 10px;
+  }
+
+  .results-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
 }
 </style>

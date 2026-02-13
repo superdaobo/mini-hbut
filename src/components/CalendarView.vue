@@ -288,7 +288,7 @@ onMounted(async () => {
   <div class="calendar-view">
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>校历信息</h1>
+      <h1><span>📘</span><span>校历信息</span></h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
@@ -349,16 +349,22 @@ onMounted(async () => {
 <style scoped>
 .calendar-view {
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--ui-bg-gradient);
+  color: var(--ui-text);
+  padding: 16px 14px 120px;
 }
 
 .view-header {
-  display: flex;
+  margin-bottom: 12px;
+}
+
+.view-header h1 {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
-  color: white;
+  gap: 8px;
+  margin: 0;
+  font-size: clamp(19px, 2.2vw, 24px);
+  color: var(--ui-text);
 }
 
 .back-btn, .logout-btn {
@@ -366,40 +372,63 @@ onMounted(async () => {
   border-radius: 8px;
   border: none;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .controls {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px 20px;
-  background: white;
+  padding: 16px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 16px;
+  box-shadow: var(--ui-shadow-soft);
+  margin-bottom: 16px;
 }
 
 .controls select {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-surface-border);
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
 }
 
 .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  color: #4b5563;
-  font-size: 13px;
+  gap: 8px;
+}
+
+.meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
+  color: var(--ui-text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .loading, .error {
-  padding: 20px;
+  padding: 20px 12px;
   text-align: center;
-  color: #6b7280;
+  color: var(--ui-muted);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 14px;
+  box-shadow: var(--ui-shadow-soft);
+  margin-bottom: 16px;
 }
 
 .calendar-table-wrapper {
-  padding: 0 16px 24px;
+  padding: 0 0 24px;
   overflow-x: auto;
 }
 
@@ -407,34 +436,39 @@ onMounted(async () => {
   width: 100%;
   min-width: 980px;
   border-collapse: collapse;
-  background: white;
+  background: var(--ui-surface);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid var(--ui-surface-border);
 }
 
 .calendar-table thead th {
-  background: #eef2ff;
-  color: #1f2937;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-primary-soft) 78%, #fff 22%),
+    color-mix(in oklab, var(--ui-secondary) 12%, #fff 88%)
+  );
+  color: var(--ui-text);
   font-weight: 700;
   padding: 12px 8px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--ui-surface-border);
   font-size: 13px;
   text-align: center;
 }
 
 .calendar-table td {
-  border-bottom: 1px solid #f3f4f6;
-  border-right: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--ui-surface-border);
+  border-right: 1px solid var(--ui-surface-border);
   padding: 8px 6px;
   text-align: center;
   vertical-align: middle;
   font-size: 12px;
-  color: #374151;
+  color: var(--ui-text);
 }
 
 .calendar-table tbody tr.is-current {
-  background: #eff6ff;
+  background: color-mix(in oklab, var(--ui-primary-soft) 64%, #fff 36%);
 }
 
 .month-col, .week-col {
@@ -447,13 +481,13 @@ onMounted(async () => {
 
 .month-cell {
   font-weight: 600;
-  color: #1f2937;
-  background: #f8fafc;
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-primary-soft) 44%, #fff 56%);
 }
 
 .week-cell {
   font-weight: 600;
-  color: #2563eb;
+  color: var(--ui-primary);
 }
 
 .day-cell {
@@ -462,41 +496,42 @@ onMounted(async () => {
 
 .day-num {
   font-weight: 600;
-  color: #111827;
+  color: var(--ui-text);
 }
 
 .day-lunar {
   margin-top: 2px;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .day-remark {
   margin-top: 4px;
   font-size: 11px;
-  color: #ef4444;
+  color: var(--ui-danger);
 }
 
 .day-remark.holiday {
   display: inline-block;
   padding: 2px 6px;
   border-radius: 999px;
-  background: #fee2e2;
-  color: #b91c1c;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  color: var(--ui-danger);
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 32%, transparent);
   font-weight: 600;
 }
 
 .remark-cell {
-  color: #6b7280;
+  color: var(--ui-muted);
   font-size: 12px;
 }
 
 .offline-banner {
   margin: 12px 0 0;
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
+  color: var(--ui-danger);
   border-radius: 12px;
   font-weight: 600;
 }

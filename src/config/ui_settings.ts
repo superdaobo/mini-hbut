@@ -85,7 +85,7 @@ export const UI_PRESETS: Record<string, UiPreset> = {
   },
   sunset_orange: {
     label: '夕照暖橙',
-    tagline: '高识别暖色风格，适合功能入口和通知场景。',
+    tagline: '高识别暖色风格，适合功能入口与通知场景。',
     category: 'vivid',
     primary: '#f97316',
     secondary: '#ec4899',

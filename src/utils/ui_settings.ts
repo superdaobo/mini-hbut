@@ -39,6 +39,18 @@ const normalizeProfile = (profile = {}) => {
   return next
 }
 
+const isProfileEqual = (a = {}, b = {}) =>
+  CARD_STYLES.includes(a.cardStyle) &&
+  NAV_STYLES.includes(a.navStyle) &&
+  DENSITY_STYLES.includes(a.density) &&
+  ICON_STYLES.includes(a.iconStyle) &&
+  DECOR_STYLES.includes(a.decor) &&
+  a.cardStyle === b.cardStyle &&
+  a.navStyle === b.navStyle &&
+  a.density === b.density &&
+  a.iconStyle === b.iconStyle &&
+  a.decor === b.decor
+
 const normalizeSettings = (raw) => {
   const base = { ...SYSTEM_UI_SETTINGS, profile: { ...SYSTEM_UI_SETTINGS.profile } }
   if (!raw || typeof raw !== 'object') return base
@@ -157,6 +169,29 @@ const applyUiSettings = (settings) => {
   applyCustomCode(settings)
 }
 
+const flushUiSettings = () => {
+  const normalized = normalizeSettings(state)
+  let needsPatch = false
+  for (const key of Object.keys(normalized)) {
+    if (key === 'profile') continue
+    if (normalized[key] !== state[key]) {
+      needsPatch = true
+      state[key] = normalized[key]
+    }
+  }
+  if (!isProfileEqual(normalized.profile, state.profile)) {
+    needsPatch = true
+    state.profile = { ...normalized.profile }
+  }
+  if (!needsPatch) {
+    storeSettings(normalized)
+    applyUiSettings(normalized)
+    return
+  }
+  storeSettings(normalized)
+  applyUiSettings(normalized)
+}
+
 const state = reactive(normalizeSettings(loadStoredSettings()))
 
 let initialized = false
@@ -169,9 +204,14 @@ const initUiSettings = () => {
   scope.run(() => {
     const sync = () => {
       const normalized = normalizeSettings(state)
-      const changed = Object.keys(normalized).some((key) => normalized[key] !== state[key])
-      if (changed) {
-        Object.assign(state, normalized)
+      for (const key of Object.keys(normalized)) {
+        if (key === 'profile') continue
+        if (normalized[key] !== state[key]) {
+          state[key] = normalized[key]
+        }
+      }
+      if (!isProfileEqual(normalized.profile, state.profile)) {
+        state.profile = { ...normalized.profile }
       }
       storeSettings(normalized)
       applyUiSettings(normalized)
@@ -202,6 +242,16 @@ const applyPreset = (presetKey) => {
 
 const resetUiSettings = () => {
   Object.assign(state, normalizeSettings(SYSTEM_UI_SETTINGS))
+  flushUiSettings()
 }
 
-export { initUiSettings, useUiSettings, applyPreset, resetUiSettings, applyUiSettings, normalizeSettings, UI_PRESETS }
+export {
+  initUiSettings,
+  useUiSettings,
+  applyPreset,
+  resetUiSettings,
+  applyUiSettings,
+  flushUiSettings,
+  normalizeSettings,
+  UI_PRESETS
+}

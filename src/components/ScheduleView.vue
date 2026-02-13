@@ -783,7 +783,10 @@ onMounted(() => {
 
 <style scoped>
 .schedule-view {
-  height: 100vh;
+  --slot-height: 65px;
+  --time-axis-width: 40px;
+  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--ui-bg-gradient);
@@ -796,7 +799,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   background: var(--ui-surface);
   border-bottom: 1px solid var(--ui-surface-border);
 }
@@ -832,8 +835,8 @@ onMounted(() => {
 .week-selector {
   position: relative;
   background: var(--ui-surface);
-  padding: 6px 12px;
-  border-radius: 12px;
+  padding: 4px 10px;
+  border-radius: 10px;
   border: 1px solid var(--ui-surface-border);
 }
 
@@ -841,10 +844,13 @@ onMounted(() => {
   appearance: none;
   border: none;
   background: transparent;
+  min-height: 34px !important;
+  height: 34px;
+  line-height: 34px;
   font-size: 14px;
   font-weight: 600;
   color: var(--ui-text);
-  padding-right: 16px;
+  padding: 0 18px 0 0 !important;
   outline: none;
   cursor: pointer;
 }
@@ -855,7 +861,7 @@ onMounted(() => {
 
 .week-selector .arrow {
   position: absolute;
-  right: 8px;
+  right: 9px;
   top: 50%;
   transform: translateY(-50%);
   font-size: 10px;
@@ -1003,25 +1009,25 @@ onMounted(() => {
 .date-header {
   height: 50px;
   display: flex;
-  border-bottom: 1px solid #f3f4f6;
-  background: white;
+  border-bottom: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-surface-border));
+  background: var(--ui-surface);
   flex-shrink: 0;
 }
 
 .month-col {
-  width: 40px;
+  width: var(--time-axis-width);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--ui-text);
   font-size: 14px;
 }
 .month-label {
   font-size: 10px;
   font-weight: normal;
-  color: #6b7280;
+  color: var(--ui-muted);
 }
 
 .days-row {
@@ -1039,7 +1045,7 @@ onMounted(() => {
 }
 
 .day-col.is-today {
-  background: #eff6ff;
+  background: color-mix(in oklab, var(--ui-primary-soft) 78%, #fff 22%);
   border-radius: 0 0 12px 12px;
 }
 
@@ -1050,13 +1056,13 @@ onMounted(() => {
 
 .day-num {
   font-size: 14px;
-  color: #1f2937;
+  color: var(--ui-text);
   font-weight: 600;
 }
 
 .day-label {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--ui-muted);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1075,8 +1081,10 @@ onMounted(() => {
 .grid-body {
   flex: 1;
   display: flex;
+  align-items: stretch;
   overflow-y: auto;
   position: relative;
+  background: transparent;
   /* 隐藏滚动条 */
   scrollbar-width: none; 
 }
@@ -1085,26 +1093,38 @@ onMounted(() => {
 }
 
 .time-axis {
-  width: 40px;
-  background: #fff;
+  width: var(--time-axis-width);
+  background: color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%);
+  border-right: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.35));
   display: flex;
   flex-direction: column;
+  min-height: calc(var(--slot-height) * 11);
+  overflow: hidden;
+  position: relative;
+}
+
+.time-axis::after {
+  content: '';
+  flex: 1 0 auto;
+  background: color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%);
 }
 
 .time-slot {
-  height: 65px; /* 增加高度 */
+  flex: 0 0 var(--slot-height);
+  height: var(--slot-height);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  color: #9ca3af;
+  color: color-mix(in oklab, var(--ui-muted) 82%, #64748b 18%);
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
 .period-num {
   font-size: 14px;
   font-weight: 700;
-  color: #374151;
+  color: var(--ui-text);
   margin: 2px 0;
 }
 
@@ -1112,6 +1132,7 @@ onMounted(() => {
   flex: 1;
   display: flex;
   position: relative;
+  min-height: calc(var(--slot-height) * 11);
 }
 
 .grid-lines {
@@ -1123,18 +1144,19 @@ onMounted(() => {
 }
 
 .line-row {
-  height: 65px; /* 匹配行高 */
-  border-bottom: 1px dashed #f3f4f6;
+  height: var(--slot-height);
+  border-bottom: 1px dashed color-mix(in oklab, var(--ui-primary) 16%, rgba(226, 232, 240, 0.78));
   box-sizing: border-box;
 }
 
 .day-column {
   flex: 1;
   display: grid;
-  grid-template-rows: repeat(11, 65px); /* Grid 行定义 */
+  grid-template-rows: repeat(11, var(--slot-height));
   grid-template-columns: 1fr; /* 强制单列 */
   padding: 0 2px;
   position: relative;
+  min-height: calc(var(--slot-height) * 11);
 }
 
 .course-card {
@@ -1302,11 +1324,18 @@ onMounted(() => {
     padding: 10px 12px;
   }
 
+  .schedule-view {
+    --slot-height: 48px;
+    --time-axis-width: 32px;
+  }
+
   .week-selector {
-    padding: 4px 10px;
+    padding: 2px 8px;
   }
 
   .week-selector select {
+    min-height: 30px !important;
+    height: 30px;
     font-size: 12px;
   }
 
@@ -1314,16 +1343,12 @@ onMounted(() => {
     height: 44px;
   }
 
-  .month-col {
-    width: 32px;
-  }
-
+  .month-col,
   .time-axis {
-    width: 32px;
+    width: var(--time-axis-width);
   }
 
   .time-slot {
-    height: 48px;
     font-size: 9px;
   }
 
@@ -1332,11 +1357,11 @@ onMounted(() => {
   }
 
   .day-column {
-    grid-template-rows: repeat(11, 48px);
+    grid-template-rows: repeat(11, var(--slot-height));
   }
 
   .line-row {
-    height: 48px;
+    height: var(--slot-height);
   }
 
   .course-card {

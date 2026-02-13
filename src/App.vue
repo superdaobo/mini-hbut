@@ -63,7 +63,6 @@ const isIOSLike = (() => {
   return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
 })()
 let hiddenAt = 0
-let delayedViewportTimer = null
 let unlistenCloseRequested = null
 let isClosingByUser = false
 
@@ -243,9 +242,13 @@ const forceScrollTop = () => {
 
 const updateViewportUnit = () => {
   if (typeof window === 'undefined') return
-  const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
+  // 优先 innerHeight，避免 visualViewport 在页面切换后短时间波动导致界面“二次缩放”
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || window.visualViewport?.height
   if (!viewportHeight) return
-  document.documentElement.style.setProperty('--app-vh', `${viewportHeight * 0.01}px`)
+  const nextVh = viewportHeight * 0.01
+  const prevVh = Number.parseFloat(document.documentElement.style.getPropertyValue('--app-vh'))
+  if (Number.isFinite(prevVh) && Math.abs(prevVh - nextVh) < 0.02) return
+  document.documentElement.style.setProperty('--app-vh', `${nextVh}px`)
 }
 
 const recoverViewportAfterTransition = () => {
@@ -275,15 +278,8 @@ const nudgeWebViewPaint = () => {
 }
 
 const scheduleViewportUpdate = () => {
-  if (delayedViewportTimer) {
-    clearTimeout(delayedViewportTimer)
-    delayedViewportTimer = null
-  }
+  // 仅做一次同步更新，避免“先铺满再二次缩放”
   updateViewportUnit()
-  delayedViewportTimer = setTimeout(() => {
-    updateViewportUnit()
-    forceScrollTop()
-  }, 120)
 }
 
 const handleVisibilityChange = () => {
@@ -294,7 +290,9 @@ const handleVisibilityChange = () => {
   const idle = hiddenAt ? Date.now() - hiddenAt : 0
   hiddenAt = 0
   scheduleViewportUpdate()
-  nudgeWebViewPaint()
+  if (isIOSLike) {
+    nudgeWebViewPaint()
+  }
 
   // iOS 长时间后台后，WebView 偶发黑屏；主动重载可恢复渲染上下文
   if (isIOSLike && idle >= IOS_RESUME_RELOAD_MS) {
@@ -885,13 +883,8 @@ onMounted(async () => {
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
-  window.addEventListener('focus', scheduleViewportUpdate)
   window.addEventListener('resize', scheduleViewportUpdate)
-  window.addEventListener('pageshow', scheduleViewportUpdate)
   window.addEventListener('orientationchange', scheduleViewportUpdate)
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', scheduleViewportUpdate)
-  }
   scheduleViewportUpdate()
   await installCloseInterceptor()
   await primeOcrEndpointFromCache()
@@ -930,17 +923,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleGlobalLinkClick, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('popstate', handlePopState)
-  window.removeEventListener('focus', scheduleViewportUpdate)
   window.removeEventListener('resize', scheduleViewportUpdate)
-  window.removeEventListener('pageshow', scheduleViewportUpdate)
   window.removeEventListener('orientationchange', scheduleViewportUpdate)
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', scheduleViewportUpdate)
-  }
-  if (delayedViewportTimer) {
-    clearTimeout(delayedViewportTimer)
-    delayedViewportTimer = null
-  }
   if (typeof unlistenCloseRequested === 'function') {
     unlistenCloseRequested()
     unlistenCloseRequested = null
@@ -1339,7 +1323,7 @@ onBeforeUnmount(() => {
   position: relative;
   padding-top: env(safe-area-inset-top);
   padding-bottom: 90px;
-  overflow-y: auto;
+  overflow-y: scroll;
   overflow-x: hidden;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
@@ -1352,16 +1336,29 @@ onBeforeUnmount(() => {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放 */
+.app-shell > .dashboard,
+.app-shell > [class$='-view'] {
+  min-height: calc(var(--app-vh, 1vh) * 100) !important;
+  height: auto !important;
+}
+
 .bottom-tab-bar {
   position: fixed;
+  top: auto;
   left: 0;
   right: 0;
   bottom: max(12px, env(safe-area-inset-bottom));
   margin-inline: auto;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
+  align-items: center;
+  align-content: center;
   gap: 8px;
   padding: 10px 16px;
+  height: auto;
+  min-height: 70px;
+  max-height: 106px;
   width: min(
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 28px)
@@ -1389,6 +1386,7 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .tab-item.active {
@@ -1398,16 +1396,32 @@ onBeforeUnmount(() => {
 }
 
 .tab-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .tab-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab-item.active .tab-icon::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ui-primary) 22%, transparent);
 }
 
 .tab-label {

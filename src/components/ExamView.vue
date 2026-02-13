@@ -121,7 +121,7 @@ onMounted(async () => {
     <!-- 头部 -->
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>考试安排</h1>
+      <h1><span>📝</span><span>考试安排</span></h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
@@ -215,6 +215,9 @@ onMounted(async () => {
 }
 
 .view-header h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 20px;
   margin: 0;
   color: var(--ui-text);

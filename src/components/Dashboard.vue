@@ -1025,9 +1025,9 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .module-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1038,10 +1038,10 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .module-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   stroke: currentColor;
-  stroke-width: 1.9;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1275,13 +1275,13 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
   }
 
   .module-icon svg {
-    width: 19px;
-    height: 19px;
+    width: 16px;
+    height: 16px;
   }
 }
 
@@ -1327,13 +1327,13 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
 
   .module-icon svg {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
   }
 }
 

@@ -87,7 +87,7 @@ onMounted(async () => {
     <!-- 头部 -->
     <header class="view-header">
       <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>绩点排名</h1>
+      <h1><span>🏆</span><span>绩点排名</span></h1>
       <span class="header-spacer" aria-hidden="true"></span>
     </header>
 
@@ -219,93 +219,67 @@ onMounted(async () => {
 <style scoped>
 .ranking-view {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
+  background: var(--ui-bg-gradient);
+  padding: 18px 14px 110px;
+  color: var(--ui-text);
 }
 
 .view-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
   margin-bottom: 16px;
 }
 
 .view-header h1 {
-  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(19px, 2.2vw, 24px);
   margin: 0;
-  color: #1f2937;
-}
-
-.back-btn, .logout-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.back-btn {
-  background: #f0f4ff;
-  color: #667eea;
-}
-
-.back-btn:hover {
-  background: #667eea;
-  color: white;
-}
-
-.logout-btn {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.logout-btn:hover {
-  background: #dc2626;
-  color: white;
+  color: var(--ui-text);
 }
 
 .semester-selector {
-  background: rgba(255, 255, 255, 0.95);
-  padding: 16px 24px;
-  border-radius: 12px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
+  padding: 16px;
+  border-radius: 16px;
   margin-bottom: 16px;
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .semester-selector .label {
-  font-weight: 500;
-  color: #374151;
+  font-weight: 700;
+  color: var(--ui-text);
 }
 
 .semester-selector select {
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 2px solid #e5e7eb;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-surface-border);
   font-size: 14px;
-  min-width: 160px;
+  min-width: 200px;
   cursor: pointer;
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
 }
 
 .semester-selector select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--ui-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-primary) 20%, transparent);
 }
 
 .search-btn {
-  padding: 10px 20px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  color: #ffffff;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 700;
   transition: transform 0.2s;
 }
 
@@ -321,16 +295,18 @@ onMounted(async () => {
 .loading-state, .error-state, .empty-state {
   text-align: center;
   padding: 60px 20px;
-  background: white;
-  border-radius: 20px;
-  color: #374151;
+  background: var(--ui-surface);
+  border-radius: 16px;
+  border: 1px solid var(--ui-surface-border);
+  box-shadow: var(--ui-shadow-soft);
+  color: var(--ui-text);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #e5e7eb;
-  border-top-color: #667eea;
+  border: 4px solid color-mix(in oklab, var(--ui-primary) 14%, #e5e7eb);
+  border-top-color: var(--ui-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 16px;
@@ -348,32 +324,38 @@ onMounted(async () => {
 .error-state button {
   margin-top: 16px;
   padding: 10px 24px;
-  background: #667eea;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
+  font-weight: 700;
 }
 
 .hint {
   font-size: 14px;
-  color: #9ca3af;
+  color: var(--ui-muted);
   margin-top: 8px;
 }
 
 /* 排名卡片 */
 .ranking-card {
-  background: white;
-  border-radius: 20px;
+  background: var(--ui-surface);
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid var(--ui-surface-border);
 }
 
 /* 学生信息 */
 .student-info {
   padding: 24px;
-  background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);
-  border-bottom: 1px solid #c7d2fe;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-primary-soft) 62%, #ffffff 38%),
+    color-mix(in oklab, var(--ui-primary-soft) 40%, var(--ui-secondary) 60%)
+  );
+  border-bottom: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .info-row {
@@ -390,33 +372,41 @@ onMounted(async () => {
 .info-row.highlight {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px dashed #a5b4fc;
+  border-top: 1px dashed color-mix(in oklab, var(--ui-primary) 38%, transparent);
 }
 
 .info-item {
   font-size: 15px;
-  color: #374151;
+  color: var(--ui-text);
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: color-mix(in oklab, #ffffff 78%, var(--ui-primary-soft) 22%);
 }
 
 .info-item strong {
-  color: #1e40af;
+  color: color-mix(in oklab, var(--ui-primary) 72%, #1e3a8a 28%);
+  margin-right: 4px;
 }
 
 .info-item .score {
   font-size: 18px;
   font-weight: 700;
-  color: #7c3aed;
+  color: var(--ui-secondary);
 }
 
 .info-item .gpa-badge {
   display: inline-block;
   padding: 6px 16px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
-  border-radius: 8px;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  color: #ffffff;
+  border-radius: 999px;
   font-size: 20px;
   font-weight: 800;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 8px 16px color-mix(in oklab, var(--ui-primary) 26%, transparent);
   margin-left: 4px;
 }
 
@@ -433,8 +423,8 @@ onMounted(async () => {
 }
 
 .ranking-table th {
-  background: #3b82f6;
-  color: white;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  color: #ffffff;
   padding: 14px 16px;
   font-weight: 600;
   font-size: 14px;
@@ -450,19 +440,19 @@ onMounted(async () => {
 
 .ranking-table td {
   padding: 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--ui-surface-border);
 }
 
 .method-name {
   text-align: left;
   font-weight: 500;
-  color: #374151;
-  background: #f9fafb;
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-primary-soft) 52%, #fff 48%);
 }
 
 .method-name.bold {
   font-weight: 700;
-  color: #1f2937;
+  color: var(--ui-text);
 }
 
 .rank-cell {
@@ -471,38 +461,48 @@ onMounted(async () => {
 
 .rank-value {
   display: inline-block;
-  padding: 6px 12px;
-  background: #f0f9ff;
-  color: #0369a1;
-  border-radius: 6px;
-  font-weight: 500;
+  padding: 6px 10px;
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  color: var(--ui-primary);
+  border-radius: 999px;
+  font-weight: 700;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .rank-value.highlight-rank {
-  background: linear-gradient(135deg, #fef3c7, #fde68a);
-  color: #92400e;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-secondary) 18%, #fff 82%),
+    color-mix(in oklab, var(--ui-primary) 16%, #fff 84%)
+  );
+  color: color-mix(in oklab, var(--ui-secondary) 68%, #111827 32%);
   font-weight: 700;
-  border: 2px solid #fcd34d;
+  border: 1px solid color-mix(in oklab, var(--ui-secondary) 34%, transparent);
 }
 
 /* 班级排名高亮 */
 .class-highlight {
   padding: 20px 24px;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-secondary) 18%, #ffffff 82%),
+    color-mix(in oklab, var(--ui-primary) 16%, #ffffff 84%)
+  );
   display: flex;
   justify-content: center;
+  border-top: 1px solid color-mix(in oklab, var(--ui-primary) 20%, transparent);
 }
 
 .highlight-badge {
   font-size: 18px;
-  font-weight: 600;
-  color: #92400e;
+  font-weight: 700;
+  color: var(--ui-text);
 }
 
 .big-rank {
   font-size: 32px;
   font-weight: 800;
-  color: #d97706;
+  color: var(--ui-primary);
   margin: 0 4px;
 }
 
@@ -542,9 +542,9 @@ onMounted(async () => {
 .offline-banner {
   margin: 12px 0 0;
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
+  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
+  color: var(--ui-danger);
   border-radius: 12px;
   font-weight: 600;
 }
