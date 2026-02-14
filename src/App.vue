@@ -30,7 +30,7 @@ import CampusMapView from './components/CampusMapView.vue'
 import LibraryView from './components/LibraryView.vue'
 import ResourceShareView from './components/ResourceShareView.vue'
 import { fetchWithCache } from './utils/api.js'
-import { checkForUpdates, getCurrentVersion } from './utils/updater.js'
+import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
 import { fetchRemoteConfig } from './utils/remote_config.js'
 import { openExternal, isHttpLink } from './utils/external_link'
@@ -573,7 +573,7 @@ const autoCheckUpdate = async () => {
 
 const handleForceUpdate = () => {
   if (forceUpdateInfo.value?.download_url) {
-    openExternal(forceUpdateInfo.value.download_url)
+    openExternal(toGhProxyUrl(forceUpdateInfo.value.download_url) || forceUpdateInfo.value.download_url)
     return
   }
   showUpdateDialog.value = true
@@ -1164,8 +1164,9 @@ onBeforeUnmount(() => {
       </div>
       </div>
     </Transition>
+  </main>
 
-    <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
+  <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
@@ -1201,77 +1202,76 @@ onBeforeUnmount(() => {
         </span>
         <span class="tab-label">我的</span>
       </button>
-    </nav>
+  </nav>
 
-    <div v-if="showLoginPrompt" class="login-mask">
-      <div class="login-mask-card">请先在个人中心登录</div>
-    </div>
+  <div v-if="showLoginPrompt" class="login-mask">
+    <div class="login-mask-card">请先在个人中心登录</div>
+  </div>
 
-    <div v-if="showExitDialog" class="exit-dialog-overlay">
-      <div class="exit-dialog-card">
-        <h3>退出应用</h3>
-        <p>是否退出 Mini-HBUT？</p>
-        <div class="exit-dialog-actions">
-          <button class="btn-secondary" :disabled="exitingApp" @click="cancelExitDialog">取消</button>
-          <button class="btn-danger" :disabled="exitingApp" @click="confirmExitDialog">
-            {{ exitingApp ? '退出中...' : '退出' }}
-          </button>
-        </div>
+  <div v-if="showExitDialog" class="exit-dialog-overlay">
+    <div class="exit-dialog-card">
+      <h3>退出应用</h3>
+      <p>是否退出 Mini-HBUT？</p>
+      <div class="exit-dialog-actions">
+        <button class="btn-secondary" :disabled="exitingApp" @click="cancelExitDialog">取消</button>
+        <button class="btn-danger" :disabled="exitingApp" @click="confirmExitDialog">
+          {{ exitingApp ? '退出中...' : '退出' }}
+        </button>
       </div>
     </div>
+  </div>
 
-    <!-- 版本更新对话框 -->
-    <UpdateDialog 
-      v-if="showUpdateDialog"
-      @close="showUpdateDialog = false"
-    />
+  <!-- 版本更新对话框 -->
+  <UpdateDialog 
+    v-if="showUpdateDialog"
+    @close="showUpdateDialog = false"
+  />
 
-    <!-- 强制更新覆盖层 -->
-    <div v-if="showForceUpdate" class="force-update-overlay">
-      <div class="force-update-card">
-        <h3>需要更新</h3>
-        <p class="force-update-message">
-          {{ forceUpdateInfo?.message || '当前版本过低，请更新后继续使用。' }}
-        </p>
-        <p class="force-update-meta">最低版本：v{{ forceUpdateInfo?.min_version }}</p>
-        <button class="btn-primary" @click="handleForceUpdate">立即更新</button>
+  <!-- 强制更新覆盖层 -->
+  <div v-if="showForceUpdate" class="force-update-overlay">
+    <div class="force-update-card">
+      <h3>需要更新</h3>
+      <p class="force-update-message">
+        {{ forceUpdateInfo?.message || '当前版本过低，请更新后继续使用。' }}
+      </p>
+      <p class="force-update-meta">最低版本：v{{ forceUpdateInfo?.min_version }}</p>
+      <button class="btn-primary" @click="handleForceUpdate">立即更新</button>
+    </div>
+  </div>
+
+  <!-- 公告详情弹窗 -->
+  <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="closeAnnouncement">
+    <div class="notice-modal">
+      <div class="notice-modal-header">
+        <h3>{{ activeAnnouncement?.title }}</h3>
+        <button class="notice-close" @click="closeAnnouncement">×</button>
+      </div>
+      <div v-if="activeAnnouncement?.updated_at" class="notice-modal-meta">
+        更新时间：{{ activeAnnouncement.updated_at }}
+      </div>
+      <div v-if="activeAnnouncement?.image" class="notice-modal-image">
+        <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
+      </div>
+      <div class="notice-modal-content select-text" @click="handleContentClick" v-html="renderMarkdown(activeAnnouncement?.content || activeAnnouncement?.summary || '')"></div>
+      <a v-if="activeAnnouncement?.link" class="notice-link" :href="activeAnnouncement.link" target="_blank" @click.prevent="handleExternalOpen(activeAnnouncement.link)">查看原文</a>
+    </div>
+  </div>
+
+  <!-- 确认公告弹窗 -->
+  <div v-if="showBlockingAnnouncement" class="notice-confirm-overlay">
+    <div class="notice-confirm-card">
+      <h3>重要公告</h3>
+      <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>
+      <div class="notice-confirm-content" v-html="renderMarkdown(blockingAnnouncement?.content || blockingAnnouncement?.summary || '')"></div>
+      <div class="notice-confirm-actions">
+        <button class="btn-secondary" @click="openAnnouncement(blockingAnnouncement)">查看详情</button>
+        <button class="btn-primary" @click="confirmBlockingAnnouncement">我已知晓</button>
       </div>
     </div>
-
-    <!-- 公告详情弹窗 -->
-    <div v-if="showAnnouncementModal" class="notice-modal-overlay" @click.self="closeAnnouncement">
-      <div class="notice-modal">
-        <div class="notice-modal-header">
-          <h3>{{ activeAnnouncement?.title }}</h3>
-          <button class="notice-close" @click="closeAnnouncement">×</button>
-        </div>
-        <div v-if="activeAnnouncement?.updated_at" class="notice-modal-meta">
-          更新时间：{{ activeAnnouncement.updated_at }}
-        </div>
-        <div v-if="activeAnnouncement?.image" class="notice-modal-image">
-          <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
-        </div>
-        <div class="notice-modal-content select-text" @click="handleContentClick" v-html="renderMarkdown(activeAnnouncement?.content || activeAnnouncement?.summary || '')"></div>
-        <a v-if="activeAnnouncement?.link" class="notice-link" :href="activeAnnouncement.link" target="_blank" @click.prevent="handleExternalOpen(activeAnnouncement.link)">查看原文</a>
-      </div>
-    </div>
-
-    <!-- 确认公告弹窗 -->
-    <div v-if="showBlockingAnnouncement" class="notice-confirm-overlay">
-      <div class="notice-confirm-card">
-        <h3>重要公告</h3>
-        <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>
-        <div class="notice-confirm-content" v-html="renderMarkdown(blockingAnnouncement?.content || blockingAnnouncement?.summary || '')"></div>
-        <div class="notice-confirm-actions">
-          <button class="btn-secondary" @click="openAnnouncement(blockingAnnouncement)">查看详情</button>
-          <button class="btn-primary" @click="confirmBlockingAnnouncement">我已知晓</button>
-        </div>
-      </div>
-    </div>
+  </div>
     
-    <!-- 全局提示 -->
-    <Toast />
-  </main>
+  <!-- 全局提示 -->
+  <Toast />
 </template>
 
 <style scoped>
@@ -1367,7 +1367,7 @@ onBeforeUnmount(() => {
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  padding-bottom: calc(128px + env(safe-area-inset-bottom));
   overflow-y: scroll;
   overflow-x: hidden;
   scrollbar-gutter: stable;
@@ -1383,7 +1383,7 @@ onBeforeUnmount(() => {
 
 .app-shell.schedule-full {
   padding-top: 0;
-  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  padding-bottom: calc(128px + env(safe-area-inset-bottom));
   overflow: hidden;
 }
 
@@ -1412,13 +1412,13 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
   align-content: center;
   gap: 8px;
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 16px 10px;
   height: auto;
   min-height: 70px;
   max-height: 110px;

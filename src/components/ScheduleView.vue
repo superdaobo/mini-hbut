@@ -798,7 +798,7 @@ onMounted(() => {
   --time-axis-width: 40px;
   --topbar-height: 52px;
   --date-header-height: 50px;
-  --schedule-bottom-gap: calc(94px + env(safe-area-inset-bottom));
+  --schedule-bottom-gap: calc(108px + env(safe-area-inset-bottom));
   --slot-height: clamp(
     46px,
     calc(
@@ -821,7 +821,7 @@ onMounted(() => {
   font-family: var(--ui-font-family);
   overflow: hidden;
   box-sizing: border-box;
-  padding-top: calc(env(safe-area-inset-top) + 12px);
+  padding-top: calc(env(safe-area-inset-top) + 18px);
 }
 
 .schedule-topbar {

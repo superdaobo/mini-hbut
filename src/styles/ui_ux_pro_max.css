@@ -4,7 +4,7 @@
   --ux-max-width: 1220px;
   --ux-page-x: clamp(10px, 2.2vw, 22px);
   --ux-page-y: clamp(10px, 2vw, 18px);
-  --ux-bottom-safe: calc(112px + env(safe-area-inset-bottom));
+  --ux-bottom-safe: calc(128px + env(safe-area-inset-bottom));
   --ux-header-height: clamp(64px, 8vw, 84px);
   --ux-header-title-size: clamp(20px, 2.2vw, 28px);
   --ux-header-title-size-mobile: clamp(18px, 4.8vw, 23px);
@@ -553,7 +553,7 @@ html[data-ui-nav='pill'] .tab-item {
 html[data-ui-nav='compact'] .bottom-tab-bar {
   width: min(640px, calc(100% - 26px)) !important;
   padding: 8px 12px !important;
-  bottom: 10px !important;
+  bottom: calc(10px + env(safe-area-inset-bottom)) !important;
 }
 
 html[data-ui-nav='compact'] .tab-item {

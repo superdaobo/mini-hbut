@@ -143,6 +143,17 @@ const buildMediaPreviewUrl = (p: string) => {
   return buildProxyUrl(p)
 }
 const buildPreferredFetchUrl = (p: string) => (useDirectNoPort ? buildDirectMediaUrl(p) : buildProxyUrl(p))
+const buildRemoteOpenUrl = (p: string) => {
+  const query = new URLSearchParams({
+    path: normalizePath(p),
+    username: config.value.username || '',
+    password: config.value.password || ''
+  })
+  return `${endpointBase.value}/api/open?${query.toString()}`
+}
+const resolvePreviewUrl = (p: string) => (useDirectNoPort ? buildRemoteOpenUrl(p) : buildMediaPreviewUrl(p))
+const resolveFetchUrl = (p: string) => (useDirectNoPort ? buildRemoteOpenUrl(p) : buildPreferredFetchUrl(p))
+const resolveDirectDownloadUrl = (p: string) => (useDirectNoPort ? buildRemoteOpenUrl(p) : buildDirectMediaUrl(p))
 
 const buildCacheRequestKey = (path: string) => {
   const key = `${endpointBase.value}|${normalizePath(path)}`
@@ -409,7 +420,7 @@ const fetchBlobWithProgress = async (
   threadCount = 4,
   preferDirect = false
 ) => {
-  const proxyUrl = preferDirect ? buildDirectMediaUrl(path) : buildProxyUrl(path)
+  const proxyUrl = preferDirect ? resolveDirectDownloadUrl(path) : buildProxyUrl(path)
   if (preferParallel) {
     try {
       const support = await detectRangeSupport(proxyUrl)
@@ -587,19 +598,19 @@ const previewFile = async (file: DavItem) => {
         previewUrl.value = URL.createObjectURL(blob)
         await writePreviewCacheBlob(file.path, blob)
       } else {
-        previewUrl.value = buildMediaPreviewUrl(file.path)
+        previewUrl.value = resolvePreviewUrl(file.path)
       }
       return
     }
     if (videoExt.has(ext)) {
       previewMode.value = 'video'
-      previewUrl.value = buildMediaPreviewUrl(file.path)
+      previewUrl.value = resolvePreviewUrl(file.path)
       if (canCache) void cachePreviewInBackground(file.path)
       return
     }
     if (audioExt.has(ext)) {
       previewMode.value = 'audio'
-      previewUrl.value = buildMediaPreviewUrl(file.path)
+      previewUrl.value = resolvePreviewUrl(file.path)
       if (canCache) void cachePreviewInBackground(file.path)
       return
     }
@@ -619,7 +630,7 @@ const previewFile = async (file: DavItem) => {
         previewUrl.value = URL.createObjectURL(blob)
         await writePreviewCacheBlob(file.path, blob)
       } else {
-        previewUrl.value = buildMediaPreviewUrl(file.path)
+        previewUrl.value = resolvePreviewUrl(file.path)
       }
       return
     }
@@ -633,12 +644,12 @@ const previewFile = async (file: DavItem) => {
           previewText.value = await blob.text()
           await writePreviewCacheBlob(file.path, blob)
         } catch {
-          const resp = await fetch(buildPreferredFetchUrl(file.path))
+          const resp = await fetch(resolveFetchUrl(file.path))
           if (!resp.ok) throw new Error(`预览读取失败：HTTP ${resp.status}`)
           previewText.value = await resp.text()
         }
       } else {
-        const resp = await fetch(buildPreferredFetchUrl(file.path))
+        const resp = await fetch(resolveFetchUrl(file.path))
         if (!resp.ok) throw new Error(`预览读取失败：HTTP ${resp.status}`)
         previewText.value = await resp.text()
       }

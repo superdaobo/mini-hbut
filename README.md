@@ -40,6 +40,38 @@
 - 🤖 **AI 助手** - 支持多模型、Markdown/LaTeX 渲染、历史记录
 - 🔔 **自动更新** - 检测新版本，一键下载更新
 
+### 🆕 后续新增能力（1.0.20+）
+
+#### 1) 新增业务模块
+
+- 📚 **图书查询**：支持馆藏检索、筛选、详情查看（索书号/馆藏地/借阅状态/入藏时间等）。
+- 🗺️ **校园地图**：支持双图源查看、缩放拖拽、远程拉取与本地缓存。
+- 📁 **资料分享（WebDAV）**：支持目录浏览、文件预览、下载、下载后分享（移动端）。
+- 🧾 **导出中心**：支持多模块数据导出为 JSON / 长图片，支持多学期聚合导出。
+
+#### 2) 登录链路与 OCR 策略升级
+
+- 🔐 **会话恢复**：启动后自动恢复本地会话，减少重复登录。
+- 🤖 **OCR 双通道识别**：优先使用远程配置中的 OCR 地址，失败时自动回退到内置 OCR 地址。
+- 📡 **服务来源可视化**：前端显示 OCR 当前来源（远程 / 本地），便于排障。
+
+#### 3) 远程配置增强
+
+- 📰 公告、滚动通知、置顶通知、确认通知统一远程下发。
+- ⬆️ 支持强制更新最低版本控制。
+- ⚙️ 支持 `ocr`、`temp_file_server`、`resource_share`、`ai_models`、`config_admin_ids` 等运行时配置。
+
+#### 4) 导出与临时文件链路升级
+
+- 📤 课表导出支持临时文件服务上传，返回短期可访问链接。
+- 📱 安卓 / iOS 优先适配系统目录或相册路径，失败自动回退应用目录，避免导出阻断。
+
+#### 5) 主题与移动端体验升级
+
+- 🎨 支持多主题（色彩、卡片、导航风格联动）。
+- 📐 适配移动端安全区（状态栏 / 底部手势区域），减少遮挡与误触。
+- 🧭 统一页面头部规范与模块交互反馈，提升跨模块一致性。
+
 ## 📱 支持平台
 
 | 平台 | 格式 | 状态 |
@@ -322,6 +354,22 @@ GET /cache/get?table=grades_cache&key=251023xxxx
 
 ```json
 {
+  "ocr": {
+    "endpoint": "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize",
+    "enabled": true
+  },
+  "temp_file_server": {
+    "schedule_upload_endpoint": "https://mini-hbut-ocr-service.hf.space/api/temp/upload",
+    "enabled": true
+  },
+  "resource_share": {
+    "enabled": true,
+    "endpoint": "https://mini-hbut-chaoxing-webdav.hf.space",
+    "username": "mini-hbut",
+    "password": "mini-hbut",
+    "office_preview_proxy": "https://view.officeapps.live.com/op/view.aspx?src=",
+    "temp_upload_endpoint": "https://mini-hbut-ocr-service.hf.space/api/temp/upload"
+  },
   "ai_models": [
     { "label": "Qwen-Plus", "value": "qwen-plus" },
     { "label": "Qwen-Max", "value": "qwen-max" },
@@ -332,6 +380,9 @@ GET /cache/get?table=grades_cache&key=251023xxxx
 }
 ```
 
+- `ocr`：验证码识别服务（默认优先远程配置，失效自动回退本地内置地址）。
+- `temp_file_server`：课表导出等临时文件上传地址。
+- `resource_share`：资料分享 WebDAV 源及在线预览代理配置。
 - `ai_models`：AI 模型列表（显示名称与请求值）。
 - `config_admin_ids`：可访问配置工具的学号列表。
 

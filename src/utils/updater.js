@@ -1,18 +1,41 @@
 import { openExternal } from './external_link'
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
+const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
+const GH_PROXY_PREFIX = 'https://gh-proxy.com/'
 
 const API_PROXIES = [
-  `https://gh-proxy.com/https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+  `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
 ]
 
 const DOWNLOAD_PROXIES = [
-  (tag, filename) => `https://gh-proxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://mirror.ghproxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
 ]
+
+export function toGhProxyUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (value.startsWith('https://gh-proxy.com/')) return value
+  if (value.startsWith('https://mirror.ghproxy.com/')) return value
+  if (value.startsWith('https://github.com/')) return `${GH_PROXY_PREFIX}${value}`
+  return value
+}
+
+const uniqueUrls = (list) => {
+  const seen = new Set()
+  const out = []
+  for (const item of list || []) {
+    const url = String(item || '').trim()
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    out.push(url)
+  }
+  return out
+}
 
 const withTimeout = async (promise, ms = 9000) => {
   let timer
@@ -74,7 +97,7 @@ const normalizePackageJsonAsRelease = (data) => {
     tag_name: tagName,
     name: tagName,
     body: data?.description || '版本更新',
-    html_url: `https://github.com/${GITHUB_REPO}/releases`,
+    html_url: GITHUB_RELEASES_URL,
     assets: [],
     published_at: new Date().toISOString()
   }
@@ -84,10 +107,7 @@ async function fetchReleaseInfo(currentVersion) {
   let fallback = null
   for (const url of API_PROXIES) {
     try {
-      const response = await withTimeout(
-        fetch(url, { headers: { Accept: 'application/json' } }),
-        9000
-      )
+      const response = await withTimeout(fetch(url, { headers: { Accept: 'application/json' } }), 9000)
       if (!response.ok) continue
       const data = await response.json()
       const release = data?.tag_name ? data : normalizePackageJsonAsRelease(data)
@@ -140,16 +160,16 @@ export async function checkForUpdates(currentVersion) {
         latestVersion,
         tagName,
         releaseNotes: release.body || '暂无更新说明',
-        releaseUrl: release.html_url,
+        releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
         platform,
         publishedAt: release.published_at
       }
     }
 
-    const downloadUrls = DOWNLOAD_PROXIES.map((fn) => fn(tagName, asset.name))
-    if (asset.browser_download_url) {
-      downloadUrls.unshift(asset.browser_download_url)
-    }
+    const downloadUrls = uniqueUrls([
+      toGhProxyUrl(asset.browser_download_url),
+      ...DOWNLOAD_PROXIES.map((fn) => toGhProxyUrl(fn(tagName, asset.name)))
+    ])
 
     return {
       hasUpdate: true,
@@ -157,8 +177,9 @@ export async function checkForUpdates(currentVersion) {
       latestVersion,
       tagName,
       releaseNotes: release.body || '暂无更新说明',
-      releaseUrl: release.html_url,
+      releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
       downloadUrls,
+      preferredDownloadUrl: downloadUrls[0] || '',
       assetName: asset.name,
       platform,
       publishedAt: release.published_at
@@ -185,85 +206,20 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
     throw new Error('没有可用的下载链接')
   }
 
-  const platform = getPlatform()
-  const isDesktop = ['windows', 'macos', 'linux'].includes(platform)
-  const isMobile = ['android', 'ios'].includes(platform)
-
-  if (isMobile) {
-    const opened = await openFirstUrl(downloadUrls)
-    if (opened.success) {
-      return { success: true, method: 'external-open', url: opened.url }
-    }
-    throw new Error('无法打开下载链接')
-  }
-
-  for (const url of downloadUrls) {
-    try {
-      const response = await withTimeout(fetch(url), 15000)
-      if (!response.ok || !response.body) continue
-
-      const total = Number(response.headers.get('content-length') || 0)
-      const reader = response.body.getReader()
-      const chunks = []
-      let received = 0
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        chunks.push(value)
-        received += value.length
-        if (typeof onProgress === 'function' && total > 0) {
-          onProgress(Math.round((received / total) * 100))
-        }
-      }
-
-      if (isDesktop && typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
-        try {
-          const { writeBinaryFile } = await import('@tauri-apps/plugin-fs')
-          const { downloadDir, join } = await import('@tauri-apps/api/path')
-          const { open } = await import('@tauri-apps/plugin-shell')
-
-          const bytes = new Uint8Array(chunks.reduce((acc, chunk) => {
-            const merged = new Uint8Array(acc.length + chunk.length)
-            merged.set(acc, 0)
-            merged.set(chunk, acc.length)
-            return merged
-          }, new Uint8Array()))
-
-          const dir = await downloadDir()
-          const safeName = filename || `Mini-HBUT-update-${Date.now()}`
-          const filePath = await join(dir, safeName)
-          await writeBinaryFile(filePath, bytes)
-          await open(filePath)
-          return { success: true, method: 'fs-open', path: filePath, url, size: received }
-        } catch (_) {
-          const opened = await openExternal(url)
-          if (opened) {
-            return { success: true, method: 'external-open', url }
-          }
-        }
-      }
-
-      const blob = new Blob(chunks)
-      const objectUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objectUrl
-      a.download = filename || 'Mini-HBUT-update.bin'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objectUrl)
-      return { success: true, method: 'fetch', url, size: received }
-    } catch (_) {
-      // try next download URL
-    }
-  }
-
-  const opened = await openFirstUrl(downloadUrls)
+  const preferred = uniqueUrls(downloadUrls.map((url) => toGhProxyUrl(url)))
+  if (typeof onProgress === 'function') onProgress(20)
+  const opened = await openFirstUrl(preferred)
   if (opened.success) {
-    return { success: true, method: 'external-open', url: opened.url }
+    if (typeof onProgress === 'function') onProgress(100)
+    return {
+      success: true,
+      method: 'external-open',
+      url: opened.url,
+      filename: filename || ''
+    }
   }
-  throw new Error('下载失败')
+
+  throw new Error('无法打开浏览器下载链接')
 }
 
 export async function getCurrentVersion() {
@@ -281,5 +237,6 @@ export default {
   checkForUpdates,
   downloadUpdate,
   getCurrentVersion,
-  compareVersions
+  compareVersions,
+  toGhProxyUrl
 }
