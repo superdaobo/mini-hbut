@@ -394,6 +394,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
+        .route("/resource_share/direct_url", get(resource_share_direct_url))
         .route("/resource_share/proxy", get(resource_share_proxy))
         .route("/electricity_query_location", post(electricity_query_location))
         .route("/electricity_query_account", post(electricity_query_account))
@@ -1059,13 +1060,102 @@ async fn resource_share_proxy(
         "cache-control",
         "etag",
         "last-modified",
-        "content-disposition",
     ] {
         if let Some(value) = upstream_headers.get(key) {
             response.headers_mut().insert(key, value.clone());
         }
     }
     Ok(response)
+}
+
+async fn resource_share_direct_url(
+    State(_state): State<HttpState>,
+    Query(req): Query<ResourceShareProxyQuery>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let endpoint = req.endpoint.trim().trim_end_matches('/').to_string();
+    if endpoint.is_empty() || !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "endpoint 非法或为空".to_string(),
+        ));
+    }
+
+    let username = req.username.unwrap_or_default();
+    let password = req.password.unwrap_or_default();
+    if username.trim().is_empty() || password.trim().is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "缺少 WebDAV 账号或密码".to_string(),
+        ));
+    }
+
+    let encoded_path = encode_resource_share_path(&req.path);
+    let remote_url = format!("{}/dav{}", endpoint, encoded_path);
+    let auth = format!(
+        "Basic {}",
+        general_purpose::STANDARD.encode(format!("{}:{}", username, password).as_bytes())
+    );
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(25))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建客户端失败: {}", e)))?;
+
+    let mut direct_url = String::new();
+    let mut need_auth = false;
+
+    // 先 HEAD，减少流量；如果服务不支持再用 GET + bytes=0-0 探测跳转。
+    let head_resp = client
+        .head(&remote_url)
+        .header("Authorization", auth.clone())
+        .send()
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("HEAD 请求失败: {}", e)))?;
+
+    let mut status_code = head_resp.status().as_u16();
+    if let Some(loc) = head_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+        direct_url = loc.to_string();
+    }
+
+    if direct_url.is_empty() {
+        if head_resp.status().is_success() {
+            need_auth = true;
+            direct_url = remote_url.clone();
+        } else {
+            let get_resp = client
+                .get(&remote_url)
+                .header("Authorization", auth)
+                .header("Range", "bytes=0-0")
+                .send()
+                .await
+                .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("GET 探测失败: {}", e)))?;
+            status_code = get_resp.status().as_u16();
+            if let Some(loc) = get_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+                direct_url = loc.to_string();
+            } else if get_resp.status().is_success() {
+                need_auth = true;
+                direct_url = remote_url.clone();
+            }
+        }
+    }
+
+    if direct_url.is_empty() {
+        return Err(err(
+            StatusCode::BAD_GATEWAY,
+            "代理错误",
+            "未获取到可用直链".to_string(),
+        ));
+    }
+
+    Ok(ok(serde_json::json!({
+        "url": direct_url,
+        "status": status_code,
+        "need_auth": need_auth
+    })))
 }
 
 async fn fetch_library_dict(
