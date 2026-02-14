@@ -1387,7 +1387,8 @@ onBeforeUnmount(() => {
 }
 
 .app-shell.schedule-full {
-  padding-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
+  --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
+  padding-top: var(--schedule-safe-top);
   padding-bottom: calc(128px + env(safe-area-inset-bottom));
   overflow: hidden;
 }
@@ -1398,12 +1399,19 @@ onBeforeUnmount(() => {
   max-width: none !important;
   margin: 0 !important;
   min-height: calc(
-    var(--app-vh, 1vh) * 100 - max(env(safe-area-inset-top), var(--safe-top-fallback, 0px))
+    var(--app-vh, 1vh) * 100 - var(--schedule-safe-top)
   ) !important;
   height: calc(
-    var(--app-vh, 1vh) * 100 - max(env(safe-area-inset-top), var(--safe-top-fallback, 0px))
+    var(--app-vh, 1vh) * 100 - var(--schedule-safe-top)
   ) !important;
   padding: 0 !important;
+}
+
+@media (max-width: 900px) {
+  .app-shell.schedule-full {
+    --safe-top-fallback: max(var(--safe-top-fallback, 0px), 44px);
+    --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 44px));
+  }
 }
 
 /* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放 */
