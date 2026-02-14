@@ -949,7 +949,7 @@ onBeforeUnmount(() => {
 <template>
   <main
     class="app-shell"
-    :class="{ 'no-scroll': currentView === 'ai', 'schedule-full': currentView === 'schedule' }"
+    :class="{ 'no-scroll': currentView === 'ai', 'schedule-full': currentView === 'schedule', 'ios-safe': isIOSLike }"
     ref="appShellRef"
   >
     <Transition name="module-fade" mode="out-in">
@@ -1363,6 +1363,7 @@ onBeforeUnmount(() => {
 }
 
 .app-shell {
+  --safe-top-fallback: 0px;
   min-height: calc(var(--app-vh, 1vh) * 100);
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
@@ -1381,8 +1382,12 @@ onBeforeUnmount(() => {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+.app-shell.ios-safe {
+  --safe-top-fallback: 44px;
+}
+
 .app-shell.schedule-full {
-  padding-top: 0;
+  padding-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
   padding-bottom: calc(128px + env(safe-area-inset-bottom));
   overflow: hidden;
 }
@@ -1392,8 +1397,12 @@ onBeforeUnmount(() => {
   width: 100% !important;
   max-width: none !important;
   margin: 0 !important;
-  min-height: calc(var(--app-vh, 1vh) * 100 - env(safe-area-inset-top)) !important;
-  height: calc(var(--app-vh, 1vh) * 100 - env(safe-area-inset-top)) !important;
+  min-height: calc(
+    var(--app-vh, 1vh) * 100 - max(env(safe-area-inset-top), var(--safe-top-fallback, 0px))
+  ) !important;
+  height: calc(
+    var(--app-vh, 1vh) * 100 - max(env(safe-area-inset-top), var(--safe-top-fallback, 0px))
+  ) !important;
   padding: 0 !important;
 }
 
