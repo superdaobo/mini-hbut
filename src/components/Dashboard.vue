@@ -423,7 +423,7 @@ const modules = [
     color: '#0ea5e9',
     desc: 'WebDAV 资料浏览与下载',
     available: true,
-    requiresLogin: true
+    requiresLogin: false
   },
   { 
     id: 'ai', 

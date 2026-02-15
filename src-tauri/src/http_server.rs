@@ -1122,23 +1122,42 @@ async fn resource_share_direct_url(
     }
 
     if direct_url.is_empty() {
-        if head_resp.status().is_success() {
+        let mut get_probe_error: Option<String> = None;
+        match client
+            .get(&remote_url)
+            .header("Authorization", auth.clone())
+            .header("Range", "bytes=0-0")
+            .send()
+            .await
+        {
+            Ok(get_resp) => {
+                status_code = get_resp.status().as_u16();
+                if let Some(loc) = get_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+                    direct_url = loc.to_string();
+                } else if get_resp.status().is_success() {
+                    need_auth = true;
+                    direct_url = remote_url.clone();
+                }
+            }
+            Err(e) => {
+                get_probe_error = Some(e.to_string());
+            }
+        }
+
+        // 某些服务 HEAD 成功但 GET 探测失败（或不返回 location）时，仍回退到需认证地址。
+        if direct_url.is_empty() && head_resp.status().is_success() {
+            status_code = head_resp.status().as_u16();
             need_auth = true;
             direct_url = remote_url.clone();
-        } else {
-            let get_resp = client
-                .get(&remote_url)
-                .header("Authorization", auth)
-                .header("Range", "bytes=0-0")
-                .send()
-                .await
-                .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("GET 探测失败: {}", e)))?;
-            status_code = get_resp.status().as_u16();
-            if let Some(loc) = get_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
-                direct_url = loc.to_string();
-            } else if get_resp.status().is_success() {
-                need_auth = true;
-                direct_url = remote_url.clone();
+        }
+
+        if direct_url.is_empty() {
+            if let Some(e) = get_probe_error {
+                return Err(err(
+                    StatusCode::BAD_GATEWAY,
+                    "代理错误",
+                    format!("GET 探测失败: {}", e),
+                ));
             }
         }
     }

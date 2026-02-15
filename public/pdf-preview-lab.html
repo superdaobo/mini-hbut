@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF 预览实验页</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      .wrap {
+        max-width: 1100px;
+        margin: 20px auto;
+        padding: 0 16px;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 12px;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 8px;
+      }
+      input {
+        height: 38px;
+        border-radius: 8px;
+        border: 1px solid #475569;
+        background: #0b1220;
+        color: #e2e8f0;
+        padding: 0 10px;
+      }
+      button {
+        height: 38px;
+        border: none;
+        border-radius: 8px;
+        padding: 0 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .btn-primary { background: #2563eb; color: #fff; }
+      .btn-secondary { background: #334155; color: #fff; }
+      iframe {
+        width: 100%;
+        height: 78vh;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        margin-top: 10px;
+        background: #fff;
+      }
+      .tip {
+        margin-top: 8px;
+        color: #93c5fd;
+        font-size: 13px;
+      }
+      .status {
+        margin-top: 6px;
+        font-size: 13px;
+        color: #cbd5e1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h3 style="margin: 0 0 10px">PDF 预览实验页（用于验证最可靠线路）</h3>
+        <div class="row">
+          <input id="url" placeholder="输入 PDF 预览 URL（建议先填应用代理 URL）" />
+          <button class="btn-primary" id="load">在下方预览</button>
+          <button class="btn-secondary" id="open">新窗口打开</button>
+        </div>
+        <div class="tip">
+          建议优先测试应用代理 URL（例如 <code>http://127.0.0.1:4399/resource_share/proxy?... </code>），其次测试直链 URL。
+        </div>
+        <div id="status" class="status">状态：待输入</div>
+        <iframe id="frame" title="pdf-preview-lab"></iframe>
+      </div>
+    </div>
+    <script>
+      const input = document.getElementById('url')
+      const frame = document.getElementById('frame')
+      const status = document.getElementById('status')
+      const load = () => {
+        const u = (input.value || '').trim()
+        if (!u) {
+          status.textContent = '状态：URL 为空'
+          return
+        }
+        status.textContent = '状态：加载中...'
+        frame.src = u
+      }
+      frame.addEventListener('load', () => {
+        status.textContent = `状态：已加载 ${new Date().toLocaleTimeString()}`
+      })
+      document.getElementById('load').addEventListener('click', load)
+      document.getElementById('open').addEventListener('click', () => {
+        const u = (input.value || '').trim()
+        if (!u) return
+        window.open(u, '_blank', 'noopener')
+      })
+    </script>
+  </body>
+</html>
+
