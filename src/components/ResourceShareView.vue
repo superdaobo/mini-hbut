@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, markRaw, watch } from 'vue'
 import { isTauri } from '@tauri-apps/api/core'
+import Player from 'xgplayer'
+import 'xgplayer/dist/index.min.css'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { openExternal } from '../utils/external_link'
 
@@ -58,7 +60,8 @@ const pdfPanState = {
   startScrollTop: 0
 }
 
-const previewVideoRef = ref(null)
+const previewPlayerHostRef = ref(null)
+let previewPlayerInstance = null
 let pdfjsRuntime = null
 
 const runtimeIsTauri = (() => {
@@ -435,6 +438,7 @@ const closePreview = async () => {
       // ignore
     }
   }
+  destroyPreviewPlayer()
   showPreview.value = false
   isViewerFullscreen.value = false
   previewTitle.value = ''
@@ -625,6 +629,55 @@ const onPdfPanPointerUp = (event) => {
   isPdfPanning.value = false
 }
 
+const destroyPreviewPlayer = () => {
+  if (!previewPlayerInstance) return
+  try {
+    previewPlayerInstance.destroy()
+  } catch {
+    // ignore
+  }
+  previewPlayerInstance = null
+}
+
+const initPreviewPlayer = async () => {
+  if (previewKind.value !== 'video' && previewKind.value !== 'audio') return
+  if (!showPreview.value || loadingPreview.value || !previewUrl.value) return
+
+  await nextTick()
+  const host = previewPlayerHostRef.value
+  if (!host) return
+
+  destroyPreviewPlayer()
+
+  const isAudio = previewKind.value === 'audio'
+  previewPlayerInstance = markRaw(new Player({
+    id: 'resource-xgplayer-host',
+    url: previewUrl.value,
+    lang: 'zh-cn',
+    autoplay: false,
+    playsinline: true,
+    videoInit: true,
+    cssFullscreen: true,
+    closeVideoClick: true,
+    fluid: !isAudio,
+    width: '100%',
+    height: isAudio ? 92 : '100%',
+    volume: 0.8,
+    pip: !isAudio,
+    rotateFullscreen: false,
+    poster: '',
+    ignores: isAudio ? ['fullscreen', 'cssfullscreen', 'pip', 'download'] : ['download'],
+    controls: {
+      mode: 'flex',
+      initShow: true
+    }
+  }))
+
+  previewPlayerInstance.on?.('error', () => {
+    onPreviewMediaError()
+  })
+}
+
 const onPreviewMediaError = () => {
   if (previewKind.value !== 'video' && previewKind.value !== 'audio') return
   if (!previewProxyFallbackUsed.value && previewPath.value) {
@@ -803,6 +856,15 @@ const loadConfig = async () => {
 }
 
 const handleWindowResize = () => {
+  if ((previewKind.value === 'video' || previewKind.value === 'audio') && showPreview.value && previewPlayerInstance?.resize) {
+    window.setTimeout(() => {
+      try {
+        previewPlayerInstance.resize()
+      } catch {
+        // ignore
+      }
+    }, 80)
+  }
   if (previewKind.value === 'pdf' && showPreview.value) {
     window.setTimeout(() => {
       void renderPdfPage()
@@ -822,10 +884,28 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowResize)
+  destroyPreviewPlayer()
   void closePreview()
 })
 
+watch([showPreview, previewKind, previewUrl, loadingPreview], async ([open, kind, url, busy]) => {
+  if (!open || busy || !url || (kind !== 'video' && kind !== 'audio')) {
+    destroyPreviewPlayer()
+    return
+  }
+  await initPreviewPlayer()
+})
+
 watch(isViewerFullscreen, () => {
+  if (previewPlayerInstance?.resize) {
+    window.setTimeout(() => {
+      try {
+        previewPlayerInstance.resize()
+      } catch {
+        // ignore
+      }
+    }, 120)
+  }
   if (previewKind.value === 'pdf' && showPreview.value) {
     window.setTimeout(() => {
       void renderPdfPage()
@@ -896,20 +976,8 @@ watch(isViewerFullscreen, () => {
         <div class="preview-body" :class="{ 'viewer-fullscreen': isViewerFullscreen }">
           <button v-if="isViewerFullscreen" class="viewer-exit-btn" @click="exitViewerFullscreen">← 退出全屏</button>
           <div v-if="loadingPreview" class="preview-loading">预览加载中...</div>
-          <div v-else-if="previewKind === 'video'" class="preview-media-wrap">
-            <video
-              ref="previewVideoRef"
-              class="preview-media"
-              :src="previewUrl"
-              controls
-              playsinline
-              webkit-playsinline="true"
-              preload="metadata"
-              @error="onPreviewMediaError"
-            />
-          </div>
-          <div v-else-if="previewKind === 'audio'" class="preview-audio-wrap">
-            <audio class="preview-audio" :src="previewUrl" controls preload="metadata" @error="onPreviewMediaError" />
+          <div v-else-if="previewKind === 'video' || previewKind === 'audio'" class="preview-media-wrap xgplayer-wrap" :class="{ audio: previewKind === 'audio' }">
+            <div id="resource-xgplayer-host" ref="previewPlayerHostRef" class="xgplayer-host"></div>
           </div>
           <div v-else-if="previewKind === 'image'" class="preview-image-wrap">
             <img class="preview-image" :src="previewUrl" alt="preview" />
@@ -1425,32 +1493,50 @@ watch(isViewerFullscreen, () => {
   background: #0f172a;
 }
 
-.preview-media {
+.xgplayer-wrap {
   width: 100%;
-  max-height: 68vh;
+  height: 100%;
+  min-height: 260px;
+  padding: 10px;
+  background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
 }
 
-.preview-body.viewer-fullscreen .preview-media-wrap,
-.preview-body.viewer-fullscreen .preview-image-wrap {
+.xgplayer-wrap.audio {
+  min-height: 180px;
+  background: linear-gradient(180deg, #111827 0%, #1f2937 100%);
+}
+
+.xgplayer-host {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+:deep(.xgplayer) {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+:deep(.xgplayer .xgplayer-controls) {
+  backdrop-filter: blur(6px);
+}
+
+:deep(.xgplayer .xgplayer-start) {
+  transform: scale(1.1);
+}
+
+.preview-body.viewer-fullscreen .xgplayer-wrap {
   min-height: 100dvh;
-  width: 100%;
-}
-
-.preview-body.viewer-fullscreen .preview-media {
   height: 100dvh;
-  max-height: 100dvh;
-  object-fit: contain;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 52px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
 }
 
-.preview-audio-wrap {
+.preview-body.viewer-fullscreen .xgplayer-host {
   width: 100%;
-  min-height: 160px;
-  display: grid;
-  place-items: center;
-}
-
-.preview-audio {
-  width: calc(100% - 20px);
+  height: 100dvh;
 }
 
 .preview-image {

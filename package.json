@@ -25,7 +25,8 @@
     "pinia": "^2.1.7",
     "tauri-plugin-keep-screen-on-api": "^0.1.4",
     "vue": "^3.4.0",
-    "vue-router": "^4.2.5"
+    "vue-router": "^4.2.5",
+    "xgplayer": "^3.0.22"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
