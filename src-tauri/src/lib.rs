@@ -1151,12 +1151,22 @@ async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value
 // ... sync_schedule, get_schedule_local similarly ...
 
 #[tauri::command]
-async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
+    let requested_semester = semester
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let explicit_semester = requested_semester.is_some();
     
     // 获取当前︽（基于日期计算）
-    let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
+    let semester = match requested_semester {
+        Some(s) => s,
+        None => client
+            .get_current_semester()
+            .await
+            .unwrap_or_else(|_| "2024-2025-1".to_string()),
+    };
     
     // 获取″数据计算当前ㄦ和开始日?
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
@@ -1169,7 +1179,7 @@ async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, 
         (1, String::new())
     };
     
-    match client.fetch_schedule().await {
+    match client.fetch_schedule(Some(semester.as_str())).await {
         Ok((course_list, _now_week)) => {
             // Keep response shape consistent with Python backend.
             let result = serde_json::json!({
@@ -1194,12 +1204,31 @@ async fn sync_schedule(state: State<'_, AppState>) -> Result<serde_json::Value, 
             Ok(result)
         }
         Err(e) => {
+            let msg = e.to_string();
+            if explicit_semester {
+                let lower = msg.to_lowercase();
+                if msg.contains("该学期无课表")
+                    || msg.contains("无课表")
+                    || msg.contains("ret=-1")
+                    || lower.contains("unknown schedule")
+                    || lower.contains("no schedule")
+                {
+                    return Err("该学期无课表，请切换学期".to_string());
+                }
+                if msg.contains("课表 API 返回错误")
+                    || msg.contains("课表数据格式不正确")
+                    || msg.contains("ret=-1")
+                {
+                    return Err("该学期无课表，请切换学期".to_string());
+                }
+                return Err(msg);
+            }
             if let Some(uid) = &uid {
                 if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "schedule_cache", uid) {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
-            Err(e.to_string())
+            Err(msg)
         }
     }
 }

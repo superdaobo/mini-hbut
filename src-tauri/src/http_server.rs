@@ -246,6 +246,11 @@ struct CalendarRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ScheduleQueryRequest {
+    semester: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ScheduleExportRequest {
     student_id: Option<String>,
     semester: Option<String>,
@@ -485,10 +490,21 @@ async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<
     }
 }
 
-async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<ScheduleQueryRequest>>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
+    let requested_semester = payload
+        .and_then(|Json(req)| req.semester)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let explicit_semester = requested_semester.is_some();
 
-    let semester = client.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string());
+    let semester = match requested_semester {
+        Some(s) => s,
+        None => client
+            .get_current_semester()
+            .await
+            .unwrap_or_else(|_| "2024-2025-1".to_string()),
+    };
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
     let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
         let meta = cal.get("meta");
@@ -499,8 +515,26 @@ async fn sync_schedule(State(state): State<HttpState>) -> Result<Json<ApiRespons
         (1, String::new())
     };
 
-    let (course_list, _now_week) = client.fetch_schedule().await
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
+    let (course_list, _now_week) = client
+        .fetch_schedule(Some(semester.as_str()))
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            let lower = msg.to_lowercase();
+            if explicit_semester
+                && (msg.contains("该学期无课表")
+                    || msg.contains("无课表")
+                    || msg.contains("课表 API 返回错误")
+                    || msg.contains("课表数据格式不正确")
+                    || msg.contains("ret=-1")
+                    || lower.contains("unknown schedule")
+                    || lower.contains("no schedule"))
+            {
+                err(StatusCode::BAD_REQUEST, "业务错误", "该学期无课表，请切换学期".to_string())
+            } else {
+                err(StatusCode::BAD_REQUEST, "业务错误", msg)
+            }
+        })?;
 
     let result = serde_json::json!({
         "success": true,

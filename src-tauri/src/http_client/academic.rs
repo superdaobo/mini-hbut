@@ -679,9 +679,12 @@ impl HbutClient {
     }
 
     /// ???????????
-    pub async fn fetch_schedule(&self) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_schedule(&self, semester: Option<&str>) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
         // 1. ????????
-        let semester = self.get_current_semester().await?;
+        let semester = match semester.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(s) => s.to_string(),
+            None => self.get_current_semester().await?,
+        };
         println!("[调试] 课表学期: {}", semester);
         
         // 2. ??? xhid??????
@@ -753,6 +756,23 @@ impl HbutClient {
             json.get("data").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)
         );
         
+        let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
+        if ret != 0 {
+            let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+            let lower = msg.to_lowercase();
+            if ret == -1
+                || msg.contains("该学期无课表")
+                || msg.contains("无课表")
+                || msg.contains("暂无")
+                || lower.contains("no schedule")
+            {
+                return Err("该学期无课表，请切换学期".into());
+            }
+            if ret == -1 || msg.contains("无课表") || msg.contains("暂无") {
+                return Err("该学期无课表，请切换学期".into());
+            }
+        }
+
         parser::parse_schedule(&json)
     }
 

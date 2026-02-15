@@ -306,13 +306,13 @@ const adapter = {
 
             if (url.includes('/v2/schedule/query')) {
                 if (!hasTauri) {
-                    const res = await bridgePost('/sync_schedule');
+                    const res = await bridgePost('/sync_schedule', data || {});
                     if (res?.success && res?.data) {
                         return mockResponse({ success: true, ...res.data });
                     }
                     return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取课表失败' });
                 }
-                const schedule = await invoke('sync_schedule');
+                const schedule = await invoke('sync_schedule', { semester: data?.semester || null });
                 return mockResponse({ success: true, ...schedule });
             }
 
@@ -757,4 +757,3 @@ const axiosInstance = {
 };
 
 export default axiosInstance;
-

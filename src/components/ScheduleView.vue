@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, getCachedData } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -31,6 +32,10 @@ const exportingMode = ref('')
 const exportUrl = ref('')
 const exportError = ref('')
 const exportCopied = ref(false)
+const semesterOptions = ref([])
+const semesterLoading = ref(false)
+const semesterDraft = ref('')
+const semesterError = ref('')
 
 const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
 
@@ -118,7 +123,7 @@ const ensureStartDate = () => {
 
 
 
-const applyCachedWeek = () => {
+const applyCachedWeek = ({ preserveSemester = false } = {}) => {
   if (!props.studentId) return
   const local = localStorage.getItem('hbu_schedule_meta')
   if (local) {
@@ -130,7 +135,9 @@ const applyCachedWeek = () => {
         selectedWeek.value = meta.current_week
         hasPresetWeek.value = true
       }
-      semester.value = meta?.semester || semester.value
+      if (!preserveSemester) {
+        semester.value = meta?.semester || semester.value
+      }
     } catch (e) {
       // ignore parse errors
     }
@@ -145,35 +152,53 @@ const applyCachedWeek = () => {
       selectedWeek.value = meta.current_week
       hasPresetWeek.value = true
     }
-    semester.value = meta.semester || semester.value
+    if (!preserveSemester) {
+      semester.value = meta.semester || semester.value
+    }
   }
   ensureStartDate()
 }
 
-const fetchSchedule = async () => {
+const fetchSchedule = async (targetSemester = '') => {
   loading.value = true
+  semesterError.value = ''
+  const requestedSemester = String(targetSemester || semesterDraft.value || semester.value || '').trim()
+  errorMsg.value = ''
   try {
-    applyCachedWeek()
+    if (requestedSemester) {
+      semester.value = requestedSemester
+    }
+    applyCachedWeek({ preserveSemester: Boolean(requestedSemester) })
     if (!props.studentId) {
       errorMsg.value = '请先在个人中心登录'
       return
     }
-    const { data } = await fetchWithCache(`schedule:${props.studentId}`, async () => {
+    const cacheKey = requestedSemester ? `schedule:${props.studentId}:${requestedSemester}` : `schedule:${props.studentId}`
+    const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
-        student_id: props.studentId
+        student_id: props.studentId,
+        semester: requestedSemester || undefined
       })
       return res.data
     })
 
     if (data?.success) {
+      const rawData = Array.isArray(data?.data) ? data.data : []
+      if (requestedSemester && data.offline && rawData.length === 0) {
+        offline.value = false
+        syncTime.value = ''
+        scheduleData.value = []
+        errorMsg.value = '该学期无课表，请切换学期'
+        return
+      }
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
       // 处理数据：去重并合并连续课程
-      const rawData = data.data
       scheduleData.value = processScheduleData(rawData)
       
       if (data.meta) {
         semester.value = data.meta.semester
+        semesterDraft.value = data.meta.semester || semesterDraft.value
         if (data.meta.start_date) startDateStr.value = data.meta.start_date
         if (!hasPresetWeek.value && data.meta.current_week) {
           currentWeek.value = data.meta.current_week
@@ -191,13 +216,62 @@ const fetchSchedule = async () => {
         emit('logout')
         return
       }
+      scheduleData.value = []
+      offline.value = false
       errorMsg.value = data?.error || '获取课表失败'
     }
   } catch (e) {
     console.error('获取课表异常', e)
+    scheduleData.value = []
+    offline.value = false
+    errorMsg.value = e?.message || '获取课表失败'
   } finally {
     loading.value = false
   }
+}
+
+const fetchSemesterOptions = async () => {
+  semesterLoading.value = true
+  semesterError.value = ''
+  try {
+    const { data } = await fetchWithCache('semesters', async () => {
+      const res = await axios.get(`${API_BASE}/v2/semesters`)
+      return res.data
+    })
+    if (!data?.success) {
+      throw new Error(data?.error || '获取学期列表失败')
+    }
+    const list = normalizeSemesterList(data?.semesters || [])
+    semesterOptions.value = list
+    const resolved = resolveCurrentSemester(list, data?.current || semester.value)
+    if (resolved) {
+      semesterDraft.value = resolved
+      if (!semester.value) semester.value = resolved
+    }
+  } catch (e) {
+    semesterError.value = e?.message || '获取学期列表失败'
+  } finally {
+    semesterLoading.value = false
+  }
+}
+
+const applySemesterQuery = async () => {
+  const selected = String(semesterDraft.value || '').trim()
+  if (!selected) {
+    semesterError.value = '请选择学期'
+    return
+  }
+  hasPresetWeek.value = false
+  currentWeek.value = 1
+  selectedWeek.value = 1
+  startDateStr.value = ''
+  await fetchSchedule(selected)
+}
+
+const onSemesterChange = async () => {
+  const selected = String(semesterDraft.value || '').trim()
+  if (!selected || selected === semester.value) return
+  await applySemesterQuery()
 }
 
 // 数据预处理：合并连续课程，去除重复
@@ -624,9 +698,10 @@ const copyExportUrl = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   applyCachedWeek()
-  fetchSchedule()
+  await fetchSemesterOptions()
+  await fetchSchedule(semesterDraft.value || semester.value)
 })
 </script>
 
@@ -654,6 +729,17 @@ onMounted(() => {
     <Transition name="drawer-slide">
       <aside v-if="showMenu" class="drawer-panel" @click.stop>
         <div class="drawer-title">课表工具</div>
+        <div class="drawer-section">
+          <div class="drawer-subtitle">选择学期</div>
+          <div class="drawer-semester-row">
+            <select class="drawer-select" v-model="semesterDraft" :disabled="semesterLoading || loading" @change="onSemesterChange">
+              <option disabled value="">请选择学期</option>
+              <option v-for="sem in semesterOptions" :key="sem" :value="sem">{{ sem }}</option>
+            </select>
+          </div>
+          <div v-if="semesterError" class="drawer-error">{{ semesterError }}</div>
+        </div>
+
         <div class="drawer-actions">
           <button class="drawer-action" :disabled="exporting" @click="exportCalendar('week')">
             {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
@@ -927,12 +1013,14 @@ onMounted(() => {
 
 .drawer-panel {
   position: fixed;
-  top: 0;
+  top: calc(env(safe-area-inset-top, 0px) + 18px);
   left: 0;
   width: min(78vw, 320px);
-  height: 100vh;
+  height: calc(100dvh - env(safe-area-inset-top, 0px) - 18px);
   background: var(--ui-surface);
   border-right: 1px solid var(--ui-surface-border);
+  border-top-right-radius: 16px;
+  border-bottom-right-radius: 16px;
   padding: 18px 16px;
   box-shadow: 12px 0 24px rgba(15, 23, 42, 0.16);
   z-index: 50;
@@ -945,6 +1033,44 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 700;
   color: var(--ui-text);
+}
+
+.drawer-section {
+  display: grid;
+  gap: 8px;
+}
+
+.drawer-subtitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+
+.drawer-semester-row {
+  display: grid;
+  gap: 8px;
+}
+
+.drawer-select {
+  width: 100%;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--ui-surface-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 10px;
+}
+
+.drawer-select:focus {
+  outline: 2px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  outline-offset: 1px;
+}
+
+.drawer-error {
+  font-size: 12px;
+  color: #dc2626;
 }
 
 .drawer-action {
