@@ -1151,6 +1151,7 @@ async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value
 // ... sync_schedule, get_schedule_local similarly ...
 
 #[tauri::command]
+#[allow(unreachable_code)]
 async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
@@ -1158,6 +1159,55 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let explicit_semester = requested_semester.is_some();
+    let schedule_context = client.resolve_schedule_context(requested_semester.as_deref()).await;
+    let semester_to_query = schedule_context
+        .get("semester")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or_else(|| requested_semester.clone())
+        .unwrap_or_else(|| "2024-2025-1".to_string());
+
+    let result = match client.fetch_schedule(Some(semester_to_query.as_str())).await {
+        Ok((course_list, _now_week)) => {
+            let mut meta = schedule_context;
+            if let Some(map) = meta.as_object_mut() {
+                map.insert("semester".to_string(), serde_json::json!(semester_to_query));
+                map.insert("total_courses".to_string(), serde_json::json!(course_list.len()));
+                map.insert(
+                    "query_time".to_string(),
+                    serde_json::json!(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+                );
+            }
+            let payload = serde_json::json!({
+                "success": true,
+                "data": course_list,
+                "meta": meta,
+                "sync_time": chrono::Local::now().to_rfc3339(),
+                "offline": false
+            });
+            if let Some(uid) = &uid {
+                let _ = db::save_cache(DB_FILENAME, "schedule_cache", uid, &payload);
+            }
+            payload
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            if crate::http_client::HbutClient::is_no_schedule_error_message(&msg) {
+                return Err("暂无可用课表".to_string());
+            }
+            if explicit_semester {
+                return Err(msg);
+            }
+            if let Some(uid) = &uid {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "schedule_cache", uid) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
+            return Err(msg);
+        }
+    };
+    return Ok(result);
     
     // 获取当前︽（基于日期计算）
     let semester = match requested_semester {
@@ -1771,8 +1821,52 @@ async fn fetch_academic_progress(state: State<'_, AppState>, fasz: Option<i32>) 
 }
 
 #[tauri::command]
-async fn fetch_qxzkb_options() -> Result<serde_json::Value, String> {
-    Ok(crate::qxzkb_options::qxzkb_options())
+async fn fetch_qxzkb_options(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let context = client.resolve_schedule_context(None).await;
+    let current_semester = context
+        .get("semester")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_default();
+
+    let mut payload = crate::qxzkb_options::qxzkb_options();
+    if !current_semester.is_empty() {
+        if let Some(defaults) = payload.get_mut("defaults").and_then(|v| v.as_object_mut()) {
+            defaults.insert(
+                "xnxq".to_string(),
+                serde_json::json!(current_semester.clone()),
+            );
+        }
+        if let Some(list) = payload
+            .get_mut("options")
+            .and_then(|v| v.get_mut("xnxq"))
+            .and_then(|v| v.as_array_mut())
+        {
+            let mut normalized = Vec::with_capacity(list.len() + 1);
+            normalized.push(serde_json::json!({
+                "value": current_semester.clone(),
+                "label": "当前学期"
+            }));
+            for item in list.iter() {
+                let value = item
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.trim())
+                    .unwrap_or("");
+                if value.is_empty() || value == current_semester {
+                    continue;
+                }
+                normalized.push(item.clone());
+            }
+            *list = normalized;
+        }
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("context".to_string(), context);
+    }
+    Ok(payload)
 }
 
 #[tauri::command]

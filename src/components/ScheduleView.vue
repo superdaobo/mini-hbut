@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
-import { fetchWithCache, getCachedData } from '../utils/api.js'
+import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 
@@ -18,14 +18,15 @@ const loading = ref(false)
 const scheduleData = ref([])
 const currentWeek = ref(0)
 const selectedWeek = ref(0)
-const hasPresetWeek = ref(false)
 const semester = ref('')
+const totalWeeks = ref(25)
 const startDateStr = ref('') 
 const errorMsg = ref('')
 const showDetail = ref(false)
 const selectedCourse = ref(null)
 const offline = ref(false)
 const syncTime = ref('')
+const vacationNotice = ref('')
 const showMenu = ref(false)
 const exporting = ref(false)
 const exportingMode = ref('')
@@ -103,77 +104,50 @@ const currentMonth = computed(() => {
   return new Date().getMonth() + 1
 })
 
-const ensureStartDate = () => {
-  if (startDateStr.value) return
-
-  const today = new Date()
-  const day = today.getDay() === 0 ? 7 : today.getDay() // 周日=7
-  const monday = new Date(today)
-  monday.setDate(today.getDate() - (day - 1))
-
-  const baseWeek = currentWeek.value > 0 ? currentWeek.value : 1
-  const semesterStart = new Date(monday)
-  semesterStart.setDate(monday.getDate() - (baseWeek - 1) * 7)
-
-  const yyyy = semesterStart.getFullYear()
-  const mm = String(semesterStart.getMonth() + 1).padStart(2, '0')
-  const dd = String(semesterStart.getDate()).padStart(2, '0')
-  startDateStr.value = `${yyyy}-${mm}-${dd}`
-}
-
-
-
-const applyCachedWeek = ({ preserveSemester = false } = {}) => {
-  if (!props.studentId) return
-  const local = localStorage.getItem('hbu_schedule_meta')
-  if (local) {
-    try {
-      const meta = JSON.parse(local)
-      if (meta?.start_date) startDateStr.value = meta.start_date
-      if (meta?.current_week) {
-        currentWeek.value = meta.current_week
-        selectedWeek.value = meta.current_week
-        hasPresetWeek.value = true
-      }
-      if (!preserveSemester) {
-        semester.value = meta?.semester || semester.value
-      }
-    } catch (e) {
-      // ignore parse errors
-    }
+const applyMeta = (meta, requestedSemester = '') => {
+  const safeMeta = meta && typeof meta === 'object' ? meta : {}
+  const resolvedSemester = String(safeMeta.semester || requestedSemester || semester.value || '').trim()
+  if (resolvedSemester) {
+    semester.value = resolvedSemester
+    semesterDraft.value = resolvedSemester
   }
-  ensureStartDate()
-  const cached = getCachedData(`schedule:${props.studentId}`)
-  if (cached?.data?.meta) {
-    const meta = cached.data.meta
-    if (meta.start_date) startDateStr.value = meta.start_date
-    if (meta.current_week) {
-      currentWeek.value = meta.current_week
-      selectedWeek.value = meta.current_week
-      hasPresetWeek.value = true
-    }
-    if (!preserveSemester) {
-      semester.value = meta.semester || semester.value
-    }
-  }
-  ensureStartDate()
+
+  startDateStr.value = String(safeMeta.start_date || '').trim()
+  vacationNotice.value = String(safeMeta.vacation_notice || '').trim()
+
+  const parsedWeeks = Number(safeMeta.total_weeks || 0)
+  totalWeeks.value = Number.isFinite(parsedWeeks) && parsedWeeks > 0 ? parsedWeeks : 25
+
+  const parsedCurrentWeek = Number(safeMeta.current_week || 0)
+  const safeWeek = Number.isFinite(parsedCurrentWeek) && parsedCurrentWeek > 0
+    ? Math.min(parsedCurrentWeek, totalWeeks.value)
+    : 1
+  currentWeek.value = safeWeek
+  selectedWeek.value = safeWeek
+
+  localStorage.setItem('hbu_schedule_meta', JSON.stringify({
+    semester: resolvedSemester,
+    start_date: startDateStr.value,
+    current_week: currentWeek.value,
+    total_weeks: totalWeeks.value,
+    vacation_notice: vacationNotice.value
+  }))
 }
 
 const fetchSchedule = async (targetSemester = '') => {
   loading.value = true
   semesterError.value = ''
-  const requestedSemester = String(targetSemester || semesterDraft.value || semester.value || '').trim()
+  const requestedSemester = String(targetSemester || '').trim()
   errorMsg.value = ''
   try {
     if (requestedSemester) {
       semester.value = requestedSemester
     }
-    applyCachedWeek({ preserveSemester: Boolean(requestedSemester) })
     if (!props.studentId) {
       errorMsg.value = '请先在个人中心登录'
       return
     }
-    const cacheKey = requestedSemester ? `schedule:${props.studentId}:${requestedSemester}` : `schedule:${props.studentId}`
+    const cacheKey = requestedSemester ? `schedule:${props.studentId}:${requestedSemester}` : `schedule:${props.studentId}:auto`
     const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
         student_id: props.studentId,
@@ -184,32 +158,14 @@ const fetchSchedule = async (targetSemester = '') => {
 
     if (data?.success) {
       const rawData = Array.isArray(data?.data) ? data.data : []
-      if (requestedSemester && data.offline && rawData.length === 0) {
-        offline.value = false
-        syncTime.value = ''
-        scheduleData.value = []
-        errorMsg.value = '该学期无课表，请切换学期'
-        return
-      }
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
       // 处理数据：去重并合并连续课程
       scheduleData.value = processScheduleData(rawData)
-      
-      if (data.meta) {
-        semester.value = data.meta.semester
-        semesterDraft.value = data.meta.semester || semesterDraft.value
-        if (data.meta.start_date) startDateStr.value = data.meta.start_date
-        if (!hasPresetWeek.value && data.meta.current_week) {
-          currentWeek.value = data.meta.current_week
-          selectedWeek.value = currentWeek.value
-        }
-        ensureStartDate()
-        localStorage.setItem('hbu_schedule_meta', JSON.stringify({
-          semester: data.meta.semester,
-          start_date: data.meta.start_date,
-          current_week: data.meta.current_week
-        }))
+      applyMeta(data.meta, requestedSemester)
+
+      if (rawData.length === 0) {
+        errorMsg.value = '暂无可用课表'
       }
     } else {
       if (data?.need_login) {
@@ -218,13 +174,25 @@ const fetchSchedule = async (targetSemester = '') => {
       }
       scheduleData.value = []
       offline.value = false
-      errorMsg.value = data?.error || '获取课表失败'
+      vacationNotice.value = ''
+      startDateStr.value = ''
+      currentWeek.value = 1
+      selectedWeek.value = 1
+      totalWeeks.value = 25
+      const message = String(data?.error || '获取课表失败')
+      errorMsg.value = /无课表|暂无/.test(message) ? '暂无可用课表' : message
     }
   } catch (e) {
     console.error('获取课表异常', e)
     scheduleData.value = []
     offline.value = false
-    errorMsg.value = e?.message || '获取课表失败'
+    vacationNotice.value = ''
+    startDateStr.value = ''
+    currentWeek.value = 1
+    selectedWeek.value = 1
+    totalWeeks.value = 25
+    const message = String(e?.message || '获取课表失败')
+    errorMsg.value = /无课表|暂无/.test(message) ? '暂无可用课表' : message
   } finally {
     loading.value = false
   }
@@ -261,10 +229,11 @@ const applySemesterQuery = async () => {
     semesterError.value = '请选择学期'
     return
   }
-  hasPresetWeek.value = false
   currentWeek.value = 1
   selectedWeek.value = 1
+  totalWeeks.value = 25
   startDateStr.value = ''
+  vacationNotice.value = ''
   await fetchSchedule(selected)
 }
 
@@ -273,6 +242,16 @@ const onSemesterChange = async () => {
   if (!selected || selected === semester.value) return
   await applySemesterQuery()
 }
+
+watch(totalWeeks, (maxWeeks) => {
+  if (!Number.isFinite(maxWeeks) || maxWeeks <= 0) return
+  if (selectedWeek.value > maxWeeks) {
+    selectedWeek.value = maxWeeks
+  }
+  if (currentWeek.value > maxWeeks) {
+    currentWeek.value = maxWeeks
+  }
+})
 
 // 数据预处理：合并连续课程，去除重复
 const processScheduleData = (courses) => {
@@ -699,9 +678,8 @@ const copyExportUrl = async () => {
 }
 
 onMounted(async () => {
-  applyCachedWeek()
   await fetchSemesterOptions()
-  await fetchSchedule(semesterDraft.value || semester.value)
+  await fetchSchedule()
 })
 </script>
 
@@ -717,7 +695,7 @@ onMounted(async () => {
       <div class="week-selector">
         <select v-model="selectedWeek">
           <option disabled value="0">请选择周次</option>
-          <option v-for="w in 25" :key="w" :value="w">第{{ w }}周</option>
+          <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
         </select>
         <span class="arrow">▼</span>
       </div>
@@ -765,6 +743,10 @@ onMounted(async () => {
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+    </div>
+
+    <div v-if="vacationNotice" class="vacation-banner">
+      {{ vacationNotice }}
     </div>
 
     <div v-if="errorMsg" class="error-banner">
@@ -1472,6 +1454,16 @@ onMounted(async () => {
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.4);
   color: #b91c1c;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.vacation-banner {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
   border-radius: 12px;
   font-weight: 600;
 }

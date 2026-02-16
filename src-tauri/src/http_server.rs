@@ -490,6 +490,7 @@ async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<
     }
 }
 
+#[allow(unreachable_code)]
 async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<ScheduleQueryRequest>>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     let requested_semester = payload
@@ -497,6 +498,49 @@ async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<Sche
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let explicit_semester = requested_semester.is_some();
+
+    let schedule_context = client.resolve_schedule_context(requested_semester.as_deref()).await;
+    let semester_to_query = schedule_context
+        .get("semester")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or_else(|| requested_semester.clone())
+        .unwrap_or_else(|| "2024-2025-1".to_string());
+
+    let (course_list, _now_week) = client
+        .fetch_schedule(Some(semester_to_query.as_str()))
+        .await
+        .map_err(|e| {
+            let msg = e.to_string();
+            if crate::http_client::HbutClient::is_no_schedule_error_message(&msg) {
+                return err(StatusCode::BAD_REQUEST, "业务错误", "暂无可用课表".to_string());
+            }
+            if explicit_semester {
+                return err(StatusCode::BAD_REQUEST, "业务错误", msg);
+            }
+            err(StatusCode::BAD_REQUEST, "业务错误", msg)
+        })?;
+
+    let mut meta = schedule_context;
+    if let Some(map) = meta.as_object_mut() {
+        map.insert("semester".to_string(), serde_json::json!(semester_to_query));
+        map.insert("total_courses".to_string(), serde_json::json!(course_list.len()));
+        map.insert(
+            "query_time".to_string(),
+            serde_json::json!(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+        );
+    }
+
+    let result = serde_json::json!({
+        "success": true,
+        "data": course_list,
+        "meta": meta,
+        "sync_time": chrono::Local::now().to_rfc3339(),
+        "offline": false
+    });
+
+    return Ok(ok(result));
 
     let semester = match requested_semester {
         Some(s) => s,
@@ -887,8 +931,53 @@ async fn cache_get(
     }
 }
 
-async fn fetch_qxzkb_options() -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    Ok(ok(crate::qxzkb_options::qxzkb_options()))
+async fn fetch_qxzkb_options(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    let context = client.resolve_schedule_context(None).await;
+    let current_semester = context
+        .get("semester")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_default();
+
+    let mut payload = crate::qxzkb_options::qxzkb_options();
+    if !current_semester.is_empty() {
+        if let Some(defaults) = payload.get_mut("defaults").and_then(|v| v.as_object_mut()) {
+            defaults.insert(
+                "xnxq".to_string(),
+                serde_json::json!(current_semester.clone()),
+            );
+        }
+        if let Some(list) = payload
+            .get_mut("options")
+            .and_then(|v| v.get_mut("xnxq"))
+            .and_then(|v| v.as_array_mut())
+        {
+            let mut normalized = Vec::with_capacity(list.len() + 1);
+            normalized.push(serde_json::json!({
+                "value": current_semester.clone(),
+                "label": "当前学期"
+            }));
+            for item in list.iter() {
+                let value = item
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.trim())
+                    .unwrap_or("");
+                if value.is_empty() || value == current_semester {
+                    continue;
+                }
+                normalized.push(item.clone());
+            }
+            *list = normalized;
+        }
+    }
+    if let Some(map) = payload.as_object_mut() {
+        map.insert("context".to_string(), context);
+    }
+
+    Ok(ok(payload))
 }
 
 async fn fetch_qxzkb_jcinfo(State(state): State<HttpState>, Json(req): Json<QxzkbJcinfoRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {

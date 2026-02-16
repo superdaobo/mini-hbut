@@ -9,15 +9,54 @@
 //! - 閮ㄥ垎鎺ュ字段名较为混乱，解析逻辑集中?parser 妯″潡
 
 use super::*;
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
 use reqwest::{cookie::CookieStore, Url};
 use super::utils::chrono_timestamp;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+
+const PRESTART_SWITCH_DAYS: i64 = 7;
+
+#[derive(Debug, Clone)]
+struct CalendarTermSummary {
+    semester: String,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    total_weeks: i32,
+    current_week: i32,
+    is_in_semester: bool,
+}
+
+impl CalendarTermSummary {
+    fn start_date_str(&self) -> String {
+        self.start_date.format("%Y-%m-%d").to_string()
+    }
+
+    fn end_date_str(&self) -> String {
+        self.end_date.format("%Y-%m-%d").to_string()
+    }
+
+    fn days_to_start(&self, today: NaiveDate) -> i64 {
+        (self.start_date - today).num_days()
+    }
+
+    fn days_to_end(&self, today: NaiveDate) -> i64 {
+        (self.end_date - today).num_days()
+    }
+}
 
 impl HbutClient {
     /// ???????????????
+    #[allow(unreachable_code)]
     pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let today = Local::now().date_naive();
+        let semester = Self::semester_by_date(today);
+        println!(
+            "[DEBUG] Calculated semester by date: {} (today={})",
+            semester, today
+        );
+        return Ok(semester);
+
         // ???????????
         let now = chrono::Local::now();
         let year = now.year();
@@ -46,6 +85,420 @@ impl HbutClient {
         let semester = format!("{}-{}-{}", academic_year_start, academic_year_start + 1, term);
         println!("[调试] 根据日期计算当前学期: {} (month={}, day={})", semester, month, day);
         Ok(semester)
+    }
+
+    fn semester_by_date(today: NaiveDate) -> String {
+        let year = today.year();
+        let month = today.month();
+        let day = today.day();
+
+        let (academic_year_start, term) = if month >= 9 {
+            (year, 1)
+        } else if month >= 3 {
+            (year - 1, 2)
+        } else if month == 2 && day >= 15 {
+            (year - 1, 2)
+        } else {
+            (year - 1, 1)
+        };
+
+        format!("{}-{}-{}", academic_year_start, academic_year_start + 1, term)
+    }
+
+    fn semester_index(semester: &str) -> Option<i32> {
+        let parts: Vec<&str> = semester.split('-').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        let start_year = parts[0].parse::<i32>().ok()?;
+        let end_year = parts[1].parse::<i32>().ok()?;
+        let term = parts[2].parse::<i32>().ok()?;
+        if end_year != start_year + 1 || !(term == 1 || term == 2) {
+            return None;
+        }
+        Some(start_year * 2 + (term - 1))
+    }
+
+    fn semester_from_index(index: i32) -> String {
+        let start_year = index.div_euclid(2);
+        let term = index.rem_euclid(2) + 1;
+        format!("{}-{}-{}", start_year, start_year + 1, term)
+    }
+
+    fn build_candidate_semesters(base: &str, radius: i32) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        if let Some(base_idx) = Self::semester_index(base) {
+            for offset in -radius..=radius {
+                let sem = Self::semester_from_index(base_idx + offset);
+                if seen.insert(sem.clone()) {
+                    out.push(sem);
+                }
+            }
+            return out;
+        }
+        out.push(base.to_string());
+        out
+    }
+
+    fn parse_calendar_week_no(item: &serde_json::Value) -> Option<i32> {
+        item.get("zc")
+            .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .map(|v| v as i32)
+            .filter(|v| *v > 0)
+    }
+
+    fn normalize_calendar_week_numbers(calendar_data: &serde_json::Value) -> serde_json::Value {
+        let rows = match calendar_data.as_array() {
+            Some(v) if !v.is_empty() => v,
+            _ => return calendar_data.clone(),
+        };
+
+        let min_week_no = rows
+            .iter()
+            .filter_map(Self::parse_calendar_week_no)
+            .min()
+            .unwrap_or(1);
+        if min_week_no <= 1 {
+            return calendar_data.clone();
+        }
+
+        let normalized = rows
+            .iter()
+            .map(|row| {
+                let mut next_row = row.clone();
+                let week_no = match Self::parse_calendar_week_no(row) {
+                    Some(v) => v,
+                    None => return next_row,
+                };
+                let normalized_week = (week_no - min_week_no + 1).max(1);
+                if let Some(obj) = next_row.as_object_mut() {
+                    obj.insert("raw_zc".to_string(), serde_json::json!(week_no));
+                    obj.insert("zc".to_string(), serde_json::json!(normalized_week));
+                }
+                next_row
+            })
+            .collect::<Vec<_>>();
+
+        serde_json::Value::Array(normalized)
+    }
+
+    fn build_calendar_summary(
+        &self,
+        semester: &str,
+        calendar_data: &serde_json::Value,
+        today: NaiveDate,
+    ) -> Option<CalendarTermSummary> {
+        let rows = calendar_data.as_array()?;
+        if rows.is_empty() {
+            return None;
+        }
+
+        let mut raw_week_bounds: Vec<(i32, NaiveDate, NaiveDate)> = Vec::new();
+        for item in rows {
+            let week_no = match Self::parse_calendar_week_no(item) {
+                Some(v) => v,
+                None => continue,
+            };
+            let monday = match self.parse_calendar_date(item, "monday") {
+                Some(v) => v,
+                None => continue,
+            };
+            let sunday = match self.parse_calendar_date(item, "sunday") {
+                Some(v) => v,
+                None => continue,
+            };
+            let normalized_sunday = if sunday < monday {
+                monday + Duration::days(6)
+            } else {
+                sunday
+            };
+            raw_week_bounds.push((week_no, monday, normalized_sunday));
+        }
+
+        if raw_week_bounds.is_empty() {
+            return None;
+        }
+
+        // 教务校历有时返回“学年周次”（如下学期从 26 开始），这里统一归一化为“学期周次”。
+        let min_week_no = raw_week_bounds
+            .iter()
+            .map(|(week_no, _, _)| *week_no)
+            .min()
+            .unwrap_or(1);
+
+        let mut week_bounds: BTreeMap<i32, (NaiveDate, NaiveDate)> = BTreeMap::new();
+        for (week_no, monday, sunday) in raw_week_bounds {
+            let normalized_week = (week_no - min_week_no + 1).max(1);
+            week_bounds
+                .entry(normalized_week)
+                .and_modify(|(existing_monday, existing_sunday)| {
+                    if monday < *existing_monday {
+                        *existing_monday = monday;
+                    }
+                    if sunday > *existing_sunday {
+                        *existing_sunday = sunday;
+                    }
+                })
+                .or_insert((monday, sunday));
+        }
+
+        if week_bounds.is_empty() {
+            return None;
+        }
+
+        let start_date = week_bounds
+            .get(&1)
+            .map(|(monday, _)| *monday)
+            .unwrap_or_else(|| {
+                week_bounds
+                    .values()
+                    .map(|(monday, _)| *monday)
+                    .min()
+                    .unwrap_or(today)
+            });
+        let end_date = week_bounds
+            .values()
+            .map(|(_, sunday)| *sunday)
+            .max()
+            .unwrap_or(start_date);
+        let max_week = week_bounds.keys().max().copied().unwrap_or(1);
+        let total_weeks = max_week.max(week_bounds.len() as i32).max(1);
+
+        let mut is_in_semester = false;
+        let mut current_week = 1;
+        for (week_no, (monday, sunday)) in &week_bounds {
+            if today >= *monday && today <= *sunday {
+                is_in_semester = true;
+                current_week = *week_no;
+                break;
+            }
+        }
+        if !is_in_semester {
+            current_week = if today < start_date { 1 } else { total_weeks };
+        }
+
+        Some(CalendarTermSummary {
+            semester: semester.to_string(),
+            start_date,
+            end_date,
+            total_weeks,
+            current_week: current_week.clamp(1, total_weeks),
+            is_in_semester,
+        })
+    }
+
+    async fn fetch_calendar_raw_for_semester(
+        &self,
+        semester: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", JWXT_BASE_URL, semester);
+        let response = self.client.get(&calendar_url).send().await?;
+
+        let status = response.status();
+        let final_url = response.url().to_string();
+        if final_url.contains("authserver/login") {
+            return Err("会话已过期，请重新登录".into());
+        }
+        if !status.is_success() {
+            return Err(format!("请求失败: {}", status).into());
+        }
+
+        let data: serde_json::Value = response.json().await?;
+        Ok(data)
+    }
+
+    async fn fetch_calendar_summary_for_semester(
+        &self,
+        semester: &str,
+        today: NaiveDate,
+    ) -> Option<CalendarTermSummary> {
+        let data = self.fetch_calendar_raw_for_semester(semester).await.ok()?;
+        self.build_calendar_summary(semester, &data, today)
+    }
+
+    fn build_schedule_context_json(
+        semester: &str,
+        summary: Option<&CalendarTermSummary>,
+        is_vacation: bool,
+        strategy: &str,
+        notice: String,
+        previous_semester: Option<&str>,
+        next_semester: Option<&str>,
+        days_to_next_start: Option<i64>,
+        today: NaiveDate,
+    ) -> serde_json::Value {
+        let current_weekday = if summary.map(|s| s.is_in_semester).unwrap_or(false) {
+            Local::now().weekday().num_days_from_monday() as i32 + 1
+        } else {
+            0
+        };
+
+        let start_date = summary.map(|s| s.start_date_str()).unwrap_or_default();
+        let end_date = summary.map(|s| s.end_date_str()).unwrap_or_default();
+        let total_weeks = summary.map(|s| s.total_weeks).unwrap_or(25);
+        let current_week = summary
+            .map(|s| s.current_week.clamp(1, s.total_weeks.max(1)))
+            .unwrap_or(1);
+        let is_in_semester = summary.map(|s| s.is_in_semester).unwrap_or(false);
+        let days_to_start = summary.map(|s| s.days_to_start(today));
+        let days_to_end = summary.map(|s| s.days_to_end(today));
+
+        serde_json::json!({
+            "semester": semester,
+            "display_semester": semester,
+            "start_date": start_date,
+            "end_date": end_date,
+            "current_week": current_week,
+            "current_weekday": current_weekday,
+            "total_weeks": total_weeks,
+            "is_in_semester": is_in_semester,
+            "is_vacation": is_vacation,
+            "auto_strategy": strategy,
+            "vacation_notice": notice,
+            "previous_semester": previous_semester.unwrap_or(""),
+            "next_semester": next_semester.unwrap_or(""),
+            "days_to_start": days_to_start,
+            "days_to_end": days_to_end,
+            "days_to_next_semester_start": days_to_next_start,
+            "prestart_switch_days": PRESTART_SWITCH_DAYS
+        })
+    }
+
+    async fn resolve_auto_schedule_context(&self, today: NaiveDate) -> serde_json::Value {
+        let fallback_semester = self
+            .get_current_semester()
+            .await
+            .unwrap_or_else(|_| Self::semester_by_date(today));
+        let candidate_semesters = Self::build_candidate_semesters(&fallback_semester, 3);
+
+        let mut summaries = Vec::new();
+        for sem in candidate_semesters {
+            if let Some(summary) = self.fetch_calendar_summary_for_semester(&sem, today).await {
+                summaries.push(summary);
+            }
+        }
+
+        if summaries.is_empty() {
+            return Self::build_schedule_context_json(
+                &fallback_semester,
+                None,
+                false,
+                "fallback",
+                String::new(),
+                None,
+                None,
+                None,
+                today,
+            );
+        }
+
+        let current = summaries.iter().find(|s| s.is_in_semester).cloned();
+        let previous = summaries
+            .iter()
+            .filter(|s| s.end_date < today)
+            .max_by_key(|s| s.end_date)
+            .cloned();
+        let next = summaries
+            .iter()
+            .filter(|s| s.start_date > today)
+            .min_by_key(|s| s.start_date)
+            .cloned();
+
+        let next_days = next.as_ref().map(|s| s.days_to_start(today));
+
+        if let Some(current_summary) = current {
+            return Self::build_schedule_context_json(
+                &current_summary.semester,
+                Some(&current_summary),
+                false,
+                "current",
+                String::new(),
+                previous.as_ref().map(|s| s.semester.as_str()),
+                next.as_ref().map(|s| s.semester.as_str()),
+                next_days,
+                today,
+            );
+        }
+
+        let (target, strategy, notice) = if let Some(next_summary) = next.clone() {
+            let days = next_summary.days_to_start(today);
+            if (0..=PRESTART_SWITCH_DAYS).contains(&days) {
+                (
+                    next_summary.clone(),
+                    "vacation_next",
+                    format!("当前为假期，已自动切换为下学期（{}）课表", next_summary.semester),
+                )
+            } else if let Some(previous_summary) = previous.clone() {
+                (
+                    previous_summary.clone(),
+                    "vacation_previous",
+                    format!("当前为假期，当前显示上学期（{}）课表", previous_summary.semester),
+                )
+            } else {
+                (
+                    next_summary.clone(),
+                    "vacation_next",
+                    format!("当前为假期，已自动切换为下学期（{}）课表", next_summary.semester),
+                )
+            }
+        } else if let Some(previous_summary) = previous.clone() {
+            (
+                previous_summary.clone(),
+                "vacation_previous",
+                format!("当前为假期，当前显示上学期（{}）课表", previous_summary.semester),
+            )
+        } else {
+            let fallback = summaries
+                .iter()
+                .find(|s| s.semester == fallback_semester)
+                .cloned()
+                .unwrap_or_else(|| summaries[0].clone());
+            (fallback, "fallback", String::new())
+        };
+
+        let is_vacation = strategy == "vacation_next" || strategy == "vacation_previous";
+        Self::build_schedule_context_json(
+            &target.semester,
+            Some(&target),
+            is_vacation,
+            strategy,
+            notice,
+            previous.as_ref().map(|s| s.semester.as_str()),
+            next.as_ref().map(|s| s.semester.as_str()),
+            next_days,
+            today,
+        )
+    }
+
+    pub async fn resolve_schedule_context(&self, requested_semester: Option<&str>) -> serde_json::Value {
+        let today = Local::now().date_naive();
+        if let Some(semester) = requested_semester.map(str::trim).filter(|s| !s.is_empty()) {
+            let summary = self.fetch_calendar_summary_for_semester(semester, today).await;
+            return Self::build_schedule_context_json(
+                semester,
+                summary.as_ref(),
+                false,
+                "manual",
+                String::new(),
+                None,
+                None,
+                None,
+                today,
+            );
+        }
+        self.resolve_auto_schedule_context(today).await
+    }
+
+    pub fn is_no_schedule_error_message(message: &str) -> bool {
+        let lower = message.to_lowercase();
+        message.contains("该学期无课表")
+            || message.contains("无课表")
+            || message.contains("暂无")
+            || message.contains("ret=-1")
+            || lower.contains("no schedule")
+            || lower.contains("unknown schedule")
+            || lower.contains("schedule api")
     }
 
     #[allow(dead_code)]
@@ -683,7 +1136,15 @@ impl HbutClient {
         // 1. ????????
         let semester = match semester.map(str::trim).filter(|s| !s.is_empty()) {
             Some(s) => s.to_string(),
-            None => self.get_current_semester().await?,
+            None => {
+                let context = self.resolve_schedule_context(None).await;
+                context
+                    .get("semester")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()))
+            }
         };
         println!("[调试] 课表学期: {}", semester);
         
@@ -781,7 +1242,15 @@ impl HbutClient {
         // 1. ???????????????
         let semester = match semester {
             Some(s) if !s.trim().is_empty() => s.to_string(),
-            _ => self.get_current_semester().await?,
+            _ => {
+                let context = self.resolve_schedule_context(None).await;
+                context
+                    .get("semester")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()))
+            }
         };
         println!("[调试] 考试学期: {}", semester);
         
@@ -1708,45 +2177,47 @@ impl HbutClient {
         }))
     }
 
-    /// ??????
+    /// 获取学期列表（current 按校历 + 假期策略自动解析）
     pub async fn fetch_semesters(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // ???????????????
-        let current_semester = self.get_current_semester().await.unwrap_or_else(|_| {
-            let now = chrono::Local::now();
-            let year = now.year();
-            let month = now.month();
-            if month >= 9 {
-                format!("{}-{}-1", year, year + 1)
-            } else if month >= 2 {
-                format!("{}-{}-2", year - 1, year)
-            } else {
-                format!("{}-{}-1", year - 1, year)
-            }
-        });
-        
-        // ????????5??
-        let current_year: i32 = chrono::Local::now().format("%Y").to_string().parse().unwrap_or(2025);
+        let context = self.resolve_schedule_context(None).await;
+        let current_semester = context
+            .get("semester")
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()));
+
+        let current_year: i32 = chrono::Local::now()
+            .format("%Y")
+            .to_string()
+            .parse()
+            .unwrap_or(2025);
         let mut semesters = vec![];
-        
-        for year in (current_year - 5)..=current_year {
+        for year in (current_year - 5)..=(current_year + 1) {
             semesters.push(format!("{}-{}-2", year, year + 1));
             semesters.push(format!("{}-{}-1", year, year + 1));
         }
         semesters.reverse();
-        
-        // ??????????????????????
+
         if !semesters.contains(&current_semester) {
             semesters.insert(0, current_semester.clone());
         } else {
-            // ??????????
             semesters.retain(|s| s != &current_semester);
             semesters.insert(0, current_semester.clone());
         }
-        
+
         Ok(serde_json::json!({
             "success": true,
             "semesters": semesters,
-            "current": current_semester
+            "current": current_semester,
+            "context": {
+                "auto_strategy": context.get("auto_strategy").cloned().unwrap_or(serde_json::json!("fallback")),
+                "is_vacation": context.get("is_vacation").cloned().unwrap_or(serde_json::json!(false)),
+                "vacation_notice": context.get("vacation_notice").cloned().unwrap_or(serde_json::json!("")),
+                "previous_semester": context.get("previous_semester").cloned().unwrap_or(serde_json::json!("")),
+                "next_semester": context.get("next_semester").cloned().unwrap_or(serde_json::json!("")),
+                "days_to_next_semester_start": context.get("days_to_next_semester_start").cloned().unwrap_or(serde_json::Value::Null)
+            }
         }))
     }
 
@@ -1784,18 +2255,27 @@ impl HbutClient {
             JWXT_BASE_URL
         );
         
-        // 从校历计算当前周?
+        // 统一使用“自动学期上下文”（支持假期沿用上学期/临开学切下学期）。
         let now = chrono::Local::now();
-        let default_weekday = now.weekday().num_days_from_monday() as i32 + 1; // 1=鍛ㄤ竴
-        
-        // ?????????
-        let semester = self.get_current_semester().await.unwrap_or_else(|_| "2025-2026-1".to_string());
-        let calendar_data = self.fetch_calendar_data(Some(semester.clone())).await;
-        let default_week = if let Ok(ref cal) = calendar_data {
-            self.calculate_current_week(cal.get("data").unwrap_or(&serde_json::json!(null)))
-        } else {
-            1 // ???????1?
-        };
+        let context = self.resolve_schedule_context(None).await;
+        let semester = context
+            .get("semester")
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| Self::semester_by_date(now.date_naive()));
+        let default_week = context
+            .get("current_week")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32)
+            .filter(|v| *v > 0)
+            .unwrap_or(1);
+        let default_weekday = context
+            .get("current_weekday")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32)
+            .filter(|v| (1..=7).contains(v))
+            .unwrap_or_else(|| now.weekday().num_days_from_monday() as i32 + 1);
         
         // 构建节次
         let jc_str = periods.as_ref()
@@ -1803,8 +2283,8 @@ impl HbutClient {
             .map(|p| p.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
             .unwrap_or_else(|| "1,2,3,4,5,6,7,8,9,10,11".to_string());
         
-        let week_val = week.unwrap_or(default_week);
-        let weekday_val = weekday.unwrap_or(default_weekday);
+        let week_val = week.unwrap_or(default_week).max(1);
+        let weekday_val = weekday.unwrap_or(default_weekday).clamp(1, 7);
         let building_str = building.clone().unwrap_or_default();
         
         // 使用 form 琛ㄥ格式 (涓?Python 涓€鑷?
@@ -1903,7 +2383,10 @@ impl HbutClient {
                 "periods": periods_vec,
                 "periods_str": format!("第{}节", jc_str),
                 "total": classrooms.len(),
-                "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+                "query_time": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                "auto_strategy": context.get("auto_strategy").cloned().unwrap_or(serde_json::json!("fallback")),
+                "is_vacation": context.get("is_vacation").cloned().unwrap_or(serde_json::json!(false)),
+                "vacation_notice": context.get("vacation_notice").cloned().unwrap_or(serde_json::json!(""))
             },
             "sync_time": chrono::Local::now().to_rfc3339()
         }))
@@ -1952,8 +2435,16 @@ impl HbutClient {
             .and_then(|u| Self::infer_year_of_study(&u.student_id))
             .unwrap_or_default();
         
-        // 推断默认学期
-        let semester = self.get_current_semester().await.unwrap_or_default();
+        // 推断默认学期（走自动学期策略）
+        let semester = {
+            let context = self.resolve_schedule_context(None).await;
+            context
+                .get("semester")
+                .and_then(|v| v.as_str())
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_default()
+        };
         let default_kkxq = Self::infer_term_from_semester(&semester);
         
         println!("[DEBUG] Training plan options: grade={} kkxq={} kkyx={} kcxz={} kcgs={}", 
@@ -2111,13 +2602,23 @@ impl HbutClient {
         let size = page_size.unwrap_or(50);
         
         let grade_str = grade.unwrap_or_default();
-        let kkxq_str = kkxq.unwrap_or_default();
+        let mut kkxq_str = kkxq.unwrap_or_default();
         let kkyx_str = kkyx.unwrap_or_default();
         let kkjys_str = kkjys.unwrap_or_default();
         let kcxz_str = kcxz.unwrap_or_default();
         let kcgs_str = kcgs.unwrap_or_default();
         let kcbh_str = kcbh.unwrap_or_default();
         let kcmc_str = kcmc.unwrap_or_default();
+        if kkxq_str.trim().is_empty() {
+            let context = self.resolve_schedule_context(None).await;
+            let semester = context
+                .get("semester")
+                .and_then(|v| v.as_str())
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_default();
+            kkxq_str = Self::infer_term_from_semester(&semester);
+        }
         let nd = chrono_timestamp().to_string();
         
         // 与 Python training_plan.py 完全一致的参数
@@ -2236,7 +2737,68 @@ impl HbutClient {
     }
 
     /// 获取校历数据 (与 Python calendar.py 一致)
+    #[allow(unreachable_code)]
     pub async fn fetch_calendar_data(&self, semester: Option<String>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let sem = match semester
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()) {
+            Some(s) => s,
+            None => {
+                let context = self.resolve_schedule_context(None).await;
+                context
+                    .get("semester")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| Self::semester_by_date(Local::now().date_naive()))
+            }
+        };
+        let today = Local::now().date_naive();
+
+        let payload = match self.fetch_calendar_raw_for_semester(&sem).await {
+            Ok(data) => {
+                let normalized_data = Self::normalize_calendar_week_numbers(&data);
+                let summary = self.build_calendar_summary(&sem, &normalized_data, today);
+                let current_weekday = if summary.as_ref().map(|s| s.is_in_semester).unwrap_or(false) {
+                    Local::now().weekday().num_days_from_monday() as i32 + 1
+                } else {
+                    0
+                };
+                let meta = serde_json::json!({
+                    "semester": sem,
+                    "current_week": summary.as_ref().map(|s| s.current_week).unwrap_or(1),
+                    "current_weekday": current_weekday,
+                    "total_weeks": summary.as_ref().map(|s| s.total_weeks).unwrap_or_else(|| data.as_array().map(|a| a.len() as i32).unwrap_or(0)),
+                    "start_date": summary.as_ref().map(|s| s.start_date_str()).unwrap_or_default(),
+                    "end_date": summary.as_ref().map(|s| s.end_date_str()).unwrap_or_default(),
+                    "is_in_semester": summary.as_ref().map(|s| s.is_in_semester).unwrap_or(false),
+                    "days_to_start": summary.as_ref().map(|s| s.days_to_start(today)),
+                    "days_to_end": summary.as_ref().map(|s| s.days_to_end(today))
+                });
+                serde_json::json!({
+                    "success": true,
+                    "data": normalized_data,
+                    "meta": meta,
+                    "sync_time": chrono::Local::now().to_rfc3339()
+                })
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("会话已过期") || msg.to_lowercase().contains("login") {
+                    serde_json::json!({
+                        "success": false,
+                        "error": "会话已过期，请重新登录",
+                        "need_login": true
+                    })
+                } else {
+                    serde_json::json!({
+                        "success": false,
+                        "error": msg
+                    })
+                }
+            }
+        };
+        return Ok(payload);
         // 1. 获取当前学期 (如果未指定) - 使用基于日期的计算
         let sem = if let Some(s) = semester.filter(|s| !s.is_empty()) {
             s
@@ -2289,7 +2851,14 @@ impl HbutClient {
         }))
     }
 
+    #[allow(unreachable_code)]
     fn calculate_current_week(&self, calendar_data: &serde_json::Value) -> i32 {
+        let today = Local::now().date_naive();
+        return self
+            .build_calendar_summary("unknown", calendar_data, today)
+            .map(|s| s.current_week)
+            .unwrap_or(1);
+
         if let Some(arr) = calendar_data.as_array() {
             let today = chrono::Local::now().date_naive();
             println!("[DEBUG] Calculating current week for date: {}", today);
@@ -2346,42 +2915,70 @@ impl HbutClient {
     
     /// 解析校历中的日期（处理跨月情况）
     fn parse_calendar_date(&self, item: &serde_json::Value, day_field: &str) -> Option<chrono::NaiveDate> {
-        let ny = item.get("ny").and_then(|v| v.as_str())?; // 格式: "2024-08" 或 "2024-09"
-        let day_str = item.get(day_field).and_then(|v| v.as_str())?;
-        
-        if ny.is_empty() || day_str.is_empty() {
+        let ny = item.get("ny").and_then(|v| v.as_str())?; // 格式: "2024-08"
+        let raw_day = item.get(day_field).and_then(|v| v.as_str())?;
+        if ny.trim().is_empty() || raw_day.trim().is_empty() {
             return None;
         }
-        
-        // 尝试直接解析
-        let date_str = format!("{}-{}", ny, day_str);
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d") {
-            return Some(date);
-        }
-        
-        // 如果是两位数日期格式（如 "01"），补零解析
-        let day: u32 = day_str.parse().ok()?;
-        let parts: Vec<&str> = ny.split('-').collect();
-        if parts.len() != 2 {
+
+        // 优先提取数字日期，兼容 "1"/"01"/"周一(01)" 等格式。
+        let day_digits: String = raw_day.chars().filter(|ch| ch.is_ascii_digit()).collect();
+        if day_digits.is_empty() {
             return None;
         }
-        
-        let year: i32 = parts[0].parse().ok()?;
-        let month: u32 = parts[1].parse().ok()?;
-        
-        // 检查日期是否合法（处理跨月情况）
-        // 例如：ny="2024-08", monday="26", sunday="01"
-        // 这时候 sunday 应该是下个月的 01
-        if day <= 7 && day_field == "sunday" {
-            // 可能是跨月，尝试下个月
-            let next_month = if month == 12 { 1 } else { month + 1 };
-            let next_year = if month == 12 { year + 1 } else { year };
-            if let Some(date) = chrono::NaiveDate::from_ymd_opt(next_year, next_month, day) {
-                return Some(date);
+        let day: u32 = day_digits.parse().ok()?;
+        if day == 0 || day > 31 {
+            return None;
+        }
+
+        let (base_year, base_month) = ny.split_once('-')?;
+        let year: i32 = base_year.parse().ok()?;
+        let month: u32 = base_month.parse().ok()?;
+        if !(1..=12).contains(&month) {
+            return None;
+        }
+
+        let expected_weekday = match day_field {
+            "monday" => Some(Weekday::Mon),
+            "tuesday" => Some(Weekday::Tue),
+            "wednesday" => Some(Weekday::Wed),
+            "thursday" => Some(Weekday::Thu),
+            "friday" => Some(Weekday::Fri),
+            "saturday" => Some(Weekday::Sat),
+            "sunday" => Some(Weekday::Sun),
+            _ => None,
+        };
+
+        let shift_year_month = |base_year: i32, base_month: u32, delta: i32| -> (i32, u32) {
+            let month_index = base_year * 12 + (base_month as i32 - 1) + delta;
+            let y = month_index.div_euclid(12);
+            let m = month_index.rem_euclid(12) + 1;
+            (y, m as u32)
+        };
+
+        let mut candidates: Vec<(i32, NaiveDate)> = Vec::new();
+        for delta in [-1, 0, 1] {
+            let (candidate_year, candidate_month) = shift_year_month(year, month, delta);
+            if let Some(date) = NaiveDate::from_ymd_opt(candidate_year, candidate_month, day) {
+                candidates.push((delta.abs(), date));
             }
         }
-        
-        chrono::NaiveDate::from_ymd_opt(year, month, day)
+        if candidates.is_empty() {
+            return None;
+        }
+
+        if let Some(expected) = expected_weekday {
+            if let Some((_, date)) = candidates
+                .iter()
+                .filter(|(_, date)| date.weekday() == expected)
+                .min_by_key(|(distance, date)| (*distance, (date.year() - year).abs()))
+            {
+                return Some(*date);
+            }
+        }
+
+        candidates.sort_by_key(|(distance, date)| (*distance, (date.year() - year).abs()));
+        candidates.first().map(|(_, date)| *date)
     }
 
     /// 获取学业完成情况 (与 Python academic_progress.py 一致)
