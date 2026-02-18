@@ -3,8 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import hbutLogo from '../assets/hbut-logo.png'
 import { encryptData, decryptData } from '../utils/encryption.js'
-import { invoke } from '@tauri-apps/api/core'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
+import { invokeNative as invoke } from '../platform/native'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 

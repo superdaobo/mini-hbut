@@ -1,16 +1,8 @@
 ﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
-import { invoke, isTauri } from '@tauri-apps/api/core'
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-  createChannel,
-  Importance,
-  Visibility
-} from '@tauri-apps/plugin-notification'
 import hbutLogo from '../assets/hbut-logo.png'
 import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
+import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 
 const props = defineProps({
   studentId: String
@@ -27,6 +19,18 @@ const permissionState = ref('unknown')
 const statusMessage = ref('')
 const lastError = ref('')
 const sending = ref(false)
+let tauriNotificationPlugin = null
+
+const loadTauriNotificationPlugin = async () => {
+  if (!isTauriRuntime()) return null
+  if (tauriNotificationPlugin) return tauriNotificationPlugin
+  try {
+    tauriNotificationPlugin = await import('@tauri-apps/plugin-notification')
+    return tauriNotificationPlugin
+  } catch {
+    return null
+  }
+}
 
 const isAclDeniedError = (err) => {
   const text = String(err || '')
@@ -47,13 +51,6 @@ const getNativePermissionState = async (requestNow = false) => {
 }
 
 const isAndroid = () => /Android/i.test(navigator.userAgent)
-const isTauriRuntime = () => {
-  try {
-    return isTauri()
-  } catch {
-    return false
-  }
-}
 
 const permissionLabel = computed(() => {
   if (permissionState.value === 'granted') return '已授权'
@@ -71,14 +68,19 @@ const updatePermissionState = async (requestNow = false) => {
   }
 
   try {
-    let granted = await isPermissionGranted()
+    const plugin = await loadTauriNotificationPlugin()
+    if (!plugin) {
+      throw new Error('通知插件不可用')
+    }
+
+    let granted = await plugin.isPermissionGranted()
     if (granted) {
       permissionState.value = 'granted'
       return true
     }
 
     if (requestNow) {
-      const result = await requestPermission()
+      const result = await plugin.requestPermission()
       permissionState.value = result
       granted = result === 'granted'
       statusMessage.value = granted ? '通知权限已授权。' : '通知权限未授权，请在系统设置中允许通知。'
@@ -116,12 +118,14 @@ const ensureAndroidChannel = async () => {
   if (!isTauriRuntime() || !isAndroid()) return
 
   try {
-    await createChannel({
+    const plugin = await loadTauriNotificationPlugin()
+    if (!plugin) return
+    await plugin.createChannel({
       id: 'hbut-default',
       name: 'Mini-HBUT 通知',
       description: '课程、考试与系统提醒',
-      importance: Importance.High,
-      visibility: Visibility.Private
+      importance: plugin.Importance.High,
+      visibility: plugin.Visibility.Private
     })
   } catch (error) {
     const message = String(error || '')
@@ -211,22 +215,30 @@ const handleTestNotification = async () => {
     await ensureAndroidChannel()
 
     try {
-      await sendNotification({
-        channelId: 'hbut-default',
-        title: 'Mini-HBUT',
-        body: '这是一个测试通知，用于验证通知权限和推送能力。'
-      })
+      const plugin = await loadTauriNotificationPlugin()
+      if (plugin) {
+        await plugin.sendNotification({
+          channelId: 'hbut-default',
+          title: 'Mini-HBUT',
+          body: '这是一个测试通知，用于验证通知权限和推送能力。'
+        })
+      }
     } catch (notifyError) {
       if (!isAclDeniedError(notifyError)) {
         throw notifyError
       }
     }
 
-    // Rust 侧兜底：确保桌面端和部分移动环境都能触发系统通知。
-    await invoke('send_test_notification_native', {
-      title: 'Mini-HBUT',
-      body: '这是一个测试通知（Rust 兜底通道）。'
-    })
+    try {
+      await invoke('send_test_notification_native', {
+        title: 'Mini-HBUT',
+        body: '这是一个测试通知（Rust 兜底通道）。'
+      })
+    } catch (nativeNotifyError) {
+      if (!isAclDeniedError(nativeNotifyError)) {
+        throw nativeNotifyError
+      }
+    }
 
     statusMessage.value = '测试通知已发送，请查看系统通知栏。'
   } catch (error) {

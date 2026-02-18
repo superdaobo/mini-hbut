@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invokeNative as invoke } from '../platform/native'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'

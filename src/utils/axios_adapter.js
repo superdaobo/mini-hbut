@@ -1,23 +1,6 @@
-import { invoke, isTauri } from '@tauri-apps/api/core';
+import { invokeNative as invoke, isTauriRuntime } from '../platform/native';
 
-const detectTauri = () => {
-    try {
-        if (typeof isTauri === 'function' && isTauri()) {
-            return true;
-        }
-    } catch (e) {
-        // ignore
-    }
-    if (typeof window === 'undefined') return false;
-    if (window.__TAURI__ || window.__TAURI_INTERNALS__) return true;
-    const protocol = window.location?.protocol || '';
-    if (protocol === 'tauri:') return true;
-    const host = window.location?.hostname || '';
-    if (host === 'tauri.localhost') return true;
-    return false;
-};
-
-const hasTauri = detectTauri();
+const hasTauri = isTauriRuntime();
 const LOCAL_BRIDGE = 'http://127.0.0.1:4399';
 const BRIDGE_BASE = hasTauri ? LOCAL_BRIDGE : '/bridge';
 

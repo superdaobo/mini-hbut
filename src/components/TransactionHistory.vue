@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { formatRelativeTime } from '../utils/time.js'
+import { invokeNative as invoke } from '../platform/native'
 
 const props = defineProps({
   studentId: { type: String, default: '' }

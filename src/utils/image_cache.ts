@@ -1,4 +1,5 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { convertFileSrc } from '@tauri-apps/api/core'
+import { invokeNative as invoke, isTauriRuntime as detectTauriRuntime } from '../platform/native'
 
 /**
  * 图片缓存策略（面向移动端与桌面端统一）：
@@ -29,12 +30,6 @@ type ResolveImageOptions = {
 
 const META_PREFIX = 'hbu_image_cache_meta_v1:'
 const inFlight = new Map<string, Promise<string>>()
-
-const isTauriRuntime = () => {
-  if (typeof window === 'undefined') return false
-  const w = window as any
-  return Boolean(w.__TAURI__ || w.__TAURI_INTERNALS__ || window.location?.protocol === 'tauri:')
-}
 
 const metaKey = (cacheKey: string) => `${META_PREFIX}${cacheKey}`
 
@@ -127,7 +122,7 @@ export async function resolveCachedImage(options: ResolveImageOptions): Promise<
       key,
       (async () => {
         try {
-          if (isTauriRuntime()) {
+          if (detectTauriRuntime()) {
             return await resolveForTauri(options)
           }
           return await resolveForWeb(options)

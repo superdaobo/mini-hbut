@@ -1,10 +1,10 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, markRaw, watch } from 'vue'
-import { isTauri } from '@tauri-apps/api/core'
 import Player from 'xgplayer'
 import 'xgplayer/dist/index.min.css'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { openExternal } from '../utils/external_link'
+import { isTauriRuntime } from '../platform/native'
 
 const emit = defineEmits(['back'])
 
@@ -64,13 +64,7 @@ const previewPlayerHostRef = ref(null)
 let previewPlayerInstance = null
 let pdfjsRuntime = null
 
-const runtimeIsTauri = (() => {
-  try {
-    return typeof isTauri === 'function' && isTauri()
-  } catch {
-    return false
-  }
-})()
+const runtimeIsTauri = isTauriRuntime()
 
 const bridgeBase = runtimeIsTauri ? 'http://127.0.0.1:4399' : '/bridge'
 

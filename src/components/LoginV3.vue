@@ -12,8 +12,8 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import hbutLogo from '../assets/hbut-logo.png'
 // 使用后端自动 OCR 识别验证码
-import { invoke } from '@tauri-apps/api/core'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
+import { invokeNative as invoke } from '../platform/native'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, nextTick, watch, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { renderMarkdown } from '../utils/markdown.js'
+import { invokeNative as invoke } from '../platform/native'
 
 const props = defineProps({
   studentId: String,

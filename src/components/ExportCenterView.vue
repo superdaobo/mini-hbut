@@ -1,11 +1,11 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { invoke, isTauri } from '@tauri-apps/api/core'
 import axios from 'axios'
 import html2canvas from 'html2canvas'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -14,13 +14,7 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const isNative = (() => {
-  try {
-    return typeof isTauri === 'function' && isTauri()
-  } catch {
-    return false
-  }
-})()
+const isNative = isTauriRuntime()
 
 const periodTimeMap = {
   1: { start: '08:20', end: '09:05' },

@@ -1,6 +1,7 @@
 import { reactive, watch } from 'vue'
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { readFile } from '@tauri-apps/plugin-fs'
+import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 
 const STORAGE_KEY = 'hbu_font_settings_v1'
 const CACHE_NAME = 'hbu-font-cache-v1'
@@ -63,7 +64,7 @@ const normalizeSettings = (raw: unknown): FontState => {
 
 const state = reactive<FontState>(normalizeSettings(loadStoredSettings()))
 
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window
+const isTauri = () => isTauriRuntime()
 
 let deyiheiLoading = false
 

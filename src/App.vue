@@ -1,7 +1,5 @@
 ﻿<script setup>
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
-import { invoke, isTauri } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import axios from 'axios'
 import Dashboard from './components/Dashboard.vue'
 import GradeView from './components/GradeView.vue'
@@ -34,25 +32,15 @@ import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/update
 import { renderMarkdown } from './utils/markdown.js'
 import { fetchRemoteConfig } from './utils/remote_config.js'
 import { openExternal, isHttpLink } from './utils/external_link'
+import {
+  exitNativeApp,
+  getCurrentNativeWindow,
+  invokeNative,
+  isTauriRuntime
+} from './platform/native'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const detectTauri = () => {
-  try {
-    if (typeof isTauri === 'function' && isTauri()) {
-      return true
-    }
-  } catch (e) {
-    // ignore
-  }
-  if (typeof window === 'undefined') return false
-  if (window.__TAURI__ || window.__TAURI_INTERNALS__) return true
-  const protocol = window.location?.protocol || ''
-  if (protocol === 'tauri:') return true
-  const host = window.location?.hostname || ''
-  if (host === 'tauri.localhost') return true
-  return false
-}
-const hasTauri = detectTauri()
+const hasTauri = isTauriRuntime()
 const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
 const IOS_RESUME_RELOAD_MS = 3 * 60 * 1000
 const isIOSLike = (() => {
@@ -481,7 +469,7 @@ const handleLogout = () => {
   localStorage.removeItem(SESSION_COOKIE_KEY)
   localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
   localStorage.setItem('hbu_manual_logout', 'true')
-  invoke('logout').catch(() => {})
+  invokeNative('logout').catch(() => {})
 }
 
 // 切换登录模式
@@ -583,7 +571,7 @@ const primeOcrEndpointFromCache = async () => {
   if (!hasTauri) return
   const cachedEndpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
   try {
-    await invoke('set_ocr_endpoint', { endpoint: cachedEndpoint })
+    await invokeNative('set_ocr_endpoint', { endpoint: cachedEndpoint })
   } catch (e) {
     console.warn('[Config] 启动预设 OCR 端点失败:', e)
   }
@@ -605,7 +593,7 @@ const applyRemoteConfig = async () => {
       localStorage.removeItem('hbu_ocr_endpoint')
     }
     try {
-      await invoke('set_ocr_endpoint', { endpoint: remoteOcrEndpoint })
+      await invokeNative('set_ocr_endpoint', { endpoint: remoteOcrEndpoint })
     } catch (e) {
       console.warn('[Config] OCR 端点下发失败:', e)
     }
@@ -619,7 +607,7 @@ const applyRemoteConfig = async () => {
       localStorage.removeItem('hbu_temp_upload_endpoint')
     }
     try {
-      await invoke('set_temp_upload_endpoint', { endpoint: uploadEndpoint || null })
+      await invokeNative('set_temp_upload_endpoint', { endpoint: uploadEndpoint || null })
     } catch (e) {
       console.warn('[Config] 课表上传地址下发失败:', e)
     }
@@ -671,7 +659,7 @@ const importCookiesViaBridge = async (snapshot) => {
 const persistSessionCookies = async () => {
   if (!hasTauri) return
   try {
-    const cookies = await invoke('get_cookies')
+    const cookies = await invokeNative('get_cookies')
     if (cookies) {
       localStorage.setItem(SESSION_COOKIE_KEY, cookies)
       localStorage.setItem(SESSION_COOKIE_TIME_KEY, Date.now().toString())
@@ -703,7 +691,7 @@ const tryRestoreSession = async () => {
 
   try {
     const userInfo = hasTauri
-      ? await invoke('restore_session', { cookies })
+      ? await invokeNative('restore_session', { cookies })
       : await restoreSessionViaBridge(cookies)
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
@@ -724,7 +712,7 @@ const tryRestoreLatestSession = async () => {
     return false
   }
   try {
-    const userInfo = await invoke('restore_latest_session')
+    const userInfo = await invokeNative('restore_latest_session')
     if (userInfo?.student_id) {
       studentId.value = userInfo.student_id
       localStorage.setItem('hbu_username', userInfo.student_id)
@@ -758,7 +746,7 @@ const attemptAutoRelogin = async () => {
   const creds = getStoredPassword()
   if (!creds) return false
   try {
-    await invoke('login', {
+    await invokeNative('login', {
       username: creds.username,
       password: creds.password,
       captcha: '',
@@ -782,7 +770,7 @@ const refreshSessionSilently = async () => {
   if (!hasTauri) return
 
   try {
-    await invoke('refresh_session')
+    await invokeNative('refresh_session')
     await persistSessionCookies()
   } catch (e) {
     console.warn('[Session] 会话刷新失败，尝试自动登录:', e)
@@ -809,7 +797,7 @@ const startElectricityKeepAlive = () => {
   stopElectricityKeepAlive()
   electricityKeepAliveTimer = setInterval(async () => {
     try {
-      await invoke('refresh_electricity_token')
+      await invokeNative('refresh_electricity_token')
     } catch (e) {
       console.warn('[Electricity] Token refresh failed:', e)
     }
@@ -832,7 +820,8 @@ const handlePopState = async () => {
 const installCloseInterceptor = async () => {
   if (!hasTauri) return
   try {
-    const appWindow = getCurrentWindow()
+    const appWindow = await getCurrentNativeWindow()
+    if (!appWindow) return
     unlistenCloseRequested = await appWindow.onCloseRequested(async (event) => {
       if (isClosingByUser) return
 
@@ -864,16 +853,14 @@ const confirmExitDialog = async () => {
   exitingApp.value = true
   isClosingByUser = true
   try {
-    if (hasTauri) {
-      await invoke('exit_app')
-    } else {
-      window.close()
-    }
+    await exitNativeApp()
   } catch (e) {
     console.warn('[Navigation] 退出应用失败:', e)
     try {
-      const appWindow = getCurrentWindow()
-      await appWindow.destroy()
+      const appWindow = await getCurrentNativeWindow()
+      if (appWindow) {
+        await appWindow.destroy()
+      }
     } catch (fallbackErr) {
       console.warn('[Navigation] destroy 回退失败:', fallbackErr)
     }
