@@ -1,5 +1,8 @@
-import { convertFileSrc } from '@tauri-apps/api/core'
-import { invokeNative as invoke, isTauriRuntime as detectTauriRuntime } from '../platform/native'
+import {
+  invokeNative as invoke,
+  isTauriRuntime as detectTauriRuntime,
+  toNativeFileSrc
+} from '../platform/native'
 
 /**
  * 图片缓存策略（面向移动端与桌面端统一）：
@@ -64,9 +67,9 @@ const ttlExpired = (updatedAt: number, ttlHours: number) => {
   return Date.now() - updatedAt > ttlMs
 }
 
-const toLocalSrc = (path: string) => {
+const toLocalSrc = async (path: string) => {
   try {
-    return convertFileSrc(path)
+    return await toNativeFileSrc(path)
   } catch {
     return ''
   }
@@ -79,7 +82,7 @@ async function resolveForTauri(options: ResolveImageOptions): Promise<string> {
 
   // 先走本地元数据命中，避免每次进入模块都 invoke 后端。
   if (!force && meta?.path) {
-    const src = toLocalSrc(meta.path)
+    const src = await toLocalSrc(meta.path)
     if (src) return src
   }
 
@@ -96,7 +99,7 @@ async function resolveForTauri(options: ResolveImageOptions): Promise<string> {
     path: payload.path,
     updatedAt: Date.now()
   })
-  return toLocalSrc(payload.path) || url
+  return (await toLocalSrc(payload.path)) || url
 }
 
 async function resolveForWeb(options: ResolveImageOptions): Promise<string> {

@@ -1,4 +1,5 @@
 import { openExternal } from './external_link'
+import { getNativeAppVersion } from '../platform/native'
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
@@ -225,8 +226,7 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
 export async function getCurrentVersion() {
   if (import.meta.env.VITE_APP_VERSION) return import.meta.env.VITE_APP_VERSION
   try {
-    const { getVersion } = await import('@tauri-apps/api/app')
-    const version = await getVersion()
+    const version = await getNativeAppVersion()
     return version || '1.0.0'
   } catch {
     return '1.0.0'

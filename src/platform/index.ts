@@ -25,8 +25,14 @@ export const platformBridge = {
   async openUri(target: string) {
     return pickBridge().openUri(target)
   },
+  async getNotificationPermission(): Promise<NotificationPermissionState> {
+    return pickBridge().getNotificationPermission()
+  },
   async requestNotificationPermission(): Promise<NotificationPermissionState> {
     return pickBridge().requestNotificationPermission()
+  },
+  async ensureNotificationChannel(channelId: string) {
+    return pickBridge().ensureNotificationChannel(channelId)
   },
   async sendLocalNotification(payload: NotifyPayload) {
     return pickBridge().sendLocalNotification(payload)
@@ -38,4 +44,3 @@ export const platformBridge = {
     return pickBridge().shareLinkOrFile(target, title)
   }
 }
-

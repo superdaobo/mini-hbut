@@ -1,7 +1,10 @@
 import { reactive, watch } from 'vue'
-import { convertFileSrc } from '@tauri-apps/api/core'
-import { readFile } from '@tauri-apps/plugin-fs'
-import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
+import {
+  invokeNative as invoke,
+  isTauriRuntime,
+  readNativeBinaryFile,
+  toNativeFileSrc
+} from '../platform/native'
 
 const STORAGE_KEY = 'hbu_font_settings_v1'
 const CACHE_NAME = 'hbu-font-cache-v1'
@@ -153,13 +156,13 @@ const loadDeyiHeiFontInTauri = async (force = false) => {
 
   if (payload.path) {
     try {
-      const bytes = await readFile(payload.path)
+      const bytes = await readNativeBinaryFile(payload.path)
       const loaded = await loadFontFromBytes(bytes)
       if (loaded) return true
     } catch {
       // fallback to asset protocol loading
     }
-    const fileSrc = convertFileSrc(payload.path)
+    const fileSrc = await toNativeFileSrc(payload.path)
     return loadFontFromUrl(fileSrc)
   }
 
@@ -169,7 +172,7 @@ const loadDeyiHeiFontInTauri = async (force = false) => {
     urls: FONT_SOURCES,
     force: !!force
   })
-  const fileSrc = convertFileSrc(path)
+  const fileSrc = await toNativeFileSrc(path)
   return loadFontFromUrl(fileSrc)
 }
 

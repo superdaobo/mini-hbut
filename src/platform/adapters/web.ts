@@ -45,10 +45,19 @@ export const webBridge: PlatformBridge = {
     }
   },
 
+  async getNotificationPermission() {
+    if (!('Notification' in window)) return 'denied'
+    return normalizePermission(Notification.permission)
+  },
+
   async requestNotificationPermission() {
     if (!('Notification' in window)) return 'denied'
     const permission = await Notification.requestPermission()
     return normalizePermission(permission)
+  },
+
+  async ensureNotificationChannel() {
+    return true
   },
 
   async sendLocalNotification(payload: NotifyPayload) {
@@ -83,4 +92,3 @@ export const webBridge: PlatformBridge = {
     return this.openUri(target)
   }
 }
-

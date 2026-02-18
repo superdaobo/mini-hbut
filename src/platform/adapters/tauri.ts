@@ -49,6 +49,16 @@ export const tauriBridge: PlatformBridge = {
     }
   },
 
+  async getNotificationPermission() {
+    try {
+      const mod = await import('@tauri-apps/plugin-notification')
+      const granted = await mod.isPermissionGranted()
+      return granted ? 'granted' : 'prompt'
+    } catch {
+      return 'prompt'
+    }
+  },
+
   async requestNotificationPermission() {
     try {
       const mod = await import('@tauri-apps/plugin-notification')
@@ -59,11 +69,28 @@ export const tauriBridge: PlatformBridge = {
     }
   },
 
+  async ensureNotificationChannel(channelId: string) {
+    try {
+      const mod = await import('@tauri-apps/plugin-notification')
+      await mod.createChannel({
+        id: channelId,
+        name: 'Mini-HBUT 通知',
+        description: '课程、考试与系统提醒',
+        importance: mod.Importance.High,
+        visibility: mod.Visibility.Private
+      })
+      return true
+    } catch {
+      return false
+    }
+  },
+
   async sendLocalNotification(payload: NotifyPayload) {
     try {
       const mod = await import('@tauri-apps/plugin-notification')
       await mod.sendNotification({
         id: payload.id,
+        channelId: payload.channelId,
         title: payload.title,
         body: payload.body
       })
@@ -92,4 +119,3 @@ export const tauriBridge: PlatformBridge = {
     return this.openUri(target)
   }
 }
-

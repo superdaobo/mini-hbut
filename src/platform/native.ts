@@ -59,3 +59,49 @@ export const exitNativeApp = async () => {
 
   window.close()
 }
+
+/**
+ * 获取应用版本号：
+ * - Tauri：@tauri-apps/api/app.getVersion
+ * - Capacitor：App.getInfo().version
+ * - Web：返回空字符串（由上层使用默认值）
+ */
+export const getNativeAppVersion = async (): Promise<string> => {
+  if (isTauriRuntime()) {
+    const app = await import('@tauri-apps/api/app')
+    return (await app.getVersion()) || ''
+  }
+
+  if (isCapacitorRuntime()) {
+    try {
+      const app = await import('@capacitor/app')
+      const info = await app.App.getInfo()
+      return info?.version || ''
+    } catch {
+      return ''
+    }
+  }
+
+  return ''
+}
+
+/**
+ * 将 Tauri 本地绝对路径转换为可用于 <img>/<video> 的资源地址。
+ * 非 Tauri 运行时直接返回原路径。
+ */
+export const toNativeFileSrc = async (filePath: string): Promise<string> => {
+  if (!isTauriRuntime()) return filePath
+  const core = await import('@tauri-apps/api/core')
+  return core.convertFileSrc(filePath)
+}
+
+/**
+ * 读取本地二进制文件内容（仅 Tauri 可用）。
+ */
+export const readNativeBinaryFile = async (filePath: string): Promise<Uint8Array> => {
+  if (!isTauriRuntime()) {
+    throw new Error('当前运行时不支持读取本地文件')
+  }
+  const fsPlugin = await import('@tauri-apps/plugin-fs')
+  return fsPlugin.readFile(filePath)
+}

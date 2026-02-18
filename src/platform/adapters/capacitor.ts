@@ -39,6 +39,17 @@ export const capacitorBridge: PlatformBridge = {
     }
   },
 
+  async getNotificationPermission() {
+    const localNotifications = getPlugin<any>('LocalNotifications')
+    if (!localNotifications?.checkPermissions) return 'prompt'
+    try {
+      const result = await localNotifications.checkPermissions()
+      return normalizePermission(result?.display)
+    } catch {
+      return 'prompt'
+    }
+  },
+
   async requestNotificationPermission() {
     const localNotifications = getPlugin<any>('LocalNotifications')
     if (!localNotifications?.requestPermissions) return 'prompt'
@@ -47,6 +58,23 @@ export const capacitorBridge: PlatformBridge = {
       return normalizePermission(result?.display)
     } catch {
       return 'denied'
+    }
+  },
+
+  async ensureNotificationChannel(channelId: string) {
+    const localNotifications = getPlugin<any>('LocalNotifications')
+    if (!localNotifications?.createChannel) return true
+    try {
+      await localNotifications.createChannel({
+        id: channelId,
+        name: 'Mini-HBUT 通知',
+        description: '课程、考试与系统提醒',
+        importance: 4,
+        visibility: 1
+      })
+      return true
+    } catch {
+      return false
     }
   },
 
@@ -59,6 +87,7 @@ export const capacitorBridge: PlatformBridge = {
         notifications: [
           {
             id,
+            channelId: payload.channelId,
             title: payload.title,
             body: payload.body || ''
           }
@@ -99,4 +128,3 @@ export const capacitorBridge: PlatformBridge = {
     return this.openUri(target)
   }
 }
-
