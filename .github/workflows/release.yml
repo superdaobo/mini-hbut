@@ -21,6 +21,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Ensure tag commit belongs to main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+            echo "Tag commit is not on origin/main, stop release."
+            exit 1
+          fi
+
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"

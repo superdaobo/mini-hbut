@@ -1,10 +1,4 @@
-﻿import { open } from '@tauri-apps/plugin-shell'
-import { invoke } from '@tauri-apps/api/core'
-
-const isTauriRuntime = () => {
-  if (typeof window === 'undefined') return false
-  return Boolean(window.__TAURI__ || window.__TAURI_INTERNALS__ || window.location?.protocol === 'tauri:')
-}
+import { platformBridge } from '../platform'
 
 const normalizeHttpUrl = (href: string) => {
   try {
@@ -90,45 +84,7 @@ type MiniProgramOpenOptions = {
 export const openExternal = async (href: string) => {
   const url = normalizeHttpUrl(href)
   if (!url) return false
-  if (isTauriRuntime()) {
-    // 多级兜底，避免移动端/打包环境出现“点击无反应”。
-    // 1) plugin-shell open 原始 URL
-    // 2) plugin-shell open 编码 URL
-    // 3) 调用 Rust 侧 open 命令（绕过前端 ACL 误配置风险）
-    try {
-      await open(url)
-      return true
-    } catch (_) {
-      try {
-        await open(encodeURI(url))
-        return true
-      } catch (_) {
-        try {
-          await invoke('open_external_url', { url })
-          return true
-        } catch (_) {
-          try {
-            await invoke('open_external_url', { url: encodeURI(url) })
-            return true
-          } catch {
-            // 最后兜底，避免用户点击后无反馈
-          }
-        }
-      }
-    }
-  }
-
-  try {
-    window.open(url, '_blank', 'noopener,noreferrer')
-    return true
-  } catch (_) {
-    try {
-      location.href = url
-      return true
-    } catch {
-      return false
-    }
-  }
+  return platformBridge.openHttp(url)
 }
 
 export const openExternalRaw = async (target: string) => {
@@ -136,31 +92,9 @@ export const openExternalRaw = async (target: string) => {
   if (!raw) return false
 
   const tryTargets = isLikelyMiniProgramCode(raw) ? miniProgramCandidates(raw) : [raw, encodeURI(raw)]
-
-  if (isTauriRuntime()) {
-    for (const item of tryTargets) {
-      try {
-        await open(item)
-        return true
-      } catch {
-        try {
-          await invoke('open_external_url', { url: item })
-          return true
-        } catch {
-          // continue
-        }
-      }
-    }
-    return false
-  }
-
   for (const item of tryTargets) {
-    try {
-      window.location.href = item
-      return true
-    } catch {
-      // continue
-    }
+    const ok = await platformBridge.openUri(item)
+    if (ok) return true
   }
   return false
 }

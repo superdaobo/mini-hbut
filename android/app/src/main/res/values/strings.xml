@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Mini-HBUT</string>
+    <string name="title_activity_main">Mini-HBUT</string>
+    <string name="package_name">com.hbut.mini</string>
+    <string name="custom_url_scheme">com.hbut.mini</string>
+</resources>

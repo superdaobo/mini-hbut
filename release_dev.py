@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Push current project changes to dev branch to trigger CI builds.
+Mini-HBUT 快速推送脚本（默认推送 main）
 
-Behavior:
-1) Does NOT bump version.
-2) Does NOT create git tag.
-3) Does NOT create GitHub release.
-4) Only commit (optional) and push to target branch (default: dev).
+用途：
+1. 不改版本号
+2. 不打 tag
+3. 不发 release
+4. 仅提交（可选）并推送到目标分支（默认 main）
 """
 
 from __future__ import annotations
@@ -18,8 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
-SCRIPT_DIR = Path(__file__).parent
-PROJECT_DIR = SCRIPT_DIR
+PROJECT_DIR = Path(__file__).resolve().parent
 
 EXCLUDE_GLOBS = [
     "debug_*",
@@ -32,33 +32,29 @@ EXCLUDE_DIRS = [
 
 def run_command(
     cmd: list[str],
+    *,
     cwd: Path | None = None,
-    check: bool = True,
-    capture: bool = True,
+    check: bool = False,
     dry_run: bool = False,
 ) -> tuple[bool, str, str]:
     if dry_run:
         print("[dry-run]", " ".join(cmd))
         return True, "", ""
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(cwd or PROJECT_DIR),
-            check=check,
-            capture_output=capture,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        out = (result.stdout or "").strip()
-        err = (result.stderr or "").strip()
-        return True, out, err
-    except subprocess.CalledProcessError as e:
-        out = (e.stdout or "").strip()
-        err = (e.stderr or "").strip()
-        return False, out, err
-    except Exception as e:  # noqa: BLE001
-        return False, "", str(e)
+    result = subprocess.run(
+        cmd,
+        cwd=str(cwd or PROJECT_DIR),
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    ok = result.returncode == 0
+    out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    if check and not ok:
+        raise RuntimeError(f"命令失败: {' '.join(cmd)}\n{err or out}")
+    return ok, out, err
 
 
 def collect_excluded_paths() -> list[str]:
@@ -68,35 +64,25 @@ def collect_excluded_paths() -> list[str]:
             if path.is_file():
                 excluded.add(path.relative_to(PROJECT_DIR).as_posix())
     for dirname in EXCLUDE_DIRS:
-        dir_path = PROJECT_DIR / dirname
-        if dir_path.exists():
-            excluded.add(dir_path.relative_to(PROJECT_DIR).as_posix())
+        p = PROJECT_DIR / dirname
+        if p.exists():
+            excluded.add(p.relative_to(PROJECT_DIR).as_posix())
     return sorted(excluded)
 
 
-def ensure_git_remote(remote: str, remote_url: str, dry_run: bool) -> bool:
-    ok, current_remote, _ = run_command(
-        ["git", "remote", "get-url", remote],
-        check=False,
-        dry_run=dry_run,
-    )
-    if ok and current_remote == remote_url:
-        print(f"[ok] remote {remote}: {remote_url}")
-        return True
-
-    run_command(["git", "remote", "remove", remote], check=False, dry_run=dry_run)
+def ensure_origin(remote: str, remote_url: str, dry_run: bool) -> None:
+    ok, out, _ = run_command(["git", "remote", "get-url", remote], dry_run=dry_run)
+    if ok and out.strip() == remote_url:
+        print(f"[OK] {remote} = {remote_url}")
+        return
+    run_command(["git", "remote", "remove", remote], dry_run=dry_run)
     ok, _, err = run_command(["git", "remote", "add", remote, remote_url], dry_run=dry_run)
     if not ok:
-        print(f"[error] failed to set remote {remote}: {err}")
-        return False
-    print(f"[ok] set remote {remote}: {remote_url}")
-    return True
+        raise RuntimeError(f"设置远端失败: {err}")
+    print(f"[OK] 已设置 {remote} = {remote_url}")
 
 
-def has_staged_changes(dry_run: bool) -> bool:
-    if dry_run:
-        return True
-    # Return code: 0 no diff, 1 has diff
+def has_staged_changes() -> bool:
     result = subprocess.run(
         ["git", "diff", "--cached", "--quiet"],
         cwd=str(PROJECT_DIR),
@@ -105,102 +91,93 @@ def has_staged_changes(dry_run: bool) -> bool:
     return result.returncode == 1
 
 
-def stage_and_commit(message: str, skip_commit: bool, dry_run: bool) -> bool:
+def stage_and_commit(message: str, skip_commit: bool, dry_run: bool) -> None:
     if skip_commit:
-        print("[info] skip commit enabled, will only push current HEAD")
-        return True
+        print("[INFO] 跳过提交，仅推送当前 HEAD")
+        return
 
-    run_command(["git", "add", "-A"], dry_run=dry_run)
+    run_command(["git", "add", "-A"], dry_run=dry_run, check=True)
     excluded = collect_excluded_paths()
     if excluded:
-        run_command(["git", "reset", "--"] + excluded, check=False, dry_run=dry_run)
-        print("[info] staged changes with exclusions")
+        run_command(["git", "reset", "--"] + excluded, dry_run=dry_run)
+        print("[OK] 已暂存变更（已排除 tools / 导出目录）")
     else:
-        print("[info] staged all changes")
+        print("[OK] 已暂存全部变更")
 
-    if not has_staged_changes(dry_run):
-        print("[info] no staged changes, skip commit")
-        return True
+    if dry_run:
+        print("[dry-run] 跳过 staged 变更检查")
+        return
 
-    ok, out, err = run_command(["git", "commit", "-m", message], check=False, dry_run=dry_run)
-    if ok:
-        print("[ok] commit created")
-        if out:
-            print(out)
-        return True
+    if not has_staged_changes():
+        print("[INFO] 没有可提交变更，跳过 commit")
+        return
 
-    # Non-zero can happen when nothing to commit after reset.
-    text = f"{out}\n{err}".strip()
-    if "nothing to commit" in text.lower():
-        print("[info] nothing to commit")
-        return True
-
-    print(f"[error] commit failed: {text}")
-    return False
+    ok, out, err = run_command(["git", "commit", "-m", message], dry_run=dry_run)
+    if not ok:
+        text = f"{out}\n{err}".lower()
+        if "nothing to commit" in text:
+            print("[INFO] nothing to commit")
+            return
+        raise RuntimeError(err or out)
+    print(f"[OK] 已提交: {message}")
 
 
-def push_to_branch(remote: str, branch: str, force: bool, dry_run: bool) -> bool:
+def push(remote: str, branch: str, force: bool, dry_run: bool) -> None:
     cmd = ["git", "push", "-u", remote, f"HEAD:{branch}"]
     if force:
         cmd.append("--force")
-    ok, out, err = run_command(cmd, check=False, dry_run=dry_run)
-    if ok:
-        print(f"[ok] pushed to {remote}/{branch}")
-        if out:
-            print(out)
-        return True
-    print(f"[error] push failed: {err or out}")
-    return False
+    ok, out, err = run_command(cmd, dry_run=dry_run)
+    if not ok:
+        raise RuntimeError(err or out)
+    print(f"[OK] 已推送到 {remote}/{branch}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="快速推送脚本（默认 main）")
+    parser.add_argument("--remote", default="origin", help="远端名，默认 origin")
+    parser.add_argument("--remote-url", default=REPO_URL, help="远端 URL")
+    parser.add_argument("--branch", default="main", help="目标分支，默认 main")
+    parser.add_argument("--message", default="", help="提交信息")
+    parser.add_argument("--skip-commit", action="store_true", help="跳过提交，仅推送")
+    parser.add_argument("--force", action="store_true", help="强制推送")
+    parser.add_argument("--dry-run", action="store_true", help="仅打印命令")
+    parser.add_argument("--no-confirm", action="store_true", help="跳过确认")
+    return parser.parse_args()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Commit and push current code to dev branch for CI build only."
-    )
-    parser.add_argument("--remote", default="origin", help="git remote name (default: origin)")
-    parser.add_argument("--remote-url", default=REPO_URL, help="git remote URL")
-    parser.add_argument("--branch", default="dev", help="target branch (default: dev)")
-    parser.add_argument("--message", default="", help="commit message")
-    parser.add_argument("--skip-commit", action="store_true", help="skip commit, only push HEAD")
-    parser.add_argument("--force", action="store_true", help="force push to target branch")
-    parser.add_argument("--dry-run", action="store_true", help="print commands without execution")
-    parser.add_argument("--no-confirm", action="store_true", help="do not ask confirmation")
-    args = parser.parse_args()
-
+    args = parse_args()
     if not (PROJECT_DIR / ".git").exists():
-        print(f"[error] not a git repository: {PROJECT_DIR}")
+        print(f"[ERROR] 不是 git 仓库: {PROJECT_DIR}")
         return 1
 
     message = args.message.strip() or f"ci: trigger {args.branch} build {datetime.now():%Y-%m-%d %H:%M:%S}"
 
     print("=" * 60)
-    print("Mini-HBUT dev push script")
+    print("Mini-HBUT 快速推送脚本")
     print("=" * 60)
     print(f"project: {PROJECT_DIR}")
     print(f"remote : {args.remote} -> {args.remote_url}")
     print(f"branch : {args.branch}")
-    print("mode   : build-only (no version bump / no tag / no release)")
+    print("mode   : no version bump / no tag / no release")
 
     if not args.no_confirm:
-        answer = input("Continue? [y/N]: ").strip().lower()
+        answer = input("确认继续？[y/N]: ").strip().lower()
         if answer != "y":
-            print("Cancelled.")
+            print("已取消。")
             return 0
 
-    if not ensure_git_remote(args.remote, args.remote_url, args.dry_run):
+    try:
+        ensure_origin(args.remote, args.remote_url, args.dry_run)
+        stage_and_commit(message, args.skip_commit, args.dry_run)
+        push(args.remote, args.branch, args.force, args.dry_run)
+    except Exception as exc:
+        print(f"[ERROR] 推送失败: {exc}")
         return 1
 
-    if not stage_and_commit(message, args.skip_commit, args.dry_run):
-        return 1
-
-    if not push_to_branch(args.remote, args.branch, args.force, args.dry_run):
-        return 1
-
-    print("\n[done] push completed.")
-    print("[tip] this script does not touch version/tag/release.")
+    print("[OK] 推送完成。")
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

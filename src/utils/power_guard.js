@@ -1,25 +1,20 @@
-const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window;
+import { getRuntime, platformBridge } from '../platform'
+
+const isDesktopTauri = () => getRuntime() === 'tauri'
 
 async function tryKeepScreenOn(enable) {
-  try {
-    const mod = await import('tauri-plugin-keep-screen-on-api');
-    if (typeof mod.keepScreenOn === 'function') {
-      await mod.keepScreenOn(enable);
-      return true;
-    }
-  } catch (_) {
-    // plugin may be unavailable on current platform/build
-  }
-  return false;
+  return platformBridge.keepScreenOn(enable)
 }
 
 export async function enableBackgroundPowerLock() {
-  if (!isTauri()) {
+  if (getRuntime() === 'web') {
     return { enabled: false, source: [] };
   }
 
   const source = [];
-  if (await tryKeepScreenOn(true)) source.push('keep-screen-on');
+  if (await tryKeepScreenOn(true)) {
+    source.push(isDesktopTauri() ? 'tauri-keep-screen-on' : 'capacitor-wakelock')
+  }
 
   return {
     enabled: source.length > 0,
@@ -28,12 +23,14 @@ export async function enableBackgroundPowerLock() {
 }
 
 export async function disableBackgroundPowerLock() {
-  if (!isTauri()) {
+  if (getRuntime() === 'web') {
     return { disabled: false, source: [] };
   }
 
   const source = [];
-  if (await tryKeepScreenOn(false)) source.push('keep-screen-on');
+  if (await tryKeepScreenOn(false)) {
+    source.push(isDesktopTauri() ? 'tauri-keep-screen-on' : 'capacitor-wakelock')
+  }
 
   return {
     disabled: source.length > 0,

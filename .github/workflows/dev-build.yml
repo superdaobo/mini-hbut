@@ -3,7 +3,7 @@ name: Dev Build
 on:
   push:
     branches:
-      - dev
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,7 +13,7 @@ env:
   CARGO_INCREMENTAL: 0
 
 concurrency:
-  group: dev-build-${{ github.ref }}
+  group: main-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
