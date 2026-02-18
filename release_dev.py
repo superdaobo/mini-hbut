@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Mini-HBUT 快速推送脚本（默认推送 main）
+Mini-HBUT 开发分支推送脚本（默认 dev）
 
 用途：
 1. 不改版本号
 2. 不打 tag
-3. 不发 release
-4. 仅提交（可选）并推送到目标分支（默认 main）
+3. 不创建 release
+4. 仅提交（可选）并推送到目标分支（默认 dev）
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ def run_command(
     if dry_run:
         print("[dry-run]", " ".join(cmd))
         return True, "", ""
+
     result = subprocess.run(
         cmd,
         cwd=str(cwd or PROJECT_DIR),
@@ -52,6 +53,7 @@ def run_command(
     ok = result.returncode == 0
     out = (result.stdout or "").strip()
     err = (result.stderr or "").strip()
+
     if check and not ok:
         raise RuntimeError(f"命令失败: {' '.join(cmd)}\n{err or out}")
     return ok, out, err
@@ -75,6 +77,7 @@ def ensure_origin(remote: str, remote_url: str, dry_run: bool) -> None:
     if ok and out.strip() == remote_url:
         print(f"[OK] {remote} = {remote_url}")
         return
+
     run_command(["git", "remote", "remove", remote], dry_run=dry_run)
     ok, _, err = run_command(["git", "remote", "add", remote, remote_url], dry_run=dry_run)
     if not ok:
@@ -133,10 +136,10 @@ def push(remote: str, branch: str, force: bool, dry_run: bool) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="快速推送脚本（默认 main）")
+    parser = argparse.ArgumentParser(description="开发分支快速推送脚本（默认 dev）")
     parser.add_argument("--remote", default="origin", help="远端名，默认 origin")
     parser.add_argument("--remote-url", default=REPO_URL, help="远端 URL")
-    parser.add_argument("--branch", default="main", help="目标分支，默认 main")
+    parser.add_argument("--branch", default="dev", help="目标分支，默认 dev")
     parser.add_argument("--message", default="", help="提交信息")
     parser.add_argument("--skip-commit", action="store_true", help="跳过提交，仅推送")
     parser.add_argument("--force", action="store_true", help="强制推送")
@@ -154,7 +157,7 @@ def main() -> int:
     message = args.message.strip() or f"ci: trigger {args.branch} build {datetime.now():%Y-%m-%d %H:%M:%S}"
 
     print("=" * 60)
-    print("Mini-HBUT 快速推送脚本")
+    print("Mini-HBUT 开发分支推送脚本")
     print("=" * 60)
     print(f"project: {PROJECT_DIR}")
     print(f"remote : {args.remote} -> {args.remote_url}")

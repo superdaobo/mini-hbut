@@ -104,7 +104,7 @@ https://cdn.jsdelivr.net/gh/superdaobo/mini-hbut@latest/releases/
 说明：
 
 - `release.py` 默认会先执行 `origin/main -> origin/old` 归档，再推送新代码到 `origin/main`。
-- `dev-build.yml` 已改为监听 `main`，不再依赖 `dev` 触发。
+- `dev-build.yml` 监听 `dev`，用于开发分支持续构建。
 
 ### ⚠️ 首次设置 GitHub Actions 权限
 
@@ -133,8 +133,8 @@ python release.py --no-archive-old  # 不归档 old（默认会归档）
 快速推送（不改版本号/不打 tag）：
 
 ```bash
-python release_dev.py                # 默认推送到 main
-python release_dev.py --branch main  # 显式指定 main
+python release_dev.py               # 默认推送到 dev
+python release_dev.py --branch dev  # 显式指定 dev
 ```
 
 或者手动创建标签：
