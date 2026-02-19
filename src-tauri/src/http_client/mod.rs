@@ -50,6 +50,11 @@ pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/index.html";
 pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
+pub(super) const SECONDARY_OCR_ENDPOINT: &str = "https://superdaobo-ocr-service.hf.space/api/ocr/recognize";
+pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] = &[
+    DEFAULT_OCR_ENDPOINT,
+    SECONDARY_OCR_ENDPOINT,
+];
 
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）
 pub(super) fn get_random_string(length: usize) -> String {
@@ -109,6 +114,8 @@ pub struct HbutClient {
     pub(super) electricity_refresh_token: Option<String>,
     pub(super) electricity_token_expires_at: Option<DateTime<Utc>>,
     pub(super) ocr_endpoint: Option<String>,
+    pub(super) ocr_remote_endpoints: Vec<String>,
+    pub(super) ocr_local_fallback_endpoints: Vec<String>,
     pub(super) ocr_active_endpoint: Option<String>,
     pub(super) ocr_active_source: Option<String>,
     pub(super) ocr_last_error: Option<String>,
@@ -162,6 +169,11 @@ impl HbutClient {
             electricity_refresh_token: None,
             electricity_token_expires_at: None,
             ocr_endpoint: None,
+            ocr_remote_endpoints: Vec::new(),
+            ocr_local_fallback_endpoints: DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+                .iter()
+                .map(|v| v.to_string())
+                .collect(),
             ocr_active_endpoint: None,
             ocr_active_source: None,
             ocr_last_error: None,
@@ -179,10 +191,42 @@ impl HbutClient {
         let trimmed = endpoint.trim();
         if trimmed.is_empty() {
             self.ocr_endpoint = None;
+            self.ocr_remote_endpoints.clear();
         } else {
-            self.ocr_endpoint = Some(trimmed.to_string());
+            let normalized = Self::normalize_ocr_endpoint(trimmed);
+            self.ocr_endpoint = Some(normalized.clone());
+            self.ocr_remote_endpoints = vec![normalized];
+        }
+        if self.ocr_local_fallback_endpoints.is_empty() {
+            self.ocr_local_fallback_endpoints = DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+                .iter()
+                .map(|v| v.to_string())
+                .collect();
         }
         // 每次配置更新后清理运行态，下一次 OCR 请求会重新填充状态。
+        self.ocr_active_endpoint = None;
+        self.ocr_active_source = None;
+        self.ocr_last_error = None;
+    }
+
+    pub fn set_ocr_runtime_config(
+        &mut self,
+        endpoints: Vec<String>,
+        local_fallback_endpoints: Vec<String>,
+    ) {
+        self.ocr_remote_endpoints = Self::normalize_ocr_endpoint_list(endpoints);
+        self.ocr_endpoint = self.ocr_remote_endpoints.first().cloned();
+
+        let normalized_local = Self::normalize_ocr_endpoint_list(local_fallback_endpoints);
+        self.ocr_local_fallback_endpoints = if normalized_local.is_empty() {
+            DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+                .iter()
+                .map(|v| v.to_string())
+                .collect()
+        } else {
+            normalized_local
+        };
+
         self.ocr_active_endpoint = None;
         self.ocr_active_source = None;
         self.ocr_last_error = None;
@@ -201,6 +245,22 @@ impl HbutClient {
         }
     }
 
+    pub(super) fn normalize_ocr_endpoint_list(values: Vec<String>) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut result = Vec::new();
+        for value in values {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let normalized = Self::normalize_ocr_endpoint(trimmed);
+            if seen.insert(normalized.clone()) {
+                result.push(normalized);
+            }
+        }
+        result
+    }
+
     pub(super) fn set_ocr_runtime_success(&mut self, source: &str, endpoint: &str) {
         self.ocr_active_source = Some(source.to_string());
         self.ocr_active_endpoint = Some(endpoint.to_string());
@@ -216,11 +276,14 @@ impl HbutClient {
     pub fn get_ocr_runtime_status(&self) -> serde_json::Value {
         serde_json::json!({
             "configured_endpoint": self.ocr_endpoint.clone().unwrap_or_default(),
+            "configured_endpoints": self.ocr_remote_endpoints.clone(),
+            "local_fallback_endpoints": self.ocr_local_fallback_endpoints.clone(),
             "default_remote_endpoint": DEFAULT_REMOTE_OCR_ENDPOINT,
             "fallback_endpoint": DEFAULT_OCR_ENDPOINT,
+            "default_local_fallback_endpoints": DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS,
             "active_endpoint": self.ocr_active_endpoint.clone(),
             "active_source": self.ocr_active_source.clone().unwrap_or_else(|| "unknown".to_string()),
-            "fallback_used": self.ocr_active_source.as_deref() == Some("fallback"),
+            "fallback_used": self.ocr_active_source.as_deref().map(|v| v.contains("fallback")).unwrap_or(false),
             "last_error": self.ocr_last_error.clone(),
         })
     }

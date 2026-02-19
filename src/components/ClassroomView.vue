@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, LONG_TTL, SHORT_TTL, DEFAULT_TTL } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
@@ -29,6 +29,20 @@ const currentMeta = ref({
   weekday_name: '',
   semester: ''
 })
+
+// 生命周期与并发保护：
+// 1) 组件卸载后不再写入响应数据，避免返回首页后被旧请求回写导致白屏
+// 2) 仅允许“最后一次查询”生效，旧请求结果直接丢弃
+let disposed = false
+let retryTimer = null
+let latestRequestId = 0
+
+const clearRetryTimer = () => {
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+}
 
 // 筛选条件
 const filters = ref({
@@ -154,6 +168,9 @@ const initLocalMeta = () => {
 
 // 查询空教室
 const queryClassrooms = async (retryCount = 0) => {
+  if (disposed) return
+  clearRetryTimer()
+  const requestId = ++latestRequestId
   loading.value = true
   if (retryCount === 0) errorMsg.value = ''
   classrooms.value = []
@@ -183,6 +200,8 @@ const queryClassrooms = async (retryCount = 0) => {
       return res.data
     }, SHORT_TTL) // 使用 SHORT_TTL 因为空教室数据变化频繁
     
+    if (disposed || requestId !== latestRequestId) return
+
     if (data?.success) {
       classrooms.value = data.data
       offline.value = !!data.offline
@@ -206,6 +225,7 @@ const queryClassrooms = async (retryCount = 0) => {
       errorMsg.value = data?.error || '查询失败'
     }
   } catch (e) {
+    if (disposed || requestId !== latestRequestId) return
     console.error('查询异常', e)
     
     // 自动重试逻辑
@@ -215,7 +235,9 @@ const queryClassrooms = async (retryCount = 0) => {
         if (retryCount === 0 && !currentMeta.value.date_str) initLocalMeta()
         
         errorMsg.value = `系统预热中，自动重试 (${retryCount + 1}/${maxRetry.value})...`
-        setTimeout(() => {
+        retryTimer = setTimeout(() => {
+          retryTimer = null
+          if (disposed) return
           queryClassrooms(retryCount + 1)
         }, retryDelayMs.value)
         return
@@ -226,6 +248,7 @@ const queryClassrooms = async (retryCount = 0) => {
       errorMsg.value = '连接服务器失败'
     }
   } finally {
+    if (disposed || requestId !== latestRequestId) return
     if (!errorMsg.value.includes('自动重试')) {
       loading.value = false
     }
@@ -256,6 +279,13 @@ onMounted(async () => {
   await fetchBuildings()
   // 默认自动查询一次
   queryClassrooms()
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  clearRetryTimer()
+  // 使所有未完成请求结果失效
+  latestRequestId += 1
 })
 </script>
 

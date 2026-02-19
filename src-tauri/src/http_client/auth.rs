@@ -657,22 +657,36 @@ impl HbutClient {
         }
 
         let mut endpoints: Vec<(&str, String)> = Vec::new();
-        if let Some(cfg_ep) = self
-            .ocr_endpoint
-            .as_ref()
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty())
-        {
-            endpoints.push(("remote_config", Self::normalize_ocr_endpoint(cfg_ep)));
-        } else {
-            endpoints.push((
-                "remote_default",
-                super::DEFAULT_REMOTE_OCR_ENDPOINT.to_string(),
-            ));
+        let mut seen = std::collections::HashSet::new();
+
+        // 1) 远程配置列表（前端下发）
+        for endpoint in &self.ocr_remote_endpoints {
+            let normalized = Self::normalize_ocr_endpoint(endpoint);
+            if seen.insert(normalized.clone()) {
+                endpoints.push(("remote_config", normalized));
+            }
         }
-        let fallback = super::DEFAULT_OCR_ENDPOINT.to_string();
-        if endpoints.iter().all(|(_, ep)| ep != &fallback) {
-            endpoints.push(("fallback", fallback));
+
+        // 2) 默认远程兜底
+        let remote_default = super::DEFAULT_REMOTE_OCR_ENDPOINT.to_string();
+        if seen.insert(remote_default.clone()) {
+            endpoints.push(("remote_default", remote_default));
+        }
+
+        // 3) 本地兜底列表（可被远程配置覆盖）
+        let local_fallbacks = if self.ocr_local_fallback_endpoints.is_empty() {
+            super::DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+        } else {
+            self.ocr_local_fallback_endpoints.clone()
+        };
+        for endpoint in local_fallbacks {
+            let normalized = Self::normalize_ocr_endpoint(&endpoint);
+            if seen.insert(normalized.clone()) {
+                endpoints.push(("local_fallback", normalized));
+            }
         }
 
         let mut last_err = String::new();

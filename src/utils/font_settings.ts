@@ -180,32 +180,42 @@ const loadDeyiHeiFontInWeb = async (force = false) => {
   const resolvedUrl = resolveWebFontUrl()
   let response: Response | null = null
 
-  if (!force && typeof caches !== 'undefined') {
-    const cache = await caches.open(CACHE_NAME)
-    response = await cache.match(resolvedUrl)
-  }
-  if (!response) {
-    response = await fetch(resolvedUrl, { mode: 'cors' })
-    if (!response.ok) throw new Error(`font download failed: ${response.status}`)
-    if (typeof caches !== 'undefined') {
+  try {
+    if (!force && typeof caches !== 'undefined') {
       const cache = await caches.open(CACHE_NAME)
-      await cache.put(resolvedUrl, response.clone())
+      response = await cache.match(resolvedUrl)
+    }
+    if (!response) {
+      response = await fetch(resolvedUrl, { mode: 'cors' })
+      if (!response.ok) throw new Error(`font download failed: ${response.status}`)
+      if (typeof caches !== 'undefined') {
+        const cache = await caches.open(CACHE_NAME)
+        await cache.put(resolvedUrl, response.clone())
+      }
+    }
+  } catch {
+    response = null
+  }
+
+  if (response) {
+    try {
+      const buffer = await response.arrayBuffer()
+      const bytes = new Uint8Array(buffer)
+      const loaded = await loadFontFromBytes(bytes)
+      if (loaded) return true
+    } catch {
+      // 继续走 URL 注入兜底
     }
   }
 
-  const buffer = await response.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  return loadFontFromBytes(bytes)
+  // WebView/旧内核上 FontFace 可能不可用，兜底为 @font-face 注入。
+  return loadFontFromUrl(resolvedUrl)
 }
 
 const loadDeyiHeiFont = async (force = false) => {
   if (!force && document.fonts?.check(`12px ${FONT_NAME}`)) {
     state.loaded = true
     return true
-  }
-
-  if (typeof FontFace === 'undefined') {
-    throw new Error('当前环境不支持字体动态加载')
   }
 
   const ok = isTauri()

@@ -132,11 +132,11 @@ const handleResetBackend = () => {
   showToast('已恢复默认后端参数', 'success')
 }
 
-const handleSelectFont = (fontKey) => {
+const handleSelectFont = async (fontKey) => {
   if (fontKey !== 'deyihei') {
     fontSettings.font = fontKey
     flushUiSettings()
-    showToast('字体设置已更新', 'success')
+    showToast('字体已应用', 'success')
     return
   }
   if (fontSettings.loaded) {
@@ -146,7 +146,7 @@ const handleSelectFont = (fontKey) => {
     return
   }
   showFontModal.value = true
-  handleDownloadFont()
+  await handleDownloadFont()
 }
 
 const handleDownloadFont = async (force = false) => {
@@ -157,7 +157,10 @@ const handleDownloadFont = async (force = false) => {
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
   try {
-    await loadDeyiHeiFont(force)
+    const loaded = await loadDeyiHeiFont(force)
+    if (!loaded) {
+      throw new Error('font not loaded')
+    }
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
     fontSettings.font = 'deyihei'

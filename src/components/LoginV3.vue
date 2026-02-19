@@ -8,11 +8,11 @@
  * 2. 用户手动输入验证码
  * 3. 调用后端进行登录（后端会尝试多次直到成功）
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import hbutLogo from '../assets/hbut-logo.png'
 // 使用后端自动 OCR 识别验证码
-import { fetchRemoteConfig } from '../utils/remote_config.js'
+import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke } from '../platform/native'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
@@ -59,12 +59,18 @@ onMounted(async () => {
   
   // 验证码由后端 OCR 自动处理
   await ensureOcrEndpointReady()
+  window.addEventListener('hbu-ocr-config-updated', handleOcrConfigUpdated)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('hbu-ocr-config-updated', handleOcrConfigUpdated)
 })
 
 const resolveOcrModeLabel = (status, endpoint) => {
   const activeSource = String(status?.active_source || '').trim()
-  if (activeSource === 'remote_config') return '远程'
-  if (activeSource === 'fallback') return '本地'
+  if (activeSource.includes('fallback') || activeSource.includes('local')) return '本地'
+  if (activeSource && activeSource !== 'unknown') return '远程'
+  if (status?.fallback_used) return '本地'
 
   const configured = String(status?.configured_endpoint || '').trim()
   if (configured || endpoint) return '远程'
@@ -81,33 +87,31 @@ const refreshOcrMode = async (endpointHint = '') => {
 }
 
 const ensureOcrEndpointReady = async () => {
-  let endpoint = ''
+  let endpointHint = ''
   try {
-    // 每次登录都优先读取远程配置，避免被旧缓存“锁死”在本地 OCR。
     const cfg = await fetchRemoteConfig()
-    const enabled = cfg?.ocr?.enabled !== false
-    endpoint = enabled ? String(cfg?.ocr?.endpoint || '').trim() : ''
+    await applyOcrRuntimeConfig(cfg)
+    endpointHint = String(cfg?.ocr?.endpoint || '').trim()
   } catch (e) {
-    console.warn('[OCR] 拉取远程配置失败，将使用缓存/内置兜底:', e)
+    console.warn('[OCR] 拉取远程配置失败，改用本地 OCR 配置:', e)
+    const localCfg = getStoredOcrConfig()
+    await applyOcrRuntimeConfig({
+      ocr: {
+        enabled: true,
+        endpoint: localCfg.endpoint,
+        endpoints: localCfg.endpoints,
+        local_fallback_endpoints: localCfg.local_fallback_endpoints
+      }
+    })
+    endpointHint = localCfg.endpoint
   }
 
-  if (!endpoint) {
-    endpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
-  }
+  await refreshOcrMode(endpointHint)
+}
 
-  if (endpoint) {
-    localStorage.setItem('hbu_ocr_endpoint', endpoint)
-  } else {
-    localStorage.removeItem('hbu_ocr_endpoint')
-  }
-
-  try {
-    await invoke('set_ocr_endpoint', { endpoint })
-  } catch (e) {
-    console.warn('[OCR] 下发 OCR 端点失败:', e)
-  }
-
-  await refreshOcrMode(endpoint)
+const handleOcrConfigUpdated = () => {
+  const localCfg = getStoredOcrConfig()
+  refreshOcrMode(String(localCfg.endpoint || '').trim())
 }
 
 // 保存凭据
@@ -194,7 +198,7 @@ const handleLogin = async () => {
     statusMsg.value = '⚠️ 登录失败: ' + errMsg
     loading.value = false
   } finally {
-    await refreshOcrMode(String(localStorage.getItem('hbu_ocr_endpoint') || '').trim())
+    await refreshOcrMode(String(getStoredOcrConfig().endpoint || '').trim())
   }
 }
 

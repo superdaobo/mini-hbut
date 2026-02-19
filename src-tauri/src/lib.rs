@@ -298,6 +298,20 @@ async fn set_ocr_endpoint(state: State<'_, AppState>, endpoint: String) -> Resul
 }
 
 #[tauri::command]
+async fn set_ocr_runtime_config(
+    state: State<'_, AppState>,
+    endpoints: Option<Vec<String>>,
+    local_fallback_endpoints: Option<Vec<String>>,
+) -> Result<(), String> {
+    let mut client = state.client.lock().await;
+    client.set_ocr_runtime_config(
+        endpoints.unwrap_or_default(),
+        local_fallback_endpoints.unwrap_or_default(),
+    );
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_ocr_runtime_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     Ok(client.get_ocr_runtime_status())
@@ -330,31 +344,57 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     let parsed: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("?? JSON ??: {}", e))?;
 
-    let ocr_enabled = parsed
-        .get("ocr")
-        .and_then(|v| v.get("enabled"))
+    let ocr = parsed.get("ocr").cloned().unwrap_or_default();
+    let ocr_enabled = ocr
+        .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    let ocr_endpoint = if ocr_enabled {
-        parsed
-            .get("ocr")
-            .and_then(|v| v.get("endpoint"))
+
+    let mut remote_endpoints = Vec::new();
+    if ocr_enabled {
+        if let Some(arr) = ocr.get("endpoints").and_then(|v| v.as_array()) {
+            for item in arr {
+                if let Some(text) = item.as_str() {
+                    remote_endpoints.push(text.to_string());
+                }
+            }
+        }
+        if let Some(single) = ocr
+            .get("endpoint")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    } else {
-        String::new()
-    };
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+        {
+            remote_endpoints.push(single.to_string());
+        }
+    }
+
+    let mut local_fallback_endpoints = Vec::new();
+    if let Some(arr) = ocr.get("local_fallback_endpoints").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(text) = item.as_str() {
+                local_fallback_endpoints.push(text.to_string());
+            }
+        }
+    }
+    if let Some(arr) = ocr.get("localFallbackEndpoints").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(text) = item.as_str() {
+                local_fallback_endpoints.push(text.to_string());
+            }
+        }
+    }
 
     {
         let mut hbut = state.client.lock().await;
-        hbut.set_ocr_endpoint(ocr_endpoint.clone());
+        hbut.set_ocr_runtime_config(remote_endpoints.clone(), local_fallback_endpoints.clone());
     }
 
     println!(
-        "[??] ???? OCR ???: enabled={}, endpoint={}",
-        ocr_enabled, ocr_endpoint
+        "[Config] apply OCR runtime config: enabled={}, remote_endpoints={}, local_fallback_endpoints={}",
+        ocr_enabled,
+        remote_endpoints.len(),
+        local_fallback_endpoints.len(),
     );
 
     Ok(parsed)
@@ -2427,6 +2467,7 @@ pub fn run() {
             get_captcha,
             recognize_captcha,
             set_ocr_endpoint,
+            set_ocr_runtime_config,
             get_ocr_runtime_status,
             set_temp_upload_endpoint,
             fetch_remote_config,

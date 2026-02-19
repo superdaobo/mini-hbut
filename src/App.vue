@@ -30,7 +30,11 @@ import ResourceShareView from './components/ResourceShareView.vue'
 import { fetchWithCache } from './utils/api.js'
 import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
-import { fetchRemoteConfig } from './utils/remote_config.js'
+import {
+  fetchRemoteConfig,
+  applyOcrRuntimeConfig,
+  getStoredOcrConfig
+} from './utils/remote_config.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import {
   exitNativeApp,
@@ -569,11 +573,19 @@ const handleForceUpdate = () => {
 
 const primeOcrEndpointFromCache = async () => {
   if (!hasTauri) return
-  const cachedEndpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+  const cached = getStoredOcrConfig()
   try {
-    await invokeNative('set_ocr_endpoint', { endpoint: cachedEndpoint })
+    await invokeNative('set_ocr_runtime_config', {
+      endpoints: cached.endpoints || [],
+      localFallbackEndpoints: cached.local_fallback_endpoints || []
+    })
   } catch (e) {
-    console.warn('[Config] 启动预设 OCR 端点失败:', e)
+    const cachedEndpoint = String(localStorage.getItem('hbu_ocr_endpoint') || '').trim()
+    try {
+      await invokeNative('set_ocr_endpoint', { endpoint: cachedEndpoint })
+    } catch (fallbackErr) {
+      console.warn('[Config] 启动预设 OCR 端点失败:', fallbackErr)
+    }
   }
 }
 
@@ -583,20 +595,8 @@ const applyRemoteConfig = async () => {
     remoteConfig.value = config
     announcementData.value = config.announcements || { pinned: [], ticker: [], list: [], confirm: [] }
 
-    const remoteOcrEnabled = config.ocr?.enabled !== false
-    const remoteOcrEndpoint = remoteOcrEnabled
-      ? String(config.ocr?.endpoint || '').trim()
-      : ''
-    if (remoteOcrEndpoint) {
-      localStorage.setItem('hbu_ocr_endpoint', remoteOcrEndpoint)
-    } else {
-      localStorage.removeItem('hbu_ocr_endpoint')
-    }
-    try {
-      await invokeNative('set_ocr_endpoint', { endpoint: remoteOcrEndpoint })
-    } catch (e) {
-      console.warn('[Config] OCR 端点下发失败:', e)
-    }
+    await applyOcrRuntimeConfig(config)
+    window.dispatchEvent(new CustomEvent('hbu-ocr-config-updated'))
 
     // 课表临时文件上传地址：每次启动后由远程配置覆盖。
     // 优先由前端显式透传，Rust 侧也会缓存一份用于兜底。

@@ -5,7 +5,15 @@ const CONFIG_URLS = [
 ]
 
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
+const OCR_REMOTE_ENDPOINTS_KEY = 'hbu_ocr_remote_endpoints'
+const OCR_LOCAL_FALLBACK_ENDPOINTS_KEY = 'hbu_ocr_local_fallback_endpoints'
+const OCR_PRIMARY_ENDPOINT_KEY = 'hbu_ocr_endpoint'
 const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
+const DEFAULT_OCR_ENDPOINTS = [DEFAULT_OCR_ENDPOINT]
+const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
+  'http://1.94.167.18:5080/api/ocr/recognize',
+  'https://superdaobo-ocr-service.hf.space/api/ocr/recognize'
+]
 const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
 
 const DEFAULT_CONFIG = {
@@ -22,6 +30,8 @@ const DEFAULT_CONFIG = {
   },
   ocr: {
     endpoint: DEFAULT_OCR_ENDPOINT,
+    endpoints: [...DEFAULT_OCR_ENDPOINTS],
+    local_fallback_endpoints: [...DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS],
     enabled: true
   },
   temp_file_server: {
@@ -50,6 +60,72 @@ const firstNonEmpty = (...values) => {
   return ''
 }
 
+const normalizeOcrEndpoint = (value) => {
+  const text = toString(value).trim()
+  if (!text) return ''
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `http://${text}`
+  return withProtocol.includes('/api/ocr/recognize')
+    ? withProtocol
+    : `${withProtocol.replace(/\/+$/, '')}/api/ocr/recognize`
+}
+
+const normalizeEndpointList = (value) => {
+  const array = toArray(value)
+  const seen = new Set()
+  const result = []
+  for (const item of array) {
+    const endpoint = normalizeOcrEndpoint(item)
+    if (!endpoint || seen.has(endpoint)) continue
+    seen.add(endpoint)
+    result.push(endpoint)
+  }
+  return result
+}
+
+const safeJsonParse = (raw, fallback) => {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return fallback
+  }
+}
+
+const persistOcrConfig = (ocr) => {
+  const endpoints = normalizeEndpointList(ocr?.endpoints)
+  const localFallbackEndpoints = normalizeEndpointList(ocr?.local_fallback_endpoints)
+  const primary = endpoints[0] || ''
+  try {
+    localStorage.setItem(OCR_REMOTE_ENDPOINTS_KEY, JSON.stringify(endpoints))
+    localStorage.setItem(OCR_LOCAL_FALLBACK_ENDPOINTS_KEY, JSON.stringify(localFallbackEndpoints))
+    if (primary) {
+      localStorage.setItem(OCR_PRIMARY_ENDPOINT_KEY, primary)
+    } else {
+      localStorage.removeItem(OCR_PRIMARY_ENDPOINT_KEY)
+    }
+  } catch {
+    // ignore
+  }
+  return { endpoints, localFallbackEndpoints, primary }
+}
+
+export const getStoredOcrConfig = () => {
+  const endpoints = normalizeEndpointList(
+    safeJsonParse(localStorage.getItem(OCR_REMOTE_ENDPOINTS_KEY) || '[]', [])
+  )
+  const localFallbackEndpoints = normalizeEndpointList(
+    safeJsonParse(localStorage.getItem(OCR_LOCAL_FALLBACK_ENDPOINTS_KEY) || '[]', [])
+  )
+  const primary = normalizeOcrEndpoint(localStorage.getItem(OCR_PRIMARY_ENDPOINT_KEY) || '')
+  return {
+    endpoints: endpoints.length > 0 ? endpoints : [...DEFAULT_OCR_ENDPOINTS],
+    local_fallback_endpoints:
+      localFallbackEndpoints.length > 0
+        ? localFallbackEndpoints
+        : [...DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS],
+    endpoint: primary || endpoints[0] || DEFAULT_OCR_ENDPOINT
+  }
+}
+
 const withCacheBust = (url) => {
   const text = String(url || '').trim()
   if (!text) return ''
@@ -71,6 +147,27 @@ const resolveAnnouncements = (cfg) => {
 export function normalizeRemoteConfig(raw) {
   const cfg = raw && typeof raw === 'object' ? raw : {}
   const announcements = resolveAnnouncements(cfg)
+  const endpointCandidates = [
+    ...toArray(cfg.ocr?.endpoints),
+    cfg.ocr?.endpoint,
+    cfg.ocr?.url,
+    cfg.ocr_endpoint,
+    cfg.ocrUrl
+  ]
+  const normalizedEndpoints = normalizeEndpointList(endpointCandidates)
+  const ocrEndpoints =
+    normalizedEndpoints.length > 0 ? normalizedEndpoints : [...DEFAULT_OCR_ENDPOINTS]
+
+  const localFallbackCandidates = [
+    ...toArray(cfg.ocr?.local_fallback_endpoints),
+    ...toArray(cfg.ocr?.localFallbackEndpoints),
+    ...toArray(cfg.ocr_local_fallback_endpoints)
+  ]
+  const normalizedLocalFallback = normalizeEndpointList(localFallbackCandidates)
+  const localFallbackEndpoints =
+    normalizedLocalFallback.length > 0
+      ? normalizedLocalFallback
+      : [...DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS]
 
   return {
     announcements,
@@ -80,13 +177,9 @@ export function normalizeRemoteConfig(raw) {
       download_url: firstNonEmpty(cfg.force_update?.download_url, cfg.force_update?.downloadUrl)
     },
     ocr: {
-      endpoint: firstNonEmpty(
-        cfg.ocr?.endpoint,
-        cfg.ocr?.url,
-        cfg.ocr_endpoint,
-        cfg.ocrUrl,
-        DEFAULT_OCR_ENDPOINT
-      ),
+      endpoint: ocrEndpoints[0] || DEFAULT_OCR_ENDPOINT,
+      endpoints: ocrEndpoints,
+      local_fallback_endpoints: localFallbackEndpoints,
       enabled: cfg.ocr?.enabled !== false
     },
     temp_file_server: {
@@ -178,6 +271,39 @@ const fetchFromAnyUrl = async () => {
     }
   }
   throw new Error(lastError || 'remote config unavailable')
+}
+
+export const applyOcrRuntimeConfig = async (configLike) => {
+  const enabled = configLike?.ocr?.enabled !== false
+  const ocrPayload = enabled ? configLike?.ocr : null
+  const persisted = persistOcrConfig({
+    endpoints: enabled ? ocrPayload?.endpoints || [ocrPayload?.endpoint] : [],
+    local_fallback_endpoints: enabled
+      ? ocrPayload?.local_fallback_endpoints || []
+      : [...DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS]
+  })
+
+  const runtimePayload = {
+    endpoints: enabled ? persisted.endpoints : [],
+    localFallbackEndpoints: persisted.localFallbackEndpoints
+  }
+
+  try {
+    await invoke('set_ocr_runtime_config', {
+      endpoints: runtimePayload.endpoints,
+      local_fallback_endpoints: runtimePayload.localFallbackEndpoints,
+      localFallbackEndpoints: runtimePayload.localFallbackEndpoints
+    })
+  } catch {
+    // 兼容旧版本后端：至少下发主端点，fallback 由后端默认配置接管
+    try {
+      await invoke('set_ocr_endpoint', { endpoint: enabled ? persisted.primary : '' })
+    } catch {
+      // ignore
+    }
+  }
+
+  return runtimePayload
 }
 
 export async function fetchRemoteConfig() {

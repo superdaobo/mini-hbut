@@ -361,20 +361,20 @@ onMounted(async () => {
 .exam-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .exam-card {
   background: var(--ui-surface);
   border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
-  padding: 20px;
+  padding: 14px 16px;
   box-shadow: var(--ui-shadow-soft);
 }
 
 .exam-header {
-  margin-bottom: 16px;
-  padding-bottom: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--ui-surface-border);
 }
 
@@ -390,7 +390,7 @@ onMounted(async () => {
 }
 
 .course-name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--ui-text);
 }
@@ -398,7 +398,7 @@ onMounted(async () => {
 .exam-details {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
+  gap: 8px 10px;
 }
 
 .detail-item {
@@ -406,7 +406,7 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   color: var(--ui-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .detail-item .icon {
@@ -414,6 +414,14 @@ onMounted(async () => {
 }
 
 @media (max-width: 640px) {
+  .exam-card {
+    padding: 12px 14px;
+  }
+
+  .course-name {
+    font-size: 15px;
+  }
+
   .exam-details {
     grid-template-columns: 1fr;
   }
