@@ -293,6 +293,35 @@ impl HbutClient {
         }
     }
 
+    /// 设置离线用户上下文（用于教务维护时命中本地缓存）
+    pub fn set_offline_user_context(&mut self, student_id: &str) {
+        let sid = student_id.trim();
+        if sid.is_empty() {
+            return;
+        }
+
+        if let Some(info) = self.user_info.as_mut() {
+            if info.student_id.trim().is_empty() {
+                info.student_id = sid.to_string();
+            }
+            if info.student_name.trim().is_empty() {
+                info.student_name = sid.to_string();
+            }
+        } else {
+            self.user_info = Some(UserInfo {
+                student_id: sid.to_string(),
+                student_name: sid.to_string(),
+                college: None,
+                major: None,
+                class_name: None,
+                grade: None,
+            });
+        }
+
+        // 仅用于离线缓存兜底场景：保证缓存键可定位到当前账号。
+        self.is_logged_in = true;
+    }
+
     /// 清理会话缓存与用户信息
     pub fn clear_session(&mut self) {
         self.reset_http_state();

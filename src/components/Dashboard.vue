@@ -11,6 +11,9 @@ const props = defineProps({
   studentId: { type: String, default: '' },
   userUuid: { type: String, default: '' },
   isLoggedIn: { type: Boolean, default: false },
+  jwxtMaintenance: { type: Boolean, default: false },
+  jwxtMaintenanceHint: { type: String, default: '' },
+  jwxtLastCheckTime: { type: String, default: '' },
   tickerNotices: { type: Array, default: () => [] },
   pinnedNotices: { type: Array, default: () => [] },
   noticeList: { type: Array, default: () => [] }
@@ -606,6 +609,16 @@ watch(
       </div>
     </header>
 
+    <section v-if="jwxtMaintenance" class="maintenance-banner">
+      <div class="maintenance-title">教务系统正在维护</div>
+      <div class="maintenance-text">
+        {{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}
+      </div>
+      <div v-if="jwxtLastCheckTime" class="maintenance-meta">
+        最近检测：{{ jwxtLastCheckTime }}
+      </div>
+    </section>
+
     <!-- 公告区（单行滚动） -->
     <section class="notice-panel" v-if="marqueeItems.length">
       <div class="notice-ticker">
@@ -723,6 +736,34 @@ html[data-theme='cyberpunk'] .dashboard > * {
 
 .dashboard-header {
   margin-bottom: 14px;
+}
+
+.maintenance-banner {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
+  background: color-mix(in srgb, #fff7ed 72%, var(--ui-surface));
+  box-shadow: var(--card-shadow-soft);
+}
+
+.maintenance-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #c2410c;
+  margin-bottom: 4px;
+}
+
+.maintenance-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: color-mix(in srgb, #9a3412 88%, var(--ui-text));
+}
+
+.maintenance-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ui-text-dim);
 }
 
 .dashboard-header--home {

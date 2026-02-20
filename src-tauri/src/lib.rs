@@ -1133,6 +1133,20 @@ async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, 
 }
 
 #[tauri::command]
+async fn set_offline_user_context(
+    state: State<'_, AppState>,
+    student_id: String,
+) -> Result<(), String> {
+    let sid = student_id.trim().to_string();
+    if sid.is_empty() {
+        return Ok(());
+    }
+    let mut client = state.client.lock().await;
+    client.set_offline_user_context(&sid);
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_cookies(state: State<'_, AppState>) -> Result<String, String> {
     let client = state.client.lock().await;
     Ok(client.get_cookies())
@@ -2485,6 +2499,7 @@ pub fn run() {
             logout,
             restore_session,
             restore_latest_session,
+            set_offline_user_context,
             get_cookies,
             refresh_session,
             sync_grades,

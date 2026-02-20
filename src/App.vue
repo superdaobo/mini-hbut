@@ -76,6 +76,9 @@ const exitingApp = ref(false)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
 const appShellRef = ref(null)
+const jwxtMaintenanceMode = ref(false)
+const jwxtMaintenanceHint = ref('')
+const jwxtLastCheckTime = ref('')
 
 const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
@@ -84,6 +87,9 @@ const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
 const ELECTRICITY_REFRESH_INTERVAL = 10 * 60 * 1000
 let electricityKeepAliveTimer = null
+const JWXT_RECOVERY_INTERVAL = 10 * 1000
+let jwxtRecoveryTimer = null
+let jwxtRecoveryInFlight = false
 
 // 版本更新相关
 const showUpdateDialog = ref(false)
@@ -434,6 +440,8 @@ const handleLoginSuccess = (data) => {
   persistSessionCookies()
   startSessionKeepAlive()
   startElectricityKeepAlive()
+  clearJwxtMaintenance()
+  stopJwxtRecoveryPolling()
   recoverViewportAfterTransition()
 }
 
@@ -470,6 +478,8 @@ const handleLogout = () => {
 
   stopSessionKeepAlive()
   stopElectricityKeepAlive()
+  stopJwxtRecoveryPolling()
+  clearJwxtMaintenance()
   localStorage.removeItem(SESSION_COOKIE_KEY)
   localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
   localStorage.setItem('hbu_manual_logout', 'true')
@@ -479,6 +489,96 @@ const handleLogout = () => {
 // 切换登录模式
 const handleSwitchLoginMode = (mode) => {
   loginMode.value = mode
+}
+
+const isManualLogout = () => localStorage.getItem('hbu_manual_logout') === 'true'
+
+const formatCheckTime = (ts = Date.now()) => {
+  try {
+    return new Date(ts).toLocaleString()
+  } catch {
+    return ''
+  }
+}
+
+const markJwxtMaintenance = (hint = '') => {
+  if (!studentId.value) return
+  jwxtMaintenanceMode.value = true
+  jwxtLastCheckTime.value = formatCheckTime()
+  jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
+}
+
+const clearJwxtMaintenance = () => {
+  jwxtMaintenanceMode.value = false
+  jwxtMaintenanceHint.value = ''
+  jwxtLastCheckTime.value = ''
+}
+
+const restoreCachedIdentityFromLocal = async () => {
+  if (isManualLogout()) return false
+  const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
+  if (!cachedSid) return false
+
+  studentId.value = cachedSid
+  if (hasTauri) {
+    try {
+      await invokeNative('set_offline_user_context', {
+        student_id: cachedSid,
+        studentId: cachedSid
+      })
+    } catch (e) {
+      console.warn('[Session] 设置离线上下文失败:', e)
+    }
+  }
+  return true
+}
+
+const stopJwxtRecoveryPolling = () => {
+  if (jwxtRecoveryTimer) {
+    clearInterval(jwxtRecoveryTimer)
+    jwxtRecoveryTimer = null
+  }
+  jwxtRecoveryInFlight = false
+}
+
+const attemptOnlineRecovery = async () => {
+  if (!hasTauri || isManualLogout()) return false
+  if (jwxtRecoveryInFlight) return false
+  jwxtRecoveryInFlight = true
+  try {
+    let restored = await tryRestoreSession()
+    if (!restored) {
+      restored = await tryRestoreLatestSession()
+    }
+    let relogged = false
+    if (!restored) {
+      relogged = await attemptAutoRelogin()
+    }
+    const success = restored || relogged
+    if (success) {
+      clearJwxtMaintenance()
+      startSessionKeepAlive()
+      startElectricityKeepAlive()
+      await persistSessionCookies()
+      stopJwxtRecoveryPolling()
+    } else {
+      markJwxtMaintenance()
+    }
+    return success
+  } finally {
+    jwxtRecoveryInFlight = false
+  }
+}
+
+const startJwxtRecoveryPolling = () => {
+  if (isManualLogout() || !studentId.value) return
+  stopJwxtRecoveryPolling()
+  jwxtRecoveryTimer = setInterval(() => {
+    attemptOnlineRecovery().catch((e) => {
+      console.warn('[Session] 教务恢复轮询失败:', e)
+      markJwxtMaintenance()
+    })
+  }, JWXT_RECOVERY_INTERVAL)
 }
 
 const ensureConfigAccess = () => {
@@ -699,16 +799,19 @@ const tryRestoreSession = async () => {
       return true
     }
   } catch (e) {
-    console.warn('[Session] 恢复会话失败，清理缓存:', e)
-    localStorage.removeItem(SESSION_COOKIE_KEY)
-    localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+    console.warn('[Session] 恢复会话失败，保留本地缓存以便离线展示:', e)
+    // 仅在明确手动退出时清理；教务系统维护期间需要保留 cookies + 缓存兜底。
+    if (isManualLogout()) {
+      localStorage.removeItem(SESSION_COOKIE_KEY)
+      localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+    }
   }
   return false
 }
 
 const tryRestoreLatestSession = async () => {
   if (!hasTauri) return false
-  if (localStorage.getItem('hbu_manual_logout') === 'true') {
+  if (isManualLogout()) {
     return false
   }
   try {
@@ -740,7 +843,7 @@ const getStoredPassword = () => {
 
 const attemptAutoRelogin = async () => {
   if (!hasTauri) return false
-  if (localStorage.getItem('hbu_manual_logout') === 'true') {
+  if (isManualLogout()) {
     return false
   }
   const creds = getStoredPassword()
@@ -777,6 +880,10 @@ const refreshSessionSilently = async () => {
     const relogged = await attemptAutoRelogin()
     if (!relogged) {
       stopSessionKeepAlive()
+      markJwxtMaintenance()
+      startJwxtRecoveryPolling()
+    } else {
+      clearJwxtMaintenance()
     }
   }
 }
@@ -888,10 +995,11 @@ onMounted(async () => {
   window.addEventListener('orientationchange', scheduleViewportUpdate)
   scheduleViewportUpdate()
   await installCloseInterceptor()
+  // 非主动退出时，启动优先恢复本地账号态（保证缓存可立即读取）。
+  const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
   await primeOcrEndpointFromCache()
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
   await applyRemoteConfig()
-
   let restored = await tryRestoreSession()
   if (!restored) {
     restored = await tryRestoreLatestSession()
@@ -900,6 +1008,7 @@ onMounted(async () => {
   if (!restored) {
     relogged = await attemptAutoRelogin()
   }
+  const onlineReady = restored || relogged
 
   await syncFromHash()
 
@@ -907,9 +1016,15 @@ onMounted(async () => {
     applyViewState('home')
   }
 
-  if (restored || relogged || studentId.value) {
+  if (onlineReady) {
     startSessionKeepAlive()
     startElectricityKeepAlive()
+    clearJwxtMaintenance()
+    stopJwxtRecoveryPolling()
+  } else if (bootstrappedCachedIdentity || studentId.value) {
+    // 教务暂不可达时保持账号态并展示缓存，后台每 10 秒探测一次恢复情况。
+    markJwxtMaintenance()
+    startJwxtRecoveryPolling()
   }
 
   replaceHistorySnapshot(currentView.value)
@@ -930,6 +1045,7 @@ onBeforeUnmount(() => {
     unlistenCloseRequested()
     unlistenCloseRequested = null
   }
+  stopJwxtRecoveryPolling()
 })
 </script>
 
@@ -947,6 +1063,9 @@ onBeforeUnmount(() => {
         :student-id="studentId"
         :user-uuid="userUuid"
         :is-logged-in="isLoggedIn"
+        :jwxt-maintenance="jwxtMaintenanceMode"
+        :jwxt-maintenance-hint="jwxtMaintenanceHint"
+        :jwxt-last-check-time="jwxtLastCheckTime"
         :ticker-notices="announcementData.ticker"
         :pinned-notices="announcementData.pinned"
         :notice-list="announcementData.list"
