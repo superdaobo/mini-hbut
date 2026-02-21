@@ -7,13 +7,30 @@ import {
 } from '../platform/native'
 
 const STORAGE_KEY = 'hbu_font_settings_v1'
-const CACHE_NAME = 'hbu-font-cache-v1'
 const FONT_NAME = 'DeyiHei'
 
 const FONT_SOURCES = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf'
 ]
 
+const REMOTE_FONT_SOURCES = {
+  heiti: [
+    'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2',
+    'https://unpkg.com/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'
+  ],
+  songti: [
+    'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff2',
+    'https://unpkg.com/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff2'
+  ],
+  kaiti: [
+    'https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff2',
+    'https://unpkg.com/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff2'
+  ],
+  fangsong: [
+    'https://cdn.jsdelivr.net/npm/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff2',
+    'https://unpkg.com/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff2'
+  ]
+} as const
 
 const ANDROID_SANS = "'Noto Sans SC', 'Noto Sans CJK SC', 'Roboto', sans-serif"
 const ANDROID_SERIF = "'Noto Serif SC', 'Noto Serif CJK SC', serif"
@@ -21,10 +38,10 @@ const FONT_FALLBACK = `'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Hiragi
 const FONT_STACKS = {
   default: FONT_FALLBACK,
   deyihei: `'DeyiHei', ${FONT_FALLBACK}`,
-  kaiti: `'KaiTi', 'STKaiti', 'KaiTi_GB2312', 'Kaiti SC', ${ANDROID_SERIF}`,
-  heiti: `'SimHei', 'Heiti SC', 'Microsoft YaHei', ${ANDROID_SANS}`,
-  songti: `'SimSun', 'Songti SC', 'STSong', ${ANDROID_SERIF}`,
-  fangsong: `'FangSong', 'STFangsong', ${ANDROID_SERIF}`
+  heiti: `'HBUT-Heiti', 'SimHei', 'Heiti SC', 'Microsoft YaHei', ${ANDROID_SANS}`,
+  songti: `'HBUT-Songti', 'SimSun', 'Songti SC', 'STSong', ${ANDROID_SERIF}`,
+  kaiti: `'HBUT-KaiTi', 'KaiTi', 'STKaiti', 'KaiTi_GB2312', 'Kaiti SC', ${ANDROID_SERIF}`,
+  fangsong: `'HBUT-FangSong', 'FangSong', 'STFangsong', ${ANDROID_SERIF}`
 } as const
 
 const SUPPORTED_FONTS = new Set(Object.keys(FONT_STACKS))
@@ -38,6 +55,14 @@ type FontState = {
 type FontDownloadPayload = {
   path: string
   base64?: string
+}
+
+type RemoteFontKey = Exclude<FontKey, 'default' | 'deyihei'>
+type RemoteFontProfile = {
+  family: string
+  sources: readonly string[]
+  format: 'truetype' | 'woff2'
+  cacheName: string
 }
 
 const DEFAULT_SETTINGS: FontState = {
@@ -69,10 +94,45 @@ const state = reactive<FontState>(normalizeSettings(loadStoredSettings()))
 
 const isTauri = () => isTauriRuntime()
 
-let deyiheiLoading = false
+const fontLoadingMap = new Set<FontKey>()
 
 const resolveWebFontUrl = () => {
   return FONT_SOURCES[0]
+}
+
+const REMOTE_FONT_PROFILE_MAP: Record<RemoteFontKey, RemoteFontProfile> = {
+  heiti: {
+    family: 'HBUT-Heiti',
+    sources: REMOTE_FONT_SOURCES.heiti,
+    format: 'woff2',
+    cacheName: 'hbu-font-cache-heiti'
+  },
+  songti: {
+    family: 'HBUT-Songti',
+    sources: REMOTE_FONT_SOURCES.songti,
+    format: 'woff2',
+    cacheName: 'hbu-font-cache-songti'
+  },
+  kaiti: {
+    family: 'HBUT-KaiTi',
+    sources: REMOTE_FONT_SOURCES.kaiti,
+    format: 'woff2',
+    cacheName: 'hbu-font-cache-kaiti'
+  },
+  fangsong: {
+    family: 'HBUT-FangSong',
+    sources: REMOTE_FONT_SOURCES.fangsong,
+    format: 'woff2',
+    cacheName: 'hbu-font-cache-fangsong'
+  }
+}
+
+const REMOTE_FONT_FAMILY_MAP: Record<Exclude<FontKey, 'default'>, string> = {
+  deyihei: FONT_NAME,
+  heiti: REMOTE_FONT_PROFILE_MAP.heiti.family,
+  songti: REMOTE_FONT_PROFILE_MAP.songti.family,
+  kaiti: REMOTE_FONT_PROFILE_MAP.kaiti.family,
+  fangsong: REMOTE_FONT_PROFILE_MAP.fangsong.family
 }
 
 const applyFont = (fontKey: FontKey) => {
@@ -82,11 +142,11 @@ const applyFont = (fontKey: FontKey) => {
   root.style.setProperty('--ui-font-family', stack)
 }
 
-const ensureFontFaceStyle = (src: string) => {
+const ensureFontFaceStyle = (fontFamily: string, src: string, format: 'truetype' | 'woff2') => {
   if (typeof document === 'undefined') return
-  const id = 'deyihei-font-face'
+  const id = `font-face-${fontFamily.replace(/[^\w-]/g, '_')}`
   const existing = document.getElementById(id)
-  const css = `@font-face { font-family: '${FONT_NAME}'; src: url('${src}') format('truetype'); font-display: swap; }`
+  const css = `@font-face { font-family: '${fontFamily}'; src: url('${src}') format('${format}'); font-display: swap; }`
   if (existing) {
     existing.textContent = css
     return
@@ -111,32 +171,32 @@ const decodeBase64 = (base64Text: string): Uint8Array => {
   return bytes
 }
 
-const loadFontFromBytes = async (bytes: Uint8Array) => {
+const loadFontFromBytes = async (fontFamily: string, bytes: Uint8Array) => {
   if (typeof document === 'undefined') return false
   if (typeof FontFace === 'undefined') return false
-  const font = new FontFace(FONT_NAME, toArrayBuffer(bytes))
+  const font = new FontFace(fontFamily, toArrayBuffer(bytes))
   await font.load()
   document.fonts.add(font)
-  await document.fonts.load(`12px ${FONT_NAME}`)
+  await document.fonts.load(`12px ${fontFamily}`)
   return true
 }
 
-const loadFontFromUrl = async (src: string) => {
+const loadFontFromUrl = async (fontFamily: string, src: string, format: 'truetype' | 'woff2') => {
   if (typeof document === 'undefined') return false
   try {
     if (typeof FontFace !== 'undefined') {
-      const font = new FontFace(FONT_NAME, `url(${src})`)
+      const font = new FontFace(fontFamily, `url(${src})`)
       await font.load()
       document.fonts.add(font)
-      await document.fonts.load(`12px ${FONT_NAME}`)
+      await document.fonts.load(`12px ${fontFamily}`)
       return true
     }
   } catch {
     // fallback to injected @font-face
   }
-  ensureFontFaceStyle(src)
+  ensureFontFaceStyle(fontFamily, src, format)
   if (document.fonts?.load) {
-    await document.fonts.load(`12px ${FONT_NAME}`)
+    await document.fonts.load(`12px ${fontFamily}`)
   }
   return true
 }
@@ -150,20 +210,20 @@ const loadDeyiHeiFontInTauri = async (force = false) => {
 
   if (payload.base64) {
     const bytes = decodeBase64(payload.base64)
-    const loaded = await loadFontFromBytes(bytes)
+    const loaded = await loadFontFromBytes(FONT_NAME, bytes)
     if (loaded) return true
   }
 
   if (payload.path) {
     try {
       const bytes = await readNativeBinaryFile(payload.path)
-      const loaded = await loadFontFromBytes(bytes)
+      const loaded = await loadFontFromBytes(FONT_NAME, bytes)
       if (loaded) return true
     } catch {
       // fallback to asset protocol loading
     }
     const fileSrc = await toNativeFileSrc(payload.path)
-    return loadFontFromUrl(fileSrc)
+    return loadFontFromUrl(FONT_NAME, fileSrc, 'truetype')
   }
 
   // fallback to legacy command
@@ -173,69 +233,114 @@ const loadDeyiHeiFontInTauri = async (force = false) => {
     force: !!force
   })
   const fileSrc = await toNativeFileSrc(path)
-  return loadFontFromUrl(fileSrc)
+  return loadFontFromUrl(FONT_NAME, fileSrc, 'truetype')
 }
 
 const loadDeyiHeiFontInWeb = async (force = false) => {
   const resolvedUrl = resolveWebFontUrl()
-  let response: Response | null = null
+  return loadRemoteFontWithCache(
+    {
+      family: FONT_NAME,
+      sources: [resolvedUrl],
+      format: 'truetype',
+      cacheName: 'hbu-font-cache-deyihei'
+    },
+    force
+  )
+}
 
+const fetchRemoteFontResponse = async (
+  sourceUrl: string,
+  cacheName: string,
+  force = false
+): Promise<Response | null> => {
+  let response: Response | null = null
   try {
     if (!force && typeof caches !== 'undefined') {
-      const cache = await caches.open(CACHE_NAME)
-      response = await cache.match(resolvedUrl)
+      const cache = await caches.open(cacheName)
+      response = await cache.match(sourceUrl)
     }
     if (!response) {
-      response = await fetch(resolvedUrl, { mode: 'cors' })
+      response = await fetch(sourceUrl, { mode: 'cors' })
       if (!response.ok) throw new Error(`font download failed: ${response.status}`)
       if (typeof caches !== 'undefined') {
-        const cache = await caches.open(CACHE_NAME)
-        await cache.put(resolvedUrl, response.clone())
+        const cache = await caches.open(cacheName)
+        await cache.put(sourceUrl, response.clone())
       }
     }
   } catch {
     response = null
   }
-
-  if (response) {
-    try {
-      const buffer = await response.arrayBuffer()
-      const bytes = new Uint8Array(buffer)
-      const loaded = await loadFontFromBytes(bytes)
-      if (loaded) return true
-    } catch {
-      // 继续走 URL 注入兜底
-    }
-  }
-
-  // WebView/旧内核上 FontFace 可能不可用，兜底为 @font-face 注入。
-  return loadFontFromUrl(resolvedUrl)
+  return response
 }
 
-const loadDeyiHeiFont = async (force = false) => {
-  if (!force && document.fonts?.check(`12px ${FONT_NAME}`)) {
-    state.loaded = true
+const loadRemoteFontWithCache = async (profile: RemoteFontProfile, force = false): Promise<boolean> => {
+  for (const sourceUrl of profile.sources) {
+    const response = await fetchRemoteFontResponse(sourceUrl, profile.cacheName, force)
+    if (response) {
+      try {
+        const buffer = await response.arrayBuffer()
+        const bytes = new Uint8Array(buffer)
+        const loaded = await loadFontFromBytes(profile.family, bytes)
+        if (loaded) return true
+      } catch {
+        // 继续 URL 模式兜底
+      }
+    }
+
+    try {
+      const loaded = await loadFontFromUrl(profile.family, sourceUrl, profile.format)
+      if (loaded) return true
+    } catch {
+      // 尝试下一个地址
+    }
+  }
+  return false
+}
+
+const loadRemoteFontInWeb = async (fontKey: RemoteFontKey, force = false): Promise<boolean> => {
+  const profile = REMOTE_FONT_PROFILE_MAP[fontKey]
+  if (!profile) return false
+  return loadRemoteFontWithCache(profile, force)
+}
+
+const loadFontByKey = async (fontKey: FontKey, force = false): Promise<boolean> => {
+  if (fontKey === 'default') return true
+
+  const remoteFamily = REMOTE_FONT_FAMILY_MAP[fontKey as Exclude<FontKey, 'default'>]
+  if (!force && remoteFamily && document.fonts?.check(`12px ${remoteFamily}`)) {
+    if (fontKey === 'deyihei') state.loaded = true
     return true
   }
 
-  const ok = isTauri()
-    ? await loadDeyiHeiFontInTauri(force)
-    : await loadDeyiHeiFontInWeb(force)
+  let ok = false
+  if (fontKey === 'deyihei') {
+    ok = isTauri() ? await loadDeyiHeiFontInTauri(force) : await loadDeyiHeiFontInWeb(force)
+    state.loaded = !!ok
+    return ok
+  }
 
-  state.loaded = !!ok
+  ok = await loadRemoteFontInWeb(fontKey as RemoteFontKey, force)
   return ok
 }
 
-const ensureDeyiHeiFont = async (force = false) => {
-  if (deyiheiLoading) return
-  deyiheiLoading = true
+const ensureFontLoaded = async (fontKey: FontKey, force = false): Promise<boolean> => {
+  if (fontKey === 'default') return true
+  if (fontLoadingMap.has(fontKey)) return false
+  fontLoadingMap.add(fontKey)
   try {
-    await loadDeyiHeiFont(force)
+    return await loadFontByKey(fontKey, force)
   } catch {
-    // keep current state
+    return false
   } finally {
-    deyiheiLoading = false
+    fontLoadingMap.delete(fontKey)
   }
+}
+
+const loadDeyiHeiFont = async (force = false) => {
+  const ok = await ensureFontLoaded('deyihei', force)
+  state.loaded = !!ok
+  return ok
 }
 
 const initFontSettings = () => {
@@ -255,15 +360,15 @@ const initFontSettings = () => {
       if (typeof document !== 'undefined') {
         applyFont(normalized.font)
       }
-      if (normalized.font === 'deyihei' && !normalized.loaded) {
-        ensureDeyiHeiFont()
+      if (normalized.font !== 'default') {
+        ensureFontLoaded(normalized.font).catch(() => {})
       }
     },
     { deep: true, immediate: true }
   )
 
-  if (state.font === 'deyihei' && !state.loaded) {
-    ensureDeyiHeiFont()
+  if (state.font !== 'default') {
+    ensureFontLoaded(state.font).catch(() => {})
   }
 }
 
@@ -279,6 +384,7 @@ export {
   initFontSettings,
   useFontSettings,
   loadDeyiHeiFont,
+  ensureFontLoaded,
   applyFont,
   resetFontSettings
 }

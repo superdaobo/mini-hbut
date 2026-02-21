@@ -75,10 +75,10 @@ const resolveOcrModeLabel = (status, endpoint) => {
   const activeSource = String(status?.active_source || '').trim()
   if (activeSource.includes('fallback') || activeSource.includes('local')) return '本地'
   if (activeSource && activeSource !== 'unknown') return '远程'
-  if (status?.fallback_used) return '本地'
 
   const configured = String(status?.configured_endpoint || '').trim()
   if (configured || endpoint) return '远程'
+  if (status?.fallback_used) return '本地'
   return '本地'
 }
 

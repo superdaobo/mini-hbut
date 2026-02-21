@@ -36,6 +36,7 @@ const currentMeta = ref({
 let disposed = false
 let retryTimer = null
 let latestRequestId = 0
+let latestBuildingRequestId = 0
 
 const clearRetryTimer = () => {
   if (retryTimer) {
@@ -43,6 +44,8 @@ const clearRetryTimer = () => {
     retryTimer = null
   }
 }
+
+const safeArray = (value) => (Array.isArray(value) ? value : [])
 
 // 筛选条件
 const filters = ref({
@@ -81,6 +84,7 @@ const periodOptions = [
 
 // 获取教学楼列表
 const fetchBuildings = async () => {
+  const requestId = ++latestBuildingRequestId
   try {
     console.log('[Classroom] Fetching buildings...')
     const { data } = await fetchWithCache('classroom:buildings', async () => {
@@ -88,15 +92,20 @@ const fetchBuildings = async () => {
       console.log('[Classroom] Buildings API response:', res.data)
       return res.data
     }, LONG_TTL)
+    if (disposed || requestId !== latestBuildingRequestId) return
     console.log('[Classroom] Buildings data:', data)
     if (data?.success) {
-      buildings.value = data.data
+      buildings.value = safeArray(data.data)
       console.log('[Classroom] Buildings loaded:', buildings.value.length)
     } else {
       console.error('[Classroom] Buildings failed:', data)
+      buildings.value = []
     }
   } catch (e) {
     console.error('获取教学楼失败', e)
+    if (!disposed && requestId === latestBuildingRequestId) {
+      buildings.value = []
+    }
   }
 }
 
@@ -169,6 +178,12 @@ const initLocalMeta = () => {
 // 查询空教室
 const queryClassrooms = async (retryCount = 0) => {
   if (disposed) return
+  if (!props.studentId) {
+    errorMsg.value = '未检测到登录状态，请先登录后再查询空教室'
+    loading.value = false
+    classrooms.value = []
+    return
+  }
   clearRetryTimer()
   const requestId = ++latestRequestId
   loading.value = true
@@ -203,7 +218,7 @@ const queryClassrooms = async (retryCount = 0) => {
     if (disposed || requestId !== latestRequestId) return
 
     if (data?.success) {
-      classrooms.value = data.data
+      classrooms.value = safeArray(data.data)
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
       // 更新元数据
@@ -222,6 +237,7 @@ const queryClassrooms = async (retryCount = 0) => {
         emit('logout')
         return
       }
+      classrooms.value = []
       errorMsg.value = data?.error || '查询失败'
     }
   } catch (e) {
@@ -286,6 +302,7 @@ onBeforeUnmount(() => {
   clearRetryTimer()
   // 使所有未完成请求结果失效
   latestRequestId += 1
+  latestBuildingRequestId += 1
 })
 </script>
 

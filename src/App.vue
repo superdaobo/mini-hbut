@@ -506,12 +506,24 @@ const markJwxtMaintenance = (hint = '') => {
   jwxtMaintenanceMode.value = true
   jwxtLastCheckTime.value = formatCheckTime()
   jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
+  try {
+    localStorage.setItem('hbu_jwxt_maintenance', '1')
+    localStorage.setItem('hbu_jwxt_maintenance_time', String(Date.now()))
+  } catch {
+    // ignore
+  }
 }
 
 const clearJwxtMaintenance = () => {
   jwxtMaintenanceMode.value = false
   jwxtMaintenanceHint.value = ''
   jwxtLastCheckTime.value = ''
+  try {
+    localStorage.removeItem('hbu_jwxt_maintenance')
+    localStorage.removeItem('hbu_jwxt_maintenance_time')
+  } catch {
+    // ignore
+  }
 }
 
 const restoreCachedIdentityFromLocal = async () => {

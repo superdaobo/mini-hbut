@@ -2,6 +2,7 @@ const DEFAULT_TTL = 5 * 60 * 1000
 const LONG_TTL = 3 * 24 * 60 * 60 * 1000
 const EXTRA_LONG_TTL = 7 * 24 * 60 * 60 * 1000
 const SHORT_TTL = 30 * 1000 // 30秒，用于需要频繁更新的数据
+const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 
 const memoryCache = new Map()
 
@@ -57,6 +58,39 @@ export function getCachedData(key, ttl = DEFAULT_TTL) {
   return null
 }
 
+const getAnyCachedEntry = (key) => {
+  const inMemory = memoryCache.get(key)
+  if (inMemory?.data) {
+    return { data: inMemory.data, timestamp: Number(inMemory.timestamp) || Date.now() }
+  }
+
+  const raw = localStorage.getItem(getCacheKey(key))
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed?.data) return null
+    return { data: parsed.data, timestamp: Number(parsed.timestamp) || Date.now() }
+  } catch {
+    return null
+  }
+}
+
+const withOfflineMeta = (data, timestamp) => {
+  if (!data || typeof data !== 'object') {
+    return {
+      success: true,
+      data,
+      offline: true,
+      sync_time: new Date(timestamp).toISOString()
+    }
+  }
+  return {
+    ...data,
+    offline: true,
+    sync_time: data.sync_time || new Date(timestamp).toISOString()
+  }
+}
+
 export function setCachedData(key, data) {
   const payload = { data, timestamp: Date.now() }
   memoryCache.set(key, payload)
@@ -68,17 +102,35 @@ export { DEFAULT_TTL, LONG_TTL, EXTRA_LONG_TTL, SHORT_TTL }
 export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
   console.log('[Cache] Checking cache for key:', key)
   const cached = getCachedData(key, ttl)
+  const maintenanceMode = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
   if (cached) {
     console.log('[Cache] Cache HIT for key:', key)
-    return { ...cached, fromCache: true }
+    const data = maintenanceMode
+      ? withOfflineMeta(cached.data, cached.timestamp)
+      : cached.data
+    return { ...cached, data, fromCache: true }
   }
 
   console.log('[Cache] Cache MISS for key:', key, '- fetching...')
-  const data = await fetcher()
-  console.log('[Cache] Fetched data for key:', key, '- success:', data?.success)
-  if (data && data.success && !data.offline) {
-    setCachedData(key, data)
-  }
+  try {
+    const data = await fetcher()
+    console.log('[Cache] Fetched data for key:', key, '- success:', data?.success)
+    if (data && data.success && !data.offline) {
+      setCachedData(key, data)
+    }
 
-  return { data, fromCache: false, timestamp: Date.now() }
+    return { data, fromCache: false, timestamp: Date.now() }
+  } catch (error) {
+    const stale = getAnyCachedEntry(key)
+    if (stale) {
+      console.warn('[Cache] Fetch failed, fallback to stale cache:', key, error)
+      return {
+        data: withOfflineMeta(stale.data, stale.timestamp),
+        fromCache: true,
+        timestamp: stale.timestamp,
+        stale: true
+      }
+    }
+    throw error
+  }
 }

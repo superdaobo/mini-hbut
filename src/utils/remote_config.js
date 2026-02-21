@@ -1,7 +1,9 @@
 import { invokeNative as invoke } from '../platform/native'
+import { detectRuntime } from '../platform/runtime'
 
 const CONFIG_URLS = [
-  'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'
+  'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
+  'https://gh-proxy.com/https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'
 ]
 
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
@@ -243,6 +245,38 @@ const fetchByInvoke = async (url) => {
   return null
 }
 
+const parseRemoteJson = (raw) => {
+  if (raw && typeof raw === 'object') return raw
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+const fetchByCapacitor = async (url) => {
+  if (detectRuntime() !== 'capacitor') return null
+  try {
+    const core = await import('@capacitor/core')
+    const capHttp = core?.CapacitorHttp || window?.Capacitor?.Plugins?.CapacitorHttp
+    if (!capHttp?.request) return null
+    const result = await capHttp.request({
+      method: 'GET',
+      url,
+      headers: { Accept: 'application/json' },
+      connectTimeout: 8000,
+      readTimeout: 8000
+    })
+    return parseRemoteJson(result?.data)
+  } catch {
+    return null
+  }
+}
+
 const fetchByWeb = async (url) => {
   const res = await fetch(url, {
     cache: 'no-store',
@@ -262,6 +296,9 @@ const fetchFromAnyUrl = async () => {
 
     const byInvoke = await fetchByInvoke(url)
     if (byInvoke) return byInvoke
+
+    const byCapacitor = await fetchByCapacitor(url)
+    if (byCapacitor) return byCapacitor
 
     try {
       const byWeb = await fetchByWeb(url)

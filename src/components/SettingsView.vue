@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { applyPreset, flushUiSettings, resetUiSettings, UI_PRESETS, useUiSettings } from '../utils/ui_settings'
 import { resetAppSettings, useAppSettings } from '../utils/app_settings'
-import { loadDeyiHeiFont, useFontSettings } from '../utils/font_settings'
+import { ensureFontLoaded, loadDeyiHeiFont, useFontSettings } from '../utils/font_settings'
 import { showToast } from '../utils/toast'
 import hbutLogo from '../assets/hbut-logo.png'
 
@@ -133,18 +133,50 @@ const handleResetBackend = () => {
 }
 
 const handleSelectFont = async (fontKey) => {
-  if (fontKey !== 'deyihei') {
-    fontSettings.font = fontKey
+  if (fontKey === 'default') {
+    fontSettings.font = 'default'
     flushUiSettings()
     showToast('字体已应用', 'success')
     return
   }
-  if (fontSettings.loaded) {
+
+  showFontModal.value = true
+  fontDownloadProgress.value = 20
+  fontDownloadStatus.value = 'downloading'
+  fontDownloadError.value = ''
+
+  if (fontKey === 'deyihei' && fontSettings.loaded) {
     fontSettings.font = 'deyihei'
     flushUiSettings()
+    fontDownloadProgress.value = 100
+    fontDownloadStatus.value = 'success'
     showToast('已应用得意黑', 'success')
+    showFontModal.value = false
     return
   }
+
+  try {
+    const loaded = await ensureFontLoaded(fontKey, false)
+    fontSettings.font = fontKey
+    flushUiSettings()
+    fontDownloadProgress.value = 100
+    fontDownloadStatus.value = 'success'
+    showToast(loaded ? '字体已应用' : '已应用系统字体（远程字体未命中）', loaded ? 'success' : 'info')
+    showFontModal.value = false
+    return
+  } catch (e) {
+    console.warn('[Font] apply failed', e)
+  }
+
+  if (fontKey !== 'deyihei') {
+    fontDownloadStatus.value = 'failed'
+    fontDownloadError.value = '字体加载失败，请检查网络后重试'
+    fontDownloadProgress.value = 0
+    showToast('字体加载失败，请检查网络后重试', 'error')
+    showFontModal.value = false
+    return
+  }
+
   showFontModal.value = true
   await handleDownloadFont()
 }
