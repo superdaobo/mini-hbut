@@ -1403,35 +1403,35 @@ onBeforeUnmount(() => {
   <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
         <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5.5v-6h-5V21H4a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
+            <path d="M3 10.8L12 3l9 7.8V21a1 1 0 0 1-1 1h-5.3a1 1 0 0 1-1-1v-5h-3.4v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10.8z" />
           </svg>
         </span>
         <span class="tab-label">首页</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'schedule' }" @click="handleTabChange('schedule')">
         <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <rect x="3" y="4.5" width="18" height="16.5" rx="3" stroke="currentColor" stroke-width="1.8" />
-            <path d="M7 3v3M17 3v3M3 9h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
+            <rect x="3.2" y="4.5" width="17.6" height="16.3" rx="3.1" />
+            <path d="M7 2.8v3.5M17 2.8v3.5M3.2 9.3h17.6" />
           </svg>
         </span>
         <span class="tab-label">课表</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
         <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 3a5 5 0 0 0-5 5v2.6c0 .9-.3 1.8-.9 2.5L4.5 15a1 1 0 0 0 .8 1.6h13.4a1 1 0 0 0 .8-1.6l-1.6-1.9a3.9 3.9 0 0 1-.9-2.5V8a5 5 0 0 0-5-5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
-            <path d="M9.5 18a2.5 2.5 0 0 0 5 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
+            <path d="M12 3.5a5.8 5.8 0 0 0-5.8 5.8v3.2c0 .8-.2 1.6-.6 2.3L4.3 17a1.3 1.3 0 0 0 1.1 2h13.2a1.3 1.3 0 0 0 1.1-2l-1.3-2.2a4.7 4.7 0 0 1-.6-2.3V9.3A5.8 5.8 0 0 0 12 3.5z" />
+            <path d="M9.3 19a2.7 2.7 0 0 0 5.4 0" />
           </svg>
         </span>
         <span class="tab-label">通知</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'me' }" @click="handleTabChange('me')">
         <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.8" />
-            <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="8" r="4.1" />
+            <path d="M4 20c1.8-3.6 4.7-5.5 8-5.5s6.2 1.9 8 5.5" />
           </svg>
         </span>
         <span class="tab-label">我的</span>
@@ -1668,11 +1668,11 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
   align-content: center;
-  gap: 8px;
-  padding: 10px 16px 10px;
+  gap: 6px;
+  padding: 8px 14px 8px;
   height: auto;
-  min-height: 70px;
-  max-height: 110px;
+  min-height: 62px;
+  max-height: 92px;
   width: min(
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)
@@ -1696,8 +1696,8 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 6px;
+  gap: 3px;
+  padding: 6px 5px;
   border: none;
   background: transparent;
   color: var(--ui-muted);
@@ -1714,18 +1714,24 @@ onBeforeUnmount(() => {
   box-shadow: 0 8px 18px rgba(59, 130, 246, 0.2);
 }
 
+.tab-item.active .tab-icon {
+  transform: translateY(-1px);
+}
+
 .tab-icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
 }
 
-.tab-icon svg {
-  width: 20px;
-  height: 20px;
+.tab-icon-svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.9;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -1744,7 +1750,7 @@ onBeforeUnmount(() => {
 }
 
 .tab-label {
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.2px;
 }
 

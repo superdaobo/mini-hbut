@@ -6,7 +6,7 @@ Mini-HBUT 发布脚本（主分支模式）
 目标：
 1. 更新版本号（package.json / tauri.conf.json / Cargo.toml）
 2. 提交代码、重建 tag、推送到 origin/main
-3. 在推送前将当前远端 main 归档到 old（可关闭）
+3. 不操作 old / old_dev 等归档分支
 """
 
 from __future__ import annotations
@@ -233,17 +233,21 @@ def recreate_tag(tag_name: str) -> None:
     print(f"  [OK] 已创建标签: {tag_name}")
 
 
-def archive_remote_main_to_old() -> None:
-    print("\n[STEP] 归档远端 main -> old")
-    ok, _, err = run_command(["git", "fetch", "origin", "main"])
+def get_current_branch() -> str:
+    ok, out, err = run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     if not ok:
-        print(f"  [WARN] 拉取 origin/main 失败，跳过归档: {err}")
-        return
+        raise RuntimeError(f"读取当前分支失败: {err or out}")
+    return out.strip()
 
-    ok, _, err = run_with_retry(["git", "push", "origin", "origin/main:refs/heads/old", "--force"])
-    if not ok:
-        raise RuntimeError(f"归档 old 分支失败: {err}")
-    print("  [OK] 已将远端当前 main 归档到 old")
+
+def ensure_not_archived_branch() -> None:
+    current_branch = get_current_branch()
+    # 发布脚本只允许从主线分支执行，避免把归档分支内容推回 main。
+    if current_branch.startswith("old"):
+        raise RuntimeError(
+            f"当前分支为 {current_branch}，属于归档分支。请先切到 main 再发布。"
+        )
+    print(f"  [OK] 当前分支: {current_branch}（仅推送到 main）")
 
 
 def push_main_and_tag(tag_name: str) -> None:
@@ -259,13 +263,10 @@ def push_main_and_tag(tag_name: str) -> None:
     print("  [OK] 标签推送成功")
 
 
-def publish(version: str, *, push_only: bool, archive_old: bool) -> None:
+def publish(version: str, *, push_only: bool) -> None:
     tag_name = f"v{version}"
     ensure_origin_remote()
     stage_and_commit(f"Release v{version}", push_only)
-
-    if archive_old:
-        archive_remote_main_to_old()
 
     recreate_tag(tag_name)
     push_main_and_tag(tag_name)
@@ -280,20 +281,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("bump", nargs="?", choices=["major", "minor", "patch"], default="patch")
     parser.add_argument("--version", help="指定目标版本号，例如 1.2.3")
     parser.add_argument("--push-only", action="store_true", help="仅推送 main + tag，不更新版本文件、不提交")
-    parser.add_argument(
-        "--no-archive-old",
-        action="store_true",
-        help="不执行 main -> old 归档（默认执行）",
-    )
     parser.add_argument("-y", "--no-confirm", action="store_true", help="跳过确认")
     return parser.parse_args()
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     args = parse_args()
     current = get_current_version()
     target = args.version if args.version else bump_version(current, args.bump)
-    archive_old = not args.no_archive_old
 
     print("=" * 60)
     print("Mini-HBUT 发布脚本（main 主线）")
@@ -301,7 +301,9 @@ def main() -> None:
     print(f"[INFO] 当前版本: v{current}")
     print(f"[INFO] 目标版本: v{target}")
     print(f"[INFO] push-only: {args.push_only}")
-    print(f"[INFO] 归档旧主线(main->old): {archive_old}")
+    print("[INFO] 分支策略: 仅提交并推送 main，不处理 old/old_dev")
+
+    ensure_not_archived_branch()
 
     if not args.no_confirm:
         print("\n将执行以下操作：")
@@ -309,9 +311,8 @@ def main() -> None:
             print("  1) 更新版本文件并提交")
         else:
             print("  1) 跳过版本更新与提交")
-        print("  2) （可选）归档远端当前 main 到 old")
-        print("  3) 重建并推送标签")
-        print("  4) 推送当前代码到 origin/main")
+        print("  2) 重建并推送标签")
+        print("  3) 推送当前代码到 origin/main")
         answer = input("\n确认继续？[y/N]: ").strip().lower()
         if answer != "y":
             print("已取消。")
@@ -320,7 +321,7 @@ def main() -> None:
     if not args.push_only:
         update_version_files(target)
 
-    publish(target, push_only=args.push_only, archive_old=archive_old)
+    publish(target, push_only=args.push_only)
 
     print("\n[OK] 发布流程已完成。")
 

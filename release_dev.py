@@ -8,6 +8,7 @@ Mini-HBUT 开发分支推送脚本（默认 dev）
 2. 不打 tag
 3. 不创建 release
 4. 仅提交（可选）并推送到目标分支（默认 dev）
+5. 无交互确认，自动提交并输出中文变更说明
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -94,6 +96,90 @@ def has_staged_changes() -> bool:
     return result.returncode == 1
 
 
+def map_status_to_reason(status: str) -> str:
+    """将 git 变更状态映射为中文原因，便于提交前可读化输出。"""
+    s = status.upper().strip()
+    if s.startswith("A"):
+        return "新增文件（新功能/新资源）"
+    if s.startswith("M"):
+        return "修改文件（功能优化/缺陷修复）"
+    if s.startswith("D"):
+        return "删除文件（清理无用内容）"
+    if s.startswith("R"):
+        return "重命名文件（结构整理）"
+    if s.startswith("C"):
+        return "复制文件（复用内容）"
+    if s.startswith("T"):
+        return "类型变更（文件属性调整）"
+    if s.startswith("U"):
+        return "未合并变更（需关注冲突来源）"
+    return "其他变更"
+
+
+def get_staged_change_report() -> list[dict[str, Any]]:
+    """读取 staged 变更，输出每个文件的状态与行数统计。"""
+    ok_status, out_status, _ = run_command(["git", "diff", "--cached", "--name-status"])
+    ok_num, out_num, _ = run_command(["git", "diff", "--cached", "--numstat"])
+    if not ok_status or not ok_num:
+        return []
+
+    status_map: dict[str, str] = {}
+    for line in (out_status or "").splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        raw_status = parts[0].strip()
+        # 重命名行格式：R100\told\tnew，展示新路径即可
+        path = parts[-1].strip()
+        status_map[path] = raw_status
+
+    reports: list[dict[str, Any]] = []
+    for line in (out_num or "").splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        add_s, del_s, path = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        # 二进制文件 numstat 为 "-"，这里按 1 处变更计，避免显示 0 处。
+        add = int(add_s) if add_s.isdigit() else 0
+        delete = int(del_s) if del_s.isdigit() else 0
+        status = status_map.get(path, "M")
+        changed = add + delete
+        if changed == 0 and (add_s == "-" or del_s == "-"):
+            changed = 1
+        reports.append(
+            {
+                "path": path,
+                "status": status,
+                "reason": map_status_to_reason(status),
+                "add": add,
+                "delete": delete,
+                "changed": changed,
+            }
+        )
+
+    reports.sort(key=lambda x: x["path"])
+    return reports
+
+
+def print_staged_change_report(reports: list[dict[str, Any]]) -> None:
+    if not reports:
+        print("[INFO] 暂无可提交文件。")
+        return
+
+    total_files = len(reports)
+    total_changed = sum(int(item["changed"]) for item in reports)
+    print(f"[INFO] 本次共 {total_files} 个文件变更，累计修改 {total_changed} 处（按增删行统计）")
+    for item in reports:
+        print(
+            f"  - {item['path']}: {item['reason']}，"
+            f"修改 {item['changed']} 处（+{item['add']}/-{item['delete']}）"
+        )
+
+
 def stage_and_commit(message: str, skip_commit: bool, dry_run: bool) -> None:
     if skip_commit:
         print("[INFO] 跳过提交，仅推送当前 HEAD")
@@ -114,6 +200,9 @@ def stage_and_commit(message: str, skip_commit: bool, dry_run: bool) -> None:
     if not has_staged_changes():
         print("[INFO] 没有可提交变更，跳过 commit")
         return
+
+    report = get_staged_change_report()
+    print_staged_change_report(report)
 
     ok, out, err = run_command(["git", "commit", "-m", message], dry_run=dry_run)
     if not ok:
@@ -144,17 +233,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-commit", action="store_true", help="跳过提交，仅推送")
     parser.add_argument("--force", action="store_true", help="强制推送")
     parser.add_argument("--dry-run", action="store_true", help="仅打印命令")
-    parser.add_argument("--no-confirm", action="store_true", help="跳过确认")
     return parser.parse_args()
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     args = parse_args()
     if not (PROJECT_DIR / ".git").exists():
         print(f"[ERROR] 不是 git 仓库: {PROJECT_DIR}")
         return 1
 
-    message = args.message.strip() or f"ci: trigger {args.branch} build {datetime.now():%Y-%m-%d %H:%M:%S}"
+    message = args.message.strip() or f"chore: 开发分支自动提交 {datetime.now():%Y-%m-%d %H:%M:%S}"
 
     print("=" * 60)
     print("Mini-HBUT 开发分支推送脚本")
@@ -163,12 +256,7 @@ def main() -> int:
     print(f"remote : {args.remote} -> {args.remote_url}")
     print(f"branch : {args.branch}")
     print("mode   : no version bump / no tag / no release")
-
-    if not args.no_confirm:
-        answer = input("确认继续？[y/N]: ").strip().lower()
-        if answer != "y":
-            print("已取消。")
-            return 0
+    print("[INFO] 自动模式：不询问确认，直接执行提交与推送")
 
     try:
         ensure_origin(args.remote, args.remote_url, args.dry_run)

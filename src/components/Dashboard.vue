@@ -6,6 +6,7 @@ import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown'
 import hbutLogo from '../assets/hbut-logo.png'
+import ThemeModuleIcon from './icons/ThemeModuleIcon.vue'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -30,117 +31,6 @@ const todayLoading = ref(false)
 const todayError = ref('')
 const nowTick = ref(Date.now())
 let clockTimer = null
-const moduleIconMap = {
-  // 成绩查询 - 精美成绩/分数图标（A+带星星）
-  grades: [
-    'M12 3l1.5 3h3.5l-2.5 2 1 3.5L12 9l-3.5 2.5 1-3.5L7 6h3.5z',
-    'M5 13h14v2H5z',
-    'M6 16h4v5H6z',
-    'M10 17.5h4v3.5h-4z',
-    'M14 16h4v5h-4z'
-  ],
-  // 空教室 - 精美教室/座位图标
-  classroom: [
-    'M5 5a2 2 0 012-2h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5z',
-    'M9 9h6v2H9z',
-    'M9 13h6v2H9z',
-    'M8 3v2',
-    'M16 3v2'
-  ],
-  // 电费查询 - 精美闪电/能源图标
-  electricity: [
-    'M13.5 2L4 13h7l-2 9 9.5-11h-7l2-9z',
-    'M18 20h4v2h-4z',
-    'M20 18v4'
-  ],
-  // 考试安排 - 精美考试/计时器图标
-  exams: [
-    'M12 21a9 9 0 100-18 9 9 0 000 18z',
-    'M12 7v6l4 2',
-    'M18 3h3v3',
-    'M3 3h3v3',
-    'M3 18h3v3',
-    'M18 18h3v3'
-  ],
-  // 全校课表 - 精美课程表/日程图标
-  qxzkb: [
-    'M4 5a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V5z',
-    'M4 9h16',
-    'M8 3v4',
-    'M16 3v4',
-    'M8 13h3v3H8z',
-    'M13 13h3v3h-3z'
-  ],
-  // 绩点排名 - 精美奖杯/排名图标
-  ranking: [
-    'M7 4h10v5a5 5 0 01-10 0V4z',
-    'M9 4V3a1 1 0 011-1h4a1 1 0 011 1v1',
-    'M12 14v7',
-    'M8 21h8',
-    'M5 4H3v3a3 3 0 003 3',
-    'M19 4h2v3a3 3 0 01-3 3'
-  ],
-  // 校历 - 精美日历/日期图标
-  calendar: [
-    'M4 6a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-    'M4 10h16',
-    'M8 4V2',
-    'M16 4V2',
-    'M8 14h2v2H8z',
-    'M11 14h2v2h-2z',
-    'M14 14h2v2h-2z'
-  ],
-  // 学业情况 - 精美学业/毕业帽图标
-  academic: [
-    'M12 4L2 9l10 5 10-5-10-5z',
-    'M5 11v4c0 2.5 3 4.5 7 4.5s7-2 7-4.5v-4',
-    'M12 14v7',
-    'M9 21h6'
-  ],
-  // 培养方案 - 精美计划/清单图标
-  training: [
-    'M9 11l2 2 4-4',
-    'M4 6a2 2 0 012-2h12a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6z',
-    'M8 12h2',
-    'M8 16h2',
-    'M8 8h2'
-  ],
-  // 交易记录 - 精美钱包/支付图标
-  transactions: [
-    'M20 7a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V7z',
-    'M2 11h20',
-    'M16 11v2',
-    'M16 15a2 2 0 100-4 2 2 0 000 4z'
-  ],
-  // 图书查询 - 精美书籍/图书馆图标
-  library: [
-    'M4 19.5A2.5 2.5 0 016.5 17H20',
-    'M4 4.5A2.5 2.5 0 016.5 7H20v13H6.5A2.5 2.5 0 014 17.5v-13z',
-    'M12 7v10',
-    'M16 7v10'
-  ],
-  // 校园地图 - 精美定位/地图图标
-  campus_map: [
-    'M12 2a7 7 0 00-7 7c0 2.5 1.5 5 3.5 7l3.5 6 3.5-6c2-2 3.5-4.5 3.5-7a7 7 0 00-7-7z',
-    'M12 7a2 2 0 100 4 2 2 0 000-4z'
-  ],
-  // 资料分享 - 精美云盘/分享图标
-  resource_share: [
-    'M8 17l4 4 4-4',
-    'M12 12v9',
-    'M19 8a4.5 4.5 0 00-8-1.5A6 6 0 004 13a1 1 0 001 1h2',
-    'M6 19h12'
-  ],
-  // AI助手 - 精美机器人/智能图标
-  ai: [
-    'M9 3h6',
-    'M9 5h6a4 4 0 014 4v9a4 4 0 01-4 4H9a4 4 0 01-4-4V9a4 4 0 014-4z',
-    'M9 13a1 1 0 100 2 1 1 0 000-2z',
-    'M15 13a1 1 0 100 2 1 1 0 000-2z',
-    'M8 17h8',
-    'M12 2v3'
-  ]
-}
 
 const periodTimeMap = {
   1: { start: '08:20', end: '09:05' },
@@ -314,7 +204,7 @@ const modules = [
   { 
     id: 'grades', 
     name: '成绩查询', 
-    icon: '成绩',
+    iconKey: 'grades',
     color: '#667eea',
     desc: '查看所有学期成绩',
     available: true,
@@ -323,7 +213,7 @@ const modules = [
   { 
     id: 'classroom', 
     name: '空教室', 
-    icon: '空教',
+    iconKey: 'classroom',
     color: '#ed8936',
     desc: '查询空闲教室',
     available: true,
@@ -332,7 +222,7 @@ const modules = [
   { 
     id: 'electricity', 
     name: '电费查询', 
-    icon: '电费',
+    iconKey: 'electricity',
     color: '#e53e3e',
     desc: '宿舍电费余额',
     available: true,
@@ -341,7 +231,7 @@ const modules = [
   { 
     id: 'transactions', 
     name: '交易记录', 
-    icon: '交易',
+    iconKey: 'transactions',
     color: '#F56C6C',
     desc: '一码通消费记录',
     available: true,
@@ -350,7 +240,7 @@ const modules = [
   { 
     id: 'exams', 
     name: '考试安排', 
-    icon: '考试',
+    iconKey: 'exams',
     color: '#38b2ac',
     desc: '查询考试时间地点',
     available: true,
@@ -359,7 +249,7 @@ const modules = [
   { 
     id: 'ranking', 
     name: '绩点排名', 
-    icon: '绩点',
+    iconKey: 'ranking',
     color: '#f6ad55',
     desc: '专业班级排名',
     available: true,
@@ -368,7 +258,7 @@ const modules = [
   { 
     id: 'calendar', 
     name: '校历', 
-    icon: '校历',
+    iconKey: 'calendar',
     color: '#3b82f6',
     desc: '查看学期校历',
     available: true,
@@ -377,7 +267,7 @@ const modules = [
   { 
     id: 'academic', 
     name: '学业情况', 
-    icon: '学业',
+    iconKey: 'academic',
     color: '#10b981',
     desc: '学业完成度与课程进度',
     available: true,
@@ -386,7 +276,7 @@ const modules = [
   { 
     id: 'qxzkb', 
     name: '全校课表', 
-    icon: '课表',
+    iconKey: 'qxzkb',
     color: '#6366f1',
     desc: '查询全校课程与排课',
     available: true,
@@ -395,7 +285,7 @@ const modules = [
   { 
     id: 'training', 
     name: '培养方案', 
-    icon: '培养',
+    iconKey: 'training',
     color: '#0ea5e9',
     desc: '培养方案与课程设置',
     available: true,
@@ -404,7 +294,7 @@ const modules = [
   {
     id: 'library',
     name: '图书查询',
-    icon: '图书',
+    iconKey: 'library',
     color: '#0f766e',
     desc: '馆藏检索与定位',
     available: true,
@@ -413,7 +303,7 @@ const modules = [
   {
     id: 'campus_map',
     name: '校园地图',
-    icon: '地图',
+    iconKey: 'campus_map',
     color: '#14b8a6',
     desc: '校园地图查看',
     available: true,
@@ -422,7 +312,7 @@ const modules = [
   {
     id: 'resource_share',
     name: '资料分享',
-    icon: '资料',
+    iconKey: 'resource_share',
     color: '#0ea5e9',
     desc: 'WebDAV 资料浏览与下载',
     available: true,
@@ -431,7 +321,7 @@ const modules = [
   { 
     id: 'ai', 
     name: '校园助手', 
-    icon: 'AI',
+    iconKey: 'ai',
     color: '#94a3b8',
     desc: '暂不可用',
     available: false,
@@ -659,14 +549,7 @@ watch(
         @click="mod.available && navigateTo(mod.id)"
       >
         <div class="module-icon" aria-hidden="true">
-          <svg v-if="moduleIconMap[mod.id]" viewBox="0 0 24 24" fill="none">
-            <path
-              v-for="(segment, segIndex) in moduleIconMap[mod.id]"
-              :key="`${mod.id}-${segIndex}`"
-              :d="segment"
-            />
-          </svg>
-          <span v-else>{{ mod.icon }}</span>
+          <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="50" :icon-size="26" />
         </div>
         <div class="module-name">{{ mod.name }}</div>
         <div v-if="!mod.available" class="coming-soon">即将上线</div>
@@ -894,7 +777,7 @@ html[data-theme='cyberpunk'] .dashboard > * {
 .module-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
   max-width: 980px;
   margin: 0 auto;
 }
@@ -1028,19 +911,19 @@ html[data-theme='aurora'] .ticker-card {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.86));
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.24);
-  padding: 12px 10px 10px;
+  padding: 6px 9px 6px;
   text-align: center;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
   position: relative;
   overflow: hidden;
-  min-height: 92px;
+  min-height: 62px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 html[data-theme='cyberpunk'] .module-card {
@@ -1170,33 +1053,18 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .module-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent-color);
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
-}
-
-.module-icon svg {
-  width: 22px;
-  height: 22px;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
+  transition: transform 0.2s ease;
+  margin-top: -1px;
 }
 
 .module-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--ui-text);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   line-height: 1.32;
   white-space: normal;
   display: -webkit-box;
@@ -1393,8 +1261,8 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-card {
-    padding: 10px 6px;
-    min-height: 96px;
+    padding: 5px 4px;
+    min-height: 70px;
   }
 
   .today-panel {
@@ -1428,19 +1296,14 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon {
-    width: 32px;
-    height: 32px;
-  }
-
-  .module-icon svg {
-    width: 18px;
-    height: 18px;
+    transform: scale(0.92);
   }
 }
 
 @media (max-width: 480px) {
   .module-card {
-    padding: 10px 4px;
+    padding: 4px 3px;
+    min-height: 66px;
   }
 
   .home-header-top {
@@ -1494,13 +1357,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
   }
 
   .module-icon {
-    width: 30px;
-    height: 30px;
-  }
-
-  .module-icon svg {
-    width: 17px;
-    height: 17px;
+    transform: scale(0.88);
   }
 }
 
