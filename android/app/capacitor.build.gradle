@@ -13,7 +13,9 @@ dependencies {
     implementation project(':capacitor-browser')
     implementation project(':capacitor-filesystem')
     implementation project(':capacitor-local-notifications')
+    implementation project(':capacitor-preferences')
     implementation project(':capacitor-share')
+    implementation project(':transistorsoft-capacitor-background-fetch')
 
 }
 

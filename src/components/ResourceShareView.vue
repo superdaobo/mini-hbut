@@ -1,10 +1,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, markRaw, watch } from 'vue'
-import Player from 'xgplayer'
-import 'xgplayer/dist/index.min.css'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { openExternal } from '../utils/external_link'
 import { isTauriRuntime } from '../platform/native'
+import { importModuleFromCdn, loadScriptFromCdn, loadStyleFromCdn } from '../utils/cdn_loader'
 
 const emit = defineEmits(['back'])
 
@@ -63,6 +62,26 @@ const pdfPanState = {
 const previewPlayerHostRef = ref(null)
 let previewPlayerInstance = null
 let pdfjsRuntime = null
+let xgPlayerCtor = null
+
+const CDN_ASSETS = {
+  xgplayerScript: [
+    'https://cdn.jsdelivr.net/npm/xgplayer@3.0.22/dist/index.min.js',
+    'https://unpkg.com/xgplayer@3.0.22/dist/index.min.js'
+  ],
+  xgplayerStyle: [
+    'https://cdn.jsdelivr.net/npm/xgplayer@3.0.22/dist/index.min.css',
+    'https://unpkg.com/xgplayer@3.0.22/dist/index.min.css'
+  ],
+  pdfjsModule: [
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs',
+    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/pdf.mjs'
+  ],
+  pdfjsWorker: [
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs',
+    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs'
+  ]
+}
 
 const runtimeIsTauri = isTauriRuntime()
 
@@ -474,13 +493,29 @@ const onPreviewFrameError = () => {
 
 const ensurePdfRuntime = async () => {
   if (pdfjsRuntime) return pdfjsRuntime
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/legacy/build/pdf.worker.mjs',
-    import.meta.url
-  ).toString()
+  const pdfjs = await importModuleFromCdn({
+    cacheKey: 'pdfjs-dist-runtime',
+    urls: CDN_ASSETS.pdfjsModule
+  })
+  pdfjs.GlobalWorkerOptions.workerSrc = CDN_ASSETS.pdfjsWorker[0]
   pdfjsRuntime = markRaw(pdfjs)
   return pdfjsRuntime
+}
+
+const ensureXgplayerRuntime = async () => {
+  if (xgPlayerCtor) return xgPlayerCtor
+  await loadStyleFromCdn({
+    cacheKey: 'xgplayer-style',
+    urls: CDN_ASSETS.xgplayerStyle
+  })
+  const runtime = await loadScriptFromCdn({
+    cacheKey: 'xgplayer-script',
+    urls: CDN_ASSETS.xgplayerScript,
+    resolveGlobal: () =>
+      window?.Player || window?.XGPlayer || window?.xgplayer || window?.xgPlayer
+  })
+  xgPlayerCtor = runtime
+  return xgPlayerCtor
 }
 
 const renderPdfPage = async () => {
@@ -637,6 +672,12 @@ const initPreviewPlayer = async () => {
   if (previewKind.value !== 'video' && previewKind.value !== 'audio') return
   if (!showPreview.value || loadingPreview.value || !previewUrl.value) return
 
+  const PlayerCtor = await ensureXgplayerRuntime()
+  if (!PlayerCtor) {
+    previewHint.value = '播放器运行时加载失败，请稍后重试'
+    return
+  }
+
   await nextTick()
   const host = previewPlayerHostRef.value
   if (!host) return
@@ -644,7 +685,7 @@ const initPreviewPlayer = async () => {
   destroyPreviewPlayer()
 
   const isAudio = previewKind.value === 'audio'
-  previewPlayerInstance = markRaw(new Player({
+  previewPlayerInstance = markRaw(new PlayerCtor({
     id: 'resource-xgplayer-host',
     url: previewUrl.value,
     lang: 'zh-cn',

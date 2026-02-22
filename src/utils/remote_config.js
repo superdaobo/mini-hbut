@@ -1,5 +1,6 @@
 import { invokeNative as invoke } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
+import { useAppSettings } from './app_settings'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
@@ -93,6 +94,38 @@ const normalizeEndpointList = (value) => {
     result.push(endpoint)
   }
   return result
+}
+
+const getBackendSettings = () => {
+  try {
+    const settings = useAppSettings()
+    return settings?.backend || {}
+  } catch {
+    return {}
+  }
+}
+
+export const isRemoteConfigEnabled = () => getBackendSettings()?.useRemoteConfig !== false
+
+const buildLocalOnlyConfig = () => {
+  const backend = getBackendSettings()
+  const normalized = normalizeRemoteConfig(DEFAULT_CONFIG)
+
+  const localOcrEndpoint = normalizeOcrEndpoint(backend?.ocrEndpoint) || DEFAULT_OCR_ENDPOINT
+  const ocrEndpoints = [localOcrEndpoint]
+  const primaryEndpoint = localOcrEndpoint
+
+  normalized.ocr.endpoint = primaryEndpoint
+  normalized.ocr.endpoints = ocrEndpoints
+  normalized.ocr.local_fallback_endpoints = [...DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS]
+  normalized.ocr.enabled = true
+
+  const tempUploadEndpoint = firstNonEmpty(backend?.tempUploadEndpoint)
+  normalized.temp_file_server.schedule_upload_endpoint = tempUploadEndpoint
+  normalized.temp_file_server.enabled = true
+  normalized.resource_share.temp_upload_endpoint = tempUploadEndpoint
+
+  return normalized
 }
 
 const safeJsonParse = (raw, fallback) => {
@@ -360,6 +393,10 @@ export const applyOcrRuntimeConfig = async (configLike) => {
 }
 
 export async function fetchRemoteConfig() {
+  if (!isRemoteConfigEnabled()) {
+    return buildLocalOnlyConfig()
+  }
+
   try {
     const raw = await fetchFromAnyUrl()
     if (!isLikelyRemoteConfigPayload(raw)) {

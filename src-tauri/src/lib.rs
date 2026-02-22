@@ -2360,8 +2360,8 @@ pub fn run() {
                 None
             }
 
-            let app_handle = app.handle().clone();
-            crate::modules::notification::init_background_task(app_handle);
+            // 统一改为前端跨平台通知监控（Capacitor/Tauri 共用），
+            // 这里不再启动 Rust 侧后台循环，避免桌面端重复通知。
             // 启动时尝试加载最近一′话凭?
             let mut restored_any = false;
             let mut token_loaded = false;

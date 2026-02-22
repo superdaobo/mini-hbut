@@ -4,6 +4,8 @@
   "description": "Mini-HBUT - 湖北工业大学教务助手",
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/prepare_dist.mjs",
+    "prebuild:web": "node scripts/prepare_dist.mjs",
     "dev": "vite",
     "build": "vite build",
     "build:web": "vite build",
@@ -15,13 +17,14 @@
     "cap:open:ios": "npx cap open ios"
   },
   "dependencies": {
-    "@capacitor/app": "^6.0.1",
     "@capacitor/android": "^6.1.2",
+    "@capacitor/app": "^6.0.1",
     "@capacitor/browser": "^6.0.2",
     "@capacitor/core": "^6.1.2",
     "@capacitor/filesystem": "^6.0.2",
     "@capacitor/ios": "^6.1.2",
     "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/preferences": "^6.0.4",
     "@capacitor/share": "^6.0.2",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
@@ -29,17 +32,14 @@
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-shell": "^2.3.4",
     "@tauri-apps/plugin-upload": "^2.4.0",
+    "@transistorsoft/capacitor-background-fetch": "^6.0.2",
     "dompurify": "^3.1.6",
     "html2canvas": "^1.4.1",
-    "katex": "^0.16.11",
     "marked": "^12.0.2",
-    "marked-katex-extension": "^5.1.0",
-    "pdfjs-dist": "^4.10.38",
     "pinia": "^2.1.7",
     "tauri-plugin-keep-screen-on-api": "^0.1.4",
     "vue": "^3.4.0",
-    "vue-router": "^4.2.5",
-    "xgplayer": "^3.0.22"
+    "vue-router": "^4.2.5"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.2",

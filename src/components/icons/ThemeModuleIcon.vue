@@ -57,6 +57,12 @@ const iconStyle = computed(() => ({
   '--icon-size': `${props.iconSize}px`
 }))
 
+const iconKeyClass = computed(() =>
+  String(props.iconKey || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '-')
+)
+
 function normalizeSvgMarkup(svgText) {
   if (!svgText) return ''
   let normalized = svgText
@@ -85,7 +91,7 @@ const iconMarkup = computed(() => normalizeSvgMarkup(iconSrc.value))
 
 <template>
   <span class="theme-module-icon" :class="`variant-${variant}`" :style="iconStyle" aria-hidden="true">
-    <span v-if="iconMarkup" class="icon-svg" v-html="iconMarkup" />
+    <span v-if="iconMarkup" class="icon-svg" :class="`icon-${iconKeyClass}`" v-html="iconMarkup" />
     <span v-else class="fallback-glyph">?</span>
   </span>
 </template>
@@ -122,6 +128,18 @@ const iconMarkup = computed(() => normalizeSvgMarkup(iconSrc.value))
   align-items: center;
   justify-content: center;
   color: inherit;
+}
+
+.icon-svg.icon-classroom {
+  width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
+  height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
+  transform: translate(-2px, 2px);
+}
+
+.icon-svg.icon-academic {
+  width: min(calc(var(--badge-size) * 0.62), calc(var(--icon-size) * 1.08));
+  height: min(calc(var(--badge-size) * 0.62), calc(var(--icon-size) * 1.08));
+  transform: translateY(1px);
 }
 
 .icon-svg :deep(svg) {

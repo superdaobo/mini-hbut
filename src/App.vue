@@ -33,8 +33,10 @@ import { renderMarkdown } from './utils/markdown.js'
 import {
   fetchRemoteConfig,
   applyOcrRuntimeConfig,
-  getStoredOcrConfig
+  getStoredOcrConfig,
+  isRemoteConfigEnabled
 } from './utils/remote_config.js'
+import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import {
   exitNativeApp,
@@ -87,6 +89,7 @@ const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
 const JWXT_MAINTENANCE_HINT_KEY = 'hbu_jwxt_maintenance_hint'
 const JWXT_MAINTENANCE_EVENT = 'hbu-jwxt-maintenance'
+const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
 const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
 const ELECTRICITY_REFRESH_INTERVAL = 10 * 60 * 1000
@@ -486,6 +489,11 @@ const handleLoginSuccess = (data) => {
   persistSessionCookies()
   startSessionKeepAlive()
   startElectricityKeepAlive()
+  if (studentId.value) {
+    startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
+      console.warn('[Notify] 启动通知监控失败:', e)
+    })
+  }
   clearJwxtMaintenance()
   stopJwxtRecoveryPolling()
   recoverViewportAfterTransition()
@@ -524,6 +532,7 @@ const handleLogout = () => {
 
   stopSessionKeepAlive()
   stopElectricityKeepAlive()
+  void stopNotificationMonitor()
   stopJwxtRecoveryPolling()
   clearJwxtMaintenance()
   localStorage.removeItem(SESSION_COOKIE_KEY)
@@ -651,6 +660,11 @@ const attemptOnlineRecovery = async () => {
       clearJwxtMaintenance()
       startSessionKeepAlive()
       startElectricityKeepAlive()
+      if (studentId.value) {
+        startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
+          console.warn('[Notify] 恢复后启动通知监控失败:', e)
+        })
+      }
       await persistSessionCookies()
       stopJwxtRecoveryPolling()
     } else {
@@ -834,6 +848,7 @@ const applyRemoteConfig = async () => {
 
 const startRemoteConfigRefresh = () => {
   stopRemoteConfigRefresh()
+  if (!isRemoteConfigEnabled()) return
   remoteConfigRefreshTimer = setInterval(() => {
     applyRemoteConfig().catch((e) => {
       console.warn('[Config] 定时刷新远程配置失败:', e)
@@ -845,6 +860,17 @@ const stopRemoteConfigRefresh = () => {
   if (!remoteConfigRefreshTimer) return
   clearInterval(remoteConfigRefreshTimer)
   remoteConfigRefreshTimer = null
+}
+
+const handleRemoteConfigModeChanged = () => {
+  stopRemoteConfigRefresh()
+  applyRemoteConfig()
+    .catch((e) => {
+      console.warn('[Config] 切换配置源后刷新失败:', e)
+    })
+    .finally(() => {
+      startRemoteConfigRefresh()
+    })
 }
 
 const bridgePost = async (path, payload = {}) => {
@@ -1110,6 +1136,7 @@ onMounted(async () => {
   window.addEventListener('resize', scheduleViewportUpdate)
   window.addEventListener('orientationchange', scheduleViewportUpdate)
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
+  window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
   scheduleViewportUpdate()
   syncJwxtMaintenanceFromStorage()
   const cachedAnnouncements = restoreAnnouncementSnapshot()
@@ -1145,6 +1172,11 @@ onMounted(async () => {
   if (onlineReady) {
     startSessionKeepAlive()
     startElectricityKeepAlive()
+    if (studentId.value) {
+      startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
+        console.warn('[Notify] 启动通知监控失败:', e)
+      })
+    }
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
   } else if (bootstrappedCachedIdentity || studentId.value) {
@@ -1168,10 +1200,12 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleViewportUpdate)
   window.removeEventListener('orientationchange', scheduleViewportUpdate)
   window.removeEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
+  window.removeEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
   if (typeof unlistenCloseRequested === 'function') {
     unlistenCloseRequested()
     unlistenCloseRequested = null
   }
+  void stopNotificationMonitor()
   stopJwxtRecoveryPolling()
   stopRemoteConfigRefresh()
 })

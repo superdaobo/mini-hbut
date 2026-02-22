@@ -549,7 +549,7 @@ watch(
         @click="mod.available && navigateTo(mod.id)"
       >
         <div class="module-icon" aria-hidden="true">
-          <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="50" :icon-size="26" />
+          <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="46" :icon-size="22" />
         </div>
         <div class="module-name">{{ mod.name }}</div>
         <div v-if="!mod.available" class="coming-soon">即将上线</div>
@@ -918,7 +918,7 @@ html[data-theme='aurora'] .ticker-card {
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
   position: relative;
   overflow: hidden;
-  min-height: 62px;
+  min-height: 58px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1262,7 +1262,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
 
   .module-card {
     padding: 5px 4px;
-    min-height: 70px;
+    min-height: 64px;
   }
 
   .today-panel {
@@ -1303,7 +1303,7 @@ html[data-theme='cyberpunk'] .today-item-meta {
 @media (max-width: 480px) {
   .module-card {
     padding: 4px 3px;
-    min-height: 66px;
+    min-height: 60px;
   }
 
   .home-header-top {

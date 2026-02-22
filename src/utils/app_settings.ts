@@ -1,6 +1,15 @@
-﻿import { reactive, watch } from 'vue'
+import { reactive, watch } from 'vue'
 
 const STORAGE_KEY = 'hbu_app_settings_v1'
+const LOCAL_HOST_PATTERN =
+  /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i
+
+const DEFAULT_BACKEND_TARGETS = {
+  portal: 'https://e.hbut.edu.cn/stu/index.html#/',
+  jwxt: 'http://jwglxt.hbut.edu.cn',
+  oneCode: 'https://code.hbut.edu.cn',
+  library: 'https://lib.hbut.edu.cn'
+}
 
 const DEFAULT_SETTINGS = {
   retry: {
@@ -13,6 +22,16 @@ const DEFAULT_SETTINGS = {
     previewThreadsDesktop: 4,
     downloadThreadsMobile: 4,
     downloadThreadsDesktop: 6
+  },
+  backend: {
+    useRemoteConfig: true,
+    ocrEndpoint: '',
+    tempUploadEndpoint: '',
+    moduleTargets: { ...DEFAULT_BACKEND_TARGETS },
+    moduleParams: {
+      requestTimeoutMs: 15000,
+      probeTimeoutMs: 8000
+    }
   }
 }
 
@@ -22,12 +41,31 @@ const clampNumber = (value, min, max, fallback) => {
   return Math.min(max, Math.max(min, num))
 }
 
+const normalizeUrl = (value) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/^https?:\/\//i.test(text)) return text.replace(/\s+/g, '')
+  const prefix = LOCAL_HOST_PATTERN.test(text) ? 'http://' : 'https://'
+  return `${prefix}${text}`.replace(/\s+/g, '')
+}
+
 const normalizeSettings = (raw) => {
   const base = JSON.parse(JSON.stringify(DEFAULT_SETTINGS))
   if (!raw || typeof raw !== 'object') return base
+
   const next = { ...base, ...raw }
   next.retry = { ...base.retry, ...(raw.retry || {}) }
   next.resourceShare = { ...base.resourceShare, ...(raw.resourceShare || {}) }
+  next.backend = { ...base.backend, ...(raw.backend || {}) }
+  next.backend.moduleTargets = {
+    ...base.backend.moduleTargets,
+    ...(raw.backend?.moduleTargets || {})
+  }
+  next.backend.moduleParams = {
+    ...base.backend.moduleParams,
+    ...(raw.backend?.moduleParams || {})
+  }
+
   next.retry.electricity = clampNumber(next.retry.electricity, 0, 5, base.retry.electricity)
   next.retry.classroom = clampNumber(next.retry.classroom, 0, 5, base.retry.classroom)
   next.retryDelayMs = clampNumber(next.retryDelayMs, 500, 10000, base.retryDelayMs)
@@ -55,6 +93,26 @@ const normalizeSettings = (raw) => {
     12,
     base.resourceShare.downloadThreadsDesktop
   )
+  next.backend.useRemoteConfig = next.backend.useRemoteConfig !== false
+  next.backend.ocrEndpoint = normalizeUrl(next.backend.ocrEndpoint)
+  next.backend.tempUploadEndpoint = normalizeUrl(next.backend.tempUploadEndpoint)
+  next.backend.moduleTargets.portal = normalizeUrl(next.backend.moduleTargets.portal)
+  next.backend.moduleTargets.jwxt = normalizeUrl(next.backend.moduleTargets.jwxt)
+  next.backend.moduleTargets.oneCode = normalizeUrl(next.backend.moduleTargets.oneCode)
+  next.backend.moduleTargets.library = normalizeUrl(next.backend.moduleTargets.library)
+  next.backend.moduleParams.requestTimeoutMs = clampNumber(
+    next.backend.moduleParams.requestTimeoutMs,
+    5000,
+    60000,
+    base.backend.moduleParams.requestTimeoutMs
+  )
+  next.backend.moduleParams.probeTimeoutMs = clampNumber(
+    next.backend.moduleParams.probeTimeoutMs,
+    3000,
+    30000,
+    base.backend.moduleParams.probeTimeoutMs
+  )
+
   return next
 }
 
@@ -75,22 +133,22 @@ const initAppSettings = () => {
     state,
     () => {
       const normalized = normalizeSettings(state)
-      const retryChanged =
-        state.retry.electricity !== normalized.retry.electricity ||
-        state.retry.classroom !== normalized.retry.classroom
-      const delayChanged = state.retryDelayMs !== normalized.retryDelayMs
-      const resourceShareChanged =
-        state.resourceShare.previewThreadsMobile !== normalized.resourceShare.previewThreadsMobile ||
-        state.resourceShare.previewThreadsDesktop !== normalized.resourceShare.previewThreadsDesktop ||
-        state.resourceShare.downloadThreadsMobile !== normalized.resourceShare.downloadThreadsMobile ||
-        state.resourceShare.downloadThreadsDesktop !== normalized.resourceShare.downloadThreadsDesktop
-      if (retryChanged || delayChanged || resourceShareChanged) {
+      const normalizedText = JSON.stringify(normalized)
+      const stateText = JSON.stringify(state)
+
+      if (stateText !== normalizedText) {
         state.retry = { ...normalized.retry }
         state.retryDelayMs = normalized.retryDelayMs
         state.resourceShare = { ...normalized.resourceShare }
+        state.backend = {
+          ...normalized.backend,
+          moduleTargets: { ...normalized.backend.moduleTargets },
+          moduleParams: { ...normalized.backend.moduleParams }
+        }
       }
+
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
+        localStorage.setItem(STORAGE_KEY, normalizedText)
       } catch {
         // ignore
       }
@@ -105,4 +163,4 @@ const resetAppSettings = () => {
   Object.assign(state, normalizeSettings(DEFAULT_SETTINGS))
 }
 
-export { DEFAULT_SETTINGS, initAppSettings, useAppSettings, resetAppSettings }
+export { DEFAULT_BACKEND_TARGETS, DEFAULT_SETTINGS, initAppSettings, useAppSettings, resetAppSettings }
