@@ -7,6 +7,24 @@ Mini-HBUT 发布脚本（主分支模式）
 1. 更新版本号（package.json / tauri.conf.json / Cargo.toml）
 2. 提交代码、重建 tag、推送到 origin/main
 3. 不操作 old / old_dev 等归档分支
+
+用法示例：
+1) 默认 patch 发布（1.2.3 -> 1.2.4）
+   python release.py
+
+2) minor 发布（1.2.3 -> 1.3.0）
+   python release.py minor
+   python release.py --minor
+
+3) major 发布（1.2.3 -> 2.0.0）
+   python release.py major
+   python release.py --major
+
+4) 指定版本发布
+   python release.py --version 2.5.0
+
+5) 跳过确认
+   python release.py minor -y
 """
 
 from __future__ import annotations
@@ -277,12 +295,41 @@ def publish(version: str, *, push_only: bool) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Mini-HBUT 发布脚本（主分支模式）")
-    parser.add_argument("bump", nargs="?", choices=["major", "minor", "patch"], default="patch")
-    parser.add_argument("--version", help="指定目标版本号，例如 1.2.3")
+    parser = argparse.ArgumentParser(
+        description="Mini-HBUT 发布脚本（主分支模式）",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "示例:\n"
+            "  python release.py                # patch 版本\n"
+            "  python release.py minor          # minor 版本\n"
+            "  python release.py major          # major 版本\n"
+            "  python release.py --minor -y     # minor 并跳过确认\n"
+            "  python release.py --version 2.3.0\n"
+        ),
+    )
+    parser.add_argument(
+        "bump",
+        nargs="?",
+        choices=["major", "minor", "patch"],
+        default=None,
+        help="位置参数版本递增类型（major/minor/patch），默认 patch",
+    )
+    bump_group = parser.add_mutually_exclusive_group()
+    bump_group.add_argument("--major", dest="bump_flag", action="store_const", const="major", help="按 major 递增版本")
+    bump_group.add_argument("--minor", dest="bump_flag", action="store_const", const="minor", help="按 minor 递增版本")
+    bump_group.add_argument("--patch", dest="bump_flag", action="store_const", const="patch", help="按 patch 递增版本（默认）")
+    parser.add_argument("--version", help="指定目标版本号，例如 1.2.3（优先于 bump）")
     parser.add_argument("--push-only", action="store_true", help="仅推送 main + tag，不更新版本文件、不提交")
     parser.add_argument("-y", "--no-confirm", action="store_true", help="跳过确认")
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.bump and args.bump_flag and args.bump != args.bump_flag:
+        parser.error(
+            f"版本递增参数冲突：位置参数为 {args.bump}，选项参数为 {args.bump_flag}。"
+        )
+
+    args.bump = args.bump_flag or args.bump or "patch"
+    return args
 
 
 def main() -> None:
