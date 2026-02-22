@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   applyPreset,
   flushUiSettings,
@@ -7,8 +7,15 @@ import {
   UI_PRESETS,
   useUiSettings
 } from '../utils/ui_settings'
-import { resetAppSettings, useAppSettings } from '../utils/app_settings'
-import { ensureFontLoaded, loadDeyiHeiFont, useFontSettings } from '../utils/font_settings'
+import { DEFAULT_BACKEND_TARGETS, resetAppSettings, useAppSettings } from '../utils/app_settings'
+import {
+  FONT_CDN_OPTIONS,
+  ensureFontLoaded,
+  loadDeyiHeiFont,
+  prefetchCdnFonts,
+  setFontCdnProvider,
+  useFontSettings
+} from '../utils/font_settings'
 import { applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
@@ -18,6 +25,8 @@ import hbutLogo from '../assets/hbut-logo.png'
 const emit = defineEmits(['back'])
 
 const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
+const REMOTE_UPLOAD_ENDPOINT_KEY = 'hbu_temp_upload_endpoint'
+const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
 const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
 const LOCAL_HOST_PATTERN =
   /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i
@@ -41,9 +50,16 @@ const showFontModal = ref(false)
 const fontDownloadProgress = ref(0)
 const fontDownloadStatus = ref('idle')
 const fontDownloadError = ref('')
+const fontModalTitle = ref('字体加载')
+const fontModalDescription = ref('正在处理字体资源，请稍候。')
+const fontDownloadStep = ref('')
+const fontModalRetryMode = ref('deyihei')
+const cdnPrefetching = ref(false)
 const probeRunning = ref(false)
 const probeResults = ref({})
 const probeFinishedAt = ref('')
+let backendAutoApplyTimer = null
+let backendAutoApplying = false
 
 const isMobileDevice = (() => {
   if (typeof navigator === 'undefined') return false
@@ -53,12 +69,6 @@ const isMobileDevice = (() => {
 const currentStudentId = computed(() => localStorage.getItem('hbu_username') || '未登录')
 const currentPresetLabel = computed(() => UI_PRESETS[uiSettings.preset]?.label || '自定义')
 const activeDeviceLabel = computed(() => (isMobileDevice ? '移动端' : '桌面端'))
-const disableRemoteConfig = computed({
-  get: () => !appSettings.backend.useRemoteConfig,
-  set: (value) => {
-    appSettings.backend.useRemoteConfig = !value
-  }
-})
 const backendSourceLabel = computed(() =>
   appSettings.backend.useRemoteConfig ? '远程配置（含本地兜底）' : '仅本地配置'
 )
@@ -72,6 +82,29 @@ const activeDownloadThreads = computed(() =>
     ? appSettings.resourceShare.downloadThreadsMobile
     : appSettings.resourceShare.downloadThreadsDesktop
 )
+const fontCdnOptions = FONT_CDN_OPTIONS
+const localOnlyModeEnabled = computed(() => !appSettings.backend.useRemoteConfig)
+const fontLocalAvailability = computed(() => {
+  if (isMobileDevice) {
+    return [
+      '默认字体：本地可用（系统字体）',
+      '黑体/宋体/楷体/仿宋：移动端通常不内置，建议先点“预缓存 CDN 字体”',
+      '得意黑：需点击“下载得意黑”单独缓存'
+    ]
+  }
+  return [
+    '默认字体：本地可用（系统字体）',
+    '黑体/宋体：Windows/macOS 上通常可本地替换',
+    '楷体/仿宋：不同桌面系统覆盖不一致，建议预缓存 CDN 字体'
+  ]
+})
+const FONT_DISPLAY_NAME = {
+  heiti: '黑体',
+  songti: '宋体',
+  kaiti: '楷体',
+  fangsong: '仿宋',
+  deyihei: '得意黑'
+}
 
 const presetEntries = computed(() =>
   Object.entries(UI_PRESETS).map(([key, preset]) => ({
@@ -79,6 +112,32 @@ const presetEntries = computed(() =>
     ...preset
   }))
 )
+
+const toSafeText = (value) => String(value || '').trim()
+
+const readSnapshotUploadEndpoint = () => {
+  try {
+    const raw = localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
+    if (!raw) return ''
+    const snapshot = JSON.parse(raw)
+    return toSafeText(
+      snapshot?.temp_file_server?.schedule_upload_endpoint ||
+        snapshot?.resource_share?.temp_upload_endpoint
+    )
+  } catch {
+    return ''
+  }
+}
+
+const getEffectiveUploadEndpoint = (backend) => {
+  const localValue = toSafeText(backend?.tempUploadEndpoint)
+  if (!backend?.useRemoteConfig) return localValue
+  return (
+    toSafeText(localStorage.getItem(REMOTE_UPLOAD_ENDPOINT_KEY)) ||
+    readSnapshotUploadEndpoint() ||
+    localValue
+  )
+}
 
 const normalizeProbeTarget = (value) => {
   const text = String(value || '').trim()
@@ -91,6 +150,7 @@ const normalizeProbeTarget = (value) => {
 const probeRows = computed(() => {
   const backend = appSettings.backend || {}
   const stored = getStoredOcrConfig()
+  const uploadEndpoint = getEffectiveUploadEndpoint(backend)
   const localOcr = String(
     backend.ocrEndpoint ||
       (!backend.useRemoteConfig ? DEFAULT_OCR_ENDPOINT : stored.endpoint) ||
@@ -106,31 +166,37 @@ const probeRows = computed(() => {
     {
       id: 'upload',
       label: '临时上传服务器',
-      url: normalizeProbeTarget(backend.tempUploadEndpoint),
+      url: normalizeProbeTarget(uploadEndpoint),
       desc: '课表导出临时文件上传'
     },
     {
       id: 'portal',
       label: '新融合门户',
-      url: normalizeProbeTarget(backend.moduleTargets.portal),
+      url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.portal),
       desc: '统一门户可达性'
     },
     {
       id: 'jwxt',
       label: '教务系统',
-      url: normalizeProbeTarget(backend.moduleTargets.jwxt),
+      url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.jwxt),
       desc: '课程/成绩主系统'
+    },
+    {
+      id: 'chaoxing',
+      label: '超星渠道',
+      url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.chaoxing),
+      desc: '教务超星入口'
     },
     {
       id: 'oneCode',
       label: '一码通',
-      url: normalizeProbeTarget(backend.moduleTargets.oneCode),
+      url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.oneCode),
       desc: '一卡通与电费认证入口'
     },
     {
       id: 'library',
       label: '图书馆',
-      url: normalizeProbeTarget(backend.moduleTargets.library),
+      url: normalizeProbeTarget(DEFAULT_BACKEND_TARGETS.library),
       desc: '图书服务站点'
     }
   ]
@@ -424,13 +490,18 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
     window.dispatchEvent(new CustomEvent('hbu-ocr-config-updated'))
 
     const uploadEndpoint = String(appSettings.backend.tempUploadEndpoint || '').trim()
-    if (uploadEndpoint) {
-      localStorage.setItem('hbu_temp_upload_endpoint', uploadEndpoint)
-    } else {
-      localStorage.removeItem('hbu_temp_upload_endpoint')
+    const useRemoteConfig = appSettings.backend.useRemoteConfig
+    const shouldWriteUploadEndpoint = !!uploadEndpoint || !useRemoteConfig
+
+    if (shouldWriteUploadEndpoint) {
+      if (uploadEndpoint) {
+        localStorage.setItem(REMOTE_UPLOAD_ENDPOINT_KEY, uploadEndpoint)
+      } else {
+        localStorage.removeItem(REMOTE_UPLOAD_ENDPOINT_KEY)
+      }
     }
 
-    if (isTauriApp) {
+    if (isTauriApp && shouldWriteUploadEndpoint) {
       await invokeNative('set_temp_upload_endpoint', { endpoint: uploadEndpoint || null })
     }
 
@@ -452,7 +523,9 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
 }
 
 const handleRemoteModeChanged = async () => {
-  if (appSettings.backend.useRemoteConfig) {
+  const nextUseRemoteConfig = !appSettings.backend.useRemoteConfig
+  appSettings.backend.useRemoteConfig = nextUseRemoteConfig
+  if (nextUseRemoteConfig) {
     window.dispatchEvent(new CustomEvent(REMOTE_CONFIG_MODE_EVENT))
     showToast('已启用远程配置', 'success')
     return
@@ -471,6 +544,50 @@ const handleResetBackend = () => {
   showToast('已恢复默认后端参数', 'success')
 }
 
+const clearBackendAutoApplyTimer = () => {
+  if (backendAutoApplyTimer) {
+    window.clearTimeout(backendAutoApplyTimer)
+    backendAutoApplyTimer = null
+  }
+}
+
+const scheduleBackendAutoApply = () => {
+  clearBackendAutoApplyTimer()
+  backendAutoApplyTimer = window.setTimeout(async () => {
+    if (backendAutoApplying) return
+    backendAutoApplying = true
+    try {
+      await handleApplyBackendSettings({ silent: true, emitModeEvent: false })
+    } finally {
+      backendAutoApplying = false
+    }
+  }, 420)
+}
+
+watch(
+  () => [
+    appSettings.backend.useRemoteConfig,
+    appSettings.backend.ocrEndpoint,
+    appSettings.backend.tempUploadEndpoint,
+    appSettings.backend.moduleParams.requestTimeoutMs,
+    appSettings.backend.moduleParams.probeTimeoutMs,
+    appSettings.retry.electricity,
+    appSettings.retry.classroom,
+    appSettings.retryDelayMs,
+    appSettings.resourceShare.previewThreadsMobile,
+    appSettings.resourceShare.previewThreadsDesktop,
+    appSettings.resourceShare.downloadThreadsMobile,
+    appSettings.resourceShare.downloadThreadsDesktop
+  ],
+  () => {
+    scheduleBackendAutoApply()
+  }
+)
+
+onBeforeUnmount(() => {
+  clearBackendAutoApplyTimer()
+})
+
 const handleSelectFont = async (fontKey) => {
   if (fontKey === 'default') {
     fontSettings.font = 'default'
@@ -480,15 +597,20 @@ const handleSelectFont = async (fontKey) => {
   }
 
   showFontModal.value = true
+  fontModalTitle.value = `加载${FONT_DISPLAY_NAME[fontKey] || '字体'}`
+  fontModalDescription.value = '正在检测本地缓存，如缺失会自动联网下载。'
+  fontModalRetryMode.value = 'deyihei'
   fontDownloadProgress.value = 20
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
+  fontDownloadStep.value = `准备加载：${FONT_DISPLAY_NAME[fontKey] || fontKey}`
 
   if (fontKey === 'deyihei' && fontSettings.loaded) {
     fontSettings.font = 'deyihei'
     flushUiSettings()
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
+    fontDownloadStep.value = '本地缓存命中，已直接应用'
     showToast('已应用得意黑', 'success')
     showFontModal.value = false
     return
@@ -496,11 +618,18 @@ const handleSelectFont = async (fontKey) => {
 
   try {
     const loaded = await ensureFontLoaded(fontKey, false)
+    if (!loaded) {
+      const retryLoaded = await ensureFontLoaded(fontKey, true)
+      if (!retryLoaded) {
+        throw new Error('font not loaded')
+      }
+    }
     fontSettings.font = fontKey
     flushUiSettings()
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
-    showToast(loaded ? '字体已应用' : '已应用系统字体（远程字体未命中）', loaded ? 'success' : 'info')
+    fontDownloadStep.value = '字体加载成功'
+    showToast('字体已应用', 'success')
     showFontModal.value = false
     return
   } catch (e) {
@@ -511,6 +640,7 @@ const handleSelectFont = async (fontKey) => {
     fontDownloadStatus.value = 'failed'
     fontDownloadError.value = '字体加载失败，请检查网络后重试'
     fontDownloadProgress.value = 0
+    fontDownloadStep.value = ''
     showToast('字体加载失败，请检查网络后重试', 'error')
     showFontModal.value = false
     return
@@ -520,10 +650,70 @@ const handleSelectFont = async (fontKey) => {
   await handleDownloadFont()
 }
 
+const handleSelectCdnProvider = async (provider) => {
+  if (fontSettings.cdnProvider === provider) return
+  setFontCdnProvider(provider)
+  if (fontSettings.font !== 'default') {
+    await ensureFontLoaded(fontSettings.font, true)
+  }
+  showToast(`字体 CDN 已切换为：${provider === 'auto' ? '自动' : provider}`, 'success')
+}
+
+const handlePrefetchFonts = async (force = false) => {
+  if (cdnPrefetching.value) return
+  cdnPrefetching.value = true
+  const needDeyiheiDownload = !fontSettings.loaded
+  showFontModal.value = needDeyiheiDownload
+  fontModalTitle.value = '预缓存云端字体'
+  fontModalDescription.value = needDeyiheiDownload
+    ? '未检测到本地得意黑，将先弹窗下载得意黑，再继续缓存其余字体。'
+    : '正在依次检测并缓存黑体、宋体、楷体、仿宋、得意黑。'
+  fontModalRetryMode.value = 'prefetch'
+  fontDownloadProgress.value = 8
+  fontDownloadStatus.value = 'downloading'
+  fontDownloadError.value = ''
+  fontDownloadStep.value = '准备预缓存字体...'
+  try {
+    const results = await prefetchCdnFonts(force, ({ key, index, total, ok }) => {
+      const label = FONT_DISPLAY_NAME[key] || key
+      if (showFontModal.value) {
+        fontDownloadProgress.value = Math.max(12, Math.round((index / total) * 100))
+        fontDownloadStep.value = `(${index}/${total}) ${label}${ok ? ' 缓存完成' : ' 缓存失败'}`
+      }
+    })
+    const success = Object.values(results).filter(Boolean).length
+    if (fontSettings.font !== 'default') {
+      await ensureFontLoaded(fontSettings.font, true)
+    }
+    if (success === Object.keys(results).length) {
+      fontDownloadStatus.value = 'success'
+      showToast(`字体缓存完成：${success}/${Object.keys(results).length}`, 'success')
+      showFontModal.value = false
+    } else {
+      fontDownloadStatus.value = 'failed'
+      fontDownloadError.value = `部分字体缓存失败（${success}/${Object.keys(results).length}）`
+      showToast('部分字体缓存失败，请重试', 'error')
+    }
+  } catch (e) {
+    console.warn('[Font] prefetch failed', e)
+    fontDownloadStatus.value = 'failed'
+    fontDownloadError.value = '字体缓存失败，请检查网络后重试'
+    fontDownloadProgress.value = 0
+    fontDownloadStep.value = ''
+    showToast('字体缓存失败，请检查网络后重试', 'error')
+  } finally {
+    cdnPrefetching.value = false
+  }
+}
+
 const handleDownloadFont = async (force = false) => {
   if (downloadingFont.value) return
   downloadingFont.value = true
   showFontModal.value = true
+  fontModalTitle.value = '下载得意黑字体'
+  fontModalDescription.value = '首次启用需下载字体文件，下载完成后会自动应用。'
+  fontModalRetryMode.value = 'deyihei'
+  fontDownloadStep.value = '准备下载得意黑...'
   fontDownloadProgress.value = 15
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
@@ -534,6 +724,7 @@ const handleDownloadFont = async (force = false) => {
     }
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
+    fontDownloadStep.value = '得意黑已缓存并应用'
     fontSettings.font = 'deyihei'
     showToast('字体下载完成，已应用得意黑', 'success')
     showFontModal.value = false
@@ -541,6 +732,7 @@ const handleDownloadFont = async (force = false) => {
     fontDownloadStatus.value = 'failed'
     fontDownloadError.value = '字体下载失败，请检查网络后重试'
     fontDownloadProgress.value = 0
+    fontDownloadStep.value = ''
     showToast('字体下载失败，请检查网络后重试', 'error')
     console.warn('[Font] download failed', e)
   } finally {
@@ -721,11 +913,35 @@ const handleDownloadFont = async (force = false) => {
             得意黑（需下载）
           </button>
         </div>
+        <div class="font-cdn">
+          <label>字体 CDN 节点</label>
+          <div class="font-cdn-row">
+            <button
+              v-for="option in fontCdnOptions"
+              :key="option.key"
+              class="font-cdn-btn btn-ripple"
+              :class="{ active: fontSettings.cdnProvider === option.key }"
+              @click="handleSelectCdnProvider(option.key)"
+            >
+              <strong>{{ option.label }}</strong>
+              <small>{{ option.desc }}</small>
+            </button>
+          </div>
+        </div>
+        <div class="font-availability">
+          <label>本地字体可用性说明</label>
+          <ul>
+            <li v-for="item in fontLocalAvailability" :key="item">{{ item }}</li>
+          </ul>
+        </div>
         <div class="font-download-row">
           <button class="mini-btn btn-ripple" :disabled="downloadingFont" @click="handleDownloadFont(fontSettings.loaded)">
             {{ downloadingFont ? '下载中...' : fontSettings.loaded ? '重新下载得意黑' : '下载得意黑' }}
           </button>
-          <span class="hint">默认可直接使用系统字体，下载为可选项。</span>
+          <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false)">
+            {{ cdnPrefetching ? '缓存中...' : '预缓存云端字体（含得意黑）' }}
+          </button>
+          <span class="hint">字体选择会自动保存；下次打开应用会自动恢复上次字体。</span>
         </div>
       </section>
     </template>
@@ -745,26 +961,45 @@ const handleDownloadFont = async (force = false) => {
       </div>
 
       <div class="backend-block">
-        <label class="toggle-row">
+        <div
+          class="toggle-row"
+          :class="{
+            active: localOnlyModeEnabled,
+            inactive: !localOnlyModeEnabled
+          }"
+        >
           <div class="toggle-text">
             <strong>不使用远程配置（仅本地）</strong>
             <small>开启后只应用本地设置，远程配置将不再覆盖 OCR/上传地址。</small>
           </div>
-          <input
-            class="toggle-input"
-            type="checkbox"
-            v-model="disableRemoteConfig"
-            @change="handleRemoteModeChanged"
-          />
-        </label>
+          <div class="toggle-meta">
+            <span
+              class="toggle-badge"
+              :class="{
+                active: localOnlyModeEnabled,
+                inactive: !localOnlyModeEnabled
+              }"
+            >
+              {{ localOnlyModeEnabled ? '仅本地' : '远程配置' }}
+            </span>
+            <button
+              type="button"
+              class="toggle-switch"
+              :class="{ checked: localOnlyModeEnabled }"
+              role="switch"
+              :aria-checked="localOnlyModeEnabled"
+              @click="handleRemoteModeChanged"
+            >
+              <span class="toggle-thumb"></span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="backend-block">
-        <div class="section-head section-head-compact">
-          <h4>本地服务设置</h4>
-          <button class="mini-btn btn-ripple" @click="handleApplyBackendSettings()">立即应用</button>
-        </div>
+        <h4>本地服务设置</h4>
         <p class="hint">仅支持手动填写地址，不展示本地预设列表。</p>
+        <p class="hint">修改后会自动保存到本地并自动应用到当前运行实例。</p>
         <p v-if="appSettings.backend.useRemoteConfig" class="hint">
           当前启用远程配置，远程刷新后本地地址可能被覆盖；若需固定使用本地地址，请开启“仅本地”。
         </p>
@@ -784,28 +1019,6 @@ const handleDownloadFont = async (force = false) => {
               placeholder="https://your-upload.example/api/temp/upload"
               v-model.trim="appSettings.backend.tempUploadEndpoint"
             />
-          </label>
-        </div>
-      </div>
-
-      <div class="backend-block">
-        <h4>模块目标地址</h4>
-        <div class="backend-grid">
-          <label class="field">
-            <span>新融合门户</span>
-            <input type="text" v-model.trim="appSettings.backend.moduleTargets.portal" />
-          </label>
-          <label class="field">
-            <span>教务系统</span>
-            <input type="text" v-model.trim="appSettings.backend.moduleTargets.jwxt" />
-          </label>
-          <label class="field">
-            <span>一码通</span>
-            <input type="text" v-model.trim="appSettings.backend.moduleTargets.oneCode" />
-          </label>
-          <label class="field">
-            <span>图书馆</span>
-            <input type="text" v-model.trim="appSettings.backend.moduleTargets.library" />
           </label>
         </div>
       </div>
@@ -872,7 +1085,7 @@ const handleDownloadFont = async (force = false) => {
             {{ probeRunning ? '测速中...' : '开始测速' }}
           </button>
         </div>
-        <p class="hint">并发测试当前 OCR、上传、新融合门户、教务系统、一卡通与图书馆地址。</p>
+        <p class="hint">并发测试当前 OCR、上传、新融合门户、教务系统、超星渠道、一卡通与图书馆地址。</p>
         <div class="probe-list">
           <article v-for="item in probeRows" :key="item.id" class="probe-item">
             <div class="probe-main">
@@ -891,8 +1104,8 @@ const handleDownloadFont = async (force = false) => {
 
     <div v-if="showFontModal" class="font-modal">
       <div class="font-modal-card">
-        <h3>下载得意黑字体</h3>
-        <p>首次启用需下载字体文件，下载完成后会自动应用。</p>
+        <h3>{{ fontModalTitle }}</h3>
+        <p>{{ fontModalDescription }}</p>
         <div class="font-modal-progress">
           <div class="progress-bar">
             <div class="progress-fill" :style="{ width: `${fontDownloadProgress}%` }"></div>
@@ -902,10 +1115,22 @@ const handleDownloadFont = async (force = false) => {
           <span v-else-if="fontDownloadStatus === 'failed'">下载失败</span>
           <span v-else>等待开始</span>
         </div>
+        <p v-if="fontDownloadStep" class="font-step">{{ fontDownloadStep }}</p>
         <p v-if="fontDownloadError" class="font-error">{{ fontDownloadError }}</p>
         <div class="font-modal-actions">
-          <button v-if="fontDownloadStatus === 'failed'" class="btn-secondary btn-ripple" @click="handleDownloadFont(true)">
+          <button
+            v-if="fontDownloadStatus === 'failed' && fontModalRetryMode === 'deyihei'"
+            class="btn-secondary btn-ripple"
+            @click="handleDownloadFont(true)"
+          >
             重试下载
+          </button>
+          <button
+            v-if="fontDownloadStatus === 'failed' && fontModalRetryMode === 'prefetch'"
+            class="btn-secondary btn-ripple"
+            @click="handlePrefetchFonts(true)"
+          >
+            重试缓存
           </button>
           <button class="btn-primary btn-ripple" @click="showFontModal = false">关闭</button>
         </div>
@@ -1197,6 +1422,77 @@ const handleDownloadFont = async (force = false) => {
   background: linear-gradient(130deg, var(--ui-primary), var(--ui-secondary));
 }
 
+.font-cdn {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.font-cdn > label,
+.font-availability > label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ui-muted);
+}
+
+.font-cdn-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.font-cdn-btn {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, rgba(148, 163, 184, 0.36));
+  background: color-mix(in oklab, var(--ui-surface) 90%, #fff 10%);
+  color: var(--ui-text);
+  border-radius: 12px;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.font-cdn-btn strong {
+  font-size: 13px;
+}
+
+.font-cdn-btn small {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ui-muted);
+}
+
+.font-cdn-btn.active {
+  border-color: transparent;
+  background: linear-gradient(130deg, var(--ui-primary), var(--ui-secondary));
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 25%, transparent);
+}
+
+.font-cdn-btn.active strong,
+.font-cdn-btn.active small {
+  color: #ffffff;
+}
+
+.font-availability {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.font-availability ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.font-availability li {
+  font-size: 12px;
+  color: var(--ui-muted);
+  line-height: 1.5;
+}
+
 .font-download-row {
   margin-top: 10px;
   display: flex;
@@ -1242,6 +1538,24 @@ const handleDownloadFont = async (force = false) => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.3));
+  border-radius: 12px;
+  padding: 10px;
+  transition: all 0.2s ease;
+}
+
+.toggle-row.inactive {
+  border-color: color-mix(in oklab, var(--ui-primary) 15%, rgba(148, 163, 184, 0.34));
+  background: color-mix(in oklab, var(--ui-surface) 94%, #fff 6%);
+}
+
+.toggle-row.active {
+  border-color: rgba(249, 115, 22, 0.52);
+  background: linear-gradient(
+    135deg,
+    rgba(251, 146, 60, 0.18),
+    rgba(249, 115, 22, 0.12)
+  );
 }
 
 .toggle-text {
@@ -1259,37 +1573,74 @@ const handleDownloadFont = async (force = false) => {
   line-height: 1.5;
 }
 
-.toggle-input {
-  width: 50px;
-  height: 28px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.45));
-  border-radius: 999px;
-  appearance: none;
-  position: relative;
-  background: rgba(148, 163, 184, 0.35);
-  cursor: pointer;
-  transition: all 0.2s ease;
+.toggle-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.toggle-input::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 20px;
-  height: 20px;
+.toggle-badge {
+  min-height: 26px;
+  border-radius: 999px;
+  padding: 0 10px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.toggle-badge.inactive {
+  color: #1d4ed8;
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(96, 165, 250, 0.2);
+}
+
+.toggle-badge.active {
+  color: #9a3412;
+  border-color: rgba(249, 115, 22, 0.5);
+  background: rgba(251, 146, 60, 0.26);
+}
+
+.toggle-switch {
+  width: 54px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.54);
+  background: rgba(148, 163, 184, 0.5);
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+}
+
+.toggle-switch .toggle-thumb {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #ffffff;
-  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
+  transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.toggle-input:checked {
-  background: linear-gradient(130deg, var(--ui-primary), var(--ui-secondary));
-  border-color: transparent;
+.toggle-switch.checked {
+  border-color: rgba(249, 115, 22, 0.58);
+  background: linear-gradient(130deg, #fb923c, #f97316);
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.22);
 }
 
-.toggle-input:checked::after {
-  transform: translateX(22px);
+.toggle-switch.checked .toggle-thumb {
+  transform: translateX(24px);
+  background: #fff7ed;
+}
+
+.toggle-switch:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(99, 102, 241, 0.24),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
 }
 
 .status-pill {
@@ -1487,6 +1838,12 @@ const handleDownloadFont = async (force = false) => {
   font-size: 13px;
 }
 
+.font-step {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+
 .font-modal-actions {
   margin-top: 12px;
   display: flex;
@@ -1539,6 +1896,10 @@ const handleDownloadFont = async (force = false) => {
   .font-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .font-cdn-row {
+    grid-template-columns: 1fr;
   }
 
   .toggle-row,

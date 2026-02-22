@@ -14,22 +14,46 @@ const FONT_SOURCES = [
 ]
 
 const REMOTE_FONT_SOURCES = {
-  heiti: [
-    'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2',
-    'https://unpkg.com/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'
-  ],
-  songti: [
-    'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff2',
-    'https://unpkg.com/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff2'
-  ],
-  kaiti: [
-    'https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff2',
-    'https://unpkg.com/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff2'
-  ],
-  fangsong: [
-    'https://cdn.jsdelivr.net/npm/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff2',
-    'https://unpkg.com/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff2'
-  ]
+  heiti: {
+    jsdelivr: [
+      'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2',
+      'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'
+    ],
+    unpkg: [
+      'https://unpkg.com/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2',
+      'https://unpkg.com/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'
+    ]
+  },
+  songti: {
+    jsdelivr: [
+      'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff2',
+      'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff'
+    ],
+    unpkg: [
+      'https://unpkg.com/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff2',
+      'https://unpkg.com/@fontsource/noto-serif-sc/files/noto-serif-sc-chinese-simplified-400-normal.woff'
+    ]
+  },
+  kaiti: {
+    jsdelivr: [
+      'https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff2',
+      'https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff'
+    ],
+    unpkg: [
+      'https://unpkg.com/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff2',
+      'https://unpkg.com/@fontsource/ma-shan-zheng/files/ma-shan-zheng-chinese-simplified-400-normal.woff'
+    ]
+  },
+  fangsong: {
+    jsdelivr: [
+      'https://cdn.jsdelivr.net/npm/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff2',
+      'https://cdn.jsdelivr.net/npm/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff'
+    ],
+    unpkg: [
+      'https://unpkg.com/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff2',
+      'https://unpkg.com/@fontsource/zcool-xiaowei/files/zcool-xiaowei-chinese-simplified-400-normal.woff'
+    ]
+  }
 } as const
 
 const ANDROID_SANS = "'Noto Sans SC', 'Noto Sans CJK SC', 'Roboto', sans-serif"
@@ -38,18 +62,21 @@ const FONT_FALLBACK = `'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Hiragi
 const FONT_STACKS = {
   default: FONT_FALLBACK,
   deyihei: `'DeyiHei', ${FONT_FALLBACK}`,
-  heiti: `'HBUT-Heiti', 'SimHei', 'Heiti SC', 'Microsoft YaHei', ${ANDROID_SANS}`,
-  songti: `'HBUT-Songti', 'SimSun', 'Songti SC', 'STSong', ${ANDROID_SERIF}`,
-  kaiti: `'HBUT-KaiTi', 'KaiTi', 'STKaiti', 'KaiTi_GB2312', 'Kaiti SC', ${ANDROID_SERIF}`,
-  fangsong: `'HBUT-FangSong', 'FangSong', 'STFangsong', ${ANDROID_SERIF}`
+  heiti: `'HBUT-Heiti', 'SimHei', 'Heiti SC', 'Microsoft YaHei', ${ANDROID_SANS}, ${FONT_FALLBACK}`,
+  songti: `'HBUT-Songti', 'SimSun', 'Songti SC', 'STSong', ${ANDROID_SERIF}, ${FONT_FALLBACK}`,
+  kaiti: `'HBUT-KaiTi', 'KaiTi', 'STKaiti', 'KaiTi_GB2312', 'Kaiti SC', ${ANDROID_SERIF}, ${FONT_FALLBACK}`,
+  fangsong: `'HBUT-FangSong', 'FangSong', 'STFangsong', ${ANDROID_SERIF}, ${FONT_FALLBACK}`
 } as const
 
 const SUPPORTED_FONTS = new Set(Object.keys(FONT_STACKS))
+const FONT_CDN_PROVIDERS = ['auto', 'jsdelivr', 'unpkg'] as const
 
 type FontKey = keyof typeof FONT_STACKS
+type CdnProvider = (typeof FONT_CDN_PROVIDERS)[number]
 type FontState = {
   font: FontKey
   loaded: boolean
+  cdnProvider: CdnProvider
 }
 
 type FontDownloadPayload = {
@@ -58,16 +85,29 @@ type FontDownloadPayload = {
 }
 
 type RemoteFontKey = Exclude<FontKey, 'default' | 'deyihei'>
+type PrefetchFontKey = Exclude<FontKey, 'default'>
 type RemoteFontProfile = {
   family: string
-  sources: readonly string[]
-  format: 'truetype' | 'woff2'
   cacheName: string
+}
+type FontFormat = 'truetype' | 'woff2' | 'woff'
+
+const FONT_CDN_OPTIONS = [
+  { key: 'auto', label: '自动（推荐）', desc: '优先 jsDelivr，失败自动回退 unpkg' },
+  { key: 'jsdelivr', label: 'jsDelivr', desc: '优先使用 jsDelivr CDN' },
+  { key: 'unpkg', label: 'unpkg', desc: '优先使用 unpkg CDN' }
+] as const
+
+const CDN_PROVIDER_ORDER: Record<CdnProvider, readonly ('jsdelivr' | 'unpkg')[]> = {
+  auto: ['jsdelivr', 'unpkg'],
+  jsdelivr: ['jsdelivr', 'unpkg'],
+  unpkg: ['unpkg', 'jsdelivr']
 }
 
 const DEFAULT_SETTINGS: FontState = {
   font: 'default',
-  loaded: false
+  loaded: false,
+  cdnProvider: 'auto'
 }
 
 const loadStoredSettings = (): Partial<FontState> | null => {
@@ -84,9 +124,14 @@ const normalizeSettings = (raw: unknown): FontState => {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
   const obj = raw as Record<string, unknown>
   const requested = typeof obj.font === 'string' ? obj.font : 'default'
+  const requestedProvider = typeof obj.cdnProvider === 'string' ? obj.cdnProvider : 'auto'
+  const provider = FONT_CDN_PROVIDERS.includes(requestedProvider as CdnProvider)
+    ? (requestedProvider as CdnProvider)
+    : 'auto'
   return {
     font: (SUPPORTED_FONTS.has(requested) ? requested : 'default') as FontKey,
-    loaded: !!obj.loaded
+    loaded: !!obj.loaded,
+    cdnProvider: provider
   }
 }
 
@@ -103,26 +148,18 @@ const resolveWebFontUrl = () => {
 const REMOTE_FONT_PROFILE_MAP: Record<RemoteFontKey, RemoteFontProfile> = {
   heiti: {
     family: 'HBUT-Heiti',
-    sources: REMOTE_FONT_SOURCES.heiti,
-    format: 'woff2',
     cacheName: 'hbu-font-cache-heiti'
   },
   songti: {
     family: 'HBUT-Songti',
-    sources: REMOTE_FONT_SOURCES.songti,
-    format: 'woff2',
     cacheName: 'hbu-font-cache-songti'
   },
   kaiti: {
     family: 'HBUT-KaiTi',
-    sources: REMOTE_FONT_SOURCES.kaiti,
-    format: 'woff2',
     cacheName: 'hbu-font-cache-kaiti'
   },
   fangsong: {
     family: 'HBUT-FangSong',
-    sources: REMOTE_FONT_SOURCES.fangsong,
-    format: 'woff2',
     cacheName: 'hbu-font-cache-fangsong'
   }
 }
@@ -135,6 +172,31 @@ const REMOTE_FONT_FAMILY_MAP: Record<Exclude<FontKey, 'default'>, string> = {
   fangsong: REMOTE_FONT_PROFILE_MAP.fangsong.family
 }
 
+const inferFontFormat = (url: string): FontFormat => {
+  const lower = String(url || '').toLowerCase()
+  if (lower.endsWith('.woff2')) return 'woff2'
+  if (lower.endsWith('.woff')) return 'woff'
+  return 'truetype'
+}
+
+const resolveRemoteFontSources = (fontKey: RemoteFontKey, provider: CdnProvider): string[] => {
+  const map = REMOTE_FONT_SOURCES[fontKey]
+  if (!map) return []
+  const order = CDN_PROVIDER_ORDER[provider] || CDN_PROVIDER_ORDER.auto
+  const seen = new Set<string>()
+  const list: string[] = []
+  for (const vendor of order) {
+    const sources = map[vendor] || []
+    for (const url of sources) {
+      const text = String(url || '').trim()
+      if (!text || seen.has(text)) continue
+      seen.add(text)
+      list.push(text)
+    }
+  }
+  return list
+}
+
 const applyFont = (fontKey: FontKey) => {
   const root = document.documentElement
   if (!root) return
@@ -142,7 +204,7 @@ const applyFont = (fontKey: FontKey) => {
   root.style.setProperty('--ui-font-family', stack)
 }
 
-const ensureFontFaceStyle = (fontFamily: string, src: string, format: 'truetype' | 'woff2') => {
+const ensureFontFaceStyle = (fontFamily: string, src: string, format: FontFormat) => {
   if (typeof document === 'undefined') return
   const id = `font-face-${fontFamily.replace(/[^\w-]/g, '_')}`
   const existing = document.getElementById(id)
@@ -181,7 +243,7 @@ const loadFontFromBytes = async (fontFamily: string, bytes: Uint8Array) => {
   return true
 }
 
-const loadFontFromUrl = async (fontFamily: string, src: string, format: 'truetype' | 'woff2') => {
+const loadFontFromUrl = async (fontFamily: string, src: string, format: FontFormat) => {
   if (typeof document === 'undefined') return false
   try {
     if (typeof FontFace !== 'undefined') {
@@ -238,15 +300,7 @@ const loadDeyiHeiFontInTauri = async (force = false) => {
 
 const loadDeyiHeiFontInWeb = async (force = false) => {
   const resolvedUrl = resolveWebFontUrl()
-  return loadRemoteFontWithCache(
-    {
-      family: FONT_NAME,
-      sources: [resolvedUrl],
-      format: 'truetype',
-      cacheName: 'hbu-font-cache-deyihei'
-    },
-    force
-  )
+  return loadRemoteFontWithCache(FONT_NAME, [resolvedUrl], 'hbu-font-cache-deyihei', force)
 }
 
 const fetchRemoteFontResponse = async (
@@ -274,14 +328,19 @@ const fetchRemoteFontResponse = async (
   return response
 }
 
-const loadRemoteFontWithCache = async (profile: RemoteFontProfile, force = false): Promise<boolean> => {
-  for (const sourceUrl of profile.sources) {
-    const response = await fetchRemoteFontResponse(sourceUrl, profile.cacheName, force)
+const loadRemoteFontWithCache = async (
+  fontFamily: string,
+  sources: readonly string[],
+  cacheName: string,
+  force = false
+): Promise<boolean> => {
+  for (const sourceUrl of sources) {
+    const response = await fetchRemoteFontResponse(sourceUrl, cacheName, force)
     if (response) {
       try {
         const buffer = await response.arrayBuffer()
         const bytes = new Uint8Array(buffer)
-        const loaded = await loadFontFromBytes(profile.family, bytes)
+        const loaded = await loadFontFromBytes(fontFamily, bytes)
         if (loaded) return true
       } catch {
         // 继续 URL 模式兜底
@@ -289,7 +348,7 @@ const loadRemoteFontWithCache = async (profile: RemoteFontProfile, force = false
     }
 
     try {
-      const loaded = await loadFontFromUrl(profile.family, sourceUrl, profile.format)
+      const loaded = await loadFontFromUrl(fontFamily, sourceUrl, inferFontFormat(sourceUrl))
       if (loaded) return true
     } catch {
       // 尝试下一个地址
@@ -301,7 +360,9 @@ const loadRemoteFontWithCache = async (profile: RemoteFontProfile, force = false
 const loadRemoteFontInWeb = async (fontKey: RemoteFontKey, force = false): Promise<boolean> => {
   const profile = REMOTE_FONT_PROFILE_MAP[fontKey]
   if (!profile) return false
-  return loadRemoteFontWithCache(profile, force)
+  const sources = resolveRemoteFontSources(fontKey, state.cdnProvider)
+  if (sources.length === 0) return false
+  return loadRemoteFontWithCache(profile.family, sources, profile.cacheName, force)
 }
 
 const loadFontByKey = async (fontKey: FontKey, force = false): Promise<boolean> => {
@@ -343,6 +404,43 @@ const loadDeyiHeiFont = async (force = false) => {
   return ok
 }
 
+const setFontCdnProvider = (provider: CdnProvider) => {
+  if (!FONT_CDN_PROVIDERS.includes(provider)) return
+  state.cdnProvider = provider
+}
+
+const prefetchCdnFonts = async (
+  force = false,
+  onProgress?: (payload: {
+    key: PrefetchFontKey
+    index: number
+    total: number
+    ok: boolean
+  }) => void
+) => {
+  const targets: PrefetchFontKey[] = ['heiti', 'songti', 'kaiti', 'fangsong', 'deyihei']
+  const results: Record<string, boolean> = {}
+  for (let i = 0; i < targets.length; i += 1) {
+    const key = targets[i]
+    const ok = await ensureFontLoaded(key, force)
+    results[key] = ok
+    onProgress?.({
+      key,
+      index: i + 1,
+      total: targets.length,
+      ok
+    })
+  }
+  return results
+}
+
+const ensurePreferredFontLoaded = async (fontKey: FontKey) => {
+  if (fontKey === 'default') return true
+  const loaded = await ensureFontLoaded(fontKey, false)
+  if (loaded) return true
+  return ensureFontLoaded(fontKey, true)
+}
+
 const initFontSettings = () => {
   watch(
     state,
@@ -361,14 +459,14 @@ const initFontSettings = () => {
         applyFont(normalized.font)
       }
       if (normalized.font !== 'default') {
-        ensureFontLoaded(normalized.font).catch(() => {})
+        ensurePreferredFontLoaded(normalized.font).catch(() => {})
       }
     },
     { deep: true, immediate: true }
   )
 
   if (state.font !== 'default') {
-    ensureFontLoaded(state.font).catch(() => {})
+    ensurePreferredFontLoaded(state.font).catch(() => {})
   }
 }
 
@@ -379,12 +477,15 @@ const resetFontSettings = () => {
 }
 
 export {
+  FONT_CDN_OPTIONS,
   FONT_NAME,
   FONT_SOURCES,
   initFontSettings,
   useFontSettings,
   loadDeyiHeiFont,
   ensureFontLoaded,
+  setFontCdnProvider,
+  prefetchCdnFonts,
   applyFont,
   resetFontSettings
 }

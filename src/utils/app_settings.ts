@@ -6,7 +6,8 @@ const LOCAL_HOST_PATTERN =
 
 const DEFAULT_BACKEND_TARGETS = {
   portal: 'https://e.hbut.edu.cn/stu/index.html#/',
-  jwxt: 'http://jwglxt.hbut.edu.cn',
+  jwxt: 'https://jwxt.hbut.edu.cn/admin',
+  chaoxing: 'https://hbut.jw.chaoxing.com/admin',
   oneCode: 'https://code.hbut.edu.cn',
   library: 'https://lib.hbut.edu.cn'
 }
@@ -57,10 +58,8 @@ const normalizeSettings = (raw) => {
   next.retry = { ...base.retry, ...(raw.retry || {}) }
   next.resourceShare = { ...base.resourceShare, ...(raw.resourceShare || {}) }
   next.backend = { ...base.backend, ...(raw.backend || {}) }
-  next.backend.moduleTargets = {
-    ...base.backend.moduleTargets,
-    ...(raw.backend?.moduleTargets || {})
-  }
+  // 模块目标地址固定使用默认值，不对用户开放编辑能力。
+  next.backend.moduleTargets = { ...base.backend.moduleTargets }
   next.backend.moduleParams = {
     ...base.backend.moduleParams,
     ...(raw.backend?.moduleParams || {})
@@ -96,10 +95,7 @@ const normalizeSettings = (raw) => {
   next.backend.useRemoteConfig = next.backend.useRemoteConfig !== false
   next.backend.ocrEndpoint = normalizeUrl(next.backend.ocrEndpoint)
   next.backend.tempUploadEndpoint = normalizeUrl(next.backend.tempUploadEndpoint)
-  next.backend.moduleTargets.portal = normalizeUrl(next.backend.moduleTargets.portal)
-  next.backend.moduleTargets.jwxt = normalizeUrl(next.backend.moduleTargets.jwxt)
-  next.backend.moduleTargets.oneCode = normalizeUrl(next.backend.moduleTargets.oneCode)
-  next.backend.moduleTargets.library = normalizeUrl(next.backend.moduleTargets.library)
+  next.backend.moduleTargets = { ...base.backend.moduleTargets }
   next.backend.moduleParams.requestTimeoutMs = clampNumber(
     next.backend.moduleParams.requestTimeoutMs,
     5000,
