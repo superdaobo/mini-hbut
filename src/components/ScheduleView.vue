@@ -147,7 +147,9 @@ const fetchSchedule = async (targetSemester = '') => {
       errorMsg.value = '请先在个人中心登录'
       return
     }
-    const cacheKey = requestedSemester ? `schedule:${props.studentId}:${requestedSemester}` : `schedule:${props.studentId}:auto`
+    const cacheKey = requestedSemester
+      ? `schedule:${props.studentId}:${requestedSemester}`
+      : `schedule:${props.studentId}`
     const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
         student_id: props.studentId,

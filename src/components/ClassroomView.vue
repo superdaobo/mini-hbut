@@ -47,6 +47,18 @@ const clearRetryTimer = () => {
 
 const safeArray = (value) => (Array.isArray(value) ? value : [])
 
+const buildClassroomCacheKey = (studentId, payload) => {
+  const week = payload.week ?? 'auto'
+  const weekday = payload.weekday ?? 'auto'
+  const periods = Array.isArray(payload.periods) && payload.periods.length
+    ? payload.periods.join(',')
+    : 'auto'
+  const building = encodeURIComponent(String(payload.building || 'all')).slice(0, 48)
+  const min = payload.min_seats ?? ''
+  const max = payload.max_seats ?? ''
+  return `classroom:${studentId}:w${week}:d${weekday}:p${periods}:b${building}:s${min}-${max}`
+}
+
 // 筛选条件
 const filters = ref({
   week: '',
@@ -124,27 +136,35 @@ const CLASS_SCHEDULE = [
   [20, 50, 21, 35], // 第11节: 20:50-21:35
 ]
 
-// 根据当前时间获取推荐的节次 (与 Python classroom.py 一致)
+const buildPeriodRange = (start, end) => {
+  const items = []
+  for (let i = start; i <= end; i += 1) items.push(i)
+  return items
+}
+
+// 根据当前时间推荐“同时间段剩余节次”
+// 上午 -> 上午剩余；上午结束后切到下午；
+// 下午 -> 下午剩余；下午结束后切到晚上；
+// 晚上 -> 晚上剩余。
 const getCurrentClassPeriods = () => {
   const now = new Date()
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
-  
-  const periods = []
-  for (let i = 0; i < CLASS_SCHEDULE.length; i++) {
-    const [sh, sm] = CLASS_SCHEDULE[i]
-    const startMinutes = sh * 60 + sm
-    // 如果当前时间在这节课之前或正在上课，则包含这节课
-    if (currentMinutes < startMinutes + 45) {
-      periods.push(i + 1)
+
+  for (let i = 0; i < CLASS_SCHEDULE.length; i += 1) {
+    const [, , eh, em] = CLASS_SCHEDULE[i]
+    const period = i + 1
+    const endMinutes = eh * 60 + em
+
+    // “当前时间 <= 本节结束时间”即归入该节
+    if (currentMinutes <= endMinutes) {
+      if (period <= 4) return buildPeriodRange(period, 4)
+      if (period <= 8) return buildPeriodRange(period, 8)
+      return buildPeriodRange(period, 11)
     }
   }
-  
-  // 如果没有剩余节次（太晚了），返回第 9-11 节（晚上）
-  if (periods.length === 0) {
-    return [9, 10, 11]
-  }
-  
-  return periods
+
+  // 当天末尾默认查询晚上节次
+  return [9, 10, 11]
 }
 
 // 获取本地时间作为默认值 (防止接口慢导致 UI 空白)
@@ -207,7 +227,7 @@ const queryClassrooms = async (retryCount = 0) => {
     if (payload.periods.length === 0) delete payload.periods
 
     console.log('[Classroom] queryClassrooms called with payload:', JSON.stringify(payload))
-    const cacheKey = `classroom:${props.studentId}:${JSON.stringify(payload)}`
+    const cacheKey = buildClassroomCacheKey(props.studentId, payload)
     const { data } = await fetchWithCache(cacheKey, async () => {
       console.log('[Classroom] Making API call for classrooms')
       const res = await axios.post(`${API_BASE}/v2/classroom/query`, payload)

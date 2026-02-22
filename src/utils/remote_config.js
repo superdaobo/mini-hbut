@@ -51,6 +51,17 @@ const DEFAULT_CONFIG = {
   ai_models: [],
   config_admin_ids: []
 }
+const REMOTE_CONFIG_KEYS = [
+  'announcements',
+  'announcement',
+  'notices',
+  'force_update',
+  'ocr',
+  'temp_file_server',
+  'resource_share',
+  'ai_models',
+  'config_admin_ids'
+]
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 const toString = (value) => (value == null ? '' : String(value))
@@ -258,6 +269,11 @@ const parseRemoteJson = (raw) => {
   return null
 }
 
+const isLikelyRemoteConfigPayload = (payload) => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
+  return REMOTE_CONFIG_KEYS.some((key) => Object.prototype.hasOwnProperty.call(payload, key))
+}
+
 const fetchByCapacitor = async (url) => {
   if (detectRuntime() !== 'capacitor') return null
   try {
@@ -346,6 +362,9 @@ export const applyOcrRuntimeConfig = async (configLike) => {
 export async function fetchRemoteConfig() {
   try {
     const raw = await fetchFromAnyUrl()
+    if (!isLikelyRemoteConfigPayload(raw)) {
+      throw new Error('invalid remote config payload')
+    }
     const normalized = normalizeRemoteConfig(raw)
     // 远程返回即视为有效配置（即使公告为空/关闭 OCR），避免被旧快照反向覆盖。
     saveSnapshot(normalized)

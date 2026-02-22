@@ -83,6 +83,10 @@ const jwxtLastCheckTime = ref('')
 const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
 const COOKIE_SNAPSHOT_KEY = 'hbu_cookie_snapshot'
+const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
+const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
+const JWXT_MAINTENANCE_HINT_KEY = 'hbu_jwxt_maintenance_hint'
+const JWXT_MAINTENANCE_EVENT = 'hbu-jwxt-maintenance'
 const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
 const ELECTRICITY_REFRESH_INTERVAL = 10 * 60 * 1000
@@ -90,6 +94,8 @@ let electricityKeepAliveTimer = null
 const JWXT_RECOVERY_INTERVAL = 10 * 1000
 let jwxtRecoveryTimer = null
 let jwxtRecoveryInFlight = false
+const REMOTE_CONFIG_REFRESH_INTERVAL = 60 * 1000
+let remoteConfigRefreshTimer = null
 
 // 版本更新相关
 const showUpdateDialog = ref(false)
@@ -123,6 +129,46 @@ const aiModelOptions = computed(() => {
 })
 
 const ANNOUNCEMENT_CONFIRM_KEY = 'hbu_announcement_confirmed'
+const ANNOUNCEMENT_SNAPSHOT_KEY = 'hbu_announcement_snapshot'
+
+const normalizeAnnouncementPayload = (payload) => ({
+  pinned: Array.isArray(payload?.pinned) ? payload.pinned : [],
+  ticker: Array.isArray(payload?.ticker) ? payload.ticker : [],
+  list: Array.isArray(payload?.list) ? payload.list : [],
+  confirm: Array.isArray(payload?.confirm) ? payload.confirm : []
+})
+
+const hasAnnouncementContent = (payload) => {
+  const normalized = normalizeAnnouncementPayload(payload)
+  return (
+    normalized.pinned.length > 0 ||
+    normalized.ticker.length > 0 ||
+    normalized.list.length > 0 ||
+    normalized.confirm.length > 0
+  )
+}
+
+const restoreAnnouncementSnapshot = () => {
+  try {
+    const raw = localStorage.getItem(ANNOUNCEMENT_SNAPSHOT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const normalized = normalizeAnnouncementPayload(parsed)
+    return hasAnnouncementContent(normalized) ? normalized : null
+  } catch {
+    return null
+  }
+}
+
+const persistAnnouncementSnapshot = (payload) => {
+  const normalized = normalizeAnnouncementPayload(payload)
+  if (!hasAnnouncementContent(normalized)) return
+  try {
+    localStorage.setItem(ANNOUNCEMENT_SNAPSHOT_KEY, JSON.stringify(normalized))
+  } catch {
+    // ignore
+  }
+}
 
 const compareVersions = (v1, v2) => {
   const parts1 = (v1 || '').replace(/^v/, '').split('.').map(Number)
@@ -507,8 +553,11 @@ const markJwxtMaintenance = (hint = '') => {
   jwxtLastCheckTime.value = formatCheckTime()
   jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
   try {
-    localStorage.setItem('hbu_jwxt_maintenance', '1')
-    localStorage.setItem('hbu_jwxt_maintenance_time', String(Date.now()))
+    localStorage.setItem(JWXT_MAINTENANCE_KEY, '1')
+    localStorage.setItem(JWXT_MAINTENANCE_TIME_KEY, String(Date.now()))
+    if (jwxtMaintenanceHint.value) {
+      localStorage.setItem(JWXT_MAINTENANCE_HINT_KEY, jwxtMaintenanceHint.value)
+    }
   } catch {
     // ignore
   }
@@ -519,11 +568,42 @@ const clearJwxtMaintenance = () => {
   jwxtMaintenanceHint.value = ''
   jwxtLastCheckTime.value = ''
   try {
-    localStorage.removeItem('hbu_jwxt_maintenance')
-    localStorage.removeItem('hbu_jwxt_maintenance_time')
+    localStorage.removeItem(JWXT_MAINTENANCE_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_TIME_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_HINT_KEY)
   } catch {
     // ignore
   }
+}
+
+const syncJwxtMaintenanceFromStorage = () => {
+  const active = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
+  if (!active) {
+    jwxtMaintenanceMode.value = false
+    jwxtMaintenanceHint.value = ''
+    jwxtLastCheckTime.value = ''
+    return
+  }
+
+  jwxtMaintenanceMode.value = true
+  const hint = String(localStorage.getItem(JWXT_MAINTENANCE_HINT_KEY) || '').trim()
+  jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
+  const ts = Number(localStorage.getItem(JWXT_MAINTENANCE_TIME_KEY) || Date.now())
+  jwxtLastCheckTime.value = formatCheckTime(ts)
+}
+
+const handleJwxtMaintenanceEvent = (event) => {
+  const detail = event?.detail || {}
+  if (detail.active) {
+    const hint = String(detail.hint || '').trim()
+    markJwxtMaintenance(hint)
+    if (studentId.value && !isManualLogout()) {
+      startJwxtRecoveryPolling()
+    }
+    return
+  }
+  clearJwxtMaintenance()
+  stopJwxtRecoveryPolling()
 }
 
 const restoreCachedIdentityFromLocal = async () => {
@@ -705,7 +785,16 @@ const applyRemoteConfig = async () => {
   try {
     const config = await fetchRemoteConfig()
     remoteConfig.value = config
-    announcementData.value = config.announcements || { pinned: [], ticker: [], list: [], confirm: [] }
+    const remoteAnnouncements = normalizeAnnouncementPayload(config.announcements)
+    if (hasAnnouncementContent(remoteAnnouncements)) {
+      announcementData.value = remoteAnnouncements
+      persistAnnouncementSnapshot(remoteAnnouncements)
+    } else {
+      const snapshotAnnouncements = restoreAnnouncementSnapshot()
+      if (snapshotAnnouncements) {
+        announcementData.value = snapshotAnnouncements
+      }
+    }
 
     await applyOcrRuntimeConfig(config)
     window.dispatchEvent(new CustomEvent('hbu-ocr-config-updated'))
@@ -741,6 +830,21 @@ const applyRemoteConfig = async () => {
   } catch (e) {
     console.warn('[Config] 远程配置加载失败:', e)
   }
+}
+
+const startRemoteConfigRefresh = () => {
+  stopRemoteConfigRefresh()
+  remoteConfigRefreshTimer = setInterval(() => {
+    applyRemoteConfig().catch((e) => {
+      console.warn('[Config] 定时刷新远程配置失败:', e)
+    })
+  }, REMOTE_CONFIG_REFRESH_INTERVAL)
+}
+
+const stopRemoteConfigRefresh = () => {
+  if (!remoteConfigRefreshTimer) return
+  clearInterval(remoteConfigRefreshTimer)
+  remoteConfigRefreshTimer = null
 }
 
 const bridgePost = async (path, payload = {}) => {
@@ -1005,13 +1109,23 @@ onMounted(async () => {
   window.addEventListener('popstate', handlePopState)
   window.addEventListener('resize', scheduleViewportUpdate)
   window.addEventListener('orientationchange', scheduleViewportUpdate)
+  window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   scheduleViewportUpdate()
+  syncJwxtMaintenanceFromStorage()
+  const cachedAnnouncements = restoreAnnouncementSnapshot()
+  if (cachedAnnouncements) {
+    announcementData.value = cachedAnnouncements
+  }
   await installCloseInterceptor()
   // 非主动退出时，启动优先恢复本地账号态（保证缓存可立即读取）。
   const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
+  if (bootstrappedCachedIdentity) {
+    markJwxtMaintenance('正在检测教务系统可用性，当前优先展示缓存数据。')
+  }
   await primeOcrEndpointFromCache()
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
   await applyRemoteConfig()
+  startRemoteConfigRefresh()
   let restored = await tryRestoreSession()
   if (!restored) {
     restored = await tryRestoreLatestSession()
@@ -1053,11 +1167,13 @@ onBeforeUnmount(() => {
   window.removeEventListener('popstate', handlePopState)
   window.removeEventListener('resize', scheduleViewportUpdate)
   window.removeEventListener('orientationchange', scheduleViewportUpdate)
+  window.removeEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   if (typeof unlistenCloseRequested === 'function') {
     unlistenCloseRequested()
     unlistenCloseRequested = null
   }
   stopJwxtRecoveryPolling()
+  stopRemoteConfigRefresh()
 })
 </script>
 

@@ -9,7 +9,7 @@
 //! - 閮ㄥ垎鎺ュ字段名较为混乱，解析逻辑集中?parser 妯″潡
 
 use super::*;
-use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
+use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Timelike, Weekday};
 use reqwest::{cookie::CookieStore, Url};
 use super::utils::chrono_timestamp;
 use std::cmp::Ordering;
@@ -2277,11 +2277,51 @@ impl HbutClient {
             .filter(|v| (1..=7).contains(v))
             .unwrap_or_else(|| now.weekday().num_days_from_monday() as i32 + 1);
         
-        // 构建节次
-        let jc_str = periods.as_ref()
+        // 构建节次：
+        // - 若前端传入 periods：严格按用户选择
+        // - 若未传入：按当前时段自动选择“本时段剩余节次”，避免一口气勾选下午+晚上
+        let auto_periods = || -> Vec<i32> {
+            let current_minutes = (now.hour() as i32) * 60 + now.minute() as i32;
+            let class_blocks = [
+                (1, 8, 45),
+                (2, 9, 40),
+                (3, 10, 55),
+                (4, 11, 50),
+                (5, 14, 45),
+                (6, 15, 40),
+                (7, 16, 55),
+                (8, 17, 50),
+                (9, 19, 45),
+                (10, 20, 40),
+                (11, 21, 35),
+            ];
+
+            for (period, end_h, end_m) in class_blocks {
+                let end_minutes = end_h * 60 + end_m;
+                if current_minutes <= end_minutes {
+                    if period <= 4 {
+                        return (period..=4).collect();
+                    }
+                    if period <= 8 {
+                        return (period..=8).collect();
+                    }
+                    return (period..=11).collect();
+                }
+            }
+
+            vec![9, 10, 11]
+        };
+
+        let periods_vec = periods
+            .as_ref()
             .filter(|p| !p.is_empty())
-            .map(|p| p.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
-            .unwrap_or_else(|| "1,2,3,4,5,6,7,8,9,10,11".to_string());
+            .cloned()
+            .unwrap_or_else(auto_periods);
+        let jc_str = periods_vec
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         
         let week_val = week.unwrap_or(default_week).max(1);
         let weekday_val = weekday.unwrap_or(default_weekday).clamp(1, 7);
@@ -2357,26 +2397,31 @@ impl HbutClient {
                     "floor": room.get("szlc").and_then(|v| v.as_str()).unwrap_or(""),
                     "type": room.get("jslx").and_then(|v| v.as_str()).unwrap_or(""),
                     "department": room.get("jsglbmmc").and_then(|v| v.as_str()).unwrap_or(""),
-                    "status": if room.get("jyzt").and_then(|v| v.as_str()) == Some("0") { "可用" } else { "已€用" }
+                    "status": if room.get("jyzt").and_then(|v| v.as_str()) == Some("0") { "可用" } else { "已占用" }
                 }));
             }
         }
         
-        // 计算星期几名?
-        let weekday_names = ["", "鍛ㄤ竴", "鍛ㄤ簩", "鍛ㄤ笁", "鍛ㄥ洓", "鍛ㄤ簲", "鍛ㄥ叚", "鍛ㄦ棩"];
+        // 计算星期名和对应日期
+        let weekday_names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
         let weekday_name = weekday_names.get(weekday_val as usize).unwrap_or(&"");
-        
-        // 解析节次
-        let periods_vec: Vec<i32> = jc_str.split(',')
-            .filter_map(|s| s.trim().parse().ok())
-            .collect();
+        let query_date = context
+            .get("start_date")
+            .and_then(|v| v.as_str())
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+            .map(|start| {
+                start
+                    + Duration::days(((week_val - 1) as i64) * 7 + (weekday_val - 1) as i64)
+            })
+            .unwrap_or_else(|| now.date_naive());
         
         Ok(serde_json::json!({
             "success": true,
             "data": classrooms,
             "meta": {
                 "semester": semester,
-                "date_str": chrono::Local::now().format("%Y年%m月%d日").to_string(),
+                "date_str": query_date.format("%Y年%m月%d日").to_string(),
+                "date_iso": query_date.format("%Y-%m-%d").to_string(),
                 "week": week_val,
                 "weekday": weekday_val,
                 "weekday_name": weekday_name,
