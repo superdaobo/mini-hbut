@@ -32,7 +32,19 @@ def load_entry_url_from_capture(capture_path: str) -> Optional[str]:
     if not os.path.exists(capture_path):
         return None
     with open(capture_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        text = f.read()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        end = text.rfind("]\n")
+        if end == -1:
+            end = text.rfind("]")
+        if end == -1:
+            return None
+        try:
+            data = json.loads(text[: end + 1])
+        except json.JSONDecodeError:
+            return None
     for req in reversed(data):
         url = req.get("url", "")
         if "virtualhuman2h5.59wanmei.com/digitalPeople3/index.html" in url:
