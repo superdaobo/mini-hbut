@@ -17,7 +17,7 @@
     <img src="https://img.shields.io/github/actions/workflow/status/superdaobo/mini-hbut/release.yml?style=flat-square" alt="Build Status">
   </a>
   <a href="#license">
-    <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
+    <img src="https://img.shields.io/badge/license-GPL%20v3-blue?style=flat-square" alt="License">
   </a>
 </p>
 
@@ -175,4 +175,6 @@ python release.py --minor -y
 
 ## 📄 License
 
-MIT
+[GNU General Public License v3.0](LICENSE)
+
+本软件为自由软件，您可以依据 GNU GPL v3 协议自由使用、修改和分发。修改后的版本必须以相同协议开源。
