@@ -413,6 +413,12 @@ const goToView = (view, { push = true } = {}) => {
   } else {
     replaceHistorySnapshot(view)
   }
+  recoverViewportAfterTransition()
+  if (isIOSLike) {
+    requestAnimationFrame(() => {
+      nudgeWebViewPaint()
+    })
+  }
 }
 
 const parseHashRoute = () => {
@@ -501,20 +507,17 @@ const handleLoginSuccess = (data) => {
 
 // 处理导航
 const handleNavigate = async (moduleId) => {
-  applyViewState(moduleId)
-
   // 如果是成绩页面且数据为空，先获取数据
   if (moduleId === 'grades' && gradeData.value.length === 0) {
     const success = await fetchGradesFromAPI(studentId.value)
     if (!success) {
       // 获取失败，跳转到个人中心
-      applyViewState('me')
-      pushHistorySnapshot('me')
+      goToView('me')
       return
     }
   }
 
-  pushHistorySnapshot(moduleId)
+  goToView(moduleId)
 }
 
 // 处理返回仪表盘
@@ -1064,6 +1067,12 @@ const showTabBar = computed(() => MAIN_TABS.includes(currentView.value))
 
 const handlePopState = async () => {
   await syncFromHash()
+  recoverViewportAfterTransition()
+  if (isIOSLike) {
+    requestAnimationFrame(() => {
+      nudgeWebViewPaint()
+    })
+  }
 }
 
 const installCloseInterceptor = async () => {

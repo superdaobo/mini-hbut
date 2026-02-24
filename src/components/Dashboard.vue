@@ -96,6 +96,24 @@ const getCurrentWeek = (metaWeek) => {
   }
 }
 
+const getPreferredScheduleSemester = () => {
+  try {
+    const cachedMeta = localStorage.getItem('hbu_schedule_meta')
+    if (!cachedMeta) return ''
+    const parsed = JSON.parse(cachedMeta)
+    return String(parsed?.semester || '').trim()
+  } catch (e) {
+    return ''
+  }
+}
+
+const buildScheduleCacheKey = (studentId, semester) => {
+  const sid = String(studentId || '').trim()
+  const sem = String(semester || '').trim()
+  if (!sid) return ''
+  return sem ? `schedule:${sid}:${sem}` : `schedule:${sid}`
+}
+
 const normalizeWeeks = (weeks) => {
   if (!Array.isArray(weeks)) return []
   return weeks
@@ -161,13 +179,15 @@ const fetchTodayCourses = async () => {
   todayLoading.value = true
   todayError.value = ''
   try {
-    const cacheKey = `schedule:${props.studentId}`
+    const preferredSemester = getPreferredScheduleSemester()
+    const cacheKey = buildScheduleCacheKey(props.studentId, preferredSemester)
     const cached = getCachedData(cacheKey)
     let payload = cached?.data
     if (!payload?.success) {
       const res = await fetchWithCache(cacheKey, async () => {
         const rsp = await axios.post(`${API_BASE}/v2/schedule/query`, {
-          student_id: props.studentId
+          student_id: props.studentId,
+          semester: preferredSemester || undefined
         })
         return rsp.data
       })
@@ -180,11 +200,13 @@ const fetchTodayCourses = async () => {
       return
     }
 
-    if (payload?.meta?.current_week) {
+    if (payload?.meta) {
+      const nextWeek = Number(payload.meta.current_week || 0)
+      const persistedWeek = nextWeek > 0 ? nextWeek : getCurrentWeek()
       localStorage.setItem('hbu_schedule_meta', JSON.stringify({
-        semester: payload.meta.semester || '',
+        semester: payload.meta.semester || preferredSemester || '',
         start_date: payload.meta.start_date || '',
-        current_week: payload.meta.current_week || 1
+        current_week: persistedWeek
       }))
     }
 

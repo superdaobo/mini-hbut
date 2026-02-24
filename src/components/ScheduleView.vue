@@ -38,6 +38,23 @@ const semesterLoading = ref(false)
 const semesterDraft = ref('')
 const semesterError = ref('')
 
+const readStoredSemester = () => {
+  try {
+    const raw = localStorage.getItem('hbu_schedule_meta')
+    if (!raw) return ''
+    const parsed = JSON.parse(raw)
+    return String(parsed?.semester || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+const storedSemester = readStoredSemester()
+if (storedSemester) {
+  semester.value = storedSemester
+  semesterDraft.value = storedSemester
+}
+
 const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
 
 // 更加精细的时间表
@@ -137,7 +154,7 @@ const applyMeta = (meta, requestedSemester = '') => {
 const fetchSchedule = async (targetSemester = '') => {
   loading.value = true
   semesterError.value = ''
-  const requestedSemester = String(targetSemester || '').trim()
+  const requestedSemester = String(targetSemester || semester.value || semesterDraft.value || '').trim()
   errorMsg.value = ''
   try {
     if (requestedSemester) {
@@ -213,7 +230,7 @@ const fetchSemesterOptions = async () => {
     }
     const list = normalizeSemesterList(data?.semesters || [])
     semesterOptions.value = list
-    const resolved = resolveCurrentSemester(list, data?.current || semester.value)
+    const resolved = resolveCurrentSemester(list, semester.value || data?.current)
     if (resolved) {
       semesterDraft.value = resolved
       if (!semester.value) semester.value = resolved

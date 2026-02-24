@@ -148,9 +148,19 @@ const getAnyCachedEntry = (key) => {
   }
 }
 
+const isScheduleSemesterScopedKey = (key) => {
+  const text = String(key || '').trim()
+  if (!text) return false
+  return /^schedule:[^:]+:[^:]+$/.test(text)
+}
+
 const deriveFallbackPrefixes = (key) => {
   const text = String(key || '').trim()
   if (!text) return []
+  // 学期维度课表缓存禁止跨前缀回退，避免切换学期时被其他学期缓存污染。
+  if (isScheduleSemesterScopedKey(text)) {
+    return [text]
+  }
   const prefixes = new Set([text])
 
   const jsonIndex = text.indexOf(':{')
@@ -286,6 +296,11 @@ const isJwxtCacheKey = (key) => {
 const looksLikeMaintenanceIssue = (message) => {
   const text = String(message || '').toLowerCase()
   if (!text) return false
+  // “无课表/假期”属于业务态，不应触发教务维护模式。
+  const noScheduleHints = ['暂无可用课表', '暂无课表', '无课表', '假期', 'vacation', 'no schedule']
+  if (noScheduleHints.some((hint) => text.includes(hint))) {
+    return false
+  }
   return (
     text.includes('error sending request for url') ||
     text.includes('connection refused') ||
