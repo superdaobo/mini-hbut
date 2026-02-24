@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { SCHEDULE_POPUP_PENDING_KEY } from '../utils/schedule_prefetch.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -37,6 +38,9 @@ const semesterOptions = ref([])
 const semesterLoading = ref(false)
 const semesterDraft = ref('')
 const semesterError = ref('')
+const showSemesterPopup = ref(false)
+const semesterPopupText = ref('')
+const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
 
 const readStoredSemester = () => {
   try {
@@ -53,6 +57,51 @@ const storedSemester = readStoredSemester()
 if (storedSemester) {
   semester.value = storedSemester
   semesterDraft.value = storedSemester
+}
+
+const buildPopupShownKey = () => {
+  const sid = String(props.studentId || '').trim()
+  const sessionToken = String(localStorage.getItem(LOGIN_SESSION_TOKEN_KEY) || '').trim()
+  if (!sid || !sessionToken) return ''
+  return `hbu_schedule_popup_shown:${sid}:${sessionToken}`
+}
+
+const markPopupShown = () => {
+  const key = buildPopupShownKey()
+  if (!key) return
+  localStorage.setItem(key, '1')
+}
+
+const isPopupShown = () => {
+  const key = buildPopupShownKey()
+  if (!key) return true
+  return localStorage.getItem(key) === '1'
+}
+
+const openSemesterPopup = (targetSemester = '') => {
+  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
+  if (!sem) return
+  semesterPopupText.value = sem
+  showSemesterPopup.value = true
+  markPopupShown()
+}
+
+const consumePendingSemesterPopup = () => {
+  try {
+    const raw = localStorage.getItem(SCHEDULE_POPUP_PENDING_KEY)
+    if (!raw) return ''
+    const parsed = JSON.parse(raw)
+    const targetSid = String(parsed?.student_id || '').trim()
+    const sem = String(parsed?.semester || '').trim()
+    if (targetSid && targetSid !== String(props.studentId || '').trim()) {
+      return ''
+    }
+    localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
+    return sem
+  } catch {
+    localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
+    return ''
+  }
 }
 
 const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
@@ -699,6 +748,14 @@ const copyExportUrl = async () => {
 onMounted(async () => {
   await fetchSemesterOptions()
   await fetchSchedule()
+  const pendingSemester = consumePendingSemesterPopup()
+  if (pendingSemester) {
+    openSemesterPopup(pendingSemester)
+    return
+  }
+  if (!isPopupShown()) {
+    openSemesterPopup()
+  }
 })
 </script>
 
@@ -770,6 +827,15 @@ onMounted(async () => {
 
     <div v-if="errorMsg" class="error-banner">
       {{ errorMsg }}
+    </div>
+
+    <div v-if="showSemesterPopup" class="semester-popup-mask" @click.self="showSemesterPopup = false">
+      <div class="semester-popup-card">
+        <div class="semester-popup-title">当前显示学期</div>
+        <div class="semester-popup-value">{{ semesterPopupText }}</div>
+        <div class="semester-popup-desc">已自动定位到最近有课表数据的学期</div>
+        <button class="semester-popup-btn" @click="showSemesterPopup = false">我知道了</button>
+      </div>
     </div>
 
     <button
@@ -1495,6 +1561,62 @@ onMounted(async () => {
   color: #9a3412;
   border-radius: 12px;
   font-weight: 600;
+}
+
+.semester-popup-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 24;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(2px);
+}
+
+.semester-popup-card {
+  width: min(90vw, 360px);
+  border-radius: 16px;
+  padding: 18px 16px 16px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
+  text-align: center;
+}
+
+.semester-popup-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  letter-spacing: 0.02em;
+}
+
+.semester-popup-value {
+  margin-top: 8px;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.semester-popup-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.semester-popup-btn {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 40px;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  cursor: pointer;
 }
 
 .jump-current-btn {

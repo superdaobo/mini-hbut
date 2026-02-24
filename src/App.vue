@@ -28,6 +28,7 @@ import CampusMapView from './components/CampusMapView.vue'
 import LibraryView from './components/LibraryView.vue'
 import ResourceShareView from './components/ResourceShareView.vue'
 import { fetchWithCache } from './utils/api.js'
+import { warmupScheduleForStudent, SCHEDULE_POPUP_PENDING_KEY } from './utils/schedule_prefetch.js'
 import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
 import {
@@ -85,6 +86,7 @@ const jwxtLastCheckTime = ref('')
 const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
 const COOKIE_SNAPSHOT_KEY = 'hbu_cookie_snapshot'
+const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
 const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
 const JWXT_MAINTENANCE_HINT_KEY = 'hbu_jwxt_maintenance_hint'
@@ -99,6 +101,8 @@ let jwxtRecoveryTimer = null
 let jwxtRecoveryInFlight = false
 const REMOTE_CONFIG_REFRESH_INTERVAL = 60 * 1000
 let remoteConfigRefreshTimer = null
+let scheduleWarmupPromise = null
+let scheduleWarmupStudent = ''
 
 // 版本更新相关
 const showUpdateDialog = ref(false)
@@ -453,6 +457,30 @@ const syncFromHash = async () => {
   }
 }
 
+const markLoginSessionToken = () => {
+  try {
+    localStorage.setItem(LOGIN_SESSION_TOKEN_KEY, `${Date.now()}`)
+  } catch {
+    // ignore
+  }
+}
+
+const warmupScheduleInBackground = (sid, reason = 'login') => {
+  const student = String(sid || '').trim()
+  if (!student) return
+  if (scheduleWarmupPromise) return
+  scheduleWarmupStudent = student
+  scheduleWarmupPromise = warmupScheduleForStudent(student, { reason })
+    .catch((e) => {
+      console.warn('[Schedule] 课表后台预加载失败:', e)
+      return null
+    })
+    .finally(() => {
+      scheduleWarmupPromise = null
+      scheduleWarmupStudent = ''
+    })
+}
+
 // 处理登录成功
 const handleLoginSuccess = (data) => {
   gradeData.value = data
@@ -463,19 +491,8 @@ const handleLoginSuccess = (data) => {
 
   // 预取课表/培养方案默认数据并落地缓存
   if (studentId.value) {
-    fetchWithCache(`schedule:${studentId.value}`, async () => {
-      const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
-        student_id: studentId.value
-      })
-      if (res.data?.meta) {
-        localStorage.setItem('hbu_schedule_meta', JSON.stringify({
-          semester: res.data.meta.semester,
-          start_date: res.data.meta.start_date,
-          current_week: res.data.meta.current_week
-        }))
-      }
-      return res.data
-    })
+    markLoginSessionToken()
+    warmupScheduleInBackground(studentId.value, 'login-success')
 
     fetchWithCache(`training:options:${studentId.value}`, async () => {
       const res = await axios.post(`${API_BASE}/v2/training_plan/options`, {
@@ -536,10 +553,14 @@ const handleLogout = () => {
   stopSessionKeepAlive()
   stopElectricityKeepAlive()
   void stopNotificationMonitor()
+  scheduleWarmupPromise = null
+  scheduleWarmupStudent = ''
   stopJwxtRecoveryPolling()
   clearJwxtMaintenance()
   localStorage.removeItem(SESSION_COOKIE_KEY)
   localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+  localStorage.removeItem(LOGIN_SESSION_TOKEN_KEY)
+  localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
   localStorage.setItem('hbu_manual_logout', 'true')
   invokeNative('logout').catch(() => {})
 }
@@ -1182,6 +1203,8 @@ onMounted(async () => {
     startSessionKeepAlive()
     startElectricityKeepAlive()
     if (studentId.value) {
+      markLoginSessionToken()
+      warmupScheduleInBackground(studentId.value, 'session-restore')
       startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
         console.warn('[Notify] 启动通知监控失败:', e)
       })
