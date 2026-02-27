@@ -9,30 +9,53 @@ import { initMarkdownRuntime } from './utils/markdown'
 import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
 
-const bootstrap = async () => {
-  initUiSettings()
-  initAppSettings()
-  initFontSettings()
-
-  await initMarkdownRuntime(6000)
-
-  await initBackgroundFetchScheduler(async ({ studentId, reason, taskId }) => {
-    try {
-      await runNotificationCheck({
-        studentId,
-        reason: reason || 'background-fetch',
-        launchCheck: false,
-        allowPermissionPrompt: false
-      })
-    } catch (error) {
-      console.warn('[BackgroundFetch] check failed:', taskId, error)
-    }
-  })
-
+const mountApp = () => {
   createApp(App).mount('#app')
 }
 
-bootstrap().catch((error) => {
+const runDeferredInitializers = () => {
+  const run = () => {
+    // 先完成首屏挂载，再异步初始化重任务，避免安卓首次安装时白屏等待。
+    void initMarkdownRuntime(6000).catch((error) => {
+      console.warn('[Bootstrap] markdown runtime init failed:', error)
+    })
+
+    void initBackgroundFetchScheduler(async ({ studentId, reason, taskId }) => {
+      try {
+        await runNotificationCheck({
+          studentId,
+          reason: reason || 'background-fetch',
+          launchCheck: false,
+          allowPermissionPrompt: false
+        })
+      } catch (error) {
+        console.warn('[BackgroundFetch] check failed:', taskId, error)
+      }
+    }).catch((error) => {
+      console.warn('[Bootstrap] background fetch init failed:', error)
+    })
+  }
+
+  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+    // 在浏览器空闲时再初始化后台能力，减小首屏阻塞。
+    window.requestIdleCallback(() => run(), { timeout: 1200 })
+    return
+  }
+
+  setTimeout(run, 0)
+}
+
+const bootstrap = () => {
+  initUiSettings()
+  initAppSettings()
+  initFontSettings()
+  mountApp()
+  runDeferredInitializers()
+}
+
+try {
+  bootstrap()
+} catch (error) {
   console.error('[Bootstrap] failed:', error)
-  createApp(App).mount('#app')
-})
+  mountApp()
+}

@@ -24,9 +24,21 @@ const props = defineProps({
   variant: { type: String, default: 'module' }
 })
 
+const isAndroidLike = (() => {
+  if (typeof window === 'undefined') return false
+  return /android/i.test(window.navigator.userAgent || '')
+})()
+
 const removeBgIconKeys = new Set([
   'classroom',
   'campus_map'
+])
+
+const androidImgFallbackIconKeys = new Set([
+  'classroom',
+  'electricity',
+  'exams',
+  'training'
 ])
 
 const iconMap = {
@@ -87,11 +99,32 @@ function normalizeSvgMarkup(svgText) {
 }
 
 const iconMarkup = computed(() => normalizeSvgMarkup(iconSrc.value))
+
+const useAndroidImgFallback = computed(() =>
+  // 安卓部分 WebView 对内联 SVG(v-html)兼容性不稳定，命中问题图标时退回 img 渲染。
+  isAndroidLike &&
+  props.variant === 'module' &&
+  androidImgFallbackIconKeys.has(props.iconKey)
+)
+
+const iconDataUrl = computed(() => {
+  if (!iconMarkup.value) return ''
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(iconMarkup.value)}`
+})
 </script>
 
 <template>
   <span class="theme-module-icon" :class="`variant-${variant}`" :style="iconStyle" aria-hidden="true">
-    <span v-if="iconMarkup" class="icon-svg" :class="`icon-${iconKeyClass}`" v-html="iconMarkup" />
+    <img
+      v-if="useAndroidImgFallback && iconDataUrl"
+      class="icon-img"
+      :class="`icon-${iconKeyClass}`"
+      :src="iconDataUrl"
+      :alt="alt || iconKey"
+      loading="lazy"
+      decoding="async"
+    />
+    <span v-else-if="iconMarkup" class="icon-svg" :class="`icon-${iconKeyClass}`" v-html="iconMarkup" />
     <span v-else class="fallback-glyph">?</span>
   </span>
 </template>
@@ -130,7 +163,22 @@ const iconMarkup = computed(() => normalizeSvgMarkup(iconSrc.value))
   color: inherit;
 }
 
+.icon-img {
+  width: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
+  height: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
+  user-select: none;
+  -webkit-user-drag: none;
+  object-fit: contain;
+  display: block;
+}
+
 .icon-svg.icon-classroom {
+  width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
+  height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
+  transform: translate(-2px, 2px);
+}
+
+.icon-img.icon-classroom {
   width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
   height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
   transform: translate(-2px, 2px);
@@ -171,6 +219,11 @@ const iconMarkup = computed(() => normalizeSvgMarkup(iconSrc.value))
   width: var(--icon-size);
   height: var(--icon-size);
   color: currentColor;
+}
+
+.theme-module-icon.variant-tab .icon-img {
+  width: var(--icon-size);
+  height: var(--icon-size);
 }
 
 .fallback-glyph {
