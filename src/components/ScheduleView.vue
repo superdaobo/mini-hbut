@@ -4,7 +4,14 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
-import { SCHEDULE_POPUP_PENDING_KEY } from '../utils/schedule_prefetch.js'
+import {
+  consumeScheduleSwitchPending,
+  getCachedScheduleSnapshot,
+  readScheduleLock,
+  SCHEDULE_POPUP_PENDING_KEY,
+  warmupScheduleForStudent,
+  writeScheduleLock
+} from '../utils/schedule_prefetch.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -200,6 +207,29 @@ const applyMeta = (meta, requestedSemester = '') => {
   }))
 }
 
+const applySchedulePayload = (payload, requestedSemester = '') => {
+  if (!payload?.success) return false
+  const rawData = Array.isArray(payload?.data) ? payload.data : []
+  offline.value = !!payload.offline
+  syncTime.value = payload.sync_time || ''
+  scheduleData.value = processScheduleData(rawData)
+  applyMeta(payload.meta, requestedSemester)
+  errorMsg.value = rawData.length === 0 ? '暂无可用课表' : ''
+  return true
+}
+
+const applyCachedScheduleImmediately = (targetSemester = '') => {
+  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
+  if (!props.studentId || !sem) return false
+  const snapshot = getCachedScheduleSnapshot(props.studentId, sem)
+  if (!snapshot?.data?.success) return false
+  const applied = applySchedulePayload(snapshot.data, sem)
+  if (applied && !syncTime.value && snapshot.timestamp) {
+    syncTime.value = new Date(snapshot.timestamp).toISOString()
+  }
+  return applied
+}
+
 const fetchSchedule = async (targetSemester = '') => {
   loading.value = true
   semesterError.value = ''
@@ -225,20 +255,15 @@ const fetchSchedule = async (targetSemester = '') => {
     })
 
     if (data?.success) {
-      const rawData = Array.isArray(data?.data) ? data.data : []
-      offline.value = !!data.offline
-      syncTime.value = data.sync_time || ''
-      // 处理数据：去重并合并连续课程
-      scheduleData.value = processScheduleData(rawData)
-      applyMeta(data.meta, requestedSemester)
-
-      if (rawData.length === 0) {
-        errorMsg.value = '暂无可用课表'
+      applySchedulePayload(data, requestedSemester)
+      if (requestedSemester) {
+        writeScheduleLock(props.studentId, requestedSemester, 'schedule-fetch')
       }
+      return true
     } else {
       if (data?.need_login) {
         emit('logout')
-        return
+        return false
       }
       scheduleData.value = []
       offline.value = false
@@ -249,6 +274,7 @@ const fetchSchedule = async (targetSemester = '') => {
       totalWeeks.value = 25
       const message = String(data?.error || '获取课表失败')
       errorMsg.value = /无课表|暂无/.test(message) ? '暂无可用课表' : message
+      return false
     }
   } catch (e) {
     console.error('获取课表异常', e)
@@ -261,6 +287,7 @@ const fetchSchedule = async (targetSemester = '') => {
     totalWeeks.value = 25
     const message = String(e?.message || '获取课表失败')
     errorMsg.value = /无课表|暂无/.test(message) ? '暂无可用课表' : message
+    return false
   } finally {
     loading.value = false
   }
@@ -302,7 +329,10 @@ const applySemesterQuery = async () => {
   totalWeeks.value = 25
   startDateStr.value = ''
   vacationNotice.value = ''
-  await fetchSchedule(selected)
+  const ok = await fetchSchedule(selected)
+  if (ok) {
+    writeScheduleLock(props.studentId, selected, 'manual-select')
+  }
 }
 
 const onSemesterChange = async () => {
@@ -746,8 +776,49 @@ const copyExportUrl = async () => {
 }
 
 onMounted(async () => {
-  await fetchSemesterOptions()
-  await fetchSchedule()
+  void fetchSemesterOptions()
+
+  // 下次进入自动切换：后台检测到新学期并已确认有课表数据时生效。
+  const switchSemester = consumeScheduleSwitchPending(props.studentId)
+  if (switchSemester) {
+    writeScheduleLock(props.studentId, switchSemester, 'pending-switch')
+    semester.value = switchSemester
+    semesterDraft.value = switchSemester
+  }
+
+  // 仅当存在“显式锁定学期”时才走秒开锁定路径；
+  // 旧版本可能只留下了 hbu_schedule_meta，不能把它当作锁定依据。
+  const lockedSemester = String(readScheduleLock(props.studentId) || '').trim()
+  if (lockedSemester) {
+    semester.value = lockedSemester
+    semesterDraft.value = lockedSemester
+
+    const hasInstantCache = applyCachedScheduleImmediately(lockedSemester)
+    if (hasInstantCache) {
+      // 有缓存时先秒开，再后台刷新，避免每次进入“空白等待”。
+      void fetchSchedule(lockedSemester)
+    } else {
+      await fetchSchedule(lockedSemester)
+    }
+  } else if (props.studentId) {
+    // 首次进入且无锁定学期：允许一次性等待，探测最近有课表的学期并锁定。
+    const warmed = await warmupScheduleForStudent(props.studentId, {
+      forceProbe: true,
+      reason: 'first-enter'
+    })
+    if (warmed?.success && warmed?.semester) {
+      semester.value = warmed.semester
+      semesterDraft.value = warmed.semester
+      if (!applySchedulePayload(warmed.payload, warmed.semester)) {
+        await fetchSchedule(warmed.semester)
+      }
+    } else {
+      await fetchSchedule()
+    }
+  } else {
+    await fetchSchedule()
+  }
+
   const pendingSemester = consumePendingSemesterPopup()
   if (pendingSemester) {
     openSemesterPopup(pendingSemester)

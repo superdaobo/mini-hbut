@@ -1,6 +1,11 @@
 import axios from 'axios'
 import { setCachedData } from './api.js'
 import { compareSemesterDesc } from './semester.js'
+import {
+  markScheduleSwitchPending,
+  queueScheduleSemesterPopup,
+  readScheduleLock
+} from './schedule_prefetch.js'
 import { useAppSettings } from './app_settings'
 import { isCapacitorRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
@@ -309,22 +314,44 @@ const refreshScheduleSilently = async (studentId) => {
         error: toSafeText(data?.error || '课表刷新失败')
       }
     }
+    const incomingSemester = toSafeText(data?.meta?.semester)
+    const total = Array.isArray(data.data) ? data.data.length : 0
+    const lockedSemester = readScheduleLock(studentId)
+
     setCachedData(`schedule:${studentId}`, data)
-    if (data?.meta) {
+    if (incomingSemester) {
+      setCachedData(`schedule:${studentId}:${incomingSemester}`, data)
+    }
+
+    const hasSwitchableNewSemester =
+      !!lockedSemester &&
+      !!incomingSemester &&
+      incomingSemester !== lockedSemester &&
+      total > 0
+
+    if (hasSwitchableNewSemester) {
+      // 仅标记“下次进入课表自动切换”，避免当前会话立即抖动。
+      markScheduleSwitchPending(studentId, incomingSemester, 'notify-background')
+      queueScheduleSemesterPopup(studentId, incomingSemester, 'new-semester')
+    } else if (data?.meta) {
+      const semesterForMeta = lockedSemester || incomingSemester
       localStorage.setItem(
         'hbu_schedule_meta',
         JSON.stringify({
-          semester: toSafeText(data.meta.semester),
+          semester: semesterForMeta,
           start_date: toSafeText(data.meta.start_date),
           current_week: Number(data.meta.current_week || 0)
         })
       )
     }
+
     return {
       success: true,
-      total: Array.isArray(data.data) ? data.data.length : 0,
-      semester: toSafeText(data?.meta?.semester),
-      current_week: Number(data?.meta?.current_week || 0)
+      total,
+      semester: incomingSemester,
+      current_week: Number(data?.meta?.current_week || 0),
+      locked_semester: lockedSemester,
+      pending_switch: hasSwitchableNewSemester
     }
   } catch (error) {
     return {

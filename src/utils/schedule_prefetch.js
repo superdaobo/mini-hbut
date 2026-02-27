@@ -1,10 +1,12 @@
 import axios from 'axios'
-import { fetchWithCache, setCachedData } from './api.js'
+import { fetchWithCache, getCacheKey, setCachedData } from './api.js'
 import { normalizeSemesterList, resolveCurrentSemester } from './semester.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SCHEDULE_META_KEY = 'hbu_schedule_meta'
+const SCHEDULE_LOCK_KEY = 'hbu_schedule_lock'
 export const SCHEDULE_POPUP_PENDING_KEY = 'hbu_schedule_popup_pending'
+export const SCHEDULE_SWITCH_PENDING_KEY = 'hbu_schedule_switch_pending'
 const MAX_SEMESTER_PROBE = 8
 
 const toSafeText = (value) => String(value ?? '').trim()
@@ -15,18 +17,30 @@ const toPositiveInt = (value, fallback = 1) => {
   return Math.floor(num)
 }
 
-const readScheduleMeta = () => {
+const readJSON = (key, fallback = null) => {
   try {
-    const raw = localStorage.getItem(SCHEDULE_META_KEY)
-    if (!raw) return {}
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
     const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    return parsed && typeof parsed === 'object' ? parsed : fallback
   } catch {
-    return {}
+    return fallback
   }
 }
 
-const writeScheduleMeta = (meta, fallbackSemester = '') => {
+const writeJSON = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // ignore
+  }
+}
+
+const readScheduleMeta = () => {
+  return readJSON(SCHEDULE_META_KEY, {})
+}
+
+export const updateStoredScheduleMeta = (meta, fallbackSemester = '') => {
   const cached = readScheduleMeta()
   const semester = toSafeText(meta?.semester || fallbackSemester || cached?.semester)
   const startDate = toSafeText(meta?.start_date || cached?.start_date)
@@ -46,7 +60,7 @@ const writeScheduleMeta = (meta, fallbackSemester = '') => {
   return semester
 }
 
-const buildScheduleCacheKey = (studentId, semester = '') => {
+export const buildScheduleCacheKey = (studentId, semester = '') => {
   const sid = toSafeText(studentId)
   const sem = toSafeText(semester)
   if (!sid) return ''
@@ -54,6 +68,96 @@ const buildScheduleCacheKey = (studentId, semester = '') => {
 }
 
 const courseCount = (payload) => (Array.isArray(payload?.data) ? payload.data.length : 0)
+
+const readScheduleLockRecord = () => readJSON(SCHEDULE_LOCK_KEY, null)
+
+export const readScheduleLock = (studentId = '') => {
+  const sid = toSafeText(studentId)
+  const record = readScheduleLockRecord()
+  if (!record) return ''
+  const lockedSid = toSafeText(record.student_id)
+  if (sid && lockedSid && sid !== lockedSid) return ''
+  return toSafeText(record.semester)
+}
+
+export const writeScheduleLock = (studentId, semester, reason = 'manual') => {
+  const sid = toSafeText(studentId)
+  const sem = toSafeText(semester)
+  if (!sid || !sem) return ''
+  writeJSON(SCHEDULE_LOCK_KEY, {
+    student_id: sid,
+    semester: sem,
+    reason: toSafeText(reason),
+    at: Date.now()
+  })
+  return sem
+}
+
+export const markScheduleSwitchPending = (studentId, semester, reason = 'background') => {
+  const sid = toSafeText(studentId)
+  const sem = toSafeText(semester)
+  if (!sid || !sem) return
+  writeJSON(SCHEDULE_SWITCH_PENDING_KEY, {
+    student_id: sid,
+    semester: sem,
+    reason: toSafeText(reason),
+    at: Date.now()
+  })
+}
+
+export const consumeScheduleSwitchPending = (studentId = '') => {
+  const sid = toSafeText(studentId)
+  const record = readJSON(SCHEDULE_SWITCH_PENDING_KEY, null)
+  if (!record) return ''
+  const targetSid = toSafeText(record.student_id)
+  if (sid && targetSid && sid !== targetSid) return ''
+  localStorage.removeItem(SCHEDULE_SWITCH_PENDING_KEY)
+  return toSafeText(record.semester)
+}
+
+export const queueScheduleSemesterPopup = (studentId, semester, reason = 'warmup') => {
+  const sid = toSafeText(studentId)
+  const sem = toSafeText(semester)
+  if (!sid || !sem) return
+  writeJSON(SCHEDULE_POPUP_PENDING_KEY, {
+    student_id: sid,
+    semester: sem,
+    reason: toSafeText(reason),
+    at: Date.now()
+  })
+}
+
+const parseCacheEntry = (cacheKey) => {
+  const raw = localStorage.getItem(getCacheKey(cacheKey))
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed?.data) return null
+    return {
+      data: parsed.data,
+      timestamp: Number(parsed.timestamp) || Date.now()
+    }
+  } catch {
+    return null
+  }
+}
+
+export const getCachedScheduleSnapshot = (studentId, semester = '') => {
+  const sid = toSafeText(studentId)
+  const sem = toSafeText(semester)
+  if (!sid) return null
+
+  const scopedKey = sem ? buildScheduleCacheKey(sid, sem) : ''
+  if (scopedKey) {
+    const scoped = parseCacheEntry(scopedKey)
+    if (scoped) return { ...scoped, key: scopedKey, semester: sem }
+  }
+
+  const fallbackKey = buildScheduleCacheKey(sid)
+  const fallback = parseCacheEntry(fallbackKey)
+  if (fallback) return { ...fallback, key: fallbackKey, semester: sem }
+  return null
+}
 
 const buildNearestSemesterOrder = (semesterList, anchorSemester = '') => {
   const list = normalizeSemesterList(semesterList)
@@ -91,21 +195,6 @@ const buildNearestSemesterOrder = (semesterList, anchorSemester = '') => {
   return order
 }
 
-const markSchedulePopupPending = (studentId, semester, reason = 'warmup') => {
-  const sid = toSafeText(studentId)
-  const sem = toSafeText(semester)
-  if (!sid || !sem) return
-  localStorage.setItem(
-    SCHEDULE_POPUP_PENDING_KEY,
-    JSON.stringify({
-      student_id: sid,
-      semester: sem,
-      reason: toSafeText(reason),
-      at: Date.now()
-    })
-  )
-}
-
 const querySchedule = async (studentId, semester = '') => {
   const sid = toSafeText(studentId)
   const sem = toSafeText(semester)
@@ -135,6 +224,21 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
   const sid = toSafeText(studentId)
   if (!sid) {
     return { success: false, error: 'missing-student-id' }
+  }
+  const reasonText = toSafeText(options?.reason || 'warmup')
+  const existingLock = readScheduleLock(sid)
+  if (existingLock && !options?.forceProbe) {
+    const snapshot = getCachedScheduleSnapshot(sid, existingLock)
+    if (snapshot?.data?.success) {
+      return {
+        success: true,
+        semester: existingLock,
+        count: courseCount(snapshot.data),
+        fromCache: true,
+        source: 'locked-cache',
+        payload: snapshot.data
+      }
+    }
   }
 
   const preferredSemester = toSafeText(options?.preferredSemester)
@@ -234,7 +338,7 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
     }
   }
 
-  const selectedSemester = writeScheduleMeta(picked.payload?.meta, picked.semester)
+  const selectedSemester = updateStoredScheduleMeta(picked.payload?.meta, picked.semester)
 
   // 兼容旧逻辑：同时维护学期 key 与默认 key，保证首页和通知模块读取一致。
   const scopedKey = buildScheduleCacheKey(sid, selectedSemester)
@@ -242,13 +346,17 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
     setCachedData(scopedKey, picked.payload)
   }
   setCachedData(buildScheduleCacheKey(sid), picked.payload)
-  markSchedulePopupPending(sid, selectedSemester, toSafeText(options?.reason || 'warmup'))
+  writeScheduleLock(sid, selectedSemester, reasonText)
+  if (!options?.skipPopup) {
+    queueScheduleSemesterPopup(sid, selectedSemester, reasonText)
+  }
 
   return {
     success: true,
     semester: selectedSemester,
     count: courseCount(picked.payload),
     fromCache: !!picked.fromCache,
-    source: picked.count > 0 ? 'nearest-with-data' : 'fallback-semester'
+    source: picked.count > 0 ? 'nearest-with-data' : 'fallback-semester',
+    payload: picked.payload
   }
 }
