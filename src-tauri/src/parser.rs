@@ -628,44 +628,90 @@ pub fn parse_ranking_html(html: &str, student_id: &str, semester: &str, grade: &
         }
     }
 
-    // 提取排名表格数据 (格式: 排名/总人数)
-    let re = regex::Regex::new(r"(\d+)/(\d+)").unwrap();
-    let rank_matches: Vec<(i32, i32)> = re.captures_iter(html)
-        .filter_map(|cap| {
-            let rank = cap.get(1).and_then(|m| m.as_str().parse().ok())?;
-            let total = cap.get(2).and_then(|m| m.as_str().parse().ok())?;
-            Some((rank, total))
-        })
-        .collect();
-    
-    // 去重 (每两个连续的排名数据取第一个)
-    let mut unique_ranks = vec![];
-    for i in (0..rank_matches.len()).step_by(2) {
-        if i < rank_matches.len() {
-            unique_ranks.push(rank_matches[i]);
+    // 提取排名表格数据：
+    // 优先匹配新版表格结构（每行对应“平均学分绩点/算术平均分”），失败再兜底。
+    let row_re = regex::Regex::new(
+        r#"(?s)<tr[^>]*>\s*<td[^>]*>\s*(平均学分绩点|算术平均分)\s*</td>\s*<td[^>]*>\s*([0-9]{1,4})\s*[\\/／]\s*([0-9]{1,5})\s*</td>\s*<td[^>]*>\s*([0-9]{1,4})\s*[\\/／]\s*([0-9]{1,5})\s*</td>\s*<td[^>]*>\s*([0-9]{1,4})\s*[\\/／]\s*([0-9]{1,5})\s*</td>"#,
+    )
+    .unwrap();
+
+    let mut parsed_from_table = false;
+    for cap in row_re.captures_iter(html) {
+        let label = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+        let c_rank = cap.get(2).and_then(|m| m.as_str().parse::<i32>().ok());
+        let c_total = cap.get(3).and_then(|m| m.as_str().parse::<i32>().ok());
+        let m_rank = cap.get(4).and_then(|m| m.as_str().parse::<i32>().ok());
+        let m_total = cap.get(5).and_then(|m| m.as_str().parse::<i32>().ok());
+        let cls_rank = cap.get(6).and_then(|m| m.as_str().parse::<i32>().ok());
+        let cls_total = cap.get(7).and_then(|m| m.as_str().parse::<i32>().ok());
+        if c_rank.is_none()
+            || c_total.is_none()
+            || m_rank.is_none()
+            || m_total.is_none()
+            || cls_rank.is_none()
+            || cls_total.is_none()
+        {
+            continue;
+        }
+        parsed_from_table = true;
+
+        if label.contains("平均学分绩点") {
+            ranking.insert("gpa_college_rank".to_string(), serde_json::json!(c_rank.unwrap()));
+            ranking.insert("gpa_college_total".to_string(), serde_json::json!(c_total.unwrap()));
+            ranking.insert("gpa_major_rank".to_string(), serde_json::json!(m_rank.unwrap()));
+            ranking.insert("gpa_major_total".to_string(), serde_json::json!(m_total.unwrap()));
+            ranking.insert("gpa_class_rank".to_string(), serde_json::json!(cls_rank.unwrap()));
+            ranking.insert("gpa_class_total".to_string(), serde_json::json!(cls_total.unwrap()));
+        } else if label.contains("算术平均分") {
+            ranking.insert("avg_college_rank".to_string(), serde_json::json!(c_rank.unwrap()));
+            ranking.insert("avg_college_total".to_string(), serde_json::json!(c_total.unwrap()));
+            ranking.insert("avg_major_rank".to_string(), serde_json::json!(m_rank.unwrap()));
+            ranking.insert("avg_major_total".to_string(), serde_json::json!(m_total.unwrap()));
+            ranking.insert("avg_class_rank".to_string(), serde_json::json!(cls_rank.unwrap()));
+            ranking.insert("avg_class_total".to_string(), serde_json::json!(cls_total.unwrap()));
         }
     }
 
-    println!("[调试] 已解析 {} unique ranks: {:?}", unique_ranks.len(), unique_ranks);
+    // 兜底：兼容旧版/异常页面，仅提取 `<td>` 中的 rank/total
+    if !parsed_from_table {
+        let td_rank_re = regex::Regex::new(r#"(?s)<td[^>]*>\s*([0-9]{1,4})\s*[\\/／]\s*([0-9]{1,5})\s*</td>"#)
+            .unwrap();
+        let rank_matches: Vec<(i32, i32)> = td_rank_re
+            .captures_iter(html)
+            .filter_map(|cap| {
+                let rank = cap.get(1).and_then(|m| m.as_str().parse().ok())?;
+                let total = cap.get(2).and_then(|m| m.as_str().parse().ok())?;
+                Some((rank, total))
+            })
+            .collect();
 
-    // GPA 排名 (学院、专业、班级)
-    if unique_ranks.len() >= 3 {
-        ranking.insert("gpa_college_rank".to_string(), serde_json::json!(unique_ranks[0].0));
-        ranking.insert("gpa_college_total".to_string(), serde_json::json!(unique_ranks[0].1));
-        ranking.insert("gpa_major_rank".to_string(), serde_json::json!(unique_ranks[1].0));
-        ranking.insert("gpa_major_total".to_string(), serde_json::json!(unique_ranks[1].1));
-        ranking.insert("gpa_class_rank".to_string(), serde_json::json!(unique_ranks[2].0));
-        ranking.insert("gpa_class_total".to_string(), serde_json::json!(unique_ranks[2].1));
-    }
+        // 去除紧邻重复值，防止 title 与文本重复匹配
+        let mut unique_ranks: Vec<(i32, i32)> = Vec::new();
+        for item in rank_matches {
+            if unique_ranks.last().copied() != Some(item) {
+                unique_ranks.push(item);
+            }
+        }
 
-    // 平均分排名
-    if unique_ranks.len() >= 6 {
-        ranking.insert("avg_college_rank".to_string(), serde_json::json!(unique_ranks[3].0));
-        ranking.insert("avg_college_total".to_string(), serde_json::json!(unique_ranks[3].1));
-        ranking.insert("avg_major_rank".to_string(), serde_json::json!(unique_ranks[4].0));
-        ranking.insert("avg_major_total".to_string(), serde_json::json!(unique_ranks[4].1));
-        ranking.insert("avg_class_rank".to_string(), serde_json::json!(unique_ranks[5].0));
-        ranking.insert("avg_class_total".to_string(), serde_json::json!(unique_ranks[5].1));
+        println!("[调试] 排名兜底解析: {} 项", unique_ranks.len());
+
+        if unique_ranks.len() >= 3 {
+            ranking.insert("gpa_college_rank".to_string(), serde_json::json!(unique_ranks[0].0));
+            ranking.insert("gpa_college_total".to_string(), serde_json::json!(unique_ranks[0].1));
+            ranking.insert("gpa_major_rank".to_string(), serde_json::json!(unique_ranks[1].0));
+            ranking.insert("gpa_major_total".to_string(), serde_json::json!(unique_ranks[1].1));
+            ranking.insert("gpa_class_rank".to_string(), serde_json::json!(unique_ranks[2].0));
+            ranking.insert("gpa_class_total".to_string(), serde_json::json!(unique_ranks[2].1));
+        }
+
+        if unique_ranks.len() >= 6 {
+            ranking.insert("avg_college_rank".to_string(), serde_json::json!(unique_ranks[3].0));
+            ranking.insert("avg_college_total".to_string(), serde_json::json!(unique_ranks[3].1));
+            ranking.insert("avg_major_rank".to_string(), serde_json::json!(unique_ranks[4].0));
+            ranking.insert("avg_major_total".to_string(), serde_json::json!(unique_ranks[4].1));
+            ranking.insert("avg_class_rank".to_string(), serde_json::json!(unique_ranks[5].0));
+            ranking.insert("avg_class_total".to_string(), serde_json::json!(unique_ranks[5].1));
+        }
     }
 
     let has_data = ranking.contains_key("gpa") || ranking.contains_key("gpa_major_rank");

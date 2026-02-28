@@ -19,7 +19,10 @@ use tokio::sync::Mutex;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::collections::HashMap;
 use std::time::Duration;
+use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::{engine::general_purpose, Engine as _};
+use regex::Regex;
+use reqwest::cookie::CookieStore;
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
 use tauri_plugin_shell::ShellExt;
@@ -45,7 +48,13 @@ use modules::one_code::*;
 const DB_FILENAME: &str = "grades.db";
 const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://superdaobo-ocr-service.hf.space/api/temp/upload";
 const DEFAULT_PORTAL_SERVICE_URL: &str = "https://e.hbut.edu.cn/login#/";
+const CHAOXING_LOGIN_PAGE_URL: &str =
+    "https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com";
+const CHAOXING_BASE_URL: &str = "https://passport2.chaoxing.com";
+const CHAOXING_AES_KEY: &str = "u2oh6Vu^HWe4_AES";
 static TEMP_UPLOAD_ENDPOINT: OnceLock<StdMutex<Option<String>>> = OnceLock::new();
+
+type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 
 fn temp_upload_endpoint_store() -> &'static StdMutex<Option<String>> {
     TEMP_UPLOAD_ENDPOINT.get_or_init(|| StdMutex::new(None))
@@ -160,6 +169,66 @@ pub struct PortalQrStatusResponse {
     pub status_code: String,
     pub status_label: String,
     pub should_submit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingLoginContext {
+    pub fid: String,
+    pub refer: String,
+    pub t: String,
+    pub forbidotherlogin: String,
+    pub double_factor_login: String,
+    pub independent_id: String,
+    pub independent_name_id: String,
+    pub need_vcode: String,
+    pub validate: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingQrInitResponse {
+    pub uuid: String,
+    pub enc: String,
+    pub qr_image_base64: String,
+    pub expires_in_seconds: i32,
+    pub context: ChaoxingLoginContext,
+    pub debug: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingQrStatusResponse {
+    pub status: bool,
+    pub type_code: String,
+    pub message: String,
+    pub nickname: Option<String>,
+    pub uid: Option<String>,
+    pub contain_two_factor_login: bool,
+    pub two_factor_login_pc_url: Option<String>,
+    pub redirect_url: Option<String>,
+    pub should_finish_login: bool,
+    pub should_refresh_qr: bool,
+    pub debug: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingLoginResult {
+    pub success: bool,
+    pub student_id: String,
+    pub display_name: String,
+    pub account: String,
+    pub uid: Option<String>,
+    pub redirect_url: String,
+    pub message: String,
+    pub limited_mode: bool,
+    pub debug: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ChaoxingLoginPagePayload {
+    context: ChaoxingLoginContext,
+    uuid: String,
+    enc: String,
+    login_page_url: String,
+    debug: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,6 +353,337 @@ fn map_portal_qr_status(code: &str) -> (&'static str, bool) {
     }
 }
 
+fn parse_hidden_input_map(html: &str) -> HashMap<String, String> {
+    let input_re = Regex::new(r#"(?is)<input\b[^>]*>"#).expect("compile input regex");
+    let attr_re =
+        Regex::new(r#"(?i)\b(id|name|value)\s*=\s*["']([^"']*)["']"#).expect("compile attr regex");
+
+    let mut map = HashMap::new();
+    for input in input_re.find_iter(html) {
+        let mut input_id = String::new();
+        let mut input_name = String::new();
+        let mut input_value = String::new();
+        let tag = input.as_str();
+        for cap in attr_re.captures_iter(tag) {
+            let key = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_ascii_lowercase();
+            let value = cap.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
+            match key.as_str() {
+                "id" => input_id = value,
+                "name" => input_name = value,
+                "value" => input_value = value,
+                _ => {}
+            }
+        }
+        if !input_name.is_empty() {
+            map.insert(input_name.clone(), input_value.clone());
+        }
+        if !input_id.is_empty() {
+            map.insert(input_id, input_value);
+        }
+    }
+    map
+}
+
+fn pick_hidden_input(map: &HashMap<String, String>, keys: &[&str], default_value: &str) -> String {
+    keys.iter()
+        .find_map(|k| map.get(*k))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default_value.to_string())
+}
+
+fn build_chaoxing_login_context(map: &HashMap<String, String>) -> ChaoxingLoginContext {
+    ChaoxingLoginContext {
+        fid: pick_hidden_input(map, &["fid"], "-1"),
+        refer: pick_hidden_input(map, &["refer"], "https%3A%2F%2Fi.chaoxing.com"),
+        t: pick_hidden_input(map, &["t"], "true"),
+        forbidotherlogin: pick_hidden_input(map, &["forbidotherlogin"], "0"),
+        double_factor_login: pick_hidden_input(map, &["doubleFactorLogin"], "0"),
+        independent_id: pick_hidden_input(map, &["independentId"], "0"),
+        independent_name_id: pick_hidden_input(map, &["independentNameId"], "0"),
+        need_vcode: pick_hidden_input(map, &["needVcode"], ""),
+        validate: pick_hidden_input(map, &["validate"], ""),
+    }
+}
+
+fn chaoxing_encrypt_value(raw: &str) -> Result<String, String> {
+    if CHAOXING_AES_KEY.len() != 16 {
+        return Err("学习通 AES 密钥长度异常".to_string());
+    }
+    let key = CHAOXING_AES_KEY.as_bytes();
+    let iv = CHAOXING_AES_KEY.as_bytes();
+    let plain = raw.as_bytes();
+    let block_size = 16usize;
+    let padded_len = ((plain.len() / block_size) + 1) * block_size;
+    let mut buf = vec![0u8; padded_len];
+    buf[..plain.len()].copy_from_slice(plain);
+    let cipher = Aes128CbcEnc::new(key.into(), iv.into());
+    let encrypted = cipher
+        .encrypt_padded_mut::<Pkcs7>(&mut buf, plain.len())
+        .map_err(|e| format!("学习通 AES 加密失败: {:?}", e))?;
+    Ok(general_purpose::STANDARD.encode(encrypted))
+}
+
+fn parse_cookie_value(cookie_header: &str, key: &str) -> Option<String> {
+    let marker = format!("{}=", key);
+    cookie_header
+        .split(';')
+        .map(|seg| seg.trim())
+        .find_map(|seg| seg.strip_prefix(&marker))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn guess_chaoxing_student_id(account_hint: Option<&str>, cookie_header: &str) -> String {
+    let account = account_hint.unwrap_or("").trim();
+    if account.chars().all(|c| c.is_ascii_digit()) && account.len() >= 8 {
+        return account.to_string();
+    }
+    if let Some(username_cookie) = parse_cookie_value(cookie_header, "username") {
+        let username = username_cookie.trim();
+        if username.chars().all(|c| c.is_ascii_digit()) && username.len() >= 8 {
+            return username.to_string();
+        }
+        if !username.is_empty() {
+            return username.to_string();
+        }
+    }
+    if let Some(uid_cookie) = parse_cookie_value(cookie_header, "UID") {
+        return format!("cx_{}", uid_cookie);
+    }
+    if account.is_empty() {
+        "chaoxing_user".to_string()
+    } else {
+        account.to_string()
+    }
+}
+
+fn json_bool(value: &serde_json::Value, key: &str) -> bool {
+    match value.get(key) {
+        Some(serde_json::Value::Bool(v)) => *v,
+        Some(serde_json::Value::String(v)) => v.eq_ignore_ascii_case("true") || v == "1",
+        Some(serde_json::Value::Number(v)) => v.as_i64().unwrap_or_default() != 0,
+        _ => false,
+    }
+}
+
+fn json_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|v| match v {
+            serde_json::Value::String(s) => {
+                let trimmed = s.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            serde_json::Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        })
+    })
+}
+
+async fn load_chaoxing_login_page(client: &mut HbutClient) -> Result<ChaoxingLoginPagePayload, String> {
+    let mut debug = Vec::new();
+    let response = client
+        .client
+        .get(CHAOXING_LOGIN_PAGE_URL)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .send()
+        .await
+        .map_err(|e| format!("学习通登录页请求失败: {}", e))?;
+    let status = response.status();
+    let final_url = response.url().to_string();
+    debug.push(format!(
+        "login_page status={} final_url={}",
+        status.as_u16(),
+        final_url
+    ));
+    if !status.is_success() {
+        return Err(format!("学习通登录页返回异常状态: {}", status));
+    }
+    let html = response
+        .text()
+        .await
+        .map_err(|e| format!("学习通登录页响应读取失败: {}", e))?;
+    debug.push(format!("login_page html_len={}", html.len()));
+    let hidden_map = parse_hidden_input_map(&html);
+    let context = build_chaoxing_login_context(&hidden_map);
+    let uuid = pick_hidden_input(&hidden_map, &["uuid"], "");
+    let enc = pick_hidden_input(&hidden_map, &["enc"], "");
+    debug.push(format!(
+        "context fid={} t={} need_vcode={} has_uuid={} has_enc={}",
+        context.fid,
+        context.t,
+        context.need_vcode,
+        !uuid.is_empty(),
+        !enc.is_empty()
+    ));
+    Ok(ChaoxingLoginPagePayload {
+        context,
+        uuid,
+        enc,
+        login_page_url: final_url,
+        debug,
+    })
+}
+
+async fn fetch_chaoxing_qr_image(
+    client: &mut HbutClient,
+    uuid: &str,
+    fid: &str,
+    referer: &str,
+    debug: &mut Vec<String>,
+) -> Result<String, String> {
+    let url = format!(
+        "{}/createqr?uuid={}&fid={}",
+        CHAOXING_BASE_URL,
+        urlencoding::encode(uuid),
+        urlencoding::encode(fid)
+    );
+    let response = client
+        .client
+        .get(&url)
+        .header(
+            "Accept",
+            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        )
+        .header("Referer", referer)
+        .send()
+        .await
+        .map_err(|e| format!("学习通二维码图片请求失败: {}", e))?;
+    let status = response.status();
+    let final_url = response.url().to_string();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("学习通二维码图片读取失败: {}", e))?;
+    debug.push(format!(
+        "createqr status={} content_type={} final_url={} bytes={}",
+        status.as_u16(),
+        content_type,
+        final_url,
+        bytes.len()
+    ));
+    if !status.is_success() {
+        return Err(format!("学习通二维码图片状态异常: {}", status));
+    }
+    if !content_type.starts_with("image/") {
+        let preview = String::from_utf8_lossy(&bytes)
+            .chars()
+            .take(120)
+            .collect::<String>();
+        return Err(format!(
+            "学习通二维码返回非图片内容: content-type={}, preview={}",
+            content_type, preview
+        ));
+    }
+    if bytes.is_empty() {
+        return Err("学习通二维码图片为空".to_string());
+    }
+    Ok(format!(
+        "data:{};base64,{}",
+        content_type,
+        general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+async fn finalize_chaoxing_login(
+    client: &mut HbutClient,
+    account_hint: Option<&str>,
+    password_hint: Option<&str>,
+    redirect_hint: Option<&str>,
+    debug: &mut Vec<String>,
+) -> Result<ChaoxingLoginResult, String> {
+    let _ = client
+        .client
+        .get(format!(
+            "https://i.chaoxing.com/base?t={}",
+            Utc::now().timestamp_millis()
+        ))
+        .send()
+        .await;
+    let _ = client
+        .client
+        .get("https://hbut.jw.chaoxing.com/admin/")
+        .send()
+        .await;
+
+    let passport_url = reqwest::Url::parse(CHAOXING_BASE_URL)
+        .map_err(|e| format!("学习通域名解析失败: {}", e))?;
+    let jw_url = reqwest::Url::parse("https://hbut.jw.chaoxing.com")
+        .map_err(|e| format!("学习通教务域名解析失败: {}", e))?;
+    let passport_cookie = client
+        .cookie_jar
+        .cookies(&passport_url)
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let jw_cookie = client
+        .cookie_jar
+        .cookies(&jw_url)
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let merged_cookie = format!("{}; {}", passport_cookie, jw_cookie);
+
+    if merged_cookie.trim().is_empty() {
+        return Err("学习通登录完成后未读取到有效 Cookie".to_string());
+    }
+
+    let uid = parse_cookie_value(&merged_cookie, "UID")
+        .or_else(|| parse_cookie_value(&merged_cookie, "_uid"));
+    let student_id = guess_chaoxing_student_id(account_hint, &merged_cookie);
+    let display_name = parse_cookie_value(&merged_cookie, "username")
+        .unwrap_or_else(|| student_id.clone());
+    debug.push(format!(
+        "finalize student_id={} uid={}",
+        student_id,
+        uid.clone().unwrap_or_default()
+    ));
+
+    client.is_logged_in = true;
+    client.user_info = Some(UserInfo {
+        student_id: student_id.clone(),
+        student_name: display_name.clone(),
+        college: None,
+        major: None,
+        class_name: None,
+        grade: None,
+    });
+    client.last_username = Some(student_id.clone());
+    client.last_password = password_hint.map(|v| v.to_string());
+
+    let password_to_save = password_hint.unwrap_or("");
+    let _ = db::save_user_session(
+        DB_FILENAME,
+        &student_id,
+        &merged_cookie,
+        password_to_save,
+        "",
+        None,
+        None,
+    );
+
+    Ok(ChaoxingLoginResult {
+        success: true,
+        student_id,
+        display_name,
+        account: account_hint.unwrap_or("").to_string(),
+        uid,
+        redirect_url: redirect_hint.unwrap_or("").to_string(),
+        message: "学习通登录成功".to_string(),
+        limited_mode: true,
+        debug: debug.clone(),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QxzkbQuery {
     pub xnxq: String,
@@ -371,22 +771,59 @@ async fn portal_qr_init_login(
         crate::http_client::AUTH_BASE_URL,
         urlencoding::encode(&uuid)
     );
-    let qr_bytes = client
+    let qr_response = client
         .client
         .get(&code_url)
+        .header(
+            "Accept",
+            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        )
+        .header(
+            "Referer",
+            format!(
+                "{}/login?service={}",
+                crate::http_client::AUTH_BASE_URL,
+                urlencoding::encode(&service_url)
+            ),
+        )
         .send()
         .await
-        .map_err(|e| format!("获取二维码图片失败: {}", e))?
+        .map_err(|e| format!("获取二维码图片失败: {}", e))?;
+    let qr_status = qr_response.status();
+    let qr_final_url = qr_response.url().to_string();
+    let qr_content_type = qr_response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let qr_bytes = qr_response
         .bytes()
         .await
         .map_err(|e| format!("读取二维码图片失败: {}", e))?;
+
+    if !qr_status.is_success() {
+        return Err(format!("二维码图片请求失败: {}", qr_status));
+    }
+
+    if !qr_content_type.starts_with("image/") {
+        let preview = String::from_utf8_lossy(&qr_bytes)
+            .chars()
+            .take(120)
+            .collect::<String>();
+        return Err(format!(
+            "二维码内容异常：content-type={}, final_url={}, preview={}",
+            qr_content_type, qr_final_url, preview
+        ));
+    }
 
     if qr_bytes.is_empty() {
         return Err("二维码图片为空，请重试".to_string());
     }
 
     let qr_image_base64 = format!(
-        "data:image/png;base64,{}",
+        "data:{};base64,{}",
+        qr_content_type,
         general_purpose::STANDARD.encode(qr_bytes)
     );
 
@@ -551,6 +988,336 @@ async fn portal_qr_confirm_login(
     );
 
     Ok(user_info)
+}
+
+#[tauri::command]
+async fn chaoxing_qr_init_login(state: State<'_, AppState>) -> Result<ChaoxingQrInitResponse, String> {
+    let mut client = state.client.lock().await;
+    let page = load_chaoxing_login_page(&mut client).await?;
+    if page.uuid.is_empty() || page.enc.is_empty() {
+        return Err("学习通二维码参数缺失，请重试".to_string());
+    }
+    let mut debug = page.debug.clone();
+    let qr_image_base64 = fetch_chaoxing_qr_image(
+        &mut client,
+        &page.uuid,
+        &page.context.fid,
+        &page.login_page_url,
+        &mut debug,
+    )
+    .await?;
+    Ok(ChaoxingQrInitResponse {
+        uuid: page.uuid,
+        enc: page.enc,
+        qr_image_base64,
+        expires_in_seconds: 150,
+        context: page.context,
+        debug,
+    })
+}
+
+#[tauri::command]
+async fn chaoxing_qr_refresh_login(state: State<'_, AppState>) -> Result<ChaoxingQrInitResponse, String> {
+    let mut client = state.client.lock().await;
+    let page = load_chaoxing_login_page(&mut client).await?;
+    let mut debug = page.debug.clone();
+    let refresh_url = format!("{}/refreshQRCode", CHAOXING_BASE_URL);
+    let refresh_resp = client
+        .client
+        .post(&refresh_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Origin", CHAOXING_BASE_URL)
+        .header("Referer", &page.login_page_url)
+        .send()
+        .await
+        .map_err(|e| format!("学习通刷新二维码请求失败: {}", e))?;
+    let refresh_status = refresh_resp.status();
+    let refresh_text = refresh_resp
+        .text()
+        .await
+        .map_err(|e| format!("学习通刷新二维码响应读取失败: {}", e))?;
+    debug.push(format!(
+        "refresh_qr status={} body_len={}",
+        refresh_status.as_u16(),
+        refresh_text.len()
+    ));
+    if !refresh_status.is_success() {
+        return Err(format!("学习通刷新二维码状态异常: {}", refresh_status));
+    }
+
+    let refresh_json: serde_json::Value = serde_json::from_str(&refresh_text)
+        .map_err(|e| format!("学习通刷新二维码响应解析失败: {}", e))?;
+    let uuid = json_string(&refresh_json, &["uuid"]).unwrap_or(page.uuid);
+    let enc = json_string(&refresh_json, &["enc"]).unwrap_or(page.enc);
+    if uuid.trim().is_empty() || enc.trim().is_empty() {
+        return Err("学习通刷新二维码返回了空 uuid/enc".to_string());
+    }
+    let qr_image_base64 = fetch_chaoxing_qr_image(
+        &mut client,
+        &uuid,
+        &page.context.fid,
+        &page.login_page_url,
+        &mut debug,
+    )
+    .await?;
+
+    Ok(ChaoxingQrInitResponse {
+        uuid,
+        enc,
+        qr_image_base64,
+        expires_in_seconds: 150,
+        context: page.context,
+        debug,
+    })
+}
+
+#[tauri::command]
+async fn chaoxing_qr_check_status(
+    state: State<'_, AppState>,
+    uuid: String,
+    enc: String,
+    forbidotherlogin: Option<String>,
+    double_factor_login: Option<String>,
+) -> Result<ChaoxingQrStatusResponse, String> {
+    let qr_uuid = uuid.trim().to_string();
+    let qr_enc = enc.trim().to_string();
+    if qr_uuid.is_empty() || qr_enc.is_empty() {
+        return Err("学习通二维码状态查询参数缺失".to_string());
+    }
+    let mut debug = Vec::new();
+    let client = state.client.lock().await;
+    let status_url = format!("{}/getauthstatus/v2", CHAOXING_BASE_URL);
+    let form = vec![
+        ("enc".to_string(), qr_enc.clone()),
+        ("uuid".to_string(), qr_uuid.clone()),
+        (
+            "doubleFactorLogin".to_string(),
+            double_factor_login
+                .unwrap_or_else(|| "0".to_string())
+                .trim()
+                .to_string(),
+        ),
+        (
+            "forbidotherlogin".to_string(),
+            forbidotherlogin
+                .unwrap_or_else(|| "0".to_string())
+                .trim()
+                .to_string(),
+        ),
+    ];
+
+    let response = client
+        .client
+        .post(&status_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Origin", CHAOXING_BASE_URL)
+        .header("Referer", CHAOXING_LOGIN_PAGE_URL)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| format!("学习通二维码状态请求失败: {}", e))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("学习通二维码状态读取失败: {}", e))?;
+    debug.push(format!(
+        "getauthstatus status={} body_len={}",
+        status.as_u16(),
+        body.len()
+    ));
+    if !status.is_success() {
+        return Err(format!("学习通二维码状态返回异常: {}", status));
+    }
+    let payload: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("学习通二维码状态解析失败: {}", e))?;
+
+    let status_ok = json_bool(&payload, "status");
+    let type_code = json_string(&payload, &["type"]).unwrap_or_default();
+    let message = json_string(&payload, &["mes", "msg2", "msg"]).unwrap_or_default();
+    let should_refresh_qr = type_code == "6" || type_code == "7";
+    let response_payload = ChaoxingQrStatusResponse {
+        status: status_ok,
+        type_code: type_code.clone(),
+        message,
+        nickname: json_string(&payload, &["nickname"]),
+        uid: json_string(&payload, &["uid"]),
+        contain_two_factor_login: json_bool(&payload, "containTwoFactorLogin"),
+        two_factor_login_pc_url: json_string(&payload, &["twoFactorLoginPCUrl"]),
+        redirect_url: json_string(&payload, &["url"]),
+        should_finish_login: status_ok,
+        should_refresh_qr,
+        debug,
+    };
+    Ok(response_payload)
+}
+
+#[tauri::command]
+async fn chaoxing_qr_confirm_login(
+    state: State<'_, AppState>,
+    uuid: String,
+    enc: String,
+    account_hint: Option<String>,
+) -> Result<ChaoxingLoginResult, String> {
+    let qr_uuid = uuid.trim().to_string();
+    let qr_enc = enc.trim().to_string();
+    if qr_uuid.is_empty() || qr_enc.is_empty() {
+        return Err("学习通扫码确认参数缺失".to_string());
+    }
+
+    let mut client = state.client.lock().await;
+    let mut debug = Vec::new();
+    let status_url = format!("{}/getauthstatus/v2", CHAOXING_BASE_URL);
+    let form = vec![
+        ("enc".to_string(), qr_enc),
+        ("uuid".to_string(), qr_uuid),
+        ("doubleFactorLogin".to_string(), "0".to_string()),
+        ("forbidotherlogin".to_string(), "0".to_string()),
+    ];
+    let response = client
+        .client
+        .post(&status_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Origin", CHAOXING_BASE_URL)
+        .header("Referer", CHAOXING_LOGIN_PAGE_URL)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| format!("学习通扫码确认前置校验失败: {}", e))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("学习通扫码确认状态读取失败: {}", e))?;
+    debug.push(format!(
+        "confirm_precheck status={} body_len={}",
+        status.as_u16(),
+        body.len()
+    ));
+    if !status.is_success() {
+        return Err(format!("学习通扫码确认状态异常: {}", status));
+    }
+    let payload: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("学习通扫码确认状态解析失败: {}", e))?;
+    if !json_bool(&payload, "status") {
+        let msg = json_string(&payload, &["mes", "msg2", "msg"]).unwrap_or_else(|| "请先在学习通完成扫码确认".to_string());
+        return Err(msg);
+    }
+    let redirect_url = json_string(&payload, &["url"]).unwrap_or_default();
+    finalize_chaoxing_login(
+        &mut client,
+        account_hint.as_deref(),
+        None,
+        Some(redirect_url.as_str()),
+        &mut debug,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn chaoxing_password_login(
+    state: State<'_, AppState>,
+    account: String,
+    password: String,
+) -> Result<ChaoxingLoginResult, String> {
+    let raw_account = account.trim().to_string();
+    let raw_password = password.trim().to_string();
+    if raw_account.is_empty() || raw_password.is_empty() {
+        return Err("学习通账号和密码不能为空".to_string());
+    }
+
+    let mut client = state.client.lock().await;
+    let page = load_chaoxing_login_page(&mut client).await?;
+    let mut debug = page.debug.clone();
+    if page.context.need_vcode == "1" {
+        return Err("学习通当前要求滑块/验证码，请先在浏览器完成验证后再试".to_string());
+    }
+
+    let should_encrypt = page.context.t.eq_ignore_ascii_case("true");
+    let encoded_account = if should_encrypt {
+        chaoxing_encrypt_value(&raw_account)?
+    } else {
+        raw_account.clone()
+    };
+    let encoded_password = if should_encrypt {
+        chaoxing_encrypt_value(&raw_password)?
+    } else {
+        raw_password.clone()
+    };
+    debug.push(format!(
+        "password_login encrypt={} fid={} refer={}",
+        should_encrypt, page.context.fid, page.context.refer
+    ));
+
+    let form = vec![
+        ("fid".to_string(), page.context.fid.clone()),
+        ("uname".to_string(), encoded_account),
+        ("password".to_string(), encoded_password),
+        ("refer".to_string(), page.context.refer.clone()),
+        ("t".to_string(), page.context.t.clone()),
+        ("forbidotherlogin".to_string(), page.context.forbidotherlogin.clone()),
+        ("validate".to_string(), page.context.validate.clone()),
+        (
+            "doubleFactorLogin".to_string(),
+            page.context.double_factor_login.clone(),
+        ),
+        ("independentId".to_string(), page.context.independent_id.clone()),
+        (
+            "independentNameId".to_string(),
+            page.context.independent_name_id.clone(),
+        ),
+    ];
+
+    let login_url = format!("{}/fanyalogin", CHAOXING_BASE_URL);
+    let response = client
+        .client
+        .post(&login_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Origin", CHAOXING_BASE_URL)
+        .header("Referer", &page.login_page_url)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| format!("学习通账号密码登录请求失败: {}", e))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("学习通账号密码登录响应读取失败: {}", e))?;
+    debug.push(format!(
+        "fanyalogin status={} body_len={}",
+        status.as_u16(),
+        body.len()
+    ));
+    if !status.is_success() {
+        return Err(format!("学习通账号密码登录状态异常: {}", status));
+    }
+    let payload: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("学习通账号密码登录响应解析失败: {}", e))?;
+    if !json_bool(&payload, "status") {
+        let msg = json_string(&payload, &["msg2", "mes", "msg"])
+            .unwrap_or_else(|| "学习通账号密码登录失败".to_string());
+        return Err(msg);
+    }
+    if json_bool(&payload, "containTwoFactorLogin") {
+        return Err("学习通账号开启了双因子登录，当前版本暂不支持".to_string());
+    }
+
+    let redirect_url = json_string(&payload, &["url"])
+        .map(|raw| {
+            urlencoding::decode(&raw)
+                .map(|v| v.into_owned())
+                .unwrap_or(raw)
+        })
+        .unwrap_or_default();
+    finalize_chaoxing_login(
+        &mut client,
+        Some(raw_account.as_str()),
+        Some(raw_password.as_str()),
+        Some(redirect_url.as_str()),
+        &mut debug,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2771,6 +3538,11 @@ pub fn run() {
             portal_qr_init_login,
             portal_qr_check_status,
             portal_qr_confirm_login,
+            chaoxing_qr_init_login,
+            chaoxing_qr_refresh_login,
+            chaoxing_qr_check_status,
+            chaoxing_qr_confirm_login,
+            chaoxing_password_login,
             logout,
             restore_session,
             restore_latest_session,

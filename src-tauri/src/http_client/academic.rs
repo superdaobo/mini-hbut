@@ -292,7 +292,11 @@ impl HbutClient {
         &self,
         semester: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", JWXT_BASE_URL, semester);
+        let calendar_url = format!(
+            "{}/admin/xsd/jcsj/xlgl/getData/{}",
+            self.academic_base_url(),
+            semester
+        );
         let response = self.client.get(&calendar_url).send().await?;
 
         let status = response.status();
@@ -1079,7 +1083,7 @@ impl HbutClient {
     pub async fn fetch_grades(&self) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
         let grades_url = format!(
             "{}/admin/xsd/xsdcjcx/xsdQueryXscjList",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         println!("[调试] 获取成绩: {}", grades_url);
@@ -1151,14 +1155,14 @@ impl HbutClient {
         // 2. ??? xhid??????
         let xhid_url = format!(
             "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
-            JWXT_BASE_URL, semester
+            self.academic_base_url(), semester
         );
         
         println!("[调试] 获取 xhid：{}", xhid_url);
         
         let xhid_resp = self.client
             .get(&xhid_url)
-            .header("Referer", format!("{}/admin/index.html", JWXT_BASE_URL))
+            .header("Referer", format!("{}/admin/index.html", self.academic_base_url()))
             .send()
             .await?;
         
@@ -1180,7 +1184,7 @@ impl HbutClient {
         // 3. ??????? API
         let schedule_url = format!(
             "{}/admin/pkgl/xskb/sdpkkbList",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         let params = [
@@ -1199,7 +1203,14 @@ impl HbutClient {
             .query(&params)
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Referer", format!("{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}", JWXT_BASE_URL, semester))
+            .header(
+                "Referer",
+                format!(
+                    "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
+                    self.academic_base_url(),
+                    semester
+                ),
+            )
             .send()
             .await?;
         
@@ -1257,7 +1268,7 @@ impl HbutClient {
         // ??????? API?? Python ?????
         let exams_url = format!(
             "{}/admin/xsd/kwglXsdKscx/ajaxXsksList",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         let params = [
@@ -1278,7 +1289,10 @@ impl HbutClient {
             .query(&params)
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Referer", format!("{}/admin/xsd/kwglXsdKscx", JWXT_BASE_URL))
+            .header(
+                "Referer",
+                format!("{}/admin/xsd/kwglXsdKscx", self.academic_base_url()),
+            )
             .send()
             .await?;
         
@@ -1304,7 +1318,7 @@ impl HbutClient {
         // 使用正‘的排?API (涓?Python 妯″潡涓€鑷?
         let ranking_url = format!(
             "{}/admin/cjgl/xscjbbdy/getXscjpm",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         // 获取﹀彿
@@ -1342,7 +1356,10 @@ impl HbutClient {
             .get(&ranking_url)
             .query(&params)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Referer", format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", JWXT_BASE_URL))
+            .header(
+                "Referer",
+                format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", self.academic_base_url()),
+            )
             .send()
             .await?;
         
@@ -1364,7 +1381,7 @@ impl HbutClient {
     pub async fn fetch_student_info(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let info_url = format!(
             "{}/admin/xsd/xsjbxx/xskp",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         println!("[调试] 获取学生信息：{}", info_url);
@@ -2252,7 +2269,7 @@ impl HbutClient {
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let classrooms_url = format!(
             "{}/admin/pkgl/jyjs/mobile/jsxx",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         // 统一使用“自动学期上下文”（支持假期沿用上学期/临开学切下学期）。
@@ -2349,8 +2366,14 @@ impl HbutClient {
             .post(&classrooms_url)
             .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             .header("X-Requested-With", "XMLHttpRequest")
-            .header("Origin", JWXT_BASE_URL)
-            .header("Referer", format!("{}/admin/pkgl/jyjs/mobile/jysq?kjy=0&role=&cpdx=", JWXT_BASE_URL))
+            .header("Origin", self.academic_base_url())
+            .header(
+                "Referer",
+                format!(
+                    "{}/admin/pkgl/jyjs/mobile/jysq?kjy=0&role=&cpdx=",
+                    self.academic_base_url()
+                ),
+            )
             .form(&params)
             .send()
             .await?;
@@ -2440,7 +2463,7 @@ impl HbutClient {
     /// 拉取培养方案筛€夐」
     pub async fn fetch_training_plan_options(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 从培养方案页面获取真正的筛选选项 (与 Python training_plan.py 一致)
-        let url = format!("{}/admin/xsd/studentpyfa", JWXT_BASE_URL);
+        let url = format!("{}/admin/xsd/studentpyfa", self.academic_base_url());
         
         println!("[DEBUG] Fetching training plan options from: {}", url);
         
@@ -2594,7 +2617,10 @@ impl HbutClient {
 
     pub async fn fetch_training_plan_jys(&self, yxid: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 获取教研室列表 (与 Python training_plan.py 一致)
-        let url = format!("{}/admin/pygcgl/kckgl/queryJYSNoAuth", JWXT_BASE_URL);
+        let url = format!(
+            "{}/admin/pygcgl/kckgl/queryJYSNoAuth",
+            self.academic_base_url()
+        );
         
         println!("[DEBUG] Fetching JYS from: {} with yxid={}", url, yxid);
         
@@ -2641,7 +2667,10 @@ impl HbutClient {
         page: Option<i32>,
         page_size: Option<i32>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("{}/admin/xsd/studentpyfa/ajaxList2", JWXT_BASE_URL);
+        let url = format!(
+            "{}/admin/xsd/studentpyfa/ajaxList2",
+            self.academic_base_url()
+        );
         
         let page_num = page.unwrap_or(1);
         let size = page_size.unwrap_or(50);
@@ -2701,7 +2730,10 @@ impl HbutClient {
             .query(&params)
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Referer", format!("{}/admin/xsd/studentpyfa", JWXT_BASE_URL))
+            .header(
+                "Referer",
+                format!("{}/admin/xsd/studentpyfa", self.academic_base_url()),
+            )
             .send()
             .await?;
         
@@ -2745,7 +2777,7 @@ impl HbutClient {
     pub async fn fetch_classrooms(&self) -> Result<Vec<crate::Classroom>, Box<dyn std::error::Error + Send + Sync>> {
         let classrooms_url = format!(
             "{}/cdjy/cdjy_cxKxcdlb.html?doType=query&gnmkdm=N2155",
-            JWXT_BASE_URL
+            self.academic_base_url()
         );
         
         let response = self.client
@@ -2855,7 +2887,11 @@ impl HbutClient {
         println!("[DEBUG] Fetching calendar for semester: {}", sem);
 
         // 2. 获取校历数据
-        let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", JWXT_BASE_URL, sem);
+        let calendar_url = format!(
+            "{}/admin/xsd/jcsj/xlgl/getData/{}",
+            self.academic_base_url(),
+            sem
+        );
         let response = self.client.get(&calendar_url).send().await?;
         
         let status = response.status();
@@ -3031,7 +3067,11 @@ impl HbutClient {
         println!("[DEBUG] Fetching academic progress with fasz={}", fasz);
         
         // 1. 获取 xhid
-        let base_url = format!("{}/admin/xsd/xskp?fasz={}", JWXT_BASE_URL, fasz);
+        let base_url = format!(
+            "{}/admin/xsd/xskp?fasz={}",
+            self.academic_base_url(),
+            fasz
+        );
         let response = self.client.get(&base_url).send().await?;
         
         let final_url = response.url().to_string();
@@ -3071,7 +3111,7 @@ impl HbutClient {
         println!("[DEBUG] Got xhid: {}", xhid);
         
         // 2. 获取基本信息
-        let info_url = format!("{}/admin/xsd/xskp/xskp", JWXT_BASE_URL);
+        let info_url = format!("{}/admin/xsd/xskp/xskp", self.academic_base_url());
         let info_resp = self.client.get(&info_url)
             .query(&[("fasz", fasz.to_string()), ("xhid", xhid.clone())])
             .send()
@@ -3079,7 +3119,7 @@ impl HbutClient {
         let info_data: serde_json::Value = info_resp.json().await.unwrap_or_default();
         
         // 3. 获取统计信息
-        let summary_url = format!("{}/admin/xsd/xskp/xyqk", JWXT_BASE_URL);
+        let summary_url = format!("{}/admin/xsd/xskp/xyqk", self.academic_base_url());
         let summary_resp = self.client.get(&summary_url)
             .query(&[("fasz", fasz.to_string()), ("xhid", xhid.clone())])
             .send()
@@ -3087,7 +3127,7 @@ impl HbutClient {
         let summary_data: serde_json::Value = summary_resp.json().await.unwrap_or_default();
         
         // 4. 获取树形数据
-        let tree_url = format!("{}/admin/xsd/xskp/xyjc", JWXT_BASE_URL);
+        let tree_url = format!("{}/admin/xsd/xskp/xyjc", self.academic_base_url());
         let tree_resp = self.client.get(&tree_url)
             .query(&[
                 ("fasz", fasz.to_string()), 

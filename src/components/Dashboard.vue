@@ -25,6 +25,14 @@ const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice'])
 const brokenImages = ref(new Set())
 const cardListeners = []
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const LOGIN_METHOD_KEY = 'hbu_login_method'
+const CHAOXING_METHODS = new Set(['chaoxing_password', 'chaoxing_qr_temp'])
+const JWXT_MODULE_ALLOWLIST = new Set(['grades', 'classroom', 'exams', 'ranking', 'calendar', 'academic', 'qxzkb', 'training'])
+const loginMethod = ref('')
+
+const refreshLoginMethod = () => {
+  loginMethod.value = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
+}
 
 const todayCourses = ref([])
 const todayLoading = ref(false)
@@ -222,7 +230,7 @@ const fetchTodayCourses = async () => {
 }
 
 // 模块列表
-const modules = [
+const baseModules = [
   { 
     id: 'grades', 
     name: '成绩查询', 
@@ -351,8 +359,14 @@ const modules = [
   }
 ]
 
+const modules = computed(() => {
+  if (!CHAOXING_METHODS.has(loginMethod.value)) return baseModules
+  return baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
+})
+const isChaoxingLogin = computed(() => CHAOXING_METHODS.has(loginMethod.value))
+
 const navigateTo = (moduleId) => {
-  const module = modules.find((m) => m.id === moduleId)
+  const module = modules.value.find((m) => m.id === moduleId)
   if (module?.requiresLogin && !props.isLoggedIn) {
     emit('require-login')
     return
@@ -468,6 +482,7 @@ const detachCardSpotlight = () => {
 }
 
 onMounted(() => {
+  refreshLoginMethod()
   attachCardSpotlight()
   clockTimer = window.setInterval(() => {
     nowTick.value = Date.now()
@@ -485,6 +500,7 @@ onBeforeUnmount(() => {
 watch(
   () => [props.studentId, props.isLoggedIn],
   () => {
+    refreshLoginMethod()
     nowTick.value = Date.now()
     fetchTodayCourses()
   },
@@ -558,6 +574,11 @@ watch(
           </div>
         </div>
       </div>
+    </section>
+
+    <section v-if="isChaoxingLogin" class="maintenance-banner maintenance-banner--chaoxing">
+      <div class="maintenance-title">学习通登录模式</div>
+      <div class="maintenance-text">当前首页仅展示教务相关模块，其他模块已自动隐藏。</div>
     </section>
 
     <!-- 模块卡片 -->
@@ -650,6 +671,19 @@ html[data-theme='cyberpunk'] .dashboard > * {
   border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
   background: color-mix(in srgb, #fff7ed 72%, var(--ui-surface));
   box-shadow: var(--card-shadow-soft);
+}
+
+.maintenance-banner--chaoxing {
+  border: 1px solid color-mix(in srgb, #2563eb 34%, transparent);
+  background: color-mix(in srgb, #eff6ff 74%, var(--ui-surface));
+}
+
+.maintenance-banner--chaoxing .maintenance-title {
+  color: #1d4ed8;
+}
+
+.maintenance-banner--chaoxing .maintenance-text {
+  color: color-mix(in srgb, #1e3a8a 84%, var(--ui-text));
 }
 
 .maintenance-title {

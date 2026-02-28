@@ -10,7 +10,10 @@
 //! - OCR 请求使用独立的 `ocr_client`，避免污染主会话
 //! - 这里不直接实现业务接口，业务逻辑在子模块中实现
 
-use reqwest::{Client, cookie::Jar};
+use reqwest::{
+    Client,
+    cookie::{CookieStore, Jar},
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +50,7 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 // 使用正确的 CAS 地址
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
+pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/index.html";
 pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
@@ -126,6 +130,30 @@ pub struct HbutClient {
 }
 
 impl HbutClient {
+    /// 根据当前 Cookie 自动选择教务系统主域名。
+    ///
+    /// 说明：
+    /// - 学校原始教务链路使用 `jwxt.hbut.edu.cn`
+    /// - 学习通链路下，教务入口与接口主域名为 `hbut.jw.chaoxing.com`
+    ///   若继续请求旧域名，可能出现“已登录但接口未授权”。
+    pub(super) fn academic_base_url(&self) -> &'static str {
+        let chaoxing_url = reqwest::Url::parse(CHAOXING_JWXT_BASE_URL)
+            .expect("invalid CHAOXING_JWXT_BASE_URL");
+        let has_chaoxing_cookie = match self.cookie_jar.cookies(&chaoxing_url) {
+            Some(v) => v
+                .to_str()
+                .map(|raw| !raw.trim().is_empty())
+                .unwrap_or(false),
+            None => false,
+        };
+
+        if has_chaoxing_cookie {
+            CHAOXING_JWXT_BASE_URL
+        } else {
+            JWXT_BASE_URL
+        }
+    }
+
     fn build_http_client(jar: Arc<Jar>) -> Client {
         Client::builder()
             .cookie_store(true)
@@ -135,6 +163,7 @@ impl HbutClient {
             // DNS 兜底：某些环境 getaddrinfo 失败时，强制使用已知可用 IP。
             .resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
             .resolve("jwxt.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
+            .resolve("hbut.jw.chaoxing.com", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
             .resolve("code.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 2], 443)))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))

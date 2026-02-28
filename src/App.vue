@@ -497,9 +497,16 @@ const handleLoginSuccess = (data) => {
 
   localStorage.removeItem('hbu_manual_logout')
   localStorage.removeItem(LOGOUT_REASON_KEY)
-  persistSessionCookies()
-  startSessionKeepAlive()
-  startElectricityKeepAlive()
+  if (isChaoxingLoginSession()) {
+    localStorage.removeItem(SESSION_COOKIE_KEY)
+    localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
+    stopSessionKeepAlive()
+    stopElectricityKeepAlive()
+  } else {
+    persistSessionCookies()
+    startSessionKeepAlive()
+    startElectricityKeepAlive()
+  }
   if (studentId.value) {
     startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
       console.warn('[Notify] 启动通知监控失败:', e)
@@ -534,6 +541,11 @@ const isTemporaryLoginSession = () => {
   const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
   const marked = localStorage.getItem(LOGIN_TEMP_FLAG_KEY) === '1'
   return marked || method.endsWith('_temp')
+}
+
+const isChaoxingLoginSession = () => {
+  const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
+  return method.startsWith('chaoxing_')
 }
 
 // 处理登出
@@ -682,6 +694,7 @@ const stopJwxtRecoveryPolling = () => {
 
 const attemptOnlineRecovery = async () => {
   if (!hasTauri || isManualLogout()) return false
+  if (isChaoxingLoginSession()) return false
   if (jwxtRecoveryInFlight) return false
   jwxtRecoveryInFlight = true
   try {
@@ -1069,6 +1082,7 @@ const refreshSessionSilently = async () => {
   const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
   if (!cookies) return
   if (!hasTauri) return
+  if (isChaoxingLoginSession()) return
 
   try {
     await invokeNative('refresh_session')
@@ -1224,15 +1238,19 @@ onMounted(async () => {
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
   await applyRemoteConfig()
   startRemoteConfigRefresh()
-  let restored = await tryRestoreSession()
-  if (!restored) {
-    restored = await tryRestoreLatestSession()
-  }
+  const chaoxingSession = isChaoxingLoginSession()
+  let restored = false
   let relogged = false
-  if (!restored && !isTemporaryLoginSession()) {
-    relogged = await attemptAutoRelogin()
+  if (!chaoxingSession) {
+    restored = await tryRestoreSession()
+    if (!restored) {
+      restored = await tryRestoreLatestSession()
+    }
+    if (!restored && !isTemporaryLoginSession()) {
+      relogged = await attemptAutoRelogin()
+    }
   }
-  const onlineReady = restored || relogged
+  const onlineReady = chaoxingSession ? Boolean(studentId.value) : (restored || relogged)
 
   await syncFromHash()
 
@@ -1241,8 +1259,13 @@ onMounted(async () => {
   }
 
   if (onlineReady) {
-    startSessionKeepAlive()
-    startElectricityKeepAlive()
+    if (!chaoxingSession) {
+      startSessionKeepAlive()
+      startElectricityKeepAlive()
+    } else {
+      stopSessionKeepAlive()
+      stopElectricityKeepAlive()
+    }
     if (studentId.value) {
       markLoginSessionToken()
       startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
@@ -1251,7 +1274,7 @@ onMounted(async () => {
     }
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
-  } else if (bootstrappedCachedIdentity || studentId.value) {
+  } else if ((bootstrappedCachedIdentity || studentId.value) && !chaoxingSession) {
     // 教务暂不可达时保持账号态并展示缓存，后台每 10 秒探测一次恢复情况。
     markJwxtMaintenance()
     startJwxtRecoveryPolling()
