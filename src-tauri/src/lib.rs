@@ -28,6 +28,7 @@ use tauri::path::BaseDirectory;
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_notification::NotificationExt;
 use chrono::{Datelike, Utc};
+use rand::Rng;
 
 pub mod http_client;
 pub mod parser;
@@ -314,6 +315,28 @@ pub struct ScheduleExportRequest {
     pub events: Vec<ScheduleExportEvent>,
     pub upload_endpoint: Option<String>,
     pub ttl_seconds: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddCustomScheduleCourseRequest {
+    pub student_id: String,
+    pub semester: String,
+    pub name: String,
+    pub teacher: Option<String>,
+    pub weekday: i32,
+    pub period: i32,
+    pub djs: i32,
+    pub weeks: Vec<i32>,
+    pub room: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteCustomScheduleCourseRequest {
+    pub student_id: String,
+    pub semester: String,
+    pub course_id: String,
+    pub mode: Option<String>,
+    pub current_week: Option<i32>,
 }
 
 fn build_public_cache_key(prefix: &str, payload: &str) -> String {
@@ -2545,6 +2568,227 @@ async fn get_schedule_local(student_id: String) -> Result<Option<serde_json::Val
     }
 }
 
+fn normalize_custom_weeks(input: &[i32]) -> Vec<i32> {
+    let mut weeks = input
+        .iter()
+        .copied()
+        .filter(|w| *w > 0 && *w <= 60)
+        .collect::<Vec<_>>();
+    weeks.sort_unstable();
+    weeks.dedup();
+    weeks
+}
+
+fn format_weeks_text(weeks: &[i32]) -> String {
+    let values = normalize_custom_weeks(weeks);
+    if values.is_empty() {
+        return String::new();
+    }
+    let mut parts: Vec<String> = Vec::new();
+    let mut start = values[0];
+    let mut prev = values[0];
+    for current in values.iter().skip(1).copied() {
+        if current == prev + 1 {
+            prev = current;
+            continue;
+        }
+        if start == prev {
+            parts.push(start.to_string());
+        } else {
+            parts.push(format!("{}-{}", start, prev));
+        }
+        start = current;
+        prev = current;
+    }
+    if start == prev {
+        parts.push(start.to_string());
+    } else {
+        parts.push(format!("{}-{}", start, prev));
+    }
+    parts.join(",")
+}
+
+fn strip_custom_course_id(value: &str) -> String {
+    value.trim().trim_start_matches("custom:").to_string()
+}
+
+fn custom_course_to_payload(course: &db::CustomScheduleCourseRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": format!("custom:{}", course.id),
+        "source_id": course.id,
+        "name": course.name,
+        "teacher": course.teacher,
+        "room": course.room,
+        "room_code": course.room,
+        "building": "自定义",
+        "weekday": course.weekday,
+        "period": course.period,
+        "djs": course.djs,
+        "weeks": normalize_custom_weeks(&course.weeks),
+        "weeks_text": format_weeks_text(&course.weeks),
+        "credit": "",
+        "class_name": "自定义课程",
+        "semester": course.semester,
+        "is_custom": true,
+        "created_at": course.created_at,
+        "updated_at": course.updated_at
+    })
+}
+
+#[tauri::command]
+async fn list_custom_schedule_courses(
+    student_id: String,
+    semester: String,
+) -> Result<serde_json::Value, String> {
+    let sid = student_id.trim().to_string();
+    let sem = semester.trim().to_string();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    if sem.is_empty() {
+        return Err("semester 不能为空".to_string());
+    }
+    let list = db::list_custom_schedule_courses(DB_FILENAME, sid.as_str(), sem.as_str())
+        .map_err(|e| e.to_string())?;
+    let data = list
+        .iter()
+        .map(custom_course_to_payload)
+        .collect::<Vec<serde_json::Value>>();
+    Ok(serde_json::json!({
+        "success": true,
+        "data": data
+    }))
+}
+
+#[tauri::command]
+async fn add_custom_schedule_course(
+    req: AddCustomScheduleCourseRequest,
+) -> Result<serde_json::Value, String> {
+    let sid = req.student_id.trim().to_string();
+    let sem = req.semester.trim().to_string();
+    let name = req.name.trim().to_string();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    if sem.is_empty() {
+        return Err("semester 不能为空".to_string());
+    }
+    if name.is_empty() {
+        return Err("课程名称不能为空".to_string());
+    }
+    if !(1..=7).contains(&req.weekday) {
+        return Err("上课时间必须是周一到周日".to_string());
+    }
+    if !(1..=11).contains(&req.period) {
+        return Err("开始节次必须在 1-11 节".to_string());
+    }
+    let max_span = 12 - req.period;
+    if req.djs < 1 || req.djs > max_span {
+        return Err(format!("上课节数不合法，当前最多可选 {} 节", max_span));
+    }
+    let weeks = normalize_custom_weeks(&req.weeks);
+    if weeks.is_empty() {
+        return Err("请至少选择一个上课周次".to_string());
+    }
+
+    let mut rng = rand::thread_rng();
+    let id = format!("c{}{:04}", Utc::now().timestamp_millis(), rng.gen_range(0..10000));
+    let now = chrono::Local::now().to_rfc3339();
+    let record = db::CustomScheduleCourseRecord {
+        id,
+        student_id: sid.clone(),
+        semester: sem,
+        name,
+        teacher: req.teacher.unwrap_or_default().trim().to_string(),
+        room: req.room.unwrap_or_default().trim().to_string(),
+        weekday: req.weekday,
+        period: req.period,
+        djs: req.djs,
+        weeks,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    db::add_custom_schedule_course(DB_FILENAME, &record).map_err(|e| e.to_string())?;
+    let saved = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), record.id.as_str())
+        .map_err(|e| e.to_string())?
+        .unwrap_or(record);
+    Ok(serde_json::json!({
+        "success": true,
+        "data": custom_course_to_payload(&saved)
+    }))
+}
+
+#[tauri::command]
+async fn delete_custom_schedule_course(
+    req: DeleteCustomScheduleCourseRequest,
+) -> Result<serde_json::Value, String> {
+    let sid = req.student_id.trim().to_string();
+    let sem = req.semester.trim().to_string();
+    let course_id = strip_custom_course_id(req.course_id.as_str());
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    if sem.is_empty() {
+        return Err("semester 不能为空".to_string());
+    }
+    if course_id.is_empty() {
+        return Err("course_id 不能为空".to_string());
+    }
+
+    let mode = req.mode.unwrap_or_else(|| "all".to_string()).to_lowercase();
+    if mode == "current_week" {
+        let week = req.current_week.unwrap_or(0);
+        if week <= 0 {
+            return Err("current_week 参数不合法".to_string());
+        }
+        let existing = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "未找到要删除的自定义课程".to_string())?;
+        if existing.semester != sem {
+            return Err("学期不匹配，无法删除该课程".to_string());
+        }
+        let mut weeks = normalize_custom_weeks(&existing.weeks);
+        let before_len = weeks.len();
+        weeks.retain(|w| *w != week);
+        if weeks.len() == before_len {
+            return Err("当前周不在该课程周次中".to_string());
+        }
+        if weeks.is_empty() {
+            db::delete_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+                .map_err(|e| e.to_string())?;
+            return Ok(serde_json::json!({
+                "success": true,
+                "deleted": true,
+                "mode": "current_week",
+                "removed_week": week
+            }));
+        }
+        db::update_custom_schedule_course_weeks(DB_FILENAME, sid.as_str(), course_id.as_str(), weeks.as_slice())
+            .map_err(|e| e.to_string())?;
+        let updated = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "更新后未找到课程记录".to_string())?;
+        return Ok(serde_json::json!({
+            "success": true,
+            "deleted": false,
+            "mode": "current_week",
+            "removed_week": week,
+            "data": custom_course_to_payload(&updated)
+        }));
+    }
+
+    let affected = db::delete_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+        .map_err(|e| e.to_string())?;
+    if affected <= 0 {
+        return Err("未找到要删除的自定义课程".to_string());
+    }
+    Ok(serde_json::json!({
+        "success": true,
+        "deleted": true,
+        "mode": "all"
+    }))
+}
+
 fn sanitize_filename_part(input: &str) -> String {
     input
         .chars()
@@ -3707,6 +3951,9 @@ pub fn run() {
             get_grades_local,
             sync_schedule,
             get_schedule_local,
+            list_custom_schedule_courses,
+            add_custom_schedule_course,
+            delete_custom_schedule_course,
             export_schedule_calendar,
             fetch_exams,
             fetch_ranking,

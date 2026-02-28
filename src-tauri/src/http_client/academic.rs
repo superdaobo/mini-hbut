@@ -438,7 +438,7 @@ impl HbutClient {
                 (
                     next_summary.clone(),
                     "vacation_next",
-                    format!("当前为假期，已自动切换为下学期（{}）课表", next_summary.semester),
+                    String::new(),
                 )
             } else if let Some(previous_summary) = previous.clone() {
                 (
@@ -450,7 +450,7 @@ impl HbutClient {
                 (
                     next_summary.clone(),
                     "vacation_next",
-                    format!("当前为假期，已自动切换为下学期（{}）课表", next_summary.semester),
+                    String::new(),
                 )
             }
         } else if let Some(previous_summary) = previous.clone() {

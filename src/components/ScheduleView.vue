@@ -24,6 +24,8 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 // 状态
 const loading = ref(false)
 const scheduleData = ref([])
+const remoteScheduleData = ref([])
+const customScheduleData = ref([])
 const currentWeek = ref(0)
 const selectedWeek = ref(0)
 const semester = ref('')
@@ -47,6 +49,27 @@ const semesterDraft = ref('')
 const semesterError = ref('')
 const showSemesterPopup = ref(false)
 const semesterPopupText = ref('')
+const showAddCourse = ref(false)
+const showWeekPicker = ref(false)
+const addingCourse = ref(false)
+const addCourseError = ref('')
+const detailActionError = ref('')
+const showConfirmDialog = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogLines = ref([])
+const confirmDialogConfirmText = ref('确认')
+const confirmDialogCancelText = ref('取消')
+const confirmDialogDanger = ref(false)
+let confirmDialogResolver = null
+const addCourseForm = ref({
+  name: '',
+  teacher: '',
+  room: '',
+  weekday: 1,
+  period: 1,
+  djs: 1,
+  weeks: []
+})
 const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
 
 const readStoredSemester = () => {
@@ -112,6 +135,9 @@ const consumePendingSemesterPopup = () => {
 }
 
 const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6 周六', '7 周日']
+const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const periodOptions = Array.from({ length: 11 }, (_, i) => i + 1)
+const MAX_PERIOD = 11
 
 // 更加精细的时间表
 const timeSchedule = [
@@ -177,6 +203,148 @@ const currentMonth = computed(() => {
   return new Date().getMonth() + 1
 })
 
+const semesterWeekOptions = computed(() => {
+  const count = Number(totalWeeks.value)
+  const safeCount = Number.isFinite(count) && count > 0 ? count : 25
+  return Array.from({ length: safeCount }, (_, i) => i + 1)
+})
+
+const courseSpanOptions = computed(() => {
+  const start = Number(addCourseForm.value.period) || 1
+  const maxSpan = Math.max(1, 12 - start)
+  return Array.from({ length: maxSpan }, (_, i) => i + 1)
+})
+
+const addWeeksCountText = computed(() => {
+  const weeks = Array.isArray(addCourseForm.value.weeks) ? addCourseForm.value.weeks.length : 0
+  return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
+})
+
+const openConfirmDialog = ({
+  title = '请确认',
+  lines = [],
+  confirmText = '确认',
+  cancelText = '取消',
+  danger = false
+} = {}) => {
+  confirmDialogTitle.value = String(title || '请确认')
+  confirmDialogLines.value = Array.isArray(lines)
+    ? lines.map((line) => String(line || '').trim()).filter(Boolean)
+    : []
+  confirmDialogConfirmText.value = String(confirmText || '确认')
+  confirmDialogCancelText.value = String(cancelText || '取消')
+  confirmDialogDanger.value = !!danger
+  showConfirmDialog.value = true
+}
+
+const closeConfirmDialog = (result = false) => {
+  showConfirmDialog.value = false
+  const resolver = confirmDialogResolver
+  confirmDialogResolver = null
+  if (resolver) {
+    resolver(!!result)
+  }
+}
+
+const askConfirm = (options = {}) => {
+  if (confirmDialogResolver) {
+    confirmDialogResolver(false)
+    confirmDialogResolver = null
+  }
+  openConfirmDialog(options)
+  return new Promise((resolve) => {
+    confirmDialogResolver = resolve
+  })
+}
+
+const normalizeWeeks = (weeks) => {
+  if (!Array.isArray(weeks)) return []
+  const normalized = weeks
+    .map((w) => Number(w))
+    .filter((w) => Number.isFinite(w) && w > 0)
+  return Array.from(new Set(normalized)).sort((a, b) => a - b)
+}
+
+const formatWeeksText = (weeks) => {
+  const values = normalizeWeeks(weeks)
+  if (!values.length) return ''
+  const ranges = []
+  let start = values[0]
+  let prev = values[0]
+  for (let i = 1; i < values.length; i += 1) {
+    const current = values[i]
+    if (current === prev + 1) {
+      prev = current
+      continue
+    }
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`)
+    start = current
+    prev = current
+  }
+  ranges.push(start === prev ? `${start}` : `${start}-${prev}`)
+  return ranges.join(',')
+}
+
+const mergeScheduleSources = () => {
+  const merged = [...remoteScheduleData.value, ...customScheduleData.value]
+  scheduleData.value = processScheduleData(merged)
+}
+
+const normalizeCustomCourse = (raw) => {
+  if (!raw || typeof raw !== 'object') return null
+  const weeks = normalizeWeeks(raw.weeks)
+  return {
+    id: String(raw.id || raw.source_id || ''),
+    name: String(raw.name || '').trim(),
+    teacher: String(raw.teacher || '').trim(),
+    room: String(raw.room || raw.room_code || '').trim(),
+    room_code: String(raw.room_code || raw.room || '').trim(),
+    building: String(raw.building || '自定义').trim(),
+    weekday: Number(raw.weekday || 1),
+    period: Number(raw.period || 1),
+    djs: Number(raw.djs || 1),
+    weeks,
+    weeks_text: String(raw.weeks_text || formatWeeksText(weeks)),
+    credit: String(raw.credit || ''),
+    class_name: String(raw.class_name || '自定义课程'),
+    semester: String(raw.semester || semester.value || semesterDraft.value || ''),
+    source_id: String(raw.source_id || raw.id || ''),
+    is_custom: true
+  }
+}
+
+const loadCustomCourses = async (targetSemester = '') => {
+  const sid = String(props.studentId || '').trim()
+  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
+  if (!sid || !sem) {
+    customScheduleData.value = []
+    mergeScheduleSources()
+    return false
+  }
+
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list`, {
+      student_id: sid,
+      semester: sem
+    })
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || '加载自定义课程失败')
+    }
+    const list = Array.isArray(res.data?.data) ? res.data.data : []
+    customScheduleData.value = list
+      .map(normalizeCustomCourse)
+      .filter(Boolean)
+      .filter((course) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
+    mergeScheduleSources()
+    return true
+  } catch (e) {
+    console.warn('加载自定义课程失败', e)
+    customScheduleData.value = []
+    mergeScheduleSources()
+    return false
+  }
+}
+
 const applyMeta = (meta, requestedSemester = '') => {
   const safeMeta = meta && typeof meta === 'object' ? meta : {}
   const resolvedSemester = String(safeMeta.semester || requestedSemester || semester.value || '').trim()
@@ -212,7 +380,8 @@ const applySchedulePayload = (payload, requestedSemester = '') => {
   const rawData = Array.isArray(payload?.data) ? payload.data : []
   offline.value = !!payload.offline
   syncTime.value = payload.sync_time || ''
-  scheduleData.value = processScheduleData(rawData)
+  remoteScheduleData.value = processScheduleData(rawData)
+  mergeScheduleSources()
   applyMeta(payload.meta, requestedSemester)
   errorMsg.value = rawData.length === 0 ? '暂无可用课表' : ''
   return true
@@ -234,8 +403,13 @@ const fetchSchedule = async (targetSemester = '') => {
   loading.value = true
   semesterError.value = ''
   const requestedSemester = String(targetSemester || semester.value || semesterDraft.value || '').trim()
+  const previousSemester = String(semester.value || '').trim()
   errorMsg.value = ''
   try {
+    if (requestedSemester && requestedSemester !== previousSemester) {
+      customScheduleData.value = []
+      mergeScheduleSources()
+    }
     if (requestedSemester) {
       semester.value = requestedSemester
     }
@@ -256,6 +430,10 @@ const fetchSchedule = async (targetSemester = '') => {
 
     if (data?.success) {
       applySchedulePayload(data, requestedSemester)
+      await loadCustomCourses(requestedSemester || semester.value)
+      if (!remoteScheduleData.value.length && customScheduleData.value.length > 0) {
+        errorMsg.value = ''
+      }
       if (requestedSemester) {
         writeScheduleLock(props.studentId, requestedSemester, 'schedule-fetch')
       }
@@ -271,28 +449,38 @@ const fetchSchedule = async (targetSemester = '') => {
         errorMsg.value = data?.error || '会话已过期，请重新登录'
         return false
       }
-      scheduleData.value = []
+      remoteScheduleData.value = []
+      mergeScheduleSources()
       offline.value = false
       vacationNotice.value = ''
       startDateStr.value = ''
       currentWeek.value = 1
       selectedWeek.value = 1
       totalWeeks.value = 25
+      await loadCustomCourses(requestedSemester || semester.value)
       const message = String(data?.error || '获取课表失败')
       errorMsg.value = /无课表|暂无/.test(message) ? '暂无可用课表' : message
+      if (customScheduleData.value.length > 0) {
+        errorMsg.value = ''
+      }
       return false
     }
   } catch (e) {
     console.error('获取课表异常', e)
-    scheduleData.value = []
+    remoteScheduleData.value = []
+    mergeScheduleSources()
     offline.value = false
     vacationNotice.value = ''
     startDateStr.value = ''
     currentWeek.value = 1
     selectedWeek.value = 1
     totalWeeks.value = 25
+    await loadCustomCourses(requestedSemester || semester.value)
     const message = String(e?.message || '获取课表失败')
     errorMsg.value = /无课表|暂无/.test(message) ? '暂无可用课表' : message
+    if (customScheduleData.value.length > 0) {
+      errorMsg.value = ''
+    }
     return false
   } finally {
     loading.value = false
@@ -357,6 +545,20 @@ watch(totalWeeks, (maxWeeks) => {
   }
 })
 
+watch(
+  () => addCourseForm.value.period,
+  (periodValue) => {
+    const start = Number(periodValue) || 1
+    const maxSpan = Math.max(1, 12 - start)
+    if (Number(addCourseForm.value.djs) > maxSpan) {
+      addCourseForm.value.djs = maxSpan
+    }
+    if (Number(addCourseForm.value.djs) < 1) {
+      addCourseForm.value.djs = 1
+    }
+  }
+)
+
 // 数据预处理：合并连续课程，去除重复
 const processScheduleData = (courses) => {
   if (!courses || courses.length === 0) return []
@@ -405,21 +607,72 @@ const areAdjacentCourses = (a, b) => {
   return false
 }
 
+const getCourseMergeSignature = (course) => {
+  const id = String(course?.id || course?.source_id || '').trim()
+  const name = String(course?.name || '').trim()
+  const teacher = String(course?.teacher || '').trim()
+  const room = String(course?.room_code || course?.room || '').trim()
+  const building = String(course?.building || '').trim()
+  const className = String(course?.class_name || '').trim()
+  const custom = course?.is_custom ? '1' : '0'
+  return `${id}|${name}|${teacher}|${room}|${building}|${className}|${custom}`
+}
+
+const getCourseEndPeriod = (course) => {
+  const start = Number(course?.period) || 1
+  const span = Math.max(1, Number(course?.djs) || 1)
+  return Math.min(MAX_PERIOD, start + span - 1)
+}
+
 const mergeDailyCourses = (dailyCourses) => {
   if (!dailyCourses.length) return []
+  const signatureCount = new Map()
+  dailyCourses.forEach((course) => {
+    const signature = getCourseMergeSignature(course)
+    signatureCount.set(signature, (signatureCount.get(signature) || 0) + 1)
+  })
+
+  const resolveRawSpan = (course) => {
+    const start = Number(course?.period) || 1
+    if (course?.is_custom) {
+      return Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course?.djs) || 1))
+    }
+    const signature = getCourseMergeSignature(course)
+    const count = Number(signatureCount.get(signature) || 0)
+    if (count > 1) {
+      return 1
+    }
+    const candidate = Number(course?.djs) || 1
+    if (candidate >= 1 && candidate <= MAX_PERIOD && start + candidate - 1 <= MAX_PERIOD) {
+      return candidate
+    }
+    return 1
+  }
+
   const merged = []
   let i = 0
 
   while (i < dailyCourses.length) {
     const current = dailyCourses[i]
-    const startPeriod = current.period
-    let endPeriod = current.period
+    const startPeriod = Number(current.period) || 1
+    const currentSpan = resolveRawSpan(current)
+    let endPeriod = Math.min(MAX_PERIOD, startPeriod + currentSpan - 1)
 
     let j = i + 1
     while (j < dailyCourses.length) {
       const next = dailyCourses[j]
-      if (next.name === current.name && next.period <= endPeriod + 1) {
-        endPeriod = Math.max(endPeriod, next.period)
+      const nextStart = Number(next.period) || 1
+      const nextSpan = resolveRawSpan(next)
+      const nextEnd = Math.min(MAX_PERIOD, nextStart + nextSpan - 1)
+      const sameSignature = getCourseMergeSignature(next) === getCourseMergeSignature(current)
+      const canMergeSinglePeriodOnly = currentSpan === 1 && nextSpan === 1
+      if (
+        sameSignature &&
+        canMergeSinglePeriodOnly &&
+        !!next.is_custom === !!current.is_custom &&
+        nextStart === endPeriod + 1
+      ) {
+        endPeriod = Math.max(endPeriod, nextEnd)
         j++
       } else {
         break
@@ -436,6 +689,90 @@ const mergeDailyCourses = (dailyCourses) => {
   return merged
 }
 
+const buildConflictBlocks = (day, mergedCourses, weekNumber) => {
+  if (!Array.isArray(mergedCourses) || mergedCourses.length < 2) return []
+  const periodConflicts = []
+
+  for (let period = 1; period <= 11; period += 1) {
+    const activeRaw = mergedCourses.filter(course => {
+      const start = Number(course._start || course.period || 1)
+      const span = Math.max(1, Number(course.djs || 1))
+      const end = Number(course._end || (start + span - 1))
+      return period >= start && period <= end && !course.is_conflict
+    })
+    const active = []
+    const signatureSet = new Set()
+    activeRaw.forEach((course) => {
+      const signature = `${getCourseMergeSignature(course)}|${course.period}|${course.djs}`
+      if (signatureSet.has(signature)) return
+      signatureSet.add(signature)
+      active.push(course)
+    })
+    if (active.length > 1) {
+      const ids = active
+        .map(course => String(course._uid || course.id || course.name))
+        .sort()
+      periodConflicts.push({
+        period,
+        key: ids.join('|'),
+        active
+      })
+    }
+  }
+
+  if (!periodConflicts.length) return []
+
+  const blocks = []
+  let i = 0
+  while (i < periodConflicts.length) {
+    const current = periodConflicts[i]
+    let end = current.period
+    let j = i + 1
+    while (
+      j < periodConflicts.length &&
+      periodConflicts[j].period === end + 1 &&
+      periodConflicts[j].key === current.key
+    ) {
+      end = periodConflicts[j].period
+      j += 1
+    }
+    const conflictCourses = current.active
+    const title = `课程冲突（${conflictCourses.length}门）`
+    blocks.push({
+      id: `conflict:${day}:${current.period}:${end}:${current.key}`,
+      name: title,
+      teacher: '',
+      room: '点击查看冲突详情',
+      room_code: `${conflictCourses.length}门冲突`,
+      building: '冲突提示',
+      weekday: day,
+      period: current.period,
+      djs: end - current.period + 1,
+      weeks: [weekNumber],
+      weeks_text: String(weekNumber),
+      credit: '',
+      class_name: '冲突课程',
+      is_conflict: true,
+      conflict_courses: conflictCourses.map(course => ({
+        id: course.id,
+        name: course.name,
+        teacher: course.teacher,
+        room: course.room,
+        room_code: course.room_code,
+        building: course.building,
+        weekday: course.weekday,
+        period: course.period,
+        djs: course.djs,
+        weeks_text: course.weeks_text,
+        is_custom: !!course.is_custom
+      }))
+    })
+    i = j
+  }
+
+  return blocks
+}
+
 const buildWeekCoursesWithColors = (weekNumber) => {
   const byDay = {}
   const nodes = []
@@ -447,9 +784,9 @@ const buildWeekCoursesWithColors = (weekNumber) => {
       .sort((a, b) => a.period - b.period)
 
     const merged = mergeDailyCourses(dailyCourses).map((course, index) => {
-      const span = course.djs || 1
+      const span = Math.max(1, Number(course.djs) || 1)
       const start = Number(course.period)
-      const end = start + span - 1
+      const end = Math.min(MAX_PERIOD, start + span - 1)
       return {
         ...course,
         _day: day,
@@ -459,7 +796,8 @@ const buildWeekCoursesWithColors = (weekNumber) => {
       }
     })
 
-    byDay[day] = merged
+    const conflicts = buildConflictBlocks(day, merged, weekNumber)
+    byDay[day] = [...merged, ...conflicts]
     merged.forEach((node) => {
       nodes.push(node)
       const nameKey = String(node.name || '')
@@ -517,7 +855,9 @@ const buildWeekCoursesWithColors = (weekNumber) => {
   for (let day = 1; day <= 7; day += 1) {
     byDay[day] = (byDay[day] || []).map(course => ({
       ...course,
-      colorIndex: colorByName.get(String(course.name || '')) ?? 0
+      colorIndex: course.is_conflict
+        ? 0
+        : (colorByName.get(String(course.name || '')) ?? 0)
     }))
   }
 
@@ -555,6 +895,20 @@ const getDateForWeekDay = (weekNumber, weekday) => {
 
 const getCourseStyle = (course) => {
   if (!course) return {}
+  const start = Number(course.period) || 1
+  const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course.djs) || 1))
+  if (course.is_conflict) {
+    return {
+      '--course-bg': 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)',
+      '--course-text': '#b91c1c',
+      '--course-border': '#dc2626',
+      '--course-shadow': '0 8px 18px rgba(220, 38, 38, 0.2)',
+      borderWidth: '2px',
+      gridRow: `${start} / span ${span}`,
+      gridColumn: '1',
+      zIndex: 4
+    }
+  }
   
   // 使用预计算的 index，或者 fallback 到哈希
   let index = 0
@@ -570,13 +924,16 @@ const getCourseStyle = (course) => {
   }
 
   const theme = courseThemes[index]
-  const span = course.djs || 1
+  const isCustom = !!course.is_custom
+  const borderColor = isCustom ? '#111111' : (theme.border || '#cbd5e1')
   
   return {
     '--course-bg': theme.bg,
     '--course-text': theme.text,
-    '--course-border': theme.border || '#cbd5e1',
-    gridRow: `${course.period} / span ${span}`,
+    '--course-border': borderColor,
+    '--course-shadow': isCustom ? '0 7px 16px rgba(15, 23, 42, 0.24)' : '0 6px 14px rgba(71, 85, 105, 0.16)',
+    borderWidth: isCustom ? '2px' : '1px',
+    gridRow: `${start} / span ${span}`,
     gridColumn: '1',
     zIndex: 1,
     // 增加间隔 (或者通过 margin 在 css 控制)
@@ -584,8 +941,178 @@ const getCourseStyle = (course) => {
 }
 
 const openDetail = (course) => {
+  detailActionError.value = ''
   selectedCourse.value = course
   showDetail.value = true
+}
+
+const resetAddCourseForm = () => {
+  addCourseForm.value = {
+    name: '',
+    teacher: '',
+    room: '',
+    weekday: 1,
+    period: 1,
+    djs: 1,
+    weeks: semesterWeekOptions.value.slice()
+  }
+  addCourseError.value = ''
+  showWeekPicker.value = false
+}
+
+const openAddCourseDialog = () => {
+  const sem = String(semester.value || semesterDraft.value || '').trim()
+  if (!sem) {
+    semesterError.value = '请先选择学期后再添加课程'
+    return
+  }
+  resetAddCourseForm()
+  showAddCourse.value = true
+}
+
+const closeAddCourseDialog = () => {
+  showAddCourse.value = false
+  showWeekPicker.value = false
+  addCourseError.value = ''
+}
+
+const toggleAddCourseWeek = (week) => {
+  const current = normalizeWeeks(addCourseForm.value.weeks)
+  if (current.includes(week)) {
+    addCourseForm.value.weeks = current.filter((w) => w !== week)
+    return
+  }
+  addCourseForm.value.weeks = normalizeWeeks([...current, week])
+}
+
+const selectAllAddCourseWeeks = () => {
+  addCourseForm.value.weeks = semesterWeekOptions.value.slice()
+}
+
+const clearAddCourseWeeks = () => {
+  addCourseForm.value.weeks = []
+}
+
+const validateAddCourse = () => {
+  const name = String(addCourseForm.value.name || '').trim()
+  if (!name) return '课程名称不能为空'
+  const weeks = normalizeWeeks(addCourseForm.value.weeks)
+  if (!weeks.length) return '请至少选择一个周次'
+  const weekday = Number(addCourseForm.value.weekday)
+  if (!Number.isFinite(weekday) || weekday < 1 || weekday > 7) return '请选择上课时间'
+  const period = Number(addCourseForm.value.period)
+  if (!Number.isFinite(period) || period < 1 || period > 11) return '开始节次必须在 1-11 节'
+  const span = Number(addCourseForm.value.djs)
+  const maxSpan = Math.max(1, 12 - period)
+  if (!Number.isFinite(span) || span < 1 || span > maxSpan) return `上课节数必须在 1-${maxSpan} 节`
+  return ''
+}
+
+const submitAddCourse = async () => {
+  const sem = String(semester.value || semesterDraft.value || '').trim()
+  if (!sem) {
+    addCourseError.value = '学期无效，请重新选择'
+    return
+  }
+  const sid = String(props.studentId || '').trim()
+  if (!sid) {
+    addCourseError.value = '请先登录后再添加课程'
+    return
+  }
+  const validationError = validateAddCourse()
+  if (validationError) {
+    addCourseError.value = validationError
+    return
+  }
+
+  const weeks = normalizeWeeks(addCourseForm.value.weeks)
+  const payload = {
+    student_id: sid,
+    semester: sem,
+    name: String(addCourseForm.value.name || '').trim(),
+    teacher: String(addCourseForm.value.teacher || '').trim(),
+    room: String(addCourseForm.value.room || '').trim(),
+    weekday: Number(addCourseForm.value.weekday),
+    period: Number(addCourseForm.value.period),
+    djs: Number(addCourseForm.value.djs),
+    weeks
+  }
+
+  const confirmText = [
+    `确认添加到学期：${sem}`,
+    `课程：${payload.name}`,
+    `时间：${weekDayLabels[payload.weekday - 1]} 第${payload.period}-${payload.period + payload.djs - 1}节`,
+    `周次：${formatWeeksText(weeks)}`
+  ]
+  const confirmed = await askConfirm({
+    title: '确认添加课程',
+    lines: confirmText,
+    confirmText: '确认添加',
+    cancelText: '取消',
+    danger: false
+  })
+  if (!confirmed) {
+    return
+  }
+
+  addingCourse.value = true
+  addCourseError.value = ''
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/add`, payload)
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || '添加课程失败')
+    }
+    await loadCustomCourses(sem)
+    showAddCourse.value = false
+    showWeekPicker.value = false
+  } catch (e) {
+    addCourseError.value = String(e?.response?.data?.error || e?.message || '添加课程失败')
+  } finally {
+    addingCourse.value = false
+  }
+}
+
+const deleteCustomCourse = async (mode) => {
+  const course = selectedCourse.value
+  if (!course?.is_custom) return
+  const sem = String(semester.value || semesterDraft.value || '').trim()
+  const sid = String(props.studentId || '').trim()
+  if (!sem || !sid) return
+  const courseId = String(course.source_id || course.id || '').trim()
+  if (!courseId) return
+
+  const isCurrentWeek = mode === 'current_week'
+  const week = Number(selectedWeek.value || 0)
+  const message = isCurrentWeek
+    ? `确认删除“${course.name}”在第${week}周的课程吗？`
+    : `确认删除“${course.name}”的全部已选周次吗？`
+  const confirmed = await askConfirm({
+    title: '确认删除课程',
+    lines: [message],
+    confirmText: '确认删除',
+    cancelText: '取消',
+    danger: true
+  })
+  if (!confirmed) return
+
+  try {
+    const payload = {
+      student_id: sid,
+      semester: sem,
+      course_id: courseId,
+      mode: isCurrentWeek ? 'current_week' : 'all',
+      current_week: isCurrentWeek ? week : undefined
+    }
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/delete`, payload)
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || '删除课程失败')
+    }
+    await loadCustomCourses(sem)
+    showDetail.value = false
+    detailActionError.value = ''
+  } catch (e) {
+    detailActionError.value = String(e?.response?.data?.error || e?.message || '删除课程失败')
+  }
 }
 
 // 滑动翻页
@@ -606,7 +1133,7 @@ const handleSwipe = () => {
   const threshold = 50 // 最小滑动距离
   
   if (Math.abs(diff) > threshold) {
-    if (diff > 0 && selectedWeek.value < 25) {
+    if (diff > 0 && selectedWeek.value < totalWeeks.value) {
       // 向左滑 -> 下一周
       selectedWeek.value++
     } else if (diff < 0 && selectedWeek.value > 1) {
@@ -640,8 +1167,7 @@ const buildExportEventsForWeek = (weekNumber) => {
     const courses = getCoursesForDayAndWeek(day, weekNumber)
     courses.forEach(course => {
       const startPeriod = course.period
-      const span = course.djs || 1
-      const endPeriod = startPeriod + span - 1
+      const endPeriod = getCourseEndPeriod(course)
       const startSlot = timeSchedule.find(t => t.p === startPeriod)
       const endSlot = timeSchedule.find(t => t.p === endPeriod)
       if (!startSlot || !endSlot) return
@@ -669,7 +1195,9 @@ const buildExportEventsForSemester = () => {
   const events = []
   if (!startDateStr.value) return events
   const maxWeek = scheduleData.value.reduce((acc, course) => {
-    const maxCourseWeek = Array.isArray(course.weeks) ? Math.max(...course.weeks) : 0
+    const maxCourseWeek = Array.isArray(course.weeks) && course.weeks.length
+      ? Math.max(...course.weeks)
+      : 0
     return Math.max(acc, maxCourseWeek)
   }, 0)
   const totalWeeks = maxWeek || 25
@@ -682,8 +1210,7 @@ const buildExportEventsForSemester = () => {
       const courses = getCoursesForDayAndWeek(day, week)
       courses.forEach(course => {
         const startPeriod = course.period
-        const span = course.djs || 1
-        const endPeriod = startPeriod + span - 1
+        const endPeriod = getCourseEndPeriod(course)
         const startSlot = timeSchedule.find(t => t.p === startPeriod)
         const endSlot = timeSchedule.find(t => t.p === endPeriod)
         if (!startSlot || !endSlot) return
@@ -801,6 +1328,7 @@ onMounted(async () => {
 
     const hasInstantCache = applyCachedScheduleImmediately(lockedSemester)
     if (hasInstantCache) {
+      void loadCustomCourses(lockedSemester)
       // 有缓存时先秒开，再后台刷新，避免每次进入“空白等待”。
       void fetchSchedule(lockedSemester)
     } else {
@@ -817,6 +1345,8 @@ onMounted(async () => {
       semesterDraft.value = warmed.semester
       if (!applySchedulePayload(warmed.payload, warmed.semester)) {
         await fetchSchedule(warmed.semester)
+      } else {
+        await loadCustomCourses(warmed.semester)
       }
     } else {
       await fetchSchedule()
@@ -872,6 +1402,9 @@ onMounted(async () => {
         </div>
 
         <div class="drawer-actions">
+          <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
+            添加课程
+          </button>
           <button class="drawer-action" :disabled="exporting" @click="exportCalendar('week')">
             {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
           </button>
@@ -905,6 +1438,91 @@ onMounted(async () => {
     <div v-if="errorMsg" class="error-banner">
       {{ errorMsg }}
     </div>
+
+    <Transition name="fade">
+      <div v-if="showAddCourse" class="modal-overlay" @click="closeAddCourseDialog">
+        <div class="modal-content glass add-course-modal" @click.stop>
+          <div class="modal-header">
+            <h3>添加课程</h3>
+            <button class="close-btn" @click="closeAddCourseDialog">×</button>
+          </div>
+          <div class="modal-body add-course-body">
+            <div class="add-course-semester">学期：{{ semester || semesterDraft }}</div>
+            <label class="add-field">
+              <span>课程名称 *</span>
+              <input v-model.trim="addCourseForm.name" type="text" placeholder="请输入课程名称" />
+            </label>
+            <label class="add-field">
+              <span>教师</span>
+              <input v-model.trim="addCourseForm.teacher" type="text" placeholder="可选" />
+            </label>
+            <label class="add-field">
+              <span>上课地点</span>
+              <input v-model.trim="addCourseForm.room" type="text" placeholder="可选" />
+            </label>
+            <div class="add-field">
+              <span>上课时间 *</span>
+              <select v-model.number="addCourseForm.weekday">
+                <option v-for="(label, idx) in weekDayLabels" :key="label" :value="idx + 1">{{ label }}</option>
+              </select>
+            </div>
+            <div class="add-row">
+              <label class="add-field">
+                <span>开始节次 *</span>
+                <select v-model.number="addCourseForm.period">
+                  <option v-for="p in periodOptions" :key="p" :value="p">第{{ p }}节</option>
+                </select>
+              </label>
+              <label class="add-field">
+                <span>上课节数 *</span>
+                <select v-model.number="addCourseForm.djs">
+                  <option v-for="s in courseSpanOptions" :key="s" :value="s">{{ s }}节</option>
+                </select>
+              </label>
+            </div>
+            <div class="add-field">
+              <span>上课周次 *</span>
+              <button class="week-picker-trigger" @click="showWeekPicker = true">
+                {{ addWeeksCountText }}
+              </button>
+            </div>
+            <div v-if="addCourseError" class="drawer-error add-course-error">{{ addCourseError }}</div>
+          </div>
+          <div class="add-actions">
+            <button class="drawer-action ghost" :disabled="addingCourse" @click="closeAddCourseDialog">取消</button>
+            <button class="drawer-action" :disabled="addingCourse" @click="submitAddCourse">
+              {{ addingCourse ? '正在添加...' : '添加并确认' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="sheet-up">
+      <div v-if="showWeekPicker" class="week-picker-mask" @click.self="showWeekPicker = false">
+        <div class="week-picker-sheet">
+          <div class="week-picker-header">
+            <div class="week-picker-title">选择周次</div>
+            <div class="week-picker-ops">
+              <button @click="selectAllAddCourseWeeks">全选</button>
+              <button @click="clearAddCourseWeeks">清空</button>
+            </div>
+          </div>
+          <div class="week-picker-grid">
+            <button
+              v-for="week in semesterWeekOptions"
+              :key="week"
+              class="week-cell"
+              :class="{ active: addCourseForm.weeks.includes(week) }"
+              @click="toggleAddCourseWeek(week)"
+            >
+              第{{ week }}周
+            </button>
+          </div>
+          <button class="week-picker-confirm" @click="showWeekPicker = false">完成</button>
+        </div>
+      </div>
+    </Transition>
 
     <div v-if="showSemesterPopup" class="semester-popup-mask" @click.self="showSemesterPopup = false">
       <div class="semester-popup-card">
@@ -969,13 +1587,16 @@ onMounted(async () => {
            <div v-for="day in 7" :key="day" class="day-column">
                <div 
                   v-for="course in getCoursesForDay(day)" 
-                  :key="course.id"
+                  :key="course._uid || course.id"
                   class="course-card"
+                  :class="{ conflict: course.is_conflict }"
                   :style="getCourseStyle(course)"
                   @click="openDetail(course)"
                >
                   <div class="course-name">{{ course.name }}</div>
-                  <div class="course-room">{{ course.room_code || course.room }}</div>
+                  <div class="course-room">
+                    {{ course.is_conflict ? '点击查看冲突课程详情' : (course.room_code || course.room) }}
+                  </div>
                </div>
            </div>
         </div>
@@ -988,34 +1609,84 @@ onMounted(async () => {
       <div v-if="showDetail" class="modal-overlay" @click="showDetail = false">
         <div class="modal-content glass" @click.stop>
           <div class="modal-header">
-            <h3>{{ selectedCourse.name }}</h3>
+            <h3>{{ selectedCourse?.name }}</h3>
             <button class="close-btn" @click="showDetail = false">×</button>
           </div>
-          <div class="modal-body">
+          <div v-if="selectedCourse?.is_conflict" class="modal-body">
+            <div class="conflict-hint">当前时段存在多个课程重叠，请按下列信息核对。</div>
+            <div
+              v-for="(item, idx) in selectedCourse?.conflict_courses || []"
+              :key="`${item.id || item.name}-${idx}`"
+              class="conflict-item"
+            >
+              <div class="conflict-item-title">
+                {{ idx + 1 }}. {{ item.name }}
+                <span v-if="item.is_custom" class="conflict-tag">自定义</span>
+              </div>
+              <div class="conflict-item-row">教师：{{ item.teacher || '未填写' }}</div>
+              <div class="conflict-item-row">
+                地点：{{ [item.building, item.room || item.room_code].filter(Boolean).join(' ') || '未填写' }}
+              </div>
+              <div class="conflict-item-row">
+                时间：周{{ item.weekday }} 第{{ item.period }}-{{ getCourseEndPeriod(item) }}节
+              </div>
+            </div>
+          </div>
+          <div v-else class="modal-body">
+            <div v-if="selectedCourse?.is_custom" class="info-row">
+              <span class="label">类型</span>
+              <span class="value">自定义课程</span>
+            </div>
             <div class="info-row">
               <span class="label">教师</span>
-              <span class="value">{{ selectedCourse.teacher }}</span>
+              <span class="value">{{ selectedCourse?.teacher }}</span>
             </div>
             <div class="info-row">
               <span class="label">教室</span>
-              <span class="value">{{ selectedCourse.room }} ({{ selectedCourse.building }})</span>
+              <span class="value">{{ selectedCourse?.room }} ({{ selectedCourse?.building }})</span>
             </div>
             <div class="info-row">
               <span class="label">时间</span>
-              <span class="value">周{{ selectedCourse.weekday }} 第{{ selectedCourse.period }}-{{ selectedCourse.period + (selectedCourse.djs || 1) - 1 }}节</span>
+              <span class="value">周{{ selectedCourse?.weekday }} 第{{ selectedCourse?.period }}-{{ getCourseEndPeriod(selectedCourse) }}节</span>
             </div>
             <div class="info-row">
               <span class="label">周次</span>
-              <span class="value">{{ selectedCourse.weeks_text }}周</span>
+              <span class="value">{{ selectedCourse?.weeks_text }}周</span>
             </div>
             <div class="info-row">
               <span class="label">学分</span>
-              <span class="value">{{ selectedCourse.credit }}</span>
+              <span class="value">{{ selectedCourse?.credit }}</span>
             </div>
              <div class="info-row">
               <span class="label">教学班</span>
-              <span class="value">{{ selectedCourse.class_name }}</span>
+              <span class="value">{{ selectedCourse?.class_name }}</span>
             </div>
+            <div v-if="selectedCourse?.is_custom" class="custom-course-actions">
+              <button class="custom-delete-btn week" @click="deleteCustomCourse('current_week')">删除这一周</button>
+              <button class="custom-delete-btn all" @click="deleteCustomCourse('all')">删除全部周次</button>
+            </div>
+          </div>
+          <div v-if="detailActionError" class="detail-action-error">{{ detailActionError }}</div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="fade">
+      <div v-if="showConfirmDialog" class="modal-overlay confirm-overlay" @click="closeConfirmDialog(false)">
+        <div class="modal-content confirm-modal" @click.stop>
+          <div class="confirm-title">{{ confirmDialogTitle }}</div>
+          <div class="confirm-lines">
+            <p v-for="(line, idx) in confirmDialogLines" :key="`confirm-${idx}`">{{ line }}</p>
+          </div>
+          <div class="confirm-actions">
+            <button class="confirm-btn cancel" @click="closeConfirmDialog(false)">{{ confirmDialogCancelText }}</button>
+            <button
+              class="confirm-btn"
+              :class="{ danger: confirmDialogDanger }"
+              @click="closeConfirmDialog(true)"
+            >
+              {{ confirmDialogConfirmText }}
+            </button>
           </div>
         </div>
       </div>
@@ -1236,6 +1907,11 @@ onMounted(async () => {
 .drawer-action.ghost {
   background: #111827;
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+}
+
+.drawer-action.add-course {
+  background: linear-gradient(135deg, #f97316, #ec4899);
+  box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26);
 }
 
 .drawer-action:disabled {
@@ -1503,8 +2179,16 @@ onMounted(async () => {
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  box-shadow: 0 6px 14px rgba(71, 85, 105, 0.16);
+  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16));
   border: 1px solid var(--course-border, rgba(148, 163, 184, 0.55));
+}
+
+.course-card.conflict .course-name {
+  font-weight: 700;
+}
+
+.course-card.conflict .course-room {
+  font-size: 10px;
 }
 
 .course-card:active {
@@ -1535,11 +2219,13 @@ onMounted(async () => {
   position: fixed;
   top:0; left:0; right:0; bottom:0;
   background: rgba(0,0,0,0.4);
-  z-index: 100;
+  z-index: 320;
   display: flex;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
+  padding: calc(env(safe-area-inset-top) + 10px) 12px calc(env(safe-area-inset-bottom) + 20px);
+  box-sizing: border-box;
 }
 
 .modal-content {
@@ -1549,6 +2235,90 @@ onMounted(async () => {
   border-radius: 20px;
   padding: 24px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.add-course-modal {
+  width: min(92vw, 400px);
+  max-width: 420px;
+  max-height: min(74dvh, 600px);
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+}
+
+.add-course-body {
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: calc(min(74dvh, 600px) - 148px);
+  padding-right: 2px;
+}
+
+.add-course-semester {
+  font-size: 12px;
+  color: #475569;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(226, 232, 240, 0.55);
+}
+
+.add-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.add-field {
+  display: grid;
+  gap: 6px;
+}
+
+.add-field > span {
+  font-size: 12px;
+  color: #475569;
+  font-weight: 600;
+}
+
+.add-field input,
+.add-field select {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.add-field input:focus,
+.add-field select:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.3);
+  outline-offset: 0;
+}
+
+.week-picker-trigger {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px dashed #94a3b8;
+  background: rgba(248, 250, 252, 0.95);
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.add-actions {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.add-course-error {
+  margin-top: -2px;
 }
 
 .modal-header {
@@ -1601,6 +2371,143 @@ onMounted(async () => {
   font-weight: 500;
   text-align: right;
   max-width: 70%;
+}
+
+.custom-course-actions {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.custom-delete-btn {
+  min-height: 34px;
+  border-radius: 10px;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.custom-delete-btn.week {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.custom-delete-btn.all {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.detail-action-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.conflict-hint {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 10px;
+}
+
+.conflict-item {
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.conflict-item:last-child {
+  margin-bottom: 0;
+}
+
+.conflict-item-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #7f1d1d;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conflict-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 11px;
+  background: #111827;
+  color: #ffffff;
+}
+
+.conflict-item-row {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #374151;
+}
+
+.confirm-overlay {
+  z-index: 360;
+}
+
+.confirm-modal {
+  width: min(90vw, 360px);
+  max-width: 360px;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.confirm-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.confirm-lines {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.confirm-lines p {
+  margin: 0;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.4;
+}
+
+.confirm-actions {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.confirm-btn {
+  min-height: 36px;
+  border-radius: 10px;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+}
+
+.confirm-btn.cancel {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.confirm-btn.danger {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
 }
 
 .fade-enter-active, .fade-leave-active {
@@ -1696,6 +2603,113 @@ onMounted(async () => {
   cursor: pointer;
 }
 
+.week-picker-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: rgba(15, 23, 42, 0.48);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.week-picker-sheet {
+  width: min(100vw, 520px);
+  max-height: min(78dvh, 620px);
+  background: #ffffff;
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -20px 44px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.week-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.week-picker-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.week-picker-ops {
+  display: flex;
+  gap: 8px;
+}
+
+.week-picker-ops button {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.week-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.week-cell {
+  min-height: 34px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.week-cell.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.week-picker-confirm {
+  min-height: 40px;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sheet-up-enter-active,
+.sheet-up-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.sheet-up-enter-active .week-picker-sheet,
+.sheet-up-leave-active .week-picker-sheet {
+  transition: transform 0.24s ease;
+}
+
+.sheet-up-enter-from,
+.sheet-up-leave-to {
+  opacity: 0;
+}
+
+.sheet-up-enter-from .week-picker-sheet,
+.sheet-up-leave-to .week-picker-sheet {
+  transform: translateY(100%);
+}
+
 .jump-current-btn {
   position: fixed;
   right: 16px;
@@ -1769,6 +2783,20 @@ onMounted(async () => {
 
   .course-room {
     font-size: 9px;
+  }
+
+  .add-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .add-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .week-picker-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
   }
 }
 </style>

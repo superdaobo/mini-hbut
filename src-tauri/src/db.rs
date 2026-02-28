@@ -19,8 +19,9 @@
 // 2. 提供通用的 JSON 缓存存取接口 (get_cache/save_cache)。
 // 3. 这里的缓存策略主要是为了支持离线模式 (Offline Mode) 和提升首屏加载速度。
 
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use chrono::Local;
 use base64::Engine;
@@ -42,6 +43,22 @@ pub struct LatestUserSessionData {
     pub one_code_token: String,
     pub refresh_token: String,
     pub token_expires_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomScheduleCourseRecord {
+    pub id: String,
+    pub student_id: String,
+    pub semester: String,
+    pub name: String,
+    pub teacher: String,
+    pub room: String,
+    pub weekday: i32,
+    pub period: i32,
+    pub djs: i32,
+    pub weeks: Vec<i32>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 fn ensure_user_session_columns(conn: &Connection) {
@@ -159,6 +176,29 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
             expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS custom_schedule_courses (
+            id TEXT PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            semester TEXT NOT NULL,
+            name TEXT NOT NULL,
+            teacher TEXT NOT NULL DEFAULT '',
+            room TEXT NOT NULL DEFAULT '',
+            weekday INTEGER NOT NULL,
+            period INTEGER NOT NULL,
+            djs INTEGER NOT NULL,
+            weeks_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+            updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_custom_schedule_student_semester
+         ON custom_schedule_courses (student_id, semester)",
         [],
     )?;
 
@@ -334,4 +374,128 @@ pub fn save_electricity_tokens<P: AsRef<Path>>(
         params![student_id, one_code_token, refresh_token, token_expires_at],
     )?;
     Ok(())
+}
+
+pub fn add_custom_schedule_course<P: AsRef<Path>>(
+    path: P,
+    course: &CustomScheduleCourseRecord,
+) -> Result<()> {
+    let conn = open_connection(path)?;
+    let weeks_json = serde_json::to_string(&course.weeks).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "INSERT OR REPLACE INTO custom_schedule_courses (
+            id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP)",
+        params![
+            course.id,
+            course.student_id,
+            course.semester,
+            course.name,
+            course.teacher,
+            course.room,
+            course.weekday,
+            course.period,
+            course.djs,
+            weeks_json
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_custom_schedule_courses<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    semester: &str,
+) -> Result<Vec<CustomScheduleCourseRecord>> {
+    let conn = open_connection(path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, created_at, updated_at
+         FROM custom_schedule_courses
+         WHERE student_id = ?1 AND semester = ?2
+         ORDER BY weekday ASC, period ASC, name ASC",
+    )?;
+
+    let mut rows = stmt.query(params![student_id, semester])?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next()? {
+        let weeks_json: String = row.get(9)?;
+        let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
+        result.push(CustomScheduleCourseRecord {
+            id: row.get(0)?,
+            student_id: row.get(1)?,
+            semester: row.get(2)?,
+            name: row.get(3)?,
+            teacher: row.get(4)?,
+            room: row.get(5)?,
+            weekday: row.get(6)?,
+            period: row.get(7)?,
+            djs: row.get(8)?,
+            weeks,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+        });
+    }
+    Ok(result)
+}
+
+pub fn get_custom_schedule_course<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    course_id: &str,
+) -> Result<Option<CustomScheduleCourseRecord>> {
+    let conn = open_connection(path)?;
+    conn.query_row(
+        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, created_at, updated_at
+         FROM custom_schedule_courses
+         WHERE student_id = ?1 AND id = ?2
+         LIMIT 1",
+        params![student_id, course_id],
+        |row| {
+            let weeks_json: String = row.get(9)?;
+            let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
+            Ok(CustomScheduleCourseRecord {
+                id: row.get(0)?,
+                student_id: row.get(1)?,
+                semester: row.get(2)?,
+                name: row.get(3)?,
+                teacher: row.get(4)?,
+                room: row.get(5)?,
+                weekday: row.get(6)?,
+                period: row.get(7)?,
+                djs: row.get(8)?,
+                weeks,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        },
+    )
+    .optional()
+}
+
+pub fn update_custom_schedule_course_weeks<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    course_id: &str,
+    weeks: &[i32],
+) -> Result<usize> {
+    let conn = open_connection(path)?;
+    let weeks_json = serde_json::to_string(weeks).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE custom_schedule_courses
+         SET weeks_json = ?3, updated_at = CURRENT_TIMESTAMP
+         WHERE student_id = ?1 AND id = ?2",
+        params![student_id, course_id, weeks_json],
+    )
+}
+
+pub fn delete_custom_schedule_course<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    course_id: &str,
+) -> Result<usize> {
+    let conn = open_connection(path)?;
+    conn.execute(
+        "DELETE FROM custom_schedule_courses WHERE student_id = ?1 AND id = ?2",
+        params![student_id, course_id],
+    )
 }

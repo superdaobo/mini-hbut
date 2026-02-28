@@ -299,6 +299,57 @@ const adapter = {
                 return mockResponse({ success: true, ...schedule });
             }
 
+            if (url.includes('/v2/schedule/custom/list')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('list_custom_schedule_courses', {
+                            studentId: data?.student_id || '',
+                            semester: data?.semester || ''
+                        });
+                        return mockResponse(payload);
+                    }
+                    const res = await bridgePost('/schedule/custom/list', data || {});
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取自定义课程失败' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/schedule/custom/add')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('add_custom_schedule_course', { req: data || {} });
+                        return mockResponse(payload);
+                    }
+                    const res = await bridgePost('/schedule/custom/add', data || {});
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '添加自定义课程失败' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/schedule/custom/delete')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('delete_custom_schedule_course', { req: data || {} });
+                        return mockResponse(payload);
+                    }
+                    const res = await bridgePost('/schedule/custom/delete', data || {});
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '删除自定义课程失败' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             if (url.includes('/v2/schedule/export_calendar')) {
                 try {
                     if (hasTauri) {
