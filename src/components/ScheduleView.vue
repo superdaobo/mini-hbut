@@ -962,7 +962,29 @@ const resetAddCourseForm = () => {
   showWeekPicker.value = false
 }
 
+const hasValidLoginSession = () => {
+  const sid = String(props.studentId || '').trim()
+  const sessionToken = String(localStorage.getItem(LOGIN_SESSION_TOKEN_KEY) || '').trim()
+  return !!sid && !!sessionToken
+}
+
+const promptLoginRequired = async () => {
+  errorMsg.value = '请先登录后再添加课程'
+  showMenu.value = false
+  await askConfirm({
+    title: '需要登录',
+    lines: ['请先登录后再添加课程。'],
+    confirmText: '我知道了',
+    cancelText: '关闭',
+    danger: false
+  })
+}
+
 const openAddCourseDialog = () => {
+  if (!hasValidLoginSession()) {
+    void promptLoginRequired()
+    return
+  }
   const sem = String(semester.value || semesterDraft.value || '').trim()
   if (!sem) {
     semesterError.value = '请先选择学期后再添加课程'
@@ -1011,6 +1033,10 @@ const validateAddCourse = () => {
 }
 
 const submitAddCourse = async () => {
+  if (!hasValidLoginSession()) {
+    await promptLoginRequired()
+    return
+  }
   const sem = String(semester.value || semesterDraft.value || '').trim()
   if (!sem) {
     addCourseError.value = '学期无效，请重新选择'

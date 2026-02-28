@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, getCachedData } from '../utils/api'
 import { showToast } from '../utils/toast'
@@ -24,6 +24,22 @@ const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice'])
 
 const brokenImages = ref(new Set())
 const cardListeners = []
+const isMobileNoticeSwipe = ref(false)
+const isTickerInteracting = ref(false)
+let tickerResumeTimer = null
+const tickerItemsRef = ref(null)
+const tickerTranslateX = ref(0)
+const tickerTransitionMs = ref(0)
+const tickerStepWidth = ref(236)
+const tickerLoopWidth = ref(0)
+const tickerSuppressClickUntil = ref(0)
+const TICKER_AUTO_SPEED = 26 // px/s
+let tickerRafId = 0
+let tickerLastFrameTs = 0
+let tickerDragActive = false
+let tickerDragStartX = 0
+let tickerDragLastX = 0
+let tickerDragStartTranslate = 0
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
@@ -390,13 +406,6 @@ const handleProfileClick = () => {
   emit('navigate', 'me')
 }
 
-const tickerItems = computed(() => {
-  if (!props.tickerNotices.length) {
-    return [{ id: 'ticker-empty', title: '暂无通知' }]
-  }
-  return props.tickerNotices
-})
-
 const noticeItems = computed(() => {
   return [...props.noticeList]
 })
@@ -416,9 +425,159 @@ const allNotices = computed(() => {
 const marqueeItems = computed(() => {
   if (!allNotices.value.length) return []
   return allNotices.value.length > 1
-    ? [...allNotices.value, ...allNotices.value]
+    ? [...allNotices.value, ...allNotices.value, ...allNotices.value]
     : allNotices.value
 })
+
+const tickerItemsStyle = computed(() => ({
+  transform: `translate3d(${tickerTranslateX.value}px, 0, 0)`,
+  transitionDuration: `${tickerTransitionMs.value}ms`
+}))
+
+const getTickerBaseCount = () => {
+  const count = Number(allNotices.value.length || 0)
+  return Number.isFinite(count) && count > 0 ? count : 0
+}
+
+const normalizeTickerTranslate = (value) => {
+  const loopWidth = Number(tickerLoopWidth.value || 0)
+  if (loopWidth <= 0) return 0
+  const baseCount = getTickerBaseCount()
+  if (baseCount <= 1) return 0
+  const min = -loopWidth * 2
+  const max = -loopWidth
+  let x = Number(value || 0)
+  while (x <= min) x += loopWidth
+  while (x > max) x -= loopWidth
+  return x
+}
+
+const refreshTickerMetrics = async () => {
+  await nextTick()
+  const baseCount = getTickerBaseCount()
+  const el = tickerItemsRef.value
+  if (!el || baseCount <= 0) {
+    tickerLoopWidth.value = 0
+    tickerStepWidth.value = 236
+    tickerTranslateX.value = 0
+    return
+  }
+
+  const prevLoopWidth = Number(tickerLoopWidth.value || 0)
+  const firstItem = el.querySelector('.ticker-item')
+  const gap = Number.parseFloat(window.getComputedStyle(el).gap || '20') || 20
+  const width = firstItem?.getBoundingClientRect?.().width || 216
+  tickerStepWidth.value = Math.max(140, width + gap)
+  tickerLoopWidth.value = baseCount > 1 ? baseCount * tickerStepWidth.value : 0
+  if (baseCount <= 1) {
+    tickerTranslateX.value = 0
+    return
+  }
+  if (prevLoopWidth <= 0) {
+    tickerTranslateX.value = -tickerLoopWidth.value
+    return
+  }
+  tickerTranslateX.value = normalizeTickerTranslate(tickerTranslateX.value)
+}
+
+const pauseTickerForSwipe = () => {
+  if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return
+  if (tickerResumeTimer) {
+    window.clearTimeout(tickerResumeTimer)
+    tickerResumeTimer = null
+  }
+  isTickerInteracting.value = true
+}
+
+const resumeTickerAfterSwipe = () => {
+  if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return
+  if (tickerResumeTimer) {
+    window.clearTimeout(tickerResumeTimer)
+  }
+  tickerResumeTimer = window.setTimeout(() => {
+    isTickerInteracting.value = false
+    tickerResumeTimer = null
+  }, 600)
+}
+
+const onTickerTouchStart = (event) => {
+  if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return
+  pauseTickerForSwipe()
+  tickerDragActive = true
+  tickerTransitionMs.value = 0
+  tickerDragStartX = event.touches?.[0]?.clientX || 0
+  tickerDragLastX = tickerDragStartX
+  tickerDragStartTranslate = tickerTranslateX.value
+}
+
+const onTickerTouchMove = (event) => {
+  if (!tickerDragActive) return
+  const currentX = event.touches?.[0]?.clientX || tickerDragLastX
+  tickerDragLastX = currentX
+  const deltaX = currentX - tickerDragStartX
+  tickerTranslateX.value = tickerDragStartTranslate + deltaX
+}
+
+const onTickerTouchEnd = () => {
+  if (!tickerDragActive) return
+  tickerDragActive = false
+  const deltaX = tickerDragLastX - tickerDragStartX
+  const step = Math.max(1, tickerStepWidth.value)
+  const startSnap = Math.round(tickerDragStartTranslate / step) * step
+  const threshold = step * 0.2
+  let target = startSnap
+
+  if (Math.abs(deltaX) >= threshold) {
+    const moveCount = Math.max(1, Math.round(Math.abs(deltaX) / step))
+    target = startSnap + (deltaX < 0 ? -moveCount * step : moveCount * step)
+  } else {
+    target = Math.round(tickerTranslateX.value / step) * step
+  }
+
+  tickerTransitionMs.value = 320
+  tickerTranslateX.value = normalizeTickerTranslate(target)
+  if (Math.abs(deltaX) > 10) {
+    tickerSuppressClickUntil.value = Date.now() + 240
+  }
+  window.setTimeout(() => {
+    tickerTransitionMs.value = 0
+  }, 340)
+  resumeTickerAfterSwipe()
+}
+
+const startTickerLoop = () => {
+  if (tickerRafId) return
+  tickerLastFrameTs = 0
+  const tick = (ts) => {
+    if (!tickerLastFrameTs) tickerLastFrameTs = ts
+    const dt = ts - tickerLastFrameTs
+    tickerLastFrameTs = ts
+    const canAutoMove =
+      getTickerBaseCount() > 1 &&
+      !isTickerInteracting.value &&
+      !tickerDragActive &&
+      tickerTransitionMs.value === 0
+    if (canAutoMove) {
+      const next = tickerTranslateX.value - (TICKER_AUTO_SPEED * dt) / 1000
+      tickerTranslateX.value = normalizeTickerTranslate(next)
+    }
+    tickerRafId = window.requestAnimationFrame(tick)
+  }
+  tickerRafId = window.requestAnimationFrame(tick)
+}
+
+const stopTickerLoop = () => {
+  if (!tickerRafId) return
+  window.cancelAnimationFrame(tickerRafId)
+  tickerRafId = 0
+  tickerLastFrameTs = 0
+}
+
+const updateNoticeSwipeMode = () => {
+  if (typeof window === 'undefined') return
+  isMobileNoticeSwipe.value = window.innerWidth <= 720
+  void refreshTickerMetrics()
+}
 
 const noticeSummary = (notice) => {
   return notice?.summary || stripMarkdown(notice?.content || '') || '点击查看详情'
@@ -438,6 +597,7 @@ const handleImageError = (notice) => {
 }
 
 const openNotice = (notice) => {
+  if (Date.now() < tickerSuppressClickUntil.value) return
   emit('open-notice', notice)
 }
 
@@ -495,19 +655,39 @@ const detachCardSpotlight = () => {
 
 onMounted(() => {
   refreshLoginMethod()
+  updateNoticeSwipeMode()
+  void refreshTickerMetrics()
+  startTickerLoop()
   attachCardSpotlight()
   clockTimer = window.setInterval(() => {
     nowTick.value = Date.now()
   }, 60 * 1000)
+  window.addEventListener('resize', updateNoticeSwipeMode)
 })
 
 onBeforeUnmount(() => {
   detachCardSpotlight()
+  stopTickerLoop()
   if (clockTimer) {
     window.clearInterval(clockTimer)
     clockTimer = null
   }
+  if (tickerResumeTimer) {
+    window.clearTimeout(tickerResumeTimer)
+    tickerResumeTimer = null
+  }
+  window.removeEventListener('resize', updateNoticeSwipeMode)
 })
+
+watch(
+  () => marqueeItems.value.length,
+  () => {
+    tickerTransitionMs.value = 0
+    tickerTranslateX.value = 0
+    void refreshTickerMetrics()
+  },
+  { immediate: true }
+)
 
 watch(
   () => [props.studentId, props.isLoggedIn],
@@ -561,9 +741,16 @@ watch(
 
     <!-- 公告区（单行滚动） -->
     <section class="notice-panel" v-if="marqueeItems.length">
-      <div class="notice-ticker">
+      <div
+        class="notice-ticker"
+        :class="{ 'swipe-mode': isMobileNoticeSwipe, 'is-paused': isTickerInteracting }"
+        @touchstart.passive="onTickerTouchStart"
+        @touchmove.passive="onTickerTouchMove"
+        @touchend.passive="onTickerTouchEnd"
+        @touchcancel.passive="onTickerTouchEnd"
+      >
         <div class="ticker-track">
-          <div class="ticker-items">
+          <div class="ticker-items" ref="tickerItemsRef" :style="tickerItemsStyle">
             <div
               v-for="(notice, idx) in marqueeItems"
               :key="`${notice.id || notice.title}-${idx}`"
@@ -888,13 +1075,25 @@ html[data-theme='aurora'] .notice-panel {
   white-space: nowrap;
   flex-wrap: nowrap;
   width: max-content;
-  animation: ticker-scroll 25s linear infinite; /* Slower scroll for larger items */
   padding-right: 20px;
+  transform: translate3d(0, 0, 0);
+  transition-property: transform;
+  transition-timing-function: cubic-bezier(0.2, 0.9, 0.2, 1);
+  transition-duration: 0ms;
+  will-change: transform;
 }
 
-/* Pause on hover */
-.ticker-items:hover {
-  animation-play-state: paused;
+.notice-ticker.swipe-mode {
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.notice-ticker.swipe-mode .ticker-track {
+  overflow: hidden;
+}
+
+.notice-ticker.swipe-mode.is-paused .ticker-items {
+  transition-duration: 0ms !important;
 }
 
 .ticker-item {
@@ -968,11 +1167,6 @@ html[data-theme='aurora'] .ticker-card {
   border: 1px solid rgba(255,255,255,0.4);
   padding: 2px 8px;
   border-radius: 99px;
-}
-
-@keyframes ticker-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
 }
 
 .module-card {
