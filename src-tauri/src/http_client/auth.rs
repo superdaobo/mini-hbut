@@ -578,12 +578,14 @@ impl HbutClient {
                 }
             };
             self.is_logged_in = true;
+            self.set_chaoxing_login_mode(false);
             self.user_info = Some(user_info.clone());
             self.save_cookie_snapshot_to_file();
             return Ok(user_info);
         } else {
              println!("[调试] 服务登录成功: {}", service_url);
              self.is_logged_in = true;
+             self.set_chaoxing_login_mode(false);
              self.save_cookie_snapshot_to_file();
              // 尝试从缓存返回用户信息 (若无则返回仅包含学号的默认信息)
              return Ok(self.user_info.clone().unwrap_or(UserInfo {
@@ -806,6 +808,7 @@ impl HbutClient {
                 println!("[调试] 已登录（检测到），跳过登录 POST");
                 let user_info = self.fetch_user_info().await?;
                 self.is_logged_in = true;
+                self.set_chaoxing_login_mode(false);
                 self.user_info = Some(user_info.clone());
                 self.save_cookie_snapshot_to_file();
                 return Ok(user_info);
@@ -1063,6 +1066,7 @@ impl HbutClient {
         // 成功登录
         self.last_login_time = Some(std::time::Instant::now());
         self.is_logged_in = true;
+        self.set_chaoxing_login_mode(false);
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
 

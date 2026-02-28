@@ -297,19 +297,26 @@ impl HbutClient {
             self.academic_base_url(),
             semester
         );
-        let response = self.client.get(&calendar_url).send().await?;
+        let mut repaired = false;
+        loop {
+            let response = self.client.get(&calendar_url).send().await?;
+            let status = response.status();
+            let final_url = response.url().to_string();
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 校历请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Err("会话已过期，请重新登录".into());
+            }
+            if !status.is_success() {
+                return Err(format!("请求失败: {}", status).into());
+            }
 
-        let status = response.status();
-        let final_url = response.url().to_string();
-        if final_url.contains("authserver/login") {
-            return Err("会话已过期，请重新登录".into());
+            let data: serde_json::Value = response.json().await?;
+            return Ok(data);
         }
-        if !status.is_success() {
-            return Err(format!("请求失败: {}", status).into());
-        }
-
-        let data: serde_json::Value = response.json().await?;
-        Ok(data)
     }
 
     async fn fetch_calendar_summary_for_semester(
@@ -503,6 +510,32 @@ impl HbutClient {
             || lower.contains("no schedule")
             || lower.contains("unknown schedule")
             || lower.contains("schedule api")
+    }
+
+    fn extract_xhid_from_html(html: &str) -> Option<String> {
+        let patterns = [
+            // hidden input: <input id="xhid" value="...">
+            r#"(?is)<input[^>]+id\s*=\s*["']xhid["'][^>]*value\s*=\s*["']([^"']+)["']"#,
+            // hidden input: <input value="..." id="xhid">
+            r#"(?is)<input[^>]+value\s*=\s*["']([^"']+)["'][^>]*id\s*=\s*["']xhid["']"#,
+            // js: xhid = '...'
+            r#"xhid['"]?\s*[:=]\s*['"]([^'"]+)['"]"#,
+            // fallback token style
+            r#"(WGEyQ[A-Za-z0-9]+)"#,
+        ];
+        for pattern in patterns {
+            if let Ok(re) = regex::Regex::new(pattern) {
+                if let Some(cap) = re.captures(html) {
+                    if let Some(m) = cap.get(1) {
+                        let v = m.as_str().trim();
+                        if !v.is_empty() {
+                            return Some(v.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     #[allow(dead_code)]
@@ -1102,24 +1135,31 @@ impl HbutClient {
             ("endXnxq", "001"),
         ];
         
-        let response = self.client
-            .post(&grades_url)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .form(&params)
-            .send()
-            .await?;
-        
-        let status = response.status();
-        let final_url = response.url().to_string();
-        println!("[调试] 成绩响应状态: {}, 地址: {}", status, final_url);
-        
-        // ????????????
-        if final_url.contains("authserver/login") {
-            return Err("会话已过期，请重新登录".into());
-        }
-        
-        let text = response.text().await?;
+        let mut repaired = false;
+        let text = loop {
+            let response = self
+                .client
+                .post(&grades_url)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .form(&params)
+                .send()
+                .await?;
+            let status = response.status();
+            let final_url = response.url().to_string();
+            println!("[调试] 成绩响应状态: {}, 地址: {}", status, final_url);
+
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 成绩请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Err("会话已过期，请重新登录".into());
+            }
+
+            break response.text().await?;
+        };
         println!("[调试] 成绩响应长度: {}", text.len());
         
         // 尝试解析 JSON
@@ -1152,40 +1192,110 @@ impl HbutClient {
         };
         println!("[调试] 课表学期: {}", semester);
         
-        // 2. ??? xhid??????
-        let xhid_url = format!(
-            "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
-            self.academic_base_url(), semester
-        );
-        
-        println!("[调试] 获取 xhid：{}", xhid_url);
-        
-        let xhid_resp = self.client
-            .get(&xhid_url)
-            .header("Referer", format!("{}/admin/index.html", self.academic_base_url()))
-            .send()
-            .await?;
-        
-        let xhid_html = xhid_resp.text().await?;
-        
-        // ? HTML ??? xhid
-        let xhid = if let Some(cap) = regex::Regex::new(r#"xhid['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]"#)?
-            .captures(&xhid_html) {
-            cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default()
-        } else if let Some(cap) = regex::Regex::new(r"WGEyQ[A-Za-z0-9]+")?
-            .captures(&xhid_html) {
-            cap.get(0).map(|m| m.as_str().to_string()).unwrap_or_default()
-        } else {
-            return Err("??????ID (xhid)".into());
-        };
-        
+        // 2. 自动探测课表入口并提取 xhid（兼容 jwxt / 学习通两种路径）
+        let base = self.academic_base_url();
+        let referer_index = format!("{}/admin/index.html", base);
+        let xhid_candidates = vec![
+            format!("{}/admin/xsd/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester),
+            format!("{}/admin//xsd/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester),
+            format!("{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester),
+            format!("{}/admin/xsd/pkgl/xskb/queryKbForXsd", base),
+            format!("{}/admin/pkgl/xskb/queryKbForXsd", base),
+        ];
+
+        let mut xhid = String::new();
+        let mut xhid_referer = String::new();
+        let mut schedule_path_hint = String::new();
+        let mut xhid_last_error = String::new();
+        let mut chaoxing_repaired = false;
+
+        for xhid_url in xhid_candidates {
+            println!("[调试] 尝试获取 xhid：{}", xhid_url);
+            let resp = match self
+                .client
+                .get(&xhid_url)
+                .header("Referer", &referer_index)
+                .send()
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    xhid_last_error = format!("请求失败: {}", e);
+                    continue;
+                }
+            };
+
+            let status = resp.status();
+            let final_url = resp.url().to_string();
+            let html = match resp.text().await {
+                Ok(v) => v,
+                Err(e) => {
+                    xhid_last_error = format!("读取响应失败: {}", e);
+                    continue;
+                }
+            };
+            println!(
+                "[调试] xhid 页面状态: {} url={} len={}",
+                status,
+                final_url,
+                html.len()
+            );
+
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !chaoxing_repaired && self.ensure_chaoxing_academic_session().await {
+                    chaoxing_repaired = true;
+                    println!("[调试] 课表 xhid 请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Err("会话已过期，请重新登录".into());
+            }
+            if !status.is_success() {
+                xhid_last_error = format!("状态码异常: {}", status);
+                continue;
+            }
+
+            if let Some(found) = Self::extract_xhid_from_html(&html) {
+                xhid = found;
+                xhid_referer = final_url;
+                if html.contains("/admin/xsd/pkgl/xskb/sdpkkbList") {
+                    schedule_path_hint = "/admin/xsd/pkgl/xskb/sdpkkbList".to_string();
+                } else if html.contains("/admin//xsd/pkgl/xskb/sdpkkbList") {
+                    schedule_path_hint = "/admin//xsd/pkgl/xskb/sdpkkbList".to_string();
+                } else {
+                    schedule_path_hint = "/admin/pkgl/xskb/sdpkkbList".to_string();
+                }
+                break;
+            } else {
+                xhid_last_error = "页面中未提取到 xhid".to_string();
+            }
+        }
+
+        if xhid.is_empty() {
+            let suffix = if xhid_last_error.is_empty() {
+                String::new()
+            } else {
+                format!("（{}）", xhid_last_error)
+            };
+            return Err(format!("无法获取学号ID (xhid){}，请重新登录后重试", suffix).into());
+        }
+
+        if xhid_referer.is_empty() {
+            xhid_referer = format!("{}/admin/xsd/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester);
+        }
+        if schedule_path_hint.is_empty() {
+            schedule_path_hint = "/admin/xsd/pkgl/xskb/sdpkkbList".to_string();
+        }
+
         println!("[调试] 已获取 xhid: {}", xhid);
         
-        // 3. ??????? API
-        let schedule_url = format!(
-            "{}/admin/pkgl/xskb/sdpkkbList",
-            self.academic_base_url()
-        );
+        // 3. 获取课表 API（多路径兜底）
+        let mut schedule_url_candidates = vec![
+            format!("{}{}", base, schedule_path_hint),
+            format!("{}/admin/xsd/pkgl/xskb/sdpkkbList", base),
+            format!("{}/admin/pkgl/xskb/sdpkkbList", base),
+            format!("{}/admin//xsd/pkgl/xskb/sdpkkbList", base),
+        ];
+        schedule_url_candidates.dedup();
         
         let params = [
             ("xnxq", semester.as_str()),
@@ -1196,56 +1306,84 @@ impl HbutClient {
             ("xskbxslx", "0"),
         ];
         
-        println!("[调试] 获取课表：{}", schedule_url);
-        
-        let response = self.client
-            .get(&schedule_url)
-            .query(&params)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header(
-                "Referer",
-                format!(
-                    "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
-                    self.academic_base_url(),
-                    semester
-                ),
-            )
-            .send()
-            .await?;
-        
-        let status = response.status();
-        let final_url = response.url().to_string();
-        println!("[调试] 课表响应状态: {}, 地址: {}", status, final_url);
-        
-        if final_url.contains("authserver/login") {
-            return Err("会话已过期，请重新登录".into());
-        }
-        
-        let json: serde_json::Value = response.json().await?;
-        println!("[调试] 课表响应: ret={}, data count={}", 
-            json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1),
-            json.get("data").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)
-        );
-        
-        let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
-        if ret != 0 {
-            let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
-            let lower = msg.to_lowercase();
-            if ret == -1
-                || msg.contains("该学期无课表")
-                || msg.contains("无课表")
-                || msg.contains("暂无")
-                || lower.contains("no schedule")
+        let mut last_schedule_error = String::new();
+        for schedule_url in schedule_url_candidates {
+            println!("[调试] 获取课表：{}", schedule_url);
+            let response = match self
+                .client
+                .get(&schedule_url)
+                .query(&params)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .header("Referer", &xhid_referer)
+                .send()
+                .await
             {
-                return Err("该学期无课表，请切换学期".into());
+                Ok(v) => v,
+                Err(e) => {
+                    last_schedule_error = format!("请求失败: {}", e);
+                    continue;
+                }
+            };
+
+            let status = response.status();
+            let final_url = response.url().to_string();
+            println!("[调试] 课表响应状态: {}, 地址: {}", status, final_url);
+
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !chaoxing_repaired && self.ensure_chaoxing_academic_session().await {
+                    chaoxing_repaired = true;
+                    println!("[调试] 课表接口命中登录页，已补票后重试");
+                    continue;
+                }
+                return Err("会话已过期，请重新登录".into());
             }
-            if ret == -1 || msg.contains("无课表") || msg.contains("暂无") {
-                return Err("该学期无课表，请切换学期".into());
+            if !status.is_success() {
+                last_schedule_error = format!("状态码异常: {}", status);
+                continue;
             }
+
+            let json: serde_json::Value = match response.json().await {
+                Ok(v) => v,
+                Err(e) => {
+                    last_schedule_error = format!("课表 JSON 解析失败: {}", e);
+                    continue;
+                }
+            };
+            println!(
+                "[调试] 课表响应: ret={}, data count={}",
+                json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1),
+                json.get("data")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0)
+            );
+
+            let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
+            if ret != 0 {
+                let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
+                let lower = msg.to_lowercase();
+                if ret == -1
+                    || msg.contains("该学期无课表")
+                    || msg.contains("无课表")
+                    || msg.contains("暂无")
+                    || lower.contains("no schedule")
+                {
+                    return Err("该学期无课表，请切换学期".into());
+                }
+                last_schedule_error = format!("课表接口返回 ret={} msg={}", ret, msg);
+                continue;
+            }
+
+            return parser::parse_schedule(&json);
         }
 
-        parser::parse_schedule(&json)
+        let suffix = if last_schedule_error.is_empty() {
+            String::new()
+        } else {
+            format!("（{}）", last_schedule_error)
+        };
+        Err(format!("课表接口请求失败{}", suffix).into())
     }
 
     /// ?????????????
@@ -1284,27 +1422,35 @@ impl HbutClient {
         
         println!("[调试] 获取考试：{}", exams_url);
         
-        let response = self.client
-            .get(&exams_url)
-            .query(&params)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header(
-                "Referer",
-                format!("{}/admin/xsd/kwglXsdKscx", self.academic_base_url()),
-            )
-            .send()
-            .await?;
-        
-        let status = response.status();
-        let final_url = response.url().to_string();
-        println!("[调试] 考试响应状态: {}, 地址: {}", status, final_url);
-        
-        if final_url.contains("authserver/login") {
-            return Err("会话已过期，请重新登录".into());
-        }
-        
-        let json: serde_json::Value = response.json().await?;
+        let mut repaired = false;
+        let json: serde_json::Value = loop {
+            let response = self
+                .client
+                .get(&exams_url)
+                .query(&params)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .header(
+                    "Referer",
+                    format!("{}/admin/xsd/kwglXsdKscx", self.academic_base_url()),
+                )
+                .send()
+                .await?;
+            let status = response.status();
+            let final_url = response.url().to_string();
+            println!("[调试] 考试响应状态: {}, 地址: {}", status, final_url);
+
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 考试请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Err("会话已过期，请重新登录".into());
+            }
+
+            break response.json().await?;
+        };
         println!("[调试] 考试响应: ret={}, results count={}", 
             json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1),
             json.get("results").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)
@@ -1315,19 +1461,29 @@ impl HbutClient {
 
     /// ????/??????????/???
     pub async fn fetch_ranking(&self, student_id: Option<&str>, semester: Option<&str>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 使用正‘的排?API (涓?Python 妯″潡涓€鑷?
-        let ranking_url = format!(
-            "{}/admin/cjgl/xscjbbdy/getXscjpm",
-            self.academic_base_url()
-        );
-        
         // 获取﹀彿
-        let xh = student_id.map(|s| s.to_string())
+        let mut xh = student_id.map(|s| s.to_string())
             .or_else(|| self.user_info.as_ref().map(|u| u.student_id.clone()))
             .unwrap_or_default();
         
         if xh.is_empty() {
             return Err("未提供学号".into());
+        }
+
+        // 学习通账号登录时，前端 student_id 可能是手机号；优先回落到教务域 cookie 的 username。
+        if self.prefer_chaoxing_jwxt && xh.starts_with('1') && xh.len() == 11 && xh.chars().all(|c| c.is_ascii_digit()) {
+            let chaoxing_jwxt_url = Url::parse("https://hbut.jw.chaoxing.com")?;
+            if let Some(raw_cookie) = self.cookie_jar.cookies(&chaoxing_jwxt_url).and_then(|v| v.to_str().ok().map(|s| s.to_string())) {
+                if let Some(cookie_xh) = raw_cookie
+                    .split(';')
+                    .map(|v| v.trim())
+                    .find_map(|pair| pair.strip_prefix("username=").map(|v| v.trim().to_string()))
+                    .filter(|v| v.chars().all(|c| c.is_ascii_digit()) && v.len() >= 8)
+                {
+                    println!("[调试] 排名学号修正: {} -> {}", xh, cookie_xh);
+                    xh = cookie_xh;
+                }
+            }
         }
         
         // 从学号推断年?
@@ -1349,29 +1505,88 @@ impl HbutClient {
             ("sznj", grade.as_str()),
             ("xnxq", semester_value.as_str()),
         ];
-        
+
+        let jwxt_url = Url::parse("https://jwxt.hbut.edu.cn")?;
+        let chaoxing_jwxt_url = Url::parse("https://hbut.jw.chaoxing.com")?;
+        let jwxt_cookie = self
+            .cookie_jar
+            .cookies(&jwxt_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+        let chaoxing_cookie = self
+            .cookie_jar
+            .cookies(&chaoxing_jwxt_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+
+        let mut base = self.academic_base_url().to_string();
+        let has_chaoxing_cookie = !chaoxing_cookie.trim().is_empty();
+        let has_jwxt_cookie = !jwxt_cookie.trim().is_empty();
+        println!(
+            "[调试] 排名域名决策: base={}, prefer_chaoxing={}, cookie_len(jwxt)={}, cookie_len(cx_jwxt)={}",
+            base,
+            self.prefer_chaoxing_jwxt,
+            jwxt_cookie.len(),
+            chaoxing_cookie.len()
+        );
+        if self.prefer_chaoxing_jwxt && has_chaoxing_cookie {
+            base = "https://hbut.jw.chaoxing.com".to_string();
+        } else if !self.prefer_chaoxing_jwxt && has_jwxt_cookie {
+            base = "https://jwxt.hbut.edu.cn".to_string();
+        } else if has_chaoxing_cookie {
+            base = "https://hbut.jw.chaoxing.com".to_string();
+        }
+
+        let ranking_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", base);
         println!("[调试] 获取排名：{} with params: {:?}", ranking_url, params);
-        
-        let response = self.client
+        let response = self
+            .client
             .get(&ranking_url)
             .query(&params)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header(
-                "Referer",
-                format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", self.academic_base_url()),
-            )
+            .header("Referer", format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base))
             .send()
             .await?;
-        
-        let status = response.status();
-        let final_url = response.url().to_string();
+        let mut status = response.status();
+        let mut final_url = response.url().to_string();
         println!("[调试] 排名响应状态: {}, 地址: {}", status, final_url);
-        
-        if final_url.contains("authserver/login") {
+        let mut html = response.text().await?;
+        if super::looks_like_academic_login_url(&final_url) {
+            // 学习通模式下，先补一次教务入口票据再重试。
+            if base.contains("hbut.jw.chaoxing.com") {
+                println!("[调试] 排名请求命中 auth 登录页，尝试补票后重试");
+                let _ = self.ensure_chaoxing_academic_session().await;
+                let retry_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", base);
+                println!("[调试] 重新获取排名：{} with params: {:?}", retry_url, params);
+                let retry_resp = self
+                    .client
+                    .get(&retry_url)
+                    .query(&params)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Referer", format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base))
+                    .send()
+                    .await?;
+                status = retry_resp.status();
+                final_url = retry_resp.url().to_string();
+                println!("[调试] 排名重试响应状态: {}, 地址: {}", status, final_url);
+                html = retry_resp.text().await?;
+            }
+        }
+        if super::looks_like_academic_login_url(&final_url) {
             return Err("会话已过期，请重新登录".into());
         }
-        
-        let html = response.text().await?;
+
+        let html_lower = html.to_lowercase();
+        if html_lower.contains("authserver/login")
+            || html_lower.contains("id=\"casloginform\"")
+            || html_lower.contains("pwdencryptsalt")
+            || html.contains("统一身份认证")
+        {
+            return Err("会话已失效，请重新登录后再查询排名".into());
+        }
+        if !status.is_success() {
+            return Err(format!("排名接口请求失败: {}", status).into());
+        }
         
         // 解析 HTML
         parser::parse_ranking_html(&html, &xh, &semester_value, &grade)
@@ -1386,21 +1601,29 @@ impl HbutClient {
         
         println!("[调试] 获取学生信息：{}", info_url);
         
-        let response = self.client
-            .get(&info_url)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .send()
-            .await?;
-        
-        let status = response.status();
-        let final_url = response.url().to_string();
-        println!("[调试] 学生信息响应状态: {}, 地址: {}", status, final_url);
-        
-        if final_url.contains("authserver/login") {
-            return Err("会话已过期，请重新登录".into());
-        }
-        
-        let html = response.text().await?;
+        let mut repaired = false;
+        let html = loop {
+            let response = self
+                .client
+                .get(&info_url)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .send()
+                .await?;
+            let status = response.status();
+            let final_url = response.url().to_string();
+            println!("[调试] 学生信息响应状态: {}, 地址: {}", status, final_url);
+
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 学生信息请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Err("会话已过期，请重新登录".into());
+            }
+
+            break response.text().await?;
+        };
         parser::parse_student_info_html(&html)
     }
 
@@ -2362,32 +2585,40 @@ impl HbutClient {
         
         println!("[调试] 获取教室：{} with params: {:?}", classrooms_url, params);
         
-        let response = self.client
-            .post(&classrooms_url)
-            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Origin", self.academic_base_url())
-            .header(
-                "Referer",
-                format!(
-                    "{}/admin/pkgl/jyjs/mobile/jysq?kjy=0&role=&cpdx=",
-                    self.academic_base_url()
-                ),
-            )
-            .form(&params)
-            .send()
-            .await?;
-        
+        let mut repaired = false;
+        let response = loop {
+            let response = self
+                .client
+                .post(&classrooms_url)
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Origin", self.academic_base_url())
+                .header(
+                    "Referer",
+                    format!(
+                        "{}/admin/pkgl/jyjs/mobile/jysq?kjy=0&role=&cpdx=",
+                        self.academic_base_url()
+                    ),
+                )
+                .form(&params)
+                .send()
+                .await?;
+            let final_url = response.url().to_string();
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 空教室请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": "会话已过期，请重新登录",
+                    "need_login": true
+                }));
+            }
+            break response;
+        };
         let status = response.status();
-        let final_url = response.url().to_string();
-        
-        if final_url.contains("authserver/login") {
-            return Ok(serde_json::json!({
-                "success": false,
-                "error": "会话已过期，请重新登录",
-                "need_login": true
-            }));
-        }
         
         if !status.is_success() {
             return Ok(serde_json::json!({
@@ -2467,21 +2698,30 @@ impl HbutClient {
         
         println!("[DEBUG] Fetching training plan options from: {}", url);
         
-        let response = self.client
-            .get(&url)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .send()
-            .await?;
-        
-        let final_url = response.url().to_string();
-        if final_url.contains("authserver/login") {
-            return Ok(serde_json::json!({
-                "success": false,
-                "error": "会话已过期，请重新登录",
-                "need_login": true
-            }));
-        }
-        
+        let mut repaired = false;
+        let response = loop {
+            let response = self
+                .client
+                .get(&url)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .send()
+                .await?;
+            let final_url = response.url().to_string();
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 培养方案选项请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": "会话已过期，请重新登录",
+                    "need_login": true
+                }));
+            }
+            break response;
+        };
+
         if !response.status().is_success() {
             return Ok(serde_json::json!({
                 "success": false,
@@ -2725,28 +2965,36 @@ impl HbutClient {
         
         println!("[DEBUG] Fetching training plan courses from: {}", url);
         
-        let response = self.client
-            .get(&url)
-            .query(&params)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header(
-                "Referer",
-                format!("{}/admin/xsd/studentpyfa", self.academic_base_url()),
-            )
-            .send()
-            .await?;
-        
+        let mut repaired = false;
+        let response = loop {
+            let response = self
+                .client
+                .get(&url)
+                .query(&params)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Accept", "application/json, text/javascript, */*; q=0.01")
+                .header(
+                    "Referer",
+                    format!("{}/admin/xsd/studentpyfa", self.academic_base_url()),
+                )
+                .send()
+                .await?;
+            let final_url = response.url().to_string();
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 培养方案课程请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": "会话已过期，请重新登录",
+                    "need_login": true
+                }));
+            }
+            break response;
+        };
         let status = response.status();
-        let final_url = response.url().to_string();
-        
-        if final_url.contains("authserver/login") {
-            return Ok(serde_json::json!({
-                "success": false,
-                "error": "会话已过期，请重新登录",
-                "need_login": true
-            }));
-        }
         
         if !status.is_success() {
             return Ok(serde_json::json!({
@@ -3072,18 +3320,24 @@ impl HbutClient {
             self.academic_base_url(),
             fasz
         );
-        let response = self.client.get(&base_url).send().await?;
-        
-        let final_url = response.url().to_string();
-        if final_url.contains("authserver/login") {
-            return Ok(serde_json::json!({
-                "success": false,
-                "error": "会话已过期，请重新登录",
-                "need_login": true
-            }));
-        }
-        
-        let html = response.text().await?;
+        let mut repaired = false;
+        let html = loop {
+            let response = self.client.get(&base_url).send().await?;
+            let final_url = response.url().to_string();
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 学业进度请求命中登录页，已补票后重试");
+                    continue;
+                }
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": "会话已过期，请重新登录",
+                    "need_login": true
+                }));
+            }
+            break response.text().await?;
+        };
         
         // 提取 xhid
         let xhid = regex::Regex::new(r#"id="xhid"\s+value="([^"]+)""#)?

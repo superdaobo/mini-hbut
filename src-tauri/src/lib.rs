@@ -435,10 +435,6 @@ fn parse_cookie_value(cookie_header: &str, key: &str) -> Option<String> {
 }
 
 fn guess_chaoxing_student_id(account_hint: Option<&str>, cookie_header: &str) -> String {
-    let account = account_hint.unwrap_or("").trim();
-    if account.chars().all(|c| c.is_ascii_digit()) && account.len() >= 8 {
-        return account.to_string();
-    }
     if let Some(username_cookie) = parse_cookie_value(cookie_header, "username") {
         let username = username_cookie.trim();
         if username.chars().all(|c| c.is_ascii_digit()) && username.len() >= 8 {
@@ -447,6 +443,10 @@ fn guess_chaoxing_student_id(account_hint: Option<&str>, cookie_header: &str) ->
         if !username.is_empty() {
             return username.to_string();
         }
+    }
+    let account = account_hint.unwrap_or("").trim();
+    if account.chars().all(|c| c.is_ascii_digit()) && account.len() >= 8 {
+        return account.to_string();
     }
     if let Some(uid_cookie) = parse_cookie_value(cookie_header, "UID") {
         return format!("cx_{}", uid_cookie);
@@ -603,19 +603,9 @@ async fn finalize_chaoxing_login(
     redirect_hint: Option<&str>,
     debug: &mut Vec<String>,
 ) -> Result<ChaoxingLoginResult, String> {
-    let _ = client
-        .client
-        .get(format!(
-            "https://i.chaoxing.com/base?t={}",
-            Utc::now().timestamp_millis()
-        ))
-        .send()
-        .await;
-    let _ = client
-        .client
-        .get("https://hbut.jw.chaoxing.com/admin/")
-        .send()
-        .await;
+    client.set_chaoxing_login_mode(true);
+    let bridge_ready = client.ensure_chaoxing_academic_session().await;
+    debug.push(format!("chaoxing_bridge_ready={}", bridge_ready));
 
     let passport_url = reqwest::Url::parse(CHAOXING_BASE_URL)
         .map_err(|e| format!("学习通域名解析失败: {}", e))?;
@@ -639,8 +629,17 @@ async fn finalize_chaoxing_login(
 
     let uid = parse_cookie_value(&merged_cookie, "UID")
         .or_else(|| parse_cookie_value(&merged_cookie, "_uid"));
-    let student_id = guess_chaoxing_student_id(account_hint, &merged_cookie);
-    let display_name = parse_cookie_value(&merged_cookie, "username")
+
+    let fetched_user = client.fetch_user_info().await.ok();
+    let student_id = fetched_user
+        .as_ref()
+        .map(|u| u.student_id.clone())
+        .unwrap_or_else(|| guess_chaoxing_student_id(account_hint, &merged_cookie));
+    let display_name = fetched_user
+        .as_ref()
+        .map(|u| u.student_name.clone())
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| parse_cookie_value(&merged_cookie, "username"))
         .unwrap_or_else(|| student_id.clone());
     debug.push(format!(
         "finalize student_id={} uid={}",
@@ -649,14 +648,14 @@ async fn finalize_chaoxing_login(
     ));
 
     client.is_logged_in = true;
-    client.user_info = Some(UserInfo {
+    client.user_info = Some(fetched_user.unwrap_or(UserInfo {
         student_id: student_id.clone(),
         student_name: display_name.clone(),
         college: None,
         major: None,
         class_name: None,
         grade: None,
-    });
+    }));
     client.last_username = Some(student_id.clone());
     client.last_password = password_hint.map(|v| v.to_string());
 
@@ -966,6 +965,7 @@ async fn portal_qr_confirm_login(
     };
 
     client.is_logged_in = true;
+    client.set_chaoxing_login_mode(false);
     client.user_info = Some(user_info.clone());
     client.last_username = Some(user_info.student_id.clone());
     client.last_password = None;
@@ -2016,6 +2016,7 @@ async fn login(
         )
         .await
         .map_err(|e| e.to_string())?;
+    client.set_chaoxing_login_mode(false);
 
     // 尝试获取电费 Token (One Code)
     let one_code_token = match client.ensure_electricity_token().await {

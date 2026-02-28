@@ -262,7 +262,13 @@ const fetchSchedule = async (targetSemester = '') => {
       return true
     } else {
       if (data?.need_login) {
-        emit('logout')
+        const method = String(localStorage.getItem('hbu_login_method') || '').trim()
+        const isTemp = localStorage.getItem('hbu_login_temp') === '1' || method.endsWith('_temp')
+        if (isTemp) {
+          emit('logout')
+          return false
+        }
+        errorMsg.value = data?.error || '会话已过期，请重新登录'
         return false
       }
       scheduleData.value = []

@@ -60,6 +60,14 @@ pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] = &[
     SECONDARY_OCR_ENDPOINT,
 ];
 
+/// 判断是否跳转到了教务登录页（包含 CAS 登录与教务自身登录页）。
+pub(super) fn looks_like_academic_login_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    lower.contains("authserver/login")
+        || lower.contains("/admin/login")
+        || lower.contains("/admin/caslogin")
+}
+
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）
 pub(super) fn get_random_string(length: usize) -> String {
     const CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678";
@@ -127,6 +135,7 @@ pub struct HbutClient {
     pub(super) last_login_time: Option<std::time::Instant>,
     pub(super) last_relogin_attempt: Option<std::time::Instant>,
     pub(super) last_relogin_failed_at: Option<std::time::Instant>,
+    pub(super) prefer_chaoxing_jwxt: bool,
 }
 
 impl HbutClient {
@@ -137,6 +146,9 @@ impl HbutClient {
     /// - 学习通链路下，教务入口与接口主域名为 `hbut.jw.chaoxing.com`
     ///   若继续请求旧域名，可能出现“已登录但接口未授权”。
     pub(super) fn academic_base_url(&self) -> &'static str {
+        if self.prefer_chaoxing_jwxt {
+            return CHAOXING_JWXT_BASE_URL;
+        }
         let chaoxing_url = reqwest::Url::parse(CHAOXING_JWXT_BASE_URL)
             .expect("invalid CHAOXING_JWXT_BASE_URL");
         let has_chaoxing_cookie = match self.cookie_jar.cookies(&chaoxing_url) {
@@ -152,6 +164,11 @@ impl HbutClient {
         } else {
             JWXT_BASE_URL
         }
+    }
+
+    /// 显式设置“学习通教务域名优先”标记。
+    pub fn set_chaoxing_login_mode(&mut self, enabled: bool) {
+        self.prefer_chaoxing_jwxt = enabled;
     }
 
     fn build_http_client(jar: Arc<Jar>) -> Client {
@@ -210,6 +227,7 @@ impl HbutClient {
             last_login_time: None,
             last_relogin_attempt: None,
             last_relogin_failed_at: None,
+            prefer_chaoxing_jwxt: false,
         };
         instance.load_cookie_snapshot_from_file();
         instance
@@ -367,6 +385,7 @@ impl HbutClient {
         self.cookie_jar = Arc::clone(&jar);
         self.client = Self::build_http_client(jar);
         self.ocr_client = Self::build_ocr_client();
+        self.prefer_chaoxing_jwxt = false;
     }
 
     /// 登录频率控制：至少间隔 60 秒，降低 CAS 风控风险。

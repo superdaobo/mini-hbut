@@ -262,7 +262,13 @@ const fetchCalendar = async () => {
       syncTime.value = data.sync_time || ''
     } else {
       if (data?.need_login) {
-        emit('logout')
+        const method = String(localStorage.getItem('hbu_login_method') || '').trim()
+        const isTemp = localStorage.getItem('hbu_login_temp') === '1' || method.endsWith('_temp')
+        if (isTemp) {
+          emit('logout')
+          return
+        }
+        error.value = data?.error || '会话已过期，请重新登录'
         return
       }
       error.value = data?.error || '获取校历失败'
