@@ -903,6 +903,7 @@ const getCourseStyle = (course) => {
       '--course-text': '#b91c1c',
       '--course-border': '#dc2626',
       '--course-shadow': '0 8px 18px rgba(220, 38, 38, 0.2)',
+      '--course-span': String(span),
       borderWidth: '2px',
       gridRow: `${start} / span ${span}`,
       gridColumn: '1',
@@ -932,6 +933,7 @@ const getCourseStyle = (course) => {
     '--course-text': theme.text,
     '--course-border': borderColor,
     '--course-shadow': isCustom ? '0 7px 16px rgba(15, 23, 42, 0.24)' : '0 6px 14px rgba(71, 85, 105, 0.16)',
+    '--course-span': String(span),
     borderWidth: isCustom ? '2px' : '1px',
     gridRow: `${start} / span ${span}`,
     gridColumn: '1',
@@ -2165,7 +2167,8 @@ onMounted(async () => {
 
 .course-card {
   margin: 2px;
-  border-radius: 12px;
+  border-radius: 33.333% 33.333% 33.333% 33.333% /
+    clamp(8px, calc(6px + var(--course-span, 1) * 2px), 18px);
   padding: 7px 5px;
   background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
   color: var(--course-text, #0f172a) !important;
