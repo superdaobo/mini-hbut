@@ -7,7 +7,7 @@ import hbutLogo from '../assets/hbut-logo.png'
 const props = defineProps({
   studentId: { type: String, default: '' },
   isLoggedIn: { type: Boolean, default: false },
-  loginMode: { type: String, default: 'captcha' },
+  loginMode: { type: String, default: 'portal_password' },
   configAdminIds: { type: Array, default: () => [] }
 })
 
@@ -72,7 +72,9 @@ const handleShowLegal = async (tab) => {
 
     <section v-else class="me-content">
       <LoginV3 
+        :login-mode="loginMode"
         @success="emit('success', $event)"
+        @switchMode="emit('switchMode', $event)"
         @showLegal="handleShowLegal"
       />
     </section>

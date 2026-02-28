@@ -87,6 +87,11 @@ const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
 const COOKIE_SNAPSHOT_KEY = 'hbu_cookie_snapshot'
 const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
+const LOGIN_METHOD_KEY = 'hbu_login_method'
+const LOGIN_METHOD_VIEW_KEY = 'hbu_login_entry_mode'
+const LOGIN_TEMP_FLAG_KEY = 'hbu_login_temporary'
+const LOGOUT_REASON_KEY = 'hbu_logout_reason'
+const TEMP_SESSION_EXPIRED_REASON = 'temp_session_expired'
 const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
 const JWXT_MAINTENANCE_HINT_KEY = 'hbu_jwxt_maintenance_hint'
@@ -117,8 +122,9 @@ const showAnnouncementModal = ref(false)
 const blockingAnnouncement = ref(null)
 const showBlockingAnnouncement = ref(false)
 
-// 默认使用 V2 全自动识别模式
-const loginMode = ref('auto')
+// 默认登录方式：新融合门户账号密码
+const savedLoginMode = String(localStorage.getItem(LOGIN_METHOD_VIEW_KEY) || '').trim()
+const loginMode = ref(savedLoginMode && savedLoginMode !== 'auto' ? savedLoginMode : 'portal_password')
 
 const isLoggedIn = computed(() => !!studentId.value)
 const configAdminIds = computed(() => {
@@ -490,6 +496,7 @@ const handleLoginSuccess = (data) => {
   }
 
   localStorage.removeItem('hbu_manual_logout')
+  localStorage.removeItem(LOGOUT_REASON_KEY)
   persistSessionCookies()
   startSessionKeepAlive()
   startElectricityKeepAlive()
@@ -523,8 +530,18 @@ const handleBackToDashboard = () => {
   goToView('home')
 }
 
+const isTemporaryLoginSession = () => {
+  const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
+  const marked = localStorage.getItem(LOGIN_TEMP_FLAG_KEY) === '1'
+  return marked || method.endsWith('_temp')
+}
+
 // 处理登出
-const handleLogout = () => {
+const handleLogout = (options = {}) => {
+  const payload = options && typeof options === 'object' ? options : {}
+  const manual = payload.manual !== false
+  const reason = String(payload.reason || '').trim()
+  const notice = String(payload.notice || '').trim()
   applyViewState('home')
   gradeData.value = []
   studentId.value = ''
@@ -539,15 +556,32 @@ const handleLogout = () => {
   localStorage.removeItem(SESSION_COOKIE_KEY)
   localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
   localStorage.removeItem(LOGIN_SESSION_TOKEN_KEY)
+  localStorage.removeItem(LOGIN_METHOD_KEY)
+  localStorage.removeItem(LOGIN_TEMP_FLAG_KEY)
   localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
   localStorage.removeItem(SCHEDULE_SWITCH_PENDING_KEY)
-  localStorage.setItem('hbu_manual_logout', 'true')
+  if (reason) {
+    localStorage.setItem(LOGOUT_REASON_KEY, reason)
+  } else {
+    localStorage.removeItem(LOGOUT_REASON_KEY)
+  }
+  if (manual) {
+    localStorage.setItem('hbu_manual_logout', 'true')
+  } else {
+    localStorage.removeItem('hbu_manual_logout')
+  }
   invokeNative('logout').catch(() => {})
+  if (notice) {
+    window.setTimeout(() => {
+      window.alert(notice)
+    }, 80)
+  }
 }
 
 // 切换登录模式
 const handleSwitchLoginMode = (mode) => {
   loginMode.value = mode
+  localStorage.setItem(LOGIN_METHOD_VIEW_KEY, mode)
 }
 
 const isManualLogout = () => localStorage.getItem('hbu_manual_logout') === 'true'
@@ -656,7 +690,7 @@ const attemptOnlineRecovery = async () => {
       restored = await tryRestoreLatestSession()
     }
     let relogged = false
-    if (!restored) {
+    if (!restored && !isTemporaryLoginSession()) {
       relogged = await attemptAutoRelogin()
     }
     const success = restored || relogged
@@ -933,7 +967,16 @@ const tryRestoreSession = async () => {
     }
     return false
   }
-  if (!cookies) return false
+  if (!cookies) {
+    if (isTemporaryLoginSession()) {
+      handleLogout({
+        manual: false,
+        reason: TEMP_SESSION_EXPIRED_REASON,
+        notice: '扫码临时登录会话已失效，请重新登录。'
+      })
+    }
+    return false
+  }
 
   try {
     const userInfo = hasTauri
@@ -945,6 +988,15 @@ const tryRestoreSession = async () => {
       return true
     }
   } catch (e) {
+    if (isTemporaryLoginSession()) {
+      console.warn('[Session] 临时登录恢复失败，自动退出:', e)
+      handleLogout({
+        manual: false,
+        reason: TEMP_SESSION_EXPIRED_REASON,
+        notice: '扫码临时登录会话已失效，请重新登录。'
+      })
+      return false
+    }
     console.warn('[Session] 恢复会话失败，保留本地缓存以便离线展示:', e)
     // 仅在明确手动退出时清理；教务系统维护期间需要保留 cookies + 缓存兜底。
     if (isManualLogout()) {
@@ -1022,6 +1074,15 @@ const refreshSessionSilently = async () => {
     await invokeNative('refresh_session')
     await persistSessionCookies()
   } catch (e) {
+    if (isTemporaryLoginSession()) {
+      console.warn('[Session] 临时登录会话已失效，自动退出:', e)
+      handleLogout({
+        manual: false,
+        reason: TEMP_SESSION_EXPIRED_REASON,
+        notice: '扫码临时登录会话已失效，请重新登录。'
+      })
+      return
+    }
     console.warn('[Session] 会话刷新失败，尝试自动登录:', e)
     const relogged = await attemptAutoRelogin()
     if (!relogged) {
@@ -1168,7 +1229,7 @@ onMounted(async () => {
     restored = await tryRestoreLatestSession()
   }
   let relogged = false
-  if (!restored) {
+  if (!restored && !isTemporaryLoginSession()) {
     relogged = await attemptAutoRelogin()
   }
   const onlineReady = restored || relogged

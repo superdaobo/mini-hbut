@@ -44,6 +44,7 @@ use modules::one_code::*;
 
 const DB_FILENAME: &str = "grades.db";
 const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://superdaobo-ocr-service.hf.space/api/temp/upload";
+const DEFAULT_PORTAL_SERVICE_URL: &str = "https://e.hbut.edu.cn/login#/";
 static TEMP_UPLOAD_ENDPOINT: OnceLock<StdMutex<Option<String>>> = OnceLock::new();
 
 fn temp_upload_endpoint_store() -> &'static StdMutex<Option<String>> {
@@ -145,6 +146,23 @@ pub struct LoginPageInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortalQrInitResponse {
+    pub service: String,
+    pub uuid: String,
+    pub qr_image_base64: String,
+    pub execution: String,
+    pub lt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortalQrStatusResponse {
+    pub uuid: String,
+    pub status_code: String,
+    pub status_label: String,
+    pub should_submit: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Grade {
     pub term: String,
     pub course_name: String,
@@ -234,6 +252,38 @@ fn build_public_cache_key(prefix: &str, payload: &str) -> String {
     format!("{}:{}", prefix, encoded)
 }
 
+fn normalize_portal_service_url(service: Option<String>) -> String {
+    let normalized = service.unwrap_or_default().trim().to_string();
+    if normalized.is_empty() {
+        DEFAULT_PORTAL_SERVICE_URL.to_string()
+    } else {
+        normalized
+    }
+}
+
+fn upsert_form_value(form: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: &str) {
+    let mut replaced = false;
+    for key in keys {
+        if form.contains_key(*key) {
+            form.insert((*key).to_string(), value.to_string());
+            replaced = true;
+        }
+    }
+    if !replaced {
+        form.insert(default_key.to_string(), value.to_string());
+    }
+}
+
+fn map_portal_qr_status(code: &str) -> (&'static str, bool) {
+    match code {
+        "1" => ("confirmed", true),
+        "2" => ("scanned_waiting_confirm", false),
+        "3" => ("expired", false),
+        "0" => ("waiting_scan", false),
+        _ => ("unknown", false),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QxzkbQuery {
     pub xnxq: String,
@@ -279,6 +329,228 @@ async fn get_login_page(state: State<'_, AppState>) -> Result<LoginPageInfo, Str
 async fn get_captcha(state: State<'_, AppState>) -> Result<String, String> {
     let client = state.client.lock().await;
     client.get_captcha().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn portal_qr_init_login(
+    state: State<'_, AppState>,
+    service: Option<String>,
+) -> Result<PortalQrInitResponse, String> {
+    let service_url = normalize_portal_service_url(service);
+    let mut client = state.client.lock().await;
+
+    let page_info = client
+        .get_login_page_with_service(&service_url)
+        .await
+        .map_err(|e| format!("获取扫码登录页失败: {}", e))?;
+
+    let token_url = format!(
+        "{}/qrCode/getToken?ts={}",
+        crate::http_client::AUTH_BASE_URL,
+        Utc::now().timestamp_millis()
+    );
+    let uuid = client
+        .client
+        .get(&token_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .send()
+        .await
+        .map_err(|e| format!("获取二维码 token 失败: {}", e))?
+        .text()
+        .await
+        .map_err(|e| format!("读取二维码 token 失败: {}", e))?
+        .trim()
+        .to_string();
+
+    if uuid.is_empty() {
+        return Err("获取二维码 token 失败：返回为空".to_string());
+    }
+
+    let code_url = format!(
+        "{}/qrCode/getCode?uuid={}",
+        crate::http_client::AUTH_BASE_URL,
+        urlencoding::encode(&uuid)
+    );
+    let qr_bytes = client
+        .client
+        .get(&code_url)
+        .send()
+        .await
+        .map_err(|e| format!("获取二维码图片失败: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("读取二维码图片失败: {}", e))?;
+
+    if qr_bytes.is_empty() {
+        return Err("二维码图片为空，请重试".to_string());
+    }
+
+    let qr_image_base64 = format!(
+        "data:image/png;base64,{}",
+        general_purpose::STANDARD.encode(qr_bytes)
+    );
+
+    Ok(PortalQrInitResponse {
+        service: service_url,
+        uuid,
+        qr_image_base64,
+        execution: page_info.execution,
+        lt: page_info.lt,
+    })
+}
+
+#[tauri::command]
+async fn portal_qr_check_status(
+    state: State<'_, AppState>,
+    uuid: String,
+) -> Result<PortalQrStatusResponse, String> {
+    let qr_uuid = uuid.trim().to_string();
+    if qr_uuid.is_empty() {
+        return Err("二维码 uuid 不能为空".to_string());
+    }
+
+    let client = state.client.lock().await;
+    let status_url = format!(
+        "{}/qrCode/getStatus.htl?ts={}&uuid={}",
+        crate::http_client::AUTH_BASE_URL,
+        Utc::now().timestamp_millis(),
+        urlencoding::encode(&qr_uuid)
+    );
+    let status_code = client
+        .client
+        .get(&status_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .send()
+        .await
+        .map_err(|e| format!("查询二维码状态失败: {}", e))?
+        .text()
+        .await
+        .map_err(|e| format!("读取二维码状态失败: {}", e))?
+        .trim()
+        .to_string();
+
+    let (status_label, should_submit) = map_portal_qr_status(&status_code);
+    Ok(PortalQrStatusResponse {
+        uuid: qr_uuid,
+        status_code,
+        status_label: status_label.to_string(),
+        should_submit,
+    })
+}
+
+#[tauri::command]
+async fn portal_qr_confirm_login(
+    state: State<'_, AppState>,
+    uuid: String,
+    execution: Option<String>,
+    lt: Option<String>,
+    service: Option<String>,
+) -> Result<UserInfo, String> {
+    let qr_uuid = uuid.trim().to_string();
+    if qr_uuid.is_empty() {
+        return Err("二维码 uuid 不能为空".to_string());
+    }
+    let service_url = normalize_portal_service_url(service);
+    let login_url = format!(
+        "{}/login?display=qrLogin&service={}",
+        crate::http_client::AUTH_BASE_URL,
+        urlencoding::encode(&service_url)
+    );
+    let referer_url = format!(
+        "{}/login?service={}",
+        crate::http_client::AUTH_BASE_URL,
+        urlencoding::encode(&service_url)
+    );
+
+    let mut client = state.client.lock().await;
+    let mut form_data = client.last_login_inputs.clone().unwrap_or_default();
+
+    let execution_value = execution
+        .unwrap_or_else(|| form_data.get("execution").cloned().unwrap_or_default())
+        .trim()
+        .to_string();
+    if execution_value.is_empty() {
+        return Err("二维码登录参数 execution 缺失，请重新生成二维码".to_string());
+    }
+
+    let lt_value = lt
+        .unwrap_or_else(|| form_data.get("lt").cloned().unwrap_or_default())
+        .trim()
+        .to_string();
+
+    upsert_form_value(&mut form_data, &["uuid"], "uuid", &qr_uuid);
+    upsert_form_value(&mut form_data, &["cllt"], "cllt", "qrLogin");
+    upsert_form_value(&mut form_data, &["dllt"], "dllt", "generalLogin");
+    upsert_form_value(&mut form_data, &["execution"], "execution", &execution_value);
+    if !lt_value.is_empty() {
+        upsert_form_value(&mut form_data, &["lt"], "lt", &lt_value);
+    }
+    upsert_form_value(&mut form_data, &["_eventId"], "_eventId", "submit");
+    upsert_form_value(&mut form_data, &["rmShown"], "rmShown", "1");
+
+    let response = client
+        .client
+        .post(&login_url)
+        .header("Referer", &referer_url)
+        .form(&form_data)
+        .send()
+        .await
+        .map_err(|e| format!("提交扫码登录失败: {}", e))?;
+    let final_url = response.url().to_string();
+    let html = response
+        .text()
+        .await
+        .map_err(|e| format!("读取扫码登录响应失败: {}", e))?;
+    if final_url.contains("authserver/login") || html.contains("qrLoginForm") {
+        return Err("扫码确认未完成或二维码已失效，请重新扫码".to_string());
+    }
+
+    let _ = client
+        .client
+        .get(crate::http_client::TARGET_SERVICE)
+        .send()
+        .await;
+
+    let user_info = match client.fetch_user_info().await {
+        Ok(info) => info,
+        Err(_) => {
+            let jwxt_sso = format!("{}/sso/jasiglogin", crate::http_client::JWXT_BASE_URL);
+            let _ = client.client.get(&jwxt_sso).send().await;
+            let _ = client
+                .client
+                .get(crate::http_client::TARGET_SERVICE)
+                .send()
+                .await;
+            client
+                .fetch_user_info()
+                .await
+                .map_err(|e| format!("扫码登录成功但获取教务信息失败: {}", e))?
+        }
+    };
+
+    client.is_logged_in = true;
+    client.user_info = Some(user_info.clone());
+    client.last_username = Some(user_info.student_id.clone());
+    client.last_password = None;
+    client.save_cookie_snapshot_to_file();
+
+    let one_code_token = client.ensure_electricity_token().await.unwrap_or_default();
+    let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
+    let refresh_token = refresh_opt.unwrap_or_default();
+    let expires_at = expires_at_opt
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default();
+    let _ = db::save_user_session(
+        DB_FILENAME,
+        &user_info.student_id,
+        &client.get_cookies(),
+        "",
+        &one_code_token,
+        Some(refresh_token.as_str()),
+        Some(expires_at.as_str()),
+    );
+
+    Ok(user_info)
 }
 
 #[tauri::command]
@@ -2496,6 +2768,9 @@ pub fn run() {
             get_notification_permission_native,
             request_notification_permission_native,
             login,
+            portal_qr_init_login,
+            portal_qr_check_status,
+            portal_qr_confirm_login,
             logout,
             restore_session,
             restore_latest_session,
