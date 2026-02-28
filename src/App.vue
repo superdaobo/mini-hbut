@@ -90,6 +90,9 @@ const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const LOGIN_METHOD_VIEW_KEY = 'hbu_login_entry_mode'
 const LOGIN_TEMP_FLAG_KEY = 'hbu_login_temporary'
+const CHAOXING_ACCOUNT_KEY = 'hbu_cx_account'
+const CHAOXING_PASSWORD_KEY = 'hbu_cx_password'
+const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
 const LOGOUT_REASON_KEY = 'hbu_logout_reason'
 const TEMP_SESSION_EXPIRED_REASON = 'temp_session_expired'
 const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
@@ -497,16 +500,9 @@ const handleLoginSuccess = (data) => {
 
   localStorage.removeItem('hbu_manual_logout')
   localStorage.removeItem(LOGOUT_REASON_KEY)
-  if (isChaoxingLoginSession()) {
-    localStorage.removeItem(SESSION_COOKIE_KEY)
-    localStorage.removeItem(SESSION_COOKIE_TIME_KEY)
-    stopSessionKeepAlive()
-    stopElectricityKeepAlive()
-  } else {
-    persistSessionCookies()
-    startSessionKeepAlive()
-    startElectricityKeepAlive()
-  }
+  persistSessionCookies()
+  startSessionKeepAlive()
+  startElectricityKeepAlive()
   if (studentId.value) {
     startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
       console.warn('[Notify] 启动通知监控失败:', e)
@@ -541,11 +537,6 @@ const isTemporaryLoginSession = () => {
   const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
   const marked = localStorage.getItem(LOGIN_TEMP_FLAG_KEY) === '1'
   return marked || method.endsWith('_temp')
-}
-
-const isChaoxingLoginSession = () => {
-  const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
-  return method.startsWith('chaoxing_')
 }
 
 // 处理登出
@@ -694,7 +685,6 @@ const stopJwxtRecoveryPolling = () => {
 
 const attemptOnlineRecovery = async () => {
   if (!hasTauri || isManualLogout()) return false
-  if (isChaoxingLoginSession()) return false
   if (jwxtRecoveryInFlight) return false
   jwxtRecoveryInFlight = true
   try {
@@ -1052,11 +1042,45 @@ const getStoredPassword = () => {
   return { username, password: credential }
 }
 
+const getStoredChaoxingPassword = () => {
+  const remember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
+  const account = String(localStorage.getItem(CHAOXING_ACCOUNT_KEY) || '').trim()
+  const password = String(localStorage.getItem(CHAOXING_PASSWORD_KEY) || '').trim()
+  if (remember === 'false' || !account || !password) {
+    return null
+  }
+  return { account, password }
+}
+
 const attemptAutoRelogin = async () => {
   if (!hasTauri) return false
   if (isManualLogout()) {
     return false
   }
+  const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
+  if (method.startsWith('chaoxing_')) {
+    const chaoxingCreds = getStoredChaoxingPassword()
+    if (!chaoxingCreds) return false
+    try {
+      const payload = await invokeNative('chaoxing_password_login', {
+        account: chaoxingCreds.account,
+        password: chaoxingCreds.password
+      })
+      const sid = String(
+        payload?.student_id || localStorage.getItem('hbu_username') || chaoxingCreds.account
+      ).trim()
+      if (sid) {
+        studentId.value = sid
+        localStorage.setItem('hbu_username', sid)
+      }
+      await persistSessionCookies()
+      return true
+    } catch (e) {
+      console.warn('[Session] 学习通自动登录失败:', e)
+      return false
+    }
+  }
+
   const creds = getStoredPassword()
   if (!creds) return false
   try {
@@ -1082,7 +1106,6 @@ const refreshSessionSilently = async () => {
   const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
   if (!cookies) return
   if (!hasTauri) return
-  if (isChaoxingLoginSession()) return
 
   try {
     await invokeNative('refresh_session')
@@ -1238,19 +1261,16 @@ onMounted(async () => {
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
   await applyRemoteConfig()
   startRemoteConfigRefresh()
-  const chaoxingSession = isChaoxingLoginSession()
   let restored = false
   let relogged = false
-  if (!chaoxingSession) {
-    restored = await tryRestoreSession()
-    if (!restored) {
-      restored = await tryRestoreLatestSession()
-    }
-    if (!restored && !isTemporaryLoginSession()) {
-      relogged = await attemptAutoRelogin()
-    }
+  restored = await tryRestoreSession()
+  if (!restored) {
+    restored = await tryRestoreLatestSession()
   }
-  const onlineReady = chaoxingSession ? Boolean(studentId.value) : (restored || relogged)
+  if (!restored && !isTemporaryLoginSession()) {
+    relogged = await attemptAutoRelogin()
+  }
+  const onlineReady = restored || relogged
 
   await syncFromHash()
 
@@ -1259,13 +1279,8 @@ onMounted(async () => {
   }
 
   if (onlineReady) {
-    if (!chaoxingSession) {
-      startSessionKeepAlive()
-      startElectricityKeepAlive()
-    } else {
-      stopSessionKeepAlive()
-      stopElectricityKeepAlive()
-    }
+    startSessionKeepAlive()
+    startElectricityKeepAlive()
     if (studentId.value) {
       markLoginSessionToken()
       startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
@@ -1274,7 +1289,7 @@ onMounted(async () => {
     }
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
-  } else if ((bootstrappedCachedIdentity || studentId.value) && !chaoxingSession) {
+  } else if (bootstrappedCachedIdentity || studentId.value) {
     // 教务暂不可达时保持账号态并展示缓存，后台每 10 秒探测一次恢复情况。
     markJwxtMaintenance()
     startJwxtRecoveryPolling()

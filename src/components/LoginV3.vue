@@ -6,7 +6,7 @@ import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '..
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 
 const props = defineProps({
-  loginMode: { type: String, default: 'portal_password' }
+  loginMode: { type: String, default: 'portal' }
 })
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
@@ -22,42 +22,32 @@ const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
 
 const LOGIN_MODES = [
   {
-    key: 'portal_password',
-    title: '新融合门户账号密码登录',
-    desc: '完整功能，支持记住密码',
-    limited: false,
-    temporary: false
+    key: 'portal',
+    title: '新融合门户',
+    desc: '账号密码 + 扫码临时登录'
   },
   {
-    key: 'portal_qr_temp',
-    title: '新融合门户扫码登录（临时登录查询）',
-    desc: '扫码后临时会话，失效自动退出',
-    limited: false,
-    temporary: true
-  },
-  {
-    key: 'chaoxing_password',
-    title: '学习通账号密码登录（功能受限）',
-    desc: '已接入学习通登录链路，仅显示教务相关模块',
-    limited: true,
-    temporary: false
-  },
-  {
-    key: 'chaoxing_qr_temp',
-    title: '学习通扫码登录（功能受限且临时登录）',
-    desc: '扫码临时会话，失效后自动退出',
-    limited: true,
-    temporary: true
+    key: 'chaoxing',
+    title: '学习通（功能受限）',
+    desc: '账号密码 + 扫码临时登录'
   }
 ]
 
+const normalizeModeKey = (mode) => {
+  const raw = String(mode || '').trim()
+  if (!raw) return ''
+  if (raw === 'portal' || raw.startsWith('portal_')) return 'portal'
+  if (raw === 'chaoxing' || raw.startsWith('chaoxing_')) return 'chaoxing'
+  return raw
+}
+
 const isKnownMode = (mode) => LOGIN_MODES.some((item) => item.key === mode)
 const resolveInitialMode = () => {
-  const fromProp = String(props.loginMode || '').trim()
+  const fromProp = normalizeModeKey(props.loginMode)
   if (isKnownMode(fromProp)) return fromProp
-  const fromStorage = String(localStorage.getItem(LOGIN_MODE_PREF_KEY) || '').trim()
+  const fromStorage = normalizeModeKey(localStorage.getItem(LOGIN_MODE_PREF_KEY))
   if (isKnownMode(fromStorage)) return fromStorage
-  return 'portal_password'
+  return 'portal'
 }
 
 const activeMode = ref(resolveInitialMode())
@@ -66,11 +56,13 @@ const password = ref('')
 const chaoxingAccount = ref('')
 const chaoxingPassword = ref('')
 const rememberMe = ref(true)
-const agreePolicy = ref(false)
+const agreePolicy = ref(true)
 const loading = ref(false)
 const statusMsg = ref('')
 const ocrConfigMode = ref('本地')
 const debugLogs = ref([])
+const portalQrVisible = ref(false)
+const chaoxingQrVisible = ref(false)
 
 const qrUuid = ref('')
 const qrImageBase64 = ref('')
@@ -95,11 +87,13 @@ let cxQrTimer = null
 let cxQrPollingBusy = false
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const CHAOXING_FORGET_PWD_URL = 'https://passport2.chaoxing.com/pwd/findpwd?version=1&fid=0&flushCookie=true&independentId=0&refer=https%3A%2F%2Fi.chaoxing.com'
 
-const isPortalPasswordMode = computed(() => activeMode.value === 'portal_password')
-const isPortalQrMode = computed(() => activeMode.value === 'portal_qr_temp')
-const isChaoxingPasswordMode = computed(() => activeMode.value === 'chaoxing_password')
-const isChaoxingQrMode = computed(() => activeMode.value === 'chaoxing_qr_temp')
+let portalQrInitSeq = 0
+let chaoxingQrInitSeq = 0
+
+const isPortalMode = computed(() => activeMode.value === 'portal')
+const isChaoxingMode = computed(() => activeMode.value === 'chaoxing')
 const currentModeMeta = computed(() => LOGIN_MODES.find((item) => item.key === activeMode.value) || LOGIN_MODES[0])
 const canSubmitPasswordLogin = computed(() => {
   return Boolean(username.value && password.value && agreePolicy.value && !loading.value)
@@ -107,6 +101,8 @@ const canSubmitPasswordLogin = computed(() => {
 const canSubmitChaoxingPasswordLogin = computed(() => {
   return Boolean(chaoxingAccount.value && chaoxingPassword.value && agreePolicy.value && !loading.value)
 })
+
+const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
 
 const applyLoginMethodStorage = (mode) => {
   const isTemp = mode.endsWith('_temp')
@@ -196,8 +192,61 @@ const clearCxQrTimer = () => {
   }
 }
 
+const withTimeout = async (promise, timeoutMs, timeoutMessage) => {
+  let timer = null
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(timeoutMessage))
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+const normalizeInvokePayload = (raw) => {
+  if (raw && typeof raw === 'object') return raw
+  if (typeof raw === 'string') {
+    const text = raw.trim()
+    if (!text) return {}
+    try {
+      return JSON.parse(text)
+    } catch {
+      return { raw: text }
+    }
+  }
+  return {}
+}
+
+const pickText = (payload, keys) => {
+  if (!payload || typeof payload !== 'object') return ''
+  const containers = [payload, payload.data, payload.result].filter(Boolean)
+  for (const container of containers) {
+    for (const key of keys) {
+      const value = container?.[key]
+      if (value === 0) return '0'
+      if (value === false) return 'false'
+      if (value === null || value === undefined) continue
+      const text = String(value).trim()
+      if (text) return text
+    }
+  }
+  return ''
+}
+
+const normalizeQrImageSource = (raw) => {
+  const value = String(raw || '').trim()
+  if (!value) return ''
+  if (value.startsWith('data:image/')) return value
+  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('/')) return value
+  return `data:image/png;base64,${value}`
+}
+
 const resetQrState = () => {
   clearQrTimer()
+  portalQrInitSeq += 1
   qrUuid.value = ''
   qrImageBase64.value = ''
   qrState.value = 'idle'
@@ -210,6 +259,7 @@ const resetQrState = () => {
 
 const resetCxQrState = () => {
   clearCxQrTimer()
+  chaoxingQrInitSeq += 1
   cxQrUuid.value = ''
   cxQrEnc.value = ''
   cxQrImageBase64.value = ''
@@ -359,7 +409,7 @@ const handlePasswordLogin = async () => {
 }
 
 const pollPortalQrStatus = async () => {
-  if (!qrUuid.value || !isPortalQrMode.value) return
+  if (!qrUuid.value || !isPortalMode.value || !portalQrVisible.value) return
   if (qrSubmitting.value || qrPollingBusy) return
 
   updateQrCountdown()
@@ -413,18 +463,32 @@ const initPortalQrLogin = async () => {
     return
   }
 
+  portalQrVisible.value = true
   statusMsg.value = ''
   qrSubmitting.value = false
   qrState.value = 'loading'
   qrStateMessage.value = '正在生成二维码...'
   clearQrTimer()
+  const currentSeq = ++portalQrInitSeq
 
   try {
-    const payload = await invoke('portal_qr_init_login', {
+    const rawPayload = await withTimeout(invoke('portal_qr_init_login', {
       service: 'https://e.hbut.edu.cn/login#/'
-    })
-    const uuid = String(payload?.uuid || '').trim()
-    const qrImg = String(payload?.qr_image_base64 || '').trim()
+    }), 20000, '二维码生成超时，请检查网络后重试')
+    if (currentSeq !== portalQrInitSeq) return
+    const payload = normalizeInvokePayload(rawPayload)
+    const uuid = pickText(payload, ['uuid', 'qr_uuid'])
+    const qrImg = normalizeQrImageSource(
+      pickText(payload, [
+        'qr_image_base64',
+        'qrImageBase64',
+        'qr_image',
+        'qrImage',
+        'image_base64',
+        'imageBase64',
+        'image'
+      ])
+    )
 
     if (!uuid || !qrImg) {
       throw new Error('二维码数据不完整，请重试')
@@ -441,6 +505,18 @@ const initPortalQrLogin = async () => {
     qrState.value = 'error'
     qrStateMessage.value = `二维码生成失败：${e.message || e}`
   }
+}
+
+const openPortalQrPanel = async (refresh = false) => {
+  portalQrVisible.value = true
+  if (refresh || !qrImageBase64.value || qrState.value === 'expired') {
+    await initPortalQrLogin()
+  }
+}
+
+const closePortalQrPanel = () => {
+  portalQrVisible.value = false
+  resetQrState()
 }
 
 const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
@@ -485,7 +561,11 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
 }
 
 const handleChaoxingLoginSuccess = async (payload, modeKey) => {
-  const sid = String(payload?.student_id || payload?.account || chaoxingAccount.value || '').trim()
+  const payloadSid = String(payload?.student_id || '').trim()
+  const payloadAccount = String(payload?.account || '').trim()
+  const inputAccount = String(chaoxingAccount.value || '').trim()
+  const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
+  const sid = payloadSid || (isLikelyStudentId(cachedSid) ? cachedSid : '') || payloadAccount || inputAccount
   if (!sid) {
     throw new Error('学习通登录成功，但未返回账号标识')
   }
@@ -533,7 +613,7 @@ const handleChaoxingPasswordLogin = async () => {
 }
 
 const pollChaoxingQrStatus = async () => {
-  if (!cxQrUuid.value || !cxQrEnc.value || !isChaoxingQrMode.value) return
+  if (!cxQrUuid.value || !cxQrEnc.value || !isChaoxingMode.value || !chaoxingQrVisible.value) return
   if (cxQrSubmitting.value || cxQrPollingBusy) return
 
   updateCxQrCountdown()
@@ -601,18 +681,32 @@ const initChaoxingQrLogin = async (preferRefresh = false) => {
     return
   }
 
+  chaoxingQrVisible.value = true
   statusMsg.value = ''
   cxQrSubmitting.value = false
   cxQrState.value = 'loading'
   cxQrStateMessage.value = '正在生成学习通二维码...'
   clearCxQrTimer()
+  const currentSeq = ++chaoxingQrInitSeq
 
   try {
     const command = preferRefresh && cxQrUuid.value ? 'chaoxing_qr_refresh_login' : 'chaoxing_qr_init_login'
-    const payload = await invoke(command)
-    const uuid = String(payload?.uuid || '').trim()
-    const enc = String(payload?.enc || '').trim()
-    const qrImg = String(payload?.qr_image_base64 || '').trim()
+    const rawPayload = await withTimeout(invoke(command), 20000, '学习通二维码生成超时，请检查网络后重试')
+    if (currentSeq !== chaoxingQrInitSeq) return
+    const payload = normalizeInvokePayload(rawPayload)
+    const uuid = pickText(payload, ['uuid', 'qr_uuid'])
+    const enc = pickText(payload, ['enc', 'encrypt'])
+    const qrImg = normalizeQrImageSource(
+      pickText(payload, [
+        'qr_image_base64',
+        'qrImageBase64',
+        'qr_image',
+        'qrImage',
+        'image_base64',
+        'imageBase64',
+        'image'
+      ])
+    )
     if (!uuid || !enc || !qrImg) {
       throw new Error('学习通二维码数据不完整')
     }
@@ -633,6 +727,18 @@ const initChaoxingQrLogin = async (preferRefresh = false) => {
     cxQrStateMessage.value = `学习通二维码生成失败：${e.message || e}`
     pushDebug(`学习通二维码生成失败: ${e.message || e}`)
   }
+}
+
+const openChaoxingQrPanel = async (refresh = false) => {
+  chaoxingQrVisible.value = true
+  if (refresh || !cxQrImageBase64.value || cxQrState.value === 'expired') {
+    await initChaoxingQrLogin(refresh || !!cxQrImageBase64.value)
+  }
+}
+
+const closeChaoxingQrPanel = () => {
+  chaoxingQrVisible.value = false
+  resetCxQrState()
 }
 
 const confirmChaoxingQrLogin = async () => {
@@ -658,34 +764,28 @@ const confirmChaoxingQrLogin = async () => {
   }
 }
 
-const handleLimitedModeLogin = () => {
-  if (!agreePolicy.value) {
-    statusMsg.value = '请先阅读并同意免责声明与隐私政策'
-    return
-  }
-  statusMsg.value = '当前版本仅完成该登录方式入口，具体能力将在后续版本开放。'
-}
-
 const switchMode = (mode) => {
   if (!isKnownMode(mode) || activeMode.value === mode) return
   activeMode.value = mode
   statusMsg.value = ''
   clearDebugLogs()
-  if (mode !== 'portal_qr_temp') {
+  if (mode !== 'portal') {
+    portalQrVisible.value = false
     resetQrState()
   }
-  if (mode !== 'chaoxing_qr_temp') {
+  if (mode !== 'chaoxing') {
+    chaoxingQrVisible.value = false
     resetCxQrState()
   }
 }
 
 const handleKeyPress = (event) => {
   if (event.key !== 'Enter' || loading.value) return
-  if (isPortalPasswordMode.value) {
+  if (isPortalMode.value) {
     handlePasswordLogin()
     return
   }
-  if (isChaoxingPasswordMode.value) {
+  if (isChaoxingMode.value) {
     handleChaoxingPasswordLogin()
   }
 }
@@ -693,7 +793,7 @@ const handleKeyPress = (event) => {
 watch(
   () => props.loginMode,
   (mode) => {
-    const nextMode = String(mode || '').trim()
+    const nextMode = normalizeModeKey(mode)
     if (isKnownMode(nextMode) && nextMode !== activeMode.value) {
       activeMode.value = nextMode
     }
@@ -706,7 +806,7 @@ watch(activeMode, (mode) => {
 })
 
 onMounted(async () => {
-  const savedMode = String(localStorage.getItem(LOGIN_MODE_PREF_KEY) || '').trim()
+  const savedMode = normalizeModeKey(localStorage.getItem(LOGIN_MODE_PREF_KEY))
   if (isKnownMode(savedMode) && savedMode !== activeMode.value) {
     activeMode.value = savedMode
   }
@@ -751,26 +851,27 @@ onBeforeUnmount(() => {
     <div class="logo">
       <img class="logo-img" :src="hbutLogo" alt="Mini-HBUT" />
     </div>
-    <h2>HBUT 校园助手登录</h2>
-    <p class="subtitle">选择登录方式后继续</p>
+    <h2>账号登录</h2>
+    <p class="subtitle">选择入口后继续</p>
 
-    <div class="mode-scroll">
+    <div class="entry-switch" role="tablist" aria-label="登录入口切换">
+      <span class="entry-slider" :class="{ 'is-chaoxing': isChaoxingMode }"></span>
       <button
-        v-for="mode in LOGIN_MODES"
-        :key="mode.key"
-        class="mode-btn"
-        :class="{ active: activeMode === mode.key }"
-        @click="switchMode(mode.key)"
+        class="entry-btn"
+        :class="{ active: isPortalMode }"
+        @click="switchMode('portal')"
       >
-        <div class="mode-head">
-          <span class="mode-title">{{ mode.title }}</span>
-          <span v-if="mode.temporary" class="mode-tag temp">临时</span>
-          <span v-else-if="mode.limited" class="mode-tag limited">受限</span>
-        </div>
-        <p class="mode-desc">{{ mode.desc }}</p>
+        新融合门户
+      </button>
+      <button
+        class="entry-btn"
+        :class="{ active: isChaoxingMode }"
+        @click="switchMode('chaoxing')"
+      >
+        学习通
       </button>
     </div>
-    <p class="mode-tip">可左右滑动切换登录方式</p>
+    <p class="mode-capsule">{{ currentModeMeta.title }}</p>
 
     <div v-if="loading" class="progress-container">
       <div class="loading-spinner">
@@ -780,13 +881,13 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="form-container">
-      <template v-if="isPortalPasswordMode">
+      <template v-if="isPortalMode">
         <div class="input-group">
           <label>学号</label>
           <input
             v-model="username"
             type="text"
-            placeholder="请输入学号（10位数字）"
+            placeholder="学号（10位数字）"
             maxlength="10"
             @keypress="handleKeyPress"
           />
@@ -797,7 +898,7 @@ onBeforeUnmount(() => {
           <input
             v-model="password"
             type="password"
-            placeholder="新融合门户密码"
+            placeholder="密码"
             @keypress="handleKeyPress"
           />
         </div>
@@ -806,7 +907,7 @@ onBeforeUnmount(() => {
           <label class="checkbox-label">
             <input type="checkbox" v-model="rememberMe" class="real-checkbox" />
             <span class="custom-checkbox"></span>
-            记住密码（仅本机存储）
+            记住密码
           </label>
         </div>
 
@@ -815,29 +916,49 @@ onBeforeUnmount(() => {
           :disabled="!canSubmitPasswordLogin"
           @click="handlePasswordLogin"
         >
-          🔐 登录
+          登录
         </button>
+
+        <div class="action-pills">
+          <a
+            class="action-pill action-pill-link"
+            href="https://auth.hbut.edu.cn/retrieve-password/retrievePassword/index.html?service=https%3A%2F%2Fe.hbut.edu.cn%2Flogin%23%2F#/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            忘记密码
+          </a>
+          <button class="action-pill action-pill-btn" @click="openPortalQrPanel()">
+            扫码登录
+          </button>
+        </div>
+
+        <transition name="fade-slide">
+          <div v-if="portalQrVisible" class="qr-panel">
+            <div class="qr-panel-head">
+              <span class="qr-panel-title">扫码登录（临时）</span>
+              <button class="qr-close-btn" type="button" @click="closePortalQrPanel">收起</button>
+            </div>
+            <div class="qr-image-box">
+              <img v-if="qrImageBase64" :src="qrImageBase64" alt="扫码登录二维码" class="qr-image" />
+              <div v-else class="qr-placeholder">
+                {{ qrState === 'error' ? (qrStateMessage || '二维码加载失败') : '正在生成二维码...' }}
+              </div>
+            </div>
+            <p class="qr-status">{{ qrStateMessage || '请使用新融合门户 App 扫码登录。' }}</p>
+            <p v-if="qrRemainingSeconds > 0" class="qr-countdown">二维码剩余 {{ qrRemainingSeconds }} 秒</p>
+            <button class="login-btn" :disabled="qrSubmitting" @click="openPortalQrPanel(true)">
+              {{ qrImageBase64 ? '刷新二维码' : '生成二维码' }}
+            </button>
+          </div>
+        </transition>
 
         <div class="mode-info">
           <span class="info-text">OCR 配置：{{ ocrConfigMode }}</span>
         </div>
       </template>
 
-      <template v-else-if="isPortalQrMode">
-        <div class="qr-panel">
-          <div class="qr-image-box">
-            <img v-if="qrImageBase64" :src="qrImageBase64" alt="扫码登录二维码" class="qr-image" />
-            <div v-else class="qr-placeholder">点击下方按钮生成二维码</div>
-          </div>
-          <p class="qr-status">{{ qrStateMessage || '请先生成二维码' }}</p>
-          <p v-if="qrRemainingSeconds > 0" class="qr-countdown">二维码剩余 {{ qrRemainingSeconds }} 秒</p>
-          <button class="login-btn" :disabled="qrSubmitting" @click="initPortalQrLogin">
-            {{ qrImageBase64 ? '刷新二维码' : '生成二维码' }}
-          </button>
-        </div>
-      </template>
-
-      <template v-else-if="isChaoxingPasswordMode">
+      <template v-else-if="isChaoxingMode">
         <div class="input-group">
           <label>学习通账号</label>
           <input
@@ -854,7 +975,7 @@ onBeforeUnmount(() => {
           <input
             v-model="chaoxingPassword"
             type="password"
-            placeholder="学习通密码"
+            placeholder="密码"
             maxlength="40"
             @keypress="handleKeyPress"
           />
@@ -864,7 +985,7 @@ onBeforeUnmount(() => {
           <label class="checkbox-label">
             <input type="checkbox" v-model="rememberMe" class="real-checkbox" />
             <span class="custom-checkbox"></span>
-            记住学习通账号密码（仅本机存储）
+            记住密码
           </label>
         </div>
 
@@ -873,43 +994,56 @@ onBeforeUnmount(() => {
           :disabled="!canSubmitChaoxingPasswordLogin"
           @click="handleChaoxingPasswordLogin"
         >
-          🔐 登录学习通
+          登录
         </button>
+
+        <div class="action-pills">
+          <a
+            class="action-pill action-pill-link"
+            :href="CHAOXING_FORGET_PWD_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            忘记密码
+          </a>
+          <button class="action-pill action-pill-btn" @click="openChaoxingQrPanel()">
+            扫码登录
+          </button>
+          <span class="action-pill action-pill-note">功能受限</span>
+        </div>
+
+        <transition name="fade-slide">
+          <div v-if="chaoxingQrVisible" class="qr-panel">
+            <div class="qr-panel-head">
+              <span class="qr-panel-title">学习通扫码登录（临时）</span>
+              <button class="qr-close-btn" type="button" @click="closeChaoxingQrPanel">收起</button>
+            </div>
+            <div class="qr-image-box">
+              <img v-if="cxQrImageBase64" :src="cxQrImageBase64" alt="学习通扫码二维码" class="qr-image" />
+              <div v-else class="qr-placeholder">
+                {{ cxQrState === 'error' ? (cxQrStateMessage || '二维码加载失败') : '正在生成学习通二维码...' }}
+              </div>
+            </div>
+            <p class="qr-status">{{ cxQrStateMessage || '请使用学习通 App 扫码登录。' }}</p>
+            <p v-if="cxQrRemainingSeconds > 0" class="qr-countdown">二维码剩余 {{ cxQrRemainingSeconds }} 秒</p>
+            <button class="login-btn" :disabled="cxQrSubmitting" @click="openChaoxingQrPanel(true)">
+              {{ cxQrImageBase64 ? '刷新学习通二维码' : '生成学习通二维码' }}
+            </button>
+          </div>
+        </transition>
 
         <div class="mode-info mode-info-warn">
           <span class="info-text">学习通登录后首页仅显示教务相关模块。</span>
         </div>
       </template>
 
-      <template v-else-if="isChaoxingQrMode">
-        <div class="qr-panel">
-          <div class="qr-image-box">
-            <img v-if="cxQrImageBase64" :src="cxQrImageBase64" alt="学习通扫码二维码" class="qr-image" />
-            <div v-else class="qr-placeholder">点击下方按钮生成学习通二维码</div>
-          </div>
-          <p class="qr-status">{{ cxQrStateMessage || '请先生成二维码' }}</p>
-          <p v-if="cxQrRemainingSeconds > 0" class="qr-countdown">二维码剩余 {{ cxQrRemainingSeconds }} 秒</p>
-          <button class="login-btn" :disabled="cxQrSubmitting" @click="initChaoxingQrLogin(!!cxQrImageBase64)">
-            {{ cxQrImageBase64 ? '刷新学习通二维码' : '生成学习通二维码' }}
-          </button>
-        </div>
-      </template>
-
-      <template v-else>
-        <div class="limited-box">
-          <p class="limited-title">{{ currentModeMeta.title }}</p>
-          <p class="limited-desc">该登录方式当前仅完成切换入口，后续版本开放具体能力。</p>
-          <button class="login-btn" @click="handleLimitedModeLogin">继续（入口测试）</button>
-        </div>
-      </template>
-
       <div class="checkbox-group agreement">
-        <label class="checkbox-label">
+        <label class="checkbox-label checkbox-label--agreement">
           <input type="checkbox" v-model="agreePolicy" class="real-checkbox" />
           <span class="custom-checkbox"></span>
-          我已阅读并同意
+          <span class="agreement-text">我已阅读并同意</span>
           <button type="button" class="link-btn" @click="emit('showLegal', 'disclaimer')">《免责声明》</button>
-          与
+          <span class="agreement-text">与</span>
           <button type="button" class="link-btn" @click="emit('showLegal', 'privacy')">《隐私政策》</button>
         </label>
       </div>
@@ -921,171 +1055,125 @@ onBeforeUnmount(() => {
       >
         {{ statusMsg }}
       </p>
-
-      <div class="help-section">
-        <p class="help-text">
-          当前模式：<strong>{{ currentModeMeta.title }}</strong>
-        </p>
-        <p class="help-text">
-          <a
-            href="https://auth.hbut.edu.cn/retrieve-password/retrievePassword/index.html?service=https%3A%2F%2Fe.hbut.edu.cn%2Flogin%23%2F#/"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            忘记新融合门户密码？
-          </a>
-        </p>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
 .login-container {
-  max-width: 560px;
-  margin: 2rem auto;
-  padding: 2rem;
+  max-width: 520px;
+  margin: 1.2rem auto;
+  padding: 1.3rem 1.15rem;
   text-align: center;
 }
 
 .logo {
-  margin-bottom: 1rem;
+  margin-bottom: 0.6rem;
   display: flex;
   justify-content: center;
 }
 
 .logo-img {
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
 }
 
 h2 {
   color: var(--primary-color);
-  margin-bottom: 0.5rem;
+  margin: 0 0 0.35rem;
+  font-size: 1.28rem;
 }
 
 .subtitle {
   color: #64748b;
-  margin-bottom: 1.25rem;
-  font-size: 0.92rem;
+  margin: 0 0 0.92rem;
+  font-size: 0.84rem;
 }
 
-.mode-scroll {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 6px;
-  margin-bottom: 0.3rem;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: thin;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-}
-
-.mode-tip {
-  margin: 0 0 0.8rem;
-  color: #94a3b8;
-  font-size: 0.74rem;
-}
-
-.mode-btn {
-  flex: 0 0 170px;
-  scroll-snap-align: start;
-  border: 1px solid #dbe2ea;
-  border-radius: 10px;
-  background: #ffffff;
-  text-align: left;
-  padding: 0.62rem 0.68rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-height: 78px;
-}
-
-.mode-btn:hover {
-  border-color: #94a3b8;
-}
-
-.mode-btn.active {
-  border-color: var(--primary-color);
-  background: #eef2ff;
-  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.25);
-}
-
-.mode-head {
-  display: flex;
+.entry-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.mode-title {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #0f172a;
-  line-height: 1.2;
-}
-
-.mode-tag {
-  flex-shrink: 0;
-  padding: 2px 6px;
+  border: 1px solid #dbe5f0;
   border-radius: 999px;
-  font-size: 0.72rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+  padding: 3px;
+  margin-bottom: 0.5rem;
+}
+
+.entry-slider {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.28);
+  transition: transform 0.25s ease;
+  z-index: 0;
+}
+
+.entry-slider.is-chaoxing {
+  transform: translateX(100%);
+}
+
+.entry-btn {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.48rem 0.16rem;
+  background: transparent;
+  color: #334155;
+  font-size: 0.86rem;
   font-weight: 700;
+  cursor: pointer;
+  transition: color 0.22s ease;
 }
 
-.mode-tag.temp {
-  color: #0f766e;
-  background: #ccfbf1;
+.entry-btn.active {
+  color: #ffffff;
 }
 
-.mode-tag.limited {
-  color: #7c2d12;
-  background: #fed7aa;
-}
-
-.mode-desc {
-  margin: 0.35rem 0 0;
-  font-size: 0.73rem;
-  color: #64748b;
-  line-height: 1.28;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.mode-info.mode-info-warn {
-  background: #fff7ed;
-}
-
-.mode-info.mode-info-warn .info-text {
-  color: #9a3412;
+.mode-capsule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 0.65rem;
+  padding: 0.25rem 0.72rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: #1d4ed8;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+  border: 1px solid #bfdbfe;
 }
 
 .form-container {
-  margin-top: 0.75rem;
+  margin-top: 0.45rem;
 }
 
 .input-group {
   text-align: left;
-  margin-bottom: 1rem;
+  margin-bottom: 0.72rem;
 }
 
 .input-group label {
   display: block;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.3rem;
   font-weight: 600;
   color: var(--text-color);
+  font-size: 0.88rem;
 }
 
 .input-group input {
   width: 100%;
-  padding: 0.72rem;
+  padding: 0.62rem 0.7rem;
   border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 0.96rem;
+  border-radius: 10px;
+  font-size: 0.92rem;
   box-sizing: border-box;
 }
 
@@ -1097,29 +1185,65 @@ h2 {
 .checkbox-group {
   display: flex;
   justify-content: flex-start;
-  margin-bottom: 0.9rem;
+  margin-bottom: 0.65rem;
 }
 
 .checkbox-group.agreement {
-  margin-top: 1.2rem;
+  display: block;
+  width: 100%;
+  margin-top: 0.88rem;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 2px;
 }
 
 .checkbox-label {
   display: flex;
   align-items: center;
   cursor: pointer;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   color: #475569;
   user-select: text;
+}
+
+.checkbox-label--agreement {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  min-width: max-content;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  flex-wrap: nowrap;
+  gap: 2px;
+  background: linear-gradient(135deg, #ecfeff 0%, #eff6ff 100%);
+  border: 1px solid #bae6fd;
+  border-radius: 999px;
+  padding: 0.35rem 0.68rem;
+}
+
+.agreement-text {
+  display: inline;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  margin-right: 1px;
+  font-size: 0.82rem;
 }
 
 .link-btn {
   background: none;
   border: none;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
   color: var(--primary-color);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
   padding: 0 2px;
+  white-space: nowrap;
+  font-size: 0.82rem;
 }
 
 .link-btn:hover {
@@ -1131,11 +1255,12 @@ h2 {
 }
 
 .custom-checkbox {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
   border: 2px solid #d1d5db;
   border-radius: 5px;
-  margin-right: 8px;
+  margin-right: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1161,12 +1286,12 @@ h2 {
 
 .login-btn {
   width: 100%;
-  padding: 0.9rem;
+  padding: 0.7rem;
   background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
   color: white;
   border: none;
-  border-radius: 12px;
-  font-size: 1rem;
+  border-radius: 11px;
+  font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
@@ -1181,16 +1306,84 @@ h2 {
   cursor: not-allowed;
 }
 
+.action-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.62rem 0 0.26rem;
+}
+
+.action-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.34rem 0.64rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.action-pill-link {
+  color: #1d4ed8;
+  text-decoration: none;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+  border-color: #bfdbfe;
+}
+
+.action-pill-link:hover {
+  text-decoration: underline;
+}
+
+.action-pill-btn {
+  color: #0f766e;
+  background: linear-gradient(135deg, #ccfbf1 0%, #e0f2fe 100%);
+  border-color: #99f6e4;
+  cursor: pointer;
+}
+
+.action-pill-note {
+  color: #9a3412;
+  background: linear-gradient(135deg, #ffedd5 0%, #fef3c7 100%);
+  border-color: #fed7aa;
+}
+
 .qr-panel {
   border: 1px solid #dbe2ea;
   border-radius: 12px;
-  padding: 0.9rem;
-  background: #f8fafc;
+  padding: 0.74rem;
+  margin-top: 0.45rem;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.qr-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 0.55rem;
+}
+
+.qr-panel-title {
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.qr-close-btn {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.48rem;
+  cursor: pointer;
 }
 
 .qr-image-box {
-  width: 220px;
-  height: 220px;
+  width: 198px;
+  height: 198px;
   margin: 0 auto;
   background: #fff;
   border-radius: 10px;
@@ -1209,53 +1402,41 @@ h2 {
 
 .qr-placeholder {
   color: #94a3b8;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
   padding: 0 1rem;
 }
 
 .qr-status {
-  margin: 0.8rem 0 0.35rem;
+  margin: 0.58rem 0 0.3rem;
   color: #334155;
-  font-size: 0.92rem;
+  font-size: 0.84rem;
 }
 
 .qr-countdown {
-  margin: 0 0 0.8rem;
+  margin: 0 0 0.6rem;
   color: #0f766e;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 600;
 }
 
-.limited-box {
-  border: 1px dashed #cbd5e1;
-  border-radius: 12px;
-  padding: 1rem;
-  background: #f8fafc;
-  text-align: left;
-}
-
-.limited-title {
-  margin: 0 0 0.45rem;
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.limited-desc {
-  margin: 0 0 0.8rem;
-  color: #64748b;
-  font-size: 0.88rem;
-}
-
 .mode-info {
-  margin-top: 0.8rem;
-  padding: 0.65rem;
+  margin-top: 0.56rem;
+  padding: 0.5rem;
   background: #e0f2fe;
   border-radius: 10px;
 }
 
+.mode-info.mode-info-warn {
+  background: #fff7ed;
+}
+
 .info-text {
-  font-size: 0.86rem;
+  font-size: 0.79rem;
   color: #0c4a6e;
+}
+
+.mode-info.mode-info-warn .info-text {
+  color: #9a3412;
 }
 
 .progress-container {
@@ -1282,8 +1463,8 @@ h2 {
 }
 
 .status-msg {
-  margin-top: 0.9rem;
-  font-size: 0.92rem;
+  margin-top: 0.65rem;
+  font-size: 0.84rem;
   color: #334155;
 }
 
@@ -1292,43 +1473,34 @@ h2 {
   font-weight: 600;
 }
 
-.help-section {
-  margin-top: 1.1rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid #e2e8f0;
-  text-align: left;
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.2s ease;
 }
 
-.help-text {
-  margin: 0.4rem 0;
-  color: #64748b;
-  font-size: 0.84rem;
-}
-
-.help-text a {
-  color: var(--primary-color);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.help-text a:hover {
-  text-decoration: underline;
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 @media (max-width: 560px) {
   .login-container {
-    padding: 1.2rem;
-    margin: 1rem auto;
-  }
-
-  .mode-btn {
-    flex-basis: 74%;
-    min-height: 72px;
+    padding: 1rem 0.85rem;
+    margin: 0.75rem auto;
   }
 
   .qr-image-box {
-    width: 200px;
-    height: 200px;
+    width: 186px;
+    height: 186px;
+  }
+
+  .action-pills {
+    gap: 0.45rem;
+  }
+
+  .action-pill {
+    font-size: 0.76rem;
   }
 }
 </style>

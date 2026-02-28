@@ -26,9 +26,21 @@ const brokenImages = ref(new Set())
 const cardListeners = []
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
-const CHAOXING_METHODS = new Set(['chaoxing_password', 'chaoxing_qr_temp'])
-const JWXT_MODULE_ALLOWLIST = new Set(['grades', 'classroom', 'exams', 'ranking', 'calendar', 'academic', 'qxzkb', 'training'])
+const JWXT_MODULE_ALLOWLIST = new Set([
+  'grades',
+  'classroom',
+  'exams',
+  'ranking',
+  'calendar',
+  'academic',
+  'qxzkb',
+  'training',
+  'library',
+  'campus_map',
+  'resource_share'
+])
 const loginMethod = ref('')
+const isChaoxingMethod = (value) => String(value || '').trim().startsWith('chaoxing')
 
 const refreshLoginMethod = () => {
   loginMethod.value = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
@@ -360,10 +372,10 @@ const baseModules = [
 ]
 
 const modules = computed(() => {
-  if (!CHAOXING_METHODS.has(loginMethod.value)) return baseModules
+  if (!isChaoxingMethod(loginMethod.value)) return baseModules
   return baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
 })
-const isChaoxingLogin = computed(() => CHAOXING_METHODS.has(loginMethod.value))
+const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 
 const navigateTo = (moduleId) => {
   const module = modules.value.find((m) => m.id === moduleId)
@@ -578,7 +590,7 @@ watch(
 
     <section v-if="isChaoxingLogin" class="maintenance-banner maintenance-banner--chaoxing">
       <div class="maintenance-title">学习通登录模式</div>
-      <div class="maintenance-text">当前首页仅展示教务相关模块，其他模块已自动隐藏。</div>
+      <div class="maintenance-text">当前已开放教务模块 + 图书查询 + 校园地图 + 资料分享。</div>
     </section>
 
     <!-- 模块卡片 -->

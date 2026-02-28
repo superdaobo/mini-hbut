@@ -434,6 +434,46 @@ fn parse_cookie_value(cookie_header: &str, key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn cookie_header_for_url(client: &HbutClient, url: &str) -> String {
+    let parsed = match reqwest::Url::parse(url) {
+        Ok(v) => v,
+        Err(_) => return String::new(),
+    };
+    client
+        .cookie_jar
+        .cookies(&parsed)
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+fn has_portal_login_cookie(client: &HbutClient) -> bool {
+    let cookie_header = cookie_header_for_url(client, crate::http_client::AUTH_BASE_URL);
+    parse_cookie_value(&cookie_header, "CASTGC").is_some()
+        || parse_cookie_value(&cookie_header, "TGC").is_some()
+        || parse_cookie_value(&cookie_header, "happyVoyage").is_some()
+}
+
+fn has_chaoxing_login_cookie(client: &HbutClient) -> bool {
+    let passport_cookie = cookie_header_for_url(client, CHAOXING_BASE_URL);
+    let i_cookie = cookie_header_for_url(client, "https://i.chaoxing.com");
+    let merged_cookie = if passport_cookie.is_empty() {
+        i_cookie
+    } else if i_cookie.is_empty() {
+        passport_cookie
+    } else {
+        format!("{}; {}", passport_cookie, i_cookie)
+    };
+
+    let has_uid = parse_cookie_value(&merged_cookie, "UID")
+        .or_else(|| parse_cookie_value(&merged_cookie, "_uid"))
+        .is_some();
+    let has_token = parse_cookie_value(&merged_cookie, "p_auth_token")
+        .or_else(|| parse_cookie_value(&merged_cookie, "cx_p_token"))
+        .or_else(|| parse_cookie_value(&merged_cookie, "xxtenc"))
+        .is_some();
+    has_uid && has_token
+}
+
 fn guess_chaoxing_student_id(account_hint: Option<&str>, cookie_header: &str) -> String {
     if let Some(username_cookie) = parse_cookie_value(cookie_header, "username") {
         let username = username_cookie.trim();
@@ -594,6 +634,55 @@ async fn fetch_chaoxing_qr_image(
         content_type,
         general_purpose::STANDARD.encode(bytes)
     ))
+}
+
+async fn fetch_portal_qr_status_code(client: &HbutClient, qr_uuid: &str) -> Result<String, String> {
+    let status_url = format!(
+        "{}/qrCode/getStatus.htl?ts={}&uuid={}",
+        crate::http_client::AUTH_BASE_URL,
+        Utc::now().timestamp_millis(),
+        urlencoding::encode(qr_uuid)
+    );
+    client
+        .client
+        .get(&status_url)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .send()
+        .await
+        .map_err(|e| format!("查询二维码状态失败: {}", e))?
+        .text()
+        .await
+        .map_err(|e| format!("读取二维码状态失败: {}", e))
+        .map(|v| v.trim().to_string())
+}
+
+async fn fetch_portal_user_info_with_retry(
+    client: &mut HbutClient,
+    attempts: usize,
+) -> Result<UserInfo, String> {
+    let mut last_err = "未知错误".to_string();
+    let total = attempts.max(1);
+    for idx in 0..total {
+        // 先触发一次门户与教务补票，再拉取用户信息。
+        let _ = client
+            .client
+            .get(crate::http_client::TARGET_SERVICE)
+            .send()
+            .await;
+        let jwxt_sso = format!("{}/sso/jasiglogin", crate::http_client::JWXT_BASE_URL);
+        let _ = client.client.get(&jwxt_sso).send().await;
+
+        match client.fetch_user_info().await {
+            Ok(info) => return Ok(info),
+            Err(e) => {
+                last_err = e.to_string();
+                if idx + 1 < total {
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                }
+            }
+        }
+    }
+    Err(last_err)
 }
 
 async fn finalize_chaoxing_login(
@@ -846,24 +935,7 @@ async fn portal_qr_check_status(
     }
 
     let client = state.client.lock().await;
-    let status_url = format!(
-        "{}/qrCode/getStatus.htl?ts={}&uuid={}",
-        crate::http_client::AUTH_BASE_URL,
-        Utc::now().timestamp_millis(),
-        urlencoding::encode(&qr_uuid)
-    );
-    let status_code = client
-        .client
-        .get(&status_url)
-        .header("X-Requested-With", "XMLHttpRequest")
-        .send()
-        .await
-        .map_err(|e| format!("查询二维码状态失败: {}", e))?
-        .text()
-        .await
-        .map_err(|e| format!("读取二维码状态失败: {}", e))?
-        .trim()
-        .to_string();
+    let status_code = fetch_portal_qr_status_code(&client, &qr_uuid).await?;
 
     let (status_label, should_submit) = map_portal_qr_status(&status_code);
     Ok(PortalQrStatusResponse {
@@ -937,30 +1009,42 @@ async fn portal_qr_confirm_login(
         .text()
         .await
         .map_err(|e| format!("读取扫码登录响应失败: {}", e))?;
-    if final_url.contains("authserver/login") || html.contains("qrLoginForm") {
-        return Err("扫码确认未完成或二维码已失效，请重新扫码".to_string());
-    }
+    let portal_cookie_ready = has_portal_login_cookie(&client);
+    let confirmed_hint = portal_cookie_ready
+        || final_url.contains("ticket=ST-")
+        || final_url.contains("e.hbut.edu.cn")
+        || final_url.contains("code.hbut.edu.cn");
 
-    let _ = client
-        .client
-        .get(crate::http_client::TARGET_SERVICE)
-        .send()
-        .await;
-
-    let user_info = match client.fetch_user_info().await {
+    let user_info = match fetch_portal_user_info_with_retry(
+        &mut client,
+        if confirmed_hint { 4 } else { 2 },
+    )
+    .await
+    {
         Ok(info) => info,
-        Err(_) => {
-            let jwxt_sso = format!("{}/sso/jasiglogin", crate::http_client::JWXT_BASE_URL);
-            let _ = client.client.get(&jwxt_sso).send().await;
-            let _ = client
-                .client
-                .get(crate::http_client::TARGET_SERVICE)
-                .send()
-                .await;
-            client
-                .fetch_user_info()
+        Err(fetch_err) => {
+            let status_code = fetch_portal_qr_status_code(&client, &qr_uuid)
                 .await
-                .map_err(|e| format!("扫码登录成功但获取教务信息失败: {}", e))?
+                .unwrap_or_default();
+            if status_code == "3" {
+                return Err("二维码已失效，请重新扫码".to_string());
+            }
+            let pending_like = status_code == "0" || status_code == "2" || status_code.is_empty();
+            if pending_like && !confirmed_hint {
+                return Err("扫码确认未完成，请在手机端确认后重试".to_string());
+            }
+            if !confirmed_hint && (final_url.contains("authserver/login") || html.contains("qrLoginForm")) {
+                return Err("扫码确认未完成，请在手机端确认后重试".to_string());
+            }
+            if pending_like && confirmed_hint {
+                if let Ok(info) = fetch_portal_user_info_with_retry(&mut client, 2).await {
+                    info
+                } else {
+                    return Err(format!("扫码已确认，但同步教务信息失败: {}", fetch_err));
+                }
+            } else {
+                return Err(format!("扫码已确认，但同步教务信息失败: {}", fetch_err));
+            }
         }
     };
 
@@ -1117,25 +1201,73 @@ async fn chaoxing_qr_check_status(
         .await
         .map_err(|e| format!("学习通二维码状态请求失败: {}", e))?;
     let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let body = response
         .text()
         .await
         .map_err(|e| format!("学习通二维码状态读取失败: {}", e))?;
     debug.push(format!(
-        "getauthstatus status={} body_len={}",
+        "getauthstatus status={} content_type={} body_len={}",
         status.as_u16(),
+        content_type,
         body.len()
     ));
     if !status.is_success() {
         return Err(format!("学习通二维码状态返回异常: {}", status));
     }
-    let payload: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("学习通二维码状态解析失败: {}", e))?;
+    let payload: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(parse_err) => {
+            let cookie_ready = has_chaoxing_login_cookie(&client);
+            debug.push(format!(
+                "getauthstatus parse_failed cookie_ready={} err={}",
+                cookie_ready, parse_err
+            ));
+            if cookie_ready {
+                return Ok(ChaoxingQrStatusResponse {
+                    status: true,
+                    type_code: "1".to_string(),
+                    message: "已完成学习通登录确认".to_string(),
+                    nickname: None,
+                    uid: None,
+                    contain_two_factor_login: false,
+                    two_factor_login_pc_url: None,
+                    redirect_url: None,
+                    should_finish_login: true,
+                    should_refresh_qr: false,
+                    debug,
+                });
+            }
+            return Ok(ChaoxingQrStatusResponse {
+                status: false,
+                type_code: "3".to_string(),
+                message: "等待扫码中...".to_string(),
+                nickname: None,
+                uid: None,
+                contain_two_factor_login: false,
+                two_factor_login_pc_url: None,
+                redirect_url: None,
+                should_finish_login: false,
+                should_refresh_qr: false,
+                debug,
+            });
+        }
+    };
 
     let status_ok = json_bool(&payload, "status");
     let type_code = json_string(&payload, &["type"]).unwrap_or_default();
-    let message = json_string(&payload, &["mes", "msg2", "msg"]).unwrap_or_default();
+    let cookie_ready = has_chaoxing_login_cookie(&client);
+    let mut message = json_string(&payload, &["mes", "msg2", "msg"]).unwrap_or_default();
+    if message.is_empty() && cookie_ready {
+        message = "已完成学习通登录确认".to_string();
+    }
     let should_refresh_qr = type_code == "6" || type_code == "7";
+    let should_finish_login = status_ok || (cookie_ready && !should_refresh_qr);
     let response_payload = ChaoxingQrStatusResponse {
         status: status_ok,
         type_code: type_code.clone(),
@@ -1145,7 +1277,7 @@ async fn chaoxing_qr_check_status(
         contain_two_factor_login: json_bool(&payload, "containTwoFactorLogin"),
         two_factor_login_pc_url: json_string(&payload, &["twoFactorLoginPCUrl"]),
         redirect_url: json_string(&payload, &["url"]),
-        should_finish_login: status_ok,
+        should_finish_login,
         should_refresh_qr,
         debug,
     };
@@ -1185,25 +1317,46 @@ async fn chaoxing_qr_confirm_login(
         .await
         .map_err(|e| format!("学习通扫码确认前置校验失败: {}", e))?;
     let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
     let body = response
         .text()
         .await
         .map_err(|e| format!("学习通扫码确认状态读取失败: {}", e))?;
     debug.push(format!(
-        "confirm_precheck status={} body_len={}",
+        "confirm_precheck status={} content_type={} body_len={}",
         status.as_u16(),
+        content_type,
         body.len()
     ));
     if !status.is_success() {
         return Err(format!("学习通扫码确认状态异常: {}", status));
     }
-    let payload: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("学习通扫码确认状态解析失败: {}", e))?;
-    if !json_bool(&payload, "status") {
-        let msg = json_string(&payload, &["mes", "msg2", "msg"]).unwrap_or_else(|| "请先在学习通完成扫码确认".to_string());
-        return Err(msg);
+    let mut redirect_url = String::new();
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        Ok(payload) => {
+            if !json_bool(&payload, "status") && !has_chaoxing_login_cookie(&client) {
+                let msg = json_string(&payload, &["mes", "msg2", "msg"])
+                    .unwrap_or_else(|| "请先在学习通完成扫码确认".to_string());
+                return Err(msg);
+            }
+            redirect_url = json_string(&payload, &["url"]).unwrap_or_default();
+        }
+        Err(parse_err) => {
+            let cookie_ready = has_chaoxing_login_cookie(&client);
+            debug.push(format!(
+                "confirm_precheck parse_failed cookie_ready={} err={}",
+                cookie_ready, parse_err
+            ));
+            if !cookie_ready {
+                return Err("扫码确认未完成，请在学习通完成确认后重试".to_string());
+            }
+        }
     }
-    let redirect_url = json_string(&payload, &["url"]).unwrap_or_default();
     finalize_chaoxing_login(
         &mut client,
         account_hint.as_deref(),
