@@ -30,6 +30,7 @@ EXCLUDE_GLOBS = [
     "debug_*.log",
     "debug_*.json",
     "debug_*.html",
+    "AGENTS.md",
 ]
 EXCLUDE_DIRS = [
     "tools",

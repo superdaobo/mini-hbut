@@ -40,6 +40,7 @@ const previewNeedAuth = ref(false)
 const previewProxyFallbackUsed = ref(false)
 const officePreviewCandidates = ref([])
 const pdfPreviewCandidates = ref([])
+const previewUrlCandidates = ref([])
 const pdfCanvasRef = ref(null)
 const pdfCanvasWrapRef = ref(null)
 const pdfDocumentRef = shallowRef(null)
@@ -92,7 +93,10 @@ const runtimeType = detectRuntime()
 const runtimeIsTauri = runtimeType === 'tauri' || isTauriRuntime()
 const runtimeIsCapacitor = runtimeType === 'capacitor'
 
-const bridgeBase = runtimeIsTauri ? 'http://127.0.0.1:4399' : '/bridge'
+const bridgeBaseCandidates = runtimeIsTauri
+  ? ['http://127.0.0.1:4399', 'http://localhost:4399', '/bridge']
+  : ['/bridge']
+const bridgeBase = bridgeBaseCandidates[0]
 
 const normalizePath = (path) => {
   const text = String(path || '').replaceAll('\\', '/').trim()
@@ -141,6 +145,21 @@ const getProxyUrl = (path) => {
     password: password.value
   })
   return `${bridgeBase}/resource_share/proxy?${query.toString()}`
+}
+
+const getProxyUrlByBase = (base, path) => {
+  const query = new URLSearchParams({
+    endpoint: endpoint.value,
+    path: normalizePath(path),
+    username: username.value,
+    password: password.value
+  })
+  return `${base}/resource_share/proxy?${query.toString()}`
+}
+
+const buildProxyCandidates = (path) => {
+  const normalized = normalizePath(path)
+  return [...new Set(bridgeBaseCandidates.map((base) => getProxyUrlByBase(base, normalized)).filter(Boolean))]
 }
 
 const imageExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'])
@@ -413,6 +432,55 @@ const parseDirectUrlExpireAt = (url) => {
   return Date.now() + DIRECT_URL_CACHE_TTL_MS
 }
 
+const withCacheBustUrl = (url) => {
+  const text = String(url || '').trim()
+  if (!text) return ''
+  const joiner = text.includes('?') ? '&' : '?'
+  return `${text}${joiner}_rt=${Date.now()}`
+}
+
+const buildPreviewUrlCandidates = (path, signed) => {
+  const normalized = normalizePath(path)
+  const candidates = []
+  const signedUrl = String(signed?.url || '').trim()
+  if (signedUrl) candidates.push(signedUrl)
+  candidates.push(getDavAuthUrl(normalized))
+  for (const proxyUrl of buildProxyCandidates(normalized)) {
+    candidates.push(proxyUrl)
+  }
+  candidates.push(getDavUrl(normalized))
+  return [...new Set(candidates.filter(Boolean))]
+}
+
+const shiftNextPreviewCandidate = () => {
+  while (previewUrlCandidates.value.length) {
+    const next = String(previewUrlCandidates.value.shift() || '')
+    if (!next) continue
+    if (next === previewUrl.value) continue
+    setPreviewUrl(next)
+    return next
+  }
+  return ''
+}
+
+const fetchDirectUrlFromBridge = async (params) => {
+  const query = new URLSearchParams(params).toString()
+  let lastError = null
+  for (const base of bridgeBaseCandidates) {
+    try {
+      const response = await fetchWithTimeout(`${base}/resource_share/direct_url?${query}`, {}, 20000)
+      if (!response.ok) {
+        throw new Error(`获取直链失败（HTTP ${response.status}）`)
+      }
+      const payload = await response.json().catch(() => ({}))
+      return payload
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error('获取直链失败')
+}
+
 const getSignedDirectUrl = async (path) => {
   const normalized = normalizePath(path)
   const cacheKey = `${endpoint.value}|${normalized}`
@@ -422,25 +490,28 @@ const getSignedDirectUrl = async (path) => {
   }
 
   if (runtimeIsTauri) {
-    const query = new URLSearchParams({
-      endpoint: endpoint.value,
-      path: normalized,
-      username: username.value,
-      password: password.value
-    })
-    const response = await fetchWithTimeout(`${bridgeBase}/resource_share/direct_url?${query.toString()}`, {}, 20000)
-    if (!response.ok) {
-      throw new Error(`获取直链失败（HTTP ${response.status}）`)
-    }
-    const payload = await response.json().catch(() => ({}))
-    const direct = String(payload?.data?.url || '').trim()
-    const needAuth = !!payload?.data?.need_auth
-    if (!direct) {
+    try {
+      const payload = await fetchDirectUrlFromBridge({
+        endpoint: endpoint.value,
+        path: normalized,
+        username: username.value,
+        password: password.value
+      })
+      const direct = String(payload?.data?.url || '').trim()
+      const needAuth = !!payload?.data?.need_auth
+      if (direct) {
+        const expireAt = parseDirectUrlExpireAt(direct)
+        directUrlCache.set(cacheKey, { url: direct, expireAt, needAuth })
+        return { url: direct, needAuth }
+      }
       throw new Error('未获取到可用直链')
+    } catch (error) {
+      console.warn('[ResourceShare] direct_url bridge failed, fallback to auth url:', error?.message || error)
+      const direct = getDavAuthUrl(normalized)
+      const expireAt = Date.now() + DIRECT_URL_CACHE_TTL_MS
+      directUrlCache.set(cacheKey, { url: direct, expireAt, needAuth: false })
+      return { url: direct, needAuth: false }
     }
-    const expireAt = parseDirectUrlExpireAt(direct)
-    directUrlCache.set(cacheKey, { url: direct, expireAt, needAuth })
-    return { url: direct, needAuth }
   }
 
   if (runtimeIsCapacitor) {
@@ -458,7 +529,7 @@ const getSignedDirectUrl = async (path) => {
 const resolvePreviewPlayableUrl = (path, signed) => {
   if (!path) return String(signed?.url || '')
   if (!signed?.needAuth) return String(signed?.url || '')
-  if (runtimeIsTauri) return getProxyUrl(path)
+  if (runtimeIsTauri) return getDavAuthUrl(path)
   if (runtimeIsCapacitor) return getDavAuthUrl(path)
   return getProxyUrl(path)
 }
@@ -501,6 +572,7 @@ const closePreview = async () => {
   previewProxyFallbackUsed.value = false
   officePreviewCandidates.value = []
   pdfPreviewCandidates.value = []
+  previewUrlCandidates.value = []
   pdfDocumentRef.value = null
   pdfCurrentPage.value = 1
   pdfPageCount.value = 1
@@ -530,10 +602,18 @@ const onPreviewFrameError = () => {
 
 const ensurePdfRuntime = async () => {
   if (pdfjsRuntime) return pdfjsRuntime
-  const pdfjs = await importModuleFromCdn({
-    cacheKey: 'pdfjs-dist-runtime',
-    urls: CDN_ASSETS.pdfjsModule
-  })
+  let pdfjs = null
+  try {
+    pdfjs = await importModuleFromCdn({
+      cacheKey: 'pdfjs-dist-runtime',
+      urls: CDN_ASSETS.pdfjsModule
+    })
+  } catch {
+    pdfjs = await importModuleFromCdn({
+      cacheKey: 'pdfjs-dist-runtime',
+      urls: CDN_ASSETS.pdfjsModule.map((url) => withCacheBustUrl(url))
+    })
+  }
   pdfjs.GlobalWorkerOptions.workerSrc = CDN_ASSETS.pdfjsWorker[0]
   pdfjsRuntime = markRaw(pdfjs)
   return pdfjsRuntime
@@ -541,16 +621,33 @@ const ensurePdfRuntime = async () => {
 
 const ensureXgplayerRuntime = async () => {
   if (xgPlayerCtor) return xgPlayerCtor
-  await loadStyleFromCdn({
-    cacheKey: 'xgplayer-style',
-    urls: CDN_ASSETS.xgplayerStyle
-  })
-  const runtime = await loadScriptFromCdn({
-    cacheKey: 'xgplayer-script',
-    urls: CDN_ASSETS.xgplayerScript,
-    resolveGlobal: () =>
-      window?.Player || window?.XGPlayer || window?.xgplayer || window?.xgPlayer
-  })
+  try {
+    await loadStyleFromCdn({
+      cacheKey: 'xgplayer-style',
+      urls: CDN_ASSETS.xgplayerStyle
+    })
+  } catch {
+    await loadStyleFromCdn({
+      cacheKey: 'xgplayer-style',
+      urls: CDN_ASSETS.xgplayerStyle.map((url) => withCacheBustUrl(url))
+    })
+  }
+  let runtime = null
+  try {
+    runtime = await loadScriptFromCdn({
+      cacheKey: 'xgplayer-script',
+      urls: CDN_ASSETS.xgplayerScript,
+      resolveGlobal: () =>
+        window?.Player || window?.XGPlayer || window?.xgplayer || window?.xgPlayer
+    })
+  } catch {
+    runtime = await loadScriptFromCdn({
+      cacheKey: 'xgplayer-script',
+      urls: CDN_ASSETS.xgplayerScript.map((url) => withCacheBustUrl(url)),
+      resolveGlobal: () =>
+        window?.Player || window?.XGPlayer || window?.xgplayer || window?.xgPlayer
+    })
+  }
   xgPlayerCtor = runtime
   return xgPlayerCtor
 }
@@ -752,16 +849,23 @@ const initPreviewPlayer = async () => {
 
 const onPreviewMediaError = () => {
   if (previewKind.value !== 'video' && previewKind.value !== 'audio') return
-  if (!previewProxyFallbackUsed.value && previewPath.value) {
+  const next = shiftNextPreviewCandidate()
+  if (next) {
     previewProxyFallbackUsed.value = true
-    const fallbackUrl = runtimeIsTauri ? getProxyUrl(previewPath.value) : getDavAuthUrl(previewPath.value)
-    if (fallbackUrl && fallbackUrl !== previewUrl.value) {
-      setPreviewUrl(fallbackUrl)
-      previewHint.value = runtimeIsTauri ? '直链播放失败，已切换应用内代理播放' : '已切换移动端兼容线路重试播放'
-      return
-    }
+    previewHint.value = '当前线路不可用，已切换备用线路重试播放'
+    return
   }
   previewHint.value = '当前文件无法在线播放，请点击下载后用系统播放器打开'
+}
+
+const onPreviewImageError = () => {
+  if (previewKind.value !== 'image') return
+  const next = shiftNextPreviewCandidate()
+  if (next) {
+    previewHint.value = '图片加载失败，已自动切换备用线路'
+    return
+  }
+  previewHint.value = '图片预览失败，请点击下载后查看'
 }
 
 const preparePreview = async (item) => {
@@ -776,6 +880,7 @@ const preparePreview = async (item) => {
   previewProxyFallbackUsed.value = false
   officePreviewCandidates.value = []
   pdfPreviewCandidates.value = []
+  previewUrlCandidates.value = []
   pdfDocumentRef.value = null
   pdfCurrentPage.value = 1
   pdfPageCount.value = 1
@@ -800,31 +905,30 @@ const preparePreview = async (item) => {
 
     if (videoExts.has(ext)) {
       previewKind.value = 'video'
-      setPreviewUrl(resolvePreviewPlayableUrl(item.path, signed))
+      const candidates = buildPreviewUrlCandidates(item.path, signed)
+      previewUrlCandidates.value = candidates.slice(1)
+      setPreviewUrl(candidates[0] || resolvePreviewPlayableUrl(item.path, signed))
       previewHint.value = signed.needAuth ? '已切换受鉴权资源预览通道' : '已使用直链流式播放'
       return
     }
     if (audioExts.has(ext)) {
       previewKind.value = 'audio'
-      setPreviewUrl(resolvePreviewPlayableUrl(item.path, signed))
+      const candidates = buildPreviewUrlCandidates(item.path, signed)
+      previewUrlCandidates.value = candidates.slice(1)
+      setPreviewUrl(candidates[0] || resolvePreviewPlayableUrl(item.path, signed))
       previewHint.value = signed.needAuth ? '已切换受鉴权资源预览通道' : '已使用直链流式播放'
       return
     }
     if (imageExts.has(ext)) {
       previewKind.value = 'image'
-      setPreviewUrl(resolvePreviewPlayableUrl(item.path, signed))
+      const candidates = buildPreviewUrlCandidates(item.path, signed)
+      previewUrlCandidates.value = candidates.slice(1)
+      setPreviewUrl(candidates[0] || resolvePreviewPlayableUrl(item.path, signed))
       return
     }
     if (ext === 'pdf') {
       previewKind.value = 'pdf'
-      const urls = []
-      if (runtimeIsTauri) {
-        urls.push(getProxyUrl(item.path))
-      }
-      urls.push(resolvePreviewPlayableUrl(item.path, signed))
-      if (runtimeIsCapacitor) {
-        urls.push(getDavUrl(item.path))
-      }
+      const urls = buildPreviewUrlCandidates(item.path, signed)
       const uniqueUrls = [...new Set(urls.filter(Boolean))]
       if (!uniqueUrls.length) {
         throw new Error('PDF 预览地址为空')
@@ -895,14 +999,32 @@ const openDownload = async () => {
   if (!previewPath.value) return
   try {
     const signed = await getSignedDirectUrl(previewPath.value)
-    const candidates = [
-      String(signed?.url || ''),
-      runtimeIsCapacitor ? getDavAuthUrl(previewPath.value) : '',
-      getDavUrl(previewPath.value)
-    ].filter(Boolean)
-    for (const url of [...new Set(candidates)]) {
+    const baseCandidates = buildPreviewUrlCandidates(previewPath.value, signed)
+    const candidates = [...new Set([
+      ...baseCandidates,
+      ...baseCandidates.map((url) => encodeURI(url))
+    ])]
+    for (const url of candidates) {
       const ok = await openExternal(url)
       if (ok) return
+    }
+    if (typeof document !== 'undefined') {
+      const domFallback = candidates[0] || ''
+      if (domFallback) {
+        try {
+          const anchor = document.createElement('a')
+          anchor.href = domFallback
+          anchor.target = '_blank'
+          anchor.rel = 'noopener noreferrer'
+          document.body.appendChild(anchor)
+          anchor.click()
+          document.body.removeChild(anchor)
+          previewHint.value = '已触发浏览器下载，请检查系统浏览器'
+          return
+        } catch {
+          // ignore
+        }
+      }
     }
     previewHint.value = '无法打开外部下载链接，请稍后重试'
   } catch (error) {
@@ -1062,7 +1184,7 @@ watch(isViewerFullscreen, () => {
             <div id="resource-xgplayer-host" ref="previewPlayerHostRef" class="xgplayer-host"></div>
           </div>
           <div v-else-if="previewKind === 'image'" class="preview-image-wrap">
-            <img class="preview-image" :src="previewUrl" alt="preview" />
+            <img class="preview-image" :src="previewUrl" alt="preview" @error="onPreviewImageError" />
           </div>
           <div v-else-if="previewKind === 'pdf'" class="pdf-viewer">
             <div class="pdf-toolbar">
