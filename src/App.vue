@@ -280,22 +280,31 @@ const confirmBlockingAnnouncement = () => {
 const handleContentClick = async (e) => {
   const target = e.target.closest('a')
   if (target && target.href) {
+    if (e.__hbuExternalHandled) return
+    e.__hbuExternalHandled = true
     e.preventDefault()
     await openExternal(target.href)
   }
 }
 
 const handleGlobalLinkClick = async (e) => {
+  if (e.__hbuExternalHandled) return
   const target = e.target.closest('a')
   if (!target || !target.href) return
   const href = target.href
   if (!isHttpLink(href)) return
+  e.__hbuExternalHandled = true
   e.preventDefault()
   await openExternal(href)
 }
 
-const handleExternalOpen = async (url) => {
+const handleExternalOpen = async (url, e) => {
   if (!url) return
+  if (e) {
+    if (e.__hbuExternalHandled) return
+    e.__hbuExternalHandled = true
+    e.preventDefault()
+  }
   await openExternal(url)
 }
 
@@ -1647,7 +1656,15 @@ onBeforeUnmount(() => {
         <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
       </div>
       <div class="notice-modal-content select-text" @click="handleContentClick" v-html="renderMarkdown(activeAnnouncement?.content || activeAnnouncement?.summary || '')"></div>
-      <a v-if="activeAnnouncement?.link" class="notice-link" :href="activeAnnouncement.link" target="_blank" @click.prevent="handleExternalOpen(activeAnnouncement.link)">查看原文</a>
+      <a
+        v-if="activeAnnouncement?.link"
+        class="notice-link"
+        :href="activeAnnouncement.link"
+        target="_blank"
+        @click.prevent="handleExternalOpen(activeAnnouncement.link, $event)"
+      >
+        查看原文
+      </a>
     </div>
   </div>
 

@@ -223,7 +223,7 @@ const state = reactive<FontState>(normalizeSettings(loadStoredSettings()))
 
 const isTauri = () => isTauriRuntime()
 
-const fontLoadingMap = new Set<FontKey>()
+const fontLoadingTasks = new Map<FontKey, Promise<boolean>>()
 
 const resolveWebFontUrl = () => {
   return FONT_SOURCES[0]
@@ -392,7 +392,8 @@ const loadDeyiHeiFontInWeb = async (force = false) => {
 const fetchRemoteFontResponse = async (
   sourceUrl: string,
   cacheName: string,
-  force = false
+  force = false,
+  localOnly = false
 ): Promise<Response | null> => {
   let response: Response | null = null
   try {
@@ -400,7 +401,7 @@ const fetchRemoteFontResponse = async (
       const cache = await caches.open(cacheName)
       response = await cache.match(sourceUrl)
     }
-    if (!response) {
+    if (!response && !localOnly) {
       response = await fetch(sourceUrl, { mode: 'cors' })
       if (!response.ok) throw new Error(`font download failed: ${response.status}`)
       if (typeof caches !== 'undefined') {
@@ -418,7 +419,8 @@ const loadRemoteFontWithCache = async (
   fontFamily: string,
   sources: readonly string[],
   cacheName: string,
-  force = false
+  force = false,
+  localOnly = false
 ): Promise<boolean> => {
   if (!force) {
     try {
@@ -437,7 +439,7 @@ const loadRemoteFontWithCache = async (
   }
 
   for (const sourceUrl of sources) {
-    const response = await fetchRemoteFontResponse(sourceUrl, cacheName, force)
+    const response = await fetchRemoteFontResponse(sourceUrl, cacheName, force, localOnly)
     if (response) {
       try {
         const buffer = await response.arrayBuffer()
@@ -453,11 +455,15 @@ const loadRemoteFontWithCache = async (
       }
     }
 
+    if (localOnly) {
+      continue
+    }
+
     try {
       const loaded = await loadFontFromUrl(fontFamily, sourceUrl, inferFontFormat(sourceUrl))
       if (loaded) {
         try {
-          const persistResponse = await fetchRemoteFontResponse(sourceUrl, cacheName, false)
+          const persistResponse = await fetchRemoteFontResponse(sourceUrl, cacheName, false, false)
           if (persistResponse) {
             const persistBuffer = await persistResponse.arrayBuffer()
             const persistBytes = new Uint8Array(persistBuffer)
@@ -476,20 +482,28 @@ const loadRemoteFontWithCache = async (
   return false
 }
 
-const loadRemoteFontInWeb = async (fontKey: RemoteFontKey, force = false): Promise<boolean> => {
+const loadRemoteFontInWeb = async (
+  fontKey: RemoteFontKey,
+  force = false,
+  localOnly = false
+): Promise<boolean> => {
   const profile = REMOTE_FONT_PROFILE_MAP[fontKey]
   if (!profile) return false
   const sources = resolveRemoteFontSources(fontKey, state.cdnProvider)
   if (sources.length === 0) return false
   pushDebugLog(
     'Font',
-    `加载云端字体：${fontKey}，provider=${state.cdnProvider}，force=${force ? '1' : '0'}`,
+    `加载云端字体：${fontKey}，provider=${state.cdnProvider}，force=${force ? '1' : '0'}，localOnly=${localOnly ? '1' : '0'}`,
     'debug'
   )
-  return loadRemoteFontWithCache(profile.family, sources, profile.cacheName, force)
+  return loadRemoteFontWithCache(profile.family, sources, profile.cacheName, force, localOnly)
 }
 
-const loadFontByKey = async (fontKey: FontKey, force = false): Promise<boolean> => {
+const loadFontByKey = async (
+  fontKey: FontKey,
+  force = false,
+  localOnly = false
+): Promise<boolean> => {
   if (fontKey === 'default') return true
 
   const remoteFamily = REMOTE_FONT_FAMILY_MAP[fontKey as Exclude<FontKey, 'default'>]
@@ -500,26 +514,35 @@ const loadFontByKey = async (fontKey: FontKey, force = false): Promise<boolean> 
 
   let ok = false
   if (fontKey === 'deyihei') {
+    if (localOnly && !state.loaded) return false
     ok = isTauri() ? await loadDeyiHeiFontInTauri(force) : await loadDeyiHeiFontInWeb(force)
     state.loaded = !!ok
     return ok
   }
 
-  ok = await loadRemoteFontInWeb(fontKey as RemoteFontKey, force)
+  ok = await loadRemoteFontInWeb(fontKey as RemoteFontKey, force, localOnly)
   return ok
 }
 
-const ensureFontLoaded = async (fontKey: FontKey, force = false): Promise<boolean> => {
+const ensureFontLoaded = async (
+  fontKey: FontKey,
+  force = false,
+  localOnly = false
+): Promise<boolean> => {
   if (fontKey === 'default') return true
-  if (fontLoadingMap.has(fontKey)) return false
-  fontLoadingMap.add(fontKey)
-  try {
-    return await loadFontByKey(fontKey, force)
-  } catch {
-    return false
-  } finally {
-    fontLoadingMap.delete(fontKey)
-  }
+  const existingTask = fontLoadingTasks.get(fontKey)
+  if (existingTask) return existingTask
+  const task = (async () => {
+    try {
+      return await loadFontByKey(fontKey, force, localOnly)
+    } catch {
+      return false
+    } finally {
+      fontLoadingTasks.delete(fontKey)
+    }
+  })()
+  fontLoadingTasks.set(fontKey, task)
+  return task
 }
 
 const loadDeyiHeiFont = async (force = false) => {
@@ -540,9 +563,14 @@ const prefetchCdnFonts = async (
     index: number
     total: number
     ok: boolean
-  }) => void
+  }) => void,
+  targetKeys?: PrefetchFontKey[]
 ) => {
-  const targets: PrefetchFontKey[] = ['heiti', 'songti', 'kaiti', 'fangsong', 'deyihei']
+  const allTargets: PrefetchFontKey[] = ['heiti', 'songti', 'kaiti', 'fangsong', 'deyihei']
+  const requested = Array.isArray(targetKeys) ? targetKeys : []
+  const targets = requested.length
+    ? allTargets.filter((key) => requested.includes(key))
+    : allTargets
   const results: Record<string, boolean> = {}
   for (let i = 0; i < targets.length; i += 1) {
     const key = targets[i]
