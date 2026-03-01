@@ -14,6 +14,8 @@ Mini-HBUT 开发分支推送脚本（默认 dev）
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -24,7 +26,10 @@ REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 PROJECT_DIR = Path(__file__).resolve().parent
 
 EXCLUDE_GLOBS = [
-    "debug_*",
+    "debug_*.txt",
+    "debug_*.log",
+    "debug_*.json",
+    "debug_*.html",
 ]
 EXCLUDE_DIRS = [
     "tools",
@@ -43,15 +48,35 @@ def run_command(
         print("[dry-run]", " ".join(cmd))
         return True, "", ""
 
-    result = subprocess.run(
-        cmd,
-        cwd=str(cwd or PROJECT_DIR),
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    executable = cmd[0]
+    if not os.path.isabs(executable):
+        # Windows 下 python subprocess 对 npm/git 等命令名的解析不稳定，先显式做 PATH 查找。
+        candidates = [executable]
+        if os.name == "nt" and "." not in Path(executable).name:
+            candidates = [f"{executable}.cmd", f"{executable}.exe", f"{executable}.bat", executable]
+        for name in candidates:
+            resolved = shutil.which(name)
+            if resolved:
+                executable = resolved
+                break
+    actual_cmd = [executable] + cmd[1:]
+
+    try:
+        result = subprocess.run(
+            actual_cmd,
+            cwd=str(cwd or PROJECT_DIR),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError:
+        err = f"命令不存在或未加入 PATH: {cmd[0]}"
+        if check:
+            raise RuntimeError(f"命令失败: {' '.join(cmd)}\n{err}")
+        return False, "", err
+
     ok = result.returncode == 0
     out = (result.stdout or "").strip()
     err = (result.stderr or "").strip()
@@ -59,6 +84,18 @@ def run_command(
     if check and not ok:
         raise RuntimeError(f"命令失败: {' '.join(cmd)}\n{err or out}")
     return ok, out, err
+
+
+def run_build_check(skip_build: bool, dry_run: bool) -> None:
+    if skip_build:
+        print("[INFO] 已跳过构建检查（--skip-build）")
+        return
+    print("[STEP] 构建检查（npm run build）")
+    ok, out, err = run_command(["npm", "run", "build"], dry_run=dry_run, check=False)
+    if not ok:
+        preview = "\n".join((out or "").splitlines()[-20:] + (err or "").splitlines()[-20:])
+        raise RuntimeError(f"构建失败（npm run build）\n{preview}".strip())
+    print("[OK] 构建通过")
 
 
 def collect_excluded_paths() -> list[str]:
@@ -231,6 +268,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--branch", default="dev", help="目标分支，默认 dev")
     parser.add_argument("--message", default="", help="提交信息")
     parser.add_argument("--skip-commit", action="store_true", help="跳过提交，仅推送")
+    parser.add_argument("--skip-build", action="store_true", help="跳过构建检查（默认会先执行 npm run build）")
     parser.add_argument("--force", action="store_true", help="强制推送")
     parser.add_argument("--dry-run", action="store_true", help="仅打印命令")
     return parser.parse_args()
@@ -256,9 +294,11 @@ def main() -> int:
     print(f"remote : {args.remote} -> {args.remote_url}")
     print(f"branch : {args.branch}")
     print("mode   : no version bump / no tag / no release")
+    print(f"build  : {'skip' if args.skip_build else 'npm run build'}")
     print("[INFO] 自动模式：不询问确认，直接执行提交与推送")
 
     try:
+        run_build_check(args.skip_build, args.dry_run)
         ensure_origin(args.remote, args.remote_url, args.dry_run)
         stage_and_commit(message, args.skip_commit, args.dry_run)
         push(args.remote, args.branch, args.force, args.dry_run)

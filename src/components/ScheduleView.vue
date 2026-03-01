@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
@@ -1236,6 +1236,32 @@ const handleTouchEnd = (e) => {
   shiftWeek(-1)
 }
 
+const shouldIgnoreKeyboardWeekSwitch = () => {
+  if (shouldIgnoreWeekSwipe()) return true
+  const active = document.activeElement
+  if (!active) return false
+  const tag = String(active.tagName || '').toLowerCase()
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true
+  return !!active.getAttribute?.('contenteditable')
+}
+
+const handleWeekKeydown = (event) => {
+  if (!event) return
+  if (event.defaultPrevented) return
+  if (event.altKey || event.ctrlKey || event.metaKey) return
+  if (shouldIgnoreKeyboardWeekSwitch()) return
+
+  if (event.key === 'ArrowLeft') {
+    const changed = shiftWeek(-1)
+    if (changed) event.preventDefault()
+    return
+  }
+  if (event.key === 'ArrowRight') {
+    const changed = shiftWeek(1)
+    if (changed) event.preventDefault()
+  }
+}
+
 const handleBack = () => emit('back')
 const jumpToCurrentWeek = () => {
   if (currentWeek.value) {
@@ -1404,6 +1430,7 @@ const copyExportUrl = async () => {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', handleWeekKeydown)
   void fetchSemesterOptions()
 
   // 下次进入自动切换：后台检测到新学期并已确认有课表数据时生效。
@@ -1458,6 +1485,10 @@ onMounted(async () => {
   if (!isPopupShown()) {
     openSemesterPopup()
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleWeekKeydown)
 })
 </script>
 

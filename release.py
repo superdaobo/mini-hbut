@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -41,7 +43,10 @@ REPO_URL = "https://github.com/superdaobo/mini-hbut.git"
 PROJECT_DIR = Path(__file__).resolve().parent
 
 EXCLUDE_GLOBS = [
-    "debug_*",
+    "debug_*.txt",
+    "debug_*.log",
+    "debug_*.json",
+    "debug_*.html",
 ]
 EXCLUDE_DIRS = [
     "tools",
@@ -67,15 +72,35 @@ def run_command(
     cwd: Path | None = None,
     check: bool = False,
 ) -> tuple[bool, str, str]:
-    result = subprocess.run(
-        cmd,
-        cwd=str(cwd or PROJECT_DIR),
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    executable = cmd[0]
+    if not os.path.isabs(executable):
+        # Windows 下 python subprocess 对 npm/git 等命令名的解析不稳定，先显式做 PATH 查找。
+        candidates = [executable]
+        if os.name == "nt" and "." not in Path(executable).name:
+            candidates = [f"{executable}.cmd", f"{executable}.exe", f"{executable}.bat", executable]
+        for name in candidates:
+            resolved = shutil.which(name)
+            if resolved:
+                executable = resolved
+                break
+    actual_cmd = [executable] + cmd[1:]
+
+    try:
+        result = subprocess.run(
+            actual_cmd,
+            cwd=str(cwd or PROJECT_DIR),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError:
+        err = f"命令不存在或未加入 PATH: {cmd[0]}"
+        if check:
+            raise RuntimeError(f"命令失败: {' '.join(cmd)}\n{err}")
+        return False, "", err
+
     ok = result.returncode == 0
     out = (result.stdout or "").strip()
     err = (result.stderr or "").strip()
@@ -110,6 +135,15 @@ def run_with_retry(
             continue
         return False, out, err
     return False, last_out, last_err
+
+
+def run_build_check() -> None:
+    print("\n[STEP] 构建检查（npm run build）")
+    ok, out, err = run_command(["npm", "run", "build"], check=False)
+    if not ok:
+        preview = "\n".join((out or "").splitlines()[-20:] + (err or "").splitlines()[-20:])
+        raise RuntimeError(f"构建失败（npm run build）\n{preview}".strip())
+    print("  [OK] 构建通过")
 
 
 def read_json(path: Path) -> dict:
@@ -320,6 +354,7 @@ def parse_args() -> argparse.Namespace:
     bump_group.add_argument("--patch", dest="bump_flag", action="store_const", const="patch", help="按 patch 递增版本（默认）")
     parser.add_argument("--version", help="指定目标版本号，例如 1.2.3（优先于 bump）")
     parser.add_argument("--push-only", action="store_true", help="仅推送 main + tag，不更新版本文件、不提交")
+    parser.add_argument("--skip-build", action="store_true", help="跳过构建检查（默认会先执行 npm run build）")
     parser.add_argument("-y", "--no-confirm", action="store_true", help="跳过确认")
     args = parser.parse_args()
 
@@ -348,12 +383,15 @@ def main() -> None:
     print(f"[INFO] 当前版本: v{current}")
     print(f"[INFO] 目标版本: v{target}")
     print(f"[INFO] push-only: {args.push_only}")
+    print(f"[INFO] skip-build: {args.skip_build}")
     print("[INFO] 分支策略: 仅提交并推送 main，不处理 old/old_dev")
 
     ensure_not_archived_branch()
 
     if not args.no_confirm:
         print("\n将执行以下操作：")
+        if not args.skip_build:
+            print("  0) 执行构建检查（npm run build）")
         if not args.push_only:
             print("  1) 更新版本文件并提交")
         else:
@@ -364,6 +402,9 @@ def main() -> None:
         if answer != "y":
             print("已取消。")
             return
+
+    if not args.skip_build:
+        run_build_check()
 
     if not args.push_only:
         update_version_files(target)
