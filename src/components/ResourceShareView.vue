@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, markRa
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { openExternal } from '../utils/external_link'
 import { isTauriRuntime } from '../platform/native'
+import { detectRuntime } from '../platform/runtime'
 import { importModuleFromCdn, loadScriptFromCdn, loadStyleFromCdn } from '../utils/cdn_loader'
 
 const emit = defineEmits(['back'])
@@ -66,24 +67,30 @@ let xgPlayerCtor = null
 
 const CDN_ASSETS = {
   xgplayerScript: [
-    'https://cdn.jsdelivr.net/npm/xgplayer@3.0.22/dist/index.min.js',
-    'https://unpkg.com/xgplayer@3.0.22/dist/index.min.js'
+    'https://cdn.jsdelivr.net.cn/npm/xgplayer@3.0.22/dist/index.min.js',
+    'https://unpkg.com/xgplayer@3.0.22/dist/index.min.js',
+    'https://cdn.jsdelivr.net/npm/xgplayer@3.0.22/dist/index.min.js'
   ],
   xgplayerStyle: [
-    'https://cdn.jsdelivr.net/npm/xgplayer@3.0.22/dist/index.min.css',
-    'https://unpkg.com/xgplayer@3.0.22/dist/index.min.css'
+    'https://cdn.jsdelivr.net.cn/npm/xgplayer@3.0.22/dist/index.min.css',
+    'https://unpkg.com/xgplayer@3.0.22/dist/index.min.css',
+    'https://cdn.jsdelivr.net/npm/xgplayer@3.0.22/dist/index.min.css'
   ],
   pdfjsModule: [
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs',
-    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/pdf.mjs'
+    'https://cdn.jsdelivr.net.cn/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs',
+    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/pdf.mjs',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.mjs'
   ],
   pdfjsWorker: [
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs',
-    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs'
+    'https://cdn.jsdelivr.net.cn/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs',
+    'https://unpkg.com/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/pdf.worker.mjs'
   ]
 }
 
-const runtimeIsTauri = isTauriRuntime()
+const runtimeType = detectRuntime()
+const runtimeIsTauri = runtimeType === 'tauri' || isTauriRuntime()
+const runtimeIsCapacitor = runtimeType === 'capacitor'
 
 const bridgeBase = runtimeIsTauri ? 'http://127.0.0.1:4399' : '/bridge'
 
@@ -110,6 +117,21 @@ const encodeDavPath = (path) =>
     .join('/')
 
 const getDavUrl = (path) => `${String(endpoint.value || '').replace(/\/+$/, '')}/dav${encodeDavPath(path)}`
+
+const getDavAuthUrl = (path) => {
+  const base = String(endpoint.value || '').trim()
+  if (!base) return getDavUrl(path)
+  try {
+    const url = new URL(base)
+    url.username = String(username.value || '')
+    url.password = String(password.value || '')
+    const basePath = (url.pathname || '/').replace(/\/+$/, '')
+    url.pathname = `${basePath}/dav${encodeDavPath(path)}`
+    return url.toString()
+  } catch {
+    return getDavUrl(path)
+  }
+}
 
 const getProxyUrl = (path) => {
   const query = new URLSearchParams({
@@ -421,9 +443,24 @@ const getSignedDirectUrl = async (path) => {
     return { url: direct, needAuth }
   }
 
+  if (runtimeIsCapacitor) {
+    const direct = getDavAuthUrl(normalized)
+    const expireAt = Date.now() + DIRECT_URL_CACHE_TTL_MS
+    directUrlCache.set(cacheKey, { url: direct, expireAt, needAuth: false })
+    return { url: direct, needAuth: false }
+  }
+
   const fallback = getDavUrl(normalized)
   directUrlCache.set(cacheKey, { url: fallback, expireAt: Date.now() + 3 * 60 * 1000, needAuth: true })
   return { url: fallback, needAuth: true }
+}
+
+const resolvePreviewPlayableUrl = (path, signed) => {
+  if (!path) return String(signed?.url || '')
+  if (!signed?.needAuth) return String(signed?.url || '')
+  if (runtimeIsTauri) return getProxyUrl(path)
+  if (runtimeIsCapacitor) return getDavAuthUrl(path)
+  return getProxyUrl(path)
 }
 
 const fetchTextWithAuth = async (path) => {
@@ -717,9 +754,12 @@ const onPreviewMediaError = () => {
   if (previewKind.value !== 'video' && previewKind.value !== 'audio') return
   if (!previewProxyFallbackUsed.value && previewPath.value) {
     previewProxyFallbackUsed.value = true
-    setPreviewUrl(getProxyUrl(previewPath.value))
-    previewHint.value = '直链播放失败，已切换应用内代理播放'
-    return
+    const fallbackUrl = runtimeIsTauri ? getProxyUrl(previewPath.value) : getDavAuthUrl(previewPath.value)
+    if (fallbackUrl && fallbackUrl !== previewUrl.value) {
+      setPreviewUrl(fallbackUrl)
+      previewHint.value = runtimeIsTauri ? '直链播放失败，已切换应用内代理播放' : '已切换移动端兼容线路重试播放'
+      return
+    }
   }
   previewHint.value = '当前文件无法在线播放，请点击下载后用系统播放器打开'
 }
@@ -760,37 +800,39 @@ const preparePreview = async (item) => {
 
     if (videoExts.has(ext)) {
       previewKind.value = 'video'
-      setPreviewUrl(signed.needAuth ? getProxyUrl(item.path) : signed.url)
-      previewHint.value = signed.needAuth ? '已切换应用内代理流式播放' : '已使用 OneDrive 直链流式播放'
+      setPreviewUrl(resolvePreviewPlayableUrl(item.path, signed))
+      previewHint.value = signed.needAuth ? '已切换受鉴权资源预览通道' : '已使用直链流式播放'
       return
     }
     if (audioExts.has(ext)) {
       previewKind.value = 'audio'
-      setPreviewUrl(signed.needAuth ? getProxyUrl(item.path) : signed.url)
-      previewHint.value = signed.needAuth ? '已切换应用内代理流式播放' : '已使用 OneDrive 直链流式播放'
+      setPreviewUrl(resolvePreviewPlayableUrl(item.path, signed))
+      previewHint.value = signed.needAuth ? '已切换受鉴权资源预览通道' : '已使用直链流式播放'
       return
     }
     if (imageExts.has(ext)) {
       previewKind.value = 'image'
-      setPreviewUrl(signed.needAuth ? getProxyUrl(item.path) : signed.url)
+      setPreviewUrl(resolvePreviewPlayableUrl(item.path, signed))
       return
     }
     if (ext === 'pdf') {
       previewKind.value = 'pdf'
-      const proxyUrl = getProxyUrl(item.path)
-      const directUrl = signed.needAuth ? '' : signed.url
-      const urls = [proxyUrl]
-      if (directUrl) {
-        urls.push(directUrl)
+      const urls = []
+      if (runtimeIsTauri) {
+        urls.push(getProxyUrl(item.path))
+      }
+      urls.push(resolvePreviewPlayableUrl(item.path, signed))
+      if (runtimeIsCapacitor) {
+        urls.push(getDavUrl(item.path))
       }
       const uniqueUrls = [...new Set(urls.filter(Boolean))]
       if (!uniqueUrls.length) {
         throw new Error('PDF 预览地址为空')
       }
       await openPdfWithCandidates(uniqueUrls)
-      previewHint.value = directUrl
-        ? 'PDF 正在使用应用内代理预览，失败将自动切换直链'
-        : 'PDF 已使用应用内代理预览'
+      previewHint.value = runtimeIsCapacitor
+        ? 'PDF 已使用移动端兼容线路预览'
+        : 'PDF 已建立预览通道，失败会自动切换备用线路'
       return
     }
     if (officeExts.has(ext)) {
@@ -853,11 +895,16 @@ const openDownload = async () => {
   if (!previewPath.value) return
   try {
     const signed = await getSignedDirectUrl(previewPath.value)
-    const url = signed.url || getDavUrl(previewPath.value)
-    const ok = await openExternal(url)
-    if (!ok) {
-      previewHint.value = '无法打开外部下载链接，请稍后重试'
+    const candidates = [
+      String(signed?.url || ''),
+      runtimeIsCapacitor ? getDavAuthUrl(previewPath.value) : '',
+      getDavUrl(previewPath.value)
+    ].filter(Boolean)
+    for (const url of [...new Set(candidates)]) {
+      const ok = await openExternal(url)
+      if (ok) return
     }
+    previewHint.value = '无法打开外部下载链接，请稍后重试'
   } catch (error) {
     previewHint.value = error?.message || '无法打开下载链接'
   }

@@ -32,7 +32,12 @@ export const capacitorBridge: PlatformBridge = {
   async openHttp(url: string) {
     const launched = await openByAppLauncher(url)
     if (launched) return true
-    return this.openUri(url)
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer')
+      return true
+    } catch {
+      return false
+    }
   },
 
   async openUri(target: string) {

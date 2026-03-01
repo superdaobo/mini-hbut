@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:web": "vite build",
+    "test:resource-share-network": "node scripts/test_resource_share_network.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "cap:sync": "npm run build:web && npx cap sync",

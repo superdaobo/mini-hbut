@@ -115,14 +115,11 @@ const iconDataUrl = computed(() => {
 
 <template>
   <span class="theme-module-icon" :class="`variant-${variant}`" :style="iconStyle" aria-hidden="true">
-    <img
+    <span
       v-if="useAndroidImgFallback && iconDataUrl"
-      class="icon-img"
+      class="icon-mask"
       :class="`icon-${iconKeyClass}`"
-      :src="iconDataUrl"
-      :alt="alt || iconKey"
-      loading="lazy"
-      decoding="async"
+      :style="{ '--icon-mask-url': `url('${iconDataUrl}')` }"
     />
     <span v-else-if="iconMarkup" class="icon-svg" :class="`icon-${iconKeyClass}`" v-html="iconMarkup" />
     <span v-else class="fallback-glyph">?</span>
@@ -172,6 +169,23 @@ const iconDataUrl = computed(() => {
   display: block;
 }
 
+.icon-mask {
+  width: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
+  height: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
+  user-select: none;
+  -webkit-user-drag: none;
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask-image: var(--icon-mask-url);
+  mask-image: var(--icon-mask-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 .icon-svg.icon-classroom {
   width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
   height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
@@ -179,6 +193,12 @@ const iconDataUrl = computed(() => {
 }
 
 .icon-img.icon-classroom {
+  width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
+  height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
+  transform: translate(-2px, 2px);
+}
+
+.icon-mask.icon-classroom {
   width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
   height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
   transform: translate(-2px, 2px);
