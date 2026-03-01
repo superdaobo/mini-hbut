@@ -767,36 +767,75 @@ const exportJson = async () => {
   }
 }
 
+const waitForCloneReady = async (rootEl) => {
+  if (!rootEl) return
+
+  const fonts = document?.fonts
+  if (fonts?.ready) {
+    try {
+      await fonts.ready
+    } catch {
+      // 忽略字体探测异常，继续走兜底流程。
+    }
+  }
+
+  const images = Array.from(rootEl.querySelectorAll('img'))
+  if (images.length) {
+    await Promise.all(
+      images.map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve()
+        return new Promise((resolve) => {
+          const done = () => resolve()
+          img.addEventListener('load', done, { once: true })
+          img.addEventListener('error', done, { once: true })
+        })
+      })
+    )
+  }
+
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+}
+
 const renderWideCanvas = async () => {
   if (!previewRef.value) throw new Error('导出画布未准备完成')
 
+  const exportWidth = Math.max(1280, Math.ceil(previewRef.value.scrollWidth || 0))
   const wrapper = document.createElement('div')
   wrapper.style.position = 'fixed'
-  wrapper.style.left = '-100000px'
+  wrapper.style.left = '-99999px'
   wrapper.style.top = '0'
-  wrapper.style.width = '1280px'
+  wrapper.style.width = `${exportWidth}px`
   wrapper.style.background = '#f4f7ff'
   wrapper.style.padding = '16px'
-  wrapper.style.zIndex = '-1'
+  wrapper.style.opacity = '0'
+  wrapper.style.pointerEvents = 'none'
+  wrapper.style.zIndex = '0'
+  wrapper.style.overflow = 'visible'
 
   const clone = previewRef.value.cloneNode(true)
-  clone.style.width = '1280px'
-  clone.style.maxWidth = '1280px'
+  clone.classList.add('capture-mode')
+  clone.style.width = `${exportWidth}px`
+  clone.style.minWidth = `${exportWidth}px`
+  clone.style.maxWidth = `${exportWidth}px`
   clone.style.boxSizing = 'border-box'
   wrapper.appendChild(clone)
   document.body.appendChild(wrapper)
 
   try {
     await nextTick()
-    await new Promise((resolve) => setTimeout(resolve, 80))
+    await waitForCloneReady(clone)
     return await html2canvas(clone, {
       useCORS: true,
       allowTaint: false,
-      scale: 2,
+      imageTimeout: 15000,
+      scale: Math.max(2, Math.min(window.devicePixelRatio || 2, 3)),
       backgroundColor: '#f4f7ff',
       logging: false,
-      windowWidth: 1280,
-      width: 1280
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: exportWidth,
+      windowHeight: Math.ceil(clone.scrollHeight + 64),
+      width: exportWidth
     })
   } finally {
     if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper)
@@ -1330,17 +1369,17 @@ onMounted(async () => {
 
 .view-header h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: 24px;
   color: var(--ui-text);
 }
 
 .back-btn,
 .logout-btn {
-  min-width: 90px;
-  height: 42px;
+  min-width: 84px;
+  height: 36px;
   border: none;
-  border-radius: 12px;
-  font-size: 26px;
+  border-radius: 10px;
+  font-size: 15px;
   font-weight: 700;
   cursor: pointer;
   color: var(--ui-text);
@@ -1366,14 +1405,14 @@ onMounted(async () => {
 
 .intro-card h2 {
   margin: 0 0 8px;
-  font-size: 34px;
+  font-size: 22px;
   color: var(--ui-text);
 }
 
 .intro-card p {
   margin: 0;
   color: var(--ui-muted);
-  font-size: 25px;
+  font-size: 14px;
   line-height: 1.6;
 }
 
@@ -1387,7 +1426,7 @@ onMounted(async () => {
 
 .config-card h3 {
   margin: 0 0 10px;
-  font-size: 30px;
+  font-size: 19px;
   color: var(--ui-text);
 }
 
@@ -1395,7 +1434,7 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-size: 22px;
+  font-size: 14px;
   color: var(--ui-text);
 }
 
@@ -1406,7 +1445,7 @@ onMounted(async () => {
 
 .semester-hint,
 .hint-line {
-  font-size: 22px;
+  font-size: 13px;
   color: var(--ui-muted);
 }
 
@@ -1419,7 +1458,7 @@ onMounted(async () => {
 .semester-grid,
 .month-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
 }
 
@@ -1430,8 +1469,8 @@ onMounted(async () => {
   gap: 8px;
   border: 1px solid rgba(59, 130, 246, 0.35);
   border-radius: 12px;
-  padding: 9px 12px;
-  font-size: 20px;
+  padding: 8px 10px;
+  font-size: 14px;
   color: #1d4ed8;
   cursor: pointer;
   user-select: none;
@@ -1458,7 +1497,7 @@ onMounted(async () => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 
@@ -1468,7 +1507,7 @@ onMounted(async () => {
   gap: 10px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 16px;
-  padding: 10px 12px;
+  padding: 9px 11px;
   background: rgba(248, 250, 252, 0.9);
   cursor: pointer;
 }
@@ -1488,19 +1527,19 @@ onMounted(async () => {
 .module-icon {
   display: inline-flex;
   justify-content: center;
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
   flex: 0 0 auto;
 }
 
 .module-name {
-  font-size: 20px;
+  font-size: 14px;
   color: #1f2937;
   line-height: 1.3;
   font-weight: 600;
   flex: 1;
   min-width: 0;
-  word-break: keep-all;
+  word-break: normal;
   overflow-wrap: anywhere;
 }
 
@@ -1508,8 +1547,8 @@ onMounted(async () => {
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.14);
   color: #4f46e5;
-  font-size: 15px;
-  padding: 3px 8px;
+  font-size: 12px;
+  padding: 2px 8px;
   font-weight: 700;
   flex: 0 0 auto;
 }
@@ -1522,10 +1561,10 @@ onMounted(async () => {
 
 .action-btn {
   border: none;
-  border-radius: 14px;
-  padding: 11px 16px;
-  min-width: 180px;
-  font-size: 22px;
+  border-radius: 12px;
+  padding: 10px 14px;
+  min-width: 158px;
+  font-size: 14px;
   font-weight: 700;
   color: #fff;
   cursor: pointer;
@@ -1553,7 +1592,7 @@ onMounted(async () => {
   margin: 0 auto 12px;
   border-radius: 12px;
   padding: 10px 12px;
-  font-size: 22px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -1584,33 +1623,38 @@ onMounted(async () => {
 
 .preview-header {
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   background: #fff;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.25);
-  padding: 12px 14px;
+  padding: 10px 12px;
   margin-bottom: 12px;
 }
 
 .preview-header h2 {
   margin: 0 0 4px;
-  font-size: 30px;
+  font-size: 22px;
 }
 
 .preview-header p {
   margin: 2px 0;
-  font-size: 20px;
+  font-size: 13px;
   color: #475569;
 }
 
 .preview-summary {
   align-self: center;
-  max-width: 44%;
-  font-size: 19px;
+  flex: 1 1 280px;
+  min-width: 220px;
+  max-width: none;
+  font-size: 13px;
   color: #334155;
-  line-height: 1.5;
+  line-height: 1.6;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .preview-module {
@@ -1629,7 +1673,7 @@ onMounted(async () => {
 
 .preview-module-header h3 {
   margin: 0;
-  font-size: 26px;
+  font-size: 18px;
   color: #0f172a;
 }
 
@@ -1648,7 +1692,7 @@ onMounted(async () => {
 
 .module-kv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 8px;
 }
 
@@ -1661,7 +1705,7 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.28);
   padding: 8px 10px;
   background: rgba(248, 250, 252, 0.75);
-  font-size: 19px;
+  font-size: 13px;
 }
 
 .module-kv span {
@@ -1681,14 +1725,15 @@ onMounted(async () => {
 
 .term-block h4 {
   margin: 0 0 8px;
-  font-size: 22px;
+  font-size: 15px;
   color: #1e3a8a;
 }
 
 .detail-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 18px;
+  font-size: 12px;
+  table-layout: fixed;
 }
 
 .detail-table th,
@@ -1697,6 +1742,8 @@ onMounted(async () => {
   padding: 6px 7px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .detail-table th {
@@ -1720,7 +1767,7 @@ onMounted(async () => {
 
 .classroom-card h5 {
   margin: 0 0 6px;
-  font-size: 18px;
+  font-size: 14px;
   color: #1e3a8a;
 }
 
@@ -1747,44 +1794,48 @@ onMounted(async () => {
   }
 
   .view-header h1 {
-    font-size: 30px;
+    font-size: 20px;
   }
 
   .back-btn,
   .logout-btn {
-    min-width: 74px;
-    font-size: 22px;
+    min-width: 68px;
+    font-size: 14px;
   }
 
   .intro-card h2 {
-    font-size: 30px;
+    font-size: 19px;
   }
 
   .intro-card p,
   .hint-line,
   .semester-hint {
-    font-size: 21px;
+    font-size: 13px;
   }
 
   .config-card h3 {
-    font-size: 27px;
+    font-size: 17px;
+  }
+
+  .module-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 
   .module-name {
-    font-size: 21px;
+    font-size: 14px;
   }
 
   .semester-tag {
-    font-size: 16px;
+    font-size: 12px;
   }
 
   .action-btn {
     width: 100%;
-    font-size: 21px;
+    font-size: 14px;
   }
 
   .feedback {
-    font-size: 21px;
+    font-size: 13px;
   }
 
   .preview-header {
@@ -1794,24 +1845,25 @@ onMounted(async () => {
   .preview-summary {
     max-width: 100%;
     text-align: left;
-    font-size: 18px;
+    font-size: 13px;
+    min-width: 0;
   }
 
   .preview-header h2 {
-    font-size: 25px;
+    font-size: 19px;
   }
 
   .preview-header p {
-    font-size: 18px;
+    font-size: 12px;
   }
 
   .preview-module-header h3 {
-    font-size: 24px;
+    font-size: 16px;
   }
 
   .module-kv,
   .detail-table {
-    font-size: 16px;
+    font-size: 12px;
   }
 }
 </style>
