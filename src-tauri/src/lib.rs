@@ -1847,6 +1847,16 @@ struct ResourceShareFetchPayloadRequest {
     max_bytes: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceShareListDirRequest {
+    endpoint: String,
+    path: String,
+    username: String,
+    password: String,
+    depth: Option<u8>,
+}
+
 fn sanitize_cache_key(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
@@ -2318,6 +2328,65 @@ async fn resource_share_fetch_file_payload_native(
         "size": bytes.len(),
         "base64": general_purpose::STANDARD.encode(bytes),
     }))
+}
+
+#[tauri::command]
+async fn resource_share_list_dir_native(req: ResourceShareListDirRequest) -> Result<serde_json::Value, String> {
+    let endpoint = validate_resource_share_request(&req.endpoint, &req.username, &req.password)?;
+    let encoded_path = encode_resource_share_path_native(&req.path);
+    let remote_url = format!("{}/dav{}", endpoint, encoded_path);
+    let auth = build_resource_share_auth(&req.username, &req.password);
+    let depth = req.depth.unwrap_or(1).to_string();
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|e| format!("创建目录客户端失败: {}", e))?;
+
+    let method = reqwest::Method::from_bytes(b"PROPFIND")
+        .map_err(|e| format!("构造 PROPFIND 方法失败: {}", e))?;
+    let body = r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>"#;
+
+    let mut last_error = String::new();
+    for with_body in [true, false] {
+        let mut builder = client
+            .request(method.clone(), &remote_url)
+            .header("Authorization", auth.clone())
+            .header("Depth", depth.clone())
+            .header("Accept", "application/xml,text/xml;q=0.9,*/*;q=0.8");
+        if with_body {
+            builder = builder
+                .header("Content-Type", "application/xml; charset=utf-8")
+                .body(body.to_string());
+        }
+
+        match builder.send().await {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                let text = response
+                    .text()
+                    .await
+                    .map_err(|e| format!("读取目录响应失败: {}", e))?;
+                if status == 207 || (200..300).contains(&status) {
+                    return Ok(serde_json::json!({
+                        "status": status,
+                        "xml": text
+                    }));
+                }
+                let snippet: String = text.chars().take(240).collect();
+                last_error = format!("PROPFIND 失败 HTTP {}: {}", status, snippet);
+            }
+            Err(e) => {
+                last_error = format!("PROPFIND 请求失败: {}", e);
+            }
+        }
+    }
+
+    if last_error.is_empty() {
+        last_error = "PROPFIND 失败：未知错误".to_string();
+    }
+    Err(last_error)
 }
 
 #[tauri::command]
@@ -4135,6 +4204,7 @@ pub fn run() {
             open_file_with_system,
             resource_share_direct_url_native,
             resource_share_fetch_file_payload_native,
+            resource_share_list_dir_native,
             send_test_notification_native,
             get_notification_permission_native,
             request_notification_permission_native,

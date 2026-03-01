@@ -355,6 +355,23 @@ const getParentPath = (path) => {
   return parts.length ? `/${parts.join('/')}` : '/'
 }
 
+const fetchDirectoryViaNative = async (path) => {
+  const payload = await invokeNative('resource_share_list_dir_native', {
+    req: {
+      endpoint: endpoint.value,
+      path: normalizePath(path),
+      username: username.value,
+      password: password.value,
+      depth: 1
+    }
+  })
+  const xml = String(payload?.xml || '')
+  if (!xml) {
+    throw new Error('原生目录接口返回空响应')
+  }
+  return xml
+}
+
 const listDirectory = async (path, force = false) => {
   const targetPath = normalizePath(path)
   errorMessage.value = ''
@@ -367,6 +384,21 @@ const listDirectory = async (path, force = false) => {
       items.value = cached.items
       totalCount.value = cached.items.length
       return
+    }
+
+    if (runtimeIsTauri) {
+      try {
+        const xml = await fetchDirectoryViaNative(targetPath)
+        const parsed = parsePropfindXml(xml, targetPath)
+        currentPath.value = targetPath
+        items.value = parsed
+        totalCount.value = parsed.length
+        dirCache.value[targetPath] = { time: now, items: parsed }
+        saveJsonStorage(DIR_CACHE_STORAGE_KEY, dirCache.value)
+        return
+      } catch (nativeError) {
+        console.warn('[ResourceShare] native list_dir failed, fallback fetch:', nativeError?.message || nativeError)
+      }
     }
 
     const res = await fetchWithTimeout(
