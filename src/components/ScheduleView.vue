@@ -60,6 +60,7 @@ const confirmDialogLines = ref([])
 const confirmDialogConfirmText = ref('确认')
 const confirmDialogCancelText = ref('取消')
 const confirmDialogDanger = ref(false)
+const weekTransitionName = ref('week-slide-left')
 let confirmDialogResolver = null
 const addCourseForm = ref({
   name: '',
@@ -534,6 +535,23 @@ const onSemesterChange = async () => {
   if (!selected || selected === semester.value) return
   await applySemesterQuery()
 }
+
+watch(selectedWeek, (next, prev) => {
+  const current = Number(next || 0)
+  const previous = Number(prev || 0)
+  const maxWeeks = Math.max(1, Number(totalWeeks.value || 1))
+  if (!Number.isFinite(current) || current <= 0) {
+    selectedWeek.value = 1
+    return
+  }
+  if (current > maxWeeks) {
+    selectedWeek.value = maxWeeks
+    return
+  }
+  if (previous > 0 && current !== previous) {
+    weekTransitionName.value = current > previous ? 'week-slide-left' : 'week-slide-right'
+  }
+})
 
 watch(totalWeeks, (maxWeeks) => {
   if (!Number.isFinite(maxWeeks) || maxWeeks <= 0) return
@@ -1143,37 +1161,86 @@ const deleteCustomCourse = async (mode) => {
   }
 }
 
-// 滑动翻页
+// 滑动翻页（距离+速度双阈值）
 let touchStartX = 0
-let touchEndX = 0
+let touchStartY = 0
+let touchLastX = 0
+let touchStartAt = 0
+let swipeTracking = false
+let swipeLocked = false
+
+const shouldIgnoreWeekSwipe = () => {
+  return (
+    showMenu.value ||
+    showAddCourse.value ||
+    showWeekPicker.value ||
+    showDetail.value ||
+    showConfirmDialog.value ||
+    showSemesterPopup.value
+  )
+}
+
+const shiftWeek = (delta) => {
+  if (swipeLocked) return false
+  const current = Number(selectedWeek.value || 0)
+  const max = Math.max(1, Number(totalWeeks.value || 1))
+  const target = Math.min(max, Math.max(1, current + delta))
+  if (target === current) return false
+  weekTransitionName.value = delta > 0 ? 'week-slide-left' : 'week-slide-right'
+  selectedWeek.value = target
+  swipeLocked = true
+  window.setTimeout(() => {
+    swipeLocked = false
+  }, 260)
+  return true
+}
 
 const handleTouchStart = (e) => {
-  touchStartX = e.changedTouches[0].screenX
+  if (shouldIgnoreWeekSwipe()) return
+  const touch = e.changedTouches?.[0]
+  if (!touch) return
+  swipeTracking = true
+  touchStartX = touch.screenX
+  touchStartY = touch.screenY
+  touchLastX = touch.screenX
+  touchStartAt = Date.now()
+}
+
+const handleTouchMove = (e) => {
+  if (!swipeTracking) return
+  const touch = e.changedTouches?.[0]
+  if (!touch) return
+  touchLastX = touch.screenX
+  const dx = Math.abs(touch.screenX - touchStartX)
+  const dy = Math.abs(touch.screenY - touchStartY)
+  if (dy > dx && dy > 16) {
+    swipeTracking = false
+  }
 }
 
 const handleTouchEnd = (e) => {
-  touchEndX = e.changedTouches[0].screenX
-  handleSwipe()
-}
-
-const handleSwipe = () => {
-  const diff = touchStartX - touchEndX
-  const threshold = 50 // 最小滑动距离
-  
-  if (Math.abs(diff) > threshold) {
-    if (diff > 0 && selectedWeek.value < totalWeeks.value) {
-      // 向左滑 -> 下一周
-      selectedWeek.value++
-    } else if (diff < 0 && selectedWeek.value > 1) {
-      // 向右滑 -> 上一周
-      selectedWeek.value--
-    }
+  if (!swipeTracking) return
+  swipeTracking = false
+  const touch = e.changedTouches?.[0]
+  const endX = touch?.screenX ?? touchLastX
+  const diff = touchStartX - endX
+  const durationMs = Math.max(1, Date.now() - touchStartAt)
+  const velocity = Math.abs(diff) / durationMs // px/ms
+  const distancePass = Math.abs(diff) >= 52
+  const velocityPass = Math.abs(diff) >= 24 && velocity >= 0.52
+  if (!distancePass && !velocityPass) return
+  if (diff > 0) {
+    shiftWeek(1)
+    return
   }
+  shiftWeek(-1)
 }
 
 const handleBack = () => emit('back')
 const jumpToCurrentWeek = () => {
   if (currentWeek.value) {
+    weekTransitionName.value =
+      Number(currentWeek.value) >= Number(selectedWeek.value) ? 'week-slide-left' : 'week-slide-right'
     selectedWeek.value = currentWeek.value
   }
 }
@@ -1395,7 +1462,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="schedule-view" @touchstart="handleTouchStart" @touchend="handleTouchEnd">
+  <div
+    class="schedule-view"
+    @touchstart.passive="handleTouchStart"
+    @touchmove.passive="handleTouchMove"
+    @touchend.passive="handleTouchEnd"
+    @touchcancel.passive="handleTouchEnd"
+  >
     <!-- 头部导航 -->
     <div class="schedule-topbar">
       <button class="menu-btn btn-ripple" @click="toggleMenu" aria-label="打开课表菜单">
@@ -1404,7 +1477,7 @@ onMounted(async () => {
         <span class="menu-bar"></span>
       </button>
       <div class="week-selector">
-        <select v-model="selectedWeek">
+        <select v-model.number="selectedWeek">
           <option disabled value="0">请选择周次</option>
           <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
         </select>
@@ -1526,31 +1599,33 @@ onMounted(async () => {
       </div>
     </Transition>
 
-    <Transition name="sheet-up">
-      <div v-if="showWeekPicker" class="week-picker-mask" @click.self="showWeekPicker = false">
-        <div class="week-picker-sheet">
-          <div class="week-picker-header">
-            <div class="week-picker-title">选择周次</div>
-            <div class="week-picker-ops">
-              <button @click="selectAllAddCourseWeeks">全选</button>
-              <button @click="clearAddCourseWeeks">清空</button>
+    <Teleport to="body">
+      <Transition name="sheet-up">
+        <div v-if="showWeekPicker" class="week-picker-mask" @click.self="showWeekPicker = false">
+          <div class="week-picker-sheet">
+            <div class="week-picker-header">
+              <div class="week-picker-title">选择周次</div>
+              <div class="week-picker-ops">
+                <button @click="selectAllAddCourseWeeks">全选</button>
+                <button @click="clearAddCourseWeeks">清空</button>
+              </div>
             </div>
+            <div class="week-picker-grid">
+              <button
+                v-for="week in semesterWeekOptions"
+                :key="week"
+                class="week-cell"
+                :class="{ active: addCourseForm.weeks.includes(week) }"
+                @click="toggleAddCourseWeek(week)"
+              >
+                第{{ week }}周
+              </button>
+            </div>
+            <button class="week-picker-confirm" @click="showWeekPicker = false">完成</button>
           </div>
-          <div class="week-picker-grid">
-            <button
-              v-for="week in semesterWeekOptions"
-              :key="week"
-              class="week-cell"
-              :class="{ active: addCourseForm.weeks.includes(week) }"
-              @click="toggleAddCourseWeek(week)"
-            >
-              第{{ week }}周
-            </button>
-          </div>
-          <button class="week-picker-confirm" @click="showWeekPicker = false">完成</button>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
 
     <div v-if="showSemesterPopup" class="semester-popup-mask" @click.self="showSemesterPopup = false">
       <div class="semester-popup-card">
@@ -1571,7 +1646,8 @@ onMounted(async () => {
     </button>
 
     <!-- 课表主体容器 -->
-    <div class="timetable-container">
+    <Transition :name="weekTransitionName" mode="out-in">
+      <div class="timetable-container" :key="`week-${selectedWeek}`">
       
       <!-- 头部日期 -->
       <div class="date-header">
@@ -1630,7 +1706,8 @@ onMounted(async () => {
         </div>
       </div>
       
-    </div>
+      </div>
+    </Transition>
 
     <!-- 详情弹窗 -->
     <Transition name="fade">
@@ -2546,6 +2623,33 @@ onMounted(async () => {
   opacity: 0;
 }
 
+.week-slide-left-enter-active,
+.week-slide-left-leave-active,
+.week-slide-right-enter-active,
+.week-slide-right-leave-active {
+  transition: transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.24s ease;
+}
+
+.week-slide-left-enter-from {
+  transform: translateX(24px);
+  opacity: 0;
+}
+
+.week-slide-left-leave-to {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+
+.week-slide-right-enter-from {
+  transform: translateX(-24px);
+  opacity: 0;
+}
+
+.week-slide-right-leave-to {
+  transform: translateX(24px);
+  opacity: 0;
+}
+
 .offline-banner {
   margin: 12px 0 0;
   padding: 10px 14px;
@@ -2635,7 +2739,7 @@ onMounted(async () => {
 .week-picker-mask {
   position: fixed;
   inset: 0;
-  z-index: 110;
+  z-index: 520;
   background: rgba(15, 23, 42, 0.48);
   display: flex;
   align-items: flex-end;

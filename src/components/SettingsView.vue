@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   applyPreset,
   flushUiSettings,
@@ -20,6 +20,13 @@ import { applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_confi
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { showToast } from '../utils/toast'
+import {
+  clearDebugLogs,
+  formatDebugTime,
+  getDebugLogs,
+  pushDebugLog,
+  subscribeDebugLogs
+} from '../utils/debug_logger'
 import hbutLogo from '../assets/hbut-logo.png'
 
 const emit = defineEmits(['back'])
@@ -60,6 +67,20 @@ const probeResults = ref({})
 const probeFinishedAt = ref('')
 let backendAutoApplyTimer = null
 let backendAutoApplying = false
+const debugLogs = ref([])
+const debugFilter = ref('all')
+const debugPanelRef = ref(null)
+let unsubscribeDebugLogs = null
+
+const DEBUG_LOG_LIMIT = 1000
+const debugLevelOptions = [
+  { key: 'all', label: '全部' },
+  { key: 'debug', label: 'Debug' },
+  { key: 'info', label: 'Info' },
+  { key: 'warn', label: 'Warn' },
+  { key: 'error', label: 'Error' },
+  { key: 'log', label: 'Log' }
+]
 
 const isMobileDevice = (() => {
   if (typeof navigator === 'undefined') return false
@@ -105,6 +126,18 @@ const FONT_DISPLAY_NAME = {
   fangsong: '仿宋',
   deyihei: '得意黑'
 }
+
+const filteredDebugLogs = computed(() => {
+  if (debugFilter.value === 'all') return debugLogs.value
+  return debugLogs.value.filter((item) => item.level === debugFilter.value)
+})
+
+const debugStats = computed(() => {
+  const total = debugLogs.value.length
+  const errors = debugLogs.value.filter((item) => item.level === 'error').length
+  const warns = debugLogs.value.filter((item) => item.level === 'warn').length
+  return { total, errors, warns }
+})
 
 const presetEntries = computed(() =>
   Object.entries(UI_PRESETS).map(([key, preset]) => ({
@@ -412,11 +445,18 @@ const runSingleProbe = async (item, timeoutMs) => {
     }
     return
   }
+  pushDebugLog('Probe', `开始检测 ${item.label}: ${item.url}`, 'debug')
   probeResults.value = {
     ...probeResults.value,
     [item.id]: { status: 'testing' }
   }
   const result = await probeEndpoint(item.url, timeoutMs)
+  pushDebugLog(
+    'Probe',
+    `${item.label} -> ${result.status}${result.latencyMs ? ` (${result.latencyMs}ms)` : ''}`,
+    result.status === 'error' ? 'warn' : 'info',
+    result
+  )
   probeResults.value = {
     ...probeResults.value,
     [item.id]: result
@@ -431,12 +471,48 @@ const handleRunConnectivityTest = async () => {
     showToast('当前没有可测速的目标地址', 'info')
     return
   }
+  pushDebugLog('Settings', `开始功能测速：目标数=${rows.length}，超时=${timeoutMs}ms`, 'info')
   probeRunning.value = true
   probeFinishedAt.value = ''
   await Promise.all(rows.map((item) => runSingleProbe(item, timeoutMs)))
   probeRunning.value = false
   probeFinishedAt.value = new Date().toLocaleString()
+  pushDebugLog('Settings', `功能测速完成，目标数=${rows.length}，超时=${timeoutMs}ms`, 'info')
   showToast('测速完成', 'success')
+}
+
+const refreshDebugPanel = () => {
+  debugLogs.value = getDebugLogs(DEBUG_LOG_LIMIT)
+}
+
+const scrollDebugToBottom = () => {
+  requestAnimationFrame(() => {
+    const panel = debugPanelRef.value
+    if (!panel) return
+    panel.scrollTop = panel.scrollHeight
+  })
+}
+
+const handleClearDebugPanel = () => {
+  clearDebugLogs()
+  refreshDebugPanel()
+  showToast('调试日志已清空', 'success')
+}
+
+const handleCopyDebugLogs = async () => {
+  const rows = debugLogs.value.map((item) => {
+    return `${formatDebugTime(item.ts)} [${String(item.level || 'log').toUpperCase()}][${item.scope}] ${item.message}`
+  })
+  if (!rows.length) {
+    showToast('当前没有调试日志', 'info')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(rows.join('\n'))
+    showToast('调试日志已复制', 'success')
+  } catch {
+    showToast('复制失败，请检查剪贴板权限', 'error')
+  }
 }
 
 const handleApplyPreset = (presetKey) => {
@@ -472,6 +548,10 @@ const handleResetAppearance = () => {
 
 const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = false } = {}) => {
   try {
+    pushDebugLog(
+      'Settings',
+      `应用后端配置：useRemote=${appSettings.backend.useRemoteConfig ? '1' : '0'}`
+    )
     const stored = getStoredOcrConfig()
     const customOcrEndpoint = String(appSettings.backend.ocrEndpoint || '').trim()
     const endpointList = customOcrEndpoint
@@ -512,8 +592,10 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
     if (!silent) {
       showToast('后端设置已应用', 'success')
     }
+    pushDebugLog('Settings', '后端配置应用成功', 'info')
     return true
   } catch (e) {
+    pushDebugLog('Settings', '后端配置应用失败', 'error', e)
     console.warn('[Settings] apply backend config failed', e)
     if (!silent) {
       showToast('应用后端设置失败，请检查地址格式', 'error')
@@ -525,6 +607,7 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
 const handleRemoteModeChanged = async () => {
   const nextUseRemoteConfig = !appSettings.backend.useRemoteConfig
   appSettings.backend.useRemoteConfig = nextUseRemoteConfig
+  pushDebugLog('Settings', `切换配置源：${nextUseRemoteConfig ? '远程配置' : '仅本地'}`)
   if (nextUseRemoteConfig) {
     window.dispatchEvent(new CustomEvent(REMOTE_CONFIG_MODE_EVENT))
     showToast('已启用远程配置', 'success')
@@ -541,6 +624,7 @@ const handleResetBackend = () => {
   probeResults.value = {}
   probeFinishedAt.value = ''
   window.dispatchEvent(new CustomEvent(REMOTE_CONFIG_MODE_EVENT))
+  pushDebugLog('Settings', '后端参数已恢复默认')
   showToast('已恢复默认后端参数', 'success')
 }
 
@@ -584,18 +668,46 @@ watch(
   }
 )
 
+watch(
+  () => activeTab.value,
+  (tab) => {
+    if (tab !== 'debug') return
+    refreshDebugPanel()
+    scrollDebugToBottom()
+  }
+)
+
+onMounted(() => {
+  refreshDebugPanel()
+  unsubscribeDebugLogs = subscribeDebugLogs((logs) => {
+    debugLogs.value = logs.slice(-DEBUG_LOG_LIMIT)
+    if (activeTab.value === 'debug') {
+      scrollDebugToBottom()
+    }
+  })
+  if (activeTab.value === 'debug') {
+    scrollDebugToBottom()
+  }
+})
+
 onBeforeUnmount(() => {
   clearBackendAutoApplyTimer()
+  if (typeof unsubscribeDebugLogs === 'function') {
+    unsubscribeDebugLogs()
+    unsubscribeDebugLogs = null
+  }
 })
 
 const handleSelectFont = async (fontKey) => {
   if (fontKey === 'default') {
     fontSettings.font = 'default'
+    pushDebugLog('Font', '切换字体：默认')
     flushUiSettings()
     showToast('字体已应用', 'success')
     return
   }
 
+  pushDebugLog('Font', `切换字体：${FONT_DISPLAY_NAME[fontKey] || fontKey}`)
   showFontModal.value = true
   fontModalTitle.value = `加载${FONT_DISPLAY_NAME[fontKey] || '字体'}`
   fontModalDescription.value = '正在检测本地缓存，如缺失会自动联网下载。'
@@ -626,6 +738,7 @@ const handleSelectFont = async (fontKey) => {
     }
     fontSettings.font = fontKey
     flushUiSettings()
+    pushDebugLog('Font', `字体切换成功：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'info')
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
     fontDownloadStep.value = '字体加载成功'
@@ -637,6 +750,7 @@ const handleSelectFont = async (fontKey) => {
   }
 
   if (fontKey !== 'deyihei') {
+    pushDebugLog('Font', `字体切换失败：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'warn')
     fontDownloadStatus.value = 'failed'
     fontDownloadError.value = '字体加载失败，请检查网络后重试'
     fontDownloadProgress.value = 0
@@ -656,11 +770,13 @@ const handleSelectCdnProvider = async (provider) => {
   if (fontSettings.font !== 'default') {
     await ensureFontLoaded(fontSettings.font, true)
   }
+  pushDebugLog('Font', `切换 CDN 节点：${provider}`)
   showToast(`字体 CDN 已切换为：${provider === 'auto' ? '自动' : provider}`, 'success')
 }
 
 const handlePrefetchFonts = async (force = false) => {
   if (cdnPrefetching.value) return
+  pushDebugLog('Font', `开始预缓存字体，force=${force ? '1' : '0'}`)
   cdnPrefetching.value = true
   const needDeyiheiDownload = !fontSettings.loaded
   showFontModal.value = needDeyiheiDownload
@@ -686,15 +802,23 @@ const handlePrefetchFonts = async (force = false) => {
       await ensureFontLoaded(fontSettings.font, true)
     }
     if (success === Object.keys(results).length) {
+      pushDebugLog('Font', `字体预缓存完成：${success}/${Object.keys(results).length}`)
       fontDownloadStatus.value = 'success'
       showToast(`字体缓存完成：${success}/${Object.keys(results).length}`, 'success')
       showFontModal.value = false
     } else {
+      pushDebugLog(
+        'Font',
+        `字体预缓存部分失败：${success}/${Object.keys(results).length}`,
+        'warn',
+        results
+      )
       fontDownloadStatus.value = 'failed'
       fontDownloadError.value = `部分字体缓存失败（${success}/${Object.keys(results).length}）`
       showToast('部分字体缓存失败，请重试', 'error')
     }
   } catch (e) {
+    pushDebugLog('Font', '字体预缓存失败', 'error', e)
     console.warn('[Font] prefetch failed', e)
     fontDownloadStatus.value = 'failed'
     fontDownloadError.value = '字体缓存失败，请检查网络后重试'
@@ -708,6 +832,7 @@ const handlePrefetchFonts = async (force = false) => {
 
 const handleDownloadFont = async (force = false) => {
   if (downloadingFont.value) return
+  pushDebugLog('Font', `下载得意黑：force=${force ? '1' : '0'}`)
   downloadingFont.value = true
   showFontModal.value = true
   fontModalTitle.value = '下载得意黑字体'
@@ -726,9 +851,11 @@ const handleDownloadFont = async (force = false) => {
     fontDownloadStatus.value = 'success'
     fontDownloadStep.value = '得意黑已缓存并应用'
     fontSettings.font = 'deyihei'
+    pushDebugLog('Font', '得意黑下载并应用成功')
     showToast('字体下载完成，已应用得意黑', 'success')
     showFontModal.value = false
   } catch (e) {
+    pushDebugLog('Font', '得意黑下载失败', 'error', e)
     fontDownloadStatus.value = 'failed'
     fontDownloadError.value = '字体下载失败，请检查网络后重试'
     fontDownloadProgress.value = 0
@@ -748,7 +875,7 @@ const handleDownloadFont = async (force = false) => {
         <img class="logo-img" :src="hbutLogo" alt="HBUT" />
         <div class="title-wrap">
           <span class="title">系统设置</span>
-          <span class="sub-title">主题、后端与测速</span>
+          <span class="sub-title">主题、后端、调试与测速</span>
         </div>
       </div>
       <button class="header-btn btn-ripple" @click="emit('back')">返回</button>
@@ -760,7 +887,7 @@ const handleDownloadFont = async (force = false) => {
         <span class="meta-pill">设备：{{ activeDeviceLabel }}</span>
         <span class="meta-pill">主题：{{ currentPresetLabel }}</span>
       </div>
-      <p>统一管理主题外观、后端地址与模块参数，配置会自动保存并可一键测速验证。</p>
+      <p>统一管理主题外观、后端地址、模块参数与调试日志，配置会自动保存并可一键测速验证。</p>
     </section>
 
     <div class="tab-bar">
@@ -769,6 +896,9 @@ const handleDownloadFont = async (force = false) => {
       </button>
       <button class="tab-btn btn-ripple" :class="{ active: activeTab === 'backend' }" @click="activeTab = 'backend'">
         后端
+      </button>
+      <button class="tab-btn btn-ripple" :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">
+        调试
       </button>
     </div>
 
@@ -946,7 +1076,7 @@ const handleDownloadFont = async (force = false) => {
       </section>
     </template>
 
-    <section v-else class="settings-section glass-card backend-shell">
+    <section v-else-if="activeTab === 'backend'" class="settings-section glass-card backend-shell">
       <div class="section-head">
         <h3>后端与模块参数</h3>
         <button class="mini-btn btn-ripple" @click="handleResetBackend">恢复默认</button>
@@ -1099,6 +1229,47 @@ const handleDownloadFont = async (force = false) => {
           </article>
         </div>
         <p v-if="probeFinishedAt" class="hint">最近测速：{{ probeFinishedAt }}</p>
+      </div>
+    </section>
+
+    <section v-else class="settings-section glass-card debug-shell">
+      <div class="section-head">
+        <h3>调试日志</h3>
+        <div class="debug-head-actions">
+          <button class="mini-btn btn-ripple" @click="refreshDebugPanel">刷新</button>
+          <button class="mini-btn btn-ripple" @click="handleCopyDebugLogs">复制</button>
+          <button class="mini-btn btn-ripple danger" @click="handleClearDebugPanel">清空</button>
+        </div>
+      </div>
+
+      <div class="backend-summary">
+        <span class="status-pill">总日志：{{ debugStats.total }}</span>
+        <span class="status-pill">告警：{{ debugStats.warns }}</span>
+        <span class="status-pill">错误：{{ debugStats.errors }}</span>
+      </div>
+
+      <div class="debug-filter-row">
+        <button
+          v-for="option in debugLevelOptions"
+          :key="option.key"
+          class="debug-filter-btn btn-ripple"
+          :class="{ active: debugFilter === option.key }"
+          @click="debugFilter = option.key"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+
+      <div ref="debugPanelRef" class="debug-log-panel">
+        <article v-for="item in filteredDebugLogs" :key="item.id" class="debug-log-item" :class="`lvl-${item.level}`">
+          <header class="debug-log-head">
+            <span class="debug-time">{{ formatDebugTime(item.ts) }}</span>
+            <span class="debug-level">{{ String(item.level || 'log').toUpperCase() }}</span>
+            <span class="debug-scope">{{ item.scope }}</span>
+          </header>
+          <p class="debug-message">{{ item.message }}</p>
+        </article>
+        <p v-if="!filteredDebugLogs.length" class="hint">暂无日志，执行一次功能后会自动出现。</p>
       </div>
     </section>
 
@@ -1276,6 +1447,12 @@ const handleDownloadFont = async (force = false) => {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.mini-btn.danger {
+  border-color: rgba(239, 68, 68, 0.42);
+  background: rgba(254, 226, 226, 0.78);
+  color: #b91c1c;
 }
 
 .preset-grid {
@@ -1511,6 +1688,126 @@ const handleDownloadFont = async (force = false) => {
 .backend-shell {
   display: grid;
   gap: 12px;
+}
+
+.debug-shell {
+  display: grid;
+  gap: 12px;
+}
+
+.debug-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.debug-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.debug-filter-btn {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, rgba(148, 163, 184, 0.35));
+  background: color-mix(in oklab, var(--ui-surface) 90%, #fff 10%);
+  color: var(--ui-muted);
+  border-radius: 999px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.debug-filter-btn.active {
+  border-color: transparent;
+  color: #ffffff;
+  background: linear-gradient(130deg, var(--ui-primary), var(--ui-secondary));
+}
+
+.debug-log-panel {
+  max-height: 52vh;
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.3));
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in oklab, var(--ui-surface) 92%, #fff 8%);
+  display: grid;
+  gap: 8px;
+}
+
+.debug-log-item {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(148, 163, 184, 0.28));
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.6);
+  display: grid;
+  gap: 6px;
+}
+
+.debug-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.debug-time {
+  color: var(--ui-muted);
+}
+
+.debug-level,
+.debug-scope {
+  border-radius: 999px;
+  padding: 0 8px;
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.debug-level {
+  background: rgba(148, 163, 184, 0.2);
+  color: #334155;
+}
+
+.debug-scope {
+  background: color-mix(in oklab, var(--ui-primary-soft) 65%, #fff 35%);
+  color: var(--ui-text);
+}
+
+.debug-message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ui-text);
+  word-break: break-word;
+}
+
+.debug-log-item.lvl-debug .debug-level {
+  color: #1d4ed8;
+  background: rgba(147, 197, 253, 0.3);
+}
+
+.debug-log-item.lvl-info .debug-level {
+  color: #065f46;
+  background: rgba(110, 231, 183, 0.28);
+}
+
+.debug-log-item.lvl-warn .debug-level {
+  color: #92400e;
+  background: rgba(253, 230, 138, 0.35);
+}
+
+.debug-log-item.lvl-error {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(254, 242, 242, 0.85);
+}
+
+.debug-log-item.lvl-error .debug-level {
+  color: #991b1b;
+  background: rgba(252, 165, 165, 0.38);
 }
 
 .backend-block {

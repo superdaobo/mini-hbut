@@ -114,6 +114,16 @@ let remoteConfigRefreshTimer = null
 const showUpdateDialog = ref(false)
 const showForceUpdate = ref(false)
 const forceUpdateInfo = ref(null)
+const forceUpdateResolvedUrl = computed(() => {
+  const raw = String(forceUpdateInfo.value?.download_url || '').trim()
+  if (!raw) return ''
+  return toGhProxyUrl(raw) || raw
+})
+const forceUpdateDisplayUrl = computed(() => {
+  const target = String(forceUpdateResolvedUrl.value || '').trim()
+  if (!target) return '未提供下载地址'
+  return target.length > 68 ? `${target.slice(0, 65)}...` : target
+})
 
 const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
 const ME_SUB_VIEWS = ['official', 'feedback', 'config', 'settings', 'export_center']
@@ -810,9 +820,9 @@ const autoCheckUpdate = async () => {
   }
 }
 
-const handleForceUpdate = () => {
-  if (forceUpdateInfo.value?.download_url) {
-    openExternal(toGhProxyUrl(forceUpdateInfo.value.download_url) || forceUpdateInfo.value.download_url)
+const handleForceUpdate = async () => {
+  if (forceUpdateResolvedUrl.value) {
+    await openExternal(forceUpdateResolvedUrl.value)
     return
   }
   showUpdateDialog.value = true
@@ -1613,7 +1623,13 @@ onBeforeUnmount(() => {
         {{ forceUpdateInfo?.message || '当前版本过低，请更新后继续使用。' }}
       </p>
       <p class="force-update-meta">最低版本：v{{ forceUpdateInfo?.min_version }}</p>
-      <button class="btn-primary" @click="handleForceUpdate">立即更新</button>
+      <div v-if="forceUpdateResolvedUrl" class="force-update-download">
+        <span class="force-update-label">下载地址</span>
+        <button class="force-update-link" @click="handleForceUpdate">{{ forceUpdateDisplayUrl }}</button>
+      </div>
+      <div class="force-update-actions">
+        <button class="btn-primary force-update-btn" @click="handleForceUpdate">立即更新</button>
+      </div>
     </div>
   </div>
 
@@ -2000,38 +2016,84 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+   background: rgba(2, 6, 23, 0.68);
   z-index: 9998;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+   backdrop-filter: blur(5px);
 }
 
 .force-update-card {
-  background: var(--ui-surface);
-  border-radius: 18px;
-  padding: 24px;
-  width: 100%;
-  max-width: 360px;
-  text-align: center;
-  box-shadow: var(--ui-shadow-strong);
+   background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 255, 0.94));
+   border-radius: 20px;
+   padding: 22px 20px 18px;
+   width: 100%;
+   max-width: 390px;
+   text-align: left;
+   border: 1px solid color-mix(in oklab, var(--ui-primary) 28%, rgba(148, 163, 184, 0.24));
+   box-shadow: 0 28px 60px rgba(15, 23, 42, 0.32);
 }
 
 .force-update-card h3 {
-  margin: 0 0 12px;
-  font-size: 20px;
+   margin: 0 0 10px;
+   font-size: 21px;
+   line-height: 1.25;
+   color: #0f172a;
 }
 
 .force-update-message {
-  color: var(--ui-muted);
-  margin-bottom: 12px;
+   color: #334155;
+   margin: 0 0 12px;
+   line-height: 1.55;
+   font-size: 14px;
 }
 
 .force-update-meta {
-  color: var(--ui-muted);
-  font-size: 13px;
-  margin-bottom: 16px;
+   color: #475569;
+   font-size: 13px;
+   margin: 0;
+}
+
+.force-update-download {
+   margin-top: 10px;
+   padding: 10px 11px;
+   border-radius: 12px;
+   background: rgba(241, 245, 249, 0.8);
+   border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.force-update-label {
+   display: block;
+   margin-bottom: 6px;
+   font-size: 12px;
+   font-weight: 700;
+   color: #475569;
+}
+
+.force-update-link {
+   width: 100%;
+   border: none;
+   background: transparent;
+   color: #1d4ed8;
+   font-size: 12px;
+   font-weight: 600;
+   text-align: left;
+   line-height: 1.4;
+   cursor: pointer;
+   padding: 0;
+}
+
+.force-update-actions {
+   margin-top: 14px;
+   display: flex;
+   justify-content: flex-end;
+}
+
+.force-update-btn {
+   min-width: 120px;
 }
 
 .notice-modal-overlay,

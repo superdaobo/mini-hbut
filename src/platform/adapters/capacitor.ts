@@ -14,14 +14,30 @@ const normalizePermission = (value: string | undefined): NotificationPermissionS
   return 'prompt'
 }
 
+const openByAppLauncher = async (target: string) => {
+  try {
+    const mod = await import('@capacitor/app-launcher')
+    const launcher = mod?.AppLauncher
+    if (!launcher?.openUrl) return false
+    await launcher.openUrl({ url: target })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export const capacitorBridge: PlatformBridge = {
   runtime: 'capacitor',
 
   async openHttp(url: string) {
+    const launched = await openByAppLauncher(url)
+    if (launched) return true
     return this.openUri(url)
   },
 
   async openUri(target: string) {
+    const launched = await openByAppLauncher(target)
+    if (launched) return true
     const browser = getPlugin<any>('Browser')
     if (browser?.open) {
       try {

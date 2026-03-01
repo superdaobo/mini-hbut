@@ -5,9 +5,12 @@ import {
   readNativeBinaryFile,
   toNativeFileSrc
 } from '../platform/native'
+import { pushDebugLog } from './debug_logger'
 
 const STORAGE_KEY = 'hbu_font_settings_v1'
 const FONT_NAME = 'DeyiHei'
+const FONT_DB_NAME = 'hbu_font_binary_cache_v1'
+const FONT_DB_STORE = 'fonts'
 
 const FONT_SOURCES = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/blobs/c297dc6928402fc0c73cec17ea7518d3731f7022/SmileySans-Oblique.ttf'
@@ -91,6 +94,87 @@ type RemoteFontProfile = {
   cacheName: string
 }
 type FontFormat = 'truetype' | 'woff2' | 'woff'
+type FontCacheRecord = {
+  id: string
+  sourceUrl: string
+  format: FontFormat
+  bytes: ArrayBuffer
+  updatedAt: number
+}
+
+const openFontDb = (): Promise<IDBDatabase | null> =>
+  new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') {
+      resolve(null)
+      return
+    }
+    try {
+      const request = indexedDB.open(FONT_DB_NAME, 1)
+      request.onupgradeneeded = () => {
+        const db = request.result
+        if (!db.objectStoreNames.contains(FONT_DB_STORE)) {
+          db.createObjectStore(FONT_DB_STORE, { keyPath: 'id' })
+        }
+      }
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => resolve(null)
+    } catch {
+      resolve(null)
+    }
+  })
+
+const getFontRecordId = (cacheName: string) => `${cacheName}:latest`
+
+const readFontCacheRecord = async (cacheName: string): Promise<FontCacheRecord | null> => {
+  const db = await openFontDb()
+  if (!db) return null
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(FONT_DB_STORE, 'readonly')
+      const store = tx.objectStore(FONT_DB_STORE)
+      const request = store.get(getFontRecordId(cacheName))
+      request.onsuccess = () => {
+        const record = request.result as FontCacheRecord | undefined
+        if (!record?.bytes) {
+          resolve(null)
+          return
+        }
+        resolve(record)
+      }
+      request.onerror = () => resolve(null)
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+const writeFontCacheRecord = async (
+  cacheName: string,
+  sourceUrl: string,
+  format: FontFormat,
+  bytes: Uint8Array
+) => {
+  const db = await openFontDb()
+  if (!db || !bytes?.byteLength) return false
+  return new Promise<boolean>((resolve) => {
+    try {
+      const tx = db.transaction(FONT_DB_STORE, 'readwrite')
+      const store = tx.objectStore(FONT_DB_STORE)
+      const payload: FontCacheRecord = {
+        id: getFontRecordId(cacheName),
+        sourceUrl,
+        format,
+        bytes: toArrayBuffer(bytes),
+        updatedAt: Date.now()
+      }
+      const request = store.put(payload)
+      request.onsuccess = () => resolve(true)
+      request.onerror = () => resolve(false)
+    } catch {
+      resolve(false)
+    }
+  })
+}
 
 const FONT_CDN_OPTIONS = [
   { key: 'auto', label: '自动（推荐）', desc: '优先 jsDelivr，失败自动回退 unpkg' },
@@ -174,8 +258,8 @@ const REMOTE_FONT_FAMILY_MAP: Record<Exclude<FontKey, 'default'>, string> = {
 
 const inferFontFormat = (url: string): FontFormat => {
   const lower = String(url || '').toLowerCase()
-  if (lower.endsWith('.woff2')) return 'woff2'
-  if (lower.endsWith('.woff')) return 'woff'
+  if (lower.includes('.woff2')) return 'woff2'
+  if (lower.includes('.woff')) return 'woff'
   return 'truetype'
 }
 
@@ -264,6 +348,7 @@ const loadFontFromUrl = async (fontFamily: string, src: string, format: FontForm
 }
 
 const loadDeyiHeiFontInTauri = async (force = false) => {
+  pushDebugLog('Font', `加载得意黑（Tauri）force=${force ? '1' : '0'}`, 'debug')
   const payload = await invoke<FontDownloadPayload>('download_deyihei_font_payload', {
     url: FONT_SOURCES[0],
     urls: FONT_SOURCES,
@@ -300,6 +385,7 @@ const loadDeyiHeiFontInTauri = async (force = false) => {
 
 const loadDeyiHeiFontInWeb = async (force = false) => {
   const resolvedUrl = resolveWebFontUrl()
+  pushDebugLog('Font', `加载得意黑（Web）force=${force ? '1' : '0'}`, 'debug')
   return loadRemoteFontWithCache(FONT_NAME, [resolvedUrl], 'hbu-font-cache-deyihei', force)
 }
 
@@ -334,6 +420,22 @@ const loadRemoteFontWithCache = async (
   cacheName: string,
   force = false
 ): Promise<boolean> => {
+  if (!force) {
+    try {
+      const localRecord = await readFontCacheRecord(cacheName)
+      if (localRecord?.bytes) {
+        const bytes = new Uint8Array(localRecord.bytes)
+        const loaded = await loadFontFromBytes(fontFamily, bytes)
+        if (loaded) {
+          pushDebugLog('Font', `命中本地字体缓存：${cacheName}`)
+          return true
+        }
+      }
+    } catch {
+      // ignore and continue network fallback
+    }
+  }
+
   for (const sourceUrl of sources) {
     const response = await fetchRemoteFontResponse(sourceUrl, cacheName, force)
     if (response) {
@@ -341,7 +443,11 @@ const loadRemoteFontWithCache = async (
         const buffer = await response.arrayBuffer()
         const bytes = new Uint8Array(buffer)
         const loaded = await loadFontFromBytes(fontFamily, bytes)
-        if (loaded) return true
+        if (loaded) {
+          await writeFontCacheRecord(cacheName, sourceUrl, inferFontFormat(sourceUrl), bytes)
+          pushDebugLog('Font', `字体已写入本地缓存：${cacheName} (${sourceUrl})`, 'debug')
+          return true
+        }
       } catch {
         // 继续 URL 模式兜底
       }
@@ -349,11 +455,24 @@ const loadRemoteFontWithCache = async (
 
     try {
       const loaded = await loadFontFromUrl(fontFamily, sourceUrl, inferFontFormat(sourceUrl))
-      if (loaded) return true
+      if (loaded) {
+        try {
+          const persistResponse = await fetchRemoteFontResponse(sourceUrl, cacheName, false)
+          if (persistResponse) {
+            const persistBuffer = await persistResponse.arrayBuffer()
+            const persistBytes = new Uint8Array(persistBuffer)
+            await writeFontCacheRecord(cacheName, sourceUrl, inferFontFormat(sourceUrl), persistBytes)
+          }
+        } catch {
+          // ignore cache write error
+        }
+        return true
+      }
     } catch {
       // 尝试下一个地址
     }
   }
+  pushDebugLog('Font', `字体加载失败：${fontFamily}`, 'warn')
   return false
 }
 
@@ -362,6 +481,11 @@ const loadRemoteFontInWeb = async (fontKey: RemoteFontKey, force = false): Promi
   if (!profile) return false
   const sources = resolveRemoteFontSources(fontKey, state.cdnProvider)
   if (sources.length === 0) return false
+  pushDebugLog(
+    'Font',
+    `加载云端字体：${fontKey}，provider=${state.cdnProvider}，force=${force ? '1' : '0'}`,
+    'debug'
+  )
   return loadRemoteFontWithCache(profile.family, sources, profile.cacheName, force)
 }
 

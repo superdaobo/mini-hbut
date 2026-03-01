@@ -40,6 +40,7 @@ let tickerDragActive = false
 let tickerDragStartX = 0
 let tickerDragLastX = 0
 let tickerDragStartTranslate = 0
+let tickerDragStartAt = 0
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
@@ -508,6 +509,7 @@ const onTickerTouchStart = (event) => {
   tickerDragStartX = event.touches?.[0]?.clientX || 0
   tickerDragLastX = tickerDragStartX
   tickerDragStartTranslate = tickerTranslateX.value
+  tickerDragStartAt = Date.now()
 }
 
 const onTickerTouchMove = (event) => {
@@ -522,19 +524,15 @@ const onTickerTouchEnd = () => {
   if (!tickerDragActive) return
   tickerDragActive = false
   const deltaX = tickerDragLastX - tickerDragStartX
-  const step = Math.max(1, tickerStepWidth.value)
-  const startSnap = Math.round(tickerDragStartTranslate / step) * step
-  const threshold = step * 0.2
-  let target = startSnap
-
-  if (Math.abs(deltaX) >= threshold) {
-    const moveCount = Math.max(1, Math.round(Math.abs(deltaX) / step))
-    target = startSnap + (deltaX < 0 ? -moveCount * step : moveCount * step)
-  } else {
-    target = Math.round(tickerTranslateX.value / step) * step
+  const durationMs = Math.max(1, Date.now() - tickerDragStartAt)
+  const distance = Math.abs(deltaX)
+  const velocity = distance / durationMs // px/ms
+  let target = tickerTranslateX.value
+  if (distance >= 8) {
+    const inertiaOffset = Math.sign(deltaX || -1) * Math.min(260, distance * 0.36 + velocity * 190)
+    target = tickerTranslateX.value + inertiaOffset
   }
-
-  tickerTransitionMs.value = 320
+  tickerTransitionMs.value = Math.min(460, Math.max(220, Math.round(180 + velocity * 260)))
   tickerTranslateX.value = normalizeTickerTranslate(target)
   if (Math.abs(deltaX) > 10) {
     tickerSuppressClickUntil.value = Date.now() + 240

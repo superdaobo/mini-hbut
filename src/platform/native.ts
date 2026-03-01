@@ -1,4 +1,5 @@
 import { detectRuntime } from './runtime'
+import { pushDebugLog } from '../utils/debug_logger'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
@@ -20,10 +21,20 @@ export const invokeNative = async <T = unknown>(
   args?: InvokeArgs
 ): Promise<T> => {
   if (!isTauriRuntime()) {
+    pushDebugLog('Native', `invoke 调用被拒绝：${command}`, 'warn')
     throw new Error(`当前运行时不支持 invoke: ${command}`)
   }
+  const startedAt = Date.now()
+  pushDebugLog('Native', `invoke 开始：${command}`, 'debug', args)
   const core = await import('@tauri-apps/api/core')
-  return core.invoke<T>(command, args)
+  try {
+    const result = await core.invoke<T>(command, args)
+    pushDebugLog('Native', `invoke 成功：${command} (${Date.now() - startedAt}ms)`, 'info')
+    return result
+  } catch (error) {
+    pushDebugLog('Native', `invoke 失败：${command} (${Date.now() - startedAt}ms)`, 'error', error)
+    throw error
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import { initFontSettings } from './utils/font_settings'
 import { initMarkdownRuntime } from './utils/markdown'
 import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
+import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 
 const mountApp = () => {
   createApp(App).mount('#app')
@@ -46,11 +47,14 @@ const runDeferredInitializers = () => {
 }
 
 const bootstrap = () => {
+  initDebugLogger()
+  pushDebugLog('Bootstrap', '开始初始化应用')
   initUiSettings()
   initAppSettings()
   initFontSettings()
   mountApp()
   runDeferredInitializers()
+  pushDebugLog('Bootstrap', '应用初始化完成')
 }
 
 try {
