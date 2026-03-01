@@ -1828,6 +1828,25 @@ struct SaveExportFileResult {
     needs_manual_import: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceShareNativeRequest {
+    endpoint: String,
+    path: String,
+    username: String,
+    password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResourceShareFetchPayloadRequest {
+    endpoint: String,
+    path: String,
+    username: String,
+    password: String,
+    max_bytes: Option<usize>,
+}
+
 fn sanitize_cache_key(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
@@ -2114,6 +2133,191 @@ fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
     app.shell()
         .open(&target, None)
         .map_err(|e| format!("open external url failed: {}", e))
+}
+
+fn normalize_resource_share_path_native(path: &str) -> String {
+    let replaced = path.replace('\\', "/");
+    let mut normalized = replaced.trim().to_string();
+    if normalized.is_empty() {
+        return "/".to_string();
+    }
+    if !normalized.starts_with('/') {
+        normalized = format!("/{}", normalized);
+    }
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+    if normalized.len() > 1 {
+        normalized = normalized.trim_end_matches('/').to_string();
+    }
+    if normalized.is_empty() {
+        "/".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn encode_resource_share_path_native(path: &str) -> String {
+    normalize_resource_share_path_native(path)
+        .split('/')
+        .map(urlencoding::encode)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn validate_resource_share_request(
+    endpoint: &str,
+    username: &str,
+    password: &str,
+) -> Result<String, String> {
+    let cleaned = endpoint.trim().trim_end_matches('/').to_string();
+    if cleaned.is_empty() || !(cleaned.starts_with("http://") || cleaned.starts_with("https://")) {
+        return Err("resource_share endpoint 非法或为空".to_string());
+    }
+    if username.trim().is_empty() || password.trim().is_empty() {
+        return Err("resource_share 缺少账号或密码".to_string());
+    }
+    Ok(cleaned)
+}
+
+fn build_resource_share_auth(username: &str, password: &str) -> String {
+    format!(
+        "Basic {}",
+        general_purpose::STANDARD.encode(format!("{}:{}", username, password).as_bytes())
+    )
+}
+
+#[tauri::command]
+async fn resource_share_direct_url_native(req: ResourceShareNativeRequest) -> Result<serde_json::Value, String> {
+    let endpoint = validate_resource_share_request(&req.endpoint, &req.username, &req.password)?;
+    let encoded_path = encode_resource_share_path_native(&req.path);
+    let remote_url = format!("{}/dav{}", endpoint, encoded_path);
+    let auth = build_resource_share_auth(&req.username, &req.password);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(25))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("创建资源直链客户端失败: {}", e))?;
+
+    let head_resp = client
+        .head(&remote_url)
+        .header("Authorization", auth.clone())
+        .send()
+        .await
+        .map_err(|e| format!("资源直链 HEAD 请求失败: {}", e))?;
+
+    let mut direct_url = String::new();
+    let mut need_auth = false;
+    let mut status_code = head_resp.status().as_u16();
+
+    if let Some(loc) = head_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+        direct_url = loc.to_string();
+    }
+
+    if direct_url.is_empty() {
+        let mut probe_error: Option<String> = None;
+        match client
+            .get(&remote_url)
+            .header("Authorization", auth.clone())
+            .header("Range", "bytes=0-0")
+            .send()
+            .await
+        {
+            Ok(get_resp) => {
+                status_code = get_resp.status().as_u16();
+                if let Some(loc) = get_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+                    direct_url = loc.to_string();
+                } else if get_resp.status().is_success() {
+                    need_auth = true;
+                    direct_url = remote_url.clone();
+                }
+            }
+            Err(e) => {
+                probe_error = Some(e.to_string());
+            }
+        }
+
+        if direct_url.is_empty() && head_resp.status().is_success() {
+            status_code = head_resp.status().as_u16();
+            need_auth = true;
+            direct_url = remote_url.clone();
+        }
+
+        if direct_url.is_empty() {
+            if let Some(e) = probe_error {
+                return Err(format!("资源直链 GET 探测失败: {}", e));
+            }
+        }
+    }
+
+    if direct_url.is_empty() {
+        return Err("未获取到可用直链".to_string());
+    }
+
+    Ok(serde_json::json!({
+        "url": direct_url,
+        "status": status_code,
+        "needAuth": need_auth
+    }))
+}
+
+#[tauri::command]
+async fn resource_share_fetch_file_payload_native(
+    req: ResourceShareFetchPayloadRequest,
+) -> Result<serde_json::Value, String> {
+    let endpoint = validate_resource_share_request(&req.endpoint, &req.username, &req.password)?;
+    let encoded_path = encode_resource_share_path_native(&req.path);
+    let remote_url = format!("{}/dav{}", endpoint, encoded_path);
+    let auth = build_resource_share_auth(&req.username, &req.password);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|e| format!("创建资源下载客户端失败: {}", e))?;
+
+    let response = client
+        .get(&remote_url)
+        .header("Authorization", auth)
+        .send()
+        .await
+        .map_err(|e| format!("资源下载请求失败: {}", e))?;
+
+    let status = response.status().as_u16();
+    if !(status == 200 || status == 206) {
+        return Err(format!("资源下载失败 HTTP {}", status));
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取资源字节失败: {}", e))?;
+
+    if let Some(limit) = req.max_bytes {
+        if bytes.len() > limit {
+            return Err(format!(
+                "资源体积超过上限: {} bytes > {} bytes",
+                bytes.len(),
+                limit
+            ));
+        }
+    }
+
+    Ok(serde_json::json!({
+        "status": status,
+        "contentType": content_type,
+        "size": bytes.len(),
+        "base64": general_purpose::STANDARD.encode(bytes),
+    }))
 }
 
 #[tauri::command]
@@ -3929,6 +4133,8 @@ pub fn run() {
             save_export_file,
             open_external_url,
             open_file_with_system,
+            resource_share_direct_url_native,
+            resource_share_fetch_file_payload_native,
             send_test_notification_native,
             get_notification_permission_native,
             request_notification_permission_native,

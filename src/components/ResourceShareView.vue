@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, markRaw, watch } from 'vue'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import { openExternal } from '../utils/external_link'
-import { isTauriRuntime } from '../platform/native'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { importModuleFromCdn, loadScriptFromCdn, loadStyleFromCdn } from '../utils/cdn_loader'
 
@@ -41,6 +41,8 @@ const previewProxyFallbackUsed = ref(false)
 const officePreviewCandidates = ref([])
 const pdfPreviewCandidates = ref([])
 const previewUrlCandidates = ref([])
+const previewObjectUrl = ref('')
+const nativeBlobFallbackTried = ref(false)
 const pdfCanvasRef = ref(null)
 const pdfCanvasWrapRef = ref(null)
 const pdfDocumentRef = shallowRef(null)
@@ -463,6 +465,49 @@ const shiftNextPreviewCandidate = () => {
   return ''
 }
 
+const decodeBase64Bytes = (base64) => {
+  const raw = atob(String(base64 || ''))
+  const out = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i += 1) {
+    out[i] = raw.charCodeAt(i)
+  }
+  return out
+}
+
+const releasePreviewObjectUrl = () => {
+  if (!previewObjectUrl.value) return
+  try {
+    URL.revokeObjectURL(previewObjectUrl.value)
+  } catch {
+    // ignore
+  }
+  previewObjectUrl.value = ''
+}
+
+const createPreviewObjectUrl = (base64, contentType) => {
+  const bytes = decodeBase64Bytes(base64)
+  const blob = new Blob([bytes], { type: contentType || 'application/octet-stream' })
+  releasePreviewObjectUrl()
+  const nextUrl = URL.createObjectURL(blob)
+  previewObjectUrl.value = nextUrl
+  return nextUrl
+}
+
+const fetchDirectUrlByNativeInvoke = async (path) => {
+  const payload = await invokeNative('resource_share_direct_url_native', {
+    req: {
+      endpoint: endpoint.value,
+      path: normalizePath(path),
+      username: username.value,
+      password: password.value
+    }
+  })
+  return {
+    url: String(payload?.url || ''),
+    needAuth: !!payload?.needAuth
+  }
+}
+
 const fetchDirectUrlFromBridge = async (params) => {
   const query = new URLSearchParams(params).toString()
   let lastError = null
@@ -491,22 +536,17 @@ const getSignedDirectUrl = async (path) => {
 
   if (runtimeIsTauri) {
     try {
-      const payload = await fetchDirectUrlFromBridge({
-        endpoint: endpoint.value,
-        path: normalized,
-        username: username.value,
-        password: password.value
-      })
-      const direct = String(payload?.data?.url || '').trim()
-      const needAuth = !!payload?.data?.need_auth
-      if (direct) {
-        const expireAt = parseDirectUrlExpireAt(direct)
-        directUrlCache.set(cacheKey, { url: direct, expireAt, needAuth })
-        return { url: direct, needAuth }
+      const nativePayload = await fetchDirectUrlByNativeInvoke(normalized)
+      const nativeDirect = String(nativePayload.url || '').trim()
+      const nativeNeedAuth = !!nativePayload.needAuth
+      if (nativeDirect) {
+        const expireAt = parseDirectUrlExpireAt(nativeDirect)
+        directUrlCache.set(cacheKey, { url: nativeDirect, expireAt, needAuth: nativeNeedAuth })
+        return { url: nativeDirect, needAuth: nativeNeedAuth }
       }
       throw new Error('未获取到可用直链')
-    } catch (error) {
-      console.warn('[ResourceShare] direct_url bridge failed, fallback to auth url:', error?.message || error)
+    } catch (nativeError) {
+      console.warn('[ResourceShare] invoke direct_url failed, fallback to auth url:', nativeError?.message || nativeError)
       const direct = getDavAuthUrl(normalized)
       const expireAt = Date.now() + DIRECT_URL_CACHE_TTL_MS
       directUrlCache.set(cacheKey, { url: direct, expireAt, needAuth: false })
@@ -524,6 +564,35 @@ const getSignedDirectUrl = async (path) => {
   const fallback = getDavUrl(normalized)
   directUrlCache.set(cacheKey, { url: fallback, expireAt: Date.now() + 3 * 60 * 1000, needAuth: true })
   return { url: fallback, needAuth: true }
+}
+
+const fetchNativeResourcePayload = async (path, maxBytes = undefined) => {
+  if (!runtimeIsTauri) return null
+  return invokeNative('resource_share_fetch_file_payload_native', {
+    req: {
+      endpoint: endpoint.value,
+      path: normalizePath(path),
+      username: username.value,
+      password: password.value,
+      maxBytes
+    }
+  })
+}
+
+const applyNativeBlobPreview = async (kind) => {
+  if (!runtimeIsTauri || !previewPath.value) return false
+  const isMedia = kind === 'video' || kind === 'audio'
+  const isPdf = kind === 'pdf'
+  const maxBytes = isMedia ? 120 * 1024 * 1024 : 40 * 1024 * 1024
+  const payload = await fetchNativeResourcePayload(previewPath.value, maxBytes)
+  const base64 = String(payload?.base64 || '').trim()
+  if (!base64) return false
+  const defaultType = isPdf ? 'application/pdf' : isMedia ? 'video/mp4' : 'application/octet-stream'
+  const contentType = String(payload?.contentType || defaultType).trim() || defaultType
+  const blobUrl = createPreviewObjectUrl(base64, contentType)
+  setPreviewUrl(blobUrl)
+  previewUrlCandidates.value = []
+  return true
 }
 
 const resolvePreviewPlayableUrl = (path, signed) => {
@@ -581,11 +650,17 @@ const closePreview = async () => {
   isPdfPanning.value = false
   pdfPanState.active = false
   pdfPanState.pointerId = null
+  nativeBlobFallbackTried.value = false
+  releasePreviewObjectUrl()
   previewFrameKey.value += 1
 }
 
 const setPreviewUrl = (url) => {
-  previewUrl.value = String(url || '')
+  const next = String(url || '')
+  if (previewObjectUrl.value && previewObjectUrl.value !== next) {
+    releasePreviewObjectUrl()
+  }
+  previewUrl.value = next
   previewFrameKey.value += 1
 }
 
@@ -855,6 +930,22 @@ const onPreviewMediaError = () => {
     previewHint.value = '当前线路不可用，已切换备用线路重试播放'
     return
   }
+  if (runtimeIsTauri && !nativeBlobFallbackTried.value) {
+    nativeBlobFallbackTried.value = true
+    previewHint.value = '正在切换本地安全通道加载媒体...'
+    void applyNativeBlobPreview(previewKind.value)
+      .then((ok) => {
+        if (ok) {
+          previewHint.value = '已切换本地安全通道播放'
+          return
+        }
+        previewHint.value = '当前文件无法在线播放，请点击下载后用系统播放器打开'
+      })
+      .catch((error) => {
+        previewHint.value = `媒体预览失败：${error?.message || '未知错误'}`
+      })
+    return
+  }
   previewHint.value = '当前文件无法在线播放，请点击下载后用系统播放器打开'
 }
 
@@ -863,6 +954,22 @@ const onPreviewImageError = () => {
   const next = shiftNextPreviewCandidate()
   if (next) {
     previewHint.value = '图片加载失败，已自动切换备用线路'
+    return
+  }
+  if (runtimeIsTauri && !nativeBlobFallbackTried.value) {
+    nativeBlobFallbackTried.value = true
+    previewHint.value = '正在切换本地安全通道加载图片...'
+    void applyNativeBlobPreview('image')
+      .then((ok) => {
+        if (ok) {
+          previewHint.value = '已切换本地安全通道预览图片'
+          return
+        }
+        previewHint.value = '图片预览失败，请点击下载后查看'
+      })
+      .catch((error) => {
+        previewHint.value = `图片预览失败：${error?.message || '未知错误'}`
+      })
     return
   }
   previewHint.value = '图片预览失败，请点击下载后查看'
@@ -881,6 +988,8 @@ const preparePreview = async (item) => {
   officePreviewCandidates.value = []
   pdfPreviewCandidates.value = []
   previewUrlCandidates.value = []
+  nativeBlobFallbackTried.value = false
+  releasePreviewObjectUrl()
   pdfDocumentRef.value = null
   pdfCurrentPage.value = 1
   pdfPageCount.value = 1
@@ -933,7 +1042,27 @@ const preparePreview = async (item) => {
       if (!uniqueUrls.length) {
         throw new Error('PDF 预览地址为空')
       }
-      await openPdfWithCandidates(uniqueUrls)
+      try {
+        await openPdfWithCandidates(uniqueUrls)
+      } catch (pdfError) {
+        if (!runtimeIsTauri) throw pdfError
+        const payload = await fetchNativeResourcePayload(item.path, 80 * 1024 * 1024)
+        const base64 = String(payload?.base64 || '').trim()
+        if (!base64) throw pdfError
+        const bytes = decodeBase64Bytes(base64)
+        const runtime = await ensurePdfRuntime()
+        const loadingTask = runtime.getDocument({
+          data: bytes,
+          useSystemFonts: true,
+          isEvalSupported: false
+        })
+        const doc = await loadingTask.promise
+        pdfDocumentRef.value = markRaw(doc)
+        pdfCurrentPage.value = 1
+        pdfPageCount.value = doc.numPages || 1
+        pdfZoom.value = 1
+        setPreviewUrl('native://pdf-inline')
+      }
       previewHint.value = runtimeIsCapacitor
         ? 'PDF 已使用移动端兼容线路预览'
         : 'PDF 已建立预览通道，失败会自动切换备用线路'
@@ -1007,6 +1136,16 @@ const openDownload = async () => {
     for (const url of candidates) {
       const ok = await openExternal(url)
       if (ok) return
+    }
+    if (runtimeIsTauri) {
+      for (const url of candidates) {
+        try {
+          await invokeNative('open_external_url', { url })
+          return
+        } catch {
+          // try next
+        }
+      }
     }
     if (typeof document !== 'undefined') {
       const domFallback = candidates[0] || ''
@@ -1089,6 +1228,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowResize)
   destroyPreviewPlayer()
+  releasePreviewObjectUrl()
   void closePreview()
 })
 
