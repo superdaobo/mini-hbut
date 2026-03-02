@@ -296,6 +296,15 @@ const baseModules = [
     available: true,
     requiresLogin: true
   },
+  {
+    id: 'campus_code',
+    name: '校园码',
+    iconKey: 'campus_code',
+    color: '#0f766e',
+    desc: '在线/高能模式二维码',
+    available: true,
+    requiresLogin: true
+  },
   { 
     id: 'exams', 
     name: '考试安排', 

@@ -337,6 +337,11 @@ struct TransactionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CampusCodeRequest {
+    payload: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
 struct AiUploadRequest {
     token: String,
     blade_auth: String,
@@ -415,6 +420,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/electricity_query_account", post(electricity_query_account))
         .route("/fetch_transaction_history", post(fetch_transaction_history))
         .route("/one_code_token", post(one_code_token))
+        .route("/campus_code/config", post(campus_code_config))
+        .route("/campus_code/qrcode", post(campus_code_qrcode))
+        .route("/campus_code/order_status", post(campus_code_order_status))
         .route("/ai_init", post(ai_init))
         .route("/ai_upload", post(ai_upload))
         .route("/ai_chat", post(ai_chat))
@@ -1591,6 +1599,27 @@ async fn fetch_transaction_history(State(state): State<HttpState>, Json(req): Js
 async fn one_code_token(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let mut client = state.client.lock().await;
     client.get_one_code_token().await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn campus_code_config(State(state): State<HttpState>, Json(req): Json<CampusCodeRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    client.query_campus_code_config(req.payload).await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn campus_code_qrcode(State(state): State<HttpState>, Json(req): Json<CampusCodeRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    client.query_campus_code_qrcode(req.payload).await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn campus_code_order_status(State(state): State<HttpState>, Json(req): Json<CampusCodeRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    client.query_campus_code_order_status(req.payload).await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }

@@ -5,6 +5,7 @@ import iconGrades from '../../assets/module-icons/grades.svg?raw'
 import iconClassroom from '../../assets/module-icons/classroom.svg?raw'
 import iconElectricity from '../../assets/module-icons/electricity.svg?raw'
 import iconTransactions from '../../assets/module-icons/transactions.svg?raw'
+import iconCampusCode from '../../assets/module-icons/campus_code.svg?raw'
 import iconExams from '../../assets/module-icons/exams.svg?raw'
 import iconRanking from '../../assets/module-icons/ranking.svg?raw'
 import iconCalendar from '../../assets/module-icons/calendar.svg?raw'
@@ -37,6 +38,7 @@ const removeBgIconKeys = new Set([
 const androidImgFallbackIconKeys = new Set([
   'classroom',
   'electricity',
+  'campus_code',
   'exams',
   'training'
 ])
@@ -46,6 +48,7 @@ const iconMap = {
   classroom: iconClassroom,
   electricity: iconElectricity,
   transactions: iconTransactions,
+  campus_code: iconCampusCode,
   exams: iconExams,
   ranking: iconRanking,
   calendar: iconCalendar,

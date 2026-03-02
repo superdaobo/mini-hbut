@@ -23,6 +23,7 @@ import ExportCenterView from './components/ExportCenterView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
+import CampusCodeView from './components/CampusCodeView.vue'
 import AiChatView from './components/AiChatView.vue'
 import CampusMapView from './components/CampusMapView.vue'
 import LibraryView from './components/LibraryView.vue'
@@ -1454,6 +1455,13 @@ onBeforeUnmount(() => {
         v-else-if="currentView === 'transactions'"
         :student-id="studentId"
         @back="handleBackToDashboard"
+      />
+
+      <CampusCodeView
+        v-else-if="currentView === 'campus_code'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
       />
 
       <!-- 通知设置 -->

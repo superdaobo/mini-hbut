@@ -3975,6 +3975,48 @@ async fn fetch_transaction_history(
     }
 }
 
+#[tauri::command]
+async fn campus_code_fetch_config(
+    state: State<'_, AppState>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let result = client
+        .query_campus_code_config(payload)
+        .await
+        .map_err(|e| e.to_string())?;
+    persist_electricity_tokens(&client);
+    Ok(result)
+}
+
+#[tauri::command]
+async fn campus_code_fetch_qrcode(
+    state: State<'_, AppState>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let result = client
+        .query_campus_code_qrcode(payload)
+        .await
+        .map_err(|e| e.to_string())?;
+    persist_electricity_tokens(&client);
+    Ok(result)
+}
+
+#[tauri::command]
+async fn campus_code_fetch_order_status(
+    state: State<'_, AppState>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let result = client
+        .query_campus_code_order_status(payload)
+        .await
+        .map_err(|e| e.to_string())?;
+    persist_electricity_tokens(&client);
+    Ok(result)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -4256,6 +4298,9 @@ pub fn run() {
             electricity_query_account,
             refresh_electricity_token,
             fetch_transaction_history,
+            campus_code_fetch_config,
+            campus_code_fetch_qrcode,
+            campus_code_fetch_order_status,
             hbut_ai_init,
             hbut_ai_upload,
             hbut_ai_chat,

@@ -1,0 +1,12 @@
+{
+  "student_id": "2510231106",
+  "config_status": 401,
+  "config_success": false,
+  "config_message": null,
+  "qrcode_status": 401,
+  "qrcode_success": false,
+  "qrcode_message": null,
+  "qrcode": "",
+  "balance": null,
+  "idSerial": null
+}

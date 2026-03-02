@@ -725,6 +725,59 @@ const adapter = {
                 }
             }
 
+            // ========== 校园码 ==========
+
+            if (url.includes('/v2/campus_code/config')) {
+                const payload = {
+                    devCode: data?.dev_code || data?.devCode || ''
+                };
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/campus_code/config', { payload });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const res = await invoke('campus_code_fetch_config', { payload });
+                    return mockResponse(res);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/campus_code/qrcode')) {
+                const payload = {
+                    mode: data?.mode || 'online',
+                    devCode: data?.dev_code || data?.devCode || '',
+                    qrcodeType: data?.qrcode_type || data?.qrcodeType || ''
+                };
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/campus_code/qrcode', { payload });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const res = await invoke('campus_code_fetch_qrcode', { payload });
+                    return mockResponse(res);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/campus_code/order_status')) {
+                const payload = {
+                    qrcode: data?.qrcode || '',
+                    offline: !!data?.offline
+                };
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/campus_code/order_status', { payload });
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const res = await invoke('campus_code_fetch_order_status', { payload });
+                    return mockResponse(res);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             // ========== 校历相关 ==========
 
             if (url.includes('/v2/calendar')) {
