@@ -4,6 +4,7 @@ import axios from 'axios'
 import hbutLogo from '../assets/hbut-logo.png'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
+import { pushDebugLog } from '../utils/debug_logger'
 
 const props = defineProps({
   loginMode: { type: String, default: 'portal' }
@@ -115,6 +116,7 @@ const pushDebug = (message) => {
   if (!text) return
   const ts = new Date().toLocaleTimeString()
   debugLogs.value = [`[${ts}] ${text}`, ...debugLogs.value].slice(0, 30)
+  pushDebugLog('Login', text, 'debug')
 }
 
 const pushDebugList = (items) => {
@@ -146,8 +148,15 @@ const refreshOcrMode = async (endpointHint = '') => {
   try {
     const runtime = await invoke('get_ocr_runtime_status')
     ocrConfigMode.value = resolveOcrModeLabel(runtime, endpointHint)
+    const activeSource = String(runtime?.active_source || '')
+    pushDebugLog(
+      'Login',
+      `OCR运行态 mode=${ocrConfigMode.value} source=${activeSource || 'unknown'}`,
+      'debug'
+    )
   } catch {
     ocrConfigMode.value = endpointHint ? '远程' : '本地'
+    pushDebugLog('Login', '获取 OCR 运行态失败，使用本地模式显示', 'warn')
   }
 }
 
@@ -157,8 +166,10 @@ const ensureOcrEndpointReady = async () => {
     const cfg = await fetchRemoteConfig()
     await applyOcrRuntimeConfig(cfg)
     endpointHint = String(cfg?.ocr?.endpoint || '').trim()
+    pushDebugLog('Login', `OCR配置已应用（远程配置）：${endpointHint || '未返回主端点'}`, 'info')
   } catch (e) {
     console.warn('[OCR] 拉取远程配置失败，改用本地 OCR 配置:', e)
+    pushDebugLog('Login', 'OCR远程配置拉取失败，切换本地配置', 'warn', e)
     const localCfg = getStoredOcrConfig()
     await applyOcrRuntimeConfig({
       ocr: {
@@ -169,6 +180,7 @@ const ensureOcrEndpointReady = async () => {
       }
     })
     endpointHint = localCfg.endpoint
+    pushDebugLog('Login', `OCR配置已应用（本地配置）：${endpointHint || '未配置主端点'}`, 'info')
   }
   await refreshOcrMode(endpointHint)
 }

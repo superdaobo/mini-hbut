@@ -1438,7 +1438,12 @@ impl HbutClient {
         payload: &serde_json::Value,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let endpoint_name = endpoint.trim_start_matches('/').to_lowercase();
-        let prefer_cached_token = endpoint_name == "orderstatus";
+        // 校园码页面进入时会连续请求 config + qrcode，优先复用短期缓存令牌，
+        // 避免每个接口都重复走一次令牌有效性探测；若令牌失效，再按下方重试逻辑刷新。
+        let prefer_cached_token = matches!(
+            endpoint_name.as_str(),
+            "orderstatus" | "config" | "qrcodeonline" | "qrcodeoffline"
+        );
 
         let mut token = if prefer_cached_token {
             if let Some(cached) = self.get_cached_electricity_token_fast() {

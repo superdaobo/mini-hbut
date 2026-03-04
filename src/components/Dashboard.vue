@@ -151,6 +151,12 @@ const buildScheduleCacheKey = (studentId, semester) => {
   return sem ? `schedule:${sid}:${sem}` : `schedule:${sid}`
 }
 
+const toPositiveInt = (value, fallback = 0) => {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return fallback
+  return Math.floor(num)
+}
+
 const normalizeWeeks = (weeks) => {
   if (!Array.isArray(weeks)) return []
   return weeks
@@ -158,32 +164,82 @@ const normalizeWeeks = (weeks) => {
     .filter((item) => Number.isFinite(item) && item > 0)
 }
 
+const getCoursePeriodRange = (course) => {
+  const startPeriod = toPositiveInt(course?.period ?? course?.start_period, 0)
+  if (startPeriod < 1 || startPeriod > 11) return null
+
+  const endByField = toPositiveInt(course?.end_period, 0)
+  const span = Math.max(1, toPositiveInt(course?.djs ?? course?.duration, 1))
+  const computedEnd = endByField > 0 ? endByField : startPeriod + span - 1
+  const endPeriod = Math.min(11, Math.max(startPeriod, computedEnd))
+
+  return { startPeriod, endPeriod }
+}
+
+const fetchCustomCoursesForToday = async (semester) => {
+  const sid = String(props.studentId || '').trim()
+  const sem = String(semester || '').trim()
+  if (!sid || !sem) return []
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list`, {
+      student_id: sid,
+      semester: sem
+    })
+    if (!res.data?.success) return []
+    const list = Array.isArray(res.data?.data) ? res.data.data : []
+    return list.filter((course) => {
+      const weekday = toPositiveInt(course?.weekday, 0)
+      const hasName = !!String(course?.name || '').trim()
+      const range = getCoursePeriodRange(course)
+      return hasName && weekday >= 1 && weekday <= 7 && !!range
+    })
+  } catch (_error) {
+    return []
+  }
+}
+
 const buildTodayCourses = (courses, currentWeek) => {
+  const safeWeek = toPositiveInt(currentWeek, 1)
   const todayWeekday = getTodayWeekday()
   const daily = (courses || [])
-    .filter((course) => Number(course.weekday) === todayWeekday)
-    .filter((course) => normalizeWeeks(course.weeks).includes(currentWeek))
-    .sort((a, b) => Number(a.period) - Number(b.period))
+    .filter((course) => toPositiveInt(course?.weekday, 0) === todayWeekday)
+    .filter((course) => {
+      const weeks = normalizeWeeks(course?.weeks)
+      return weeks.length === 0 || weeks.includes(safeWeek)
+    })
+    .map((course) => {
+      const range = getCoursePeriodRange(course)
+      if (!range) return null
+      return {
+        ...course,
+        startPeriod: range.startPeriod,
+        endPeriod: range.endPeriod,
+        room: course?.room_code || course?.room || '-',
+        teacher: course?.teacher || '-'
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startPeriod - b.startPeriod || a.endPeriod - b.endPeriod)
 
   const merged = []
   let index = 0
   while (index < daily.length) {
     const current = daily[index]
-    const room = current.room_code || current.room || '-'
-    const teacher = current.teacher || '-'
-    let startPeriod = Number(current.period)
-    let endPeriod = Number(current.period)
+    const room = current.room
+    const teacher = current.teacher
+    const startPeriod = current.startPeriod
+    let endPeriod = current.endPeriod
 
     let nextIndex = index + 1
     while (nextIndex < daily.length) {
       const next = daily[nextIndex]
-      const nextRoom = next.room_code || next.room || '-'
       if (
         next.name === current.name &&
-        nextRoom === room &&
-        Number(next.period) <= endPeriod + 1
+        next.room === room &&
+        next.teacher === teacher &&
+        next.startPeriod <= endPeriod + 1
       ) {
-        endPeriod = Math.max(endPeriod, Number(next.period))
+        endPeriod = Math.max(endPeriod, next.endPeriod)
         nextIndex += 1
       } else {
         break
@@ -193,7 +249,7 @@ const buildTodayCourses = (courses, currentWeek) => {
     const startText = periodTimeMap[startPeriod]?.start || '--:--'
     const endText = periodTimeMap[endPeriod]?.end || '--:--'
     merged.push({
-      key: `${current.name}-${startPeriod}-${room}`,
+      key: `${current.name}-${teacher}-${startPeriod}-${endPeriod}-${room}`,
       name: current.name,
       teacher,
       room,
@@ -217,6 +273,7 @@ const fetchTodayCourses = async () => {
   todayError.value = ''
   try {
     const preferredSemester = getPreferredScheduleSemester()
+    let customCourses = []
     const cacheKey = buildScheduleCacheKey(props.studentId, preferredSemester)
     const cached = getCachedData(cacheKey)
     let payload = cached?.data
@@ -231,9 +288,18 @@ const fetchTodayCourses = async () => {
       payload = res?.data
     }
 
+    const semesterForCustom = String(payload?.meta?.semester || preferredSemester || '').trim()
+    customCourses = await fetchCustomCoursesForToday(semesterForCustom)
+
     if (!payload?.success) {
-      todayCourses.value = []
-      todayError.value = payload?.error || '今日课程加载失败'
+      if (customCourses.length > 0) {
+        const week = getCurrentWeek()
+        todayCourses.value = buildTodayCourses(customCourses, week)
+        todayError.value = ''
+      } else {
+        todayCourses.value = []
+        todayError.value = payload?.error || '今日课程加载失败'
+      }
       return
     }
 
@@ -248,7 +314,8 @@ const fetchTodayCourses = async () => {
     }
 
     const week = getCurrentWeek(payload?.meta?.current_week)
-    todayCourses.value = buildTodayCourses(payload?.data || [], week)
+    const remoteCourses = Array.isArray(payload?.data) ? payload.data : []
+    todayCourses.value = buildTodayCourses([...remoteCourses, ...customCourses], week)
     todayError.value = ''
   } catch (error) {
     todayCourses.value = []
@@ -296,15 +363,6 @@ const baseModules = [
     available: true,
     requiresLogin: true
   },
-  {
-    id: 'campus_code',
-    name: '校园码',
-    iconKey: 'campus_code',
-    color: '#0f766e',
-    desc: '在线/高能模式二维码',
-    available: true,
-    requiresLogin: true
-  },
   { 
     id: 'exams', 
     name: '考试安排', 
@@ -320,6 +378,15 @@ const baseModules = [
     iconKey: 'ranking',
     color: '#f6ad55',
     desc: '专业班级排名',
+    available: true,
+    requiresLogin: true
+  },
+  {
+    id: 'campus_code',
+    name: '校园码',
+    iconKey: 'campus_code',
+    color: '#0f766e',
+    desc: '在线/高能模式二维码',
     available: true,
     requiresLogin: true
   },
@@ -1435,6 +1502,9 @@ html[data-theme='cyberpunk'] .today-panel {
 }
 
 .today-timeline {
+  --timeline-dot-size: 14px;
+  --timeline-dot-top: 10px;
+  --timeline-line-width: 2px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
@@ -1456,15 +1526,18 @@ html[data-theme='cyberpunk'] .today-panel {
 
 .today-item-line {
   position: relative;
+  display: flex;
+  justify-content: center;
 }
 
 .today-item-line::after {
   content: '';
   position: absolute;
-  top: 18px;
+  top: calc(var(--timeline-dot-top) + var(--timeline-dot-size) / 2);
   bottom: -10px;
-  left: 12px;
-  width: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--timeline-line-width);
   background: linear-gradient(180deg, rgba(96, 165, 250, 0.5), rgba(226, 232, 240, 0.6));
 }
 
@@ -1474,10 +1547,11 @@ html[data-theme='cyberpunk'] .today-panel {
 
 .today-item-dot {
   position: absolute;
-  top: 10px;
-  left: 5px;
-  width: 14px;
-  height: 14px;
+  top: var(--timeline-dot-top);
+  left: 50%;
+  transform: translateX(-50%);
+  width: var(--timeline-dot-size);
+  height: var(--timeline-dot-size);
   border-radius: 50%;
   background: linear-gradient(135deg, #60a5fa, #3b82f6);
   box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18);
@@ -1592,6 +1666,11 @@ html[data-theme='cyberpunk'] .today-item-meta {
   .today-panel {
     margin-top: 20px;
     padding: 14px 12px;
+  }
+
+  .today-timeline {
+    --timeline-dot-size: 12px;
+    --timeline-dot-top: 9px;
   }
 
   .today-panel-head h3 {

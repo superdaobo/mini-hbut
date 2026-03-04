@@ -14,6 +14,7 @@ use super::*;
 use reqwest::Url;
 use reqwest::cookie::CookieStore;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 fn normalize_cookie_blob(raw: &str) -> String {
@@ -390,8 +391,17 @@ impl HbutClient {
 
     /// 获取应用数据目录（用于持久化 Cookie）
     pub(super) fn app_data_dir() -> Option<PathBuf> {
+        if let Ok(raw) = std::env::var("HBUT_APP_DATA_DIR") {
+            let dir = PathBuf::from(raw.trim());
+            if !dir.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(&dir);
+                return Some(dir);
+            }
+        }
+
         let base = std::env::var("LOCALAPPDATA")
             .or_else(|_| std::env::var("APPDATA"))
+            .or_else(|_| std::env::var("HOME"))
             .ok()?;
         let dir = PathBuf::from(base).join("Mini-HBUT");
         let _ = std::fs::create_dir_all(&dir);

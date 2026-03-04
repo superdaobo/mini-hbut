@@ -14,8 +14,7 @@ use reqwest::{
     Client,
     cookie::{CookieStore, Jar},
 };
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use chrono::{DateTime, Utc};
 
@@ -293,7 +292,7 @@ impl HbutClient {
     }
 
     pub(super) fn normalize_ocr_endpoint_list(values: Vec<String>) -> Vec<String> {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         let mut result = Vec::new();
         for value in values {
             let trimmed = value.trim();
@@ -412,5 +411,3 @@ impl HbutClient {
         }
     }
 }
-
-

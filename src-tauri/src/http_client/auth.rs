@@ -752,7 +752,6 @@ impl HbutClient {
             self.set_ocr_runtime_error(source, &ocr_url, &msg);
             last_err = msg;
         }
-
         Err(format!("OCR all endpoints failed: {}", last_err).into())
     }
 

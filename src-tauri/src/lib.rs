@@ -4036,6 +4036,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            if let Ok(app_data_path) = app.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&app_data_path);
+                std::env::set_var(
+                    "HBUT_APP_DATA_DIR",
+                    app_data_path.to_string_lossy().to_string(),
+                );
+            }
             if let Ok(db_path) = app.path().resolve("grades.db", BaseDirectory::AppData) {
                 if let Some(parent) = db_path.parent() {
                     let _ = std::fs::create_dir_all(parent);
