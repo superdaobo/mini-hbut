@@ -35,7 +35,9 @@ const DEFAULT_SETTINGS = {
     moduleParams: {
       requestTimeoutMs: 15000,
       probeTimeoutMs: 8000,
-      cloudSyncCooldownSec: 180
+      cloudSyncCooldownSec: 180,
+      cloudSyncUploadCooldownSec: 120,
+      cloudSyncDownloadCooldownSec: 10
     }
   }
 }
@@ -116,9 +118,21 @@ const normalizeSettings = (raw) => {
   )
   next.backend.moduleParams.cloudSyncCooldownSec = clampNumber(
     next.backend.moduleParams.cloudSyncCooldownSec,
-    30,
+    10,
     3600,
     base.backend.moduleParams.cloudSyncCooldownSec
+  )
+  next.backend.moduleParams.cloudSyncUploadCooldownSec = clampNumber(
+    next.backend.moduleParams.cloudSyncUploadCooldownSec,
+    120,
+    3600,
+    base.backend.moduleParams.cloudSyncUploadCooldownSec
+  )
+  next.backend.moduleParams.cloudSyncDownloadCooldownSec = clampNumber(
+    next.backend.moduleParams.cloudSyncDownloadCooldownSec,
+    10,
+    3600,
+    base.backend.moduleParams.cloudSyncDownloadCooldownSec
   )
 
   return next

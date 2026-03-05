@@ -3,6 +3,55 @@ import { getNativeAppVersion } from '../platform/native'
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
+const GH_PROXY_PREFIX = 'https://gh-proxy.com/'
+const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
+
+const API_PROXIES = [
+  `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+  `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+  `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
+]
+
+const DOWNLOAD_PROXIES = [
+  (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://mirror.ghproxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
+]
+
+const unwrapKnownProxyUrl = (url) => {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  const prefixes = [
+    'https://hk.gh-proxy.org/',
+    'https://gh-proxy.com/',
+    'https://mirror.ghproxy.com/',
+    'https://ghproxy.net/'
+  ]
+  for (const prefix of prefixes) {
+    if (value.startsWith(prefix)) {
+      return value.slice(prefix.length)
+    }
+  }
+  return value
+}
+
+const toHkDownloadUrl = (url) => {
+  const raw = unwrapKnownProxyUrl(url)
+  if (!raw) return ''
+  if (raw.startsWith(HK_DOWNLOAD_PROXY_PREFIX)) return raw
+  if (raw.startsWith('https://github.com/')) return `${HK_DOWNLOAD_PROXY_PREFIX}${raw}`
+  return raw
+}
+
+export function toGhProxyUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (value.startsWith('https://gh-proxy.com/')) return value
+  if (value.startsWith('https://mirror.ghproxy.com/')) return value
+  if (value.startsWith('https://github.com/')) return `${GH_PROXY_PREFIX}${value}`
+  return value
+}
+
 const uniqueUrls = (list) => {
   const seen = new Set()
   const out = []
@@ -13,95 +62,6 @@ const uniqueUrls = (list) => {
     out.push(url)
   }
   return out
-}
-
-const GITHUB_API_LATEST_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
-
-const normalizeProxyPrefixes = (list) =>
-  uniqueUrls(list).map((prefix) => (String(prefix || '').trim().endsWith('/') ? String(prefix || '').trim() : `${String(prefix || '').trim()}/`))
-
-// API 检查优先级：
-// 1) gh-proxy.com
-// 2) GitHub 直连
-// 3) hk.gh-proxy.org
-// 4) 其他镜像
-const API_PROXY_PREFIXES = normalizeProxyPrefixes([
-  'https://gh-proxy.com/',
-  'https://hk.gh-proxy.org/',
-  'https://mirror.ghproxy.com/',
-  'https://ghproxy.net/'
-])
-
-// 下载优先级：
-// 1) hk.gh-proxy.org
-// 2) gh-proxy.com
-// 3) 其他镜像
-// 4) GitHub 直连兜底
-const DOWNLOAD_PROXY_PREFIXES = normalizeProxyPrefixes([
-  'https://hk.gh-proxy.org/',
-  'https://gh-proxy.com/',
-  'https://mirror.ghproxy.com/',
-  'https://ghproxy.net/'
-])
-
-const ALL_PROXY_PREFIXES = normalizeProxyPrefixes([
-  ...API_PROXY_PREFIXES,
-  ...DOWNLOAD_PROXY_PREFIXES
-])
-
-const isGithubApiOrWebUrl = (url) =>
-  /^https:\/\/(?:api\.)?github\.com\//i.test(String(url || '').trim())
-
-const isAlreadyProxiedGithubUrl = (url) => {
-  const value = String(url || '').trim().toLowerCase()
-  if (!value) return false
-  return ALL_PROXY_PREFIXES.some((prefix) => value.startsWith(prefix.toLowerCase()))
-}
-
-const buildGithubUrlCandidates = (url, options = {}) => {
-  const {
-    includeDirect = true,
-    proxyPrefixes = DOWNLOAD_PROXY_PREFIXES,
-    directPosition = 'last' // first | after-first | last
-  } = options
-  const value = String(url || '').trim()
-  if (!value) return []
-  if (isAlreadyProxiedGithubUrl(value)) return [value]
-  if (!isGithubApiOrWebUrl(value)) return [value]
-  const proxied = normalizeProxyPrefixes(proxyPrefixes).map((prefix) => `${prefix}${value}`)
-  if (!includeDirect) return uniqueUrls(proxied)
-  if (directPosition === 'first') {
-    return uniqueUrls([value, ...proxied])
-  }
-  if (directPosition === 'after-first') {
-    const [first = '', ...rest] = proxied
-    return uniqueUrls([first, value, ...rest])
-  }
-  return uniqueUrls([...proxied, value])
-}
-
-const API_PROXIES = uniqueUrls([
-  ...buildGithubUrlCandidates(GITHUB_API_LATEST_URL, {
-    includeDirect: true,
-    proxyPrefixes: API_PROXY_PREFIXES,
-    directPosition: 'after-first'
-  }),
-  `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
-])
-
-const DOWNLOAD_URL_BUILDERS = [
-  (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
-]
-
-export function toGhProxyUrl(url) {
-  const value = String(url || '').trim()
-  if (!value) return ''
-  const candidates = buildGithubUrlCandidates(value, {
-    includeDirect: true,
-    proxyPrefixes: DOWNLOAD_PROXY_PREFIXES,
-    directPosition: 'last'
-  })
-  return candidates[0] || value
 }
 
 const withTimeout = async (promise, ms = 9000) => {
@@ -174,7 +134,6 @@ async function fetchReleaseInfo(currentVersion) {
   let fallback = null
   for (const url of API_PROXIES) {
     try {
-      console.info(`[Updater] check release from: ${url}`)
       const response = await withTimeout(fetch(url, { headers: { Accept: 'application/json' } }), 9000)
       if (!response.ok) continue
       const data = await response.json()
@@ -185,8 +144,8 @@ async function fetchReleaseInfo(currentVersion) {
       if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
         return release
       }
-    } catch (error) {
-      console.warn(`[Updater] release endpoint failed: ${url}`, error?.message || error)
+    } catch (_) {
+      // try next proxy
     }
   }
   return fallback
@@ -220,12 +179,6 @@ export async function checkForUpdates(currentVersion) {
       }
     }
 
-    const releaseUrlCandidates = buildGithubUrlCandidates(release.html_url || GITHUB_RELEASES_URL, {
-      includeDirect: true,
-      proxyPrefixes: DOWNLOAD_PROXY_PREFIXES,
-      directPosition: 'last'
-    })
-
     if (!asset) {
       return {
         hasUpdate: false,
@@ -234,26 +187,16 @@ export async function checkForUpdates(currentVersion) {
         latestVersion,
         tagName,
         releaseNotes: release.body || '暂无更新说明',
-        releaseUrl: releaseUrlCandidates[0] || toGhProxyUrl(GITHUB_RELEASES_URL),
-        releaseUrls: releaseUrlCandidates,
+        releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
         platform,
         publishedAt: release.published_at
       }
     }
 
-    const rawDownloadUrls = uniqueUrls([
-      asset.browser_download_url,
-      ...DOWNLOAD_URL_BUILDERS.map((fn) => fn(tagName, asset.name))
+    const downloadUrls = uniqueUrls([
+      toGhProxyUrl(asset.browser_download_url),
+      ...DOWNLOAD_PROXIES.map((fn) => toGhProxyUrl(fn(tagName, asset.name)))
     ])
-    const downloadUrls = uniqueUrls(
-      rawDownloadUrls.flatMap((url) =>
-        buildGithubUrlCandidates(url, {
-          includeDirect: true,
-          proxyPrefixes: DOWNLOAD_PROXY_PREFIXES,
-          directPosition: 'last'
-        })
-      )
-    )
 
     return {
       hasUpdate: true,
@@ -261,8 +204,7 @@ export async function checkForUpdates(currentVersion) {
       latestVersion,
       tagName,
       releaseNotes: release.body || '暂无更新说明',
-      releaseUrl: releaseUrlCandidates[0] || toGhProxyUrl(GITHUB_RELEASES_URL),
-      releaseUrls: releaseUrlCandidates,
+      releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
       downloadUrls,
       preferredDownloadUrl: downloadUrls[0] || '',
       assetName: asset.name,
@@ -291,16 +233,8 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
     throw new Error('没有可用的下载链接')
   }
 
-  const preferred = uniqueUrls(
-    downloadUrls.flatMap((url) =>
-      buildGithubUrlCandidates(url, {
-        includeDirect: true,
-        proxyPrefixes: DOWNLOAD_PROXY_PREFIXES,
-        directPosition: 'last'
-      })
-    )
-  )
-  console.info(`[Updater] open download urls: ${preferred.length}`)
+  // 下载跳转优先统一到 hk 代理拼接后的 GitHub 资产链接。
+  const preferred = uniqueUrls(downloadUrls.map((url) => toHkDownloadUrl(url)))
   if (typeof onProgress === 'function') onProgress(20)
   const opened = await openFirstUrl(preferred)
   if (opened.success) {

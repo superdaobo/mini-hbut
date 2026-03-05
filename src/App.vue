@@ -38,7 +38,7 @@ import {
   getStoredOcrConfig,
   isRemoteConfigEnabled
 } from './utils/remote_config.js'
-import { runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
+import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import {
@@ -528,6 +528,7 @@ const handleLoginSuccess = (data) => {
     startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
       console.warn('[Notify] 启动通知监控失败:', e)
     })
+    resetCloudSyncCooldownForSession(studentId.value)
     runAutoCloudSyncAfterLogin({
       studentId: studentId.value,
       latestGrades: Array.isArray(data) ? data : []

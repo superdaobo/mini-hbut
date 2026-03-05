@@ -70,7 +70,8 @@ const confirmDialogDanger = ref(false)
 const weekTransitionName = ref('week-slide-left')
 const syncUploading = ref(false)
 const syncDownloading = ref(false)
-const syncCooldownMs = ref(0)
+const syncUploadCooldownMs = ref(0)
+const syncDownloadCooldownMs = ref(0)
 const syncStatusText = ref('')
 let confirmDialogResolver = null
 let syncCooldownTimer = null
@@ -233,15 +234,18 @@ const addWeeksCountText = computed(() => {
   return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
 })
 
-const syncCooldownText = computed(() => {
-  const ms = Number(syncCooldownMs.value || 0)
+const formatCooldownText = (value) => {
+  const ms = Number(value || 0)
   if (ms <= 0) return '可立即同步'
   const sec = Math.ceil(ms / 1000)
   if (sec < 60) return `${sec} 秒后可再次同步`
   const min = Math.floor(sec / 60)
   const remain = sec % 60
   return remain > 0 ? `${min}分${remain}秒后可再次同步` : `${min} 分钟后可再次同步`
-})
+}
+
+const syncUploadCooldownText = computed(() => formatCooldownText(syncUploadCooldownMs.value))
+const syncDownloadCooldownText = computed(() => formatCooldownText(syncDownloadCooldownMs.value))
 
 const openConfirmDialog = ({
   title = '请确认',
@@ -1461,11 +1465,14 @@ const copyExportUrl = async () => {
 const refreshCloudSyncCooldown = () => {
   const sid = String(props.studentId || '').trim()
   if (!sid) {
-    syncCooldownMs.value = 0
+    syncUploadCooldownMs.value = 0
+    syncDownloadCooldownMs.value = 0
     return
   }
-  const state = getCloudSyncCooldownState(sid)
-  syncCooldownMs.value = Math.max(0, Number(state.remainingMs || 0))
+  const uploadState = getCloudSyncCooldownState(sid, 'upload')
+  const downloadState = getCloudSyncCooldownState(sid, 'download')
+  syncUploadCooldownMs.value = Math.max(0, Number(uploadState.remainingMs || 0))
+  syncDownloadCooldownMs.value = Math.max(0, Number(downloadState.remainingMs || 0))
 }
 
 const clearCloudSyncCooldownTimer = () => {
@@ -1517,8 +1524,8 @@ const handleCloudSyncUpload = async () => {
   if (!sid || syncUploading.value || syncDownloading.value) return
 
   refreshCloudSyncCooldown()
-  if (syncCooldownMs.value > 0) {
-    showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+  if (syncUploadCooldownMs.value > 0) {
+    showToast(`上传冷却中，${syncUploadCooldownText.value}`, 'info')
     return
   }
 
@@ -1549,8 +1556,8 @@ const handleCloudSyncUpload = async () => {
     })
     if (!result?.success) {
       if (result?.cooldown) {
-        syncCooldownMs.value = Number(result.remainingMs || 0)
-        showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+        syncUploadCooldownMs.value = Number(result.remainingMs || 0)
+        showToast(`上传冷却中，${syncUploadCooldownText.value}`, 'info')
       } else {
         showToast(result?.error || '云上传失败', 'error')
       }
@@ -1575,8 +1582,8 @@ const handleCloudSyncDownload = async () => {
   if (!sid || syncUploading.value || syncDownloading.value) return
 
   refreshCloudSyncCooldown()
-  if (syncCooldownMs.value > 0) {
-    showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+  if (syncDownloadCooldownMs.value > 0) {
+    showToast(`下载冷却中，${syncDownloadCooldownText.value}`, 'info')
     return
   }
 
@@ -1592,8 +1599,8 @@ const handleCloudSyncDownload = async () => {
     })
     if (!result?.success) {
       if (result?.cooldown) {
-        syncCooldownMs.value = Number(result.remainingMs || 0)
-        showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+        syncDownloadCooldownMs.value = Number(result.remainingMs || 0)
+        showToast(`下载冷却中，${syncDownloadCooldownText.value}`, 'info')
       } else {
         showToast(result?.error || '云下载失败', 'error')
       }
@@ -1746,7 +1753,8 @@ onBeforeUnmount(() => {
               </button>
             </div>
             <div class="drawer-sync-status">
-              <span class="drawer-sync-cooldown">{{ syncCooldownText }}</span>
+              <span class="drawer-sync-cooldown">上传：{{ syncUploadCooldownText }}</span>
+              <span class="drawer-sync-cooldown">下载：{{ syncDownloadCooldownText }}</span>
               <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
             </div>
           </div>

@@ -664,10 +664,11 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
 
     const cloudSyncEndpoint = String(appSettings.backend.cloudSyncEndpoint || '').trim()
     const cloudSyncSecretRef = String(appSettings.backend.cloudSyncSecretRef || '').trim()
-    const cloudSyncCooldown = Number(appSettings.backend.moduleParams.cloudSyncCooldownSec || 180)
+    const cloudSyncUploadCooldown = Number(appSettings.backend.moduleParams.cloudSyncUploadCooldownSec || 120)
+    const cloudSyncDownloadCooldown = Number(appSettings.backend.moduleParams.cloudSyncDownloadCooldownSec || 10)
     pushDebugLog(
       'Settings',
-      `CloudSync 配置 endpoint=${cloudSyncEndpoint || '(remote/default)'} secret_ref=${cloudSyncSecretRef || '(remote/default)'} cooldown=${cloudSyncCooldown}s`,
+      `CloudSync 配置 endpoint=${cloudSyncEndpoint || '(remote/default)'} secret_ref=${cloudSyncSecretRef || '(remote/default)'} upload_cooldown=${cloudSyncUploadCooldown}s download_cooldown=${cloudSyncDownloadCooldown}s`,
       'debug'
     )
 
@@ -744,6 +745,8 @@ watch(
     appSettings.backend.moduleParams.requestTimeoutMs,
     appSettings.backend.moduleParams.probeTimeoutMs,
     appSettings.backend.moduleParams.cloudSyncCooldownSec,
+    appSettings.backend.moduleParams.cloudSyncUploadCooldownSec,
+    appSettings.backend.moduleParams.cloudSyncDownloadCooldownSec,
     appSettings.retry.electricity,
     appSettings.retry.classroom,
     appSettings.retryDelayMs,
@@ -1346,13 +1349,23 @@ const handleDownloadFont = async (force = false) => {
             />
           </label>
           <label class="field">
-            <span>课表云同步冷却（秒）</span>
+            <span>云同步上传冷却（秒，至少120）</span>
             <input
               type="number"
-              min="30"
+              min="120"
               max="3600"
               step="10"
-              v-model.number="appSettings.backend.moduleParams.cloudSyncCooldownSec"
+              v-model.number="appSettings.backend.moduleParams.cloudSyncUploadCooldownSec"
+            />
+          </label>
+          <label class="field">
+            <span>云同步下载冷却（秒，至少10）</span>
+            <input
+              type="number"
+              min="10"
+              max="3600"
+              step="5"
+              v-model.number="appSettings.backend.moduleParams.cloudSyncDownloadCooldownSec"
             />
           </label>
           <label class="field">

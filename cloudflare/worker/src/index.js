@@ -93,11 +93,20 @@ const checkRateLimit = async (env, studentId, action, ip) => {
   const ttl = resolveRateLimitSeconds(env, action)
   if (!Number.isFinite(ttl) || ttl <= 0) return
   const key = buildRateKey(studentId, action, ip)
+  const now = Date.now()
   const exists = await env.SYNC_KV.get(key)
   if (exists) {
-    throw new RateLimitError('请求过于频繁，请稍后再试')
+    const lastTs = Number(exists || 0) || 0
+    if (lastTs > 0) {
+      const elapsedMs = now - lastTs
+      if (elapsedMs < ttl * 1000) {
+        throw new RateLimitError('请求过于频繁，请稍后再试')
+      }
+    } else {
+      throw new RateLimitError('请求过于频繁，请稍后再试')
+    }
   }
-  await env.SYNC_KV.put(key, '1', { expirationTtl: Math.max(60, Math.floor(ttl)) })
+  await env.SYNC_KV.put(key, String(now), { expirationTtl: Math.max(60, Math.floor(ttl)) })
 }
 
 const parseRequestJson = async (request) => {

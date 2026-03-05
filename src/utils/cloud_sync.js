@@ -10,10 +10,14 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
 const CLOUD_SYNC_LAST_SUCCESS_PREFIX = 'hbu_cloud_sync_last_success:'
+const CLOUD_SYNC_LAST_UPLOAD_SUCCESS_PREFIX = 'hbu_cloud_sync_last_upload_success:'
+const CLOUD_SYNC_LAST_DOWNLOAD_SUCCESS_PREFIX = 'hbu_cloud_sync_last_download_success:'
 const CLOUD_SYNC_BOOTSTRAP_PREFIX = 'hbu_cloud_sync_bootstrap_done:'
 const CLOUD_SYNC_STATUS_PREFIX = 'hbu_cloud_sync_status:'
 const DEFAULT_TIMEOUT_MS = 12000
 const DEFAULT_COOLDOWN_SEC = 180
+const DEFAULT_UPLOAD_COOLDOWN_SEC = 120
+const DEFAULT_DOWNLOAD_COOLDOWN_SEC = 10
 const DEFAULT_SECRET_REF = 'kv1-main'
 const SYNC_SCHEMA_VERSION = 2
 const STUDENT_ID_RE = /^\d{10}$/
@@ -23,6 +27,11 @@ const challengeState = {
   token: '',
   expiresAt: 0,
   endpoint: ''
+}
+
+const clearCloudSyncChallengeState = () => {
+  challengeState.token = ''
+  challengeState.expiresAt = 0
 }
 
 export const CLOUD_SYNC_UPDATED_EVENT = 'hbu-cloud-sync-updated'
@@ -187,6 +196,24 @@ const normalizeCloudCourse = (raw) => {
 const readRemoteCloudSync = () => {
   const snapshot = safeParseJson(localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY), {})
   const cfg = snapshot?.cloud_sync || {}
+  const cooldownSec = clampNumber(
+    cfg?.cooldown_seconds || cfg?.cooldownSeconds,
+    10,
+    3600,
+    DEFAULT_COOLDOWN_SEC
+  )
+  const uploadCooldownSec = clampNumber(
+    cfg?.upload_cooldown_seconds || cfg?.uploadCooldownSeconds || cooldownSec,
+    120,
+    3600,
+    DEFAULT_UPLOAD_COOLDOWN_SEC
+  )
+  const downloadCooldownSec = clampNumber(
+    cfg?.download_cooldown_seconds || cfg?.downloadCooldownSeconds || cooldownSec,
+    10,
+    3600,
+    DEFAULT_DOWNLOAD_COOLDOWN_SEC
+  )
   return {
     enabled: cfg?.enabled !== false,
     mode: toSafeText(cfg?.mode || snapshot?.cloud_sync_mode || 'proxy') || 'proxy',
@@ -204,12 +231,9 @@ const readRemoteCloudSync = () => {
       DEFAULT_SECRET_REF
     ),
     timeoutMs: clampNumber(cfg?.timeout_ms || cfg?.timeoutMs, 3000, 45000, DEFAULT_TIMEOUT_MS),
-    cooldownSec: clampNumber(
-      cfg?.cooldown_seconds || cfg?.cooldownSeconds,
-      30,
-      3600,
-      DEFAULT_COOLDOWN_SEC
-    )
+    cooldownSec,
+    uploadCooldownSec,
+    downloadCooldownSec
   }
 }
 
@@ -232,9 +256,21 @@ export const getCloudSyncRuntimeConfig = () => {
 
   const cooldownSec = clampNumber(
     moduleParams?.cloudSyncCooldownSec || remote.cooldownSec,
-    30,
+    10,
     3600,
     DEFAULT_COOLDOWN_SEC
+  )
+  const uploadCooldownSec = clampNumber(
+    moduleParams?.cloudSyncUploadCooldownSec || remote.uploadCooldownSec || cooldownSec,
+    120,
+    3600,
+    DEFAULT_UPLOAD_COOLDOWN_SEC
+  )
+  const downloadCooldownSec = clampNumber(
+    moduleParams?.cloudSyncDownloadCooldownSec || remote.downloadCooldownSec || cooldownSec,
+    10,
+    3600,
+    DEFAULT_DOWNLOAD_COOLDOWN_SEC
   )
   const timeoutMs = clampNumber(
     moduleParams?.requestTimeoutMs || remote.timeoutMs,
@@ -251,6 +287,8 @@ export const getCloudSyncRuntimeConfig = () => {
     proxyEndpoint,
     secretRef,
     cooldownSec,
+    uploadCooldownSec,
+    downloadCooldownSec,
     timeoutMs,
     useRemoteConfig
   }
@@ -282,19 +320,41 @@ const ensureDeviceId = () => {
   return id
 }
 
-const getLastSuccessTs = (studentId) => {
-  const key = makeStudentKey(CLOUD_SYNC_LAST_SUCCESS_PREFIX, studentId)
+const getCooldownPrefixByAction = (action = 'manual') => {
+  const normalized = toSafeText(action).toLowerCase()
+  if (normalized === 'upload') return CLOUD_SYNC_LAST_UPLOAD_SUCCESS_PREFIX
+  if (normalized === 'download') return CLOUD_SYNC_LAST_DOWNLOAD_SUCCESS_PREFIX
+  return CLOUD_SYNC_LAST_SUCCESS_PREFIX
+}
+
+const getLastSuccessTs = (studentId, action = '') => {
+  const key = makeStudentKey(getCooldownPrefixByAction(action), studentId)
   if (!key) return 0
   return Number(localStorage.getItem(key) || 0) || 0
 }
 
-const setLastSuccessTs = (studentId, ts = Date.now()) => {
-  const key = makeStudentKey(CLOUD_SYNC_LAST_SUCCESS_PREFIX, studentId)
+const setLastSuccessTs = (studentId, action = '', ts = Date.now()) => {
+  const key = makeStudentKey(getCooldownPrefixByAction(action), studentId)
   if (!key) return
   localStorage.setItem(key, String(ts))
 }
 
-export const getCloudSyncCooldownState = (studentId) => {
+const clearLastSuccessTs = (studentId, action = '') => {
+  const key = makeStudentKey(getCooldownPrefixByAction(action), studentId)
+  if (!key) return
+  localStorage.removeItem(key)
+}
+
+export const resetCloudSyncCooldownForSession = (studentId) => {
+  const sid = toSafeText(studentId)
+  if (!sid || !isValidStudentId(sid)) return
+  clearLastSuccessTs(sid, 'upload')
+  clearLastSuccessTs(sid, 'download')
+  clearLastSuccessTs(sid, 'manual')
+  pushDebugLog('CloudSync', `登录后重置冷却窗口 sid=${sid}`, 'debug')
+}
+
+export const getCloudSyncCooldownState = (studentId, action = 'upload') => {
   const sid = toSafeText(studentId)
   if (!sid) {
     return { blocked: true, remainingMs: 0, cooldownMs: 0, reason: 'missing-student' }
@@ -303,8 +363,12 @@ export const getCloudSyncCooldownState = (studentId) => {
     return { blocked: true, remainingMs: 0, cooldownMs: 0, reason: 'invalid-student' }
   }
   const cfg = getCloudSyncRuntimeConfig()
-  const cooldownMs = Math.max(0, Number(cfg.cooldownSec || 0) * 1000)
-  const lastTs = getLastSuccessTs(sid)
+  const normalizedAction = toSafeText(action).toLowerCase()
+  const actionCooldownSec = normalizedAction === 'download'
+    ? Number(cfg.downloadCooldownSec || cfg.cooldownSec || 0)
+    : Number(cfg.uploadCooldownSec || cfg.cooldownSec || 0)
+  const cooldownMs = Math.max(0, actionCooldownSec * 1000)
+  const lastTs = getLastSuccessTs(sid, normalizedAction)
   const remainingMs = Math.max(0, cooldownMs - (Date.now() - lastTs))
   return {
     blocked: remainingMs > 0,
@@ -787,6 +851,10 @@ const requestCloudSync = async (
   }
 
   let { response, parsed, text } = await sendOnce(challengeToken)
+  // OCR 中转 challenge 为一次性令牌，请求后立即作废，避免后续复用触发 401。
+  if (challengeToken) {
+    clearCloudSyncChallengeState()
+  }
   if (
     !response.ok &&
     allowRetry &&
@@ -794,10 +862,12 @@ const requestCloudSync = async (
     shouldAttachChallenge(path) &&
     response.status === 401
   ) {
-    challengeState.token = ''
-    challengeState.expiresAt = 0
+    clearCloudSyncChallengeState()
     challengeToken = await loadCloudSyncChallenge(config, true)
     ;({ response, parsed, text } = await sendOnce(challengeToken))
+    if (challengeToken) {
+      clearCloudSyncChallengeState()
+    }
   }
 
   if (!response.ok) {
@@ -1039,7 +1109,8 @@ export const runCloudSyncUpload = async ({
   latestGrades = [],
   includeCustomCourses = true,
   includeAcademic = true,
-  includeSettings = true
+  includeSettings = true,
+  skipCooldownRecord = false
 } = {}) => {
   const sid = toSafeText(studentId)
   const safeReason = toSafeText(reason) || 'manual'
@@ -1061,7 +1132,7 @@ export const runCloudSyncUpload = async ({
   }
 
   if (!force) {
-    const cooldown = getCloudSyncCooldownState(sid)
+    const cooldown = getCloudSyncCooldownState(sid, 'upload')
     if (cooldown.blocked) {
       const output = {
         success: false,
@@ -1101,7 +1172,9 @@ export const runCloudSyncUpload = async ({
       config: cfg
     })
     const uploadedAt = Date.now()
-    setLastSuccessTs(sid, uploadedAt)
+    if (!skipCooldownRecord) {
+      setLastSuccessTs(sid, 'upload', uploadedAt)
+    }
     pushDebugLog('CloudSync', `上传成功 student=${sid}`, 'info')
     const output = {
       success: true,
@@ -1133,7 +1206,8 @@ export const runCloudSyncDownload = async ({
   force = false,
   applySettings = true,
   applyCustomCourses = true,
-  applyAcademic = true
+  applyAcademic = true,
+  skipCooldownRecord = false
 } = {}) => {
   const sid = toSafeText(studentId)
   const safeReason = toSafeText(reason) || 'manual'
@@ -1167,7 +1241,7 @@ export const runCloudSyncDownload = async ({
   }
 
   if (!force) {
-    const cooldown = getCloudSyncCooldownState(sid)
+    const cooldown = getCloudSyncCooldownState(sid, 'download')
     if (cooldown.blocked) {
       const output = {
         success: false,
@@ -1199,7 +1273,9 @@ export const runCloudSyncDownload = async ({
     const data = extractCloudData(response)
     if (!data) {
       const now = Date.now()
-      setLastSuccessTs(sid, now)
+      if (!skipCooldownRecord) {
+        setLastSuccessTs(sid, 'download', now)
+      }
       const bootstrapKey = makeStudentKey(CLOUD_SYNC_BOOTSTRAP_PREFIX, sid)
       if (bootstrapKey) {
         localStorage.setItem(bootstrapKey, String(now))
@@ -1238,7 +1314,9 @@ export const runCloudSyncDownload = async ({
     }
 
     const successAt = Date.now()
-    setLastSuccessTs(sid, successAt)
+    if (!skipCooldownRecord) {
+      setLastSuccessTs(sid, 'download', successAt)
+    }
     const bootstrapKey = makeStudentKey(CLOUD_SYNC_BOOTSTRAP_PREFIX, sid)
     if (bootstrapKey) {
       localStorage.setItem(bootstrapKey, String(successAt))
@@ -1280,6 +1358,11 @@ const hasBootstrapDone = (studentId) => {
   return !!toSafeText(localStorage.getItem(key))
 }
 
+const autoCloudSyncInFlight = {
+  studentId: '',
+  promise: null
+}
+
 export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] } = {}) => {
   const sid = toSafeText(studentId)
   if (!sid) return { success: false, reason: 'missing-student' }
@@ -1288,43 +1371,63 @@ export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] 
     return { success: false, reason: 'invalid-student' }
   }
 
-  const summary = {
-    download: null,
-    upload: null
+  if (autoCloudSyncInFlight.promise && autoCloudSyncInFlight.studentId === sid) {
+    pushDebugLog('CloudSync', `自动同步已在进行中，复用当前任务 sid=${sid}`, 'debug')
+    return autoCloudSyncInFlight.promise
   }
 
+  const task = (async () => {
+    const summary = {
+      download: null,
+      upload: null
+    }
+
+    try {
+      summary.download = await runCloudSyncDownload({
+        studentId: sid,
+        reason: hasBootstrapDone(sid) ? 'auto-login-settings' : 'auto-new-device-settings',
+        force: true,
+        applySettings: true,
+        applyCustomCourses: false,
+        applyAcademic: true,
+        skipCooldownRecord: true
+      })
+    } catch (error) {
+      summary.download = { success: false, error: String(error?.message || error) }
+      pushDebugLog('CloudSync', `自动下载失败 student=${sid}`, 'warn', error)
+    }
+
+    try {
+      const syncedGrades = await primeAcademicCaches(sid, latestGrades)
+      summary.upload = await runCloudSyncUpload({
+        studentId: sid,
+        reason: 'auto-login',
+        force: true,
+        latestGrades: syncedGrades,
+        includeCustomCourses: false,
+        includeAcademic: true,
+        includeSettings: true,
+        skipCooldownRecord: true
+      })
+    } catch (error) {
+      summary.upload = { success: false, error: String(error?.message || error) }
+      pushDebugLog('CloudSync', `自动上传失败 student=${sid}`, 'warn', error)
+    }
+
+    return {
+      success: !!summary.upload?.success || !!summary.download?.success,
+      ...summary
+    }
+  })()
+
+  autoCloudSyncInFlight.studentId = sid
+  autoCloudSyncInFlight.promise = task
   try {
-    summary.download = await runCloudSyncDownload({
-      studentId: sid,
-      reason: hasBootstrapDone(sid) ? 'auto-login-settings' : 'auto-new-device-settings',
-      force: true,
-      applySettings: true,
-      applyCustomCourses: false,
-      applyAcademic: true
-    })
-  } catch (error) {
-    summary.download = { success: false, error: String(error?.message || error) }
-    pushDebugLog('CloudSync', `自动下载失败 student=${sid}`, 'warn', error)
-  }
-
-  try {
-    const syncedGrades = await primeAcademicCaches(sid, latestGrades)
-    summary.upload = await runCloudSyncUpload({
-      studentId: sid,
-      reason: 'auto-login',
-      force: true,
-      latestGrades: syncedGrades,
-      includeCustomCourses: false,
-      includeAcademic: true,
-      includeSettings: true
-    })
-  } catch (error) {
-    summary.upload = { success: false, error: String(error?.message || error) }
-    pushDebugLog('CloudSync', `自动上传失败 student=${sid}`, 'warn', error)
-  }
-
-  return {
-    success: !!summary.upload?.success || !!summary.download?.success,
-    ...summary
+    return await task
+  } finally {
+    if (autoCloudSyncInFlight.promise === task) {
+      autoCloudSyncInFlight.promise = null
+      autoCloudSyncInFlight.studentId = ''
+    }
   }
 }

@@ -153,7 +153,9 @@ const buildLocalOnlyConfig = () => {
     ),
     secret_ref: firstNonEmpty(backend?.cloudSyncSecretRef, DEFAULT_CLOUD_SYNC_SECRET_REF),
     timeout_ms: 12000,
-    cooldown_seconds: Number(backend?.moduleParams?.cloudSyncCooldownSec || 180)
+    cooldown_seconds: Number(backend?.moduleParams?.cloudSyncCooldownSec || 180),
+    upload_cooldown_seconds: Number(backend?.moduleParams?.cloudSyncUploadCooldownSec || 120),
+    download_cooldown_seconds: Number(backend?.moduleParams?.cloudSyncDownloadCooldownSec || 10)
   }
 
   return normalized
@@ -324,6 +326,24 @@ export function normalizeRemoteConfig(raw) {
           cfg.cloud_sync?.cooldownSeconds ||
           cfg.sync?.cooldown_seconds ||
           180
+      ),
+      upload_cooldown_seconds: Number(
+        cfg.cloud_sync?.upload_cooldown_seconds ||
+          cfg.cloud_sync?.uploadCooldownSeconds ||
+          cfg.sync?.upload_cooldown_seconds ||
+          cfg.cloud_sync?.cooldown_seconds ||
+          cfg.cloud_sync?.cooldownSeconds ||
+          cfg.sync?.cooldown_seconds ||
+          120
+      ),
+      download_cooldown_seconds: Number(
+        cfg.cloud_sync?.download_cooldown_seconds ||
+          cfg.cloud_sync?.downloadCooldownSeconds ||
+          cfg.sync?.download_cooldown_seconds ||
+          cfg.cloud_sync?.cooldown_seconds ||
+          cfg.cloud_sync?.cooldownSeconds ||
+          cfg.sync?.cooldown_seconds ||
+          10
       )
     },
     ai_models: toArray(cfg.ai_models),
