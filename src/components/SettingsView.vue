@@ -22,7 +22,11 @@ import {
   useFontSettings
 } from '../utils/font_settings'
 import { applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config'
-import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync'
+import {
+  CLOUD_SYNC_UPDATED_EVENT,
+  getCloudSyncLocalStatus,
+  getCloudSyncRuntimeConfig
+} from '../utils/cloud_sync'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { showToast } from '../utils/toast'
@@ -72,6 +76,8 @@ const cdnPrefetching = ref(false)
 const probeRunning = ref(false)
 const probeResults = ref({})
 const probeFinishedAt = ref('')
+const cloudSyncStatus = ref(null)
+const cloudSyncStatusUpdatedAt = ref('')
 let backendAutoApplyTimer = null
 let backendAutoApplying = false
 const debugLogs = ref([])
@@ -112,6 +118,26 @@ const activeDownloadThreads = computed(() =>
 )
 const fontCdnOptions = FONT_CDN_OPTIONS
 const localOnlyModeEnabled = computed(() => !appSettings.backend.useRemoteConfig)
+const cloudSyncRuntime = computed(() => getCloudSyncRuntimeConfig())
+const cloudSyncEnabledText = computed(() =>
+  cloudSyncRuntime.value.enabled ? '已启用' : '未启用'
+)
+const cloudSyncUploadStatusText = computed(() => {
+  const status = cloudSyncStatus.value
+  if (!status || !status.lastUploadAt) return '暂无上传记录'
+  return status.lastUploadOk ? '最近上传成功' : '最近上传失败'
+})
+const cloudSyncDownloadStatusText = computed(() => {
+  const status = cloudSyncStatus.value
+  if (!status || !status.lastDownloadAt) return '暂无下载记录'
+  return status.lastDownloadOk ? '最近下载成功' : '最近下载失败'
+})
+const cloudSyncLastUploadError = computed(() =>
+  String(cloudSyncStatus.value?.lastUploadError || '').trim()
+)
+const cloudSyncLastDownloadError = computed(() =>
+  String(cloudSyncStatus.value?.lastDownloadError || '').trim()
+)
 const fontLocalAvailability = computed(() => {
   if (isMobileDevice) {
     return [
@@ -166,6 +192,28 @@ const presetEntries = computed(() =>
 )
 
 const toSafeText = (value) => String(value || '').trim()
+
+const formatStatusTime = (value) => {
+  const ts = Number(value || 0)
+  if (!Number.isFinite(ts) || ts <= 0) return '—'
+  try {
+    return new Date(ts).toLocaleString()
+  } catch {
+    return '—'
+  }
+}
+
+const refreshCloudSyncStatus = () => {
+  const sid = String(localStorage.getItem('hbu_username') || '').trim()
+  if (!sid) {
+    cloudSyncStatus.value = null
+    cloudSyncStatusUpdatedAt.value = ''
+    return
+  }
+  const status = getCloudSyncLocalStatus(sid)
+  cloudSyncStatus.value = status
+  cloudSyncStatusUpdatedAt.value = new Date().toLocaleString()
+}
 
 const readSnapshotUploadEndpoint = () => {
   try {
@@ -718,14 +766,23 @@ watch(
   }
 )
 
+watch(
+  () => currentStudentId.value,
+  () => {
+    refreshCloudSyncStatus()
+  }
+)
+
 onMounted(() => {
   refreshDebugPanel()
+  refreshCloudSyncStatus()
   unsubscribeDebugLogs = subscribeDebugLogs((logs) => {
     debugLogs.value = logs.slice(-DEBUG_LOG_LIMIT)
     if (activeTab.value === 'debug') {
       scrollDebugToBottom()
     }
   })
+  window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, refreshCloudSyncStatus)
   if (activeTab.value === 'debug') {
     scrollDebugToBottom()
   }
@@ -733,6 +790,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearBackendAutoApplyTimer()
+  window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, refreshCloudSyncStatus)
   if (typeof unsubscribeDebugLogs === 'function') {
     unsubscribeDebugLogs()
     unsubscribeDebugLogs = null
@@ -1134,6 +1192,43 @@ const handleDownloadFont = async (force = false) => {
         <span class="status-pill">预览线程：{{ activePreviewThreads }}</span>
         <span class="status-pill">下载线程：{{ activeDownloadThreads }}</span>
         <span class="status-pill">设备：{{ activeDeviceLabel }}</span>
+      </div>
+
+      <div class="backend-block">
+        <div class="section-head section-head-compact">
+          <h4>云同步状态</h4>
+          <button class="mini-btn btn-ripple" @click="refreshCloudSyncStatus">刷新状态</button>
+        </div>
+        <p class="hint">用于确认本机云同步上传/下载是否执行成功。</p>
+        <div class="cloud-sync-status-grid">
+          <article class="cloud-sync-status-item">
+            <small>服务状态</small>
+            <strong :class="{ ok: cloudSyncRuntime.enabled, error: !cloudSyncRuntime.enabled }">
+              {{ cloudSyncEnabledText }}
+            </strong>
+          </article>
+          <article class="cloud-sync-status-item">
+            <small>上次上传</small>
+            <strong :class="{ ok: cloudSyncStatus?.lastUploadOk, error: cloudSyncStatus?.lastUploadAt && !cloudSyncStatus?.lastUploadOk }">
+              {{ cloudSyncUploadStatusText }}
+            </strong>
+            <span>{{ formatStatusTime(cloudSyncStatus?.lastUploadAt) }}</span>
+          </article>
+          <article class="cloud-sync-status-item">
+            <small>上次下载</small>
+            <strong :class="{ ok: cloudSyncStatus?.lastDownloadOk, error: cloudSyncStatus?.lastDownloadAt && !cloudSyncStatus?.lastDownloadOk }">
+              {{ cloudSyncDownloadStatusText }}
+            </strong>
+            <span>{{ formatStatusTime(cloudSyncStatus?.lastDownloadAt) }}</span>
+          </article>
+          <article class="cloud-sync-status-item">
+            <small>最近更新</small>
+            <strong>{{ cloudSyncStatusUpdatedAt || '—' }}</strong>
+            <span>学号：{{ cloudSyncStatus?.studentId || currentStudentId }}</span>
+          </article>
+        </div>
+        <p v-if="cloudSyncLastUploadError" class="hint cloud-sync-error">上传错误：{{ cloudSyncLastUploadError }}</p>
+        <p v-if="cloudSyncLastDownloadError" class="hint cloud-sync-error">下载错误：{{ cloudSyncLastDownloadError }}</p>
       </div>
 
       <div class="backend-block">
@@ -2023,6 +2118,48 @@ const handleDownloadFont = async (force = false) => {
   color: var(--ui-text);
   font-size: 12px;
   font-weight: 700;
+}
+
+.cloud-sync-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.cloud-sync-status-item {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.32));
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in oklab, var(--ui-surface) 94%, #fff 6%);
+  display: grid;
+  gap: 4px;
+}
+
+.cloud-sync-status-item small {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.cloud-sync-status-item strong {
+  font-size: 14px;
+  color: var(--ui-text);
+}
+
+.cloud-sync-status-item span {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+
+.cloud-sync-status-item .ok {
+  color: #0f766e;
+}
+
+.cloud-sync-status-item .error {
+  color: #b91c1c;
+}
+
+.cloud-sync-error {
+  color: #b91c1c;
 }
 
 .backend-grid {

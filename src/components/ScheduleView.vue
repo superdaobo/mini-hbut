@@ -13,6 +13,7 @@ import {
   writeScheduleLock
 } from '../utils/schedule_prefetch.js'
 import {
+  CLOUD_SYNC_UPDATED_EVENT,
   getCloudSyncCooldownState,
   runCloudSyncDownload,
   runCloudSyncUpload
@@ -1480,6 +1481,33 @@ const ensureCloudSyncCooldownTimer = () => {
   }, 1000)
 }
 
+const refreshScheduleAfterCloudDownload = async (syncResult = {}) => {
+  const sem = String(semester.value || semesterDraft.value || '').trim()
+  if (!sem) return
+  const downloadedSemesters = Array.isArray(syncResult?.academicApplied?.scheduleSemesters)
+    ? syncResult.academicApplied.scheduleSemesters.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  const shouldRefreshSchedule = downloadedSemesters.length === 0 || downloadedSemesters.includes(sem)
+  const hasCached = shouldRefreshSchedule ? applyCachedScheduleImmediately(sem) : false
+  await loadCustomCourses(sem)
+  if (!hasCached && shouldRefreshSchedule) {
+    await fetchSchedule(sem)
+  }
+}
+
+const handleCloudSyncUpdated = (event) => {
+  const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {}
+  const sid = String(props.studentId || '').trim()
+  const targetSid = String(detail?.studentId || '').trim()
+  if (!sid || !targetSid || sid !== targetSid) return
+  refreshCloudSyncCooldown()
+  if (detail?.action !== 'download' || !detail?.success) return
+  if (syncDownloading.value) return
+  void refreshScheduleAfterCloudDownload(detail).catch((error) => {
+    console.warn('[Schedule] cloud sync auto refresh failed:', error)
+  })
+}
+
 const handleCloudSyncUpload = async () => {
   if (!hasValidLoginSession()) {
     await promptLoginRequired()
@@ -1494,13 +1522,30 @@ const handleCloudSyncUpload = async () => {
     return
   }
 
+  const sem = String(semester.value || semesterDraft.value || '').trim()
+  const confirmed = await askConfirm({
+    title: '确认上传到云端',
+    lines: [
+      '将覆盖云端已有的自定义课程数据。',
+      `当前学期：${sem || '未选择学期'}`,
+      '确认后将立即执行上传。'
+    ],
+    confirmText: '确认上传',
+    cancelText: '取消',
+    danger: true
+  })
+  if (!confirmed) return
+
   syncUploading.value = true
   syncStatusText.value = '正在上传云端备份...'
   try {
     const result = await runCloudSyncUpload({
       studentId: sid,
       reason: 'schedule-manual-upload',
-      force: false
+      force: false,
+      includeCustomCourses: true,
+      includeAcademic: true,
+      includeSettings: true
     })
     if (!result?.success) {
       if (result?.cooldown) {
@@ -1554,7 +1599,7 @@ const handleCloudSyncDownload = async () => {
       }
       return
     }
-    await loadCustomCourses(String(semester.value || semesterDraft.value || '').trim())
+    await refreshScheduleAfterCloudDownload(result)
     refreshCloudSyncCooldown()
     if (result?.empty) {
       showToast('云端暂无备份，已记录本次同步', 'info')
@@ -1571,6 +1616,7 @@ const handleCloudSyncDownload = async () => {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleWeekKeydown)
+  window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
   refreshCloudSyncCooldown()
   ensureCloudSyncCooldownTimer()
   void fetchSemesterOptions()
@@ -1631,6 +1677,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWeekKeydown)
+  window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
   clearCloudSyncCooldownTimer()
 })
 </script>
@@ -1680,30 +1727,39 @@ onBeforeUnmount(() => {
           <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
             添加课程
           </button>
+          <div class="drawer-sync-group">
+            <div class="drawer-subtitle">自定义课程同步</div>
+            <div class="drawer-sync-actions">
+              <button
+                class="drawer-action sync-upload"
+                :disabled="syncUploading || syncDownloading"
+                @click="handleCloudSyncUpload"
+              >
+                {{ syncUploading ? '云上传中...' : '云上传' }}
+              </button>
+              <button
+                class="drawer-action sync-download"
+                :disabled="syncUploading || syncDownloading"
+                @click="handleCloudSyncDownload"
+              >
+                {{ syncDownloading ? '云下载中...' : '云下载' }}
+              </button>
+            </div>
+            <div class="drawer-sync-status">
+              <span class="drawer-sync-cooldown">{{ syncCooldownText }}</span>
+              <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
+            </div>
+          </div>
           <button
-            class="drawer-action sync-upload"
-            :disabled="syncUploading || syncDownloading"
-            @click="handleCloudSyncUpload"
+            class="drawer-action"
+            :disabled="exporting"
+            @click="exportCalendar('week')"
           >
-            {{ syncUploading ? '云上传中...' : '云上传' }}
-          </button>
-          <button
-            class="drawer-action sync-download"
-            :disabled="syncUploading || syncDownloading"
-            @click="handleCloudSyncDownload"
-          >
-            {{ syncDownloading ? '云下载中...' : '云下载' }}
-          </button>
-          <button class="drawer-action" :disabled="exporting" @click="exportCalendar('week')">
             {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
           </button>
           <button class="drawer-action ghost" :disabled="exporting" @click="exportCalendar('semester')">
             {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
           </button>
-        </div>
-        <div class="drawer-sync-status">
-          <span class="drawer-sync-cooldown">{{ syncCooldownText }}</span>
-          <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
         </div>
         <div class="drawer-tip">生成后复制链接，用浏览器打开即可导入手机日历</div>
 
@@ -2199,6 +2255,20 @@ onBeforeUnmount(() => {
 .drawer-actions {
   display: grid;
   gap: 10px;
+}
+
+.drawer-sync-group {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, var(--ui-surface-border));
+  background: color-mix(in oklab, var(--ui-primary-soft) 28%, var(--ui-surface) 72%);
+}
+
+.drawer-sync-actions {
+  display: grid;
+  gap: 8px;
 }
 
 .drawer-action.ghost {

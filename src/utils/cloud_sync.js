@@ -4,12 +4,14 @@ import { applyUiSettingsSnapshot } from './ui_settings'
 import { applyFontSettingsSnapshot } from './font_settings'
 import { normalizeSemesterList } from './semester'
 import { pushDebugLog } from './debug_logger'
+import { setCachedData } from './api.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
 const CLOUD_SYNC_LAST_SUCCESS_PREFIX = 'hbu_cloud_sync_last_success:'
 const CLOUD_SYNC_BOOTSTRAP_PREFIX = 'hbu_cloud_sync_bootstrap_done:'
+const CLOUD_SYNC_STATUS_PREFIX = 'hbu_cloud_sync_status:'
 const DEFAULT_TIMEOUT_MS = 12000
 const DEFAULT_COOLDOWN_SEC = 180
 const DEFAULT_SECRET_REF = 'kv1-main'
@@ -22,6 +24,8 @@ const challengeState = {
   expiresAt: 0,
   endpoint: ''
 }
+
+export const CLOUD_SYNC_UPDATED_EVENT = 'hbu-cloud-sync-updated'
 
 const safeParseJson = (raw, fallback = null) => {
   if (!raw) return fallback
@@ -54,6 +58,85 @@ const makeStudentKey = (prefix, studentId) => {
   const sid = toSafeText(studentId)
   if (!sid) return ''
   return `${prefix}${sid}`
+}
+
+const readCloudSyncStatusInternal = (studentId) => {
+  const key = makeStudentKey(CLOUD_SYNC_STATUS_PREFIX, studentId)
+  if (!key) return null
+  return safeParseJson(localStorage.getItem(key), null)
+}
+
+const writeCloudSyncStatus = (studentId, patch = {}) => {
+  const sid = toSafeText(studentId)
+  if (!sid) return null
+  const key = makeStudentKey(CLOUD_SYNC_STATUS_PREFIX, sid)
+  if (!key) return null
+  const prev = readCloudSyncStatusInternal(sid) || {}
+  const next = {
+    studentId: sid,
+    updatedAt: Date.now(),
+    ...prev,
+    ...(patch && typeof patch === 'object' ? patch : {})
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(next))
+  } catch {
+    // ignore write errors
+  }
+  return next
+}
+
+const dispatchCloudSyncEvent = (detail = {}) => {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
+  window.dispatchEvent(new CustomEvent(CLOUD_SYNC_UPDATED_EVENT, { detail }))
+}
+
+const commitCloudSyncResult = (studentId, action, detail = {}) => {
+  const sid = toSafeText(studentId)
+  if (!sid) return null
+  const payload = detail && typeof detail === 'object' ? detail : {}
+  const now = Date.now()
+  const result = {
+    action: toSafeText(action),
+    reason: toSafeText(payload.reason),
+    success: !!payload.success,
+    cooldown: !!payload.cooldown,
+    error: toSafeText(payload.error),
+    source: toSafeText(payload.source || 'runtime'),
+    updatedAt: now
+  }
+  const patch = {}
+  if (result.action === 'upload') {
+    patch.lastUploadAt = now
+    patch.lastUploadOk = result.success
+    patch.lastUploadReason = result.reason
+    patch.lastUploadError = result.success ? '' : result.error
+    if ('includeCustomCourses' in payload) {
+      patch.lastUploadIncludeCustomCourses = payload.includeCustomCourses === true
+    }
+  } else if (result.action === 'download') {
+    patch.lastDownloadAt = now
+    patch.lastDownloadOk = result.success
+    patch.lastDownloadReason = result.reason
+    patch.lastDownloadError = result.success ? '' : result.error
+    if ('applyCustomCourses' in payload) {
+      patch.lastDownloadApplyCustomCourses = payload.applyCustomCourses === true
+    }
+  }
+  patch.lastAction = result.action
+  patch.lastActionOk = result.success
+  patch.lastActionError = result.success ? '' : result.error
+  patch.lastActionReason = result.reason
+  patch.lastActionSource = result.source
+  patch.lastCooldown = result.cooldown
+  const saved = writeCloudSyncStatus(sid, patch)
+  dispatchCloudSyncEvent({
+    ...(saved || {}),
+    ...result,
+    studentId: sid,
+    ...(payload && typeof payload === 'object' ? payload : {})
+  })
+  return saved
 }
 
 const pruneValue = (value) => {
@@ -173,6 +256,17 @@ export const getCloudSyncRuntimeConfig = () => {
   }
 }
 
+export const getCloudSyncLocalStatus = (studentId) => {
+  const sid = toSafeText(studentId)
+  if (!sid) return null
+  const parsed = readCloudSyncStatusInternal(sid)
+  if (!parsed || typeof parsed !== 'object') return null
+  return {
+    studentId: sid,
+    ...parsed
+  }
+}
+
 const ensureDeviceId = () => {
   let id = toSafeText(localStorage.getItem(CLOUD_SYNC_DEVICE_ID_KEY))
   if (id) return id
@@ -281,6 +375,158 @@ const extractDataArray = (value) => {
   return []
 }
 
+const isNonEmptyObject = (value) =>
+  !!value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0
+
+const toArrayOfObjects = (value) => {
+  if (!Array.isArray(value)) return []
+  return value.filter((item) => item && typeof item === 'object')
+}
+
+const readCacheEntry = (key) => {
+  const cacheKey = toSafeText(key)
+  if (!cacheKey) return null
+  const raw = localStorage.getItem(`cache:${cacheKey}`)
+  if (!raw) return null
+  const parsed = safeParseJson(raw, null)
+  if (!parsed || typeof parsed !== 'object') return null
+  return {
+    data: parsed?.data || null,
+    timestamp: Number(parsed?.timestamp || 0) || 0
+  }
+}
+
+const readCachedEntriesByPrefix = (prefix) => {
+  const pref = toSafeText(prefix)
+  if (!pref) return []
+  const entries = []
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const storageKey = localStorage.key(i)
+    if (!storageKey || !storageKey.startsWith('cache:')) continue
+    const cacheKey = storageKey.slice('cache:'.length)
+    if (!(cacheKey === pref || cacheKey.startsWith(`${pref}:`))) continue
+    const parsed = safeParseJson(localStorage.getItem(storageKey), null)
+    if (!parsed || typeof parsed !== 'object') continue
+    entries.push({
+      key: cacheKey,
+      data: parsed?.data || null,
+      timestamp: Number(parsed?.timestamp || 0) || 0
+    })
+  }
+  entries.sort((a, b) => b.timestamp - a.timestamp)
+  return entries
+}
+
+const extractSuffixFromKey = (key, prefix) => {
+  const full = toSafeText(key)
+  const pref = toSafeText(prefix)
+  if (!full || !pref) return ''
+  if (full === pref) return ''
+  if (!full.startsWith(`${pref}:`)) return ''
+  return toSafeText(full.slice(pref.length + 1))
+}
+
+const normalizeSemesterFromText = (value) => {
+  const text = toSafeText(value)
+  if (!text) return ''
+  const direct = text.match(/(\d{4}-\d{4}-[12])/)
+  if (direct) return direct[1]
+  const loose = text.match(/(\d{4})\D+(\d{4})\D*([12一二])/)
+  if (!loose) return ''
+  const termRaw = loose[3]
+  const term = termRaw === '二' ? '2' : termRaw === '一' ? '1' : termRaw
+  return `${loose[1]}-${loose[2]}-${term}`
+}
+
+const deriveGradeSemester = (item, fallback = '') => {
+  if (!item || typeof item !== 'object') return toSafeText(fallback)
+  const direct = normalizeSemesterFromText(item?.semester || item?.xnxq || item?.term || item?.xq)
+  if (direct) return direct
+  const xn = toSafeText(item?.xnmmc || item?.school_year)
+  const xq = toSafeText(item?.xqmmc || item?.term_name || item?.semester_name)
+  const merged = normalizeSemesterFromText(`${xn}-${xq}`)
+  return merged || toSafeText(fallback)
+}
+
+const makeGradeFingerprint = (item, semester = '') => {
+  const sem = toSafeText(semester) || deriveGradeSemester(item)
+  const name = toSafeText(item?.course_name || item?.name || item?.kcmc)
+  const score = toSafeText(item?.score || item?.final_score || item?.zcj || item?.cj)
+  const credit = toSafeText(item?.credit || item?.xf || item?.course_credit)
+  const code = toSafeText(item?.course_code || item?.kch || item?.id)
+  return `${sem}|${code}|${name}|${score}|${credit}`
+}
+
+const buildGradeSnapshot = (studentId, latestGrades = []) => {
+  const sid = toSafeText(studentId)
+  const prefix = `grades:${sid}`
+  const sourceEntries = []
+  if (Array.isArray(latestGrades) && latestGrades.length > 0) {
+    sourceEntries.push({
+      semester: '',
+      list: toArrayOfObjects(latestGrades)
+    })
+  }
+  readCachedEntriesByPrefix(prefix).forEach((entry) => {
+    sourceEntries.push({
+      semester: normalizeSemesterFromText(extractSuffixFromKey(entry.key, prefix)),
+      list: toArrayOfObjects(extractDataArray(entry.data))
+    })
+  })
+  const all = []
+  const bySemester = {}
+  const seen = new Set()
+  sourceEntries.forEach(({ semester, list }) => {
+    list.forEach((item) => {
+      const sem = deriveGradeSemester(item, semester)
+      const fp = makeGradeFingerprint(item, sem)
+      if (seen.has(fp)) return
+      seen.add(fp)
+      all.push(item)
+      if (sem) {
+        if (!Array.isArray(bySemester[sem])) {
+          bySemester[sem] = []
+        }
+        bySemester[sem].push(item)
+      }
+    })
+  })
+  return {
+    all,
+    bySemester
+  }
+}
+
+const extractRankingObject = (value) => {
+  if (!value || typeof value !== 'object') return null
+  if (isNonEmptyObject(value?.data)) return value.data
+  if (isNonEmptyObject(value)) return value
+  return null
+}
+
+const buildRankingSnapshot = (studentId) => {
+  const sid = toSafeText(studentId)
+  const prefix = `ranking:${sid}`
+  const bySemester = {}
+  readCachedEntriesByPrefix(prefix).forEach((entry) => {
+    const fromKey = normalizeSemesterFromText(extractSuffixFromKey(entry.key, prefix))
+    const rankingObj = extractRankingObject(entry.data)
+    if (!rankingObj) return
+    const sem = normalizeSemesterFromText(rankingObj?.semester || fromKey) || (fromKey || 'all')
+    if (!isNonEmptyObject(bySemester[sem])) {
+      bySemester[sem] = rankingObj
+    }
+  })
+  const latest = extractRankingObject(readLatestCacheObject(prefix))
+  const current = isNonEmptyObject(bySemester.all)
+    ? bySemester.all
+    : (latest || Object.values(bySemester)[0] || null)
+  return {
+    current,
+    bySemester
+  }
+}
+
 const readLatestCacheObject = (prefix) => {
   const pref = toSafeText(prefix)
   if (!pref) return null
@@ -302,22 +548,60 @@ const readLatestCacheObject = (prefix) => {
   return latest
 }
 
+const normalizeSchedulePayload = (rawPayload, semester = '') => {
+  if (!rawPayload || typeof rawPayload !== 'object') return null
+  const data = Array.isArray(rawPayload?.data) ? rawPayload.data : []
+  const rawMeta = rawPayload?.meta && typeof rawPayload.meta === 'object' ? rawPayload.meta : {}
+  const sem = toSafeText(rawMeta?.semester || semester)
+  const meta = pruneValue({
+    ...rawMeta,
+    semester: sem || toSafeText(rawMeta?.semester)
+  }) || {}
+  return {
+    success: true,
+    data,
+    meta,
+    offline: !!rawPayload?.offline,
+    sync_time: toSafeText(rawPayload?.sync_time) || new Date().toISOString()
+  }
+}
+
+const buildScheduleSnapshot = (studentId) => {
+  const sid = toSafeText(studentId)
+  if (!sid) return { by_semester: {} }
+  const semesters = discoverSemestersFromCache(sid)
+  const bySemester = {}
+  for (const semester of semesters) {
+    const entry = readCacheEntry(`schedule:${sid}:${semester}`)
+    const payload = normalizeSchedulePayload(entry?.data, semester)
+    if (!payload) continue
+    bySemester[semester] = payload
+  }
+  return {
+    by_semester: bySemester
+  }
+}
+
 const buildAcademicSnapshot = (studentId, latestGrades = []) => {
   const sid = toSafeText(studentId)
-  const grades = Array.isArray(latestGrades) && latestGrades.length > 0
-    ? latestGrades
-    : extractDataArray(readLatestCacheObject(`grades:${sid}`))
-  const ranking = extractDataArray(readLatestCacheObject(`ranking:${sid}`))
+  const gradesSnapshot = buildGradeSnapshot(sid, latestGrades)
+  const rankingSnapshot = buildRankingSnapshot(sid)
   const scheduleMeta = safeParseJson(localStorage.getItem('hbu_schedule_meta'), {})
   return {
-    grades,
-    ranking,
-    schedule_meta: scheduleMeta && typeof scheduleMeta === 'object' ? scheduleMeta : {}
+    grades: gradesSnapshot.all,
+    grades_by_semester: gradesSnapshot.bySemester,
+    ranking: rankingSnapshot.current || {},
+    ranking_by_semester: rankingSnapshot.bySemester,
+    schedule_meta: scheduleMeta && typeof scheduleMeta === 'object' ? scheduleMeta : {},
+    schedule: buildScheduleSnapshot(sid)
   }
 }
 
 const buildSyncPayload = async (studentId, options = {}) => {
   const sid = toSafeText(studentId)
+  const includeCustomCourses = options?.includeCustomCourses !== false
+  const includeAcademic = options?.includeAcademic !== false
+  const includeSettings = options?.includeSettings !== false
   const settingsSnapshot = pruneValue({
     app: safeParseJson(localStorage.getItem('hbu_app_settings_v1'), {}),
     ui: safeParseJson(localStorage.getItem('hbu_ui_settings_v2'), {}),
@@ -328,16 +612,16 @@ const buildSyncPayload = async (studentId, options = {}) => {
       remember: toSafeText(localStorage.getItem('hbu_remember'))
     }
   }) || {}
-  const bySemester = await fetchAllCustomCourses(sid)
+  const bySemester = includeCustomCourses ? await fetchAllCustomCourses(sid) : {}
   const courses = pruneValue({ by_semester: bySemester }) || { by_semester: {} }
-  const academic = pruneValue(buildAcademicSnapshot(sid, options?.latestGrades)) || {}
+  const academic = includeAcademic ? (pruneValue(buildAcademicSnapshot(sid, options?.latestGrades)) || {}) : {}
   const deviceId = ensureDeviceId()
   return {
     v: SYNC_SCHEMA_VERSION,
     sid,
     ts: Date.now(),
     did: deviceId,
-    settings: settingsSnapshot,
+    settings: includeSettings ? settingsSnapshot : {},
     courses,
     academic
   }
@@ -347,26 +631,73 @@ const primeAcademicCaches = async (studentId, seedGrades = []) => {
   const sid = toSafeText(studentId)
   let grades = Array.isArray(seedGrades) ? seedGrades : []
   if (!sid) return grades
+  const semesters = await fetchSemestersForSync(sid)
   try {
     if (!grades.length) {
       const gradeRes = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
       if (gradeRes?.data?.success && Array.isArray(gradeRes?.data?.data)) {
         grades = gradeRes.data.data
       }
+      if (gradeRes?.data?.success) {
+        setCachedData(`grades:${sid}`, gradeRes.data)
+      }
+    } else {
+      setCachedData(`grades:${sid}`, { success: true, data: grades })
     }
   } catch {
     // ignore
   }
   try {
-    await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: sid })
+    const scheduleRes = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: sid })
+    if (scheduleRes?.data?.success) {
+      setCachedData(`schedule:${sid}`, scheduleRes.data)
+      const sem = toSafeText(scheduleRes?.data?.meta?.semester)
+      if (sem) {
+        setCachedData(`schedule:${sid}:${sem}`, scheduleRes.data)
+      }
+    }
   } catch {
     // ignore
   }
   try {
-    await axios.post(`${API_BASE}/v2/ranking`, { student_id: sid, semester: '' })
+    const allRankingRes = await axios.post(`${API_BASE}/v2/ranking`, { student_id: sid, semester: '' })
+    if (allRankingRes?.data?.success) {
+      setCachedData(`ranking:${sid}`, allRankingRes.data)
+      setCachedData(`ranking:${sid}:all`, allRankingRes.data)
+    }
+    for (const semester of semesters) {
+      const sem = toSafeText(semester)
+      if (!sem) continue
+      try {
+        const semRankingRes = await axios.post(`${API_BASE}/v2/ranking`, {
+          student_id: sid,
+          semester: sem
+        })
+        if (semRankingRes?.data?.success) {
+          setCachedData(`ranking:${sid}:${sem}`, semRankingRes.data)
+        }
+      } catch {
+        // ignore single-semester ranking error
+      }
+    }
   } catch {
     // ignore
   }
+  const gradesSnapshot = buildGradeSnapshot(sid, grades)
+  if (gradesSnapshot.all.length > 0) {
+    setCachedData(`grades:${sid}`, { success: true, data: gradesSnapshot.all })
+    Object.entries(gradesSnapshot.bySemester).forEach(([semester, list]) => {
+      const sem = normalizeSemesterFromText(semester)
+      const gradeList = toArrayOfObjects(list)
+      if (!sem || !gradeList.length) return
+      setCachedData(`grades:${sid}:${sem}`, { success: true, data: gradeList })
+    })
+  }
+  pushDebugLog(
+    'CloudSync',
+    `学业缓存预热完成 student=${sid} semesters=${semesters.length} grades=${gradesSnapshot.all.length}`,
+    'debug'
+  )
   return grades
 }
 
@@ -593,6 +924,108 @@ const applySettingsFromCloud = async (settings) => {
   }
 }
 
+const applyAcademicFromCloud = (studentId, academic) => {
+  const sid = toSafeText(studentId)
+  if (!sid || !academic || typeof academic !== 'object') {
+    return {
+      gradesCached: false,
+      rankingCached: false,
+      scheduleMetaApplied: false,
+      scheduleCacheWrites: 0,
+      scheduleSemesters: []
+    }
+  }
+
+  let gradesCached = false
+  let rankingCached = false
+  let scheduleMetaApplied = false
+  let scheduleCacheWrites = 0
+  const scheduleSemesters = []
+  const mergedGrades = []
+  const gradeSeen = new Set()
+  const addGradeItems = (list = [], fallbackSemester = '') => {
+    toArrayOfObjects(list).forEach((item) => {
+      const sem = deriveGradeSemester(item, fallbackSemester)
+      const fp = makeGradeFingerprint(item, sem)
+      if (gradeSeen.has(fp)) return
+      gradeSeen.add(fp)
+      mergedGrades.push(item)
+    })
+  }
+
+  const gradesBySemester = academic?.grades_by_semester
+  if (gradesBySemester && typeof gradesBySemester === 'object' && !Array.isArray(gradesBySemester)) {
+    Object.entries(gradesBySemester).forEach(([semester, list]) => {
+      const sem = normalizeSemesterFromText(semester)
+      const gradeList = toArrayOfObjects(list)
+      if (!sem || !gradeList.length) return
+      setCachedData(`grades:${sid}:${sem}`, { success: true, data: gradeList })
+      addGradeItems(gradeList, sem)
+      gradesCached = true
+    })
+  }
+
+  const grades = Array.isArray(academic?.grades)
+    ? academic.grades
+    : (Array.isArray(academic?.grades_all) ? academic.grades_all : [])
+  addGradeItems(grades)
+  if (mergedGrades.length > 0) {
+    setCachedData(`grades:${sid}`, { success: true, data: mergedGrades })
+    gradesCached = true
+  }
+
+  const rankingBySemester = academic?.ranking_by_semester
+  if (rankingBySemester && typeof rankingBySemester === 'object' && !Array.isArray(rankingBySemester)) {
+    Object.entries(rankingBySemester).forEach(([semester, payload]) => {
+      const sem = normalizeSemesterFromText(semester) || (toSafeText(semester) || 'all')
+      const rankingObj = extractRankingObject(payload)
+      if (!sem || !rankingObj) return
+      setCachedData(`ranking:${sid}:${sem}`, { success: true, data: rankingObj })
+      if (sem === 'all') {
+        setCachedData(`ranking:${sid}`, { success: true, data: rankingObj })
+      }
+      rankingCached = true
+    })
+  }
+
+  const currentRanking = extractRankingObject(academic?.ranking) || extractRankingObject(academic?.ranking_all)
+  if (currentRanking) {
+    setCachedData(`ranking:${sid}`, { success: true, data: currentRanking })
+    rankingCached = true
+  }
+
+  const scheduleMeta = academic?.schedule_meta
+  if (scheduleMeta && typeof scheduleMeta === 'object') {
+    try {
+      localStorage.setItem('hbu_schedule_meta', JSON.stringify(scheduleMeta))
+      scheduleMetaApplied = true
+    } catch {
+      // ignore
+    }
+  }
+
+  const bySemester = academic?.schedule?.by_semester
+  if (bySemester && typeof bySemester === 'object' && !Array.isArray(bySemester)) {
+    for (const [semester, rawPayload] of Object.entries(bySemester)) {
+      const sem = toSafeText(semester)
+      if (!sem) continue
+      const normalized = normalizeSchedulePayload(rawPayload, sem)
+      if (!normalized) continue
+      setCachedData(`schedule:${sid}:${sem}`, normalized)
+      scheduleCacheWrites += 1
+      scheduleSemesters.push(sem)
+    }
+  }
+
+  return {
+    gradesCached,
+    rankingCached,
+    scheduleMetaApplied,
+    scheduleCacheWrites,
+    scheduleSemesters: normalizeSemesterList(scheduleSemesters)
+  }
+}
+
 const extractCloudData = (response) => {
   if (!response || typeof response !== 'object') return null
   if (response?.data && typeof response.data === 'object') return response.data
@@ -603,53 +1036,94 @@ export const runCloudSyncUpload = async ({
   studentId,
   reason = 'manual',
   force = false,
-  latestGrades = []
+  latestGrades = [],
+  includeCustomCourses = true,
+  includeAcademic = true,
+  includeSettings = true
 } = {}) => {
   const sid = toSafeText(studentId)
+  const safeReason = toSafeText(reason) || 'manual'
   if (!sid) {
-    return { success: false, error: '学号为空，无法上传云同步' }
+    const output = { success: false, error: '学号为空，无法上传云同步' }
+    commitCloudSyncResult(studentId, 'upload', { ...output, reason: safeReason })
+    return output
   }
   if (!isValidStudentId(sid)) {
-    return { success: false, error: '云同步仅支持 10 位学号账号' }
+    const output = { success: false, error: '云同步仅支持 10 位学号账号' }
+    commitCloudSyncResult(sid, 'upload', { ...output, reason: safeReason })
+    return output
   }
   const cfg = getCloudSyncRuntimeConfig()
   if (!cfg.enabled) {
-    return { success: false, error: '云同步未启用或未配置服务地址' }
+    const output = { success: false, error: '云同步未启用或未配置服务地址' }
+    commitCloudSyncResult(sid, 'upload', { ...output, reason: safeReason })
+    return output
   }
 
   if (!force) {
     const cooldown = getCloudSyncCooldownState(sid)
     if (cooldown.blocked) {
-      return {
+      const output = {
         success: false,
         cooldown: true,
         remainingMs: cooldown.remainingMs,
         error: '同步冷却中'
       }
+      commitCloudSyncResult(sid, 'upload', { ...output, reason: safeReason })
+      return output
     }
   }
 
-  pushDebugLog('CloudSync', `开始上传 student=${sid} reason=${reason}`, 'info')
-  const payload = await buildSyncPayload(sid, { latestGrades })
-  const body = {
-    student_id: sid,
-    device_id: ensureDeviceId(),
-    reason: toSafeText(reason) || 'manual',
-    payload,
-    client_time: Date.now(),
-    secret_ref: cfg.secretRef
-  }
-  const response = await requestCloudSync('/upload', {
-    method: 'POST',
-    body,
-    config: cfg
-  })
-  setLastSuccessTs(sid)
-  pushDebugLog('CloudSync', `上传成功 student=${sid}`, 'info')
-  return {
-    success: true,
-    response,
-    uploadedAt: Date.now()
+  pushDebugLog('CloudSync', `开始上传 student=${sid} reason=${safeReason}`, 'info')
+  try {
+    pushDebugLog(
+      'CloudSync',
+      `上传内容 settings=${includeSettings ? 1 : 0} academic=${includeAcademic ? 1 : 0} custom=${includeCustomCourses ? 1 : 0}`,
+      'debug'
+    )
+    const payload = await buildSyncPayload(sid, {
+      latestGrades,
+      includeCustomCourses,
+      includeAcademic,
+      includeSettings
+    })
+    const body = {
+      student_id: sid,
+      device_id: ensureDeviceId(),
+      reason: safeReason,
+      payload,
+      client_time: Date.now(),
+      secret_ref: cfg.secretRef
+    }
+    const response = await requestCloudSync('/upload', {
+      method: 'POST',
+      body,
+      config: cfg
+    })
+    const uploadedAt = Date.now()
+    setLastSuccessTs(sid, uploadedAt)
+    pushDebugLog('CloudSync', `上传成功 student=${sid}`, 'info')
+    const output = {
+      success: true,
+      response,
+      uploadedAt
+    }
+    commitCloudSyncResult(sid, 'upload', {
+      ...output,
+      reason: safeReason,
+      includeCustomCourses
+    })
+    return output
+  } catch (error) {
+    const errorText = String(error?.message || error || '云上传失败')
+    commitCloudSyncResult(sid, 'upload', {
+      success: false,
+      reason: safeReason,
+      error: errorText,
+      includeCustomCourses
+    })
+    pushDebugLog('CloudSync', `上传失败 student=${sid}`, 'warn', error)
+    throw error
   }
 }
 
@@ -658,82 +1132,145 @@ export const runCloudSyncDownload = async ({
   reason = 'manual',
   force = false,
   applySettings = true,
-  applyCustomCourses = true
+  applyCustomCourses = true,
+  applyAcademic = true
 } = {}) => {
   const sid = toSafeText(studentId)
+  const safeReason = toSafeText(reason) || 'manual'
   if (!sid) {
-    return { success: false, error: '学号为空，无法下载云同步' }
+    const output = { success: false, error: '学号为空，无法下载云同步' }
+    commitCloudSyncResult(studentId, 'download', {
+      ...output,
+      reason: safeReason,
+      applyCustomCourses
+    })
+    return output
   }
   if (!isValidStudentId(sid)) {
-    return { success: false, error: '云同步仅支持 10 位学号账号' }
+    const output = { success: false, error: '云同步仅支持 10 位学号账号' }
+    commitCloudSyncResult(sid, 'download', {
+      ...output,
+      reason: safeReason,
+      applyCustomCourses
+    })
+    return output
   }
   const cfg = getCloudSyncRuntimeConfig()
   if (!cfg.enabled) {
-    return { success: false, error: '云同步未启用或未配置服务地址' }
+    const output = { success: false, error: '云同步未启用或未配置服务地址' }
+    commitCloudSyncResult(sid, 'download', {
+      ...output,
+      reason: safeReason,
+      applyCustomCourses
+    })
+    return output
   }
 
   if (!force) {
     const cooldown = getCloudSyncCooldownState(sid)
     if (cooldown.blocked) {
-      return {
+      const output = {
         success: false,
         cooldown: true,
         remainingMs: cooldown.remainingMs,
         error: '同步冷却中'
       }
+      commitCloudSyncResult(sid, 'download', {
+        ...output,
+        reason: safeReason,
+        applyCustomCourses
+      })
+      return output
     }
   }
 
-  pushDebugLog('CloudSync', `开始下载 student=${sid} reason=${reason}`, 'info')
-  const query = new URLSearchParams({
-    student_id: sid,
-    reason: toSafeText(reason) || 'manual',
-    device_id: ensureDeviceId(),
-    secret_ref: cfg.secretRef
-  }).toString()
-  const response = await requestCloudSync(`/download?${query}`, {
-    method: 'GET',
-    config: cfg
-  })
-  const data = extractCloudData(response)
-  if (!data) {
-    setLastSuccessTs(sid)
+  pushDebugLog('CloudSync', `开始下载 student=${sid} reason=${safeReason}`, 'info')
+  try {
+    const query = new URLSearchParams({
+      student_id: sid,
+      reason: safeReason,
+      device_id: ensureDeviceId(),
+      secret_ref: cfg.secretRef
+    }).toString()
+    const response = await requestCloudSync(`/download?${query}`, {
+      method: 'GET',
+      config: cfg
+    })
+    const data = extractCloudData(response)
+    if (!data) {
+      const now = Date.now()
+      setLastSuccessTs(sid, now)
+      const bootstrapKey = makeStudentKey(CLOUD_SYNC_BOOTSTRAP_PREFIX, sid)
+      if (bootstrapKey) {
+        localStorage.setItem(bootstrapKey, String(now))
+      }
+      pushDebugLog('CloudSync', `下载成功但云端为空 student=${sid}`, 'info')
+      const output = {
+        success: true,
+        empty: true,
+        response
+      }
+      commitCloudSyncResult(sid, 'download', {
+        ...output,
+        reason: safeReason,
+        applyCustomCourses
+      })
+      return output
+    }
+
+    let settingResult = { app: false, ui: false, font: false }
+    let customResult = { deleted: 0, added: 0, semesters: 0 }
+    let academicResult = {
+      gradesCached: false,
+      rankingCached: false,
+      scheduleMetaApplied: false,
+      scheduleCacheWrites: 0,
+      scheduleSemesters: []
+    }
+    if (applySettings) {
+      settingResult = await applySettingsFromCloud(data?.settings)
+    }
+    if (applyCustomCourses) {
+      customResult = await replaceCustomCourses(sid, data?.courses?.by_semester)
+    }
+    if (applyAcademic) {
+      academicResult = applyAcademicFromCloud(sid, data?.academic)
+    }
+
+    const successAt = Date.now()
+    setLastSuccessTs(sid, successAt)
     const bootstrapKey = makeStudentKey(CLOUD_SYNC_BOOTSTRAP_PREFIX, sid)
     if (bootstrapKey) {
-      localStorage.setItem(bootstrapKey, String(Date.now()))
+      localStorage.setItem(bootstrapKey, String(successAt))
     }
-    pushDebugLog('CloudSync', `下载成功但云端为空 student=${sid}`, 'info')
-    return {
+    pushDebugLog(
+      'CloudSync',
+      `下载成功 student=${sid} add=${customResult.added} del=${customResult.deleted} schedule=${academicResult.scheduleCacheWrites}`,
+      'info'
+    )
+    const output = {
       success: true,
-      empty: true,
-      response
+      response,
+      settingsApplied: settingResult,
+      customCoursesApplied: customResult,
+      academicApplied: academicResult
     }
-  }
-
-  let settingResult = { app: false, ui: false, font: false }
-  let customResult = { deleted: 0, added: 0, semesters: 0 }
-  if (applySettings) {
-    settingResult = await applySettingsFromCloud(data?.settings)
-  }
-  if (applyCustomCourses) {
-    customResult = await replaceCustomCourses(sid, data?.courses?.by_semester)
-  }
-
-  setLastSuccessTs(sid)
-  const bootstrapKey = makeStudentKey(CLOUD_SYNC_BOOTSTRAP_PREFIX, sid)
-  if (bootstrapKey) {
-    localStorage.setItem(bootstrapKey, String(Date.now()))
-  }
-  pushDebugLog(
-    'CloudSync',
-    `下载成功 student=${sid} add=${customResult.added} del=${customResult.deleted}`,
-    'info'
-  )
-  return {
-    success: true,
-    response,
-    settingsApplied: settingResult,
-    customCoursesApplied: customResult
+    commitCloudSyncResult(sid, 'download', {
+      ...output,
+      reason: safeReason,
+      applyCustomCourses
+    })
+    return output
+  } catch (error) {
+    const errorText = String(error?.message || error || '云下载失败')
+    commitCloudSyncResult(sid, 'download', {
+      success: false,
+      reason: safeReason,
+      error: errorText,
+      applyCustomCourses
+    })
+    pushDebugLog('CloudSync', `下载失败 student=${sid}`, 'warn', error)
+    throw error
   }
 }
 
@@ -757,15 +1294,14 @@ export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] 
   }
 
   try {
-    if (!hasBootstrapDone(sid)) {
-      summary.download = await runCloudSyncDownload({
-        studentId: sid,
-        reason: 'auto-new-device',
-        force: true,
-        applySettings: true,
-        applyCustomCourses: true
-      })
-    }
+    summary.download = await runCloudSyncDownload({
+      studentId: sid,
+      reason: hasBootstrapDone(sid) ? 'auto-login-settings' : 'auto-new-device-settings',
+      force: true,
+      applySettings: true,
+      applyCustomCourses: false,
+      applyAcademic: true
+    })
   } catch (error) {
     summary.download = { success: false, error: String(error?.message || error) }
     pushDebugLog('CloudSync', `自动下载失败 student=${sid}`, 'warn', error)
@@ -777,7 +1313,10 @@ export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] 
       studentId: sid,
       reason: 'auto-login',
       force: true,
-      latestGrades: syncedGrades
+      latestGrades: syncedGrades,
+      includeCustomCourses: false,
+      includeAcademic: true,
+      includeSettings: true
     })
   } catch (error) {
     summary.upload = { success: false, error: String(error?.message || error) }
