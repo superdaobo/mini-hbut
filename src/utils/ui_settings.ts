@@ -245,11 +245,19 @@ const resetUiSettings = () => {
   flushUiSettings()
 }
 
+const applyUiSettingsSnapshot = (raw) => {
+  const normalized = normalizeSettings(raw)
+  Object.assign(state, normalized)
+  state.profile = { ...normalized.profile }
+  flushUiSettings()
+}
+
 export {
   initUiSettings,
   useUiSettings,
   applyPreset,
   resetUiSettings,
+  applyUiSettingsSnapshot,
   applyUiSettings,
   flushUiSettings,
   normalizeSettings,

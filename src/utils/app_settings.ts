@@ -3,6 +3,7 @@ import { reactive, watch } from 'vue'
 const STORAGE_KEY = 'hbu_app_settings_v1'
 const LOCAL_HOST_PATTERN =
   /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i
+const DEFAULT_CLOUD_SYNC_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/cloud-sync'
 
 const DEFAULT_BACKEND_TARGETS = {
   portal: 'https://e.hbut.edu.cn/stu/index.html#/',
@@ -28,10 +29,13 @@ const DEFAULT_SETTINGS = {
     useRemoteConfig: true,
     ocrEndpoint: '',
     tempUploadEndpoint: '',
+    cloudSyncEndpoint: '',
+    cloudSyncSecretRef: '',
     moduleTargets: { ...DEFAULT_BACKEND_TARGETS },
     moduleParams: {
       requestTimeoutMs: 15000,
-      probeTimeoutMs: 8000
+      probeTimeoutMs: 8000,
+      cloudSyncCooldownSec: 180
     }
   }
 }
@@ -95,6 +99,8 @@ const normalizeSettings = (raw) => {
   next.backend.useRemoteConfig = next.backend.useRemoteConfig !== false
   next.backend.ocrEndpoint = normalizeUrl(next.backend.ocrEndpoint)
   next.backend.tempUploadEndpoint = normalizeUrl(next.backend.tempUploadEndpoint)
+  next.backend.cloudSyncEndpoint = normalizeUrl(next.backend.cloudSyncEndpoint)
+  next.backend.cloudSyncSecretRef = String(next.backend.cloudSyncSecretRef || '').trim()
   next.backend.moduleTargets = { ...base.backend.moduleTargets }
   next.backend.moduleParams.requestTimeoutMs = clampNumber(
     next.backend.moduleParams.requestTimeoutMs,
@@ -107,6 +113,12 @@ const normalizeSettings = (raw) => {
     3000,
     30000,
     base.backend.moduleParams.probeTimeoutMs
+  )
+  next.backend.moduleParams.cloudSyncCooldownSec = clampNumber(
+    next.backend.moduleParams.cloudSyncCooldownSec,
+    30,
+    3600,
+    base.backend.moduleParams.cloudSyncCooldownSec
   )
 
   return next
@@ -159,4 +171,24 @@ const resetAppSettings = () => {
   Object.assign(state, normalizeSettings(DEFAULT_SETTINGS))
 }
 
-export { DEFAULT_BACKEND_TARGETS, DEFAULT_SETTINGS, initAppSettings, useAppSettings, resetAppSettings }
+const applyAppSettingsSnapshot = (raw) => {
+  const normalized = normalizeSettings(raw)
+  state.retry = { ...normalized.retry }
+  state.retryDelayMs = normalized.retryDelayMs
+  state.resourceShare = { ...normalized.resourceShare }
+  state.backend = {
+    ...normalized.backend,
+    moduleTargets: { ...normalized.backend.moduleTargets },
+    moduleParams: { ...normalized.backend.moduleParams }
+  }
+}
+
+export {
+  DEFAULT_BACKEND_TARGETS,
+  DEFAULT_CLOUD_SYNC_ENDPOINT,
+  DEFAULT_SETTINGS,
+  initAppSettings,
+  useAppSettings,
+  resetAppSettings,
+  applyAppSettingsSnapshot
+}

@@ -497,28 +497,48 @@ fn has_chaoxing_login_cookie(client: &HbutClient) -> bool {
     has_uid && has_token
 }
 
-fn guess_chaoxing_student_id(account_hint: Option<&str>, cookie_header: &str) -> String {
+fn normalize_student_id_candidate(value: &str) -> Option<String> {
+    let text = value.trim();
+    if text.len() == 10 && text.chars().all(|c| c.is_ascii_digit()) {
+        return Some(text.to_string());
+    }
+    None
+}
+
+fn guess_chaoxing_student_id(account_hint: Option<&str>, cookie_header: &str) -> Option<String> {
     if let Some(username_cookie) = parse_cookie_value(cookie_header, "username") {
-        let username = username_cookie.trim();
-        if username.chars().all(|c| c.is_ascii_digit()) && username.len() >= 8 {
-            return username.to_string();
-        }
-        if !username.is_empty() {
-            return username.to_string();
+        if let Some(sid) = normalize_student_id_candidate(&username_cookie) {
+            return Some(sid);
         }
     }
-    let account = account_hint.unwrap_or("").trim();
-    if account.chars().all(|c| c.is_ascii_digit()) && account.len() >= 8 {
-        return account.to_string();
+    if let Some(sid) = normalize_student_id_candidate(account_hint.unwrap_or("")) {
+        return Some(sid);
     }
-    if let Some(uid_cookie) = parse_cookie_value(cookie_header, "UID") {
-        return format!("cx_{}", uid_cookie);
+    None
+}
+
+fn pick_student_id_from_info_payload(value: &serde_json::Value) -> Option<String> {
+    let direct = value
+        .get("student_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("studentId").and_then(|v| v.as_str()))
+        .or_else(|| value.get("xh").and_then(|v| v.as_str()));
+    if let Some(sid) = direct.and_then(normalize_student_id_candidate) {
+        return Some(sid);
     }
-    if account.is_empty() {
-        "chaoxing_user".to_string()
-    } else {
-        account.to_string()
+
+    if let Some(data) = value.get("data") {
+        let nested = data
+            .get("student_id")
+            .and_then(|v| v.as_str())
+            .or_else(|| data.get("studentId").and_then(|v| v.as_str()))
+            .or_else(|| data.get("xh").and_then(|v| v.as_str()));
+        if let Some(sid) = nested.and_then(normalize_student_id_candidate) {
+            return Some(sid);
+        }
     }
+
+    None
 }
 
 fn json_bool(value: &serde_json::Value, key: &str) -> bool {
@@ -743,10 +763,20 @@ async fn finalize_chaoxing_login(
         .or_else(|| parse_cookie_value(&merged_cookie, "_uid"));
 
     let fetched_user = client.fetch_user_info().await.ok();
-    let student_id = fetched_user
+    let mut resolved_student_id = fetched_user
         .as_ref()
-        .map(|u| u.student_id.clone())
-        .unwrap_or_else(|| guess_chaoxing_student_id(account_hint, &merged_cookie));
+        .and_then(|u| normalize_student_id_candidate(&u.student_id));
+    if resolved_student_id.is_none() {
+        if let Ok(profile_payload) = client.fetch_student_info().await {
+            resolved_student_id = pick_student_id_from_info_payload(&profile_payload);
+        }
+    }
+    if resolved_student_id.is_none() {
+        resolved_student_id = guess_chaoxing_student_id(account_hint, &merged_cookie);
+    }
+    let student_id = resolved_student_id.ok_or_else(|| {
+        "学习通登录成功，但未解析到 10 位学号，请先使用融合门户登录一次后再重试".to_string()
+    })?;
     let display_name = fetched_user
         .as_ref()
         .map(|u| u.student_name.clone())

@@ -105,6 +105,62 @@ const canSubmitChaoxingPasswordLogin = computed(() => {
 
 const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
 
+const pickStudentIdCandidate = (payload) => {
+  if (!payload || typeof payload !== 'object') return ''
+  const candidates = [
+    payload.student_id,
+    payload.studentId,
+    payload?.data?.student_id,
+    payload?.data?.studentId,
+    payload?.data?.xh,
+    payload?.xh
+  ]
+  for (const item of candidates) {
+    const sid = String(item || '').trim()
+    if (isLikelyStudentId(sid)) {
+      return sid
+    }
+  }
+  return ''
+}
+
+const resolveChaoxingStudentId = async (payload = null) => {
+  const payloadSid = pickStudentIdCandidate(payload)
+  if (payloadSid) return payloadSid
+
+  const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
+  if (isLikelyStudentId(cachedSid)) return cachedSid
+
+  if (isTauriRuntime()) {
+    try {
+      const studentInfo = await invoke('fetch_student_info')
+      const infoSid = pickStudentIdCandidate(studentInfo)
+      if (infoSid) return infoSid
+    } catch (e) {
+      pushDebug(`学习通学号解析失败(fetch_student_info): ${e.message || e}`)
+    }
+  }
+
+  try {
+    const res = await axios.post(`${API_BASE}/v2/student_info`)
+    const sid = pickStudentIdCandidate(res?.data)
+    if (sid) return sid
+  } catch (e) {
+    pushDebug(`学习通学号解析失败(v2/student_info): ${e.response?.data?.error || e.message || e}`)
+  }
+
+  const accountCandidates = [
+    String(payload?.account || '').trim(),
+    String(chaoxingAccount.value || '').trim()
+  ]
+  for (const candidate of accountCandidates) {
+    if (isLikelyStudentId(candidate)) {
+      return candidate
+    }
+  }
+  return ''
+}
+
 const applyLoginMethodStorage = (mode) => {
   const isTemp = mode.endsWith('_temp')
   localStorage.setItem(LOGIN_METHOD_KEY, mode)
@@ -573,13 +629,9 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
 }
 
 const handleChaoxingLoginSuccess = async (payload, modeKey) => {
-  const payloadSid = String(payload?.student_id || '').trim()
-  const payloadAccount = String(payload?.account || '').trim()
-  const inputAccount = String(chaoxingAccount.value || '').trim()
-  const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
-  const sid = payloadSid || (isLikelyStudentId(cachedSid) ? cachedSid : '') || payloadAccount || inputAccount
+  const sid = await resolveChaoxingStudentId(payload)
   if (!sid) {
-    throw new Error('学习通登录成功，但未返回账号标识')
+    throw new Error('学习通登录成功，但未解析到 10 位学号，请先检查账号绑定信息')
   }
   username.value = sid
   localStorage.setItem('hbu_username', sid)

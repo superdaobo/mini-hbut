@@ -628,6 +628,17 @@ const resetFontSettings = () => {
   Object.assign(state, { ...DEFAULT_SETTINGS })
 }
 
+const applyFontSettingsSnapshot = async (raw: unknown) => {
+  const normalized = normalizeSettings(raw)
+  if (normalized.font !== 'default') {
+    const cached = await ensureFontLoaded(normalized.font, false, true)
+    if (!cached) {
+      normalized.font = 'default'
+    }
+  }
+  Object.assign(state, normalized)
+}
+
 export {
   FONT_CDN_OPTIONS,
   FONT_NAME,
@@ -638,6 +649,7 @@ export {
   ensureFontLoaded,
   setFontCdnProvider,
   prefetchCdnFonts,
+  applyFontSettingsSnapshot,
   applyFont,
   resetFontSettings
 }

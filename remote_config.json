@@ -61,6 +61,14 @@
     "endpoint": "http://1.94.167.18:5080/api/ocr/recognize",
     "enabled": true
   },
+  "cloud_sync": {
+    "enabled": true,
+    "mode": "proxy",
+    "proxy_endpoint": "https://mini-hbut-ocr-service.hf.space/api/cloud-sync",
+    "secret_ref": "kv1-main",
+    "timeout_ms": 12000,
+    "cooldown_seconds": 180
+  },
   "ai_models": [
     { "label": "Qwen-Plus", "value": "qwen-plus" },
     { "label": "Qwen-Max", "value": "qwen-max" },

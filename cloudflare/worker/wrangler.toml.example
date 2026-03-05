@@ -1,0 +1,16 @@
+name = "mini-hbut-cloud-sync"
+main = "src/index.js"
+compatibility_date = "2026-03-05"
+
+[vars]
+# 可选：默认最小请求间隔（秒）
+RATE_LIMIT_SECONDS = "60"
+# 可选：上传/下载单独限流（秒）
+RATE_LIMIT_UPLOAD_SECONDS = "90"
+RATE_LIMIT_DOWNLOAD_SECONDS = "30"
+RATE_LIMIT_PING_SECONDS = "15"
+
+[[kv_namespaces]]
+binding = "SYNC_KV"
+id = "REPLACE_WITH_PROD_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"

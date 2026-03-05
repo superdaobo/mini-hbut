@@ -12,6 +12,12 @@ import {
   warmupScheduleForStudent,
   writeScheduleLock
 } from '../utils/schedule_prefetch.js'
+import {
+  getCloudSyncCooldownState,
+  runCloudSyncDownload,
+  runCloudSyncUpload
+} from '../utils/cloud_sync.js'
+import { showToast } from '../utils/toast'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -61,7 +67,12 @@ const confirmDialogConfirmText = ref('确认')
 const confirmDialogCancelText = ref('取消')
 const confirmDialogDanger = ref(false)
 const weekTransitionName = ref('week-slide-left')
+const syncUploading = ref(false)
+const syncDownloading = ref(false)
+const syncCooldownMs = ref(0)
+const syncStatusText = ref('')
 let confirmDialogResolver = null
+let syncCooldownTimer = null
 const addCourseForm = ref({
   name: '',
   teacher: '',
@@ -219,6 +230,16 @@ const courseSpanOptions = computed(() => {
 const addWeeksCountText = computed(() => {
   const weeks = Array.isArray(addCourseForm.value.weeks) ? addCourseForm.value.weeks.length : 0
   return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
+})
+
+const syncCooldownText = computed(() => {
+  const ms = Number(syncCooldownMs.value || 0)
+  if (ms <= 0) return '可立即同步'
+  const sec = Math.ceil(ms / 1000)
+  if (sec < 60) return `${sec} 秒后可再次同步`
+  const min = Math.floor(sec / 60)
+  const remain = sec % 60
+  return remain > 0 ? `${min}分${remain}秒后可再次同步` : `${min} 分钟后可再次同步`
 })
 
 const openConfirmDialog = ({
@@ -562,6 +583,13 @@ watch(totalWeeks, (maxWeeks) => {
     currentWeek.value = maxWeeks
   }
 })
+
+watch(
+  () => props.studentId,
+  () => {
+    refreshCloudSyncCooldown()
+  }
+)
 
 watch(
   () => addCourseForm.value.period,
@@ -1429,8 +1457,122 @@ const copyExportUrl = async () => {
   }
 }
 
+const refreshCloudSyncCooldown = () => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) {
+    syncCooldownMs.value = 0
+    return
+  }
+  const state = getCloudSyncCooldownState(sid)
+  syncCooldownMs.value = Math.max(0, Number(state.remainingMs || 0))
+}
+
+const clearCloudSyncCooldownTimer = () => {
+  if (!syncCooldownTimer) return
+  window.clearInterval(syncCooldownTimer)
+  syncCooldownTimer = null
+}
+
+const ensureCloudSyncCooldownTimer = () => {
+  clearCloudSyncCooldownTimer()
+  syncCooldownTimer = window.setInterval(() => {
+    refreshCloudSyncCooldown()
+  }, 1000)
+}
+
+const handleCloudSyncUpload = async () => {
+  if (!hasValidLoginSession()) {
+    await promptLoginRequired()
+    return
+  }
+  const sid = String(props.studentId || '').trim()
+  if (!sid || syncUploading.value || syncDownloading.value) return
+
+  refreshCloudSyncCooldown()
+  if (syncCooldownMs.value > 0) {
+    showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+    return
+  }
+
+  syncUploading.value = true
+  syncStatusText.value = '正在上传云端备份...'
+  try {
+    const result = await runCloudSyncUpload({
+      studentId: sid,
+      reason: 'schedule-manual-upload',
+      force: false
+    })
+    if (!result?.success) {
+      if (result?.cooldown) {
+        syncCooldownMs.value = Number(result.remainingMs || 0)
+        showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+      } else {
+        showToast(result?.error || '云上传失败', 'error')
+      }
+      return
+    }
+    refreshCloudSyncCooldown()
+    showToast('云上传完成', 'success')
+  } catch (e) {
+    showToast(String(e?.message || '云上传失败'), 'error')
+  } finally {
+    syncUploading.value = false
+    syncStatusText.value = ''
+  }
+}
+
+const handleCloudSyncDownload = async () => {
+  if (!hasValidLoginSession()) {
+    await promptLoginRequired()
+    return
+  }
+  const sid = String(props.studentId || '').trim()
+  if (!sid || syncUploading.value || syncDownloading.value) return
+
+  refreshCloudSyncCooldown()
+  if (syncCooldownMs.value > 0) {
+    showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+    return
+  }
+
+  syncDownloading.value = true
+  syncStatusText.value = '正在下载云端备份并覆盖本地课表...'
+  try {
+    const result = await runCloudSyncDownload({
+      studentId: sid,
+      reason: 'schedule-manual-download',
+      force: false,
+      applySettings: true,
+      applyCustomCourses: true
+    })
+    if (!result?.success) {
+      if (result?.cooldown) {
+        syncCooldownMs.value = Number(result.remainingMs || 0)
+        showToast(`同步冷却中，${syncCooldownText.value}`, 'info')
+      } else {
+        showToast(result?.error || '云下载失败', 'error')
+      }
+      return
+    }
+    await loadCustomCourses(String(semester.value || semesterDraft.value || '').trim())
+    refreshCloudSyncCooldown()
+    if (result?.empty) {
+      showToast('云端暂无备份，已记录本次同步', 'info')
+    } else {
+      showToast('云下载完成，已应用本地设置与自定义课程', 'success')
+    }
+  } catch (e) {
+    showToast(String(e?.message || '云下载失败'), 'error')
+  } finally {
+    syncDownloading.value = false
+    syncStatusText.value = ''
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', handleWeekKeydown)
+  refreshCloudSyncCooldown()
+  ensureCloudSyncCooldownTimer()
   void fetchSemesterOptions()
 
   // 下次进入自动切换：后台检测到新学期并已确认有课表数据时生效。
@@ -1489,6 +1631,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWeekKeydown)
+  clearCloudSyncCooldownTimer()
 })
 </script>
 
@@ -1537,12 +1680,30 @@ onBeforeUnmount(() => {
           <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
             添加课程
           </button>
+          <button
+            class="drawer-action sync-upload"
+            :disabled="syncUploading || syncDownloading"
+            @click="handleCloudSyncUpload"
+          >
+            {{ syncUploading ? '云上传中...' : '云上传' }}
+          </button>
+          <button
+            class="drawer-action sync-download"
+            :disabled="syncUploading || syncDownloading"
+            @click="handleCloudSyncDownload"
+          >
+            {{ syncDownloading ? '云下载中...' : '云下载' }}
+          </button>
           <button class="drawer-action" :disabled="exporting" @click="exportCalendar('week')">
             {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
           </button>
           <button class="drawer-action ghost" :disabled="exporting" @click="exportCalendar('semester')">
             {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
           </button>
+        </div>
+        <div class="drawer-sync-status">
+          <span class="drawer-sync-cooldown">{{ syncCooldownText }}</span>
+          <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
         </div>
         <div class="drawer-tip">生成后复制链接，用浏览器打开即可导入手机日历</div>
 
@@ -2050,9 +2211,36 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26);
 }
 
+.drawer-action.sync-upload {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24);
+}
+
+.drawer-action.sync-download {
+  background: linear-gradient(135deg, #10b981, #0f766e);
+  box-shadow: 0 10px 18px rgba(15, 118, 110, 0.24);
+}
+
 .drawer-action:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.drawer-sync-status {
+  display: grid;
+  gap: 4px;
+}
+
+.drawer-sync-cooldown,
+.drawer-sync-running {
+  font-size: 12px;
+  color: var(--ui-muted);
+  line-height: 1.4;
+}
+
+.drawer-sync-running {
+  color: #0f766e;
+  font-weight: 600;
 }
 
 .drawer-tip {

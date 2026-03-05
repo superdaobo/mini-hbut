@@ -7,7 +7,12 @@ import {
   UI_PRESETS,
   useUiSettings
 } from '../utils/ui_settings'
-import { DEFAULT_BACKEND_TARGETS, resetAppSettings, useAppSettings } from '../utils/app_settings'
+import {
+  DEFAULT_BACKEND_TARGETS,
+  DEFAULT_CLOUD_SYNC_ENDPOINT,
+  resetAppSettings,
+  useAppSettings
+} from '../utils/app_settings'
 import {
   FONT_CDN_OPTIONS,
   ensureFontLoaded,
@@ -17,6 +22,7 @@ import {
   useFontSettings
 } from '../utils/font_settings'
 import { applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config'
+import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { showToast } from '../utils/toast'
@@ -197,6 +203,10 @@ const probeRows = computed(() => {
   const backend = appSettings.backend || {}
   const stored = getStoredOcrConfig()
   const uploadEndpoint = getEffectiveUploadEndpoint(backend)
+  const cloudSyncConfig = getCloudSyncRuntimeConfig()
+  const cloudSyncEndpoint = cloudSyncConfig.enabled
+    ? normalizeProbeTarget(cloudSyncConfig.endpoint || DEFAULT_CLOUD_SYNC_ENDPOINT)
+    : ''
   const localOcr = String(
     backend.ocrEndpoint ||
       (!backend.useRemoteConfig ? DEFAULT_OCR_ENDPOINT : stored.endpoint) ||
@@ -214,6 +224,12 @@ const probeRows = computed(() => {
       label: '临时上传服务器',
       url: normalizeProbeTarget(uploadEndpoint),
       desc: '课表导出临时文件上传'
+    },
+    {
+      id: 'cloud_sync',
+      label: '云同步服务',
+      url: cloudSyncEndpoint,
+      desc: '账号设置与课表云备份'
     },
     {
       id: 'portal',
@@ -598,6 +614,15 @@ const handleApplyBackendSettings = async ({ silent = false, emitModeEvent = fals
       await invokeNative('set_temp_upload_endpoint', { endpoint: uploadEndpoint || null })
     }
 
+    const cloudSyncEndpoint = String(appSettings.backend.cloudSyncEndpoint || '').trim()
+    const cloudSyncSecretRef = String(appSettings.backend.cloudSyncSecretRef || '').trim()
+    const cloudSyncCooldown = Number(appSettings.backend.moduleParams.cloudSyncCooldownSec || 180)
+    pushDebugLog(
+      'Settings',
+      `CloudSync 配置 endpoint=${cloudSyncEndpoint || '(remote/default)'} secret_ref=${cloudSyncSecretRef || '(remote/default)'} cooldown=${cloudSyncCooldown}s`,
+      'debug'
+    )
+
     if (emitModeEvent) {
       window.dispatchEvent(new CustomEvent(REMOTE_CONFIG_MODE_EVENT))
     }
@@ -666,8 +691,11 @@ watch(
     appSettings.backend.useRemoteConfig,
     appSettings.backend.ocrEndpoint,
     appSettings.backend.tempUploadEndpoint,
+    appSettings.backend.cloudSyncEndpoint,
+    appSettings.backend.cloudSyncSecretRef,
     appSettings.backend.moduleParams.requestTimeoutMs,
     appSettings.backend.moduleParams.probeTimeoutMs,
+    appSettings.backend.moduleParams.cloudSyncCooldownSec,
     appSettings.retry.electricity,
     appSettings.retry.classroom,
     appSettings.retryDelayMs,
@@ -1149,7 +1177,7 @@ const handleDownloadFont = async (force = false) => {
         <p class="hint">仅支持手动填写地址，不展示本地预设列表。</p>
         <p class="hint">修改后会自动保存到本地并自动应用到当前运行实例。</p>
         <p v-if="appSettings.backend.useRemoteConfig" class="hint">
-          当前启用远程配置，远程刷新后本地地址可能被覆盖；若需固定使用本地地址，请开启“仅本地”。
+          当前启用远程配置，远程刷新后 OCR/上传/云同步中转地址可能被覆盖；若需固定使用本地地址，请开启“仅本地”。
         </p>
         <div class="backend-grid">
           <label class="field">
@@ -1166,6 +1194,22 @@ const handleDownloadFont = async (force = false) => {
               type="text"
               placeholder="https://your-upload.example/api/temp/upload"
               v-model.trim="appSettings.backend.tempUploadEndpoint"
+            />
+          </label>
+          <label class="field">
+            <span>云同步中转地址</span>
+            <input
+              type="text"
+              :placeholder="`默认：${DEFAULT_CLOUD_SYNC_ENDPOINT}`"
+              v-model.trim="appSettings.backend.cloudSyncEndpoint"
+            />
+          </label>
+          <label class="field">
+            <span>云同步秘钥引用（secret_ref）</span>
+            <input
+              type="text"
+              placeholder="默认：kv1-main（仅引用，不是明文秘钥）"
+              v-model.trim="appSettings.backend.cloudSyncSecretRef"
             />
           </label>
         </div>
@@ -1207,6 +1251,16 @@ const handleDownloadFont = async (force = false) => {
             />
           </label>
           <label class="field">
+            <span>课表云同步冷却（秒）</span>
+            <input
+              type="number"
+              min="30"
+              max="3600"
+              step="10"
+              v-model.number="appSettings.backend.moduleParams.cloudSyncCooldownSec"
+            />
+          </label>
+          <label class="field">
             <span>移动端预览线程</span>
             <input type="number" min="1" max="8" step="1" v-model.number="appSettings.resourceShare.previewThreadsMobile" />
           </label>
@@ -1233,7 +1287,7 @@ const handleDownloadFont = async (force = false) => {
             {{ probeRunning ? '测速中...' : '开始测速' }}
           </button>
         </div>
-        <p class="hint">并发测试当前 OCR、上传、新融合门户、教务系统、超星渠道、一卡通与图书馆地址。</p>
+        <p class="hint">并发测试当前 OCR、上传、云同步、新融合门户、教务系统、超星渠道、一卡通与图书馆地址。</p>
         <div class="probe-list">
           <article v-for="item in probeRows" :key="item.id" class="probe-item">
             <div class="probe-main">

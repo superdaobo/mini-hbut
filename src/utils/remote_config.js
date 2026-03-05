@@ -1,6 +1,6 @@
 import { invokeNative as invoke } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
-import { useAppSettings } from './app_settings'
+import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
@@ -18,6 +18,7 @@ const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
   'https://superdaobo-ocr-service.hf.space/api/ocr/recognize'
 ]
 const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
+const DEFAULT_CLOUD_SYNC_SECRET_REF = 'kv1-main'
 
 const DEFAULT_CONFIG = {
   announcements: {
@@ -49,6 +50,14 @@ const DEFAULT_CONFIG = {
     office_preview_proxy: 'https://view.officeapps.live.com/op/view.aspx?src=',
     temp_upload_endpoint: ''
   },
+  cloud_sync: {
+    enabled: true,
+    mode: 'proxy',
+    proxy_endpoint: DEFAULT_CLOUD_SYNC_ENDPOINT,
+    secret_ref: DEFAULT_CLOUD_SYNC_SECRET_REF,
+    timeout_ms: 12000,
+    cooldown_seconds: 180
+  },
   ai_models: [],
   config_admin_ids: []
 }
@@ -60,6 +69,7 @@ const REMOTE_CONFIG_KEYS = [
   'ocr',
   'temp_file_server',
   'resource_share',
+  'cloud_sync',
   'ai_models',
   'config_admin_ids'
 ]
@@ -72,6 +82,17 @@ const firstNonEmpty = (...values) => {
     if (text) return text
   }
   return ''
+}
+
+const normalizeCloudSyncProxyEndpoint = (value) => {
+  const text = toString(value).trim()
+  if (!text) return ''
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
+  const normalized = withProtocol.replace(/\/+$/, '')
+  if (/\/api\/cloud-sync$/i.test(normalized)) {
+    return normalized
+  }
+  return `${normalized}/api/cloud-sync`
 }
 
 const normalizeOcrEndpoint = (value) => {
@@ -124,6 +145,16 @@ const buildLocalOnlyConfig = () => {
   normalized.temp_file_server.schedule_upload_endpoint = tempUploadEndpoint
   normalized.temp_file_server.enabled = true
   normalized.resource_share.temp_upload_endpoint = tempUploadEndpoint
+  normalized.cloud_sync = {
+    enabled: true,
+    mode: 'proxy',
+    proxy_endpoint: normalizeCloudSyncProxyEndpoint(
+      firstNonEmpty(backend?.cloudSyncEndpoint, DEFAULT_CLOUD_SYNC_ENDPOINT)
+    ),
+    secret_ref: firstNonEmpty(backend?.cloudSyncSecretRef, DEFAULT_CLOUD_SYNC_SECRET_REF),
+    timeout_ms: 12000,
+    cooldown_seconds: Number(backend?.moduleParams?.cloudSyncCooldownSec || 180)
+  }
 
   return normalized
 }
@@ -254,6 +285,45 @@ export function normalizeRemoteConfig(raw) {
         cfg.resource_share?.temp_upload_endpoint,
         cfg.temp_file_server?.schedule_upload_endpoint,
         cfg.temp_file_server?.upload_endpoint
+      )
+    },
+    cloud_sync: {
+      enabled: cfg.cloud_sync?.enabled !== false,
+      mode: firstNonEmpty(
+        cfg.cloud_sync?.mode,
+        cfg.cloud_sync_mode,
+        cfg.sync?.mode,
+        'proxy'
+      ),
+      proxy_endpoint: normalizeCloudSyncProxyEndpoint(
+        firstNonEmpty(
+          cfg.cloud_sync?.proxy_endpoint,
+          cfg.cloud_sync?.proxyEndpoint,
+          cfg.cloud_sync?.endpoint,
+          cfg.cloud_sync_proxy_endpoint,
+          cfg.cloud_sync_endpoint,
+          cfg.sync?.proxy_endpoint,
+          DEFAULT_CLOUD_SYNC_ENDPOINT
+        )
+      ),
+      secret_ref: firstNonEmpty(
+        cfg.cloud_sync?.secret_ref,
+        cfg.cloud_sync?.secretRef,
+        cfg.cloud_sync_secret_ref,
+        cfg.sync?.secret_ref,
+        DEFAULT_CLOUD_SYNC_SECRET_REF
+      ),
+      timeout_ms: Number(
+        cfg.cloud_sync?.timeout_ms ||
+          cfg.cloud_sync?.timeoutMs ||
+          cfg.sync?.timeout_ms ||
+          12000
+      ),
+      cooldown_seconds: Number(
+        cfg.cloud_sync?.cooldown_seconds ||
+          cfg.cloud_sync?.cooldownSeconds ||
+          cfg.sync?.cooldown_seconds ||
+          180
       )
     },
     ai_models: toArray(cfg.ai_models),

@@ -38,6 +38,7 @@ import {
   getStoredOcrConfig,
   isRemoteConfigEnabled
 } from './utils/remote_config.js'
+import { runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import {
@@ -527,6 +528,12 @@ const handleLoginSuccess = (data) => {
     startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
       console.warn('[Notify] 启动通知监控失败:', e)
     })
+    runAutoCloudSyncAfterLogin({
+      studentId: studentId.value,
+      latestGrades: Array.isArray(data) ? data : []
+    }).catch((e) => {
+      console.warn('[CloudSync] 登录后自动同步失败:', e)
+    })
   }
   clearJwxtMaintenance()
   stopJwxtRecoveryPolling()
@@ -680,6 +687,10 @@ const restoreCachedIdentityFromLocal = async () => {
   if (isManualLogout()) return false
   const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
   if (!cachedSid) return false
+  if (!/^\d{10}$/.test(cachedSid)) {
+    localStorage.removeItem('hbu_username')
+    return false
+  }
 
   studentId.value = cachedSid
   if (hasTauri) {
@@ -1072,6 +1083,25 @@ const getStoredChaoxingPassword = () => {
   return { account, password }
 }
 
+const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
+
+const resolveAutoLoginStudentId = async (payload) => {
+  const payloadSid = String(payload?.student_id || payload?.studentId || '').trim()
+  if (isLikelyStudentId(payloadSid)) return payloadSid
+  const cachedSid = String(localStorage.getItem('hbu_username') || '').trim()
+  if (isLikelyStudentId(cachedSid)) return cachedSid
+  try {
+    const info = await invokeNative('fetch_student_info')
+    const sid = String(
+      info?.student_id || info?.studentId || info?.data?.student_id || info?.data?.xh || ''
+    ).trim()
+    if (isLikelyStudentId(sid)) return sid
+  } catch (e) {
+    console.warn('[Session] 自动重登学号解析失败:', e)
+  }
+  return ''
+}
+
 const attemptAutoRelogin = async () => {
   if (!hasTauri) return false
   if (isManualLogout()) {
@@ -1086,12 +1116,12 @@ const attemptAutoRelogin = async () => {
         account: chaoxingCreds.account,
         password: chaoxingCreds.password
       })
-      const sid = String(
-        payload?.student_id || localStorage.getItem('hbu_username') || chaoxingCreds.account
-      ).trim()
+      const sid = await resolveAutoLoginStudentId(payload)
       if (sid) {
         studentId.value = sid
         localStorage.setItem('hbu_username', sid)
+      } else {
+        throw new Error('学习通自动登录未解析到 10 位学号')
       }
       await persistSessionCookies()
       return true

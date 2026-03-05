@@ -33,6 +33,14 @@ const defaultConfig = {
     password: 'mini-hbut',
     office_preview_proxy: 'https://view.officeapps.live.com/op/view.aspx?src=',
     temp_upload_endpoint: ''
+  },
+  cloud_sync: {
+    enabled: true,
+    mode: 'proxy',
+    proxy_endpoint: 'https://mini-hbut-ocr-service.hf.space/api/cloud-sync',
+    secret_ref: 'kv1-main',
+    timeout_ms: 12000,
+    cooldown_seconds: 180
   }
 }
 
@@ -80,6 +88,16 @@ const ensureStruct = () => {
   if (!config.value.resource_share) {
     config.value.resource_share = { ...defaultConfig.resource_share }
   }
+  if (!config.value.cloud_sync) {
+    config.value.cloud_sync = { ...defaultConfig.cloud_sync }
+  }
+  config.value.cloud_sync.mode = String(config.value.cloud_sync.mode || 'proxy').trim() || 'proxy'
+  config.value.cloud_sync.proxy_endpoint = String(
+    config.value.cloud_sync.proxy_endpoint || config.value.cloud_sync.endpoint || defaultConfig.cloud_sync.proxy_endpoint
+  ).trim()
+  config.value.cloud_sync.secret_ref = String(
+    config.value.cloud_sync.secret_ref || defaultConfig.cloud_sync.secret_ref
+  ).trim()
 }
 
 const addNotice = () => {
@@ -197,6 +215,39 @@ onMounted(() => {
             v-model="config.resource_share.temp_upload_endpoint"
             placeholder="https://mini-hbut-ocr-service.hf.space/api/temp/upload"
           />
+        </label>
+      </div>
+    </section>
+
+    <section class="editor-card">
+      <h3>云同步（OCR 中转）</h3>
+      <div class="form-grid">
+        <label class="toggle">
+          <input v-model="config.cloud_sync.enabled" type="checkbox" />
+          启用云同步
+        </label>
+        <label>
+          模式
+          <input v-model="config.cloud_sync.mode" placeholder="proxy" />
+        </label>
+        <label>
+          云同步中转地址
+          <input
+            v-model="config.cloud_sync.proxy_endpoint"
+            placeholder="https://mini-hbut-ocr-service.hf.space/api/cloud-sync"
+          />
+        </label>
+        <label>
+          秘钥引用（secret_ref）
+          <input v-model="config.cloud_sync.secret_ref" placeholder="kv1-main" />
+        </label>
+        <label>
+          请求超时（ms）
+          <input v-model.number="config.cloud_sync.timeout_ms" type="number" min="3000" max="45000" step="500" />
+        </label>
+        <label>
+          同步冷却（秒）
+          <input v-model.number="config.cloud_sync.cooldown_seconds" type="number" min="30" max="3600" step="10" />
         </label>
       </div>
     </section>
