@@ -8,6 +8,7 @@ const NAV_STYLES = ['floating', 'pill', 'compact']
 const DENSITY_STYLES = ['comfortable', 'balanced', 'compact']
 const ICON_STYLES = ['duotone', 'line', 'mono']
 const DECOR_STYLES = ['mesh', 'grain', 'none']
+const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional']
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
@@ -72,6 +73,11 @@ const normalizeSettings = (raw) => {
   merged.fontScale = clamp(Number(merged.fontScale) || base.fontScale, 0.82, 1.2)
   merged.spaceScale = clamp(Number(merged.spaceScale) || base.spaceScale, 0.82, 1.2)
   merged.motionScale = clamp(Number(merged.motionScale) || base.motionScale, 0.2, 1.3)
+  merged.scheduleCourseCardStyle = SCHEDULE_COURSE_CARD_STYLES.includes(
+    merged.scheduleCourseCardStyle
+  )
+    ? merged.scheduleCourseCardStyle
+    : base.scheduleCourseCardStyle
   merged.profile = normalizeProfile(merged.profile)
   return merged
 }

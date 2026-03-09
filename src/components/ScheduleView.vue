@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { flushUiSettings, useUiSettings } from '../utils/ui_settings'
 import {
   consumeScheduleSwitchPending,
   getCachedScheduleSnapshot,
@@ -73,6 +74,7 @@ const syncDownloading = ref(false)
 const syncUploadCooldownMs = ref(0)
 const syncDownloadCooldownMs = ref(0)
 const syncStatusText = ref('')
+const uiSettings = useUiSettings()
 let confirmDialogResolver = null
 let syncCooldownTimer = null
 const addCourseForm = ref({
@@ -152,6 +154,10 @@ const weekDays = ['1 周一', '2 周二', '3 周三', '4 周四', '5 周五', '6
 const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const periodOptions = Array.from({ length: 11 }, (_, i) => i + 1)
 const MAX_PERIOD = 11
+const courseCardStyleOptions = [
+  { key: 'modern', label: '现代', desc: '沿用当前课程方块样式' },
+  { key: 'traditional', label: '传统', desc: '使用 v1.1.2 课程方块样式' }
+]
 
 // 更加精细的时间表
 const timeSchedule = [
@@ -233,6 +239,10 @@ const addWeeksCountText = computed(() => {
   const weeks = Array.isArray(addCourseForm.value.weeks) ? addCourseForm.value.weeks.length : 0
   return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
 })
+
+const scheduleCourseCardStyle = computed(() =>
+  uiSettings.scheduleCourseCardStyle === 'traditional' ? 'traditional' : 'modern'
+)
 
 const formatCooldownText = (value) => {
   const ms = Number(value || 0)
@@ -1311,6 +1321,13 @@ const toggleMenu = () => {
   }
 }
 
+const setScheduleCourseCardStyle = (styleKey) => {
+  const nextStyle = styleKey === 'traditional' ? 'traditional' : 'modern'
+  if (uiSettings.scheduleCourseCardStyle === nextStyle) return
+  uiSettings.scheduleCourseCardStyle = nextStyle
+  flushUiSettings()
+}
+
 const buildExportEventsForWeek = (weekNumber) => {
   const events = []
   if (!startDateStr.value) return events
@@ -1692,6 +1709,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="schedule-view"
+    :data-course-card-style="scheduleCourseCardStyle"
     @touchstart.passive="handleTouchStart"
     @touchmove.passive="handleTouchMove"
     @touchend.passive="handleTouchEnd"
@@ -1728,6 +1746,22 @@ onBeforeUnmount(() => {
             </select>
           </div>
           <div v-if="semesterError" class="drawer-error">{{ semesterError }}</div>
+        </div>
+
+        <div class="drawer-section">
+          <div class="drawer-subtitle">课程样式</div>
+          <div class="drawer-style-grid">
+            <button
+              v-for="item in courseCardStyleOptions"
+              :key="item.key"
+              class="drawer-style-chip"
+              :class="{ active: scheduleCourseCardStyle === item.key }"
+              @click="setScheduleCourseCardStyle(item.key)"
+            >
+              <strong>{{ item.label }}</strong>
+              <small>{{ item.desc }}</small>
+            </button>
+          </div>
         </div>
 
         <div class="drawer-actions">
@@ -2249,6 +2283,41 @@ onBeforeUnmount(() => {
   color: #dc2626;
 }
 
+.drawer-style-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.drawer-style-chip {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.32));
+  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
+  color: var(--ui-text);
+  border-radius: 12px;
+  padding: 10px;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.drawer-style-chip strong {
+  font-size: 13px;
+}
+
+.drawer-style-chip small {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ui-muted);
+}
+
+.drawer-style-chip.active {
+  border-color: color-mix(in oklab, var(--ui-primary) 72%, white);
+  background: color-mix(in oklab, var(--ui-primary) 12%, #fff 88%);
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 22%, transparent);
+}
+
 .drawer-action {
   padding: 10px 14px;
   border-radius: 12px;
@@ -2567,8 +2636,6 @@ onBeforeUnmount(() => {
 
 .course-card {
   margin: 2px;
-  border-radius: 33.333% 33.333% 33.333% 33.333% /
-    clamp(8px, calc(6px + var(--course-span, 1) * 2px), 18px);
   padding: 7px 5px;
   background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
   color: var(--course-text, #0f172a) !important;
@@ -2582,8 +2649,18 @@ onBeforeUnmount(() => {
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16));
   border: 1px solid var(--course-border, rgba(148, 163, 184, 0.55));
+}
+
+.schedule-view[data-course-card-style='modern'] .course-card {
+  border-radius: 33.333% 33.333% 33.333% 33.333% /
+    clamp(8px, calc(6px + var(--course-span, 1) * 2px), 18px);
+  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16));
+}
+
+.schedule-view[data-course-card-style='traditional'] .course-card {
+  border-radius: 12px;
+  box-shadow: 0 6px 14px rgba(71, 85, 105, 0.16);
 }
 
 .course-card.conflict .course-name {
@@ -2599,7 +2676,8 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
-.course-name {
+.schedule-view[data-course-card-style='modern'] .course-name,
+.schedule-view[data-course-card-style='traditional'] .course-name {
   font-weight: 600;
   font-size: 12px;
   margin-bottom: 4px;
@@ -2611,7 +2689,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.course-room {
+.schedule-view[data-course-card-style='modern'] .course-room,
+.schedule-view[data-course-card-style='traditional'] .course-room {
   font-size: 11px;
   opacity: 0.88;
   font-weight: 500;
@@ -3207,12 +3286,18 @@ onBeforeUnmount(() => {
     font-size: 10px;
   }
 
-  .course-name {
+  .schedule-view[data-course-card-style='modern'] .course-name,
+  .schedule-view[data-course-card-style='traditional'] .course-name {
     font-size: 10px;
   }
 
-  .course-room {
+  .schedule-view[data-course-card-style='modern'] .course-room,
+  .schedule-view[data-course-card-style='traditional'] .course-room {
     font-size: 9px;
+  }
+
+  .drawer-style-grid {
+    grid-template-columns: 1fr;
   }
 
   .add-row {

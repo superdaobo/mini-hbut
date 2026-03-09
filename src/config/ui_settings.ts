@@ -5,6 +5,7 @@ export type NavStyle = 'floating' | 'pill' | 'compact'
 export type DensityStyle = 'comfortable' | 'balanced' | 'compact'
 export type IconStyle = 'duotone' | 'line' | 'mono'
 export type DecorStyle = 'mesh' | 'grain' | 'none'
+export type ScheduleCourseCardStyle = 'modern' | 'traditional'
 
 export interface UiPreset {
   label: string
@@ -136,6 +137,7 @@ export const SYSTEM_UI_SETTINGS = {
   motionScale: UI_PRESETS.campus_blue.motionScale ?? 1,
   danger: '#ef4444',
   success: '#10b981',
+  scheduleCourseCardStyle: 'modern' as ScheduleCourseCardStyle,
   profile: {
     cardStyle: 'glass' as CardStyle,
     navStyle: 'floating' as NavStyle,
