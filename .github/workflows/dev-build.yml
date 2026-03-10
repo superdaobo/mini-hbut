@@ -11,6 +11,8 @@ permissions:
 
 env:
   CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: 8
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
 
 concurrency:
   group: dev-build-${{ github.ref }}

@@ -4066,11 +4066,15 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_keep_screen_on::init());
 
-    builder
+    let builder = builder
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_fs::init());
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+
+    builder
         .setup(|app| {
             if let Ok(app_data_path) = app.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&app_data_path);
