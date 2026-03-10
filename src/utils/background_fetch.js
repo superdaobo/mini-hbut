@@ -218,15 +218,33 @@ export const initBackgroundFetchScheduler = async (onEvent) => {
 
 export const getBackgroundFetchRuntimeState = async () => {
   const runtime = getRuntime()
+  if (runtime === 'tauri') {
+    return {
+      runtime,
+      supported: true,
+      configured: true,
+      available: true,
+      statusCode: 0,
+      mode: 'foreground-interval',
+      lastRunAt: backgroundFetchLastRunAt,
+      lastTaskId: backgroundFetchLastTaskId,
+      lastError: backgroundFetchLastError,
+      reason: '桌面端使用前台轮询，不依赖移动端后台调度插件'
+    }
+  }
+
   if (runtime !== 'capacitor') {
     return {
       runtime,
       supported: false,
       configured: false,
       statusCode: -1,
+      available: false,
+      mode: 'unsupported',
       lastRunAt: backgroundFetchLastRunAt,
       lastTaskId: backgroundFetchLastTaskId,
-      lastError: backgroundFetchLastError
+      lastError: backgroundFetchLastError,
+      reason: '当前环境不支持 BackgroundFetch'
     }
   }
 

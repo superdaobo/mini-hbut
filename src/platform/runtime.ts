@@ -3,7 +3,25 @@ import type { RuntimePlatform } from './types'
 const hasNativeCapacitor = () => {
   if (typeof window === 'undefined') return false
   const w = window as any
-  return !!w.Capacitor?.isNativePlatform?.()
+  const cap = w.Capacitor
+  if (!cap) return false
+  try {
+    if (typeof cap.isNativePlatform === 'function') {
+      return !!cap.isNativePlatform()
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof cap.getPlatform === 'function') {
+      const platform = String(cap.getPlatform() || '').toLowerCase()
+      if (platform && platform !== 'web') return true
+    }
+  } catch {
+    // ignore
+  }
+  const raw = String(cap.platform || '').toLowerCase()
+  return !!raw && raw !== 'web'
 }
 
 const isTauriRuntime = () => {
@@ -21,8 +39,7 @@ const isTauriRuntime = () => {
 
 const isCapacitorRuntime = () => {
   if (typeof window === 'undefined') return false
-  const w = window as any
-  if (w.Capacitor?.isNativePlatform?.()) return true
+  if (hasNativeCapacitor()) return true
   const protocol = window.location?.protocol || ''
   return protocol === 'capacitor:' || protocol === 'ionic:'
 }

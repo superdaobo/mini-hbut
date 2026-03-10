@@ -5,6 +5,8 @@ import type {
   PlatformBridge
 } from '../types'
 
+let desktopKeepAliveActive = false
+
 const normalizePermission = (value: string | undefined): NotificationPermissionState => {
   if (value === 'granted') return 'granted'
   if (value === 'denied') return 'denied'
@@ -19,6 +21,17 @@ const tryOpenWithRustFallback = async (target: string) => {
   } catch {
     return false
   }
+}
+
+const tryOpenDesktopPowerSettings = async () => {
+  const ua = String(navigator.userAgent || '').toLowerCase()
+  if (ua.includes('windows')) {
+    return tryOpenWithRustFallback('ms-settings:batterysaver-settings')
+  }
+  if (ua.includes('mac os')) {
+    return tryOpenWithRustFallback('x-apple.systempreferences:com.apple.Battery-Settings.extension')
+  }
+  return false
 }
 
 export const tauriBridge: PlatformBridge = {
@@ -121,24 +134,33 @@ export const tauriBridge: PlatformBridge = {
   },
 
   async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
+    let ok = true
+    try {
+      ok = await this.keepScreenOn(!!enable)
+    } catch {
+      ok = false
+    }
+    desktopKeepAliveActive = !!enable && ok
     return {
-      supported: false,
-      active: false,
+      supported: true,
+      active: desktopKeepAliveActive,
       source: 'tauri',
-      reason: enable ? '桌面端无需激进保活' : '桌面端无需激进保活'
+      reason: enable
+        ? (ok ? '桌面端已启用前台保活策略' : '桌面端启用保活失败')
+        : '桌面端已关闭前台保活策略'
     }
   },
 
   async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
     return {
-      supported: false,
-      active: false,
+      supported: true,
+      active: desktopKeepAliveActive,
       source: 'tauri',
-      reason: '桌面端不支持移动端前台服务保活'
+      reason: '桌面端使用前台轮询与窗口保活策略'
     }
   },
 
   async openBatteryOptimizationSettings() {
-    return false
+    return tryOpenDesktopPowerSettings()
   }
 }

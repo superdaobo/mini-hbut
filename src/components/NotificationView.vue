@@ -32,6 +32,7 @@ const showBatteryPrompt = ref(false)
 const backgroundLockEnabled = ref(false)
 const backgroundLockSource = ref('')
 const aggressiveKeepAliveSupported = ref(false)
+const keepAliveReason = ref('')
 const backgroundFetchState = ref(null)
 
 const permissionState = ref('unknown')
@@ -42,18 +43,20 @@ const checking = ref(false)
 const snapshot = ref(null)
 const dormData = ref([])
 const selectedPath = ref([])
-const currentRuntime = getRuntime()
+const currentRuntime = ref(getRuntime())
 
-const resolveRuntimeDisplay = () => {
+const runtimeDisplayText = computed(() => {
   const ua = String(navigator.userAgent || '')
   const isAndroidUA = /Android/i.test(ua)
   const isIosUA = /iPhone|iPad|iPod/i.test(ua)
   const platformText = isAndroidUA ? 'Android' : (isIosUA ? 'iOS' : '未知平台')
-  if (currentRuntime === 'capacitor') return `${platformText} / Capacitor`
-  if (currentRuntime === 'tauri') return '桌面端 / Tauri'
+  if (currentRuntime.value === 'capacitor') return `${platformText} / Capacitor`
+  if (currentRuntime.value === 'tauri') {
+    if (isAndroidUA || isIosUA) return `${platformText} / Tauri`
+    return '桌面端 / Tauri'
+  }
   return '浏览器 / Web'
-}
-const runtimeDisplayText = resolveRuntimeDisplay()
+})
 
 const isAndroid = () => /Android/i.test(navigator.userAgent)
 
@@ -183,15 +186,33 @@ const nextClassText = computed(() => {
 
 const backgroundFetchStatusText = computed(() => {
   const state = backgroundFetchState.value
-  if (!state?.supported) return '当前环境不支持'
+  if (!state) return '状态未知'
+  if (state?.runtime === 'tauri') return '桌面前台轮询（已启用）'
+  if (!state?.supported) return state?.reason || '当前环境不支持'
   if (state?.available) return '可用'
   if (state?.configured) return '已配置（待系统调度）'
   return '未配置'
 })
 
 const keepAliveStatusText = computed(() => {
-  if (!aggressiveKeepAliveSupported.value) return '未启用'
+  if (!aggressiveKeepAliveSupported.value) return keepAliveReason.value || '未启用'
   return backgroundLockEnabled.value ? '已运行' : '未运行'
+})
+
+const backgroundLockStatusText = computed(() => {
+  if (backgroundLockEnabled.value) {
+    return `已启用（${backgroundLockSource.value || '系统'}）`
+  }
+  if (aggressiveKeepAliveSupported.value) {
+    return '未启用（可启用）'
+  }
+  if (keepAliveReason.value) {
+    return `未启用（${keepAliveReason.value}）`
+  }
+  if (currentRuntime.value === 'tauri') {
+    return '未启用（桌面端可用）'
+  }
+  return '未启用'
 })
 
 const getNativePermissionState = async (requestNow = false) => {
@@ -221,7 +242,7 @@ const updatePermissionState = async (requestNow = false) => {
     }
     return state === 'granted'
   } catch (error) {
-    if (currentRuntime === 'web') {
+    if (currentRuntime.value === 'web') {
       permissionState.value = 'unsupported'
       statusMessage.value = '当前环境不支持系统通知。'
       return false
@@ -313,6 +334,7 @@ const runManualCheck = async () => {
 }
 
 const refreshRuntimeStates = async () => {
+  currentRuntime.value = getRuntime()
   try {
     backgroundFetchState.value = await getBackgroundFetchRuntimeState()
   } catch {
@@ -324,19 +346,22 @@ const refreshRuntimeStates = async () => {
     aggressiveKeepAliveSupported.value = !!state?.supported
     backgroundLockEnabled.value = !!state?.active
     backgroundLockSource.value = String(state?.source || '')
+    keepAliveReason.value = String(state?.reason || '')
   } catch {
     aggressiveKeepAliveSupported.value = false
+    keepAliveReason.value = '状态读取失败'
   }
 }
 
 const handleBackgroundToggle = async () => {
   saveSettings()
-  if (currentRuntime === 'capacitor' && isAndroid()) {
+  if (currentRuntime.value === 'capacitor') {
     const keepAlive = await platformBridge.setAggressiveKeepAlive(enableBackground.value)
     aggressiveKeepAliveSupported.value = !!keepAlive?.supported
     backgroundLockEnabled.value = !!keepAlive?.active
     backgroundLockSource.value = String(keepAlive?.source || '')
-    if (enableBackground.value) {
+    keepAliveReason.value = String(keepAlive?.reason || '')
+    if (enableBackground.value && isAndroid()) {
       showBatteryPrompt.value = true
     }
     await refreshRuntimeStates()
@@ -375,11 +400,26 @@ const handleClassLeadChange = () => {
 
 const confirmBatterySettings = () => {
   showBatteryPrompt.value = false
-  platformBridge.openBatteryOptimizationSettings().catch(() => {})
+  void platformBridge.openBatteryOptimizationSettings()
+    .then((ok) => {
+      statusMessage.value = ok
+        ? '已打开系统设置，请允许通知与后台运行权限。'
+        : '无法自动打开系统设置，请手动授予后台权限。'
+    })
+    .catch(() => {
+      statusMessage.value = '无法自动打开系统设置，请手动授予后台权限。'
+    })
 }
 
 const cancelBatterySettings = () => {
   showBatteryPrompt.value = false
+}
+
+const openSystemPermissionSettings = async () => {
+  const ok = await platformBridge.openBatteryOptimizationSettings().catch(() => false)
+  statusMessage.value = ok
+    ? '已打开系统设置，请完成后台运行与通知权限授权。'
+    : '无法自动打开系统设置，请在系统设置中手动授权后台运行。'
 }
 
 const handleTestNotification = async () => {
@@ -404,7 +444,7 @@ const handleTestNotification = async () => {
         title: 'Mini-HBUT',
         body: '这是一个测试通知，用于验证通知权限和推送能力。'
       })
-      if (!ok && currentRuntime === 'capacitor') {
+      if (!ok && currentRuntime.value === 'capacitor') {
         const retryOk = await platformBridge.sendLocalNotification({
           id: testId + 1,
           channelId: 'hbut-default',
@@ -435,6 +475,7 @@ const handleTestNotification = async () => {
 }
 
 onMounted(async () => {
+  currentRuntime.value = getRuntime()
   updateSettingsFromStorage()
   selectedPath.value = readLocalDormSelection()
   snapshot.value = getLastNotifySnapshot(props.studentId) || null
@@ -450,15 +491,17 @@ onMounted(async () => {
   await ensureAndroidChannel()
   await refreshRuntimeStates()
 
-  if (enableBackground.value && currentRuntime === 'capacitor' && isAndroid()) {
+  if (enableBackground.value && currentRuntime.value === 'capacitor') {
     const keepAlive = await platformBridge.setAggressiveKeepAlive(true)
     aggressiveKeepAliveSupported.value = !!keepAlive?.supported
     backgroundLockEnabled.value = !!keepAlive?.active
     backgroundLockSource.value = String(keepAlive?.source || '')
+    keepAliveReason.value = String(keepAlive?.reason || '')
   } else if (enableBackground.value && isTauriRuntime()) {
     const result = await enableBackgroundPowerLock()
     backgroundLockEnabled.value = result.enabled
     backgroundLockSource.value = result.source.join(' + ')
+    keepAliveReason.value = result.enabled ? '' : '窗口保活未生效'
   }
 
   window.addEventListener(NOTIFY_SNAPSHOT_EVENT, handleSnapshotEvent)
@@ -585,7 +628,7 @@ onBeforeUnmount(() => {
 
       <div class="status-row" v-if="enableBackground">
         <span class="status-pill soft">
-          保活状态：{{ backgroundLockEnabled ? ('已启用（' + (backgroundLockSource || '插件') + '）') : '未启用（当前平台不支持或插件不可用）' }}
+          保活状态：{{ backgroundLockStatusText }}
         </span>
         <span class="status-pill soft">后台调度：{{ backgroundFetchStatusText }}</span>
         <span class="status-pill soft">激进保活：{{ keepAliveStatusText }}</span>
@@ -595,6 +638,14 @@ onBeforeUnmount(() => {
         <span class="status-pill soft" v-if="backgroundFetchState?.lastError">
           调度错误：{{ backgroundFetchState.lastError }}
         </span>
+        <button
+          v-if="currentRuntime === 'capacitor'"
+          type="button"
+          class="btn-secondary btn-mini"
+          @click="openSystemPermissionSettings"
+        >
+          系统权限入口
+        </button>
       </div>
     </section>
 
@@ -954,6 +1005,13 @@ input:checked + .slider:before {
   color: var(--ui-primary);
   background: var(--ui-primary-soft);
   border: 1px solid color-mix(in oklab, var(--ui-primary) 25%, transparent);
+}
+
+.btn-mini {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 999px;
 }
 
 .btn-primary:hover,
