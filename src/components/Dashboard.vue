@@ -198,6 +198,14 @@ const getCoursePeriodRange = (course) => {
   return { startPeriod, endPeriod }
 }
 
+const getTodayCourseSignature = (course, room, teacher) => {
+  const name = String(course?.name || '').trim()
+  const className = String(course?.class_name || '').trim()
+  const building = String(course?.building || '').trim()
+  const custom = course?.is_custom ? '1' : '0'
+  return `${name}|${teacher}|${room}|${className}|${building}|${custom}`
+}
+
 const fetchCustomCoursesForToday = async (semester) => {
   const sid = String(props.studentId || '').trim()
   const sem = String(semester || '').trim()
@@ -223,7 +231,7 @@ const fetchCustomCoursesForToday = async (semester) => {
 const buildTodayCourses = (courses, currentWeek) => {
   const safeWeek = toPositiveInt(currentWeek, 1)
   const todayWeekday = getTodayWeekday()
-  const daily = (courses || [])
+  const normalized = (courses || [])
     .filter((course) => toPositiveInt(course?.weekday, 0) === todayWeekday)
     .filter((course) => {
       const weeks = normalizeWeeks(course?.weeks)
@@ -241,6 +249,29 @@ const buildTodayCourses = (courses, currentWeek) => {
       }
     })
     .filter(Boolean)
+
+  const signatureCount = new Map()
+  normalized.forEach((course) => {
+    const signature = getTodayCourseSignature(course, course.room, course.teacher)
+    signatureCount.set(signature, (signatureCount.get(signature) || 0) + 1)
+  })
+
+  const daily = normalized
+    .map((course) => {
+      const signature = getTodayCourseSignature(course, course.room, course.teacher)
+      const rawSpan = Math.max(1, course.endPeriod - course.startPeriod + 1)
+      const duplicateCount = Number(signatureCount.get(signature) || 0)
+      // 与课表页一致：同签名多条（后端按节拆分）时按单节处理，避免结束时间被错误拉长。
+      const unitSpan = course.is_custom ? rawSpan : (duplicateCount > 1 ? 1 : rawSpan)
+      const endPeriod = Math.min(11, course.startPeriod + unitSpan - 1)
+      return {
+        ...course,
+        signature,
+        rawSpan,
+        unitSpan,
+        endPeriod
+      }
+    })
     .sort((a, b) => a.startPeriod - b.startPeriod || a.endPeriod - b.endPeriod)
 
   const merged = []
@@ -256,12 +287,12 @@ const buildTodayCourses = (courses, currentWeek) => {
     while (nextIndex < daily.length) {
       const next = daily[nextIndex]
       if (
-        next.name === current.name &&
-        next.room === room &&
-        next.teacher === teacher &&
-        next.startPeriod <= endPeriod + 1
+        current.unitSpan === 1 &&
+        next.unitSpan === 1 &&
+        next.signature === current.signature &&
+        next.startPeriod === endPeriod + 1
       ) {
-        endPeriod = Math.max(endPeriod, next.endPeriod)
+        endPeriod = next.endPeriod
         nextIndex += 1
       } else {
         break

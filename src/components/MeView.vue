@@ -196,18 +196,37 @@ const handleShowLegal = async (tab) => {
     <!-- 开源说明弹窗 -->
     <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
       <div class="modal-card" @click.stop>
-        <h3>开源说明</h3>
-        <p>Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
-        <p><strong>项目地址：</strong></p>
-        <a class="github-link" @click="openGithub">https://github.com/superdaobo/mini-hbut</a>
-        <p>感谢以下开源项目：</p>
-        <ul class="opensource-list">
-          <li>Tauri / Vue 3 / Vite</li>
-          <li>reqwest / scraper / serde</li>
-          <li>...以及所有贡献者</li>
-        </ul>
+        <h3>📚 开源说明</h3>
+        
+        <p class="intro">Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
+        
+        <div class="section">
+          <p class="label">项目地址</p>
+          <a class="github-link" @click="openGithub">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+            https://github.com/superdaobo/mini-hbut
+          </a>
+        </div>
+        
+        <div class="section">
+          <p class="label">开源技术</p>
+          <ul class="opensource-list">
+            <li><span class="tag">前端</span> Tauri / Vue 3 / Vite</li>
+            <li><span class="tag">后端</span> Rust (reqwest / scraper / serde)</li>
+            <li><span class="tag">感谢</span> 所有开源贡献者</li>
+          </ul>
+        </div>
+        
+        <div class="section thanks">
+          <p>感谢原 <strong>Mini湖工</strong> 小程序的开发者，为本项目提供了宝贵的灵感</p>
+          <p>感谢开发者的 <strong>朋友们和舍友们</strong>，提供了测试和反馈</p>
+          <p class="highlight">感谢所有为 Mini-HBUT 做出贡献的人！ 🎉</p>
+        </div>
+        
         <div class="modal-actions">
-          <button class="btn-primary" @click="showOpenSourceModal = false">关闭</button>
+          <button class="btn-primary" @click="showOpenSourceModal = false">知道了</button>
         </div>
       </div>
     </div>
@@ -561,6 +580,84 @@ const handleShowLegal = async (tab) => {
     text-decoration: underline;
     cursor: pointer;
     word-break: break-all;
+}
+
+.modal-card h3 {
+    margin-bottom: 16px;
+    font-size: 18px;
+}
+
+.modal-card .intro {
+    margin-bottom: 20px;
+    color: var(--ui-text);
+    line-height: 1.6;
+}
+
+.modal-card .section {
+    margin-bottom: 16px;
+}
+
+.modal-card .label {
+    font-size: 12px;
+    color: var(--ui-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.modal-card .github-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--ui-card-bg);
+    border-radius: 8px;
+    color: var(--ui-primary);
+    text-decoration: none;
+    font-size: 14px;
+    word-break: break-all;
+}
+
+.modal-card .github-link .icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.modal-card .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--ui-primary);
+    color: white;
+    border-radius: 4px;
+    font-size: 11px;
+    margin-right: 8px;
+}
+
+.modal-card .thanks {
+    padding: 12px;
+    background: var(--ui-card-bg);
+    border-radius: 8px;
+    border-left: 3px solid var(--ui-primary);
+}
+
+.modal-card .thanks p {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: var(--ui-muted);
+    line-height: 1.5;
+}
+
+.modal-card .thanks p:last-child {
+    margin-bottom: 0;
+}
+
+.modal-card .thanks .highlight {
+    color: var(--ui-primary);
+    font-weight: 600;
+    text-align: center;
+    padding-top: 8px;
+    border-top: 1px dashed var(--ui-border);
 }
 
 .opensource-list {
