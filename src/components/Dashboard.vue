@@ -68,6 +68,7 @@ const todayLoading = ref(false)
 const todayError = ref('')
 const nowTick = ref(Date.now())
 let clockTimer = null
+const CLOCK_TICK_MS = 1000
 
 const periodTimeMap = {
   1: { start: '08:20', end: '09:05' },
@@ -94,6 +95,11 @@ const currentMinute = computed(() => {
   return now.getHours() * 60 + now.getMinutes()
 })
 
+const currentMinutePrecise = computed(() => {
+  const now = new Date(nowTick.value)
+  return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
+})
+
 const currentTimeText = computed(() => {
   const now = new Date(nowTick.value)
   const h = String(now.getHours()).padStart(2, '0')
@@ -102,18 +108,34 @@ const currentTimeText = computed(() => {
 })
 
 const timelineCourses = computed(() => {
-  return todayCourses.value.filter((course) => course.endMinutes >= currentMinute.value).slice(0, 4)
+  // 结束时间采用右开区间：到达结束时刻即视为该课程结束，自动切换下一节。
+  return todayCourses.value
+    .filter((course) => course.endMinutes > currentMinutePrecise.value)
+    .slice(0, 4)
 })
 
 const todayBlockTitle = computed(() => {
   if (!props.isLoggedIn) return '今日课程'
   if (timelineCourses.value.length === 0) return '今日课程'
   const first = timelineCourses.value[0]
-  if (first.startMinutes <= currentMinute.value && first.endMinutes >= currentMinute.value) {
+  if (
+    first.startMinutes <= currentMinutePrecise.value &&
+    currentMinutePrecise.value < first.endMinutes
+  ) {
     return '正在进行'
   }
   return '即将开始'
 })
+
+const syncNowTick = () => {
+  nowTick.value = Date.now()
+}
+
+const handleVisibilityRefresh = () => {
+  if (document.visibilityState === 'visible') {
+    syncNowTick()
+  }
+}
 
 const getTodayWeekday = () => {
   const day = new Date(nowTick.value).getDay()
@@ -733,10 +755,13 @@ onMounted(() => {
   void refreshTickerMetrics()
   startTickerLoop()
   attachCardSpotlight()
+  syncNowTick()
   clockTimer = window.setInterval(() => {
-    nowTick.value = Date.now()
-  }, 60 * 1000)
+    syncNowTick()
+  }, CLOCK_TICK_MS)
   window.addEventListener('resize', updateNoticeSwipeMode)
+  window.addEventListener('focus', syncNowTick)
+  document.addEventListener('visibilitychange', handleVisibilityRefresh)
 })
 
 onBeforeUnmount(() => {
@@ -751,6 +776,8 @@ onBeforeUnmount(() => {
     tickerResumeTimer = null
   }
   window.removeEventListener('resize', updateNoticeSwipeMode)
+  window.removeEventListener('focus', syncNowTick)
+  document.removeEventListener('visibilitychange', handleVisibilityRefresh)
 })
 
 watch(
@@ -892,7 +919,10 @@ watch(
           </div>
           <div class="today-item-main">
             <div class="today-item-name">{{ course.name }}</div>
-            <div class="today-item-meta">上课地点：{{ course.room }}</div>
+            <div class="today-item-meta today-item-meta--location">
+              <span class="today-meta-label">上课地点：</span>
+              <span class="today-room-pill">{{ course.room }}</span>
+            </div>
             <div class="today-item-meta">授课教师：{{ course.teacher }}</div>
           </div>
         </div>
@@ -1574,6 +1604,41 @@ html[data-theme='cyberpunk'] .today-panel {
   line-height: 1.65;
 }
 
+.today-item-meta--location {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.today-meta-label {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.today-room-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 26%, rgba(148, 163, 184, 0.42));
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-primary) 10%, #ffffff 90%),
+    color-mix(in oklab, var(--ui-secondary) 14%, #ffffff 86%)
+  );
+  color: color-mix(in oklab, var(--ui-primary) 68%, #0f172a 32%);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 5px 14px color-mix(in oklab, var(--ui-primary) 16%, transparent);
+}
+
 html[data-theme='cyberpunk'] .today-item-time,
 html[data-theme='cyberpunk'] .today-item-name {
   color: #e2f7ff;
@@ -1581,6 +1646,11 @@ html[data-theme='cyberpunk'] .today-item-name {
 
 html[data-theme='cyberpunk'] .today-item-meta {
   color: #94a3b8;
+}
+
+html[data-theme='cyberpunk'] .today-room-pill {
+  color: #d8f3ff;
+  border-color: rgba(103, 232, 249, 0.42);
 }
 
 @media (max-width: 720px) {
@@ -1631,6 +1701,11 @@ html[data-theme='cyberpunk'] .today-item-meta {
 
   .today-item-meta {
     font-size: 13px;
+  }
+
+  .today-room-pill {
+    font-size: 14px;
+    padding: 4px 10px;
   }
 
   .module-name {
@@ -1698,6 +1773,11 @@ html[data-theme='cyberpunk'] .today-item-meta {
   .today-item-meta {
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  .today-room-pill {
+    font-size: 13px;
+    padding: 3px 9px;
   }
 
   .module-name {

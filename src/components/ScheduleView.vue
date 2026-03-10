@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
@@ -19,6 +19,7 @@ import {
   runCloudSyncDownload,
   runCloudSyncUpload
 } from '../utils/cloud_sync.js'
+import { pushDebugLog } from '../utils/debug_logger'
 import { showToast } from '../utils/toast'
 
 const props = defineProps({
@@ -75,6 +76,7 @@ const syncUploadCooldownMs = ref(0)
 const syncDownloadCooldownMs = ref(0)
 const syncStatusText = ref('')
 const uiSettings = useUiSettings()
+const courseCardRefreshNonce = ref(0)
 let confirmDialogResolver = null
 let syncCooldownTimer = null
 const addCourseForm = ref({
@@ -155,8 +157,8 @@ const weekDayLabels = ['周一', '周二', '周三', '周四', '周五', '周六
 const periodOptions = Array.from({ length: 11 }, (_, i) => i + 1)
 const MAX_PERIOD = 11
 const courseCardStyleOptions = [
-  { key: 'modern', label: '现代', desc: '沿用当前课程方块样式' },
-  { key: 'traditional', label: '传统', desc: '使用 v1.1.2 课程方块样式' }
+  { key: 'modern', label: '现代' },
+  { key: 'traditional', label: '传统' }
 ]
 
 // 更加精细的时间表
@@ -174,7 +176,7 @@ const timeSchedule = [
   { p: 11, start: '20:10', end: '20:55' }
 ]
 
-// 课表卡片配色：更高对比的雅致亮色，保证可读性与辨识度
+// 课表卡片配色：沿用 main 上版（v1.2.5）风格
 const courseThemes = [
   { bg: '#e7f4ff', text: '#0f5da8', border: '#72b9ff' }, // 湖蓝
   { bg: '#fff0e8', text: '#cb4f2f', border: '#ffb390' }, // 珊瑚橘
@@ -223,6 +225,12 @@ const currentMonth = computed(() => {
   return new Date().getMonth() + 1
 })
 
+const isTodayColumn = (dayIndex) => {
+  const idx = Number(dayIndex) - 1
+  if (idx < 0 || idx > 6) return false
+  return !!weekDates.value[idx]?.isToday
+}
+
 const semesterWeekOptions = computed(() => {
   const count = Number(totalWeeks.value)
   const safeCount = Number.isFinite(count) && count > 0 ? count : 25
@@ -240,7 +248,7 @@ const addWeeksCountText = computed(() => {
   return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
 })
 
-const scheduleCourseCardStyle = computed(() =>
+const scheduleCourseCardStyle = ref(
   uiSettings.scheduleCourseCardStyle === 'traditional' ? 'traditional' : 'modern'
 )
 
@@ -607,6 +615,15 @@ watch(
 )
 
 watch(
+  () => uiSettings.scheduleCourseCardStyle,
+  (value) => {
+    scheduleCourseCardStyle.value = value === 'traditional' ? 'traditional' : 'modern'
+    pushDebugLog('Schedule', `课表样式状态同步：${scheduleCourseCardStyle.value}`, 'debug')
+  },
+  { immediate: true }
+)
+
+watch(
   () => addCourseForm.value.period,
   (periodValue) => {
     const start = Number(periodValue) || 1
@@ -650,6 +667,95 @@ const hashText = (value) => {
     hash = text.charCodeAt(i) + ((hash << 5) - hash)
   }
   return Math.abs(hash)
+}
+
+const hexToRgb = (hex) => {
+  const text = String(hex || '').trim().replace('#', '')
+  if (!/^[0-9a-fA-F]{6}$/.test(text)) return null
+  return {
+    r: Number.parseInt(text.slice(0, 2), 16),
+    g: Number.parseInt(text.slice(2, 4), 16),
+    b: Number.parseInt(text.slice(4, 6), 16)
+  }
+}
+
+const colorDistance = (aHex, bHex) => {
+  const a = hexToRgb(aHex)
+  const b = hexToRgb(bHex)
+  if (!a || !b) return 0
+  const dr = a.r - b.r
+  const dg = a.g - b.g
+  const db = a.b - b.b
+  return Math.sqrt(dr * dr + dg * dg + db * db)
+}
+
+const getThemeContrastScore = (aIndex, bIndex) => {
+  const themeA = courseThemes[aIndex] || {}
+  const themeB = courseThemes[bIndex] || {}
+  const borderGap = colorDistance(themeA.border, themeB.border)
+  const textGap = colorDistance(themeA.text, themeB.text)
+  // 颜色分配主要看边框色差，文字色作为次要补充。
+  return borderGap * 0.72 + textGap * 0.28
+}
+
+const getCircularOffset = (seed, candidate) => {
+  const len = courseThemes.length
+  const forward = (candidate - seed + len) % len
+  const backward = (seed - candidate + len) % len
+  return Math.min(forward, backward)
+}
+
+const evaluateThemeCandidate = (candidate, seed, neighborColors, globalColors) => {
+  const neighborMinContrast = neighborColors.length
+    ? neighborColors.reduce((minGap, neighborColor) => {
+      const gap = getThemeContrastScore(candidate, neighborColor)
+      return gap < minGap ? gap : minGap
+    }, Number.POSITIVE_INFINITY)
+    : Number.POSITIVE_INFINITY
+
+  const globalMinContrast = globalColors.length
+    ? globalColors.reduce((minGap, globalColor) => {
+      const gap = getThemeContrastScore(candidate, globalColor)
+      return gap < minGap ? gap : minGap
+    }, Number.POSITIVE_INFINITY)
+    : Number.POSITIVE_INFINITY
+
+  return {
+    candidate,
+    neighborMinContrast,
+    globalMinContrast,
+    offset: getCircularOffset(seed, candidate)
+  }
+}
+
+const pickBestThemeCandidate = (candidates, seed, neighborColors, globalColors) => {
+  let best = null
+  candidates.forEach((candidate) => {
+    const metrics = evaluateThemeCandidate(candidate, seed, neighborColors, globalColors)
+    if (!best) {
+      best = metrics
+      return
+    }
+    if (metrics.neighborMinContrast > best.neighborMinContrast) {
+      best = metrics
+      return
+    }
+    if (
+      metrics.neighborMinContrast === best.neighborMinContrast &&
+      metrics.globalMinContrast > best.globalMinContrast
+    ) {
+      best = metrics
+      return
+    }
+    if (
+      metrics.neighborMinContrast === best.neighborMinContrast &&
+      metrics.globalMinContrast === best.globalMinContrast &&
+      metrics.offset < best.offset
+    ) {
+      best = metrics
+    }
+  })
+  return best?.candidate ?? null
 }
 
 const periodsOverlap = (aStart, aEnd, bStart, bEnd) => {
@@ -895,22 +1001,47 @@ const buildWeekCoursesWithColors = (weekNumber) => {
   })
 
   const colorByName = new Map()
+  const globallyUsedColors = new Set()
+  const allCandidates = Array.from({ length: courseThemes.length }, (_, i) => i)
   orderedNames.forEach((name) => {
-    const used = new Set()
+    const neighborColorSet = new Set()
     nameNeighbors.get(name)?.forEach((neighborName) => {
-      if (colorByName.has(neighborName)) used.add(colorByName.get(neighborName))
+      if (!colorByName.has(neighborName)) return
+      const neighborColor = colorByName.get(neighborName)
+      neighborColorSet.add(neighborColor)
     })
+    const neighborColors = [...neighborColorSet]
+    const globalColors = [...globallyUsedColors]
 
     const seed = hashText(name) % courseThemes.length
-    let chosen = seed
-    for (let offset = 0; offset < courseThemes.length; offset += 1) {
-      const candidate = (seed + offset) % courseThemes.length
-      if (!used.has(candidate)) {
-        chosen = candidate
-        break
-      }
+    // 规则优先级：
+    // 1) 优先全局唯一（不同课程尽量不重复颜色）。
+    // 2) 其次保证邻接课程颜色不重复。
+    // 3) 在候选内选择与邻接/全局已有颜色对比度更高的颜色。
+    const uniqueCandidates = allCandidates.filter(
+      (candidate) => !globallyUsedColors.has(candidate) && !neighborColorSet.has(candidate)
+    )
+    const reusableCandidates = allCandidates.filter(
+      (candidate) => globallyUsedColors.has(candidate) && !neighborColorSet.has(candidate)
+    )
+    const noNeighborConflictCandidates = allCandidates.filter(
+      (candidate) => !neighborColorSet.has(candidate)
+    )
+
+    let chosen = pickBestThemeCandidate(uniqueCandidates, seed, neighborColors, globalColors)
+    if (chosen === null) {
+      chosen = pickBestThemeCandidate(reusableCandidates, seed, neighborColors, globalColors)
     }
+    if (chosen === null) {
+      chosen = pickBestThemeCandidate(noNeighborConflictCandidates, seed, neighborColors, globalColors)
+    }
+    if (chosen === null) {
+      // 极端兜底：即使邻接冲突也保证有稳定结果
+      chosen = pickBestThemeCandidate(allCandidates, seed, neighborColors, globalColors)
+    }
+    if (chosen === null) chosen = seed
     colorByName.set(name, chosen)
+    globallyUsedColors.add(chosen)
   })
 
   for (let day = 1; day <= 7; day += 1) {
@@ -958,14 +1089,23 @@ const getCourseStyle = (course) => {
   if (!course) return {}
   const start = Number(course.period) || 1
   const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course.djs) || 1))
+  const isTraditionalCard = scheduleCourseCardStyle.value === 'traditional'
+  // 现代样式使用连续圆角，避免竖向出现“尖顶”视觉。
+  const modernRadius = '14px'
+  const traditionalRadius = '8px'
   if (course.is_conflict) {
     return {
-      '--course-bg': 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)',
-      '--course-text': '#b91c1c',
+      '--course-bg': isTraditionalCard
+        ? '#dc2626'
+        : 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)',
+      '--course-text': isTraditionalCard ? '#ffffff' : '#b91c1c',
       '--course-border': '#dc2626',
-      '--course-shadow': '0 8px 18px rgba(220, 38, 38, 0.2)',
+      '--course-shadow': isTraditionalCard
+        ? '0 4px 10px rgba(220, 38, 38, 0.18)'
+        : '0 8px 18px rgba(220, 38, 38, 0.2)',
       '--course-span': String(span),
-      borderWidth: '2px',
+      '--course-radius': isTraditionalCard ? traditionalRadius : modernRadius,
+      '--course-border-width': '2px',
       gridRow: `${start} / span ${span}`,
       gridColumn: '1',
       zIndex: 4
@@ -988,14 +1128,22 @@ const getCourseStyle = (course) => {
   const theme = courseThemes[index]
   const isCustom = !!course.is_custom
   const borderColor = isCustom ? '#111111' : (theme.border || '#cbd5e1')
+  const traditionalBackground = isCustom ? '#111111' : borderColor
+  const traditionalText = '#ffffff'
+  const modernBackground = 'rgba(255, 255, 255, 0.92)'
+  const normalShadow = isCustom
+    ? '0 7px 16px rgba(15, 23, 42, 0.24)'
+    : '0 6px 14px rgba(71, 85, 105, 0.16)'
+  const traditionalShadow = '0 4px 10px rgba(15, 23, 42, 0.14)'
   
   return {
-    '--course-bg': theme.bg,
-    '--course-text': theme.text,
+    '--course-bg': isTraditionalCard ? traditionalBackground : modernBackground,
+    '--course-text': isTraditionalCard ? traditionalText : theme.text,
     '--course-border': borderColor,
-    '--course-shadow': isCustom ? '0 7px 16px rgba(15, 23, 42, 0.24)' : '0 6px 14px rgba(71, 85, 105, 0.16)',
+    '--course-shadow': isTraditionalCard ? traditionalShadow : normalShadow,
     '--course-span': String(span),
-    borderWidth: isCustom ? '2px' : '1px',
+    '--course-radius': isTraditionalCard ? traditionalRadius : modernRadius,
+    '--course-border-width': isCustom ? '2px' : '1px',
     gridRow: `${start} / span ${span}`,
     gridColumn: '1',
     zIndex: 1,
@@ -1323,9 +1471,31 @@ const toggleMenu = () => {
 
 const setScheduleCourseCardStyle = (styleKey) => {
   const nextStyle = styleKey === 'traditional' ? 'traditional' : 'modern'
-  if (uiSettings.scheduleCourseCardStyle === nextStyle) return
+  if (scheduleCourseCardStyle.value === nextStyle) return
+  scheduleCourseCardStyle.value = nextStyle
+  courseCardRefreshNonce.value += 1
   uiSettings.scheduleCourseCardStyle = nextStyle
   flushUiSettings()
+  pushDebugLog('Schedule', `切换课表样式：${nextStyle}`, 'info')
+  try {
+    const snapshot = JSON.parse(localStorage.getItem('hbu_ui_settings_v2') || '{}')
+    pushDebugLog(
+      'Schedule',
+      `课表样式已写入本地缓存：${String(snapshot?.scheduleCourseCardStyle || '') || 'unknown'}`,
+      'debug'
+    )
+  } catch (error) {
+    pushDebugLog('Schedule', '读取课表样式缓存失败', 'warn', error)
+  }
+  nextTick(() => {
+    courseCardRefreshNonce.value += 1
+    pushDebugLog(
+      'Schedule',
+      `课表样式热刷新完成：${nextStyle}，nonce=${courseCardRefreshNonce.value}`,
+      'debug'
+    )
+  })
+  showToast(`已切换为${nextStyle === 'traditional' ? '传统' : '现代'}样式`, 'success')
 }
 
 const buildExportEventsForWeek = (weekNumber) => {
@@ -1709,7 +1879,6 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="schedule-view"
-    :data-course-card-style="scheduleCourseCardStyle"
     @touchstart.passive="handleTouchStart"
     @touchmove.passive="handleTouchMove"
     @touchend.passive="handleTouchEnd"
@@ -1750,16 +1919,19 @@ onBeforeUnmount(() => {
 
         <div class="drawer-section">
           <div class="drawer-subtitle">课程样式</div>
-          <div class="drawer-style-grid">
+          <div class="drawer-style-switch" role="tablist" aria-label="课程样式切换">
             <button
               v-for="item in courseCardStyleOptions"
               :key="item.key"
+              type="button"
               class="drawer-style-chip"
               :class="{ active: scheduleCourseCardStyle === item.key }"
-              @click="setScheduleCourseCardStyle(item.key)"
+              role="tab"
+              :aria-pressed="scheduleCourseCardStyle === item.key"
+              :aria-selected="scheduleCourseCardStyle === item.key"
+              @click.stop="setScheduleCourseCardStyle(item.key)"
             >
               <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
             </button>
           </div>
         </div>
@@ -1971,19 +2143,22 @@ onBeforeUnmount(() => {
         </div>
         
         <!-- 课程网格 -->
-        <div class="courses-grid">
+        <div class="courses-grid" :key="`courses-grid-${scheduleCourseCardStyle}-${courseCardRefreshNonce}`">
            <!-- 背景线 -->
            <div class="grid-lines">
                <div v-for="i in 11" :key="i" class="line-row"></div>
            </div>
            
            <!-- 每天一列 -->
-           <div v-for="day in 7" :key="day" class="day-column">
+           <div v-for="day in 7" :key="day" class="day-column" :class="{ 'is-today-column': isTodayColumn(day) }">
                <div 
                   v-for="course in getCoursesForDay(day)" 
                   :key="course._uid || course.id"
                   class="course-card"
-                  :class="{ conflict: course.is_conflict }"
+                  :class="[
+                    `course-card--${scheduleCourseCardStyle}`,
+                    { conflict: course.is_conflict }
+                  ]"
                   :style="getCourseStyle(course)"
                   @click="openDetail(course)"
                >
@@ -2231,12 +2406,21 @@ onBeforeUnmount(() => {
   border-right: 1px solid var(--ui-surface-border);
   border-top-right-radius: 16px;
   border-bottom-right-radius: 16px;
-  padding: 18px 16px;
+  padding: 18px 16px calc(28px + env(safe-area-inset-bottom, 0px));
   box-shadow: 12px 0 24px rgba(15, 23, 42, 0.16);
   z-index: 50;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+.drawer-panel::-webkit-scrollbar {
+  display: none;
 }
 
 .drawer-title {
@@ -2283,39 +2467,42 @@ onBeforeUnmount(() => {
   color: #dc2626;
 }
 
-.drawer-style-grid {
+.drawer-style-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  width: 100%;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, rgba(148, 163, 184, 0.34));
+  background: color-mix(in oklab, var(--ui-primary-soft) 18%, var(--ui-surface) 82%);
 }
 
 .drawer-style-chip {
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.32));
-  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
-  color: var(--ui-text);
-  border-radius: 12px;
-  padding: 10px;
-  text-align: left;
-  display: grid;
-  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--ui-muted);
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 12px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  white-space: nowrap;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
 .drawer-style-chip strong {
   font-size: 13px;
-}
-
-.drawer-style-chip small {
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--ui-muted);
+  font-weight: 800;
 }
 
 .drawer-style-chip.active {
-  border-color: color-mix(in oklab, var(--ui-primary) 72%, white);
-  background: color-mix(in oklab, var(--ui-primary) 12%, #fff 88%);
-  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 22%, transparent);
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
 
 .drawer-action {
@@ -2510,13 +2697,14 @@ onBeforeUnmount(() => {
 }
 
 .day-col.is-today {
-  background: color-mix(in oklab, var(--ui-primary-soft) 78%, #fff 22%);
+  background: color-mix(in oklab, var(--ui-primary-soft) 82%, #fff 18%);
   border-radius: 0 0 12px 12px;
 }
 
 .day-col.is-today .day-num {
-  color: #2563eb;
-  font-weight: 700;
+  color: color-mix(in oklab, var(--ui-primary) 78%, #0f172a 22%);
+  font-weight: 800;
+  text-shadow: 0 1px 0 color-mix(in oklab, #ffffff 70%, transparent);
 }
 
 .day-num {
@@ -2634,6 +2822,21 @@ onBeforeUnmount(() => {
   min-height: calc(var(--slot-height) * 11);
 }
 
+.day-column.is-today-column::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--ui-primary-soft) 56%, transparent) 0%,
+    color-mix(in oklab, var(--ui-primary-soft) 36%, transparent) 100%
+  );
+  border-left: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+}
+
 .course-card {
   margin: 2px;
   padding: 7px 5px;
@@ -2649,18 +2852,28 @@ onBeforeUnmount(() => {
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  border: 1px solid var(--course-border, rgba(148, 163, 184, 0.55));
+  border: var(--course-border-width, 1px) solid var(--course-border, rgba(148, 163, 184, 0.55)) !important;
+  border-radius: var(--course-radius, 14px) !important;
+  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16)) !important;
+  z-index: 1;
 }
 
-.schedule-view[data-course-card-style='modern'] .course-card {
-  border-radius: 33.333% 33.333% 33.333% 33.333% /
-    clamp(8px, calc(6px + var(--course-span, 1) * 2px), 18px);
-  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16));
+.schedule-view .courses-grid .day-column > .course-card {
+  border: var(--course-border-width, 1px) solid var(--course-border, rgba(148, 163, 184, 0.55)) !important;
+  border-radius: var(--course-radius, 14px) !important;
+  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16)) !important;
+  background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
+  color: var(--course-text, #0f172a) !important;
 }
 
-.schedule-view[data-course-card-style='traditional'] .course-card {
-  border-radius: 12px;
-  box-shadow: 0 6px 14px rgba(71, 85, 105, 0.16);
+.schedule-view .courses-grid .day-column > .course-card.course-card--modern {
+  border-radius: var(--course-radius, 14px) !important;
+  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16)) !important;
+}
+
+.schedule-view .courses-grid .day-column > .course-card.course-card--traditional {
+  border-radius: 8px !important;
+  box-shadow: var(--course-shadow, 0 4px 10px rgba(15, 23, 42, 0.14)) !important;
 }
 
 .course-card.conflict .course-name {
@@ -2676,8 +2889,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
-.schedule-view[data-course-card-style='modern'] .course-name,
-.schedule-view[data-course-card-style='traditional'] .course-name {
+.course-name {
   font-weight: 600;
   font-size: 12px;
   margin-bottom: 4px;
@@ -2689,8 +2901,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.schedule-view[data-course-card-style='modern'] .course-room,
-.schedule-view[data-course-card-style='traditional'] .course-room {
+.course-room {
   font-size: 11px;
   opacity: 0.88;
   font-weight: 500;
@@ -3237,6 +3448,16 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .drawer-panel {
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+    height: auto;
+    max-height: calc(
+      100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 124px
+    );
+    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+
   .schedule-topbar {
     padding: 10px 12px;
   }
@@ -3286,18 +3507,12 @@ onBeforeUnmount(() => {
     font-size: 10px;
   }
 
-  .schedule-view[data-course-card-style='modern'] .course-name,
-  .schedule-view[data-course-card-style='traditional'] .course-name {
+  .course-name {
     font-size: 10px;
   }
 
-  .schedule-view[data-course-card-style='modern'] .course-room,
-  .schedule-view[data-course-card-style='traditional'] .course-room {
+  .course-room {
     font-size: 9px;
-  }
-
-  .drawer-style-grid {
-    grid-template-columns: 1fr;
   }
 
   .add-row {
