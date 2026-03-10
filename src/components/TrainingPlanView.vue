@@ -19,6 +19,7 @@ const offline = ref(false)
 const syncTime = ref('')
 const selectedCourse = ref(null)
 const showDetail = ref(false)
+const showAdvanced = ref(false)
 const options = ref({
   grade: [],
   kkxq: [],
@@ -27,6 +28,30 @@ const options = ref({
   kcgs: [],
   kkjys: []
 })
+
+const COURSE_NATURE_FALLBACK_MAP = {
+  '11': '通识教育必修课',
+  '12': '通识教育选修课',
+  '16': '限定性选修课',
+  '31': '学科基础课',
+  '32': '工程基础课',
+  '40': '专业核心课',
+  '41': '专业方向组选课',
+  '42': '专业任选课',
+  '43': '专业基础课',
+  '44': '专业必修课',
+  '45': '专业选修课',
+  '50': '基础实践',
+  '51': '专业实践',
+  '52': '综合实践',
+  '53': '其他实践',
+  '54': '短学期实践',
+  '70': '辅修双学位理论',
+  '71': '辅修双学位实践',
+  '90': '必修',
+  '98': '重修课',
+  '99': '公共选修课'
+}
 
 const defaults = ref({
   grade: '',
@@ -197,6 +222,17 @@ const handleNext = () => {
   }
 }
 
+const resolveCourseNature = (value) => {
+  const raw = String(value ?? '').trim()
+  if (!raw) return '-'
+  if (/[^\d]/.test(raw)) return raw
+  const fromOptions = (options.value.kcxz || []).find(
+    item => String(item?.value ?? '').trim() === raw
+  )
+  if (fromOptions?.label) return String(fromOptions.label).trim()
+  return COURSE_NATURE_FALLBACK_MAP[raw] || raw
+}
+
 const openDetail = (course) => {
   selectedCourse.value = course
   showDetail.value = true
@@ -229,48 +265,58 @@ onMounted(async () => {
     </div>
 
     <section class="filters">
-      <div class="filter-grid">
+      <div class="filter-grid compact-main">
         <label>
           <span>开设学年</span>
-          <select v-model="filters.grade">
+          <IOSSelect v-model="filters.grade">
             <option value="">请选择</option>
             <option v-for="opt in options.grade" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          </IOSSelect>
         </label>
         <label>
           <span>开设学期</span>
-          <select v-model="filters.kkxq">
+          <IOSSelect v-model="filters.kkxq">
             <option value="">请选择</option>
             <option v-for="opt in options.kkxq" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          </IOSSelect>
         </label>
+      </div>
+      <div class="filter-actions">
+        <button class="primary" @click="handleSearch">搜索</button>
+        <button class="ghost" @click="resetFilters">重置</button>
+        <button class="ghost" @click="showAdvanced = !showAdvanced">
+          {{ showAdvanced ? '收起高级' : '展开高级' }}
+        </button>
+      </div>
+      <div v-if="showAdvanced" class="advanced-section">
+        <div class="filter-grid">
         <label>
           <span>开课院系</span>
-          <select v-model="filters.kkyx" @change="fetchJys">
+          <IOSSelect v-model="filters.kkyx" @change="fetchJys">
             <option value="">请选择</option>
             <option v-for="opt in options.kkyx" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          </IOSSelect>
         </label>
         <label>
           <span>开课教研室</span>
-          <select v-model="filters.kkjys">
+          <IOSSelect v-model="filters.kkjys">
             <option value="">请选择</option>
             <option v-for="opt in options.kkjys" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          </IOSSelect>
         </label>
         <label>
           <span>课程性质</span>
-          <select v-model="filters.kcxz">
+          <IOSSelect v-model="filters.kcxz">
             <option value="">请选择</option>
             <option v-for="opt in options.kcxz" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          </IOSSelect>
         </label>
         <label>
           <span>课程归属</span>
-          <select v-model="filters.kcgs">
+          <IOSSelect v-model="filters.kcgs">
             <option value="">请选择</option>
             <option v-for="opt in options.kcgs" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
+          </IOSSelect>
         </label>
         <label>
           <span>课程编号</span>
@@ -281,9 +327,6 @@ onMounted(async () => {
           <input v-model="filters.kcmc" placeholder="输入名称" />
         </label>
       </div>
-      <div class="filter-actions">
-        <button class="primary" @click="handleSearch">搜索</button>
-        <button class="ghost" @click="resetFilters">重置</button>
       </div>
     </section>
 
@@ -299,11 +342,11 @@ onMounted(async () => {
           @click="openDetail(row)"
         >
           <div class="course-title">{{ row.kcmc || '-' }}</div>
-          <div class="course-tags">
-            <span class="tag primary">{{ row.sfbx || '未知' }}</span>
-            <span class="tag">学分 {{ row.xf || '-' }}</span>
-            <span class="tag ghost">{{ row.kcxz || '课程性质' }}</span>
-          </div>
+            <div class="course-tags">
+              <span class="tag primary">{{ row.sfbx || '未知' }}</span>
+              <span class="tag">学分 {{ row.xf || '-' }}</span>
+              <span class="tag ghost">{{ resolveCourseNature(row.kcxz) }}</span>
+            </div>
           <div class="course-sub">
             <span>{{ row.kcbh || '-' }}</span>
             <span>{{ row.kkxq || '-' }}</span>
@@ -331,7 +374,7 @@ onMounted(async () => {
             </div>
             <div class="detail-item">
               <span class="label">课程性质</span>
-              <span class="value">{{ selectedCourse?.kcxz || '-' }}</span>
+              <span class="value">{{ resolveCourseNature(selectedCourse?.kcxz) }}</span>
             </div>
             <div class="detail-item">
               <span class="label">选/必修</span>
@@ -413,6 +456,10 @@ onMounted(async () => {
   gap: 12px 16px;
 }
 
+.compact-main {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .filter-grid label {
   display: flex;
   flex-direction: column;
@@ -433,8 +480,15 @@ onMounted(async () => {
 
 .filter-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-top: 12px;
+}
+
+.advanced-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--ui-surface-border);
 }
 
 .filter-actions button {

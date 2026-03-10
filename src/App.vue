@@ -63,9 +63,12 @@ const isAndroidLike = (() => {
   if (typeof window === 'undefined') return false
   return /Android/i.test(window.navigator.userAgent || '')
 })()
+const isDesktopLike = !isIOSLike && !isAndroidLike
 let hiddenAt = 0
 let unlistenCloseRequested = null
 let isClosingByUser = false
+let viewportResizeRaf = 0
+let desktopResizePerfTimer = null
 
 // 视图状态: home, schedule, me, grades...
 const currentView = ref('home')
@@ -373,6 +376,28 @@ const scheduleViewportUpdate = () => {
     return
   }
   updateViewportUnit()
+}
+
+const markDesktopWindowResizing = () => {
+  if (!isDesktopLike || typeof document === 'undefined') return
+  const root = document.documentElement
+  root.classList.add('window-resizing')
+  if (desktopResizePerfTimer) {
+    window.clearTimeout(desktopResizePerfTimer)
+  }
+  desktopResizePerfTimer = window.setTimeout(() => {
+    root.classList.remove('window-resizing')
+    desktopResizePerfTimer = null
+  }, 180)
+}
+
+const handleViewportResize = () => {
+  markDesktopWindowResizing()
+  if (viewportResizeRaf) return
+  viewportResizeRaf = window.requestAnimationFrame(() => {
+    viewportResizeRaf = 0
+    scheduleViewportUpdate()
+  })
 }
 
 const handleVisibilityChange = () => {
@@ -1292,8 +1317,8 @@ onMounted(async () => {
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
-  window.addEventListener('resize', scheduleViewportUpdate)
-  window.addEventListener('orientationchange', scheduleViewportUpdate)
+  window.addEventListener('resize', handleViewportResize)
+  window.addEventListener('orientationchange', handleViewportResize)
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
   scheduleViewportUpdate()
@@ -1358,10 +1383,21 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleGlobalLinkClick, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('popstate', handlePopState)
-  window.removeEventListener('resize', scheduleViewportUpdate)
-  window.removeEventListener('orientationchange', scheduleViewportUpdate)
+  window.removeEventListener('resize', handleViewportResize)
+  window.removeEventListener('orientationchange', handleViewportResize)
   window.removeEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.removeEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
+  if (viewportResizeRaf) {
+    window.cancelAnimationFrame(viewportResizeRaf)
+    viewportResizeRaf = 0
+  }
+  if (desktopResizePerfTimer) {
+    window.clearTimeout(desktopResizePerfTimer)
+    desktopResizePerfTimer = null
+  }
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.remove('window-resizing')
+  }
   if (typeof unlistenCloseRequested === 'function') {
     unlistenCloseRequested()
     unlistenCloseRequested = null

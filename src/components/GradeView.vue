@@ -17,15 +17,143 @@ const searchName = ref('')
 const filterTerm = ref('')
 const filterPass = ref('all') // all, pass, fail
 const filterMakeup = ref('all') // all, yes, no
+const viewMode = ref('grouped') // grouped, all
+const sortMode = ref('score_desc') // score_desc, score_asc, origin
 
 // 详情弹窗
 const selectedGrade = ref(null)
 const showDetail = ref(false)
 
+const COURSE_NATURE_LABEL_MAP = {
+  '11': '通识必修',
+  '12': '通识选修',
+  '16': '限定选修',
+  '31': '学科基础',
+  '32': '工程基础',
+  '40': '专业核心',
+  '41': '专业方向组',
+  '42': '专业任选',
+  '43': '专业基础',
+  '44': '专业必修',
+  '45': '专业选修',
+  '50': '基础实践',
+  '51': '专业实践',
+  '52': '综合实践',
+  '53': '其他实践',
+  '54': '短学期实践',
+  '70': '辅修理论',
+  '71': '辅修实践',
+  '90': '必修',
+  '98': '重修',
+  '99': '公共选修'
+}
+
+const CJBJ_STATUS_MAP = {
+  '1': '补考',
+  '2': '缓考',
+  '3': '免修'
+}
+
+const toSafeText = (value) => String(value ?? '').trim()
+
+const normalizeCourseName = (value) => {
+  const text = toSafeText(value)
+  if (!text) return ''
+  const matched = text.match(/^\[[^\]]+\](.+)$/)
+  return matched ? toSafeText(matched[1]) : text
+}
+
+const parseScoreNumber = (score) => {
+  const n = Number.parseFloat(toSafeText(score))
+  return Number.isFinite(n) ? n : null
+}
+
+const resolveCourseNatureLabel = (grade) => {
+  const codes = [
+    toSafeText(grade.kcxz),
+    toSafeText(grade.course_nature_code),
+    toSafeText(grade.course_nature)
+  ].filter(Boolean)
+  for (const code of codes) {
+    if (COURSE_NATURE_LABEL_MAP[code]) return COURSE_NATURE_LABEL_MAP[code]
+  }
+  return toSafeText(grade.course_nature || grade.kcxzmc || codes[0] || '')
+}
+
+const resolveTeacherName = (grade) => {
+  if (!grade || typeof grade !== 'object') return ''
+  return String(
+    grade.teacher ??
+      grade.cjlrjsxm ??
+      grade.jsxm ??
+      grade.teacher_name ??
+      ''
+  )
+    .trim()
+}
+
+const resolveStatusTags = (grade, scoreText, scoreNumber) => {
+  const cjbj = toSafeText(grade.cjbj)
+  const cjbjLabel = CJBJ_STATUS_MAP[cjbj] || ''
+  const statusSource = `${scoreText}|${toSafeText(grade.cjfxms)}|${cjbjLabel}`
+  const isFailed =
+    (scoreNumber !== null && scoreNumber < 60) ||
+    /(不合格|不及格|挂科|未通过)/.test(statusSource)
+  const isMakeup =
+    toSafeText(grade.sfbk) === '1' ||
+    cjbjLabel === '补考' ||
+    /补考/.test(statusSource)
+  const isDeferred =
+    toSafeText(grade.sfsq) === '1' ||
+    cjbjLabel === '缓考' ||
+    /缓考/.test(statusSource)
+  const isExempt =
+    cjbjLabel === '免修' ||
+    /(免修|免考|免听)/.test(statusSource)
+
+  const tags = []
+  if (isFailed) tags.push({ key: 'failed', label: '挂科' })
+  if (isMakeup) tags.push({ key: 'makeup', label: '补考' })
+  if (isDeferred) tags.push({ key: 'deferred', label: '缓考' })
+  if (isExempt) tags.push({ key: 'exempt', label: '免修' })
+
+  const passByScore = scoreNumber !== null ? scoreNumber >= 60 : /合格|通过/.test(scoreText)
+  const isPass = !isFailed && passByScore
+
+  return { tags, isPass, isFailed, isMakeup, isDeferred, isExempt }
+}
+
+const normalizedGrades = computed(() =>
+  props.grades.map((grade, index) => {
+    const finalScore = toSafeText(grade.final_score || grade.zhcj || grade.yscj || '-')
+    const scoreNumber = parseScoreNumber(finalScore)
+    const status = resolveStatusTags(grade, finalScore, scoreNumber)
+    return {
+      ...grade,
+      originIndex: index,
+      term: toSafeText(grade.term || grade.xnxq),
+      course_name: normalizeCourseName(grade.course_name || grade.kcmc),
+      course_credit: toSafeText(grade.course_credit || grade.xf),
+      earned_credit: toSafeText(grade.earned_credit || grade.hdxf),
+      creditPoint: toSafeText(grade.creditPoint || grade.xfjd || grade.gpa),
+      final_score: finalScore,
+      scoreNumber,
+      course_nature: resolveCourseNatureLabel(grade),
+      teacher: resolveTeacherName(grade),
+      statusTags: status.tags,
+      isPass: status.isPass,
+      isFailed: status.isFailed,
+      isMakeup: status.isMakeup,
+      isDeferred: status.isDeferred,
+      isExempt: status.isExempt
+    }
+  })
+)
+
 // 获取所有学期列表
 const terms = computed(() => {
   const termSet = new Set()
-  props.grades.forEach(g => {
+  normalizedGrades.value.forEach(g => {
     if (g.term) termSet.add(g.term)
   })
   return normalizeSemesterList(Array.from(termSet))
@@ -33,9 +161,10 @@ const terms = computed(() => {
 
 // 筛选后的成绩
 const filteredGrades = computed(() => {
-  return props.grades.filter(grade => {
+  return normalizedGrades.value.filter(grade => {
+    const name = toSafeText(grade.course_name).toLowerCase()
     // 名称筛选
-    if (searchName.value && !grade.course_name.toLowerCase().includes(searchName.value.toLowerCase())) {
+    if (searchName.value && !name.includes(searchName.value.toLowerCase())) {
       return false
     }
     
@@ -46,22 +175,44 @@ const filteredGrades = computed(() => {
     
     // 是否合格筛选
     if (filterPass.value !== 'all') {
-      const score = parseFloat(grade.final_score)
-      const isPassed = !isNaN(score) ? score >= 60 : grade.final_score === '合格'
-      if (filterPass.value === 'pass' && !isPassed) return false
-      if (filterPass.value === 'fail' && isPassed) return false
+      if (filterPass.value === 'pass' && !grade.isPass) return false
+      if (filterPass.value === 'fail' && grade.isPass) return false
     }
     
     // 是否补考筛选
     if (filterMakeup.value !== 'all') {
-      const isMakeup = grade.is_makeup === '是' || grade.is_makeup === 'Y'
-      if (filterMakeup.value === 'yes' && !isMakeup) return false
-      if (filterMakeup.value === 'no' && isMakeup) return false
+      if (filterMakeup.value === 'yes' && !grade.isMakeup) return false
+      if (filterMakeup.value === 'no' && grade.isMakeup) return false
     }
     
     return true
   })
 })
+
+const resolveSortScore = (grade) => {
+  if (grade.scoreNumber !== null) return grade.scoreNumber
+  const text = toSafeText(grade.final_score)
+  if (/优秀/.test(text)) return 95
+  if (/(良好|中等)/.test(text)) return 80
+  if (/(及格|合格|通过)/.test(text)) return 60
+  if (/(不及格|不合格|未通过)/.test(text)) return 0
+  return -1
+}
+
+const compareBySortMode = (a, b) => {
+  if (sortMode.value === 'origin') {
+    return a.originIndex - b.originIndex
+  }
+  const scoreA = resolveSortScore(a)
+  const scoreB = resolveSortScore(b)
+  const diff = sortMode.value === 'score_asc' ? scoreA - scoreB : scoreB - scoreA
+  if (diff !== 0) return diff
+  return a.originIndex - b.originIndex
+}
+
+const sortGradeList = (list) => [...list].sort(compareBySortMode)
+
+const sortedGrades = computed(() => sortGradeList(filteredGrades.value))
 
 // 按学期分组
 const groupedGrades = computed(() => {
@@ -76,18 +227,15 @@ const groupedGrades = computed(() => {
   
   return Object.entries(groups)
     .sort((a, b) => compareSemesterDesc(a[0], b[0]))
-    .map(([term, items]) => ({ term, items }))
+    .map(([term, items]) => ({ term, items: sortGradeList(items) }))
 })
 
 // 统计
 const stats = computed(() => {
   const total = filteredGrades.value.length
   const credits = filteredGrades.value.reduce((sum, g) => sum + (parseFloat(g.course_credit) || 0), 0)
-  const passed = filteredGrades.value.filter(g => {
-    const score = parseFloat(g.final_score)
-    return (!isNaN(score) && score >= 60) || g.final_score === '合格'
-  }).length
-  return { total, credits: credits.toFixed(1), passed }
+  const failed = filteredGrades.value.filter(g => g.isFailed).length
+  return { total, credits: credits.toFixed(1), failed }
 })
 
 // 获取分数等级样式
@@ -181,10 +329,10 @@ watch(
           />
         </div>
         
-        <select v-model="filterTerm" class="filter-select">
+        <IOSSelect v-model="filterTerm" class="filter-select">
           <option value="">全部学期</option>
           <option v-for="term in terms" :key="term" :value="term">{{ term }}</option>
-        </select>
+        </IOSSelect>
       </div>
       
       <div class="filter-row">
@@ -226,6 +374,30 @@ watch(
         
         <button class="reset-btn" @click="resetFilters">重置</button>
       </div>
+
+      <div class="filter-row">
+        <div class="filter-group">
+          <label>展示方式:</label>
+          <div class="radio-group">
+            <label class="radio-label" :class="{ active: viewMode === 'grouped' }">
+              <input type="radio" v-model="viewMode" value="grouped" />
+              <span>分组视图</span>
+            </label>
+            <label class="radio-label" :class="{ active: viewMode === 'all' }">
+              <input type="radio" v-model="viewMode" value="all" />
+              <span>全部视图</span>
+            </label>
+          </div>
+        </div>
+        <div class="filter-group">
+          <label>排序:</label>
+          <IOSSelect v-model="sortMode" class="filter-select sort-select">
+            <option value="score_desc">成绩高到低</option>
+            <option value="score_asc">成绩低到高</option>
+            <option value="origin">成绩公布先后</option>
+          </IOSSelect>
+        </div>
+      </div>
     </div>
 
     <!-- 统计卡片 -->
@@ -239,19 +411,53 @@ watch(
         <div class="stat-label">总学分</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">{{ stats.passed }}</div>
-        <div class="stat-label">已通过</div>
+        <div class="stat-value">{{ stats.failed }}</div>
+        <div class="stat-label">挂科数</div>
       </div>
     </div>
 
     <!-- 成绩卡片网格 -->
     <div class="grade-list">
-      <div v-for="group in groupedGrades" :key="group.term" class="term-group">
-        <div class="term-header">📅 {{ group.term }} ({{ group.items.length }}门)</div>
+      <template v-if="viewMode === 'grouped'">
+        <div v-for="group in groupedGrades" :key="group.term" class="term-group">
+          <div class="term-header">📅 {{ group.term }} ({{ group.items.length }}门)</div>
+          <div class="grade-grid">
+            <div 
+              v-for="grade in group.items" 
+              :key="`${group.term}-${grade.course_name}-${grade.originIndex}`"
+              class="grade-card"
+              :class="getScoreClass(grade.final_score)"
+              @click="openDetail(grade)"
+            >
+              <div class="card-score">{{ grade.final_score }}</div>
+              <div class="card-name">{{ grade.course_name }}</div>
+              <div class="card-meta">
+                <span class="credit">{{ grade.course_credit }}分</span>
+                <span class="nature">{{ grade.course_nature }}</span>
+              </div>
+              <div v-if="grade.statusTags?.length" class="card-status">
+                <span
+                  v-for="tag in grade.statusTags"
+                  :key="`${grade.course_name}-${tag.key}`"
+                  class="status-chip"
+                  :class="`status-${tag.key}`"
+                >
+                  {{ tag.label }}
+                </span>
+              </div>
+              <div class="card-teacher" v-if="grade.teacher">
+                👨‍🏫 {{ grade.teacher }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <template v-else>
         <div class="grade-grid">
           <div 
-            v-for="grade in group.items" 
-            :key="grade.course_name"
+            v-for="grade in sortedGrades" 
+            :key="`all-${grade.term}-${grade.course_name}-${grade.originIndex}`"
             class="grade-card"
             :class="getScoreClass(grade.final_score)"
             @click="openDetail(grade)"
@@ -261,15 +467,26 @@ watch(
             <div class="card-meta">
               <span class="credit">{{ grade.course_credit }}分</span>
               <span class="nature">{{ grade.course_nature }}</span>
+              <span class="nature">{{ grade.term }}</span>
+            </div>
+            <div v-if="grade.statusTags?.length" class="card-status">
+              <span
+                v-for="tag in grade.statusTags"
+                :key="`${grade.course_name}-${tag.key}`"
+                class="status-chip"
+                :class="`status-${tag.key}`"
+              >
+                {{ tag.label }}
+              </span>
             </div>
             <div class="card-teacher" v-if="grade.teacher">
               👨‍🏫 {{ grade.teacher }}
             </div>
           </div>
         </div>
-      </div>
+      </template>
       
-      <div v-if="filteredGrades.length === 0" class="no-results">
+      <div v-if="sortedGrades.length === 0" class="no-results">
         <div class="empty-icon">📭</div>
         <p>没有找到符合条件的成绩</p>
         <button @click="resetFilters">清除筛选</button>
@@ -304,27 +521,44 @@ watch(
             </div>
             <div class="detail-item">
               <span class="detail-label">绩点</span>
-              <span class="detail-value">{{ selectedGrade.gpa || '-' }}</span>
+              <span class="detail-value">{{ selectedGrade.creditPoint || '-' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">课程性质</span>
               <span class="detail-value">{{ selectedGrade.course_nature || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">课程类型</span>
-              <span class="detail-value">{{ selectedGrade.course_type || '-' }}</span>
+              <span class="detail-label">录入教师</span>
+              <span class="detail-value">{{ selectedGrade.teacher || '-' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">考试形式</span>
-              <span class="detail-value">{{ selectedGrade.exam_form || '-' }}</span>
+              <span class="detail-label">是否挂科</span>
+              <span class="detail-value">{{ selectedGrade.isFailed ? '是' : '否' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">是否补考</span>
-              <span class="detail-value">{{ selectedGrade.is_makeup || '否' }}</span>
+              <span class="detail-value">{{ selectedGrade.isMakeup ? '是' : '否' }}</span>
             </div>
-            <div class="detail-item full-width">
-              <span class="detail-label">录入教师</span>
-              <span class="detail-value">{{ selectedGrade.teacher || '-' }}</span>
+            <div class="detail-item">
+              <span class="detail-label">是否缓考</span>
+              <span class="detail-value">{{ selectedGrade.isDeferred ? '是' : '否' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">是否免修</span>
+              <span class="detail-value">{{ selectedGrade.isExempt ? '是' : '否' }}</span>
+            </div>
+            <div class="detail-item full-width" v-if="selectedGrade.statusTags?.length">
+              <span class="detail-label">关键状态</span>
+              <div class="detail-tags">
+                <span
+                  v-for="tag in selectedGrade.statusTags"
+                  :key="`detail-${selectedGrade.course_name}-${tag.key}`"
+                  class="status-chip"
+                  :class="`status-${tag.key}`"
+                >
+                  {{ tag.label }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -439,14 +673,16 @@ watch(
 }
 
 .filter-select {
-  padding: 12px 16px;
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 10px;
-  font-size: 14px;
-  min-width: 140px;
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  cursor: pointer;
+  min-width: 146px;
+}
+
+.sort-select {
+  min-width: 170px;
+}
+
+.filter-select :deep(.ios26-select-trigger) {
+  min-height: 42px;
+  border-radius: 12px;
 }
 
 .filter-group {
@@ -632,6 +868,49 @@ watch(
   margin-bottom: 6px;
 }
 
+.card-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.status-failed {
+  background: color-mix(in oklab, #ef4444 14%, #ffffff 86%);
+  color: #ef4444;
+  border-color: color-mix(in oklab, #ef4444 36%, transparent);
+}
+
+.status-makeup {
+  background: color-mix(in oklab, #f59e0b 16%, #ffffff 84%);
+  color: #c26c00;
+  border-color: color-mix(in oklab, #f59e0b 36%, transparent);
+}
+
+.status-deferred {
+  background: color-mix(in oklab, #3b82f6 16%, #ffffff 84%);
+  color: #2563eb;
+  border-color: color-mix(in oklab, #3b82f6 36%, transparent);
+}
+
+.status-exempt {
+  background: color-mix(in oklab, #10b981 16%, #ffffff 84%);
+  color: #0f9f6e;
+  border-color: color-mix(in oklab, #10b981 36%, transparent);
+}
+
 .card-teacher {
   font-size: 11px;
   color: var(--ui-muted);
@@ -680,15 +959,17 @@ watch(
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 14px;
 }
 
 .modal-content {
   background: var(--ui-surface);
   border-radius: 20px;
-  padding: 32px;
+  padding: 22px 18px 16px;
   max-width: 480px;
   width: 100%;
+  max-height: min(80vh, 680px);
+  overflow: auto;
   position: relative;
   animation: slideUp 0.3s ease;
   border: 1px solid var(--ui-surface-border);
@@ -708,8 +989,8 @@ watch(
 
 .modal-close {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: 10px;
+  right: 10px;
   width: 32px;
   height: 32px;
   border: none;
@@ -725,13 +1006,14 @@ watch(
 
 .detail-header {
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 14px;
+  padding-right: 28px;
 }
 
 .detail-score {
-  font-size: 48px;
+  font-size: 42px;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .detail-score.excellent { color: #10b981; }
@@ -740,7 +1022,7 @@ watch(
 .detail-score.fail { color: #ef4444; }
 
 .detail-header h2 {
-  font-size: 20px;
+  font-size: 18px;
   color: var(--ui-text);
   margin: 0;
 }
@@ -748,12 +1030,12 @@ watch(
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 
 .detail-item {
   background: var(--ui-surface);
-  padding: 12px;
+  padding: 10px;
   border-radius: 10px;
   border: 1px solid var(--ui-surface-border);
 }
@@ -764,15 +1046,21 @@ watch(
 
 .detail-label {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ui-muted);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .detail-value {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--ui-text);
+}
+
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 640px) {

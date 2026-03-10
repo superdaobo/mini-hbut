@@ -41,6 +41,8 @@ let tickerDragStartX = 0
 let tickerDragLastX = 0
 let tickerDragStartTranslate = 0
 let tickerDragStartAt = 0
+let noticeResizeRaf = 0
+let lastNoticeViewportWidth = 0
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
@@ -700,10 +702,25 @@ const stopTickerLoop = () => {
   tickerLastFrameTs = 0
 }
 
-const updateNoticeSwipeMode = () => {
+const updateNoticeSwipeMode = (force = false) => {
   if (typeof window === 'undefined') return
-  isMobileNoticeSwipe.value = window.innerWidth <= 720
-  void refreshTickerMetrics()
+  const width = Math.max(0, Number(window.innerWidth || 0))
+  const mobile = width <= 720
+  const modeChanged = isMobileNoticeSwipe.value !== mobile
+  const widthDelta = Math.abs(width - lastNoticeViewportWidth)
+  isMobileNoticeSwipe.value = mobile
+  lastNoticeViewportWidth = width
+  if (force || modeChanged || widthDelta >= 24) {
+    void refreshTickerMetrics()
+  }
+}
+
+const handleNoticeResize = () => {
+  if (noticeResizeRaf) return
+  noticeResizeRaf = window.requestAnimationFrame(() => {
+    noticeResizeRaf = 0
+    updateNoticeSwipeMode(false)
+  })
 }
 
 const noticeSummary = (notice) => {
@@ -782,7 +799,7 @@ const detachCardSpotlight = () => {
 
 onMounted(() => {
   refreshLoginMethod()
-  updateNoticeSwipeMode()
+  updateNoticeSwipeMode(true)
   void refreshTickerMetrics()
   startTickerLoop()
   attachCardSpotlight()
@@ -790,7 +807,7 @@ onMounted(() => {
   clockTimer = window.setInterval(() => {
     syncNowTick()
   }, CLOCK_TICK_MS)
-  window.addEventListener('resize', updateNoticeSwipeMode)
+  window.addEventListener('resize', handleNoticeResize)
   window.addEventListener('focus', syncNowTick)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
 })
@@ -806,7 +823,11 @@ onBeforeUnmount(() => {
     window.clearTimeout(tickerResumeTimer)
     tickerResumeTimer = null
   }
-  window.removeEventListener('resize', updateNoticeSwipeMode)
+  window.removeEventListener('resize', handleNoticeResize)
+  if (noticeResizeRaf) {
+    window.cancelAnimationFrame(noticeResizeRaf)
+    noticeResizeRaf = 0
+  }
   window.removeEventListener('focus', syncNowTick)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
 })

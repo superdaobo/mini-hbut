@@ -549,9 +549,9 @@ onMounted(() => {
 
               <label class="page-size">
                 每页
-                <select :value="accessPageSize" :disabled="accessLoading" @change="handlePageSizeChange">
+                <IOSSelect :value="accessPageSize" :disabled="accessLoading" @change="handlePageSizeChange">
                   <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
-                </select>
+                </IOSSelect>
                 条
               </label>
             </div>

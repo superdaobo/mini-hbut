@@ -11,6 +11,7 @@
     "notification:allow-notify",
     "notification:allow-create-channel",
     "notification:allow-list-channels",
-    "shell:default"
+    "shell:default",
+    "window-state:default"
   ]
 }

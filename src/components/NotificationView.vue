@@ -437,11 +437,11 @@ onBeforeUnmount(() => {
         <div class="setting-label">
           <h3>检查频率（分钟）</h3>
         </div>
-        <select v-model="checkInterval" @change="handleIntervalChange" class="select-input">
+        <IOSSelect v-model="checkInterval" @change="handleIntervalChange" class="select-input">
           <option :value="15">15 分钟</option>
           <option :value="30">30 分钟（默认）</option>
           <option :value="60">60 分钟</option>
-        </select>
+        </IOSSelect>
       </div>
 
       <div class="status-row" v-if="enableBackground">

@@ -98,10 +98,10 @@ onMounted(async () => {
     <!-- 学期选择 -->
     <div class="semester-selector">
       <span class="label">学年学期：</span>
-      <select v-model="selectedSemester" @change="handleSemesterChange">
+      <IOSSelect v-model="selectedSemester" @change="handleSemesterChange">
         <option value="">全部(从入学至今)</option>
         <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
-      </select>
+      </IOSSelect>
       <button class="search-btn" @click="fetchRanking">🔍 搜索</button>
     </div>
 

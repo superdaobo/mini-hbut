@@ -179,12 +179,12 @@ onMounted(() => {
       <div class="dashboard-card">
         <div class="month-selector">
           <label>选择月份</label>
-          <select v-model="selectedMonth" class="modern-select">
+          <IOSSelect v-model="selectedMonth" class="modern-select">
             <option v-if="availableMonths.length === 0" value="">暂无数据</option>
             <option v-for="m in availableMonths" :key="m" :value="m">
               {{ m }}
             </option>
-          </select>
+          </IOSSelect>
         </div>
         
         <div class="stats-row">

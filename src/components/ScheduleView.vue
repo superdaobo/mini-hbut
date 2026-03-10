@@ -1892,11 +1892,10 @@ onBeforeUnmount(() => {
         <span class="menu-bar"></span>
       </button>
       <div class="week-selector">
-        <select v-model.number="selectedWeek">
+        <IOSSelect v-model.number="selectedWeek">
           <option disabled value="0">请选择周次</option>
           <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
-        </select>
-        <span class="arrow">▼</span>
+        </IOSSelect>
       </div>
     </div>
 
@@ -1909,10 +1908,10 @@ onBeforeUnmount(() => {
         <div class="drawer-section">
           <div class="drawer-subtitle">选择学期</div>
           <div class="drawer-semester-row">
-            <select class="drawer-select" v-model="semesterDraft" :disabled="semesterLoading || loading" @change="onSemesterChange">
+            <IOSSelect class="drawer-select" v-model="semesterDraft" :disabled="semesterLoading || loading" @change="onSemesterChange">
               <option disabled value="">请选择学期</option>
               <option v-for="sem in semesterOptions" :key="sem" :value="sem">{{ sem }}</option>
-            </select>
+            </IOSSelect>
           </div>
           <div v-if="semesterError" class="drawer-error">{{ semesterError }}</div>
         </div>
@@ -2025,22 +2024,22 @@ onBeforeUnmount(() => {
             </label>
             <div class="add-field">
               <span>上课时间 *</span>
-              <select v-model.number="addCourseForm.weekday">
+              <IOSSelect v-model.number="addCourseForm.weekday">
                 <option v-for="(label, idx) in weekDayLabels" :key="label" :value="idx + 1">{{ label }}</option>
-              </select>
+              </IOSSelect>
             </div>
             <div class="add-row">
               <label class="add-field">
                 <span>开始节次 *</span>
-                <select v-model.number="addCourseForm.period">
+                <IOSSelect v-model.number="addCourseForm.period">
                   <option v-for="p in periodOptions" :key="p" :value="p">第{{ p }}节</option>
-                </select>
+                </IOSSelect>
               </label>
               <label class="add-field">
                 <span>上课节数 *</span>
-                <select v-model.number="addCourseForm.djs">
+                <IOSSelect v-model.number="addCourseForm.djs">
                   <option v-for="s in courseSpanOptions" :key="s" :value="s">{{ s }}节</option>
-                </select>
+                </IOSSelect>
               </label>
             </div>
             <div class="add-field">
@@ -2347,45 +2346,26 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.week-selector select {
-  all: unset !important;
-  appearance: none !important;
-  display: block !important;
-  width: 100% !important;
+.week-selector :deep(.ios26-select-trigger) {
   min-height: 32px !important;
-  height: 32px;
+  height: 32px !important;
   line-height: 32px;
   font-size: 13px;
   font-weight: 800;
-  color: var(--ui-text);
-  padding: 0 28px 0 11px !important;
-  outline: none;
-  cursor: pointer;
+  padding: 0 11px !important;
   border-radius: 14px !important;
   background: var(--ui-surface) !important;
   box-shadow: none !important;
   border: 1px solid var(--ui-surface-border) !important;
 }
 
-.week-selector select:focus {
-  border: none !important;
+.week-selector :deep(.ios26-select-value) {
+  white-space: nowrap;
+}
+
+.week-selector :deep(.ios26-select-trigger:focus-visible) {
+  outline: none !important;
   box-shadow: none !important;
-}
-
-.week-selector select option {
-  color: #111827;
-  background: #ffffff;
-}
-
-.week-selector .arrow {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--ui-muted);
-  pointer-events: none;
 }
 
 .drawer-overlay {
@@ -3472,10 +3452,10 @@ onBeforeUnmount(() => {
     padding: 0;
   }
 
-  .week-selector select {
+  .week-selector :deep(.ios26-select-trigger) {
     min-height: 30px !important;
-    height: 30px;
-    line-height: 30px;
+    height: 30px !important;
+    line-height: 30px !important;
     font-size: 12px;
     font-weight: 800;
     border-radius: 13px !important;

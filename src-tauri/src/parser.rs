@@ -188,26 +188,51 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
             course_name = course_name[idx + 1..].to_string();
         }
         
-        // 课程性质 - 新版使用 kcxz，旧版使用 kcxzmc
-        let course_nature = item.get("kcxz")
-            .or_else(|| item.get("kcxzmc"))
+        // 课程性质 - 新版使用 kcxz（代码），旧版使用 kcxzmc（文本）
+        let course_nature_code = item.get("kcxz")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        
+        let course_nature = if course_nature_code.is_empty() {
+            item.get("kcxzmc")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        } else {
+            course_nature_code.clone()
+        };
+
         // 教师 - 新版使用 cjlrjsxm，旧版使用 jsxm
         let teacher = item.get("cjlrjsxm")
             .or_else(|| item.get("jsxm"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        
+
+        // 学分绩点
+        let xfjd = extract_number_field(item, &["xfjd", "fxcj"]);
+        // 关键状态字段：补考/缓考/成绩标记
+        let sfbk = item.get("sfbk")
+            .map(value_to_string)
+            .unwrap_or_else(String::new);
+        let sfsq = item.get("sfsq")
+            .map(value_to_string)
+            .unwrap_or_else(String::new);
+        let cjbj = item.get("cjbj")
+            .map(value_to_string)
+            .unwrap_or_else(String::new);
+
         let grade = Grade {
             term,
             course_name,
             course_nature,
+            course_nature_code,
             course_credit,
             final_score,
             earned_credit,
+            xfjd,
+            sfbk,
+            sfsq,
+            cjbj,
             teacher,
         };
         grades.push(grade);

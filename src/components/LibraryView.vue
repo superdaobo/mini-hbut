@@ -31,6 +31,7 @@ const dictData = ref({})
 
 const isMobile = ref(false)
 const filterPanelOpen = ref(false)
+let mobileResizeRaf = 0
 const brokenCovers = ref(new Set())
 const coverOverrides = ref(new Map())
 
@@ -301,6 +302,14 @@ const updateMobileState = () => {
   }
 }
 
+const handleWindowResize = () => {
+  if (mobileResizeRaf) return
+  mobileResizeRaf = window.requestAnimationFrame(() => {
+    mobileResizeRaf = 0
+    updateMobileState()
+  })
+}
+
 const buildSearchPayload = (nextPage = 1) => ({
   searchFieldContent: keyword.value.trim(),
   searchField: searchField.value,
@@ -431,12 +440,16 @@ watch(onlyOnShelf, async () => {
 
 onMounted(async () => {
   updateMobileState()
-  window.addEventListener('resize', updateMobileState)
+  window.addEventListener('resize', handleWindowResize)
   await loadDict()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateMobileState)
+  window.removeEventListener('resize', handleWindowResize)
+  if (mobileResizeRaf) {
+    window.cancelAnimationFrame(mobileResizeRaf)
+    mobileResizeRaf = 0
+  }
 })
 </script>
 
@@ -465,12 +478,12 @@ onBeforeUnmount(() => {
       <div v-if="canShowFilters" class="search-ops">
         <label class="select-line">
           检索字段
-          <select v-model="searchField">
+          <IOSSelect v-model="searchField">
             <option value="keyWord">综合</option>
             <option value="title">书名</option>
             <option value="author">作者</option>
             <option value="isbn">ISBN</option>
-          </select>
+          </IOSSelect>
         </label>
         <label class="checkbox-line">
           <input v-model="onlyOnShelf" type="checkbox" />

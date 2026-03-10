@@ -348,26 +348,26 @@ onBeforeUnmount(() => {
         <div class="filter-row top-filter-row">
           <div class="filter-item">
             <label>教学楼</label>
-            <select v-model="filters.building">
+            <IOSSelect v-model="filters.building">
               <option value="">全部教学楼</option>
               <option v-for="b in buildings.filter(b => b.code)" :key="b.code" :value="b.name">{{ b.name }}</option>
-            </select>
+            </IOSSelect>
           </div>
           
           <div class="filter-item">
             <label>周次</label>
-            <select v-model="filters.week">
+            <IOSSelect v-model="filters.week">
               <option value="">自动(当前周)</option>
               <option v-for="w in weekOptions" :key="w" :value="w">第{{ w }}周</option>
-            </select>
+            </IOSSelect>
           </div>
           
           <div class="filter-item">
             <label>星期</label>
-            <select v-model="filters.weekday">
+            <IOSSelect v-model="filters.weekday">
               <option value="">自动(今天)</option>
               <option v-for="w in weekdayOptions" :key="w.value" :value="w.value">{{ w.label }}</option>
-            </select>
+            </IOSSelect>
           </div>
         </div>
 

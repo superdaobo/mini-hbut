@@ -132,9 +132,9 @@ onMounted(async () => {
     <!-- 学期选择 -->
     <div class="semester-selector">
       <label>选择学期：</label>
-      <select v-model="selectedSemester" @change="handleSemesterChange">
+      <IOSSelect v-model="selectedSemester" @change="handleSemesterChange">
         <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
-      </select>
+      </IOSSelect>
     </div>
 
     <!-- 内容区 -->

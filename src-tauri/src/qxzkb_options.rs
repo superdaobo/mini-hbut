@@ -1,6 +1,6 @@
 ﻿use serde_json::json;
 
-pub const QXZKB_QUERY_FIELDS: &str = "xnxq,kcmc,kcxz,ksxs,kclb,ksfs,type,xqmc,kkyxmc,kkjysmc,jxbmc,jxbzc,bjrs,source,skjs,sksjdd,schooltime,zdskrnrs,skdd,zongxs,llxs,syxs,shangjxs,shijianxs,";
+pub const QXZKB_QUERY_FIELDS: &str = "xnxq,dataXnxq,kcmc,kcxz,ksxs,kclb,ksfs,type,xz,xqmc,kkyxmc,kkjysmc,jxbmc,jxbzc,bjrs,source,skjs,sksjdd,schooltime,zdskrnrs,skdd,zongxs,llxs,syxs,shangjxs,shijianxs,jxbid,kcid,tid,zymc,rxnf,dataAuth,kkyxAuth,currentUserName,currentDepartmentId,";
 
 pub fn qxzkb_options() -> serde_json::Value {
     json!({

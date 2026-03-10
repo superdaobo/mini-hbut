@@ -67,6 +67,9 @@ const previewPlayerHostRef = ref(null)
 let previewPlayerInstance = null
 let pdfjsRuntime = null
 let xgPlayerCtor = null
+let previewResizeRaf = 0
+let mediaResizeTimer = null
+let pdfResizeTimer = null
 
 const CDN_ASSETS = {
   xgplayerScript: [
@@ -1230,9 +1233,13 @@ const loadConfig = async () => {
   }
 }
 
-const handleWindowResize = () => {
+const handleWindowResizeCore = () => {
   if ((previewKind.value === 'video' || previewKind.value === 'audio') && showPreview.value && previewPlayerInstance?.resize) {
-    window.setTimeout(() => {
+    if (mediaResizeTimer) {
+      window.clearTimeout(mediaResizeTimer)
+    }
+    mediaResizeTimer = window.setTimeout(() => {
+      mediaResizeTimer = null
       try {
         previewPlayerInstance.resize()
       } catch {
@@ -1241,10 +1248,22 @@ const handleWindowResize = () => {
     }, 80)
   }
   if (previewKind.value === 'pdf' && showPreview.value) {
-    window.setTimeout(() => {
+    if (pdfResizeTimer) {
+      window.clearTimeout(pdfResizeTimer)
+    }
+    pdfResizeTimer = window.setTimeout(() => {
+      pdfResizeTimer = null
       void renderPdfPage()
     }, 80)
   }
+}
+
+const handleWindowResize = () => {
+  if (previewResizeRaf) return
+  previewResizeRaf = window.requestAnimationFrame(() => {
+    previewResizeRaf = 0
+    handleWindowResizeCore()
+  })
 }
 
 onMounted(async () => {
@@ -1259,6 +1278,18 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowResize)
+  if (previewResizeRaf) {
+    window.cancelAnimationFrame(previewResizeRaf)
+    previewResizeRaf = 0
+  }
+  if (mediaResizeTimer) {
+    window.clearTimeout(mediaResizeTimer)
+    mediaResizeTimer = null
+  }
+  if (pdfResizeTimer) {
+    window.clearTimeout(pdfResizeTimer)
+    pdfResizeTimer = null
+  }
   destroyPreviewPlayer()
   releasePreviewObjectUrl()
   void closePreview()

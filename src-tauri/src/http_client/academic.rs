@@ -1125,7 +1125,7 @@ impl HbutClient {
         let params = [
             ("fxbz", "0"),
             ("gridtype", "jqgrid"),
-            ("queryFields", "id,xnxq,kcmc,xf,kcxz,kclx,ksxs,kcgs,xdxz,kclb,cjfxms,zhcj,hdxf,tscjzwmc,sfbk,cjlrjsxm,kcsx,fxcj,dztmlfjcj"),
+            ("queryFields", "id,xnxq,kcmc,xf,kcxz,kclx,ksxs,kcgs,xdxz,kclb,cjfxms,zhcj,hdxf,tscjzwmc,sfbk,cjlrjsxm,jsxm,kcsx,fxcj,dztmlfjcj"),
             ("_search", "false"),
             ("page.size", "500"),
             ("page.pn", "1"),

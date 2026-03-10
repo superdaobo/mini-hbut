@@ -303,9 +303,9 @@ onMounted(async () => {
     </div>
 
     <div class="controls">
-      <select v-model="selectedSemester" @change="handleSemesterChange">
+      <IOSSelect v-model="selectedSemester" @change="handleSemesterChange">
         <option v-for="s in semesters" :key="s" :value="s">{{ s }}</option>
-      </select>
+      </IOSSelect>
       <div class="meta">
         <span>当前周：第{{ meta.current_week }}周</span>
         <span>学期开始：{{ meta.start_date || '-' }}</span>

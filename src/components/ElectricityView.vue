@@ -201,7 +201,7 @@ const handleLogout = () => emit('logout')
         
         <div class="select-group">
           <!-- 校区 -->
-          <select 
+          <IOSSelect 
             :value="selectedPath[0]" 
             @change="e => handleSelect(0, e.target.value)"
             class="modern-select"
@@ -210,10 +210,10 @@ const handleLogout = () => emit('logout')
             <option v-for="area in dormData" :key="area.value" :value="area.value">
               {{ area.label }}
             </option>
-          </select>
+          </IOSSelect>
           
           <!-- 楼栋 -->
-          <select 
+          <IOSSelect 
             :value="selectedPath[1]" 
             @change="e => handleSelect(1, e.target.value)"
             class="modern-select"
@@ -225,10 +225,10 @@ const handleLogout = () => emit('logout')
                 {{ b.label }}
               </option>
             </template>
-          </select>
+          </IOSSelect>
           
           <!-- 楼层 -->
-          <select 
+          <IOSSelect 
             :value="selectedPath[2]" 
             @change="e => handleSelect(2, e.target.value)"
             class="modern-select"
@@ -240,10 +240,10 @@ const handleLogout = () => emit('logout')
                 {{ l.label }}
               </option>
             </template>
-          </select>
+          </IOSSelect>
           
           <!-- 房间 -->
-          <select 
+          <IOSSelect 
             :value="selectedPath[3]" 
             @change="e => handleSelect(3, e.target.value)"
             class="modern-select"
@@ -255,7 +255,7 @@ const handleLogout = () => emit('logout')
                 {{ r.label }}
               </option>
             </template>
-          </select>
+          </IOSSelect>
         </div>
       </div>
 

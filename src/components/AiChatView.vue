@@ -873,9 +873,9 @@ const handleFileChange = async (e) => {
       </div>
       <div class="model-select">
         <label>模型</label>
-        <select v-model="selectedModel" :disabled="initStatus !== 'success' || isLoading">
+        <IOSSelect v-model="selectedModel" :disabled="initStatus !== 'success' || isLoading">
           <option v-for="m in normalizedModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
-        </select>
+        </IOSSelect>
       </div>
       <button class="history-btn" @click="historyOpen = !historyOpen">历史</button>
     </div>

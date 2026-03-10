@@ -237,9 +237,14 @@ pub struct Grade {
     pub term: String,
     pub course_name: String,
     pub course_nature: String,
+    pub course_nature_code: String,
     pub course_credit: String,
     pub final_score: String,
     pub earned_credit: String,
+    pub xfjd: String,
+    pub sfbk: String,
+    pub sfsq: String,
+    pub cjbj: String,
     pub teacher: Option<String>,
 }
 
@@ -4065,6 +4070,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             if let Ok(app_data_path) = app.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&app_data_path);

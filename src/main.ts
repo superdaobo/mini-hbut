@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import './style.css'
 import './styles/ui_ux_pro_max.css'
 import App from './App.vue'
+import IOSSelect from './components/IOSSelect.vue'
 import { initUiSettings } from './utils/ui_settings'
 import { initAppSettings } from './utils/app_settings'
 import { initFontSettings } from './utils/font_settings'
@@ -11,7 +12,9 @@ import { runNotificationCheck } from './utils/notify_center'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 
 const mountApp = () => {
-  createApp(App).mount('#app')
+  const app = createApp(App)
+  app.component('IOSSelect', IOSSelect)
+  app.mount('#app')
 }
 
 const runDeferredInitializers = () => {
