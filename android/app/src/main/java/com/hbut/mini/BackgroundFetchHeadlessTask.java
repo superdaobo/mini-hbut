@@ -45,12 +45,31 @@ public class BackgroundFetchHeadlessTask {
     private static final String KEY_ENABLE_GRADE = "hbu_bg_enable_grade";
     private static final String KEY_ENABLE_EXAM = "hbu_bg_enable_exam";
     private static final String KEY_ENABLE_POWER = "hbu_bg_enable_power";
+    private static final String KEY_ENABLE_CLASS = "hbu_bg_enable_class";
+    private static final String KEY_CLASS_LEAD_MINUTES = "hbu_bg_class_lead_min";
     private static final String KEY_DORM_SELECTION = "hbu_bg_dorm_selection";
 
     private static final String KEY_GRADE_SIGNATURE = "hbu_bg_headless_grade_signature";
     private static final String KEY_EXAM_DAY = "hbu_bg_headless_exam_day";
     private static final String KEY_EXAM_SIGNATURE = "hbu_bg_headless_exam_signature";
     private static final String KEY_POWER_WAS_LOW = "hbu_bg_headless_power_low";
+    private static final String KEY_CLASS_DAY = "hbu_bg_headless_class_day";
+    private static final String KEY_CLASS_SENT_IDS = "hbu_bg_headless_class_sent_ids";
+
+    private static final int[] PERIOD_START_MINUTES = {
+            0,      // 0 unused
+            8 * 60 + 20,  // 1
+            9 * 60 + 10,  // 2
+            10 * 60 + 15, // 3
+            11 * 60 + 5,  // 4
+            14 * 60,      // 5
+            14 * 60 + 50, // 6
+            15 * 60 + 55, // 7
+            16 * 60 + 45, // 8
+            18 * 60 + 30, // 9
+            19 * 60 + 20, // 10
+            20 * 60 + 10  // 11
+    };
 
     public void onFetch(Context context, BGTask task) {
         BackgroundFetch backgroundFetch = BackgroundFetch.getInstance(context);
@@ -82,6 +101,7 @@ public class BackgroundFetchHeadlessTask {
         boolean enableGrade = "1".equals(safe(prefs.getString(KEY_ENABLE_GRADE, "1")));
         boolean enableExam = "1".equals(safe(prefs.getString(KEY_ENABLE_EXAM, "1")));
         boolean enablePower = "1".equals(safe(prefs.getString(KEY_ENABLE_POWER, "1")));
+        boolean enableClass = "1".equals(safe(prefs.getString(KEY_ENABLE_CLASS, "1")));
 
         if (enableGrade) {
             checkGrade(context, prefs, apiBase, studentId);
@@ -91,6 +111,9 @@ public class BackgroundFetchHeadlessTask {
         }
         if (enablePower) {
             checkPower(context, prefs, apiBase, studentId);
+        }
+        if (enableClass) {
+            checkClassReminder(context, prefs, apiBase, studentId);
         }
     }
 
@@ -191,6 +214,90 @@ public class BackgroundFetchHeadlessTask {
         }
     }
 
+    private void checkClassReminder(Context context, SharedPreferences prefs, String apiBase, String studentId) {
+        try {
+            int leadMinutes = parseIntSafe(prefs.getString(KEY_CLASS_LEAD_MINUTES, "30"), 30);
+            if (leadMinutes < 5) leadMinutes = 5;
+            if (leadMinutes > 120) leadMinutes = 120;
+
+            JSONObject payload = new JSONObject();
+            payload.put("student_id", studentId);
+            JSONObject resp = postJson(apiBase + "/v2/schedule/query", payload);
+            if (!resp.optBoolean("success", false)) return;
+
+            JSONArray courses = resp.optJSONArray("data");
+            if (courses == null || courses.length() == 0) return;
+
+            JSONObject meta = resp.optJSONObject("meta");
+            int currentWeek = parseIntSafe(meta == null ? "" : meta.optString("current_week", "1"), 1);
+            int weekday = getTodayWeekday();
+            double nowMinute = getCurrentMinutePrecise();
+            String todayKey = getTodayKey();
+
+            String stateDay = safe(prefs.getString(KEY_CLASS_DAY, ""));
+            String stateSent = safe(prefs.getString(KEY_CLASS_SENT_IDS, ""));
+            List<String> sentIds = new ArrayList<>();
+            if (todayKey.equals(stateDay) && !stateSent.isEmpty()) {
+                try {
+                    JSONArray arr = new JSONArray(stateSent);
+                    for (int i = 0; i < arr.length(); i++) {
+                        String id = safe(arr.optString(i));
+                        if (!id.isEmpty()) sentIds.add(id);
+                    }
+                } catch (Exception ignored) {
+                    // ignore parse error
+                }
+            }
+
+            int triggered = 0;
+            for (int i = 0; i < courses.length(); i++) {
+                JSONObject course = courses.optJSONObject(i);
+                if (course == null) continue;
+
+                int courseWeekday = parseIntSafe(course.opt("weekday"), 0);
+                if (courseWeekday != weekday) continue;
+                if (!isCourseInWeek(course.optJSONArray("weeks"), currentWeek)) continue;
+
+                int period = parseIntSafe(course.opt("period"), 0);
+                if (period <= 0 || period >= PERIOD_START_MINUTES.length) continue;
+                int startMinute = PERIOD_START_MINUTES[period];
+                double minsUntil = startMinute - nowMinute;
+                if (minsUntil < 0 || minsUntil > leadMinutes) continue;
+
+                String name = safe(course.optString("name", ""));
+                if (name.isEmpty()) continue;
+                String room = safe(course.optString("room_code", course.optString("room", "待定教室")));
+                String teacher = safe(course.optString("teacher", ""));
+                String id = safe(course.optString("id", "")) + "|" + name + "|" + courseWeekday + "|" + period + "|" + room;
+
+                if (sentIds.contains(id)) continue;
+
+                int mins = (int) Math.max(0, Math.floor(minsUntil));
+                String leadText = mins > 0 ? (mins + " 分钟后") : "即将";
+                String body = leadText + "开始：" + name + "（" + toClock(startMinute) + "，" + room + "）";
+                if (!teacher.isEmpty()) {
+                    body = body + "，授课教师 " + teacher;
+                }
+                sendNotification(context, "上课提醒", body);
+                sentIds.add(id);
+                triggered += 1;
+            }
+
+            JSONArray sentArray = new JSONArray();
+            int start = Math.max(0, sentIds.size() - 120);
+            for (int i = start; i < sentIds.size(); i++) {
+                sentArray.put(sentIds.get(i));
+            }
+            prefs.edit()
+                    .putString(KEY_CLASS_DAY, todayKey)
+                    .putString(KEY_CLASS_SENT_IDS, sentArray.toString())
+                    .apply();
+            Log.i(TAG, "checkClassReminder complete, triggered=" + triggered + ", lead=" + leadMinutes);
+        } catch (Exception e) {
+            Log.w(TAG, "checkClassReminder failed: " + e.getMessage());
+        }
+    }
+
     private String buildGradeSignature(JSONArray grades) {
         if (grades == null) return "0:0";
         List<String> rows = new ArrayList<>();
@@ -281,6 +388,51 @@ public class BackgroundFetchHeadlessTask {
 
     private String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private int parseIntSafe(Object value, int fallback) {
+        if (value == null) return fallback;
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    private boolean isCourseInWeek(JSONArray weeks, int currentWeek) {
+        if (weeks == null || weeks.length() == 0) return true;
+        for (int i = 0; i < weeks.length(); i++) {
+            int week = parseIntSafe(weeks.opt(i), 0);
+            if (week == currentWeek) return true;
+        }
+        return false;
+    }
+
+    private int getTodayWeekday() {
+        int raw = Calendar.getInstance().get(Calendar.DAY_OF_WEEK);
+        return raw == Calendar.SUNDAY ? 7 : raw - 1;
+    }
+
+    private String getTodayKey() {
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.getTime());
+    }
+
+    private double getCurrentMinutePrecise() {
+        Calendar now = Calendar.getInstance();
+        return now.get(Calendar.HOUR_OF_DAY) * 60
+                + now.get(Calendar.MINUTE)
+                + now.get(Calendar.SECOND) / 60.0;
+    }
+
+    private String toClock(int minute) {
+        int h = minute / 60;
+        int m = minute % 60;
+        return String.format(Locale.US, "%02d:%02d", h, m);
     }
 
     private double parseDouble(String value) {

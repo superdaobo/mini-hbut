@@ -11,7 +11,10 @@ import {
   getNotificationMonitorSettings,
   runNotificationCheck
 } from '../utils/notify_center.js'
-import { syncBackgroundFetchContext } from '../utils/background_fetch.js'
+import {
+  getBackgroundFetchRuntimeState,
+  syncBackgroundFetchContext
+} from '../utils/background_fetch.js'
 import { formatRelativeTime } from '../utils/time.js'
 
 const props = defineProps({
@@ -22,10 +25,14 @@ const enableBackground = ref(false)
 const enableExamReminders = ref(true)
 const enableGradeNotices = ref(true)
 const enablePowerNotices = ref(true)
+const enableClassReminders = ref(true)
+const classLeadMinutes = ref(30)
 const checkInterval = ref(30)
 const showBatteryPrompt = ref(false)
 const backgroundLockEnabled = ref(false)
 const backgroundLockSource = ref('')
+const aggressiveKeepAliveSupported = ref(false)
+const backgroundFetchState = ref(null)
 
 const permissionState = ref('unknown')
 const statusMessage = ref('')
@@ -36,6 +43,17 @@ const snapshot = ref(null)
 const dormData = ref([])
 const selectedPath = ref([])
 const currentRuntime = getRuntime()
+
+const resolveRuntimeDisplay = () => {
+  const ua = String(navigator.userAgent || '')
+  const isAndroidUA = /Android/i.test(ua)
+  const isIosUA = /iPhone|iPad|iPod/i.test(ua)
+  const platformText = isAndroidUA ? 'Android' : (isIosUA ? 'iOS' : '未知平台')
+  if (currentRuntime === 'capacitor') return `${platformText} / Capacitor`
+  if (currentRuntime === 'tauri') return '桌面端 / Tauri'
+  return '浏览器 / Web'
+}
+const runtimeDisplayText = resolveRuntimeDisplay()
 
 const isAndroid = () => /Android/i.test(navigator.userAgent)
 
@@ -59,6 +77,8 @@ const saveSettings = () => {
   localStorage.setItem('hbu_notify_exam', enableExamReminders.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_grade', enableGradeNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_power', enablePowerNotices.value ? 'true' : 'false')
+  localStorage.setItem('hbu_notify_class', enableClassReminders.value ? 'true' : 'false')
+  localStorage.setItem('hbu_notify_class_lead_min', String(classLeadMinutes.value))
   localStorage.setItem('hbu_notify_interval', String(checkInterval.value))
   syncBackgroundFetchContext({
     studentId: props.studentId,
@@ -67,6 +87,8 @@ const saveSettings = () => {
       enableExamReminder: enableExamReminders.value,
       enableGradeNotice: enableGradeNotices.value,
       enablePowerNotice: enablePowerNotices.value,
+      enableClassReminder: enableClassReminders.value,
+      classLeadMinutes: classLeadMinutes.value,
       intervalMinutes: checkInterval.value
     },
     dormSelection: selectedPath.value
@@ -79,6 +101,10 @@ const updateSettingsFromStorage = () => {
   enableExamReminders.value = !!settings.enableExamReminder
   enableGradeNotices.value = !!settings.enableGradeNotice
   enablePowerNotices.value = !!settings.enablePowerNotice
+  enableClassReminders.value = !!settings.enableClassReminder
+  classLeadMinutes.value = [5, 10, 15, 20, 30, 45, 60].includes(Number(settings.classLeadMinutes))
+    ? Number(settings.classLeadMinutes)
+    : 30
   checkInterval.value = [15, 30, 60].includes(settings.intervalMinutes)
     ? settings.intervalMinutes
     : 30
@@ -120,6 +146,7 @@ const examSummary = computed(() => snapshot.value?.exams || {})
 const examItems = computed(() =>
   Array.isArray(examSummary.value?.upcoming) ? examSummary.value.upcoming : []
 )
+const classSummary = computed(() => snapshot.value?.classReminder || {})
 const powerSummary = computed(() => snapshot.value?.electricity || {})
 
 const powerQuantityText = computed(() => {
@@ -137,6 +164,34 @@ const powerBalanceText = computed(() => {
 const powerStatusText = computed(() => {
   if (powerSummary.value?.error) return powerSummary.value.error
   return powerSummary.value?.status || '暂无状态'
+})
+
+const classReminderText = computed(() => {
+  if (!classSummary.value?.enabled) return '已关闭'
+  const total = Number(classSummary.value?.totalToday || 0)
+  const trigger = Number(classSummary.value?.triggered || 0)
+  return `今日课程 ${total} 门，本次触发 ${trigger} 条`
+})
+
+const nextClassText = computed(() => {
+  const next = classSummary.value?.nextCourse
+  if (!next?.name) return '暂无即将开始课程'
+  const mins = Number(next?.minsUntilStart || 0)
+  const when = mins > 0 ? `${mins} 分钟后` : '即将'
+  return `${when}：${next.name}（${next.startClock || '--:--'} ${next.room || '教室待定'}）`
+})
+
+const backgroundFetchStatusText = computed(() => {
+  const state = backgroundFetchState.value
+  if (!state?.supported) return '当前环境不支持'
+  if (state?.available) return '可用'
+  if (state?.configured) return '已配置（待系统调度）'
+  return '未配置'
+})
+
+const keepAliveStatusText = computed(() => {
+  if (!aggressiveKeepAliveSupported.value) return '未启用'
+  return backgroundLockEnabled.value ? '已运行' : '未运行'
 })
 
 const getNativePermissionState = async (requestNow = false) => {
@@ -247,6 +302,7 @@ const runManualCheck = async () => {
       allowPermissionPrompt: false
     })
     updateSnapshot(result)
+    await refreshRuntimeStates()
     statusMessage.value = '已完成一次实时检查。'
   } catch (error) {
     lastError.value = String(error)
@@ -256,18 +312,44 @@ const runManualCheck = async () => {
   }
 }
 
+const refreshRuntimeStates = async () => {
+  try {
+    backgroundFetchState.value = await getBackgroundFetchRuntimeState()
+  } catch {
+    backgroundFetchState.value = null
+  }
+
+  try {
+    const state = await platformBridge.getAggressiveKeepAliveState()
+    aggressiveKeepAliveSupported.value = !!state?.supported
+    backgroundLockEnabled.value = !!state?.active
+    backgroundLockSource.value = String(state?.source || '')
+  } catch {
+    aggressiveKeepAliveSupported.value = false
+  }
+}
+
 const handleBackgroundToggle = async () => {
   saveSettings()
-  if (!isTauriRuntime()) return
-
-  if (enableBackground.value) {
-    const result = await enableBackgroundPowerLock()
-    backgroundLockEnabled.value = result.enabled
-    backgroundLockSource.value = result.source.join(' + ')
-    if (isAndroid()) {
+  if (currentRuntime === 'capacitor' && isAndroid()) {
+    const keepAlive = await platformBridge.setAggressiveKeepAlive(enableBackground.value)
+    aggressiveKeepAliveSupported.value = !!keepAlive?.supported
+    backgroundLockEnabled.value = !!keepAlive?.active
+    backgroundLockSource.value = String(keepAlive?.source || '')
+    if (enableBackground.value) {
       showBatteryPrompt.value = true
     }
-  } else {
+    await refreshRuntimeStates()
+    return
+  }
+
+  if (isTauriRuntime()) {
+    if (enableBackground.value) {
+      const result = await enableBackgroundPowerLock()
+      backgroundLockEnabled.value = result.enabled
+      backgroundLockSource.value = result.source.join(' + ')
+      return
+    }
     const result = await disableBackgroundPowerLock()
     backgroundLockEnabled.value = false
     backgroundLockSource.value = result.source.join(' + ')
@@ -285,8 +367,15 @@ const handleIntervalChange = () => {
   saveSettings()
 }
 
+const handleClassLeadChange = () => {
+  const candidate = Number(classLeadMinutes.value)
+  classLeadMinutes.value = [5, 10, 15, 20, 30, 45, 60].includes(candidate) ? candidate : 30
+  saveSettings()
+}
+
 const confirmBatterySettings = () => {
   showBatteryPrompt.value = false
+  platformBridge.openBatteryOptimizationSettings().catch(() => {})
 }
 
 const cancelBatterySettings = () => {
@@ -306,13 +395,26 @@ const handleTestNotification = async () => {
     }
 
     await ensureAndroidChannel()
+    const testId = Math.floor(Date.now() % 2147483000)
 
     try {
       const ok = await platformBridge.sendLocalNotification({
+        id: testId,
         channelId: 'hbut-default',
         title: 'Mini-HBUT',
         body: '这是一个测试通知，用于验证通知权限和推送能力。'
       })
+      if (!ok && currentRuntime === 'capacitor') {
+        const retryOk = await platformBridge.sendLocalNotification({
+          id: testId + 1,
+          channelId: 'hbut-default',
+          title: 'Mini-HBUT',
+          body: '这是一个测试通知（移动端重试通道）。'
+        })
+        if (!retryOk) {
+          throw new Error('移动端通知调度失败，请检查系统通知权限与电池优化设置')
+        }
+      }
       if (!ok && isTauriRuntime()) {
         await invoke('send_test_notification_native', {
           title: 'Mini-HBUT',
@@ -346,8 +448,14 @@ onMounted(async () => {
 
   await updatePermissionState(false)
   await ensureAndroidChannel()
+  await refreshRuntimeStates()
 
-  if (enableBackground.value && isTauriRuntime()) {
+  if (enableBackground.value && currentRuntime === 'capacitor' && isAndroid()) {
+    const keepAlive = await platformBridge.setAggressiveKeepAlive(true)
+    aggressiveKeepAliveSupported.value = !!keepAlive?.supported
+    backgroundLockEnabled.value = !!keepAlive?.active
+    backgroundLockSource.value = String(keepAlive?.source || '')
+  } else if (enableBackground.value && isTauriRuntime()) {
     const result = await enableBackgroundPowerLock()
     backgroundLockEnabled.value = result.enabled
     backgroundLockSource.value = result.source.join(' + ')
@@ -375,7 +483,7 @@ onBeforeUnmount(() => {
       <div class="hero-left">
         <span class="status-pill">通知权限：{{ permissionLabel }}</span>
         <span class="status-pill soft">最近检测：{{ lastCheckText }}</span>
-        <span class="status-pill soft">运行环境：{{ currentRuntime }}</span>
+        <span class="status-pill soft">运行环境：{{ runtimeDisplayText }}</span>
       </div>
       <div class="hero-actions">
         <button class="btn-primary" @click="handleRequestPermission">请求通知权限</button>
@@ -435,6 +543,37 @@ onBeforeUnmount(() => {
 
       <div class="setting-item">
         <div class="setting-label">
+          <h3>上课提醒</h3>
+          <p>根据当日课表，在开课前指定分钟推送通知。</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" v-model="enableClassReminders" @change="handleOtherSettingChange">
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">
+          <h3>上课提醒提前时间（分钟）</h3>
+        </div>
+        <IOSSelect
+          v-model.number="classLeadMinutes"
+          @change="handleClassLeadChange"
+          class="select-input"
+          :disabled="!enableClassReminders"
+        >
+          <option :value="5">5 分钟</option>
+          <option :value="10">10 分钟</option>
+          <option :value="15">15 分钟</option>
+          <option :value="20">20 分钟</option>
+          <option :value="30">30 分钟（默认）</option>
+          <option :value="45">45 分钟</option>
+          <option :value="60">60 分钟</option>
+        </IOSSelect>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-label">
           <h3>检查频率（分钟）</h3>
         </div>
         <IOSSelect v-model="checkInterval" @change="handleIntervalChange" class="select-input">
@@ -448,10 +587,31 @@ onBeforeUnmount(() => {
         <span class="status-pill soft">
           保活状态：{{ backgroundLockEnabled ? ('已启用（' + (backgroundLockSource || '插件') + '）') : '未启用（当前平台不支持或插件不可用）' }}
         </span>
+        <span class="status-pill soft">后台调度：{{ backgroundFetchStatusText }}</span>
+        <span class="status-pill soft">激进保活：{{ keepAliveStatusText }}</span>
+        <span class="status-pill soft" v-if="backgroundFetchState?.lastRunAt">
+          最近后台触发：{{ formatRelativeTime(backgroundFetchState.lastRunAt) }}
+        </span>
+        <span class="status-pill soft" v-if="backgroundFetchState?.lastError">
+          调度错误：{{ backgroundFetchState.lastError }}
+        </span>
       </div>
     </section>
 
     <section class="info-grid">
+      <article class="info-card">
+        <h3>上课提醒</h3>
+        <p class="hint">{{ classReminderText }}</p>
+        <div class="kv">
+          <span>提醒提前</span>
+          <strong>{{ classLeadMinutes }} 分钟</strong>
+        </div>
+        <div class="kv">
+          <span>下一门课</span>
+          <strong>{{ nextClassText }}</strong>
+        </div>
+      </article>
+
       <article class="info-card electricity-card">
         <h3>电费监控</h3>
         <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
@@ -563,8 +723,8 @@ onBeforeUnmount(() => {
 }
 
 .setting-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 14px 0;
@@ -581,15 +741,23 @@ onBeforeUnmount(() => {
   color: var(--ui-text);
 }
 
+.setting-label {
+  min-width: 0;
+}
+
 .setting-label p {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--ui-muted);
+  word-break: break-word;
 }
 
 .status-row {
   margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .status-pill {
@@ -615,6 +783,9 @@ onBeforeUnmount(() => {
   display: inline-block;
   width: 50px;
   height: 28px;
+  flex: 0 0 auto;
+  justify-self: end;
+  align-self: center;
 }
 
 .switch input {
@@ -659,6 +830,10 @@ input:checked + .slider:before {
 }
 
 .select-input {
+  justify-self: end;
+  width: min(56vw, 320px);
+  max-width: 100%;
+  min-width: 168px;
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(148, 163, 184, 0.4));

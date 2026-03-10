@@ -9,6 +9,13 @@ export interface NotifyPayload {
   channelId?: string
 }
 
+export interface KeepAliveState {
+  supported: boolean
+  active: boolean
+  source: string
+  reason?: string
+}
+
 /**
  * 平台桥接统一接口
  *
@@ -25,4 +32,7 @@ export interface PlatformBridge {
   sendLocalNotification(payload: NotifyPayload): Promise<boolean>
   keepScreenOn(enable: boolean): Promise<boolean>
   shareLinkOrFile(target: string, title?: string): Promise<boolean>
+  setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState>
+  getAggressiveKeepAliveState(): Promise<KeepAliveState>
+  openBatteryOptimizationSettings(): Promise<boolean>
 }

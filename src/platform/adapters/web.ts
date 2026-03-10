@@ -1,4 +1,5 @@
 import type {
+  KeepAliveState,
   NotificationPermissionState,
   NotifyPayload,
   PlatformBridge
@@ -90,5 +91,27 @@ export const webBridge: PlatformBridge = {
       return false
     }
     return this.openUri(target)
+  },
+
+  async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
+    return {
+      supported: false,
+      active: false,
+      source: 'web',
+      reason: enable ? 'Web 环境不支持前台服务保活' : 'Web 环境不支持前台服务保活'
+    }
+  },
+
+  async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
+    return {
+      supported: false,
+      active: false,
+      source: 'web',
+      reason: 'Web 环境不支持移动端保活能力'
+    }
+  },
+
+  async openBatteryOptimizationSettings() {
+    return false
   }
 }

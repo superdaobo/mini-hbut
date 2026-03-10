@@ -1,4 +1,5 @@
 import type {
+  KeepAliveState,
   NotificationPermissionState,
   NotifyPayload,
   PlatformBridge
@@ -7,6 +8,7 @@ import type {
 const getCapacitor = () => (window as any)?.Capacitor
 const getPlugin = <T = any>(name: string): T | undefined =>
   getCapacitor()?.Plugins?.[name] as T | undefined
+const getHBUTNativePlugin = () => getPlugin<any>('HBUTNative')
 
 const normalizePermission = (value: string | undefined): NotificationPermissionState => {
   if (value === 'granted') return 'granted'
@@ -103,14 +105,18 @@ export const capacitorBridge: PlatformBridge = {
     const localNotifications = getPlugin<any>('LocalNotifications')
     if (!localNotifications?.schedule) return false
     try {
-      const id = payload.id ?? Math.floor(Date.now() / 1000)
+      const id = payload.id ?? Math.floor(Date.now() % 2147483000)
       await localNotifications.schedule({
         notifications: [
           {
             id,
             channelId: payload.channelId,
             title: payload.title,
-            body: payload.body || ''
+            body: payload.body || '',
+            schedule: {
+              at: new Date(Date.now() + 600),
+              allowWhileIdle: true
+            }
           }
         ]
       })
@@ -147,5 +153,80 @@ export const capacitorBridge: PlatformBridge = {
       }
     }
     return this.openUri(target)
+  },
+
+  async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
+    const plugin = getHBUTNativePlugin()
+    if (!plugin?.setForegroundService) {
+      return {
+        supported: false,
+        active: false,
+        source: 'capacitor',
+        reason: '未注册 HBUTNative 原生插件'
+      }
+    }
+    try {
+      const result = await plugin.setForegroundService({ enabled: !!enable })
+      return {
+        supported: true,
+        active: !!result?.active,
+        source: String(result?.source || 'android-foreground-service'),
+        reason: String(result?.reason || '')
+      }
+    } catch (error) {
+      return {
+        supported: true,
+        active: false,
+        source: 'android-foreground-service',
+        reason: String(error || '前台服务调用失败')
+      }
+    }
+  },
+
+  async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
+    const plugin = getHBUTNativePlugin()
+    if (!plugin?.getForegroundServiceState) {
+      return {
+        supported: false,
+        active: false,
+        source: 'capacitor',
+        reason: '未注册 HBUTNative 原生插件'
+      }
+    }
+    try {
+      const result = await plugin.getForegroundServiceState()
+      return {
+        supported: true,
+        active: !!result?.active,
+        source: String(result?.source || 'android-foreground-service'),
+        reason: String(result?.reason || '')
+      }
+    } catch (error) {
+      return {
+        supported: true,
+        active: false,
+        source: 'android-foreground-service',
+        reason: String(error || '前台服务状态读取失败')
+      }
+    }
+  },
+
+  async openBatteryOptimizationSettings() {
+    const plugin = getHBUTNativePlugin()
+    if (plugin?.openBatteryOptimizationSettings) {
+      try {
+        const result = await plugin.openBatteryOptimizationSettings({})
+        return !!result?.ok
+      } catch {
+        // fallback to app settings
+      }
+    }
+    try {
+      const app = await import('@capacitor/app')
+      await app.App.openSettings()
+      return true
+    } catch {
+      return false
+    }
   }
 }

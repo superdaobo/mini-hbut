@@ -18,7 +18,8 @@ const filterTerm = ref('')
 const filterPass = ref('all') // all, pass, fail
 const filterMakeup = ref('all') // all, yes, no
 const viewMode = ref('grouped') // grouped, all
-const sortMode = ref('score_desc') // score_desc, score_asc, origin
+const sortMode = ref('origin') // score_desc, score_asc, origin
+const showAdvancedFilters = ref(false)
 
 // 详情弹窗
 const selectedGrade = ref(null)
@@ -335,67 +336,74 @@ watch(
         </IOSSelect>
       </div>
       
-      <div class="filter-row">
-        <div class="filter-group">
-          <label>成绩状态:</label>
-          <div class="radio-group">
-            <label class="radio-label" :class="{ active: filterPass === 'all' }">
-              <input type="radio" v-model="filterPass" value="all" />
-              <span>全部</span>
-            </label>
-            <label class="radio-label" :class="{ active: filterPass === 'pass' }">
-              <input type="radio" v-model="filterPass" value="pass" />
-              <span>合格</span>
-            </label>
-            <label class="radio-label" :class="{ active: filterPass === 'fail' }">
-              <input type="radio" v-model="filterPass" value="fail" />
-              <span>不合格</span>
-            </label>
-          </div>
-        </div>
-        
-        <div class="filter-group">
-          <label>补考:</label>
-          <div class="radio-group">
-            <label class="radio-label" :class="{ active: filterMakeup === 'all' }">
-              <input type="radio" v-model="filterMakeup" value="all" />
-              <span>全部</span>
-            </label>
-            <label class="radio-label" :class="{ active: filterMakeup === 'no' }">
-              <input type="radio" v-model="filterMakeup" value="no" />
-              <span>正常</span>
-            </label>
-            <label class="radio-label" :class="{ active: filterMakeup === 'yes' }">
-              <input type="radio" v-model="filterMakeup" value="yes" />
-              <span>补考</span>
-            </label>
-          </div>
-        </div>
-        
+      <div class="filter-row filter-actions-row">
+        <button class="ghost-btn" @click="showAdvancedFilters = !showAdvancedFilters">
+          {{ showAdvancedFilters ? '收起筛选' : '展开筛选' }}
+        </button>
         <button class="reset-btn" @click="resetFilters">重置</button>
       </div>
 
-      <div class="filter-row">
-        <div class="filter-group">
-          <label>展示方式:</label>
-          <div class="radio-group">
-            <label class="radio-label" :class="{ active: viewMode === 'grouped' }">
-              <input type="radio" v-model="viewMode" value="grouped" />
-              <span>分组视图</span>
-            </label>
-            <label class="radio-label" :class="{ active: viewMode === 'all' }">
-              <input type="radio" v-model="viewMode" value="all" />
-              <span>全部视图</span>
-            </label>
+      <div v-if="showAdvancedFilters" class="filter-advanced">
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>成绩状态:</label>
+            <div class="radio-group">
+              <label class="radio-label" :class="{ active: filterPass === 'all' }">
+                <input type="radio" v-model="filterPass" value="all" />
+                <span>全部</span>
+              </label>
+              <label class="radio-label" :class="{ active: filterPass === 'pass' }">
+                <input type="radio" v-model="filterPass" value="pass" />
+                <span>合格</span>
+              </label>
+              <label class="radio-label" :class="{ active: filterPass === 'fail' }">
+                <input type="radio" v-model="filterPass" value="fail" />
+                <span>不合格</span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="filter-group">
+            <label>补考:</label>
+            <div class="radio-group">
+              <label class="radio-label" :class="{ active: filterMakeup === 'all' }">
+                <input type="radio" v-model="filterMakeup" value="all" />
+                <span>全部</span>
+              </label>
+              <label class="radio-label" :class="{ active: filterMakeup === 'no' }">
+                <input type="radio" v-model="filterMakeup" value="no" />
+                <span>正常</span>
+              </label>
+              <label class="radio-label" :class="{ active: filterMakeup === 'yes' }">
+                <input type="radio" v-model="filterMakeup" value="yes" />
+                <span>补考</span>
+              </label>
+            </div>
           </div>
         </div>
-        <div class="filter-group">
-          <label>排序:</label>
-          <IOSSelect v-model="sortMode" class="filter-select sort-select">
-            <option value="score_desc">成绩高到低</option>
-            <option value="score_asc">成绩低到高</option>
-            <option value="origin">成绩公布先后</option>
-          </IOSSelect>
+
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>展示方式:</label>
+            <div class="radio-group">
+              <label class="radio-label" :class="{ active: viewMode === 'grouped' }">
+                <input type="radio" v-model="viewMode" value="grouped" />
+                <span>分组视图</span>
+              </label>
+              <label class="radio-label" :class="{ active: viewMode === 'all' }">
+                <input type="radio" v-model="viewMode" value="all" />
+                <span>全部视图</span>
+              </label>
+            </div>
+          </div>
+          <div class="filter-group">
+            <label>排序:</label>
+            <IOSSelect v-model="sortMode" class="filter-select sort-select">
+              <option value="score_desc">成绩高到低</option>
+              <option value="score_asc">成绩低到高</option>
+              <option value="origin">成绩公布先后</option>
+            </IOSSelect>
+          </div>
         </div>
       </div>
     </div>
@@ -645,6 +653,14 @@ watch(
   border-top: 1px dashed color-mix(in oklab, var(--ui-primary) 24%, var(--ui-surface-border));
 }
 
+.filter-actions-row {
+  justify-content: flex-end;
+}
+
+.filter-advanced {
+  margin-top: 10px;
+}
+
 .search-box {
   flex: 1;
   min-width: 200px;
@@ -720,6 +736,21 @@ watch(
   background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
   color: #ffffff;
   border-color: transparent;
+}
+
+.ghost-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ghost-btn:hover {
+  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #ffffff 28%);
 }
 
 .reset-btn {

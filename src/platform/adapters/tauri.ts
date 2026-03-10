@@ -1,4 +1,5 @@
 import type {
+  KeepAliveState,
   NotificationPermissionState,
   NotifyPayload,
   PlatformBridge
@@ -117,5 +118,27 @@ export const tauriBridge: PlatformBridge = {
     // Tauri 下先走外部打开，和当前产品行为保持一致。
     if (title) void title
     return this.openUri(target)
+  },
+
+  async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
+    return {
+      supported: false,
+      active: false,
+      source: 'tauri',
+      reason: enable ? '桌面端无需激进保活' : '桌面端无需激进保活'
+    }
+  },
+
+  async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
+    return {
+      supported: false,
+      active: false,
+      source: 'tauri',
+      reason: '桌面端不支持移动端前台服务保活'
+    }
+  },
+
+  async openBatteryOptimizationSettings() {
+    return false
   }
 }

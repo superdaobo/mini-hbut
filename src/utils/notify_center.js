@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { setCachedData } from './api.js'
+import { LONG_TTL, getCachedData, setCachedData } from './api.js'
 import { compareSemesterDesc } from './semester.js'
 import {
   markScheduleSwitchPending,
@@ -9,6 +9,7 @@ import {
 import { useAppSettings } from './app_settings'
 import { isCapacitorRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
+import { pushDebugLog } from './debug_logger'
 import {
   clearBackgroundFetchContext,
   syncBackgroundFetchContext
@@ -30,8 +31,24 @@ const STORAGE_KEYS = {
   exam: 'hbu_notify_exam',
   grade: 'hbu_notify_grade',
   power: 'hbu_notify_power',
+  class: 'hbu_notify_class',
+  classLeadMinutes: 'hbu_notify_class_lead_min',
   interval: 'hbu_notify_interval',
   dormSelection: 'last_dorm_selection'
+}
+
+const CLASS_PERIOD_TIME_MAP = {
+  1: { start: '08:20', end: '09:05' },
+  2: { start: '09:10', end: '09:55' },
+  3: { start: '10:15', end: '11:00' },
+  4: { start: '11:05', end: '11:50' },
+  5: { start: '14:00', end: '14:45' },
+  6: { start: '14:50', end: '15:35' },
+  7: { start: '15:55', end: '16:40' },
+  8: { start: '16:45', end: '17:30' },
+  9: { start: '18:30', end: '19:15' },
+  10: { start: '19:20', end: '20:05' },
+  11: { start: '20:10', end: '20:55' }
 }
 
 const readBool = (key, fallback) => {
@@ -118,11 +135,15 @@ const getNotifySettings = () => {
   const intervalRaw = readInt(STORAGE_KEYS.interval, DEFAULT_INTERVAL_MINUTES)
   const interval =
     [15, 30, 60].includes(intervalRaw) ? intervalRaw : DEFAULT_INTERVAL_MINUTES
+  const classLeadRaw = readInt(STORAGE_KEYS.classLeadMinutes, 30)
+  const classLeadMinutes = Math.min(120, Math.max(5, classLeadRaw))
   return {
     enableBackground: readBool(STORAGE_KEYS.bg, false),
     enableExamReminder: readBool(STORAGE_KEYS.exam, true),
     enableGradeNotice: readBool(STORAGE_KEYS.grade, true),
     enablePowerNotice: readBool(STORAGE_KEYS.power, true),
+    enableClassReminder: readBool(STORAGE_KEYS.class, true),
+    classLeadMinutes,
     intervalMinutes: interval
   }
 }
@@ -139,6 +160,37 @@ const getApiBase = () => {
 }
 
 const toApiUrl = (path) => `${getApiBase().replace(/\/+$/, '')}${path}`
+
+const toMinutes = (timeText) => {
+  const text = toSafeText(timeText)
+  if (!text || !text.includes(':')) return NaN
+  const [h, m] = text.split(':').map((item) => Number(item))
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN
+  return h * 60 + m
+}
+
+const getCurrentMinutePrecise = () => {
+  const now = new Date()
+  return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
+}
+
+const getTodayWeekday = () => {
+  const weekday = new Date().getDay()
+  return weekday === 0 ? 7 : weekday
+}
+
+const toPositiveInt = (value, fallback = 0) => {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return fallback
+  return Math.floor(num)
+}
+
+const normalizeWeeks = (weeks) => {
+  if (!Array.isArray(weeks)) return []
+  return weeks
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+}
 
 const buildGradesSignature = (grades) => {
   const list = Array.isArray(grades) ? grades : []
@@ -223,6 +275,7 @@ const snapshotKeyFor = (studentId) => `hbu_notify_snapshot:${studentId}`
 const gradeSigKeyFor = (studentId) => `hbu_notify_grade_signature:${studentId}`
 const examSigKeyFor = (studentId) => `hbu_notify_exam_tomorrow:${studentId}`
 const powerStateKeyFor = (studentId, roomKey) => `hbu_notify_power_state:${studentId}:${roomKey}`
+const classReminderStateKeyFor = (studentId) => `hbu_notify_class_state:${studentId}`
 
 const getRequestTimeoutMs = () => {
   try {
@@ -575,6 +628,246 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
   }
 }
 
+const getSchedulePayloadForReminder = (studentId, semesterHint = '') => {
+  const sid = toSafeText(studentId)
+  if (!sid) return null
+  const sem = toSafeText(semesterHint)
+  if (sem) {
+    const scoped = getCachedData(`schedule:${sid}:${sem}`, LONG_TTL)
+    if (scoped?.data) return scoped.data
+  }
+  const global = getCachedData(`schedule:${sid}`, LONG_TTL)
+  if (global?.data) return global.data
+  return null
+}
+
+const getCoursePeriodRange = (course) => {
+  const startPeriod = toPositiveInt(course?.period ?? course?.start_period, 0)
+  if (startPeriod < 1 || startPeriod > 11) return null
+  const endByField = toPositiveInt(course?.end_period, 0)
+  const span = Math.max(1, toPositiveInt(course?.djs ?? course?.duration, 1))
+  const computedEnd = endByField > 0 ? endByField : startPeriod + span - 1
+  const endPeriod = Math.min(11, Math.max(startPeriod, computedEnd))
+  return { startPeriod, endPeriod }
+}
+
+const getCourseMergeSignature = (course) => {
+  const id = toSafeText(course?.id || '')
+  const name = toSafeText(course?.name || '')
+  const teacher = toSafeText(course?.teacher || '')
+  const room = toSafeText(course?.room_code || course?.room || '')
+  const className = toSafeText(course?.class_name || '')
+  const building = toSafeText(course?.building || '')
+  const custom = course?.is_custom ? '1' : '0'
+  return `${id}|${name}|${teacher}|${room}|${className}|${building}|${custom}`
+}
+
+const getMergedTodayClasses = (courses, currentWeek, weekday) => {
+  const normalized = (Array.isArray(courses) ? courses : [])
+    .filter((course) => toPositiveInt(course?.weekday, 0) === weekday)
+    .filter((course) => {
+      const weeks = normalizeWeeks(course?.weeks)
+      return weeks.length === 0 || weeks.includes(currentWeek)
+    })
+    .map((course) => {
+      const range = getCoursePeriodRange(course)
+      if (!range) return null
+      return {
+        ...course,
+        startPeriod: range.startPeriod,
+        endPeriod: range.endPeriod,
+        signature: getCourseMergeSignature(course),
+        room: toSafeText(course?.room_code || course?.room || '待定教室'),
+        teacher: toSafeText(course?.teacher || ''),
+        name: toSafeText(course?.name || '未命名课程')
+      }
+    })
+    .filter(Boolean)
+
+  const signatureCount = new Map()
+  normalized.forEach((course) => {
+    signatureCount.set(course.signature, (signatureCount.get(course.signature) || 0) + 1)
+  })
+
+  const sorted = normalized
+    .map((course) => {
+      const rawSpan = Math.max(1, course.endPeriod - course.startPeriod + 1)
+      const duplicateCount = Number(signatureCount.get(course.signature) || 0)
+      const unitSpan = course.is_custom ? rawSpan : (duplicateCount > 1 ? 1 : rawSpan)
+      const endPeriod = Math.min(11, course.startPeriod + unitSpan - 1)
+      return {
+        ...course,
+        rawSpan,
+        unitSpan,
+        endPeriod
+      }
+    })
+    .sort((a, b) => a.startPeriod - b.startPeriod || a.endPeriod - b.endPeriod)
+
+  const merged = []
+  let i = 0
+  while (i < sorted.length) {
+    const current = sorted[i]
+    const mergedItem = { ...current }
+    let j = i + 1
+    while (j < sorted.length) {
+      const next = sorted[j]
+      if (
+        mergedItem.unitSpan === 1 &&
+        next.unitSpan === 1 &&
+        next.signature === mergedItem.signature &&
+        next.startPeriod === mergedItem.endPeriod + 1
+      ) {
+        mergedItem.endPeriod = next.endPeriod
+        j += 1
+      } else {
+        break
+      }
+    }
+    const slot = CLASS_PERIOD_TIME_MAP[mergedItem.startPeriod]
+    const startClock = slot?.start || '--:--'
+    mergedItem.startClock = startClock
+    mergedItem.startMinutes = toMinutes(startClock)
+    merged.push(mergedItem)
+    i = j
+  }
+  return merged
+}
+
+const toCourseReminderItems = (mergedClasses, leadMinutes) => {
+  const nowMinute = getCurrentMinutePrecise()
+  return (Array.isArray(mergedClasses) ? mergedClasses : [])
+    .map((course) => {
+      const startMinutes = Number(course?.startMinutes)
+      if (!Number.isFinite(startMinutes)) return null
+      const minsUntilStart = startMinutes - nowMinute
+      if (minsUntilStart < 0 || minsUntilStart > leadMinutes) return null
+      return {
+        id: `${toSafeText(course?.signature || '')}|${course.startPeriod}|${course.endPeriod}`,
+        name: toSafeText(course?.name || '未命名课程'),
+        teacher: toSafeText(course?.teacher || ''),
+        room: toSafeText(course?.room_code || course?.room || '待定教室'),
+        weekday: toPositiveInt(course?.weekday, 0),
+        startPeriod: toPositiveInt(course?.startPeriod, 0),
+        endPeriod: toPositiveInt(course?.endPeriod, 0),
+        startClock: toSafeText(course?.startClock || '--:--'),
+        minsUntilStart: Math.max(0, Math.floor(minsUntilStart))
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startPeriod - b.startPeriod)
+}
+
+const checkClassReminder = async (studentId, settings, queue, scheduleResult) => {
+  const sid = toSafeText(studentId)
+  if (!sid) {
+    return {
+      success: false,
+      enabled: false,
+      totalToday: 0,
+      triggered: 0,
+      reason: 'missing-student-id'
+    }
+  }
+
+  if (!settings.enableClassReminder) {
+    return {
+      success: true,
+      enabled: false,
+      totalToday: 0,
+      triggered: 0
+    }
+  }
+
+  const semesterHint = toSafeText(scheduleResult?.semester)
+  const payload = getSchedulePayloadForReminder(sid, semesterHint)
+  const courses = Array.isArray(payload?.data) ? payload.data.slice() : []
+  const semesterForCustom = toSafeText(payload?.meta?.semester || semesterHint)
+  if (semesterForCustom) {
+    try {
+      const customRes = await axios.post(
+        toApiUrl('/v2/schedule/custom/list'),
+        { student_id: sid, semester: semesterForCustom },
+        { timeout: getRequestTimeoutMs() }
+      )
+      if (customRes?.data?.success && Array.isArray(customRes?.data?.data)) {
+        courses.push(...customRes.data.data.map((item) => ({ ...item, is_custom: true })))
+      }
+    } catch {
+      // ignore custom fetch error
+    }
+  }
+  const currentWeek =
+    toPositiveInt(payload?.meta?.current_week, 0) ||
+    toPositiveInt(readJSON('hbu_schedule_meta', {})?.current_week, 1) ||
+    1
+  const weekday = getTodayWeekday()
+  const leadMinutes = Math.min(120, Math.max(5, Number(settings.classLeadMinutes || 30)))
+  const todayKey = toDayKey(new Date())
+  const todayClasses = getMergedTodayClasses(courses, currentWeek, weekday)
+  const candidates = toCourseReminderItems(todayClasses, leadMinutes)
+  const nowMinute = getCurrentMinutePrecise()
+  const nextUpcomingCourse = todayClasses
+    .filter((course) => Number.isFinite(course?.startMinutes) && course.startMinutes >= nowMinute)
+    .sort((a, b) => a.startPeriod - b.startPeriod)[0] || null
+
+  const stateKey = classReminderStateKeyFor(sid)
+  const state = readJSON(stateKey, {})
+  const sentIds = state?.day === todayKey && Array.isArray(state?.sent_ids)
+    ? state.sent_ids.map((item) => toSafeText(item)).filter(Boolean)
+    : []
+  const sentSet = new Set(sentIds)
+  const toNotify = candidates.filter((item) => !sentSet.has(item.id))
+
+  toNotify.forEach((item) => {
+    const suffix = item.teacher ? `，授课教师 ${item.teacher}` : ''
+    const leadText = item.minsUntilStart > 0 ? `${item.minsUntilStart} 分钟后` : '即将'
+    queue.push({
+      title: '上课提醒',
+      body: `${leadText}开始：${item.name}（${item.startClock}，${item.room}${suffix}）`
+    })
+  })
+
+  const nextCourse = candidates[0] || null
+  const nextIds = [...sentSet, ...toNotify.map((item) => item.id)]
+  writeJSON(stateKey, {
+    day: todayKey,
+    sent_ids: nextIds.slice(-120),
+    updated_at: nowIso()
+  })
+
+  pushDebugLog(
+    'Notify',
+    `上课提醒检查完成 total=${todayClasses.length} trigger=${toNotify.length} lead=${leadMinutes}min`,
+    'debug',
+    {
+      semester: semesterHint,
+      currentWeek,
+      weekday
+    }
+  )
+
+  return {
+    success: true,
+    enabled: true,
+    totalToday: todayClasses.length,
+    triggered: toNotify.length,
+    leadMinutes,
+    currentWeek,
+    nextCourse: (nextUpcomingCourse || nextCourse)
+      ? {
+          name: toSafeText((nextUpcomingCourse || nextCourse)?.name || ''),
+          room: toSafeText((nextUpcomingCourse || nextCourse)?.room || ''),
+          teacher: toSafeText((nextUpcomingCourse || nextCourse)?.teacher || ''),
+          startClock: toSafeText((nextUpcomingCourse || nextCourse)?.startClock || ''),
+          minsUntilStart: Number.isFinite(Number((nextUpcomingCourse || nextCourse)?.minsUntilStart))
+            ? Number((nextUpcomingCourse || nextCourse).minsUntilStart)
+            : Math.max(0, Math.floor(Number((nextUpcomingCourse || nextCourse)?.startMinutes || nowMinute) - nowMinute))
+        }
+      : null
+  }
+}
+
 export const runNotificationCheck = async ({
   studentId,
   launchCheck = false,
@@ -611,6 +904,12 @@ export const runNotificationCheck = async ({
       schedule: { success: false, error: '后台检查未启用' },
       grades: { success: false, total: 0, changed: false, latestItems: [] },
       exams: { success: false, total: 0, upcoming: [], tomorrowCount: 0 },
+      classReminder: {
+        success: false,
+        enabled: !!settings.enableClassReminder,
+        totalToday: 0,
+        triggered: 0
+      },
       electricity: {
         success: false,
         configured: false,
@@ -622,6 +921,10 @@ export const runNotificationCheck = async ({
   }
 
   const queue = []
+  pushDebugLog('Notify', `开始通知检查 reason=${reason} launch=${launchCheck ? '1' : '0'}`, 'info', {
+    studentId: sid,
+    settings
+  })
 
   // 核心检查流程：课表静默刷新 + 成绩变更 + 考试提醒 + 电费实时监控。
   const [schedule, grades, exams, electricity] = await Promise.all([
@@ -630,8 +933,19 @@ export const runNotificationCheck = async ({
     checkExams(sid, settings, queue),
     checkElectricity(sid, settings, queue, launchCheck)
   ])
+  const classReminder = await checkClassReminder(sid, settings, queue, schedule)
 
   const sent = await sendQueuedNotifications(queue, allowPermissionPrompt)
+  pushDebugLog(
+    'Notify',
+    `通知检查完成 queue=${queue.length} sent=${sent.length}`,
+    'info',
+    {
+      studentId: sid,
+      reason,
+      classTriggered: classReminder?.triggered || 0
+    }
+  )
 
   const snapshot = {
     studentId: sid,
@@ -643,6 +957,7 @@ export const runNotificationCheck = async ({
     schedule,
     grades,
     exams,
+    classReminder,
     electricity,
     notifications: {
       queued: queue.length,
@@ -706,6 +1021,12 @@ export const startNotificationMonitor = async ({ studentId, onUpdate } = {}) => 
       settings,
       dormSelection: getDormSelection()
     })
+    try {
+      const keepAlive = await platformBridge.setAggressiveKeepAlive(!!settings.enableBackground)
+      pushDebugLog('Notify', `移动端前台服务状态 active=${keepAlive.active ? '1' : '0'}`, 'debug', keepAlive)
+    } catch (error) {
+      pushDebugLog('Notify', '移动端前台服务切换失败', 'warn', error)
+    }
   }
   const intervalMinutes = Math.max(
     MIN_INTERVAL_MINUTES,
@@ -716,6 +1037,7 @@ export const startNotificationMonitor = async ({ studentId, onUpdate } = {}) => 
   monitorTimer = window.setInterval(() => {
     monitorCheck({ launchCheck: false, reason: 'interval' }).catch(() => {})
   }, intervalMinutes * 60 * 1000)
+  pushDebugLog('Notify', `通知轮询已启动 interval=${intervalMinutes}min`, 'info', { studentId: sid })
 
   await monitorCheck({ launchCheck: true, reason: 'app-launch' })
 
@@ -744,7 +1066,13 @@ export const stopNotificationMonitor = async () => {
   monitorStudentId = ''
   monitorChecking = false
   monitorOnUpdate = null
+  pushDebugLog('Notify', '通知轮询已停止', 'debug')
   if (isCapacitorRuntime()) {
+    try {
+      await platformBridge.setAggressiveKeepAlive(false)
+    } catch {
+      // ignore
+    }
     await clearBackgroundFetchContext()
   }
 }

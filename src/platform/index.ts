@@ -42,5 +42,14 @@ export const platformBridge = {
   },
   async shareLinkOrFile(target: string, title?: string) {
     return pickBridge().shareLinkOrFile(target, title)
+  },
+  async setAggressiveKeepAlive(enable: boolean) {
+    return pickBridge().setAggressiveKeepAlive(enable)
+  },
+  async getAggressiveKeepAliveState() {
+    return pickBridge().getAggressiveKeepAliveState()
+  },
+  async openBatteryOptimizationSettings() {
+    return pickBridge().openBatteryOptimizationSettings()
   }
 }
