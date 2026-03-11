@@ -1775,7 +1775,9 @@ async fn ai_chat_stream(
     let question = req.question;
     let model = req.model.unwrap_or_else(|| "qwen-max".to_string());
     let user_attachment = req.user_attachment.or(req.upload_url).unwrap_or_default();
-    let final_upload_url = user_attachment.trim().to_string();
+    let final_upload_url = crate::modules::ai::ensure_stream_upload_url(&token, &blade_auth, user_attachment.trim()).await;
+    let effective_question = crate::modules::ai::build_effective_ask(&question);
+    let network_flag = "1";
 
     let remote_session_id = req.session_id.unwrap_or_default().trim().to_string();
     let session_id = if remote_session_id.is_empty() {
@@ -1800,14 +1802,14 @@ async fn ai_chat_stream(
     let timestamp = Utc::now().timestamp_millis().to_string();
 
     let mut params: Vec<(&str, String)> = vec![
-        ("ask", question.clone()),
+        ("ask", effective_question),
         ("sessionId", session_id.clone()),
         ("model", model.clone()),
         ("timestamp", timestamp),
         ("serviceModel", "default".to_string()),
         ("datasetFlag", "0".to_string()),
-        // 对齐源站：开启 networkFlag 可避免无附件场景落入固定套话响应。
-        ("networkFlag", "1".to_string()),
+        // 按用户要求强制走检索/知识模式。
+        ("networkFlag", network_flag.to_string()),
     ];
     if !final_upload_url.trim().is_empty() {
         params.push(("uploadUrl", final_upload_url));
