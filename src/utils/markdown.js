@@ -10,15 +10,21 @@ marked.setOptions({
 const CDN_CONFIG = {
   katexScript: [
     'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js',
-    'https://unpkg.com/katex@0.16.11/dist/katex.min.js'
+    'https://fastly.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js',
+    'https://unpkg.com/katex@0.16.11/dist/katex.min.js',
+    'https://npm.elemecdn.com/katex@0.16.11/dist/katex.min.js'
   ],
   katexStyle: [
     'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css',
-    'https://unpkg.com/katex@0.16.11/dist/katex.min.css'
+    'https://fastly.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css',
+    'https://unpkg.com/katex@0.16.11/dist/katex.min.css',
+    'https://npm.elemecdn.com/katex@0.16.11/dist/katex.min.css'
   ],
   markedKatexScript: [
     'https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.6/lib/index.umd.js',
-    'https://unpkg.com/marked-katex-extension@5.1.6/lib/index.umd.js'
+    'https://fastly.jsdelivr.net/npm/marked-katex-extension@5.1.6/lib/index.umd.js',
+    'https://unpkg.com/marked-katex-extension@5.1.6/lib/index.umd.js',
+    'https://npm.elemecdn.com/marked-katex-extension@5.1.6/lib/index.umd.js'
   ]
 }
 
@@ -27,7 +33,12 @@ let markdownRuntimePromise = null
 
 const enableKatexMarkdown = () => {
   if (markdownRuntimeReady) return
-  const pluginFactory = window?.markedKatex
+  const pluginFactory = (
+    (typeof window?.markedKatex === 'function' && window.markedKatex)
+    || (typeof window?.markedKatex?.default === 'function' && window.markedKatex.default)
+    || (typeof window?.markedKatexExtension === 'function' && window.markedKatexExtension)
+    || (typeof window?.markedKatexExtension?.default === 'function' && window.markedKatexExtension.default)
+  )
   if (typeof pluginFactory !== 'function') return
   marked.use(
     pluginFactory({
@@ -59,7 +70,13 @@ export const initMarkdownRuntime = async (timeoutMs = 8000) => {
         cacheKey: 'marked-katex-js',
         urls: CDN_CONFIG.markedKatexScript,
         timeoutMs,
-        resolveGlobal: () => window?.markedKatex
+        resolveGlobal: () => (
+          (typeof window?.markedKatex === 'function' && window.markedKatex)
+          || (typeof window?.markedKatex?.default === 'function' && window.markedKatex.default)
+          || (typeof window?.markedKatexExtension === 'function' && window.markedKatexExtension)
+          || (typeof window?.markedKatexExtension?.default === 'function' && window.markedKatexExtension.default)
+          || null
+        )
       })
       enableKatexMarkdown()
     } catch (error) {

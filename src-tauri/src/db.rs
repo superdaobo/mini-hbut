@@ -133,6 +133,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "electricity_cache",
         "transaction_cache",
         "student_login_access_cache",
+        "ai_session_cache",
         "calendar_public_cache",   // public
 
         "classroom_public_cache",  // public

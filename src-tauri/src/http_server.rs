@@ -345,7 +345,9 @@ struct CampusCodeRequest {
 struct AiUploadRequest {
     token: String,
     blade_auth: String,
-    file_content: String,
+    file_content: Option<String>,
+    file_base64: Option<String>,
+    file_mime: Option<String>,
     file_name: String,
 }
 
@@ -377,6 +379,13 @@ struct AiSessionHistoryRequest {
 
 #[derive(Debug, Deserialize)]
 struct AiSessionMessagesRequest {
+    token: String,
+    blade_auth: String,
+    session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AiSessionDeleteRequest {
     token: String,
     blade_auth: String,
     session_id: String,
@@ -454,6 +463,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/ai_chat_session/new", post(ai_chat_session_new))
         .route("/ai_chat_session/history", post(ai_chat_session_history))
         .route("/ai_chat_session/messages", post(ai_chat_session_messages))
+        .route("/ai_chat_session/delete", post(ai_chat_session_delete))
         .with_state(state)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
 
@@ -1678,7 +1688,14 @@ async fn ai_init(State(state): State<HttpState>) -> Result<Json<ApiResponse<serd
 }
 
 async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let res = crate::modules::ai::hbut_ai_upload(req.token, req.blade_auth, req.file_content, req.file_name).await
+    let res = crate::modules::ai::hbut_ai_upload(
+        req.token,
+        req.blade_auth,
+        req.file_content.unwrap_or_default(),
+        req.file_name,
+        req.file_base64,
+        req.file_mime,
+    ).await
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
     Ok(ok(serde_json::json!({
         "success": res.success,
@@ -1727,6 +1744,16 @@ async fn ai_chat_session_messages(
     Ok(ok(serde_json::to_value(payload).unwrap_or_else(|_| serde_json::json!({}))))
 }
 
+async fn ai_chat_session_delete(
+    State(_state): State<HttpState>,
+    Json(req): Json<AiSessionDeleteRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    crate::modules::ai::delete_ai_session(&req.token, &req.blade_auth, &req.session_id)
+        .await
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
+    Ok(ok(serde_json::json!({ "success": true, "session_id": req.session_id })))
+}
+
 async fn ai_chat(State(_state): State<HttpState>, Json(req): Json<AiChatRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let res = crate::modules::ai::hbut_ai_chat(
         req.token,
@@ -1748,21 +1775,7 @@ async fn ai_chat_stream(
     let question = req.question;
     let model = req.model.unwrap_or_else(|| "qwen-max".to_string());
     let user_attachment = req.user_attachment.or(req.upload_url).unwrap_or_default();
-    let mut final_upload_url = user_attachment.trim().to_string();
-
-    // 统一规则：每次提问都先确保有 uploadUrl（无用户附件时自动上传空文件）。
-    if final_upload_url.trim().is_empty() {
-        let empty_name = format!("empty_{}.txt", Utc::now().timestamp_millis());
-        let upload = crate::modules::ai::hbut_ai_upload(
-            token.clone(),
-            blade_auth.clone(),
-            "".to_string(),
-            empty_name,
-        )
-        .await
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
-        final_upload_url = upload.link;
-    }
+    let final_upload_url = user_attachment.trim().to_string();
 
     let remote_session_id = req.session_id.unwrap_or_default().trim().to_string();
     let session_id = if remote_session_id.is_empty() {
@@ -1786,16 +1799,19 @@ async fn ai_chat_stream(
 
     let timestamp = Utc::now().timestamp_millis().to_string();
 
-    let params = [
-        ("ask", question.as_str()),
-        ("sessionId", session_id.as_str()),
-        ("model", model.as_str()),
-        ("timestamp", timestamp.as_str()),
-        ("serviceModel", "default"),
-        ("datasetFlag", "0"),
-        ("networkFlag", "0"),
-        ("uploadUrl", final_upload_url.as_str()),
+    let mut params: Vec<(&str, String)> = vec![
+        ("ask", question.clone()),
+        ("sessionId", session_id.clone()),
+        ("model", model.clone()),
+        ("timestamp", timestamp),
+        ("serviceModel", "default".to_string()),
+        ("datasetFlag", "0".to_string()),
+        // 对齐源站：开启 networkFlag 可避免无附件场景落入固定套话响应。
+        ("networkFlag", "1".to_string()),
     ];
+    if !final_upload_url.trim().is_empty() {
+        params.push(("uploadUrl", final_upload_url));
+    }
 
     let client = reqwest::Client::new();
     let response = client
@@ -1809,6 +1825,7 @@ async fn ai_chat_stream(
     let mut stream = response.bytes_stream();
     let event_stream = async_stream::stream! {
         let mut buffer = String::new();
+        let mut utf8_pending: Vec<u8> = Vec::new();
         let mut emitted_content: bool = false;
         let session_payload = serde_json::json!({
             "event": "session",
@@ -1819,9 +1836,16 @@ async fn ai_chat_stream(
         let start = Instant::now();
         let max_duration = Duration::from_secs(180);
         let idle_timeout = Duration::from_secs(60);
+        let output_idle_timeout = Duration::from_secs(8);
+        let mut last_output_at = Instant::now();
         loop {
             if start.elapsed() > max_duration {
                 let payload = serde_json::json!({"event":"done","reason":"timeout"}).to_string();
+                yield Ok(Event::default().data(payload));
+                return;
+            }
+            if emitted_content && last_output_at.elapsed() > output_idle_timeout {
+                let payload = serde_json::json!({"event":"done","reason":"output_idle_timeout"}).to_string();
                 yield Ok(Event::default().data(payload));
                 return;
             }
@@ -1836,7 +1860,10 @@ async fn ai_chat_stream(
                 }
             };
             let chunk = match item {
-                Ok(bytes) => String::from_utf8_lossy(&bytes).to_string(),
+                Ok(bytes) => {
+                    utf8_pending.extend_from_slice(&bytes);
+                    decode_utf8_stream_chunk(&mut utf8_pending)
+                }
                 Err(_) => break,
             };
             if chunk.is_empty() {
@@ -1854,11 +1881,15 @@ async fn ai_chat_stream(
                         yield Ok(Event::default().data(event_payload.to_string()));
                         return;
                     }
-                    if event_payload.get("event").and_then(|v| v.as_str()) == Some("delta") {
-                        emitted_content = true;
+                    if let Some(event_name) = event_payload.get("event").and_then(|v| v.as_str()) {
+                        if event_name == "delta" || event_name == "thinking" || event_name == "progress" {
+                            last_output_at = Instant::now();
+                        }
+                        if event_name == "delta" || event_name == "thinking" {
+                            emitted_content = true;
+                        }
                     }
                     yield Ok(Event::default().data(event_payload.to_string()));
-                    tokio::time::sleep(Duration::from_millis(8)).await;
                 }
             }
             for raw in drain_json_objects(&mut buffer) {
@@ -1870,13 +1901,24 @@ async fn ai_chat_stream(
                         yield Ok(Event::default().data(event_payload.to_string()));
                         return;
                     }
-                    if event_payload.get("event").and_then(|v| v.as_str()) == Some("delta") {
-                        emitted_content = true;
+                    if let Some(event_name) = event_payload.get("event").and_then(|v| v.as_str()) {
+                        if event_name == "delta" || event_name == "thinking" || event_name == "progress" {
+                            last_output_at = Instant::now();
+                        }
+                        if event_name == "delta" || event_name == "thinking" {
+                            emitted_content = true;
+                        }
                     }
                     yield Ok(Event::default().data(event_payload.to_string()));
-                    tokio::time::sleep(Duration::from_millis(8)).await;
                 }
             }
+        }
+        if !utf8_pending.is_empty() {
+            let tail = String::from_utf8_lossy(&utf8_pending).to_string();
+            if !tail.is_empty() {
+                buffer.push_str(&tail);
+            }
+            utf8_pending.clear();
         }
         if !buffer.trim().is_empty() {
             let final_text = crate::modules::ai::parse_ai_stream_text(&buffer);
@@ -1913,7 +1955,6 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
     }
     if raw.len() >= 120 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
         if crate::modules::ai::is_hex_gibberish_run(raw) {
-            out.push(serde_json::json!({"event":"done","reason":"hex_noise"}));
             return out;
         }
     }
@@ -1921,34 +1962,92 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
     if raw.starts_with('{') || raw.starts_with('[') {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
             let should_emit_done = is_finish_event_payload(&json);
+            if is_reference_payload(&json) {
+                if should_emit_done {
+                    out.push(serde_json::json!({"event":"done"}));
+                }
+                return out;
+            }
             if let Some((t, content, thinking)) = crate::modules::ai::extract_stream_fields(&json) {
-                if t == Some(11) {
-                    if let Some(thinking_text) = thinking {
-                        if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&thinking_text) {
-                            out.push(serde_json::json!({"event":"thinking","delta":cleaned}));
+                if let Some(stream_type) = t {
+                    match stream_type {
+                        1 => {
+                            let content_cleaned = content
+                                .as_deref()
+                                .and_then(crate::modules::ai::clean_stream_chunk);
+                            let thinking_cleaned = thinking
+                                .as_deref()
+                                .and_then(crate::modules::ai::clean_stream_chunk);
+
+                            if let Some(cleaned) = content_cleaned.clone() {
+                                out.push(serde_json::json!({"event":"delta","delta":cleaned}));
+                            } else if let Some(cleaned) = thinking_cleaned.clone() {
+                                out.push(serde_json::json!({"event":"thinking","delta":cleaned}));
+                            }
+
+                            if let (Some(content_v), Some(thinking_v)) = (content_cleaned, thinking_cleaned) {
+                                if content_v != thinking_v {
+                                    out.push(serde_json::json!({"event":"thinking","delta":thinking_v}));
+                                }
+                            }
+                            if should_emit_done {
+                                out.push(serde_json::json!({"event":"done"}));
+                            }
+                            return out;
+                        }
+                        11 => {
+                            if let Some(thinking_text) = thinking {
+                                if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&thinking_text) {
+                                    out.push(serde_json::json!({"event":"thinking","delta":cleaned}));
+                                }
+                            }
+                            if should_emit_done {
+                                out.push(serde_json::json!({"event":"done"}));
+                            }
+                            return out;
+                        }
+                        // 源站正文分片事件（网络检索问答常见）
+                        12 | 13 => {
+                            if let Some(content_text) = content.or(thinking) {
+                                if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text) {
+                                    out.push(serde_json::json!({"event":"delta","delta":cleaned}));
+                                }
+                            }
+                            if should_emit_done {
+                                out.push(serde_json::json!({"event":"done"}));
+                            }
+                            return out;
+                        }
+                        24 | 999 => {
+                            if let Some(progress) = extract_progress_text(&json) {
+                                if !progress.trim().is_empty() {
+                                    out.push(serde_json::json!({"event":"progress","message":progress}));
+                                }
+                            }
+                            if should_emit_done {
+                                out.push(serde_json::json!({"event":"done"}));
+                            }
+                            return out;
+                        }
+                        // 引用/检索元数据大对象，直接忽略，防止 JSON 污染正文。
+                        14 => {
+                            if should_emit_done {
+                                out.push(serde_json::json!({"event":"done"}));
+                            }
+                            return out;
+                        }
+                        // 其他未知 type 不走兜底提取，避免整包 JSON 被当成正文输出。
+                        _ => {
+                            if should_emit_done {
+                                out.push(serde_json::json!({"event":"done"}));
+                            }
+                            return out;
                         }
                     }
-                    if should_emit_done {
-                        out.push(serde_json::json!({"event":"done"}));
-                    }
-                    return out;
-                }
-                if t == Some(1) {
-                    let content_text = content.or(thinking);
-                    if let Some(content_text) = content_text {
+                } else {
+                    if let Some(content_text) = content.or(thinking) {
                         if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text) {
                             out.push(serde_json::json!({"event":"delta","delta":cleaned}));
-                        }
-                    }
-                    if should_emit_done {
-                        out.push(serde_json::json!({"event":"done"}));
-                    }
-                    return out;
-                }
-                if t == Some(24) || t == Some(999) {
-                    if let Some(progress) = extract_progress_text(&json) {
-                        if !progress.trim().is_empty() {
-                            out.push(serde_json::json!({"event":"progress","message":progress}));
                         }
                     }
                     if should_emit_done {
@@ -1973,6 +2072,35 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
 
 fn is_done_event(event: &serde_json::Value) -> bool {
     event.get("event").and_then(|v| v.as_str()) == Some("done")
+}
+
+fn is_reference_payload(value: &serde_json::Value) -> bool {
+    if let Some(obj) = value.as_object() {
+        if let Some(chat_type) = obj.get("chatType").and_then(|v| v.as_str()) {
+            if chat_type == "network_ref" {
+                return true;
+            }
+        }
+        if obj.contains_key("shardingInformation") {
+            return true;
+        }
+        if let Some(data) = obj.get("data") {
+            if let Some(data_obj) = data.as_object() {
+                if let Some(chat_type) = data_obj.get("chatType").and_then(|v| v.as_str()) {
+                    if chat_type == "network_ref" {
+                        return true;
+                    }
+                }
+                if data_obj.contains_key("shardingInformation") {
+                    return true;
+                }
+                if data_obj.get("ref_content").is_some() && data_obj.get("ref_name").is_some() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 fn is_finish_event_payload(value: &serde_json::Value) -> bool {
@@ -2001,6 +2129,12 @@ fn is_finish_event_payload(value: &serde_json::Value) -> bool {
 fn extract_progress_text(value: &serde_json::Value) -> Option<String> {
     if let Some(obj) = value.as_object() {
         if let Some(process_info) = obj.get("processInfo") {
+            if let Some(s) = process_info.as_str() {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
             if let Some(proc_obj) = process_info.as_object() {
                 for key in ["content", "msg", "text"] {
                     if let Some(s) = proc_obj.get(key).and_then(|v| v.as_str()) {
@@ -2022,6 +2156,48 @@ fn extract_progress_text(value: &serde_json::Value) -> Option<String> {
         }
     }
     None
+}
+
+fn decode_utf8_stream_chunk(bytes: &mut Vec<u8>) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+    let mut out = String::new();
+    loop {
+        match std::str::from_utf8(bytes) {
+            Ok(valid) => {
+                out.push_str(valid);
+                bytes.clear();
+                break;
+            }
+            Err(err) => {
+                let valid_up_to = err.valid_up_to();
+                if valid_up_to > 0 {
+                    if let Ok(valid) = std::str::from_utf8(&bytes[..valid_up_to]) {
+                        out.push_str(valid);
+                    }
+                    bytes.drain(..valid_up_to);
+                }
+                match err.error_len() {
+                    None => {
+                        break;
+                    }
+                    Some(err_len) => {
+                        let drop_len = err_len.min(bytes.len());
+                        if drop_len == 0 {
+                            break;
+                        }
+                        bytes.drain(..drop_len);
+                        out.push('�');
+                    }
+                }
+            }
+        }
+        if bytes.is_empty() {
+            break;
+        }
+    }
+    out
 }
 
 fn drain_json_objects(buffer: &mut String) -> Vec<String> {

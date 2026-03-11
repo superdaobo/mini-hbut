@@ -21,6 +21,16 @@ const STREAM_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_stream'
 const SESSION_NEW_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/new'
 const SESSION_HISTORY_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/history'
 const SESSION_MESSAGES_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/messages'
+const SESSION_DELETE_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/delete'
+const AI_ALLOWED_FILE_EXTENSIONS = ['docx', 'pdf', 'txt', 'md']
+const AI_UPLOAD_ACCEPT = AI_ALLOWED_FILE_EXTENSIONS.map((ext) => `.${ext}`).join(',')
+const AI_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+const AI_MIME_BY_EXT = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+  md: 'text/markdown'
+}
 
 const defaultModelOptions = [
   { label: 'Qwen-Plus', value: 'qwen-plus' },
@@ -28,6 +38,8 @@ const defaultModelOptions = [
   { label: 'DeepSeek-R1', value: 'ep-20250207092149-pvc95' },
   { label: 'Doubao1.5-Pro', value: 'ep-20250219175323-5mvmg' }
 ]
+const MODEL_ID_DEEPSEEK = 'ep-20250207092149-pvc95'
+const MODEL_ID_DOUBAO = 'ep-20250219175323-5mvmg'
 const MODEL_ALIAS_MAP = {
   'qwen-max': ['qwen-max', 'Qwen-Max', 'qwen_max'],
   'qwen-plus': ['qwen-plus', 'Qwen-Plus', 'qwen_plus'],
@@ -37,18 +49,18 @@ const MODEL_ALIAS_MAP = {
     'deepseek_r1',
     'deepseek-r1-250120',
     'deepseek-r1-thinking',
-    'ep-20250207092149-pvc95'
+    MODEL_ID_DEEPSEEK
   ],
-  'doubao-1.5-pro': ['doubao-1.5-pro', 'Doubao1.5-Pro', 'ep-20250219175323-5mvmg'],
-  'ep-20250207092149-pvc95': ['ep-20250207092149-pvc95', 'deepseek-r1', 'DeepSeek-R1'],
-  'ep-20250219175323-5mvmg': ['ep-20250219175323-5mvmg', 'doubao-1.5-pro', 'Doubao1.5-Pro']
+  'doubao-1.5-pro': ['doubao-1.5-pro', 'doubao1.5-pro', 'Doubao1.5-Pro', MODEL_ID_DOUBAO],
+  [MODEL_ID_DEEPSEEK]: [MODEL_ID_DEEPSEEK, 'deepseek-r1', 'DeepSeek-R1'],
+  [MODEL_ID_DOUBAO]: [MODEL_ID_DOUBAO, 'doubao-1.5-pro', 'doubao1.5-pro', 'Doubao1.5-Pro']
 }
 const MODEL_DISPLAY_MAP = {
   'qwen-plus': 'Qwen-Plus',
   'qwen-max': 'Qwen-Max',
-  'ep-20250207092149-pvc95': 'DeepSeek-R1',
+  [MODEL_ID_DEEPSEEK]: 'DeepSeek-R1',
   'deepseek-r1': 'DeepSeek-R1',
-  'ep-20250219175323-5mvmg': 'Doubao1.5-Pro',
+  [MODEL_ID_DOUBAO]: 'Doubao1.5-Pro',
   'doubao-1.5-pro': 'Doubao1.5-Pro'
 }
 
@@ -63,6 +75,10 @@ const historyOpen = ref(false)
 const sessions = ref([])
 const activeSessionId = ref('')
 const messages = ref([])
+const deleteConfirmVisible = ref(false)
+const deleteConfirmLoading = ref(false)
+const deleteConfirmError = ref('')
+const pendingDeleteSessionId = ref('')
 
 const input = ref('')
 const isLoading = ref(false)
@@ -184,9 +200,26 @@ const normalizedModelOptions = computed(() => {
 const historyKey = computed(() => `hbu_ai_history_v2_${props.studentId || 'guest'}`)
 
 const normalizeModelValue = (value) => String(value || '').trim().toLowerCase()
+const normalizeModelToken = (value) => normalizeModelValue(value).replace(/[^a-z0-9]+/g, '')
+
+const detectModelFamily = (value, label = '') => {
+  const full = `${normalizeModelValue(value)} ${normalizeModelValue(label)}`
+  const token = normalizeModelToken(`${value || ''}${label || ''}`)
+  if (full.includes('deepseek') || token.includes('deepseek') || full.includes(MODEL_ID_DEEPSEEK.toLowerCase())) {
+    return 'deepseek'
+  }
+  if (full.includes('doubao') || full.includes('豆包') || token.includes('doubao') || full.includes(MODEL_ID_DOUBAO.toLowerCase())) {
+    return 'doubao'
+  }
+  if (full.includes('qwen') || token.includes('qwen')) {
+    if (full.includes('max') || token.includes('max')) return 'qwen-max'
+    if (full.includes('plus') || token.includes('plus')) return 'qwen-plus'
+  }
+  return ''
+}
+
 const isDeepSeekModel = (value) => {
-  const normalized = normalizeModelValue(value)
-  return normalized.includes('deepseek') || normalized === 'ep-20250207092149-pvc95'
+  return detectModelFamily(value) === 'deepseek'
 }
 
 const modelDisplayName = (value) => {
@@ -206,31 +239,29 @@ const detectRenderMode = (role, content = '') => {
   if (role !== 'assistant') return 'plain'
   const text = String(content || '').trim()
   if (!text) return 'plain'
-  if (/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\(|\\\[|\\begin\{)/.test(text)) return 'markdown'
-  if (/```[\s\S]*```/.test(text)) return 'markdown'
-  return 'plain'
+  return 'markdown'
 }
 
 const normalizeMessage = (msg = {}) => {
   const role = msg?.role === 'user' ? 'user' : 'assistant'
-  const content = String(msg?.content || '')
+  const content = sanitizeStreamText(String(msg?.content || ''))
   const modelUsed = String(msg?.modelUsed || '')
+  const runtimeStreaming = Boolean(msg?.runtimeStreaming)
   return {
+    ...msg,
     id: msg?.id || `msg_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
     role,
     content,
-    thinking: String(msg?.thinking || ''),
+    thinking: sanitizeStreamText(String(msg?.thinking || '')),
     showThinking: Boolean(msg?.showThinking),
-    isStreaming: Boolean(msg?.isStreaming),
-    progress: String(msg?.progress || ''),
+    runtimeStreaming,
+    isStreaming: runtimeStreaming && Boolean(msg?.isStreaming),
+    progress: runtimeStreaming ? String(msg?.progress || '') : '',
     modelUsed,
     thinkStreamMode: Boolean(msg?.thinkStreamMode),
     streamCarry: String(msg?.streamCarry || ''),
     createdAt: Number(msg?.createdAt || Date.now()),
-    renderMode: msg?.renderMode || detectRenderMode(role, content),
-    ...msg,
-    role,
-    content
+    renderMode: msg?.renderMode || detectRenderMode(role, content)
   }
 }
 
@@ -289,23 +320,36 @@ const buildModelCandidates = (selected) => {
   }
 
   const normalized = normalizeModelValue(selected)
+  const selectedOption = (normalizedModelOptions.value || []).find((item) => normalizeModelValue(item?.value) === normalized)
+  const selectedLabel = String(selectedOption?.label || '')
+  const family = detectModelFamily(selected, selectedLabel)
   push(selected)
+  if (selectedLabel) push(selectedLabel)
   for (const alias of MODEL_ALIAS_MAP[normalized] || []) {
     push(alias)
   }
-  if (normalized.includes('deepseek')) {
-    for (const option of normalizedModelOptions.value || []) {
-      const val = String(option?.value || '').trim()
-      if (normalizeModelValue(val).includes('deepseek')) {
-        push(val)
-      }
+  if (family === 'deepseek') {
+    for (const alias of MODEL_ALIAS_MAP['deepseek-r1'] || []) push(alias)
+    push(MODEL_ID_DEEPSEEK)
+  } else if (family === 'doubao') {
+    for (const alias of MODEL_ALIAS_MAP['doubao-1.5-pro'] || []) push(alias)
+    push(MODEL_ID_DOUBAO)
+  } else if (family === 'qwen-plus') {
+    for (const alias of MODEL_ALIAS_MAP['qwen-plus'] || []) push(alias)
+  } else if (family === 'qwen-max') {
+    for (const alias of MODEL_ALIAS_MAP['qwen-max'] || []) push(alias)
+  }
+  for (const option of normalizedModelOptions.value || []) {
+    const value = String(option?.value || '').trim()
+    const label = String(option?.label || '').trim()
+    const optionFamily = detectModelFamily(value, label)
+    if (!family || optionFamily === family) {
+      push(value)
+      if (label) push(label)
     }
-    push('qwen-max')
   }
-  const preferred = out.find((item) => availableModelSet.value.has(normalizeModelValue(item)))
-  if (preferred) {
-    return [preferred, ...out.filter((item) => item.toLowerCase() !== preferred.toLowerCase())]
-  }
+  push('qwen-max')
+  push('qwen-plus')
   return out
 }
 
@@ -321,10 +365,15 @@ const unwrapApiData = (resp) => {
 }
 
 const postJson = async (url, body) => {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 25000)
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: controller.signal
+  }).finally(() => {
+    window.clearTimeout(timeoutId)
   })
   const text = await res.text()
   let json = null
@@ -333,11 +382,22 @@ const postJson = async (url, body) => {
   } catch {
     throw new Error(text || `请求失败(${res.status})`)
   }
+  const extractErrorMessage = (payload) => {
+    if (!payload || typeof payload !== 'object') return ''
+    return String(
+      payload?.error?.message
+      || payload?.error_description
+      || payload?.message
+      || payload?.msg
+      || ''
+    ).trim()
+  }
+  const errorMessage = extractErrorMessage(json)
   if (!res.ok) {
-    throw new Error(json?.message || json?.msg || `请求失败(${res.status})`)
+    throw new Error(errorMessage || `请求失败(${res.status})`)
   }
   if (json?.success === false) {
-    throw new Error(json?.message || json?.msg || '请求失败')
+    throw new Error(errorMessage || '请求失败')
   }
   return json
 }
@@ -497,12 +557,57 @@ const parseAiResponseText = (value) => {
   return String(value)
 }
 
+const extractFileExtension = (fileName = '') => {
+  const normalized = String(fileName || '').trim().toLowerCase()
+  if (!normalized) return ''
+  const idx = normalized.lastIndexOf('.')
+  if (idx < 0 || idx === normalized.length - 1) return ''
+  return normalized.slice(idx + 1)
+}
+
+const readFileAsBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const raw = String(reader.result || '')
+      const commaIndex = raw.indexOf(',')
+      resolve(commaIndex >= 0 ? raw.slice(commaIndex + 1) : raw)
+    }
+    reader.onerror = () => reject(reader.error || new Error('读取文件失败'))
+    reader.readAsDataURL(file)
+  })
+
 const NOISE_MESSAGES = ['操作成功', '请求完成', 'success']
+const isLikelyHexNoise = (value) => {
+  const compact = String(value || '').replace(/\s+/g, '')
+  if (compact.length < 128) return false
+  const hexChars = compact.replace(/[^0-9a-f]/gi, '').length
+  return hexChars / compact.length > 0.97
+}
+
+const stripHexNoiseRuns = (value) => {
+  const text = String(value || '')
+  if (!text) return ''
+  return text.replace(/[0-9a-fA-F]{80,}/g, (run) => (isLikelyHexNoise(run) ? '' : run))
+}
+
 const isNoiseMessage = (value) => {
   const text = String(value || '').trim().toLowerCase()
   if (!text) return true
   if (NOISE_MESSAGES.includes(text)) return true
+  if (isLikelyHexNoise(text)) return true
   return text.startsWith('正在读取文件') || text.startsWith('正在阅读文件')
+}
+
+const isAiUnauthorizedText = (value) => {
+  const text = String(value || '').trim().toLowerCase()
+  if (!text) return false
+  return text.includes('请求未授权') || text.includes('unauthorized') || text.includes('401')
+}
+
+const sanitizeStreamText = (value) => {
+  const stripped = stripHexNoiseRuns(String(value || ''))
+  return stripped.replace(/\u0000/g, '')
 }
 
 const normalizeMathText = (text) => {
@@ -513,9 +618,37 @@ const normalizeMathText = (text) => {
     .replace(/\\\s+sum/g, '\\sum')
 }
 
+const compactDisplayText = (text) => {
+  return sanitizeStreamText(String(text || ''))
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s+$/g, '')
+    .trimStart()
+}
+
+const normalizeStreamIncrement = (currentText, incomingText) => {
+  const current = String(currentText || '')
+  const incoming = String(incomingText || '')
+  if (!incoming) return ''
+  if (!current) return incoming
+  if (incoming === current) return ''
+  if (incoming.startsWith(current)) {
+    return incoming.slice(current.length)
+  }
+  if (current.endsWith(incoming)) return ''
+  const maxOverlap = Math.min(current.length, incoming.length)
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (current.slice(-overlap) === incoming.slice(0, overlap)) {
+      return incoming.slice(overlap)
+    }
+  }
+  return incoming
+}
+
 const renderMessage = (msg) => {
   if (!msg?.content) return ''
-  const normalized = normalizeMathText(msg.content).replace(/\s+$/g, '')
+  const normalized = compactDisplayText(normalizeMathText(msg.content))
   return renderMarkdown(normalized)
 }
 
@@ -674,11 +807,45 @@ const startNewSession = async () => {
   saveLocalHistory()
 }
 
-const deleteSession = (sessionId) => {
+const requestDeleteSession = (sessionId) => {
+  pendingDeleteSessionId.value = sessionId
+  deleteConfirmVisible.value = true
+  deleteConfirmLoading.value = false
+  deleteConfirmError.value = ''
+}
+
+const cancelDeleteSession = () => {
+  if (deleteConfirmLoading.value) return
+  deleteConfirmVisible.value = false
+  deleteConfirmError.value = ''
+  pendingDeleteSessionId.value = ''
+}
+
+const deleteSessionConfirmed = async () => {
+  const sessionId = pendingDeleteSessionId.value
   const idx = sessions.value.findIndex((item) => item.id === sessionId)
-  if (idx < 0) return
-  const ok = window.confirm('确认删除该对话记录吗？')
-  if (!ok) return
+  if (idx < 0) {
+    deleteConfirmVisible.value = false
+    pendingDeleteSessionId.value = ''
+    return
+  }
+  deleteConfirmLoading.value = true
+  deleteConfirmError.value = ''
+  const target = sessions.value[idx]
+  try {
+    if (target.remoteSessionId) {
+      await ensureInitReady()
+      await postJson(SESSION_DELETE_ENDPOINT, {
+        token: token.value,
+        blade_auth: bladeAuth.value,
+        session_id: target.remoteSessionId
+      })
+    }
+  } catch (error) {
+    deleteConfirmError.value = `远端删除失败：${String(error)}`
+    deleteConfirmLoading.value = false
+    return
+  }
   const wasActive = sessions.value[idx].id === activeSessionId.value
   sessions.value.splice(idx, 1)
   if (!sessions.value.length) {
@@ -690,6 +857,9 @@ const deleteSession = (sessionId) => {
     skipInitialScroll.value = true
   }
   saveLocalHistory()
+  deleteConfirmLoading.value = false
+  deleteConfirmVisible.value = false
+  pendingDeleteSessionId.value = ''
 }
 
 const parseStreamEventObject = (obj) => {
@@ -697,22 +867,22 @@ const parseStreamEventObject = (obj) => {
   if (obj?.event) {
     const eventName = String(obj.event)
     if (eventName === 'delta') {
-      const delta = String(
+      const delta = sanitizeStreamText(String(
         obj.delta ??
         obj.content ??
         obj.text ??
         (typeof obj.data === 'string' ? obj.data : '')
-      )
-      if (!delta || isNoiseMessage(delta)) return null
+      ))
+      if (!delta || isNoiseMessage(delta) || isLikelyHexNoise(delta)) return null
       return { event: 'delta', delta }
     }
     if (eventName === 'thinking') {
-      const delta = String(obj.delta ?? obj.thinking ?? obj.content ?? '')
-      if (!delta || isNoiseMessage(delta)) return null
+      const delta = sanitizeStreamText(String(obj.delta ?? obj.thinking ?? obj.content ?? ''))
+      if (!delta || isNoiseMessage(delta) || isLikelyHexNoise(delta)) return null
       return { event: 'thinking', delta }
     }
     if (eventName === 'progress') {
-      const message = String(obj.message ?? obj.msg ?? obj.content ?? '')
+      const message = sanitizeStreamText(String(obj.message ?? obj.msg ?? obj.content ?? ''))
       if (!message || isNoiseMessage(message)) return null
       return { event: 'progress', message }
     }
@@ -722,31 +892,36 @@ const parseStreamEventObject = (obj) => {
     if (eventName === 'done' || eventName === 'error') {
       return obj
     }
-    const fallback = parseAiResponseText(obj)
+    const fallback = sanitizeStreamText(parseAiResponseText(obj))
     if (fallback?.trim() && !isNoiseMessage(fallback)) return { event: 'delta', delta: fallback }
     return null
   }
   const type = Number(obj?.type)
-  if (type === 1 && typeof obj?.content === 'string') {
-    if (isNoiseMessage(obj.content)) return null
-    return { event: 'delta', delta: obj.content }
+  if (type === 1) {
+    const content = sanitizeStreamText(typeof obj?.content === 'string' ? obj.content : '')
+    const thinking = sanitizeStreamText(typeof obj?.thinking === 'string' ? obj.thinking : '')
+    if (content && !isNoiseMessage(content)) return { event: 'delta', delta: content }
+    if (thinking && !isNoiseMessage(thinking)) return { event: 'thinking', delta: thinking }
+    return null
   }
-  if (type === 11 && typeof obj?.thinking === 'string') {
-    if (isNoiseMessage(obj.thinking)) return null
-    return { event: 'thinking', delta: obj.thinking }
+  if (type === -1) {
+    const content = sanitizeStreamText(typeof obj?.content === 'string' ? obj.content : '')
+    if (!content || isNoiseMessage(content) || isLikelyHexNoise(content)) return null
+    return { event: 'replace', content }
   }
-  if (type === 11 && typeof obj?.content === 'string') {
-    if (isNoiseMessage(obj.content)) return null
-    return { event: 'thinking', delta: obj.content }
+  if (type === 11) {
+    const thinking = sanitizeStreamText(typeof obj?.thinking === 'string' ? obj.thinking : '')
+    if (thinking && !isNoiseMessage(thinking) && !isLikelyHexNoise(thinking)) return { event: 'thinking', delta: thinking }
+    return null
   }
   if (type === 24) {
-    const msg = obj?.message || obj?.msg || obj?.processInfo?.content || ''
+    const msg = sanitizeStreamText(obj?.message || obj?.msg || obj?.processInfo?.content || '')
     if (isNoiseMessage(msg)) return null
     return { event: 'progress', message: msg }
   }
   if (Number(obj?.finish) === 1) return { event: 'done' }
-  const fallback = parseAiResponseText(obj)
-  if (fallback?.trim() && !isNoiseMessage(fallback)) return { event: 'delta', delta: fallback }
+  const fallback = sanitizeStreamText(parseAiResponseText(obj))
+  if (fallback?.trim() && !isNoiseMessage(fallback) && !isLikelyHexNoise(fallback)) return { event: 'delta', delta: fallback }
   return null
 }
 
@@ -762,7 +937,7 @@ const parseStreamEvents = (raw) => {
   const out = []
   for (const row of rows) {
     const line = row.startsWith('data:') ? row.slice(5).trim() : row
-    if (!line || line === 'keep-alive') continue
+    if (!line || line === 'keep-alive' || line.startsWith('event:') || line.startsWith(':')) continue
     if (line === '[DONE]') {
       out.push({ event: 'done' })
       continue
@@ -773,8 +948,9 @@ const parseStreamEvents = (raw) => {
       if (parsed) out.push(parsed)
       continue
     } catch {
-      if (!isNoiseMessage(line)) {
-        out.push({ event: 'delta', delta: line })
+      const cleaned = sanitizeStreamText(line)
+      if (!isNoiseMessage(cleaned) && !isLikelyHexNoise(cleaned)) {
+        out.push({ event: 'delta', delta: cleaned })
       }
     }
   }
@@ -800,11 +976,16 @@ const extractThinkCarryLength = (text) => {
 }
 
 const appendDeepSeekChunk = (assistantMsg, rawChunk, appendContent) => {
-  const chunk = String(rawChunk || '')
+  const chunk = sanitizeStreamText(String(rawChunk || ''))
   if (!chunk && !assistantMsg.streamCarry) return
   let text = `${assistantMsg.streamCarry || ''}${chunk}`
   assistantMsg.streamCarry = ''
   if (!text) return
+
+  const appendThinking = (segment) => {
+    const delta = normalizeStreamIncrement(assistantMsg.thinking, segment)
+    if (delta) assistantMsg.thinking += delta
+  }
 
   let cursor = 0
   while (cursor < text.length) {
@@ -823,7 +1004,7 @@ const appendDeepSeekChunk = (assistantMsg, rawChunk, appendContent) => {
     const segment = text.slice(cursor, absolute)
     if (segment) {
       if (assistantMsg.thinkStreamMode) {
-        assistantMsg.thinking += segment
+        appendThinking(segment)
       } else {
         appendContent(segment)
       }
@@ -839,7 +1020,7 @@ const appendDeepSeekChunk = (assistantMsg, rawChunk, appendContent) => {
     const body = tail.slice(0, tail.length - carryLen)
     if (body) {
       if (assistantMsg.thinkStreamMode) {
-        assistantMsg.thinking += body
+        appendThinking(body)
       } else {
         appendContent(body)
       }
@@ -848,7 +1029,7 @@ const appendDeepSeekChunk = (assistantMsg, rawChunk, appendContent) => {
     return
   }
   if (assistantMsg.thinkStreamMode) {
-    assistantMsg.thinking += tail
+    appendThinking(tail)
   } else {
     appendContent(tail)
   }
@@ -863,62 +1044,47 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
   const controller = new AbortController()
   const deepSeekMode = isDeepSeekModel(payload.model)
   let doneReceived = false
-  const deltaQueue = []
-  let flushingDelta = false
-  let flushRaf = 0
-  let flushDoneResolver = null
+  let receivedAnyPayload = false
+  let deltaBuffer = ''
+  let flushTimer = 0
+  const flushIntervalMs = 22
 
-  const ensureFlushPromise = () => new Promise((resolve) => {
-    flushDoneResolver = resolve
-  })
-
-  const resolveFlush = () => {
-    if (flushDoneResolver) {
-      flushDoneResolver()
-      flushDoneResolver = null
-    }
+  const flushDeltaNow = () => {
+    if (!deltaBuffer) return
+    assistantMsg.content += deltaBuffer
+    assistantMsg.progress = ''
+    deltaBuffer = ''
+    queueAutoScroll()
   }
 
-  const flushDeltaQueue = () => {
-    if (flushingDelta) return
-    flushingDelta = true
-    const run = () => {
-      if (!deltaQueue.length) {
-        flushingDelta = false
-        flushRaf = 0
-        resolveFlush()
-        return
+  const scheduleDeltaFlush = () => {
+    if (flushTimer) return
+    flushTimer = window.setTimeout(() => {
+      flushTimer = 0
+      flushDeltaNow()
+      if (!doneReceived && deltaBuffer) {
+        scheduleDeltaFlush()
       }
-      const head = String(deltaQueue[0] || '')
-      if (!head) {
-        deltaQueue.shift()
-        flushRaf = window.requestAnimationFrame(run)
-        return
-      }
-      const take = Math.max(1, Math.min(head.length, 4))
-      assistantMsg.content += head.slice(0, take)
-      assistantMsg.progress = ''
-      const rest = head.slice(take)
-      if (rest) {
-        deltaQueue[0] = rest
-      } else {
-        deltaQueue.shift()
-      }
-      queueAutoScroll()
-      flushRaf = window.requestAnimationFrame(run)
-    }
-    flushRaf = window.requestAnimationFrame(run)
+    }, flushIntervalMs)
   }
 
   const enqueueDelta = (text) => {
     if (!text) return
-    deltaQueue.push(text)
-    flushDeltaQueue()
+    deltaBuffer += text
+    if (doneReceived) {
+      flushDeltaNow()
+    } else {
+      scheduleDeltaFlush()
+    }
   }
 
-  const waitFlushDone = async () => {
-    if (!flushingDelta && !deltaQueue.length) return
-    await ensureFlushPromise()
+  const enqueueDeltaSmart = (text) => {
+    const incoming = String(text || '')
+    if (!incoming) return
+    const currentSnapshot = `${assistantMsg.content}${deltaBuffer}`
+    const delta = normalizeStreamIncrement(currentSnapshot, incoming)
+    if (!delta) return
+    enqueueDelta(delta)
   }
 
   streamStats.value.active = true
@@ -955,6 +1121,7 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
         if (parsed.event === 'done') {
           streamStats.value.lastEvent = 'done'
           doneReceived = true
+          flushDeltaNow()
           controller.abort()
           return
         }
@@ -965,32 +1132,56 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
           continue
         }
         if (parsed.event === 'delta') {
+          receivedAnyPayload = true
           streamStats.value.delta += 1
           streamStats.value.lastEvent = 'delta'
-          const text = String(parsed.delta || '')
+          const text = sanitizeStreamText(String(parsed.delta || ''))
           if (text) {
             if (deepSeekMode) {
-              appendDeepSeekChunk(assistantMsg, text, enqueueDelta)
+              appendDeepSeekChunk(assistantMsg, text, enqueueDeltaSmart)
             } else {
-              enqueueDelta(text)
+              enqueueDeltaSmart(text)
             }
           }
           continue
         }
         if (parsed.event === 'thinking') {
+          receivedAnyPayload = true
           streamStats.value.lastEvent = 'thinking'
-          const text = String(parsed.delta || '')
+          const text = sanitizeStreamText(String(parsed.delta || ''))
           if (text) {
-            assistantMsg.thinking += text
-            assistantMsg.showThinking = true
+            if (deepSeekMode) {
+              const delta = normalizeStreamIncrement(assistantMsg.thinking, text)
+              if (delta) {
+                assistantMsg.thinking += delta
+              }
+              assistantMsg.showThinking = true
+            } else {
+              enqueueDeltaSmart(text)
+            }
           }
           continue
         }
         if (parsed.event === 'progress') {
+          receivedAnyPayload = true
           streamStats.value.progress += 1
           streamStats.value.lastEvent = 'progress'
           const text = String(parsed.message || '')
           assistantMsg.progress = text
+          continue
+        }
+        if (parsed.event === 'replace') {
+          receivedAnyPayload = true
+          streamStats.value.lastEvent = 'replace'
+          const text = sanitizeStreamText(String(parsed.content || ''))
+          if (text) {
+            doneReceived = false
+            deltaBuffer = ''
+            assistantMsg.content = compactDisplayText(text)
+            assistantMsg.thinking = ''
+            assistantMsg.progress = ''
+            queueAutoScroll()
+          }
           continue
         }
         if (parsed.event === 'error') {
@@ -1000,6 +1191,11 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
       }
     },
     onclose() {
+      if (!doneReceived && receivedAnyPayload) {
+        doneReceived = true
+        flushDeltaNow()
+        return
+      }
       if (!doneReceived) {
         throw new Error('流式连接被提前关闭')
       }
@@ -1013,12 +1209,12 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
       throw error
     }
   })
-  await waitFlushDone()
-  assistantMsg.streamCarry = ''
-  if (flushRaf) {
-    window.cancelAnimationFrame(flushRaf)
-    flushRaf = 0
+  if (flushTimer) {
+    window.clearTimeout(flushTimer)
+    flushTimer = 0
   }
+  flushDeltaNow()
+  assistantMsg.streamCarry = ''
   streamStats.value.active = false
 }
 
@@ -1086,6 +1282,7 @@ const sendMessage = async () => {
 
   const assistantMsg = makeMessage('assistant', '', {
     isStreaming: true,
+    runtimeStreaming: true,
     thinking: '',
     progress: '',
     modelUsed: selectedModel.value,
@@ -1145,6 +1342,24 @@ const sendMessage = async () => {
       selectedModel.value = effectiveModel
     }
     assistantMsg.modelUsed = effectiveModel
+    if (isAiUnauthorizedText(assistantMsg.content) || isAiUnauthorizedText(assistantMsg.progress)) {
+      await initAiSession()
+      payload.token = token.value
+      payload.blade_auth = bladeAuth.value
+      assistantMsg.content = ''
+      assistantMsg.thinking = ''
+      assistantMsg.progress = ''
+      assistantMsg.isStreaming = true
+      assistantMsg.runtimeStreaming = true
+      await streamChatResponse(payload, assistantMsg, (sid) => {
+        if (active && !active.remoteSessionId) {
+          active.remoteSessionId = sid
+        }
+      })
+      if (isAiUnauthorizedText(assistantMsg.content) || isAiUnauthorizedText(assistantMsg.progress)) {
+        throw new Error('AI 服务鉴权失败，请重新登录后重试')
+      }
+    }
     if (!assistantMsg.content.trim()) {
       const fallback = await fallbackChatRequest({
         token: token.value,
@@ -1192,8 +1407,9 @@ const sendMessage = async () => {
     }
   } finally {
     streamStats.value.active = false
-    assistantMsg.content = String(assistantMsg.content || '').replace(/\s+$/g, '')
-    assistantMsg.thinking = String(assistantMsg.thinking || '').replace(/\s+$/g, '')
+    assistantMsg.runtimeStreaming = false
+    assistantMsg.content = compactDisplayText(assistantMsg.content)
+    assistantMsg.thinking = compactDisplayText(assistantMsg.thinking)
     assistantMsg.streamCarry = ''
     assistantMsg.thinkStreamMode = false
     assistantMsg.renderMode = detectRenderMode(assistantMsg.role, assistantMsg.content)
@@ -1214,12 +1430,25 @@ const handleFileChange = async (event) => {
     await initAiSession()
   }
   try {
-    const textContent = await file.text()
+    const ext = extractFileExtension(file.name)
+    if (!AI_ALLOWED_FILE_EXTENSIONS.includes(ext)) {
+      throw new Error(`仅支持上传 ${AI_UPLOAD_ACCEPT} 格式文件`)
+    }
+    if (file.size > AI_MAX_UPLOAD_BYTES) {
+      throw new Error('文件大小不能超过 20MB')
+    }
+    const fileBase64 = await readFileAsBase64(file)
+    if (!fileBase64) {
+      throw new Error('文件内容为空或读取失败')
+    }
+    const mime = file.type || AI_MIME_BY_EXT[ext] || 'application/octet-stream'
     const res = await postJson(AI_UPLOAD_ENDPOINT, {
       token: token.value,
       blade_auth: bladeAuth.value,
-      file_content: textContent,
-      file_name: file.name
+      file_name: file.name,
+      file_content: '',
+      file_base64: fileBase64,
+      file_mime: mime
     })
     const data = unwrapApiData(res)
     const link = data?.link || data?.data?.link || ''
@@ -1254,7 +1483,7 @@ watch(historyKey, () => {
 })
 
 onMounted(async () => {
-  void initMarkdownRuntime(6000).catch(() => {})
+  await initMarkdownRuntime(6000).catch(() => {})
   loadLocalHistory()
   await initAiSession()
   if (initStatus.value === 'success') {
@@ -1326,12 +1555,13 @@ onBeforeUnmount(() => {
           <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
           <div class="bubble">
             <div v-if="msg.file" class="attachment-preview">📄 {{ msg.file.name }}</div>
-            <div v-if="msg.thinking && shouldUseThinkingWindow(msg)" class="thinking-window">
+            <div v-if="shouldUseThinkingWindow(msg) && (msg.thinking || msg.isStreaming)" class="thinking-window">
               <div class="thinking-window-header">
                 <span class="thinking-window-title">{{ modelDisplayName(msg.modelUsed) }} 思考流</span>
                 <span v-if="msg.isStreaming" class="thinking-window-state">流式中</span>
               </div>
-              <div class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
+              <div v-if="msg.thinking" class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
+              <div v-else class="thinking-placeholder">正在生成思考内容...</div>
             </div>
             <div v-else-if="msg.thinking" class="thinking-block">
               <button class="thinking-toggle" @click="msg.showThinking = !msg.showThinking">
@@ -1347,7 +1577,7 @@ onBeforeUnmount(() => {
               <span class="stream-label">正在生成回答</span>
             </div>
             <div
-              v-if="msg.role === 'assistant' && msg.renderMode === 'markdown' && !msg.isStreaming"
+              v-if="msg.role === 'assistant'"
               class="text rich-text"
               v-html="renderMessage(msg)"
             ></div>
@@ -1369,7 +1599,7 @@ onBeforeUnmount(() => {
 
     <div ref="inputBarEl" class="input-area glass-card">
       <button class="attach-btn" @click="triggerUpload" :disabled="isLoading || initStatus !== 'success'">➕</button>
-      <input ref="fileInput" type="file" style="display: none" @change="handleFileChange">
+      <input ref="fileInput" type="file" :accept="AI_UPLOAD_ACCEPT" style="display: none" @change="handleFileChange">
       <input
         v-model="input"
         type="text"
@@ -1401,7 +1631,21 @@ onBeforeUnmount(() => {
           <div class="history-title">{{ s.title || '新对话' }}</div>
           <div class="history-meta">{{ formatSessionTime(s.updatedAt) }}</div>
           <div v-if="s.preview" class="history-preview">{{ s.preview }}</div>
-          <button class="history-delete" @click.stop="deleteSession(s.id)">删除</button>
+          <button class="history-delete" @click.stop="requestDeleteSession(s.id)">删除</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="deleteConfirmVisible" class="confirm-backdrop">
+      <div class="confirm-dialog glass-card">
+        <h4>删除历史对话</h4>
+        <p>删除后将同步清理云端会话记录，无法恢复。</p>
+        <div v-if="deleteConfirmError" class="confirm-error">{{ deleteConfirmError }}</div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" :disabled="deleteConfirmLoading" @click="cancelDeleteSession">取消</button>
+          <button class="confirm-danger" :disabled="deleteConfirmLoading" @click="deleteSessionConfirmed">
+            {{ deleteConfirmLoading ? '删除中...' : '确认删除' }}
+          </button>
         </div>
       </div>
     </div>
@@ -1570,7 +1814,7 @@ onBeforeUnmount(() => {
 
 .bubble {
   background: #fff;
-  padding: 10px 14px 8px;
+  padding: 10px 14px;
   border-radius: 12px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
   font-size: 15px;
@@ -1578,7 +1822,7 @@ onBeforeUnmount(() => {
   max-width: calc(100% - 56px);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .bubble > :last-child {
@@ -1592,11 +1836,13 @@ onBeforeUnmount(() => {
 .text {
   width: 100%;
   word-break: break-word;
+  margin: 0;
 }
 
 .plain-text {
   white-space: pre-wrap;
   line-height: 1.45;
+  margin: 0;
 }
 
 .rich-text {
@@ -1605,7 +1851,7 @@ onBeforeUnmount(() => {
 }
 
 .rich-text :deep(p) {
-  margin: 0;
+  margin: 0 !important;
 }
 
 .rich-text :deep(p + p) {
@@ -1712,6 +1958,17 @@ onBeforeUnmount(() => {
   font-size: 13px;
   color: #475569;
   white-space: normal;
+  margin-bottom: 0;
+}
+
+.thinking-content :deep(p) {
+  margin: 0 !important;
+}
+
+.thinking-placeholder {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .progress-hint {
@@ -1785,16 +2042,16 @@ onBeforeUnmount(() => {
 }
 
 .input-area {
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
   background: rgba(255, 255, 255, 0.96);
   display: flex;
   gap: 10px;
   align-items: center;
   position: fixed;
-  left: 12px;
-  right: 12px;
+  left: 0;
+  right: 0;
   bottom: var(--ai-keyboard-offset);
-  border-radius: 18px;
+  border-radius: 18px 18px 0 0;
   border: 1px solid rgba(148, 163, 184, 0.34);
   z-index: 190;
   box-shadow: 0 -2px 16px rgba(15, 23, 42, 0.08);
@@ -1966,5 +2223,74 @@ onBeforeUnmount(() => {
   padding: 4px 8px;
   font-size: 11px;
   cursor: pointer;
+}
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.confirm-dialog {
+  width: min(380px, calc(100vw - 24px));
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.confirm-dialog h4 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.confirm-dialog p {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.confirm-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.8);
+}
+
+.confirm-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-actions button {
+  border: none;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.confirm-cancel {
+  background: rgba(148, 163, 184, 0.2);
+  color: #334155;
+}
+
+.confirm-danger {
+  background: #ef4444;
+  color: #fff;
+  font-weight: 600;
 }
 </style>

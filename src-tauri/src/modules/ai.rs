@@ -12,6 +12,10 @@ use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashSet;
+use base64::Engine as _;
+
+const AI_UPLOAD_MAX_BYTES: usize = 20 * 1024 * 1024;
+const AI_UPLOAD_ALLOWED_EXTENSIONS: [&str; 4] = ["docx", "pdf", "txt", "md"];
 
 /// AI 会话初始化响应
 #[derive(Debug, Serialize, Deserialize)]
@@ -352,18 +356,103 @@ pub async fn fetch_ai_session_messages(
     })
 }
 
-async fn upload_text_file(
+pub async fn delete_ai_session(
     token: &str,
     blade_auth: &str,
-    file_content: &str,
+    session_id: &str,
+) -> Result<(), String> {
+    let sid = session_id.trim();
+    if sid.is_empty() {
+        return Err("session_id 不能为空".to_string());
+    }
+    let client = reqwest::Client::new();
+    let headers = build_ai_headers(token, blade_auth)?;
+    let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/esSessionLogApi/deleteSessionLog";
+    let payload = serde_json::json!({
+        "sessionId": sid,
+        "wxToken": token
+    });
+    let response = client
+        .post(url)
+        .headers(headers)
+        .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+        .form(&payload)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    if !status.is_success() {
+        return Err(format!("删除失败({}): {}", status, text));
+    }
+    let ok_flag = json.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+    let code_ok = json
+        .get("code")
+        .or_else(|| json.get("ret"))
+        .and_then(|v| v.as_i64())
+        .map(|v| v == 200 || v == 0)
+        .unwrap_or(true);
+    if ok_flag && code_ok {
+        return Ok(());
+    }
+    Err(format!("删除失败: {}", text))
+}
+
+fn extract_file_extension(file_name: &str) -> Option<String> {
+    let trimmed = file_name.trim();
+    let idx = trimmed.rfind('.')?;
+    let ext = trimmed.get(idx + 1..)?.trim().to_lowercase();
+    if ext.is_empty() {
+        None
+    } else {
+        Some(ext)
+    }
+}
+
+fn guess_mime_by_extension(ext: &str) -> &'static str {
+    match ext {
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pdf" => "application/pdf",
+        "md" => "text/markdown",
+        "txt" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+fn validate_upload_file(file_name: &str, bytes_len: usize, allow_empty: bool) -> Result<String, String> {
+    let ext = extract_file_extension(file_name)
+        .ok_or_else(|| "文件名缺少有效后缀".to_string())?;
+    if !AI_UPLOAD_ALLOWED_EXTENSIONS.contains(&ext.as_str()) {
+        return Err("仅支持上传 .docx/.pdf/.txt/.md 文件".to_string());
+    }
+    if bytes_len == 0 && !allow_empty {
+        return Err("文件内容为空".to_string());
+    }
+    if bytes_len > AI_UPLOAD_MAX_BYTES {
+        return Err("文件大小超过 20MB 限制".to_string());
+    }
+    Ok(ext)
+}
+
+async fn upload_binary_file(
+    token: &str,
+    blade_auth: &str,
+    file_bytes: Vec<u8>,
     file_name: &str,
+    mime: Option<&str>,
 ) -> Result<AiUploadResponse, String> {
     let client = reqwest::Client::new();
-
+    let ext = extract_file_extension(file_name).unwrap_or_else(|| "txt".to_string());
+    let guessed_mime = guess_mime_by_extension(&ext);
+    let final_mime = mime
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .unwrap_or(guessed_mime);
     let form = reqwest::multipart::Form::new()
-        .part("file", reqwest::multipart::Part::text(file_content.to_string())
+        .part("file", reqwest::multipart::Part::bytes(file_bytes)
             .file_name(file_name.to_string())
-            .mime_str("text/plain")
+            .mime_str(final_mime)
             .map_err(|e| e.to_string())?);
 
     let mut headers = HeaderMap::new();
@@ -456,8 +545,37 @@ pub async fn hbut_ai_upload(
     blade_auth: String,
     file_content: String,
     file_name: String,
+    file_base64: Option<String>,
+    file_mime: Option<String>,
 ) -> Result<AiUploadResponse, String> {
-    upload_text_file(&token, &blade_auth, &file_content, &file_name).await
+    let name = file_name.trim().to_string();
+    if name.is_empty() {
+        return Err("文件名不能为空".to_string());
+    }
+    let bytes = if let Some(encoded) = file_base64 {
+        let payload = encoded
+            .rsplit_once(',')
+            .map(|(_, tail)| tail)
+            .unwrap_or(encoded.as_str())
+            .trim();
+        if payload.is_empty() {
+            Vec::new()
+        } else {
+            base64::engine::general_purpose::STANDARD
+                .decode(payload)
+                .map_err(|e| format!("文件解码失败: {}", e))?
+        }
+    } else {
+        file_content.into_bytes()
+    };
+    let allow_empty = name.starts_with("empty_");
+    let ext = validate_upload_file(&name, bytes.len(), allow_empty)?;
+    let mime = file_mime
+        .as_deref()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| guess_mime_by_extension(&ext));
+    upload_binary_file(&token, &blade_auth, bytes, &name, Some(mime)).await
 }
 
 #[tauri::command]
@@ -481,12 +599,7 @@ pub async fn hbut_ai_chat(
     
     let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
 
-    let mut final_upload_url = upload_url;
-    if final_upload_url.trim().is_empty() {
-        let empty_name = format!("empty_{}.txt", Utc::now().timestamp_millis());
-        let empty = upload_text_file(&token, &blade_auth, "", &empty_name).await?;
-        final_upload_url = empty.link;
-    }
+    let final_upload_url = upload_url.trim().to_string();
 
     let remote_session_id = session_id
         .unwrap_or_default()
@@ -503,16 +616,19 @@ pub async fn hbut_ai_chat(
 
     let selected_model = if model.trim().is_empty() { "qwen-max" } else { model.as_str() };
 
-    let params = [
-        ("ask", question.as_str()),
-        ("sessionId", final_session_id.as_str()),
-        ("model", selected_model),
-        ("timestamp", timestamp.as_str()),
-        ("serviceModel", "default"),
-        ("datasetFlag", "0"),
-        ("networkFlag", "0"),
-        ("uploadUrl", final_upload_url.as_str()),
+    let mut params: Vec<(&str, String)> = vec![
+        ("ask", question.clone()),
+        ("sessionId", final_session_id.clone()),
+        ("model", selected_model.to_string()),
+        ("timestamp", timestamp),
+        ("serviceModel", "default".to_string()),
+        ("datasetFlag", "0".to_string()),
+        // 对齐源站：开启 networkFlag 可避免无附件时返回固定术语。
+        ("networkFlag", "1".to_string()),
     ];
+    if !final_upload_url.trim().is_empty() {
+        params.push(("uploadUrl", final_upload_url));
+    }
     
     let response = client.post(url)
         .headers(headers)
@@ -536,8 +652,10 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
                 let decoded = decode_hex_if_needed(&found).unwrap_or(found);
                 let cleaned = strip_noise_prefix(&decoded);
                 let expanded = decode_hex_fragments(&cleaned);
-                if !expanded.trim().is_empty() {
-                    return expanded;
+                let stripped = strip_hex_noise_runs(&expanded);
+                let final_text = trim_trailing_hex_noise(&stripped);
+                if !final_text.trim().is_empty() {
+                    return final_text;
                 }
             }
         } else {
@@ -558,7 +676,9 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
                     let joined = parts.join("");
                     let decoded = decode_hex_if_needed(&joined).unwrap_or(joined);
                     let cleaned = strip_noise_prefix(&decoded);
-                    return trim_trailing_hex_noise(&decode_hex_fragments(&cleaned));
+                    let expanded = decode_hex_fragments(&cleaned);
+                    let stripped = strip_hex_noise_runs(&expanded);
+                    return trim_trailing_hex_noise(&stripped);
                 }
                 return String::new();
             }
@@ -600,12 +720,18 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
         let joined = parts.join("");
         let decoded = decode_hex_if_needed(&joined).unwrap_or(joined);
         let cleaned = strip_noise_prefix(&decoded);
-        return trim_trailing_hex_noise(&decode_hex_fragments(&cleaned));
+        let expanded = decode_hex_fragments(&cleaned);
+        let stripped = strip_hex_noise_runs(&expanded);
+        return trim_trailing_hex_noise(&stripped);
     }
     if let Some(decoded) = decode_hex_if_needed(raw) {
-        return trim_trailing_hex_noise(&decode_hex_fragments(&strip_noise_prefix(&decoded)));
+        let expanded = decode_hex_fragments(&strip_noise_prefix(&decoded));
+        let stripped = strip_hex_noise_runs(&expanded);
+        return trim_trailing_hex_noise(&stripped);
     }
-    trim_trailing_hex_noise(&decode_hex_fragments(&strip_noise_prefix(raw)))
+    let expanded = decode_hex_fragments(&strip_noise_prefix(raw));
+    let stripped = strip_hex_noise_runs(&expanded);
+    trim_trailing_hex_noise(&stripped)
 }
 
 pub(crate) fn extract_text_from_value(value: &Value) -> Option<String> {
@@ -760,7 +886,9 @@ pub(crate) fn extract_stream_fields(value: &Value) -> Option<(Option<i64>, Optio
                 .or_else(|| extract_string_field(map, "answer"))
                 .or_else(|| extract_string_field(map, "text"));
             let thinking = extract_string_field(map, "thinking")
-                .or_else(|| extract_string_field(map, "reasoning"));
+                .or_else(|| extract_string_field(map, "reasoning"))
+                .or_else(|| extract_string_field(map, "reasoning_content"))
+                .or_else(|| extract_string_field(map, "thinking_content"));
 
             if t.is_some() || content.is_some() || thinking.is_some() {
                 return Some((t, content, thinking));
@@ -859,6 +987,38 @@ fn trim_trailing_hex_noise(text: &str) -> String {
     trimmed.to_string()
 }
 
+fn strip_hex_noise_runs(text: &str) -> String {
+    if text.len() < 80 {
+        return text.to_string();
+    }
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    let mut i = 0usize;
+
+    while i < bytes.len() {
+        if bytes[i].is_ascii_hexdigit() {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+                i += 1;
+            }
+            let run_len = i - start;
+            if run_len >= 80 {
+                let run = &text[start..i];
+                if is_hex_gibberish_run(run) {
+                    out.push_str(&text[cursor..start]);
+                    cursor = i;
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
 fn has_meaningful_text(text: &str) -> bool {
     let mut count = 0usize;
     for ch in text.chars() {
@@ -931,7 +1091,8 @@ pub(crate) fn clean_stream_chunk(raw: &str) -> Option<String> {
         return None;
     }
     let decoded = decode_hex_fragments(&cleaned);
-    let final_text = strip_noise_prefix(&decoded);
+    let stripped = strip_hex_noise_runs(&decoded);
+    let final_text = trim_trailing_hex_noise(&strip_noise_prefix(&stripped));
     if final_text.trim().is_empty() || is_noise_message(&final_text) {
         None
     } else {

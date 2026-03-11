@@ -151,6 +151,44 @@ impl HbutClient {
             }
         }
 
+        fn resolve_db_path() -> std::path::PathBuf {
+            if let Some(dir) = HbutClient::app_data_dir() {
+                return dir.join("grades.db");
+            }
+            std::path::PathBuf::from("grades.db")
+        }
+
+        fn load_cached_ai_auth(cache_key: &str) -> Option<(String, String, i64)> {
+            let key = cache_key.trim();
+            if key.is_empty() {
+                return None;
+            }
+            let path = resolve_db_path();
+            let (data, _) = db::get_cache(&path, "ai_session_cache", key).ok()??;
+            let token = data.get("token").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let blade_auth = data.get("blade_auth").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            if token.is_empty() || blade_auth.is_empty() {
+                return None;
+            }
+            let saved_at = data.get("saved_at").and_then(|v| v.as_i64()).unwrap_or(0);
+            Some((token, blade_auth, saved_at))
+        }
+
+        fn save_cached_ai_auth(cache_key: &str, token: &str, blade_auth: &str) {
+            let key = cache_key.trim();
+            if key.is_empty() || token.trim().is_empty() || blade_auth.trim().is_empty() {
+                return;
+            }
+            let payload = serde_json::json!({
+                "token": token.trim(),
+                "blade_auth": blade_auth.trim(),
+                "saved_at": chrono::Utc::now().timestamp_millis()
+            });
+            let path = resolve_db_path();
+            let _ = db::save_cache(&path, "ai_session_cache", key, &payload);
+            let _ = db::save_cache(&path, "ai_session_cache", "__latest__", &payload);
+        }
+
         fn replace_token_in_entry_url(entry_url: &str, token: &str) -> Option<String> {
             let mut url: Url = entry_url.parse().ok()?;
             let mut pairs: Vec<(String, String)> = url.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
@@ -304,6 +342,47 @@ impl HbutClient {
             Ok(format!("{} {}", token_type, access_token))
         }
 
+        async fn verify_cached_ai_auth(client: &Client, token: &str, blade_auth: &str) -> bool {
+            if token.trim().is_empty() || blade_auth.trim().is_empty() {
+                return false;
+            }
+            let referer = format!(
+                "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+                token
+            );
+            let response = client
+                .post("https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/config/initParam")
+                .header("blade-auth", blade_auth)
+                .header("Referer", referer)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                )
+                .send()
+                .await;
+            let Ok(resp) = response else {
+                return false;
+            };
+            if !resp.status().is_success() {
+                return false;
+            }
+            let text = resp.text().await.unwrap_or_default();
+            if text.contains("用户不存在") || text.contains("token已失效") {
+                return false;
+            }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                if json.get("success").and_then(|v| v.as_bool()) == Some(false) {
+                    return false;
+                }
+                if let Some(code) = json.get("code").or_else(|| json.get("ret")).and_then(|v| v.as_i64()) {
+                    if code != 200 && code != 0 {
+                        return false;
+                    }
+                }
+            }
+            true
+        }
+
         async fn follow_redirect_for_entry(client: &Client, start_url: &str) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
             let mut current_url = start_url.to_string();
             for _ in 0..10 {
@@ -407,6 +486,33 @@ impl HbutClient {
             Ok(None)
         }
 
+        let cache_student_id = self
+            .user_info
+            .as_ref()
+            .map(|u| u.student_id.clone())
+            .unwrap_or_else(|| "__latest__".to_string());
+
+        if let Some((cached_token, cached_blade, saved_at)) = load_cached_ai_auth(&cache_student_id) {
+            let age_ms = chrono::Utc::now().timestamp_millis().saturating_sub(saved_at);
+            if age_ms <= 2 * 60 * 60 * 1000 {
+                println!("[调试] 初始化AI会话：命中本地AI会话缓存（2小时内），开始校验有效性");
+            } else {
+                println!("[调试] 初始化AI会话：命中本地AI会话缓存（超过2小时），开始校验有效性");
+            }
+
+            if verify_cached_ai_auth(&self.client, &cached_token, &cached_blade).await {
+                if age_ms <= 2 * 60 * 60 * 1000 {
+                    println!("[调试] 初始化AI会话：本地AI会话缓存校验通过（2小时内）");
+                } else {
+                    println!("[调试] 初始化AI会话：本地AI会话缓存校验通过（超过2小时）");
+                }
+                save_cached_ai_auth(&cache_student_id, &cached_token, &cached_blade);
+                return Ok((cached_token, cached_blade));
+            }
+
+            println!("[调试] 初始化AI会话：本地AI会话缓存校验失败，继续尝试SSO");
+        }
+
         // 0) 尝试从本地会话恢复 one_code_token（避免当次登录未能获取令牌）
         if self.electricity_token.is_none() {
             if let Some(dir) = HbutClient::app_data_dir() {
@@ -449,6 +555,7 @@ impl HbutClient {
                 if let Some(token) = extract_token_from_url(template) {
                     println!("[调试] 初始化AI会话：使用模板 entry_url 令牌");
                     save_cached_entry_url(template);
+                    save_cached_ai_auth(&cache_student_id, &token, &blade_auth);
                     return Ok((token, blade_auth));
                 }
             }
@@ -466,6 +573,7 @@ impl HbutClient {
                 if !blade_auth.is_empty() {
                     println!("[调试] 初始化AI会话：使用缓存 one_code_令牌 获取 blade-auth");
                     save_cached_entry_url(&access_entry_url);
+                    save_cached_ai_auth(&cache_student_id, &cached_token, &blade_auth);
                     return Ok((cached_token, blade_auth));
                 }
                 println!("[调试] 初始化AI会话：缓存 one_code_令牌 获取 blade-auth 失败");
@@ -486,6 +594,7 @@ impl HbutClient {
                     let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
                     if !blade_auth.is_empty() {
                         save_cached_entry_url(&candidate);
+                        save_cached_ai_auth(&cache_student_id, &token, &blade_auth);
                         return Ok((token, blade_auth));
                     }
                 }
@@ -563,6 +672,7 @@ impl HbutClient {
                     let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
                     if !blade_auth.is_empty() {
                         save_cached_entry_url(&candidate);
+                        save_cached_ai_auth(&cache_student_id, &token, &blade_auth);
                         return Ok((token, blade_auth));
                     }
                 }
@@ -595,6 +705,7 @@ impl HbutClient {
                         let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
                         if !blade_auth.is_empty() {
                             save_cached_entry_url(&candidate);
+                            save_cached_ai_auth(&cache_student_id, &token, &blade_auth);
                             return Ok((token, blade_auth));
                         }
                     }
@@ -612,6 +723,7 @@ impl HbutClient {
         if !blade_auth_direct.is_empty() {
             println!("[调试] 初始化AI会话：直接使用 access令牌 获取 blade-auth");
             save_cached_entry_url(&access_entry_url);
+            save_cached_ai_auth(&cache_student_id, &access_token, &blade_auth_direct);
             return Ok((access_token, blade_auth_direct));
         }
 
@@ -630,6 +742,7 @@ impl HbutClient {
                         let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
                         if !blade_auth.is_empty() {
                             save_cached_entry_url(&candidate);
+                            save_cached_ai_auth(&cache_student_id, &token, &blade_auth);
                             return Ok((token, blade_auth));
                         }
                     }
@@ -654,6 +767,7 @@ impl HbutClient {
                             let blade_auth = fetch_blade_auth(&self.client, &candidate).await.unwrap_or_default();
                             if !blade_auth.is_empty() {
                                 save_cached_entry_url(&candidate);
+                                save_cached_ai_auth(&cache_student_id, &token, &blade_auth);
                                 return Ok((token, blade_auth));
                             }
                         }
@@ -670,6 +784,7 @@ impl HbutClient {
             if !blade_auth_refresh.is_empty() {
                 println!("[调试] 初始化AI会话：直接使用刷新后的 access令牌 获取 blade-auth");
                 save_cached_entry_url(&refresh_entry_url);
+                save_cached_ai_auth(&cache_student_id, &new_token, &blade_auth_refresh);
                 return Ok((new_token, blade_auth_refresh));
             }
         }
