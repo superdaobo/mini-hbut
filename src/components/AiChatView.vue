@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
-import { renderMarkdown } from '../utils/markdown.js'
-import { invokeNative as invoke } from '../platform/native'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { fetchEventSource } from '@microsoft/fetch-event-source'
+import { initMarkdownRuntime, renderMarkdown } from '../utils/markdown.js'
 
 const props = defineProps({
   studentId: String,
@@ -11,51 +11,131 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['back'])
+defineEmits(['back'])
 
 const DEFAULT_WELCOME = '您好，我是湖工小实，很高兴与你相遇，请问有什么可以帮您?'
-const messages = ref([])
-const input = ref('')
-const isLoading = ref(false)
-const chatContainer = ref(null)
-const fileInput = ref(null)
-const attachment = ref(null) // { name: '...', url: '...' }
-const dynamicModelOptions = ref([])
+const AI_INIT_ENDPOINT = 'http://127.0.0.1:4399/ai_init'
+const AI_UPLOAD_ENDPOINT = 'http://127.0.0.1:4399/ai_upload'
+const AI_CHAT_ENDPOINT = 'http://127.0.0.1:4399/ai_chat'
+const STREAM_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_stream'
+const SESSION_NEW_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/new'
+const SESSION_HISTORY_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/history'
+const SESSION_MESSAGES_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/messages'
+
 const defaultModelOptions = [
   { label: 'Qwen-Plus', value: 'qwen-plus' },
   { label: 'Qwen-Max', value: 'qwen-max' },
-  { label: 'DeepSeek-R1', value: 'deepseek-r1' },
-  { label: 'Doubao1.5-Pro', value: 'doubao-1.5-pro' }
+  { label: 'DeepSeek-R1', value: 'ep-20250207092149-pvc95' },
+  { label: 'Doubao1.5-Pro', value: 'ep-20250219175323-5mvmg' }
 ]
-const normalizedModelOptions = computed(() => {
-  if (Array.isArray(dynamicModelOptions.value) && dynamicModelOptions.value.length) {
-    return dynamicModelOptions.value
-  }
-  if (Array.isArray(props.modelOptions) && props.modelOptions.length) {
-    return props.modelOptions
-  }
-  return defaultModelOptions
-})
-const selectedModel = ref(normalizedModelOptions.value[0]?.value || 'qwen-max')
-watch(normalizedModelOptions, (next) => {
-  if (!Array.isArray(next) || !next.length) return
-  const exists = next.some((m) => m?.value === selectedModel.value)
-  if (!exists) {
-    selectedModel.value = next[0]?.value || selectedModel.value
-  }
-})
+const MODEL_ALIAS_MAP = {
+  'qwen-max': ['qwen-max', 'Qwen-Max', 'qwen_max'],
+  'qwen-plus': ['qwen-plus', 'Qwen-Plus', 'qwen_plus'],
+  'deepseek-r1': [
+    'deepseek-r1',
+    'DeepSeek-R1',
+    'deepseek_r1',
+    'deepseek-r1-250120',
+    'deepseek-r1-thinking',
+    'ep-20250207092149-pvc95'
+  ],
+  'doubao-1.5-pro': ['doubao-1.5-pro', 'Doubao1.5-Pro', 'ep-20250219175323-5mvmg'],
+  'ep-20250207092149-pvc95': ['ep-20250207092149-pvc95', 'deepseek-r1', 'DeepSeek-R1'],
+  'ep-20250219175323-5mvmg': ['ep-20250219175323-5mvmg', 'doubao-1.5-pro', 'Doubao1.5-Pro']
+}
+const MODEL_DISPLAY_MAP = {
+  'qwen-plus': 'Qwen-Plus',
+  'qwen-max': 'Qwen-Max',
+  'ep-20250207092149-pvc95': 'DeepSeek-R1',
+  'deepseek-r1': 'DeepSeek-R1',
+  'ep-20250219175323-5mvmg': 'Doubao1.5-Pro',
+  'doubao-1.5-pro': 'Doubao1.5-Pro'
+}
 
-// Auth State
 const token = ref('')
 const bladeAuth = ref('')
-const initStatus = ref('loading') // loading, success, error
+const dynamicModelOptions = ref([])
+const initStatus = ref('loading')
 const initError = ref('')
+
+const selectedModel = ref('qwen-max')
 const historyOpen = ref(false)
 const sessions = ref([])
 const activeSessionId = ref('')
-const STREAM_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_stream'
+const messages = ref([])
+
+const input = ref('')
+const isLoading = ref(false)
+const attachment = ref(null)
+const fileInput = ref(null)
+const chatContainer = ref(null)
+const rootEl = ref(null)
+const inputBarEl = ref(null)
+const attachmentBarEl = ref(null)
+const autoScrollEnabled = ref(true)
+const skipInitialScroll = ref(true)
+const streamStats = ref({
+  active: false,
+  raw: 0,
+  delta: 0,
+  progress: 0,
+  fallback: false,
+  lastEvent: '-'
+})
+
+const resetStreamStats = () => {
+  streamStats.value = {
+    active: false,
+    raw: 0,
+    delta: 0,
+    progress: 0,
+    fallback: false,
+    lastEvent: '-'
+  }
+}
+
+let resizeObserver = null
+let viewportResizeHandler = null
+let windowResizeHandler = null
+const setRootCssVar = (name, value) => {
+  if (!rootEl.value) return
+  rootEl.value.style.setProperty(name, value)
+}
+
+const updateLayoutMetrics = () => {
+  const inputHeight = Math.max(64, Math.ceil(inputBarEl.value?.offsetHeight || 72))
+  const attachmentHeight = Math.ceil(attachmentBarEl.value?.offsetHeight || 0)
+  setRootCssVar('--ai-input-height', `${inputHeight}px`)
+  setRootCssVar('--ai-attachment-height', `${attachmentHeight}px`)
+}
+
+const updateKeyboardOffset = () => {
+  if (typeof window === 'undefined') return
+  const vv = window.visualViewport
+  if (!vv) {
+    setRootCssVar('--ai-keyboard-offset', '0px')
+    return
+  }
+  const offset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))
+  setRootCssVar('--ai-keyboard-offset', `${offset}px`)
+}
+
+const handleInputFocus = () => {
+  nextTick(() => {
+    updateKeyboardOffset()
+    updateLayoutMetrics()
+    queueAutoScroll()
+  })
+}
+
+const handleInputBlur = () => {
+  window.setTimeout(() => {
+    updateKeyboardOffset()
+    updateLayoutMetrics()
+  }, 80)
+}
+
 const AI_DEBUG = (() => {
-  let assistantMsg = null
   try {
     return localStorage.getItem('hbu_ai_debug') === '1'
   } catch {
@@ -63,805 +143,1144 @@ const AI_DEBUG = (() => {
   }
 })()
 
-const initAiSession = async () => {
-  try {
-    initStatus.value = 'loading'
-    initError.value = ''
-    const res = await invoke('hbut_ai_init')
-    if (res.success) {
-      token.value = res.token
-      bladeAuth.value = res.blade_auth
-      if (Array.isArray(res.models) && res.models.length) {
-        dynamicModelOptions.value = res.models
+const normalizedModelOptions = computed(() => {
+  const mergeLists = (...lists) => {
+    const out = []
+    const seen = new Set()
+    for (const list of lists) {
+      for (const item of list) {
+        const key = normalizeModelValue(item.value)
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        out.push(item)
       }
-      initStatus.value = 'success'
-    } else {
-      initStatus.value = 'error'
-      initError.value = res.msg || 'Init failed'
     }
-  } catch (e) {
-    initStatus.value = 'error'
-    initError.value = String(e)
+    return out
   }
+  const normalizeList = (list) => {
+    const safe = Array.isArray(list) ? list : []
+    return safe
+      .map((item) => {
+        const value = String(item?.value || '').trim()
+        if (!value) return null
+        const key = normalizeModelValue(value)
+        const label = String(item?.label || MODEL_DISPLAY_MAP[key] || value).trim()
+        return { label, value }
+      })
+      .filter(Boolean)
+  }
+  const defaults = normalizeList(defaultModelOptions)
+  const fromProps = normalizeList(props.modelOptions)
+  const fromDynamic = normalizeList(dynamicModelOptions.value)
+  if (Array.isArray(dynamicModelOptions.value) && dynamicModelOptions.value.length) {
+    return mergeLists(fromDynamic, fromProps, defaults)
+  }
+  if (Array.isArray(props.modelOptions) && props.modelOptions.length) {
+    return mergeLists(fromProps, defaults)
+  }
+  return defaults
+})
+
+const historyKey = computed(() => `hbu_ai_history_v2_${props.studentId || 'guest'}`)
+
+const normalizeModelValue = (value) => String(value || '').trim().toLowerCase()
+const isDeepSeekModel = (value) => {
+  const normalized = normalizeModelValue(value)
+  return normalized.includes('deepseek') || normalized === 'ep-20250207092149-pvc95'
 }
 
-const HISTORY_LIMIT = 120
-const historyKey = computed(() => `hbu_ai_history_${props.studentId || 'guest'}`)
+const modelDisplayName = (value) => {
+  const normalized = normalizeModelValue(value)
+  return MODEL_DISPLAY_MAP[normalized] || String(value || '').trim() || '未知模型'
+}
+const availableModelSet = computed(() => {
+  const set = new Set()
+  for (const option of normalizedModelOptions.value || []) {
+    const val = normalizeModelValue(option?.value)
+    if (val) set.add(val)
+  }
+  return set
+})
 
-const createSession = (seedMessages) => {
-  const now = Date.now()
+const detectRenderMode = (role, content = '') => {
+  if (role !== 'assistant') return 'plain'
+  const text = String(content || '').trim()
+  if (!text) return 'plain'
+  if (/(\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\(|\\\[|\\begin\{)/.test(text)) return 'markdown'
+  if (/```[\s\S]*```/.test(text)) return 'markdown'
+  return 'plain'
+}
+
+const normalizeMessage = (msg = {}) => {
+  const role = msg?.role === 'user' ? 'user' : 'assistant'
+  const content = String(msg?.content || '')
+  const modelUsed = String(msg?.modelUsed || '')
   return {
-    id: `session_${now}_${Math.random().toString(16).slice(2, 8)}`,
-    title: '新对话',
-    updatedAt: now,
-    messages: seedMessages || [{ role: 'assistant', content: DEFAULT_WELCOME }]
+    id: msg?.id || `msg_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+    role,
+    content,
+    thinking: String(msg?.thinking || ''),
+    showThinking: Boolean(msg?.showThinking),
+    isStreaming: Boolean(msg?.isStreaming),
+    progress: String(msg?.progress || ''),
+    modelUsed,
+    thinkStreamMode: Boolean(msg?.thinkStreamMode),
+    streamCarry: String(msg?.streamCarry || ''),
+    createdAt: Number(msg?.createdAt || Date.now()),
+    renderMode: msg?.renderMode || detectRenderMode(role, content),
+    ...msg,
+    role,
+    content
   }
 }
 
-const updateSessionTitle = (session) => {
-  if (!session) return
-  const firstUser = session.messages.find((m) => m.role === 'user' && m.content)
-  if (firstUser && typeof firstUser.content === 'string') {
-    session.title = firstUser.content.trim().slice(0, 20) || session.title
+const makeMessage = (role, content = '', extra = {}) => normalizeMessage({
+  role,
+  content,
+  thinking: '',
+  showThinking: false,
+  isStreaming: false,
+  progress: '',
+  createdAt: Date.now(),
+  renderMode: detectRenderMode(role, content),
+  ...extra
+})
+
+const makeSession = ({
+  id,
+  remoteSessionId = '',
+  title = '新对话',
+  preview = '',
+  updatedAt = Date.now(),
+  messages: seedMessages,
+  loaded = false
+} = {}) => ({
+  id: id || `local_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+  remoteSessionId,
+  title,
+  preview,
+  updatedAt,
+  loaded,
+  messages: Array.isArray(seedMessages) && seedMessages.length
+    ? seedMessages.map((item) => normalizeMessage(item))
+    : [makeMessage('assistant', DEFAULT_WELCOME)]
+})
+
+const findSession = (id) => sessions.value.find((item) => item.id === id)
+
+const ensureModelSelection = () => {
+  const list = normalizedModelOptions.value
+  if (!Array.isArray(list) || !list.length) return
+  if (!list.some((m) => m?.value === selectedModel.value)) {
+    selectedModel.value = list[0].value
   }
 }
 
-const loadHistory = () => {
-  try {
-    const raw = localStorage.getItem(historyKey.value)
-    const parsed = JSON.parse(raw || 'null')
-    if (parsed && Array.isArray(parsed.sessions)) {
-      sessions.value = parsed.sessions
-      activeSessionId.value = parsed.activeId || parsed.sessions[0]?.id || ''
-    } else if (Array.isArray(parsed) && parsed.length) {
-      const session = createSession(parsed)
-      sessions.value = [session]
-      activeSessionId.value = session.id
-    }
-  } catch {
-    // ignore
+const buildModelCandidates = (selected) => {
+  const out = []
+  const seen = new Set()
+  const push = (value) => {
+    const raw = String(value || '').trim()
+    if (!raw) return
+    const key = raw.toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(raw)
   }
-  if (!sessions.value.length) {
-    const session = createSession()
-    sessions.value = [session]
-    activeSessionId.value = session.id
-  }
-  const active = sessions.value.find((s) => s.id === activeSessionId.value) || sessions.value[0]
-  activeSessionId.value = active.id
-  messages.value = active.messages || [{ role: 'assistant', content: DEFAULT_WELCOME }]
-}
 
-const saveHistory = () => {
-  try {
-    const active = sessions.value.find((s) => s.id === activeSessionId.value)
-    if (active) {
-      active.messages = messages.value.slice(-HISTORY_LIMIT)
-      active.updatedAt = Date.now()
-      updateSessionTitle(active)
-    }
-    const payload = {
-      activeId: activeSessionId.value,
-      sessions: sessions.value.slice(0, 50)
-    }
-    localStorage.setItem(historyKey.value, JSON.stringify(payload))
-  } catch {
-    // ignore
+  const normalized = normalizeModelValue(selected)
+  push(selected)
+  for (const alias of MODEL_ALIAS_MAP[normalized] || []) {
+    push(alias)
   }
-}
-
-const extractTextFromEvent = (obj) => {
-  if (!obj || typeof obj !== 'object') return ''
-  if (obj.type === 11 || obj.type === '11') {
-    return ''
-  }
-  if (obj.type === 1 || obj.type === '1') {
-    if (typeof obj.content === 'string') return obj.content
-  } else if (obj.type != null) {
-    return ''
-  }
-  const data = obj.data
-  if (typeof data === 'string') {
-    const trimmed = data.trim()
-    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-      try {
-        const nested = JSON.parse(trimmed)
-        const nestedText = extractTextFromEvent(nested)
-        if (nestedText) return nestedText
-      } catch {
-        // ignore
+  if (normalized.includes('deepseek')) {
+    for (const option of normalizedModelOptions.value || []) {
+      const val = String(option?.value || '').trim()
+      if (normalizeModelValue(val).includes('deepseek')) {
+        push(val)
       }
     }
-    return data
+    push('qwen-max')
   }
-  if (data && typeof data === 'object') {
-    if (data.type === 11 || data.type === '11') return ''
-    if (data.type === 1 || data.type === '1') {
-      if (typeof data.content === 'string') return data.content
-    } else if (data.type != null) {
-      return ''
-    }
-    for (const key of ['content', 'answer', 'text', 'msg']) {
-      if (typeof data[key] === 'string') return data[key]
-    }
-    const processInfo = data.processInfo
-    if (processInfo && typeof processInfo === 'object') {
-      if (processInfo.type === 11 || processInfo.type === '11') return ''
-      if (processInfo.type === 1 || processInfo.type === '1') {
-        if (typeof processInfo.content === 'string') return processInfo.content
-      } else if (processInfo.type != null) {
-        return ''
-      }
-      for (const key of ['content', 'answer', 'text', 'msg']) {
-        if (typeof processInfo[key] === 'string') return processInfo[key]
-      }
-    }
+  const preferred = out.find((item) => availableModelSet.value.has(normalizeModelValue(item)))
+  if (preferred) {
+    return [preferred, ...out.filter((item) => item.toLowerCase() !== preferred.toLowerCase())]
   }
-  for (const key of ['content', 'answer', 'text', 'msg']) {
-    if (typeof obj[key] === 'string') return obj[key]
-  }
-  if (typeof obj.message === 'string' && !isNoiseMessage(obj.message)) {
-    return obj.message
-  }
-  return ''
-}
-
-const parseAiResponseText = (raw) => {
-  if (raw == null) return ''
-  if (typeof raw !== 'string') return String(raw)
-  const trimmed = raw.trim()
-  const looksJson = trimmed.startsWith('{') || trimmed.startsWith('[')
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try {
-      const obj = JSON.parse(trimmed)
-      const extracted = extractTextFromEvent(obj)
-      if (extracted) {
-        const decoded = tryDecodeHex(extracted) || extracted
-        return decodeHexFragments(stripNoisePrefix(decoded))
-      }
-    } catch {
-      const objs = extractJsonObjects(raw)
-      if (objs.length) {
-        const parts = []
-        for (const item of objs) {
-          try {
-            const obj = JSON.parse(item)
-            const extracted = extractTextFromEvent(obj)
-            if (extracted) parts.push(extracted)
-          } catch {
-            // ignore
-          }
-        }
-        if (parts.length) {
-          const joined = parts.join('')
-          const decoded = tryDecodeHex(joined) || joined
-          return decodeHexFragments(stripNoisePrefix(decoded))
-        }
-        return ''
-      }
-      if (looksJson) {
-        return ''
-      }
-    }
-  }
-  const lines = raw.split(/\r?\n/).filter(Boolean)
-  let parsedAny = false
-  const parts = []
-  for (let line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (trimmed.startsWith('data:')) {
-      line = trimmed.slice(5).trim()
-    }
-    if (line === '[DONE]') break
-    try {
-      const obj = JSON.parse(line)
-      parsedAny = true
-      const chunk = extractTextFromEvent(obj)
-      if (chunk && !isNoiseMessage(chunk)) parts.push(chunk)
-    } catch {
-      if (!line.startsWith(':') && !line.startsWith('{') && !line.startsWith('[')) {
-        if (!isNoiseMessage(line)) parts.push(line)
-      }
-    }
-  }
-  if (!parsedAny) return trimTrailingHexNoise(decodeHexFragments(stripNoisePrefix(raw)))
-  const joined = parts.join('')
-  const decoded = tryDecodeHex(joined)
-  return trimTrailingHexNoise(decodeHexFragments(stripNoisePrefix(decoded || joined)))
-}
-
-const extractJsonObjects = (raw) => {
-  if (!raw || typeof raw !== 'string') return []
-  const result = []
-  let start = -1
-  let depth = 0
-  let inString = false
-  let escape = false
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i]
-    if (inString) {
-      if (escape) {
-        escape = false
-        continue
-      }
-      if (ch === '\\') {
-        escape = true
-        continue
-      }
-      if (ch === '"') {
-        inString = false
-      }
-      continue
-    }
-    if (ch === '"') {
-      inString = true
-      continue
-    }
-    if (ch === '{' || ch === '[') {
-      if (depth === 0) start = i
-      depth += 1
-      continue
-    }
-    if (ch === '}' || ch === ']') {
-      if (depth > 0) {
-        depth -= 1
-        if (depth === 0 && start >= 0) {
-          result.push(raw.slice(start, i + 1))
-          start = -1
-        }
-      }
-    }
-  }
-  return result
-}
-
-const unwrapAiResponse = (resp) => {
-  if (resp == null) return ''
-  if (typeof resp === 'string') return resp
-  if (typeof resp === 'object') {
-    if (typeof resp.data === 'string') return resp.data
-    if (typeof resp.result === 'string') return resp.result
-    if (typeof resp.text === 'string') return resp.text
-  }
-  return resp
-}
-
-const tryDecodeHex = (raw) => {
-  if (!raw || typeof raw !== 'string') return ''
-  const cleaned = raw.replace(/\s+/g, '')
-  if (cleaned.length < 8 || cleaned.length % 2 !== 0) return ''
-  if (!/^[0-9a-fA-F]+$/.test(cleaned)) return ''
-  try {
-    const bytes = new Uint8Array(cleaned.match(/../g).map((b) => parseInt(b, 16)))
-    const decoded = new TextDecoder('utf-8').decode(bytes)
-    if (decoded && decoded.trim()) return decoded
-    if (bytes.length % 2 === 0) {
-      const decodeUtf16 = (littleEndian) => {
-        let result = ''
-        for (let i = 0; i < bytes.length; i += 2) {
-          const code = littleEndian
-            ? bytes[i] | (bytes[i + 1] << 8)
-            : (bytes[i] << 8) | bytes[i + 1]
-          result += String.fromCharCode(code)
-        }
-        return result
-      }
-      const utf16le = decodeUtf16(true)
-      if (utf16le && utf16le.trim()) return utf16le
-      const utf16be = decodeUtf16(false)
-      if (utf16be && utf16be.trim()) return utf16be
-    }
-    return ''
-  } catch {
-    return ''
-  }
-}
-
-const decodeHexFragments = (value) => {
-  if (!value || typeof value !== 'string') return ''
-  let out = ''
-  let buf = ''
-  const flush = () => {
-    if (buf.length >= 8 && buf.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(buf)) {
-      const decoded = tryDecodeHex(buf)
-      if (decoded && looksLikeText(decoded)) {
-        const result = decoded
-        buf = ''
-        return result
-      }
-    }
-    const keep = buf
-    buf = ''
-    return keep
-  }
-  for (const ch of value) {
-    if (/[0-9a-fA-F]/.test(ch)) {
-      buf += ch
-    } else {
-      out += flush()
-      out += ch
-    }
-  }
-  out += flush()
   return out
 }
 
-const trimTrailingHexNoise = (value) => {
-  if (!value || typeof value !== 'string' || value.length < 120) return value || ''
-  const trimmed = value.trimEnd()
-  const tailWindow = Math.max(0, trimmed.length - Math.floor(trimmed.length / 4))
-  const re = /[0-9a-fA-F]{120,}/g
-  let lastMatch = null
-  let match
-  while ((match = re.exec(trimmed)) !== null) {
-    if (match.index + match[0].length >= tailWindow) {
-      lastMatch = match
-    }
+const isIllegalModelError = (err) => {
+  const text = String(err || '').toLowerCase()
+  return text.includes('模型名非法') || text.includes('illegal model') || text.includes('model非法') || (text.includes('模型') && text.includes('非法'))
+}
+
+const unwrapApiData = (resp) => {
+  if (!resp || typeof resp !== 'object') return null
+  if ('data' in resp) return resp.data
+  return resp
+}
+
+const postJson = async (url, body) => {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  const text = await res.text()
+  let json = null
+  try {
+    json = JSON.parse(text)
+  } catch {
+    throw new Error(text || `请求失败(${res.status})`)
   }
-  if (lastMatch) {
-    const start = lastMatch.index
-    const end = start + lastMatch[0].length
-    const suffix = trimmed.slice(end)
-    if (!suffix.trim() && hasMeaningfulText(trimmed.slice(0, start))) {
-      return trimmed.slice(0, start).trimEnd()
-    }
+  if (!res.ok) {
+    throw new Error(json?.message || json?.msg || `请求失败(${res.status})`)
   }
-  return trimmed
-}
-
-const hasMeaningfulText = (text) => {
-  if (!text) return false
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
-  const latin = (text.match(/[A-Za-z]/g) || []).length
-  return cjk + latin >= 4
-}
-
-const looksLikeText = (text) => {
-  if (!text || typeof text !== 'string') return false
-  if (text.includes('\uFFFD')) return false
-  const hasCjk = /[\u4e00-\u9fff]/.test(text)
-  const hasWord = /[A-Za-z0-9]/.test(text)
-  return hasCjk || hasWord
-}
-
-const stripNoisePrefix = (value) => {
-  if (!value || typeof value !== 'string') return ''
-  const prefixes = ['操作成功', '请求完成', 'success', '正在阅读文件', '正在读取文件']
-  let text = value.trimStart()
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const prefix of prefixes) {
-      if (text.startsWith(prefix)) {
-        text = text.slice(prefix.length).trimStart()
-        changed = true
-        break
-      }
-    }
+  if (json?.success === false) {
+    throw new Error(json?.message || json?.msg || '请求失败')
   }
-  return text
+  return json
 }
 
-const isNoiseMessage = (value) => {
-  if (!value || typeof value !== 'string') return false
-  const trimmed = value.trim()
-  return trimmed === '操作成功'
-    || trimmed === '请求完成'
-    || trimmed === 'success'
-    || trimmed.startsWith('正在阅读文件')
-    || trimmed.startsWith('正在读取文件')
-}
-
-
-const normalizeLatex = (value) => {
-  if (!value || typeof value !== 'string') return ''
-  // Fix common missing-space cases like \partialx -> \partial x
-  return value.replace(/\\partial([a-zA-Z])/g, '\\partial $1')
-}
-
-const renderMessage = (msg) => {
-  if (!msg?.content) return ''
-  if (msg.role === 'assistant' && typeof msg.content === 'string' && /^\s*[{[]/.test(msg.content)) {
-    const parsed = parseAiResponseText(msg.content)
-    if (parsed) {
-      return renderMarkdown(normalizeLatex(parsed))
+const saveLocalHistory = () => {
+  try {
+    const active = findSession(activeSessionId.value)
+    if (active) {
+      active.messages = messages.value.slice(-200)
+      active.updatedAt = Date.now()
+      const firstUser = active.messages.find((m) => m.role === 'user' && m.content?.trim())
+      if (firstUser) active.title = firstUser.content.trim().slice(0, 20)
+      const latest = [...active.messages].reverse().find((m) => m.content?.trim())
+      active.preview = latest?.content?.slice(0, 120) || active.preview
     }
+    localStorage.setItem(historyKey.value, JSON.stringify({
+      activeSessionId: activeSessionId.value,
+      sessions: sessions.value.slice(0, 80)
+    }))
+  } catch {
+    // ignore cache failure
   }
-  return renderMarkdown(normalizeLatex(msg.content))
 }
 
-const skipInitialScroll = ref(true)
-const autoScrollEnabled = ref(true)
-const showLoadingBubble = computed(() => {
-  if (!isLoading.value) return false
-  return !messages.value.some((m) => m.role === 'assistant' && !m.content)
-})
+const loadLocalHistory = () => {
+  let parsed = null
+  try {
+    parsed = JSON.parse(localStorage.getItem(historyKey.value) || 'null')
+  } catch {
+    parsed = null
+  }
+  if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length) {
+    sessions.value = parsed.sessions.map((item) => makeSession(item))
+    activeSessionId.value = parsed.activeSessionId || sessions.value[0].id
+    const active = findSession(activeSessionId.value) || sessions.value[0]
+    activeSessionId.value = active.id
+    messages.value = active.messages || [makeMessage('assistant', DEFAULT_WELCOME)]
+    return
+  }
+  const session = makeSession()
+  sessions.value = [session]
+  activeSessionId.value = session.id
+  messages.value = session.messages
+}
+
+const syncMessagesToActiveSession = () => {
+  const active = findSession(activeSessionId.value)
+  if (!active) return
+  active.messages = messages.value
+  active.updatedAt = Date.now()
+}
 
 const handleChatScroll = () => {
   const el = chatContainer.value
   if (!el) return
   const distance = el.scrollHeight - el.scrollTop - el.clientHeight
-  autoScrollEnabled.value = distance < 40
+  autoScrollEnabled.value = distance < 48
 }
 
-const resetChatScrollTop = () => {
+const scrollToBottom = () => {
   const el = chatContainer.value
-  if (el) {
-    el.scrollTop = 0
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
+const forceScrollToBottom = () => {
+  autoScrollEnabled.value = true
+  nextTick(() => {
+    scrollToBottom()
+    window.requestAnimationFrame(() => {
+      scrollToBottom()
+    })
+  })
+}
+
+const syncAutoScroll = () => {
+  nextTick(() => {
+    if (!chatContainer.value) return
+    if (skipInitialScroll.value) {
+      chatContainer.value.scrollTop = 0
+      skipInitialScroll.value = false
+      return
+    }
+    if (autoScrollEnabled.value) {
+      scrollToBottom()
+    }
+  })
+}
+
+let autoScrollFrame = 0
+const queueAutoScroll = () => {
+  if (!autoScrollEnabled.value) return
+  if (autoScrollFrame) return
+  autoScrollFrame = window.requestAnimationFrame(() => {
+    autoScrollFrame = 0
+    scrollToBottom()
+  })
+}
+
+const handleInputTyping = () => {
+  forceScrollToBottom()
+}
+
+const initViewportHooks = () => {
+  updateLayoutMetrics()
+  updateKeyboardOffset()
+  windowResizeHandler = () => {
+    updateKeyboardOffset()
+    updateLayoutMetrics()
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', windowResizeHandler)
+  }
+  if (typeof window !== 'undefined' && window.visualViewport) {
+    viewportResizeHandler = () => {
+      updateKeyboardOffset()
+      updateLayoutMetrics()
+    }
+    window.visualViewport.addEventListener('resize', viewportResizeHandler)
+    window.visualViewport.addEventListener('scroll', viewportResizeHandler)
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      updateLayoutMetrics()
+      updateKeyboardOffset()
+    })
+    if (rootEl.value) resizeObserver.observe(rootEl.value)
+    if (inputBarEl.value) resizeObserver.observe(inputBarEl.value)
+    if (attachmentBarEl.value) resizeObserver.observe(attachmentBarEl.value)
   }
 }
 
-onMounted(() => {
-  loadHistory()
-  initAiSession()
-  nextTick(() => {
-    resetChatScrollTop()
-  })
-})
-
-// Auto scroll to bottom
-watch(messages, () => {
-  nextTick(() => {
-    if (chatContainer.value) {
-      if (skipInitialScroll.value) {
-        resetChatScrollTop()
-        skipInitialScroll.value = false
-        return
-      }
-      if (autoScrollEnabled.value) {
-        chatContainer.value.scrollTop = chatContainer.value.scrollHeight
-      }
-    }
-  })
-}, { deep: true })
-
-watch(messages, saveHistory, { deep: true })
-
-watch(historyKey, () => {
-  loadHistory()
-})
-
-const selectSession = (sessionId) => {
-  const target = sessions.value.find((s) => s.id === sessionId)
-  if (!target) return
-  activeSessionId.value = target.id
-  messages.value = target.messages || [{ role: 'assistant', content: DEFAULT_WELCOME }]
-  skipInitialScroll.value = true
+const disposeViewportHooks = () => {
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
+  if (typeof window !== 'undefined' && window.visualViewport && viewportResizeHandler) {
+    window.visualViewport.removeEventListener('resize', viewportResizeHandler)
+    window.visualViewport.removeEventListener('scroll', viewportResizeHandler)
+  }
+  if (typeof window !== 'undefined' && windowResizeHandler) {
+    window.removeEventListener('resize', windowResizeHandler)
+  }
+  viewportResizeHandler = null
+  windowResizeHandler = null
 }
 
-const startNewSession = () => {
-  const session = createSession()
+const formatSessionTime = (ts) => new Date(ts || Date.now()).toLocaleString()
+
+const parseAiResponseText = (value) => {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'object') {
+    return value.content || value.text || value.answer || ''
+  }
+  return String(value)
+}
+
+const NOISE_MESSAGES = ['操作成功', '请求完成', 'success']
+const isNoiseMessage = (value) => {
+  const text = String(value || '').trim().toLowerCase()
+  if (!text) return true
+  if (NOISE_MESSAGES.includes(text)) return true
+  return text.startsWith('正在读取文件') || text.startsWith('正在阅读文件')
+}
+
+const normalizeMathText = (text) => {
+  if (!text || typeof text !== 'string') return ''
+  return text
+    .replace(/\$\s+([^$\n]+?)\s+\$/g, (_m, inner) => `$${String(inner).trim()}$`)
+    .replace(/\\\s+frac/g, '\\frac')
+    .replace(/\\\s+sum/g, '\\sum')
+}
+
+const renderMessage = (msg) => {
+  if (!msg?.content) return ''
+  const normalized = normalizeMathText(msg.content).replace(/\s+$/g, '')
+  return renderMarkdown(normalized)
+}
+
+const initAiSession = async () => {
+  initStatus.value = 'loading'
+  initError.value = ''
+  try {
+    const resp = await postJson(AI_INIT_ENDPOINT, {})
+    const data = unwrapApiData(resp)
+    token.value = data?.token || ''
+    bladeAuth.value = data?.blade_auth || data?.bladeAuth || ''
+    if (!token.value || !bladeAuth.value) {
+      throw new Error('AI 凭证缺失')
+    }
+    if (Array.isArray(data?.models) && data.models.length) {
+      dynamicModelOptions.value = data.models
+    }
+    ensureModelSelection()
+    initStatus.value = 'success'
+  } catch (error) {
+    initStatus.value = 'error'
+    initError.value = String(error)
+  }
+}
+
+const ensureInitReady = async () => {
+  if (initStatus.value === 'success' && token.value && bladeAuth.value) return
+  await initAiSession()
+  if (initStatus.value !== 'success' || !token.value || !bladeAuth.value) {
+    throw new Error(initError.value || 'AI 初始化失败')
+  }
+}
+
+const createRemoteSession = async () => {
+  await ensureInitReady()
+  const resp = await postJson(SESSION_NEW_ENDPOINT, {
+    token: token.value,
+    blade_auth: bladeAuth.value
+  })
+  const data = unwrapApiData(resp)
+  const sessionId = data?.session_id || resp?.session_id
+  if (!sessionId) {
+    throw new Error('远端未返回 session_id')
+  }
+  return sessionId
+}
+
+const loadSessionMessagesFromRemote = async (session, force = false) => {
+  if (!session?.remoteSessionId) return
+  if (session.loaded && !force) return
+  await ensureInitReady()
+  try {
+    const resp = await postJson(SESSION_MESSAGES_ENDPOINT, {
+      token: token.value,
+      blade_auth: bladeAuth.value,
+      session_id: session.remoteSessionId
+    })
+    const data = unwrapApiData(resp)
+    const list = data?.messages || []
+    if (Array.isArray(list) && list.length) {
+      session.messages = list.map((item) => makeMessage(
+        item.role === 'user' ? 'user' : 'assistant',
+        item.content || '',
+        {
+          createdAt: Number(item.timestamp || Date.now())
+        }
+      ))
+      session.loaded = true
+      const latest = [...session.messages].reverse().find((m) => m.content?.trim())
+      if (latest) {
+        session.preview = latest.content.slice(0, 120)
+      }
+    }
+    if (session.id === activeSessionId.value) {
+      messages.value = session.messages
+      skipInitialScroll.value = true
+    }
+    saveLocalHistory()
+  } catch (error) {
+    if (AI_DEBUG) {
+      console.debug('[AI] 加载会话消息失败:', error)
+    }
+  }
+}
+
+const syncRemoteHistory = async () => {
+  await ensureInitReady()
+  const resp = await postJson(SESSION_HISTORY_ENDPOINT, {
+    token: token.value,
+    blade_auth: bladeAuth.value,
+    current: 1,
+    size: 50
+  })
+  const data = unwrapApiData(resp)
+  const remoteSessions = Array.isArray(data?.sessions) ? data.sessions : []
+
+  const localOnly = sessions.value.filter((item) => !item.remoteSessionId)
+  const merged = remoteSessions.map((remoteItem) => {
+    const existing = sessions.value.find((s) => s.remoteSessionId === remoteItem.session_id)
+    return makeSession({
+      id: existing?.id || `remote_${remoteItem.session_id}`,
+      remoteSessionId: remoteItem.session_id,
+      title: remoteItem.title || existing?.title || '新对话',
+      preview: remoteItem.preview || existing?.preview || '',
+      updatedAt: Number(remoteItem.updated_at || existing?.updatedAt || Date.now()),
+      messages: existing?.messages,
+      loaded: existing?.loaded || false
+    })
+  })
+
+  sessions.value = [...merged, ...localOnly]
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, 80)
+
+  if (!sessions.value.length) {
+    const remoteSessionId = await createRemoteSession().catch(() => '')
+    sessions.value = [makeSession({ remoteSessionId })]
+  }
+
+  const stillActive = findSession(activeSessionId.value)
+  if (!stillActive) {
+    activeSessionId.value = sessions.value[0].id
+  }
+  const active = findSession(activeSessionId.value) || sessions.value[0]
+  activeSessionId.value = active.id
+  messages.value = active.messages
+  skipInitialScroll.value = true
+  saveLocalHistory()
+  await loadSessionMessagesFromRemote(active, false)
+}
+
+const selectSession = async (id) => {
+  const target = findSession(id)
+  if (!target) return
+  activeSessionId.value = target.id
+  messages.value = target.messages || [makeMessage('assistant', DEFAULT_WELCOME)]
+  skipInitialScroll.value = true
+  historyOpen.value = false
+  saveLocalHistory()
+  await loadSessionMessagesFromRemote(target, false)
+}
+
+const startNewSession = async () => {
+  let remoteSessionId = ''
+  try {
+    remoteSessionId = await createRemoteSession()
+  } catch {
+    // 允许离线新建本地会话
+  }
+  const session = makeSession({ remoteSessionId, messages: [makeMessage('assistant', DEFAULT_WELCOME)] })
   sessions.value.unshift(session)
   activeSessionId.value = session.id
   messages.value = session.messages
   skipInitialScroll.value = true
   historyOpen.value = false
-  saveHistory()
+  saveLocalHistory()
 }
 
 const deleteSession = (sessionId) => {
-  const idx = sessions.value.findIndex((s) => s.id === sessionId)
-  if (idx === -1) return
-  const confirmed = window.confirm('确认删除该对话记录吗？')
-  if (!confirmed) return
+  const idx = sessions.value.findIndex((item) => item.id === sessionId)
+  if (idx < 0) return
+  const ok = window.confirm('确认删除该对话记录吗？')
+  if (!ok) return
   const wasActive = sessions.value[idx].id === activeSessionId.value
   sessions.value.splice(idx, 1)
   if (!sessions.value.length) {
-    const session = createSession()
-    sessions.value = [session]
-    activeSessionId.value = session.id
-    messages.value = session.messages
-  } else if (wasActive) {
+    sessions.value = [makeSession()]
+  }
+  if (wasActive) {
     activeSessionId.value = sessions.value[0].id
-    messages.value = sessions.value[0].messages || [{ role: 'assistant', content: DEFAULT_WELCOME }]
+    messages.value = sessions.value[0].messages
+    skipInitialScroll.value = true
   }
-  saveHistory()
+  saveLocalHistory()
 }
 
-const formatSessionTime = (ts) => {
-  const value = ts || Date.now()
-  return new Date(value).toLocaleString()
+const parseStreamEventObject = (obj) => {
+  if (!obj || typeof obj !== 'object') return null
+  if (obj?.event) {
+    const eventName = String(obj.event)
+    if (eventName === 'delta') {
+      const delta = String(
+        obj.delta ??
+        obj.content ??
+        obj.text ??
+        (typeof obj.data === 'string' ? obj.data : '')
+      )
+      if (!delta || isNoiseMessage(delta)) return null
+      return { event: 'delta', delta }
+    }
+    if (eventName === 'thinking') {
+      const delta = String(obj.delta ?? obj.thinking ?? obj.content ?? '')
+      if (!delta || isNoiseMessage(delta)) return null
+      return { event: 'thinking', delta }
+    }
+    if (eventName === 'progress') {
+      const message = String(obj.message ?? obj.msg ?? obj.content ?? '')
+      if (!message || isNoiseMessage(message)) return null
+      return { event: 'progress', message }
+    }
+    if (eventName === 'session') {
+      return { event: 'session', session_id: obj.session_id ?? obj.sessionId ?? '' }
+    }
+    if (eventName === 'done' || eventName === 'error') {
+      return obj
+    }
+    const fallback = parseAiResponseText(obj)
+    if (fallback?.trim() && !isNoiseMessage(fallback)) return { event: 'delta', delta: fallback }
+    return null
+  }
+  const type = Number(obj?.type)
+  if (type === 1 && typeof obj?.content === 'string') {
+    if (isNoiseMessage(obj.content)) return null
+    return { event: 'delta', delta: obj.content }
+  }
+  if (type === 11 && typeof obj?.thinking === 'string') {
+    if (isNoiseMessage(obj.thinking)) return null
+    return { event: 'thinking', delta: obj.thinking }
+  }
+  if (type === 11 && typeof obj?.content === 'string') {
+    if (isNoiseMessage(obj.content)) return null
+    return { event: 'thinking', delta: obj.content }
+  }
+  if (type === 24) {
+    const msg = obj?.message || obj?.msg || obj?.processInfo?.content || ''
+    if (isNoiseMessage(msg)) return null
+    return { event: 'progress', message: msg }
+  }
+  if (Number(obj?.finish) === 1) return { event: 'done' }
+  const fallback = parseAiResponseText(obj)
+  if (fallback?.trim() && !isNoiseMessage(fallback)) return { event: 'delta', delta: fallback }
+  return null
 }
 
-watch(normalizedModelOptions, (list) => {
-  if (!list?.length) return
-  if (!list.find((item) => item.value === selectedModel.value)) {
-    selectedModel.value = list[0].value
+const parseStreamEvents = (raw) => {
+  if (!raw || typeof raw !== 'string') return []
+  const rows = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (!rows.length) return []
+
+  const out = []
+  for (const row of rows) {
+    const line = row.startsWith('data:') ? row.slice(5).trim() : row
+    if (!line || line === 'keep-alive') continue
+    if (line === '[DONE]') {
+      out.push({ event: 'done' })
+      continue
+    }
+    try {
+      const obj = JSON.parse(line)
+      const parsed = parseStreamEventObject(obj)
+      if (parsed) out.push(parsed)
+      continue
+    } catch {
+      if (!isNoiseMessage(line)) {
+        out.push({ event: 'delta', delta: line })
+      }
+    }
   }
-}, { immediate: true })
+  return out
+}
 
-const EMPTY_CONTEXT_PROMPT = `You are the "Campus AI Assistant".
-Please follow these rules strictly:
-1. Use the full conversation history and the current question to answer.
-2. Respond in Markdown (tables/lists/code blocks are allowed).
-3. Math must use LaTeX (inline $...$, block $$...$$).
-4. Start your reply by repeating the user's question in this exact format: "\u4f60\u95ee\uff1a{question}".
-5. If information is missing or ambiguous, ask a clear follow-up question first.
-6. Do not output meaningless placeholders or repetitive filler.`
+const THINK_OPEN_TAG = '<think>'
+const THINK_CLOSE_TAG = '</think>'
+const extractThinkCarryLength = (text) => {
+  const source = String(text || '').toLowerCase()
+  if (!source) return 0
+  let best = 0
+  for (const token of [THINK_OPEN_TAG, THINK_CLOSE_TAG]) {
+    const maxLen = Math.min(token.length - 1, source.length)
+    for (let len = maxLen; len >= 1; len -= 1) {
+      if (token.startsWith(source.slice(source.length - len))) {
+        best = Math.max(best, len)
+        break
+      }
+    }
+  }
+  return best
+}
 
-const uploadEmptyFile = async () => {
-  const res = await invoke('hbut_ai_upload', {
-    token: token.value,
-    bladeAuth: bladeAuth.value,
-    fileContent: EMPTY_CONTEXT_PROMPT,
-    fileName: `empty_${Date.now()}.txt`
+const appendDeepSeekChunk = (assistantMsg, rawChunk, appendContent) => {
+  const chunk = String(rawChunk || '')
+  if (!chunk && !assistantMsg.streamCarry) return
+  let text = `${assistantMsg.streamCarry || ''}${chunk}`
+  assistantMsg.streamCarry = ''
+  if (!text) return
+
+  let cursor = 0
+  while (cursor < text.length) {
+    const rest = text.slice(cursor)
+    const restLower = rest.toLowerCase()
+    const openIdx = restLower.indexOf(THINK_OPEN_TAG)
+    const closeIdx = restLower.indexOf(THINK_CLOSE_TAG)
+    if (openIdx === -1 && closeIdx === -1) break
+    let marker = THINK_OPEN_TAG
+    let markerPos = openIdx
+    if (openIdx === -1 || (closeIdx !== -1 && closeIdx < openIdx)) {
+      marker = THINK_CLOSE_TAG
+      markerPos = closeIdx
+    }
+    const absolute = cursor + markerPos
+    const segment = text.slice(cursor, absolute)
+    if (segment) {
+      if (assistantMsg.thinkStreamMode) {
+        assistantMsg.thinking += segment
+      } else {
+        appendContent(segment)
+      }
+    }
+    assistantMsg.thinkStreamMode = marker === THINK_OPEN_TAG
+    cursor = absolute + marker.length
+  }
+
+  const tail = text.slice(cursor)
+  if (!tail) return
+  const carryLen = extractThinkCarryLength(tail)
+  if (carryLen > 0) {
+    const body = tail.slice(0, tail.length - carryLen)
+    if (body) {
+      if (assistantMsg.thinkStreamMode) {
+        assistantMsg.thinking += body
+      } else {
+        appendContent(body)
+      }
+    }
+    assistantMsg.streamCarry = tail.slice(tail.length - carryLen)
+    return
+  }
+  if (assistantMsg.thinkStreamMode) {
+    assistantMsg.thinking += tail
+  } else {
+    appendContent(tail)
+  }
+}
+
+const shouldUseThinkingWindow = (msg) => {
+  if (!msg || msg.role !== 'assistant') return false
+  return isDeepSeekModel(msg.modelUsed)
+}
+
+const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) => {
+  const controller = new AbortController()
+  const deepSeekMode = isDeepSeekModel(payload.model)
+  let doneReceived = false
+  const deltaQueue = []
+  let flushingDelta = false
+  let flushRaf = 0
+  let flushDoneResolver = null
+
+  const ensureFlushPromise = () => new Promise((resolve) => {
+    flushDoneResolver = resolve
   })
-  if (!res.success) {
-    throw new Error(res.msg || '空文件上传失败')
+
+  const resolveFlush = () => {
+    if (flushDoneResolver) {
+      flushDoneResolver()
+      flushDoneResolver = null
+    }
   }
-  return res.link
+
+  const flushDeltaQueue = () => {
+    if (flushingDelta) return
+    flushingDelta = true
+    const run = () => {
+      if (!deltaQueue.length) {
+        flushingDelta = false
+        flushRaf = 0
+        resolveFlush()
+        return
+      }
+      const head = String(deltaQueue[0] || '')
+      if (!head) {
+        deltaQueue.shift()
+        flushRaf = window.requestAnimationFrame(run)
+        return
+      }
+      const take = Math.max(1, Math.min(head.length, 4))
+      assistantMsg.content += head.slice(0, take)
+      assistantMsg.progress = ''
+      const rest = head.slice(take)
+      if (rest) {
+        deltaQueue[0] = rest
+      } else {
+        deltaQueue.shift()
+      }
+      queueAutoScroll()
+      flushRaf = window.requestAnimationFrame(run)
+    }
+    flushRaf = window.requestAnimationFrame(run)
+  }
+
+  const enqueueDelta = (text) => {
+    if (!text) return
+    deltaQueue.push(text)
+    flushDeltaQueue()
+  }
+
+  const waitFlushDone = async () => {
+    if (!flushingDelta && !deltaQueue.length) return
+    await ensureFlushPromise()
+  }
+
+  streamStats.value.active = true
+  streamStats.value.lastEvent = 'connect'
+  assistantMsg.modelUsed = payload.model
+  assistantMsg.thinkStreamMode = false
+  assistantMsg.streamCarry = ''
+  if (deepSeekMode) {
+    assistantMsg.showThinking = true
+  }
+  await fetchEventSource(STREAM_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream'
+    },
+    body: JSON.stringify(payload),
+    openWhenHidden: true,
+    signal: controller.signal,
+    async onopen(response) {
+      if (!response.ok) {
+        throw new Error(`流式连接失败(${response.status})`)
+      }
+    },
+    onmessage(event) {
+      const rawCount = String(event.data || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean).length
+      streamStats.value.raw += Math.max(1, rawCount)
+      const parsedItems = parseStreamEvents(event.data)
+      if (!parsedItems.length) return
+      for (const parsed of parsedItems) {
+        if (parsed.event === 'done') {
+          streamStats.value.lastEvent = 'done'
+          doneReceived = true
+          controller.abort()
+          return
+        }
+        if (parsed.event === 'session') {
+          streamStats.value.lastEvent = 'session'
+          const sid = String(parsed.session_id || '').trim()
+          if (sid) onSession(sid)
+          continue
+        }
+        if (parsed.event === 'delta') {
+          streamStats.value.delta += 1
+          streamStats.value.lastEvent = 'delta'
+          const text = String(parsed.delta || '')
+          if (text) {
+            if (deepSeekMode) {
+              appendDeepSeekChunk(assistantMsg, text, enqueueDelta)
+            } else {
+              enqueueDelta(text)
+            }
+          }
+          continue
+        }
+        if (parsed.event === 'thinking') {
+          streamStats.value.lastEvent = 'thinking'
+          const text = String(parsed.delta || '')
+          if (text) {
+            assistantMsg.thinking += text
+            assistantMsg.showThinking = true
+          }
+          continue
+        }
+        if (parsed.event === 'progress') {
+          streamStats.value.progress += 1
+          streamStats.value.lastEvent = 'progress'
+          const text = String(parsed.message || '')
+          assistantMsg.progress = text
+          continue
+        }
+        if (parsed.event === 'error') {
+          streamStats.value.lastEvent = 'error'
+          throw new Error(String(parsed.message || '流式返回错误'))
+        }
+      }
+    },
+    onclose() {
+      if (!doneReceived) {
+        throw new Error('流式连接被提前关闭')
+      }
+    },
+    onerror(error) {
+      if (doneReceived) return
+      throw error
+    }
+  }).catch((error) => {
+    if (!doneReceived && String(error).toLowerCase().includes('abort') === false) {
+      throw error
+    }
+  })
+  await waitFlushDone()
+  assistantMsg.streamCarry = ''
+  if (flushRaf) {
+    window.cancelAnimationFrame(flushRaf)
+    flushRaf = 0
+  }
+  streamStats.value.active = false
+}
+
+const fallbackChatRequest = async (payload) => {
+  const response = await postJson(AI_CHAT_ENDPOINT, {
+    token: payload.token,
+    blade_auth: payload.bladeAuth,
+    question: payload.question,
+    user_attachment: payload.user_attachment || '',
+    model: payload.model,
+    session_id: payload.session_id || ''
+  })
+  const data = unwrapApiData(response)
+  const parsed = normalizeMathText(parseAiResponseText(data?.data ?? data))
+  if (isNoiseMessage(parsed)) return ''
+  return parsed
+}
+
+const appendTextWithTyping = async (assistantMsg, text) => {
+  const normalized = normalizeMathText(String(text || ''))
+  if (!normalized) return
+  await new Promise((resolve) => {
+    let cursor = 0
+    const step = normalized.length > 300 ? 8 : 6
+    const tick = () => {
+      if (cursor >= normalized.length) {
+        queueAutoScroll()
+        resolve(true)
+        return
+      }
+      assistantMsg.content += normalized.slice(cursor, cursor + step)
+      cursor += step
+      queueAutoScroll()
+      window.requestAnimationFrame(tick)
+    }
+    window.requestAnimationFrame(tick)
+  })
+}
+
+const ensureActiveSession = async () => {
+  let active = findSession(activeSessionId.value)
+  if (!active) {
+    await startNewSession()
+    active = findSession(activeSessionId.value)
+  }
+  if (!active.remoteSessionId) {
+    active.remoteSessionId = await createRemoteSession().catch(() => '')
+  }
+  return active
 }
 
 const sendMessage = async () => {
   if ((!input.value.trim() && !attachment.value) || isLoading.value) return
-
-  const userMsg = input.value
+  resetStreamStats()
+  const userText = input.value.trim()
   const userAttachment = attachment.value
-  
-  messages.value.push({
-    role: 'user',
-    content: userMsg,
-    file: userAttachment
-  })
-  
   input.value = ''
   attachment.value = null
   isLoading.value = true
 
+  const userMessage = makeMessage('user', userText || '请分析上传内容', {
+    file: userAttachment || null
+  })
+  messages.value.push(userMessage)
+
+  const assistantMsg = makeMessage('assistant', '', {
+    isStreaming: true,
+    thinking: '',
+    progress: '',
+    modelUsed: selectedModel.value,
+    showThinking: isDeepSeekModel(selectedModel.value),
+    thinkStreamMode: false,
+    streamCarry: ''
+  })
+  messages.value.push(assistantMsg)
+  forceScrollToBottom()
+  syncMessagesToActiveSession()
+
   try {
-    if (initStatus.value !== 'success' || !token.value) {
-      await initAiSession()
-    }
-    if (initStatus.value !== 'success' || !token.value) {
-      throw new Error('AI 初始化失败')
-    }
-    const emptyUploadUrl = await uploadEmptyFile()
-    assistantMsg = { role: 'assistant', content: '', thinking: '', showThinking: false, isStreaming: true }
-    messages.value.push(assistantMsg)
-    await streamChatResponse({
+    await ensureInitReady()
+    ensureModelSelection()
+    const active = await ensureActiveSession()
+    let effectiveModel = selectedModel.value
+    const payload = {
       token: token.value,
-      bladeAuth: bladeAuth.value,
-      question: userMsg || (userAttachment ? '请分析上传的文件' : 'Hello'),
-      uploadUrl: userAttachment ? userAttachment.url : emptyUploadUrl,
-      model: selectedModel.value
-    }, {
-      onChunk: (chunk) => {
-        if (!chunk) return
-        assistantMsg.content += chunk
-      },
-      onThinking: (chunk) => {
-        if (!chunk) return
-        assistantMsg.thinking = (assistantMsg.thinking || '') + chunk
+      blade_auth: bladeAuth.value,
+      question: userText || (userAttachment ? '请分析上传的文件' : '你好'),
+      model: effectiveModel,
+      session_id: active.remoteSessionId || '',
+      user_attachment: userAttachment?.url || ''
+    }
+    if (AI_DEBUG) {
+      console.debug('[AI] send payload:', payload)
+    }
+    const modelCandidates = buildModelCandidates(selectedModel.value)
+    let streamOk = false
+    let streamError = null
+    for (const modelCandidate of modelCandidates) {
+      payload.model = modelCandidate
+      effectiveModel = modelCandidate
+      try {
+        await streamChatResponse(payload, assistantMsg, (sid) => {
+          if (active && !active.remoteSessionId) {
+            active.remoteSessionId = sid
+          }
+        })
+        streamOk = true
+        break
+      } catch (error) {
+        streamError = error
+        if (isIllegalModelError(error)) {
+          continue
+        }
+        throw error
       }
-    })
+    }
+    if (!streamOk) {
+      if (isIllegalModelError(streamError)) {
+        throw new Error('当前账号不支持该模型，请切换其他模型后重试。')
+      }
+      throw streamError || new Error('流式请求失败')
+    }
+    if (selectedModel.value !== effectiveModel) {
+      selectedModel.value = effectiveModel
+    }
+    assistantMsg.modelUsed = effectiveModel
     if (!assistantMsg.content.trim()) {
-      assistantMsg.content = '（未返回可解析内容）'
-    }
-    assistantMsg.isStreaming = false
-  } catch (e) {
-    if (assistantMsg) {
-      if (!assistantMsg.content.trim()) {
-        assistantMsg.content = '（未返回可解析内容）'
-      }
-      assistantMsg.isStreaming = false
-    }
-    messages.value.push({
-      role: 'error',
-      content: '发送失败：' + e
-    })
-  } finally {
-    isLoading.value = false
-  }
-}
-
-const streamChatResponse = async (payload, handlers) => {
-  const onChunk = handlers?.onChunk || (() => {})
-  const onThinking = handlers?.onThinking || (() => {})
-  let gotContent = false
-  let gotAny = false
-const onChunkWrapped = (chunk) => {
-  if (!chunk) return
-  if (/^\s*[{[]/.test(chunk)) {
-    const parsed = parseAiResponseText(chunk)
-    if (!parsed) return
-    chunk = parsed
-  }
-  if (AI_DEBUG) {
-    console.debug('[AI] chunk', chunk.slice(0, 120))
-  }
-  gotContent = true
-  gotAny = true
-  onChunk(chunk)
-}
-  const onThinkingWrapped = (chunk) => {
-    if (!chunk) return
-    if (AI_DEBUG) {
-      console.debug('[AI] thinking', chunk.slice(0, 120))
-    }
-    gotAny = true
-    onThinking(chunk)
-  }
-  try {
-    const res = await fetch(STREAM_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-      },
-      body: JSON.stringify({
-        token: payload.token,
-        blade_auth: payload.bladeAuth,
-        question: payload.question,
-        upload_url: payload.uploadUrl,
-        model: payload.model
-      })
-    })
-    if (!res.ok || !res.body) {
-      throw new Error(`Stream failed: ${res.status}`)
-    }
-    if (AI_DEBUG) {
-      console.debug('[AI] stream connected', res.status)
-    }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-    let done = false
-    while (!done) {
-      const { value, done: readerDone } = await reader.read()
-      done = readerDone
-      if (value) {
-        buffer += decoder.decode(value, { stream: true })
-        if (AI_DEBUG) {
-          console.debug('[AI] raw chunk', buffer.slice(0, 200))
-        }
-        let idx
-        while ((idx = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, idx).trim()
-          buffer = buffer.slice(idx + 1)
-          if (!line) continue
-          let raw = line
-          if (raw.startsWith('data:')) {
-            raw = raw.slice(5).trim()
-          }
-          if (raw === '[DONE]') {
-            return
-          }
-          if (/^[0-9a-fA-F]{120,}$/.test(raw)) {
-            continue
-          }
-          if (AI_DEBUG) {
-            console.debug('[AI] sse line', raw.slice(0, 200))
-          }
-          handleStreamPayload(raw, onChunkWrapped, onThinkingWrapped)
-          await new Promise((resolve) => setTimeout(resolve, 0))
-        }
-      }
-    }
-    if (buffer.trim()) {
-      if (AI_DEBUG) {
-        console.debug('[AI] tail buffer', buffer.slice(0, 200))
-      }
-      handleStreamPayload(buffer, onChunkWrapped, onThinkingWrapped)
-    }
-    if (!gotContent) {
-      const response = await invoke('hbut_ai_chat', {
-        token: payload.token,
-        bladeAuth: payload.bladeAuth,
-        question: payload.question,
-        uploadUrl: payload.uploadUrl,
-        model: payload.model
-      })
-      const rawResponse = unwrapAiResponse(response)
-      const parsedText = parseAiResponseText(rawResponse)
-      const fallbackText = typeof rawResponse === 'string' ? rawResponse : JSON.stringify(rawResponse || '')
-      const finalText = parsedText || (fallbackText && !isNoiseMessage(fallbackText) ? fallbackText : '')
-      if (AI_DEBUG) {
-        console.debug('[AI] fallback', { parsedText: parsedText?.slice?.(0, 200), fallbackText: fallbackText?.slice?.(0, 200) })
-      }
-      if (finalText) {
-        onChunkWrapped(finalText)
-      }
-    }
-  } catch (err) {
-    if (AI_DEBUG) {
-      console.debug('[AI] stream error, fallback to hbut_ai_chat', err)
-    }
-    const response = await invoke('hbut_ai_chat', {
-      token: payload.token,
-      bladeAuth: payload.bladeAuth,
-      question: payload.question,
-      uploadUrl: payload.uploadUrl,
-      model: payload.model
-    })
-    const rawResponse = unwrapAiResponse(response)
-    const parsedText = parseAiResponseText(rawResponse)
-    const fallbackText = typeof rawResponse === 'string' ? rawResponse : JSON.stringify(rawResponse || '')
-    if (AI_DEBUG) {
-      console.debug('[AI] fallback (error)', { parsedText: parsedText?.slice?.(0, 200), fallbackText: fallbackText?.slice?.(0, 200) })
-    }
-    onChunkWrapped(parsedText || (fallbackText && !isNoiseMessage(fallbackText) ? fallbackText : '') || '')
-  }
-}
-
-const handleStreamPayload = (raw, onChunk, onThinking) => {
-  if (!raw) return
-  try {
-    const obj = JSON.parse(raw)
-    if (obj && typeof obj === 'object') {
-      const type = Number(obj.type)
-      const content = typeof obj.content === 'string' ? obj.content : ''
-      const thinking = typeof obj.thinking === 'string' ? obj.thinking : ''
-      if (AI_DEBUG) {
-        console.debug('[AI] payload', { type, hasContent: !!content, hasThinking: !!thinking })
-      }
-      if (type === 11) {
-        const cleaned = stripNoisePrefix(thinking)
-        if (cleaned) onThinking(cleaned)
-        return
-      }
-      if (type === 1) {
-        const cleaned = trimTrailingHexNoise(decodeHexFragments(stripNoisePrefix(content)))
-        if (cleaned && !isNoiseMessage(cleaned)) onChunk(cleaned)
-        return
-      }
-    }
-  } catch {
-    // ignore and fallback to text parser
-  }
-  const chunk = parseAiResponseText(raw)
-  if (chunk && !isNoiseMessage(chunk)) {
-    if (AI_DEBUG) {
-      console.debug('[AI] parsed fallback chunk', chunk.slice(0, 200))
-    }
-    onChunk(chunk)
-  }
-}
-
-const triggerUpload = () => {
-  fileInput.value.click()
-}
-
-const handleFileChange = async (e) => {
-  const file = e.target.files[0]
-  if (!file) return
-  
-  // Read file content (Text only for now as per previous logic, or base64?)
-  // Backend expects "file_content" string. If binary, maybe base64?
-  // User's example was text file upload. Let's try text.
-  // If it's an image, we need base64.
-  // For safety, let's treat it as text if small, else warn.
-  
-  const reader = new FileReader()
-  reader.onload = async (event) => {
-    const content = event.target.result
-    try {
-      const res = await invoke('hbut_ai_upload', {
+      const fallback = await fallbackChatRequest({
         token: token.value,
         bladeAuth: bladeAuth.value,
-        fileContent: content,
-        fileName: file.name
+        question: payload.question,
+        model: effectiveModel,
+        session_id: payload.session_id,
+        user_attachment: payload.user_attachment
       })
-      
-      if (res.success) {
-        attachment.value = {
-          name: file.name,
-          url: res.link
-        }
+      streamStats.value.fallback = true
+      streamStats.value.lastEvent = 'fallback'
+      if (fallback) {
+        await appendTextWithTyping(assistantMsg, fallback)
       } else {
-        alert('上传失败: ' + res.msg)
+        assistantMsg.content = '未获取到有效回答，请重试。'
       }
-    } catch (err) {
-      alert('上传出错: ' + err)
+    }
+  } catch (error) {
+    try {
+      const active = findSession(activeSessionId.value)
+      const fallbackCandidates = buildModelCandidates(selectedModel.value)
+      const fallbackModel = fallbackCandidates.find((item) => availableModelSet.value.has(normalizeModelValue(item)))
+        || fallbackCandidates[0]
+        || 'qwen-max'
+      if (selectedModel.value !== fallbackModel) {
+        selectedModel.value = fallbackModel
+      }
+      const fallback = await fallbackChatRequest({
+        token: token.value,
+        bladeAuth: bladeAuth.value,
+        question: userText || '你好',
+        model: fallbackModel,
+        session_id: active?.remoteSessionId || '',
+        user_attachment: userAttachment?.url || ''
+      })
+      streamStats.value.fallback = true
+      streamStats.value.lastEvent = 'fallback-error'
+      if (fallback) {
+        await appendTextWithTyping(assistantMsg, fallback)
+      } else {
+        assistantMsg.content = `发送失败：${String(error)}`
+      }
+    } catch (fallbackError) {
+      assistantMsg.content = `发送失败：${String(fallbackError)}`
+    }
+  } finally {
+    streamStats.value.active = false
+    assistantMsg.content = String(assistantMsg.content || '').replace(/\s+$/g, '')
+    assistantMsg.thinking = String(assistantMsg.thinking || '').replace(/\s+$/g, '')
+    assistantMsg.streamCarry = ''
+    assistantMsg.thinkStreamMode = false
+    assistantMsg.renderMode = detectRenderMode(assistantMsg.role, assistantMsg.content)
+    assistantMsg.isStreaming = false
+    assistantMsg.progress = ''
+    isLoading.value = false
+    syncMessagesToActiveSession()
+    saveLocalHistory()
+  }
+}
+
+const triggerUpload = () => fileInput.value?.click()
+
+const handleFileChange = async (event) => {
+  const file = event?.target?.files?.[0]
+  if (!file) return
+  if (initStatus.value !== 'success') {
+    await initAiSession()
+  }
+  try {
+    const textContent = await file.text()
+    const res = await postJson(AI_UPLOAD_ENDPOINT, {
+      token: token.value,
+      blade_auth: bladeAuth.value,
+      file_content: textContent,
+      file_name: file.name
+    })
+    const data = unwrapApiData(res)
+    const link = data?.link || data?.data?.link || ''
+    if (!link) {
+      throw new Error(data?.msg || res?.msg || '上传失败')
+    }
+    attachment.value = { name: file.name, url: link }
+  } catch (error) {
+    window.alert(`文件上传失败：${String(error)}`)
+  } finally {
+    event.target.value = ''
+  }
+}
+
+const showLoadingBubble = computed(() => isLoading.value && !messages.value.some((m) => m.role === 'assistant' && m.isStreaming))
+
+watch(normalizedModelOptions, ensureModelSelection, { immediate: true })
+watch(() => messages.value.length, () => {
+  syncMessagesToActiveSession()
+  saveLocalHistory()
+  syncAutoScroll()
+})
+watch(() => !!attachment.value, () => {
+  nextTick(() => {
+    updateLayoutMetrics()
+  })
+})
+
+watch(historyKey, () => {
+  loadLocalHistory()
+  initAiSession().then(() => syncRemoteHistory()).catch(() => {})
+})
+
+onMounted(async () => {
+  void initMarkdownRuntime(6000).catch(() => {})
+  loadLocalHistory()
+  await initAiSession()
+  if (initStatus.value === 'success') {
+    try {
+      await syncRemoteHistory()
+    } catch (error) {
+      if (AI_DEBUG) {
+        console.debug('[AI] 同步远端历史失败，已回退本地缓存:', error)
+      }
     }
   }
-  reader.readAsText(file) // Assuming text based on previous context
-  e.target.value = ''
-}
+  nextTick(() => {
+    if (chatContainer.value) {
+      chatContainer.value.scrollTop = 0
+    }
+    initViewportHooks()
+  })
+})
+
+onBeforeUnmount(() => {
+  disposeViewportHooks()
+})
 </script>
 
 <template>
-  <div class="ai-view">
-    <!-- Header -->
+  <div ref="rootEl" class="ai-view" :class="{ 'has-attachment': !!attachment }">
     <div class="view-header glass-card">
       <button class="back-btn" @click="$emit('back')">
         <span class="icon">&#8592;</span>
@@ -869,49 +1288,73 @@ const handleFileChange = async (e) => {
       </button>
       <div class="title-group">
         <h2>校园 AI 助手</h2>
-        <span class="sub">智能问答 · 校园服务</span>
+        <span class="sub">流式对话 · 历史会话</span>
       </div>
       <div class="model-select">
         <label>模型</label>
-        <IOSSelect v-model="selectedModel" :disabled="initStatus !== 'success' || isLoading">
+        <IOSSelect v-model="selectedModel" :disabled="isLoading || initStatus !== 'success'">
           <option v-for="m in normalizedModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
         </IOSSelect>
       </div>
       <button class="history-btn" @click="historyOpen = !historyOpen">历史</button>
     </div>
 
-    <!-- Content -->
+    <div class="stream-debug glass-card">
+      <span class="debug-pill" :class="{ active: streamStats.active }">
+        {{ streamStats.active ? '流式进行中' : '流式空闲' }}
+      </span>
+      <span>raw {{ streamStats.raw }}</span>
+      <span>delta {{ streamStats.delta }}</span>
+      <span>progress {{ streamStats.progress }}</span>
+      <span>fallback {{ streamStats.fallback ? '1' : '0' }}</span>
+      <span>last {{ streamStats.lastEvent }}</span>
+    </div>
+
     <div class="chat-area" ref="chatContainer" @scroll="handleChatScroll">
       <div v-if="initStatus === 'loading'" class="status-msg">正在连接 AI 服务...</div>
       <div v-else-if="initStatus === 'error'" class="status-msg error">
-        连接失败: {{ initError }}
-        <p>请尝试重试或重新登录 One Code Pass</p>
+        <div>连接失败：{{ initError }}</div>
         <button class="retry-btn" @click="initAiSession">重试连接</button>
       </div>
-      
       <div v-else class="messages">
-        <div 
-          v-for="(msg, idx) in messages" 
-          :key="idx" 
+        <div
+          v-for="msg in messages"
+          :key="msg.id"
           class="message-row"
           :class="msg.role"
         >
           <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
           <div class="bubble">
-            <div v-if="msg.file" class="attachment-preview">
-              📄 {{ msg.file.name }}
+            <div v-if="msg.file" class="attachment-preview">📄 {{ msg.file.name }}</div>
+            <div v-if="msg.thinking && shouldUseThinkingWindow(msg)" class="thinking-window">
+              <div class="thinking-window-header">
+                <span class="thinking-window-title">{{ modelDisplayName(msg.modelUsed) }} 思考流</span>
+                <span v-if="msg.isStreaming" class="thinking-window-state">流式中</span>
+              </div>
+              <div class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
             </div>
-            <div v-if="msg.thinking" class="thinking-block">
+            <div v-else-if="msg.thinking" class="thinking-block">
               <button class="thinking-toggle" @click="msg.showThinking = !msg.showThinking">
-                ????
+                深度思考
               </button>
               <div v-if="msg.showThinking" class="thinking-content" v-html="renderMarkdown(msg.thinking)"></div>
             </div>
-            <div v-if="msg.role === 'assistant' && msg.isStreaming" class="text" v-text="msg.content"></div>
-            <div v-else class="text" v-html="renderMessage(msg)"></div>
+            <div v-if="msg.progress && msg.isStreaming" class="progress-hint">{{ msg.progress }}</div>
+            <div v-if="msg.role === 'assistant' && msg.isStreaming && !msg.content" class="stream-loading">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="stream-label">正在生成回答</span>
+            </div>
+            <div
+              v-if="msg.role === 'assistant' && msg.renderMode === 'markdown' && !msg.isStreaming"
+              class="text rich-text"
+              v-html="renderMessage(msg)"
+            ></div>
+            <div v-else class="text plain-text" v-text="msg.content"></div>
           </div>
         </div>
-        
+
         <div v-if="showLoadingBubble" class="message-row assistant loading">
           <div class="avatar">🤖</div>
           <div class="bubble">正在思考...</div>
@@ -919,37 +1362,28 @@ const handleFileChange = async (e) => {
       </div>
     </div>
 
-    <!-- Pre-Input Attachment Indicator -->
-    <div v-if="attachment" class="attachment-bar glass-card">
+    <div v-if="attachment" ref="attachmentBarEl" class="attachment-bar glass-card">
       <span>📎 {{ attachment.name }}</span>
       <button @click="attachment = null">×</button>
     </div>
 
-    <!-- Input Area -->
-    <div class="input-area glass-card">
-      <button class="attach-btn" @click="triggerUpload" :disabled="isLoading || initStatus !== 'success'">
-        ➕
-      </button>
-      <input 
-        type="file" 
-        ref="fileInput" 
-        style="display: none" 
-        @change="handleFileChange"
-      />
-      
-      <input 
-        v-model="input" 
+    <div ref="inputBarEl" class="input-area glass-card">
+      <button class="attach-btn" @click="triggerUpload" :disabled="isLoading || initStatus !== 'success'">➕</button>
+      <input ref="fileInput" type="file" style="display: none" @change="handleFileChange">
+      <input
+        v-model="input"
+        type="text"
+        @input="handleInputTyping"
         @keyup.enter="sendMessage"
-        placeholder="输入问题或上传文件..."
+        @focus="handleInputFocus"
+        @blur="handleInputBlur"
         :disabled="isLoading || initStatus !== 'success'"
-      />
-      
-      <button class="send-btn" @click="sendMessage" :disabled="(!input && !attachment) || isLoading || initStatus !== 'success'">
-        发送
-      </button>
+        placeholder="输入问题或上传文件..."
+      >
+      <button class="send-btn" :disabled="(!input && !attachment) || isLoading || initStatus !== 'success'" @click="sendMessage">发送</button>
     </div>
 
-    <!-- History Panel -->
+    <div v-if="historyOpen" class="history-backdrop" @click="historyOpen = false"></div>
     <div class="history-panel" :class="{ open: historyOpen }">
       <div class="history-header">
         <h3>历史记录</h3>
@@ -966,6 +1400,7 @@ const handleFileChange = async (e) => {
         >
           <div class="history-title">{{ s.title || '新对话' }}</div>
           <div class="history-meta">{{ formatSessionTime(s.updatedAt) }}</div>
+          <div v-if="s.preview" class="history-preview">{{ s.preview }}</div>
           <button class="history-delete" @click.stop="deleteSession(s.id)">删除</button>
         </div>
       </div>
@@ -975,14 +1410,41 @@ const handleFileChange = async (e) => {
 
 <style scoped>
 .ai-view {
-  height: 100%;
-  min-height: 100%;
+  --ai-input-height: 88px;
+  --ai-attachment-height: 0px;
+  --ai-keyboard-offset: 0px;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
   background: linear-gradient(135deg, #f5f7fa 0%, #e9edf5 100%);
   padding-top: env(safe-area-inset-top);
-  padding-bottom: 0;
   overflow: hidden;
+}
+
+.stream-debug {
+  margin: 8px 14px 0;
+  padding: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  color: #475569;
+}
+
+.debug-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  color: #334155;
+  font-weight: 600;
+}
+
+.debug-pill.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #1d4ed8;
 }
 
 .view-header {
@@ -996,7 +1458,7 @@ const handleFileChange = async (e) => {
   position: sticky;
   top: 0;
   z-index: 100;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   gap: 10px 12px;
 }
 
@@ -1029,20 +1491,13 @@ const handleFileChange = async (e) => {
   color: #666;
 }
 
-.model-select select {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: #fff;
-  font-size: 12px;
-}
-
 .history-btn {
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  border-radius: 10px;
-  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.82);
+  border-radius: 999px;
+  padding: 7px 14px;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -1058,21 +1513,28 @@ const handleFileChange = async (e) => {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-
-.back-btn .icon {
-  font-size: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .chat-area {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 16px 0 8px;
+  padding: 16px 0 calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 16px);
+  scroll-padding-bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 16px);
   display: flex;
   flex-direction: column;
   gap: 16px;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px;
+  min-height: min-content;
 }
 
 .message-row {
@@ -1080,16 +1542,10 @@ const handleFileChange = async (e) => {
   gap: 10px;
   width: 100%;
   align-items: flex-start;
-  padding: 0;
 }
 
 .message-row.user {
   flex-direction: row-reverse;
-  justify-content: flex-start;
-}
-
-.message-row.assistant {
-  justify-content: flex-start;
 }
 
 .avatar {
@@ -1107,47 +1563,99 @@ const handleFileChange = async (e) => {
 .message-row.assistant .avatar {
   background: #e1f5fe;
 }
+
 .message-row.user .avatar {
   background: #c8e6c9;
 }
 
 .bubble {
-  background: white;
-  padding: 10px 14px;
+  background: #fff;
+  padding: 10px 14px 8px;
   border-radius: 12px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
   font-size: 15px;
   line-height: 1.5;
   max-width: calc(100% - 56px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
+
+.bubble > :last-child {
+  margin-bottom: 0 !important;
+}
+
+.message-row.user .bubble {
+  background: linear-gradient(135deg, #9be76d 0%, #6fdc85 100%);
+}
+
 .text {
-  white-space: pre-wrap;
+  width: 100%;
   word-break: break-word;
 }
 
-.text :deep(p) {
-  margin: 0 0 0.5em;
+.plain-text {
+  white-space: pre-wrap;
+  line-height: 1.45;
 }
 
-.text :deep(p:last-child) {
-  margin-bottom: 0;
+.rich-text {
+  white-space: normal;
+  line-height: 1.5;
 }
 
-.text :deep(code) {
+.rich-text :deep(p) {
+  margin: 0;
+}
+
+.rich-text :deep(p + p) {
+  margin-top: 0.42em;
+}
+
+.rich-text :deep(*:last-child) {
+  margin-bottom: 0 !important;
+}
+
+.rich-text :deep(ul),
+.rich-text :deep(ol) {
+  margin: 0.36em 0 0.24em 1.2em;
+  padding: 0;
+}
+
+.rich-text :deep(li) {
+  margin: 0.18em 0;
+}
+
+.rich-text :deep(li > p) {
+  margin: 0;
+}
+
+.rich-text :deep(h1),
+.rich-text :deep(h2),
+.rich-text :deep(h3),
+.rich-text :deep(h4),
+.rich-text :deep(h5),
+.rich-text :deep(h6) {
+  margin: 0.3em 0 0.25em;
+  line-height: 1.35;
+}
+
+.rich-text :deep(pre) {
+  background: rgba(0, 0, 0, 0.04);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.32em 0;
+}
+
+.rich-text :deep(code) {
   background: rgba(0, 0, 0, 0.04);
   padding: 0 4px;
   border-radius: 4px;
 }
 
-.text :deep(pre) {
-  background: rgba(0, 0, 0, 0.04);
-  padding: 10px;
-  border-radius: 8px;
-  overflow-x: auto;
-}
-
-.text :deep(.katex-display) {
-  margin: 0.6em 0;
+.rich-text :deep(.katex-display) {
+  margin: 0.3em 0;
   overflow-x: auto;
 }
 
@@ -1157,6 +1665,36 @@ const handleFileChange = async (e) => {
   border-radius: 8px;
   padding: 6px 8px;
   margin-bottom: 6px;
+}
+
+.thinking-window {
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.9), rgba(241, 245, 249, 0.92));
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+}
+
+.thinking-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.thinking-window-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4338ca;
+}
+
+.thinking-window-state {
+  font-size: 11px;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.14);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 
 .thinking-toggle {
@@ -1173,32 +1711,96 @@ const handleFileChange = async (e) => {
   margin-top: 6px;
   font-size: 13px;
   color: #475569;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 
-.message-row.user .bubble {
-  background: linear-gradient(135deg, #9be76d 0%, #6fdc85 100%);
+.progress-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.stream-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #93c5fd;
+  animation: aiDot 1s infinite ease-in-out;
+}
+
+.dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.stream-label {
+  margin-left: 2px;
+}
+
+@keyframes aiDot {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 .attachment-preview {
   margin-bottom: 5px;
-  font-weight: bold;
+  font-weight: 700;
   font-size: 0.9em;
   color: #555;
-  border-bottom: 1px solid rgba(0,0,0,0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   padding-bottom: 4px;
 }
 
+.attachment-bar {
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 14px;
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--ai-input-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset));
+  z-index: 180;
+}
+
 .input-area {
-  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-  background: white;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
   display: flex;
   gap: 10px;
   align-items: center;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: var(--ai-keyboard-offset);
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  z-index: 190;
+  box-shadow: 0 -2px 16px rgba(15, 23, 42, 0.08);
 }
 
-.input-area input[type=text] {
+.input-area input[type='text'] {
   flex: 1;
   padding: 10px;
   border: 1px solid #ddd;
@@ -1217,7 +1819,7 @@ const handleFileChange = async (e) => {
 
 .send-btn {
   color: #007bff;
-  font-weight: bold;
+  font-weight: 700;
   font-size: 1rem;
 }
 
@@ -1225,22 +1827,14 @@ const handleFileChange = async (e) => {
   color: #ccc;
 }
 
-.attachment-bar {
-  padding: 8px 16px;
-  background: rgba(255,255,255,0.9);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid #eee;
-}
-
 .status-msg {
   text-align: center;
   color: #666;
   margin-top: 20px;
 }
+
 .status-msg.error {
-  color: red;
+  color: #dc2626;
 }
 
 .retry-btn {
@@ -1252,21 +1846,34 @@ const handleFileChange = async (e) => {
   cursor: pointer;
 }
 
+.history-backdrop {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top) + 130px);
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 8px);
+  background: rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(2px);
+  z-index: 140;
+}
+
 .history-panel {
-  position: absolute;
-  top: 64px;
-  right: 12px;
-  width: 260px;
-  height: calc(100% - 140px);
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 136px);
+  left: 10px;
+  width: min(360px, calc(100vw - 20px));
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 8px);
+  height: auto;
   background: rgba(255, 255, 255, 0.96);
   border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(0,0,0,0.16);
-  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
-  transform: translateX(110%);
-  transition: transform 0.2s ease;
-  z-index: 20;
+  transform: translateX(-104%);
+  transition: transform 0.22s ease;
+  z-index: 150;
+  overflow: hidden;
 }
 
 .history-panel.open {
@@ -1278,12 +1885,7 @@ const handleFileChange = async (e) => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
-}
-
-.history-header h3 {
-  margin: 0;
-  font-size: 14px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .history-close {
@@ -1335,11 +1937,22 @@ const handleFileChange = async (e) => {
   font-weight: 600;
   color: #1f2937;
   margin-bottom: 4px;
+  max-width: calc(100% - 52px);
 }
 
 .history-meta {
   font-size: 11px;
   color: #6b7280;
+}
+
+.history-preview {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #475569;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .history-delete {

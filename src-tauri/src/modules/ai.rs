@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use chrono::Utc;
 use serde_json::Value;
+use std::collections::HashSet;
 
 /// AI 会话初始化响应
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,6 +24,8 @@ pub struct AiInitResponse {
     pub blade_auth: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<AiModelOption>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// AI 上传响应
@@ -40,6 +43,38 @@ pub struct AiModelOption {
     pub value: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiSessionInfo {
+    pub session_id: String,
+    pub title: String,
+    pub preview: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiSessionHistoryPage {
+    pub current: i64,
+    pub size: i64,
+    pub total: i64,
+    pub pages: i64,
+    pub sessions: Vec<AiSessionInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiSessionMessage {
+    pub role: String,
+    pub content: String,
+    pub timestamp: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiSessionMessagesPayload {
+    pub session_id: String,
+    pub messages: Vec<AiSessionMessage>,
+}
+
 fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
     match item {
         Value::String(s) => {
@@ -52,7 +87,9 @@ fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
         }
         Value::Object(map) => {
             let label = map.get("label")
+                .or_else(|| map.get("text"))
                 .or_else(|| map.get("name"))
+                .or_else(|| map.get("modeName"))
                 .or_else(|| map.get("modelName"))
                 .or_else(|| map.get("title"))
                 .or_else(|| map.get("display"))
@@ -60,6 +97,7 @@ fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
                 .map(|s| s.to_string());
             let value = map.get("value")
                 .or_else(|| map.get("model"))
+                .or_else(|| map.get("modelId"))
                 .or_else(|| map.get("code"))
                 .or_else(|| map.get("id"))
                 .or_else(|| map.get("key"))
@@ -124,13 +162,24 @@ async fn fetch_ai_models(token: &str, blade_auth: &str) -> Result<Vec<AiModelOpt
     if blade_auth.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let client = reqwest::Client::new();
+    let json = fetch_ai_init_param_json(token, blade_auth).await?;
+    Ok(extract_models_from_value(&json))
+}
+
+fn build_ai_headers(token: &str, blade_auth: &str) -> Result<HeaderMap, String> {
     let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
     let mut headers = HeaderMap::new();
-    headers.insert("blade-auth", HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?);
+    if !blade_auth.trim().is_empty() {
+        headers.insert("blade-auth", HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?);
+    }
     headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| e.to_string())?);
     headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"));
+    Ok(headers)
+}
 
+pub(crate) async fn fetch_ai_init_param_json(token: &str, blade_auth: &str) -> Result<Value, String> {
+    let client = reqwest::Client::new();
+    let headers = build_ai_headers(token, blade_auth)?;
     let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/config/initParam";
     let response = client.post(url)
         .headers(headers)
@@ -138,9 +187,169 @@ async fn fetch_ai_models(token: &str, blade_auth: &str) -> Result<Vec<AiModelOpt
         .await
         .map_err(|e| e.to_string())?;
     let text = response.text().await.map_err(|e| e.to_string())?;
+    serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))
+}
+
+fn extract_session_id_from_init(value: &Value) -> Option<String> {
+    if let Some(s) = value.get("sessionId").and_then(|v| v.as_str()) {
+        if !s.trim().is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    if let Some(data) = value.get("data") {
+        if let Some(s) = data.get("sessionId").and_then(|v| v.as_str()) {
+            if !s.trim().is_empty() {
+                return Some(s.to_string());
+            }
+        }
+        if let Some(nested) = extract_session_id_from_init(data) {
+            return Some(nested);
+        }
+    }
+    None
+}
+
+pub async fn create_ai_remote_session(
+    token: &str,
+    blade_auth: &str,
+) -> Result<String, String> {
+    let json = fetch_ai_init_param_json(token, blade_auth).await?;
+    extract_session_id_from_init(&json).ok_or_else(|| "initParam 未返回 sessionId".to_string())
+}
+
+pub async fn fetch_ai_session_history(
+    token: &str,
+    blade_auth: &str,
+    current: i64,
+    size: i64,
+    ask: Option<&str>,
+) -> Result<AiSessionHistoryPage, String> {
+    let client = reqwest::Client::new();
+    let headers = build_ai_headers(token, blade_auth)?;
+    let ask_trimmed = ask.unwrap_or("").trim();
+    let url = if ask_trimmed.is_empty() {
+        format!(
+            "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/esSessionLogApi/list?current={}&size={}",
+            current.max(1),
+            size.clamp(1, 100)
+        )
+    } else {
+        format!(
+            "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/esSessionLogApi/list?current={}&size={}&ask={}",
+            current.max(1),
+            size.clamp(1, 100),
+            urlencoding::encode(ask_trimmed)
+        )
+    };
+    let response = client
+        .get(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = response.text().await.map_err(|e| e.to_string())?;
     let json: Value = serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
-    let models = extract_models_from_value(&json);
-    Ok(models)
+    let data = json.get("data").cloned().unwrap_or(Value::Null);
+    let current_val = data.get("current").and_then(|v| v.as_i64()).unwrap_or(current.max(1));
+    let size_val = data.get("size").and_then(|v| v.as_i64()).unwrap_or(size.clamp(1, 100));
+    let total_val = data.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
+    let pages_val = data.get("pages").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    let mut sessions: Vec<AiSessionInfo> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    if let Some(records) = data.get("records").and_then(|v| v.as_array()) {
+        for rec in records {
+            let sid = rec.get("sessionId").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if sid.is_empty() || !seen.insert(sid.to_string()) {
+                continue;
+            }
+            let title = rec.get("ask")
+                .and_then(|v| v.as_str())
+                .or_else(|| rec.get("content").and_then(|v| v.as_str()))
+                .unwrap_or("新对话")
+                .trim()
+                .to_string();
+            let preview = rec.get("content")
+                .and_then(|v| v.as_str())
+                .or_else(|| rec.get("ask").and_then(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
+            let updated_at = rec.get("createTime").and_then(|v| v.as_i64()).unwrap_or(0);
+            sessions.push(AiSessionInfo {
+                session_id: sid.to_string(),
+                title: if title.is_empty() { "新对话".to_string() } else { title },
+                preview,
+                updated_at,
+            });
+        }
+    }
+
+    Ok(AiSessionHistoryPage {
+        current: current_val,
+        size: size_val,
+        total: total_val,
+        pages: pages_val,
+        sessions,
+    })
+}
+
+pub async fn fetch_ai_session_messages(
+    token: &str,
+    blade_auth: &str,
+    session_id: &str,
+) -> Result<AiSessionMessagesPayload, String> {
+    let sid = session_id.trim();
+    if sid.is_empty() {
+        return Err("session_id 不能为空".to_string());
+    }
+    let client = reqwest::Client::new();
+    let headers = build_ai_headers(token, blade_auth)?;
+    let url = format!(
+        "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/esSessionLogApi/listBySessionId?sessionId={}&wxToken={}",
+        urlencoding::encode(sid),
+        urlencoding::encode(token)
+    );
+    let response = client
+        .get(&url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
+    let data = json.get("data").cloned().unwrap_or(Value::Null);
+    let mut messages: Vec<AiSessionMessage> = Vec::new();
+    if let Some(records) = data.get("records").and_then(|v| v.as_array()) {
+        for rec in records {
+            if let Some(qa_list) = rec.get("qaList").and_then(|v| v.as_array()) {
+                for qa in qa_list {
+                    let msg_type = qa.get("type").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let role = match msg_type {
+                        1 => "user",
+                        2 => "assistant",
+                        _ => "system",
+                    };
+                    let content = qa.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if content.trim().is_empty() {
+                        continue;
+                    }
+                    let timestamp = qa.get("createTime").and_then(|v| v.as_i64()).unwrap_or(0);
+                    let model = qa.get("modeName").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    messages.push(AiSessionMessage {
+                        role: role.to_string(),
+                        content,
+                        timestamp,
+                        model,
+                    });
+                }
+            }
+        }
+    }
+    messages.sort_by_key(|m| m.timestamp);
+    Ok(AiSessionMessagesPayload {
+        session_id: sid.to_string(),
+        messages,
+    })
 }
 
 async fn upload_text_file(
@@ -216,13 +425,22 @@ pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, 
     }
     match client.init_ai_session().await {
         Ok((token, blade_auth)) => {
-            let models = fetch_ai_models(&token, &blade_auth).await.ok().filter(|list| !list.is_empty());
+            let init_json = fetch_ai_init_param_json(&token, &blade_auth).await.ok();
+            let mut models = init_json
+                .as_ref()
+                .map(extract_models_from_value)
+                .filter(|list| !list.is_empty());
+            if models.is_none() {
+                models = fetch_ai_models(&token, &blade_auth).await.ok().filter(|list| !list.is_empty());
+            }
+            let session_id = init_json.as_ref().and_then(extract_session_id_from_init);
             Ok(AiInitResponse {
                 success: true,
                 msg: "AI Session Initialized".into(),
                 token,
                 blade_auth,
                 models,
+                session_id,
             })
         }
         Err(e) => Err(format!("初始化 AI 会话失败: {}", e)),
@@ -250,6 +468,7 @@ pub async fn hbut_ai_chat(
     question: String,
     upload_url: String, 
     model: String,
+    session_id: Option<String>,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
     
@@ -269,14 +488,24 @@ pub async fn hbut_ai_chat(
         final_upload_url = empty.link;
     }
 
-    let session_id = format!("session-{}", Utc::now().timestamp_millis());
+    let remote_session_id = session_id
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let final_session_id = if remote_session_id.is_empty() {
+        create_ai_remote_session(&token, &blade_auth)
+            .await
+            .unwrap_or_else(|_| format!("session-{}", Utc::now().timestamp_millis()))
+    } else {
+        remote_session_id
+    };
     let timestamp = Utc::now().timestamp_millis().to_string();
 
     let selected_model = if model.trim().is_empty() { "qwen-max" } else { model.as_str() };
 
     let params = [
         ("ask", question.as_str()),
-        ("sessionId", session_id.as_str()),
+        ("sessionId", final_session_id.as_str()),
         ("model", selected_model),
         ("timestamp", timestamp.as_str()),
         ("serviceModel", "default"),

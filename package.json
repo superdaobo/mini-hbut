@@ -29,6 +29,7 @@
     "@capacitor/local-notifications": "^6.1.0",
     "@capacitor/preferences": "^6.0.4",
     "@capacitor/share": "^6.0.2",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-fs": "^2.3.0",

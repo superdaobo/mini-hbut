@@ -30,10 +30,12 @@ const isTauriRuntime = () => {
   const w = window as any
   const hasTauriApi = !!w.__TAURI__
   const hasInternalMarker = !!w.__TAURI_INTERNALS__
+  const hasInternalInvoke = typeof w.__TAURI_INTERNALS__?.invoke === 'function'
   const protocol = window.location?.protocol || ''
   const host = window.location?.host || ''
   if (protocol === 'tauri:' || host === 'tauri.localhost') return true
-  // 仅依赖 __TAURI_INTERNALS__ 容易在混合容器中误判，这里要求同时具备 Tauri API 或 tauri 专属 host。
+  // Tauri v2 默认不注入 window.__TAURI__，但 __TAURI_INTERNALS__.invoke 通常可用。
+  if (hasInternalInvoke) return true
   return hasTauriApi && hasInternalMarker
 }
 

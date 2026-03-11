@@ -514,7 +514,7 @@ const baseModules = [
     iconKey: 'ai',
     color: '#94a3b8',
     desc: '暂不可用',
-    available: false,
+    available: true,
     requiresLogin: true
   }
 ]

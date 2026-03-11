@@ -355,7 +355,31 @@ struct AiChatRequest {
     blade_auth: String,
     question: String,
     upload_url: Option<String>,
-    model: String,
+    user_attachment: Option<String>,
+    model: Option<String>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AiSessionNewRequest {
+    token: String,
+    blade_auth: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AiSessionHistoryRequest {
+    token: String,
+    blade_auth: String,
+    current: Option<i64>,
+    size: Option<i64>,
+    ask: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AiSessionMessagesRequest {
+    token: String,
+    blade_auth: String,
+    session_id: String,
 }
 
 /// 启动本地 Bridge 服务
@@ -427,6 +451,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/ai_upload", post(ai_upload))
         .route("/ai_chat", post(ai_chat))
         .route("/ai_chat_stream", post(ai_chat_stream))
+        .route("/ai_chat_session/new", post(ai_chat_session_new))
+        .route("/ai_chat_session/history", post(ai_chat_session_history))
+        .route("/ai_chat_session/messages", post(ai_chat_session_messages))
         .with_state(state)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
 
@@ -1660,13 +1687,54 @@ async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequ
     })))
 }
 
+async fn ai_chat_session_new(
+    State(_state): State<HttpState>,
+    Json(req): Json<AiSessionNewRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let session_id = crate::modules::ai::create_ai_remote_session(&req.token, &req.blade_auth)
+        .await
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
+    Ok(ok(serde_json::json!({ "session_id": session_id })))
+}
+
+async fn ai_chat_session_history(
+    State(_state): State<HttpState>,
+    Json(req): Json<AiSessionHistoryRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let page = crate::modules::ai::fetch_ai_session_history(
+        &req.token,
+        &req.blade_auth,
+        req.current.unwrap_or(1),
+        req.size.unwrap_or(20),
+        req.ask.as_deref(),
+    )
+    .await
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
+    Ok(ok(serde_json::to_value(page).unwrap_or_else(|_| serde_json::json!({}))))
+}
+
+async fn ai_chat_session_messages(
+    State(_state): State<HttpState>,
+    Json(req): Json<AiSessionMessagesRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let payload = crate::modules::ai::fetch_ai_session_messages(
+        &req.token,
+        &req.blade_auth,
+        &req.session_id,
+    )
+    .await
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
+    Ok(ok(serde_json::to_value(payload).unwrap_or_else(|_| serde_json::json!({}))))
+}
+
 async fn ai_chat(State(_state): State<HttpState>, Json(req): Json<AiChatRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let res = crate::modules::ai::hbut_ai_chat(
         req.token,
         req.blade_auth,
         req.question,
-        req.upload_url.unwrap_or_default(),
-        req.model,
+        req.user_attachment.or(req.upload_url).unwrap_or_default(),
+        req.model.unwrap_or_else(|| "qwen-max".to_string()),
+        req.session_id,
     ).await.map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
     Ok(ok(serde_json::json!({"success": true, "data": res})))
 }
@@ -1678,9 +1746,11 @@ async fn ai_chat_stream(
     let token = req.token;
     let blade_auth = req.blade_auth;
     let question = req.question;
-    let model = req.model;
-    let mut final_upload_url = req.upload_url.unwrap_or_default();
+    let model = req.model.unwrap_or_else(|| "qwen-max".to_string());
+    let user_attachment = req.user_attachment.or(req.upload_url).unwrap_or_default();
+    let mut final_upload_url = user_attachment.trim().to_string();
 
+    // 统一规则：每次提问都先确保有 uploadUrl（无用户附件时自动上传空文件）。
     if final_upload_url.trim().is_empty() {
         let empty_name = format!("empty_{}.txt", Utc::now().timestamp_millis());
         let upload = crate::modules::ai::hbut_ai_upload(
@@ -1694,6 +1764,15 @@ async fn ai_chat_stream(
         final_upload_url = upload.link;
     }
 
+    let remote_session_id = req.session_id.unwrap_or_default().trim().to_string();
+    let session_id = if remote_session_id.is_empty() {
+        crate::modules::ai::create_ai_remote_session(&token, &blade_auth)
+            .await
+            .unwrap_or_else(|_| format!("session-{}", Utc::now().timestamp_millis()))
+    } else {
+        remote_session_id
+    };
+
     let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
     let mut headers = HeaderMap::new();
     if !blade_auth.is_empty() {
@@ -1705,14 +1784,12 @@ async fn ai_chat_stream(
     let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
     headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?);
 
-    let session_id = format!("session-{}", Utc::now().timestamp_millis());
     let timestamp = Utc::now().timestamp_millis().to_string();
-    let selected_model = if model.trim().is_empty() { "qwen-max" } else { model.as_str() };
 
     let params = [
         ("ask", question.as_str()),
         ("sessionId", session_id.as_str()),
-        ("model", selected_model),
+        ("model", model.as_str()),
         ("timestamp", timestamp.as_str()),
         ("serviceModel", "default"),
         ("datasetFlag", "0"),
@@ -1732,14 +1809,20 @@ async fn ai_chat_stream(
     let mut stream = response.bytes_stream();
     let event_stream = async_stream::stream! {
         let mut buffer = String::new();
-        let mut emitted_count: usize = 0;
+        let mut emitted_content: bool = false;
+        let session_payload = serde_json::json!({
+            "event": "session",
+            "session_id": session_id
+        }).to_string();
+        yield Ok(Event::default().data(session_payload));
         use tokio::time::{timeout, Duration};
         let start = Instant::now();
         let max_duration = Duration::from_secs(180);
         let idle_timeout = Duration::from_secs(60);
         loop {
             if start.elapsed() > max_duration {
-                yield Ok(Event::default().data("[DONE]"));
+                let payload = serde_json::json!({"event":"done","reason":"timeout"}).to_string();
+                yield Ok(Event::default().data(payload));
                 return;
             }
             let next = timeout(idle_timeout, stream.next()).await;
@@ -1747,7 +1830,8 @@ async fn ai_chat_stream(
                 Ok(Some(item)) => item,
                 Ok(None) => break,
                 Err(_) => {
-                    yield Ok(Event::default().data("[DONE]"));
+                    let payload = serde_json::json!({"event":"done","reason":"idle_timeout"}).to_string();
+                    yield Ok(Event::default().data(payload));
                     return;
                 }
             };
@@ -1765,13 +1849,15 @@ async fn ai_chat_stream(
                 if line.is_empty() {
                     continue;
                 }
-                for payload in handle_ai_stream_line(&line) {
-                    if payload == "[DONE]" {
-                        yield Ok(Event::default().data("[DONE]"));
+                for event_payload in normalize_ai_stream_events(&line) {
+                    if is_done_event(&event_payload) {
+                        yield Ok(Event::default().data(event_payload.to_string()));
                         return;
                     }
-                    emitted_count += 1;
-                    yield Ok(Event::default().data(payload));
+                    if event_payload.get("event").and_then(|v| v.as_str()) == Some("delta") {
+                        emitted_content = true;
+                    }
+                    yield Ok(Event::default().data(event_payload.to_string()));
                     tokio::time::sleep(Duration::from_millis(8)).await;
                 }
             }
@@ -1779,13 +1865,15 @@ async fn ai_chat_stream(
                 if raw.trim().is_empty() {
                     continue;
                 }
-                for payload in handle_ai_stream_line(&raw) {
-                    if payload == "[DONE]" {
-                        yield Ok(Event::default().data("[DONE]"));
+                for event_payload in normalize_ai_stream_events(&raw) {
+                    if is_done_event(&event_payload) {
+                        yield Ok(Event::default().data(event_payload.to_string()));
                         return;
                     }
-                    emitted_count += 1;
-                    yield Ok(Event::default().data(payload));
+                    if event_payload.get("event").and_then(|v| v.as_str()) == Some("delta") {
+                        emitted_content = true;
+                    }
+                    yield Ok(Event::default().data(event_payload.to_string()));
                     tokio::time::sleep(Duration::from_millis(8)).await;
                 }
             }
@@ -1793,19 +1881,14 @@ async fn ai_chat_stream(
         if !buffer.trim().is_empty() {
             let final_text = crate::modules::ai::parse_ai_stream_text(&buffer);
             if !final_text.trim().is_empty() {
-                if emitted_count == 0 {
-                    for chunk in chunk_stream_text(&final_text) {
-                        let payload = serde_json::json!({"type": 1, "content": chunk}).to_string();
-                        yield Ok(Event::default().data(payload));
-                        tokio::time::sleep(Duration::from_millis(25)).await;
-                    }
-                } else {
-                    let payload = serde_json::json!({"type": 1, "content": final_text}).to_string();
+                if !emitted_content {
+                    let payload = serde_json::json!({"event":"delta","delta":final_text}).to_string();
                     yield Ok(Event::default().data(payload));
                 }
             }
         }
-        yield Ok(Event::default().data("[DONE]"));
+        let done = serde_json::json!({"event":"done"}).to_string();
+        yield Ok(Event::default().data(done));
     };
 
     Ok(Sse::new(event_stream).keep_alive(
@@ -1815,8 +1898,8 @@ async fn ai_chat_stream(
     ))
 }
 
-fn handle_ai_stream_line(raw_line: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
+    let mut out: Vec<serde_json::Value> = Vec::new();
     let mut raw = raw_line.trim();
     if let Some(stripped) = raw.strip_prefix("data:") {
         raw = stripped.trim();
@@ -1825,63 +1908,120 @@ fn handle_ai_stream_line(raw_line: &str) -> Vec<String> {
         return out;
     }
     if raw == "[DONE]" {
-        out.push("[DONE]".to_string());
+        out.push(serde_json::json!({"event":"done"}));
         return out;
     }
     if raw.len() >= 120 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
         if crate::modules::ai::is_hex_gibberish_run(raw) {
-            out.push("[DONE]".to_string());
+            out.push(serde_json::json!({"event":"done","reason":"hex_noise"}));
             return out;
         }
     }
     let mut extracted: Option<String> = None;
-    let mut found_type: Option<i64> = None;
     if raw.starts_with('{') || raw.starts_with('[') {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
+            let should_emit_done = is_finish_event_payload(&json);
             if let Some((t, content, thinking)) = crate::modules::ai::extract_stream_fields(&json) {
-                found_type = t;
                 if t == Some(11) {
                     if let Some(thinking_text) = thinking {
-                        out.push(serde_json::json!({"type": 11, "thinking": thinking_text}).to_string());
+                        if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&thinking_text) {
+                            out.push(serde_json::json!({"event":"thinking","delta":cleaned}));
+                        }
+                    }
+                    if should_emit_done {
+                        out.push(serde_json::json!({"event":"done"}));
                     }
                     return out;
                 }
                 if t == Some(1) {
                     let content_text = content.or(thinking);
                     if let Some(content_text) = content_text {
-                        if content_text.trim().is_empty() {
-                            return out;
+                        if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text) {
+                            out.push(serde_json::json!({"event":"delta","delta":cleaned}));
                         }
-                        for chunk in chunk_stream_text(&content_text) {
-                            out.push(serde_json::json!({"type": 1, "content": chunk}).to_string());
-                        }
-                        return out;
                     }
+                    if should_emit_done {
+                        out.push(serde_json::json!({"event":"done"}));
+                    }
+                    return out;
                 }
-            }
-            if let Some(t) = found_type {
-                if t != 1 && t != 11 {
-                    if let Some(extracted_text) = crate::modules::ai::extract_text_from_value(&json) {
-                        let cleaned = crate::modules::ai::clean_stream_chunk(&extracted_text);
-                        if let Some(cleaned) = cleaned {
-                            for chunk in chunk_stream_text(&cleaned) {
-                                out.push(serde_json::json!({"type": 1, "content": chunk}).to_string());
-                            }
+                if t == Some(24) || t == Some(999) {
+                    if let Some(progress) = extract_progress_text(&json) {
+                        if !progress.trim().is_empty() {
+                            out.push(serde_json::json!({"event":"progress","message":progress}));
                         }
+                    }
+                    if should_emit_done {
+                        out.push(serde_json::json!({"event":"done"}));
                     }
                     return out;
                 }
             }
             extracted = crate::modules::ai::extract_text_from_value(&json);
+            if should_emit_done && extracted.as_deref().unwrap_or("").trim().is_empty() {
+                out.push(serde_json::json!({"event":"done"}));
+                return out;
+            }
         }
     }
     let candidate = extracted.unwrap_or_else(|| raw.to_string());
     if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&candidate) {
-        for chunk in chunk_stream_text(&cleaned) {
-            out.push(serde_json::json!({"type": 1, "content": chunk}).to_string());
-        }
+        out.push(serde_json::json!({"event":"delta","delta":cleaned}));
     }
     out
+}
+
+fn is_done_event(event: &serde_json::Value) -> bool {
+    event.get("event").and_then(|v| v.as_str()) == Some("done")
+}
+
+fn is_finish_event_payload(value: &serde_json::Value) -> bool {
+    fn is_finish_flag(v: &serde_json::Value) -> bool {
+        match v {
+            serde_json::Value::Number(n) => n.as_i64() == Some(1),
+            serde_json::Value::String(s) => s.trim() == "1",
+            _ => false,
+        }
+    }
+    if let Some(v) = value.get("finish") {
+        if is_finish_flag(v) {
+            return true;
+        }
+    }
+    if let Some(data) = value.get("data") {
+        if let Some(v) = data.get("finish") {
+            if is_finish_flag(v) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn extract_progress_text(value: &serde_json::Value) -> Option<String> {
+    if let Some(obj) = value.as_object() {
+        if let Some(process_info) = obj.get("processInfo") {
+            if let Some(proc_obj) = process_info.as_object() {
+                for key in ["content", "msg", "text"] {
+                    if let Some(s) = proc_obj.get(key).and_then(|v| v.as_str()) {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            return Some(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        for key in ["message", "msg"] {
+            if let Some(s) = obj.get(key).and_then(|v| v.as_str()) {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 fn drain_json_objects(buffer: &mut String) -> Vec<String> {
@@ -1939,25 +2079,5 @@ fn drain_json_objects(buffer: &mut String) -> Vec<String> {
         buffer.clear();
     }
 
-    out
-}
-
-fn chunk_stream_text(text: &str) -> Vec<String> {
-    let trimmed = text.trim();
-    if trimmed.len() <= 80 {
-        return vec![text.to_string()];
-    }
-    let mut out = Vec::new();
-    let mut current = String::new();
-    for ch in text.chars() {
-        current.push(ch);
-        if current.len() >= 24 {
-            out.push(current);
-            current = String::new();
-        }
-    }
-    if !current.is_empty() {
-        out.push(current);
-    }
     out
 }
