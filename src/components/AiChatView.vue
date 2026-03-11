@@ -1525,21 +1525,18 @@ onBeforeUnmount(() => {
 <template>
   <div ref="rootEl" class="ai-view" :class="{ 'has-attachment': !!attachment }">
     <div class="view-header glass-card">
-      <button class="back-btn" @click="$emit('back')">
-        <span class="icon">&#8592;</span>
-        <span class="label">返回</span>
-      </button>
-      <div class="title-group">
-        <h2>校园 AI 助手</h2>
-        <span class="sub">流式对话 · 历史会话</span>
+      <div class="header-top-row">
+        <button class="back-btn" @click="$emit('back')">
+          <span class="icon">&#8592;</span>
+          <span class="label">返回</span>
+        </button>
+        <button class="history-btn" @click="historyOpen = !historyOpen">历史</button>
+        <div class="model-select">
+          <IOSSelect v-model="selectedModel" :disabled="isLoading || initStatus !== 'success'">
+            <option v-for="m in normalizedModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
+          </IOSSelect>
+        </div>
       </div>
-      <div class="model-select">
-        <label>模型</label>
-        <IOSSelect v-model="selectedModel" :disabled="isLoading || initStatus !== 'success'">
-          <option v-for="m in normalizedModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
-        </IOSSelect>
-      </div>
-      <button class="history-btn" @click="historyOpen = !historyOpen">历史</button>
     </div>
 
     <div class="stream-debug glass-card">
@@ -1671,9 +1668,9 @@ onBeforeUnmount(() => {
   --ai-input-height: 88px;
   --ai-attachment-height: 0px;
   --ai-keyboard-offset: 0px;
-  --ai-safe-top: env(safe-area-inset-top);
-  --ai-safe-bottom: env(safe-area-inset-bottom);
-  --ai-bottom-offset: calc(var(--ai-keyboard-offset) + var(--ai-safe-bottom));
+  --ai-safe-top: env(safe-area-inset-top, 0px);
+  --ai-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ai-bottom-offset: var(--ai-keyboard-offset, 0px);
   height: 100dvh;
   max-height: 100dvh;
   min-height: 0;
@@ -1709,47 +1706,39 @@ onBeforeUnmount(() => {
 }
 
 .view-header {
-  min-height: 64px;
+  min-height: 58px;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  padding: 8px 16px 10px;
+  padding: calc(8px + var(--ai-safe-top)) 12px 8px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
   z-index: 100;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  gap: 10px 12px;
-}
-
-.title-group {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 160px;
-  min-width: 140px;
-}
-
-.title-group h2 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.2;
-}
-
-.title-group .sub {
-  font-size: 12px;
-  color: #8a8f98;
-}
-
-.model-select {
-  display: flex;
-  align-items: center;
   gap: 8px;
 }
 
-.model-select label {
-  font-size: 12px;
-  color: #666;
+.header-top-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.model-select :deep(.ios26-select-trigger) {
+  min-height: 40px;
+}
+
+.model-select :deep(.ios26-select-text) {
+  font-size: 14px;
 }
 
 .history-btn {
@@ -1760,6 +1749,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .back-btn {
@@ -1781,11 +1771,11 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 0 calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 16px);
-  scroll-padding-bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 16px);
+  padding: 12px 0 calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 2px);
+  scroll-padding-bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 2px);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -2059,7 +2049,7 @@ onBeforeUnmount(() => {
 }
 
 .input-area {
-  padding: 10px 14px 10px;
+  padding: 10px 14px calc(10px + var(--ai-safe-bottom));
   background: rgba(255, 255, 255, 0.96);
   display: flex;
   gap: 10px;
@@ -2067,11 +2057,13 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: var(--ai-bottom-offset);
+  bottom: var(--ai-bottom-offset, 0px);
   border-radius: 18px 18px 0 0;
   border: 1px solid rgba(148, 163, 184, 0.34);
   z-index: 190;
   box-shadow: 0 -2px 16px rgba(15, 23, 42, 0.08);
+  box-sizing: border-box;
+  min-height: 72px;
 }
 
 .input-area input[type='text'] {
@@ -2124,8 +2116,8 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   right: 0;
-  top: 130px;
-  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
+  top: calc(var(--ai-safe-top) + 96px);
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 2px);
   background: rgba(15, 23, 42, 0.24);
   backdrop-filter: blur(2px);
   z-index: 140;
@@ -2133,10 +2125,10 @@ onBeforeUnmount(() => {
 
 .history-panel {
   position: fixed;
-  top: 136px;
+  top: calc(var(--ai-safe-top) + 102px);
   left: 10px;
   width: min(360px, calc(100vw - 20px));
-  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 2px);
   height: auto;
   background: rgba(255, 255, 255, 0.96);
   border-radius: 16px;
@@ -2309,5 +2301,39 @@ onBeforeUnmount(() => {
   background: #ef4444;
   color: #fff;
   font-weight: 600;
+}
+
+@media (max-width: 768px) {
+  .view-header {
+    min-height: 54px;
+    padding: calc(6px + var(--ai-safe-top)) 10px 7px;
+    gap: 6px;
+  }
+
+  .header-top-row {
+    gap: 8px;
+  }
+
+  .history-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .model-select :deep(.ios26-select-trigger) {
+    min-height: 38px;
+    padding: 0 12px;
+  }
+
+  .model-select :deep(.ios26-select-text) {
+    font-size: 13px;
+  }
+
+  .history-backdrop {
+    top: calc(var(--ai-safe-top) + 84px);
+  }
+
+  .history-panel {
+    top: calc(var(--ai-safe-top) + 90px);
+  }
 }
 </style>
