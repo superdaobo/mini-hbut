@@ -605,9 +605,17 @@ const isAiUnauthorizedText = (value) => {
   return text.includes('请求未授权') || text.includes('unauthorized') || text.includes('401')
 }
 
+const stripCitationMarkers = (value) => {
+  const text = String(value || '')
+  // 若回复只有 `!!2!!` 这类内容，视为用户显式要求输出，保留原样。
+  if (/^\s*!![\s\u00A0]*\d+[\s\u00A0]*!!\s*$/.test(text)) return text
+  return text.replace(/!![\s\u00A0]*\d+[\s\u00A0]*!!/g, '')
+}
+
 const sanitizeStreamText = (value) => {
   const stripped = stripHexNoiseRuns(String(value || ''))
-  return stripped.replace(/\u0000/g, '')
+  const noCitation = stripCitationMarkers(stripped)
+  return noCitation.replace(/\u0000/g, '')
 }
 
 const normalizeMathText = (text) => {
@@ -904,6 +912,12 @@ const parseStreamEventObject = (obj) => {
     if (thinking && !isNoiseMessage(thinking)) return { event: 'thinking', delta: thinking }
     return null
   }
+  if (type === 4 || type === 12) {
+    const content = sanitizeStreamText(typeof obj?.content === 'string' ? obj.content : '')
+    if (!content || isNoiseMessage(content) || isLikelyHexNoise(content)) return null
+    return { event: 'delta', delta: content }
+  }
+  if (type === 13 || type === 14 || type === 23) return null
   if (type === -1) {
     const content = sanitizeStreamText(typeof obj?.content === 'string' ? obj.content : '')
     if (!content || isNoiseMessage(content) || isLikelyHexNoise(content)) return null

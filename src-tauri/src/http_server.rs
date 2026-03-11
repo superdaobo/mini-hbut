@@ -1958,6 +1958,19 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
             return out;
         }
     }
+    // 一些源站会把多个 JSON 对象粘在同一行（无换行分隔），这里先拆包再递归归一化。
+    if raw.starts_with('{') {
+        let mut packed = raw.to_string();
+        let objects = drain_json_objects(&mut packed);
+        if objects.len() > 1 && packed.trim().is_empty() {
+            for item in objects {
+                for ev in normalize_ai_stream_events(&item) {
+                    out.push(ev);
+                }
+            }
+            return out;
+        }
+    }
     let mut extracted: Option<String> = None;
     if raw.starts_with('{') || raw.starts_with('[') {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
@@ -2006,8 +2019,8 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                             }
                             return out;
                         }
-                        // 源站正文分片事件（网络检索问答常见）
-                        12 | 13 => {
+                        // 源站正文分片事件（不同模型/通道会返回不同 type）
+                        4 | 12 => {
                             if let Some(content_text) = content.or(thinking) {
                                 if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text) {
                                     out.push(serde_json::json!({"event":"delta","delta":cleaned}));
@@ -2029,8 +2042,8 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                             }
                             return out;
                         }
-                        // 引用/检索元数据大对象，直接忽略，防止 JSON 污染正文。
-                        14 => {
+                        // 引用/检索/推荐问题元数据对象，直接忽略，防止 JSON 污染正文。
+                        13 | 14 | 23 => {
                             if should_emit_done {
                                 out.push(serde_json::json!({"event":"done"}));
                             }

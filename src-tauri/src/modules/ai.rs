@@ -12,6 +12,7 @@ use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use chrono::Utc;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use base64::Engine as _;
 
 const AI_UPLOAD_MAX_BYTES: usize = 20 * 1024 * 1024;
@@ -653,7 +654,7 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
                 let cleaned = strip_noise_prefix(&decoded);
                 let expanded = decode_hex_fragments(&cleaned);
                 let stripped = strip_hex_noise_runs(&expanded);
-                let final_text = trim_trailing_hex_noise(&stripped);
+                let final_text = strip_citation_markers(&trim_trailing_hex_noise(&stripped));
                 if !final_text.trim().is_empty() {
                     return final_text;
                 }
@@ -678,7 +679,7 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
                     let cleaned = strip_noise_prefix(&decoded);
                     let expanded = decode_hex_fragments(&cleaned);
                     let stripped = strip_hex_noise_runs(&expanded);
-                    return trim_trailing_hex_noise(&stripped);
+                    return strip_citation_markers(&trim_trailing_hex_noise(&stripped));
                 }
                 return String::new();
             }
@@ -722,16 +723,16 @@ pub(crate) fn parse_ai_stream_text(raw: &str) -> String {
         let cleaned = strip_noise_prefix(&decoded);
         let expanded = decode_hex_fragments(&cleaned);
         let stripped = strip_hex_noise_runs(&expanded);
-        return trim_trailing_hex_noise(&stripped);
+        return strip_citation_markers(&trim_trailing_hex_noise(&stripped));
     }
     if let Some(decoded) = decode_hex_if_needed(raw) {
         let expanded = decode_hex_fragments(&strip_noise_prefix(&decoded));
         let stripped = strip_hex_noise_runs(&expanded);
-        return trim_trailing_hex_noise(&stripped);
+        return strip_citation_markers(&trim_trailing_hex_noise(&stripped));
     }
     let expanded = decode_hex_fragments(&strip_noise_prefix(raw));
     let stripped = strip_hex_noise_runs(&expanded);
-    trim_trailing_hex_noise(&stripped)
+    strip_citation_markers(&trim_trailing_hex_noise(&stripped))
 }
 
 pub(crate) fn extract_text_from_value(value: &Value) -> Option<String> {
@@ -768,7 +769,15 @@ pub(crate) fn extract_text_from_value(value: &Value) -> Option<String> {
                             return Some(text);
                         }
                     }
+                    Some(4) | Some(12) => {
+                        if let Some(text) = content.or(thinking) {
+                            return Some(text);
+                        }
+                    }
                     Some(11) => {
+                        return None;
+                    }
+                    Some(13) | Some(14) | Some(23) => {
                         return None;
                     }
                     Some(_) => {
@@ -1072,6 +1081,22 @@ fn strip_noise_prefix(text: &str) -> String {
     current
 }
 
+fn strip_citation_markers(text: &str) -> String {
+    static ONLY_CITATION_RE: OnceLock<regex::Regex> = OnceLock::new();
+    static INLINE_CITATION_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let only_re = ONLY_CITATION_RE.get_or_init(|| {
+        regex::Regex::new(r"^\s*!!\s*\d+\s*!!\s*$").expect("standalone citation regex should be valid")
+    });
+    // 若回复只有 `!!2!!` 这类内容，视为用户显式要求输出，保留原样。
+    if only_re.is_match(text) {
+        return text.to_string();
+    }
+    let inline_re = INLINE_CITATION_RE.get_or_init(|| {
+        regex::Regex::new(r"!!\s*\d+\s*!!").expect("inline citation regex should be valid")
+    });
+    inline_re.replace_all(text, "").to_string()
+}
+
 fn is_noise_message(value: &str) -> bool {
     let trimmed = value.trim();
     trimmed.is_empty()
@@ -1092,7 +1117,7 @@ pub(crate) fn clean_stream_chunk(raw: &str) -> Option<String> {
     }
     let decoded = decode_hex_fragments(&cleaned);
     let stripped = strip_hex_noise_runs(&decoded);
-    let final_text = trim_trailing_hex_noise(&strip_noise_prefix(&stripped));
+    let final_text = strip_citation_markers(&trim_trailing_hex_noise(&strip_noise_prefix(&stripped)));
     if final_text.trim().is_empty() || is_noise_message(&final_text) {
         None
     } else {
