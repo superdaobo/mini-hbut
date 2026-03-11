@@ -65,11 +65,25 @@ const isAclDeniedError = (err) => {
   return text.includes('not allowed by ACL') || text.includes('plugin:notification')
 }
 
+const normalizeDormPathValue = (value) => {
+  if (value && typeof value === 'object') {
+    return String(value.value ?? value.id ?? value.label ?? value.name ?? '').trim()
+  }
+  return String(value ?? '').trim()
+}
+
+const normalizeDormSelection = (value) => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => normalizeDormPathValue(item))
+    .filter((item) => item !== '')
+}
+
 const readLocalDormSelection = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem('last_dorm_selection') || '[]')
     if (!Array.isArray(parsed) || parsed.length !== 4) return []
-    return parsed.map((item) => String(item || '').trim()).filter(Boolean)
+    return normalizeDormSelection(parsed)
   } catch {
     return []
   }
@@ -165,6 +179,12 @@ const powerBalanceText = computed(() => {
 })
 
 const powerStatusText = computed(() => {
+  if (
+    powerSummary.value?.error === '未设置宿舍房间，请先在电费模块选择房间。' &&
+    selectedPath.value.length === 4
+  ) {
+    return '已配置宿舍房间，等待重新检测'
+  }
   if (powerSummary.value?.error) return powerSummary.value.error
   return powerSummary.value?.status || '暂无状态'
 })

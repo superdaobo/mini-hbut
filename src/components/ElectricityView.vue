@@ -24,6 +24,23 @@ const appSettings = useAppSettings()
 const maxRetry = computed(() => appSettings.retry.electricity)
 const retryDelayMs = computed(() => appSettings.retryDelayMs)
 
+const normalizePathValue = (value) => {
+  if (value && typeof value === 'object') {
+    return String(value.value ?? value.id ?? value.label ?? value.name ?? '').trim()
+  }
+  return String(value ?? '').trim()
+}
+
+const normalizeSelectionPath = (value) => {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => normalizePathValue(item))
+    .filter((item) => item !== '')
+}
+
+const findByValue = (list, value) =>
+  (Array.isArray(list) ? list : []).find((item) => String(item?.value) === String(value))
+
 const getStaleCache = (cacheKey) => {
   try {
     const raw = localStorage.getItem(`cache:${cacheKey}`)
@@ -48,7 +65,7 @@ onMounted(async () => {
     // 尝试加载上次选择
     const saved = localStorage.getItem('last_dorm_selection')
     if (saved) {
-      selectedPath.value = JSON.parse(saved)
+      selectedPath.value = normalizeSelectionPath(JSON.parse(saved))
       if (selectedPath.value.length === 4) {
         fetchBalance()
       }
@@ -60,26 +77,50 @@ onMounted(async () => {
 })
 
 // 级联选择器的当前选项
-const currentArea = computed(() => dormData.value.find(i => i.value === selectedPath.value[0]))
+const currentArea = computed(() => findByValue(dormData.value, selectedPath.value[0]))
 
 const currentBuilding = computed(() => {
   if (!currentArea.value || !selectedPath.value[1]) return null
-  return currentArea.value.children?.find(i => i.value === selectedPath.value[1])
+  return findByValue(currentArea.value.children, selectedPath.value[1])
 })
 
 const currentLevel = computed(() => {
   if (!currentBuilding.value || !selectedPath.value[2]) return null
-  return currentBuilding.value.children?.find(i => i.value === selectedPath.value[2])
+  return findByValue(currentBuilding.value.children, selectedPath.value[2])
+})
+
+const selectedAreaValue = computed({
+  get: () => selectedPath.value[0] ?? '',
+  set: (value) => handleSelect(0, value)
+})
+
+const selectedBuildingValue = computed({
+  get: () => selectedPath.value[1] ?? '',
+  set: (value) => handleSelect(1, value)
+})
+
+const selectedLevelValue = computed({
+  get: () => selectedPath.value[2] ?? '',
+  set: (value) => handleSelect(2, value)
+})
+
+const selectedRoomValue = computed({
+  get: () => selectedPath.value[3] ?? '',
+  set: (value) => handleSelect(3, value)
 })
 
 // 处理选择变化
 const handleSelect = (level, value) => {
+  const normalizedValue = normalizePathValue(value)
   // 截断后续选择
-  selectedPath.value = selectedPath.value.slice(0, level)
-  selectedPath.value[level] = value
+  const nextPath = normalizeSelectionPath(selectedPath.value.slice(0, level))
+  if (normalizedValue) {
+    nextPath[level] = normalizedValue
+  }
+  selectedPath.value = [...nextPath]
   
   // 自动查询
-  if (level === 3) {
+  if (level === 3 && selectedPath.value.length === 4) {
     // 保存选择
     localStorage.setItem('last_dorm_selection', JSON.stringify(selectedPath.value))
     fetchBalance()
@@ -202,11 +243,10 @@ const handleLogout = () => emit('logout')
         <div class="select-group">
           <!-- 校区 -->
           <IOSSelect 
-            :value="selectedPath[0]" 
-            @change="e => handleSelect(0, e.target.value)"
+            v-model="selectedAreaValue"
+            placeholder="选择校区"
             class="modern-select"
           >
-            <option value="" disabled selected>选择校区</option>
             <option v-for="area in dormData" :key="area.value" :value="area.value">
               {{ area.label }}
             </option>
@@ -214,12 +254,11 @@ const handleLogout = () => emit('logout')
           
           <!-- 楼栋 -->
           <IOSSelect 
-            :value="selectedPath[1]" 
-            @change="e => handleSelect(1, e.target.value)"
+            v-model="selectedBuildingValue"
+            placeholder="选择楼栋"
             class="modern-select"
             :disabled="!selectedPath[0]"
           >
-            <option value="" disabled selected>选择楼栋</option>
             <template v-if="currentArea">
               <option v-for="b in currentArea.children" :key="b.value" :value="b.value">
                 {{ b.label }}
@@ -229,12 +268,11 @@ const handleLogout = () => emit('logout')
           
           <!-- 楼层 -->
           <IOSSelect 
-            :value="selectedPath[2]" 
-            @change="e => handleSelect(2, e.target.value)"
+            v-model="selectedLevelValue"
+            placeholder="选择楼层"
             class="modern-select"
             :disabled="!selectedPath[1]"
           >
-            <option value="" disabled selected>选择楼层</option>
             <template v-if="currentBuilding">
               <option v-for="l in currentBuilding.children" :key="l.value" :value="l.value">
                 {{ l.label }}
@@ -244,12 +282,11 @@ const handleLogout = () => emit('logout')
           
           <!-- 房间 -->
           <IOSSelect 
-            :value="selectedPath[3]" 
-            @change="e => handleSelect(3, e.target.value)"
+            v-model="selectedRoomValue"
+            placeholder="选择房间"
             class="modern-select"
             :disabled="!selectedPath[2]"
           >
-            <option value="" disabled selected>选择房间</option>
             <template v-if="currentLevel">
               <option v-for="r in currentLevel.children" :key="r.value" :value="r.value">
                 {{ r.label }}

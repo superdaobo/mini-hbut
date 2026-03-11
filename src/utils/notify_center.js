@@ -84,6 +84,12 @@ const writeJSON = (key, value) => {
 const nowIso = () => new Date().toISOString()
 
 const toSafeText = (value) => String(value ?? '').trim()
+const normalizeDormPathValue = (value) => {
+  if (value && typeof value === 'object') {
+    return String(value.value ?? value.id ?? value.label ?? value.name ?? '').trim()
+  }
+  return String(value ?? '').trim()
+}
 
 const toSafeNumber = (value) => {
   const num = Number.parseFloat(String(value ?? '').trim())
@@ -128,7 +134,9 @@ const getTomorrowKey = () => {
 const getDormSelection = () => {
   const parsed = readJSON(STORAGE_KEYS.dormSelection, [])
   if (!Array.isArray(parsed) || parsed.length !== 4) return []
-  return parsed.map((item) => toSafeText(item)).filter(Boolean)
+  return parsed
+    .map((item) => normalizeDormPathValue(item))
+    .filter((item) => item !== '')
 }
 
 const getNotifySettings = () => {

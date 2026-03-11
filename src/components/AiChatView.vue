@@ -1673,15 +1673,17 @@ onBeforeUnmount(() => {
   --ai-keyboard-offset: 0px;
   --ai-safe-top: env(safe-area-inset-top, 0px);
   --ai-safe-bottom: env(safe-area-inset-bottom, 0px);
-  --ai-bottom-offset: calc(var(--ai-keyboard-offset, 0px) + var(--ai-safe-bottom, 0px) + 8px);
-  height: 100dvh;
-  max-height: 100dvh;
-  min-height: 0;
+  --ai-bottom-offset: var(--ai-keyboard-offset, 0px);
+  height: calc(var(--app-vh, 1vh) * 100);
+  max-height: calc(var(--app-vh, 1vh) * 100);
+  min-height: calc(var(--app-vh, 1vh) * 100);
   display: flex;
   flex-direction: column;
   position: relative;
   background: linear-gradient(135deg, #f5f7fa 0%, #e9edf5 100%);
   padding-top: 0;
+  padding-bottom: 8px;
+  box-sizing: border-box;
   overflow: hidden;
 }
 
@@ -1796,8 +1798,8 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 0 calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
-  scroll-padding-bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
+  padding: 12px 0 16px;
+  scroll-padding-bottom: 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2066,26 +2068,21 @@ onBeforeUnmount(() => {
   align-items: center;
   border: 1px solid rgba(148, 163, 184, 0.32);
   border-radius: 14px;
-  position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: calc(var(--ai-input-height) + var(--ai-bottom-offset) + 8px);
-  z-index: 180;
+  margin: 8px 12px 0;
+  flex: 0 0 auto;
+  box-sizing: border-box;
 }
 
 .input-area {
-  padding: 10px 14px 10px;
+  padding: 10px 14px calc(10px + var(--ai-safe-bottom));
   background: rgba(255, 255, 255, 0.96);
   display: flex;
   gap: 10px;
   align-items: center;
-  position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: var(--ai-bottom-offset, 0px);
+  margin: 8px 12px 0;
+  flex: 0 0 auto;
   border-radius: 22px;
   border: 1px solid rgba(148, 163, 184, 0.34);
-  z-index: 190;
   box-shadow: 0 -2px 16px rgba(15, 23, 42, 0.08);
   box-sizing: border-box;
   min-height: 72px;
@@ -2142,7 +2139,7 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   top: calc(var(--ai-safe-top) + 96px);
-  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + 16px);
   background: rgba(15, 23, 42, 0.24);
   backdrop-filter: blur(2px);
   z-index: 140;
@@ -2153,7 +2150,7 @@ onBeforeUnmount(() => {
   top: calc(var(--ai-safe-top) + 102px);
   left: 10px;
   width: min(360px, calc(100vw - 20px));
-  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + 16px);
   height: auto;
   background: rgba(255, 255, 255, 0.96);
   border-radius: 16px;
