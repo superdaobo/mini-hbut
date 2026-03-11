@@ -1657,6 +1657,9 @@ onBeforeUnmount(() => {
   --ai-input-height: 88px;
   --ai-attachment-height: 0px;
   --ai-keyboard-offset: 0px;
+  --ai-safe-top: env(safe-area-inset-top);
+  --ai-safe-bottom: env(safe-area-inset-bottom);
+  --ai-bottom-offset: calc(var(--ai-keyboard-offset) + var(--ai-safe-bottom));
   height: 100dvh;
   max-height: 100dvh;
   min-height: 0;
@@ -1664,7 +1667,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   position: relative;
   background: linear-gradient(135deg, #f5f7fa 0%, #e9edf5 100%);
-  padding-top: env(safe-area-inset-top);
+  padding-top: 0;
   overflow: hidden;
 }
 
@@ -1696,7 +1699,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  padding: 10px 16px;
+  padding: 8px 16px 10px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
   position: sticky;
@@ -1764,8 +1767,8 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 0 calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 16px);
-  scroll-padding-bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 16px);
+  padding: 16px 0 calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 16px);
+  scroll-padding-bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 16px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2037,12 +2040,12 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(var(--ai-input-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset));
+  bottom: calc(var(--ai-input-height) + var(--ai-bottom-offset));
   z-index: 180;
 }
 
 .input-area {
-  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  padding: 10px 14px 10px;
   background: rgba(255, 255, 255, 0.96);
   display: flex;
   gap: 10px;
@@ -2050,7 +2053,7 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: var(--ai-keyboard-offset);
+  bottom: var(--ai-bottom-offset);
   border-radius: 18px 18px 0 0;
   border: 1px solid rgba(148, 163, 184, 0.34);
   z-index: 190;
@@ -2107,8 +2110,8 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   right: 0;
-  top: calc(env(safe-area-inset-top) + 130px);
-  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 8px);
+  top: 130px;
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
   background: rgba(15, 23, 42, 0.24);
   backdrop-filter: blur(2px);
   z-index: 140;
@@ -2116,10 +2119,10 @@ onBeforeUnmount(() => {
 
 .history-panel {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 136px);
+  top: 136px;
   left: 10px;
   width: min(360px, calc(100vw - 20px));
-  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + env(safe-area-inset-bottom) + var(--ai-keyboard-offset) + 8px);
+  bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + var(--ai-bottom-offset) + 8px);
   height: auto;
   background: rgba(255, 255, 255, 0.96);
   border-radius: 16px;
