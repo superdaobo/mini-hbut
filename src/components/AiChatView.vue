@@ -473,12 +473,20 @@ const forceScrollToBottom = () => {
   })
 }
 
+const snapToLatest = () => {
+  skipInitialScroll.value = false
+  forceScrollToBottom()
+}
+
 const syncAutoScroll = () => {
   nextTick(() => {
     if (!chatContainer.value) return
     if (skipInitialScroll.value) {
-      chatContainer.value.scrollTop = 0
       skipInitialScroll.value = false
+      scrollToBottom()
+      window.requestAnimationFrame(() => {
+        scrollToBottom()
+      })
       return
     }
     if (autoScrollEnabled.value) {
@@ -732,7 +740,7 @@ const loadSessionMessagesFromRemote = async (session, force = false) => {
     }
     if (session.id === activeSessionId.value) {
       messages.value = session.messages
-      skipInitialScroll.value = true
+      snapToLatest()
     }
     saveLocalHistory()
   } catch (error) {
@@ -783,7 +791,7 @@ const syncRemoteHistory = async () => {
   const active = findSession(activeSessionId.value) || sessions.value[0]
   activeSessionId.value = active.id
   messages.value = active.messages
-  skipInitialScroll.value = true
+  snapToLatest()
   saveLocalHistory()
   await loadSessionMessagesFromRemote(active, false)
 }
@@ -793,7 +801,7 @@ const selectSession = async (id) => {
   if (!target) return
   activeSessionId.value = target.id
   messages.value = target.messages || [makeMessage('assistant', DEFAULT_WELCOME)]
-  skipInitialScroll.value = true
+  snapToLatest()
   historyOpen.value = false
   saveLocalHistory()
   await loadSessionMessagesFromRemote(target, false)
@@ -810,7 +818,7 @@ const startNewSession = async () => {
   sessions.value.unshift(session)
   activeSessionId.value = session.id
   messages.value = session.messages
-  skipInitialScroll.value = true
+  snapToLatest()
   historyOpen.value = false
   saveLocalHistory()
 }
@@ -862,7 +870,7 @@ const deleteSessionConfirmed = async () => {
   if (wasActive) {
     activeSessionId.value = sessions.value[0].id
     messages.value = sessions.value[0].messages
-    skipInitialScroll.value = true
+    snapToLatest()
   }
   saveLocalHistory()
   deleteConfirmLoading.value = false
@@ -1510,10 +1518,8 @@ onMounted(async () => {
     }
   }
   nextTick(() => {
-    if (chatContainer.value) {
-      chatContainer.value.scrollTop = 0
-    }
     initViewportHooks()
+    snapToLatest()
   })
 })
 
@@ -1524,7 +1530,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootEl" class="ai-view" :class="{ 'has-attachment': !!attachment }">
-    <div class="view-header glass-card">
+    <div class="ai-header glass-card">
       <div class="header-top-row">
         <div class="header-left-actions">
           <button class="back-btn" @click="$emit('back')">
@@ -1533,7 +1539,6 @@ onBeforeUnmount(() => {
           </button>
           <button class="history-btn" @click="historyOpen = !historyOpen">历史</button>
         </div>
-        <div class="header-spacer" aria-hidden="true"></div>
         <div class="model-select">
           <IOSSelect v-model="selectedModel" :disabled="isLoading || initStatus !== 'success'">
             <option v-for="m in normalizedModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
@@ -1710,24 +1715,21 @@ onBeforeUnmount(() => {
   color: #1d4ed8;
 }
 
-.view-header {
+.ai-header {
   min-height: 58px;
-  display: flex;
-  align-items: center;
-  padding: calc(14px + var(--ai-safe-top)) 12px 10px;
+  margin: 8px 14px 0;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
-  position: sticky;
-  top: 0;
   z-index: 100;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  gap: 8px;
 }
 
 .header-top-row {
   width: 100%;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   min-height: 42px;
   gap: 10px;
   min-width: 0;
@@ -1738,11 +1740,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
-  min-width: max-content;
-}
-
-.header-spacer {
-  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1750,7 +1747,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   margin-left: auto;
   width: clamp(180px, 34vw, 300px);
-  min-width: 0;
+  min-width: 180px;
   max-width: min(58vw, 320px);
 }
 
@@ -2079,7 +2076,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   align-items: center;
-  margin: 8px 12px 0;
+  margin: 8px 12px 8px;
   flex: 0 0 auto;
   border-radius: 22px;
   border: 1px solid rgba(148, 163, 184, 0.34);
@@ -2138,7 +2135,7 @@ onBeforeUnmount(() => {
   position: fixed;
   left: 0;
   right: 0;
-  top: calc(var(--ai-safe-top) + 96px);
+  top: calc(var(--ai-safe-top) + 88px);
   bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + 16px);
   background: rgba(15, 23, 42, 0.24);
   backdrop-filter: blur(2px);
@@ -2147,7 +2144,7 @@ onBeforeUnmount(() => {
 
 .history-panel {
   position: fixed;
-  top: calc(var(--ai-safe-top) + 102px);
+  top: calc(var(--ai-safe-top) + 94px);
   left: 10px;
   width: min(360px, calc(100vw - 20px));
   bottom: calc(var(--ai-input-height) + var(--ai-attachment-height) + 16px);
@@ -2326,10 +2323,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
-  .view-header {
+  .ai-header {
     min-height: 54px;
-    padding: calc(12px + var(--ai-safe-top)) 10px 8px;
-    gap: 6px;
+    margin: 8px 10px 0;
+    padding: 8px 10px;
   }
 
   .header-top-row {
@@ -2359,14 +2356,15 @@ onBeforeUnmount(() => {
   .model-select {
     width: clamp(160px, 46vw, 228px);
     max-width: 56vw;
+    min-width: 160px;
   }
 
   .history-backdrop {
-    top: calc(var(--ai-safe-top) + 84px);
+    top: calc(var(--ai-safe-top) + 82px);
   }
 
   .history-panel {
-    top: calc(var(--ai-safe-top) + 90px);
+    top: calc(var(--ai-safe-top) + 88px);
   }
 }
 </style>

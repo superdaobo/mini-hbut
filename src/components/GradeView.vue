@@ -69,6 +69,22 @@ const parseScoreNumber = (score) => {
   return Number.isFinite(n) ? n : null
 }
 
+const formatPointNumber = (value) => {
+  if (!Number.isFinite(value)) return '-'
+  const safeValue = Math.max(0, value)
+  return safeValue.toFixed(2).replace(/\.0+$|(\.\d*?)0+$/g, '$1').replace(/\.$/, '')
+}
+
+const normalizePointText = (value) => {
+  const text = toSafeText(value)
+  if (!text) return '-'
+  const numeric = Number.parseFloat(text)
+  if (Number.isFinite(numeric) && /^-?\d+(\.\d+)?$/.test(text)) {
+    return formatPointNumber(numeric)
+  }
+  return text
+}
+
 const resolveCourseNatureLabel = (grade) => {
   const codes = [
     toSafeText(grade.kcxz),
@@ -129,6 +145,7 @@ const normalizedGrades = computed(() =>
     const finalScore = toSafeText(grade.final_score || grade.zhcj || grade.yscj || '-')
     const scoreNumber = parseScoreNumber(finalScore)
     const status = resolveStatusTags(grade, finalScore, scoreNumber)
+    const gradePointNumber = scoreNumber !== null ? Math.max(0, scoreNumber / 10 - 5) : null
     return {
       ...grade,
       originIndex: index,
@@ -136,7 +153,10 @@ const normalizedGrades = computed(() =>
       course_name: normalizeCourseName(grade.course_name || grade.kcmc),
       course_credit: toSafeText(grade.course_credit || grade.xf),
       earned_credit: toSafeText(grade.earned_credit || grade.hdxf),
-      creditPoint: toSafeText(grade.creditPoint || grade.xfjd || grade.gpa),
+      creditPoint: normalizePointText(grade.xfjd || grade.creditPoint || grade.gpa),
+      gradePoint: gradePointNumber,
+      gradePointText: formatPointNumber(gradePointNumber),
+      creditGradePoint: normalizePointText(grade.xfjd || grade.creditPoint || grade.gpa),
       final_score: finalScore,
       scoreNumber,
       course_nature: resolveCourseNatureLabel(grade),
@@ -529,7 +549,11 @@ watch(
             </div>
             <div class="detail-item">
               <span class="detail-label">绩点</span>
-              <span class="detail-value">{{ selectedGrade.creditPoint || '-' }}</span>
+              <span class="detail-value">{{ selectedGrade.gradePointText || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">学分绩点</span>
+              <span class="detail-value">{{ selectedGrade.creditGradePoint || '-' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">课程性质</span>
@@ -566,6 +590,13 @@ watch(
                 >
                   {{ tag.label }}
                 </span>
+              </div>
+            </div>
+            <div class="detail-item full-width detail-formula-note">
+              <span class="detail-label">绩点说明</span>
+              <div class="detail-note-lines">
+                <span>绩点 = 分数 / 10 - 5</span>
+                <span>学分绩点 = 学分 × 绩点</span>
               </div>
             </div>
           </div>
@@ -1092,6 +1123,18 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.detail-formula-note {
+  background: color-mix(in oklab, var(--ui-primary-soft) 64%, #fff 36%);
+}
+
+.detail-note-lines {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ui-text);
+  line-height: 1.45;
 }
 
 @media (max-width: 640px) {

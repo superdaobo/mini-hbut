@@ -610,14 +610,96 @@ html[data-theme='graphite_night'] .app-shell :is(
   .exam-item,
   .result-card,
   .summary-card
-) :is(p, span, label, small, strong, li, h4, h5, h6) {
+) :is(p, small, li, h4, h5, h6) {
   color: #dbe6f7 !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(
+  .content-card,
+  .glass-card,
+  .module-card,
+  .settings-section,
+  .resource-card,
+  .book-card,
+  .exam-item,
+  .result-card,
+  .summary-card
+) :is(strong, b) {
+  color: #f8fbff !important;
 }
 
 html[data-theme='graphite_night'] .app-shell :is(input, select, textarea, option) {
   color: #e2e8f0 !important;
   background: rgba(15, 23, 42, 0.82) !important;
   border-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(
+  .page-tag,
+  .semester-tag,
+  .semester-badge,
+  .week-tag,
+  .status-tag,
+  .status-badge,
+  .cache-status,
+  .sync-tag,
+  .device-tag,
+  .meta-tag,
+  .quick-tag,
+  .student-id,
+  .student-pill,
+  .semester-pill,
+  .week-pill,
+  .time-pill,
+  .info-pill,
+  .badge-pill,
+  .cache-pill,
+  .kpi-pill,
+  .meta-pill,
+  .head-pill,
+  .status-pill,
+  .share-btn,
+  .logout-btn,
+  .tab-btn,
+  .history-btn,
+  .ios26-select-trigger,
+  .ios26-select-text
+) {
+  color: #e7f0ff !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 30%, rgba(148, 163, 184, 0.28)) !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(
+  .page-tag,
+  .semester-tag,
+  .semester-badge,
+  .week-tag,
+  .status-tag,
+  .status-badge,
+  .cache-status,
+  .sync-tag,
+  .device-tag,
+  .meta-tag,
+  .quick-tag,
+  .student-id,
+  .student-pill,
+  .semester-pill,
+  .week-pill,
+  .time-pill,
+  .info-pill,
+  .badge-pill,
+  .cache-pill,
+  .kpi-pill,
+  .meta-pill,
+  .head-pill,
+  .status-pill,
+  .share-btn,
+  .logout-btn,
+  .tab-btn,
+  .history-btn,
+  .ios26-select-trigger
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.78), rgba(30, 41, 59, 0.74)) !important;
 }
 
 html[data-theme='graphite_night'] .app-shell ::placeholder {

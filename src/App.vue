@@ -1411,7 +1411,12 @@ onBeforeUnmount(() => {
 <template>
   <main
     class="app-shell"
-    :class="{ 'no-scroll': currentView === 'ai', 'schedule-full': currentView === 'schedule', 'ios-safe': isIOSLike }"
+    :class="{
+      'no-scroll': currentView === 'ai',
+      'ai-full': currentView === 'ai',
+      'schedule-full': currentView === 'schedule',
+      'ios-safe': isIOSLike
+    }"
     ref="appShellRef"
   >
     <Transition name="module-fade" mode="out-in">
@@ -1868,6 +1873,22 @@ onBeforeUnmount(() => {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+.app-shell.ai-full {
+  padding-bottom: 0;
+}
+
+.app-shell.ai-full > .view-transition-root {
+  min-height: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.app-shell.ai-full > .view-transition-root > .ai-view {
+  width: 100%;
+  min-height: 100%;
+  height: 100% !important;
+}
+
 .app-shell.ios-safe {
   --safe-top-fallback: 44px;
 }
@@ -1902,9 +1923,9 @@ onBeforeUnmount(() => {
 
 /* 统一业务页面高度策略：避免子页面写死 100vh 导致进入后再次缩放 */
 .app-shell > .dashboard,
-.app-shell > [class$='-view']:not(.schedule-view),
+.app-shell > [class$='-view']:not(.schedule-view):not(.ai-view),
 .app-shell > .view-transition-root > .dashboard,
-.app-shell > .view-transition-root > [class$='-view']:not(.schedule-view) {
+.app-shell > .view-transition-root > [class$='-view']:not(.schedule-view):not(.ai-view) {
   min-height: calc(var(--app-vh, 1vh) * 100) !important;
   height: auto !important;
 }

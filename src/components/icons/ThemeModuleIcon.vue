@@ -265,13 +265,23 @@ const iconDataUrl = computed(() => {
 }
 
 :global(html[data-theme='graphite_night']) .theme-module-icon {
+  color: var(--module-icon-color, #8fd8ff) !important;
   background:
     radial-gradient(
       120% 120% at 20% 16%,
       color-mix(in oklab, var(--ui-primary) 28%, #162033 72%) 0%,
       color-mix(in oklab, var(--ui-secondary) 20%, #101a2b 80%) 100%
-    );
-  border-color: color-mix(in oklab, var(--ui-primary) 38%, rgba(148, 163, 184, 0.34));
+    ) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 38%, rgba(148, 163, 184, 0.34)) !important;
+  box-shadow:
+    0 10px 20px rgba(8, 15, 28, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+:global(html[data-theme='graphite_night']) .theme-module-icon :is(.icon-svg, .icon-mask, .icon-img, .fallback-glyph) {
+  color: inherit !important;
+  opacity: 1 !important;
+  filter: none !important;
 }
 
 :global(html[data-ui-icon='mono']) .theme-module-icon .icon-svg {
