@@ -69,14 +69,60 @@ let unlistenCloseRequested = null
 let isClosingByUser = false
 let viewportResizeRaf = 0
 let desktopResizePerfTimer = null
+let pendingScrollToTopOnViewChange = false
+let lastResumeHandledAt = 0
+let resumePendingSnapshot = null
+let appBootstrapped = false
+
+const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
+const ME_SUB_VIEWS = ['official', 'feedback', 'config', 'settings', 'export_center']
+
+const normalizeViewName = (view) => {
+  const normalized = String(view || '').trim()
+  return normalized || 'home'
+}
+
+const readWindowRouteSnapshot = () => {
+  if (typeof window === 'undefined') return null
+  const state = window.history?.state
+  if (state && state.__hbu) {
+    return {
+      sid: String(state.sid || '').trim(),
+      view: normalizeViewName(state.view || state.module || state.tab),
+      tab: String(state.tab || '').trim(),
+      module: String(state.module || '').trim()
+    }
+  }
+  const hash = window.location.hash || '#/'
+  const match = hash.match(/^#\/(\d{10})(?:\/(\w+))?$/)
+  if (!match) return null
+  return {
+    sid: match[1],
+    view: normalizeViewName(match[2] || 'home'),
+    tab: '',
+    module: ''
+  }
+}
+
+const initialRouteSnapshot = readWindowRouteSnapshot()
+const initialView = normalizeViewName(initialRouteSnapshot?.view || 'home')
+const initialTab = String(
+  initialRouteSnapshot?.tab ||
+    (MAIN_TABS.includes(initialView) ? initialView : (ME_SUB_VIEWS.includes(initialView) ? 'me' : 'home'))
+).trim() || 'home'
+const initialModule = String(
+  initialRouteSnapshot?.module ||
+    (MAIN_TABS.includes(initialView) ? '' : initialView === 'home' ? '' : initialView)
+).trim()
 
 // 视图状态: home, schedule, me, grades...
-const currentView = ref('home')
-const activeTab = ref('home')
+const currentView = ref(initialView)
+const activeTab = ref(initialTab)
 const gradeData = ref([])
-const studentId = ref('')
+const studentId = ref(String(initialRouteSnapshot?.sid || '').trim())
 const userUuid = ref('')
-const currentModule = ref('')
+const currentModule = ref(initialModule)
+const viewRenderNonce = ref(0)
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
 const showExitDialog = ref(false)
@@ -129,9 +175,6 @@ const forceUpdateDisplayUrl = computed(() => {
   if (!target) return '未提供下载地址'
   return target.length > 68 ? `${target.slice(0, 65)}...` : target
 })
-
-const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
-const ME_SUB_VIEWS = ['official', 'feedback', 'config', 'settings', 'export_center']
 
 const remoteConfig = ref(null)
 const announcementData = ref({ pinned: [], ticker: [], list: [], confirm: [] })
@@ -341,16 +384,20 @@ const updateViewportUnit = () => {
   document.documentElement.style.setProperty('--app-vh', `${nextVh}px`)
 }
 
-const recoverViewportAfterTransition = () => {
+const recoverViewportAfterTransition = ({ scrollToTop = true, blurActive = true } = {}) => {
   const activeEl = document.activeElement
-  if (activeEl && typeof activeEl.blur === 'function') {
+  if (blurActive && activeEl && typeof activeEl.blur === 'function') {
     activeEl.blur()
   }
   updateViewportUnit()
   nextTick(() => {
-    forceScrollTop()
-    requestAnimationFrame(() => {
+    if (scrollToTop) {
       forceScrollTop()
+    }
+    requestAnimationFrame(() => {
+      if (scrollToTop) {
+        forceScrollTop()
+      }
       updateViewportUnit()
     })
   })
@@ -400,24 +447,71 @@ const handleViewportResize = () => {
   })
 }
 
-const handleVisibilityChange = () => {
-  if (document.hidden) {
-    hiddenAt = Date.now()
-    return
+const collectCurrentViewSnapshot = () => ({
+  sid: String(studentId.value || '').trim(),
+  view: normalizeViewName(currentView.value),
+  tab: String(activeTab.value || '').trim(),
+  module: String(currentModule.value || '').trim()
+})
+
+const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) => {
+  const resolved = snapshot || collectCurrentViewSnapshot()
+  const targetView = normalizeViewName(resolved?.view || resolved?.module || resolved?.tab || currentView.value)
+  if (resolved?.sid) {
+    studentId.value = String(resolved.sid || '').trim()
+    try {
+      localStorage.setItem('hbu_username', studentId.value)
+    } catch {
+      // ignore storage failure on resume
+    }
   }
-  const idle = hiddenAt ? Date.now() - hiddenAt : 0
+  pendingScrollToTopOnViewChange = false
+  applyViewState(targetView)
+  replaceHistorySnapshot(targetView)
+  if (softRemount) {
+    viewRenderNonce.value += 1
+  }
+  await nextTick()
+  recoverViewportAfterTransition({ scrollToTop: false, blurActive: false })
+  if (isIOSLike) {
+    requestAnimationFrame(() => {
+      nudgeWebViewPaint()
+    })
+  }
+}
+
+const handleAppResume = (source = 'visibilitychange') => {
+  if (!appBootstrapped || document.hidden) return
+  const now = Date.now()
+  if (now - lastResumeHandledAt < 180) return
+  lastResumeHandledAt = now
+  const idle = hiddenAt ? now - hiddenAt : 0
   hiddenAt = 0
+  const snapshot = resumePendingSnapshot || readWindowRouteSnapshot() || collectCurrentViewSnapshot()
+  resumePendingSnapshot = null
   scheduleViewportUpdate()
   if (isIOSLike) {
     nudgeWebViewPaint()
   }
+  const softRemount = isIOSLike && idle >= IOS_RESUME_RELOAD_MS
+  void restoreViewFromSnapshot(snapshot, { softRemount, source })
+}
 
-  // iOS 长时间后台后，WebView 偶发黑屏；主动重载可恢复渲染上下文
-  if (isIOSLike && idle >= IOS_RESUME_RELOAD_MS) {
-    setTimeout(() => {
-      window.location.reload()
-    }, 120)
+const handleVisibilityChange = () => {
+  if (document.hidden) {
+    hiddenAt = Date.now()
+    resumePendingSnapshot = readWindowRouteSnapshot() || collectCurrentViewSnapshot()
+    return
   }
+  handleAppResume('visibilitychange')
+}
+
+const handlePageShow = () => {
+  handleAppResume('pageshow')
+}
+
+const handleWindowFocus = () => {
+  handleAppResume('focus')
 }
 
 const resolveHash = (sid, view) => {
@@ -464,13 +558,14 @@ const applyViewState = (view) => {
 }
 
 const goToView = (view, { push = true } = {}) => {
+  pendingScrollToTopOnViewChange = true
   applyViewState(view)
   if (push) {
     pushHistorySnapshot(view)
   } else {
     replaceHistorySnapshot(view)
   }
-  recoverViewportAfterTransition()
+  recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
   if (isIOSLike) {
     requestAnimationFrame(() => {
       nudgeWebViewPaint()
@@ -479,19 +574,19 @@ const goToView = (view, { push = true } = {}) => {
 }
 
 const parseHashRoute = () => {
-  const hash = window.location.hash || '#/'
-  const m = hash.match(/^#\/(\d{10})(?:\/(\w+))?$/)
-  if (!m) return null
+  const snapshot = readWindowRouteSnapshot()
+  if (!snapshot?.sid) return null
   return {
-    sid: m[1],
-    view: m[2] || 'home'
+    sid: snapshot.sid,
+    view: normalizeViewName(snapshot.view)
   }
 }
 
-const syncFromHash = async () => {
+const syncFromHash = async ({ scrollToTop = false } = {}) => {
   const route = parseHashRoute()
   if (!route) {
     if (currentView.value !== 'home') {
+      pendingScrollToTopOnViewChange = scrollToTop
       applyViewState('home')
     }
     return
@@ -499,6 +594,7 @@ const syncFromHash = async () => {
 
   studentId.value = route.sid
   localStorage.setItem('hbu_username', route.sid)
+  pendingScrollToTopOnViewChange = scrollToTop
   applyViewState(route.view)
 
   if (route.view === 'grades' && gradeData.value.length === 0) {
@@ -1241,8 +1337,8 @@ const stopElectricityKeepAlive = () => {
 const showTabBar = computed(() => MAIN_TABS.includes(currentView.value))
 
 const handlePopState = async () => {
-  await syncFromHash()
-  recoverViewportAfterTransition()
+  await syncFromHash({ scrollToTop: true })
+  recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
   if (isIOSLike) {
     requestAnimationFrame(() => {
       nudgeWebViewPaint()
@@ -1306,6 +1402,9 @@ const confirmExitDialog = async () => {
 
 // 页面加载时检查 URL
 watch(currentView, () => {
+  const shouldScrollTop = pendingScrollToTopOnViewChange
+  pendingScrollToTopOnViewChange = false
+  if (!shouldScrollTop) return
   nextTick(() => {
     if (appShellRef.value) {
       appShellRef.value.scrollTop = 0
@@ -1317,6 +1416,8 @@ onMounted(async () => {
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
+  window.addEventListener('pageshow', handlePageShow)
+  window.addEventListener('focus', handleWindowFocus)
   window.addEventListener('resize', handleViewportResize)
   window.addEventListener('orientationchange', handleViewportResize)
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
@@ -1348,9 +1449,10 @@ onMounted(async () => {
   }
   const onlineReady = restored || relogged
 
-  await syncFromHash()
+  await syncFromHash({ scrollToTop: false })
 
   if (restored && !window.location.hash) {
+    pendingScrollToTopOnViewChange = false
     applyViewState('home')
   }
 
@@ -1377,12 +1479,15 @@ onMounted(async () => {
   autoCheckUpdate()
 
   ensureConfigAccess()
+  appBootstrapped = true
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleGlobalLinkClick, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('popstate', handlePopState)
+  window.removeEventListener('pageshow', handlePageShow)
+  window.removeEventListener('focus', handleWindowFocus)
   window.removeEventListener('resize', handleViewportResize)
   window.removeEventListener('orientationchange', handleViewportResize)
   window.removeEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
@@ -1420,7 +1525,7 @@ onBeforeUnmount(() => {
     ref="appShellRef"
   >
     <Transition name="module-fade" mode="out-in">
-      <div :key="currentView" class="view-transition-root">
+      <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
       <!-- 首页 -->
       <Dashboard 
         v-if="currentView === 'home'"

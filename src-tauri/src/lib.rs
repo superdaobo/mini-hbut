@@ -344,6 +344,20 @@ pub struct DeleteCustomScheduleCourseRequest {
     pub current_week: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateCustomScheduleCourseRequest {
+    pub student_id: String,
+    pub semester: String,
+    pub course_id: String,
+    pub name: String,
+    pub teacher: Option<String>,
+    pub weekday: i32,
+    pub period: i32,
+    pub djs: i32,
+    pub weeks: Vec<i32>,
+    pub room: Option<String>,
+}
+
 fn build_public_cache_key(prefix: &str, payload: &str) -> String {
     let encoded = general_purpose::STANDARD.encode(payload.as_bytes());
     format!("{}:{}", prefix, encoded)
@@ -2969,6 +2983,26 @@ async fn list_custom_schedule_courses(
 }
 
 #[tauri::command]
+async fn list_all_custom_schedule_courses(
+    student_id: String,
+) -> Result<serde_json::Value, String> {
+    let sid = student_id.trim().to_string();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    let list = db::list_all_custom_schedule_courses(DB_FILENAME, sid.as_str())
+        .map_err(|e| e.to_string())?;
+    let data = list
+        .iter()
+        .map(custom_course_to_payload)
+        .collect::<Vec<serde_json::Value>>();
+    Ok(serde_json::json!({
+        "success": true,
+        "data": data
+    }))
+}
+
+#[tauri::command]
 async fn add_custom_schedule_course(
     req: AddCustomScheduleCourseRequest,
 ) -> Result<serde_json::Value, String> {
@@ -3094,6 +3128,76 @@ async fn delete_custom_schedule_course(
         "success": true,
         "deleted": true,
         "mode": "all"
+    }))
+}
+
+#[tauri::command]
+async fn update_custom_schedule_course(
+    req: UpdateCustomScheduleCourseRequest,
+) -> Result<serde_json::Value, String> {
+    let sid = req.student_id.trim().to_string();
+    let sem = req.semester.trim().to_string();
+    let course_id = strip_custom_course_id(req.course_id.as_str());
+    let name = req.name.trim().to_string();
+    if sid.is_empty() {
+        return Err("student_id 不能为空".to_string());
+    }
+    if sem.is_empty() {
+        return Err("semester 不能为空".to_string());
+    }
+    if course_id.is_empty() {
+        return Err("course_id 不能为空".to_string());
+    }
+    if name.is_empty() {
+        return Err("课程名称不能为空".to_string());
+    }
+    if !(1..=7).contains(&req.weekday) {
+        return Err("上课时间必须是周一到周日".to_string());
+    }
+    if !(1..=11).contains(&req.period) {
+        return Err("开始节次必须在 1-11 节".to_string());
+    }
+    let max_span = 12 - req.period;
+    if req.djs < 1 || req.djs > max_span {
+        return Err(format!("上课节数不合法，当前最多可选 {} 节", max_span));
+    }
+    let weeks = normalize_custom_weeks(&req.weeks);
+    if weeks.is_empty() {
+        return Err("请至少选择一个上课周次".to_string());
+    }
+
+    let existing = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "未找到要修改的自定义课程".to_string())?;
+    if existing.semester != sem {
+        return Err("学期不匹配，无法修改该课程".to_string());
+    }
+
+    let record = db::CustomScheduleCourseRecord {
+        id: existing.id,
+        student_id: sid.clone(),
+        semester: sem,
+        name,
+        teacher: req.teacher.unwrap_or_default().trim().to_string(),
+        room: req.room.unwrap_or_default().trim().to_string(),
+        weekday: req.weekday,
+        period: req.period,
+        djs: req.djs,
+        weeks,
+        created_at: existing.created_at,
+        updated_at: existing.updated_at,
+    };
+
+    let affected = db::update_custom_schedule_course(DB_FILENAME, &record).map_err(|e| e.to_string())?;
+    if affected <= 0 {
+        return Err("未找到要修改的自定义课程".to_string());
+    }
+    let updated = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), record.id.as_str())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "更新后未找到课程记录".to_string())?;
+    Ok(serde_json::json!({
+        "success": true,
+        "data": custom_course_to_payload(&updated)
     }))
 }
 
@@ -4317,8 +4421,10 @@ pub fn run() {
             sync_schedule,
             get_schedule_local,
             list_custom_schedule_courses,
+            list_all_custom_schedule_courses,
             add_custom_schedule_course,
             delete_custom_schedule_course,
+            update_custom_schedule_course,
             export_schedule_calendar,
             fetch_exams,
             fetch_ranking,

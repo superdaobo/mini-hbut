@@ -299,6 +299,24 @@ const adapter = {
                 return mockResponse({ success: true, ...schedule });
             }
 
+            if (url.includes('/v2/schedule/custom/list_all')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('list_all_custom_schedule_courses', {
+                            studentId: data?.student_id || ''
+                        });
+                        return mockResponse(payload);
+                    }
+                    const res = await bridgePost('/schedule/custom/list_all', data || {});
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取全部自定义课程失败' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             if (url.includes('/v2/schedule/custom/list')) {
                 try {
                     if (hasTauri) {
@@ -329,6 +347,22 @@ const adapter = {
                         return mockResponse({ success: true, ...res.data });
                     }
                     return mockResponse({ success: false, error: res?.error?.message || res?.error || '添加自定义课程失败' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/schedule/custom/update')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('update_custom_schedule_course', { req: data || {} });
+                        return mockResponse(payload);
+                    }
+                    const res = await bridgePost('/schedule/custom/update', data || {});
+                    if (res?.success && res?.data) {
+                        return mockResponse({ success: true, ...res.data });
+                    }
+                    return mockResponse({ success: false, error: res?.error?.message || res?.error || '修改自定义课程失败' });
                 } catch (err) {
                     return mockResponse({ success: false, error: err.toString() });
                 }

@@ -439,6 +439,41 @@ pub fn list_custom_schedule_courses<P: AsRef<Path>>(
     Ok(result)
 }
 
+pub fn list_all_custom_schedule_courses<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+) -> Result<Vec<CustomScheduleCourseRecord>> {
+    let conn = open_connection(path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, created_at, updated_at
+         FROM custom_schedule_courses
+         WHERE student_id = ?1
+         ORDER BY semester DESC, weekday ASC, period ASC, name ASC",
+    )?;
+
+    let mut rows = stmt.query(params![student_id])?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next()? {
+        let weeks_json: String = row.get(9)?;
+        let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
+        result.push(CustomScheduleCourseRecord {
+            id: row.get(0)?,
+            student_id: row.get(1)?,
+            semester: row.get(2)?,
+            name: row.get(3)?,
+            teacher: row.get(4)?,
+            room: row.get(5)?,
+            weekday: row.get(6)?,
+            period: row.get(7)?,
+            djs: row.get(8)?,
+            weeks,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+        });
+    }
+    Ok(result)
+}
+
 pub fn get_custom_schedule_course<P: AsRef<Path>>(
     path: P,
     student_id: &str,
@@ -486,6 +521,39 @@ pub fn update_custom_schedule_course_weeks<P: AsRef<Path>>(
          SET weeks_json = ?3, updated_at = CURRENT_TIMESTAMP
          WHERE student_id = ?1 AND id = ?2",
         params![student_id, course_id, weeks_json],
+    )
+}
+
+pub fn update_custom_schedule_course<P: AsRef<Path>>(
+    path: P,
+    course: &CustomScheduleCourseRecord,
+) -> Result<usize> {
+    let conn = open_connection(path)?;
+    let weeks_json = serde_json::to_string(&course.weeks).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE custom_schedule_courses
+         SET semester = ?3,
+             name = ?4,
+             teacher = ?5,
+             room = ?6,
+             weekday = ?7,
+             period = ?8,
+             djs = ?9,
+             weeks_json = ?10,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE student_id = ?1 AND id = ?2",
+        params![
+            course.student_id,
+            course.id,
+            course.semester,
+            course.name,
+            course.teacher,
+            course.room,
+            course.weekday,
+            course.period,
+            course.djs,
+            weeks_json
+        ],
     )
 }
 

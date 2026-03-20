@@ -59,10 +59,18 @@ const semesterError = ref('')
 const showSemesterPopup = ref(false)
 const semesterPopupText = ref('')
 const showAddCourse = ref(false)
+const courseDialogMode = ref('add')
+const editingCourseId = ref('')
+const editingCourseSemester = ref('')
 const showWeekPicker = ref(false)
 const addingCourse = ref(false)
 const addCourseError = ref('')
 const detailActionError = ref('')
+const showManageCourses = ref(false)
+const loadingManageCourses = ref(false)
+const manageCoursesError = ref('')
+const allCustomCourses = ref([])
+const manageExpandedSemesters = ref({})
 const showConfirmDialog = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogLines = ref([])
@@ -88,7 +96,15 @@ const addCourseForm = ref({
   djs: 1,
   weeks: []
 })
+const returnToDetailAfterCourseSubmit = ref(false)
 const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
+
+const courseDialogSemester = computed(() => {
+  if (courseDialogMode.value === 'edit') {
+    return String(editingCourseSemester.value || semester.value || semesterDraft.value || '').trim()
+  }
+  return String(semester.value || semesterDraft.value || '').trim()
+})
 
 const readStoredSemester = () => {
   try {
@@ -354,6 +370,8 @@ const normalizeCustomCourse = (raw) => {
     class_name: String(raw.class_name || '自定义课程'),
     semester: String(raw.semester || semester.value || semesterDraft.value || ''),
     source_id: String(raw.source_id || raw.id || ''),
+    created_at: String(raw.created_at || ''),
+    updated_at: String(raw.updated_at || ''),
     is_custom: true
   }
 }
@@ -387,6 +405,78 @@ const loadCustomCourses = async (targetSemester = '') => {
     customScheduleData.value = []
     mergeScheduleSources()
     return false
+  }
+}
+
+const sortSemesterKeys = (a, b) => {
+  const currentSemester = String(semester.value || semesterDraft.value || '').trim()
+  if (a === currentSemester && b !== currentSemester) return -1
+  if (b === currentSemester && a !== currentSemester) return 1
+  return String(b).localeCompare(String(a), 'zh-CN', { numeric: true })
+}
+
+const managedCourseGroups = computed(() => {
+  const groups = new Map()
+  for (const rawCourse of allCustomCourses.value || []) {
+    const course = normalizeCustomCourse(rawCourse)
+    if (!course?.id) continue
+    const sem = String(course.semester || '未分配学期').trim() || '未分配学期'
+    if (!groups.has(sem)) {
+      groups.set(sem, [])
+    }
+    groups.get(sem).push(course)
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => sortSemesterKeys(a[0], b[0]))
+    .map(([semesterKey, courses]) => ({
+      semester: semesterKey,
+      courses: courses.sort((a, b) => {
+        if (a.weekday !== b.weekday) return a.weekday - b.weekday
+        if (a.period !== b.period) return a.period - b.period
+        return String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN')
+      })
+    }))
+})
+
+const syncManageExpandedSemesters = () => {
+  const next = {}
+  const currentSemester = String(semester.value || semesterDraft.value || '').trim()
+  for (const group of managedCourseGroups.value) {
+    next[group.semester] = manageExpandedSemesters.value[group.semester] ?? (group.semester === currentSemester)
+  }
+  manageExpandedSemesters.value = next
+}
+
+const loadAllCustomCourses = async () => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) {
+    allCustomCourses.value = []
+    manageCoursesError.value = '请先登录后再管理课程'
+    return false
+  }
+  loadingManageCourses.value = true
+  manageCoursesError.value = ''
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list_all`, {
+      student_id: sid
+    })
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || '加载课程列表失败')
+    }
+    const list = Array.isArray(res.data?.data) ? res.data.data : []
+    allCustomCourses.value = list
+      .map(normalizeCustomCourse)
+      .filter(Boolean)
+      .filter((course) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
+    syncManageExpandedSemesters()
+    return true
+  } catch (e) {
+    console.warn('加载全部自定义课程失败', e)
+    allCustomCourses.value = []
+    manageCoursesError.value = String(e?.response?.data?.error || e?.message || '加载课程列表失败')
+    return false
+  } finally {
+    loadingManageCourses.value = false
   }
 }
 
@@ -922,6 +1012,7 @@ const buildConflictBlocks = (day, mergedCourses, weekNumber) => {
       is_conflict: true,
       conflict_courses: conflictCourses.map(course => ({
         id: course.id,
+        source_id: course.source_id || course.id,
         name: course.name,
         teacher: course.teacher,
         room: course.room,
@@ -930,7 +1021,11 @@ const buildConflictBlocks = (day, mergedCourses, weekNumber) => {
         weekday: course.weekday,
         period: course.period,
         djs: course.djs,
+        weeks: Array.isArray(course.weeks) ? [...course.weeks] : [],
         weeks_text: course.weeks_text,
+        credit: course.credit,
+        class_name: course.class_name,
+        semester: course.semester || semester.value || semesterDraft.value || '',
         is_custom: !!course.is_custom
       }))
     })
@@ -1157,6 +1252,36 @@ const openDetail = (course) => {
   showDetail.value = true
 }
 
+const findCustomCourseRecord = (courseId, targetSemester = '') => {
+  const normalizedId = String(courseId || '').trim()
+  const normalizedSemester = String(targetSemester || '').trim()
+  if (!normalizedId) return null
+  const pools = [customScheduleData.value, allCustomCourses.value]
+  for (const pool of pools) {
+    const found = (pool || []).find((item) => {
+      const itemId = String(item?.source_id || item?.id || '').trim()
+      const itemSemester = String(item?.semester || '').trim()
+      if (!itemId || itemId !== normalizedId) return false
+      if (normalizedSemester && itemSemester && itemSemester !== normalizedSemester) return false
+      return true
+    })
+    if (found) return normalizeCustomCourse(found)
+  }
+  return null
+}
+
+const syncSelectedCustomCourse = (courseId, targetSemester = '') => {
+  const nextCourse = findCustomCourseRecord(courseId, targetSemester)
+  if (!nextCourse) {
+    if (showDetail.value) {
+      showDetail.value = false
+    }
+    selectedCourse.value = null
+    return
+  }
+  selectedCourse.value = nextCourse
+}
+
 const resetAddCourseForm = () => {
   addCourseForm.value = {
     name: '',
@@ -1171,6 +1296,22 @@ const resetAddCourseForm = () => {
   showWeekPicker.value = false
 }
 
+const populateCourseForm = (course) => {
+  const normalized = normalizeCustomCourse(course)
+  if (!normalized) return
+  addCourseForm.value = {
+    name: String(normalized.name || '').trim(),
+    teacher: String(normalized.teacher || '').trim(),
+    room: String(normalized.room || '').trim(),
+    weekday: Number(normalized.weekday || 1),
+    period: Number(normalized.period || 1),
+    djs: Math.max(1, Number(normalized.djs || 1)),
+    weeks: normalizeWeeks(normalized.weeks)
+  }
+  addCourseError.value = ''
+  showWeekPicker.value = false
+}
+
 const hasValidLoginSession = () => {
   const sid = String(props.studentId || '').trim()
   const sessionToken = String(localStorage.getItem(LOGIN_SESSION_TOKEN_KEY) || '').trim()
@@ -1178,11 +1319,11 @@ const hasValidLoginSession = () => {
 }
 
 const promptLoginRequired = async () => {
-  errorMsg.value = '请先登录后再添加课程'
+  errorMsg.value = '请先登录后再管理自定义课程'
   showMenu.value = false
   await askConfirm({
     title: '需要登录',
-    lines: ['请先登录后再添加课程。'],
+    lines: ['请先登录后再管理自定义课程。'],
     confirmText: '我知道了',
     cancelText: '关闭',
     danger: false
@@ -1199,6 +1340,10 @@ const openAddCourseDialog = () => {
     semesterError.value = '请先选择学期后再添加课程'
     return
   }
+  courseDialogMode.value = 'add'
+  editingCourseId.value = ''
+  editingCourseSemester.value = sem
+  returnToDetailAfterCourseSubmit.value = false
   resetAddCourseForm()
   showAddCourse.value = true
 }
@@ -1207,6 +1352,46 @@ const closeAddCourseDialog = () => {
   showAddCourse.value = false
   showWeekPicker.value = false
   addCourseError.value = ''
+  courseDialogMode.value = 'add'
+  editingCourseId.value = ''
+  editingCourseSemester.value = ''
+  returnToDetailAfterCourseSubmit.value = false
+}
+
+const openEditCourseDialog = (course, { reopenDetail = false } = {}) => {
+  const normalized = normalizeCustomCourse(course)
+  if (!normalized?.is_custom) return
+  courseDialogMode.value = 'edit'
+  editingCourseId.value = String(normalized.source_id || normalized.id || '').trim()
+  editingCourseSemester.value = String(normalized.semester || semester.value || semesterDraft.value || '').trim()
+  returnToDetailAfterCourseSubmit.value = reopenDetail
+  populateCourseForm(normalized)
+  showDetail.value = false
+  showAddCourse.value = true
+  showMenu.value = false
+}
+
+const toggleManageSemester = (semesterKey) => {
+  manageExpandedSemesters.value = {
+    ...manageExpandedSemesters.value,
+    [semesterKey]: !manageExpandedSemesters.value[semesterKey]
+  }
+}
+
+const openManageCoursesDialog = async () => {
+  if (!hasValidLoginSession()) {
+    await promptLoginRequired()
+    return
+  }
+  showMenu.value = false
+  showManageCourses.value = true
+  await loadAllCustomCourses()
+}
+
+const closeManageCoursesDialog = () => {
+  showManageCourses.value = false
+  loadingManageCourses.value = false
+  manageCoursesError.value = ''
 }
 
 const toggleAddCourseWeek = (week) => {
@@ -1241,12 +1426,25 @@ const validateAddCourse = () => {
   return ''
 }
 
+const refreshCustomCourseViews = async (targetSemester = '') => {
+  const normalizedSemester = String(targetSemester || '').trim()
+  const currentSemester = String(semester.value || semesterDraft.value || '').trim()
+  if (normalizedSemester && normalizedSemester === currentSemester) {
+    await loadCustomCourses(normalizedSemester)
+  } else {
+    mergeScheduleSources()
+  }
+  if (showManageCourses.value) {
+    await loadAllCustomCourses()
+  }
+}
+
 const submitAddCourse = async () => {
   if (!hasValidLoginSession()) {
     await promptLoginRequired()
     return
   }
-  const sem = String(semester.value || semesterDraft.value || '').trim()
+  const sem = String(courseDialogSemester.value || '').trim()
   if (!sem) {
     addCourseError.value = '学期无效，请重新选择'
     return
@@ -1275,16 +1473,17 @@ const submitAddCourse = async () => {
     weeks
   }
 
+  const isEditing = courseDialogMode.value === 'edit'
   const confirmText = [
-    `确认添加到学期：${sem}`,
+    `确认${isEditing ? '修改' : '添加'}到学期：${sem}`,
     `课程：${payload.name}`,
     `时间：${weekDayLabels[payload.weekday - 1]} 第${payload.period}-${payload.period + payload.djs - 1}节`,
     `周次：${formatWeeksText(weeks)}`
   ]
   const confirmed = await askConfirm({
-    title: '确认添加课程',
+    title: isEditing ? '确认修改课程' : '确认添加课程',
     lines: confirmText,
-    confirmText: '确认添加',
+    confirmText: isEditing ? '确认修改' : '确认添加',
     cancelText: '取消',
     danger: false
   })
@@ -1295,34 +1494,51 @@ const submitAddCourse = async () => {
   addingCourse.value = true
   addCourseError.value = ''
   try {
-    const res = await axios.post(`${API_BASE}/v2/schedule/custom/add`, payload)
+    const requestPayload = isEditing
+      ? {
+          ...payload,
+          course_id: String(editingCourseId.value || '').trim()
+        }
+      : payload
+    const res = await axios.post(
+      `${API_BASE}${isEditing ? '/v2/schedule/custom/update' : '/v2/schedule/custom/add'}`,
+      requestPayload
+    )
     if (!res.data?.success) {
-      throw new Error(res.data?.error || '添加课程失败')
+      throw new Error(res.data?.error || `${isEditing ? '修改' : '添加'}课程失败`)
     }
-    await loadCustomCourses(sem)
+    await refreshCustomCourseViews(sem)
     showAddCourse.value = false
     showWeekPicker.value = false
+    if (isEditing && editingCourseId.value && returnToDetailAfterCourseSubmit.value) {
+      syncSelectedCustomCourse(editingCourseId.value, sem)
+      showDetail.value = !!selectedCourse.value
+    }
+    courseDialogMode.value = 'add'
+    editingCourseId.value = ''
+    editingCourseSemester.value = ''
+    returnToDetailAfterCourseSubmit.value = false
   } catch (e) {
-    addCourseError.value = String(e?.response?.data?.error || e?.message || '添加课程失败')
+    addCourseError.value = String(e?.response?.data?.error || e?.message || `${isEditing ? '修改' : '添加'}课程失败`)
   } finally {
     addingCourse.value = false
   }
 }
 
-const deleteCustomCourse = async (mode) => {
-  const course = selectedCourse.value
-  if (!course?.is_custom) return
-  const sem = String(semester.value || semesterDraft.value || '').trim()
+const deleteCustomCourseRecord = async (course, mode = 'all', { reopenDetail = false } = {}) => {
+  const normalized = normalizeCustomCourse(course)
+  if (!normalized?.is_custom) return false
+  const sem = String(normalized.semester || semester.value || semesterDraft.value || '').trim()
   const sid = String(props.studentId || '').trim()
   if (!sem || !sid) return
-  const courseId = String(course.source_id || course.id || '').trim()
+  const courseId = String(normalized.source_id || normalized.id || '').trim()
   if (!courseId) return
 
   const isCurrentWeek = mode === 'current_week'
   const week = Number(selectedWeek.value || 0)
   const message = isCurrentWeek
-    ? `确认删除“${course.name}”在第${week}周的课程吗？`
-    : `确认删除“${course.name}”的全部已选周次吗？`
+    ? `确认删除“${normalized.name}”在第${week}周的课程吗？`
+    : `确认删除“${normalized.name}”的全部已选周次吗？`
   const confirmed = await askConfirm({
     title: '确认删除课程',
     lines: [message],
@@ -1344,12 +1560,50 @@ const deleteCustomCourse = async (mode) => {
     if (!res.data?.success) {
       throw new Error(res.data?.error || '删除课程失败')
     }
-    await loadCustomCourses(sem)
-    showDetail.value = false
+    await refreshCustomCourseViews(sem)
+    if (reopenDetail && !isCurrentWeek) {
+      syncSelectedCustomCourse(courseId, sem)
+      showDetail.value = !!selectedCourse.value
+    } else {
+      showDetail.value = false
+      selectedCourse.value = null
+    }
     detailActionError.value = ''
+    return true
   } catch (e) {
     detailActionError.value = String(e?.response?.data?.error || e?.message || '删除课程失败')
+    return false
   }
+}
+
+const deleteCustomCourse = async (mode) => {
+  const course = selectedCourse.value
+  if (!course?.is_custom) return
+  await deleteCustomCourseRecord(course, mode, { reopenDetail: mode === 'current_week' })
+}
+
+const deleteManagedCourse = async (course) => {
+  const ok = await deleteCustomCourseRecord(course, 'all', { reopenDetail: false })
+  if (!ok && detailActionError.value) {
+    manageCoursesError.value = detailActionError.value
+  }
+}
+
+const openConflictCourseDetail = (course) => {
+  const nextCourse = course?.is_custom
+    ? (findCustomCourseRecord(course.source_id || course.id, course.semester) || normalizeCustomCourse(course))
+    : {
+        ...course,
+        is_conflict: false
+      }
+  if (!nextCourse) return
+  showDetail.value = false
+  nextTick(() => {
+    openDetail({
+      ...nextCourse,
+      is_conflict: false
+    })
+  })
 }
 
 // 滑动翻页（距离+速度双阈值）
@@ -1364,6 +1618,7 @@ const shouldIgnoreWeekSwipe = () => {
   return (
     showMenu.value ||
     showAddCourse.value ||
+    showManageCourses.value ||
     showWeekPicker.value ||
     showDetail.value ||
     showConfirmDialog.value ||
@@ -1936,9 +2191,17 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="drawer-actions">
-          <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
-            添加课程
-          </button>
+          <div class="drawer-course-group">
+            <div class="drawer-subtitle">自定义课程管理</div>
+            <div class="drawer-course-actions">
+              <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
+                添加课程
+              </button>
+              <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="openManageCoursesDialog">
+                {{ loadingManageCourses ? '加载中...' : '管理课程' }}
+              </button>
+            </div>
+          </div>
           <div class="drawer-sync-group">
             <div class="drawer-subtitle">自定义课程同步</div>
             <div class="drawer-sync-actions">
@@ -2005,11 +2268,11 @@ onBeforeUnmount(() => {
       <div v-if="showAddCourse" class="modal-overlay" @click="closeAddCourseDialog">
         <div class="modal-content glass add-course-modal" @click.stop>
           <div class="modal-header">
-            <h3>添加课程</h3>
+            <h3>{{ courseDialogMode === 'edit' ? '修改课程' : '添加课程' }}</h3>
             <button class="close-btn" @click="closeAddCourseDialog">×</button>
           </div>
           <div class="modal-body add-course-body">
-            <div class="add-course-semester">学期：{{ semester || semesterDraft }}</div>
+            <div class="add-course-semester">学期：{{ courseDialogSemester }}</div>
             <label class="add-field">
               <span>课程名称 *</span>
               <input v-model.trim="addCourseForm.name" type="text" placeholder="请输入课程名称" />
@@ -2053,8 +2316,61 @@ onBeforeUnmount(() => {
           <div class="add-actions">
             <button class="drawer-action ghost" :disabled="addingCourse" @click="closeAddCourseDialog">取消</button>
             <button class="drawer-action" :disabled="addingCourse" @click="submitAddCourse">
-              {{ addingCourse ? '正在添加...' : '添加并确认' }}
+              {{ addingCourse ? `正在${courseDialogMode === 'edit' ? '修改' : '添加'}...` : `${courseDialogMode === 'edit' ? '修改' : '添加'}并确认` }}
             </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="fade">
+      <div v-if="showManageCourses" class="modal-overlay" @click="closeManageCoursesDialog">
+        <div class="modal-content glass manage-course-modal" @click.stop>
+          <div class="modal-header">
+            <h3>管理课程</h3>
+            <button class="close-btn" @click="closeManageCoursesDialog">×</button>
+          </div>
+          <div class="modal-body manage-course-body">
+            <div v-if="loadingManageCourses" class="manage-course-empty">正在加载自定义课程...</div>
+            <div v-else-if="manageCoursesError" class="manage-course-error">{{ manageCoursesError }}</div>
+            <div v-else-if="!managedCourseGroups.length" class="manage-course-empty">暂未添加自定义课程</div>
+            <div v-else class="manage-course-groups">
+              <section
+                v-for="group in managedCourseGroups"
+                :key="group.semester"
+                class="manage-course-group"
+              >
+                <button class="manage-course-group-header" @click="toggleManageSemester(group.semester)">
+                  <div class="manage-course-group-title">
+                    <strong>{{ group.semester }}</strong>
+                    <span>{{ group.courses.length }} 门</span>
+                  </div>
+                  <span class="manage-course-group-arrow">{{ manageExpandedSemesters[group.semester] ? '收起' : '展开' }}</span>
+                </button>
+                <div v-if="manageExpandedSemesters[group.semester]" class="manage-course-list">
+                  <article
+                    v-for="course in group.courses"
+                    :key="`${group.semester}-${course.source_id || course.id}`"
+                    class="manage-course-card"
+                  >
+                    <div class="manage-course-card-main">
+                      <div class="manage-course-card-name">{{ course.name }}</div>
+                      <div class="manage-course-card-meta">
+                        {{ weekDayLabels[(course.weekday || 1) - 1] }} 第{{ course.period }}-{{ getCourseEndPeriod(course) }}节
+                      </div>
+                      <div class="manage-course-card-meta">周次：{{ course.weeks_text }}</div>
+                      <div v-if="course.teacher || course.room" class="manage-course-card-meta">
+                        {{ [course.teacher, course.room].filter(Boolean).join(' · ') }}
+                      </div>
+                    </div>
+                    <div class="manage-course-card-actions">
+                      <button class="manage-course-btn edit" @click="openEditCourseDialog(course)">修改</button>
+                      <button class="manage-course-btn delete" @click="deleteManagedCourse(course)">删除</button>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
           </div>
         </div>
       </div>
@@ -2187,6 +2503,8 @@ onBeforeUnmount(() => {
               v-for="(item, idx) in selectedCourse?.conflict_courses || []"
               :key="`${item.id || item.name}-${idx}`"
               class="conflict-item"
+              :class="{ clickable: item.is_custom }"
+              @click="item.is_custom && openConflictCourseDetail(item)"
             >
               <div class="conflict-item-title">
                 {{ idx + 1 }}. {{ item.name }}
@@ -2226,11 +2544,12 @@ onBeforeUnmount(() => {
               <span class="label">学分</span>
               <span class="value">{{ selectedCourse?.credit }}</span>
             </div>
-             <div class="info-row">
+            <div class="info-row">
               <span class="label">教学班</span>
               <span class="value">{{ selectedCourse?.class_name }}</span>
             </div>
             <div v-if="selectedCourse?.is_custom" class="custom-course-actions">
+              <button class="custom-delete-btn edit" @click="openEditCourseDialog(selectedCourse, { reopenDetail: true })">修改课程</button>
               <button class="custom-delete-btn week" @click="deleteCustomCourse('current_week')">删除这一周</button>
               <button class="custom-delete-btn all" @click="deleteCustomCourse('all')">删除全部周次</button>
             </div>
@@ -2501,6 +2820,21 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.drawer-course-group {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, var(--ui-surface-border));
+  background: color-mix(in oklab, var(--ui-primary-soft) 24%, var(--ui-surface) 76%);
+}
+
+.drawer-course-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .drawer-sync-group {
   display: grid;
   gap: 8px;
@@ -2523,6 +2857,11 @@ onBeforeUnmount(() => {
 .drawer-action.add-course {
   background: linear-gradient(135deg, #f97316, #ec4899);
   box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26);
+}
+
+.drawer-action.manage-course {
+  background: linear-gradient(135deg, #8b5cf6, #2563eb);
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.22);
 }
 
 .drawer-action.sync-upload {
@@ -3049,7 +3388,7 @@ onBeforeUnmount(() => {
 .custom-course-actions {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -3065,6 +3404,11 @@ onBeforeUnmount(() => {
 .custom-delete-btn.week {
   background: #fee2e2;
   color: #b91c1c;
+}
+
+.custom-delete-btn.edit {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .custom-delete-btn.all {
@@ -3096,6 +3440,16 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
 }
 
+.conflict-item.clickable {
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.conflict-item.clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(239, 68, 68, 0.12);
+}
+
 .conflict-item:last-child {
   margin-bottom: 0;
 }
@@ -3124,6 +3478,136 @@ onBeforeUnmount(() => {
   margin-top: 6px;
   font-size: 12px;
   color: #374151;
+}
+
+.manage-course-modal {
+  width: min(92vw, 560px);
+  max-width: 560px;
+}
+
+.manage-course-body {
+  max-height: min(72vh, 560px);
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.manage-course-empty,
+.manage-course-error {
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 13px;
+}
+
+.manage-course-empty {
+  background: color-mix(in oklab, var(--ui-primary-soft) 18%, #ffffff 82%);
+  color: #475569;
+}
+
+.manage-course-error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #b91c1c;
+}
+
+.manage-course-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.manage-course-group {
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-surface-border));
+  background: color-mix(in oklab, var(--ui-primary-soft) 14%, var(--ui-surface) 86%);
+  overflow: hidden;
+}
+
+.manage-course-group-header {
+  width: 100%;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.manage-course-group-title {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.manage-course-group-title strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.manage-course-group-title span,
+.manage-course-group-arrow {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.manage-course-list {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.manage-course-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.manage-course-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.manage-course-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.manage-course-card-meta {
+  font-size: 12px;
+  color: #475569;
+}
+
+.manage-course-card-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.manage-course-btn {
+  min-width: 76px;
+  min-height: 34px;
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.manage-course-btn.edit {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.manage-course-btn.delete {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .confirm-overlay {
