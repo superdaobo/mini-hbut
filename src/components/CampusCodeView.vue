@@ -622,6 +622,85 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+:global(html[data-theme='graphite_night']) .campus-code-view {
+  background:
+    radial-gradient(130% 120% at 8% 0%, rgba(37, 99, 235, 0.16), transparent 42%),
+    linear-gradient(180deg, #07111f 0%, #0d1726 52%, #132132 100%);
+  color: #e2e8f0;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .code-header,
+:global(html[data-theme='graphite_night']) .campus-code-view .mode-panel,
+:global(html[data-theme='graphite_night']) .campus-code-view .status-panel,
+:global(html[data-theme='graphite_night']) .campus-code-view .qr-panel,
+:global(html[data-theme='graphite_night']) .campus-code-view .order-panel {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.84)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 28%, rgba(148, 163, 184, 0.28)) !important;
+  box-shadow:
+    0 16px 34px rgba(2, 6, 23, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .title-text,
+:global(html[data-theme='graphite_night']) .campus-code-view .line .value,
+:global(html[data-theme='graphite_night']) .campus-code-view .order-panel h3,
+:global(html[data-theme='graphite_night']) .campus-code-view .meta-item strong {
+  color: #f8fbff !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .header-btn,
+:global(html[data-theme='graphite_night']) .campus-code-view .mode-chip {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.76), rgba(30, 41, 59, 0.72)) !important;
+  color: #dbe6f7 !important;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.24)) !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .mode-chip.active {
+  color: #ffffff !important;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--ui-primary) 86%, #1e3a8a 14%) 0%,
+    color-mix(in oklab, var(--ui-secondary) 88%, #0ea5e9 12%) 100%
+  ) !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .line .label,
+:global(html[data-theme='graphite_night']) .campus-code-view .loading-block,
+:global(html[data-theme='graphite_night']) .campus-code-view .qr-empty,
+:global(html[data-theme='graphite_night']) .campus-code-view .order-panel p,
+:global(html[data-theme='graphite_night']) .campus-code-view .meta-item span {
+  color: #9fb0cb !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .meta-item {
+  background: linear-gradient(160deg, rgba(8, 15, 28, 0.6), rgba(15, 23, 42, 0.52)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.18)) !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .banner.idle {
+  color: #dbe6f7 !important;
+  border-color: rgba(148, 163, 184, 0.32) !important;
+  background: rgba(15, 23, 42, 0.82) !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .banner.warn {
+  color: #fde68a !important;
+  border-color: rgba(251, 191, 36, 0.34) !important;
+  background: rgba(120, 53, 15, 0.3) !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .banner.error {
+  color: #fecaca !important;
+  border-color: rgba(248, 113, 113, 0.34) !important;
+  background: rgba(127, 29, 29, 0.34) !important;
+}
+
+:global(html[data-theme='graphite_night']) .campus-code-view .banner.success {
+  color: #bbf7d0 !important;
+  border-color: rgba(74, 222, 128, 0.34) !important;
+  background: rgba(20, 83, 45, 0.34) !important;
+}
+
 @keyframes spin {
   from {
     transform: rotate(0deg);

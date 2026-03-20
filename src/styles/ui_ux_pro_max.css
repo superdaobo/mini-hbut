@@ -585,15 +585,105 @@ html[data-theme='graphite_night'] :is(
   .room-card,
   .calendar-card,
   .exam-item,
-  .course-card,
   .transaction-card,
   .book-card,
   .resource-card,
   .content-card,
-  .modal-card
+  .modal-card,
+  .mode-panel,
+  .status-panel,
+  .qr-panel,
+  .order-panel,
+  .stream-debug,
+  .history-panel,
+  .confirm-dialog,
+  .thinking-window,
+  .attachment-bar,
+  .input-area
 ) {
   background: linear-gradient(160deg, rgba(15, 23, 42, 0.86), rgba(30, 41, 59, 0.82)) !important;
   border-color: color-mix(in oklab, var(--ui-primary) 28%, rgba(148, 163, 184, 0.28)) !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(
+  .mode-panel,
+  .status-panel,
+  .qr-panel,
+  .order-panel,
+  .stream-debug,
+  .history-panel,
+  .confirm-dialog,
+  .thinking-window,
+  .attachment-bar,
+  .input-area
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.84), rgba(30, 41, 59, 0.8)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 26%, rgba(148, 163, 184, 0.28)) !important;
+}
+
+html[data-theme='graphite_night'] .app-shell .dashboard .notice-panel .ticker-card {
+  background: var(--ticker-card-bg, linear-gradient(135deg, #60a5fa, #3b82f6)) !important;
+  color: #ffffff !important;
+}
+
+html[data-theme='graphite_night'] .app-shell .dashboard .notice-panel :is(.ticker-card-title, .ticker-card-sub) {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+html[data-theme='graphite_night'] .app-shell .schedule-view .courses-grid .day-column > .course-card {
+  background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
+  color: var(--course-text, #0f172a) !important;
+  border-color: var(--course-border, rgba(148, 163, 184, 0.55)) !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(
+  .glass-card,
+  .module-card,
+  .search-card,
+  .filter-card,
+  .result-card,
+  .summary-card,
+  .stats-card,
+  .info-card,
+  .list-card,
+  .setting-card,
+  .settings-section,
+  .today-panel,
+  .notice-panel,
+  .results-info,
+  .room-card,
+  .calendar-card,
+  .exam-item,
+  .transaction-card,
+  .book-card,
+  .resource-card,
+  .content-card,
+  .modal-card,
+  .mode-panel,
+  .status-panel,
+  .qr-panel,
+  .order-panel,
+  .stream-debug,
+  .history-panel,
+  .confirm-dialog,
+  .thinking-window,
+  .attachment-bar,
+  .input-area
+) {
+  color: #dbe6f7 !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(a, .link, [class*='link']) {
+  color: #93c5fd !important;
+}
+
+html[data-theme='graphite_night'] .app-shell :is(button, .btn, [class*='btn']) {
+  color: #e7f0ff;
 }
 
 html[data-theme='graphite_night'] :is(.today-item-name, .module-name, .title, h1, h2, h3) {

@@ -102,6 +102,17 @@ fn ensure_local_cache_auth(headers: &HeaderMap, state: &HttpState) -> Result<(),
     Ok(())
 }
 
+fn ensure_debug_bridge_enabled(state: &HttpState) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if !debug_bridge::is_bridge_tools_enabled(&state.app) {
+        return Err(err(
+            StatusCode::FORBIDDEN,
+            "调试接口已禁用",
+            "debug.enable_bridge_tools 未开启".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn is_allowed_cache_table(table: &str) -> bool {
     matches!(
         table,
@@ -169,11 +180,16 @@ use crate::{UserInfo, QxzkbQuery, AddCustomScheduleCourseRequest, DeleteCustomSc
 use crate::db;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use crate::http_client::HbutClient;
+use tauri::{AppHandle, Emitter};
+use crate::debug_bridge::{
+    self, DebugScreenshotBridgeError, DebugScreenshotRequest,
+};
 
 #[derive(Clone)]
 struct HttpState {
     client: Arc<Mutex<HbutClient>>,
     local_api_key: Option<DecodingKey>,
+    app: AppHandle,
 }
 
 #[derive(Debug, Deserialize)]
@@ -260,6 +276,33 @@ struct CustomScheduleListRequest {
 #[derive(Debug, Deserialize)]
 struct CustomScheduleListAllRequest {
     student_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DebugCustomScheduleUpsertRequest {
+    student_id: String,
+    courses: Vec<DebugCustomScheduleCourseInput>,
+    dry_run: Option<bool>,
+    return_conflicts: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DebugNavigateRequest {
+    view: String,
+    student_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DebugCustomScheduleCourseInput {
+    id: Option<String>,
+    semester: String,
+    name: String,
+    teacher: Option<String>,
+    room: Option<String>,
+    weekday: i32,
+    period: i32,
+    djs: i32,
+    weeks: Vec<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -397,10 +440,11 @@ struct AiSessionDeleteRequest {
 }
 
 /// 启动本地 Bridge 服务
-pub fn spawn_http_server(client: Arc<Mutex<HbutClient>>) {
+pub fn spawn_http_server(client: Arc<Mutex<HbutClient>>, app: AppHandle) {
     let state = HttpState { 
         client,
         local_api_key: load_local_api_public_key(),
+        app,
     };
     tauri::async_runtime::spawn(async move {
         if let Err(e) = run_http_server(state).await {
@@ -431,6 +475,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/schedule/custom/add", post(schedule_custom_add))
         .route("/schedule/custom/delete", post(schedule_custom_delete))
         .route("/schedule/custom/update", post(schedule_custom_update))
+        .route("/debug/custom_schedule/upsert", post(debug_custom_schedule_upsert))
+        .route("/debug/navigate", post(debug_navigate))
+        .route("/debug/screenshot", post(debug_screenshot))
         .route("/fetch_exams", post(fetch_exams))
         .route("/fetch_ranking", post(fetch_ranking))
         .route("/fetch_student_info", post(fetch_student_info))
@@ -727,6 +774,125 @@ fn strip_custom_course_id(value: &str) -> String {
     value.trim().trim_start_matches("custom:").to_string()
 }
 
+fn validate_debug_custom_schedule_course(
+    student_id: &str,
+    course: &DebugCustomScheduleCourseInput,
+) -> Result<db::CustomScheduleCourseRecord, String> {
+    let semester = course.semester.trim().to_string();
+    let name = course.name.trim().to_string();
+    if semester.is_empty() {
+        return Err("semester 不能为空".to_string());
+    }
+    if name.is_empty() {
+        return Err("课程名称不能为空".to_string());
+    }
+    if !(1..=7).contains(&course.weekday) {
+        return Err("上课时间必须是周一到周日".to_string());
+    }
+    if !(1..=11).contains(&course.period) {
+        return Err("开始节次必须在 1-11 节".to_string());
+    }
+    let max_span = 12 - course.period;
+    if course.djs < 1 || course.djs > max_span {
+        return Err(format!("上课节数不合法，当前最多可选 {} 节", max_span));
+    }
+    let weeks = normalize_custom_weeks(&course.weeks);
+    if weeks.is_empty() {
+        return Err("请至少选择一个上课周次".to_string());
+    }
+
+    let provided_id = course
+        .id
+        .as_deref()
+        .map(strip_custom_course_id)
+        .unwrap_or_default();
+    let id = if provided_id.is_empty() {
+        let mut rng = rand::thread_rng();
+        format!("c{}{:04}", Utc::now().timestamp_millis(), rng.gen_range(0..10000))
+    } else {
+        provided_id
+    };
+    let now = chrono::Local::now().to_rfc3339();
+    Ok(db::CustomScheduleCourseRecord {
+        id,
+        student_id: student_id.to_string(),
+        semester,
+        name,
+        teacher: course.teacher.clone().unwrap_or_default().trim().to_string(),
+        room: course.room.clone().unwrap_or_default().trim().to_string(),
+        weekday: course.weekday,
+        period: course.period,
+        djs: course.djs,
+        weeks,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+fn schedule_ranges_overlap(
+    left_period: i32,
+    left_span: i32,
+    right_period: i32,
+    right_span: i32,
+) -> bool {
+    let left_end = left_period + left_span - 1;
+    let right_end = right_period + right_span - 1;
+    left_period <= right_end && right_period <= left_end
+}
+
+fn weeks_intersection(left: &[i32], right: &[i32]) -> Vec<i32> {
+    let right_set = right.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    left.iter()
+        .copied()
+        .filter(|item| right_set.contains(item))
+        .collect::<Vec<_>>()
+}
+
+fn build_custom_schedule_conflicts(courses: &[db::CustomScheduleCourseRecord]) -> Vec<serde_json::Value> {
+    let mut grouped: std::collections::BTreeMap<String, Vec<&db::CustomScheduleCourseRecord>> =
+        std::collections::BTreeMap::new();
+    for course in courses {
+        grouped
+            .entry(course.semester.clone())
+            .or_default()
+            .push(course);
+    }
+    let mut output = Vec::new();
+    for (semester, items) in grouped {
+        let mut semester_conflicts = Vec::new();
+        for i in 0..items.len() {
+            for j in (i + 1)..items.len() {
+                let left = items[i];
+                let right = items[j];
+                if left.weekday != right.weekday {
+                    continue;
+                }
+                if !schedule_ranges_overlap(left.period, left.djs, right.period, right.djs) {
+                    continue;
+                }
+                let overlap_weeks = weeks_intersection(&left.weeks, &right.weeks);
+                if overlap_weeks.is_empty() {
+                    continue;
+                }
+                semester_conflicts.push(serde_json::json!({
+                    "left": custom_course_payload(left),
+                    "right": custom_course_payload(right),
+                    "overlapWeeks": overlap_weeks,
+                    "weekday": left.weekday,
+                    "leftPeriod": left.period,
+                    "rightPeriod": right.period
+                }));
+            }
+        }
+        output.push(serde_json::json!({
+            "semester": semester,
+            "count": semester_conflicts.len(),
+            "items": semester_conflicts
+        }));
+    }
+    output
+}
+
 async fn schedule_custom_list(
     Json(req): Json<CustomScheduleListRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
@@ -974,6 +1140,197 @@ async fn schedule_custom_update(
     Ok(ok(serde_json::json!({
         "success": true,
         "data": custom_course_payload(&updated)
+    })))
+}
+
+async fn debug_custom_schedule_upsert(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<DebugCustomScheduleUpsertRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_local_cache_auth(&headers, &state)?;
+    ensure_debug_bridge_enabled(&state)?;
+
+    let student_id = req.student_id.trim().to_string();
+    if student_id.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+    }
+    if req.courses.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "courses 不能为空".to_string()));
+    }
+
+    let dry_run = req.dry_run.unwrap_or(false);
+    let return_conflicts = req.return_conflicts.unwrap_or(true);
+    let existing_all = db::list_all_custom_schedule_courses(DB_FILENAME, student_id.as_str())
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+    let mut simulated = existing_all
+        .iter()
+        .map(|course| (course.id.clone(), course.clone()))
+        .collect::<HashMap<String, db::CustomScheduleCourseRecord>>();
+    let mut persisted = Vec::new();
+    let mut affected_semesters = std::collections::BTreeSet::new();
+
+    for (index, input) in req.courses.iter().enumerate() {
+        let mut record = validate_debug_custom_schedule_course(student_id.as_str(), input).map_err(|message| {
+            err(
+                StatusCode::BAD_REQUEST,
+                "参数错误",
+                format!("第 {} 条课程不合法: {}", index + 1, message),
+            )
+        })?;
+        if let Some(existing) = simulated.get(record.id.as_str()) {
+            record.created_at = existing.created_at.clone();
+            record.updated_at = chrono::Local::now().to_rfc3339();
+        }
+        affected_semesters.insert(record.semester.clone());
+        simulated.insert(record.id.clone(), record.clone());
+        if !dry_run {
+            if db::get_custom_schedule_course(DB_FILENAME, student_id.as_str(), record.id.as_str())
+                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
+                .is_some()
+            {
+                db::update_custom_schedule_course(DB_FILENAME, &record)
+                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+            } else {
+                db::add_custom_schedule_course(DB_FILENAME, &record)
+                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+            }
+        }
+        persisted.push(record);
+    }
+
+    let persisted_payload = persisted
+        .iter()
+        .map(custom_course_payload)
+        .collect::<Vec<serde_json::Value>>();
+
+    let conflict_payload = if return_conflicts {
+        let final_courses = if dry_run {
+            simulated.values().cloned().collect::<Vec<_>>()
+        } else {
+            db::list_all_custom_schedule_courses(DB_FILENAME, student_id.as_str())
+                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
+        };
+        let affected_courses = final_courses
+            .into_iter()
+            .filter(|course| affected_semesters.contains(course.semester.as_str()))
+            .collect::<Vec<_>>();
+        serde_json::Value::Array(build_custom_schedule_conflicts(&affected_courses))
+    } else {
+        serde_json::Value::Array(Vec::new())
+    };
+
+    eprintln!(
+        "[DebugBridge] custom_schedule/upsert sid={} dry_run={} count={}",
+        student_id,
+        dry_run,
+        req.courses.len()
+    );
+
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "dry_run": dry_run,
+        "courses": persisted_payload,
+        "conflicts": conflict_payload
+    })))
+}
+
+async fn debug_screenshot(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<DebugScreenshotRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_screenshot skipped auth: local_api_key not configured"
+        );
+    }
+    match debug_bridge::request_debug_screenshot(&state.app, req, 15_000).await {
+        Ok(result) => {
+            eprintln!(
+                "[DebugBridge] screenshot ok path={} {}x{}",
+                result.saved_path.clone().unwrap_or_default(),
+                result.width,
+                result.height
+            );
+            Ok(ok(serde_json::json!({
+                "saved_path": result.saved_path,
+                "mime": result.mime,
+                "width": result.width,
+                "height": result.height,
+                "base64": result.base64
+            })))
+        }
+        Err(DebugScreenshotBridgeError::NotReady) => Err(err(
+            StatusCode::CONFLICT,
+            "页面未就绪",
+            "当前页面尚未注册调试截图响应器".to_string(),
+        )),
+        Err(DebugScreenshotBridgeError::Timeout) => Err(err(
+            StatusCode::GATEWAY_TIMEOUT,
+            "截图超时",
+            "15 秒内未收到页面截图响应".to_string(),
+        )),
+        Err(DebugScreenshotBridgeError::Failed(message)) => Err(err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "截图失败",
+            message,
+        )),
+    }
+}
+
+async fn debug_navigate(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<DebugNavigateRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_navigate skipped auth: local_api_key not configured"
+        );
+    }
+
+    let view = req.view.trim().to_string();
+    if view.is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "view 不能为空".to_string(),
+        ));
+    }
+
+    let student_id = req
+        .student_id
+        .as_deref()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    let payload = serde_json::json!({
+        "view": view,
+        "studentId": student_id,
+    });
+
+    state
+        .app
+        .emit("hbu-debug-navigate-request", payload)
+        .map_err(|e| {
+            err(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "导航失败",
+                format!("发送导航事件失败: {}", e),
+            )
+        })?;
+
+    Ok(ok(serde_json::json!({
+        "accepted": true,
+        "view": req.view,
+        "student_id": req.student_id
     })))
 }
 

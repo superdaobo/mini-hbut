@@ -2322,6 +2322,101 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+:global(html[data-theme='graphite_night']) .ai-view {
+  background:
+    radial-gradient(135% 120% at 6% 0%, rgba(37, 99, 235, 0.14), transparent 42%),
+    linear-gradient(180deg, #07111f 0%, #0d1726 52%, #132132 100%);
+  color: #e2e8f0;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .ai-header,
+:global(html[data-theme='graphite_night']) .ai-view .stream-debug,
+:global(html[data-theme='graphite_night']) .ai-view .attachment-bar,
+:global(html[data-theme='graphite_night']) .ai-view .input-area,
+:global(html[data-theme='graphite_night']) .ai-view .history-panel,
+:global(html[data-theme='graphite_night']) .ai-view .confirm-dialog,
+:global(html[data-theme='graphite_night']) .ai-view .thinking-window {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.84)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 28%, rgba(148, 163, 184, 0.28)) !important;
+  color: #dbe6f7 !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .back-btn,
+:global(html[data-theme='graphite_night']) .ai-view .history-btn,
+:global(html[data-theme='graphite_night']) .ai-view .new-chat-btn,
+:global(html[data-theme='graphite_night']) .ai-view .history-close,
+:global(html[data-theme='graphite_night']) .ai-view .retry-btn,
+:global(html[data-theme='graphite_night']) .ai-view .confirm-cancel {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.76), rgba(30, 41, 59, 0.72)) !important;
+  color: #e7f0ff !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.24)) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .debug-pill {
+  background: rgba(15, 23, 42, 0.68) !important;
+  color: #dbe6f7 !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .debug-pill.active,
+:global(html[data-theme='graphite_night']) .ai-view .thinking-window-state {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #bfdbfe !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .message-row.assistant .bubble {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.22));
+  color: #e2e8f0 !important;
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.24);
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .message-row.user .bubble {
+  color: #08111f !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .thinking-window-title,
+:global(html[data-theme='graphite_night']) .ai-view .history-title,
+:global(html[data-theme='graphite_night']) .ai-view .confirm-dialog h4 {
+  color: #f8fbff !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .thinking-content,
+:global(html[data-theme='graphite_night']) .ai-view .thinking-placeholder,
+:global(html[data-theme='graphite_night']) .ai-view .progress-hint,
+:global(html[data-theme='graphite_night']) .ai-view .stream-loading,
+:global(html[data-theme='graphite_night']) .ai-view .attachment-preview,
+:global(html[data-theme='graphite_night']) .ai-view .history-meta,
+:global(html[data-theme='graphite_night']) .ai-view .history-preview,
+:global(html[data-theme='graphite_night']) .ai-view .confirm-dialog p {
+  color: #9fb0cb !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .history-item {
+  background: rgba(15, 23, 42, 0.78) !important;
+  border-color: transparent !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .history-item.active {
+  background: rgba(30, 64, 175, 0.22) !important;
+  border-color: rgba(96, 165, 250, 0.36) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .input-area input[type='text'] {
+  background: rgba(15, 23, 42, 0.74) !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .input-area input[type='text']::placeholder {
+  color: #9fb0cb !important;
+}
+
+:global(html[data-theme='graphite_night']) .ai-view .rich-text :deep(pre),
+:global(html[data-theme='graphite_night']) .ai-view .rich-text :deep(code) {
+  background: rgba(8, 15, 28, 0.72) !important;
+  color: #e2e8f0 !important;
+}
+
 @media (max-width: 768px) {
   .ai-header {
     min-height: 54px;

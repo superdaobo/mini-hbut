@@ -1,11 +1,11 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import axios from 'axios'
-import html2canvas from 'html2canvas'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
+import { blobToDataUrl, waitForCaptureReady, renderElementToCanvas } from '../utils/capture_service'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -707,14 +707,6 @@ const collectExportData = async () => {
   }
 }
 
-const toDataUrl = (blob) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.onerror = (e) => reject(e)
-    reader.readAsDataURL(blob)
-  })
-
 const saveByTauri = async (fileName, mimeType, base64Content, preferMedia = false) => {
   const result = await invoke('save_export_file', {
     req: {
@@ -767,35 +759,6 @@ const exportJson = async () => {
   }
 }
 
-const waitForCloneReady = async (rootEl) => {
-  if (!rootEl) return
-
-  const fonts = document?.fonts
-  if (fonts?.ready) {
-    try {
-      await fonts.ready
-    } catch {
-      // 忽略字体探测异常，继续走兜底流程。
-    }
-  }
-
-  const images = Array.from(rootEl.querySelectorAll('img'))
-  if (images.length) {
-    await Promise.all(
-      images.map((img) => {
-        if (img.complete && img.naturalWidth > 0) return Promise.resolve()
-        return new Promise((resolve) => {
-          const done = () => resolve()
-          img.addEventListener('load', done, { once: true })
-          img.addEventListener('error', done, { once: true })
-        })
-      })
-    )
-  }
-
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-}
-
 const renderWideCanvas = async () => {
   if (!previewRef.value) throw new Error('导出画布未准备完成')
 
@@ -823,19 +786,10 @@ const renderWideCanvas = async () => {
 
   try {
     await nextTick()
-    await waitForCloneReady(clone)
-    return await html2canvas(clone, {
-      useCORS: true,
-      allowTaint: false,
-      imageTimeout: 15000,
-      scale: Math.max(2, Math.min(window.devicePixelRatio || 2, 3)),
-      backgroundColor: '#f4f7ff',
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: exportWidth,
-      windowHeight: Math.ceil(clone.scrollHeight + 64),
-      width: exportWidth
+    await waitForCaptureReady(clone)
+    return await renderElementToCanvas(clone, {
+      exportWidth,
+      backgroundColor: '#f4f7ff'
     })
   } finally {
     if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper)

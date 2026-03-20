@@ -1,0 +1,11 @@
+{
+  "version": "1.2.7",
+  "bundle_url": "./mini-hbut-web-1.2.7.zip",
+  "sha256": "101b5018cc102058f308c20dfd9cc272afff6bfaadf2c1034ed81c96d6f5da61",
+  "signature": "sha256:101b5018cc102058f308c20dfd9cc272afff6bfaadf2c1034ed81c96d6f5da61",
+  "min_bootstrap_version": "1.2.7",
+  "max_bootstrap_version": "1.2.7",
+  "min_native_version": "1.2.7",
+  "max_native_version": "1.2.7",
+  "notes": ""
+}

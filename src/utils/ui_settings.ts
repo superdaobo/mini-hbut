@@ -141,6 +141,13 @@ const applyUiSettings = (settings) => {
   const border = isDark
     ? `rgba(148, 163, 184, ${Math.max(0.14, settings.borderOpacity)})`
     : `rgba(148, 163, 184, ${settings.borderOpacity})`
+  const backBtnBg = isDark ? 'rgba(15, 23, 42, 0.82)' : 'rgba(255, 255, 255, 0.95)'
+  const backBtnText = isDark ? '#e2e8f0' : '#0f172a'
+  const backBtnBorder = isDark ? 'rgba(148, 163, 184, 0.34)' : 'rgba(15, 23, 42, 0.16)'
+  const backBtnShadow = isDark
+    ? '0 8px 18px rgba(2, 6, 23, 0.42)'
+    : '0 8px 18px rgba(15, 23, 42, 0.18)'
+  const backBtnHoverBg = isDark ? 'rgba(30, 41, 59, 0.9)' : '#ffffff'
 
   root.style.setProperty('--ui-primary', settings.primary)
   root.style.setProperty('--ui-secondary', settings.secondary)
@@ -157,6 +164,11 @@ const applyUiSettings = (settings) => {
   root.style.setProperty('--ui-motion-scale', String(settings.motionScale))
   root.style.setProperty('--ui-danger', settings.danger)
   root.style.setProperty('--ui-success', settings.success)
+  root.style.setProperty('--ui-back-btn-bg', backBtnBg)
+  root.style.setProperty('--ui-back-btn-text', backBtnText)
+  root.style.setProperty('--ui-back-btn-border', backBtnBorder)
+  root.style.setProperty('--ui-back-btn-shadow', backBtnShadow)
+  root.style.setProperty('--ui-back-btn-hover-bg', backBtnHoverBg)
 
   root.style.setProperty('--primary-color', settings.primary)
   root.style.setProperty('--secondary-color', settings.secondary)

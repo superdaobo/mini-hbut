@@ -5,16 +5,32 @@ import path from 'path'
 // 读取 package.json 中的版本号
 import { readFileSync } from 'fs'
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+const buildProfile = process.env.MINI_HBUT_BUILD_PROFILE || 'standard'
+const isReleaseProfile = buildProfile === 'release'
+const isDevFastProfile = buildProfile === 'dev-fast'
 
 export default defineConfig({
   plugins: [vue()],
   define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version)
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+    'import.meta.env.VITE_BUILD_PROFILE': JSON.stringify(buildProfile)
   },
   resolve: {
     alias: {
       'axios': path.resolve(__dirname, 'src/utils/axios_adapter.js')
     }
+  },
+  esbuild: {
+    legalComments: 'none',
+    drop: isReleaseProfile ? ['console', 'debugger'] : []
+  },
+  build: {
+    minify: isDevFastProfile ? false : 'esbuild',
+    cssMinify: !isDevFastProfile,
+    reportCompressedSize: isReleaseProfile,
+    sourcemap: false,
+    target: 'es2020',
+    chunkSizeWarningLimit: isDevFastProfile ? 1600 : 900
   },
   clearScreen: false,
   server: {

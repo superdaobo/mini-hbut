@@ -10,6 +10,16 @@ permissions:
 
 env:
   CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: 8
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+  CARGO_PROFILE_RELEASE_LTO: fat
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+  CARGO_PROFILE_RELEASE_PANIC: abort
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+  MINI_HBUT_BUILD_PROFILE: release
+  npm_config_audit: "false"
+  npm_config_fund: "false"
 
 jobs:
   create-release:
@@ -133,6 +143,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -153,8 +164,14 @@ jobs:
         with:
           targets: aarch64-linux-android
 
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Initialize Android project
         run: npm run tauri android init
@@ -371,11 +388,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build Windows App
-        run: npm run tauri build
+        run: npm run tauri build -- --bundles nsis
 
       - name: Rename Windows artifacts to tag version
         shell: pwsh
@@ -386,13 +409,6 @@ jobs:
           $exe = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
           if (-not $exe) { throw "NSIS exe not found" }
           Copy-Item $exe.FullName ("dist-release/Mini-HBUT_{0}_x64-setup.exe" -f $env:VERSION) -Force
-
-          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
-          if ($msi) {
-            $msiName = ("Mini-HBUT_{0}_x64.msi" -f $env:VERSION)
-            if ($msi.Name -match "en-US") { $msiName = ("Mini-HBUT_{0}_x64_en-US.msi" -f $env:VERSION) }
-            Copy-Item $msi.FullName ("dist-release/" + $msiName) -Force
-          }
           Get-ChildItem dist-release | Format-Table Name,Length -AutoSize
 
       - name: Upload Windows artifacts
@@ -420,8 +436,14 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build macOS App (Universal, app only)
         run: npm run tauri build -- --target universal-apple-darwin --bundles app
@@ -439,7 +461,6 @@ jobs:
 
           APP_NAME="$(basename "$APP_PATH" .app)"
           DMG_NAME="${APP_NAME}_${VERSION}_universal.dmg"
-          ZIP_NAME="${APP_NAME}_${VERSION}_universal.app.zip"
 
           WORK_DIR="$(mktemp -d)"
           cp -R "$APP_PATH" "$WORK_DIR/"
@@ -448,20 +469,15 @@ jobs:
             -volname "$APP_NAME" \
             -srcfolder "$WORK_DIR" \
             -ov \
-            -format UDZO \
+            -format UDBZ \
             "$DMG_NAME"
-
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_NAME"
-
-          ls -lh "$DMG_NAME" "$ZIP_NAME"
+          ls -lh "$DMG_NAME"
 
       - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          files: |
-            Mini-HBUT_*_universal.dmg
-            Mini-HBUT_*_universal.app.zip
+          files: Mini-HBUT_*_universal.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -487,6 +503,12 @@ jobs:
         with:
           targets: aarch64-apple-ios
 
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -494,7 +516,7 @@ jobs:
           cache: npm
 
       - name: Install Frontend Dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli
@@ -675,11 +697,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build Linux App
-        run: npm run tauri build
+        run: npm run tauri build -- --bundles appimage
 
       - name: Rename Linux artifacts to tag version
         env:
@@ -688,17 +716,11 @@ jobs:
           set -euo pipefail
           mkdir -p dist-release
           APPIMAGE="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -n 1 || true)"
-          DEB="$(find src-tauri/target/release/bundle/deb -name '*.deb' | head -n 1 || true)"
-          if [ -z "$APPIMAGE" ] && [ -z "$DEB" ]; then
+          if [ -z "$APPIMAGE" ]; then
             echo "No Linux artifacts found"
             exit 1
           fi
-          if [ -n "$APPIMAGE" ]; then
-            cp "$APPIMAGE" "dist-release/Mini-HBUT_${VERSION}_amd64.AppImage"
-          fi
-          if [ -n "$DEB" ]; then
-            cp "$DEB" "dist-release/Mini-HBUT_${VERSION}_amd64.deb"
-          fi
+          cp "$APPIMAGE" "dist-release/Mini-HBUT_${VERSION}_amd64.AppImage"
           ls -lh dist-release
 
       - name: Upload Linux artifacts

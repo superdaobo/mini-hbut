@@ -1,0 +1,354 @@
+{
+  "base_url": "http://127.0.0.1:4399",
+  "student_id": "",
+  "selector": ".view-transition-root",
+  "delay": 0.8,
+  "timestamp": "2026-03-20T21:21:45.377822",
+  "modules": [
+    {
+      "view": "config",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\config-20260320-212157.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1650
+    }
+  ],
+  "errors": [
+    {
+      "view": "home",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:46"
+      }
+    },
+    {
+      "view": "schedule",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:47"
+      }
+    },
+    {
+      "view": "qxzkb",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:48"
+      }
+    },
+    {
+      "view": "me",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:49"
+      }
+    },
+    {
+      "view": "official",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:54"
+      }
+    },
+    {
+      "view": "feedback",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:56"
+      }
+    },
+    {
+      "view": "settings",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:21:59"
+      }
+    },
+    {
+      "view": "export_center",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:00"
+      }
+    },
+    {
+      "view": "grades",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:01"
+      }
+    },
+    {
+      "view": "electricity",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:02"
+      }
+    },
+    {
+      "view": "transactions",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:03"
+      }
+    },
+    {
+      "view": "campus_code",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:04"
+      }
+    },
+    {
+      "view": "notifications",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:05"
+      }
+    },
+    {
+      "view": "classroom",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:06"
+      }
+    },
+    {
+      "view": "studentinfo",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:07"
+      }
+    },
+    {
+      "view": "exams",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:08"
+      }
+    },
+    {
+      "view": "ranking",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:09"
+      }
+    },
+    {
+      "view": "calendar",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:10"
+      }
+    },
+    {
+      "view": "academic",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:11"
+      }
+    },
+    {
+      "view": "training",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:12"
+      }
+    },
+    {
+      "view": "ai",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:13"
+      }
+    },
+    {
+      "view": "campus_map",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:14"
+      }
+    },
+    {
+      "view": "library",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:15"
+      }
+    },
+    {
+      "view": "resource_share",
+      "stage": "screenshot",
+      "status": 422,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "截图失败",
+          "message": "Attempting to parse an unsupported color function \"oklab\""
+        },
+        "time": "2026-03-20 21:22:16"
+      }
+    }
+  ]
+}

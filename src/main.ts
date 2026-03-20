@@ -10,6 +10,7 @@ import { initMarkdownRuntime } from './utils/markdown'
 import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
+import { initDebugBridgeClient } from './utils/debug_bridge'
 
 const mountApp = () => {
   const app = createApp(App)
@@ -22,6 +23,10 @@ const runDeferredInitializers = () => {
     // 先完成首屏挂载，再异步初始化重任务，避免安卓首次安装时白屏等待。
     void initMarkdownRuntime(6000).catch((error) => {
       console.warn('[Bootstrap] markdown runtime init failed:', error)
+    })
+
+    void initDebugBridgeClient().catch((error) => {
+      console.warn('[Bootstrap] debug bridge init failed:', error)
     })
 
     void initBackgroundFetchScheduler(async ({ studentId, reason, taskId }) => {

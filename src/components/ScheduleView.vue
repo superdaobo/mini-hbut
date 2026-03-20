@@ -71,6 +71,7 @@ const loadingManageCourses = ref(false)
 const manageCoursesError = ref('')
 const allCustomCourses = ref([])
 const manageExpandedSemesters = ref({})
+const returnToManageAfterCourseSubmit = ref(false)
 const showConfirmDialog = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogLines = ref([])
@@ -1344,11 +1345,13 @@ const openAddCourseDialog = () => {
   editingCourseId.value = ''
   editingCourseSemester.value = sem
   returnToDetailAfterCourseSubmit.value = false
+  returnToManageAfterCourseSubmit.value = false
   resetAddCourseForm()
   showAddCourse.value = true
 }
 
 const closeAddCourseDialog = () => {
+  const reopenManage = returnToManageAfterCourseSubmit.value
   showAddCourse.value = false
   showWeekPicker.value = false
   addCourseError.value = ''
@@ -1356,19 +1359,29 @@ const closeAddCourseDialog = () => {
   editingCourseId.value = ''
   editingCourseSemester.value = ''
   returnToDetailAfterCourseSubmit.value = false
+  returnToManageAfterCourseSubmit.value = false
+  if (reopenManage) {
+    showManageCourses.value = true
+    void loadAllCustomCourses()
+  }
 }
 
-const openEditCourseDialog = (course, { reopenDetail = false } = {}) => {
+const openEditCourseDialog = (course, { reopenDetail = false, reopenManage = false } = {}) => {
   const normalized = normalizeCustomCourse(course)
   if (!normalized?.is_custom) return
   courseDialogMode.value = 'edit'
   editingCourseId.value = String(normalized.source_id || normalized.id || '').trim()
   editingCourseSemester.value = String(normalized.semester || semester.value || semesterDraft.value || '').trim()
   returnToDetailAfterCourseSubmit.value = reopenDetail
+  returnToManageAfterCourseSubmit.value = reopenManage || showManageCourses.value
   populateCourseForm(normalized)
   showDetail.value = false
-  showAddCourse.value = true
+  showManageCourses.value = false
   showMenu.value = false
+  showAddCourse.value = false
+  nextTick(() => {
+    showAddCourse.value = true
+  })
 }
 
 const toggleManageSemester = (semesterKey) => {
@@ -1510,6 +1523,10 @@ const submitAddCourse = async () => {
     await refreshCustomCourseViews(sem)
     showAddCourse.value = false
     showWeekPicker.value = false
+    if (isEditing && returnToManageAfterCourseSubmit.value) {
+      showManageCourses.value = true
+      await loadAllCustomCourses()
+    }
     if (isEditing && editingCourseId.value && returnToDetailAfterCourseSubmit.value) {
       syncSelectedCustomCourse(editingCourseId.value, sem)
       showDetail.value = !!selectedCourse.value
@@ -1518,6 +1535,7 @@ const submitAddCourse = async () => {
     editingCourseId.value = ''
     editingCourseSemester.value = ''
     returnToDetailAfterCourseSubmit.value = false
+    returnToManageAfterCourseSubmit.value = false
   } catch (e) {
     addCourseError.value = String(e?.response?.data?.error || e?.message || `${isEditing ? '修改' : '添加'}课程失败`)
   } finally {
@@ -2364,7 +2382,7 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
                     <div class="manage-course-card-actions">
-                      <button class="manage-course-btn edit" @click="openEditCourseDialog(course)">修改</button>
+                      <button class="manage-course-btn edit" @click="openEditCourseDialog(course, { reopenManage: true })">修改</button>
                       <button class="manage-course-btn delete" @click="deleteManagedCourse(course)">删除</button>
                     </div>
                   </article>

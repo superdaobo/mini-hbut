@@ -36,6 +36,7 @@ pub mod db;
 pub mod modules;
 pub mod http_server;
 pub mod qxzkb_options;
+pub mod debug_bridge;
 
 use http_client::HbutClient;
 
@@ -2890,7 +2891,7 @@ async fn get_schedule_local(student_id: String) -> Result<Option<serde_json::Val
     }
 }
 
-fn normalize_custom_weeks(input: &[i32]) -> Vec<i32> {
+pub(crate) fn normalize_custom_weeks(input: &[i32]) -> Vec<i32> {
     let mut weeks = input
         .iter()
         .copied()
@@ -2901,7 +2902,7 @@ fn normalize_custom_weeks(input: &[i32]) -> Vec<i32> {
     weeks
 }
 
-fn format_weeks_text(weeks: &[i32]) -> String {
+pub(crate) fn format_weeks_text(weeks: &[i32]) -> String {
     let values = normalize_custom_weeks(weeks);
     if values.is_empty() {
         return String::new();
@@ -2930,11 +2931,11 @@ fn format_weeks_text(weeks: &[i32]) -> String {
     parts.join(",")
 }
 
-fn strip_custom_course_id(value: &str) -> String {
+pub(crate) fn strip_custom_course_id(value: &str) -> String {
     value.trim().trim_start_matches("custom:").to_string()
 }
 
-fn custom_course_to_payload(course: &db::CustomScheduleCourseRecord) -> serde_json::Value {
+pub(crate) fn custom_course_to_payload(course: &db::CustomScheduleCourseRecord) -> serde_json::Value {
     serde_json::json!({
         "id": format!("custom:{}", course.id),
         "source_id": course.id,
@@ -4373,7 +4374,7 @@ pub fn run() {
             }
             // 启动本地 HTTP 测试桥接服务（用于外部 Python 验证脚本）
             let client = app.state::<AppState>().client.clone();
-            crate::http_server::spawn_http_server(client);
+            crate::http_server::spawn_http_server(client, app.handle().clone());
             Ok(())
         })
         .manage(AppState {
@@ -4393,6 +4394,11 @@ pub fn run() {
             download_deyihei_font_payload,
             cache_remote_image,
             save_export_file,
+            debug_bridge::get_debug_runtime_config,
+            debug_bridge::set_debug_runtime_config,
+            debug_bridge::set_debug_bridge_ready,
+            debug_bridge::complete_debug_screenshot,
+            debug_bridge::save_debug_capture_file,
             open_external_url,
             open_file_with_system,
             resource_share_direct_url_native,

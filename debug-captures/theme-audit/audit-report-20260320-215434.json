@@ -1,0 +1,185 @@
+{
+  "base_url": "http://127.0.0.1:4399",
+  "student_id": "",
+  "selector": ".view-transition-root",
+  "delay": 0.8,
+  "timestamp": "2026-03-20T21:53:42.040748",
+  "modules": [
+    {
+      "view": "home",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\home-20260320-215342.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1652
+    },
+    {
+      "view": "schedule",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\schedule-20260320-215344.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1650
+    },
+    {
+      "view": "qxzkb",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\qxzkb-20260320-215346.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1652
+    },
+    {
+      "view": "me",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\me-20260320-215348.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 2210
+    },
+    {
+      "view": "official",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\official-20260320-215350.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1972
+    },
+    {
+      "view": "feedback",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\feedback-20260320-215402.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1972
+    },
+    {
+      "view": "config",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\config-20260320-215405.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1650
+    },
+    {
+      "view": "settings",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\settings-20260320-215407.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 6762
+    },
+    {
+      "view": "export_center",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\export_center-20260320-215408.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 2942
+    },
+    {
+      "view": "grades",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\grades-20260320-215410.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 3552
+    },
+    {
+      "view": "electricity",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\electricity-20260320-215411.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1938
+    },
+    {
+      "view": "transactions",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\transactions-20260320-215413.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 3976
+    },
+    {
+      "view": "campus_code",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\campus_code-20260320-215415.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1702
+    },
+    {
+      "view": "notifications",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\notifications-20260320-215416.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 3870
+    },
+    {
+      "view": "classroom",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\classroom-20260320-215418.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1652
+    },
+    {
+      "view": "studentinfo",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\studentinfo-20260320-215419.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1652
+    },
+    {
+      "view": "exams",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\exams-20260320-215421.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1652
+    },
+    {
+      "view": "ranking",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\ranking-20260320-215422.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 2144
+    },
+    {
+      "view": "calendar",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\calendar-20260320-215423.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 3884
+    },
+    {
+      "view": "academic",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\academic-20260320-215426.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1652
+    },
+    {
+      "view": "training",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\training-20260320-215427.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 2914
+    },
+    {
+      "view": "ai",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\ai-20260320-215429.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 1650
+    },
+    {
+      "view": "campus_map",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\campus_map-20260320-215431.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 2350
+    },
+    {
+      "view": "library",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\library-20260320-215432.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 614
+    },
+    {
+      "view": "resource_share",
+      "path": "C:\\Users\\yangd\\AppData\\Local\\com.hbut.mini\\debug-captures\\resource_share-20260320-215433.png",
+      "mime": "image/png",
+      "width": 1280,
+      "height": 538
+    }
+  ],
+  "errors": []
+}

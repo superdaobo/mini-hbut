@@ -1,0 +1,360 @@
+{
+  "base_url": "http://127.0.0.1:4399",
+  "student_id": "",
+  "selector": ".view-transition-root",
+  "delay": 0.8,
+  "timestamp": "2026-03-20T21:15:09.544119",
+  "modules": [],
+  "errors": [
+    {
+      "view": "home",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "schedule",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "qxzkb",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "me",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "official",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "feedback",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "config",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "settings",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "export_center",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "grades",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "electricity",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "transactions",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "campus_code",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "notifications",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "classroom",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "studentinfo",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "exams",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "ranking",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "calendar",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "academic",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "training",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "ai",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "campus_map",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "library",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    },
+    {
+      "view": "resource_share",
+      "stage": "navigate",
+      "status": 401,
+      "body": {
+        "success": false,
+        "data": null,
+        "error": {
+          "kind": "权限不足",
+          "message": "本地缓存 API 未配置公钥"
+        },
+        "time": "2026-03-20 21:15:09"
+      }
+    }
+  ]
+}

@@ -918,7 +918,7 @@ watch(
                 class="ticker-img"
                 @error="handleImageError(notice)"
               />
-              <div v-else class="ticker-card" :style="{ background: getRandomGradient(idx) }">
+              <div v-else class="ticker-card" :style="{ '--ticker-card-bg': getRandomGradient(idx) }">
                 <span class="ticker-card-title">{{ notice.title }}</span>
                 <span class="ticker-card-sub">查看详情</span>
               </div>
@@ -1291,6 +1291,7 @@ html[data-theme='aurora'] .ticker-item {
 .ticker-card {
   height: 100%;
   min-width: 214px;
+  background: var(--ticker-card-bg, linear-gradient(135deg, #60a5fa, #3b82f6));
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1323,6 +1324,16 @@ html[data-theme='aurora'] .ticker-card {
   border: 1px solid rgba(255,255,255,0.4);
   padding: 2px 8px;
   border-radius: 99px;
+}
+
+html[data-theme='graphite_night'] .ticker-card-title,
+html[data-theme='graphite_night'] .ticker-card-sub {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+  color: #ffffff !important;
+  text-shadow: none !important;
 }
 
 .module-card {

@@ -518,6 +518,64 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+:global(html[data-theme='graphite_night']) .ios26-select-overlay {
+  background: rgba(2, 6, 23, 0.58) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-sheet {
+  border: 1px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 24%, rgba(148, 163, 184, 0.34)) !important;
+  background: linear-gradient(165deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94)) !important;
+  box-shadow:
+    0 24px 56px rgba(2, 6, 23, 0.56),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-handle {
+  background: rgba(148, 163, 184, 0.5) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-title {
+  color: #cbd5e1 !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-list {
+  background: transparent !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-item {
+  border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 18%, rgba(148, 163, 184, 0.26)) !important;
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.88), rgba(30, 41, 59, 0.84)) !important;
+  color: #e2e8f0 !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-item-label {
+  color: #e2e8f0 !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-item:not(.is-disabled):active {
+  background: linear-gradient(160deg, rgba(37, 99, 235, 0.42), rgba(14, 165, 233, 0.36)) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-item.is-active {
+  border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgba(148, 163, 184, 0.24)) !important;
+  background: linear-gradient(160deg, rgba(37, 99, 235, 0.44), rgba(14, 165, 233, 0.36)) !important;
+  box-shadow: 0 10px 20px rgba(30, 64, 175, 0.28) !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-item-check {
+  color: #93c5fd !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-cancel {
+  border-top: 1px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 22%, rgba(148, 163, 184, 0.28)) !important;
+  background: linear-gradient(165deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94)) !important;
+  color: #93c5fd !important;
+}
+
+:global(html[data-theme='graphite_night']) .ios26-select-cancel:active {
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.96)) !important;
+}
+
 @media (min-width: 769px) {
   .ios26-select-overlay {
     align-items: center;

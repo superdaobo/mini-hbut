@@ -6,17 +6,19 @@ description = "湖北工业大学教务助手 - Tauri 桌面应用"
 authors = ["HBUT Helper Team"]
 license = "GPL-3.0-or-later"
 
-# Release 编译优化 - 减小体积
+# Release 编译优化 - 以最小体积为优先
 [profile.release]
-opt-level = "s"      # 优化体积
-lto = true           # Link Time Optimization
-codegen-units = 1    # 单线程编译，更好优化
+opt-level = "z"      # 极致体积优化
+lto = "fat"          # 更激进的跨 crate 优化
+codegen-units = 1    # 单单元，换取更小产物
 panic = "abort"      # 移除 panic 展开代码
-strip = true         # 移除调试符号
+strip = "symbols"    # 去除符号表
+debug = 0            # 不保留调试信息
+incremental = false  # release 不使用增量编译
 
 # Android 专用优化
 [profile.release.package."*"]
-opt-level = "s"
+opt-level = "z"
 
 [lib]
 name = "hbut_helper_lib"
