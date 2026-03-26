@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { initMarkdownRuntime, renderMarkdown } from '../utils/markdown.js'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const props = defineProps({
   studentId: String,
@@ -14,14 +15,24 @@ const props = defineProps({
 defineEmits(['back'])
 
 const DEFAULT_WELCOME = '您好，我是湖工小实，很高兴与你相遇，请问有什么可以帮您?'
-const AI_INIT_ENDPOINT = 'http://127.0.0.1:4399/ai_init'
-const AI_UPLOAD_ENDPOINT = 'http://127.0.0.1:4399/ai_upload'
-const AI_CHAT_ENDPOINT = 'http://127.0.0.1:4399/ai_chat'
-const STREAM_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_stream'
-const SESSION_NEW_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/new'
-const SESSION_HISTORY_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/history'
-const SESSION_MESSAGES_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/messages'
-const SESSION_DELETE_ENDPOINT = 'http://127.0.0.1:4399/ai_chat_session/delete'
+const AI_BRIDGE_CANDIDATES = ['http://127.0.0.1:4399', 'http://localhost:4399']
+const AI_BRIDGE_PATHS = {
+  health: '/health',
+  init: '/ai_init',
+  upload: '/ai_upload',
+  chat: '/ai_chat',
+  stream: '/ai_chat_stream',
+  sessionNew: '/ai_chat_session/new',
+  sessionHistory: '/ai_chat_session/history',
+  sessionMessages: '/ai_chat_session/messages',
+  sessionDelete: '/ai_chat_session/delete'
+}
+const AI_POST_TIMEOUT_MS = 25000
+const AI_PROBE_TIMEOUT_MS = 3200
+const AI_RETRY_DELAYS_MS = [0, 220, 520]
+const hasTauriRuntime = isTauriRuntime()
+let activeBridgeIndex = 0
+let activeBridgeBase = AI_BRIDGE_CANDIDATES[0]
 const AI_ALLOWED_FILE_EXTENSIONS = ['docx', 'pdf', 'txt', 'md']
 const AI_UPLOAD_ACCEPT = AI_ALLOWED_FILE_EXTENSIONS.map((ext) => `.${ext}`).join(',')
 const AI_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
@@ -364,17 +375,77 @@ const unwrapApiData = (resp) => {
   return resp
 }
 
-const postJson = async (url, body) => {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), 25000)
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: controller.signal
-  }).finally(() => {
-    window.clearTimeout(timeoutId)
+const sleep = (ms = 0) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
   })
+
+const isNetworkFetchError = (error) => {
+  const text = String(error || '').toLowerCase()
+  return (
+    text.includes('failed to fetch') ||
+    text.includes('network') ||
+    text.includes('abort') ||
+    text.includes('timeout') ||
+    text.includes('load failed') ||
+    text.includes('connection')
+  )
+}
+
+const buildBridgeUrl = (path, base = activeBridgeBase) => {
+  const cleanPath = String(path || '').trim()
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) return cleanPath
+  if (!cleanPath.startsWith('/')) return `${base}/${cleanPath}`
+  return `${base}${cleanPath}`
+}
+
+const rotateBridgeCandidate = () => {
+  activeBridgeIndex = (activeBridgeIndex + 1) % AI_BRIDGE_CANDIDATES.length
+  activeBridgeBase = AI_BRIDGE_CANDIDATES[activeBridgeIndex]
+  return activeBridgeBase
+}
+
+const probeBridge = async (base) => {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), AI_PROBE_TIMEOUT_MS)
+  try {
+    const res = await fetch(buildBridgeUrl(AI_BRIDGE_PATHS.health, base), {
+      method: 'GET',
+      signal: controller.signal
+    })
+    if (!res.ok) {
+      throw new Error(`health ${res.status}`)
+    }
+    return true
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+const ensureBridgeAvailable = async (forceProbe = false) => {
+  const candidateOrder = []
+  for (let i = 0; i < AI_BRIDGE_CANDIDATES.length; i += 1) {
+    const idx = (activeBridgeIndex + i) % AI_BRIDGE_CANDIDATES.length
+    candidateOrder.push({ idx, base: AI_BRIDGE_CANDIDATES[idx] })
+  }
+  if (!forceProbe && candidateOrder.length) {
+    return candidateOrder[0].base
+  }
+  let lastError = null
+  for (const item of candidateOrder) {
+    try {
+      await probeBridge(item.base)
+      activeBridgeIndex = item.idx
+      activeBridgeBase = item.base
+      return item.base
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw new Error(`本地 AI 服务不可用：${String(lastError || 'bridge unavailable')}`)
+}
+
+const parsePostResponse = async (res) => {
   const text = await res.text()
   let json = null
   try {
@@ -385,11 +456,11 @@ const postJson = async (url, body) => {
   const extractErrorMessage = (payload) => {
     if (!payload || typeof payload !== 'object') return ''
     return String(
-      payload?.error?.message
-      || payload?.error_description
-      || payload?.message
-      || payload?.msg
-      || ''
+      payload?.error?.message ||
+        payload?.error_description ||
+        payload?.message ||
+        payload?.msg ||
+        ''
     ).trim()
   }
   const errorMessage = extractErrorMessage(json)
@@ -400,6 +471,123 @@ const postJson = async (url, body) => {
     throw new Error(errorMessage || '请求失败')
   }
   return json
+}
+
+const postJson = async (path, body, options = {}) => {
+  const retries = Number.isFinite(options?.retries) ? Math.max(0, Number(options.retries)) : 2
+  const skipProbe = options?.skipProbe === true
+  let lastError = null
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const delay = AI_RETRY_DELAYS_MS[Math.min(attempt, AI_RETRY_DELAYS_MS.length - 1)] || 0
+    if (delay > 0) {
+      await sleep(delay)
+    }
+    try {
+      await ensureBridgeAvailable(!skipProbe || attempt > 0)
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), AI_POST_TIMEOUT_MS)
+      const res = await fetch(buildBridgeUrl(path), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }).finally(() => {
+        window.clearTimeout(timeoutId)
+      })
+      return await parsePostResponse(res)
+    } catch (error) {
+      lastError = error
+      if (!isNetworkFetchError(error) || attempt >= retries) {
+        throw error
+      }
+      rotateBridgeCandidate()
+    }
+  }
+  throw lastError || new Error('请求失败')
+}
+
+const invokeAiCommand = async (command, camelArgs = undefined, snakeArgs = undefined) => {
+  try {
+    return await invokeNative(command, camelArgs)
+  } catch (firstError) {
+    if (!snakeArgs || String(firstError || '').toLowerCase().includes('unknown field') === false) {
+      throw firstError
+    }
+    return invokeNative(command, snakeArgs)
+  }
+}
+
+const tryInvokeAiInit = async () => {
+  if (!hasTauriRuntime) return null
+  const payload = await invokeAiCommand('hbut_ai_init')
+  return payload
+}
+
+const tryInvokeAiChat = async (payload) => {
+  if (!hasTauriRuntime) return ''
+  const camelArgs = {
+    token: payload.token,
+    bladeAuth: payload.bladeAuth,
+    question: payload.question,
+    uploadUrl: payload.user_attachment || '',
+    model: payload.model,
+    sessionId: payload.session_id || ''
+  }
+  const snakeArgs = {
+    token: payload.token,
+    blade_auth: payload.bladeAuth,
+    question: payload.question,
+    upload_url: payload.user_attachment || '',
+    model: payload.model,
+    session_id: payload.session_id || ''
+  }
+  const data = await invokeAiCommand('hbut_ai_chat', camelArgs, snakeArgs)
+  return parseAiResponseText(data)
+}
+
+const tryInvokeAiUpload = async (payload) => {
+  if (!hasTauriRuntime) return null
+  const camelArgs = {
+    token: payload.token,
+    bladeAuth: payload.bladeAuth,
+    fileContent: '',
+    fileName: payload.fileName,
+    fileBase64: payload.fileBase64,
+    fileMime: payload.fileMime
+  }
+  const snakeArgs = {
+    token: payload.token,
+    blade_auth: payload.bladeAuth,
+    file_content: '',
+    file_name: payload.fileName,
+    file_base64: payload.fileBase64,
+    file_mime: payload.fileMime
+  }
+  return invokeAiCommand('hbut_ai_upload', camelArgs, snakeArgs)
+}
+
+const applyInitPayload = (payload) => {
+  const data = unwrapApiData(payload)
+  token.value = data?.token || ''
+  bladeAuth.value = data?.blade_auth || data?.bladeAuth || ''
+  if (!token.value || !bladeAuth.value) {
+    throw new Error('AI 凭证缺失')
+  }
+  if (Array.isArray(data?.models) && data.models.length) {
+    dynamicModelOptions.value = data.models
+  }
+  ensureModelSelection()
+}
+
+const requestStreamOnce = async (payload, hooks) => {
+  await ensureBridgeAvailable(true)
+  const streamUrl = buildBridgeUrl(AI_BRIDGE_PATHS.stream)
+  return fetchEventSource(streamUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    ...hooks
+  })
 }
 
 const saveLocalHistory = () => {
@@ -672,21 +860,26 @@ const initAiSession = async () => {
   initStatus.value = 'loading'
   initError.value = ''
   try {
-    const resp = await postJson(AI_INIT_ENDPOINT, {})
-    const data = unwrapApiData(resp)
-    token.value = data?.token || ''
-    bladeAuth.value = data?.blade_auth || data?.bladeAuth || ''
-    if (!token.value || !bladeAuth.value) {
-      throw new Error('AI 凭证缺失')
-    }
-    if (Array.isArray(data?.models) && data.models.length) {
-      dynamicModelOptions.value = data.models
-    }
-    ensureModelSelection()
+    const resp = await postJson(AI_BRIDGE_PATHS.init, {})
+    applyInitPayload(resp)
     initStatus.value = 'success'
   } catch (error) {
-    initStatus.value = 'error'
-    initError.value = String(error)
+    if (AI_DEBUG) {
+      console.debug('[AI] bridge 初始化失败，尝试 invoke 兜底:', error)
+    }
+    try {
+      const payload = await tryInvokeAiInit()
+      if (!payload) {
+        throw error
+      }
+      applyInitPayload(payload)
+      initStatus.value = 'success'
+      initError.value = ''
+      return
+    } catch (invokeError) {
+      initStatus.value = 'error'
+      initError.value = String(invokeError || error)
+    }
   }
 }
 
@@ -700,7 +893,7 @@ const ensureInitReady = async () => {
 
 const createRemoteSession = async () => {
   await ensureInitReady()
-  const resp = await postJson(SESSION_NEW_ENDPOINT, {
+  const resp = await postJson(AI_BRIDGE_PATHS.sessionNew, {
     token: token.value,
     blade_auth: bladeAuth.value
   })
@@ -717,7 +910,7 @@ const loadSessionMessagesFromRemote = async (session, force = false) => {
   if (session.loaded && !force) return
   await ensureInitReady()
   try {
-    const resp = await postJson(SESSION_MESSAGES_ENDPOINT, {
+    const resp = await postJson(AI_BRIDGE_PATHS.sessionMessages, {
       token: token.value,
       blade_auth: bladeAuth.value,
       session_id: session.remoteSessionId
@@ -752,7 +945,7 @@ const loadSessionMessagesFromRemote = async (session, force = false) => {
 
 const syncRemoteHistory = async () => {
   await ensureInitReady()
-  const resp = await postJson(SESSION_HISTORY_ENDPOINT, {
+  const resp = await postJson(AI_BRIDGE_PATHS.sessionHistory, {
     token: token.value,
     blade_auth: bladeAuth.value,
     current: 1,
@@ -851,7 +1044,7 @@ const deleteSessionConfirmed = async () => {
   try {
     if (target.remoteSessionId) {
       await ensureInitReady()
-      await postJson(SESSION_DELETE_ENDPOINT, {
+      await postJson(AI_BRIDGE_PATHS.sessionDelete, {
         token: token.value,
         blade_auth: bladeAuth.value,
         session_id: target.remoteSessionId
@@ -1063,7 +1256,6 @@ const shouldUseThinkingWindow = (msg) => {
 }
 
 const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) => {
-  const controller = new AbortController()
   const deepSeekMode = isDeepSeekModel(payload.model)
   let doneReceived = false
   let receivedAnyPayload = false
@@ -1117,120 +1309,142 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
   if (deepSeekMode) {
     assistantMsg.showThinking = true
   }
-  await fetchEventSource(STREAM_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream'
-    },
-    body: JSON.stringify(payload),
-    openWhenHidden: true,
-    signal: controller.signal,
-    async onopen(response) {
-      if (!response.ok) {
-        throw new Error(`流式连接失败(${response.status})`)
-      }
-    },
-    onmessage(event) {
-      const rawCount = String(event.data || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean).length
-      streamStats.value.raw += Math.max(1, rawCount)
-      const parsedItems = parseStreamEvents(event.data)
-      if (!parsedItems.length) return
-      for (const parsed of parsedItems) {
-        if (parsed.event === 'done') {
-          streamStats.value.lastEvent = 'done'
-          doneReceived = true
-          flushDeltaNow()
-          controller.abort()
-          return
-        }
-        if (parsed.event === 'session') {
-          streamStats.value.lastEvent = 'session'
-          const sid = String(parsed.session_id || '').trim()
-          if (sid) onSession(sid)
-          continue
-        }
-        if (parsed.event === 'delta') {
-          receivedAnyPayload = true
-          streamStats.value.delta += 1
-          streamStats.value.lastEvent = 'delta'
-          const text = sanitizeStreamText(String(parsed.delta || ''))
-          if (text) {
-            if (deepSeekMode) {
-              appendDeepSeekChunk(assistantMsg, text, enqueueDeltaSmart)
-            } else {
-              enqueueDeltaSmart(text)
-            }
+  const streamAttempts = Math.max(1, AI_BRIDGE_CANDIDATES.length)
+  let lastStreamError = null
+  for (let attempt = 0; attempt < streamAttempts; attempt += 1) {
+    const controller = new AbortController()
+    try {
+      await requestStreamOnce(payload, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream'
+        },
+        body: JSON.stringify(payload),
+        openWhenHidden: true,
+        signal: controller.signal,
+        async onopen(response) {
+          if (!response.ok) {
+            throw new Error(`流式连接失败(${response.status})`)
           }
-          continue
-        }
-        if (parsed.event === 'thinking') {
-          receivedAnyPayload = true
-          streamStats.value.lastEvent = 'thinking'
-          const text = sanitizeStreamText(String(parsed.delta || ''))
-          if (text) {
-            if (deepSeekMode) {
-              const delta = normalizeStreamIncrement(assistantMsg.thinking, text)
-              if (delta) {
-                assistantMsg.thinking += delta
+        },
+        onmessage(event) {
+          const rawCount = String(event.data || '')
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean).length
+          streamStats.value.raw += Math.max(1, rawCount)
+          const parsedItems = parseStreamEvents(event.data)
+          if (!parsedItems.length) return
+          for (const parsed of parsedItems) {
+            if (parsed.event === 'done') {
+              streamStats.value.lastEvent = 'done'
+              doneReceived = true
+              flushDeltaNow()
+              controller.abort()
+              return
+            }
+            if (parsed.event === 'session') {
+              streamStats.value.lastEvent = 'session'
+              const sid = String(parsed.session_id || '').trim()
+              if (sid) onSession(sid)
+              continue
+            }
+            if (parsed.event === 'delta') {
+              receivedAnyPayload = true
+              streamStats.value.delta += 1
+              streamStats.value.lastEvent = 'delta'
+              const text = sanitizeStreamText(String(parsed.delta || ''))
+              if (text) {
+                if (deepSeekMode) {
+                  appendDeepSeekChunk(assistantMsg, text, enqueueDeltaSmart)
+                } else {
+                  enqueueDeltaSmart(text)
+                }
               }
-              assistantMsg.showThinking = true
-            } else {
-              enqueueDeltaSmart(text)
+              continue
+            }
+            if (parsed.event === 'thinking') {
+              receivedAnyPayload = true
+              streamStats.value.lastEvent = 'thinking'
+              const text = sanitizeStreamText(String(parsed.delta || ''))
+              if (text) {
+                if (deepSeekMode) {
+                  const delta = normalizeStreamIncrement(assistantMsg.thinking, text)
+                  if (delta) {
+                    assistantMsg.thinking += delta
+                  }
+                  assistantMsg.showThinking = true
+                } else {
+                  enqueueDeltaSmart(text)
+                }
+              }
+              continue
+            }
+            if (parsed.event === 'progress') {
+              receivedAnyPayload = true
+              streamStats.value.progress += 1
+              streamStats.value.lastEvent = 'progress'
+              const text = String(parsed.message || '')
+              assistantMsg.progress = text
+              continue
+            }
+            if (parsed.event === 'replace') {
+              receivedAnyPayload = true
+              streamStats.value.lastEvent = 'replace'
+              const text = sanitizeStreamText(String(parsed.content || ''))
+              if (text) {
+                doneReceived = false
+                deltaBuffer = ''
+                assistantMsg.content = compactDisplayText(text)
+                assistantMsg.thinking = ''
+                assistantMsg.progress = ''
+                queueAutoScroll()
+              }
+              continue
+            }
+            if (parsed.event === 'error') {
+              streamStats.value.lastEvent = 'error'
+              throw new Error(String(parsed.message || '流式返回错误'))
             }
           }
-          continue
-        }
-        if (parsed.event === 'progress') {
-          receivedAnyPayload = true
-          streamStats.value.progress += 1
-          streamStats.value.lastEvent = 'progress'
-          const text = String(parsed.message || '')
-          assistantMsg.progress = text
-          continue
-        }
-        if (parsed.event === 'replace') {
-          receivedAnyPayload = true
-          streamStats.value.lastEvent = 'replace'
-          const text = sanitizeStreamText(String(parsed.content || ''))
-          if (text) {
-            doneReceived = false
-            deltaBuffer = ''
-            assistantMsg.content = compactDisplayText(text)
-            assistantMsg.thinking = ''
-            assistantMsg.progress = ''
-            queueAutoScroll()
+        },
+        onclose() {
+          if (!doneReceived && receivedAnyPayload) {
+            doneReceived = true
+            flushDeltaNow()
+            return
           }
-          continue
+          if (!doneReceived) {
+            throw new Error('流式连接被提前关闭')
+          }
+        },
+        onerror(error) {
+          if (doneReceived) return
+          throw error
         }
-        if (parsed.event === 'error') {
-          streamStats.value.lastEvent = 'error'
-          throw new Error(String(parsed.message || '流式返回错误'))
-        }
+      })
+      lastStreamError = null
+      break
+    } catch (error) {
+      lastStreamError = error
+      const aborted = String(error || '').toLowerCase().includes('abort')
+      if (doneReceived || aborted) {
+        lastStreamError = null
+        break
       }
-    },
-    onclose() {
-      if (!doneReceived && receivedAnyPayload) {
-        doneReceived = true
-        flushDeltaNow()
-        return
+      const canRetry = isNetworkFetchError(error) && !receivedAnyPayload && attempt < streamAttempts - 1
+      if (!canRetry) {
+        throw error
       }
-      if (!doneReceived) {
-        throw new Error('流式连接被提前关闭')
-      }
-    },
-    onerror(error) {
-      if (doneReceived) return
-      throw error
+      rotateBridgeCandidate()
+      const retryDelay = AI_RETRY_DELAYS_MS[Math.min(attempt + 1, AI_RETRY_DELAYS_MS.length - 1)] || 200
+      await sleep(retryDelay)
     }
-  }).catch((error) => {
-    if (!doneReceived && String(error).toLowerCase().includes('abort') === false) {
-      throw error
-    }
-  })
+  }
+  if (lastStreamError) {
+    throw lastStreamError
+  }
   if (flushTimer) {
     window.clearTimeout(flushTimer)
     flushTimer = 0
@@ -1241,18 +1455,38 @@ const streamChatResponse = async (payload, assistantMsg, onSession = () => {}) =
 }
 
 const fallbackChatRequest = async (payload) => {
-  const response = await postJson(AI_CHAT_ENDPOINT, {
-    token: payload.token,
-    blade_auth: payload.bladeAuth,
-    question: payload.question,
-    user_attachment: payload.user_attachment || '',
-    model: payload.model,
-    session_id: payload.session_id || ''
-  })
-  const data = unwrapApiData(response)
-  const parsed = normalizeMathText(parseAiResponseText(data?.data ?? data))
-  if (isNoiseMessage(parsed)) return ''
-  return parsed
+  const normalizedPayload = {
+    token: payload?.token || '',
+    bladeAuth: payload?.bladeAuth || payload?.blade_auth || '',
+    question: payload?.question || '',
+    user_attachment: payload?.user_attachment || '',
+    model: payload?.model || selectedModel.value,
+    session_id: payload?.session_id || ''
+  }
+  try {
+    const response = await postJson(AI_BRIDGE_PATHS.chat, {
+      token: normalizedPayload.token,
+      blade_auth: normalizedPayload.bladeAuth,
+      question: normalizedPayload.question,
+      user_attachment: normalizedPayload.user_attachment || '',
+      model: normalizedPayload.model,
+      session_id: normalizedPayload.session_id || ''
+    })
+    const data = unwrapApiData(response)
+    const parsed = normalizeMathText(parseAiResponseText(data?.data ?? data))
+    if (isNoiseMessage(parsed)) return ''
+    return parsed
+  } catch (error) {
+    if (AI_DEBUG) {
+      console.debug('[AI] bridge fallbackChat 失败，尝试 invoke 兜底:', error)
+    }
+    const invokeText = await tryInvokeAiChat(normalizedPayload).catch(() => '')
+    const parsedInvoke = normalizeMathText(parseAiResponseText(invokeText))
+    if (parsedInvoke && !isNoiseMessage(parsedInvoke)) {
+      return parsedInvoke
+    }
+    throw error
+  }
 }
 
 const appendTextWithTyping = async (assistantMsg, text) => {
@@ -1464,18 +1698,34 @@ const handleFileChange = async (event) => {
       throw new Error('文件内容为空或读取失败')
     }
     const mime = file.type || AI_MIME_BY_EXT[ext] || 'application/octet-stream'
-    const res = await postJson(AI_UPLOAD_ENDPOINT, {
-      token: token.value,
-      blade_auth: bladeAuth.value,
-      file_name: file.name,
-      file_content: '',
-      file_base64: fileBase64,
-      file_mime: mime
-    })
-    const data = unwrapApiData(res)
-    const link = data?.link || data?.data?.link || ''
+    let link = ''
+    try {
+      const res = await postJson(AI_BRIDGE_PATHS.upload, {
+        token: token.value,
+        blade_auth: bladeAuth.value,
+        file_name: file.name,
+        file_content: '',
+        file_base64: fileBase64,
+        file_mime: mime
+      })
+      const data = unwrapApiData(res)
+      link = data?.link || data?.data?.link || ''
+    } catch (error) {
+      if (AI_DEBUG) {
+        console.debug('[AI] bridge 上传失败，尝试 invoke 兜底:', error)
+      }
+      const invokeRes = await tryInvokeAiUpload({
+        token: token.value,
+        bladeAuth: bladeAuth.value,
+        fileName: file.name,
+        fileBase64,
+        fileMime: mime
+      })
+      const data = unwrapApiData(invokeRes)
+      link = data?.link || data?.data?.link || ''
+    }
     if (!link) {
-      throw new Error(data?.msg || res?.msg || '上传失败')
+      throw new Error('上传失败')
     }
     attachment.value = { name: file.name, url: link }
   } catch (error) {

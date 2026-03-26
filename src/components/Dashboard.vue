@@ -53,6 +53,7 @@ const JWXT_MODULE_ALLOWLIST = new Set([
   'calendar',
   'academic',
   'qxzkb',
+  'course_selection',
   'training',
   'library',
   'campus_map',
@@ -469,6 +470,15 @@ const baseModules = [
     iconKey: 'qxzkb',
     color: '#6366f1',
     desc: '查询全校课程与排课',
+    available: true,
+    requiresLogin: true
+  },
+  {
+    id: 'course_selection',
+    name: '选课中心',
+    iconKey: 'course_selection',
+    color: '#f59e0b',
+    desc: '通识选课与退课',
     available: true,
     requiresLogin: true
   },

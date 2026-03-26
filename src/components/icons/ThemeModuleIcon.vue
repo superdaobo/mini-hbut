@@ -12,6 +12,7 @@ import iconCalendar from '../../assets/module-icons/calendar.svg?raw'
 import iconAcademic from '../../assets/module-icons/academic.svg?raw'
 import iconQxzkb from '../../assets/module-icons/global_schedule.svg?raw'
 import iconTraining from '../../assets/module-icons/training.svg?raw'
+import iconCourseSelection from '../../assets/module-icons/course_selection.svg?raw'
 import iconLibrary from '../../assets/module-icons/library.svg?raw'
 import iconCampusMap from '../../assets/module-icons/campus_map.svg?raw'
 import iconResourceShare from '../../assets/module-icons/resource_share.svg?raw'
@@ -40,6 +41,7 @@ const androidImgFallbackIconKeys = new Set([
   'electricity',
   'campus_code',
   'exams',
+  'course_selection',
   'training'
 ])
 
@@ -54,6 +56,7 @@ const iconMap = {
   calendar: iconCalendar,
   academic: iconAcademic,
   qxzkb: iconQxzkb,
+  course_selection: iconCourseSelection,
   training: iconTraining,
   library: iconLibrary,
   campus_map: iconCampusMap,

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
-import { fetchWithCache } from '../utils/api.js'
+import { fetchWithCache, setCachedData } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
 
@@ -130,7 +130,16 @@ const handleSelect = (level, value) => {
 }
 
 // 查询余额
-const fetchBalance = async (retryCount = 0) => {
+const requestBalanceOnline = async (payload, cacheKey) => {
+  const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
+  const data = res?.data
+  if (data?.success && data?.offline !== true) {
+    setCachedData(cacheKey, data)
+  }
+  return { data, timestamp: Date.now() }
+}
+
+const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
   if (selectedPath.value.length !== 4) return
   
   loading.value = true
@@ -150,17 +159,19 @@ const fetchBalance = async (retryCount = 0) => {
       student_id: props.studentId
     }
     
-    // 调用 V2 API
-    const { data, fromCache, timestamp } = await fetchWithCache(cacheKey, async () => {
-      const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
-      return res.data
-    })
+    // 调用 V2 API（手动刷新时强制联网）
+    const { data } = forceNetwork
+      ? await requestBalanceOnline(payload, cacheKey)
+      : await fetchWithCache(cacheKey, async () => {
+          const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
+          return res.data
+        })
     
     if (data?.success) {
       balanceData.value = data
-      offline.value = !!data.offline || !!fromCache
+      offline.value = data?.offline === true
       if (offline.value) {
-        syncTime.value = data.sync_time || (timestamp ? new Date(timestamp).toLocaleString() : '')
+        syncTime.value = data.sync_time || ''
       } else {
         syncTime.value = data.sync_time || ''
       }
@@ -183,7 +194,7 @@ const fetchBalance = async (retryCount = 0) => {
       if (retryCount < maxRetry.value) {
         errorMsg.value = `系统预热中，正在重试 (${retryCount + 1}/${maxRetry.value})...`
         setTimeout(() => {
-          fetchBalance(retryCount + 1)
+          fetchBalance({ retryCount: retryCount + 1, forceNetwork })
         }, retryDelayMs.value)
         return // 保持 loading 为 true
       } else {
@@ -325,7 +336,7 @@ const handleLogout = () => emit('logout')
           </div>
         </div>
         
-        <button class="refresh-btn" @click="fetchBalance">
+        <button class="refresh-btn" @click="fetchBalance({ forceNetwork: true })">
           🔄 刷新数据
         </button>
       </div>

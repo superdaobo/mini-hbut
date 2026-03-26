@@ -1,0 +1,438 @@
+const statusPills = computed(() => {
+  const pills = []
+  if (currentTab.value?.sfkxk === '1') {
+    pills.push({ label: '寮€鏀鹃€夎', type: 'success' })
+  } else if (currentTab.value) {
+    pills.push({ label: '棰勮涓?, type: 'neutral' })
+  }
+  if (currentTab.value?.sfkzjxbrl === '1') {
+    pills.push({ label: '鍚敤瀹归噺闄愬埗', type: 'accent' })
+  }
+  if (offline.value) {
+    pills.push({ label: '绂荤嚎缂撳瓨', type: 'offline' })
+  }
+  return pills
+})
+
+const optionMaps = computed(() => {
+  const overviewConditions = overview.value?.conditions || {}
+  const condition = listConditions.value || {}
+  return {
+    kcxz: normalizeOptionList(condition.kcxzList || overviewConditions.kcxzList, '鍏ㄩ儴鎬ц川'),
+    kcgs: normalizeOptionList(condition.kcgsList || overviewConditions.kcgsList, '鍏ㄩ儴褰掑睘'),
+    jxms: normalizeOptionList(condition.jxmsList || overviewConditions.jxmsList, '鍏ㄩ儴妯″紡'),
+    kkxq: normalizeOptionList(condition.kkxqList || overviewConditions.kkxqList, '鍏ㄩ儴鏍″尯'),
+    kclb: normalizeOptionList(condition.kclbList || overviewConditions.kclbList, '鍏ㄩ儴绫诲埆'),
+    kclx: normalizeOptionList(condition.kclxList || overviewConditions.kclxList, '鍏ㄩ儴绫诲瀷')
+  }
+})
+
+const occupiedSlotCount = computed(() => Array.isArray(occupiedSlots.value) ? occupiedSlots.value.length : 0)
+
+const detailFields = computed(() => {
+  const course = selectedCourse.value
+  if (!course) return []
+  const rows = [
+    { label: '璇剧▼鍚嶇О', value: course.kcmc },
+    { label: '鏁欏鐝悕绉?, value: course.jxbmc },
+    { label: '瀛﹀垎', value: course.xf },
+    { label: '璇剧▼鎬ц川', value: findOptionLabel(optionMaps.value.kcxz, course.kcxz, course.kcxz) },
+    { label: '璇剧▼绫诲埆', value: course.kclbname || findOptionLabel(optionMaps.value.kclb, course.kclb, course.kclb) },
+    { label: '璇剧▼绫诲瀷', value: findOptionLabel(optionMaps.value.kclx, course.kclx, course.kclx) },
+    { label: '鏁欏妯″紡', value: findOptionLabel(optionMaps.value.jxms, course.jxms, course.jxms) },
+    { label: '鎺堣鏁欏笀', value: course.teacher },
+    { label: '涓婅鏃堕棿鍦扮偣', value: course.isOnline ? '鏈彁渚涚嚎涓嬩笂璇炬椂闂翠笌鍦扮偣锛屾寜缃戣灞曠ず' : (course.scheduleText || course.sksjddstr || course.sksjdd) },
+    { label: '涓婅鏍″尯', value: course.kkxqmc || findOptionLabel(optionMaps.value.kkxq, course.kkxqmc, course.kkxqmc) },
+    { label: '鏁欏鐝粍鎴?, value: course.jxbzc },
+    { label: '瀹归噺鎯呭喌', value: course.capacity.display },
+    { label: '鍐茬獊鐘舵€?, value: course.isConflict ? '涓庡綋鍓嶈琛ㄥ啿绐? : '鏃犲啿绐? },
+    { label: '鏍囩', value: course.label },
+    { label: '鑰冭瘯褰㈠紡', value: course.ksxs }
+  ]
+  return rows.filter((item) => safeText(item.value))
+})
+
+const detailTeacherText = computed(() => detailTeachers.value.join('銆?))
+
+const formatCountdown = (seconds) => {
+  if (!Number.isFinite(seconds)) return '--'
+  if (seconds <= 0) return '宸茬粨鏉?
+  const day = Math.floor(seconds / 86400)
+  const hour = Math.floor((seconds % 86400) / 3600)
+  const minute = Math.floor((seconds % 3600) / 60)
+  const second = Math.floor(seconds % 60)
+  const chunks = []
+  if (day > 0) chunks.push(`${day}澶ー)
+  if (hour > 0) chunks.push(`${hour}灏忔椂`)
+  if (minute > 0) chunks.push(`${minute}鍒嗛挓`)
+  if (second > 0 || chunks.length === 0) chunks.push(`${second}绉抈)
+  return chunks.join('')
+}
+
+const reconcileFilterSelection = () => {
+  Object.entries(optionMaps.value).forEach(([key, options]) => {
+    const current = safeText(filters.value[key])
+    if (!current) return
+    const valid = options.some((item) => safeText(item.value) === current)
+    if (!valid) {
+      filters.value[key] = ''
+    }
+  })
+}
+
+const normalizeCourse = (item) => {
+  const capacity = parseCapacityInfo(item.yxrl, availableRatio.value)
+  const picked = safeText(item.status) === '1'
+  const conflict = !picked && safeText(item.sfct) === '1'
+  const selectable = safeText(item.sfkxk) === '1'
+  const full = !picked && capacity.isFull
+  let statusLabel = '鍙€?
+  let statusClass = 'ready'
+  if (picked) {
+    statusLabel = '宸查€?
+    statusClass = 'picked'
+  } else if (!selectable) {
+    statusLabel = '涓嶅彲閫?
+    statusClass = 'disabled'
+  } else if (full) {
+    statusLabel = '宸叉弧'
+    statusClass = 'full'
+  } else if (conflict) {
+    statusLabel = '鍐茬獊'
+    statusClass = 'conflict'
+  }
+  return {
+    ...item,
+    id: safeText(item.id),
+    kcmc: stripHtml(item.kcmc),
+    jxbmc: stripHtml(item.jxbmc),
+    teacher: stripHtml(item.teacher),
+    scheduleText: stripHtml(item.sksjddstr || item.sksjdd),
+    capacity,
+    isPicked: picked,
+    isConflict: conflict,
+    isSelectable: selectable,
+    isFull: full,
+    isOnline: item.is_online === true || safeText(item.is_online) === 'true',
+    hasChildClasses: item.has_child_classes === true || safeText(item.has_child_classes) === 'true',
+    statusLabel,
+    statusClass
+  }
+}
+
+const showToast = (message, type = 'info') => {
+  if (toastTimer) {
+    clearTimeout(toastTimer)
+    toastTimer = null
+  }
+  toastState.value = { visible: true, message, type }
+  toastTimer = setTimeout(() => {
+    toastState.value.visible = false
+  }, 2800)
+}
+
+const unwrapApiResult = (response, fallback = '璇锋眰澶辫触') => {
+  let payload = response?.data
+  let meta = {}
+
+  for (let i = 0; i < 3; i += 1) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) break
+
+    if (payload.success === false) {
+      throw new Error(payload.error || payload.message || fallback)
+    }
+
+    if ('success' in payload || 'sync_time' in payload || 'offline' in payload || 'error' in payload || 'message' in payload) {
+      meta = { ...meta, ...payload }
+    }
+
+    if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+      payload = payload.data
+      continue
+    }
+
+    break
+  }
+
+  return {
+    data: payload || {},
+    meta,
+  }
+}
+
+const getRequestPayload = () => ({
+  pcid: currentPcid.value,
+  pcenc: currentPcenc.value,
+  from: DEFAULT_FROM,
+  kcmc: safeText(filters.value.kcmc),
+  kcxz: safeText(filters.value.kcxz),
+  kcgs: safeText(filters.value.kcgs),
+  jxms: safeText(filters.value.jxms),
+  teacher: safeText(filters.value.teacher),
+  kkxq: safeText(filters.value.kkxq),
+  kclb: safeText(filters.value.kclb),
+  kclx: safeText(filters.value.kclx)
+})
+
+const fetchOverview = async () => {
+  loadingOverview.value = true
+  overviewError.value = ''
+  try {
+    const res = await axios.post(`${API_BASE}/v2/course_selection/overview`, {})
+    const { data, meta } = unwrapApiResult(res, '获取选课总览失败')
+    overview.value = data
+    tabs.value = Array.isArray(data.tabs) ? data.tabs : []
+    pcencMap.value = data.pcencs || {}
+    offline.value = meta.offline === true || data.offline === true
+    syncTime.value = safeText(meta.sync_time || data.sync_time)
+    if (tabs.value.length > 0) {
+      activeTabId.value = safeText(tabs.value[0].xkgzid)
+    } else {
+      activeTabId.value = ''
+      courses.value = []
+      listMessage.value = cleanMessage(data.message) || '褰撳墠鏆傛棤鍙€夎绋?
+    }
+  } catch (err) {
+    overviewError.value = err?.message || String(err)
+    tabs.value = []
+    courses.value = []
+  } finally {
+    loadingOverview.value = false
+  }
+}
+
+const fetchEndTime = async () => {
+  if (!currentPcid.value || !safeText(currentTab.value?.kklx)) {
+    remainingSeconds.value = null
+    countdownText.value = '--'
+    isPreview.value = false
+    return
+  }
+  try {
+    const res = await axios.post(`${API_BASE}/v2/course_selection/end_time`, {
+      pcid: currentPcid.value,
+      kklx: safeText(currentTab.value?.kklx)
+    })
+    const { data } = unwrapApiResult(res, '获取批次倒计时失败')
+    remainingSeconds.value = Number.isFinite(Number(data.remaining_seconds)) ? Number(data.remaining_seconds) : null
+    countdownText.value = safeText(data.countdown_text || formatCountdown(remainingSeconds.value))
+    isPreview.value = data.is_preview === true
+  } catch {
+    remainingSeconds.value = null
+    countdownText.value = '--'
+    isPreview.value = false
+  }
+}
+
+const fetchList = async () => {
+  if (!currentPcid.value || !currentPcenc.value) {
+    courses.value = []
+    listMessage.value = '褰撳墠鎵规缂哄皯鏈夋晥鍑瘉'
+    return
+  }
+  loadingList.value = true
+  listMessage.value = ''
+  try {
+    const res = await axios.post(`${API_BASE}/v2/course_selection/list`, getRequestPayload())
+    const { data, meta } = unwrapApiResult(res, '获取选课列表失败')
+    listConditions.value = data.condition || {}
+    availableRatio.value = safeText(data.available_ratio || '100')
+    occupiedSlots.value = Array.isArray(data.occupied_slots) ? data.occupied_slots : []
+    count.value = Number(data.count || 0)
+    courses.value = Array.isArray(data.courses) ? data.courses.map(normalizeCourse) : []
+    listMessage.value = cleanMessage(data.message)
+    offline.value = meta.offline === true || data.offline === true || offline.value
+    syncTime.value = safeText(meta.sync_time || data.sync_time || syncTime.value)
+    reconcileFilterSelection()
+  } catch (err) {
+    courses.value = []
+    listMessage.value = err?.message || String(err)
+  } finally {
+    loadingList.value = false
+  }
+}
+
+const loadTabBundle = async () => {
+  await Promise.all([fetchList(), fetchEndTime()])
+}
+
+const handleTabChange = async (tabId) => {
+  if (!safeText(tabId) || safeText(tabId) === safeText(activeTabId.value)) return
+  activeTabId.value = safeText(tabId)
+  detailIntro.value = ''
+  detailTeachers.value = []
+  selectedCourse.value = null
+  showDetail.value = false
+  reconcileFilterSelection()
+  await loadTabBundle()
+}
+
+const resetFilters = async () => {
+  filters.value = {
+    kcmc: '',
+    kcxz: '',
+    kcgs: '',
+    jxms: '',
+    teacher: '',
+    kkxq: '',
+    kclb: '',
+    kclx: ''
+  }
+  await fetchList()
+}
+
+const queryCourses = async () => {
+  await fetchList()
+}
+
+const openDetail = async (course) => {
+  selectedCourse.value = course
+  detailIntro.value = safeText(course.kcjj)
+  detailTeachers.value = course.teacher ? [course.teacher] : []
+  showDetail.value = true
+  detailLoading.value = true
+  try {
+    const [introRes, teacherRes] = await Promise.allSettled([
+      axios.post(`${API_BASE}/v2/course_selection/detail_intro`, { jxbid: course.id }),
+      axios.post(`${API_BASE}/v2/course_selection/detail_teacher`, { jxbid: course.id })
+    ])
+    if (introRes.status === 'fulfilled') {
+      const { data } = unwrapApiResult(introRes.value, '获取课程简介失败')
+      detailIntro.value = stripHtml(data.content || detailIntro.value)
+    }
+    if (teacherRes.status === 'fulfilled') {
+      const { data } = unwrapApiResult(teacherRes.value, '获取教师详情失败')
+      const normalized = normalizeTeacherContent(data.content)
+      if (normalized.length > 0) detailTeachers.value = normalized
+    }
+  } catch {
+    // ignore
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const closeDetail = () => {
+  showDetail.value = false
+  selectedCourse.value = null
+  detailLoading.value = false
+}
+
+const submitSelect = async (course, zjxbid = '') => {
+  if (!course?.id) return
+  selectingCourseId.value = course.id
+  try {
+    const res = await axios.post(`${API_BASE}/v2/course_selection/select`, {
+      pcid: currentPcid.value,
+      jxbid: course.id,
+      zjxbid: safeText(zjxbid) || undefined,
+      from: DEFAULT_FROM
+    })
+    const { data } = unwrapApiResult(res, '选课失败')
+    showChildClassDialog.value = false
+    childClasses.value = []
+    pendingSelectCourse.value = null
+    selectedChildClassId.value = ''
+    showToast(safeText(data.msg) || '閫夎鎴愬姛', 'success')
+    await fetchList()
+    if (selectedCourse.value?.id === course.id) {
+      const next = courses.value.find((item) => item.id === course.id)
+      if (next) selectedCourse.value = next
+    }
+  } catch (err) {
+    showToast(err?.message || String(err), 'error')
+  } finally {
+    selectingCourseId.value = ''
+  }
+}
+
+const openChildClassPicker = async (course) => {
+  if (!course?.id) return
+  selectingCourseId.value = course.id
+  try {
+    const res = await axios.post(`${API_BASE}/v2/course_selection/child_classes`, {
+      pcid: currentPcid.value,
+      pcenc: currentPcenc.value,
+      jxbid: course.id,
+      from: DEFAULT_FROM
+    })
+    const { data } = unwrapApiResult(res, '获取子教学班失败')
+    const classes = Array.isArray(data.classes) ? data.classes : []
+    const childIds = Array.isArray(data.child_ids) ? data.child_ids.map((item) => safeText(item)).filter(Boolean) : []
+    const normalized = classes.map((item) => ({
+      id: safeText(item.id),
+      name: stripHtml(item.name || item.id),
+      teacher: stripHtml(item.teacher),
+      schedule: stripHtml(item.schedule)
+    })).filter((item) => item.id)
+    if (normalized.length <= 1) {
+      const singleId = normalized[0]?.id || childIds[0] || ''
+      await submitSelect(course, singleId)
+      return
+    }
+    pendingSelectCourse.value = course
+    childClasses.value = normalized
+    selectedChildClassId.value = normalized[0]?.id || ''
+    showChildClassDialog.value = true
+  } catch (err) {
+    showToast(err?.message || String(err), 'error')
+  } finally {
+    selectingCourseId.value = ''
+  }
+}
+
+const handleSelectCourse = async (course) => {
+  if (!course?.isSelectable || course?.isFull || course?.isPicked) return
+  if (course.hasChildClasses) {
+    await openChildClassPicker(course)
+    return
+  }
+  await submitSelect(course)
+}
+
+const openWithdrawConfirm = (course) => {
+  confirmTargetCourse.value = course
+  showConfirmDialog.value = true
+}
+
+const closeWithdrawConfirm = () => {
+  showConfirmDialog.value = false
+  confirmTargetCourse.value = null
+}
+
+const submitWithdraw = async () => {
+  const course = confirmTargetCourse.value
+  if (!course?.id) return
+  withdrawingCourseId.value = course.id
+  try {
+    const res = await axios.post(`${API_BASE}/v2/course_selection/withdraw`, {
+      pcid: currentPcid.value,
+      jxbid: course.id
+    })
+    const { data } = unwrapApiResult(res, '退课失败')
+    closeWithdrawConfirm()
+    showToast(safeText(data.msg) || '閫€璇炬垚鍔?, 'success')
+    await fetchList()
+    if (selectedCourse.value?.id === course.id) {
+      const next = courses.value.find((item) => item.id === course.id)
+      if (next) selectedCourse.value = next
+    }
+  } catch (err) {
+    showToast(err?.message || String(err), 'error')
+  } finally {
+    withdrawingCourseId.value = ''
+  }
+}
+
+const currentDetailCourse = computed(() => {
+  if (!selectedCourse.value?.id) return selectedCourse.value
+  return courses.value.find((item) => item.id === selectedCourse.value.id) || selectedCourse.value
+})
+
+const emptyHint = computed(() => {
+  if (loadingOverview.value || loadingList.value) return '鍔犺浇涓?..'
+  if (overviewError.value) return overviewError.value
+  return listMessage.value || '褰撳墠鏆傛棤鍙€夎绋?
+})
+
+const canShowList = computed(() => tabs.value.length > 0)

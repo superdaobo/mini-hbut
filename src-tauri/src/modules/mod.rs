@@ -11,6 +11,7 @@ pub mod student_info;
 pub mod classroom;
 pub mod calendar;
 pub mod training_plan;
+pub mod course_selection;
 pub mod electricity;
 pub mod transaction;
 pub mod notification;

@@ -7,6 +7,7 @@ import ElectricityView from './components/ElectricityView.vue'
 import ClassroomView from './components/ClassroomView.vue'
 import ScheduleView from './components/ScheduleView.vue'
 import GlobalScheduleView from './components/GlobalScheduleView.vue'
+import CourseSelectionView from './components/CourseSelectionView.vue'
 import StudentInfoView from './components/StudentInfoView.vue'
 import ExamView from './components/ExamView.vue'
 import RankingView from './components/RankingView.vue'
@@ -1555,6 +1556,13 @@ onBeforeUnmount(() => {
       <!-- 全校课表 -->
       <GlobalScheduleView
         v-else-if="currentView === 'qxzkb'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
+      />
+
+      <CourseSelectionView
+        v-else-if="currentView === 'course_selection'"
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"

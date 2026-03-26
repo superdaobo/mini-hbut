@@ -706,6 +706,119 @@ const adapter = {
                 }
             }
 
+            // ========== 选课中心 ==========
+
+            if (url.includes('/v2/course_selection/overview')) {
+                try {
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/overview', {});
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_overview');
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/list')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/list', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_list', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/end_time')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/end_time', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_end_time', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/child_classes')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/child_classes', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_child_classes', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/select')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/select', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('select_course_selection_course', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/withdraw')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/withdraw', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('withdraw_course_selection_course', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/detail_intro')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/detail_intro', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_detail_intro', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/course_selection/detail_teacher')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/detail_teacher', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_detail_teacher', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             // ========== 电费相关 ==========
 
             if (url.includes('/v2/electricity/balance')) {

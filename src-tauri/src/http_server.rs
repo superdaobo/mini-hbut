@@ -176,7 +176,19 @@ use std::convert::Infallible;
 use reqwest::header::{HeaderMap, HeaderValue};
 use tower_http::cors::{Any, CorsLayer};
 use rand::Rng;
-use crate::{UserInfo, QxzkbQuery, AddCustomScheduleCourseRequest, DeleteCustomScheduleCourseRequest, UpdateCustomScheduleCourseRequest};
+use crate::{
+    UserInfo,
+    QxzkbQuery,
+    AddCustomScheduleCourseRequest,
+    DeleteCustomScheduleCourseRequest,
+    UpdateCustomScheduleCourseRequest,
+    CourseSelectionListRequest,
+    CourseSelectionEndTimeRequest,
+    CourseSelectionChildClassesRequest,
+    CourseSelectionSelectRequest,
+    CourseSelectionWithdrawRequest,
+    CourseSelectionDetailRequest,
+};
 use crate::db;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use crate::http_client::HbutClient;
@@ -498,6 +510,14 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/qxzkb/zyxx", post(fetch_qxzkb_zyxx))
         .route("/qxzkb/kkjys", post(fetch_qxzkb_kkjys))
         .route("/qxzkb/query", post(fetch_qxzkb_list))
+        .route("/course_selection/overview", post(fetch_course_selection_overview))
+        .route("/course_selection/list", post(fetch_course_selection_list))
+        .route("/course_selection/end_time", post(fetch_course_selection_end_time))
+        .route("/course_selection/child_classes", post(fetch_course_selection_child_classes))
+        .route("/course_selection/select", post(select_course_selection_course))
+        .route("/course_selection/withdraw", post(withdraw_course_selection_course))
+        .route("/course_selection/detail_intro", post(fetch_course_selection_detail_intro))
+        .route("/course_selection/detail_teacher", post(fetch_course_selection_detail_teacher))
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
@@ -2034,6 +2054,93 @@ async fn resource_share_direct_url(
         "status": status_code,
         "need_auth": need_auth
     })))
+}
+
+async fn fetch_course_selection_overview(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_overview(&client)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_course_selection_list(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionListRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_list(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_course_selection_end_time(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionEndTimeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_end_time(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_course_selection_child_classes(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionChildClassesRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_child_classes(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn select_course_selection_course(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionSelectRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::select_course_selection_course(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn withdraw_course_selection_course(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionWithdrawRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::withdraw_course_selection_course(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_course_selection_detail_intro(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionDetailRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_detail_intro(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_course_selection_detail_teacher(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionDetailRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_detail_teacher(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn fetch_library_dict(
