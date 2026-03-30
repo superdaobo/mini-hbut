@@ -6,8 +6,11 @@ import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { flushUiSettings, useUiSettings } from '../utils/ui_settings'
 import {
+  clearScheduleLock,
   consumeScheduleSwitchPending,
   getCachedScheduleSnapshot,
+  isAutoScheduleLockReason,
+  readScheduleLockDetail,
   readScheduleLock,
   SCHEDULE_POPUP_PENDING_KEY,
   warmupScheduleForStudent,
@@ -116,6 +119,28 @@ const readStoredSemester = () => {
   } catch {
     return ''
   }
+}
+
+const deriveSemesterByDate = (date = new Date()) => {
+  const year = Number(date.getFullYear())
+  const month = Number(date.getMonth()) + 1
+  const day = Number(date.getDate())
+  let academicYearStart = year - 1
+  let term = 1
+  if (month >= 9) {
+    academicYearStart = year
+    term = 1
+  } else if (month >= 3) {
+    academicYearStart = year - 1
+    term = 2
+  } else if (month === 2 && day >= 15) {
+    academicYearStart = year - 1
+    term = 2
+  } else {
+    academicYearStart = year - 1
+    term = 1
+  }
+  return `${academicYearStart}-${academicYearStart + 1}-${term}`
 }
 
 const storedSemester = readStoredSemester()
@@ -535,9 +560,11 @@ const applyCachedScheduleImmediately = (targetSemester = '') => {
   return applied
 }
 
-const fetchSchedule = async (targetSemester = '') => {
+const fetchSchedule = async (targetSemester = '', options = {}) => {
   loading.value = true
   semesterError.value = ''
+  const persistLock = options?.persistLock === true
+  const lockReason = String(options?.lockReason || 'schedule-fetch').trim() || 'schedule-fetch'
   const requestedSemester = String(targetSemester || semester.value || semesterDraft.value || '').trim()
   const previousSemester = String(semester.value || '').trim()
   errorMsg.value = ''
@@ -570,8 +597,8 @@ const fetchSchedule = async (targetSemester = '') => {
       if (!remoteScheduleData.value.length && customScheduleData.value.length > 0) {
         errorMsg.value = ''
       }
-      if (requestedSemester) {
-        writeScheduleLock(props.studentId, requestedSemester, 'schedule-fetch')
+      if (requestedSemester && persistLock) {
+        writeScheduleLock(props.studentId, requestedSemester, lockReason)
       }
       return true
     } else {
@@ -659,10 +686,7 @@ const applySemesterQuery = async () => {
   totalWeeks.value = 25
   startDateStr.value = ''
   vacationNotice.value = ''
-  const ok = await fetchSchedule(selected)
-  if (ok) {
-    writeScheduleLock(props.studentId, selected, 'manual-select')
-  }
+  await fetchSchedule(selected, { persistLock: true, lockReason: 'manual-select' })
 }
 
 const onSemesterChange = async () => {
@@ -2094,6 +2118,24 @@ onMounted(async () => {
     writeScheduleLock(props.studentId, switchSemester, 'pending-switch')
     semester.value = switchSemester
     semesterDraft.value = switchSemester
+  }
+
+  const lockDetail = readScheduleLockDetail(props.studentId)
+  const todaySemester = deriveSemesterByDate()
+  if (
+    lockDetail?.semester &&
+    todaySemester &&
+    lockDetail.semester !== todaySemester &&
+    isAutoScheduleLockReason(lockDetail.reason)
+  ) {
+    const cleared = clearScheduleLock(props.studentId)
+    if (cleared) {
+      pushDebugLog(
+        'Schedule',
+        `检测到自动锁定学期(${lockDetail.semester})与当前日期学期(${todaySemester})冲突，已清理并重探测`,
+        'warn'
+      )
+    }
   }
 
   // 仅当存在“显式锁定学期”时才走秒开锁定路径；

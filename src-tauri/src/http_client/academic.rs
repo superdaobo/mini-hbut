@@ -46,6 +46,35 @@ impl CalendarTermSummary {
 }
 
 impl HbutClient {
+    fn semester_start_date(semester: &str) -> Option<NaiveDate> {
+        let parts: Vec<&str> = semester.split('-').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        let start_year = parts[0].parse::<i32>().ok()?;
+        let end_year = parts[1].parse::<i32>().ok()?;
+        let term = parts[2].parse::<u32>().ok()?;
+        if end_year != start_year + 1 {
+            return None;
+        }
+        match term {
+            1 => NaiveDate::from_ymd_opt(start_year, 9, 1),
+            2 => NaiveDate::from_ymd_opt(start_year + 1, 3, 1),
+            _ => None,
+        }
+    }
+
+    fn estimate_current_week_by_semester(semester: &str, today: NaiveDate, total_weeks: i32) -> Option<i32> {
+        let safe_total = total_weeks.max(1);
+        let start = Self::semester_start_date(semester)?;
+        let end = start + Duration::days((safe_total as i64) * 7 - 1);
+        if today < start || today > end {
+            return None;
+        }
+        let days = (today - start).num_days();
+        Some((days / 7 + 1).clamp(1, safe_total as i64) as i32)
+    }
+
     /// ???????????????
     #[allow(unreachable_code)]
     pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -324,8 +353,24 @@ impl HbutClient {
         semester: &str,
         today: NaiveDate,
     ) -> Option<CalendarTermSummary> {
-        let data = self.fetch_calendar_raw_for_semester(semester).await.ok()?;
-        self.build_calendar_summary(semester, &data, today)
+        let data = match self.fetch_calendar_raw_for_semester(semester).await {
+            Ok(value) => value,
+            Err(err) => {
+                println!(
+                    "[调试] 课表上下文候选学期 {} 校历请求失败: {}",
+                    semester, err
+                );
+                return None;
+            }
+        };
+        let summary = self.build_calendar_summary(semester, &data, today);
+        if summary.is_none() {
+            println!(
+                "[调试] 课表上下文候选学期 {} 校历摘要缺失（周次或日期解析失败）",
+                semester
+            );
+        }
+        summary
     }
 
     fn build_schedule_context_json(
@@ -339,7 +384,32 @@ impl HbutClient {
         days_to_next_start: Option<i64>,
         today: NaiveDate,
     ) -> serde_json::Value {
-        let current_weekday = if summary.map(|s| s.is_in_semester).unwrap_or(false) {
+        let expected_semester = Self::semester_by_date(today);
+        let mut total_weeks = summary.map(|s| s.total_weeks).unwrap_or(25).max(1);
+        let mut current_week = summary
+            .map(|s| s.current_week.clamp(1, s.total_weeks.max(1)))
+            .unwrap_or(1)
+            .clamp(1, total_weeks);
+        let mut is_in_semester = summary.map(|s| s.is_in_semester).unwrap_or(false);
+
+        if let Some(estimated_week) = Self::estimate_current_week_by_semester(semester, today, total_weeks) {
+            // 当前日期对应学期优先使用“学期字符串推导周次”，避免校历异常把周次锁死到末周。
+            if semester == expected_semester {
+                current_week = estimated_week;
+                is_in_semester = true;
+            } else if !is_in_semester {
+                current_week = estimated_week;
+                is_in_semester = true;
+            }
+        }
+
+        // 兜底保证输出值范围合法。
+        if total_weeks <= 0 {
+            total_weeks = 25;
+        }
+        current_week = current_week.clamp(1, total_weeks);
+
+        let current_weekday = if is_in_semester {
             Local::now().weekday().num_days_from_monday() as i32 + 1
         } else {
             0
@@ -347,11 +417,6 @@ impl HbutClient {
 
         let start_date = summary.map(|s| s.start_date_str()).unwrap_or_default();
         let end_date = summary.map(|s| s.end_date_str()).unwrap_or_default();
-        let total_weeks = summary.map(|s| s.total_weeks).unwrap_or(25);
-        let current_week = summary
-            .map(|s| s.current_week.clamp(1, s.total_weeks.max(1)))
-            .unwrap_or(1);
-        let is_in_semester = summary.map(|s| s.is_in_semester).unwrap_or(false);
         let days_to_start = summary.map(|s| s.days_to_start(today));
         let days_to_end = summary.map(|s| s.days_to_end(today));
 
@@ -404,7 +469,39 @@ impl HbutClient {
             );
         }
 
-        let current = summaries.iter().find(|s| s.is_in_semester).cloned();
+        let expected_semester = Self::semester_by_date(today);
+        let expected_summary = summaries
+            .iter()
+            .find(|s| s.semester == expected_semester)
+            .cloned();
+
+        let current = {
+            let mut in_semester = summaries
+                .iter()
+                .filter(|s| s.is_in_semester)
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if in_semester.is_empty() {
+                None
+            } else if let Some(exact) = in_semester
+                .iter()
+                .find(|s| s.semester == expected_semester)
+                .cloned()
+            {
+                Some(exact)
+            } else {
+                // 个别学期接口会同时返回“学年范围内可命中”的周次，优先选“已开始且开始日期更晚”的学期。
+                in_semester.sort_by_key(|s| {
+                    (
+                        if s.start_date <= today { 1 } else { 0 },
+                        s.start_date,
+                        Self::semester_index(&s.semester).unwrap_or(i32::MIN),
+                    )
+                });
+                in_semester.pop()
+            }
+        };
         let previous = summaries
             .iter()
             .filter(|s| s.end_date < today)
@@ -430,6 +527,31 @@ impl HbutClient {
                 next_days,
                 today,
             );
+        }
+
+        if let Some(expected) = expected_summary.clone() {
+            let days_to_start = expected.days_to_start(today);
+            let days_to_end = expected.days_to_end(today);
+            // 当“按日期推导学期”已有校历摘要时，优先保留该学期，避免被错误回退到上学期。
+            if (expected.start_date <= today && days_to_end >= -14)
+                || (days_to_start >= 0 && days_to_start <= PRESTART_SWITCH_DAYS)
+            {
+                return Self::build_schedule_context_json(
+                    &expected.semester,
+                    Some(&expected),
+                    days_to_start > 0,
+                    if days_to_start > 0 {
+                        "vacation_next"
+                    } else {
+                        "current_expected"
+                    },
+                    String::new(),
+                    previous.as_ref().map(|s| s.semester.as_str()),
+                    next.as_ref().map(|s| s.semester.as_str()),
+                    next_days,
+                    today,
+                );
+            }
         }
 
         let (target, strategy, notice) = if let Some(next_summary) = next.clone() {
@@ -3244,9 +3366,57 @@ impl HbutClient {
     
     /// 解析校历中的日期（处理跨月情况）
     fn parse_calendar_date(&self, item: &serde_json::Value, day_field: &str) -> Option<chrono::NaiveDate> {
-        let ny = item.get("ny").and_then(|v| v.as_str())?; // 格式: "2024-08"
         let raw_day = item.get(day_field).and_then(|v| v.as_str())?;
-        if ny.trim().is_empty() || raw_day.trim().is_empty() {
+        if raw_day.trim().is_empty() {
+            return None;
+        }
+
+        // 优先兼容完整日期格式：2026-03-02 / 2026/03/02 / 2026-03-02 00:00:00 / RFC3339 等。
+        let parse_full_date = |value: &str| -> Option<NaiveDate> {
+            let text = value.trim();
+            if text.is_empty() {
+                return None;
+            }
+
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(text) {
+                return Some(dt.date_naive());
+            }
+
+            const FULL_FORMATS: [&str; 6] = [
+                "%Y-%m-%d",
+                "%Y/%m/%d",
+                "%Y.%m.%d",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y.%m.%d %H:%M:%S",
+            ];
+            for fmt in FULL_FORMATS {
+                if let Ok(date) = NaiveDate::parse_from_str(text, fmt) {
+                    return Some(date);
+                }
+            }
+
+            let first_part = text
+                .split([' ', 'T'])
+                .find(|part| !part.trim().is_empty())
+                .unwrap_or("");
+            if first_part.len() >= 10 {
+                let candidate = &first_part[..10];
+                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"] {
+                    if let Ok(date) = NaiveDate::parse_from_str(candidate, fmt) {
+                        return Some(date);
+                    }
+                }
+            }
+            None
+        };
+
+        if let Some(date) = parse_full_date(raw_day) {
+            return Some(date);
+        }
+
+        let ny = item.get("ny").and_then(|v| v.as_str())?; // 格式: "2024-08"
+        if ny.trim().is_empty() {
             return None;
         }
 

@@ -268,21 +268,8 @@ fn value_to_string(v: &Value) -> String {
 /// 解析课表数据
 pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
     let mut courses = Vec::new();
-    
-    // 计算当前周次（与 Python 模块一致）
-    // 使用当前学年的9月1日作为学期开始（第一学期）
-    let now = chrono::Local::now();
-    let year = now.year();
-    let month = now.month();
-    
-    // 确定学期开始日期
-    let semester_start_year = if month >= 9 { year } else { year - 1 };
-    let semester_start = chrono::NaiveDate::from_ymd_opt(semester_start_year, 9, 1)
-        .unwrap_or(chrono::NaiveDate::from_ymd_opt(2025, 9, 1).unwrap());
-    
-    let today = chrono::Local::now().date_naive();
-    let days = (today - semester_start).num_days();
-    let mut current_week = (days / 7 + 1).max(1).min(25) as i32;
+    let mut current_week = 1;
+    let mut week_from_payload = false;
     
     // 新版 API 格式: {"ret": 0, "msg": "ok", "data": [...]}
     let items = if let Some(data) = json.get("data").and_then(|v| v.as_array()) {
@@ -300,12 +287,59 @@ pub fn parse_schedule(json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dy
         // 旧版 API 格式
         if let Some(week) = json.get("zc").and_then(|v| v.as_i64()) {
             current_week = week as i32;
+            week_from_payload = true;
         }
         kb_list.clone()
     } else {
         println!("[调试] 未知 schedule JSON format. Keys: {:?}", json.as_object().map(|o| o.keys().collect::<Vec<_>>()));
         return Err("课表数据格式不正确".into());
     };
+
+    if !week_from_payload {
+        let today = chrono::Local::now().date_naive();
+        let parse_semester_start = |semester: &str| -> Option<chrono::NaiveDate> {
+            let parts: Vec<&str> = semester.split('-').collect();
+            if parts.len() != 3 {
+                return None;
+            }
+            let start_year = parts[0].parse::<i32>().ok()?;
+            let term = parts[2].parse::<u32>().ok()?;
+            match term {
+                1 => chrono::NaiveDate::from_ymd_opt(start_year, 9, 1),
+                2 => chrono::NaiveDate::from_ymd_opt(start_year + 1, 3, 1),
+                _ => None,
+            }
+        };
+
+        let inferred_semester = json
+            .get("xnxq")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                items
+                    .first()
+                    .and_then(|item| item.get("xnxq").and_then(|v| v.as_str()))
+            })
+            .unwrap_or("");
+
+        let fallback_start = {
+            let now = chrono::Local::now();
+            let year = now.year();
+            let month = now.month();
+            if month >= 9 {
+                chrono::NaiveDate::from_ymd_opt(year, 9, 1)
+            } else if month >= 3 {
+                chrono::NaiveDate::from_ymd_opt(year, 3, 1)
+            } else {
+                chrono::NaiveDate::from_ymd_opt(year - 1, 9, 1)
+            }
+        };
+
+        let semester_start = parse_semester_start(inferred_semester)
+            .or(fallback_start)
+            .unwrap_or(today);
+        let days = (today - semester_start).num_days();
+        current_week = (days / 7 + 1).max(1).min(25) as i32;
+    }
     
     for item in &items {
         // 课程名称 - 新版可能包含 HTML 标签

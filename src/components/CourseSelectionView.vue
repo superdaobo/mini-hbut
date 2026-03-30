@@ -10,11 +10,27 @@ const emit = defineEmits(['back', 'logout'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const DEFAULT_FROM = 'ggxxk'
+const ENTRY_MODE_MENU = 'menu'
+const ENTRY_MODE_SELECTION = 'selection'
+const ENTRY_MODE_INFO = 'info'
+
+const EMPTY_LIST_FILTERS = Object.freeze({
+  kcmc: '',
+  kcxz: '',
+  kcgs: '',
+  jxms: '',
+  teacher: '',
+  kkxq: '',
+  kclb: '',
+  kclx: ''
+})
 
 const loadingOverview = ref(false)
 const loadingList = ref(false)
+const loadingInfo = ref(false)
 const refreshing = ref(false)
 const overviewError = ref('')
+const infoError = ref('')
 const offline = ref(false)
 const syncTime = ref('')
 
@@ -33,6 +49,12 @@ const countdownText = ref('')
 const isPreview = ref(false)
 
 const showAdvanced = ref(false)
+const infoShowAdvanced = ref(false)
+const centerMode = ref(ENTRY_MODE_MENU)
+const infoSourceMessage = ref('')
+const infoLoaded = ref(false)
+const infoCourses = ref([])
+const infoShowOtherModes = ref(false)
 
 const filters = ref({
   kcmc: '',
@@ -43,6 +65,22 @@ const filters = ref({
   kkxq: '',
   kclb: '',
   kclx: ''
+})
+
+const infoFilters = ref({
+  term: '',
+  kcmc: '',
+  teacher: '',
+  kcxz: '',
+  kclx: '',
+  xkfs: '选课'
+})
+
+const infoOptions = ref({
+  term: [{ value: '', label: '全部学期' }],
+  kcxz: [{ value: '', label: '全部性质' }],
+  kclx: [{ value: '', label: '全部类型' }],
+  xkfs: [{ value: '', label: '全部方式' }]
 })
 
 const showDetail = ref(false)
@@ -515,18 +553,27 @@ const unwrapApiResult = (response, fallback = '请求失败') => {
   }
 }
 
-const getRequestPayload = () => ({
+const buildListPayload = ({ pcid, pcenc, filtersSource = EMPTY_LIST_FILTERS } = {}) => {
+  const source = filtersSource || EMPTY_LIST_FILTERS
+  return {
+    pcid: safeText(pcid),
+    pcenc: safeText(pcenc),
+    from: DEFAULT_FROM,
+    kcmc: safeText(source.kcmc),
+    kcxz: safeText(source.kcxz),
+    kcgs: safeText(source.kcgs),
+    jxms: safeText(source.jxms),
+    teacher: safeText(source.teacher),
+    kkxq: safeText(source.kkxq),
+    kclb: safeText(source.kclb),
+    kclx: safeText(source.kclx)
+  }
+}
+
+const getRequestPayload = () => buildListPayload({
   pcid: currentPcid.value,
   pcenc: currentPcenc.value,
-  from: DEFAULT_FROM,
-  kcmc: safeText(filters.value.kcmc),
-  kcxz: safeText(filters.value.kcxz),
-  kcgs: safeText(filters.value.kcgs),
-  jxms: safeText(filters.value.jxms),
-  teacher: safeText(filters.value.teacher),
-  kkxq: safeText(filters.value.kkxq),
-  kclb: safeText(filters.value.kclb),
-  kclx: safeText(filters.value.kclx)
+  filtersSource: filters.value
 })
 
 const fetchOverview = async () => {
@@ -671,6 +718,350 @@ const refreshCourseData = async () => {
     showToast(resolveErrorMessage(err, '刷新选课数据失败'), 'error')
   } finally {
     refreshing.value = false
+  }
+}
+
+const mapToOptions = (sourceMap, placeholder = '全部') => {
+  const options = [{ value: '', label: placeholder }]
+  Array.from(sourceMap.entries())
+    .map(([value, label]) => ({
+      value: safeText(value),
+      label: safeText(label || value)
+    }))
+    .filter((item) => item.label)
+    .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+    .forEach((item) => {
+      if (options.some((existing) => existing.value === item.value && existing.label === item.label)) return
+      options.push(item)
+    })
+  return options
+}
+
+const resolveInfoSelectionMode = (item) => {
+  return safeText(
+    item?.xkfsmc || item?.xkfsmc || item?.xkfs || item?.selection_mode || item?.select_mode || item?.mode || '选课'
+  ) || '选课'
+}
+
+const deriveTabTermLabel = (tab) => {
+  const tabName = safeText(tab?.xkgzMc)
+  if (tabName) return tabName
+  const studentSemester = safeText(summaryStudent.value?.semester)
+  return studentSemester || '当前学期'
+}
+
+const normalizeInfoCourse = (item, context = {}) => {
+  const fallbackId = `${safeText(context.tabId || 'tab')}-${safeText(context.index || '0')}-${safeText(item?.kcmc || item?.course_name || 'course')}`
+  const merged = {
+    ...item,
+    id: safeText(item?.id || item?.jxbid || item?.jxb_id || item?.source_id || fallbackId),
+    jxbmc: item?.jxbmc ?? item?.jxbmcDisplay ?? item?.jxb_name ?? item?.bjmc ?? '',
+    kcmc: item?.kcmc ?? item?.course_name ?? item?.kcname ?? '',
+    xf: item?.xf ?? item?.credit ?? '',
+    teacher: item?.teacher ?? item?.jsxm ?? item?.lsxm ?? item?.skjs ?? '',
+    sksjdd: item?.sksjdd ?? item?.skdd ?? item?.time_place ?? '',
+    sksjddstr: item?.sksjddstr ?? item?.sksj ?? item?.time_text ?? '',
+    yxrl: item?.yxrl ?? item?.capacity ?? item?.capacity_text ?? '',
+    status: item?.status ?? (item?.picked === true || item?.isPicked === true ? '1' : ''),
+    sfkxk: item?.sfkxk ?? (item?.isSelectable === true ? '1' : '0'),
+    sfct: item?.sfct ?? (item?.isConflict === true ? '1' : '0'),
+    kkxqmc: item?.kkxqmc ?? item?.campus ?? '',
+    kcxz: item?.kcxz ?? item?.course_nature ?? '',
+    kclx: item?.kclx ?? item?.course_type ?? '',
+    kclbname: item?.kclbname ?? item?.kclb ?? '',
+    kcjj: item?.kcjj ?? item?.course_intro ?? '',
+    jxbzc: item?.jxbzc ?? item?.class_group ?? '',
+    label: item?.label ?? item?.remark ?? '',
+    jxms: item?.jxms ?? item?.teaching_mode ?? '',
+    ksxs: item?.ksxs ?? item?.exam_mode ?? ''
+  }
+  const normalized = normalizeCourse(merged)
+  const picked = normalized.isPicked || safeText(item?.status) === '1' || safeText(item?.zt) === '已选'
+  const status = resolveCourseStatus({
+    picked,
+    selectable: normalized.isSelectable,
+    full: normalized.isFull,
+    conflict: normalized.isConflict
+  })
+  return {
+    ...normalized,
+    ...status,
+    isPicked: picked,
+    termLabel: safeText(item?.xnxq || item?.semester || context.termLabel || summaryStudent.value?.semester || '当前学期'),
+    xkfsText: resolveInfoSelectionMode(item),
+    sourceTabId: safeText(context.tabId || item?.sourceTabId),
+    sourceTabName: safeText(context.tabName || item?.sourceTabName)
+  }
+}
+
+const dedupeInfoCourses = (list) => {
+  const map = new Map()
+  ;(list || []).forEach((item) => {
+    const key = [safeText(item.id), safeText(item.termLabel), safeText(item.sourceTabId), safeText(item.xkfsText)].join('::')
+    if (!map.has(key)) {
+      map.set(key, item)
+    }
+  })
+  return Array.from(map.values())
+}
+
+const sortInfoCourses = (list) => {
+  return [...list].sort((a, b) => {
+    const termDiff = safeText(b.termLabel).localeCompare(safeText(a.termLabel), 'zh-CN')
+    if (termDiff !== 0) return termDiff
+    return safeText(a.kcmc).localeCompare(safeText(b.kcmc), 'zh-CN')
+  })
+}
+
+const pickArrayPayload = (data) => {
+  if (Array.isArray(data)) return data
+  if (!data || typeof data !== 'object') return []
+  const candidates = [data.courses, data.list, data.items, data.rows, data.records, data.data]
+  const found = candidates.find((item) => Array.isArray(item))
+  return Array.isArray(found) ? found : []
+}
+
+const mergeConditionOptions = (condition, kcxzMap, kclxMap) => {
+  normalizeOptionList(condition?.kcxzList, '全部性质').forEach((item) => {
+    const value = safeText(item.value || item.label)
+    const label = safeText(item.label || item.value)
+    if (!value || !label) return
+    kcxzMap.set(value, label)
+  })
+  normalizeOptionList(condition?.kclxList, '全部类型').forEach((item) => {
+    const value = safeText(item.value || item.label)
+    const label = safeText(item.label || item.value)
+    if (!value || !label) return
+    kclxMap.set(value, label)
+  })
+}
+
+const applyInfoOptionsAndDefaults = ({ termMap, xkfsSet, kcxzMap, kclxMap }) => {
+  infoOptions.value = {
+    term: mapToOptions(termMap, '全部学期'),
+    xkfs: mapToOptions(new Map(Array.from(xkfsSet).map((value) => [value, value])), '全部方式'),
+    kcxz: mapToOptions(kcxzMap, '全部性质'),
+    kclx: mapToOptions(kclxMap, '全部类型')
+  }
+
+  const semester = safeText(summaryStudent.value?.semester)
+  const termOptions = infoOptions.value.term
+  const currentTermValid = termOptions.some((item) => safeText(item.value) === safeText(infoFilters.value.term))
+  if (!currentTermValid) {
+    const matchedTerm = termOptions.find((item) => {
+      if (!safeText(item.value)) return false
+      if (!semester) return false
+      return safeText(item.label).includes(semester) || safeText(item.value).includes(semester)
+    })
+    infoFilters.value.term = matchedTerm?.value || termOptions[1]?.value || ''
+  }
+
+  if (!infoShowOtherModes.value) {
+    infoFilters.value.xkfs = '选课'
+  } else {
+    const xkfsValid = infoOptions.value.xkfs.some((item) => safeText(item.value) === safeText(infoFilters.value.xkfs))
+    if (!xkfsValid) infoFilters.value.xkfs = ''
+  }
+
+  ;['kcxz', 'kclx'].forEach((key) => {
+    const valid = infoOptions.value[key].some((item) => safeText(item.value) === safeText(infoFilters.value[key]))
+    if (!valid) infoFilters.value[key] = ''
+  })
+}
+
+const fetchSelectedCoursesByEndpoint = async () => {
+  const res = await axios.post(`${API_BASE}/v2/course_selection/selected_courses`, {
+    semester: safeText(summaryStudent.value?.semester)
+  })
+  const { data } = unwrapApiResult(res, '获取已选课程失败')
+  const list = pickArrayPayload(data)
+  if (!list.length) {
+    throw new Error('已选课程接口暂无数据')
+  }
+  const termMap = new Map()
+  const xkfsSet = new Set(['选课'])
+  const kcxzMap = new Map()
+  const kclxMap = new Map()
+  const normalized = list.map((item, index) => {
+    const course = normalizeInfoCourse(item, {
+      tabId: safeText(item?.sourceTabId || item?.pcid || 'selected_api'),
+      tabName: safeText(item?.sourceTabName || item?.source || '已选课程'),
+      termLabel: safeText(item?.xnxq || item?.semester || summaryStudent.value?.semester || '当前学期'),
+      index
+    })
+    termMap.set(course.termLabel, course.termLabel)
+    xkfsSet.add(course.xkfsText || '选课')
+    if (safeText(course.kcxz)) kcxzMap.set(safeText(course.kcxz), safeText(course.kcxz))
+    if (safeText(course.kclx)) kclxMap.set(safeText(course.kclx), safeText(course.kclx))
+    return course
+  })
+  mergeConditionOptions(data?.condition || data?.conditions || {}, kcxzMap, kclxMap)
+  return {
+    courses: normalized,
+    termMap,
+    xkfsSet,
+    kcxzMap,
+    kclxMap,
+    source: 'endpoint'
+  }
+}
+
+const fetchSelectedCoursesByTabs = async () => {
+  if (!tabs.value.length) {
+    await fetchOverview()
+  }
+
+  const termMap = new Map()
+  const xkfsSet = new Set(['选课'])
+  const kcxzMap = new Map()
+  const kclxMap = new Map()
+  const merged = []
+
+  for (const tab of tabs.value) {
+    const tabId = safeText(tab?.xkgzid)
+    const tabPcenc = safeText(pcencMap.value?.[tabId] || pcencMap.value?.[String(tabId)] || tab?.pcenc)
+    if (!tabId || !tabPcenc) continue
+    const res = await axios.post(
+      `${API_BASE}/v2/course_selection/list`,
+      buildListPayload({
+        pcid: tabId,
+        pcenc: tabPcenc,
+        filtersSource: EMPTY_LIST_FILTERS
+      })
+    )
+    const { data } = unwrapApiResult(res, '获取已选课程失败')
+    const termLabel = deriveTabTermLabel(tab)
+    termMap.set(termLabel, termLabel)
+    mergeConditionOptions(data?.condition || {}, kcxzMap, kclxMap)
+    const rawCourses = Array.isArray(data?.courses) ? data.courses : []
+    rawCourses.forEach((item, index) => {
+      const normalized = normalizeInfoCourse(item, {
+        tabId,
+        tabName: safeText(tab?.xkgzMc || '未命名批次'),
+        termLabel,
+        index
+      })
+      if (!normalized.isPicked) return
+      merged.push(normalized)
+      xkfsSet.add(normalized.xkfsText || '选课')
+      if (safeText(normalized.kcxz)) {
+        kcxzMap.set(safeText(normalized.kcxz), findOptionLabel(optionMaps.value.kcxz, normalized.kcxz, normalized.kcxz))
+      }
+      if (safeText(normalized.kclx)) {
+        kclxMap.set(safeText(normalized.kclx), findOptionLabel(optionMaps.value.kclx, normalized.kclx, normalized.kclx))
+      }
+    })
+  }
+
+  return {
+    courses: merged,
+    termMap,
+    xkfsSet,
+    kcxzMap,
+    kclxMap,
+    source: 'tabs'
+  }
+}
+
+const querySelectedCourses = async ({ showSuccessToast = false } = {}) => {
+  if (loadingInfo.value) return
+  loadingInfo.value = true
+  infoError.value = ''
+  infoSourceMessage.value = ''
+  try {
+    if (!tabs.value.length) {
+      await fetchOverview()
+    }
+
+    let fetched
+    try {
+      fetched = await fetchSelectedCoursesByEndpoint()
+      infoSourceMessage.value = '已通过已选课程接口自动查询'
+    } catch {
+      fetched = await fetchSelectedCoursesByTabs()
+      infoSourceMessage.value = '已从选课批次聚合已选课程结果'
+    }
+
+    const deduped = dedupeInfoCourses(fetched.courses)
+    infoCourses.value = sortInfoCourses(deduped)
+    applyInfoOptionsAndDefaults({
+      termMap: fetched.termMap,
+      xkfsSet: fetched.xkfsSet,
+      kcxzMap: fetched.kcxzMap,
+      kclxMap: fetched.kclxMap
+    })
+    infoLoaded.value = true
+    if (showSuccessToast) {
+      showToast('已刷新信息查询结果', 'success')
+    }
+  } catch (err) {
+    infoCourses.value = []
+    infoError.value = resolveErrorMessage(err, '获取已选课程失败')
+    if (showSuccessToast) {
+      showToast(infoError.value, 'error')
+    }
+  } finally {
+    loadingInfo.value = false
+  }
+}
+
+const resetInfoFilters = () => {
+  const defaultTerm = infoOptions.value.term[1]?.value || infoOptions.value.term[0]?.value || ''
+  infoFilters.value = {
+    term: defaultTerm,
+    kcmc: '',
+    teacher: '',
+    kcxz: '',
+    kclx: '',
+    xkfs: infoShowOtherModes.value ? '' : '选课'
+  }
+}
+
+const handleInfoOtherModesChange = () => {
+  if (infoShowOtherModes.value) {
+    infoFilters.value.xkfs = ''
+  } else {
+    infoFilters.value.xkfs = '选课'
+  }
+}
+
+const enterSelectionMode = async () => {
+  centerMode.value = ENTRY_MODE_SELECTION
+  if (!tabs.value.length) {
+    await fetchOverview()
+  }
+  if (activeTabId.value && !courses.value.length && !loadingList.value) {
+    await loadTabBundle()
+  }
+}
+
+const enterInfoMode = async () => {
+  centerMode.value = ENTRY_MODE_INFO
+  if (!infoLoaded.value || !infoCourses.value.length) {
+    await querySelectedCourses()
+  }
+}
+
+const backToEntryMenu = () => {
+  centerMode.value = ENTRY_MODE_MENU
+  infoShowAdvanced.value = false
+}
+
+const handleBack = () => {
+  if (centerMode.value === ENTRY_MODE_MENU) {
+    emit('back')
+    return
+  }
+  backToEntryMenu()
+}
+
+const handleHeaderRefresh = async () => {
+  if (centerMode.value === ENTRY_MODE_SELECTION) {
+    await refreshCourseData()
+    return
+  }
+  if (centerMode.value === ENTRY_MODE_INFO) {
+    await querySelectedCourses({ showSuccessToast: true })
   }
 }
 
@@ -870,8 +1261,96 @@ const submitWithdraw = async (course) => {
 
 const currentDetailCourse = computed(() => {
   if (!selectedCourse.value?.id) return selectedCourse.value
-  return courses.value.find((item) => item.id === selectedCourse.value.id) || selectedCourse.value
+  const fromSelection = courses.value.find((item) => item.id === selectedCourse.value.id)
+  if (fromSelection) return fromSelection
+  return infoCourses.value.find((item) => item.id === selectedCourse.value.id) || selectedCourse.value
 })
+
+const filteredInfoCourses = computed(() => {
+  const keyword = safeText(infoFilters.value.kcmc).toLowerCase()
+  const teacher = safeText(infoFilters.value.teacher).toLowerCase()
+  return infoCourses.value.filter((course) => {
+    if (safeText(infoFilters.value.term) && safeText(course.termLabel) !== safeText(infoFilters.value.term)) {
+      return false
+    }
+    if (keyword && !safeText(course.kcmc).toLowerCase().includes(keyword)) {
+      return false
+    }
+    if (teacher && !safeText(course.teacher).toLowerCase().includes(teacher)) {
+      return false
+    }
+    if (safeText(infoFilters.value.kcxz) && safeText(course.kcxz) !== safeText(infoFilters.value.kcxz)) {
+      return false
+    }
+    if (safeText(infoFilters.value.kclx) && safeText(course.kclx) !== safeText(infoFilters.value.kclx)) {
+      return false
+    }
+
+    const mode = safeText(course.xkfsText || '选课')
+    if (!infoShowOtherModes.value && mode !== '选课') {
+      return false
+    }
+    if (infoShowOtherModes.value && safeText(infoFilters.value.xkfs) && mode !== safeText(infoFilters.value.xkfs)) {
+      return false
+    }
+    return true
+  })
+})
+
+const infoEmptyHint = computed(() => {
+  if (loadingInfo.value) return '正在查询已选课程...'
+  if (infoError.value) return infoError.value
+  if (!infoLoaded.value) return '点击“信息查询”后将自动加载结果'
+  return '当前筛选条件下暂无课程'
+})
+
+const refreshButtonLabel = computed(() => {
+  if (centerMode.value === ENTRY_MODE_SELECTION) {
+    return refreshing.value ? '刷新中…' : '刷新'
+  }
+  if (centerMode.value === ENTRY_MODE_INFO) {
+    return loadingInfo.value ? '查询中…' : '刷新查询'
+  }
+  return '刷新'
+})
+
+const refreshDisabled = computed(() => {
+  if (centerMode.value === ENTRY_MODE_SELECTION) {
+    return refreshing.value || loadingList.value || loadingOverview.value
+  }
+  if (centerMode.value === ENTRY_MODE_INFO) {
+    return loadingInfo.value
+  }
+  return true
+})
+
+const headerMainPill = computed(() => {
+  if (centerMode.value === ENTRY_MODE_SELECTION) {
+    return `可选课程 ${count.value} 门`
+  }
+  if (centerMode.value === ENTRY_MODE_INFO) {
+    return `已选课程 ${filteredInfoCourses.value.length} 门`
+  }
+  return '请选择查询入口'
+})
+
+const headerSubPill = computed(() => {
+  if (centerMode.value === ENTRY_MODE_SELECTION) {
+    return `批次倒计时 ${countdownText.value || '--'}`
+  }
+  if (centerMode.value === ENTRY_MODE_INFO) {
+    return `当前学期 ${safeText(infoFilters.value.term) || safeText(summaryStudent.value?.semester) || '--'}`
+  }
+  return '左侧选课，右侧信息查询'
+})
+
+const pageTitle = computed(() => {
+  if (centerMode.value === ENTRY_MODE_SELECTION) return '选课中心 · 选课'
+  if (centerMode.value === ENTRY_MODE_INFO) return '选课中心 · 信息查询'
+  return '选课中心'
+})
+
+const backButtonLabel = computed(() => (centerMode.value === ENTRY_MODE_MENU ? '← 返回' : '← 入口'))
 
 const emptyHint = computed(() => {
   if (loadingOverview.value || loadingList.value) return '加载中...'

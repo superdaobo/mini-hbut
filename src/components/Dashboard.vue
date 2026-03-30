@@ -1,12 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import axios from 'axios'
-import { fetchWithCache, getCachedData } from '../utils/api'
+import { fetchWithCache, getCachedData, setCachedData } from '../utils/api'
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown'
 import hbutLogo from '../assets/hbut-logo.png'
 import ThemeModuleIcon from './icons/ThemeModuleIcon.vue'
+import { readScheduleLockDetail } from '../utils/schedule_prefetch.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -159,14 +160,33 @@ const getCurrentWeek = (metaWeek) => {
 }
 
 const getPreferredScheduleSemester = () => {
+  const lockDetail = readScheduleLockDetail(props.studentId)
+  const lockedSemester = String(lockDetail?.semester || '').trim()
+  if (lockedSemester) {
+    return {
+      semester: lockedSemester,
+      source: 'lock',
+      reason: String(lockDetail?.reason || '').trim()
+    }
+  }
   try {
     const cachedMeta = localStorage.getItem('hbu_schedule_meta')
-    if (!cachedMeta) return ''
+    if (!cachedMeta) return { semester: '', source: 'none', reason: '' }
     const parsed = JSON.parse(cachedMeta)
-    return String(parsed?.semester || '').trim()
+    return {
+      semester: String(parsed?.semester || '').trim(),
+      source: 'meta',
+      reason: ''
+    }
   } catch (e) {
-    return ''
+    return { semester: '', source: 'none', reason: '' }
   }
+}
+
+const isVacationPreviousMeta = (meta = {}) => {
+  const strategy = String(meta?.auto_strategy || '').trim()
+  const notice = String(meta?.vacation_notice || '').trim()
+  return strategy === 'vacation_previous' || notice.includes('当前为假期')
 }
 
 const buildScheduleCacheKey = (studentId, semester) => {
@@ -328,7 +348,9 @@ const fetchTodayCourses = async () => {
   todayLoading.value = true
   todayError.value = ''
   try {
-    const preferredSemester = getPreferredScheduleSemester()
+    const preferredInfo = getPreferredScheduleSemester()
+    const preferredSemester = String(preferredInfo?.semester || '').trim()
+    const sid = String(props.studentId || '').trim()
     let customCourses = []
     const cacheKey = buildScheduleCacheKey(props.studentId, preferredSemester)
     const cached = getCachedData(cacheKey)
@@ -342,6 +364,31 @@ const fetchTodayCourses = async () => {
         return rsp.data
       })
       payload = res?.data
+    }
+
+    const shouldForceOnlineRetry =
+      !!payload?.success &&
+      !!payload?.offline &&
+      isVacationPreviousMeta(payload?.meta)
+
+    if (shouldForceOnlineRetry && sid) {
+      try {
+        const onlineRes = await axios.post(`${API_BASE}/v2/schedule/query`, {
+          student_id: sid,
+          semester: undefined
+        })
+        const onlinePayload = onlineRes?.data
+        if (onlinePayload?.success && !onlinePayload?.offline) {
+          payload = onlinePayload
+          const onlineSemester = String(onlinePayload?.meta?.semester || '').trim()
+          if (onlineSemester) {
+            setCachedData(`schedule:${sid}:${onlineSemester}`, onlinePayload)
+          }
+          setCachedData(`schedule:${sid}`, onlinePayload)
+        }
+      } catch (_error) {
+        // keep stale payload as fallback
+      }
     }
 
     const semesterForCustom = String(payload?.meta?.semester || preferredSemester || '').trim()

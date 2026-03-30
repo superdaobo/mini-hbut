@@ -8,6 +8,17 @@ const SCHEDULE_LOCK_KEY = 'hbu_schedule_lock'
 export const SCHEDULE_POPUP_PENDING_KEY = 'hbu_schedule_popup_pending'
 export const SCHEDULE_SWITCH_PENDING_KEY = 'hbu_schedule_switch_pending'
 const MAX_SEMESTER_PROBE = 8
+const MANUAL_SCHEDULE_LOCK_REASON = 'manual-select'
+const AUTO_SCHEDULE_LOCK_REASONS = new Set([
+  '',
+  'warmup',
+  'first-enter',
+  'schedule-fetch',
+  'pending-switch',
+  'notify-background',
+  'fallback-semester',
+  'locked-cache'
+])
 
 const toSafeText = (value) => String(value ?? '').trim()
 
@@ -71,13 +82,51 @@ const courseCount = (payload) => (Array.isArray(payload?.data) ? payload.data.le
 
 const readScheduleLockRecord = () => readJSON(SCHEDULE_LOCK_KEY, null)
 
-export const readScheduleLock = (studentId = '') => {
+const normalizeScheduleLockRecord = (record) => {
+  if (!record || typeof record !== 'object') return null
+  const semester = toSafeText(record.semester)
+  if (!semester) return null
+  const student_id = toSafeText(record.student_id)
+  const reason = toSafeText(record.reason)
+  const at = Number(record.at || 0)
+  return {
+    student_id,
+    semester,
+    reason,
+    at: Number.isFinite(at) && at > 0 ? at : 0
+  }
+}
+
+export const isAutoScheduleLockReason = (reason = '') => {
+  const text = toSafeText(reason)
+  if (text === MANUAL_SCHEDULE_LOCK_REASON) return false
+  return AUTO_SCHEDULE_LOCK_REASONS.has(text)
+}
+
+export const readScheduleLockDetail = (studentId = '') => {
   const sid = toSafeText(studentId)
-  const record = readScheduleLockRecord()
-  if (!record) return ''
-  const lockedSid = toSafeText(record.student_id)
-  if (sid && lockedSid && sid !== lockedSid) return ''
-  return toSafeText(record.semester)
+  const record = normalizeScheduleLockRecord(readScheduleLockRecord())
+  if (!record) return null
+  if (sid && record.student_id && sid !== record.student_id) return null
+  return record
+}
+
+export const readScheduleLock = (studentId = '') => {
+  const record = readScheduleLockDetail(studentId)
+  return record?.semester || ''
+}
+
+export const clearScheduleLock = (studentId = '') => {
+  const sid = toSafeText(studentId)
+  const record = normalizeScheduleLockRecord(readScheduleLockRecord())
+  if (!record) return false
+  if (sid && record.student_id && sid !== record.student_id) return false
+  try {
+    localStorage.removeItem(SCHEDULE_LOCK_KEY)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export const writeScheduleLock = (studentId, semester, reason = 'manual') => {
@@ -200,14 +249,14 @@ const querySchedule = async (studentId, semester = '') => {
   const sem = toSafeText(semester)
   const key = buildScheduleCacheKey(sid, sem)
   if (!key) return null
-  const { data, fromCache } = await fetchWithCache(key, async () => {
+  const { data, fromCache, stale } = await fetchWithCache(key, async () => {
     const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
       student_id: sid,
       semester: sem || undefined
     })
     return res.data
   })
-  return { key, data, fromCache: !!fromCache, semester: sem }
+  return { key, data, fromCache: !!fromCache, stale: !!stale, semester: sem }
 }
 
 const normalizeSemesterPayload = (payload) => {
@@ -220,6 +269,13 @@ const normalizeSemesterPayload = (payload) => {
   }
 }
 
+const isAuthoritativeSchedulePayload = (payload, queryResult) => {
+  if (!payload?.success) return false
+  if (payload?.offline) return false
+  if (queryResult?.fromCache || queryResult?.stale) return false
+  return true
+}
+
 export const warmupScheduleForStudent = async (studentId, options = {}) => {
   const sid = toSafeText(studentId)
   if (!sid) {
@@ -229,7 +285,7 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
   const existingLock = readScheduleLock(sid)
   if (existingLock && !options?.forceProbe) {
     const snapshot = getCachedScheduleSnapshot(sid, existingLock)
-    if (snapshot?.data?.success) {
+    if (snapshot?.data?.success && !snapshot?.data?.offline) {
       return {
         success: true,
         semester: existingLock,
@@ -290,7 +346,8 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
       firstSuccess = {
         semester: semester || normalized.semester,
         payload: normalized.payload,
-        fromCache: queryResult?.fromCache
+        fromCache: queryResult?.fromCache,
+        stale: queryResult?.stale
       }
     }
     if (normalized.count > 0) {
@@ -298,6 +355,7 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
         semester: semester || normalized.semester,
         payload: normalized.payload,
         fromCache: queryResult?.fromCache,
+        stale: queryResult?.stale,
         count: normalized.count
       }
       break
@@ -309,6 +367,7 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
       semester: toSafeText(firstSuccess.semester || firstSuccess.payload?.meta?.semester),
       payload: firstSuccess.payload,
       fromCache: !!firstSuccess.fromCache,
+      stale: !!firstSuccess.stale,
       count: courseCount(firstSuccess.payload)
     }
   }
@@ -322,6 +381,7 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
           semester: normalized.semester || anchorSemester || cachedSemester,
           payload: normalized.payload,
           fromCache: fallback?.fromCache,
+          stale: fallback?.stale,
           count: normalized.count
         }
       }
@@ -338,15 +398,28 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
     }
   }
 
-  const selectedSemester = updateStoredScheduleMeta(picked.payload?.meta, picked.semester)
+  const authoritative = isAuthoritativeSchedulePayload(picked.payload, picked)
+  const previousStoredSemester = cachedSemester
+  const payloadSemester = toSafeText(picked.payload?.meta?.semester || picked.semester)
+  let selectedSemester = payloadSemester || previousStoredSemester || anchorSemester
+  if (authoritative || !previousStoredSemester) {
+    selectedSemester = updateStoredScheduleMeta(picked.payload?.meta, selectedSemester)
+  }
 
   // 兼容旧逻辑：同时维护学期 key 与默认 key，保证首页和通知模块读取一致。
-  const scopedKey = buildScheduleCacheKey(sid, selectedSemester)
+  const scopedKey = buildScheduleCacheKey(sid, payloadSemester || selectedSemester)
   if (scopedKey) {
     setCachedData(scopedKey, picked.payload)
   }
   setCachedData(buildScheduleCacheKey(sid), picked.payload)
-  writeScheduleLock(sid, selectedSemester, reasonText)
+  if (authoritative || options?.forceLock) {
+    writeScheduleLock(sid, selectedSemester, reasonText)
+  } else {
+    const lockDetail = readScheduleLockDetail(sid)
+    if (lockDetail && isAutoScheduleLockReason(lockDetail.reason)) {
+      clearScheduleLock(sid)
+    }
+  }
   if (!options?.skipPopup) {
     queueScheduleSemesterPopup(sid, selectedSemester, reasonText)
   }
@@ -356,6 +429,8 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
     semester: selectedSemester,
     count: courseCount(picked.payload),
     fromCache: !!picked.fromCache,
+    stale: !!picked.stale,
+    authoritative,
     source: picked.count > 0 ? 'nearest-with-data' : 'fallback-semester',
     payload: picked.payload
   }
