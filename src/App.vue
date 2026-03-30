@@ -48,6 +48,7 @@ import {
   invokeNative,
   isTauriRuntime
 } from './platform/native'
+import { isCapacitorRuntime } from './platform/native'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const hasTauri = isTauriRuntime()
@@ -74,6 +75,7 @@ let pendingScrollToTopOnViewChange = false
 let lastResumeHandledAt = 0
 let resumePendingSnapshot = null
 let appBootstrapped = false
+let capacitorAppStateListener = null
 
 const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
 const ME_SUB_VIEWS = ['official', 'feedback', 'config', 'settings', 'export_center']
@@ -413,6 +415,13 @@ const nudgeWebViewPaint = () => {
     root.style.opacity = '1'
     root.style.transform = ''
   })
+  // 延迟检测 DOM 是否真正恢复，否则强制重载
+  setTimeout(() => {
+    const content = document.getElementById('app')
+    if (!content || !content.innerHTML || content.innerHTML.length < 50) {
+      window.location.reload()
+    }
+  }, 800)
 }
 
 const scheduleViewportUpdate = () => {
@@ -1481,6 +1490,22 @@ onMounted(async () => {
 
   ensureConfigAccess()
   appBootstrapped = true
+
+  // Capacitor 环境注册原生 appStateChange 事件（补充浏览器 visibilitychange 的盲区）
+  if (isCapacitorRuntime()) {
+    import('@capacitor/app').then((mod) => {
+      mod.App.addListener('appStateChange', (state) => {
+        if (state.isActive) {
+          handleAppResume('capacitor-appStateChange')
+        } else {
+          hiddenAt = Date.now()
+          resumePendingSnapshot = readWindowRouteSnapshot() || collectCurrentViewSnapshot()
+        }
+      }).then((handle) => {
+        capacitorAppStateListener = handle
+      }).catch(() => {})
+    }).catch(() => {})
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1511,6 +1536,10 @@ onBeforeUnmount(() => {
   void stopNotificationMonitor()
   stopJwxtRecoveryPolling()
   stopRemoteConfigRefresh()
+  if (capacitorAppStateListener) {
+    capacitorAppStateListener.remove().catch(() => {})
+    capacitorAppStateListener = null
+  }
 })
 </script>
 

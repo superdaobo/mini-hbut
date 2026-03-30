@@ -106,20 +106,21 @@ export const capacitorBridge: PlatformBridge = {
     if (!localNotifications?.schedule) return false
     try {
       const id = payload.id ?? Math.floor(Date.now() % 2147483000)
-      await localNotifications.schedule({
-        notifications: [
-          {
-            id,
-            channelId: payload.channelId,
-            title: payload.title,
-            body: payload.body || '',
-            schedule: {
-              at: new Date(Date.now() + 600),
-              allowWhileIdle: true
-            }
-          }
-        ]
-      })
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      const notification: Record<string, any> = {
+        id,
+        title: payload.title,
+        body: payload.body || '',
+        schedule: {
+          at: new Date(Date.now() + 1500),
+          allowWhileIdle: !isIOS
+        }
+      }
+      // channelId 是 Android 概念，iOS 上不传
+      if (!isIOS && payload.channelId) {
+        notification.channelId = payload.channelId
+      }
+      await localNotifications.schedule({ notifications: [notification] })
       return true
     } catch {
       return false
@@ -156,6 +157,15 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState> {
+    // iOS 不支持前台服务保活，返回友好提示
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      return {
+        supported: false,
+        active: false,
+        source: 'ios',
+        reason: 'iOS 不支持前台服务，后台任务由系统调度'
+      }
+    }
     const plugin = getHBUTNativePlugin()
     if (!plugin?.setForegroundService) {
       return {
@@ -184,6 +194,14 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async getAggressiveKeepAliveState(): Promise<KeepAliveState> {
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      return {
+        supported: false,
+        active: false,
+        source: 'ios',
+        reason: 'iOS 不支持前台服务，后台任务由系统调度'
+      }
+    }
     const plugin = getHBUTNativePlugin()
     if (!plugin?.getForegroundServiceState) {
       return {

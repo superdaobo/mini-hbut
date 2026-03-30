@@ -384,6 +384,9 @@ const handleBackgroundToggle = async () => {
     if (enableBackground.value && isAndroid()) {
       showBatteryPrompt.value = true
     }
+    if (enableBackground.value && !isAndroid() && currentRuntime.value === 'capacitor') {
+      statusMessage.value = 'iOS 后台任务由系统自动调度，前台服务保活不可用。请确保已授予通知权限。'
+    }
     await refreshRuntimeStates()
     return
   }
