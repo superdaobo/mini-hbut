@@ -201,10 +201,13 @@ fn has_valid_pcencs(value: &Value) -> bool {
 
 async fn fetch_list_v2_raw(client: &HbutClient, base: &str, referer: &str) -> Result<Value, DynError> {
     let url = format!("{}/admin/xsd/xk/listV2", base);
+
+    // 第一次：空 body（与 Python _post_form({}) 一致，必须带 Content-Type）
     let resp = client
         .client
         .post(&url)
         .header("Accept", "application/json, text/plain, */*")
+        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
         .header("Origin", base)
         .header("Referer", referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -212,7 +215,25 @@ async fn fetch_list_v2_raw(client: &HbutClient, base: &str, referer: &str) -> Re
         .send()
         .await?;
 
-    read_json_response(resp, "获取选课总览失败").await
+    let raw = read_json_response(resp, "获取选课总览失败").await?;
+    if raw.is_object() {
+        return Ok(raw);
+    }
+
+    // 第二次：带 from 参数重试（对齐 Python detect_base_and_fetch_overview 逻辑）
+    let resp2 = client
+        .client
+        .post(&url)
+        .header("Accept", "application/json, text/plain, */*")
+        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header("Origin", base)
+        .header("Referer", referer)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .form(&[("from", "ggxxk")])
+        .send()
+        .await?;
+
+    read_json_response(resp2, "获取选课总览失败").await
 }
 
 async fn fetch_show_tab_raw(client: &HbutClient, base: &str, referer: &str) -> Result<Value, DynError> {
@@ -384,6 +405,22 @@ pub async fn fetch_course_selection_overview(client: &HbutClient) -> Result<Valu
     let base = client.academic_base_url();
     let referer = academic_referer(base);
 
+    // 预热选课 session，与 Python 原始爬虫 _bootstrap_selection_session 一致
+    let warmup_urls = [
+        format!("{}/admin/", base),
+        format!("{}/admin/xsd/xkgl/xsdxk", base),
+        referer.clone(),
+    ];
+    for warmup_url in &warmup_urls {
+        let _ = client
+            .client
+            .get(warmup_url)
+            .header("Accept", "text/html, application/xhtml+xml, */*")
+            .header("Referer", base)
+            .send()
+            .await;
+    }
+
     let mut data = json!({});
     let mut tabs = Vec::new();
     let mut pcencs = json!({});
@@ -398,6 +435,7 @@ pub async fn fetch_course_selection_overview(client: &HbutClient) -> Result<Valu
         let ret = raw.get("ret").and_then(|v| v.as_i64()).unwrap_or_default();
         let msg = response_msg(&raw, "获取成功");
         let empty = ret == -1 && msg.contains("没有可选的教学班");
+        println!("[选课调试] overview attempt={}, ret={}, msg={}, empty={}", attempt, ret, msg, empty);
         if ret != 0 && !empty {
             return Err(err_box(msg));
         }
@@ -405,6 +443,8 @@ pub async fn fetch_course_selection_overview(client: &HbutClient) -> Result<Valu
         let next_data = raw.get("data").cloned().unwrap_or_else(|| json!({}));
         let next_tabs = extract_tabs_from_list_v2(&next_data);
         let next_pcencs = next_data.get("pcencs").cloned().unwrap_or_else(|| json!({}));
+        let pcenc_keys: Vec<_> = next_pcencs.as_object().map(|m| m.keys().collect::<Vec<_>>()).unwrap_or_default();
+        println!("[选课调试] overview attempt={}: tabs={}, pcenc_keys={:?}", attempt, next_tabs.len(), pcenc_keys);
 
         data = next_data;
         tabs = next_tabs;
@@ -767,5 +807,112 @@ pub async fn fetch_course_selection_detail_teacher(
         "jxbid": req.jxbid,
         "content": content,
         "raw": parsed.unwrap_or_else(|| Value::String(text)),
+    })))
+}
+
+// 根据当前日期计算学期标识
+fn current_semester_by_date() -> String {
+    use chrono::{Datelike, Local};
+    let now = Local::now();
+    let year = now.year();
+    let month = now.month();
+    let day = now.day();
+    let (start, term) = if month >= 9 {
+        (year, 1)
+    } else if month >= 3 {
+        (year - 1, 2)
+    } else if month == 2 && day >= 15 {
+        (year - 1, 2)
+    } else {
+        (year - 1, 1)
+    };
+    format!("{}-{}-{}", start, start + 1, term)
+}
+
+// 生成当前学期附近的候选学期列表（倒序，最新在前）
+fn build_semester_candidates() -> Vec<String> {
+    let current = current_semester_by_date();
+    let parts: Vec<&str> = current.split('-').collect();
+    if parts.len() != 3 {
+        return vec![current];
+    }
+    let start_year: i32 = parts[0].parse().unwrap_or(2025);
+    let term: i32 = parts[2].parse().unwrap_or(2);
+    let base_idx = start_year * 2 + (term - 1);
+    let mut semesters = Vec::new();
+    // 当前学期 + 往前 5 个学期
+    for offset in (-5..=0).rev() {
+        let idx = base_idx + offset;
+        let sy = idx.div_euclid(2);
+        let t = idx.rem_euclid(2) + 1;
+        semesters.push(format!("{}-{}-{}", sy, sy + 1, t));
+    }
+    semesters
+}
+
+// 通过 /admin/xsd/yxkccx/listYxkc 获取已选课程（无需选课时段开放）
+pub async fn fetch_course_selection_selected_courses(
+    client: &HbutClient,
+    req: &crate::CourseSelectionSelectedCoursesRequest,
+) -> Result<Value, DynError> {
+    let base = client.academic_base_url();
+    let current = current_semester_by_date();
+    let semester = req
+        .semester
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&current);
+
+    let query_fields = "id,kcid,xnxq,xdxz,xdfs,kcbh,kcjj,kcbz,jxbmc,jxbbh,zxs,llxs,syxs,shangjxs,shijianxs,qtxs,jxbzc,kclb,kcxz,type,kclx,kcgs,rkjs,jxms,sksjdd,xf,skfs,xkfs,xklx,";
+    let url = format!(
+        "{}/admin/xsd/yxkccx/listYxkc?gridtype=jqgrid&async=1&queryFields={}&_search=false&page.size=10000&page.pn=1&sort=id&order=asc&xnxq={}&kklx=&kcxz=&xdxz=&xklx=&query.xnxq%7C%7C={}&query.kklx%7C%7C=&query.kcxz%7C%7C=&query.xdxz%7C%7C=&query.xklx%7C%7C=",
+        base, query_fields, semester, semester
+    );
+
+    let resp = client
+        .client
+        .get(&url)
+        .header("Accept", "application/json, text/javascript, */*; q=0.01")
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Referer", format!("{}/admin/xsd/yxkccx", base))
+        .send()
+        .await?;
+
+    let raw = read_json_response(resp, "获取已选课程失败").await?;
+    let ret = raw.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if ret != 0 {
+        let msg = response_msg(&raw, "未知错误");
+        return Err(err_box(format!("获取已选课程失败: ret={}, msg={}", ret, msg)));
+    }
+
+    let results = raw
+        .get("results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    // 映射 rkjs→teacher，标记 status=1（已选），保持与选课列表字段一致
+    let courses: Vec<Value> = results
+        .into_iter()
+        .map(|mut item| {
+            if let Value::Object(ref mut map) = item {
+                if let Some(rkjs) = map.get("rkjs").cloned() {
+                    map.entry("teacher".to_string()).or_insert(rkjs);
+                }
+                map.entry("status".to_string())
+                    .or_insert(Value::String("1".to_string()));
+            }
+            item
+        })
+        .collect();
+
+    let count = courses.len();
+    let semesters = build_semester_candidates();
+    Ok(with_sync_fields(json!({
+        "courses": courses,
+        "count": count,
+        "current_semester": current,
+        "semesters": semesters,
     })))
 }

@@ -1,4 +1,4 @@
-﻿//! 本地 HTTP Bridge 服务?
+//! 本地 HTTP Bridge 服务?
 //!
 //! 用途：
 //! - 提供给外部脚?测试工具调用后端能力
@@ -188,6 +188,7 @@ use crate::{
     CourseSelectionSelectRequest,
     CourseSelectionWithdrawRequest,
     CourseSelectionDetailRequest,
+    CourseSelectionSelectedCoursesRequest,
 };
 use crate::db;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
@@ -516,6 +517,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/course_selection/child_classes", post(fetch_course_selection_child_classes))
         .route("/course_selection/select", post(select_course_selection_course))
         .route("/course_selection/withdraw", post(withdraw_course_selection_course))
+        .route("/course_selection/selected_courses", post(fetch_course_selection_selected_courses))
         .route("/course_selection/detail_intro", post(fetch_course_selection_detail_intro))
         .route("/course_selection/detail_teacher", post(fetch_course_selection_detail_teacher))
         .route("/library/dict", post(fetch_library_dict))
@@ -1371,6 +1373,30 @@ fn escape_ics_text(input: &str) -> String {
         .replace('\r', "")
 }
 
+/// RFC 5545 §3.1 行折叠
+fn fold_ics_line(line: &str) -> String {
+    let max_bytes = 75;
+    if line.len() <= max_bytes {
+        return format!("{}\r\n", line);
+    }
+    let mut result = String::new();
+    let mut byte_count = 0;
+    let mut first_line = true;
+    for ch in line.chars() {
+        let ch_len = ch.len_utf8();
+        let limit = if first_line { max_bytes } else { max_bytes - 1 };
+        if byte_count + ch_len > limit {
+            result.push_str("\r\n ");
+            byte_count = 1;
+            first_line = false;
+        }
+        result.push(ch);
+        byte_count += ch_len;
+    }
+    result.push_str("\r\n");
+    result
+}
+
 fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
         return Some(dt.naive_local());
@@ -1407,7 +1433,7 @@ fn export_upload_endpoint(req: &ScheduleExportRequest) -> String {
             return v.trim().to_string();
         }
     }
-    "https://superdaobo-ocr-service.hf.space/api/temp/upload".to_string()
+    "https://mini-hbut-testocr1.hf.space/api/temp/upload".to_string()
 }
 
 async fn export_schedule_calendar(
@@ -1433,6 +1459,16 @@ async fn export_schedule_calendar(
     ics.push_str("X-WR-CALNAME:HBUT 课表\r\n");
     ics.push_str("X-WR-TIMEZONE:Asia/Shanghai\r\n");
     ics.push_str("PRODID:-//Mini-HBUT//Schedule Export//CN\r\n");
+    ics.push_str("BEGIN:VTIMEZONE\r\n");
+    ics.push_str("TZID:Asia/Shanghai\r\n");
+    ics.push_str("X-LIC-LOCATION:Asia/Shanghai\r\n");
+    ics.push_str("BEGIN:STANDARD\r\n");
+    ics.push_str("DTSTART:19700101T000000\r\n");
+    ics.push_str("TZOFFSETFROM:+0800\r\n");
+    ics.push_str("TZOFFSETTO:+0800\r\n");
+    ics.push_str("TZNAME:CST\r\n");
+    ics.push_str("END:STANDARD\r\n");
+    ics.push_str("END:VTIMEZONE\r\n");
 
     let dtstamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
     for (idx, ev) in req.events.iter().enumerate() {
@@ -1450,16 +1486,16 @@ async fn export_schedule_calendar(
         let uid = format!("hbut-{}-{}@mini-hbut", ts, idx);
 
         ics.push_str("BEGIN:VEVENT\r\n");
-        ics.push_str(&format!("UID:{}\r\n", uid));
-        ics.push_str(&format!("DTSTAMP:{}\r\n", dtstamp));
-        ics.push_str(&format!("DTSTART;TZID=Asia/Shanghai:{}\r\n", start.format("%Y%m%dT%H%M%S")));
-        ics.push_str(&format!("DTEND;TZID=Asia/Shanghai:{}\r\n", end.format("%Y%m%dT%H%M%S")));
-        ics.push_str(&format!("SUMMARY:{}\r\n", summary));
+        ics.push_str(&fold_ics_line(&format!("UID:{}", uid)));
+        ics.push_str(&fold_ics_line(&format!("DTSTAMP:{}", dtstamp)));
+        ics.push_str(&fold_ics_line(&format!("DTSTART;TZID=Asia/Shanghai:{}", start.format("%Y%m%dT%H%M%S"))));
+        ics.push_str(&fold_ics_line(&format!("DTEND;TZID=Asia/Shanghai:{}", end.format("%Y%m%dT%H%M%S"))));
+        ics.push_str(&fold_ics_line(&format!("SUMMARY:{}", summary)));
         if let Some(desc) = desc {
-            ics.push_str(&format!("DESCRIPTION:{}\r\n", desc));
+            ics.push_str(&fold_ics_line(&format!("DESCRIPTION:{}", desc)));
         }
         if let Some(location) = location {
-            ics.push_str(&format!("LOCATION:{}\r\n", location));
+            ics.push_str(&fold_ics_line(&format!("LOCATION:{}", location)));
         }
         ics.push_str("END:VEVENT\r\n");
     }
@@ -2116,6 +2152,17 @@ async fn withdraw_course_selection_course(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     crate::modules::course_selection::withdraw_course_selection_course(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_course_selection_selected_courses(
+    State(state): State<HttpState>,
+    Json(req): Json<CourseSelectionSelectedCoursesRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::course_selection::fetch_course_selection_selected_courses(&client, &req)
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
@@ -2838,3 +2885,5 @@ fn drain_json_objects(buffer: &mut String) -> Vec<String> {
 
     out
 }
+
+

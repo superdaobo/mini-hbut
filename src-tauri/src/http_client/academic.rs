@@ -84,35 +84,6 @@ impl HbutClient {
             "[DEBUG] Calculated semester by date: {} (today={})",
             semester, today
         );
-        return Ok(semester);
-
-        // ???????????
-        let now = chrono::Local::now();
-        let year = now.year();
-        let month = now.month();
-        let day = now.day();
-        
-        // ???????????????????
-        // - ?????9??? ~ ??1??????
-        // - ?????2??? ~ 7??????
-        // 
-        // 1??????????????/????2??????????
-        let (academic_year_start, term) = if month >= 9 {
-            // 9-12????????
-            (year, 1)
-        } else if month >= 3 {
-            // 3-7???????????????
-            (year - 1, 2)
-        } else if month == 2 && day >= 15 {
-            // 2?15??????????????????
-            (year - 1, 2)
-        } else {
-            // 1??2??????????????????
-            (year - 1, 1)
-        };
-        
-        let semester = format!("{}-{}-{}", academic_year_start, academic_year_start + 1, term);
-        println!("[调试] 根据日期计算当前学期: {} (month={}, day={})", semester, month, day);
         Ok(semester)
     }
 
@@ -393,11 +364,9 @@ impl HbutClient {
         let mut is_in_semester = summary.map(|s| s.is_in_semester).unwrap_or(false);
 
         if let Some(estimated_week) = Self::estimate_current_week_by_semester(semester, today, total_weeks) {
-            // 当前日期对应学期优先使用“学期字符串推导周次”，避免校历异常把周次锁死到末周。
-            if semester == expected_semester {
-                current_week = estimated_week;
-                is_in_semester = true;
-            } else if !is_in_semester {
+            // 仅在无校历数据或校历标记不在学期内时使用估算周次；
+            // 有校历且标记在学期内时信任校历精确值，避免硬编码开学日期偏移覆盖真实周次。
+            if summary.is_none() || !is_in_semester {
                 current_week = estimated_week;
                 is_in_semester = true;
             }
@@ -533,9 +502,19 @@ impl HbutClient {
             let days_to_start = expected.days_to_start(today);
             let days_to_end = expected.days_to_end(today);
             // 当“按日期推导学期”已有校历摘要时，优先保留该学期，避免被错误回退到上学期。
-            if (expected.start_date <= today && days_to_end >= -14)
-                || (days_to_start >= 0 && days_to_start <= PRESTART_SWITCH_DAYS)
-            {
+            // 判定条件：学期已开始且处于学期结束后到下学期开始前的假期，或即将开学。
+            let keep_expected = if expected.start_date <= today {
+                if let Some(ref n) = next {
+                    // 下学期还未到切换窗口 → 继续保留当前学期（覆盖整个假期）
+                    n.days_to_start(today) > PRESTART_SWITCH_DAYS
+                } else {
+                    // 无下学期校历，用宽松阈值覆盖假期
+                    days_to_end >= -90
+                }
+            } else {
+                days_to_start >= 0 && days_to_start <= PRESTART_SWITCH_DAYS
+            };
+            if keep_expected {
                 return Self::build_schedule_context_json(
                     &expected.semester,
                     Some(&expected),
@@ -552,6 +531,19 @@ impl HbutClient {
                     today,
                 );
             }
+        } else if current.is_none() {
+            // 校历 API 对日期推导学期无数据，直接使用日期推导结果避免被假期回退逻辑带偏
+            return Self::build_schedule_context_json(
+                &expected_semester,
+                None,
+                true,
+                "expected_no_calendar",
+                String::new(),
+                previous.as_ref().map(|s| s.semester.as_str()),
+                next.as_ref().map(|s| s.semester.as_str()),
+                next_days,
+                today,
+            );
         }
 
         let (target, strategy, notice) = if let Some(next_summary) = next.clone() {

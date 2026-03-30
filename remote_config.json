@@ -58,13 +58,13 @@
     "download_url": "https://example.com/download"
   },
   "ocr": {
-    "endpoint": "http://1.94.167.18:5080/api/ocr/recognize",
+    "endpoint": "https://mini-hbut-testocr1.hf.space/api/ocr/recognize",
     "enabled": true
   },
   "cloud_sync": {
     "enabled": true,
     "mode": "proxy",
-    "proxy_endpoint": "https://mini-hbut-ocr-service.hf.space/api/cloud-sync",
+    "proxy_endpoint": "https://mini-hbut-testocr1.hf.space/api/cloud-sync",
     "secret_ref": "kv1-main",
     "timeout_ms": 12000,
     "cooldown_seconds": 180
@@ -78,3 +78,5 @@
   "config_admin_ids": [],
   "ai_entry_url_template": "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?NCPNavBarAlpha=0&customerServiceConfId=122&response_type=code&identityTypeCode=null&flag=bjdk_hbgy_dk_echar&hidden=true&isBindEcard=true&customerCode=2002135&force_login=false&client_id=c20653ee0dd54a8faca19fb127680714&token="
 }
+
+

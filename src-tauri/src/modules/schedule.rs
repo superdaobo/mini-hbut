@@ -244,7 +244,12 @@ impl ScheduleModule {
 
     fn parse_weeks(weeks_str: &str) -> Vec<i32> {
         let mut weeks = Vec::new();
-        let clean_str = weeks_str.replace("周", "").replace("(单)", "").replace("(双)", "");
+        let is_odd = weeks_str.contains("(单)") || weeks_str.contains("（单）");
+        let is_even = weeks_str.contains("(双)") || weeks_str.contains("（双）");
+        let clean_str = weeks_str
+            .replace("周", "")
+            .replace("(单)", "").replace("（单）", "")
+            .replace("(双)", "").replace("（双）", "");
         
         for part in clean_str.split(',') {
             let part = part.trim();
@@ -260,6 +265,12 @@ impl ScheduleModule {
             } else if let Ok(w) = part.parse::<i32>() {
                 weeks.push(w);
             }
+        }
+        
+        if is_odd {
+            weeks.retain(|w| w % 2 == 1);
+        } else if is_even {
+            weeks.retain(|w| w % 2 == 0);
         }
         
         weeks

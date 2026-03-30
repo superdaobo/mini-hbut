@@ -130,6 +130,18 @@ const normalizePackageJsonAsRelease = (data) => {
   }
 }
 
+function buildExpectedAssetName(platform, version) {
+  const v = String(version).replace(/^v/, '')
+  switch (platform) {
+    case 'windows': return `Mini-HBUT_${v}_x64-setup.exe`
+    case 'macos': return `Mini-HBUT_${v}_universal.dmg`
+    case 'linux': return `Mini-HBUT_${v}_amd64.AppImage`
+    case 'android': return `Mini-HBUT_${v}_arm64.apk`
+    case 'ios': return `Mini-HBUT_${v}_iOS.ipa`
+    default: return ''
+  }
+}
+
 async function fetchReleaseInfo(currentVersion) {
   let fallback = null
   for (const url of API_PROXIES) {
@@ -139,7 +151,10 @@ async function fetchReleaseInfo(currentVersion) {
       const data = await response.json()
       const release = data?.tag_name ? data : normalizePackageJsonAsRelease(data)
       if (!release) continue
-      fallback = release
+      // 优先保留含 assets 的 release，避免 jsdelivr 空 assets 覆盖完整数据
+      if (!fallback || (release.assets?.length || 0) > (fallback.assets?.length || 0)) {
+        fallback = release
+      }
       const latest = String(release.tag_name || '').replace(/^v/, '')
       if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
         return release
@@ -180,6 +195,26 @@ export async function checkForUpdates(currentVersion) {
     }
 
     if (!asset) {
+      // 当 API 未返回资产列表时（如仅 jsdelivr 可用），根据命名规则构造下载链接
+      const expectedName = buildExpectedAssetName(platform, tagName)
+      if (expectedName) {
+        const downloadUrls = uniqueUrls(
+          DOWNLOAD_PROXIES.map((fn) => toGhProxyUrl(fn(tagName, expectedName)))
+        )
+        return {
+          hasUpdate: true,
+          currentVersion,
+          latestVersion,
+          tagName,
+          releaseNotes: release.body || '暂无更新说明',
+          releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
+          downloadUrls,
+          preferredDownloadUrl: downloadUrls[0] || '',
+          assetName: expectedName,
+          platform,
+          publishedAt: release.published_at
+        }
+      }
       return {
         hasUpdate: false,
         pending: true,

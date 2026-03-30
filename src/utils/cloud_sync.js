@@ -661,6 +661,11 @@ const buildAcademicSnapshot = (studentId, latestGrades = []) => {
   }
 }
 
+const hasNonEmptyCourseMap = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return Object.values(value).some((list) => Array.isArray(list) && list.length > 0)
+}
+
 const buildSyncPayload = async (studentId, options = {}) => {
   const sid = toSafeText(studentId)
   const includeCustomCourses = options?.includeCustomCourses !== false
@@ -677,17 +682,22 @@ const buildSyncPayload = async (studentId, options = {}) => {
     }
   }) || {}
   const bySemester = includeCustomCourses ? await fetchAllCustomCourses(sid) : {}
-  const courses = pruneValue({ by_semester: bySemester }) || { by_semester: {} }
-  const academic = includeAcademic ? (pruneValue(buildAcademicSnapshot(sid, options?.latestGrades)) || {}) : {}
+  const hasCustomCourseData = includeCustomCourses && hasNonEmptyCourseMap(bySemester)
+  const courses = hasCustomCourseData ? (pruneValue({ by_semester: bySemester }) || undefined) : undefined
+  const academic = includeAcademic ? (pruneValue(buildAcademicSnapshot(sid, options?.latestGrades)) || {}) : undefined
   const deviceId = ensureDeviceId()
-  return {
+  const payload = {
     v: SYNC_SCHEMA_VERSION,
     sid,
     ts: Date.now(),
-    did: deviceId,
-    settings: includeSettings ? settingsSnapshot : {},
-    courses,
-    academic
+    did: deviceId
+  }
+  if (includeSettings) payload.settings = settingsSnapshot
+  if (courses) payload.courses = courses
+  if (includeAcademic) payload.academic = academic || {}
+  return {
+    payload,
+    hasCustomCourseData
   }
 }
 
@@ -1152,19 +1162,33 @@ export const runCloudSyncUpload = async ({
       `上传内容 settings=${includeSettings ? 1 : 0} academic=${includeAcademic ? 1 : 0} custom=${includeCustomCourses ? 1 : 0}`,
       'debug'
     )
-    const payload = await buildSyncPayload(sid, {
+    const payloadResult = await buildSyncPayload(sid, {
       latestGrades,
       includeCustomCourses,
       includeAcademic,
       includeSettings
     })
+    const payload = payloadResult?.payload || {}
+    const customCoursesMode =
+      includeCustomCourses && payloadResult?.hasCustomCourseData ? 'replace' : 'preserve'
+    pushDebugLog(
+      'CloudSync',
+      `上传策略 custom_mode=${customCoursesMode} has_courses=${payloadResult?.hasCustomCourseData ? 1 : 0}`,
+      'debug'
+    )
     const body = {
       student_id: sid,
       device_id: ensureDeviceId(),
       reason: safeReason,
       payload,
       client_time: Date.now(),
-      secret_ref: cfg.secretRef
+      secret_ref: cfg.secretRef,
+      sections: {
+        settings: includeSettings === true,
+        academic: includeAcademic === true,
+        custom_courses: includeCustomCourses === true
+      },
+      custom_courses_mode: customCoursesMode
     }
     const response = await requestCloudSync('/upload', {
       method: 'POST',
@@ -1184,7 +1208,8 @@ export const runCloudSyncUpload = async ({
     commitCloudSyncResult(sid, 'upload', {
       ...output,
       reason: safeReason,
-      includeCustomCourses
+      includeCustomCourses,
+      customCoursesMode
     })
     return output
   } catch (error) {
@@ -1307,7 +1332,17 @@ export const runCloudSyncDownload = async ({
       settingResult = await applySettingsFromCloud(data?.settings)
     }
     if (applyCustomCourses) {
-      customResult = await replaceCustomCourses(sid, data?.courses?.by_semester)
+      const hasCoursesSection = Object.prototype.hasOwnProperty.call(data || {}, 'courses')
+      if (!hasCoursesSection) {
+        pushDebugLog('CloudSync', `下载跳过自定义课表应用 student=${sid} reason=missing-courses-section`, 'info')
+      } else {
+        const remoteCourseMap = mergeCustomCourseSemesters(data?.courses?.by_semester)
+        if (Object.keys(remoteCourseMap).length === 0) {
+          pushDebugLog('CloudSync', `下载跳过自定义课表应用 student=${sid} reason=empty-courses-map`, 'info')
+        } else {
+          customResult = await replaceCustomCourses(sid, remoteCourseMap)
+        }
+      }
     }
     if (applyAcademic) {
       academicResult = applyAcademicFromCloud(sid, data?.academic)

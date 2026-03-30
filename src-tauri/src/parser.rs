@@ -452,8 +452,15 @@ fn extract_text_from_html(html_str: &str) -> String {
 fn parse_weeks(weeks_str: &str) -> Vec<i32> {
     let mut weeks = Vec::new();
     
+    // 检测单双周标记（半角+全角括号）
+    let is_odd = weeks_str.contains("(单)") || weeks_str.contains("（单）");
+    let is_even = weeks_str.contains("(双)") || weeks_str.contains("（双）");
+    
     // 解析形如 "1-16周" 或 "1,3,5周" 的周次
-    let clean_str = weeks_str.replace("周", "").replace("(单)", "").replace("(双)", "");
+    let clean_str = weeks_str
+        .replace("周", "")
+        .replace("(单)", "").replace("（单）", "")
+        .replace("(双)", "").replace("（双）", "");
     
     for part in clean_str.split(',') {
         let part = part.trim();
@@ -469,6 +476,13 @@ fn parse_weeks(weeks_str: &str) -> Vec<i32> {
         } else if let Ok(w) = part.parse::<i32>() {
             weeks.push(w);
         }
+    }
+    
+    // 单双周过滤
+    if is_odd {
+        weeks.retain(|w| w % 2 == 1);
+    } else if is_even {
+        weeks.retain(|w| w % 2 == 0);
     }
     
     weeks

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { fetchWithCache, getCacheKey, setCachedData } from './api.js'
-import { normalizeSemesterList, resolveCurrentSemester } from './semester.js'
+import { normalizeSemesterList, resolveCurrentSemester, semesterIsNewer } from './semester.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SCHEDULE_META_KEY = 'hbu_schedule_meta'
@@ -220,20 +220,28 @@ const buildNearestSemesterOrder = (semesterList, anchorSemester = '') => {
   const seen = new Set()
 
   for (let offset = 0; order.length < list.length; offset += 1) {
-    const olderIndex = anchorIndex + offset
-    if (olderIndex < list.length) {
-      const sem = list[olderIndex]
+    if (offset === 0) {
+      const sem = list[anchorIndex]
+      if (!seen.has(sem)) {
+        seen.add(sem)
+        order.push(sem)
+      }
+      continue
+    }
+
+    // 先查更新的学期，再查更旧的学期（用户更关心即将到来的课表）
+    const newerIndex = anchorIndex - offset
+    if (newerIndex >= 0) {
+      const sem = list[newerIndex]
       if (!seen.has(sem)) {
         seen.add(sem)
         order.push(sem)
       }
     }
 
-    if (offset === 0) continue
-
-    const newerIndex = anchorIndex - offset
-    if (newerIndex >= 0) {
-      const sem = list[newerIndex]
+    const olderIndex = anchorIndex + offset
+    if (olderIndex < list.length) {
+      const sem = list[olderIndex]
       if (!seen.has(sem)) {
         seen.add(sem)
         order.push(sem)
@@ -327,8 +335,19 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
 
   let firstSuccess = null
   let picked = null
+  let extraNewerChecks = 0
+  const MAX_EXTRA_NEWER = 2
 
   for (const semester of limitedCandidates) {
+    // anchor 学期自身有课 → 直接采用，不再探测
+    if (picked && picked.semester === anchorSemester) break
+    // 已找到非 anchor 有课学期 → 只继续探测更新的学期（最多 MAX_EXTRA_NEWER 次）
+    if (picked) {
+      if (!semesterIsNewer(semester, picked.semester)) continue
+      if (extraNewerChecks >= MAX_EXTRA_NEWER) continue
+      extraNewerChecks++
+    }
+
     let queryResult = null
     try {
       queryResult = await querySchedule(sid, semester)
@@ -358,7 +377,6 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
         stale: queryResult?.stale,
         count: normalized.count
       }
-      break
     }
   }
 

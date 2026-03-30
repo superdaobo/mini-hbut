@@ -48,7 +48,7 @@ use modules::one_code::*;
 
 
 const DB_FILENAME: &str = "grades.db";
-const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://superdaobo-ocr-service.hf.space/api/temp/upload";
+const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/temp/upload";
 const DEFAULT_PORTAL_SERVICE_URL: &str = "https://e.hbut.edu.cn/login#/";
 const CHAOXING_LOGIN_PAGE_URL: &str =
     "https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com";
@@ -924,6 +924,11 @@ pub struct CourseSelectionWithdrawRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CourseSelectionDetailRequest {
     pub jxbid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CourseSelectionSelectedCoursesRequest {
+    pub semester: Option<String>,
 }
 
 // Tauri 命令
@@ -3267,6 +3272,31 @@ fn escape_ics_text(input: &str) -> String {
         .replace('\r', "")
 }
 
+/// RFC 5545 §3.1 行折叠：每行不超过 75 个字节，超出部分折行并以 CRLF+空格连接
+fn fold_ics_line(line: &str) -> String {
+    let max_bytes = 75;
+    if line.len() <= max_bytes {
+        return format!("{}\r\n", line);
+    }
+    let mut result = String::new();
+    let mut byte_count = 0;
+    let mut first_line = true;
+    for ch in line.chars() {
+        let ch_len = ch.len_utf8();
+        // 折行后续行以空格开头，所以可用字节数减 1
+        let limit = if first_line { max_bytes } else { max_bytes - 1 };
+        if byte_count + ch_len > limit {
+            result.push_str("\r\n ");
+            byte_count = 1; // 空格占 1 字节
+            first_line = false;
+        }
+        result.push(ch);
+        byte_count += ch_len;
+    }
+    result.push_str("\r\n");
+    result
+}
+
 fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
         return Some(dt.naive_local());
@@ -3314,6 +3344,17 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
     ics.push_str("X-WR-CALNAME:HBUT 课表\r\n");
     ics.push_str("X-WR-TIMEZONE:Asia/Shanghai\r\n");
     ics.push_str("PRODID:-//Mini-HBUT//Schedule Export//CN\r\n");
+    // VTIMEZONE: Asia/Shanghai (UTC+8, 无 DST)
+    ics.push_str("BEGIN:VTIMEZONE\r\n");
+    ics.push_str("TZID:Asia/Shanghai\r\n");
+    ics.push_str("X-LIC-LOCATION:Asia/Shanghai\r\n");
+    ics.push_str("BEGIN:STANDARD\r\n");
+    ics.push_str("DTSTART:19700101T000000\r\n");
+    ics.push_str("TZOFFSETFROM:+0800\r\n");
+    ics.push_str("TZOFFSETTO:+0800\r\n");
+    ics.push_str("TZNAME:CST\r\n");
+    ics.push_str("END:STANDARD\r\n");
+    ics.push_str("END:VTIMEZONE\r\n");
 
     let dtstamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
     for (idx, ev) in req.events.iter().enumerate() {
@@ -3331,16 +3372,16 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
         let uid = format!("hbut-{}-{}@mini-hbut", ts, idx);
 
         ics.push_str("BEGIN:VEVENT\r\n");
-        ics.push_str(&format!("UID:{}\r\n", uid));
-        ics.push_str(&format!("DTSTAMP:{}\r\n", dtstamp));
-        ics.push_str(&format!("DTSTART;TZID=Asia/Shanghai:{}\r\n", start.format("%Y%m%dT%H%M%S")));
-        ics.push_str(&format!("DTEND;TZID=Asia/Shanghai:{}\r\n", end.format("%Y%m%dT%H%M%S")));
-        ics.push_str(&format!("SUMMARY:{}\r\n", summary));
+        ics.push_str(&fold_ics_line(&format!("UID:{}", uid)));
+        ics.push_str(&fold_ics_line(&format!("DTSTAMP:{}", dtstamp)));
+        ics.push_str(&fold_ics_line(&format!("DTSTART;TZID=Asia/Shanghai:{}", start.format("%Y%m%dT%H%M%S"))));
+        ics.push_str(&fold_ics_line(&format!("DTEND;TZID=Asia/Shanghai:{}", end.format("%Y%m%dT%H%M%S"))));
+        ics.push_str(&fold_ics_line(&format!("SUMMARY:{}", summary)));
         if let Some(desc) = desc {
-            ics.push_str(&format!("DESCRIPTION:{}\r\n", desc));
+            ics.push_str(&fold_ics_line(&format!("DESCRIPTION:{}", desc)));
         }
         if let Some(location) = location {
-            ics.push_str(&format!("LOCATION:{}\r\n", location));
+            ics.push_str(&fold_ics_line(&format!("LOCATION:{}", location)));
         }
         ics.push_str("END:VEVENT\r\n");
     }
@@ -4251,6 +4292,21 @@ async fn withdraw_course_selection_course(
 }
 
 #[tauri::command]
+async fn fetch_course_selection_selected_courses(
+    state: State<'_, AppState>,
+    req: CourseSelectionSelectedCoursesRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    match modules::course_selection::fetch_course_selection_selected_courses(&client, &req).await {
+        Ok(data) => {
+            let sync_time = chrono::Local::now().to_rfc3339();
+            Ok(attach_sync_time(data, &sync_time, false))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
 async fn fetch_course_selection_detail_intro(
     state: State<'_, AppState>,
     req: CourseSelectionDetailRequest,
@@ -4621,6 +4677,7 @@ pub fn run() {
             fetch_course_selection_child_classes,
             select_course_selection_course,
             withdraw_course_selection_course,
+            fetch_course_selection_selected_courses,
             fetch_course_selection_detail_intro,
             fetch_course_selection_detail_teacher,
             fetch_library_dict,
@@ -4642,3 +4699,5 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+

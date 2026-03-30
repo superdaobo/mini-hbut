@@ -10,9 +10,45 @@ const emit = defineEmits(['back', 'logout'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const DEFAULT_FROM = 'ggxxk'
+const KKLX_FROM_MAP = Object.freeze({
+  '1': 'jhxk',
+  '2': 'ggxxk',
+  '3': 'fjjx',
+  '5': 'cxxk',
+  '6': 'jhxk',
+  '7': 'jhxk',
+  '8': 'jhxk',
+  '16': 'ggxxk',
+  '18': 'cxxk',
+  '22': 'jhxk'
+})
 const ENTRY_MODE_MENU = 'menu'
 const ENTRY_MODE_SELECTION = 'selection'
 const ENTRY_MODE_INFO = 'info'
+
+const KCXZ_LABEL_MAP = Object.freeze({
+  '11': '通识必修',
+  '12': '通识选修',
+  '16': '限定选修',
+  '31': '学科基础',
+  '32': '工程基础',
+  '40': '专业核心',
+  '41': '专业方向组',
+  '42': '专业任选',
+  '43': '专业基础',
+  '44': '专业必修',
+  '45': '专业选修',
+  '50': '基础实践',
+  '51': '专业实践',
+  '52': '综合实践',
+  '53': '其他实践',
+  '54': '短学期实践',
+  '70': '辅修理论',
+  '71': '辅修实践',
+  '90': '必修',
+  '98': '重修',
+  '99': '公共选修'
+})
 
 const EMPTY_LIST_FILTERS = Object.freeze({
   kcmc: '',
@@ -112,6 +148,25 @@ let countdownTimer = null
 let endTimeRefreshTimer = null
 
 const safeText = (value) => String(value ?? '').trim()
+
+const isEnabledValue = (value) => {
+  const text = safeText(value).toLowerCase()
+  return text === '1' || text === 'true' || text === 'yes' || text === 'y'
+}
+
+const isPickedValue = (value) => {
+  const text = safeText(value)
+  if (!text) return false
+  if (isEnabledValue(text)) return true
+  if (text.includes('已选') || text.includes('已修') || text.includes('已报名')) return true
+  const num = Number(text)
+  return Number.isFinite(num) && num > 0
+}
+
+const resolveTabFrom = (tab) => {
+  const kklx = safeText(tab?.kklx)
+  return KKLX_FROM_MAP[kklx] || DEFAULT_FROM
+}
 
 const stripHtml = (value) => {
   const raw = safeText(value)
@@ -353,7 +408,7 @@ const detailFields = computed(() => {
     { label: '课程名称', value: course.kcmc },
     { label: '教学班名称', value: course.jxbmc },
     { label: '学分', value: course.xf },
-    { label: '课程性质', value: findOptionLabel(optionMaps.value.kcxz, course.kcxz, course.kcxz) },
+    { label: '课程性质', value: findOptionLabel(optionMaps.value.kcxz, course.kcxz, KCXZ_LABEL_MAP[course.kcxz] || course.kcxz) },
     { label: '课程类别', value: course.kclbname || findOptionLabel(optionMaps.value.kclb, course.kclb, course.kclb) },
     { label: '课程类型', value: findOptionLabel(optionMaps.value.kclx, course.kclx, course.kclx) },
     { label: '教学模式', value: findOptionLabel(optionMaps.value.jxms, course.jxms, course.jxms) },
@@ -407,9 +462,9 @@ const resolveCourseStatus = ({ picked, selectable, full, conflict }) => {
 
 const normalizeCourse = (item) => {
   const capacity = parseCapacityInfo(item.yxrl, availableRatio.value)
-  const picked = safeText(item.status) === '1'
+  const picked = isPickedValue(item.status) || safeText(item.zt) === '已选' || safeText(item.statusLabel).includes('已选')
   const conflict = !picked && (safeText(item.sfct) === '1' || hasConflictHint(item.label))
-  const selectable = safeText(item.sfkxk) === '1'
+  const selectable = isEnabledValue(item.sfkxk)
   const full = !picked && capacity.isFull
   const { statusLabel, statusClass } = resolveCourseStatus({ picked, selectable, full, conflict })
   return {
@@ -454,6 +509,16 @@ const applyCoursePatch = (courseId, patcher) => {
   let nextSelected = null
   courses.value = sortCoursesForDisplay(
     courses.value.map((course) => {
+      if (safeText(course.id) !== targetId) return course
+      const nextCourse = patcher(course)
+      if (selectedCourse.value?.id && safeText(selectedCourse.value.id) === targetId) {
+        nextSelected = nextCourse
+      }
+      return nextCourse
+    })
+  )
+  infoCourses.value = sortInfoCourses(
+    infoCourses.value.map((course) => {
       if (safeText(course.id) !== targetId) return course
       const nextCourse = patcher(course)
       if (selectedCourse.value?.id && safeText(selectedCourse.value.id) === targetId) {
@@ -558,7 +623,7 @@ const buildListPayload = ({ pcid, pcenc, filtersSource = EMPTY_LIST_FILTERS } = 
   return {
     pcid: safeText(pcid),
     pcenc: safeText(pcenc),
-    from: DEFAULT_FROM,
+    from: safeText(source.from || DEFAULT_FROM) || DEFAULT_FROM,
     kcmc: safeText(source.kcmc),
     kcxz: safeText(source.kcxz),
     kcgs: safeText(source.kcgs),
@@ -573,7 +638,10 @@ const buildListPayload = ({ pcid, pcenc, filtersSource = EMPTY_LIST_FILTERS } = 
 const getRequestPayload = () => buildListPayload({
   pcid: currentPcid.value,
   pcenc: currentPcenc.value,
-  filtersSource: filters.value
+  filtersSource: {
+    ...filters.value,
+    from: resolveTabFrom(currentTab.value)
+  }
 })
 
 const fetchOverview = async () => {
@@ -581,7 +649,14 @@ const fetchOverview = async () => {
   overviewError.value = ''
   try {
     const res = await axios.post(`${API_BASE}/v2/course_selection/overview`, {})
+    console.log('[选课调试] overview 原始响应:', JSON.stringify(res?.data).slice(0, 500))
     const { data, meta } = unwrapApiResult(res, '获取选课总览失败')
+    console.log('[选课调试] overview unwrap 后 data keys:', Object.keys(data || {}))
+    console.log('[选课调试] tabs 数量:', Array.isArray(data.tabs) ? data.tabs.length : 'N/A', ', pcencs keys:', Object.keys(data.pcencs || {}))
+    console.log('[选课调试] has_valid_pcencs:', data.has_valid_pcencs, ', message:', data.message)
+    if (Array.isArray(data.tabs)) {
+      data.tabs.forEach((t, i) => console.log(`[选课调试] tab[${i}]: xkgzid=${t.xkgzid}, xkgzMc=${t.xkgzMc}, kklx=${t.kklx}`))
+    }
     overview.value = data
     tabs.value = Array.isArray(data.tabs) ? data.tabs : []
     pcencMap.value = data.pcencs || {}
@@ -640,9 +715,11 @@ const fetchEndTime = async () => {
 }
 
 const fetchList = async () => {
+  console.log('[选课调试] fetchList: pcid=', currentPcid.value, ', pcenc=', currentPcenc.value ? currentPcenc.value.slice(0, 20) + '...' : '(空)')
   if (!currentPcid.value || !currentPcenc.value) {
     courses.value = []
     listMessage.value = '当前批次缺少有效凭证'
+    console.warn('[选课调试] fetchList 中止：pcid 或 pcenc 为空')
     return
   }
   loadingList.value = true
@@ -739,7 +816,7 @@ const mapToOptions = (sourceMap, placeholder = '全部') => {
 
 const resolveInfoSelectionMode = (item) => {
   return safeText(
-    item?.xkfsmc || item?.xkfsmc || item?.xkfs || item?.selection_mode || item?.select_mode || item?.mode || '选课'
+    item?.xkfsmc || item?.xkfs || item?.selection_mode || item?.select_mode || item?.mode || '选课'
   ) || '选课'
 }
 
@@ -776,7 +853,7 @@ const normalizeInfoCourse = (item, context = {}) => {
     ksxs: item?.ksxs ?? item?.exam_mode ?? ''
   }
   const normalized = normalizeCourse(merged)
-  const picked = normalized.isPicked || safeText(item?.status) === '1' || safeText(item?.zt) === '已选'
+  const picked = normalized.isPicked || isPickedValue(item?.status) || safeText(item?.zt) === '已选' || safeText(item?.statusLabel).includes('已选')
   const status = resolveCourseStatus({
     picked,
     selectable: normalized.isSelectable,
@@ -846,14 +923,16 @@ const applyInfoOptionsAndDefaults = ({ termMap, xkfsSet, kcxzMap, kclxMap }) => 
 
   const semester = safeText(summaryStudent.value?.semester)
   const termOptions = infoOptions.value.term
-  const currentTermValid = termOptions.some((item) => safeText(item.value) === safeText(infoFilters.value.term))
+  const selectedTerm = safeText(infoFilters.value.term)
+  const currentTermValid = selectedTerm && termOptions.some((item) => safeText(item.value) === selectedTerm)
   if (!currentTermValid) {
     const matchedTerm = termOptions.find((item) => {
       if (!safeText(item.value)) return false
       if (!semester) return false
       return safeText(item.label).includes(semester) || safeText(item.value).includes(semester)
     })
-    infoFilters.value.term = matchedTerm?.value || termOptions[1]?.value || ''
+    const firstNonEmpty = termOptions.find((item) => safeText(item.value))
+    infoFilters.value.term = matchedTerm?.value || firstNonEmpty?.value || ''
   }
 
   if (!infoShowOtherModes.value) {
@@ -869,9 +948,10 @@ const applyInfoOptionsAndDefaults = ({ termMap, xkfsSet, kcxzMap, kclxMap }) => 
   })
 }
 
-const fetchSelectedCoursesByEndpoint = async () => {
+const fetchSelectedCoursesByEndpoint = async (querySemester) => {
+  const semester = safeText(querySemester) || safeText(infoFilters.value.term) || safeText(summaryStudent.value?.semester)
   const res = await axios.post(`${API_BASE}/v2/course_selection/selected_courses`, {
-    semester: safeText(summaryStudent.value?.semester)
+    semester
   })
   const { data } = unwrapApiResult(res, '获取已选课程失败')
   const list = pickArrayPayload(data)
@@ -879,6 +959,12 @@ const fetchSelectedCoursesByEndpoint = async () => {
     throw new Error('已选课程接口暂无数据')
   }
   const termMap = new Map()
+  // 从后端返回的 semesters 列表填充学期选项
+  const serverSemesters = Array.isArray(data?.semesters) ? data.semesters : []
+  serverSemesters.forEach((sem) => {
+    const s = safeText(sem)
+    if (s) termMap.set(s, s)
+  })
   const xkfsSet = new Set(['选课'])
   const kcxzMap = new Map()
   const kclxMap = new Map()
@@ -886,12 +972,15 @@ const fetchSelectedCoursesByEndpoint = async () => {
     const course = normalizeInfoCourse(item, {
       tabId: safeText(item?.sourceTabId || item?.pcid || 'selected_api'),
       tabName: safeText(item?.sourceTabName || item?.source || '已选课程'),
-      termLabel: safeText(item?.xnxq || item?.semester || summaryStudent.value?.semester || '当前学期'),
+      termLabel: safeText(item?.xnxq || item?.semester || data?.current_semester || summaryStudent.value?.semester || '当前学期'),
       index
     })
     termMap.set(course.termLabel, course.termLabel)
     xkfsSet.add(course.xkfsText || '选课')
-    if (safeText(course.kcxz)) kcxzMap.set(safeText(course.kcxz), safeText(course.kcxz))
+    if (safeText(course.kcxz)) {
+      const code = safeText(course.kcxz)
+      kcxzMap.set(code, KCXZ_LABEL_MAP[code] || safeText(course.kclb) || code)
+    }
     if (safeText(course.kclx)) kclxMap.set(safeText(course.kclx), safeText(course.kclx))
     return course
   })
@@ -902,6 +991,7 @@ const fetchSelectedCoursesByEndpoint = async () => {
     xkfsSet,
     kcxzMap,
     kclxMap,
+    currentSemester: safeText(data?.current_semester),
     source: 'endpoint'
   }
 }
@@ -910,6 +1000,7 @@ const fetchSelectedCoursesByTabs = async () => {
   if (!tabs.value.length) {
     await fetchOverview()
   }
+  console.log('[选课调试] fetchSelectedCoursesByTabs: tabs 数量=', tabs.value.length, ', pcencMap keys=', Object.keys(pcencMap.value || {}))
 
   const termMap = new Map()
   const xkfsSet = new Set(['选课'])
@@ -919,38 +1010,56 @@ const fetchSelectedCoursesByTabs = async () => {
 
   for (const tab of tabs.value) {
     const tabId = safeText(tab?.xkgzid)
-    const tabPcenc = safeText(pcencMap.value?.[tabId] || pcencMap.value?.[String(tabId)] || tab?.pcenc)
-    if (!tabId || !tabPcenc) continue
-    const res = await axios.post(
-      `${API_BASE}/v2/course_selection/list`,
-      buildListPayload({
-        pcid: tabId,
-        pcenc: tabPcenc,
-        filtersSource: EMPTY_LIST_FILTERS
-      })
-    )
-    const { data } = unwrapApiResult(res, '获取已选课程失败')
+    if (!tabId) { console.warn('[选课调试] 跳过无 xkgzid 的 tab'); continue }
     const termLabel = deriveTabTermLabel(tab)
+    const tabFrom = resolveTabFrom(tab)
     termMap.set(termLabel, termLabel)
-    mergeConditionOptions(data?.condition || {}, kcxzMap, kclxMap)
-    const rawCourses = Array.isArray(data?.courses) ? data.courses : []
-    rawCourses.forEach((item, index) => {
-      const normalized = normalizeInfoCourse(item, {
-        tabId,
-        tabName: safeText(tab?.xkgzMc || '未命名批次'),
-        termLabel,
-        index
+    const tabPcenc = safeText(pcencMap.value?.[tabId] || pcencMap.value?.[String(tabId)] || tab?.pcenc)
+    console.log(`[选课调试] tab ${tabId}: pcenc=${tabPcenc ? tabPcenc.slice(0, 20) + '...' : '(空)'}, from=${tabFrom}`)
+    if (!tabPcenc) { console.warn(`[选课调试] tab ${tabId} 无 pcenc，跳过`); continue }
+    try {
+      const res = await axios.post(
+        `${API_BASE}/v2/course_selection/list`,
+        buildListPayload({
+          pcid: tabId,
+          pcenc: tabPcenc,
+          filtersSource: {
+            ...EMPTY_LIST_FILTERS,
+            from: tabFrom
+          }
+        })
+      )
+      const { data } = unwrapApiResult(res, '获取已选课程失败')
+      mergeConditionOptions(data?.condition || {}, kcxzMap, kclxMap)
+      const rawCourses = Array.isArray(data?.courses) ? data.courses : []
+      console.log(`[选课调试] tab ${tabId}: list 返回 ${rawCourses.length} 门课程`)
+      if (rawCourses.length > 0) {
+        console.log(`[选课调试] tab ${tabId}: 第一门课程 status=${rawCourses[0].status}, kcmc=${rawCourses[0].kcmc}`)
+      }
+      let pickedCount = 0
+      rawCourses.forEach((item, index) => {
+        const normalized = normalizeInfoCourse(item, {
+          tabId,
+          tabName: safeText(tab?.xkgzMc || '未命名批次'),
+          termLabel,
+          index
+        })
+        if (!normalized.isPicked) return
+        pickedCount += 1
+        merged.push(normalized)
+        xkfsSet.add(normalized.xkfsText || '选课')
+        if (safeText(normalized.kcxz)) {
+          kcxzMap.set(safeText(normalized.kcxz), findOptionLabel(optionMaps.value.kcxz, normalized.kcxz, KCXZ_LABEL_MAP[normalized.kcxz] || normalized.kcxz))
+        }
+        if (safeText(normalized.kclx)) {
+          kclxMap.set(safeText(normalized.kclx), findOptionLabel(optionMaps.value.kclx, normalized.kclx, normalized.kclx))
+        }
       })
-      if (!normalized.isPicked) return
-      merged.push(normalized)
-      xkfsSet.add(normalized.xkfsText || '选课')
-      if (safeText(normalized.kcxz)) {
-        kcxzMap.set(safeText(normalized.kcxz), findOptionLabel(optionMaps.value.kcxz, normalized.kcxz, normalized.kcxz))
-      }
-      if (safeText(normalized.kclx)) {
-        kclxMap.set(safeText(normalized.kclx), findOptionLabel(optionMaps.value.kclx, normalized.kclx, normalized.kclx))
-      }
-    })
+      console.log(`[选课调试] tab ${tabId}: isPicked 数量= ${pickedCount}`)
+    } catch (tabErr) {
+      console.error(`[选课调试] tab ${tabId} list 请求失败:`, tabErr?.message || tabErr)
+      continue
+    }
   }
 
   return {
@@ -969,17 +1078,32 @@ const querySelectedCourses = async ({ showSuccessToast = false } = {}) => {
   infoError.value = ''
   infoSourceMessage.value = ''
   try {
-    if (!tabs.value.length) {
-      await fetchOverview()
+    // 优先通过已选课程接口查询（无需选课时段开放）
+    let fetched = null
+    try {
+      const endpointFetched = await fetchSelectedCoursesByEndpoint()
+      console.log('[选课调试] endpoint 结果: courses=', endpointFetched.courses.length)
+      if (endpointFetched.courses.length) {
+        fetched = endpointFetched
+        infoSourceMessage.value = '已通过已选课程接口自动查询'
+      }
+    } catch (epErr) {
+      console.warn('[选课调试] endpoint 查询失败:', epErr?.message || epErr)
     }
 
-    let fetched
-    try {
-      fetched = await fetchSelectedCoursesByEndpoint()
-      infoSourceMessage.value = '已通过已选课程接口自动查询'
-    } catch {
-      fetched = await fetchSelectedCoursesByTabs()
-      infoSourceMessage.value = '已从选课批次聚合已选课程结果'
+    // endpoint 无结果时回退到选课批次聚合
+    if (!fetched || !fetched.courses.length) {
+      if (!tabs.value.length) {
+        await fetchOverview()
+      }
+      const tabsFetched = await fetchSelectedCoursesByTabs()
+      console.log('[选课调试] fetchSelectedCoursesByTabs 结果: courses=', tabsFetched.courses.length, ', termMap=', Array.from(tabsFetched.termMap.keys()))
+      if (tabsFetched.courses.length) {
+        fetched = tabsFetched
+        infoSourceMessage.value = '已从选课批次聚合已选课程结果'
+      } else if (!fetched) {
+        fetched = tabsFetched
+      }
     }
 
     const deduped = dedupeInfoCourses(fetched.courses)
@@ -1006,7 +1130,7 @@ const querySelectedCourses = async ({ showSuccessToast = false } = {}) => {
 }
 
 const resetInfoFilters = () => {
-  const defaultTerm = infoOptions.value.term[1]?.value || infoOptions.value.term[0]?.value || ''
+  const defaultTerm = infoOptions.value.term.find((item) => safeText(item.value))?.value || ''
   infoFilters.value = {
     term: defaultTerm,
     kcmc: '',
@@ -1022,6 +1146,29 @@ const handleInfoOtherModesChange = () => {
     infoFilters.value.xkfs = ''
   } else {
     infoFilters.value.xkfs = '选课'
+  }
+}
+
+// 学期切换时自动重新查询
+const onInfoTermChange = async () => {
+  const term = safeText(infoFilters.value.term)
+  if (!term) return
+  // 如果当前已有该学期的课程数据，不需要重新查询
+  const hasData = infoCourses.value.some((c) => safeText(c.termLabel) === term)
+  if (hasData) return
+  // 否则用新学期重新查询
+  try {
+    loadingInfo.value = true
+    const endpointFetched = await fetchSelectedCoursesByEndpoint(term)
+    if (endpointFetched.courses.length) {
+      // 合并到已有课程列表
+      const merged = [...infoCourses.value, ...endpointFetched.courses]
+      infoCourses.value = sortInfoCourses(dedupeInfoCourses(merged))
+    }
+  } catch (err) {
+    console.warn('[选课调试] 切换学期查询失败:', err?.message || err)
+  } finally {
+    loadingInfo.value = false
   }
 }
 
@@ -1139,7 +1286,7 @@ const submitSelect = async (course, zjxbid = '') => {
       pcid: currentPcid.value,
       jxbid: course.id,
       zjxbid: safeText(zjxbid) || undefined,
-      from: DEFAULT_FROM
+      from: resolveTabFrom(currentTab.value)
     })
     const { data } = unwrapApiResult(res, '选课失败')
     showChildClassDialog.value = false
@@ -1197,7 +1344,7 @@ const openChildClassPicker = async (course) => {
       pcid: currentPcid.value,
       pcenc: currentPcenc.value,
       jxbid: course.id,
-      from: DEFAULT_FROM
+      from: resolveTabFrom(currentTab.value)
     })
     const { data } = unwrapApiResult(res, '获取子教学班失败')
     const classes = Array.isArray(data.classes) ? data.classes : []
@@ -1381,158 +1528,290 @@ onBeforeUnmount(() => {
   <div class="course-selection-view">
     <div class="course-page-header glass-card">
       <div class="header-top">
-        <button class="back-btn ios26-btn" @click="emit('back')">← 返回</button>
-        <div class="course-page-title">选课中心</div>
-        <button class="refresh-btn ios26-btn" type="button" :disabled="refreshing || loadingList || loadingOverview" @click="refreshCourseData">
-          {{ refreshing ? '刷新中…' : '刷新' }}
+        <button class="back-btn ios26-btn" @click="handleBack">{{ backButtonLabel }}</button>
+        <div class="course-page-title">{{ pageTitle }}</div>
+        <button
+          v-if="centerMode !== ENTRY_MODE_MENU"
+          class="refresh-btn ios26-btn"
+          type="button"
+          :disabled="refreshDisabled"
+          @click="handleHeaderRefresh"
+        >
+          {{ refreshButtonLabel }}
         </button>
+        <div v-else class="refresh-btn-placeholder" aria-hidden="true" />
       </div>
       <div class="header-meta-row">
-        <span class="header-mini-pill">可选课程 {{ count }} 门</span>
-        <span class="header-mini-pill">批次倒计时 {{ countdownText || '--' }}</span>
+        <span class="header-mini-pill">{{ headerMainPill }}</span>
+        <span class="header-mini-pill">{{ headerSubPill }}</span>
       </div>
     </div>
 
     <div class="content">
-      <div class="filter-card glass-card">
-        <div class="filter-header">
-          <div>
-            <div class="filter-title">查询条件</div>
-            <div class="filter-subtitle">默认折叠，按需展开筛选条件</div>
-          </div>
-          <div class="filter-actions">
-            <button class="ghost-btn" type="button" @click="resetFilters">重置</button>
-            <button class="ghost-btn" type="button" @click="showAdvanced = !showAdvanced">{{ showAdvanced ? '收起筛选' : '展开筛选' }}</button>
-            <button class="primary-btn" type="button" :disabled="loadingList || !canShowList" @click="queryCourses">查询课程</button>
-          </div>
-        </div>
-
-        <template v-if="showAdvanced">
-          <div class="filter-grid compact-grid">
-            <div class="field span-2">
-              <label>课程名称</label>
-              <input v-model.trim="filters.kcmc" class="text-input" type="text" placeholder="输入课程名称关键词" />
-            </div>
-            <div class="field">
-              <label>课程性质</label>
-              <IOSSelect v-model="filters.kcxz" class="modern-select">
-                <option v-for="item in optionMaps.kcxz" :key="item.value || 'empty-kcxz'" :value="item.value">{{ item.label }}</option>
-              </IOSSelect>
-            </div>
-            <div class="field">
-              <label>课程归属</label>
-              <IOSSelect v-model="filters.kcgs" class="modern-select">
-                <option v-for="item in optionMaps.kcgs" :key="item.value || 'empty-kcgs'" :value="item.value">{{ item.label }}</option>
-              </IOSSelect>
-            </div>
-            <div class="field">
-              <label>教学模式</label>
-              <IOSSelect v-model="filters.jxms" class="modern-select">
-                <option v-for="item in optionMaps.jxms" :key="item.value || 'empty-jxms'" :value="item.value">{{ item.label }}</option>
-              </IOSSelect>
-            </div>
-            <div class="field">
-              <label>教师</label>
-              <input v-model.trim="filters.teacher" class="text-input" type="text" placeholder="输入授课教师" />
-            </div>
-          </div>
-
-          <div class="filter-grid advanced-grid">
-            <div class="field">
-              <label>上课校区</label>
-              <IOSSelect v-model="filters.kkxq" class="modern-select">
-                <option v-for="item in optionMaps.kkxq" :key="item.value || 'empty-kkxq'" :value="item.value">{{ item.label }}</option>
-              </IOSSelect>
-            </div>
-            <div class="field">
-              <label>课程类别</label>
-              <IOSSelect v-model="filters.kclb" class="modern-select">
-                <option v-for="item in optionMaps.kclb" :key="item.value || 'empty-kclb'" :value="item.value">{{ item.label }}</option>
-              </IOSSelect>
-            </div>
-            <div class="field">
-              <label>课程类型</label>
-              <IOSSelect v-model="filters.kclx" class="modern-select">
-                <option v-for="item in optionMaps.kclx" :key="item.value || 'empty-kclx'" :value="item.value">{{ item.label }}</option>
-              </IOSSelect>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <div class="batch-card glass-card">
-        <div class="section-head">
-          <div>
-            <h3>选课批次</h3>
-            <p>{{ cleanMessage(overview?.message) || '从教务系统中选择当前开放的选课批次' }}</p>
-          </div>
-        </div>
-        <div v-if="tabs.length > 0" class="batch-select-wrap">
-          <IOSSelect :model-value="activeTabId" class="modern-select batch-select" @update:modelValue="handleTabChange">
-            <option v-for="tab in tabs" :key="tab.xkgzid" :value="tab.xkgzid">{{ tab.xkgzMc || '未命名批次' }}</option>
-          </IOSSelect>
-        </div>
-        <div v-else class="empty-state compact">{{ overviewError || cleanMessage(overview?.message) || '当前暂无选课批次' }}</div>
-      </div>
-
-      <div class="result-block">
-        <div v-if="loadingOverview || loadingList" class="loading-state">正在同步选课数据...</div>
-        <div v-else-if="!canShowList || courses.length === 0" class="empty-state">{{ emptyHint }}</div>
-        <div v-else class="course-list">
-          <button
-            v-for="course in courses"
-            :key="course.id"
-            type="button"
-            class="course-card glass-card"
-            @click="openDetail(course)"
-          >
-            <div class="course-top">
-              <div>
-                <div class="course-name">{{ course.kcmc || '未命名课程' }}</div>
-                <div class="course-class">{{ course.jxbmcDisplay || course.jxbmc || '未命名教学班' }}</div>
-              </div>
-              <div class="course-top-right">
-                <span v-if="course.isConflict" class="meta-chip conflict-meta-pill">冲突</span>
-                <div class="course-credit">{{ course.xf || '--' }} 学分</div>
-              </div>
-            </div>
-
-            <div class="course-meta-row">
-              <span class="meta-chip teacher-chip">{{ course.teacher || '待定教师' }}</span>
-              <span v-if="course.isOnline" class="meta-chip online-pill">网课</span>
-              <span v-else class="meta-chip schedule-chip">{{ course.scheduleText || '未公布时间地点' }}</span>
-            </div>
-
-            <div class="course-footer-row">
-              <div class="course-meta-row secondary compact">
-                <span class="meta-chip">容量 {{ course.capacity.display }}</span>
-                <span class="status-pill" :class="course.statusClass">{{ course.statusLabel }}</span>
-              </div>
-
-              <div class="course-actions" @click.stop>
-                <button
-                  v-if="!course.isPicked"
-                  class="action-btn primary"
-                  type="button"
-                  :disabled="!course.isSelectable || course.isFull || selectingCourseId === course.id"
-                  @click="handleSelectCourse(course)"
-                >
-                  {{ selectingCourseId === course.id ? '提交中...' : '选课' }}
-                </button>
-                <button
-                  v-else
-                  class="action-btn danger"
-                  type="button"
-                  :disabled="withdrawingCourseId === course.id"
-                  @click="openWithdrawConfirm(course)"
-                >
-                  {{ withdrawingCourseId === course.id ? '处理中...' : '退课' }}
-                </button>
-              </div>
-            </div>
+      <template v-if="centerMode === ENTRY_MODE_MENU">
+        <div class="entry-grid">
+          <button type="button" class="entry-tile glass-card" @click="enterSelectionMode">
+            <div class="entry-badge entry-badge-selection">选课</div>
+            <div class="entry-title">选课</div>
+            <div class="entry-desc">沿用当前选课与退课能力，支持批次切换、筛选与课程详情。</div>
+          </button>
+          <button type="button" class="entry-tile glass-card" @click="enterInfoMode">
+            <div class="entry-badge entry-badge-info">信息查询</div>
+            <div class="entry-title">信息查询</div>
+            <div class="entry-desc">自动查询已选课程，默认匹配当前学期，并支持展开高级筛选。</div>
           </button>
         </div>
-      </div>
+      </template>
+
+      <template v-else-if="centerMode === ENTRY_MODE_SELECTION">
+        <div class="filter-card glass-card">
+          <div class="filter-header">
+            <div>
+              <div class="filter-title">查询条件</div>
+              <div class="filter-subtitle">默认折叠，按需展开筛选条件</div>
+            </div>
+            <div class="filter-actions">
+              <button class="ghost-btn" type="button" @click="backToEntryMenu">返回入口</button>
+              <button class="ghost-btn" type="button" @click="resetFilters">重置</button>
+              <button class="ghost-btn" type="button" @click="showAdvanced = !showAdvanced">{{ showAdvanced ? '收起筛选' : '展开筛选' }}</button>
+              <button class="primary-btn" type="button" :disabled="loadingList || !canShowList" @click="queryCourses">查询课程</button>
+            </div>
+          </div>
+
+          <template v-if="showAdvanced">
+            <div class="filter-grid compact-grid">
+              <div class="field span-2">
+                <label>课程名称</label>
+                <input v-model.trim="filters.kcmc" class="text-input" type="text" placeholder="输入课程名称关键词" />
+              </div>
+              <div class="field">
+                <label>课程性质</label>
+                <IOSSelect v-model="filters.kcxz" class="modern-select">
+                  <option v-for="item in optionMaps.kcxz" :key="item.value || 'empty-kcxz'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程归属</label>
+                <IOSSelect v-model="filters.kcgs" class="modern-select">
+                  <option v-for="item in optionMaps.kcgs" :key="item.value || 'empty-kcgs'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>教学模式</label>
+                <IOSSelect v-model="filters.jxms" class="modern-select">
+                  <option v-for="item in optionMaps.jxms" :key="item.value || 'empty-jxms'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>教师</label>
+                <input v-model.trim="filters.teacher" class="text-input" type="text" placeholder="输入授课教师" />
+              </div>
+            </div>
+
+            <div class="filter-grid advanced-grid">
+              <div class="field">
+                <label>上课校区</label>
+                <IOSSelect v-model="filters.kkxq" class="modern-select">
+                  <option v-for="item in optionMaps.kkxq" :key="item.value || 'empty-kkxq'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程类别</label>
+                <IOSSelect v-model="filters.kclb" class="modern-select">
+                  <option v-for="item in optionMaps.kclb" :key="item.value || 'empty-kclb'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程类型</label>
+                <IOSSelect v-model="filters.kclx" class="modern-select">
+                  <option v-for="item in optionMaps.kclx" :key="item.value || 'empty-kclx'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="batch-card glass-card">
+          <div class="section-head">
+            <div>
+              <h3>选课批次</h3>
+              <p>{{ cleanMessage(overview?.message) || '从教务系统中选择当前开放的选课批次' }}</p>
+            </div>
+          </div>
+          <div v-if="tabs.length > 0" class="batch-select-wrap">
+            <IOSSelect :model-value="activeTabId" class="modern-select batch-select" @update:modelValue="handleTabChange">
+              <option v-for="tab in tabs" :key="tab.xkgzid" :value="tab.xkgzid">{{ tab.xkgzMc || '未命名批次' }}</option>
+            </IOSSelect>
+          </div>
+          <div v-else class="empty-state compact">{{ overviewError || cleanMessage(overview?.message) || '当前暂无选课批次' }}</div>
+        </div>
+
+        <div class="result-block">
+          <div v-if="loadingOverview || loadingList" class="loading-state">正在同步选课数据...</div>
+          <div v-else-if="!canShowList || courses.length === 0" class="empty-state">{{ emptyHint }}</div>
+          <div v-else class="course-list">
+            <button
+              v-for="course in courses"
+              :key="course.id"
+              type="button"
+              class="course-card glass-card"
+              @click="openDetail(course)"
+            >
+              <div class="course-top">
+                <div>
+                  <div class="course-name">{{ course.kcmc || '未命名课程' }}</div>
+                  <div class="course-class">{{ course.jxbmcDisplay || course.jxbmc || '未命名教学班' }}</div>
+                </div>
+                <div class="course-top-right">
+                  <span v-if="course.isConflict" class="meta-chip conflict-meta-pill">冲突</span>
+                  <div class="course-credit">{{ course.xf || '--' }} 学分</div>
+                </div>
+              </div>
+
+              <div class="course-meta-row">
+                <span class="meta-chip teacher-chip">{{ course.teacher || '待定教师' }}</span>
+                <span v-if="course.isOnline" class="meta-chip online-pill">网课</span>
+                <span v-else class="meta-chip schedule-chip">{{ course.scheduleText || '未公布时间地点' }}</span>
+              </div>
+
+              <div class="course-footer-row">
+                <div class="course-meta-row secondary compact">
+                  <span class="meta-chip">容量 {{ course.capacity.display }}</span>
+                  <span class="status-pill" :class="course.statusClass">{{ course.statusLabel }}</span>
+                </div>
+
+                <div class="course-actions" @click.stop>
+                  <button
+                    v-if="!course.isPicked"
+                    class="action-btn primary"
+                    type="button"
+                    :disabled="!course.isSelectable || course.isFull || selectingCourseId === course.id"
+                    @click="handleSelectCourse(course)"
+                  >
+                    {{ selectingCourseId === course.id ? '提交中...' : '选课' }}
+                  </button>
+                  <button
+                    v-else
+                    class="action-btn danger"
+                    type="button"
+                    :disabled="withdrawingCourseId === course.id"
+                    @click="openWithdrawConfirm(course)"
+                  >
+                    {{ withdrawingCourseId === course.id ? '处理中...' : '退课' }}
+                  </button>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="filter-card glass-card">
+          <div class="filter-header">
+            <div>
+              <div class="filter-title">信息查询条件</div>
+              <div class="filter-subtitle">默认显示当前学期，展开后可查看更多筛选项</div>
+            </div>
+            <div class="filter-actions">
+              <button class="ghost-btn" type="button" @click="backToEntryMenu">返回入口</button>
+              <button class="ghost-btn" type="button" @click="resetInfoFilters">重置</button>
+              <button class="ghost-btn" type="button" @click="infoShowAdvanced = !infoShowAdvanced">{{ infoShowAdvanced ? '收起筛选' : '展开筛选' }}</button>
+              <button class="primary-btn" type="button" :disabled="loadingInfo" @click="querySelectedCourses()">查询</button>
+            </div>
+          </div>
+
+          <div class="filter-grid info-base-grid">
+            <div class="field">
+              <label>当前学期</label>
+              <IOSSelect v-model="infoFilters.term" class="modern-select" @change="onInfoTermChange">
+                <option v-for="item in infoOptions.term" :key="item.value || 'empty-info-term'" :value="item.value">{{ item.label }}</option>
+              </IOSSelect>
+            </div>
+          </div>
+
+          <template v-if="infoShowAdvanced">
+            <div class="filter-grid compact-grid">
+              <div class="field span-2">
+                <label>课程名称</label>
+                <input v-model.trim="infoFilters.kcmc" class="text-input" type="text" placeholder="输入课程名称关键词" />
+              </div>
+              <div class="field">
+                <label>授课教师</label>
+                <input v-model.trim="infoFilters.teacher" class="text-input" type="text" placeholder="输入授课教师" />
+              </div>
+            </div>
+
+            <div class="filter-grid advanced-grid">
+              <div class="field">
+                <label>课程性质</label>
+                <IOSSelect v-model="infoFilters.kcxz" class="modern-select">
+                  <option v-for="item in infoOptions.kcxz" :key="item.value || 'empty-info-kcxz'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>课程类型</label>
+                <IOSSelect v-model="infoFilters.kclx" class="modern-select">
+                  <option v-for="item in infoOptions.kclx" :key="item.value || 'empty-info-kclx'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+              <div class="field">
+                <label>选课方式</label>
+                <IOSSelect v-model="infoFilters.xkfs" class="modern-select" :disabled="!infoShowOtherModes">
+                  <option v-for="item in infoOptions.xkfs" :key="item.value || 'empty-info-xkfs'" :value="item.value">{{ item.label }}</option>
+                </IOSSelect>
+              </div>
+            </div>
+
+            <div class="info-toggle-row">
+              <label class="info-toggle-check">
+                <input v-model="infoShowOtherModes" type="checkbox" @change="handleInfoOtherModesChange" />
+                <span>显示其他选课方式课程（默认仅展示“选课”）</span>
+              </label>
+            </div>
+          </template>
+        </div>
+
+        <div class="result-block">
+          <div v-if="loadingInfo" class="loading-state">正在查询已选课程...</div>
+          <div v-else-if="filteredInfoCourses.length === 0" class="empty-state">{{ infoEmptyHint }}</div>
+          <template v-else>
+            <div v-if="infoSourceMessage" class="info-source-tip">{{ infoSourceMessage }}</div>
+            <div class="course-list">
+              <button
+                v-for="course in filteredInfoCourses"
+                :key="`${course.id}-${course.termLabel}-${course.sourceTabId}`"
+                type="button"
+                class="course-card glass-card"
+                @click="openDetail(course)"
+              >
+                <div class="course-top">
+                  <div>
+                    <div class="course-name">{{ course.kcmc || '未命名课程' }}</div>
+                    <div class="course-class">{{ course.jxbmcDisplay || course.jxbmc || '未命名教学班' }}</div>
+                  </div>
+                  <div class="course-top-right">
+                    <span class="meta-chip success-meta-pill">{{ course.xkfsText || '选课' }}</span>
+                    <div class="course-credit">{{ course.xf || '--' }} 学分</div>
+                  </div>
+                </div>
+
+                <div class="course-meta-row">
+                  <span class="meta-chip teacher-chip">{{ course.teacher || '待定教师' }}</span>
+                  <span v-if="course.isOnline" class="meta-chip online-pill">网课</span>
+                  <span v-else class="meta-chip schedule-chip">{{ course.scheduleText || '未公布时间地点' }}</span>
+                </div>
+
+                <div class="course-meta-row secondary compact">
+                  <span class="meta-chip">学期 {{ course.termLabel || '--' }}</span>
+                  <span class="meta-chip">选课方式 {{ course.xkfsText || '选课' }}</span>
+                  <span class="status-pill" :class="course.statusClass">{{ course.statusLabel }}</span>
+                </div>
+              </button>
+            </div>
+          </template>
+        </div>
+      </template>
     </div>
 
     <Teleport to="body">
@@ -1730,6 +2009,12 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
+.refresh-btn-placeholder {
+  width: 96px;
+  min-width: 96px;
+  min-height: 40px;
+}
+
 .header-meta-row {
   display: flex;
   flex-wrap: wrap;
@@ -1757,6 +2042,66 @@ onBeforeUnmount(() => {
   margin-top: 8px;
   min-width: 0;
   max-width: 100%;
+}
+
+.entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.entry-tile {
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--ui-surface-border);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.entry-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--ui-shadow-strong);
+}
+
+.entry-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.entry-badge-selection {
+  background: color-mix(in oklab, #f59e0b 18%, var(--ui-surface));
+  color: #92400e;
+  border: 1px solid color-mix(in oklab, #f59e0b 34%, transparent);
+}
+
+.entry-badge-info {
+  background: color-mix(in oklab, #0ea5e9 18%, var(--ui-surface));
+  color: #0c4a6e;
+  border: 1px solid color-mix(in oklab, #0ea5e9 34%, transparent);
+}
+
+.entry-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--ui-text);
+}
+
+.entry-desc {
+  margin: 0;
+  color: var(--ui-muted);
+  line-height: 1.6;
+  font-size: 13px;
 }
 
 .glass-card {
@@ -1806,6 +2151,10 @@ onBeforeUnmount(() => {
   margin-top: 2px;
 }
 
+.info-base-grid {
+  grid-template-columns: minmax(0, 320px);
+}
+
 .batch-select :deep(.ios26-select-trigger) {
   min-height: 40px;
   border-radius: 14px;
@@ -1815,6 +2164,23 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.info-toggle-row {
+  margin-top: 8px;
+}
+
+.info-toggle-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+
+.info-toggle-check input {
+  width: 16px;
+  height: 16px;
 }
 
 .filter-grid {
@@ -1875,6 +2241,16 @@ onBeforeUnmount(() => {
 
 .empty-state.compact {
   padding: 16px;
+}
+
+.info-source-tip {
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, #0ea5e9 24%, var(--ui-surface-border));
+  background: color-mix(in oklab, #0ea5e9 10%, var(--ui-surface));
+  color: color-mix(in oklab, #0f4f5c 84%, var(--ui-text));
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .course-list {
@@ -2115,6 +2491,12 @@ onBeforeUnmount(() => {
   color: #9a3412;
 }
 
+.success-meta-pill {
+  background: color-mix(in oklab, #22c55e 16%, var(--ui-surface));
+  border-color: color-mix(in oklab, #22c55e 34%, transparent);
+  color: #166534;
+}
+
 .ghost-btn {
   border: 1px solid var(--ui-surface-border);
   background: color-mix(in oklab, var(--ui-primary) 6%, var(--ui-surface));
@@ -2326,6 +2708,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
+  .entry-grid {
+    grid-template-columns: 1fr;
+  }
+
   .course-page-title {
     font-size: 23px;
   }
@@ -2361,6 +2747,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
+  .refresh-btn-placeholder {
+    width: 84px;
+    min-width: 84px;
+  }
+
   .course-selection-view {
     padding: 6px 6px 92px;
   }

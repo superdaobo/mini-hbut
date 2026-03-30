@@ -1804,7 +1804,7 @@ const buildExportEventsForWeek = (weekNumber) => {
     if (!iso) continue
     const courses = getCoursesForDayAndWeek(day, weekNumber)
     courses.forEach(course => {
-      const startPeriod = course.period
+      const startPeriod = Number(course.period) || 1
       const endPeriod = getCourseEndPeriod(course)
       const startSlot = timeSchedule.find(t => t.p === startPeriod)
       const endSlot = timeSchedule.find(t => t.p === endPeriod)
@@ -1847,7 +1847,7 @@ const buildExportEventsForSemester = () => {
       if (!iso) continue
       const courses = getCoursesForDayAndWeek(day, week)
       courses.forEach(course => {
-        const startPeriod = course.period
+        const startPeriod = Number(course.period) || 1
         const endPeriod = getCourseEndPeriod(course)
         const startSlot = timeSchedule.find(t => t.p === startPeriod)
         const endSlot = timeSchedule.find(t => t.p === endPeriod)
@@ -1858,7 +1858,8 @@ const buildExportEventsForSemester = () => {
         const location = [course.building, room].filter(Boolean).join(' ')
         const timeLabel = `第${week}周 周${day} 第${startPeriod}-${endPeriod}节 ${startSlot.start}-${endSlot.end}`
         const description = `时间: ${timeLabel}\n地点: ${location || '未标注'}`
-        const key = `${course.name}|${start}|${end}|${location}`
+        const teacher = course.teacher || ''
+        const key = `${course.name}|${start}|${end}|${location}|${teacher}`
         if (seen.has(key)) return
         seen.add(key)
         events.push({

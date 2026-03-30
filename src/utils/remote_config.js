@@ -11,11 +11,11 @@ const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
 const OCR_REMOTE_ENDPOINTS_KEY = 'hbu_ocr_remote_endpoints'
 const OCR_LOCAL_FALLBACK_ENDPOINTS_KEY = 'hbu_ocr_local_fallback_endpoints'
 const OCR_PRIMARY_ENDPOINT_KEY = 'hbu_ocr_endpoint'
-const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
+const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/ocr/recognize'
 const DEFAULT_OCR_ENDPOINTS = [DEFAULT_OCR_ENDPOINT]
 const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
   'http://1.94.167.18:5080/api/ocr/recognize',
-  'https://superdaobo-ocr-service.hf.space/api/ocr/recognize'
+  'https://mini-hbut-testocr1.hf.space/api/ocr/recognize'
 ]
 const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
 const DEFAULT_CLOUD_SYNC_SECRET_REF = 'kv1-main'
@@ -506,3 +506,5 @@ export async function fetchRemoteConfig() {
   }
   return { ...DEFAULT_CONFIG }
 }
+
+

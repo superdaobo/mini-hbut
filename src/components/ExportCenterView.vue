@@ -4,7 +4,7 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
-import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
+import { invokeNative as invoke, isTauriRuntime, isCapacitorRuntime } from '../platform/native'
 import { blobToDataUrl, waitForCaptureReady, renderElementToCanvas } from '../utils/capture_service'
 
 const props = defineProps({
@@ -15,6 +15,7 @@ const emit = defineEmits(['back', 'logout'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const isNative = isTauriRuntime()
+const isCapacitor = isCapacitorRuntime()
 
 const periodTimeMap = {
   1: { start: '08:20', end: '09:05' },
@@ -731,6 +732,30 @@ const saveByBrowser = (fileName, mimeType, content) => {
   URL.revokeObjectURL(href)
 }
 
+const saveByCapacitor = async (fileName, blob) => {
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  const dataUrl = await blobToDataUrl(blob)
+  const base64 = dataUrl.split(',')[1] || ''
+
+  // 写入缓存目录
+  const written = await Filesystem.writeFile({
+    path: fileName,
+    data: base64,
+    directory: Directory.Cache
+  })
+  const fileUri = written.uri
+
+  // 通过系统分享面板让用户保存到相册
+  const { Share } = await import('@capacitor/share')
+  await Share.share({
+    title: fileName,
+    text: 'Mini-HBUT 导出图片',
+    url: fileUri,
+    dialogTitle: '保存长图到相册'
+  })
+  return fileUri
+}
+
 const exportJson = async () => {
   if (!exportPayload.value) {
     await collectExportData()
@@ -748,6 +773,14 @@ const exportJson = async () => {
       const base64 = btoa(unescape(encodeURIComponent(jsonText)))
       const saved = await saveByTauri(fileName, 'application/json', base64, false)
       exportSuccess.value = `JSON 导出成功：${saved.path}`
+    } else if (isCapacitor) {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem')
+      const base64 = btoa(unescape(encodeURIComponent(jsonText)))
+      await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache })
+      const { Share } = await import('@capacitor/share')
+      const written = await Filesystem.getUri({ path: fileName, directory: Directory.Cache })
+      await Share.share({ title: fileName, url: written.uri, dialogTitle: '保存 JSON 文件' })
+      exportSuccess.value = 'JSON 已生成，请通过分享面板保存。'
     } else {
       saveByBrowser(fileName, 'application/json', jsonText)
       exportSuccess.value = 'JSON 已通过浏览器下载。'
@@ -789,7 +822,8 @@ const renderWideCanvas = async () => {
     await waitForCaptureReady(clone)
     return await renderElementToCanvas(clone, {
       exportWidth,
-      backgroundColor: '#f4f7ff'
+      backgroundColor: '#f4f7ff',
+      scale: 2
     })
   } finally {
     if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper)
@@ -816,11 +850,14 @@ const exportImage = async () => {
     const fileName = `Mini-HBUT_Export_${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)}.png`
 
     if (isNative) {
-      const dataUrl = await toDataUrl(blob)
+      const dataUrl = await blobToDataUrl(blob)
       const base64 = dataUrl.split(',')[1] || ''
       const saved = await saveByTauri(fileName, 'image/png', base64, true)
       const tip = saved.needs_manual_import ? '（已写入应用目录，可在系统文件中导入相册）' : ''
       exportSuccess.value = `长图片导出成功：${saved.path}${tip}`
+    } else if (isCapacitor) {
+      await saveByCapacitor(fileName, blob)
+      exportSuccess.value = '长图片已生成，请在弹出面板中选择「保存到相册」。'
     } else {
       saveByBrowser(fileName, 'image/png', blob)
       exportSuccess.value = '长图片已通过浏览器下载。'
@@ -1451,19 +1488,21 @@ onMounted(async () => {
 
 .module-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px;
 }
 
 .module-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 16px;
   padding: 9px 11px;
   background: rgba(248, 250, 252, 0.9);
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .module-item input {
@@ -1493,8 +1532,8 @@ onMounted(async () => {
   font-weight: 600;
   flex: 1;
   min-width: 0;
-  word-break: normal;
-  overflow-wrap: anywhere;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .semester-tag {
@@ -1772,7 +1811,7 @@ onMounted(async () => {
   }
 
   .module-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .module-name {

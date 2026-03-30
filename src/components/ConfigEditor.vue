@@ -37,7 +37,7 @@ const defaultConfig = {
   cloud_sync: {
     enabled: true,
     mode: 'proxy',
-    proxy_endpoint: 'https://mini-hbut-ocr-service.hf.space/api/cloud-sync',
+    proxy_endpoint: 'https://mini-hbut-testocr1.hf.space/api/cloud-sync',
     secret_ref: 'kv1-main',
     timeout_ms: 12000,
     cooldown_seconds: 180
@@ -163,7 +163,7 @@ onMounted(() => {
       <div class="form-grid">
         <label>
           OCR 服务地址
-          <input v-model="config.ocr.endpoint" placeholder="https://mini-hbut-ocr-service.hf.space/api/ocr/recognize" />
+          <input v-model="config.ocr.endpoint" placeholder="https://mini-hbut-testocr1.hf.space/api/ocr/recognize" />
         </label>
         <label class="toggle">
           <input v-model="config.ocr.enabled" type="checkbox" />
@@ -173,7 +173,7 @@ onMounted(() => {
           临时文件上传地址
           <input
             v-model="config.temp_file_server.schedule_upload_endpoint"
-            placeholder="https://mini-hbut-ocr-service.hf.space/api/temp/upload"
+            placeholder="https://mini-hbut-testocr1.hf.space/api/temp/upload"
           />
         </label>
         <label class="toggle">
@@ -213,7 +213,7 @@ onMounted(() => {
           Office 预览临时上传地址
           <input
             v-model="config.resource_share.temp_upload_endpoint"
-            placeholder="https://mini-hbut-ocr-service.hf.space/api/temp/upload"
+            placeholder="https://mini-hbut-testocr1.hf.space/api/temp/upload"
           />
         </label>
       </div>
@@ -234,7 +234,7 @@ onMounted(() => {
           云同步中转地址
           <input
             v-model="config.cloud_sync.proxy_endpoint"
-            placeholder="https://mini-hbut-ocr-service.hf.space/api/cloud-sync"
+            placeholder="https://mini-hbut-testocr1.hf.space/api/cloud-sync"
           />
         </label>
         <label>
@@ -532,3 +532,5 @@ textarea {
   color: #dc2626;
 }
 </style>
+
+

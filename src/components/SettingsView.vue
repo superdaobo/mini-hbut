@@ -44,7 +44,7 @@ const emit = defineEmits(['back'])
 const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
 const REMOTE_UPLOAD_ENDPOINT_KEY = 'hbu_temp_upload_endpoint'
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
-const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-ocr-service.hf.space/api/ocr/recognize'
+const DEFAULT_OCR_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/ocr/recognize'
 const LOCAL_HOST_PATTERN =
   /^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/i
 
@@ -2433,3 +2433,5 @@ const handleDownloadFont = async (force = false) => {
   }
 }
 </style>
+
+

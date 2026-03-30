@@ -1,4 +1,4 @@
-﻿//! HTTP 客户端主入口：负责会话保持、公共工具函数与模块拆分的统一管理。
+//! HTTP 客户端主入口：负责会话保持、公共工具函数与模块拆分的统一管理。
 //!
 //! 该文件主要职责：
 //! - 组装 `HbutClient`（统一的请求客户端与会话状态）
@@ -51,9 +51,9 @@ pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/index.html";
-pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-ocr-service.hf.space/api/ocr/recognize";
+pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
-pub(super) const SECONDARY_OCR_ENDPOINT: &str = "https://superdaobo-ocr-service.hf.space/api/ocr/recognize";
+pub(super) const SECONDARY_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] = &[
     DEFAULT_OCR_ENDPOINT,
     SECONDARY_OCR_ENDPOINT,
@@ -411,3 +411,5 @@ impl HbutClient {
         }
     }
 }
+
+

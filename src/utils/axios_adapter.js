@@ -763,6 +763,21 @@ const adapter = {
                 }
             }
 
+            // selected_courses 必须在 select 之前匹配，否则 includes 子串会误命中
+            if (url.includes('/v2/course_selection/selected_courses')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/course_selection/selected_courses', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('fetch_course_selection_selected_courses', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             if (url.includes('/v2/course_selection/select')) {
                 try {
                     const payloadData = { ...(data || {}) };
