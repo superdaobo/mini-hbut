@@ -316,6 +316,35 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 12000): Promise<T
 }
 
 async function fetchLatestReleaseJson(): Promise<LatestRelease> {
+  // 优先从 CDN manifest 获取（无 CORS 问题，同源请求）
+  if (EDGEONE_CDN_BASE) {
+    try {
+      const manifestUrl = `${EDGEONE_CDN_BASE}/releases/latest.json`;
+      const resp = await withTimeout(
+        fetch(manifestUrl, { cache: 'no-store' }),
+        8000
+      );
+      if (resp.ok) {
+        const manifest = await resp.json();
+        if (manifest?.tag && manifest?.assets) {
+          // 将 manifest 转换为 GitHub API 兼容格式
+          const tag = manifest.tag;
+          const assetMap = manifest.assets as Record<string, string>;
+          const assets: ReleaseAsset[] = Object.values(assetMap)
+            .filter(Boolean)
+            .map((filename) => ({
+              name: filename as string,
+              browser_download_url: `https://github.com/${REPO}/releases/download/${tag}/${filename}`,
+              download_count: 0,
+            }));
+          return { tag_name: tag, assets };
+        }
+      }
+    } catch {
+      // CDN manifest 失败，回退到 GitHub API
+    }
+  }
+
   let lastError: unknown = null;
 
   for (const endpoint of latestApiCandidates) {
