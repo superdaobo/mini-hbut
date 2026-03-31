@@ -801,8 +801,10 @@ jobs:
       - name: Deploy to website-pages branch
         run: |
           set -euo pipefail
-          cd website/dist
-          echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > package.json
+          DEPLOY=$(mktemp -d)
+          echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
+          cp -r website/dist "$DEPLOY/dist"
+          cd "$DEPLOY"
           git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
