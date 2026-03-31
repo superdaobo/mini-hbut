@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { formatRelativeTime } from '../utils/time.js'
 import { invokeNative as invoke } from '../platform/native'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -161,14 +162,7 @@ onMounted(() => {
 <template>
   <div class="trans-view">
     <!-- Header -->
-    <header class="trans-header">
-      <button class="back-btn" @click="handleBack">← 返回</button>
-      <div class="title">
-        <span class="icon">💰</span>
-        <span>交易记录</span>
-      </div>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader icon="💰" title="交易记录" @back="handleBack" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -206,10 +200,7 @@ onMounted(() => {
       </div>
 
       <!-- Result List -->
-      <div v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在同步近一年数据...</p>
-      </div>
+      <TEmptyState v-if="loading" type="loading" message="正在同步近一年数据..." />
 
       <div v-else-if="currentMonthTransactions.length > 0" class="transaction-list">
         <div v-for="(item, index) in currentMonthTransactions" :key="index" class="trans-item">
@@ -229,16 +220,13 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-else-if="errorMsg" class="error-msg">
-        {{ errorMsg }}
+      <TEmptyState v-else-if="errorMsg" type="error" :message="errorMsg">
         <button @click="initLoad" class="retry-btn">重试</button>
-      </div>
+      </TEmptyState>
       
-      <div v-else class="empty-state">
-        <span class="empty-icon">📭</span>
-        <p>该月份暂无交易记录</p>
+      <TEmptyState v-else message="该月份暂无交易记录">
         <button @click="initLoad" class="retry-btn" style="margin-top: 10px;">刷新数据</button>
-      </div>
+      </TEmptyState>
     </div>
   </div>
 </template>

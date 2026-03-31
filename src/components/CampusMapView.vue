@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { openExternal, openExternalRaw, openWeChatMiniProgram } from '../utils/external_link'
 import { resolveCachedImage } from '../utils/image_cache'
 import { showToast } from '../utils/toast'
+import { TPageHeader } from './templates'
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -289,11 +290,7 @@ onMounted(() => {
 
 <template>
   <div class="campus-map-view">
-    <header class="view-header">
-      <button class="header-btn" @click="emit('back')">← 返回</button>
-      <h1>校园地图</h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="校园地图" @back="emit('back')" />
 
     <section class="intro-card">
       <p>支持缩放、拖拽和手势查看，地图会自动缓存到本地。</p>

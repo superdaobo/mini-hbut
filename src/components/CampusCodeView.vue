@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import axios from 'axios'
 import QRCode from 'qrcode'
+import { TPageHeader } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -290,14 +291,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="campus-code-view">
-    <header class="code-header">
-      <button class="header-btn" @click="handleBack">← 返回</button>
-      <div class="title-wrap">
-        <span class="title-icon">🎫</span>
-        <span class="title-text">校园码</span>
-      </div>
-      <span class="header-placeholder"></span>
-    </header>
+    <TPageHeader icon="🎫" title="校园码" @back="handleBack" />
 
     <section class="mode-panel">
       <button

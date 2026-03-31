@@ -813,49 +813,65 @@ const handleSelectFont = async (fontKey) => {
   pushDebugLog('Font', `切换字体：${FONT_DISPLAY_NAME[fontKey] || fontKey}`)
   showFontModal.value = true
   fontModalTitle.value = `加载${FONT_DISPLAY_NAME[fontKey] || '字体'}`
-  fontModalDescription.value = '正在检测本地缓存（不会联网下载）。'
-  fontModalRetryMode.value = 'deyihei'
+  fontModalDescription.value = '正在检测本地缓存...'
+  fontModalRetryMode.value = fontKey === 'deyihei' ? 'deyihei' : 'prefetch'
   fontDownloadProgress.value = 20
   fontDownloadStatus.value = 'downloading'
   fontDownloadError.value = ''
-  fontDownloadStep.value = `准备加载：${FONT_DISPLAY_NAME[fontKey] || fontKey}`
+  fontDownloadStep.value = `检测本地缓存：${FONT_DISPLAY_NAME[fontKey] || fontKey}`
 
-  if (fontKey === 'deyihei' && !fontSettings.loaded) {
-    pendingFontKey.value = 'deyihei'
-    fontDownloadStatus.value = 'failed'
-    fontDownloadError.value = '本地未缓存得意黑，请先下载或预缓存后再切换。'
-    fontDownloadProgress.value = 0
-    fontDownloadStep.value = ''
-    showToast('本地未缓存得意黑，请先下载或预缓存', 'info')
-    showFontModal.value = false
-    return
+  // 第一步：尝试本地缓存（不联网）
+  try {
+    const cached = await ensureFontLoaded(fontKey, false, true)
+    if (cached) {
+      fontSettings.font = fontKey
+      pendingFontKey.value = ''
+      flushUiSettings()
+      pushDebugLog('Font', `字体切换成功（缓存命中）：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'info')
+      fontDownloadProgress.value = 100
+      fontDownloadStatus.value = 'success'
+      fontDownloadStep.value = '本地缓存命中，字体已应用'
+      showToast('字体已应用', 'success')
+      showFontModal.value = false
+      return
+    }
+  } catch {
+    // 缓存未命中，继续网络下载
   }
 
+  // 第二步：本地缓存未命中，自动从 CDN 下载
+  pushDebugLog('Font', `本地缓存未命中，开始从 CDN 下载：${FONT_DISPLAY_NAME[fontKey] || fontKey}`)
+  fontModalDescription.value = '本地未缓存，正在从 CDN 下载字体...'
+  fontDownloadProgress.value = 40
+  fontDownloadStep.value = `正在下载：${FONT_DISPLAY_NAME[fontKey] || fontKey}`
+
   try {
-    const loaded = await ensureFontLoaded(fontKey, false, true)
-    if (!loaded) throw new Error('font not cached')
+    let loaded = false
+    if (fontKey === 'deyihei') {
+      loaded = await loadDeyiHeiFont(true)
+    } else {
+      loaded = await ensureFontLoaded(fontKey, true, false)
+    }
+    if (!loaded) throw new Error('font download failed')
     fontSettings.font = fontKey
     pendingFontKey.value = ''
     flushUiSettings()
-    pushDebugLog('Font', `字体切换成功：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'info')
+    pushDebugLog('Font', `字体下载并应用成功：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'info')
     fontDownloadProgress.value = 100
     fontDownloadStatus.value = 'success'
-    fontDownloadStep.value = '本地缓存命中，字体已应用'
+    fontDownloadStep.value = '字体下载完成，已应用'
     showToast('字体已应用', 'success')
     showFontModal.value = false
-    return
   } catch (e) {
-    console.warn('[Font] apply failed', e)
+    console.warn('[Font] download failed', e)
+    pendingFontKey.value = fontKey
+    pushDebugLog('Font', `字体下载失败：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'error', e)
+    fontDownloadStatus.value = 'failed'
+    fontDownloadError.value = '字体下载失败，请检查网络后重试。'
+    fontDownloadProgress.value = 0
+    fontDownloadStep.value = ''
+    showToast('字体下载失败，请检查网络后重试', 'error')
   }
-
-  pendingFontKey.value = fontKey
-  pushDebugLog('Font', `字体未命中本地缓存：${FONT_DISPLAY_NAME[fontKey] || fontKey}`, 'warn')
-  fontDownloadStatus.value = 'failed'
-  fontDownloadError.value = '本地未缓存该字体，请先点击“预缓存云端字体”。'
-  fontDownloadProgress.value = 0
-  fontDownloadStep.value = ''
-  showToast(`本地未缓存${FONT_DISPLAY_NAME[fontKey] || fontKey}，请先预缓存`, 'info')
-  showFontModal.value = false
 }
 
 const handleSelectCdnProvider = async (provider) => {
@@ -868,13 +884,18 @@ const handleSelectCdnProvider = async (provider) => {
   showToast(`字体 CDN 已切换为：${provider === 'auto' ? '自动' : provider}`, 'success')
 }
 
-const handlePrefetchFonts = async (force = false) => {
+const handlePrefetchFonts = async (force = false, cacheAll = false) => {
   if (cdnPrefetching.value) return
   const pending = String(pendingFontKey.value || '').trim()
   const current = String(fontSettings.font || '').trim()
-  const targets = pending && pending !== 'default'
-    ? [pending]
-    : (current && current !== 'default' ? [current] : [])
+  let targets
+  if (cacheAll) {
+    targets = ['heiti', 'songti', 'kaiti', 'fangsong', 'deyihei']
+  } else {
+    targets = pending && pending !== 'default'
+      ? [pending]
+      : (current && current !== 'default' ? [current] : [])
+  }
   if (!targets.length) {
     showToast('请先选择一个字体，再执行预缓存', 'info')
     return
@@ -882,11 +903,13 @@ const handlePrefetchFonts = async (force = false) => {
   pushDebugLog('Font', `开始预缓存字体，force=${force ? '1' : '0'}`)
   cdnPrefetching.value = true
   const needDeyiheiDownload = targets.includes('deyihei') && !fontSettings.loaded
-  showFontModal.value = needDeyiheiDownload
-  fontModalTitle.value = '预缓存云端字体'
-  fontModalDescription.value = needDeyiheiDownload
-    ? '未检测到本地得意黑，将先缓存得意黑后再应用。'
-    : `正在缓存：${targets.map((key) => FONT_DISPLAY_NAME[key] || key).join(' / ')}`
+  showFontModal.value = true
+  fontModalTitle.value = cacheAll ? '缓存全部字体' : '预缓存云端字体'
+  fontModalDescription.value = cacheAll
+    ? `正在缓存全部 ${targets.length} 种字体...`
+    : (needDeyiheiDownload
+      ? '未检测到本地得意黑，将先缓存得意黑后再应用。'
+      : `正在缓存：${targets.map((key) => FONT_DISPLAY_NAME[key] || key).join(' / ')}`)
   fontModalRetryMode.value = 'prefetch'
   fontDownloadProgress.value = 8
   fontDownloadStatus.value = 'downloading'
@@ -1177,6 +1200,9 @@ const handleDownloadFont = async (force = false) => {
           </button>
           <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false)">
             {{ cdnPrefetching ? '缓存中...' : prefetchButtonText }}
+          </button>
+          <button class="mini-btn btn-ripple" :disabled="cdnPrefetching" @click="handlePrefetchFonts(false, true)">
+            {{ cdnPrefetching ? '缓存中...' : '缓存全部字体' }}
           </button>
           <span class="hint">字体选择会自动保存；下次打开应用会自动恢复上次字体。</span>
         </div>

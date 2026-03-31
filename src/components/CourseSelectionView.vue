@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
+import { TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -1643,12 +1644,14 @@ onBeforeUnmount(() => {
               <option v-for="tab in tabs" :key="tab.xkgzid" :value="tab.xkgzid">{{ tab.xkgzMc || '未命名批次' }}</option>
             </IOSSelect>
           </div>
-          <div v-else class="empty-state compact">{{ overviewError || cleanMessage(overview?.message) || '当前暂无选课批次' }}</div>
+          <TEmptyState v-else message="" :icon="''">
+            <p>{{ overviewError || cleanMessage(overview?.message) || '当前暂无选课批次' }}</p>
+          </TEmptyState>
         </div>
 
         <div class="result-block">
-          <div v-if="loadingOverview || loadingList" class="loading-state">正在同步选课数据...</div>
-          <div v-else-if="!canShowList || courses.length === 0" class="empty-state">{{ emptyHint }}</div>
+          <TEmptyState v-if="loadingOverview || loadingList" type="loading" message="正在同步选课数据..." />
+          <TEmptyState v-else-if="!canShowList || courses.length === 0" :message="emptyHint" />
           <div v-else class="course-list">
             <button
               v-for="course in courses"
@@ -1773,8 +1776,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="result-block">
-          <div v-if="loadingInfo" class="loading-state">正在查询已选课程...</div>
-          <div v-else-if="filteredInfoCourses.length === 0" class="empty-state">{{ infoEmptyHint }}</div>
+          <TEmptyState v-if="loadingInfo" type="loading" message="正在查询已选课程..." />
+          <TEmptyState v-else-if="filteredInfoCourses.length === 0" :message="infoEmptyHint" />
           <template v-else>
             <div v-if="infoSourceMessage" class="info-source-tip">{{ infoSourceMessage }}</div>
             <div class="course-list">

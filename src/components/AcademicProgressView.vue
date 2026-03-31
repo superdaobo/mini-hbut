@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -276,11 +277,7 @@ onMounted(() => {
 
 <template>
   <div class="progress-view">
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>学业完成情况</h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="学业完成情况" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -295,8 +292,8 @@ onMounted(() => {
       </IOSSelect>
     </div>
 
-    <div v-if="loading" class="loading">加载中...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <TEmptyState v-if="loading" type="loading" />
+    <TEmptyState v-else-if="error" type="error" :message="error" />
 
     <div v-else class="content" v-if="progressData">
       <div class="summary-card" v-if="summaryItems.length">

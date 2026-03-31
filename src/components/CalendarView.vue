@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -292,11 +293,7 @@ onMounted(async () => {
 
 <template>
   <div class="calendar-view">
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1><span>📘</span><span>校历信息</span></h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="校历信息" icon="📘" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -313,8 +310,8 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="loading" class="loading">加载中...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
+    <TEmptyState v-if="loading" type="loading" />
+    <TEmptyState v-else-if="error" type="error" :message="error" />
 
     <div v-else class="calendar-table-wrapper">
       <table class="calendar-table">

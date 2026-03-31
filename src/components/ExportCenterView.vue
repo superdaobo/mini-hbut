@@ -6,6 +6,7 @@ import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { invokeNative as invoke, isTauriRuntime, isCapacitorRuntime } from '../platform/native'
 import { blobToDataUrl, waitForCaptureReady, renderElementToCanvas } from '../utils/capture_service'
+import { TPageHeader } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -892,11 +893,7 @@ onMounted(async () => {
 
 <template>
   <div class="export-view">
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>导出中心</h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="导出中心" @back="emit('back')" />
 
     <section class="intro-card">
       <h2>导出模块</h2>

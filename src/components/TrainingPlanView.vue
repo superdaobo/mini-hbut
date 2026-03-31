@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -254,11 +255,7 @@ onMounted(async () => {
 
 <template>
   <div class="training-plan-view">
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>培养方案</h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="培养方案" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -331,8 +328,8 @@ onMounted(async () => {
     </section>
 
     <section class="content">
-      <div v-if="loading" class="state">加载中...</div>
-      <div v-else-if="error" class="state error">{{ error }}</div>
+<TEmptyState v-if="loading" type="loading" />
+    <TEmptyState v-else-if="error" type="error" :message="error" />
 
       <div v-else class="course-grid">
         <div 

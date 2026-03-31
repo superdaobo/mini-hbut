@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
+import { TPageHeader, TEmptyState } from './templates'
 
 const emit = defineEmits(['back'])
 
@@ -43,17 +44,14 @@ onMounted(() => {
 
 <template>
   <div class="feedback-view">
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>问题反馈</h1>
-      <button class="external-btn" @click="copyLink" aria-label="复制反馈链接">↗</button>
-    </header>
+    <TPageHeader title="问题反馈" @back="emit('back')">
+      <template #actions>
+        <button class="back-btn" @click="copyLink" aria-label="复制反馈链接">↗</button>
+      </template>
+    </TPageHeader>
 
     <div class="iframe-container">
-      <div v-if="loading" class="loading-overlay">
-        <div class="spinner"></div>
-        <p>加载中...</p>
-      </div>
+      <TEmptyState v-if="loading" type="loading" />
       <iframe 
         ref="iframeRef"
         :src="feedbackUrl"

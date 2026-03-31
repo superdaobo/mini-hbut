@@ -705,7 +705,14 @@ const onTickerTouchMove = (event) => {
   const currentX = event.touches?.[0]?.clientX || tickerDragLastX
   tickerDragLastX = currentX
   const deltaX = currentX - tickerDragStartX
-  tickerTranslateX.value = tickerDragStartTranslate + deltaX
+  const raw = tickerDragStartTranslate + deltaX
+  const normalized = normalizeTickerTranslate(raw)
+  // 拖拽时保持在循环范围内，避免松手后 normalize 产生大跨度动画
+  const wrapDelta = normalized - raw
+  if (Math.abs(wrapDelta) > 1) {
+    tickerDragStartTranslate += wrapDelta
+  }
+  tickerTranslateX.value = normalized
 }
 
 const onTickerTouchEnd = () => {
@@ -720,14 +727,24 @@ const onTickerTouchEnd = () => {
     const inertiaOffset = Math.sign(deltaX || -1) * Math.min(260, distance * 0.36 + velocity * 190)
     target = tickerTranslateX.value + inertiaOffset
   }
-  tickerTransitionMs.value = Math.min(460, Math.max(220, Math.round(180 + velocity * 260)))
-  tickerTranslateX.value = normalizeTickerTranslate(target)
+  // 将目标限制在循环区间内，防止跨边界时 CSS 动画反向滚动
+  const loopWidth = Number(tickerLoopWidth.value || 0)
+  if (loopWidth > 0) {
+    const min = -loopWidth * 2 + 1
+    const max = -loopWidth
+    target = Math.max(min, Math.min(max, target))
+  }
+  const transMs = Math.min(460, Math.max(220, Math.round(180 + velocity * 260)))
+  tickerTransitionMs.value = transMs
+  tickerTranslateX.value = target
   if (Math.abs(deltaX) > 10) {
     tickerSuppressClickUntil.value = Date.now() + 240
   }
   window.setTimeout(() => {
     tickerTransitionMs.value = 0
-  }, 340)
+    // 动画结束后静默归位到标准区间
+    tickerTranslateX.value = normalizeTickerTranslate(tickerTranslateX.value)
+  }, transMs + 20)
   resumeTickerAfterSwipe()
 }
 

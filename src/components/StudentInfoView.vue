@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -336,27 +337,18 @@ onMounted(() => {
 
 <template>
   <div class="student-info-view">
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1>个人信息</h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="个人信息" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示离线数据，更新于 {{ formatRelativeTime(syncTime) }}
     </div>
 
     <div class="view-content">
-      <div v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在加载个人信息与访问记录...</p>
-      </div>
+      <TEmptyState v-if="loading" type="loading" message="正在加载个人信息与访问记录..." />
 
-      <div v-else-if="error && !canShowContent" class="error-state">
-        <div class="error-icon">✕</div>
-        <p>{{ error }}</p>
-        <button @click="refreshData">重试</button>
-      </div>
+      <TEmptyState v-else-if="error && !canShowContent" type="error" :message="error">
+        <button class="btn" style="margin-top: 12px" @click="refreshData">重试</button>
+      </TEmptyState>
 
       <div v-else class="panel-stack">
         <nav class="tab-nav">
@@ -418,10 +410,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <div v-if="currentLogins.length === 0" class="empty-state compact">
-            <div class="empty-icon">📭</div>
-            <p>暂无当前登录记录</p>
-          </div>
+          <TEmptyState v-if="currentLogins.length === 0" type="empty" message="暂无当前登录记录" />
 
           <template v-else>
             <div class="table-wrap">
@@ -474,10 +463,7 @@ onMounted(() => {
             <span>正在加载访问记录...</span>
           </div>
 
-          <div v-if="!accessLoading && appAccessRecords.length === 0" class="empty-state compact">
-            <div class="empty-icon">📭</div>
-            <p>暂无应用访问记录</p>
-          </div>
+          <TEmptyState v-if="!accessLoading && appAccessRecords.length === 0" type="empty" message="暂无应用访问记录" />
 
           <template v-else-if="appAccessRecords.length > 0">
             <div class="table-wrap">

@@ -201,7 +201,7 @@ html[data-ui-decor='none'] .app-shell::before {
   padding-top: 0 !important;
 }
 
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) {
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) {
   width: min(var(--ux-max-width), 100%);
   min-height: var(--ux-header-height);
   margin: 0 auto 14px;
@@ -220,8 +220,8 @@ html[data-ui-decor='none'] .app-shell::before {
   gap: 8px !important;
 }
 
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > h1,
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > .title {
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > h1,
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) > .title {
   margin: 0 !important;
   justify-self: center !important;
   text-align: center !important;
@@ -235,8 +235,8 @@ html[data-ui-decor='none'] .app-shell::before {
   color: var(--ui-text) !important;
 }
 
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .back-btn,
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-btn {
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .back-btn,
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-btn {
   min-width: 86px;
   height: 42px;
   border-radius: 12px !important;
@@ -264,12 +264,12 @@ html[data-ui-decor='none'] .app-shell::before {
   transform: translateY(-1px);
 }
 
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-spacer {
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) .header-spacer {
   justify-self: end;
   width: min(124px, 100%);
 }
 
-:is(.view-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) :is(
+:is(.view-header, .t-page-header, .app-header, .grade-header, .elec-header, .qxzkb-header, .trans-header) :is(
   .logout-btn,
   .header-btn.danger,
   .student-id,
@@ -301,7 +301,8 @@ html[data-ui-decor='none'] .app-shell::before {
   .course-card,
   .transaction-card,
   .book-card,
-  .resource-card
+  .resource-card,
+  .t-card
 ) {
   border-radius: var(--ux-card-radius) !important;
   border: 1px solid var(--ux-card-border) !important;
@@ -332,7 +333,8 @@ html[data-ui-card='glass'] :is(
   .course-card,
   .transaction-card,
   .book-card,
-  .resource-card
+  .resource-card,
+  .t-card
 ) {
   background: linear-gradient(
     154deg,
@@ -363,7 +365,8 @@ html[data-ui-card='solid'] :is(
   .course-card,
   .transaction-card,
   .book-card,
-  .resource-card
+  .resource-card,
+  .t-card
 ) {
   background: color-mix(in oklab, #ffffff 94%, var(--ui-primary) 6%) !important;
 }
@@ -389,13 +392,14 @@ html[data-ui-card='outline'] :is(
   .course-card,
   .transaction-card,
   .book-card,
-  .resource-card
+  .resource-card,
+  .t-card
 ) {
   background: color-mix(in oklab, #ffffff 70%, transparent) !important;
   border-width: 1.5px !important;
 }
 
-:is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card):not(.disabled):not(.bottom-tab-bar):hover {
+:is(.glass-card, .module-card, .room-card, .settings-section, .book-card, .resource-card, .t-card--hoverable):not(.disabled):not(.bottom-tab-bar):hover {
   transform: translateY(-2px);
   box-shadow: var(--ux-card-shadow-hover) !important;
 }

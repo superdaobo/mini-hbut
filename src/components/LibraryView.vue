@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
+import { TPageHeader } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -455,11 +456,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="library-view">
-    <header class="view-header">
-      <button class="header-btn" @click="emit('back')">← 返回</button>
-      <h1>图书查询</h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader icon="📚" title="图书查询" @back="emit('back')" />
 
     <section class="search-panel">
       <div class="search-row">

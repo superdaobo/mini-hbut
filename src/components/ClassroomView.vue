@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache, LONG_TTL, SHORT_TTL, DEFAULT_TTL } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -329,14 +330,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="classroom-view">
     <!-- 头部 -->
-    <header class="app-header">
-      <button class="back-btn" @click="$emit('back')">← 返回</button>
-      <div class="title">
-        <span class="icon">🏫</span>
-        <span>空教室查询</span>
-      </div>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader icon="🏫" title="空教室查询" @back="$emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -439,10 +433,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         
-        <div v-if="!loading && classrooms.length === 0 && !errorMsg" class="empty-state">
-          <div class="emoji">🏢</div>
-          <p>当前条件下没有找到空教室</p>
-        </div>
+        <TEmptyState v-if="!loading && classrooms.length === 0 && !errorMsg" icon="🏢" message="当前条件下没有找到空教室" />
       </div>
     </div>
   </div>

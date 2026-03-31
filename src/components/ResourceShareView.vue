@@ -5,6 +5,7 @@ import { openExternal } from '../utils/external_link'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { importModuleFromCdn, loadScriptFromCdn, loadStyleFromCdn } from '../utils/cdn_loader'
+import { TPageHeader } from './templates'
 
 const emit = defineEmits(['back'])
 
@@ -1323,11 +1324,11 @@ watch(isViewerFullscreen, () => {
 
 <template>
   <div class="resource-share-view module-page">
-    <div class="module-header">
-      <button class="header-btn" @click="emit('back')">← 返回</button>
-      <h2 class="module-title">资料分享</h2>
-      <button class="header-btn" :disabled="loadingList || loadingConfig" @click="refreshCurrent">刷新</button>
-    </div>
+    <TPageHeader icon="📁" title="资料分享" @back="emit('back')">
+      <template #actions>
+        <button class="header-btn" :disabled="loadingList || loadingConfig" @click="refreshCurrent">刷新</button>
+      </template>
+    </TPageHeader>
 
     <section class="path-card">
       <button class="path-btn" :disabled="!canGoParent || loadingList" @click="goParent">上一级</button>

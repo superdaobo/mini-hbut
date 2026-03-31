@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { formatRelativeTime } from '../utils/time.js'
 import { compareSemesterDesc, normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   grades: { type: Array, default: () => [] },
@@ -324,14 +325,7 @@ watch(
 <template>
   <div class="grade-view">
     <!-- 头部 -->
-    <header class="grade-header">
-      <button class="back-btn" @click="handleBack">← 返回</button>
-      <div class="title">
-        <span class="icon">📊</span>
-        <span>成绩查询</span>
-      </div>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader icon="📊" title="成绩查询" @back="handleBack" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -514,11 +508,9 @@ watch(
         </div>
       </template>
       
-      <div v-if="sortedGrades.length === 0" class="no-results">
-        <div class="empty-icon">📭</div>
-        <p>没有找到符合条件的成绩</p>
+      <TEmptyState v-if="sortedGrades.length === 0" message="没有找到符合条件的成绩">
         <button @click="resetFilters">清除筛选</button>
-      </div>
+      </TEmptyState>
     </div>
 
     <!-- 详情弹窗 -->

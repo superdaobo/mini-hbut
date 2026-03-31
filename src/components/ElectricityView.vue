@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache, setCachedData } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -227,14 +228,7 @@ const handleLogout = () => emit('logout')
 <template>
   <div class="elec-view">
     <!-- 头部 -->
-    <header class="elec-header">
-      <button class="back-btn" @click="handleBack">← 返回</button>
-      <div class="title">
-        <span class="icon">⚡</span>
-        <span>电费查询</span>
-      </div>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader icon="⚡" title="电费查询" @back="handleBack" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -308,10 +302,7 @@ const handleLogout = () => emit('logout')
       </div>
 
       <!-- 结果展示 -->
-      <div v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在查询电费信息...</p>
-      </div>
+      <TEmptyState v-if="loading" type="loading" message="正在查询电费信息..." />
       
       <div v-else-if="balanceData" class="result-card">
         <div class="status-badge" :class="balanceData.status.includes('正常') ? 'normal' : 'warning'">
@@ -341,13 +332,9 @@ const handleLogout = () => emit('logout')
         </button>
       </div>
 
-      <div v-else-if="errorMsg" class="error-msg">
-        {{ errorMsg }}
-      </div>
+      <TEmptyState v-else-if="errorMsg" type="error" :message="errorMsg" />
       
-      <div v-else class="empty-state">
-        👆 请先选择宿舍以查询电费
-      </div>
+      <TEmptyState v-else message="👆 请先选择宿舍以查询电费" />
     </div>
   </div>
 </template>

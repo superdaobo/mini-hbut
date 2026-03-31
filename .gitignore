@@ -48,6 +48,9 @@ __pycache__/
 *.dmg
 *.apk
 
+# Website release binaries (CI only)
+website/public/releases/
+
 # Database files
 *.db
 grades.db

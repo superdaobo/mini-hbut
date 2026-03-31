@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -85,11 +86,7 @@ onMounted(async () => {
 <template>
   <div class="ranking-view">
     <!-- 头部 -->
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1><span>🏆</span><span>绩点排名</span></h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="绩点排名" icon="🏆" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -108,17 +105,12 @@ onMounted(async () => {
     <!-- 内容区 -->
     <div class="view-content">
       <!-- 加载中 -->
-      <div v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在获取排名数据...</p>
-      </div>
+      <TEmptyState v-if="loading" type="loading" message="正在获取排名数据..." />
 
       <!-- 错误状态 -->
-      <div v-else-if="error" class="error-state">
-        <div class="error-icon">❌</div>
-        <p>{{ error }}</p>
-        <button @click="fetchRanking">重试</button>
-      </div>
+      <TEmptyState v-else-if="error" type="error" :message="error">
+        <button class="btn" style="margin-top: 12px" @click="fetchRanking">重试</button>
+      </TEmptyState>
 
       <!-- 排名卡片 -->
       <div v-else-if="ranking && ranking.gpa" class="ranking-card">
@@ -207,11 +199,9 @@ onMounted(async () => {
       </div>
 
       <!-- 无数据 -->
-      <div v-else class="empty-state">
-        <div class="empty-icon">📭</div>
-        <p>暂无排名数据</p>
-        <p class="hint">该学期可能尚未公布排名</p>
-      </div>
+      <TEmptyState v-else type="empty" message="暂无排名数据">
+        <p style="color: var(--ui-muted); font-size: 13px; margin-top: 4px">该学期可能尚未公布排名</p>
+      </TEmptyState>
     </div>
   </div>
 </template>

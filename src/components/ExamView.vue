@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -119,11 +120,7 @@ onMounted(async () => {
 <template>
   <div class="exam-view">
     <!-- 头部 -->
-    <header class="view-header">
-      <button class="back-btn" @click="emit('back')">← 返回</button>
-      <h1><span>📝</span><span>考试安排</span></h1>
-      <span class="header-spacer" aria-hidden="true"></span>
-    </header>
+    <TPageHeader title="考试安排" icon="📝" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
@@ -140,23 +137,15 @@ onMounted(async () => {
     <!-- 内容区 -->
     <div class="view-content">
       <!-- 加载中 -->
-      <div v-if="loading" class="loading-state">
-        <div class="spinner"></div>
-        <p>正在获取考试安排...</p>
-      </div>
+      <TEmptyState v-if="loading" type="loading" message="正在获取考试安排..." />
 
       <!-- 错误状态 -->
-      <div v-else-if="error" class="error-state">
-        <div class="error-icon">❌</div>
-        <p>{{ error }}</p>
-        <button @click="fetchExams">重试</button>
-      </div>
+      <TEmptyState v-else-if="error" type="error" :message="error">
+        <button class="btn" style="margin-top: 12px" @click="fetchExams">重试</button>
+      </TEmptyState>
 
       <!-- 无考试 -->
-      <div v-else-if="exams.length === 0" class="empty-state">
-        <div class="empty-icon">📭</div>
-        <p>本学期暂无考试安排</p>
-      </div>
+      <TEmptyState v-else-if="exams.length === 0" type="empty" message="本学期暂无考试安排" />
 
       <!-- 考试列表 -->
       <div v-else class="exam-list">

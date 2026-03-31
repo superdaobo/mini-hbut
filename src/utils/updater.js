@@ -6,6 +6,9 @@ const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 const GH_PROXY_PREFIX = 'https://gh-proxy.com/'
 const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
 
+// 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
+const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
+
 const API_PROXIES = [
   `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
@@ -13,6 +16,9 @@ const API_PROXIES = [
 ]
 
 const DOWNLOAD_PROXIES = [
+  ...(EDGEONE_CDN_BASE
+    ? [(tag, filename) => `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`]
+    : []),
   (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://mirror.ghproxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
@@ -143,6 +149,38 @@ function buildExpectedAssetName(platform, version) {
 }
 
 async function fetchReleaseInfo(currentVersion) {
+  // 优先尝试 EdgeOne CDN 清单（国内最快）
+  if (EDGEONE_CDN_BASE) {
+    try {
+      const resp = await withTimeout(
+        fetch(`${EDGEONE_CDN_BASE}/releases/latest.json`, { headers: { Accept: 'application/json' } }),
+        6000
+      )
+      if (resp.ok) {
+        const manifest = await resp.json()
+        if (manifest?.tag && manifest?.assets) {
+          const release = {
+            tag_name: manifest.tag,
+            name: `v${manifest.version}`,
+            body: '',
+            html_url: `${GITHUB_RELEASES_URL}/tag/${manifest.tag}`,
+            assets: Object.values(manifest.assets).map((filename) => ({
+              name: filename,
+              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${manifest.tag}/${filename}`
+            })),
+            published_at: manifest.generatedAt
+          }
+          const latest = String(manifest.version || '').replace(/^v/, '')
+          if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
+            return release
+          }
+        }
+      }
+    } catch (_) {
+      // EdgeOne CDN 不可用，继续 fallback
+    }
+  }
+
   let fallback = null
   for (const url of API_PROXIES) {
     try {
