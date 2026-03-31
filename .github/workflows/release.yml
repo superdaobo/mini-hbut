@@ -731,3 +731,84 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  deploy-website:
+    needs: [build-android, build-windows, build-macos, build-ios, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          DEST="website/public/releases/${TAG}"
+          mkdir -p "$DEST"
+          gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*"
+          echo "Downloaded release assets:"
+          ls -lh "$DEST"
+
+      - name: Generate release manifest
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'MANIFEST_SCRIPT'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          const tag = process.env.GITHUB_REF_NAME;
+          const version = tag.replace(/^v/, '');
+          const dir = `website/public/releases/${tag}`;
+          const files = fs.readdirSync(dir);
+
+          const manifest = { version, tag, generatedAt: new Date().toISOString(), assets: {} };
+
+          for (const file of files) {
+            const lower = file.toLowerCase();
+            if (/x64-setup\.exe$/.test(lower)) manifest.assets.windows_exe = file;
+            else if (/\.msi$/.test(lower)) manifest.assets.windows_msi = file;
+            else if (/universal\.dmg$/.test(lower)) manifest.assets.mac_dmg = file;
+            else if (/arm64\.apk$/.test(lower)) manifest.assets.android_apk = file;
+            else if (/ios\.ipa$/i.test(lower)) manifest.assets.ios_ipa = file;
+            else if (/\.appimage$/i.test(lower)) manifest.assets.linux_appimage = file;
+            else if (/\.deb$/i.test(lower)) manifest.assets.linux_deb = file;
+          }
+
+          fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+          fs.mkdirSync('website/public/releases', { recursive: true });
+          fs.writeFileSync('website/public/releases/latest.json', JSON.stringify(manifest, null, 2));
+
+          console.log('Release manifest:', JSON.stringify(manifest, null, 2));
+          MANIFEST_SCRIPT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Build website
+        run: |
+          cd website
+          npm ci --prefer-offline --no-audit --no-fund
+          npm run build
+
+      - name: Deploy to website-pages branch
+        run: |
+          set -euo pipefail
+          cd website/dist
+          echo '{"name":"mini-hbut-website","private":true}' > package.json
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "deploy: ${GITHUB_REF_NAME}"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
