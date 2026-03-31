@@ -100,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           cd website/dist
-          echo '{"name":"mini-hbut-website","private":true}' > package.json
+          echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > package.json
           git init
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
