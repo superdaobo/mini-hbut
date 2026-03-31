@@ -750,7 +750,9 @@ jobs:
           DEST="website/public/releases/${TAG}"
           mkdir -p "$DEST"
           gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*"
-          echo "Downloaded release assets:"
+          # EdgeOne Pages 单文件限制 25MB，删除超限文件（走 GitHub 代理下载）
+          find "$DEST" -size +25M -delete
+          echo "Assets for CDN (<=25MB):"
           ls -lh "$DEST"
 
       - name: Generate release manifest
