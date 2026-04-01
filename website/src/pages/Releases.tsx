@@ -13,6 +13,7 @@ import {
   AlertCircle,
   RefreshCw,
   Link2,
+  FlaskConical,
 } from 'lucide-react';
 import {
   Dialog,
@@ -27,6 +28,9 @@ import Navbar from '../components/Navbar';
 
 const REPO = 'superdaobo/mini-hbut';
 const releasesApi = `https://api.github.com/repos/${REPO}/releases`;
+const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz';
+const DEV_LATEST_JSON = `${EDGEONE_CDN_BASE}/releases/dev-latest.json`;
+const DEV_CDN_DIR = `${EDGEONE_CDN_BASE}/releases/dev-latest`;
 
 const apiProxyPrefixes = [
   'https://hk.gh-proxy.org/',
@@ -61,6 +65,14 @@ interface Release {
   draft: boolean;
   assets: ReleaseAsset[];
   html_url: string;
+}
+
+interface DevManifest {
+  version: string;
+  tag: string;
+  prerelease: boolean;
+  generatedAt: string;
+  assets: Record<string, string>;
 }
 
 // ──── 工具函数 ────
@@ -103,6 +115,32 @@ async function fetchReleasesJson(): Promise<Release[]> {
     }
   }
   throw new Error('所有 API 端点均不可用');
+}
+
+async function fetchDevManifest(): Promise<DevManifest | null> {
+  try {
+    const res = await fetch(DEV_LATEST_JSON, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.version && data.assets) return data as DevManifest;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function devAssetPlatformInfo(key: string): { label: string; icon: string } | null {
+  const map: Record<string, { label: string; icon: string }> = {
+    windows_exe: { label: 'Windows EXE', icon: '🖥️' },
+    windows_msi: { label: 'Windows MSI', icon: '🖥️' },
+    mac_dmg: { label: 'macOS DMG', icon: '🍎' },
+    mac_zip: { label: 'macOS App', icon: '🍎' },
+    android_apk: { label: 'Android APK', icon: '📱' },
+    ios_ipa: { label: 'iOS IPA', icon: '📱' },
+    linux_appimage: { label: 'Linux AppImage', icon: '🐧' },
+    linux_deb: { label: 'Linux DEB', icon: '🐧' },
+  };
+  return map[key] || null;
 }
 
 function formatDate(dateStr: string): string {
@@ -261,15 +299,21 @@ export default function Releases() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<ReleaseAsset | null>(null);
+  const [devManifest, setDevManifest] = useState<DevManifest | null>(null);
+  const [devExpanded, setDevExpanded] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   const loadReleases = async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await fetchReleasesJson();
-      const published = data.filter((r) => !r.draft);
+      const [data, dev] = await Promise.all([
+        fetchReleasesJson(),
+        fetchDevManifest(),
+      ]);
+      const published = data.filter((r) => !r.draft && r.tag_name !== 'dev-latest');
       setReleases(published);
+      setDevManifest(dev);
       if (published.length > 0) setExpandedId(published[0].id);
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
@@ -365,10 +409,97 @@ export default function Releases() {
         )}
 
         {/* 空状态 */}
-        {!loading && !error && releases.length === 0 && (
+        {!loading && !error && releases.length === 0 && !devManifest && (
           <div className="glass rounded-xl p-8 text-center">
             <Tag className="w-8 h-8 text-gray-500 mx-auto mb-3" />
             <p className="text-gray-400 text-sm">暂无发布版本</p>
+          </div>
+        )}
+
+        {/* 测试版本 */}
+        {!loading && devManifest && (
+          <div className="mb-10">
+            <div className="glass rounded-xl border border-orange-500/30 overflow-hidden shadow-[0_0_15px_rgba(249,115,22,0.08)]">
+              <button
+                onClick={() => setDevExpanded(!devExpanded)}
+                className="w-full p-5 text-left flex items-center justify-between hover:bg-white/[0.02] transition-colors"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                    <FlaskConical className="w-4 h-4 text-orange-400 shrink-0" />
+                    <span className="font-mono font-bold text-white text-lg">
+                      测试版本
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] bg-orange-500/20 text-orange-400 rounded-full border border-orange-400/30 font-mono shrink-0">
+                      {devManifest.version}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <span className="inline-flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {formatDate(devManifest.generatedAt)}
+                    </span>
+                    <span className="text-gray-600">
+                      {Object.keys(devManifest.assets).length} 个安装包
+                    </span>
+                  </div>
+                </div>
+                <div className="shrink-0 ml-4">
+                  {devExpanded ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  )}
+                </div>
+              </button>
+
+              {devExpanded && (
+                <div className="px-5 pb-5 border-t border-orange-500/20">
+                  <p className="text-orange-400/80 text-xs mt-3 mb-4">
+                    ⚠️ 此版本为自动构建的开发测试版，可能包含未完成功能或已知问题
+                  </p>
+                  <div className="space-y-2">
+                    {Object.entries(devManifest.assets).map(([key, filename]) => {
+                      const info = devAssetPlatformInfo(key);
+                      if (!info) return null;
+                      const cdnUrl = `${DEV_CDN_DIR}/${filename}`;
+                      const ghUrl = `https://github.com/${REPO}/releases/download/dev-latest/${filename}`;
+                      return (
+                        <div key={key} className="flex items-center justify-between p-3 border border-gray-700/50 rounded-lg hover:border-gray-600/50 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg">{info.icon}</span>
+                            <div>
+                              <div className="text-sm text-white font-mono">{info.label}</div>
+                              <div className="text-xs text-gray-500">{filename}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={cdnUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 text-xs border border-cyan/40 rounded-lg text-cyan hover:bg-cyan/10 transition-colors inline-flex items-center gap-1.5"
+                            >
+                              <Download className="w-3 h-3" />
+                              CDN
+                            </a>
+                            <a
+                              href={ghUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 text-xs border border-gray-600 rounded-lg text-gray-400 hover:text-white hover:border-white transition-colors inline-flex items-center gap-1.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              GitHub
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

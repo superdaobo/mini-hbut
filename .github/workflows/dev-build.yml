@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   MINI_HBUT_BUILD_PROFILE: dev-fast
@@ -592,3 +592,171 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  deploy-dev-release:
+    needs: [meta, build-android, build-windows, build-macos, build-ios, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dev-assets
+          pattern: "{android,windows,macos,ios,linux}-*"
+          merge-multiple: true
+
+      - name: List collected assets
+        run: ls -lhR dev-assets
+
+      - name: Recreate dev-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          TAG="dev-latest"
+
+          # 删除旧 release（静默失败）
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          sleep 2
+
+          # 创建新 release（prerelease + 标题含 beta 版本号）
+          gh release create "$TAG" \
+            --prerelease \
+            --title "测试版 ${BETA_VERSION}" \
+            --notes "自动构建的测试版本 \`${BETA_VERSION}\`，仅用于开发测试。
+
+          **构建时间**: $(date -u '+%Y-%m-%d %H:%M UTC')
+          **Commit**: ${GITHUB_SHA::7}
+
+          > ⚠️ 此版本为自动生成的开发测试版，可能存在未完成的功能或已知问题。" \
+            dev-assets/*
+
+          echo "✅ dev-latest release created with ${BETA_VERSION}"
+
+      - name: Download stable release assets for CDN
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="$(gh release view --json tagName -q .tagName --exclude-pre-releases 2>/dev/null || true)"
+          if [ -z "$TAG" ]; then
+            echo "No stable release found, skip"
+            echo "HAS_STABLE=false" >> "$GITHUB_ENV"
+          else
+            DEST="website/public/releases/${TAG}"
+            mkdir -p "$DEST"
+            gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*"
+            find "$DEST" -size +25M -delete
+            echo "Stable assets (<=25MB):"
+            ls -lh "$DEST"
+            echo "STABLE_TAG=$TAG" >> "$GITHUB_ENV"
+            echo "HAS_STABLE=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Copy dev assets for CDN
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          DEST="website/public/releases/dev-latest"
+          mkdir -p "$DEST"
+          cp dev-assets/* "$DEST/"
+          find "$DEST" -size +25M -delete
+          echo "Dev assets for CDN (<=25MB):"
+          ls -lh "$DEST"
+
+      - name: Generate manifests
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'MANIFEST_SCRIPT'
+          import fs from 'node:fs';
+          import path from 'node:path';
+
+          // --- dev-latest manifest ---
+          const betaVersion = process.env.BETA_VERSION;
+          const devDir = 'website/public/releases/dev-latest';
+          const devFiles = fs.readdirSync(devDir);
+          const devManifest = {
+            version: betaVersion,
+            tag: 'dev-latest',
+            prerelease: true,
+            generatedAt: new Date().toISOString(),
+            assets: {}
+          };
+          for (const file of devFiles) {
+            const lower = file.toLowerCase();
+            if (/x64-setup\.exe$/.test(lower)) devManifest.assets.windows_exe = file;
+            else if (/\.msi$/.test(lower)) devManifest.assets.windows_msi = file;
+            else if (/universal\.app\.zip$/.test(lower)) devManifest.assets.mac_zip = file;
+            else if (/\.dmg$/.test(lower)) devManifest.assets.mac_dmg = file;
+            else if (/arm64\.apk$/.test(lower)) devManifest.assets.android_apk = file;
+            else if (/ios\.ipa$/i.test(lower)) devManifest.assets.ios_ipa = file;
+            else if (/\.appimage$/i.test(lower)) devManifest.assets.linux_appimage = file;
+            else if (/\.deb$/i.test(lower)) devManifest.assets.linux_deb = file;
+          }
+          fs.writeFileSync(path.join(devDir, 'manifest.json'), JSON.stringify(devManifest, null, 2));
+          fs.mkdirSync('website/public/releases', { recursive: true });
+          fs.writeFileSync('website/public/releases/dev-latest.json', JSON.stringify(devManifest, null, 2));
+          console.log('Dev manifest:', JSON.stringify(devManifest, null, 2));
+
+          // --- stable manifest (if exists) ---
+          const stableTag = process.env.STABLE_TAG || '';
+          if (stableTag) {
+            const stableDir = `website/public/releases/${stableTag}`;
+            const stableFiles = fs.readdirSync(stableDir);
+            const stableVersion = stableTag.replace(/^v/, '');
+            const stableManifest = {
+              version: stableVersion,
+              tag: stableTag,
+              generatedAt: new Date().toISOString(),
+              assets: {}
+            };
+            for (const file of stableFiles) {
+              const lower = file.toLowerCase();
+              if (/x64-setup\.exe$/.test(lower)) stableManifest.assets.windows_exe = file;
+              else if (/\.msi$/.test(lower)) stableManifest.assets.windows_msi = file;
+              else if (/universal\.dmg$/.test(lower)) stableManifest.assets.mac_dmg = file;
+              else if (/arm64\.apk$/.test(lower)) stableManifest.assets.android_apk = file;
+              else if (/ios\.ipa$/i.test(lower)) stableManifest.assets.ios_ipa = file;
+              else if (/\.appimage$/i.test(lower)) stableManifest.assets.linux_appimage = file;
+              else if (/\.deb$/i.test(lower)) stableManifest.assets.linux_deb = file;
+            }
+            fs.writeFileSync(path.join(stableDir, 'manifest.json'), JSON.stringify(stableManifest, null, 2));
+            fs.writeFileSync('website/public/releases/latest.json', JSON.stringify(stableManifest, null, 2));
+            console.log('Stable manifest:', JSON.stringify(stableManifest, null, 2));
+          }
+          MANIFEST_SCRIPT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Build website
+        run: |
+          cd website
+          npm ci --prefer-offline --no-audit --no-fund
+          npm run build
+
+      - name: Deploy to website-pages branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: |
+          set -euo pipefail
+          DEPLOY=$(mktemp -d)
+          echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
+          cp -r website/dist "$DEPLOY/dist"
+          cd "$DEPLOY"
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "deploy: dev-build ${BETA_VERSION}"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages

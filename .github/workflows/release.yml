@@ -755,6 +755,24 @@ jobs:
           echo "Assets for CDN (<=25MB):"
           ls -lh "$DEST"
 
+      - name: Download dev-latest release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view dev-latest --json tagName -q .tagName >/dev/null 2>&1; then
+            DEST="website/public/releases/dev-latest"
+            mkdir -p "$DEST"
+            gh release download dev-latest --dir "$DEST" --pattern "Mini-HBUT_*"
+            find "$DEST" -size +25M -delete
+            echo "Dev assets for CDN (<=25MB):"
+            ls -lh "$DEST"
+            echo "HAS_DEV=true" >> "$GITHUB_ENV"
+          else
+            echo "No dev-latest release found, skip"
+            echo "HAS_DEV=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Generate release manifest
         run: |
           set -euo pipefail
@@ -785,6 +803,36 @@ jobs:
           fs.writeFileSync('website/public/releases/latest.json', JSON.stringify(manifest, null, 2));
 
           console.log('Release manifest:', JSON.stringify(manifest, null, 2));
+
+          // --- dev-latest manifest (if exists) ---
+          const devDir = 'website/public/releases/dev-latest';
+          if (fs.existsSync(devDir)) {
+            const devFiles = fs.readdirSync(devDir);
+            const sample = devFiles.find(f => /Mini-HBUT_(.+?)_/.test(f)) || '';
+            const vMatch = sample.match(/Mini-HBUT_(.+?)_/);
+            const betaVersion = vMatch ? vMatch[1] : 'unknown';
+            const devManifest = {
+              version: betaVersion,
+              tag: 'dev-latest',
+              prerelease: true,
+              generatedAt: new Date().toISOString(),
+              assets: {}
+            };
+            for (const file of devFiles) {
+              const lower = file.toLowerCase();
+              if (/x64-setup\.exe$/.test(lower)) devManifest.assets.windows_exe = file;
+              else if (/\.msi$/.test(lower)) devManifest.assets.windows_msi = file;
+              else if (/universal\.app\.zip$/.test(lower)) devManifest.assets.mac_zip = file;
+              else if (/\.dmg$/.test(lower)) devManifest.assets.mac_dmg = file;
+              else if (/arm64\.apk$/.test(lower)) devManifest.assets.android_apk = file;
+              else if (/ios\.ipa$/i.test(lower)) devManifest.assets.ios_ipa = file;
+              else if (/\.appimage$/i.test(lower)) devManifest.assets.linux_appimage = file;
+              else if (/\.deb$/i.test(lower)) devManifest.assets.linux_deb = file;
+            }
+            fs.writeFileSync(path.join(devDir, 'manifest.json'), JSON.stringify(devManifest, null, 2));
+            fs.writeFileSync('website/public/releases/dev-latest.json', JSON.stringify(devManifest, null, 2));
+            console.log('Dev manifest:', JSON.stringify(devManifest, null, 2));
+          }
           MANIFEST_SCRIPT
 
       - name: Setup Node.js

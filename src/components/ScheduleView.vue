@@ -1676,7 +1676,7 @@ const shouldIgnoreWeekSwipe = () => {
     showWeekPicker.value ||
     showDetail.value ||
     showConfirmDialog.value ||
-    showSemesterPopup.value
+    showSemesterBadgePopover.value
   )
 }
 
