@@ -33,11 +33,12 @@
     ],
     "confirm": [
       {
-        "id": "confirm-001",
-        "title": "重要提示：隐私协议更新",
-        "summary": "请确认后继续使用",
-        "content": "<p>我们更新了隐私政策，请阅读并确认。</p>",
-        "updated_at": "2026-01-25",
+        "id": "confirm-qq-group",
+        "title": "欢迎加入 mini-hbut 交流群",
+        "summary": "加入 QQ 群，反馈问题、交流使用心得",
+        "content": "感谢你使用 mini-hbut！\n\n这是我个人利用 vibecoding 开发的小工具，能力有限，难免存在不少问题和不足。如果你在使用中遇到 Bug 或者有任何改进建议，非常欢迎告诉我，每一条反馈我都会认真对待。\n\n我建了一个 QQ 交流群，方便大家沟通：\n\n👉 [点击加入 QQ 交流群](https://qm.qq.com/q/你的群链接参数)\n\n也欢迎访问项目官网了解更多：[hbut.6661111.xyz](https://hbut.6661111.xyz)\n\n再次感谢你的支持与包容 🙏",
+        "link": "https://qm.qq.com/q/你的群链接参数",
+        "updated_at": "2025-07-14",
         "require_confirm": true
       }
     ],

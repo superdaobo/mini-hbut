@@ -61,6 +61,7 @@ const semesterDraft = ref('')
 const semesterError = ref('')
 const showSemesterPopup = ref(false)
 const semesterPopupText = ref('')
+const showSemesterBadgePopover = ref(false)
 const showAddCourse = ref(false)
 const courseDialogMode = ref('add')
 const editingCourseId = ref('')
@@ -174,6 +175,17 @@ const openSemesterPopup = (targetSemester = '') => {
   semesterPopupText.value = sem
   showSemesterPopup.value = true
   markPopupShown()
+}
+
+const onSemesterBadgeClick = () => {
+  showSemesterPopup.value = false
+  showSemesterBadgePopover.value = !showSemesterBadgePopover.value
+}
+
+const closeSemesterBadgePopover = (e) => {
+  if (showSemesterBadgePopover.value && !e.target.closest('.semester-badge-wrap')) {
+    showSemesterBadgePopover.value = false
+  }
 }
 
 const consumePendingSemesterPopup = () => {
@@ -2183,11 +2195,14 @@ onMounted(async () => {
   if (!isPopupShown()) {
     openSemesterPopup()
   }
+
+  document.addEventListener('click', closeSemesterBadgePopover)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWeekKeydown)
   window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
+  document.removeEventListener('click', closeSemesterBadgePopover)
   clearCloudSyncCooldownTimer()
 })
 </script>
@@ -2207,11 +2222,26 @@ onBeforeUnmount(() => {
         <span class="menu-bar"></span>
         <span class="menu-bar"></span>
       </button>
-      <div class="week-selector">
-        <IOSSelect v-model.number="selectedWeek">
-          <option disabled value="0">请选择周次</option>
-          <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
-        </IOSSelect>
+      <div class="topbar-right">
+        <div class="semester-badge-wrap" v-if="semesterPopupText">
+          <button class="semester-badge-btn btn-ripple" @click="onSemesterBadgeClick" aria-label="学期信息">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span v-if="showSemesterPopup" class="semester-badge-dot"></span>
+          </button>
+          <Transition name="badge-popover">
+            <div v-if="showSemesterBadgePopover" class="semester-badge-popover">
+              <div class="semester-badge-popover-title">当前显示学期</div>
+              <div class="semester-badge-popover-value">{{ semesterPopupText }}</div>
+              <div class="semester-badge-popover-desc">已自动定位到最近有课表数据的学期</div>
+            </div>
+          </Transition>
+        </div>
+        <div class="week-selector">
+          <IOSSelect v-model.number="selectedWeek">
+            <option disabled value="0">请选择周次</option>
+            <option v-for="w in totalWeeks" :key="w" :value="w">第{{ w }}周</option>
+          </IOSSelect>
+        </div>
       </div>
     </div>
 
@@ -2465,14 +2495,7 @@ onBeforeUnmount(() => {
       </Transition>
     </Teleport>
 
-    <div v-if="showSemesterPopup" class="semester-popup-mask" @click.self="showSemesterPopup = false">
-      <div class="semester-popup-card">
-        <div class="semester-popup-title">当前显示学期</div>
-        <div class="semester-popup-value">{{ semesterPopupText }}</div>
-        <div class="semester-popup-desc">已自动定位到最近有课表数据的学期</div>
-        <button class="semester-popup-btn" @click="showSemesterPopup = false">我知道了</button>
-      </div>
-    </div>
+
 
     <button
       v-if="currentWeek && selectedWeek && selectedWeek !== currentWeek"
@@ -3792,60 +3815,92 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.semester-popup-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 24;
+/* 学期通知小标 */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.semester-badge-wrap {
+  position: relative;
+}
+
+.semester-badge-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 10px;
+  background: var(--ui-surface);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
-  background: rgba(15, 23, 42, 0.52);
-  backdrop-filter: blur(2px);
-}
-
-.semester-popup-card {
-  width: min(90vw, 360px);
-  border-radius: 16px;
-  padding: 18px 16px 16px;
-  background: #ffffff;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
-  text-align: center;
-}
-
-.semester-popup-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #334155;
-  letter-spacing: 0.02em;
-}
-
-.semester-popup-value {
-  margin-top: 8px;
-  font-size: 24px;
-  line-height: 1.25;
-  font-weight: 800;
-  color: #0f172a;
-}
-
-.semester-popup-desc {
-  margin-top: 8px;
-  font-size: 13px;
-  color: #475569;
-}
-
-.semester-popup-btn {
-  margin-top: 14px;
-  width: 100%;
-  min-height: 40px;
-  border: none;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 700;
-  color: #ffffff;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   cursor: pointer;
+  color: var(--ui-text);
+  box-shadow: var(--ui-shadow-soft);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.semester-badge-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--ui-shadow-strong);
+}
+
+.semester-badge-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--ui-surface);
+  pointer-events: none;
+}
+
+.semester-badge-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  padding: 12px 14px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  text-align: center;
+  z-index: 25;
+}
+
+.semester-badge-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.semester-badge-popover-value {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ui-text);
+}
+
+.semester-badge-popover-desc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.badge-popover-enter-active,
+.badge-popover-leave-active {
+  transition: opacity 0.18s, transform 0.18s;
+}
+
+.badge-popover-enter-from,
+.badge-popover-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 .week-picker-mask {
