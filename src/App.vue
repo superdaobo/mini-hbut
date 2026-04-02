@@ -313,12 +313,14 @@ const findNextBlockingAnnouncement = () => {
 const openAnnouncement = (item) => {
   if (!item) return
   activeAnnouncement.value = item
+  showBlockingAnnouncement.value = false
   showAnnouncementModal.value = true
 }
 
 const closeAnnouncement = () => {
   showAnnouncementModal.value = false
   activeAnnouncement.value = null
+  findNextBlockingAnnouncement()
 }
 
 const confirmBlockingAnnouncement = () => {
@@ -848,7 +850,7 @@ const stopJwxtRecoveryPolling = () => {
   jwxtRecoveryInFlight = false
 }
 
-const attemptOnlineRecovery = async () => {
+const attemptOnlineRecovery = async (options = {}) => {
   if (!hasTauri || isManualLogout()) return false
   if (jwxtRecoveryInFlight) return false
   jwxtRecoveryInFlight = true
@@ -873,7 +875,7 @@ const attemptOnlineRecovery = async () => {
       }
       await persistSessionCookies()
       stopJwxtRecoveryPolling()
-    } else {
+    } else if (!options.silent) {
       markJwxtMaintenance()
     }
     return success
@@ -1435,7 +1437,7 @@ onMounted(async () => {
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
   scheduleViewportUpdate()
-  syncJwxtMaintenanceFromStorage()
+  clearJwxtMaintenance()
   const cachedAnnouncements = restoreAnnouncementSnapshot()
   if (cachedAnnouncements) {
     announcementData.value = cachedAnnouncements
@@ -1443,9 +1445,6 @@ onMounted(async () => {
   await installCloseInterceptor()
   // 非主动退出时，启动优先恢复本地账号态（保证缓存可立即读取）。
   const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
-  if (bootstrappedCachedIdentity) {
-    markJwxtMaintenance('正在检测教务系统可用性，当前优先展示缓存数据。')
-  }
   await primeOcrEndpointFromCache()
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
   await applyRemoteConfig()
@@ -1481,9 +1480,23 @@ onMounted(async () => {
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
   } else if (bootstrappedCachedIdentity || studentId.value) {
-    // 教务暂不可达时保持账号态并展示缓存，后台每 10 秒探测一次恢复情况。
-    markJwxtMaintenance()
+    // 教务暂不可达时先静默尝试恢复，延迟后仍未连上再显示维护提示。
     startJwxtRecoveryPolling()
+    attemptOnlineRecovery({ silent: true }).then((ok) => {
+      if (!ok) {
+        setTimeout(() => {
+          if (!jwxtMaintenanceMode.value) {
+            markJwxtMaintenance()
+          }
+        }, 6000)
+      }
+    }).catch(() => {
+      setTimeout(() => {
+        if (!jwxtMaintenanceMode.value) {
+          markJwxtMaintenance()
+        }
+      }, 6000)
+    })
   }
 
   replaceHistorySnapshot(currentView.value)

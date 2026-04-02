@@ -42,7 +42,8 @@ const androidImgFallbackIconKeys = new Set([
   'campus_code',
   'exams',
   'course_selection',
-  'training'
+  'training',
+  'ai'
 ])
 
 const iconMap = {
