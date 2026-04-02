@@ -42,6 +42,7 @@ import {
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
+import { useUiSettings } from './utils/ui_settings'
 import {
   exitNativeApp,
   getCurrentNativeWindow,
@@ -108,7 +109,8 @@ const readWindowRouteSnapshot = () => {
 }
 
 const initialRouteSnapshot = readWindowRouteSnapshot()
-const initialView = normalizeViewName(initialRouteSnapshot?.view || 'home')
+const startupPageSetting = useUiSettings().startupPage || 'home'
+const initialView = normalizeViewName(initialRouteSnapshot?.view || startupPageSetting)
 const initialTab = String(
   initialRouteSnapshot?.tab ||
     (MAIN_TABS.includes(initialView) ? initialView : (ME_SUB_VIEWS.includes(initialView) ? 'me' : 'home'))
@@ -1463,7 +1465,8 @@ onMounted(async () => {
 
   if (restored && !window.location.hash) {
     pendingScrollToTopOnViewChange = false
-    applyViewState('home')
+    const startupPage = useUiSettings().startupPage || 'home'
+    applyViewState(startupPage)
   }
 
   if (onlineReady) {

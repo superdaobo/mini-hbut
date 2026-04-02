@@ -48,6 +48,7 @@ const showDetail = ref(false)
 const selectedCourse = ref(null)
 const offline = ref(false)
 const syncTime = ref('')
+const initialFetchDone = ref(false)
 const vacationNotice = ref('')
 const showMenu = ref(false)
 const exporting = ref(false)
@@ -659,6 +660,7 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
     return false
   } finally {
     loading.value = false
+    initialFetchDone.value = true
   }
 }
 
@@ -2343,7 +2345,7 @@ onBeforeUnmount(() => {
       </aside>
     </Transition>
 
-    <div v-if="offline" class="offline-banner">
+    <div v-if="offline && initialFetchDone" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 

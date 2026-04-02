@@ -138,6 +138,7 @@ export const SYSTEM_UI_SETTINGS = {
   danger: '#ef4444',
   success: '#10b981',
   scheduleCourseCardStyle: 'modern' as ScheduleCourseCardStyle,
+  startupPage: 'home' as 'home' | 'schedule',
   profile: {
     cardStyle: 'glass' as CardStyle,
     navStyle: 'floating' as NavStyle,

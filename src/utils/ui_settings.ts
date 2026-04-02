@@ -9,6 +9,7 @@ const DENSITY_STYLES = ['comfortable', 'balanced', 'compact']
 const ICON_STYLES = ['duotone', 'line', 'mono']
 const DECOR_STYLES = ['mesh', 'grain', 'none']
 const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional']
+const STARTUP_PAGES = ['home', 'schedule']
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
@@ -78,6 +79,9 @@ const normalizeSettings = (raw) => {
   )
     ? merged.scheduleCourseCardStyle
     : base.scheduleCourseCardStyle
+  merged.startupPage = STARTUP_PAGES.includes(merged.startupPage)
+    ? merged.startupPage
+    : base.startupPage
   merged.profile = normalizeProfile(merged.profile)
   return merged
 }

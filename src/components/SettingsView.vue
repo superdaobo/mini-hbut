@@ -342,6 +342,11 @@ const decorOptions = [
   { key: 'none', label: '纯净背景', desc: '移除装饰，仅保留渐变底色' }
 ]
 
+const startupPageOptions = [
+  { key: 'home', label: '首页', desc: '默认进入综合首页' },
+  { key: 'schedule', label: '课表', desc: '启动后直接进入课表' }
+]
+
 const interactionProfiles = [
   {
     key: 'mobile_focus',
@@ -1033,6 +1038,24 @@ const handleDownloadFont = async (force = false) => {
     </div>
 
     <template v-if="activeTab === 'appearance'">
+      <section class="settings-section glass-card startup-page-section">
+        <div class="startup-page-row">
+          <span class="startup-page-label">启动页面</span>
+          <div class="startup-page-toggle">
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: uiSettings.startupPage === 'home' }"
+              @click="uiSettings.startupPage = 'home'; showToast('启动页面：首页', 'success')"
+            >首页</button>
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: uiSettings.startupPage === 'schedule' }"
+              @click="uiSettings.startupPage = 'schedule'; showToast('启动页面：课表', 'success')"
+            >课表</button>
+          </div>
+        </div>
+      </section>
+
       <section class="settings-section glass-card">
         <div class="section-head">
           <h3>主题（5 选 1）</h3>
@@ -1626,6 +1649,44 @@ const handleDownloadFont = async (force = false) => {
 .settings-section {
   margin-bottom: 14px;
   padding: 16px;
+}
+
+.startup-page-section {
+  padding: 12px 16px;
+}
+.startup-page-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.startup-page-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ui-text);
+}
+.startup-page-toggle {
+  display: flex;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--ui-surface-border);
+}
+.startup-page-toggle .toggle-btn {
+  padding: 6px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  background: var(--ui-surface);
+  color: var(--ui-muted);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.startup-page-toggle .toggle-btn + .toggle-btn {
+  border-left: 1px solid var(--ui-surface-border);
+}
+.startup-page-toggle .toggle-btn.active {
+  background: var(--ui-primary);
+  color: #fff;
 }
 
 .section-head {
