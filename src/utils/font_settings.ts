@@ -499,6 +499,37 @@ const loadRemoteFontInWeb = async (
   return loadRemoteFontWithCache(profile.family, sources, profile.cacheName, force, localOnly)
 }
 
+const loadRemoteFontInTauri = async (
+  fontKey: RemoteFontKey,
+  force = false
+): Promise<boolean> => {
+  const profile = REMOTE_FONT_PROFILE_MAP[fontKey]
+  if (!profile) return false
+  const sources = resolveRemoteFontSources(fontKey, state.cdnProvider)
+  if (sources.length === 0) return false
+  pushDebugLog('Font', `加载云端字体（Tauri）：${fontKey}，urls=${sources.length}`, 'debug')
+  try {
+    const payload = await invoke<FontDownloadPayload>('download_remote_font_payload', {
+      urls: sources,
+      cacheName: `${fontKey}.font`,
+      force: !!force
+    })
+    if (payload.base64) {
+      const bytes = decodeBase64(payload.base64)
+      const loaded = await loadFontFromBytes(profile.family, bytes)
+      if (loaded) return true
+    }
+    if (payload.path) {
+      const fileSrc = await toNativeFileSrc(payload.path)
+      const format = inferFontFormat(sources[0] || '')
+      return loadFontFromUrl(profile.family, fileSrc, format)
+    }
+  } catch (e) {
+    pushDebugLog('Font', `Tauri 字体下载失败：${fontKey} — ${e}`, 'warn')
+  }
+  return false
+}
+
 const loadFontByKey = async (
   fontKey: FontKey,
   force = false,
@@ -520,6 +551,10 @@ const loadFontByKey = async (
     return ok
   }
 
+  if (isTauri()) {
+    ok = await loadRemoteFontInTauri(fontKey as RemoteFontKey, force)
+    if (ok) return true
+  }
   ok = await loadRemoteFontInWeb(fontKey as RemoteFontKey, force, localOnly)
   return ok
 }

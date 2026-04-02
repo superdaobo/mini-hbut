@@ -330,18 +330,6 @@ const densityOptions = [
   { key: 'compact', label: '紧凑', desc: '压缩间距，单屏显示更多内容' }
 ]
 
-const iconOptions = [
-  { key: 'duotone', label: '双色图标', desc: '重点信息更醒目' },
-  { key: 'line', label: '线性图标', desc: '简洁专业，细节清晰' },
-  { key: 'mono', label: '单色图标', desc: '弱化装饰，强化可读性' }
-]
-
-const decorOptions = [
-  { key: 'mesh', label: '网格光斑', desc: '轻微光效与网格纹理' },
-  { key: 'grain', label: '纸感颗粒', desc: '弱纹理背景，减少视觉疲劳' },
-  { key: 'none', label: '纯净背景', desc: '移除装饰，仅保留渐变底色' }
-]
-
 const startupPageOptions = [
   { key: 'home', label: '首页', desc: '默认进入综合首页' },
   { key: 'schedule', label: '课表', desc: '启动后直接进入课表' }
@@ -351,20 +339,30 @@ const interactionProfiles = [
   {
     key: 'mobile_focus',
     label: '移动高效',
-    desc: '按钮更大，动画更克制',
-    patch: { radiusScale: 1.12, fontScale: 1.03, spaceScale: 1.08, motionScale: 0.9 }
+    desc: '大按钮 · 紧凑间距 · 快速响应',
+    patch: { radiusScale: 1.12, fontScale: 1.03, spaceScale: 1.08, motionScale: 0.9 },
+    profile: { cardStyle: 'solid', navStyle: 'compact', density: 'compact', iconStyle: 'line', decor: 'none' }
   },
   {
-    key: 'desktop_dense',
-    label: '桌面密集',
-    desc: '信息更紧凑，浏览更高效',
-    patch: { radiusScale: 0.92, fontScale: 0.95, spaceScale: 0.9, motionScale: 0.85 }
+    key: 'immersive_read',
+    label: '沉浸阅读',
+    desc: '柔和光效 · 舒适间距 · 细节丰富',
+    patch: { radiusScale: 1.1, fontScale: 1.02, spaceScale: 1.04, motionScale: 1.0 },
+    profile: { cardStyle: 'glass', navStyle: 'floating', density: 'comfortable', iconStyle: 'duotone', decor: 'grain' }
   },
   {
-    key: 'presentation',
-    label: '展示模式',
-    desc: '字号更大，过渡更柔和',
-    patch: { radiusScale: 1.1, fontScale: 1.08, spaceScale: 1.06, motionScale: 1.12 }
+    key: 'minimal',
+    label: '极简模式',
+    desc: '线条简洁 · 信息密集 · 零装饰',
+    patch: { radiusScale: 0.92, fontScale: 0.95, spaceScale: 0.9, motionScale: 0.85 },
+    profile: { cardStyle: 'outline', navStyle: 'compact', density: 'compact', iconStyle: 'mono', decor: 'none' }
+  },
+  {
+    key: 'classic',
+    label: '经典布局',
+    desc: '均衡配色 · 标准密度 · 双色图标',
+    patch: { radiusScale: 1.0, fontScale: 1.0, spaceScale: 1.0, motionScale: 1.0 },
+    profile: { cardStyle: 'solid', navStyle: 'pill', density: 'balanced', iconStyle: 'duotone', decor: 'mesh' }
   }
 ]
 
@@ -618,6 +616,11 @@ const handleApplyProfile = (profile) => {
   Object.entries(profile.patch).forEach(([k, v]) => {
     uiSettings[k] = v
   })
+  if (profile.profile) {
+    Object.entries(profile.profile).forEach(([k, v]) => {
+      uiSettings.profile[k] = v
+    })
+  }
   flushUiSettings()
   showToast(`已应用方案：${profile.label}`, 'success')
 }
@@ -1125,42 +1128,10 @@ const handleDownloadFont = async (force = false) => {
             </button>
           </div>
         </div>
-
-        <div class="option-group">
-          <label>图标风格</label>
-          <div class="chip-row">
-            <button
-              v-for="item in iconOptions"
-              :key="item.key"
-              class="option-chip"
-              :class="{ active: uiSettings.profile.iconStyle === item.key }"
-              @click="setProfileOption('iconStyle', item.key, `图标风格：${item.label}`)"
-            >
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
-            </button>
-          </div>
-        </div>
-
-        <div class="option-group">
-          <label>背景装饰</label>
-          <div class="chip-row">
-            <button
-              v-for="item in decorOptions"
-              :key="item.key"
-              class="option-chip"
-              :class="{ active: uiSettings.profile.decor === item.key }"
-              @click="setProfileOption('decor', item.key, `背景装饰：${item.label}`)"
-            >
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.desc }}</small>
-            </button>
-          </div>
-        </div>
       </section>
 
       <section class="settings-section glass-card">
-        <h3>快捷方案</h3>
+        <h3>风格套装</h3>
         <div class="profile-grid">
           <button
             v-for="profile in interactionProfiles"

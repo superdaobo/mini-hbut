@@ -1906,6 +1906,108 @@ async fn download_deyihei_font_payload(
     })
 }
 
+/// 通用远程字体下载命令：接受 URL 列表和缓存文件名，下载后返回 base64
+#[tauri::command]
+async fn download_remote_font_payload(
+    app: tauri::AppHandle,
+    urls: Vec<String>,
+    cache_name: String,
+    force: Option<bool>,
+) -> Result<FontDownloadPayload, String> {
+    let force = force.unwrap_or(false);
+    let cache_dir = app
+        .path()
+        .resolve("fonts", BaseDirectory::AppCache)
+        .map_err(|e| format!("resolve cache dir failed: {}", e))?;
+    tokio::fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|e| format!("create cache dir failed: {}", e))?;
+
+    let safe_name = cache_name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect::<String>();
+    if safe_name.is_empty() {
+        return Err("invalid cache_name".to_string());
+    }
+    let font_path = cache_dir.join(&safe_name);
+
+    if !force {
+        if let Ok(meta) = tokio::fs::metadata(&font_path).await {
+            if meta.len() > 10_000 {
+                let bytes = tokio::fs::read(&font_path)
+                    .await
+                    .map_err(|e| format!("read cached font failed: {}", e))?;
+                return Ok(FontDownloadPayload {
+                    path: font_path.to_string_lossy().to_string(),
+                    base64: general_purpose::STANDARD.encode(bytes),
+                });
+            }
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("create download client failed: {}", e))?;
+
+    let mut last_error = "remote font download failed".to_string();
+    for candidate in &urls {
+        let trimmed = candidate.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        for _ in 0..2 {
+            let response = match client
+                .get(trimmed)
+                .header(
+                    reqwest::header::USER_AGENT,
+                    "Mini-HBUT/1.0 (font-downloader; +https://github.com/superdaobo/mini-hbut)",
+                )
+                .header(reqwest::header::ACCEPT, "font/woff2,font/woff,font/ttf,application/octet-stream,*/*")
+                .send()
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    last_error = format!("request failed: {} ({})", trimmed, e);
+                    continue;
+                }
+            };
+
+            if !response.status().is_success() {
+                last_error = format!("non-success status: {} ({})", trimmed, response.status());
+                continue;
+            }
+
+            let bytes = match response.bytes().await {
+                Ok(data) => data,
+                Err(e) => {
+                    last_error = format!("read bytes failed: {} ({})", trimmed, e);
+                    continue;
+                }
+            };
+
+            if bytes.len() < 10_000 {
+                last_error = format!("downloaded file too small: {} ({} bytes)", trimmed, bytes.len());
+                continue;
+            }
+
+            tokio::fs::write(&font_path, &bytes)
+                .await
+                .map_err(|e| format!("write cached font failed: {}", e))?;
+
+            return Ok(FontDownloadPayload {
+                path: font_path.to_string_lossy().to_string(),
+                base64: general_purpose::STANDARD.encode(&bytes),
+            });
+        }
+    }
+
+    Err(last_error)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RemoteImageCachePayload {
     path: String,
@@ -4613,6 +4715,7 @@ pub fn run() {
             exit_app,
             download_deyihei_font,
             download_deyihei_font_payload,
+            download_remote_font_payload,
             cache_remote_image,
             save_export_file,
             debug_bridge::get_debug_runtime_config,
