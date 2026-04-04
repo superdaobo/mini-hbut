@@ -82,6 +82,7 @@ const normalizeSettings = (raw) => {
   merged.startupPage = STARTUP_PAGES.includes(merged.startupPage)
     ? merged.startupPage
     : base.startupPage
+  merged.splashEnabled = typeof merged.splashEnabled === 'boolean' ? merged.splashEnabled : base.splashEnabled
   merged.profile = normalizeProfile(merged.profile)
   return merged
 }

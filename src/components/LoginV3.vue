@@ -604,8 +604,6 @@ const confirmPortalQrLogin = async ({ allowPending = false } = {}) => {
 
     username.value = sid
     localStorage.setItem('hbu_username', sid)
-    localStorage.removeItem('hbu_credentials')
-    localStorage.setItem('hbu_remember', 'false')
     applyLoginMethodStorage('portal_qr_temp')
     localStorage.removeItem('hbu_manual_logout')
     localStorage.removeItem(LOGOUT_REASON_KEY)
@@ -635,8 +633,6 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
   }
   username.value = sid
   localStorage.setItem('hbu_username', sid)
-  localStorage.removeItem('hbu_credentials')
-  localStorage.setItem('hbu_remember', 'false')
   saveChaoxingCredentials()
   applyLoginMethodStorage(modeKey)
   localStorage.removeItem('hbu_manual_logout')

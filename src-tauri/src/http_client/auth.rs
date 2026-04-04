@@ -130,6 +130,10 @@ fn response_indicates_service_success(response_url: &str, service_url: &str) -> 
     if response_url.contains("authserver/login") {
         return false;
     }
+    // 教务系统 v3 自带独立登录页，不算服务登录成功
+    if looks_like_academic_login_url(response_url) {
+        return false;
+    }
     let Some(host) = reqwest::Url::parse(service_url)
         .ok()
         .and_then(|u| u.host_str().map(|h| h.to_string()))
@@ -471,10 +475,8 @@ impl HbutClient {
 
             set_key(&mut form_data, &["username", "username", "loginname"], "username", username.to_string());
             set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
-            // 若页面存在 passwordText 字段，填入明文以贴近官方表单
-            if form_data.contains_key("passwordText") {
-                set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
-            }
+            // v3: 浏览器在提交前会 disable passwordText 字段（不随表单发送），这里同步移除
+            form_data.remove("passwordText");
             set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
             set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
             if !current_execution.is_empty() {
@@ -559,18 +561,18 @@ impl HbutClient {
 
         // 成功登录后尝试获取用户信息（如不可用则忽略）
         if service_url.contains("jwxt.hbut.edu.cn") {
-            let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
+            let caslogin_url = format!("{}/admin/caslogin", JWXT_BASE_URL);
+            // v3: CAS 登录后必须经过 /admin/caslogin 建立教务会话
+            println!("[调试] 访问教务 CAS 入口: {}", caslogin_url);
+            let _ = self.client.get(&caslogin_url).send().await?;
             // 快路径：先直接取用户信息，失败再补偿 SSO，减少 2 次固定请求。
             let user_info = match self.fetch_user_info().await {
                 Ok(info) => info,
                 Err(err) => {
                     let err_msg = err.to_string();
                     if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
-                        println!("[调试] 用户信息获取失败，补偿一次 SSO 请求");
-                        println!("[调试] 访问教务 SSO: {}", jwxt_url);
-                        let _ = self.client.get(&jwxt_url).send().await?;
-                        println!("[调试] 访问教务服务: {}", TARGET_SERVICE);
-                        let _ = self.client.get(TARGET_SERVICE).send().await?;
+                        println!("[调试] 用户信息获取失败，再次补偿 CAS 入口");
+                        let _ = self.client.get(&caslogin_url).send().await?;
                         self.fetch_user_info().await?
                     } else {
                         return Err(err);
@@ -888,10 +890,8 @@ impl HbutClient {
 
         set_key(&mut form_data, &["username", "username", "loginname"], "username", username.to_string());
         set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
-        // 若页面存在 passwordText 字段，填入明文以贴近官方表单
-        if form_data.contains_key("passwordText") {
-            set_key(&mut form_data, &["passwordText"], "passwordText", password.to_string());
-        }
+        // v3: 浏览器在提交前会 disable passwordText 字段（不随表单发送），这里同步移除
+        form_data.remove("passwordText");
         // 强制使用username登录模式，避免落入 dynamic/fido/qr 登录流程
         set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
         set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
@@ -1033,10 +1033,16 @@ impl HbutClient {
             }
 
             // 检查是否登录成功（URL 发生变化通常表示成功）
+            // v3: 排除教务系统自带登录页 /admin/login
+            let is_on_jwxt_login = looks_like_academic_login_url(&response_url);
             if status.is_success()
+                && !is_on_jwxt_login
                 && (response_url.contains("ticket=") || response_url.contains("jwxt") || !response_url.contains("login"))
             {
                 println!("[调试] 登录成功（基于重定向）");
+            } else if is_on_jwxt_login {
+                // CAS 成功但教务会话未建立，通过 /admin/caslogin 补偿
+                println!("[调试] 落入教务登录页，尝试 /admin/caslogin 补偿");
             } else if attempt + 1 < max_retries {
                 println!("[调试] 登录状态不明确，重试... ({}/{})", attempt + 1, max_retries);
                 continue;
@@ -1044,18 +1050,17 @@ impl HbutClient {
                 return Err("登录失败，请稍后重试".into());
             }
 
-            let jwxt_url = format!("{}/sso/jasiglogin", JWXT_BASE_URL);
-            // 快路径：先直接取用户信息，失败再补偿 SSO，减少 2 次固定请求。
+            let caslogin_url = format!("{}/admin/caslogin", JWXT_BASE_URL);
+            // v3: CAS 登录后必须经过 /admin/caslogin 建立教务会话
+            println!("[调试] 访问教务 CAS 入口: {}", caslogin_url);
+            let _ = self.client.get(&caslogin_url).send().await?;
             let user_info = match self.fetch_user_info().await {
                 Ok(info) => info,
                 Err(err) => {
                     let err_msg = err.to_string();
                     if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
-                        println!("[调试] 用户信息获取失败，补偿一次 SSO 请求");
-                        println!("[调试] 访问教务 SSO: {}", jwxt_url);
-                        let _ = self.client.get(&jwxt_url).send().await?;
-                        println!("[调试] 访问教务服务: {}", TARGET_SERVICE);
-                        let _ = self.client.get(TARGET_SERVICE).send().await?;
+                        println!("[调试] 用户信息获取失败，再次补偿 CAS 入口");
+                        let _ = self.client.get(&caslogin_url).send().await?;
                         self.fetch_user_info().await?
                     } else {
                         return Err(err);

@@ -727,13 +727,9 @@ async fn fetch_portal_user_info_with_retry(
     let total = attempts.max(1);
     for idx in 0..total {
         // 先触发一次门户与教务补票，再拉取用户信息。
-        let _ = client
-            .client
-            .get(crate::http_client::TARGET_SERVICE)
-            .send()
-            .await;
-        let jwxt_sso = format!("{}/sso/jasiglogin", crate::http_client::JWXT_BASE_URL);
-        let _ = client.client.get(&jwxt_sso).send().await;
+        // v3: 通过 /admin/caslogin 建立教务会话（替代旧的 /sso/jasiglogin）
+        let caslogin_url = format!("{}/admin/caslogin", crate::http_client::JWXT_BASE_URL);
+        let _ = client.client.get(&caslogin_url).send().await;
 
         match client.fetch_user_info().await {
             Ok(info) => return Ok(info),

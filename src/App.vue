@@ -29,6 +29,7 @@ import AiChatView from './components/AiChatView.vue'
 import CampusMapView from './components/CampusMapView.vue'
 import LibraryView from './components/LibraryView.vue'
 import ResourceShareView from './components/ResourceShareView.vue'
+import SplashScreen from './components/SplashScreen.vue'
 import { fetchWithCache } from './utils/api.js'
 import { SCHEDULE_POPUP_PENDING_KEY, SCHEDULE_SWITCH_PENDING_KEY } from './utils/schedule_prefetch.js'
 import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
@@ -130,6 +131,10 @@ const currentModule = ref(initialModule)
 const viewRenderNonce = ref(0)
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
+const showSplash = ref(useUiSettings().splashEnabled !== false)
+const splashStatus = ref('connecting')
+const splashStatusText = ref('正在启动…')
+const splashRef = ref(null)
 const showExitDialog = ref(false)
 const exitingApp = ref(false)
 const gradesOffline = ref(false)
@@ -160,7 +165,7 @@ const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
 let sessionKeepAliveTimer = null
 const ELECTRICITY_REFRESH_INTERVAL = 10 * 60 * 1000
 let electricityKeepAliveTimer = null
-const JWXT_RECOVERY_INTERVAL = 10 * 1000
+const JWXT_RECOVERY_INTERVAL = 65 * 1000
 let jwxtRecoveryTimer = null
 let jwxtRecoveryInFlight = false
 const REMOTE_CONFIG_REFRESH_INTERVAL = 60 * 1000
@@ -875,6 +880,16 @@ const attemptOnlineRecovery = async (options = {}) => {
       }
       await persistSessionCookies()
       stopJwxtRecoveryPolling()
+      // 后台恢复/重登录成功后自动上传成绩和设置到云端（不含自定义课程）
+      if (relogged && studentId.value) {
+        resetCloudSyncCooldownForSession(studentId.value)
+        runAutoCloudSyncAfterLogin({
+          studentId: studentId.value,
+          latestGrades: []
+        }).catch((e) => {
+          console.warn('[CloudSync] 恢复后自动同步失败:', e)
+        })
+      }
     } else if (!options.silent) {
       markJwxtMaintenance()
     }
@@ -1269,7 +1284,8 @@ const attemptAutoRelogin = async () => {
 
   const creds = getStoredPassword()
   if (!creds) return false
-  try {
+
+  const doLogin = async () => {
     await invokeNative('login', {
       username: creds.username,
       password: creds.password,
@@ -1281,8 +1297,29 @@ const attemptAutoRelogin = async () => {
     if (!studentId.value) {
       studentId.value = creds.username
     }
+  }
+
+  try {
+    await doLogin()
     return true
   } catch (e) {
+    // 检测登录冷却错误，等待后重试一次
+    const msg = String(e?.message || e || '')
+    const cooldownMatch = msg.match(/登录频率过高，请(\d+)秒后再试/)
+    if (cooldownMatch) {
+      const waitSec = parseInt(cooldownMatch[1], 10)
+      if (waitSec > 0 && waitSec <= 120) {
+        console.info(`[Session] 登录冷却中，${waitSec}秒后重试...`)
+        await new Promise(r => setTimeout(r, (waitSec + 2) * 1000))
+        try {
+          await doLogin()
+          return true
+        } catch (e2) {
+          console.warn('[Session] 冷却后重试仍失败:', e2)
+          return false
+        }
+      }
+    }
     console.warn('[Session] 自动登录失败:', e)
     return false
   }
@@ -1314,6 +1351,16 @@ const refreshSessionSilently = async () => {
       startJwxtRecoveryPolling()
     } else {
       clearJwxtMaintenance()
+      // 后台重登录成功后自动上传成绩和设置到云端（不含自定义课程）
+      if (studentId.value) {
+        resetCloudSyncCooldownForSession(studentId.value)
+        runAutoCloudSyncAfterLogin({
+          studentId: studentId.value,
+          latestGrades: []
+        }).catch((e) => {
+          console.warn('[CloudSync] 后台重登录后自动同步失败:', e)
+        })
+      }
     }
   }
 }
@@ -1427,6 +1474,11 @@ watch(currentView, () => {
 })
 
 onMounted(async () => {
+  // 3s 超时保护：连不上教务系统也直接进入
+  const splashTimeout = showSplash.value ? setTimeout(() => {
+    splashStatusText.value = '连接超时，直接进入'
+    splashRef.value?.dismiss()
+  }, 3000) : null
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
@@ -1444,18 +1496,22 @@ onMounted(async () => {
   }
   await installCloseInterceptor()
   // 非主动退出时，启动优先恢复本地账号态（保证缓存可立即读取）。
+  splashStatusText.value = '正在恢复身份…'
   const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
   await primeOcrEndpointFromCache()
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
+  splashStatusText.value = '正在加载配置…'
   await applyRemoteConfig()
   startRemoteConfigRefresh()
   let restored = false
   let relogged = false
+  splashStatusText.value = '正在连接教务系统…'
   restored = await tryRestoreSession()
   if (!restored) {
     restored = await tryRestoreLatestSession()
   }
   if (!restored && !isTemporaryLoginSession()) {
+    splashStatusText.value = '正在自动登录…'
     relogged = await attemptAutoRelogin()
   }
   const onlineReady = restored || relogged
@@ -1506,6 +1562,19 @@ onMounted(async () => {
 
   ensureConfigAccess()
   appBootstrapped = true
+
+  // 启动画面消失
+  if (onlineReady) {
+    splashStatusText.value = '准备就绪'
+  } else {
+    splashStatusText.value = '离线模式'
+  }
+  // 延迟最少 600ms 确保入场动画播完
+  setTimeout(() => {
+    splashRef.value?.dismiss()
+  }, 600)
+  // 清除 3s 超时保护
+  if (splashTimeout) clearTimeout(splashTimeout)
 
   // Capacitor 环境注册原生 appStateChange 事件（补充浏览器 visibilitychange 的盲区）
   if (isCapacitorRuntime()) {
@@ -1560,6 +1629,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- 启动画面 -->
+  <SplashScreen
+    v-if="showSplash"
+    ref="splashRef"
+    :status="splashStatus"
+    :status-text="splashStatusText"
+    @dismiss="showSplash = false"
+  />
+
   <main
     class="app-shell"
     :class="{

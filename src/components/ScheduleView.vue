@@ -1927,6 +1927,13 @@ const exportCalendar = async (mode = 'week') => {
       exportUrl.value = res.data.url || ''
       if (!exportUrl.value) {
         exportError.value = '导出成功但未返回链接'
+      } else {
+        showToast('日历导出成功，复制链接用浏览器打开即可导入', 'success', 3000)
+        // 自动滚动 Drawer 到底部，保证导出结果可见
+        nextTick(() => {
+          const panel = document.querySelector('.drawer-panel')
+          if (panel) panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' })
+        })
       }
     } else {
       exportError.value = res.data?.error || '导出失败'

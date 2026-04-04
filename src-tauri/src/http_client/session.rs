@@ -201,10 +201,27 @@ impl HbutClient {
             println!("[调试] 用户信息响应状态: {}, 地址: {}", status, final_url);
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
-                    repaired = true;
-                    println!("[调试] 用户信息请求命中登录页，已补票后重试");
-                    continue;
+                // v3: 尝试通过 /admin/caslogin 补偿会话
+                if !repaired {
+                    if self.prefer_chaoxing_jwxt {
+                        if self.ensure_chaoxing_academic_session().await {
+                            repaired = true;
+                            println!("[调试] 用户信息请求命中登录页，已补票后重试（学习通）");
+                            continue;
+                        }
+                    } else {
+                        let caslogin_url = format!("{}/admin/caslogin", super::JWXT_BASE_URL);
+                        println!("[调试] 用户信息请求命中登录页，尝试 /admin/caslogin 恢复");
+                        let caslogin_resp = self.client.get(&caslogin_url).send().await;
+                        if let Ok(resp) = caslogin_resp {
+                            let cas_final = resp.url().to_string();
+                            if !super::looks_like_academic_login_url(&cas_final) {
+                                repaired = true;
+                                println!("[调试] /admin/caslogin 会话恢复成功，重试获取用户信息");
+                                continue;
+                            }
+                        }
+                    }
                 }
                 return Err("会话已过期，请重新登录".into());
             }

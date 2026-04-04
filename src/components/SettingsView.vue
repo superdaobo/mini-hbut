@@ -1057,6 +1057,21 @@ const handleDownloadFont = async (force = false) => {
             >课表</button>
           </div>
         </div>
+        <div class="startup-page-row">
+          <span class="startup-page-label">开屏动画</span>
+          <div class="startup-page-toggle">
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: uiSettings.splashEnabled }"
+              @click="uiSettings.splashEnabled = true; showToast('开屏动画：已开启', 'success')"
+            >开启</button>
+            <button
+              class="toggle-btn btn-ripple"
+              :class="{ active: !uiSettings.splashEnabled }"
+              @click="uiSettings.splashEnabled = false; showToast('开屏动画：已关闭', 'success')"
+            >关闭</button>
+          </div>
+        </div>
       </section>
 
       <section class="settings-section glass-card">
