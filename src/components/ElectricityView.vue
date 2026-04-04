@@ -16,7 +16,8 @@ const emit = defineEmits(['back', 'logout'])
 const loading = ref(false)
 const dormData = ref([])
 const selectedPath = ref([]) // [area_id, building_id, level_id, room_id]
-const balanceData = ref(null)
+const balanceData = ref(null) // 照明 or 唯一结果
+const acBalanceData = ref(null) // 空调结果（双计费时）
 const errorMsg = ref('')
 const offline = ref(false)
 const syncTime = ref('')
@@ -24,6 +25,11 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const appSettings = useAppSettings()
 const maxRetry = computed(() => appSettings.retry.electricity)
 const retryDelayMs = computed(() => appSettings.retryDelayMs)
+
+// 是否为双计费楼层（同时有照明和空调）
+const isDualBilling = ref(false)
+// 保存当前选中楼层的照明和空调 layer_id 映射
+const currentLevelMapping = ref(null)
 
 const normalizePathValue = (value) => {
   if (value && typeof value === 'object') {
@@ -54,6 +60,76 @@ const getStaleCache = (cacheKey) => {
   }
 }
 
+/**
+ * 合并宿舍楼层数据：将同栋楼的"照明N层"和"空调N层"合并为"N层"
+ * 返回处理后的 dormData（不修改原始数据）
+ */
+const mergeLevels = (rawData) => {
+  if (!Array.isArray(rawData)) return []
+  return rawData.map(area => ({
+    ...area,
+    children: (area.children || []).map(building => {
+      const levels = building.children || []
+      // 检查是否存在照明/空调分离的楼层
+      const lightLevels = {}
+      const acLevels = {}
+      const plainLevels = []
+
+      levels.forEach(level => {
+        const label = level.label || ''
+        const lightMatch = label.match(/^照明(\d+)层$/)
+        const acMatch = label.match(/^空调(\d+)层$/)
+        if (lightMatch) {
+          lightLevels[lightMatch[1]] = level
+        } else if (acMatch) {
+          acLevels[acMatch[1]] = level
+        } else {
+          plainLevels.push(level)
+        }
+      })
+
+      const lightFloors = Object.keys(lightLevels)
+      const acFloors = Object.keys(acLevels)
+      const hasDual = lightFloors.length > 0 && acFloors.length > 0
+
+      if (!hasDual && lightFloors.length === 0 && acFloors.length === 0) {
+        // 纯普通楼层，不做处理
+        return building
+      }
+
+      // 合并楼层
+      const mergedLevels = []
+      const allFloorNums = new Set([...lightFloors, ...acFloors])
+      const sortedFloors = [...allFloorNums].sort((a, b) => Number(a) - Number(b))
+
+      sortedFloors.forEach(floorNum => {
+        const lightLevel = lightLevels[floorNum]
+        const acLevel = acLevels[floorNum]
+        // 使用照明层的房间列表作为基础（两者房间一般相同）
+        const baseLevel = lightLevel || acLevel
+        const mergedValue = `merged_${floorNum}_${lightLevel?.value || ''}_${acLevel?.value || ''}`
+        mergedLevels.push({
+          value: mergedValue,
+          label: `${floorNum}层`,
+          children: baseLevel.children || [],
+          _lightLayerId: lightLevel?.value || null,
+          _acLayerId: acLevel?.value || null,
+          _isDual: !!(lightLevel && acLevel),
+          _floorNum: floorNum
+        })
+      })
+
+      // 加上非照明/空调的普通楼层
+      plainLevels.forEach(p => mergedLevels.push(p))
+
+      return {
+        ...building,
+        children: mergedLevels
+      }
+    })
+  }))
+}
+
 // 加载宿舍数据
 onMounted(async () => {
   try {
@@ -61,7 +137,7 @@ onMounted(async () => {
       const res = await axios.get('/dormitory_data.json')
       return { success: true, data: res.data }
     })
-    dormData.value = data?.data || []
+    dormData.value = mergeLevels(data?.data || [])
     
     // 尝试加载上次选择
     const saved = localStorage.getItem('last_dorm_selection')
@@ -120,6 +196,24 @@ const handleSelect = (level, value) => {
   }
   selectedPath.value = [...nextPath]
   
+  // 检测当前楼层是否为双计费
+  if (level >= 2) {
+    const levelNode = findByValue(currentBuilding.value?.children, selectedPath.value[2])
+    if (levelNode && levelNode._isDual) {
+      isDualBilling.value = true
+      currentLevelMapping.value = {
+        lightLayerId: levelNode._lightLayerId,
+        acLayerId: levelNode._acLayerId
+      }
+    } else {
+      isDualBilling.value = false
+      currentLevelMapping.value = null
+    }
+  } else {
+    isDualBilling.value = false
+    currentLevelMapping.value = null
+  }
+  
   // 自动查询
   if (level === 3 && selectedPath.value.length === 4) {
     // 保存选择
@@ -127,10 +221,11 @@ const handleSelect = (level, value) => {
     fetchBalance()
   } else {
     balanceData.value = null
+    acBalanceData.value = null
   }
 }
 
-// 查询余额
+// 单次余额请求
 const requestBalanceOnline = async (payload, cacheKey) => {
   const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
   const data = res?.data
@@ -140,68 +235,142 @@ const requestBalanceOnline = async (payload, cacheKey) => {
   return { data, timestamp: Date.now() }
 }
 
+/**
+ * 解析合并楼层 value 得到真实 layer_id
+ * 合并 value 格式: merged_{floorNum}_{lightLayerId}_{acLayerId}
+ */
+const parseLayerIds = (levelValue) => {
+  // 先从当前选中节点获取映射
+  if (currentLevelMapping.value) {
+    return currentLevelMapping.value
+  }
+  // 从 merged value 解析
+  if (typeof levelValue === 'string' && levelValue.startsWith('merged_')) {
+    const parts = levelValue.split('_')
+    return {
+      lightLayerId: parts[2] || null,
+      acLayerId: parts[3] || null
+    }
+  }
+  return { lightLayerId: levelValue, acLayerId: null }
+}
+
+/**
+ * 解析房间 value 得到真实 room_id
+ * room value 格式: area_id-building_id--layer_id-room_id
+ * 需要替换 layer_id 部分
+ */
+const buildRoomValue = (roomValue, targetLayerId) => {
+  if (!roomValue || !targetLayerId) return roomValue
+  // 格式: 101-6--240-101 -> 将 240 替换为 targetLayerId
+  const match = roomValue.match(/^(.+?)--(\d+)-(.+)$/)
+  if (match) {
+    return `${match[1]}--${targetLayerId}-${match[3]}`
+  }
+  return roomValue
+}
+
 const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
   if (selectedPath.value.length !== 4) return
   
   loading.value = true
   if (retryCount === 0) errorMsg.value = ''
 
-  const cacheKey = `electricity:${props.studentId}:${selectedPath.value.join('-')}`
-  
+  const [area_id, building_id, layer_id, room_id] = selectedPath.value
+  const { lightLayerId, acLayerId } = parseLayerIds(layer_id)
+  const hasDual = !!(lightLayerId && acLayerId)
+
   try {
-    const [area_id, building_id, layer_id, room_id] = selectedPath.value
+    // 照明查询（或唯一查询）
+    const realLightLayerId = lightLayerId || layer_id
+    const realLightRoomId = hasDual ? buildRoomValue(room_id, realLightLayerId) : room_id
+    const lightCacheKey = `electricity:${props.studentId}:${area_id}-${building_id}-${realLightLayerId}-${realLightRoomId}`
     
-    // 构建 payload
-    const payload = {
+    const lightPayload = {
       area_id,
       building_id,
-      layer_id, 
-      room_id,
+      layer_id: realLightLayerId,
+      room_id: realLightRoomId,
       student_id: props.studentId
     }
     
-    // 调用 V2 API（手动刷新时强制联网）
-    const { data } = forceNetwork
-      ? await requestBalanceOnline(payload, cacheKey)
-      : await fetchWithCache(cacheKey, async () => {
-          const res = await axios.post(`${API_BASE}/v2/electricity/balance`, payload)
+    const lightResult = forceNetwork
+      ? await requestBalanceOnline(lightPayload, lightCacheKey)
+      : await fetchWithCache(lightCacheKey, async () => {
+          const res = await axios.post(`${API_BASE}/v2/electricity/balance`, lightPayload)
           return res.data
         })
-    
-    if (data?.success) {
-      balanceData.value = data
-      offline.value = data?.offline === true
-      if (offline.value) {
-        syncTime.value = data.sync_time || ''
-      } else {
-        syncTime.value = data.sync_time || ''
-      }
+
+    if (lightResult.data?.success) {
+      balanceData.value = lightResult.data
+      offline.value = lightResult.data?.offline === true
+      syncTime.value = lightResult.data?.sync_time || ''
     } else {
-      const cached = getStaleCache(cacheKey)
+      const cached = getStaleCache(lightCacheKey)
       if (cached?.data) {
         balanceData.value = cached.data
         offline.value = true
         syncTime.value = cached.data?.sync_time || new Date(cached.timestamp).toLocaleString()
-        errorMsg.value = ''
       } else {
-        errorMsg.value = data?.error || '查询失败'
+        errorMsg.value = lightResult.data?.error || '查询失败'
+        balanceData.value = null
       }
+    }
+
+    // 空调查询（仅双计费）
+    if (hasDual) {
+      isDualBilling.value = true
+      const realAcRoomId = buildRoomValue(room_id, acLayerId)
+      const acCacheKey = `electricity:${props.studentId}:${area_id}-${building_id}-${acLayerId}-${realAcRoomId}`
+      
+      const acPayload = {
+        area_id,
+        building_id,
+        layer_id: acLayerId,
+        room_id: realAcRoomId,
+        student_id: props.studentId
+      }
+      
+      try {
+        const acResult = forceNetwork
+          ? await requestBalanceOnline(acPayload, acCacheKey)
+          : await fetchWithCache(acCacheKey, async () => {
+              const res = await axios.post(`${API_BASE}/v2/electricity/balance`, acPayload)
+              return res.data
+            })
+
+        if (acResult.data?.success) {
+          acBalanceData.value = acResult.data
+        } else {
+          const cached = getStaleCache(acCacheKey)
+          if (cached?.data) {
+            acBalanceData.value = cached.data
+          } else {
+            acBalanceData.value = null
+          }
+        }
+      } catch {
+        acBalanceData.value = null
+      }
+    } else {
+      isDualBilling.value = false
+      acBalanceData.value = null
     }
   } catch (e) {
     console.error('电费查询错误:', e)
     
-    // 针对 502/504 错误进行重试 (后端冷启动)
     if ((e.response && (e.response.status === 502 || e.response.status === 504)) || e.message.includes('Network Error')) {
       if (retryCount < maxRetry.value) {
         errorMsg.value = `系统预热中，正在重试 (${retryCount + 1}/${maxRetry.value})...`
         setTimeout(() => {
           fetchBalance({ retryCount: retryCount + 1, forceNetwork })
         }, retryDelayMs.value)
-        return // 保持 loading 为 true
+        return
       } else {
         errorMsg.value = '服务器响应超时，请稍后再试'
       }
     } else {
+      const cacheKey = `electricity:${props.studentId}:${selectedPath.value.join('-')}`
       const cached = getStaleCache(cacheKey)
       if (cached?.data) {
         balanceData.value = cached.data
@@ -214,7 +383,6 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
       }
     }
   } finally {
-    // 只有在不重试的情况下才停止 loading
     if (!errorMsg.value.includes('正在重试')) {
       loading.value = false
     }
@@ -304,32 +472,87 @@ const handleLogout = () => emit('logout')
       <!-- 结果展示 -->
       <TEmptyState v-if="loading" type="loading" message="正在查询电费信息..." />
       
-      <div v-else-if="balanceData" class="result-card">
-        <div class="status-badge" :class="balanceData.status.includes('正常') ? 'normal' : 'warning'">
-          {{ balanceData.status }}
-        </div>
-        
-        <div class="balance-display">
-          <div class="label">剩余电量</div>
-          <div class="value" :class="{ low: parseFloat(balanceData.quantity) < 10 }">
-            {{ balanceData.quantity }} <small>度</small>
+      <div v-else-if="balanceData" class="result-section">
+        <!-- 双计费模式：照明 + 空调 -->
+        <template v-if="isDualBilling">
+          <div class="result-card dual-card">
+            <div class="dual-header">
+              <div class="status-badge" :class="balanceData.status.includes('正常') ? 'normal' : 'warning'">
+                {{ balanceData.status }}
+              </div>
+            </div>
+            
+            <div class="dual-grid">
+              <!-- 照明 -->
+              <div class="dual-item light-item">
+                <div class="dual-icon">💡</div>
+                <div class="dual-type">照明电费</div>
+                <div class="dual-quantity" :class="{ low: parseFloat(balanceData.quantity) < 10 }">
+                  {{ balanceData.quantity }} <small>度</small>
+                </div>
+                <div class="dual-balance">¥{{ balanceData.balance }}</div>
+              </div>
+              
+              <!-- 空调 -->
+              <div class="dual-item ac-item">
+                <div class="dual-icon">❄️</div>
+                <div class="dual-type">空调电费</div>
+                <template v-if="acBalanceData">
+                  <div class="dual-quantity" :class="{ low: parseFloat(acBalanceData.quantity) < 10 }">
+                    {{ acBalanceData.quantity }} <small>度</small>
+                  </div>
+                  <div class="dual-balance">¥{{ acBalanceData.balance }}</div>
+                </template>
+                <template v-else>
+                  <div class="dual-quantity muted">-- <small>度</small></div>
+                  <div class="dual-balance muted">查询失败</div>
+                </template>
+              </div>
+            </div>
+
+            <div class="detail-row">
+              <div class="detail-item">
+                <span class="d-label">最后更新</span>
+                <span class="d-value">{{ new Date().toLocaleTimeString() }}</span>
+              </div>
+            </div>
+            
+            <button class="refresh-btn" @click="fetchBalance({ forceNetwork: true })">
+              🔄 刷新数据
+            </button>
           </div>
-        </div>
-        
-        <div class="detail-row">
-          <div class="detail-item">
-            <span class="d-label">账户余额</span>
-            <span class="d-value">¥{{ balanceData.balance }}</span>
+        </template>
+
+        <!-- 单计费模式 -->
+        <template v-else>
+          <div class="result-card">
+            <div class="status-badge" :class="balanceData.status.includes('正常') ? 'normal' : 'warning'">
+              {{ balanceData.status }}
+            </div>
+            
+            <div class="balance-display">
+              <div class="label">剩余电量</div>
+              <div class="value" :class="{ low: parseFloat(balanceData.quantity) < 10 }">
+                {{ balanceData.quantity }} <small>度</small>
+              </div>
+            </div>
+            
+            <div class="detail-row">
+              <div class="detail-item">
+                <span class="d-label">账户余额</span>
+                <span class="d-value">¥{{ balanceData.balance }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="d-label">最后更新</span>
+                <span class="d-value">{{ new Date().toLocaleTimeString() }}</span>
+              </div>
+            </div>
+            
+            <button class="refresh-btn" @click="fetchBalance({ forceNetwork: true })">
+              🔄 刷新数据
+            </button>
           </div>
-          <div class="detail-item">
-            <span class="d-label">最后更新</span>
-            <span class="d-value">{{ new Date().toLocaleTimeString() }}</span>
-          </div>
-        </div>
-        
-        <button class="refresh-btn" @click="fetchBalance({ forceNetwork: true })">
-          🔄 刷新数据
-        </button>
+        </template>
       </div>
 
       <TEmptyState v-else-if="errorMsg" type="error" :message="errorMsg" />
@@ -581,5 +804,89 @@ const handleLogout = () => emit('logout')
   color: #b91c1c;
   border-radius: 12px;
   font-weight: 600;
+}
+
+/* 双计费布局 */
+.result-section {
+  margin-bottom: 20px;
+}
+
+.dual-card {
+  text-align: left;
+}
+
+.dual-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.dual-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.dual-item {
+  background: #f7fafc;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+}
+
+.light-item {
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+}
+
+.ac-item {
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+}
+
+.dual-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.dual-type {
+  font-size: 13px;
+  color: #718096;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.dual-quantity {
+  font-size: 32px;
+  font-weight: 700;
+  color: #2d3748;
+  line-height: 1.2;
+}
+
+.dual-quantity.low {
+  color: #e53e3e;
+}
+
+.dual-quantity.muted {
+  color: #a0aec0;
+}
+
+.dual-quantity small {
+  font-size: 14px;
+  font-weight: 500;
+  color: #718096;
+}
+
+.dual-balance {
+  font-size: 14px;
+  color: #4a5568;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+.dual-balance.muted {
+  color: #a0aec0;
+  font-weight: 400;
 }
 </style>

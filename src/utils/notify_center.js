@@ -559,36 +559,87 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
   const roomKey = selectedPath.join('-')
   const powerStateKey = powerStateKeyFor(studentId, roomKey)
 
+  // 判断是否为双计费模式（照明+空调分开）
+  const layerStr = String(layer_id)
+  const isDual = layerStr.startsWith('merged_')
+  let lightLayerId = layer_id
+  let acLayerId = null
+  if (isDual) {
+    const parts = layerStr.split('_')
+    lightLayerId = parts[2]
+    acLayerId = parts[3]
+  }
+
+  // 构造指定 layer_id 的房间值
+  const _buildRoomValue = (targetLayerId) => {
+    const segments = String(room_id).split('-')
+    if (segments.length >= 4) {
+      segments[2] = String(targetLayerId)
+      return segments.join('-')
+    }
+    return room_id
+  }
+
   try {
-    const res = await axios.post(
+    // 照明查询
+    const lightRoomId = isDual ? _buildRoomValue(lightLayerId) : room_id
+    const lightRes = await axios.post(
       toApiUrl('/v2/electricity/balance'),
       {
         area_id,
         building_id,
-        layer_id,
-        room_id,
+        layer_id: isDual ? lightLayerId : layer_id,
+        room_id: lightRoomId,
         student_id: studentId
       },
       { timeout: timeoutMs }
     )
-    const data = res?.data
-    if (!data?.success) {
+    const lightData = lightRes?.data
+    if (!lightData?.success) {
       return {
         success: false,
         configured: true,
         selectedPath,
-        error: toSafeText(data?.error || '电费检查失败')
+        error: toSafeText(lightData?.error || '电费检查失败（照明）')
       }
     }
 
-    const quantity = toSafeNumber(data.quantity)
-    const balance = toSafeNumber(data.balance)
-    const isLow = Number.isFinite(quantity) && quantity < POWER_ALERT_THRESHOLD
+    const quantity = toSafeNumber(lightData.quantity)
+    const balance = toSafeNumber(lightData.balance)
+
+    // 空调查询（仅双计费时）
+    let acQuantity = null
+    let acBalance = null
+    if (isDual && acLayerId) {
+      try {
+        const acRoomId = _buildRoomValue(acLayerId)
+        const acRes = await axios.post(
+          toApiUrl('/v2/electricity/balance'),
+          {
+            area_id,
+            building_id,
+            layer_id: acLayerId,
+            room_id: acRoomId,
+            student_id: studentId
+          },
+          { timeout: timeoutMs }
+        )
+        const acData = acRes?.data
+        if (acData?.success) {
+          acQuantity = toSafeNumber(acData.quantity)
+          acBalance = toSafeNumber(acData.balance)
+        }
+      } catch (_) {
+        // 空调查询失败不阻塞主流程
+      }
+    }
+
+    const isLightLow = Number.isFinite(quantity) && quantity < POWER_ALERT_THRESHOLD
+    const isAcLow = Number.isFinite(acQuantity) && acQuantity < POWER_ALERT_THRESHOLD
+    const isLow = isLightLow || isAcLow
     const state = readJSON(powerStateKey, {})
 
-    // 低电提醒去重策略：
-    // 1) 启动检查（launchCheck=true）每次 App 启动最多提醒一次；
-    // 2) 定时检查只在“从不低电 -> 低电”状态转变时提醒，避免重复打扰。
+    // 低电提醒去重策略
     let shouldNotify = false
     if (settings.enablePowerNotice && isLow) {
       if (launchCheck) {
@@ -599,9 +650,18 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
     }
 
     if (shouldNotify) {
+      let bodyText
+      if (isDual) {
+        const parts = []
+        if (isLightLow) parts.push(`照明 ${Number.isFinite(quantity) ? quantity.toFixed(2) : lightData.quantity} 度`)
+        if (isAcLow) parts.push(`空调 ${Number.isFinite(acQuantity) ? acQuantity.toFixed(2) : '?'} 度`)
+        bodyText = `当前宿舍 ${parts.join('、')} 不足 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
+      } else {
+        bodyText = `当前宿舍剩余电量 ${Number.isFinite(quantity) ? quantity.toFixed(2) : lightData.quantity} 度，已低于 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
+      }
       queue.push({
         title: '电费不足提醒',
-        body: `当前宿舍剩余电量 ${Number.isFinite(quantity) ? quantity.toFixed(2) : data.quantity} 度，已低于 ${POWER_ALERT_THRESHOLD} 度，请及时充值。`
+        body: bodyText
       })
     }
 
@@ -609,6 +669,9 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
       was_low: isLow,
       last_quantity: Number.isFinite(quantity) ? quantity : null,
       last_balance: Number.isFinite(balance) ? balance : null,
+      ac_quantity: Number.isFinite(acQuantity) ? acQuantity : null,
+      ac_balance: Number.isFinite(acBalance) ? acBalance : null,
+      is_dual: isDual,
       last_launch_boot:
         launchCheck && isLow && settings.enablePowerNotice ? APP_BOOT_ID : toSafeText(state?.last_launch_boot),
       last_notified_at:
@@ -622,9 +685,12 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
       selectedPath,
       quantity: Number.isFinite(quantity) ? quantity : null,
       balance: Number.isFinite(balance) ? balance : null,
-      status: toSafeText(data.status),
+      acQuantity: Number.isFinite(acQuantity) ? acQuantity : null,
+      acBalance: Number.isFinite(acBalance) ? acBalance : null,
+      isDual,
+      status: toSafeText(lightData.status),
       isLow,
-      sync_time: toSafeText(data.sync_time)
+      sync_time: toSafeText(lightData.sync_time)
     }
   } catch (error) {
     return {
