@@ -178,6 +178,18 @@ const powerBalanceText = computed(() => {
   return `¥${balance.toFixed(2)}`
 })
 
+const acPowerQuantityText = computed(() => {
+  const q = Number(powerSummary.value?.acQuantity)
+  if (!Number.isFinite(q)) return '--'
+  return `${q.toFixed(2)} 度`
+})
+
+const acPowerBalanceText = computed(() => {
+  const b = Number(powerSummary.value?.acBalance)
+  if (!Number.isFinite(b)) return '--'
+  return `¥${b.toFixed(2)}`
+})
+
 const powerStatusText = computed(() => {
   if (
     powerSummary.value?.error === '未设置宿舍房间，请先在电费模块选择房间。' &&
@@ -689,14 +701,36 @@ onBeforeUnmount(() => {
       <article class="info-card electricity-card">
         <h3>电费监控</h3>
         <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
-        <div class="kv">
-          <span>剩余电量</span>
-          <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
-        </div>
-        <div class="kv">
-          <span>账户余额</span>
-          <strong>{{ powerBalanceText }}</strong>
-        </div>
+        <!-- 双计费模式：照明+空调分行显示 -->
+        <template v-if="powerSummary?.isDual">
+          <div class="kv">
+            <span>💡 照明电量</span>
+            <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
+          </div>
+          <div class="kv">
+            <span>💡 照明余额</span>
+            <strong>{{ powerBalanceText }}</strong>
+          </div>
+          <div class="kv">
+            <span>❄️ 空调电量</span>
+            <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
+          </div>
+          <div class="kv">
+            <span>❄️ 空调余额</span>
+            <strong>{{ acPowerBalanceText }}</strong>
+          </div>
+        </template>
+        <!-- 单计费模式 -->
+        <template v-else>
+          <div class="kv">
+            <span>剩余电量</span>
+            <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
+          </div>
+          <div class="kv">
+            <span>账户余额</span>
+            <strong>{{ powerBalanceText }}</strong>
+          </div>
+        </template>
         <div class="kv">
           <span>状态</span>
           <strong>{{ powerStatusText }}</strong>

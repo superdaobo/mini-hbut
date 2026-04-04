@@ -105,13 +105,42 @@ const mergeLevels = (rawData) => {
       sortedFloors.forEach(floorNum => {
         const lightLevel = lightLevels[floorNum]
         const acLevel = acLevels[floorNum]
-        // 使用照明层的房间列表作为基础（两者房间一般相同）
+        // 使用照明层的房间列表作为基础
         const baseLevel = lightLevel || acLevel
         const mergedValue = `merged_${floorNum}_${lightLevel?.value || ''}_${acLevel?.value || ''}`
+
+        // 建立空调房间映射：照明房间号 -> 空调房间完整 value
+        let acRoomMap = null
+        if (lightLevel && acLevel) {
+          acRoomMap = {}
+          const acByNum = {}
+          ;(acLevel.children || []).forEach(r => {
+            const num = (r.label || '').replace(/房间$/, '')
+            acByNum[num] = r.value
+          })
+          ;(lightLevel.children || []).forEach(r => {
+            const lightNum = (r.label || '').replace(/房间$/, '')
+            // 尝试常见前缀映射：1+num, 6+num, 直接匹配
+            const candidates = ['1' + lightNum, '6' + lightNum, lightNum]
+            for (const c of candidates) {
+              if (acByNum[c]) {
+                acRoomMap[r.value] = acByNum[c]
+                break
+              }
+            }
+          })
+        }
+
+        // 为每个房间附加空调端 value
+        const mergedChildren = (baseLevel.children || []).map(room => {
+          const acVal = acRoomMap?.[room.value] || null
+          return acVal ? { ...room, _acRoomValue: acVal } : room
+        })
+
         mergedLevels.push({
           value: mergedValue,
           label: `${floorNum}层`,
-          children: baseLevel.children || [],
+          children: mergedChildren,
           _lightLayerId: lightLevel?.value || null,
           _acLayerId: acLevel?.value || null,
           _isDual: !!(lightLevel && acLevel),
@@ -218,6 +247,13 @@ const handleSelect = (level, value) => {
   if (level === 3 && selectedPath.value.length === 4) {
     // 保存选择
     localStorage.setItem('last_dorm_selection', JSON.stringify(selectedPath.value))
+    // 保存空调房间映射（供通知中心后台查询用）
+    const roomNode = currentLevel.value?.children?.find(r => r.value === selectedPath.value[3])
+    if (roomNode?._acRoomValue) {
+      localStorage.setItem('last_dorm_ac_room', JSON.stringify(roomNode._acRoomValue))
+    } else {
+      localStorage.removeItem('last_dorm_ac_room')
+    }
     fetchBalance()
   } else {
     balanceData.value = null
@@ -255,21 +291,6 @@ const parseLayerIds = (levelValue) => {
   return { lightLayerId: levelValue, acLayerId: null }
 }
 
-/**
- * 解析房间 value 得到真实 room_id
- * room value 格式: area_id-building_id--layer_id-room_id
- * 需要替换 layer_id 部分
- */
-const buildRoomValue = (roomValue, targetLayerId) => {
-  if (!roomValue || !targetLayerId) return roomValue
-  // 格式: 101-6--240-101 -> 将 240 替换为 targetLayerId
-  const match = roomValue.match(/^(.+?)--(\d+)-(.+)$/)
-  if (match) {
-    return `${match[1]}--${targetLayerId}-${match[3]}`
-  }
-  return roomValue
-}
-
 const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
   if (selectedPath.value.length !== 4) return
   
@@ -283,14 +304,14 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
   try {
     // 照明查询（或唯一查询）
     const realLightLayerId = lightLayerId || layer_id
-    const realLightRoomId = hasDual ? buildRoomValue(room_id, realLightLayerId) : room_id
-    const lightCacheKey = `electricity:${props.studentId}:${area_id}-${building_id}-${realLightLayerId}-${realLightRoomId}`
+    // 照明房间 value 已包含正确 layer_id（合并时保留了照明层的 children）
+    const lightCacheKey = `electricity:${props.studentId}:${area_id}-${building_id}-${realLightLayerId}-${room_id}`
     
     const lightPayload = {
       area_id,
       building_id,
       layer_id: realLightLayerId,
-      room_id: realLightRoomId,
+      room_id,
       student_id: props.studentId
     }
     
@@ -320,37 +341,44 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
     // 空调查询（仅双计费）
     if (hasDual) {
       isDualBilling.value = true
-      const realAcRoomId = buildRoomValue(room_id, acLayerId)
-      const acCacheKey = `electricity:${props.studentId}:${area_id}-${building_id}-${acLayerId}-${realAcRoomId}`
-      
-      const acPayload = {
-        area_id,
-        building_id,
-        layer_id: acLayerId,
-        room_id: realAcRoomId,
-        student_id: props.studentId
-      }
-      
-      try {
-        const acResult = forceNetwork
-          ? await requestBalanceOnline(acPayload, acCacheKey)
-          : await fetchWithCache(acCacheKey, async () => {
-              const res = await axios.post(`${API_BASE}/v2/electricity/balance`, acPayload)
-              return res.data
-            })
-
-        if (acResult.data?.success) {
-          acBalanceData.value = acResult.data
-        } else {
-          const cached = getStaleCache(acCacheKey)
-          if (cached?.data) {
-            acBalanceData.value = cached.data
-          } else {
-            acBalanceData.value = null
-          }
-        }
-      } catch {
+      // 从合并后的房间节点获取空调端的完整 room value
+      const roomNode = currentLevel.value?.children?.find(r => r.value === room_id)
+      const acRoomValue = roomNode?._acRoomValue
+      if (!acRoomValue) {
+        // 该房间没有空调计费
         acBalanceData.value = null
+      } else {
+        const acCacheKey = `electricity:${props.studentId}:${area_id}-${building_id}-${acLayerId}-${acRoomValue}`
+      
+        const acPayload = {
+          area_id,
+          building_id,
+          layer_id: acLayerId,
+          room_id: acRoomValue,
+          student_id: props.studentId
+        }
+      
+        try {
+          const acResult = forceNetwork
+            ? await requestBalanceOnline(acPayload, acCacheKey)
+            : await fetchWithCache(acCacheKey, async () => {
+                const res = await axios.post(`${API_BASE}/v2/electricity/balance`, acPayload)
+                return res.data
+              })
+
+          if (acResult.data?.success) {
+            acBalanceData.value = acResult.data
+          } else {
+            const cached = getStaleCache(acCacheKey)
+            if (cached?.data) {
+              acBalanceData.value = cached.data
+            } else {
+              acBalanceData.value = null
+            }
+          }
+        } catch {
+          acBalanceData.value = null
+        }
       }
     } else {
       isDualBilling.value = false

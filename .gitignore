@@ -71,3 +71,10 @@ release-key.jks
 # Local API keys
 keys/
 **/local_api_private.pem
+
+# Local mirror / secret cleanup workspace
+.repo-sanitize-mirror/
+
+# Permanently blocked secret-bearing scripts
+scripts/analyze_turso_grades.py
+scripts/query_turso.py

@@ -570,26 +570,18 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
     acLayerId = parts[3]
   }
 
-  // 构造指定 layer_id 的房间值
-  const _buildRoomValue = (targetLayerId) => {
-    const segments = String(room_id).split('-')
-    if (segments.length >= 4) {
-      segments[2] = String(targetLayerId)
-      return segments.join('-')
-    }
-    return room_id
-  }
+  // 空调房间值从 localStorage 读取（ElectricityView 选择时已存储）
+  const acRoomValue = isDual ? toSafeText(readJSON('last_dorm_ac_room', '')) : null
 
   try {
-    // 照明查询
-    const lightRoomId = isDual ? _buildRoomValue(lightLayerId) : room_id
+    // 照明查询（非双计费时直接用原值）
     const lightRes = await axios.post(
       toApiUrl('/v2/electricity/balance'),
       {
         area_id,
         building_id,
         layer_id: isDual ? lightLayerId : layer_id,
-        room_id: lightRoomId,
+        room_id,
         student_id: studentId
       },
       { timeout: timeoutMs }
@@ -610,16 +602,15 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
     // 空调查询（仅双计费时）
     let acQuantity = null
     let acBalance = null
-    if (isDual && acLayerId) {
+    if (isDual && acLayerId && acRoomValue) {
       try {
-        const acRoomId = _buildRoomValue(acLayerId)
         const acRes = await axios.post(
           toApiUrl('/v2/electricity/balance'),
           {
             area_id,
             building_id,
             layer_id: acLayerId,
-            room_id: acRoomId,
+            room_id: acRoomValue,
             student_id: studentId
           },
           { timeout: timeoutMs }
