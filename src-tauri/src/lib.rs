@@ -237,6 +237,7 @@ struct ChaoxingLoginPagePayload {
 pub struct Grade {
     pub term: String,
     pub course_name: String,
+    pub course_code: Option<String>,
     pub course_nature: String,
     pub course_nature_code: String,
     pub course_credit: String,

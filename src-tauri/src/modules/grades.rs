@@ -22,14 +22,26 @@ pub struct Grade {
     pub term: String,
     /// 课程名称
     pub course_name: String,
+    /// 课程号 (kch，教务系统可能不返回)
+    pub course_code: Option<String>,
     /// 课程性质 (必修/选修)
     pub course_nature: String,
+    /// 课程性质代码
+    pub course_nature_code: String,
     /// 学分
     pub course_credit: String,
     /// 最终成绩
     pub final_score: String,
     /// 获得学分
     pub earned_credit: String,
+    /// 学分绩点
+    pub xfjd: String,
+    /// 是否补考
+    pub sfbk: String,
+    /// 是否缓考
+    pub sfsq: String,
+    /// 成绩标记
+    pub cjbj: String,
     /// 任课教师
     pub teacher: Option<String>,
 }
@@ -73,7 +85,7 @@ impl GradesModule {
         let params = [
             ("fxbz", "0"),
             ("gridtype", "jqgrid"),
-            ("queryFields", "id,xnxq,kcmc,xf,kcxz,kclx,ksxs,kcgs,xdxz,kclb,cjfxms,zhcj,hdxf,tscjzwmc,sfbk,cjlrjsxm,jsxm,kcsx,fxcj,dztmlfjcj"),
+            ("queryFields", "id,xnxq,kcmc,kch,xf,kcxz,kclx,ksxs,kcgs,xdxz,kclb,cjfxms,zhcj,hdxf,tscjzwmc,sfbk,cjlrjsxm,jsxm,kcsx,fxcj,dztmlfjcj"),
             ("_search", "false"),
             ("page.size", "500"),
             ("page.pn", "1"),
@@ -144,24 +156,48 @@ impl GradesModule {
                 course_name = course_name[idx + 1..].to_string();
             }
             
-            let course_nature = item.get("kcxz")
-                .or_else(|| item.get("kcxzmc"))
+            let course_nature_code = item.get("kcxz")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let course_nature = if course_nature_code.is_empty() {
+                item.get("kcxzmc")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            } else {
+                course_nature_code.clone()
+            };
             
             let teacher = item.get("cjlrjsxm")
                 .or_else(|| item.get("jsxm"))
                 .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
                 .map(|s| s.to_string());
+            
+            let course_code = item.get("kch")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string());
+
+            let xfjd = Self::extract_number_field(item, &["xfjd", "fxcj"]);
+            let sfbk = item.get("sfbk").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let sfsq = item.get("sfsq").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let cjbj = item.get("cjbj").and_then(|v| v.as_str()).unwrap_or("").to_string();
             
             grades.push(Grade {
                 term,
                 course_name,
+                course_code,
                 course_nature,
+                course_nature_code,
                 course_credit,
                 final_score,
                 earned_credit,
+                xfjd,
+                sfbk,
+                sfsq,
+                cjbj,
                 teacher,
             });
         }

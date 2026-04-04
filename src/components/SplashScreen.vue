@@ -141,7 +141,7 @@ onBeforeUnmount(() => {
 .splash-bg-image {
   position: absolute;
   inset: 0;
-  background: url('/splash/cas_bg.png') 35% center / cover no-repeat;
+  background: url('/splash/cas_bg.png') 50% center / cover no-repeat;
   animation: bgKen 20s ease-in-out infinite alternate;
   will-change: transform;
 }

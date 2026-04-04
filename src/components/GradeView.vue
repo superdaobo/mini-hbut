@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { formatRelativeTime } from '../utils/time.js'
 import { compareSemesterDesc, normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { TPageHeader, TEmptyState } from './templates'
+import GradeDistributionView from './GradeDistributionView.vue'
 
 const props = defineProps({
   grades: { type: Array, default: () => [] },
@@ -25,6 +26,9 @@ const showAdvancedFilters = ref(false)
 // 详情弹窗
 const selectedGrade = ref(null)
 const showDetail = ref(false)
+
+// Tab 切换：成绩查询 / 给分记录
+const activeGradeTab = ref('grades')
 
 const COURSE_NATURE_LABEL_MAP = {
   '11': '通识必修',
@@ -327,6 +331,26 @@ watch(
     <!-- 头部 -->
     <TPageHeader icon="📊" title="成绩查询" @back="handleBack" />
 
+    <!-- Tab 切换栏 -->
+    <div class="grade-tab-bar">
+      <button
+        class="grade-tab-btn"
+        :class="{ active: activeGradeTab === 'grades' }"
+        @click="activeGradeTab = 'grades'"
+      >成绩查询</button>
+      <button
+        class="grade-tab-btn"
+        :class="{ active: activeGradeTab === 'distribution' }"
+        @click="activeGradeTab = 'distribution'"
+      >给分记录<span class="beta-tag">Beta</span></button>
+    </div>
+
+    <!-- 给分记录 Tab -->
+    <GradeDistributionView v-if="activeGradeTab === 'distribution'" />
+
+    <!-- 成绩查询 Tab（原有内容） -->
+    <template v-if="activeGradeTab === 'grades'">
+
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
@@ -595,6 +619,7 @@ watch(
         </div>
       </div>
     </Teleport>
+    </template>
   </div>
 </template>
 
@@ -604,6 +629,53 @@ watch(
   background: var(--ui-bg-gradient);
   padding: 16px 14px 120px;
   color: var(--ui-text);
+}
+
+/* ── Tab 切换栏 ── */
+.grade-tab-bar {
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-bg-card, #fff);
+  padding: 3px;
+  position: relative;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.grade-tab-btn {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted, #94a3b8);
+  cursor: pointer;
+  transition: color 0.3s, background 0.3s, transform 0.15s;
+  border-radius: 10px;
+  position: relative;
+  z-index: 1;
+}
+.grade-tab-btn:active {
+  transform: scale(0.97);
+}
+.grade-tab-btn.active {
+  color: #fff;
+  background: var(--color-primary, #6366f1);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+.beta-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: #f59e0b;
+  color: #fff;
+  vertical-align: super;
+  line-height: 1;
 }
 
 .grade-header {

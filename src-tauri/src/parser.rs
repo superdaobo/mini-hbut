@@ -206,6 +206,13 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
         let teacher = item.get("cjlrjsxm")
             .or_else(|| item.get("jsxm"))
             .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        // 课程号 - 可能教务系统不返回
+        let course_code = item.get("kch")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
         // 学分绩点
@@ -224,6 +231,7 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
         let grade = Grade {
             term,
             course_name,
+            course_code,
             course_nature,
             course_nature_code,
             course_credit,
