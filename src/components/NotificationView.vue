@@ -172,22 +172,10 @@ const powerQuantityText = computed(() => {
   return `${quantity.toFixed(2)} 度`
 })
 
-const powerBalanceText = computed(() => {
-  const balance = Number(powerSummary.value?.balance)
-  if (!Number.isFinite(balance)) return '--'
-  return `¥${balance.toFixed(2)}`
-})
-
 const acPowerQuantityText = computed(() => {
   const q = Number(powerSummary.value?.acQuantity)
   if (!Number.isFinite(q)) return '--'
   return `${q.toFixed(2)} 度`
-})
-
-const acPowerBalanceText = computed(() => {
-  const b = Number(powerSummary.value?.acBalance)
-  if (!Number.isFinite(b)) return '--'
-  return `¥${b.toFixed(2)}`
 })
 
 const powerStatusText = computed(() => {
@@ -708,16 +696,8 @@ onBeforeUnmount(() => {
             <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
           </div>
           <div class="kv">
-            <span>💡 照明余额</span>
-            <strong>{{ powerBalanceText }}</strong>
-          </div>
-          <div class="kv">
             <span>❄️ 空调电量</span>
             <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
-          </div>
-          <div class="kv">
-            <span>❄️ 空调余额</span>
-            <strong>{{ acPowerBalanceText }}</strong>
           </div>
         </template>
         <!-- 单计费模式 -->
@@ -725,10 +705,6 @@ onBeforeUnmount(() => {
           <div class="kv">
             <span>剩余电量</span>
             <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
-          </div>
-          <div class="kv">
-            <span>账户余额</span>
-            <strong>{{ powerBalanceText }}</strong>
           </div>
         </template>
         <div class="kv">
