@@ -571,7 +571,14 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
   }
 
   // 空调房间值从 localStorage 读取（ElectricityView 选择时已存储）
-  const acRoomValue = isDual ? toSafeText(readJSON('last_dorm_ac_room', '')) : null
+  let acRoomValue = isDual ? toSafeText(readJSON('last_dorm_ac_room', '')) : null
+  // 回退：如果未存储空调房间值，从 room_id 推导（替换 layer_id + 房间号前缀1）
+  if (isDual && !acRoomValue && acLayerId) {
+    const m = String(room_id).match(/^(.+?)--(\d+)-(\d+)$/)
+    if (m) {
+      acRoomValue = `${m[1]}--${acLayerId}-1${m[3]}`
+    }
+  }
 
   try {
     // 照明查询（非双计费时直接用原值）

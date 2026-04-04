@@ -173,6 +173,19 @@ onMounted(async () => {
     if (saved) {
       selectedPath.value = normalizeSelectionPath(JSON.parse(saved))
       if (selectedPath.value.length === 4) {
+        // 恢复选择后同步更新空调房间映射
+        const levelNode = currentLevel.value
+        if (levelNode?._isDual) {
+          isDualBilling.value = true
+          currentLevelMapping.value = {
+            lightLayerId: levelNode._lightLayerId,
+            acLayerId: levelNode._acLayerId
+          }
+          const roomNode = levelNode.children?.find(r => r.value === selectedPath.value[3])
+          if (roomNode?._acRoomValue) {
+            localStorage.setItem('last_dorm_ac_room', JSON.stringify(roomNode._acRoomValue))
+          }
+        }
         fetchBalance()
       }
     }
