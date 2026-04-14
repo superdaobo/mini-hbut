@@ -5,7 +5,7 @@ export type NavStyle = 'floating' | 'pill' | 'compact'
 export type DensityStyle = 'comfortable' | 'balanced' | 'compact'
 export type IconStyle = 'duotone' | 'line' | 'mono'
 export type DecorStyle = 'mesh' | 'grain' | 'none'
-export type ScheduleCourseCardStyle = 'modern' | 'traditional'
+export type ScheduleCourseCardStyle = 'modern' | 'traditional' | 'class'
 
 export interface UiPreset {
   label: string

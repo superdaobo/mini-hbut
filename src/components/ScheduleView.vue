@@ -24,6 +24,7 @@ import {
 } from '../utils/cloud_sync.js'
 import { pushDebugLog } from '../utils/debug_logger'
 import { showToast } from '../utils/toast'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -86,9 +87,13 @@ const confirmDialogDanger = ref(false)
 const weekTransitionName = ref('week-slide-left')
 const syncUploading = ref(false)
 const syncDownloading = ref(false)
+const customCourseExporting = ref(false)
+const customCourseImporting = ref(false)
+const customCourseExportLocation = ref('')
 const syncUploadCooldownMs = ref(0)
 const syncDownloadCooldownMs = ref(0)
 const syncStatusText = ref('')
+const customCourseFileInput = ref(null)
 const uiSettings = useUiSettings()
 const courseCardRefreshNonce = ref(0)
 let confirmDialogResolver = null
@@ -213,7 +218,8 @@ const periodOptions = Array.from({ length: 11 }, (_, i) => i + 1)
 const MAX_PERIOD = 11
 const courseCardStyleOptions = [
   { key: 'modern', label: '现代' },
-  { key: 'traditional', label: '传统' }
+  { key: 'traditional', label: '传统' },
+  { key: 'class', label: '标准' }
 ]
 
 // 更加精细的时间表
@@ -303,9 +309,12 @@ const addWeeksCountText = computed(() => {
   return weeks > 0 ? `已选 ${weeks} 周` : '未选择周次'
 })
 
-const scheduleCourseCardStyle = ref(
-  uiSettings.scheduleCourseCardStyle === 'traditional' ? 'traditional' : 'modern'
-)
+const normalizeCourseCardStyle = (value) => {
+  const key = String(value || '').trim().toLowerCase()
+  return ['modern', 'traditional', 'class'].includes(key) ? key : 'modern'
+}
+
+const scheduleCourseCardStyle = ref(normalizeCourseCardStyle(uiSettings.scheduleCourseCardStyle))
 
 const formatCooldownText = (value) => {
   const ms = Number(value || 0)
@@ -746,7 +755,7 @@ watch(
 watch(
   () => uiSettings.scheduleCourseCardStyle,
   (value) => {
-    scheduleCourseCardStyle.value = value === 'traditional' ? 'traditional' : 'modern'
+    scheduleCourseCardStyle.value = normalizeCourseCardStyle(value)
     pushDebugLog('Schedule', `课表样式状态同步：${scheduleCourseCardStyle.value}`, 'debug')
   },
   { immediate: true }
@@ -1224,22 +1233,28 @@ const getCourseStyle = (course) => {
   const start = Number(course.period) || 1
   const span = Math.max(1, Math.min(MAX_PERIOD - start + 1, Number(course.djs) || 1))
   const isTraditionalCard = scheduleCourseCardStyle.value === 'traditional'
+  const isClassCard = scheduleCourseCardStyle.value === 'class'
   // 现代样式使用连续圆角，避免竖向出现“尖顶”视觉。
   const modernRadius = '14px'
   const traditionalRadius = '8px'
+  const classRadius = '12px'
   if (course.is_conflict) {
     return {
       '--course-bg': isTraditionalCard
         ? '#dc2626'
-        : 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)',
+        : (isClassCard
+          ? 'rgba(254, 242, 242, 0.96)'
+          : 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)'),
       '--course-text': isTraditionalCard ? '#ffffff' : '#b91c1c',
       '--course-border': '#dc2626',
       '--course-shadow': isTraditionalCard
         ? '0 4px 10px rgba(220, 38, 38, 0.18)'
-        : '0 8px 18px rgba(220, 38, 38, 0.2)',
+        : (isClassCard
+          ? '0 6px 14px rgba(220, 38, 38, 0.16)'
+          : '0 8px 18px rgba(220, 38, 38, 0.2)'),
       '--course-span': String(span),
-      '--course-radius': isTraditionalCard ? traditionalRadius : modernRadius,
-      '--course-border-width': '2px',
+      '--course-radius': isTraditionalCard ? traditionalRadius : (isClassCard ? classRadius : modernRadius),
+      '--course-border-width': isClassCard ? '1px' : '2px',
       gridRow: `${start} / span ${span}`,
       gridColumn: '1',
       zIndex: 4
@@ -1265,19 +1280,23 @@ const getCourseStyle = (course) => {
   const traditionalBackground = isCustom ? '#111111' : borderColor
   const traditionalText = '#ffffff'
   const modernBackground = 'rgba(255, 255, 255, 0.92)'
+  const classBackground = 'rgba(255, 255, 255, 0.94)'
   const normalShadow = isCustom
     ? '0 7px 16px rgba(15, 23, 42, 0.24)'
     : '0 6px 14px rgba(71, 85, 105, 0.16)'
   const traditionalShadow = '0 4px 10px rgba(15, 23, 42, 0.14)'
+  const classShadow = isCustom
+    ? '0 6px 14px rgba(15, 23, 42, 0.2)'
+    : '0 4px 10px rgba(71, 85, 105, 0.14)'
   
   return {
-    '--course-bg': isTraditionalCard ? traditionalBackground : modernBackground,
+    '--course-bg': isTraditionalCard ? traditionalBackground : (isClassCard ? classBackground : modernBackground),
     '--course-text': isTraditionalCard ? traditionalText : theme.text,
     '--course-border': borderColor,
-    '--course-shadow': isTraditionalCard ? traditionalShadow : normalShadow,
+    '--course-shadow': isTraditionalCard ? traditionalShadow : (isClassCard ? classShadow : normalShadow),
     '--course-span': String(span),
-    '--course-radius': isTraditionalCard ? traditionalRadius : modernRadius,
-    '--course-border-width': isCustom ? '2px' : '1px',
+    '--course-radius': isTraditionalCard ? traditionalRadius : (isClassCard ? classRadius : modernRadius),
+    '--course-border-width': isClassCard ? '1px' : (isCustom ? '2px' : '1px'),
     gridRow: `${start} / span ${span}`,
     gridColumn: '1',
     zIndex: 1,
@@ -1289,6 +1308,99 @@ const openDetail = (course) => {
   detailActionError.value = ''
   selectedCourse.value = course
   showDetail.value = true
+}
+
+const buildLocationText = (course) => {
+  const building = String(course?.building || '').trim()
+  const room = String(course?.room_code || course?.room || '').trim()
+  return [building, room].filter(Boolean).join(' ') || '未填写'
+}
+
+const buildCourseTimeText = (course) => {
+  const weekday = Number(course?.weekday || 0)
+  const period = Number(course?.period || 0)
+  if (!weekday || !period) return '未填写'
+  const endPeriod = getCourseEndPeriod(course)
+  return `周${weekday} 第${period}-${endPeriod}节`
+}
+
+const buildSingleCourseDetailText = (course) => {
+  const lines = [
+    `课程名称：${String(course?.name || '').trim() || '未填写'}`,
+    `课程类型：${course?.is_custom ? '自定义课程' : '教务课程'}`,
+    `教师：${String(course?.teacher || '').trim() || '未填写'}`,
+    `地点：${buildLocationText(course)}`,
+    `时间：${buildCourseTimeText(course)}`,
+    `周次：${String(course?.weeks_text || '').trim() ? `${String(course?.weeks_text || '').trim()}周` : '未填写'}`,
+    `学分：${String(course?.credit || '').trim() || '无'}`,
+    `教学班：${String(course?.class_name || '').trim() || '无'}`
+  ]
+  if (course?.semester) {
+    lines.push(`学期：${String(course.semester).trim()}`)
+  }
+  return lines.join('\n')
+}
+
+const buildConflictDetailText = (course) => {
+  const conflicts = Array.isArray(course?.conflict_courses) ? course.conflict_courses : []
+  if (!conflicts.length) {
+    return `课程名称：${String(course?.name || '').trim() || '未填写'}\n冲突详情：无`
+  }
+  const lines = ['冲突课程详情：']
+  conflicts.forEach((item, idx) => {
+    lines.push(`${idx + 1}. ${String(item?.name || '').trim() || '未命名课程'}`)
+    lines.push(`   类型：${item?.is_custom ? '自定义课程' : '教务课程'}`)
+    lines.push(`   教师：${String(item?.teacher || '').trim() || '未填写'}`)
+    lines.push(`   地点：${buildLocationText(item)}`)
+    lines.push(`   时间：${buildCourseTimeText(item)}`)
+    lines.push(`   周次：${String(item?.weeks_text || '').trim() ? `${String(item.weeks_text).trim()}周` : '未填写'}`)
+  })
+  return lines.join('\n')
+}
+
+const buildCourseDetailText = (course) => {
+  if (!course) return ''
+  if (course.is_conflict) {
+    return buildConflictDetailText(course)
+  }
+  return buildSingleCourseDetailText(course)
+}
+
+const copyTextWithFallback = async (text) => {
+  const content = String(text || '').trim()
+  if (!content) return false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(content)
+      return true
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = content
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const copySelectedCourseDetail = async () => {
+  const course = selectedCourse.value
+  if (!course) return
+  const copied = await copyTextWithFallback(buildCourseDetailText(course))
+  if (copied) {
+    showToast(course.is_conflict ? '冲突课程详情已复制' : '课程详情已复制', 'success')
+    return
+  }
+  showToast('复制失败，请稍后重试', 'error')
 }
 
 const findCustomCourseRecord = (courseId, targetSemester = '') => {
@@ -1781,7 +1893,7 @@ const toggleMenu = () => {
 }
 
 const setScheduleCourseCardStyle = (styleKey) => {
-  const nextStyle = styleKey === 'traditional' ? 'traditional' : 'modern'
+  const nextStyle = normalizeCourseCardStyle(styleKey)
   if (scheduleCourseCardStyle.value === nextStyle) return
   scheduleCourseCardStyle.value = nextStyle
   courseCardRefreshNonce.value += 1
@@ -1806,7 +1918,427 @@ const setScheduleCourseCardStyle = (styleKey) => {
       'debug'
     )
   })
-  showToast(`已切换为${nextStyle === 'traditional' ? '传统' : '现代'}样式`, 'success')
+  const styleLabelMap = {
+    modern: '现代',
+    traditional: '传统',
+    class: '标准'
+  }
+  showToast(`已切换为${styleLabelMap[nextStyle] || '现代'}样式`, 'success')
+}
+
+const createTimestampSuffix = () => {
+  const now = new Date()
+  const yyyy = String(now.getFullYear())
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mi = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  return `${yyyy}${mm}${dd}-${hh}${mi}${ss}`
+}
+
+const triggerTextFileDownload = (fileName, content, mimeType = 'application/json;charset=utf-8') => {
+  try {
+    const blob = new Blob([content], { type: mimeType })
+    const href = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = href
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(href)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const encodeBase64Utf8 = (content) => {
+  const bytes = new TextEncoder().encode(String(content || ''))
+  const chunkSize = 0x8000
+  let binary = ''
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
+}
+
+const saveJsonByFilePicker = async (fileName, content) => {
+  if (typeof window.showSaveFilePicker !== 'function') {
+    return { ok: false, canceled: false, location: '' }
+  }
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: fileName,
+      types: [
+        {
+          description: 'JSON 文件',
+          accept: {
+            'application/json': ['.json']
+          }
+        }
+      ]
+    })
+    const writable = await handle.createWritable()
+    await writable.write(content)
+    await writable.close()
+    return {
+      ok: true,
+      canceled: false,
+      location: handle?.name ? `已保存：${handle.name}` : '已保存到所选位置'
+    }
+  } catch (error) {
+    if (String(error?.name || '').trim() === 'AbortError') {
+      return { ok: true, canceled: true, location: '已取消保存' }
+    }
+    return { ok: false, canceled: false, location: '' }
+  }
+}
+
+const saveJsonByNativeExport = async (fileName, content) => {
+  if (!isTauriRuntime()) {
+    return { ok: false, canceled: false, location: '' }
+  }
+  try {
+    const payload = await invokeNative('save_export_file', {
+      req: {
+        fileName,
+        mimeType: 'application/json',
+        contentBase64: encodeBase64Utf8(content),
+        preferMedia: false
+      }
+    })
+    const path = String(payload?.path || '').trim()
+    return {
+      ok: true,
+      canceled: false,
+      location: path || '已保存到本地导出目录'
+    }
+  } catch (error) {
+    const message = String(error?.message || error || '')
+    if (message.includes('取消')) {
+      return { ok: true, canceled: true, location: '已取消保存' }
+    }
+    return { ok: false, canceled: false, location: '' }
+  }
+}
+
+const isLikelyMobileDevice = () => {
+  const ua = String(navigator.userAgent || '')
+  return /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(ua)
+}
+
+const shareCustomCoursesJson = async (fileName, content) => {
+  try {
+    if (!navigator.share || typeof File === 'undefined') return { ok: false, canceled: false }
+    const file = new File([content], fileName, { type: 'application/json' })
+    await navigator.share({
+      title: 'Mini-HBUT 自定义课程备份',
+      text: '自定义课程 JSON 备份',
+      files: [file]
+    })
+    return { ok: true, canceled: false }
+  } catch (error) {
+    if (String(error?.name || '').trim() === 'AbortError') {
+      return { ok: true, canceled: true }
+    }
+    return { ok: false, canceled: false }
+  }
+}
+
+const toPortableCustomCourse = (course) => {
+  const normalized = normalizeCustomCourse(course)
+  if (!normalized?.name) return null
+  return {
+    id: normalized.source_id || normalized.id || '',
+    source_id: normalized.source_id || normalized.id || '',
+    semester: normalized.semester || '',
+    name: normalized.name || '',
+    teacher: normalized.teacher || '',
+    room: normalized.room || '',
+    weekday: Number(normalized.weekday || 1),
+    period: Number(normalized.period || 1),
+    djs: Number(normalized.djs || 1),
+    weeks: normalizeWeeks(normalized.weeks)
+  }
+}
+
+const readTextFromFile = async (file) => {
+  if (!file) return ''
+  if (typeof file.text === 'function') {
+    return await file.text()
+  }
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('读取文件失败'))
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+const parseImportedCustomCourse = (item, index) => {
+  if (!item || typeof item !== 'object') {
+    throw new Error(`第 ${index + 1} 条课程数据格式错误`)
+  }
+  const semesterValue = String(item.semester || '').trim()
+  const nameValue = String(item.name || '').trim()
+  const teacherValue = String(item.teacher || '').trim()
+  const roomValue = String(item.room || '').trim()
+  const sourceId = String(item.source_id || item.id || '').trim()
+  const weekdayValue = Number(item.weekday)
+  const periodValue = Number(item.period)
+  const djsValue = Number(item.djs)
+  const weeksValue = normalizeWeeks(item.weeks)
+
+  if (!semesterValue) throw new Error(`第 ${index + 1} 条课程缺少 semester`)
+  if (!nameValue) throw new Error(`第 ${index + 1} 条课程缺少 name`)
+  if (!Number.isFinite(weekdayValue) || weekdayValue < 1 || weekdayValue > 7) {
+    throw new Error(`第 ${index + 1} 条课程 weekday 不合法`)
+  }
+  if (!Number.isFinite(periodValue) || periodValue < 1 || periodValue > 11) {
+    throw new Error(`第 ${index + 1} 条课程 period 不合法`)
+  }
+  const maxSpan = Math.max(1, 12 - periodValue)
+  if (!Number.isFinite(djsValue) || djsValue < 1 || djsValue > maxSpan) {
+    throw new Error(`第 ${index + 1} 条课程 djs 不合法（最多 ${maxSpan}）`)
+  }
+  if (!weeksValue.length) throw new Error(`第 ${index + 1} 条课程 weeks 不能为空`)
+
+  return {
+    source_id: sourceId,
+    semester: semesterValue,
+    name: nameValue,
+    teacher: teacherValue,
+    room: roomValue,
+    weekday: weekdayValue,
+    period: periodValue,
+    djs: djsValue,
+    weeks: weeksValue
+  }
+}
+
+const exportCustomCoursesJson = async () => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) {
+    showToast('请先登录后再导出自定义课程', 'error')
+    return
+  }
+  if (customCourseExporting.value) return
+  customCourseExporting.value = true
+  customCourseExportLocation.value = ''
+  try {
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list_all`, {
+      student_id: sid
+    })
+    if (!res.data?.success) {
+      throw new Error(res.data?.error || '导出自定义课程失败')
+    }
+    const list = Array.isArray(res.data?.data) ? res.data.data : []
+    const courses = list.map(toPortableCustomCourse).filter(Boolean)
+    const payload = {
+      version: '1.0.0',
+      exported_at: new Date().toISOString(),
+      student_id: sid,
+      courses
+    }
+    const content = JSON.stringify(payload, null, 2)
+    const fileName = `mini-hbut-custom-courses-${createTimestampSuffix()}.json`
+
+    const pickerResult = await saveJsonByFilePicker(fileName, content)
+    if (pickerResult.ok) {
+      customCourseExportLocation.value = pickerResult.location
+      if (!pickerResult.canceled) {
+        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
+      }
+      return
+    }
+
+    const preferShare = isLikelyMobileDevice()
+    const shareResult = preferShare
+      ? await shareCustomCoursesJson(fileName, content)
+      : { ok: false, canceled: false }
+    if (shareResult.ok) {
+      customCourseExportLocation.value = shareResult.canceled ? '已取消保存' : '系统文件保存器/分享面板'
+      if (!shareResult.canceled) {
+        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
+      }
+      return
+    }
+
+    const nativeResult = await saveJsonByNativeExport(fileName, content)
+    if (nativeResult.ok) {
+      customCourseExportLocation.value = nativeResult.location
+      if (!nativeResult.canceled) {
+        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
+      }
+      return
+    }
+
+    const fallbackShareResult = preferShare
+      ? { ok: false, canceled: false }
+      : await shareCustomCoursesJson(fileName, content)
+    if (fallbackShareResult.ok) {
+      customCourseExportLocation.value = fallbackShareResult.canceled ? '已取消保存' : '系统文件保存器/分享面板'
+      if (!fallbackShareResult.canceled) {
+        showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
+      }
+      return
+    }
+
+    if (triggerTextFileDownload(fileName, content)) {
+      customCourseExportLocation.value = '浏览器默认下载目录'
+      showToast(`已导出 ${courses.length} 门自定义课程`, 'success')
+      return
+    }
+
+    const copied = await copyTextWithFallback(content)
+    if (copied) {
+      customCourseExportLocation.value = '未生成文件，已复制 JSON 到剪贴板'
+      showToast('文件导出失败，已复制 JSON 到剪贴板', 'warning')
+      return
+    }
+    throw new Error('导出失败，请稍后重试')
+  } catch (error) {
+    showToast(String(error?.message || '导出自定义课程失败'), 'error')
+  } finally {
+    customCourseExporting.value = false
+  }
+}
+
+const triggerImportCustomCourses = () => {
+  if (customCourseImporting.value) return
+  customCourseFileInput.value?.click()
+}
+
+const importCustomCoursesFromText = async (content = '') => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) {
+    throw new Error('请先登录后再导入自定义课程')
+  }
+
+  let parsed
+  try {
+    parsed = JSON.parse(String(content || ''))
+  } catch {
+    throw new Error('JSON 解析失败，请检查文件格式')
+  }
+
+  const importStudentId = String(parsed?.student_id || '').trim()
+  const rows = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.courses) ? parsed.courses : [])
+  if (!rows.length) {
+    throw new Error('导入文件中没有可用课程数据')
+  }
+
+  if (importStudentId && importStudentId !== sid) {
+    const confirmed = await askConfirm({
+      title: '学号不一致，是否继续导入？',
+      lines: [
+        `当前登录学号：${sid}`,
+        `导入文件学号：${importStudentId}`,
+        '继续导入会写入当前登录账号的本地自定义课表。'
+      ],
+      confirmText: '继续导入',
+      cancelText: '取消',
+      danger: false
+    })
+    if (!confirmed) {
+      throw new Error('已取消导入')
+    }
+  }
+
+  const listRes = await axios.post(`${API_BASE}/v2/schedule/custom/list_all`, {
+    student_id: sid
+  })
+  if (!listRes.data?.success) {
+    throw new Error(listRes.data?.error || '读取本地课程失败，无法导入')
+  }
+
+  const existingList = Array.isArray(listRes.data?.data) ? listRes.data.data : []
+  const existingMap = new Map()
+  existingList.forEach((item) => {
+    const normalized = normalizeCustomCourse(item)
+    if (!normalized) return
+    const sourceId = String(normalized.source_id || normalized.id || '').trim()
+    if (!sourceId) return
+    existingMap.set(sourceId, normalized)
+  })
+
+  let added = 0
+  let updated = 0
+  let failed = 0
+
+  for (let index = 0; index < rows.length; index += 1) {
+    try {
+      const course = parseImportedCustomCourse(rows[index], index)
+      const existing = course.source_id ? existingMap.get(course.source_id) : null
+      if (existing && String(existing.semester || '').trim() === course.semester) {
+        const updateRes = await axios.post(`${API_BASE}/v2/schedule/custom/update`, {
+          student_id: sid,
+          semester: course.semester,
+          course_id: course.source_id,
+          name: course.name,
+          teacher: course.teacher,
+          room: course.room,
+          weekday: course.weekday,
+          period: course.period,
+          djs: course.djs,
+          weeks: course.weeks
+        })
+        if (!updateRes.data?.success) {
+          throw new Error(updateRes.data?.error || '更新失败')
+        }
+        updated += 1
+        continue
+      }
+
+      const addRes = await axios.post(`${API_BASE}/v2/schedule/custom/add`, {
+        student_id: sid,
+        semester: course.semester,
+        name: course.name,
+        teacher: course.teacher,
+        room: course.room,
+        weekday: course.weekday,
+        period: course.period,
+        djs: course.djs,
+        weeks: course.weeks
+      })
+      if (!addRes.data?.success) {
+        throw new Error(addRes.data?.error || '新增失败')
+      }
+      added += 1
+    } catch (error) {
+      failed += 1
+      console.warn('[Schedule] 自定义课程导入失败：', error)
+    }
+  }
+
+  await refreshCustomCourseViews(String(semester.value || semesterDraft.value || '').trim())
+  if (failed > 0) {
+    showToast(`导入完成：新增 ${added}，更新 ${updated}，失败 ${failed}`, 'warning', 4500)
+  } else {
+    showToast(`导入完成：新增 ${added}，更新 ${updated}`, 'success')
+  }
+}
+
+const handleCustomCourseFileChange = async (event) => {
+  const input = event?.target
+  const file = input?.files?.[0]
+  if (!file) return
+  customCourseImporting.value = true
+  try {
+    const content = await readTextFromFile(file)
+    await importCustomCoursesFromText(content)
+  } catch (error) {
+    const message = String(error?.message || '导入失败')
+    if (message !== '已取消导入') {
+      showToast(message, 'error')
+    }
+  } finally {
+    customCourseImporting.value = false
+    if (input) input.value = ''
+  }
 }
 
 const buildExportEventsForWeek = (weekNumber) => {
@@ -2307,23 +2839,47 @@ onBeforeUnmount(() => {
             <div class="drawer-sync-actions">
               <button
                 class="drawer-action sync-upload"
-                :disabled="syncUploading || syncDownloading"
+                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="handleCloudSyncUpload"
               >
                 {{ syncUploading ? '云上传中...' : '云上传' }}
               </button>
               <button
                 class="drawer-action sync-download"
-                :disabled="syncUploading || syncDownloading"
+                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="handleCloudSyncDownload"
               >
                 {{ syncDownloading ? '云下载中...' : '云下载' }}
               </button>
             </div>
+            <div class="drawer-sync-actions drawer-sync-actions--json">
+              <button
+                class="drawer-action sync-json-export"
+                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
+                @click="exportCustomCoursesJson"
+              >
+                {{ customCourseExporting ? '导出中...' : '导出 JSON' }}
+              </button>
+              <button
+                class="drawer-action sync-json-import"
+                :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
+                @click="triggerImportCustomCourses"
+              >
+                {{ customCourseImporting ? '导入中...' : '导入 JSON' }}
+              </button>
+            </div>
+            <input
+              ref="customCourseFileInput"
+              type="file"
+              accept=".json,application/json"
+              style="display: none"
+              @change="handleCustomCourseFileChange"
+            >
             <div class="drawer-sync-status">
               <span class="drawer-sync-cooldown">上传：{{ syncUploadCooldownText }}</span>
               <span class="drawer-sync-cooldown">下载：{{ syncDownloadCooldownText }}</span>
               <span v-if="syncStatusText" class="drawer-sync-running">{{ syncStatusText }}</span>
+              <span v-if="customCourseExportLocation" class="drawer-sync-export-path">导出位置：{{ customCourseExportLocation }}</span>
             </div>
           </div>
           <button
@@ -2574,7 +3130,13 @@ onBeforeUnmount(() => {
                   <div class="course-room">
                     {{ course.is_conflict ? '点击查看冲突课程详情' : (course.room_code || course.room) }}
                   </div>
-               </div>
+                  <div
+                    v-if="scheduleCourseCardStyle === 'class' && !course.is_conflict"
+                    class="course-teacher"
+                  >
+                    {{ course.teacher || '未标注教师' }}
+                  </div>
+                </div>
            </div>
         </div>
       </div>
@@ -2646,6 +3208,11 @@ onBeforeUnmount(() => {
               <button class="custom-delete-btn week" @click="deleteCustomCourse('current_week')">删除这一周</button>
               <button class="custom-delete-btn all" @click="deleteCustomCourse('all')">删除全部周次</button>
             </div>
+          </div>
+          <div class="detail-copy-actions">
+            <button class="detail-copy-btn" @click="copySelectedCourseDetail">
+              {{ selectedCourse?.is_conflict ? '复制冲突详情' : '复制详情' }}
+            </button>
           </div>
           <div v-if="detailActionError" class="detail-action-error">{{ detailActionError }}</div>
         </div>
@@ -2861,10 +3428,10 @@ onBeforeUnmount(() => {
 
 .drawer-style-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
-  gap: 4px;
-  padding: 4px;
+  gap: 2px;
+  padding: 3px;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, rgba(148, 163, 184, 0.34));
   background: color-mix(in oklab, var(--ui-primary-soft) 18%, var(--ui-surface) 82%);
@@ -2875,8 +3442,8 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--ui-muted);
   border-radius: 999px;
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 31px;
+  padding: 0 6px;
   text-align: center;
   display: inline-flex;
   align-items: center;
@@ -2887,7 +3454,7 @@ onBeforeUnmount(() => {
 }
 
 .drawer-style-chip strong {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -2942,6 +3509,10 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.drawer-sync-actions--json {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .drawer-action.ghost {
   background: #111827;
   box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
@@ -2967,6 +3538,16 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 18px rgba(15, 118, 110, 0.24);
 }
 
+.drawer-action.sync-json-export {
+  background: linear-gradient(135deg, #6366f1, #2563eb);
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.24);
+}
+
+.drawer-action.sync-json-import {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  box-shadow: 0 10px 18px rgba(234, 88, 12, 0.24);
+}
+
 .drawer-action:disabled {
   opacity: 0.7;
   cursor: not-allowed;
@@ -2987,6 +3568,14 @@ onBeforeUnmount(() => {
 .drawer-sync-running {
   color: #0f766e;
   font-weight: 600;
+}
+
+.drawer-sync-export-path {
+  font-size: 12px;
+  color: color-mix(in oklab, var(--ui-primary) 68%, #0f172a);
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-all;
 }
 
 .drawer-tip {
@@ -3288,6 +3877,17 @@ onBeforeUnmount(() => {
   box-shadow: var(--course-shadow, 0 4px 10px rgba(15, 23, 42, 0.14)) !important;
 }
 
+.schedule-view .courses-grid .day-column > .course-card.course-card--class {
+  border-left: 3px solid var(--course-border, rgba(148, 163, 184, 0.55)) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--course-shadow, 0 4px 10px rgba(15, 23, 42, 0.14)) !important;
+  padding: 4px 6px;
+  gap: 2px;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+}
+
 .course-card.conflict .course-name {
   font-weight: 700;
 }
@@ -3317,6 +3917,17 @@ onBeforeUnmount(() => {
   font-size: 11px;
   opacity: 0.88;
   font-weight: 500;
+}
+
+.course-teacher {
+  font-size: 10px;
+  opacity: 0.72;
+  font-weight: 500;
+  line-height: 1.25;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Modal */
@@ -3507,6 +4118,22 @@ onBeforeUnmount(() => {
 .custom-delete-btn.all {
   background: #dc2626;
   color: #ffffff;
+}
+
+.detail-copy-actions {
+  margin-top: 12px;
+}
+
+.detail-copy-btn {
+  width: 100%;
+  min-height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .detail-action-error {
@@ -4104,6 +4731,10 @@ onBeforeUnmount(() => {
     font-size: 9px;
   }
 
+  .course-teacher {
+    font-size: 9px;
+  }
+
   .add-row {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -4119,8 +4750,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
-
-
-
-

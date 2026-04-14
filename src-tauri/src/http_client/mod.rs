@@ -60,11 +60,12 @@ pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] = &[
 ];
 
 /// 判断是否跳转到了教务登录页（包含 CAS 登录与教务自身登录页）。
+/// 注意：不匹配 `/admin/caslogin`，因为它是学习通 CAS 的 service URL 本身，
+/// 成功跳转后 final_url 仍然包含该路径，会造成误判。
 pub(super) fn looks_like_academic_login_url(url: &str) -> bool {
     let lower = url.to_lowercase();
     lower.contains("authserver/login")
-        || lower.contains("/admin/login")
-        || lower.contains("/admin/caslogin")
+        || (lower.contains("/admin/login") && !lower.contains("/admin/login2"))
 }
 
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）

@@ -21,6 +21,9 @@ import NotificationView from './components/NotificationView.vue'
 import ConfigEditor from './components/ConfigEditor.vue'
 import SettingsView from './components/SettingsView.vue'
 import ExportCenterView from './components/ExportCenterView.vue'
+import MoreView from './components/MoreView.vue'
+import OnlineLearningChaoxingView from './components/OnlineLearningChaoxingView.vue'
+import OnlineLearningYuketangView from './components/OnlineLearningYuketangView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import TransactionHistory from './components/TransactionHistory.vue'
@@ -44,6 +47,15 @@ import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
+import {
+  clearDailyAccessGrant,
+  getProtectedViewLabel,
+  hasDailyAccessGrant,
+  isProtectedView,
+  markDailyAccessGranted,
+  sanitizeDailyAccessInput,
+  verifyDailyAccessKey
+} from './utils/daily_access_key.js'
 import {
   exitNativeApp,
   getCurrentNativeWindow,
@@ -80,11 +92,42 @@ let appBootstrapped = false
 let capacitorAppStateListener = null
 
 const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
-const ME_SUB_VIEWS = ['official', 'feedback', 'config', 'settings', 'export_center']
+const ME_SUB_VIEWS = [
+  'official',
+  'feedback',
+  'config',
+  'settings',
+  'export_center',
+  'more',
+  'online_learning_chaoxing',
+  'online_learning_yuketang'
+]
+
+const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
+  schedule: 'home',
+  notifications: 'home',
+  me: 'home',
+  official: 'me',
+  feedback: 'me',
+  config: 'me',
+  settings: 'me',
+  export_center: 'me',
+  more: 'me',
+  online_learning_chaoxing: 'more',
+  online_learning_yuketang: 'more'
+})
 
 const normalizeViewName = (view) => {
   const normalized = String(view || '').trim()
   return normalized || 'home'
+}
+
+const resolveInitialAccessibleView = (view) => {
+  const normalized = normalizeViewName(view)
+  if (isProtectedView(normalized) && !hasDailyAccessGrant()) {
+    return 'home'
+  }
+  return normalized
 }
 
 const readWindowRouteSnapshot = () => {
@@ -111,7 +154,7 @@ const readWindowRouteSnapshot = () => {
 
 const initialRouteSnapshot = readWindowRouteSnapshot()
 const startupPageSetting = useUiSettings().startupPage || 'home'
-const initialView = normalizeViewName(initialRouteSnapshot?.view || startupPageSetting)
+const initialView = resolveInitialAccessibleView(initialRouteSnapshot?.view || startupPageSetting)
 const initialTab = String(
   initialRouteSnapshot?.tab ||
     (MAIN_TABS.includes(initialView) ? initialView : (ME_SUB_VIEWS.includes(initialView) ? 'me' : 'home'))
@@ -137,6 +180,10 @@ const splashStatusText = ref('正在启动…')
 const splashRef = ref(null)
 const showExitDialog = ref(false)
 const exitingApp = ref(false)
+const showDailyAccessDialog = ref(false)
+const dailyAccessInput = ref('')
+const dailyAccessError = ref('')
+const pendingProtectedView = ref(null)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
 const appShellRef = ref(null)
@@ -175,6 +222,7 @@ let remoteConfigRefreshTimer = null
 const showUpdateDialog = ref(false)
 const showForceUpdate = ref(false)
 const forceUpdateInfo = ref(null)
+const protectedViewPromptTitle = computed(() => getProtectedViewLabel(pendingProtectedView.value?.view))
 const forceUpdateResolvedUrl = computed(() => {
   const raw = String(forceUpdateInfo.value?.download_url || '').trim()
   if (!raw) return ''
@@ -484,6 +532,13 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
       // ignore storage failure on resume
     }
   }
+  if (!ensureProtectedViewAccess(targetView, {
+    push: false,
+    redirectToFallback: true,
+    fallbackView: 'home'
+  })) {
+    return
+  }
   pendingScrollToTopOnViewChange = false
   applyViewState(targetView)
   replaceHistorySnapshot(targetView)
@@ -576,7 +631,44 @@ const applyViewState = (view) => {
   currentModule.value = view
 }
 
-const goToView = (view, { push = true } = {}) => {
+const resolveAccessFallbackView = (view = 'home') => {
+  const normalized = normalizeViewName(view)
+  if (!normalized || normalized === 'home') return 'home'
+  if (isProtectedView(normalized)) return 'home'
+  return normalized
+}
+
+const queueProtectedViewPrompt = (view, { push = true } = {}) => {
+  pendingProtectedView.value = {
+    view: normalizeViewName(view),
+    push: push !== false
+  }
+  dailyAccessInput.value = ''
+  dailyAccessError.value = ''
+  showDailyAccessDialog.value = true
+}
+
+const ensureProtectedViewAccess = (
+  view,
+  { push = true, redirectToFallback = false, fallbackView = currentView.value } = {}
+) => {
+  const normalized = normalizeViewName(view)
+  if (!isProtectedView(normalized) || hasDailyAccessGrant()) {
+    return true
+  }
+
+  if (redirectToFallback) {
+    const fallback = resolveAccessFallbackView(fallbackView)
+    pendingScrollToTopOnViewChange = false
+    applyViewState(fallback)
+    replaceHistorySnapshot(fallback)
+  }
+
+  queueProtectedViewPrompt(normalized, { push })
+  return false
+}
+
+const goToViewInternal = (view, { push = true } = {}) => {
   pendingScrollToTopOnViewChange = true
   applyViewState(view)
   if (push) {
@@ -590,6 +682,34 @@ const goToView = (view, { push = true } = {}) => {
       nudgeWebViewPaint()
     })
   }
+}
+
+const goToView = (view, { push = true } = {}) => {
+  const normalized = normalizeViewName(view)
+  if (!ensureProtectedViewAccess(normalized, { push, fallbackView: currentView.value })) {
+    return false
+  }
+  goToViewInternal(normalized, { push })
+  return true
+}
+
+const resolveParentView = (view) => {
+  const normalized = normalizeViewName(view)
+  if (!normalized || normalized === 'home') return ''
+  if (HIERARCHICAL_PARENT_VIEW_MAP[normalized]) {
+    return HIERARCHICAL_PARENT_VIEW_MAP[normalized]
+  }
+  if (MAIN_TABS.includes(normalized)) {
+    return 'home'
+  }
+  return 'home'
+}
+
+const goToParentView = () => {
+  const parentView = resolveParentView(currentView.value)
+  if (!parentView) return false
+  goToViewInternal(parentView, { push: false })
+  return true
 }
 
 const parseHashRoute = () => {
@@ -613,6 +733,13 @@ const syncFromHash = async ({ scrollToTop = false } = {}) => {
 
   studentId.value = route.sid
   localStorage.setItem('hbu_username', route.sid)
+  if (!ensureProtectedViewAccess(route.view, {
+    push: false,
+    redirectToFallback: true,
+    fallbackView: 'home'
+  })) {
+    return
+  }
   pendingScrollToTopOnViewChange = scrollToTop
   applyViewState(route.view)
 
@@ -731,6 +858,7 @@ const handleLogout = (options = {}) => {
   localStorage.removeItem(LOGIN_TEMP_FLAG_KEY)
   localStorage.removeItem(SCHEDULE_POPUP_PENDING_KEY)
   localStorage.removeItem(SCHEDULE_SWITCH_PENDING_KEY)
+  clearDailyAccessGrant()
   if (reason) {
     localStorage.setItem(LOGOUT_REASON_KEY, reason)
   } else {
@@ -958,6 +1086,10 @@ const handleOpenOfficial = () => {
 
 const handleBackToMe = () => {
   goToView('me')
+}
+
+const handleBackToMore = () => {
+  goToView('more')
 }
 
 const handleOpenFeedback = () => {
@@ -1398,6 +1530,20 @@ const stopElectricityKeepAlive = () => {
 const showTabBar = computed(() => MAIN_TABS.includes(currentView.value))
 
 const handlePopState = async () => {
+  if (!isDesktopLike) {
+    const handled = goToParentView()
+    if (!handled) {
+      replaceHistorySnapshot('home')
+    }
+    recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+    if (isIOSLike) {
+      requestAnimationFrame(() => {
+        nudgeWebViewPaint()
+      })
+    }
+    return
+  }
+
   await syncFromHash({ scrollToTop: true })
   recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
   if (isIOSLike) {
@@ -1436,6 +1582,37 @@ const installCloseInterceptor = async () => {
 
 const cancelExitDialog = () => {
   showExitDialog.value = false
+}
+
+const closeDailyAccessDialog = () => {
+  showDailyAccessDialog.value = false
+  dailyAccessInput.value = ''
+  dailyAccessError.value = ''
+  pendingProtectedView.value = null
+}
+
+const handleDailyAccessInput = (event) => {
+  dailyAccessInput.value = sanitizeDailyAccessInput(event?.target?.value || '')
+  if (dailyAccessError.value) {
+    dailyAccessError.value = ''
+  }
+}
+
+const submitDailyAccessKey = () => {
+  const normalized = sanitizeDailyAccessInput(dailyAccessInput.value)
+  dailyAccessInput.value = normalized
+  if (!verifyDailyAccessKey(normalized)) {
+    dailyAccessError.value = '今日秘钥不正确，请重新输入。'
+    return
+  }
+
+  const targetView = normalizeViewName(pendingProtectedView.value?.view || 'home')
+  const push = pendingProtectedView.value?.push !== false
+  markDailyAccessGranted()
+  showDailyAccessDialog.value = false
+  dailyAccessError.value = ''
+  pendingProtectedView.value = null
+  goToViewInternal(targetView, { push })
 }
 
 const confirmExitDialog = async () => {
@@ -1520,8 +1697,14 @@ onMounted(async () => {
 
   if (restored && !window.location.hash) {
     pendingScrollToTopOnViewChange = false
-    const startupPage = useUiSettings().startupPage || 'home'
-    applyViewState(startupPage)
+    const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
+    if (ensureProtectedViewAccess(startupPage, {
+      push: false,
+      redirectToFallback: true,
+      fallbackView: 'home'
+    })) {
+      applyViewState(startupPage)
+    }
   }
 
   if (onlineReady) {
@@ -1737,6 +1920,25 @@ onBeforeUnmount(() => {
         @back="handleBackToMe"
         @logout="handleLogout"
       />
+
+      <MoreView
+        v-else-if="currentView === 'more'"
+        :student-id="studentId"
+        @back="handleBackToMe"
+        @navigate="handleNavigate"
+      />
+
+      <OnlineLearningChaoxingView
+        v-else-if="currentView === 'online_learning_chaoxing'"
+        :student-id="studentId"
+        @back="handleBackToMore"
+      />
+
+      <OnlineLearningYuketangView
+        v-else-if="currentView === 'online_learning_yuketang'"
+        :student-id="studentId"
+        @back="handleBackToMore"
+      />
       
       <!-- 成绩查看 -->
       <GradeView 
@@ -1919,6 +2121,35 @@ onBeforeUnmount(() => {
 
   <div v-if="showLoginPrompt" class="login-mask">
     <div class="login-mask-card">请先在个人中心登录</div>
+  </div>
+
+  <div v-if="showDailyAccessDialog" class="daily-access-overlay">
+    <div class="daily-access-card">
+      <h3>输入今日秘钥</h3>
+      <p class="daily-access-desc">
+        {{ protectedViewPromptTitle }} 已启用访问门禁，请输入根据当天日期生成的秘钥后再进入。
+      </p>
+      <p class="daily-access-tip">详情请询问管理员。</p>
+      <form class="daily-access-form" @submit.prevent="submitDailyAccessKey">
+        <input
+          class="daily-access-input"
+          :value="dailyAccessInput"
+          type="text"
+          placeholder="例如 ABCDE-FGHIJ"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          maxlength="11"
+          autofocus
+          @input="handleDailyAccessInput"
+        />
+        <p v-if="dailyAccessError" class="daily-access-error">{{ dailyAccessError }}</p>
+        <div class="daily-access-actions">
+          <button type="button" class="btn-secondary" @click="closeDailyAccessDialog">取消</button>
+          <button type="submit" class="btn-primary">验证并进入</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <div v-if="showExitDialog" class="exit-dialog-overlay">
@@ -2284,6 +2515,84 @@ onBeforeUnmount(() => {
   box-shadow: var(--ui-shadow-soft);
 }
 
+.daily-access-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(10px);
+}
+
+.daily-access-card {
+  width: min(460px, 100%);
+  padding: 24px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: var(--ui-shadow-strong);
+}
+
+.daily-access-card h3 {
+  margin: 0;
+  font-size: 24px;
+  color: var(--ui-text);
+}
+
+.daily-access-desc {
+  margin: 12px 0 0;
+  color: var(--ui-text);
+  line-height: 1.6;
+}
+
+.daily-access-tip {
+  margin: 8px 0 0;
+  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.daily-access-form {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.daily-access-input {
+  height: 48px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--ui-text);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+
+.daily-access-input:focus {
+  outline: none;
+  border-color: var(--ui-primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ui-primary) 18%, transparent);
+}
+
+.daily-access-error {
+  margin: 0;
+  color: var(--ui-danger);
+  font-size: 14px;
+}
+
+.daily-access-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .exit-dialog-overlay {
   position: fixed;
   inset: 0;
@@ -2537,4 +2846,3 @@ onBeforeUnmount(() => {
 }
 
 </style>
-

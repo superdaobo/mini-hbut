@@ -69,26 +69,68 @@ fn extract_scoped_cookie_blob(raw: &str, scope: &str) -> Option<String> {
         .filter(|item| !item.is_empty())
 }
 
-fn re_chaoxing_xxtlogin_url() -> &'static regex::Regex {
+fn regex_chaoxing_xxtlogin_url() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| {
         regex::Regex::new(
-            r#"https://vkb\.jw\.chaoxing\.com/admin/api/xxtlogin\?loginUrl=[^"'<>\s]+"#,
+            r#"(?i)(?:https?:)?(?:\\\\/\\\\/|//)?[a-z0-9\.-]*(?:\\\\/|/)?admin(?:\\\\/|/)?api(?:\\\\/|/)?xxtlogin\?loginUrl=[^"'<>\s]+"#,
         )
         .expect("regex xxtlogin")
     })
 }
 
-fn extract_chaoxing_xxtlogin_url(html: &str) -> Option<String> {
-    re_chaoxing_xxtlogin_url()
-        .find(html)
-        .map(|m| {
-            m.as_str()
-                .replace("&amp;", "&")
-                .replace("&#x26;", "&")
-                .replace("&quot;", "\"")
-        })
-        .filter(|v| !v.trim().is_empty())
+fn normalize_chaoxing_bridge_url(raw: &str) -> String {
+    raw.trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .replace("\\/", "/")
+        .replace("\\u0026", "&")
+        .replace("\\u003d", "=")
+        .replace("\\u003f", "?")
+        .replace("\\u002f", "/")
+        .replace("&amp;", "&")
+        .replace("&#x26;", "&")
+        .replace("&quot;", "\"")
+}
+
+fn collect_chaoxing_xxtlogin_urls(html: &str) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for mat in regex_chaoxing_xxtlogin_url().find_iter(html) {
+        let mut candidate = normalize_chaoxing_bridge_url(mat.as_str());
+        if candidate.is_empty() {
+            continue;
+        }
+        if candidate.starts_with("//") {
+            candidate = format!("https:{}", candidate);
+        } else if candidate.starts_with("http://") {
+            candidate = candidate.replacen("http://", "https://", 1);
+        } else if !candidate.starts_with("https://") && !candidate.starts_with("/admin/") {
+            candidate = format!("https://{}", candidate.trim_start_matches('/'));
+        }
+
+        if candidate.starts_with("/admin/api/xxtlogin") {
+            for host in [
+                "https://vkb.jw.chaoxing.com",
+                "https://hbut.jw.chaoxing.com",
+                "https://i.chaoxing.com",
+            ] {
+                let merged = format!("{}{}", host, candidate);
+                if !urls.iter().any(|item| item == &merged) {
+                    urls.push(merged);
+                }
+            }
+            continue;
+        }
+        if !urls.iter().any(|item| item == &candidate) {
+            urls.push(candidate);
+        }
+    }
+
+    let fallback = "https://vkb.jw.chaoxing.com/admin/api/xxtlogin?loginUrl=https%3A%2F%2Fhbut.jw.chaoxing.com%2Fadmin%2Flogin2%3Frole%3Dxs%26url%3Dhttps%253A%252F%252Fmitudz.jw.chaoxing.com%252Fviews%252FhomePage.html%253Frole%253D1%2526domainUrl%253Dhbut.jw.chaoxing.com".to_string();
+    if !urls.iter().any(|item| item == &fallback) {
+        urls.push(fallback);
+    }
+    urls
 }
 
 impl HbutClient {
@@ -96,6 +138,38 @@ impl HbutClient {
     pub async fn ensure_chaoxing_academic_session(&self) -> bool {
         if !self.prefer_chaoxing_jwxt {
             return false;
+        }
+
+        let has_ready_cookie = || {
+            let jw_raw = Url::parse("https://hbut.jw.chaoxing.com")
+                .ok()
+                .and_then(|url| self.cookie_jar.cookies(&url))
+                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+                .unwrap_or_default();
+            let has_jw = jw_raw.contains("jw_uf=") && jw_raw.contains("username=");
+            if !has_jw {
+                return false;
+            }
+            let passport_raw = Url::parse("https://passport2.chaoxing.com")
+                .ok()
+                .and_then(|url| self.cookie_jar.cookies(&url))
+                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+                .unwrap_or_default();
+            let i_raw = Url::parse("https://i.chaoxing.com")
+                .ok()
+                .and_then(|url| self.cookie_jar.cookies(&url))
+                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+                .unwrap_or_default();
+            [passport_raw.as_str(), i_raw.as_str(), jw_raw.as_str()]
+                .iter()
+                .any(|cookie| {
+                    cookie.contains("p_auth_token=")
+                        || cookie.contains("cx_p_token=")
+                        || cookie.contains("xxtenc=")
+                })
+        };
+        if has_ready_cookie() {
+            return true;
         }
 
         let base_url = format!(
@@ -110,6 +184,8 @@ impl HbutClient {
             }
         };
 
+        let base_status = base_resp.status();
+        let base_final_url = base_resp.url().to_string();
         let base_html = match base_resp.text().await {
             Ok(text) => text,
             Err(e) => {
@@ -117,24 +193,49 @@ impl HbutClient {
                 return false;
             }
         };
+        println!(
+            "[调试] 学习通补票：base status={}, final_url={}",
+            base_status, base_final_url
+        );
 
-        if let Some(bridge_url) = extract_chaoxing_xxtlogin_url(&base_html) {
-            println!("[调试] 学习通补票：命中 xxtlogin 链路");
-            let _ = self
+        // 如果 base 被重定向到 passport2 登录页，说明 i.chaoxing.com 不识别当前会话
+        // 直接返回，避免 passport2 登录页通过 Set-Cookie 清除已有的 UID/auth cookie
+        if base_final_url.contains("passport2.chaoxing.com/login")
+            || base_final_url.contains("passport2.chaoxing.com/mlogin")
+        {
+            println!("[调试] 学习通补票：base 重定向到登录页，跳过补票避免 cookie 被清除");
+            return false;
+        }
+
+        let bridge_urls = collect_chaoxing_xxtlogin_urls(&base_html);
+        if bridge_urls.len() <= 1 {
+            println!("[调试] 学习通补票：未在首页提取到 xxtlogin 链路，使用兜底链路");
+        }
+        for (idx, bridge_url) in bridge_urls.iter().enumerate() {
+            let bridge_resp = self
                 .client
-                .get(&bridge_url)
+                .get(bridge_url)
                 .header("Referer", "https://i.chaoxing.com/")
                 .send()
                 .await;
-        } else {
-            println!("[调试] 学习通补票：未在首页提取到 xxtlogin 链路");
-            let fallback_bridge = "https://vkb.jw.chaoxing.com/admin/api/xxtlogin?loginUrl=https%3A%2F%2Fhbut.jw.chaoxing.com%2Fadmin%2Flogin2%3Frole%3Dxs%26url%3Dhttps%253A%252F%252Fmitudz.jw.chaoxing.com%252Fviews%252FhomePage.html%253Frole%253D1%2526domainUrl%253Dhbut.jw.chaoxing.com";
-            let _ = self
-                .client
-                .get(fallback_bridge)
-                .header("Referer", "https://i.chaoxing.com/")
-                .send()
-                .await;
+            match bridge_resp {
+                Ok(resp) => {
+                    println!(
+                        "[调试] 学习通补票：xxtlogin[{}] status={}, final_url={}",
+                        idx + 1,
+                        resp.status(),
+                        resp.url()
+                    );
+                    let _ = resp.text().await;
+                }
+                Err(e) => {
+                    println!(
+                        "[调试] 学习通补票：xxtlogin[{}] 请求失败: {}",
+                        idx + 1,
+                        e
+                    );
+                }
+            }
         }
 
         let _ = self
@@ -159,6 +260,15 @@ impl HbutClient {
             .header("Referer", "https://hbut.jw.chaoxing.com/admin/")
             .send()
             .await;
+        let _ = self
+            .client
+            .get(&format!(
+                "https://i.chaoxing.com/base?t={}",
+                super::utils::chrono_timestamp()
+            ))
+            .header("Referer", "https://hbut.jw.chaoxing.com/admin/")
+            .send()
+            .await;
 
         let jw_url = match Url::parse("https://hbut.jw.chaoxing.com") {
             Ok(v) => v,
@@ -169,13 +279,176 @@ impl HbutClient {
             .cookies(&jw_url)
             .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
             .unwrap_or_default();
+        let passport_raw = Url::parse("https://passport2.chaoxing.com")
+            .ok()
+            .and_then(|url| self.cookie_jar.cookies(&url))
+            .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            .unwrap_or_default();
+        let i_raw = Url::parse("https://i.chaoxing.com")
+            .ok()
+            .and_then(|url| self.cookie_jar.cookies(&url))
+            .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            .unwrap_or_default();
         let ready = raw.contains("jw_uf=") && raw.contains("username=");
+        let has_learning_token = [passport_raw.as_str(), i_raw.as_str(), raw.as_str()]
+            .iter()
+            .any(|cookie| {
+                cookie.contains("p_auth_token=")
+                    || cookie.contains("cx_p_token=")
+                    || cookie.contains("xxtenc=")
+            });
+        let has_learning_uid = [passport_raw.as_str(), i_raw.as_str(), raw.as_str()]
+            .iter()
+            .any(|cookie| cookie.contains("UID=") || cookie.contains("_uid="));
         println!(
-            "[调试] 学习通补票完成: ready={}, cookie_len={}",
+            "[调试] 学习通补票完成: ready={}, jw_len={}, i_len={}, passport_len={}, has_learning_uid={}, has_learning_token={}",
             ready,
-            raw.len()
+            raw.len(),
+            i_raw.len(),
+            passport_raw.len(),
+            has_learning_uid,
+            has_learning_token
         );
         ready
+    }
+
+    /// 利用已有的 CAS 会话 SSO 到超星学习通，无需单独登录。
+    /// 流程：CAS?service=fysso/cassso/hbutsie → fysso/hbutsie?ticket=ST → logindsso → loginfanya → 建立超星会话
+    pub async fn try_bridge_cas_to_chaoxing(&mut self) -> bool {
+        if !self.is_logged_in {
+            println!("[调试] CAS→超星桥接: CAS 未登录，跳过");
+            return false;
+        }
+
+        // 直接走 CAS service URL，绕过 tohbutsie 避免 i.chaoxing.com 的 HTTPS→HTTP 降级重定向
+        // 链路（共 6 步）：CAS?service=fysso/hbutsie → fysso/hbutsie?ticket=ST
+        //     → logindsso → loginfanya（设置 UID cookies）→ login/auth → fanya portal
+        let cas_fysso_url = format!(
+            "{}/login?service=https://fysso.chaoxing.com/cassso/hbutsie",
+            super::AUTH_BASE_URL
+        );
+        println!("[调试] CAS→超星桥接: 发起 CAS→FYSSO {}", cas_fysso_url);
+
+        let resp = match self.client.get(&cas_fysso_url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                println!("[调试] CAS→超星桥接: FYSSO 请求失败: {}", e);
+                return false;
+            }
+        };
+
+        let final_url = resp.url().to_string();
+        let _body = resp.text().await.unwrap_or_default();
+        println!("[调试] CAS→超星桥接: 跳转到 {}", final_url);
+
+        // 检查是否回到了 CAS 登录页（说明 TGT 失效）
+        if final_url.contains("authserver/login") {
+            println!("[调试] CAS→超星桥接: TGT 已失效，跳转回登录页");
+            return false;
+        }
+
+        // 设置学习通教务域名优先模式
+        self.set_chaoxing_login_mode(true);
+
+        // 访问学习通教务首页以激活完整会话
+        let _ = self.client
+            .get("https://hbut.jw.chaoxing.com/admin/")
+            .header("Referer", "https://i.chaoxing.com/")
+            .send()
+            .await;
+
+        // 注意：不再访问 i.chaoxing.com/base，因为 FYSSO 桥接后 i.chaoxing.com 不认识此会话，
+        // 会重定向到 passport2.chaoxing.com/login，passport2 登录页可能清除已设置的 UID Cookie。
+        // backclazzdata 只需 .chaoxing.com 域的 UID/p_auth_token cookie，FYSSO 链已设置好。
+
+        // 验证超星会话是否可用
+        let passport_url = Url::parse("https://passport2.chaoxing.com").ok();
+        let i_url = Url::parse("https://i.chaoxing.com").ok();
+        let jw_url = Url::parse("https://hbut.jw.chaoxing.com").ok();
+
+        let mut all_cookies = String::new();
+        for url in [&passport_url, &i_url, &jw_url].iter().filter_map(|u| u.as_ref()) {
+            if let Some(c) = self.cookie_jar.cookies(url) {
+                if let Ok(s) = c.to_str() {
+                    if !s.trim().is_empty() {
+                        if !all_cookies.is_empty() {
+                            all_cookies.push_str("; ");
+                        }
+                        all_cookies.push_str(s);
+                    }
+                }
+            }
+        }
+
+        let has_uid = all_cookies.contains("UID=") || all_cookies.contains("_uid=");
+        let has_jw = all_cookies.contains("jw_uf=");
+        println!(
+            "[调试] CAS→超星桥接完成: has_uid={}, has_jw={}, cookie_len={}",
+            has_uid, has_jw, all_cookies.len()
+        );
+
+        // FYSSO 链的 Set-Cookie 可能不带 Domain=.chaoxing.com，
+        // 导致 mooc1.chaoxing.com 等子域无法继承关键 cookies（UID, _uid, fid, cx_p_token 等）。
+        // 将这些关键 cookies 显式种到 mooc1 域以确保章节页面可正常访问。
+        if has_uid {
+            self.propagate_chaoxing_cookies_to_mooc();
+        }
+
+        has_uid || has_jw
+    }
+
+    /// 将关键学习通 cookies 从 passport2/i 域传播到 mooc1 域
+    fn propagate_chaoxing_cookies_to_mooc(&self) {
+        let source_urls = [
+            "https://passport2.chaoxing.com",
+            "https://i.chaoxing.com",
+        ];
+        let target_urls = [
+            "https://mooc1.chaoxing.com",
+            "https://mooc1-api.chaoxing.com",
+        ];
+        let key_names: &[&str] = &[
+            "UID", "_uid", "fid", "cx_p_token", "p_auth_token", "xxtenc",
+            "_d", "uf", "spaceFid", "spaceRoleId",
+        ];
+
+        // 收集所有源域 cookies
+        let mut collected: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for src in &source_urls {
+            if let Ok(url) = Url::parse(src) {
+                if let Some(header) = self.cookie_jar.cookies(&url) {
+                    if let Ok(s) = header.to_str() {
+                        for pair in s.split(';') {
+                            let pair = pair.trim();
+                            if let Some((name, value)) = pair.split_once('=') {
+                                let name = name.trim();
+                                if key_names.iter().any(|k| k.eq_ignore_ascii_case(name)) {
+                                    collected.entry(name.to_string()).or_insert_with(|| value.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if collected.is_empty() {
+            return;
+        }
+
+        // 种到所有目标域
+        for tgt in &target_urls {
+            if let Ok(url) = Url::parse(tgt) {
+                for (name, value) in &collected {
+                    let cookie_str = format!("{}={}; Path=/", name, value);
+                    self.cookie_jar.add_cookie_str(&cookie_str, &url);
+                }
+            }
+        }
+        println!(
+            "[调试] CAS→超星桥接: 已传播 {} 个关键 cookie 到 mooc1 域",
+            collected.len()
+        );
     }
 
     /// 拉取当前登录用户信息
@@ -556,4 +829,3 @@ impl HbutClient {
     }
 
 }
-

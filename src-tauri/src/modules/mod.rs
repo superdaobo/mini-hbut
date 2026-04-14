@@ -17,3 +17,4 @@ pub mod transaction;
 pub mod notification;
 pub mod ai;
 pub mod one_code;
+pub mod online_learning;

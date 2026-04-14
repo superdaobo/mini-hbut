@@ -48,7 +48,7 @@ use modules::one_code::*;
 
 
 const DB_FILENAME: &str = "grades.db";
-const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/temp/upload";
+pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/temp/upload";
 const DEFAULT_PORTAL_SERVICE_URL: &str = "https://e.hbut.edu.cn/login#/";
 const CHAOXING_LOGIN_PAGE_URL: &str =
     "https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com";
@@ -928,6 +928,178 @@ pub struct CourseSelectionSelectedCoursesRequest {
     pub semester: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineLearningOverviewRequest {
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineLearningSyncRequest {
+    pub student_id: Option<String>,
+    pub platform: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineLearningSyncRunsRequest {
+    pub student_id: Option<String>,
+    pub platform: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineLearningClearCacheRequest {
+    pub student_id: Option<String>,
+    pub platform: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingSessionStatusRequest {
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingCoursesRequest {
+    pub student_id: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingCourseOutlineRequest {
+    pub student_id: Option<String>,
+    pub course_id: String,
+    pub clazz_id: String,
+    pub cpi: String,
+    pub course_url: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingCourseProgressRequest {
+    pub student_id: Option<String>,
+    pub course_id: String,
+    pub clazz_id: String,
+    pub cpi: String,
+    pub course_url: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingLaunchUrlRequest {
+    pub student_id: Option<String>,
+    pub course_id: String,
+    pub clazz_id: String,
+    pub chapter_id: Option<String>,
+    pub knowledge_id: Option<String>,
+    pub cpi: Option<String>,
+    pub launch_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangQrCreateRequest {
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangPollQrLoginRequest {
+    pub student_id: Option<String>,
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangCoursesRequest {
+    pub student_id: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangCourseOutlineRequest {
+    pub student_id: Option<String>,
+    pub classroom_id: String,
+    pub sign: Option<String>,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangCourseProgressRequest {
+    pub student_id: Option<String>,
+    pub classroom_id: String,
+    pub sku_id: Option<String>,
+    pub force: Option<bool>,
+}
+
+// ── 自动刷课 Request DTO ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingKnowledgeCardsRequest {
+    pub student_id: Option<String>,
+    pub clazz_id: String,
+    pub course_id: String,
+    pub knowledge_id: String,
+    pub cpi: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingVideoStatusRequest {
+    pub student_id: Option<String>,
+    pub object_id: String,
+    pub fid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingReportProgressRequest {
+    pub student_id: Option<String>,
+    pub report_url: String,
+    pub dtoken: String,
+    pub clazz_id: String,
+    pub object_id: String,
+    pub jobid: String,
+    pub userid: String,
+    pub other_info: String,
+    pub playing_time: u64,
+    pub duration: u64,
+    pub isdrag: Option<u8>,
+    pub video_face_capture_enc: Option<String>,
+    pub att_duration: Option<String>,
+    pub att_duration_enc: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangCourseChaptersRequest {
+    pub student_id: Option<String>,
+    pub classroom_id: String,
+    pub sign: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangLeafInfoRequest {
+    pub student_id: Option<String>,
+    pub classroom_id: String,
+    pub leaf_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YuketangHeartbeatRequest {
+    pub student_id: Option<String>,
+    pub classroom_id: String,
+    pub events: serde_json::Value,
+}
+
+fn resolve_online_learning_student_id(client: &HbutClient, student_id: Option<&str>) -> Result<String, String> {
+    if let Some(raw) = student_id {
+        let sid = raw.trim();
+        if !sid.is_empty() {
+            return Ok(sid.to_string());
+        }
+    }
+    client
+        .user_info
+        .as_ref()
+        .map(|info| info.student_id.clone())
+        .filter(|sid| !sid.trim().is_empty())
+        .ok_or_else(|| "缺少 student_id，且当前未登录".to_string())
+}
+
 // Tauri 命令
 
 #[tauri::command]
@@ -1703,6 +1875,26 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     {
         let mut hbut = state.client.lock().await;
         hbut.set_ocr_runtime_config(remote_endpoints.clone(), local_fallback_endpoints.clone());
+    }
+
+    // 提取 temp_upload 端点配置
+    let temp_upload = parsed.get("temp_upload").or_else(|| parsed.get("tempUpload"));
+    if let Some(ep) = temp_upload
+        .and_then(|v| v.get("endpoint").or_else(|| v.get("url")))
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+    {
+        let _ = set_temp_upload_endpoint_config(Some(ep.to_string()));
+        println!("[Config] apply temp_upload endpoint: {}", ep);
+    }
+
+    // 提取 cloud_sync.proxy_endpoint（已在前端消费，此处仅日志确认）
+    if let Some(proxy) = parsed.get("cloud_sync")
+        .and_then(|v| v.get("proxy_endpoint").or_else(|| v.get("proxyEndpoint")))
+        .and_then(|v| v.as_str())
+    {
+        println!("[Config] cloud_sync proxy_endpoint: {}", proxy);
     }
 
     println!(
@@ -2796,7 +2988,7 @@ async fn restore_session(
 async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
     let session = db::get_latest_user_session(DB_FILENAME)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "无可ㄧ历史会话".to_string())?;
+        .ok_or_else(|| "无可疑历史会话".to_string())?;
 
     if session.cookies.trim().is_empty() {
         return Err("历史会话缺少 cookies".to_string());
@@ -3497,27 +3689,56 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|e| format!("创建上传㈡端け璐? {}", e))?;
-    let resp = http
-        .post(upload_url.as_str())
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| format!("上传课▼文件失败: {}", e))?;
+        .map_err(|e| format!("创建上传客户端失败: {}", e))?;
 
-    let status = resp.status();
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析上传响应失败: {}", e))?;
+    // 带轮询兜底的上传逻辑
+    let mut last_err = String::new();
+    let upload_endpoints = {
+        let mut eps = vec![upload_url.clone()];
+        // 如果运行时配置的端点与当前不同，追加为备选
+        if let Some(rt) = get_temp_upload_endpoint_config() {
+            if rt != upload_url && !rt.trim().is_empty() {
+                eps.push(rt);
+            }
+        }
+        // 硬编码默认值作为最终兜底
+        let default_ep = DEFAULT_TEMP_UPLOAD_ENDPOINT.to_string();
+        if !eps.contains(&default_ep) {
+            eps.push(default_ep);
+        }
+        eps
+    };
 
-    if !status.is_success() || !body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-        let msg = body
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("上传服务返回失败");
-        return Err(format!("课▼导出上传失败: {}", msg));
+    let mut resp_body: Option<serde_json::Value> = None;
+    for (idx, ep) in upload_endpoints.iter().enumerate() {
+        println!("[调试] 上传尝试 #{}: {}", idx + 1, ep);
+        match http.post(ep.as_str()).json(&payload).send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                match resp.json::<serde_json::Value>().await {
+                    Ok(body) => {
+                        if status.is_success() && body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            resp_body = Some(body);
+                            break;
+                        }
+                        let msg = body.get("error").and_then(|v| v.as_str()).unwrap_or("上传服务返回失败");
+                        last_err = format!("端点 {} 失败: {}", ep, msg);
+                        println!("[警告] {}", last_err);
+                    }
+                    Err(e) => {
+                        last_err = format!("端点 {} 解析响应失败: {}", ep, e);
+                        println!("[警告] {}", last_err);
+                    }
+                }
+            }
+            Err(e) => {
+                last_err = format!("端点 {} 请求失败: {}", ep, e);
+                println!("[警告] {}", last_err);
+            }
+        }
     }
+
+    let body = resp_body.ok_or_else(|| format!("课表导出上传失败（已尝试 {} 个端点）: {}", upload_endpoints.len(), last_err))?;
 
     let url = body
         .get("url")
@@ -4436,6 +4657,262 @@ async fn fetch_course_selection_detail_teacher(
 }
 
 #[tauri::command]
+async fn online_learning_overview(
+    state: State<'_, AppState>,
+    req: OnlineLearningOverviewRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::fetch_online_learning_overview(&client, req.student_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn online_learning_sync_now(
+    state: State<'_, AppState>,
+    req: OnlineLearningSyncRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    modules::online_learning::online_learning_sync_now(
+        &mut client,
+        req.student_id.as_deref(),
+        req.platform.as_deref().unwrap_or(""),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn online_learning_list_sync_runs(
+    state: State<'_, AppState>,
+    req: OnlineLearningSyncRunsRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let student_id = resolve_online_learning_student_id(&client, req.student_id.as_deref())?;
+    modules::online_learning::list_online_learning_sync_runs(
+        &student_id,
+        req.platform.as_deref(),
+        req.limit.unwrap_or(20),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn online_learning_clear_cache(
+    state: State<'_, AppState>,
+    req: OnlineLearningClearCacheRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    let student_id = resolve_online_learning_student_id(&client, req.student_id.as_deref())?;
+    modules::online_learning::clear_online_learning_cache(&student_id, req.platform.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_get_session_status(
+    state: State<'_, AppState>,
+    req: ChaoxingSessionStatusRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    modules::online_learning::chaoxing_get_session_status(&mut client, req.student_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_fetch_courses(
+    state: State<'_, AppState>,
+    req: ChaoxingCoursesRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    modules::online_learning::chaoxing_fetch_courses(
+        &mut client,
+        req.student_id.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_fetch_course_outline(
+    state: State<'_, AppState>,
+    req: ChaoxingCourseOutlineRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    modules::online_learning::chaoxing_fetch_course_outline(&mut client, &req)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_fetch_course_progress(
+    state: State<'_, AppState>,
+    req: ChaoxingCourseProgressRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    modules::online_learning::chaoxing_fetch_course_progress(&mut client, &req)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_get_launch_url(
+    _state: State<'_, AppState>,
+    req: ChaoxingLaunchUrlRequest,
+) -> Result<serde_json::Value, String> {
+    modules::online_learning::chaoxing_get_launch_url(&req).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_create_qr_login(
+    state: State<'_, AppState>,
+    req: YuketangQrCreateRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_create_qr_login(&client, &req)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_poll_qr_login(
+    state: State<'_, AppState>,
+    req: YuketangPollQrLoginRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_poll_qr_login(&client, &req)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_fetch_courses(
+    state: State<'_, AppState>,
+    req: YuketangCoursesRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_fetch_courses(
+        &client,
+        req.student_id.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_fetch_course_outline(
+    state: State<'_, AppState>,
+    req: YuketangCourseOutlineRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_fetch_course_outline(&client, &req)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_fetch_course_progress(
+    state: State<'_, AppState>,
+    req: YuketangCourseProgressRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_fetch_course_progress(&client, &req)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ── 自动刷课 Tauri Commands ──
+
+#[tauri::command]
+async fn chaoxing_get_knowledge_cards(
+    state: State<'_, AppState>,
+    req: ChaoxingKnowledgeCardsRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::chaoxing_get_knowledge_cards(
+        &client,
+        &req.clazz_id,
+        &req.course_id,
+        &req.knowledge_id,
+        &req.cpi,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_get_video_status(
+    state: State<'_, AppState>,
+    req: ChaoxingVideoStatusRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::chaoxing_get_video_status(&client, &req.object_id, &req.fid)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn chaoxing_report_progress(
+    state: State<'_, AppState>,
+    req: ChaoxingReportProgressRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::chaoxing_report_progress(
+        &client,
+        &req.report_url,
+        &req.dtoken,
+        &req.clazz_id,
+        &req.object_id,
+        &req.jobid,
+        &req.userid,
+        &req.other_info,
+        req.playing_time,
+        req.duration,
+        req.isdrag.unwrap_or(3),
+        req.video_face_capture_enc.as_deref().unwrap_or(""),
+        req.att_duration.as_deref().unwrap_or("0"),
+        req.att_duration_enc.as_deref().unwrap_or(""),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_get_course_chapters(
+    state: State<'_, AppState>,
+    req: YuketangCourseChaptersRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_get_course_chapters(&client, &req.classroom_id, &req.sign)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_get_leaf_info(
+    state: State<'_, AppState>,
+    req: YuketangLeafInfoRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_get_leaf_info(&client, &req.classroom_id, &req.leaf_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn yuketang_send_heartbeat(
+    state: State<'_, AppState>,
+    req: YuketangHeartbeatRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.lock().await;
+    modules::online_learning::yuketang_send_heartbeat(&client, &req.classroom_id, &req.events)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn campus_code_fetch_config(
     state: State<'_, AppState>,
     payload: serde_json::Value,
@@ -4780,6 +5257,26 @@ pub fn run() {
             fetch_course_selection_selected_courses,
             fetch_course_selection_detail_intro,
             fetch_course_selection_detail_teacher,
+            online_learning_overview,
+            online_learning_sync_now,
+            online_learning_list_sync_runs,
+            online_learning_clear_cache,
+            chaoxing_get_session_status,
+            chaoxing_fetch_courses,
+            chaoxing_fetch_course_outline,
+            chaoxing_fetch_course_progress,
+            chaoxing_get_launch_url,
+            yuketang_create_qr_login,
+            yuketang_poll_qr_login,
+            yuketang_fetch_courses,
+            yuketang_fetch_course_outline,
+            yuketang_fetch_course_progress,
+            chaoxing_get_knowledge_cards,
+            chaoxing_get_video_status,
+            chaoxing_report_progress,
+            yuketang_get_course_chapters,
+            yuketang_get_leaf_info,
+            yuketang_send_heartbeat,
             fetch_library_dict,
             search_library_books,
             fetch_library_book_detail,
@@ -4799,5 +5296,3 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-

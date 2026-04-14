@@ -33,6 +33,10 @@ test_*.py
 login_page_debug.html
 captured_*.json
 inputs_dump.txt
+._tmp*
+.tmp*
+_debug*_cookies*.txt
+opencode.json
 
 # Generated Android project
 src-tauri/gen/

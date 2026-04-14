@@ -2577,8 +2577,8 @@ impl HbutClient {
 
     /// 拉取空教ゆゼ栋信?
     pub async fn fetch_classroom_buildings(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 教学楼列?(涓?Python classroom.py 涓€鑷?
-        let buildings = vec![
+        // 静态兜底：解析失败时仍保证空教室功能可用。
+        let fallback_buildings = vec![
             serde_json::json!({"code": "", "name": "全部教学楼"}),
             serde_json::json!({"code": "4教", "name": "4教"}),
             serde_json::json!({"code": "5教", "name": "5教"}),
@@ -2589,7 +2589,87 @@ impl HbutClient {
             serde_json::json!({"code": "艺术楼", "name": "艺术楼"}),
             serde_json::json!({"code": "电气学院楼", "name": "电气学院楼"}),
         ];
-        
+
+        let url = format!("{}/admin/system/jxzy/jsxx/queryForXsd", self.academic_base_url());
+        println!("[调试] 获取空教室教学楼列表: {}", url);
+
+        let mut repaired = false;
+        let response = loop {
+            let response = self
+                .client
+                .get(&url)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .send()
+                .await?;
+            let final_url = response.url().to_string();
+            if super::looks_like_academic_login_url(&final_url) {
+                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                    repaired = true;
+                    println!("[调试] 空教室教学楼请求命中登录页，已补票后重试");
+                    continue;
+                }
+                println!("[调试] 空教室教学楼请求登录失效，回退内置列表");
+                return Ok(serde_json::json!({
+                    "success": true,
+                    "data": fallback_buildings,
+                    "fallback": true,
+                    "error": "会话已过期，已回退内置教学楼列表"
+                }));
+            }
+            break response;
+        };
+
+        if !response.status().is_success() {
+            println!("[调试] 空教室教学楼页面请求失败: {}，回退内置列表", response.status());
+            return Ok(serde_json::json!({
+                "success": true,
+                "data": fallback_buildings,
+                "fallback": true,
+                "error": format!("请求失败: {}，已回退内置教学楼列表", response.status())
+            }));
+        }
+
+        let html = response.text().await?;
+        let option_items = self.extract_select_options_by_name_or_id(&html, "jxldm");
+        let mut buildings = vec![serde_json::json!({"code": "", "name": "全部教学楼"})];
+        let mut seen_names: HashSet<String> = HashSet::new();
+        for item in option_items {
+            let value = item
+                .get("value")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let name = item
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if name.is_empty() || name == "请选择" || name == "全部" || name == "全部教学楼" {
+                continue;
+            }
+            if !seen_names.insert(name.clone()) {
+                continue;
+            }
+            buildings.push(serde_json::json!({
+                "code": value,
+                "name": name
+            }));
+        }
+
+        if buildings.len() <= 1 {
+            println!("[调试] 空教室教学楼解析失败，回退内置列表");
+            return Ok(serde_json::json!({
+                "success": true,
+                "data": fallback_buildings,
+                "fallback": true,
+                "error": "教学楼解析失败，已回退内置教学楼列表"
+            }));
+        }
+
+        println!("[调试] 空教室教学楼解析成功: {} 项", buildings.len() - 1);
+
         Ok(serde_json::json!({
             "success": true,
             "data": buildings
@@ -2891,45 +2971,55 @@ impl HbutClient {
 
     /// 从 HTML 中提取 select 选项 (与 Python training_plan.py 一致)
     fn extract_select_options(&self, html: &str, name: &str) -> Vec<serde_json::Value> {
-        let pattern = format!(r#"<select[^>]*name="{}"[^>]*>([\s\S]*?)</select>"#, regex::escape(name));
-        let select_re = regex::Regex::new(&pattern).ok();
-        
-        let mut options = vec![];
-        
-        if let Some(re) = select_re {
-            if let Some(caps) = re.captures(html) {
-                let select_html = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                
-                // 提取所有 option
-                let option_re = regex::Regex::new(r#"<option[^>]*value="([^"]*)"[^>]*>([\s\S]*?)</option>"#).unwrap();
-                for cap in option_re.captures_iter(select_html) {
-                    let value = cap.get(1).map(|m| m.as_str()).unwrap_or("");
-                    let label = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-                    
-                    // 清理标签内容
-                    let clean_label = regex::Regex::new(r"<[^>]+>").unwrap()
-                        .replace_all(label, "")
-                        .trim()
-                        .to_string();
-                    
-                    // 跳过空值选项（value为空的都跳过，因为前端会添加"请选择"）
-                    if value.is_empty() {
-                        continue;
-                    }
-                    
-                    // 跳过空标签
-                    if clean_label.is_empty() {
-                        continue;
-                    }
-                    
-                    options.push(serde_json::json!({
-                        "value": value,
-                        "label": clean_label
-                    }));
-                }
-            }
+        self
+            .extract_select_options_by_name_or_id(html, name)
+            .into_iter()
+            .filter(|item| item.get("value").and_then(|v| v.as_str()).unwrap_or("").trim().len() > 0)
+            .collect()
+    }
+
+    /// 从 HTML 中提取 select 选项，支持按 name 或 id 匹配。
+    fn extract_select_options_by_name_or_id(&self, html: &str, key: &str) -> Vec<serde_json::Value> {
+        let pattern = format!(
+            r#"(?is)<select[^>]*(?:name|id)\s*=\s*["']{}["'][^>]*>(.*?)</select>"#,
+            regex::escape(key)
+        );
+        let select_re = match regex::Regex::new(&pattern) {
+            Ok(re) => re,
+            Err(_) => return vec![],
+        };
+        let option_re = match regex::Regex::new(r#"(?is)<option[^>]*value\s*=\s*["']([^"']*)["'][^>]*>(.*?)</option>"#) {
+            Ok(re) => re,
+            Err(_) => return vec![],
+        };
+        let tag_re = match regex::Regex::new(r"(?is)<[^>]+>") {
+            Ok(re) => re,
+            Err(_) => return vec![],
+        };
+
+        let select_html = if let Some(caps) = select_re.captures(html) {
+            caps.get(1).map(|m| m.as_str()).unwrap_or("")
+        } else {
+            ""
+        };
+        if select_html.is_empty() {
+            return vec![];
         }
-        
+
+        let mut options = vec![];
+        for cap in option_re.captures_iter(select_html) {
+            let value = cap.get(1).map(|m| m.as_str()).unwrap_or("").trim();
+            let label = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+            let clean_label = tag_re.replace_all(label, "").trim().to_string();
+            if clean_label.is_empty() {
+                continue;
+            }
+            options.push(serde_json::json!({
+                "value": value,
+                "label": clean_label
+            }));
+        }
+
         options
     }
 

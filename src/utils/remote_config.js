@@ -4,7 +4,8 @@ import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
-  'https://gh-proxy.com/https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'
+  'https://gh-proxy.com/https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
+  '/remote_config.json'
 ]
 
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
@@ -433,11 +434,15 @@ const fetchFromAnyUrl = async () => {
     const url = withCacheBust(baseUrl)
     if (!url) continue
 
-    const byInvoke = await fetchByInvoke(url)
-    if (byInvoke) return byInvoke
+    // 本地相对路径只走 web fetch，不走 native invoke
+    const isLocalUrl = baseUrl.startsWith('/')
+    if (!isLocalUrl) {
+      const byInvoke = await fetchByInvoke(url)
+      if (byInvoke) return byInvoke
 
-    const byCapacitor = await fetchByCapacitor(url)
-    if (byCapacitor) return byCapacitor
+      const byCapacitor = await fetchByCapacitor(url)
+      if (byCapacitor) return byCapacitor
+    }
 
     try {
       const byWeb = await fetchByWeb(url)

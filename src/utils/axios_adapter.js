@@ -834,6 +834,290 @@ const adapter = {
                 }
             }
 
+            // ========== 在线学习 ==========
+
+            if (url.includes('/v2/online_learning/overview')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/overview', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('online_learning_overview', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/online_learning/sync_now')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/sync_now', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('online_learning_sync_now', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/online_learning/sync_runs')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/sync_runs', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('online_learning_list_sync_runs', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/online_learning/clear_cache')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/clear_cache', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('online_learning_clear_cache', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/session_status')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/session_status', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_get_session_status', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/courses')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/courses', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_fetch_courses', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/course_outline')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/course_outline', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_fetch_course_outline', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/course_progress')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/course_progress', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_fetch_course_progress', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/launch_url')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/launch_url', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_get_launch_url', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/qr_login/create')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/qr_login/create', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_create_qr_login', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/qr_login/poll')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/qr_login/poll', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_poll_qr_login', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/courses')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/courses', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_fetch_courses', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/course_outline')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/course_outline', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_fetch_course_outline', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/course_progress')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/course_progress', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_fetch_course_progress', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            // ========== 自动刷课 API ==========
+
+            if (url.includes('/v2/chaoxing/knowledge_cards')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/knowledge_cards', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_get_knowledge_cards', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/video_status')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/video_status', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_get_video_status', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/report_progress')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/report_progress', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_report_progress', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/course_chapters')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/course_chapters', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_get_course_chapters', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/leaf_info')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/leaf_info', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_get_leaf_info', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/yuketang/heartbeat')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/yuketang/heartbeat', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('yuketang_send_heartbeat', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             // ========== 电费相关 ==========
 
             if (url.includes('/v2/electricity/balance')) {

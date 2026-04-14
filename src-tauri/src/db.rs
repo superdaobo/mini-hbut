@@ -61,6 +61,31 @@ pub struct CustomScheduleCourseRecord {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineLearningPlatformStateRecord {
+    pub student_id: String,
+    pub platform: String,
+    pub connected: bool,
+    pub account_id: String,
+    pub display_name: String,
+    pub cookie_blob: String,
+    pub meta_json: String,
+    pub sync_time: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlineLearningSyncRunRecord {
+    pub id: String,
+    pub student_id: String,
+    pub platform: String,
+    pub status: String,
+    pub summary: String,
+    pub detail_json: String,
+    pub started_at: String,
+    pub finished_at: String,
+}
+
 fn ensure_user_session_columns(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT", []);
     let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN electricity_refresh_token TEXT", []);
@@ -140,6 +165,13 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "semesters_public_cache",  // public
         "qxzkb_public_cache",      // public
         "library_public_cache",    // public
+        "online_learning_overview_cache",
+        "online_learning_chaoxing_courses_cache",
+        "online_learning_chaoxing_outline_cache",
+        "online_learning_chaoxing_progress_cache",
+        "online_learning_yuketang_courses_cache",
+        "online_learning_yuketang_outline_cache",
+        "online_learning_yuketang_progress_cache",
     ];
 
     for table in cache_tables {
@@ -200,6 +232,41 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_custom_schedule_student_semester
          ON custom_schedule_courses (student_id, semester)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS online_learning_platform_state (
+            student_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            connected INTEGER NOT NULL DEFAULT 0,
+            account_id TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            cookie_blob TEXT NOT NULL DEFAULT '',
+            meta_json TEXT NOT NULL DEFAULT '{}',
+            sync_time TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+            PRIMARY KEY (student_id, platform)
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS online_learning_sync_runs (
+            id TEXT PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL DEFAULT ''
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_online_learning_sync_runs_student_platform
+         ON online_learning_sync_runs (student_id, platform, started_at DESC)",
         [],
     )?;
 
@@ -279,6 +346,26 @@ pub fn save_user_session<P: AsRef<Path>>(
         ],
     )?;
     Ok(())
+}
+
+pub fn delete_cache<P: AsRef<Path>>(path: P, table: &str, key: &str) -> Result<usize> {
+    let conn = open_connection(path)?;
+    let sql = if table.contains("public") {
+        format!("DELETE FROM {} WHERE cache_key = ?1", table)
+    } else {
+        format!("DELETE FROM {} WHERE student_id = ?1", table)
+    };
+    conn.execute(&sql, params![key])
+}
+
+pub fn delete_cache_by_prefix<P: AsRef<Path>>(path: P, table: &str, prefix: &str) -> Result<usize> {
+    let conn = open_connection(path)?;
+    let sql = if table.contains("public") {
+        format!("DELETE FROM {} WHERE cache_key LIKE ?1", table)
+    } else {
+        format!("DELETE FROM {} WHERE student_id LIKE ?1", table)
+    };
+    conn.execute(&sql, params![format!("{}%", prefix)])
 }
 
 // 获取用户会话
@@ -567,4 +654,201 @@ pub fn delete_custom_schedule_course<P: AsRef<Path>>(
         "DELETE FROM custom_schedule_courses WHERE student_id = ?1 AND id = ?2",
         params![student_id, course_id],
     )
+}
+
+pub fn save_online_learning_platform_state<P: AsRef<Path>>(
+    path: P,
+    record: &OnlineLearningPlatformStateRecord,
+) -> Result<()> {
+    let conn = open_connection(path)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO online_learning_platform_state (
+            student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)",
+        params![
+            record.student_id,
+            record.platform,
+            if record.connected { 1 } else { 0 },
+            record.account_id,
+            record.display_name,
+            record.cookie_blob,
+            record.meta_json,
+            record.sync_time
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn get_online_learning_platform_state<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    platform: &str,
+) -> Result<Option<OnlineLearningPlatformStateRecord>> {
+    let conn = open_connection(path)?;
+    conn.query_row(
+        "SELECT student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
+         FROM online_learning_platform_state
+         WHERE student_id = ?1 AND platform = ?2
+         LIMIT 1",
+        params![student_id, platform],
+        |row| {
+            Ok(OnlineLearningPlatformStateRecord {
+                student_id: row.get(0)?,
+                platform: row.get(1)?,
+                connected: row.get::<_, i64>(2)? != 0,
+                account_id: row.get(3)?,
+                display_name: row.get(4)?,
+                cookie_blob: row.get(5)?,
+                meta_json: row.get(6)?,
+                sync_time: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        },
+    )
+    .optional()
+}
+
+pub fn list_online_learning_platform_states<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+) -> Result<Vec<OnlineLearningPlatformStateRecord>> {
+    let conn = open_connection(path)?;
+    let mut stmt = conn.prepare(
+        "SELECT student_id, platform, connected, account_id, display_name, cookie_blob, meta_json, sync_time, updated_at
+         FROM online_learning_platform_state
+         WHERE student_id = ?1
+         ORDER BY platform ASC",
+    )?;
+    let mut rows = stmt.query(params![student_id])?;
+    let mut result = Vec::new();
+    while let Some(row) = rows.next()? {
+        result.push(OnlineLearningPlatformStateRecord {
+            student_id: row.get(0)?,
+            platform: row.get(1)?,
+            connected: row.get::<_, i64>(2)? != 0,
+            account_id: row.get(3)?,
+            display_name: row.get(4)?,
+            cookie_blob: row.get(5)?,
+            meta_json: row.get(6)?,
+            sync_time: row.get(7)?,
+            updated_at: row.get(8)?,
+        });
+    }
+    Ok(result)
+}
+
+pub fn clear_online_learning_platform_state<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    platform: Option<&str>,
+) -> Result<usize> {
+    let conn = open_connection(path)?;
+    if let Some(platform) = platform {
+        conn.execute(
+            "DELETE FROM online_learning_platform_state WHERE student_id = ?1 AND platform = ?2",
+            params![student_id, platform],
+        )
+    } else {
+        conn.execute(
+            "DELETE FROM online_learning_platform_state WHERE student_id = ?1",
+            params![student_id],
+        )
+    }
+}
+
+pub fn add_online_learning_sync_run<P: AsRef<Path>>(
+    path: P,
+    record: &OnlineLearningSyncRunRecord,
+) -> Result<()> {
+    let conn = open_connection(path)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO online_learning_sync_runs (
+            id, student_id, platform, status, summary, detail_json, started_at, finished_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            record.id,
+            record.student_id,
+            record.platform,
+            record.status,
+            record.summary,
+            record.detail_json,
+            record.started_at,
+            record.finished_at
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn list_online_learning_sync_runs<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    platform: Option<&str>,
+    limit: usize,
+) -> Result<Vec<OnlineLearningSyncRunRecord>> {
+    let conn = open_connection(path)?;
+    let safe_limit = limit.max(1).min(100) as i64;
+    let mut result = Vec::new();
+    if let Some(platform) = platform {
+        let mut stmt = conn.prepare(
+            "SELECT id, student_id, platform, status, summary, detail_json, started_at, finished_at
+             FROM online_learning_sync_runs
+             WHERE student_id = ?1 AND platform = ?2
+             ORDER BY started_at DESC
+             LIMIT ?3",
+        )?;
+        let mut rows = stmt.query(params![student_id, platform, safe_limit])?;
+        while let Some(row) = rows.next()? {
+            result.push(OnlineLearningSyncRunRecord {
+                id: row.get(0)?,
+                student_id: row.get(1)?,
+                platform: row.get(2)?,
+                status: row.get(3)?,
+                summary: row.get(4)?,
+                detail_json: row.get(5)?,
+                started_at: row.get(6)?,
+                finished_at: row.get(7)?,
+            });
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, student_id, platform, status, summary, detail_json, started_at, finished_at
+             FROM online_learning_sync_runs
+             WHERE student_id = ?1
+             ORDER BY started_at DESC
+             LIMIT ?2",
+        )?;
+        let mut rows = stmt.query(params![student_id, safe_limit])?;
+        while let Some(row) = rows.next()? {
+            result.push(OnlineLearningSyncRunRecord {
+                id: row.get(0)?,
+                student_id: row.get(1)?,
+                platform: row.get(2)?,
+                status: row.get(3)?,
+                summary: row.get(4)?,
+                detail_json: row.get(5)?,
+                started_at: row.get(6)?,
+                finished_at: row.get(7)?,
+            });
+        }
+    }
+    Ok(result)
+}
+
+pub fn clear_online_learning_sync_runs<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    platform: Option<&str>,
+) -> Result<usize> {
+    let conn = open_connection(path)?;
+    if let Some(platform) = platform {
+        conn.execute(
+            "DELETE FROM online_learning_sync_runs WHERE student_id = ?1 AND platform = ?2",
+            params![student_id, platform],
+        )
+    } else {
+        conn.execute(
+            "DELETE FROM online_learning_sync_runs WHERE student_id = ?1",
+            params![student_id],
+        )
+    }
 }

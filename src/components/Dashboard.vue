@@ -115,7 +115,6 @@ const timelineCourses = computed(() => {
   // 结束时间采用右开区间：到达结束时刻即视为该课程结束，自动切换下一节。
   return todayCourses.value
     .filter((course) => course.endMinutes > currentMinutePrecise.value)
-    .slice(0, 4)
 })
 
 const todayBlockTitle = computed(() => {
@@ -1675,6 +1674,9 @@ html[data-theme='cyberpunk'] .today-panel {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .today-item {

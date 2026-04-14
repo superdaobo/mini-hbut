@@ -259,6 +259,15 @@ impl HbutClient {
         if html.contains("IP冻结") || html.contains("ip-freeze") || html.contains("ip冻结") {
             return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
         }
+        if html.contains("应用未注册")
+            || html.contains("不允许使用认证服务来认证您访问的目标应用")
+        {
+            return Err(format!(
+                "CAS 服务未注册（service={}），请改用融合门户默认登录链路",
+                service_url
+            )
+            .into());
+        }
         println!("[调试] 登录页状态: {}, final_url: {}", status, final_url);
 
         // 检测是否已经登录（根据 URL 跳转或页面内容）

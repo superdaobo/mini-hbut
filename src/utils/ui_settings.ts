@@ -8,7 +8,7 @@ const NAV_STYLES = ['floating', 'pill', 'compact']
 const DENSITY_STYLES = ['comfortable', 'balanced', 'compact']
 const ICON_STYLES = ['duotone', 'line', 'mono']
 const DECOR_STYLES = ['mesh', 'grain', 'none']
-const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional']
+const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional', 'class']
 const STARTUP_PAGES = ['home', 'schedule']
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))

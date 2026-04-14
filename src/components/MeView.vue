@@ -24,6 +24,7 @@ const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
 const handleOpenSettings = () => emit('openSettings')
 const handleOpenExport = () => emit('navigate', 'export_center')
+const handleOpenMore = () => emit('navigate', 'more')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
 const handleFeedback = () => emit('openFeedback')
@@ -147,6 +148,16 @@ const handleShowLegal = async (tab) => {
             </svg>
           </span>
           <span class="link-text">开源说明</span>
+        </button>
+        <button class="link-item" @click="handleOpenMore">
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <rect x="3.5" y="4" width="17" height="16" rx="4" />
+              <path d="M8 9.2h8M8 14.2h4.4" />
+              <circle cx="17.2" cy="14.2" r="1.2" />
+            </svg>
+          </span>
+          <span class="link-text">更多</span>
         </button>
       </div>
     </section>
@@ -691,7 +702,6 @@ const handleShowLegal = async (tab) => {
   margin-bottom: 16px;
 }
 </style>
-
 
 
 

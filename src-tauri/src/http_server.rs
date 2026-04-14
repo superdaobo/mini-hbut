@@ -189,6 +189,26 @@ use crate::{
     CourseSelectionWithdrawRequest,
     CourseSelectionDetailRequest,
     CourseSelectionSelectedCoursesRequest,
+    OnlineLearningOverviewRequest,
+    OnlineLearningSyncRequest,
+    OnlineLearningSyncRunsRequest,
+    OnlineLearningClearCacheRequest,
+    ChaoxingSessionStatusRequest,
+    ChaoxingCoursesRequest,
+    ChaoxingCourseOutlineRequest,
+    ChaoxingCourseProgressRequest,
+    ChaoxingLaunchUrlRequest,
+    YuketangQrCreateRequest,
+    YuketangPollQrLoginRequest,
+    YuketangCoursesRequest,
+    YuketangCourseOutlineRequest,
+    YuketangCourseProgressRequest,
+    ChaoxingKnowledgeCardsRequest,
+    ChaoxingVideoStatusRequest,
+    ChaoxingReportProgressRequest,
+    YuketangCourseChaptersRequest,
+    YuketangLeafInfoRequest,
+    YuketangHeartbeatRequest,
 };
 use crate::db;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
@@ -520,6 +540,33 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/course_selection/selected_courses", post(fetch_course_selection_selected_courses))
         .route("/course_selection/detail_intro", post(fetch_course_selection_detail_intro))
         .route("/course_selection/detail_teacher", post(fetch_course_selection_detail_teacher))
+        .route("/online_learning/overview", post(fetch_online_learning_overview))
+        .route("/online_learning/sync_now", post(online_learning_sync_now))
+        .route("/online_learning/sync_runs", post(online_learning_list_sync_runs))
+        .route("/online_learning/list_sync_runs", post(online_learning_list_sync_runs))
+        .route("/online_learning/clear_cache", post(online_learning_clear_cache))
+        .route("/online_learning/chaoxing/session_status", post(chaoxing_get_session_status))
+        .route("/online_learning/chaoxing/courses", post(chaoxing_fetch_courses))
+        .route("/online_learning/chaoxing/outline", post(chaoxing_fetch_course_outline))
+        .route("/online_learning/chaoxing/course_outline", post(chaoxing_fetch_course_outline))
+        .route("/online_learning/chaoxing/progress", post(chaoxing_fetch_course_progress))
+        .route("/online_learning/chaoxing/course_progress", post(chaoxing_fetch_course_progress))
+        .route("/online_learning/chaoxing/launch_url", post(chaoxing_get_launch_url))
+        .route("/online_learning/yuketang/create_qr_login", post(yuketang_create_qr_login))
+        .route("/online_learning/yuketang/qr_login/create", post(yuketang_create_qr_login))
+        .route("/online_learning/yuketang/poll_qr_login", post(yuketang_poll_qr_login))
+        .route("/online_learning/yuketang/qr_login/poll", post(yuketang_poll_qr_login))
+        .route("/online_learning/yuketang/courses", post(yuketang_fetch_courses))
+        .route("/online_learning/yuketang/outline", post(yuketang_fetch_course_outline))
+        .route("/online_learning/yuketang/course_outline", post(yuketang_fetch_course_outline))
+        .route("/online_learning/yuketang/progress", post(yuketang_fetch_course_progress))
+        .route("/online_learning/yuketang/course_progress", post(yuketang_fetch_course_progress))
+        .route("/online_learning/chaoxing/knowledge_cards", post(chaoxing_get_knowledge_cards))
+        .route("/online_learning/chaoxing/video_status", post(chaoxing_get_video_status))
+        .route("/online_learning/chaoxing/report_progress", post(chaoxing_report_progress))
+        .route("/online_learning/yuketang/course_chapters", post(yuketang_get_course_chapters))
+        .route("/online_learning/yuketang/leaf_info", post(yuketang_get_leaf_info))
+        .route("/online_learning/yuketang/heartbeat", post(yuketang_send_heartbeat))
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
@@ -1512,27 +1559,48 @@ async fn export_schedule_calendar(
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("创建上传㈡端け璐? {}", e)))?;
-    let resp = http
-        .post(upload_url.as_str())
-        .json(&upload_payload)
-        .send()
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, "导出失败", format!("上传临时存储失败: {}", e)))?;
-    let status = resp.status();
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, "导出失败", format!("解析上传响应失败: {}", e)))?;
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("创建上传客户端失败: {}", e)))?;
 
-    if !status.is_success() || !body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-        let msg = body
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("上传服务返回失败")
-            .to_string();
-        return Err(err(StatusCode::BAD_GATEWAY, "导出失败", msg));
+    // 带轮询兜底的上传逻辑
+    let mut upload_endpoints = vec![upload_url.clone()];
+    if let Some(rt) = crate::get_temp_upload_endpoint_config() {
+        if rt != upload_url && !rt.trim().is_empty() {
+            upload_endpoints.push(rt);
+        }
     }
+    let default_ep = crate::DEFAULT_TEMP_UPLOAD_ENDPOINT.to_string();
+    if !upload_endpoints.contains(&default_ep) {
+        upload_endpoints.push(default_ep);
+    }
+
+    let mut last_err = String::new();
+    let mut resp_body: Option<serde_json::Value> = None;
+    for (idx, ep) in upload_endpoints.iter().enumerate() {
+        println!("[调试] HTTP Bridge 上传尝试 #{}: {}", idx + 1, ep);
+        match http.post(ep.as_str()).json(&upload_payload).send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                match resp.json::<serde_json::Value>().await {
+                    Ok(body) => {
+                        if status.is_success() && body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            resp_body = Some(body);
+                            break;
+                        }
+                        let msg = body.get("error").and_then(|v| v.as_str()).unwrap_or("上传服务返回失败");
+                        last_err = format!("端点 {} 失败: {}", ep, msg);
+                    }
+                    Err(e) => {
+                        last_err = format!("端点 {} 解析响应失败: {}", ep, e);
+                    }
+                }
+            }
+            Err(e) => {
+                last_err = format!("端点 {} 请求失败: {}", ep, e);
+            }
+        }
+    }
+
+    let body = resp_body.ok_or_else(|| err(StatusCode::BAD_GATEWAY, "导出失败", format!("上传失败（已尝试 {} 个端点）: {}", upload_endpoints.len(), last_err)))?;
 
     let url = body
         .get("url")
@@ -2185,6 +2253,273 @@ async fn fetch_course_selection_detail_teacher(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
     crate::modules::course_selection::fetch_course_selection_detail_teacher(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn fetch_online_learning_overview(
+    State(state): State<HttpState>,
+    Json(req): Json<OnlineLearningOverviewRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::fetch_online_learning_overview(&client, req.student_id.as_deref())
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn online_learning_sync_now(
+    State(state): State<HttpState>,
+    Json(req): Json<OnlineLearningSyncRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    crate::modules::online_learning::online_learning_sync_now(
+        &mut client,
+        req.student_id.as_deref(),
+        req.platform.as_deref().unwrap_or(""),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn online_learning_list_sync_runs(
+    State(state): State<HttpState>,
+    Json(req): Json<OnlineLearningSyncRunsRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    let student_id = req
+        .student_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| item.to_string())
+        .or_else(|| client.user_info.as_ref().map(|info| info.student_id.clone()))
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "缺少 student_id，且当前未登录".to_string()))?;
+    crate::modules::online_learning::list_online_learning_sync_runs(
+        &student_id,
+        req.platform.as_deref(),
+        req.limit.unwrap_or(20),
+    )
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn online_learning_clear_cache(
+    State(state): State<HttpState>,
+    Json(req): Json<OnlineLearningClearCacheRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    let student_id = req
+        .student_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| item.to_string())
+        .or_else(|| client.user_info.as_ref().map(|info| info.student_id.clone()))
+        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "缺少 student_id，且当前未登录".to_string()))?;
+    crate::modules::online_learning::clear_online_learning_cache(&student_id, req.platform.as_deref())
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_get_session_status(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingSessionStatusRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_get_session_status(&mut client, req.student_id.as_deref())
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_fetch_courses(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingCoursesRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_fetch_courses(
+        &mut client,
+        req.student_id.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_fetch_course_outline(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingCourseOutlineRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_fetch_course_outline(&mut client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_fetch_course_progress(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingCourseProgressRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let mut client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_fetch_course_progress(&mut client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_get_launch_url(
+    Json(req): Json<ChaoxingLaunchUrlRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    crate::modules::online_learning::chaoxing_get_launch_url(&req)
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_create_qr_login(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangQrCreateRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_create_qr_login(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_poll_qr_login(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangPollQrLoginRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_poll_qr_login(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_fetch_courses(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangCoursesRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_fetch_courses(
+        &client,
+        req.student_id.as_deref(),
+        req.force.unwrap_or(false),
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_fetch_course_outline(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangCourseOutlineRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_fetch_course_outline(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_fetch_course_progress(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangCourseProgressRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_fetch_course_progress(&client, &req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+// ── 自动刷课 Handlers ──
+
+async fn chaoxing_get_knowledge_cards(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingKnowledgeCardsRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_get_knowledge_cards(
+        &client, &req.clazz_id, &req.course_id, &req.knowledge_id, &req.cpi,
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_get_video_status(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingVideoStatusRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_get_video_status(&client, &req.object_id, &req.fid)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_report_progress(
+    State(state): State<HttpState>,
+    Json(req): Json<ChaoxingReportProgressRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::chaoxing_report_progress(
+        &client,
+        &req.report_url,
+        &req.dtoken,
+        &req.clazz_id,
+        &req.object_id,
+        &req.jobid,
+        &req.userid,
+        &req.other_info,
+        req.playing_time,
+        req.duration,
+        req.isdrag.unwrap_or(3),
+        req.video_face_capture_enc.as_deref().unwrap_or(""),
+        req.att_duration.as_deref().unwrap_or("0"),
+        req.att_duration_enc.as_deref().unwrap_or(""),
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_get_course_chapters(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangCourseChaptersRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_get_course_chapters(&client, &req.classroom_id, &req.sign)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_get_leaf_info(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangLeafInfoRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_get_leaf_info(&client, &req.classroom_id, &req.leaf_id)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn yuketang_send_heartbeat(
+    State(state): State<HttpState>,
+    Json(req): Json<YuketangHeartbeatRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let client = state.client.lock().await;
+    crate::modules::online_learning::yuketang_send_heartbeat(&client, &req.classroom_id, &req.events)
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
@@ -2885,5 +3220,3 @@ fn drain_json_objects(buffer: &mut String) -> Vec<String> {
 
     out
 }
-
-
