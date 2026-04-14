@@ -50,7 +50,7 @@ pub(super) type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
 pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
-pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/index.html";
+pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
 pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
 pub(super) const SECONDARY_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";

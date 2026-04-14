@@ -18,6 +18,16 @@ use std::sync::OnceLock;
 
 use super::utils::chrono_timestamp;
 
+const LOGIN_PAGE_FALLBACK_SERVICES: &[&str] = &[
+    "https://jwxt.hbut.edu.cn/admin/?loginType=1",
+    "https://jwxt.hbut.edu.cn/admin/index.html",
+    "https://e.hbut.edu.cn/login#/",
+];
+
+fn has_login_page_params(page: &LoginPageInfo) -> bool {
+    !page.salt.trim().is_empty() && !page.execution.trim().is_empty()
+}
+
 fn normalize_login_text(input: &str) -> String {
     input
         .replace('\u{00a0}', " ")
@@ -795,7 +805,6 @@ impl HbutClient {
         if let Some(remaining) = self.login_cooldown_remaining() {
             return Err(format!("登录频率过高，请{}秒后再试", remaining.as_secs()).into());
         }
-        self.last_login_attempt = Some(std::time::Instant::now());
 
         let encoded_service = urlencoding::encode(TARGET_SERVICE);
         let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
@@ -812,7 +821,30 @@ impl HbutClient {
 
         let max_retries = 2;
         for attempt in 0..max_retries {
-            let page_info = self.get_login_page().await?;
+            let mut page_info = self.get_login_page().await?;
+            if !page_info.is_already_logged_in && !has_login_page_params(&page_info) {
+                println!(
+                    "[调试] 默认登录页参数不完整（salt/execution），尝试 service 回退链路"
+                );
+                for service in LOGIN_PAGE_FALLBACK_SERVICES {
+                    if service.eq_ignore_ascii_case(TARGET_SERVICE) {
+                        continue;
+                    }
+                    match self.get_login_page_with_service(service).await {
+                        Ok(candidate) => {
+                            if candidate.is_already_logged_in || has_login_page_params(&candidate) {
+                                println!("[调试] 登录页回退成功: {}", service);
+                                page_info = candidate;
+                                break;
+                            }
+                            println!("[调试] 登录页回退未拿到完整参数: {}", service);
+                        }
+                        Err(err) => {
+                            println!("[调试] 登录页回退失败 {}: {}", service, err);
+                        }
+                    }
+                }
+            }
             // get_login_page 使用 TARGET_SERVICE，如果已经登录会跳转到 JWXT
             if page_info.is_already_logged_in {
                 println!("[调试] 已登录（检测到），跳过登录 POST");
@@ -829,8 +861,8 @@ impl HbutClient {
             let current_lt = page_info.lt;
             let captcha_required = page_info.captcha_required;
             
-            if current_salt.is_empty() {
-                return Err("无法获取加密盐值".into());
+            if current_salt.is_empty() || current_execution.trim().is_empty() {
+                return Err("无法获取登录参数（加密盐值或 execution）".into());
             }
             
             println!("[调试] 获取到新参数 - salt: {}, execution长度: {}, lt: {}", 
@@ -947,6 +979,8 @@ impl HbutClient {
             
             // 5. 提交登录请求
             println!("[调试] 发送登录 POST 请求...");
+            // 只有真正发起 CAS 登录提交时才计入频率限制，避免参数解析异常触发误限频。
+            self.last_login_attempt = Some(std::time::Instant::now());
             let response = self.client
                 .post(&login_url)
                 .header("Referer", &login_url)
