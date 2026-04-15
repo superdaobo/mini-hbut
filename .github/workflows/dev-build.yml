@@ -665,7 +665,7 @@ jobs:
           else
             DEST="website/public/releases/${TAG}"
             mkdir -p "$DEST"
-            gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*"
+            gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
             find "$DEST" -size +25M -delete
             echo "Stable assets (<=25MB):"
             ls -lh "$DEST"

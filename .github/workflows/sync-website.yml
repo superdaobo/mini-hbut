@@ -62,7 +62,7 @@ jobs:
           TAG="${{ steps.release.outputs.TAG }}"
           DEST="website/public/releases/${TAG}"
           mkdir -p "$DEST"
-          gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*"
+          gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
           # EdgeOne Pages 单文件限制 25MB，删除超限文件（走 GitHub 代理下载）
           find "$DEST" -size +25M -delete
           echo "Assets for CDN (<=25MB):"
@@ -76,7 +76,7 @@ jobs:
           if gh release view dev-latest --json tagName -q .tagName >/dev/null 2>&1; then
             DEST="website/public/releases/dev-latest"
             mkdir -p "$DEST"
-            gh release download dev-latest --dir "$DEST" --pattern "Mini-HBUT_*"
+            gh release download dev-latest --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
             find "$DEST" -size +25M -delete
             echo "Dev assets for CDN (<=25MB):"
             ls -lh "$DEST"
