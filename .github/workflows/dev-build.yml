@@ -635,6 +635,24 @@ jobs:
 
           echo "✅ dev-latest release created with ${BETA_VERSION}"
 
+      - name: Restore existing releases from website-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RESTORE_DIR="$(mktemp -d)"
+          if git clone --depth=1 --branch website-pages "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$RESTORE_DIR" >/dev/null 2>&1; then
+            if [ -d "$RESTORE_DIR/dist/releases" ]; then
+              mkdir -p website/public/releases
+              cp -a "$RESTORE_DIR/dist/releases/." website/public/releases/
+              echo "Restored existing release directories from website-pages"
+            else
+              echo "website-pages has no dist/releases, skip restore"
+            fi
+          else
+            echo "website-pages branch unavailable, skip restore"
+          fi
+
       - name: Download stable release assets for CDN
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

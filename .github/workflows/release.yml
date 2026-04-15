@@ -741,6 +741,24 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
+      - name: Restore existing releases from website-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RESTORE_DIR="$(mktemp -d)"
+          if git clone --depth=1 --branch website-pages "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$RESTORE_DIR" >/dev/null 2>&1; then
+            if [ -d "$RESTORE_DIR/dist/releases" ]; then
+              mkdir -p website/public/releases
+              cp -a "$RESTORE_DIR/dist/releases/." website/public/releases/
+              echo "Restored existing release directories from website-pages"
+            else
+              echo "website-pages has no dist/releases, skip restore"
+            fi
+          else
+            echo "website-pages branch unavailable, skip restore"
+          fi
+
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -863,4 +881,3 @@ jobs:
           git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
