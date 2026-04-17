@@ -22,6 +22,7 @@ import ConfigEditor from './components/ConfigEditor.vue'
 import SettingsView from './components/SettingsView.vue'
 import ExportCenterView from './components/ExportCenterView.vue'
 import MoreView from './components/MoreView.vue'
+import MoreShuakeView from './components/MoreShuakeView.vue'
 import OnlineLearningChaoxingView from './components/OnlineLearningChaoxingView.vue'
 import OnlineLearningYuketangView from './components/OnlineLearningYuketangView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
@@ -99,6 +100,7 @@ const ME_SUB_VIEWS = [
   'settings',
   'export_center',
   'more',
+  'more_shuake',
   'online_learning_chaoxing',
   'online_learning_yuketang'
 ]
@@ -113,8 +115,9 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   settings: 'me',
   export_center: 'me',
   more: 'me',
-  online_learning_chaoxing: 'more',
-  online_learning_yuketang: 'more'
+  more_shuake: 'more',
+  online_learning_chaoxing: 'more_shuake',
+  online_learning_yuketang: 'more_shuake'
 })
 
 const normalizeViewName = (view) => {
@@ -1088,8 +1091,12 @@ const handleBackToMe = () => {
   goToView('me')
 }
 
-const handleBackToMore = () => {
+const handleBackToMoreCenter = () => {
   goToView('more')
+}
+
+const handleBackToMore = () => {
+  goToView('more_shuake')
 }
 
 const handleOpenFeedback = () => {
@@ -1925,6 +1932,13 @@ onBeforeUnmount(() => {
         v-else-if="currentView === 'more'"
         :student-id="studentId"
         @back="handleBackToMe"
+        @navigate="handleNavigate"
+      />
+
+      <MoreShuakeView
+        v-else-if="currentView === 'more_shuake'"
+        :student-id="studentId"
+        @back="handleBackToMoreCenter"
         @navigate="handleNavigate"
       />
 

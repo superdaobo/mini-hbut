@@ -20,6 +20,40 @@ const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
 ]
 const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
 const DEFAULT_CLOUD_SYNC_SECRET_REF = 'kv1-main'
+const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
+const DEFAULT_MODULE_CENTER = Object.freeze({
+  channel: 'main',
+  modules: [
+    {
+      id: 'shuake',
+      name: '刷课',
+      icon: '🔐',
+      description: '在线学习入口、数据同步与同步记录',
+      key_required: true,
+      kind: 'internal',
+      view: 'more_shuake',
+      order: 1
+    },
+    {
+      id: 'hecheng_hugongda',
+      name: '合成湖工大',
+      icon: '🎮',
+      description: '下载最新游戏包并打开',
+      key_required: false,
+      kind: 'remote',
+      order: 2
+    },
+    {
+      id: 'hugongda_escape',
+      name: '湖工大逃生',
+      icon: '🧭',
+      description: '下载最新逃生包并打开',
+      key_required: false,
+      kind: 'remote',
+      order: 3
+    }
+  ]
+})
 
 const DEFAULT_CONFIG = {
   announcements: {
@@ -59,6 +93,10 @@ const DEFAULT_CONFIG = {
     timeout_ms: 12000,
     cooldown_seconds: 180
   },
+  module_center: {
+    channel: DEFAULT_MODULE_CENTER.channel,
+    modules: [...DEFAULT_MODULE_CENTER.modules]
+  },
   ai_models: [],
   config_admin_ids: []
 }
@@ -71,6 +109,8 @@ const REMOTE_CONFIG_KEYS = [
   'temp_file_server',
   'resource_share',
   'cloud_sync',
+  'module_center',
+  'more_modules',
   'ai_models',
   'config_admin_ids'
 ]
@@ -229,6 +269,96 @@ const resolveAnnouncements = (cfg) => {
   }
 }
 
+const normalizeModuleCenterChannel = (value) => {
+  const normalized = toString(value).trim().toLowerCase()
+  return normalized === 'dev' ? 'dev' : 'main'
+}
+
+const resolveModuleManifestUrl = (rawUrl, channel, moduleId) => {
+  const explicit = toString(rawUrl).trim()
+  if (explicit) {
+    try {
+      return new URL(explicit, `${MODULE_CDN_BASE}/${channel}/`).toString()
+    } catch {
+      return explicit
+    }
+  }
+  return `${MODULE_CDN_BASE}/${channel}/${moduleId}/manifest.json`
+}
+
+const normalizeModuleCenterEntry = (value, index = 0, channel = 'main') => {
+  const raw = value && typeof value === 'object' ? value : {}
+  const id = firstNonEmpty(raw.id, raw.module_id)
+  if (!id) return null
+
+  const view = firstNonEmpty(raw.view, raw.route, id === 'shuake' ? 'more_shuake' : '')
+  const kindText = toString(raw.kind || raw.type).trim().toLowerCase()
+  const kind = kindText === 'internal' || id === 'shuake' ? 'internal' : 'remote'
+  const order = Number(raw.order)
+
+  return {
+    id,
+    name: firstNonEmpty(raw.name, raw.module_name, raw.title, id),
+    icon: firstNonEmpty(raw.icon, id === 'shuake' ? '🔐' : kind === 'remote' ? '📦' : '🧩'),
+    description: firstNonEmpty(raw.description, raw.desc),
+    key_required: id === 'shuake' || raw.key_required === true || raw.keyRequired === true,
+    kind,
+    view,
+    order: Number.isFinite(order) ? order : index + 1,
+    manifest_url:
+      kind === 'remote'
+        ? resolveModuleManifestUrl(firstNonEmpty(raw.manifest_url, raw.manifestUrl), channel, id)
+        : ''
+  }
+}
+
+const resolveModuleCenter = (cfg) => {
+  const root = cfg && typeof cfg === 'object' ? cfg : {}
+  const moduleCenter =
+    root.module_center && typeof root.module_center === 'object' ? root.module_center : {}
+  const moreModules =
+    root.more_modules && typeof root.more_modules === 'object' ? root.more_modules : {}
+
+  const channel = normalizeModuleCenterChannel(
+    firstNonEmpty(
+      moduleCenter.channel,
+      moreModules.channel,
+      root.module_channel,
+      root.more_modules_channel,
+      DEFAULT_MODULE_CENTER.channel
+    )
+  )
+
+  const rawModules = toArray(
+    moduleCenter.modules ??
+      moreModules.modules ??
+      (Array.isArray(root.more_modules) ? root.more_modules : [])
+  )
+
+  let modules = rawModules
+    .map((item, index) => normalizeModuleCenterEntry(item, index, channel))
+    .filter(Boolean)
+
+  if (modules.length === 0) {
+    modules = DEFAULT_MODULE_CENTER.modules
+      .map((item, index) => normalizeModuleCenterEntry(item, index, channel))
+      .filter(Boolean)
+  }
+
+  const deduped = []
+  const seen = new Set()
+  for (const item of modules) {
+    if (!item || seen.has(item.id)) continue
+    seen.add(item.id)
+    deduped.push(item)
+  }
+
+  return {
+    channel,
+    modules: deduped
+  }
+}
+
 export function normalizeRemoteConfig(raw) {
   const cfg = raw && typeof raw === 'object' ? raw : {}
   const announcements = resolveAnnouncements(cfg)
@@ -352,6 +482,7 @@ export function normalizeRemoteConfig(raw) {
           10
       )
     },
+    module_center: resolveModuleCenter(cfg),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids)
   }
