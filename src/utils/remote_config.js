@@ -74,6 +74,11 @@ const REMOTE_CONFIG_KEYS = [
   'ai_models',
   'config_admin_ids'
 ]
+// 远程配置短时内存缓存：降低登录期重复拉取与并发请求。
+const REMOTE_CONFIG_MEMORY_TTL_MS = 45 * 1000
+let remoteConfigMemory = null
+let remoteConfigMemoryAt = 0
+let remoteConfigInFlight = null
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 const toString = (value) => (value == null ? '' : String(value))
@@ -353,11 +358,23 @@ export function normalizeRemoteConfig(raw) {
 }
 
 const saveSnapshot = (config) => {
+  remoteConfigMemory = config && typeof config === 'object' ? normalizeRemoteConfig(config) : null
+  remoteConfigMemoryAt = remoteConfigMemory ? Date.now() : 0
   try {
     localStorage.setItem(REMOTE_CONFIG_SNAPSHOT_KEY, JSON.stringify(config))
   } catch {
     // ignore
   }
+}
+
+const readMemoryConfig = () => {
+  if (!remoteConfigMemory) return null
+  if (Date.now() - remoteConfigMemoryAt > REMOTE_CONFIG_MEMORY_TTL_MS) {
+    remoteConfigMemory = null
+    remoteConfigMemoryAt = 0
+    return null
+  }
+  return remoteConfigMemory
 }
 
 const loadSnapshot = () => {
@@ -487,29 +504,58 @@ export const applyOcrRuntimeConfig = async (configLike) => {
   return runtimePayload
 }
 
-export async function fetchRemoteConfig() {
+export async function fetchRemoteConfig(options = {}) {
+  const forceRefresh = options?.force === true
   if (!isRemoteConfigEnabled()) {
     return buildLocalOnlyConfig()
   }
 
-  try {
-    const raw = await fetchFromAnyUrl()
-    if (!isLikelyRemoteConfigPayload(raw)) {
-      throw new Error('invalid remote config payload')
+  if (!forceRefresh) {
+    const memory = readMemoryConfig()
+    if (memory) {
+      return memory
     }
-    const normalized = normalizeRemoteConfig(raw)
-    // 远程返回即视为有效配置（即使公告为空/关闭 OCR），避免被旧快照反向覆盖。
-    saveSnapshot(normalized)
-    return normalized
-  } catch {
-    // ignore
+    if (remoteConfigInFlight) {
+      return remoteConfigInFlight
+    }
   }
 
-  const snapshot = loadSnapshot()
-  if (snapshot) {
-    return normalizeRemoteConfig(snapshot)
+  const task = (async () => {
+    try {
+      const raw = await fetchFromAnyUrl()
+      if (!isLikelyRemoteConfigPayload(raw)) {
+        throw new Error('invalid remote config payload')
+      }
+      const normalized = normalizeRemoteConfig(raw)
+      // 远程返回即视为有效配置（即使公告为空/关闭 OCR），避免被旧快照反向覆盖。
+      saveSnapshot(normalized)
+      return normalized
+    } catch {
+      // ignore
+    }
+
+    const snapshot = loadSnapshot()
+    if (snapshot) {
+      const normalized = normalizeRemoteConfig(snapshot)
+      saveSnapshot(normalized)
+      return normalized
+    }
+    const fallback = normalizeRemoteConfig(DEFAULT_CONFIG)
+    saveSnapshot(fallback)
+    return fallback
+  })()
+
+  if (forceRefresh) {
+    return task
   }
-  return { ...DEFAULT_CONFIG }
+  remoteConfigInFlight = task
+  try {
+    return await task
+  } finally {
+    if (remoteConfigInFlight === task) {
+      remoteConfigInFlight = null
+    }
+  }
 }
 
 

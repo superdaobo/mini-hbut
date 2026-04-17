@@ -51,6 +51,20 @@ const KCXZ_LABEL_MAP = Object.freeze({
   '99': '公共选修'
 })
 
+const KCLX_LABEL_MAP = Object.freeze({
+  ...KCXZ_LABEL_MAP,
+  '1': '理论',
+  '2': '实验',
+  '3': '上机',
+  '4': '实践',
+  '5': '环节',
+  '6': '公选',
+  '7': '自修',
+  '9': '分级',
+  '10': '其他',
+  '15': '辅修'
+})
+
 const EMPTY_LIST_FILTERS = Object.freeze({
   kcmc: '',
   kcxz: '',
@@ -149,6 +163,14 @@ let countdownTimer = null
 let endTimeRefreshTimer = null
 
 const safeText = (value) => String(value ?? '').trim()
+
+const resolveCourseTypeLabel = (value, fallback = '') => {
+  const code = safeText(value)
+  const fallbackText = safeText(fallback)
+  if (code && KCLX_LABEL_MAP[code]) return KCLX_LABEL_MAP[code]
+  if (fallbackText && KCLX_LABEL_MAP[fallbackText]) return KCLX_LABEL_MAP[fallbackText]
+  return fallbackText || code
+}
 
 const isEnabledValue = (value) => {
   const text = safeText(value).toLowerCase()
@@ -411,7 +433,7 @@ const detailFields = computed(() => {
     { label: '学分', value: course.xf },
     { label: '课程性质', value: findOptionLabel(optionMaps.value.kcxz, course.kcxz, KCXZ_LABEL_MAP[course.kcxz] || course.kcxz) },
     { label: '课程类别', value: course.kclbname || findOptionLabel(optionMaps.value.kclb, course.kclb, course.kclb) },
-    { label: '课程类型', value: findOptionLabel(optionMaps.value.kclx, course.kclx, course.kclx) },
+    { label: '课程类型', value: findOptionLabel(optionMaps.value.kclx, course.kclx, resolveCourseTypeLabel(course.kclx, course.kclx)) },
     { label: '教学模式', value: findOptionLabel(optionMaps.value.jxms, course.jxms, course.jxms) },
     { label: '授课教师', value: course.teacher },
     { label: '上课时间地点', value: course.isOnline ? '未提供线下上课时间与地点，按网课展示' : (course.scheduleText || course.sksjdd || '未公布时间地点') },
@@ -908,7 +930,7 @@ const mergeConditionOptions = (condition, kcxzMap, kclxMap) => {
   })
   normalizeOptionList(condition?.kclxList, '全部类型').forEach((item) => {
     const value = safeText(item.value || item.label)
-    const label = safeText(item.label || item.value)
+    const label = resolveCourseTypeLabel(value, item.label || item.value)
     if (!value || !label) return
     kclxMap.set(value, label)
   })
@@ -982,7 +1004,10 @@ const fetchSelectedCoursesByEndpoint = async (querySemester) => {
       const code = safeText(course.kcxz)
       kcxzMap.set(code, KCXZ_LABEL_MAP[code] || safeText(course.kclb) || code)
     }
-    if (safeText(course.kclx)) kclxMap.set(safeText(course.kclx), safeText(course.kclx))
+    if (safeText(course.kclx)) {
+      const code = safeText(course.kclx)
+      kclxMap.set(code, resolveCourseTypeLabel(code, code))
+    }
     return course
   })
   mergeConditionOptions(data?.condition || data?.conditions || {}, kcxzMap, kclxMap)
@@ -1053,7 +1078,8 @@ const fetchSelectedCoursesByTabs = async () => {
           kcxzMap.set(safeText(normalized.kcxz), findOptionLabel(optionMaps.value.kcxz, normalized.kcxz, KCXZ_LABEL_MAP[normalized.kcxz] || normalized.kcxz))
         }
         if (safeText(normalized.kclx)) {
-          kclxMap.set(safeText(normalized.kclx), findOptionLabel(optionMaps.value.kclx, normalized.kclx, normalized.kclx))
+          const code = safeText(normalized.kclx)
+          kclxMap.set(code, findOptionLabel(optionMaps.value.kclx, code, resolveCourseTypeLabel(code, code)))
         }
       })
       console.log(`[选课调试] tab ${tabId}: isPicked 数量= ${pickedCount}`)
@@ -2819,5 +2845,4 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
 

@@ -64,6 +64,9 @@ const ocrConfigMode = ref('本地')
 const debugLogs = ref([])
 const portalQrVisible = ref(false)
 const chaoxingQrVisible = ref(false)
+const OCR_READY_REUSE_MS = 90 * 1000
+let ocrReadyInFlight = null
+let ocrReadyAt = 0
 
 const qrUuid = ref('')
 const qrImageBase64 = ref('')
@@ -216,29 +219,46 @@ const refreshOcrMode = async (endpointHint = '') => {
   }
 }
 
-const ensureOcrEndpointReady = async () => {
-  let endpointHint = ''
-  try {
-    const cfg = await fetchRemoteConfig()
-    await applyOcrRuntimeConfig(cfg)
-    endpointHint = String(cfg?.ocr?.endpoint || '').trim()
-    pushDebugLog('Login', `OCR配置已应用（远程配置）：${endpointHint || '未返回主端点'}`, 'info')
-  } catch (e) {
-    console.warn('[OCR] 拉取远程配置失败，改用本地 OCR 配置:', e)
-    pushDebugLog('Login', 'OCR远程配置拉取失败，切换本地配置', 'warn', e)
-    const localCfg = getStoredOcrConfig()
-    await applyOcrRuntimeConfig({
-      ocr: {
-        enabled: true,
-        endpoint: localCfg.endpoint,
-        endpoints: localCfg.endpoints,
-        local_fallback_endpoints: localCfg.local_fallback_endpoints
-      }
-    })
-    endpointHint = localCfg.endpoint
-    pushDebugLog('Login', `OCR配置已应用（本地配置）：${endpointHint || '未配置主端点'}`, 'info')
+const ensureOcrEndpointReady = async ({ force = false } = {}) => {
+  if (!force && ocrReadyInFlight) {
+    return ocrReadyInFlight
   }
-  await refreshOcrMode(endpointHint)
+  if (!force && ocrReadyAt > 0 && Date.now() - ocrReadyAt < OCR_READY_REUSE_MS) {
+    return
+  }
+  const task = (async () => {
+    let endpointHint = ''
+    try {
+      const cfg = await fetchRemoteConfig()
+      await applyOcrRuntimeConfig(cfg)
+      endpointHint = String(cfg?.ocr?.endpoint || '').trim()
+      pushDebugLog('Login', `OCR配置已应用（远程配置）：${endpointHint || '未返回主端点'}`, 'info')
+    } catch (e) {
+      console.warn('[OCR] 拉取远程配置失败，改用本地 OCR 配置:', e)
+      pushDebugLog('Login', 'OCR远程配置拉取失败，切换本地配置', 'warn', e)
+      const localCfg = getStoredOcrConfig()
+      await applyOcrRuntimeConfig({
+        ocr: {
+          enabled: true,
+          endpoint: localCfg.endpoint,
+          endpoints: localCfg.endpoints,
+          local_fallback_endpoints: localCfg.local_fallback_endpoints
+        }
+      })
+      endpointHint = localCfg.endpoint
+      pushDebugLog('Login', `OCR配置已应用（本地配置）：${endpointHint || '未配置主端点'}`, 'info')
+    }
+    await refreshOcrMode(endpointHint)
+    ocrReadyAt = Date.now()
+  })()
+  ocrReadyInFlight = task
+  try {
+    await task
+  } finally {
+    if (ocrReadyInFlight === task) {
+      ocrReadyInFlight = null
+    }
+  }
 }
 
 const handleOcrConfigUpdated = () => {
@@ -441,7 +461,9 @@ const handlePasswordLogin = async () => {
 
   loading.value = true
   statusMsg.value = '🔒 正在登录...'
-  await ensureOcrEndpointReady()
+  void ensureOcrEndpointReady().catch((e) => {
+    pushDebugLog('Login', '登录前 OCR 配置刷新失败（已忽略）', 'warn', e)
+  })
   savePortalCredentials()
 
   try {
@@ -895,7 +917,9 @@ onMounted(async () => {
     rememberMe.value = true
   }
 
-  await ensureOcrEndpointReady()
+  void ensureOcrEndpointReady().catch((e) => {
+    console.warn('[Login] OCR 初始化失败（后台重试）:', e)
+  })
   window.addEventListener('hbu-ocr-config-updated', handleOcrConfigUpdated)
 })
 
