@@ -18,11 +18,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::collections::HashMap;
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::{engine::general_purpose, Engine as _};
 use regex::Regex;
 use reqwest::cookie::CookieStore;
+use sha2::{Digest, Sha256};
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
 use tauri_plugin_shell::ShellExt;
@@ -2783,6 +2786,190 @@ async fn resource_share_list_dir_native(req: ResourceShareListDirRequest) -> Res
     Err(last_error)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct PrepareModuleBundleRequest {
+    pub channel: String,
+    #[serde(alias = "moduleId")]
+    pub module_id: String,
+    pub version: String,
+    #[serde(alias = "packageUrl")]
+    pub package_url: String,
+    #[serde(alias = "packageSha256", default)]
+    pub package_sha256: String,
+    #[serde(alias = "entryPath")]
+    pub entry_path: String,
+}
+
+fn sanitize_module_token(raw: &str, label: &str) -> Result<String, String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(format!("{} 不能为空", label));
+    }
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Ok(value.to_string());
+    }
+    Err(format!("{} 含非法字符", label))
+}
+
+fn sanitize_zip_entry_path(raw: &str) -> Option<PathBuf> {
+    let path = Path::new(raw);
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(seg) => normalized.push(seg),
+            std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>()
+}
+
+fn extract_zip_bytes_to_dir(bytes: Vec<u8>, target_dir: PathBuf) -> Result<(), String> {
+    let cursor = Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("解析模块 ZIP 失败: {}", e))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| format!("读取 ZIP 条目失败: {}", e))?;
+        let entry_name = entry.name().to_string();
+        let Some(relative) = sanitize_zip_entry_path(&entry_name) else {
+            continue;
+        };
+        let output_path = target_dir.join(relative);
+
+        if entry.is_dir() || entry_name.ends_with('/') {
+            std::fs::create_dir_all(&output_path)
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+            continue;
+        }
+
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("创建父目录失败: {}", e))?;
+        }
+
+        let mut output = std::fs::File::create(&output_path)
+            .map_err(|e| format!("写入模块文件失败: {}", e))?;
+        std::io::copy(&mut entry, &mut output)
+            .map_err(|e| format!("解压模块文件失败: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn prepare_module_bundle(
+    app: tauri::AppHandle,
+    request: PrepareModuleBundleRequest,
+) -> Result<serde_json::Value, String> {
+    let channel = if request.channel.trim().eq_ignore_ascii_case("dev") {
+        "dev".to_string()
+    } else {
+        "main".to_string()
+    };
+    let module_id = sanitize_module_token(&request.module_id, "module_id")?;
+    let version = sanitize_module_token(&request.version, "version")?;
+    let package_url = request.package_url.trim().to_string();
+    if package_url.is_empty() {
+        return Err("package_url 不能为空".to_string());
+    }
+    if !(package_url.starts_with("http://") || package_url.starts_with("https://")) {
+        return Err("package_url 非法".to_string());
+    }
+    let package_sha256 = request.package_sha256.trim().to_lowercase();
+    let entry_rel = sanitize_zip_entry_path(&request.entry_path)
+        .ok_or_else(|| "entry_path 非法".to_string())?;
+
+    let cache_root = app
+        .path()
+        .resolve(
+            format!("modules/{}/{}/{}", channel, module_id, version),
+            BaseDirectory::AppCache,
+        )
+        .map_err(|e| format!("解析模块缓存目录失败: {}", e))?;
+
+    if tokio::fs::try_exists(&cache_root).await.unwrap_or(false) {
+        let _ = tokio::fs::remove_dir_all(&cache_root).await;
+    }
+    tokio::fs::create_dir_all(&cache_root)
+        .await
+        .map_err(|e| format!("创建模块缓存目录失败: {}", e))?;
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|e| format!("创建模块下载客户端失败: {}", e))?;
+
+    let response = client
+        .get(&package_url)
+        .send()
+        .await
+        .map_err(|e| format!("模块下载请求失败: {}", e))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("模块下载失败: HTTP {}", status.as_u16()));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取模块包字节失败: {}", e))?;
+    let package_size = bytes.len();
+    let digest_hex = sha256_hex(bytes.as_ref());
+
+    if !package_sha256.is_empty() && digest_hex != package_sha256 {
+        return Err(format!(
+            "模块 SHA256 校验失败: {} != {}",
+            digest_hex, package_sha256
+        ));
+    }
+
+    let cache_root_for_extract = cache_root.clone();
+    let bytes_for_extract = bytes.to_vec();
+    tokio::task::spawn_blocking(move || extract_zip_bytes_to_dir(bytes_for_extract, cache_root_for_extract))
+        .await
+        .map_err(|e| format!("模块解压任务异常: {}", e))??;
+
+    let entry_abs = cache_root.join(entry_rel);
+    if !tokio::fs::try_exists(&entry_abs).await.unwrap_or(false) {
+        return Err(format!(
+            "模块入口文件不存在: {}",
+            entry_abs.to_string_lossy()
+        ));
+    }
+
+    Ok(serde_json::json!({
+        "success": true,
+        "channel": channel,
+        "module_id": module_id,
+        "version": version,
+        "entry_path": entry_abs.to_string_lossy().to_string(),
+        "cache_root": cache_root.to_string_lossy().to_string(),
+        "package_size": package_size,
+        "package_sha256": digest_hex
+    }))
+}
+
 #[tauri::command]
 fn open_file_with_system(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let target = path.trim().to_string();
@@ -5198,6 +5385,7 @@ pub fn run() {
             debug_bridge::complete_debug_screenshot,
             debug_bridge::save_debug_capture_file,
             open_external_url,
+            prepare_module_bundle,
             open_file_with_system,
             resource_share_direct_url_native,
             resource_share_fetch_file_payload_native,

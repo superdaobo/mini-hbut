@@ -1,0 +1,10 @@
+{
+  "id": "hecheng_hugongda",
+  "name": "合成湖工大",
+  "icon": "🎮",
+  "order": 2,
+  "key_required": false,
+  "entry_path": "index.html",
+  "source_dir": "project",
+  "release_notes": "合成湖工大模块自动构建包"
+}

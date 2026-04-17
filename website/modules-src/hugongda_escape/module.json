@@ -1,0 +1,10 @@
+{
+  "id": "hugongda_escape",
+  "name": "湖工大逃生",
+  "icon": "🧭",
+  "order": 3,
+  "key_required": false,
+  "entry_path": "index.html",
+  "source_dir": "project",
+  "release_notes": "湖工大逃生模块自动构建包"
+}

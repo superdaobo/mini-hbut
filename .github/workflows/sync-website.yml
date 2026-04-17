@@ -6,6 +6,8 @@ on:
       - main
     paths-ignore:
       - "**.md"
+      - "website/**"
+      - "scripts/build_website_modules.mjs"
   workflow_dispatch:
 
 permissions:
@@ -51,6 +53,24 @@ jobs:
             fi
           else
             echo "website-pages branch unavailable, skip restore"
+          fi
+
+      - name: Restore existing modules from website-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RESTORE_DIR="$(mktemp -d)"
+          if git clone --depth=1 --branch website-pages "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$RESTORE_DIR" >/dev/null 2>&1; then
+            if [ -d "$RESTORE_DIR/dist/modules" ]; then
+              mkdir -p website/public/modules
+              cp -a "$RESTORE_DIR/dist/modules/." website/public/modules/
+              echo "Restored existing module directories from website-pages"
+            else
+              echo "website-pages has no dist/modules, skip restore"
+            fi
+          else
+            echo "website-pages branch unavailable, skip modules restore"
           fi
 
       - name: Download latest release assets

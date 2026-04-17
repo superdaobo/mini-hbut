@@ -8,23 +8,11 @@ const getAccessStorage = () => {
 }
 
 export const PROTECTED_VIEWS = Object.freeze([
-  'more',
-  'online_learning_chaoxing',
-  'online_learning_yuketang',
-  'export_center',
-  'ai',
-  'resource_share',
-  'library'
+  // 视图级门禁已迁移到模块级（更多页仅刷课模块单点校验）
 ])
 
 const PROTECTED_VIEW_LABELS = Object.freeze({
-  more: '更多中心',
-  online_learning_chaoxing: '学习通在线学习',
-  online_learning_yuketang: '长江雨课堂在线学习',
-  export_center: '导出中心',
-  ai: '校园助手',
-  resource_share: '资料分享',
-  library: '图书查询'
+  more: '更多中心'
 })
 
 const normalizeDate = (value = new Date()) => {
