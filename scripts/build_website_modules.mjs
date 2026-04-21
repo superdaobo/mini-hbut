@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 
 const CHANNEL = String(process.env.MODULE_CHANNEL || 'main').trim().toLowerCase() === 'dev' ? 'dev' : 'main'
 const BASE_URL = String(process.env.MODULE_BASE_URL || 'https://hbut.6661111.xyz/modules').trim().replace(/\/+$/, '')
@@ -45,6 +45,30 @@ const listModuleDirs = () => {
     .filter((dir) => fs.existsSync(path.join(dir, 'module.json')))
 }
 
+const zipDirectoryWithPython = (sourceDir, zipPath) => {
+  const script = [
+    'import os, sys, zipfile',
+    'source_dir, zip_path = sys.argv[1], sys.argv[2]',
+    "with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as archive:",
+    '    for root, _, files in os.walk(source_dir):',
+    '        for file_name in files:',
+    '            file_path = os.path.join(root, file_name)',
+    "            arcname = os.path.relpath(file_path, source_dir).replace(os.sep, '/')",
+    '            archive.write(file_path, arcname)'
+  ].join('\n')
+
+  let lastError = null
+  for (const binary of ['python', 'python3']) {
+    try {
+      execFileSync(binary, ['-c', script, sourceDir, zipPath], { stdio: 'inherit' })
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error('未找到可用的 Python 解释器，无法打包 ZIP')
+}
+
 const zipDirectory = (sourceDir, zipPath) => {
   ensureDir(path.dirname(zipPath))
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true })
@@ -55,14 +79,9 @@ const zipDirectory = (sourceDir, zipPath) => {
     })
     return
   } catch (error) {
-    if (process.platform !== 'win32') {
-      throw error
-    }
+    console.warn(`[modules] zip command unavailable, fallback to python zipfile: ${error.message}`)
   }
-  execSync(`tar -a -cf "${zipPath}" *`, {
-    cwd: sourceDir,
-    stdio: 'inherit'
-  })
+  zipDirectoryWithPython(sourceDir, zipPath)
 }
 
 const sha256File = (filePath) =>
