@@ -158,12 +158,17 @@ for (const moduleDir of listModuleDirs()) {
     throw new Error(`模块 ${moduleId} 缺少构建输出目录: ${distDir}`)
   }
 
-  const versionDir = path.join(OUTPUT_ROOT, moduleId, MODULE_VERSION)
+  const moduleRootDir = path.join(OUTPUT_ROOT, moduleId)
+  const versionDir = path.join(moduleRootDir, MODULE_VERSION)
   const siteDir = path.join(versionDir, 'site')
+  const latestSiteDir = path.join(moduleRootDir, 'site')
   const bundleZip = path.join(versionDir, 'bundle.zip')
   ensureDir(versionDir)
   if (fs.existsSync(siteDir)) fs.rmSync(siteDir, { recursive: true, force: true })
   copyDir(distDir, siteDir)
+  ensureDir(moduleRootDir)
+  if (fs.existsSync(latestSiteDir)) fs.rmSync(latestSiteDir, { recursive: true, force: true })
+  copyDir(distDir, latestSiteDir)
   zipDirectory(distDir, bundleZip)
 
   const packageSha = sha256File(bundleZip)
@@ -186,8 +191,7 @@ for (const moduleDir of listModuleDirs()) {
   }
 
   fs.writeFileSync(path.join(versionDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-  ensureDir(path.join(OUTPUT_ROOT, moduleId))
-  fs.writeFileSync(path.join(OUTPUT_ROOT, moduleId, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  fs.writeFileSync(path.join(moduleRootDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
 
   modules.push({
     id: moduleId,
