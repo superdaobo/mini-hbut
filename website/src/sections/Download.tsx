@@ -61,6 +61,15 @@ type ReleaseAsset = {
 type LatestRelease = {
   tag_name?: string;
   assets?: ReleaseAsset[];
+  channel?: string;
+};
+
+type ReleaseManifest = {
+  tag?: string;
+  version?: string;
+  channel?: string;
+  generatedAt?: string;
+  assets?: Record<string, string>;
 };
 
 const REPO = 'superdaobo/mini-hbut';
@@ -83,6 +92,7 @@ const downloadProxyPrefixes = [
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz';
+const ACTIVE_MANIFEST_JSON = `${EDGEONE_CDN_BASE}/releases/active.json`;
 
 const uniqueUrls = (list: string[]): string[] => {
   const seen = new Set<string>();
@@ -316,6 +326,35 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 12000): Promise<T
 }
 
 async function fetchLatestReleaseJson(): Promise<LatestRelease> {
+  if (EDGEONE_CDN_BASE) {
+    try {
+      const resp = await withTimeout(
+        fetch(ACTIVE_MANIFEST_JSON, { cache: 'no-store' }),
+        8000
+      );
+      if (resp.ok) {
+        const manifest = (await resp.json()) as ReleaseManifest;
+        if (manifest?.tag && manifest?.assets) {
+          const tag = manifest.tag;
+          const assets: ReleaseAsset[] = Object.values(manifest.assets)
+            .filter(Boolean)
+            .map((filename) => ({
+              name: filename as string,
+              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`,
+              download_count: 0,
+            }));
+          return {
+            tag_name: tag,
+            channel: manifest.channel,
+            assets,
+          };
+        }
+      }
+    } catch {
+      // active manifest 失败，继续回退
+    }
+  }
+
   // 优先从 CDN manifest 获取（无 CORS 问题，同源请求）
   if (EDGEONE_CDN_BASE) {
     try {
@@ -375,6 +414,7 @@ export default function DownloadSection() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [version, setVersion] = useState<string>('');
+  const [channel, setChannel] = useState<string>('');
 
   const loadLinks = async () => {
     setLoading(true);
@@ -384,6 +424,7 @@ export default function DownloadSection() {
       const release = await fetchLatestReleaseJson();
       const tag = release.tag_name || '';
       setVersion(tag);
+      setChannel(String(release.channel || '').trim());
 
       const assets = Array.isArray(release.assets) ? release.assets : [];
       if (!assets.length) throw new Error('release assets empty');
@@ -530,6 +571,11 @@ export default function DownloadSection() {
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan/10 border border-cyan/30 text-cyan text-xs font-mono">
                 当前版本：{version}
               </span>
+              {channel && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/15 text-gray-300 text-xs font-mono">
+                  当前渠道：{channel}
+                </span>
+              )}
 
             </div>
           )}
@@ -670,4 +716,3 @@ export default function DownloadSection() {
     </section>
   );
 }
-

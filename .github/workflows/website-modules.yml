@@ -3,15 +3,21 @@ name: Website Modules Deploy
 on:
   push:
     branches:
+      - main
       - dev
     paths:
       - "website/**"
       - "scripts/build_website_modules.mjs"
+      - "scripts/build_release_manifests.mjs"
       - ".github/workflows/website-modules.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: website-pages-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy-website-modules:
@@ -72,6 +78,15 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y zip
+
+      - name: Generate release manifests
+        env:
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.channel }}
+          SOURCE_REF: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node scripts/build_release_manifests.mjs
 
       - name: Build website modules
         id: build_modules

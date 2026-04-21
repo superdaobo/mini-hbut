@@ -8,6 +8,7 @@ const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
+const EDGEONE_ACTIVE_MANIFEST = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/active.json` : ''
 
 const API_PROXIES = [
   `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
@@ -148,8 +149,52 @@ function buildExpectedAssetName(platform, version) {
   }
 }
 
+const normalizeCdnManifestAsRelease = (manifest) => {
+  if (!manifest?.tag || !manifest?.assets) return null
+  const tag = String(manifest.tag || '').trim()
+  const version = String(manifest.version || tag).replace(/^v/, '')
+  const assets = Object.values(manifest.assets || {})
+    .filter(Boolean)
+    .map((filename) => ({
+      name: filename,
+      browser_download_url: `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`
+    }))
+
+  return {
+    tag_name: tag,
+    name: `v${version}`,
+    body: '',
+    html_url: `${GITHUB_RELEASES_URL}/tag/${tag}`,
+    assets,
+    published_at: manifest.generatedAt,
+    version,
+    prerelease: !!manifest.prerelease,
+    channel: String(manifest.channel || '').trim(),
+    __fromActiveManifest: true
+  }
+}
+
 async function fetchReleaseInfo(currentVersion) {
-  // 优先尝试 EdgeOne CDN 清单（国内最快）
+  // 优先尝试网站 active 清单，按最近一次网站部署决定当前推荐渠道。
+  if (EDGEONE_ACTIVE_MANIFEST) {
+    try {
+      const resp = await withTimeout(
+        fetch(EDGEONE_ACTIVE_MANIFEST, { headers: { Accept: 'application/json' } }),
+        6000
+      )
+      if (resp.ok) {
+        const manifest = await resp.json()
+        const release = normalizeCdnManifestAsRelease(manifest)
+        if (release) {
+          return release
+        }
+      }
+    } catch (_) {
+      // active 清单不可用，继续 fallback
+    }
+  }
+
+  // 再尝试稳定版清单，兼容旧站点结构。
   if (EDGEONE_CDN_BASE) {
     try {
       const resp = await withTimeout(
@@ -157,20 +202,9 @@ async function fetchReleaseInfo(currentVersion) {
         6000
       )
       if (resp.ok) {
-        const manifest = await resp.json()
-        if (manifest?.tag && manifest?.assets) {
-          const release = {
-            tag_name: manifest.tag,
-            name: `v${manifest.version}`,
-            body: '',
-            html_url: `${GITHUB_RELEASES_URL}/tag/${manifest.tag}`,
-            assets: Object.values(manifest.assets).map((filename) => ({
-              name: filename,
-              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${manifest.tag}/${filename}`
-            })),
-            published_at: manifest.generatedAt
-          }
-          const latest = String(manifest.version || '').replace(/^v/, '')
+        const release = normalizeCdnManifestAsRelease(await resp.json())
+        if (release) {
+          const latest = String(release.version || '').replace(/^v/, '')
           if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
             return release
           }
@@ -216,8 +250,18 @@ export async function checkForUpdates(currentVersion) {
     }
 
     const tagName = release.tag_name || release.name || ''
-    const latestVersion = String(tagName).replace(/^v/, '')
-    if (!latestVersion || compareVersions(latestVersion, currentVersion) <= 0) {
+    const latestVersion = String(release.version || tagName).replace(/^v/, '')
+    const currentText = String(currentVersion || '').replace(/^v/, '')
+    const fromActiveManifest = release.__fromActiveManifest === true
+
+    if (
+      !latestVersion ||
+      (
+        fromActiveManifest
+          ? latestVersion === currentText
+          : compareVersions(latestVersion, currentVersion) <= 0
+      )
+    ) {
       return { hasUpdate: false, currentVersion, latestVersion }
     }
 

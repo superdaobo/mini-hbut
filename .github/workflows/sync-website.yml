@@ -6,10 +6,19 @@ on:
       - main
     paths-ignore:
       - "**.md"
+      - "website/**"
+      - "scripts/build_website_modules.mjs"
+      - "scripts/build_release_manifests.mjs"
+      - ".github/workflows/website-modules.yml"
+      - ".github/workflows/sync-website.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: website-pages-deploy
+  cancel-in-progress: false
 
 jobs:
   sync-website:
@@ -105,82 +114,15 @@ jobs:
           fi
         id: dev_release
 
-      - name: Generate release manifest
-        if: steps.release.outputs.HAS_RELEASE == 'true'
+      - name: Generate release manifests
         env:
-          TAG: ${{ steps.release.outputs.TAG }}
+          RELEASE_CHANNEL: main
+          STABLE_TAG: ${{ steps.release.outputs.TAG }}
+          SOURCE_REF: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          node --input-type=module - <<'MANIFEST_SCRIPT'
-          import fs from 'node:fs';
-          import path from 'node:path';
-
-          const tag = process.env.TAG;
-          const version = tag.replace(/^v/, '');
-          const dir = `website/public/releases/${tag}`;
-          const files = fs.readdirSync(dir);
-
-          const manifest = { version, tag, generatedAt: new Date().toISOString(), assets: {} };
-
-          for (const file of files) {
-            const lower = file.toLowerCase();
-            if (/x64-setup\.exe$/.test(lower)) manifest.assets.windows_exe = file;
-            else if (/\.msi$/.test(lower)) manifest.assets.windows_msi = file;
-            else if (/universal\.dmg$/.test(lower)) manifest.assets.mac_dmg = file;
-            else if (/arm64\.apk$/.test(lower)) manifest.assets.android_apk = file;
-            else if (/ios\.ipa$/i.test(lower)) manifest.assets.ios_ipa = file;
-            else if (/\.appimage$/i.test(lower)) manifest.assets.linux_appimage = file;
-            else if (/\.deb$/i.test(lower)) manifest.assets.linux_deb = file;
-          }
-
-          fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-          fs.mkdirSync('website/public/releases', { recursive: true });
-          fs.writeFileSync('website/public/releases/latest.json', JSON.stringify(manifest, null, 2));
-
-          console.log('Release manifest:', JSON.stringify(manifest, null, 2));
-          MANIFEST_SCRIPT
-
-      - name: Generate dev-latest manifest
-        if: steps.dev_release.outputs.HAS_DEV == 'true'
-        run: |
-          set -euo pipefail
-          node --input-type=module - <<'DEV_MANIFEST'
-          import fs from 'node:fs';
-          import path from 'node:path';
-
-          const devDir = 'website/public/releases/dev-latest';
-          const devFiles = fs.readdirSync(devDir);
-
-          // 从文件名推导 beta 版本号
-          const sample = devFiles.find(f => /Mini-HBUT_(.+?)_/.test(f)) || '';
-          const vMatch = sample.match(/Mini-HBUT_(.+?)_/);
-          const betaVersion = vMatch ? vMatch[1] : 'unknown';
-
-          const manifest = {
-            version: betaVersion,
-            tag: 'dev-latest',
-            prerelease: true,
-            generatedAt: new Date().toISOString(),
-            assets: {}
-          };
-
-          for (const file of devFiles) {
-            const lower = file.toLowerCase();
-            if (/x64-setup\.exe$/.test(lower)) manifest.assets.windows_exe = file;
-            else if (/\.msi$/.test(lower)) manifest.assets.windows_msi = file;
-            else if (/universal\.app\.zip$/.test(lower)) manifest.assets.mac_zip = file;
-            else if (/\.dmg$/.test(lower)) manifest.assets.mac_dmg = file;
-            else if (/arm64\.apk$/.test(lower)) manifest.assets.android_apk = file;
-            else if (/ios\.ipa$/i.test(lower)) manifest.assets.ios_ipa = file;
-            else if (/\.appimage$/i.test(lower)) manifest.assets.linux_appimage = file;
-            else if (/\.deb$/i.test(lower)) manifest.assets.linux_deb = file;
-          }
-
-          fs.writeFileSync(path.join(devDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-          fs.mkdirSync('website/public/releases', { recursive: true });
-          fs.writeFileSync('website/public/releases/dev-latest.json', JSON.stringify(manifest, null, 2));
-          console.log('Dev manifest:', JSON.stringify(manifest, null, 2));
-          DEV_MANIFEST
+          node scripts/build_release_manifests.mjs
 
       - name: Setup Node.js
         uses: actions/setup-node@v5

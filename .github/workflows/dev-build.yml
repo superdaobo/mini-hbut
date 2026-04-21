@@ -115,6 +115,7 @@ jobs:
   build-android:
     needs: [source, meta]
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Download source artifact
         uses: actions/download-artifact@v4
@@ -365,6 +366,7 @@ jobs:
   build-ios:
     needs: [source, meta]
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - name: Download source artifact
         uses: actions/download-artifact@v4
@@ -594,8 +596,12 @@ jobs:
           compression-level: 0
 
   deploy-dev-release:
+    if: ${{ always() }}
     needs: [meta, build-android, build-windows, build-macos, build-ios, build-linux]
     runs-on: ubuntu-latest
+    concurrency:
+      group: website-pages-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -703,69 +709,16 @@ jobs:
           echo "Dev assets for CDN (<=25MB):"
           ls -lh "$DEST"
 
-      - name: Generate manifests
+      - name: Generate release manifests
         env:
+          RELEASE_CHANNEL: dev
+          STABLE_TAG: ${{ env.STABLE_TAG }}
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+          SOURCE_REF: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          node --input-type=module - <<'MANIFEST_SCRIPT'
-          import fs from 'node:fs';
-          import path from 'node:path';
-
-          // --- dev-latest manifest ---
-          const betaVersion = process.env.BETA_VERSION;
-          const devDir = 'website/public/releases/dev-latest';
-          const devFiles = fs.readdirSync(devDir);
-          const devManifest = {
-            version: betaVersion,
-            tag: 'dev-latest',
-            prerelease: true,
-            generatedAt: new Date().toISOString(),
-            assets: {}
-          };
-          for (const file of devFiles) {
-            const lower = file.toLowerCase();
-            if (/x64-setup\.exe$/.test(lower)) devManifest.assets.windows_exe = file;
-            else if (/\.msi$/.test(lower)) devManifest.assets.windows_msi = file;
-            else if (/universal\.app\.zip$/.test(lower)) devManifest.assets.mac_zip = file;
-            else if (/\.dmg$/.test(lower)) devManifest.assets.mac_dmg = file;
-            else if (/arm64\.apk$/.test(lower)) devManifest.assets.android_apk = file;
-            else if (/ios\.ipa$/i.test(lower)) devManifest.assets.ios_ipa = file;
-            else if (/\.appimage$/i.test(lower)) devManifest.assets.linux_appimage = file;
-            else if (/\.deb$/i.test(lower)) devManifest.assets.linux_deb = file;
-          }
-          fs.writeFileSync(path.join(devDir, 'manifest.json'), JSON.stringify(devManifest, null, 2));
-          fs.mkdirSync('website/public/releases', { recursive: true });
-          fs.writeFileSync('website/public/releases/dev-latest.json', JSON.stringify(devManifest, null, 2));
-          console.log('Dev manifest:', JSON.stringify(devManifest, null, 2));
-
-          // --- stable manifest (if exists) ---
-          const stableTag = process.env.STABLE_TAG || '';
-          if (stableTag) {
-            const stableDir = `website/public/releases/${stableTag}`;
-            const stableFiles = fs.readdirSync(stableDir);
-            const stableVersion = stableTag.replace(/^v/, '');
-            const stableManifest = {
-              version: stableVersion,
-              tag: stableTag,
-              generatedAt: new Date().toISOString(),
-              assets: {}
-            };
-            for (const file of stableFiles) {
-              const lower = file.toLowerCase();
-              if (/x64-setup\.exe$/.test(lower)) stableManifest.assets.windows_exe = file;
-              else if (/\.msi$/.test(lower)) stableManifest.assets.windows_msi = file;
-              else if (/universal\.dmg$/.test(lower)) stableManifest.assets.mac_dmg = file;
-              else if (/arm64\.apk$/.test(lower)) stableManifest.assets.android_apk = file;
-              else if (/ios\.ipa$/i.test(lower)) stableManifest.assets.ios_ipa = file;
-              else if (/\.appimage$/i.test(lower)) stableManifest.assets.linux_appimage = file;
-              else if (/\.deb$/i.test(lower)) stableManifest.assets.linux_deb = file;
-            }
-            fs.writeFileSync(path.join(stableDir, 'manifest.json'), JSON.stringify(stableManifest, null, 2));
-            fs.writeFileSync('website/public/releases/latest.json', JSON.stringify(stableManifest, null, 2));
-            console.log('Stable manifest:', JSON.stringify(stableManifest, null, 2));
-          }
-          MANIFEST_SCRIPT
+          node scripts/build_release_manifests.mjs
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
