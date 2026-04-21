@@ -6,6 +6,15 @@ const MODULE_STATE_STORAGE_KEY = 'hbu_more_module_state_v1'
 const DEFAULT_CHANNEL = 'main'
 const MODULE_CHANNELS = new Set(['main', 'dev'])
 
+const withCacheBust = (url) => {
+  const text = safeText(url)
+  if (!text) return ''
+  const joiner = text.includes('?') ? '&' : '?'
+  return `${text}${joiner}_t=${Date.now()}`
+}
+
+const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
+
 const safeText = (value) => String(value ?? '').trim()
 
 const normalizeChannel = (value) => {
@@ -68,7 +77,12 @@ export const getLocalModuleState = (moduleId) => {
 }
 
 const fetchJsonNoStore = async (url) => {
-  const response = await fetch(url, { cache: 'no-store' })
+  const targetUrl = toAbsoluteUrl(url, globalThis?.location?.href || MODULE_CDN_BASE)
+  if (isTauriRuntime() && isAbsoluteHttpUrl(targetUrl)) {
+    return invokeNative('fetch_remote_json', { url: withCacheBust(targetUrl) })
+  }
+
+  const response = await fetch(withCacheBust(targetUrl), { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`)
   }
@@ -186,67 +200,50 @@ const resolveOpenUrl = ({ manifest, channel }) => {
   return `${MODULE_CDN_BASE}/${normalizeChannel(channel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
 }
 
-const tryOpenCachedEntry = async (moduleId) => {
-  if (!isTauriRuntime()) return false
-  const state = getLocalModuleState(moduleId)
-  const entryPath = safeText(state?.entry_path || state?.entryPath || '')
-  if (!entryPath) return false
-  try {
-    await invokeNative('open_file_with_system', { path: entryPath })
-    return true
-  } catch {
-    return false
-  }
-}
-
-export const prepareAndOpenModule = async ({ channel, moduleInfo, manifest }) => {
+export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => {
   const moduleId = safeText(moduleInfo?.id || manifest?.module_id)
   const openUrl = resolveOpenUrl({ manifest, channel })
-  const packageSha = safeText(manifest?.package_sha256)
-  let localError = null
+  const packageUrl = safeText(manifest?.package_url)
 
   if (isTauriRuntime()) {
     try {
-      const request = {
-        channel: normalizeChannel(channel),
-        module_id: moduleId,
-        moduleId,
-        version: safeText(manifest?.version),
-        package_url: safeText(manifest?.package_url),
-        packageUrl: safeText(manifest?.package_url),
-        package_sha256: packageSha,
-        packageSha256: packageSha,
-        entry_path: safeText(manifest?.entry_path || 'index.html'),
-        entryPath: safeText(manifest?.entry_path || 'index.html')
-      }
-      const result = await invokeNative('prepare_module_bundle', { request })
-      const entryPath = safeText(result?.entry_path || result?.entryPath)
-      if (!entryPath) throw new Error('模块解包成功但未返回入口文件')
-      await invokeNative('open_file_with_system', { path: entryPath })
+      const prepared = await invokeNative('prepare_module_bundle', {
+        req: {
+          channel: normalizeChannel(channel),
+          moduleId,
+          moduleName: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
+          version: safeText(manifest?.version),
+          packageUrl,
+          packageSha256: safeText(manifest?.package_sha256),
+          entryPath: safeText(manifest?.entry_path || 'index.html')
+        }
+      })
       updateModuleState(moduleId, {
         channel: normalizeChannel(channel),
-        version: safeText(manifest?.version),
-        entry_path: entryPath,
-        open_url: openUrl
+        version: safeText(prepared?.version || manifest?.version),
+        package_url: packageUrl,
+        open_url: safeText(prepared?.preview_url || openUrl),
+        preview_url: safeText(prepared?.preview_url || openUrl),
+        cache_dir: safeText(prepared?.cache_dir),
+        bundle_path: safeText(prepared?.bundle_path),
+        source: safeText(prepared?.source || 'download')
       })
       return {
-        opened: true,
-        launch_mode: 'local',
-        version: safeText(manifest?.version),
-        entry_path: entryPath,
-        open_url: openUrl
+        ready: true,
+        launch_mode: safeText(prepared?.source) === 'cache' ? 'cache' : 'in_app',
+        version: safeText(prepared?.version || manifest?.version),
+        package_url: packageUrl,
+        cache_dir: safeText(prepared?.cache_dir),
+        bundle_path: safeText(prepared?.bundle_path),
+        preview_url: safeText(prepared?.preview_url || openUrl),
+        source: safeText(prepared?.source || 'download'),
+        module_id: moduleId,
+        module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
+        channel: normalizeChannel(channel),
+        local_ready: true
       }
     } catch (error) {
-      localError = error
-      const openedCached = await tryOpenCachedEntry(moduleId)
-      if (openedCached) {
-        return {
-          opened: true,
-          launch_mode: 'cache',
-          version: safeText(manifest?.version),
-          open_url: openUrl
-        }
-      }
+      throw new Error(safeText(error?.message || error) || '模块本地准备失败')
     }
   }
 
@@ -259,15 +256,22 @@ export const prepareAndOpenModule = async ({ channel, moduleInfo, manifest }) =>
         open_url: openUrl
       })
       return {
-        opened: true,
+        ready: true,
         launch_mode: 'remote',
         version: safeText(manifest?.version),
-        open_url: openUrl
+        open_url: openUrl,
+        preview_url: openUrl,
+        module_id: moduleId,
+        module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
+        channel: normalizeChannel(channel),
+        local_ready: false
       }
     }
   }
 
-  throw new Error(safeText(localError?.message || localError) || '模块启动失败')
+  throw new Error('模块启动失败')
 }
+
+export const prepareAndOpenModule = prepareModuleBundle
 
 export const getModuleCdnBase = () => MODULE_CDN_BASE

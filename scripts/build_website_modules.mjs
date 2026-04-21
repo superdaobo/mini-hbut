@@ -48,7 +48,18 @@ const listModuleDirs = () => {
 const zipDirectory = (sourceDir, zipPath) => {
   ensureDir(path.dirname(zipPath))
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true })
-  execSync(`zip -rq "${zipPath}" .`, {
+  try {
+    execSync(`zip -rq "${zipPath}" .`, {
+      cwd: sourceDir,
+      stdio: 'inherit'
+    })
+    return
+  } catch (error) {
+    if (process.platform !== 'win32') {
+      throw error
+    }
+  }
+  execSync(`tar -a -cf "${zipPath}" *`, {
     cwd: sourceDir,
     stdio: 'inherit'
   })

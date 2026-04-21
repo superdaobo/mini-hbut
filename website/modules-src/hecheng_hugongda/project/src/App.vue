@@ -42,7 +42,7 @@
           }"
         >
           <img 
-            :src="'/logos/' + schools[nextBallLevel].image" 
+            :src="resolveLogoPath(schools[nextBallLevel].image)" 
             :alt="schools[nextBallLevel].short"
             class="ball-img"
           />
@@ -52,7 +52,7 @@
           <span>下个登场</span>
           <div class="preview-circle">
             <img 
-              :src="'/logos/' + schools[previewBallLevel].image" 
+              :src="resolveLogoPath(schools[previewBallLevel].image)" 
               :alt="schools[previewBallLevel].short"
               class="preview-img"
             />
@@ -99,7 +99,7 @@
                        <span class="user-score">得分: {{ record.score }}</span>
                     </div>
                     <div class="history-badge">
-                       <img :src="'/logos/' + schools[record.maxLevel].image" class="badge-img" />
+                       <img :src="resolveLogoPath(schools[record.maxLevel].image)" class="badge-img" />
                        <span>{{ schools[record.maxLevel].short }}</span>
                     </div>
                 </div>
@@ -119,7 +119,7 @@
           :class="{ 'current-target': index === schools.length - 1 }"
         >
           <div class="legend-icon">
-            <img :src="'/logos/' + school.image" :alt="school.short" />
+            <img :src="resolveLogoPath(school.image)" :alt="school.short" />
           </div>
           <span class="legend-name">{{ school.short }}</span>
         </div>
@@ -130,6 +130,8 @@
 
 <script>
 import Matter from 'matter-js'
+
+const MODULE_LOGO_BASE = `${import.meta.env.BASE_URL || '/'}logos/`
 
 export default {
   name: 'App',
@@ -243,10 +245,14 @@ export default {
              this.schoolImages[index] = null 
              resolve()
           }
-          img.src = `/logos/${school.image}`
+          img.src = this.resolveLogoPath(school.image)
         })
       })
       await Promise.all(promises)
+    },
+
+    resolveLogoPath(fileName) {
+      return `${MODULE_LOGO_BASE}${fileName}`
     },
 
     stopGame() {

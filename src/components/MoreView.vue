@@ -12,7 +12,7 @@ import {
   fetchModuleManifest,
   getLocalModuleState,
   getModuleCdnBase,
-  prepareAndOpenModule,
+  prepareModuleBundle,
   resolveModuleChannel
 } from '../utils/more_modules.js'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
@@ -275,7 +275,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
       message: '下载并准备本地包',
       version: safeText(manifest.version)
     })
-    const launched = await prepareAndOpenModule({
+    const prepared = await prepareModuleBundle({
       channel: moduleChannel.value,
       moduleInfo: moduleItem,
       manifest
@@ -283,12 +283,24 @@ const handleOpenRemoteModule = async (moduleItem) => {
     setModuleState(moduleId, {
       status: 'ready',
       message:
-        launched.launch_mode === 'cache'
-          ? '已从本地缓存打开'
-          : launched.launch_mode === 'local'
-            ? '已从本地包打开'
-            : '已从官网页面打开',
-      version: safeText(launched.version || manifest.version)
+        prepared.launch_mode === 'cache'
+          ? '已加载本地缓存'
+          : '已在当前页面打开',
+      version: safeText(prepared.version || manifest.version)
+    })
+    emit('navigate', {
+      view: 'more_module_host',
+      payload: {
+        module_id: safeText(prepared.module_id || moduleId),
+        module_name: safeText(prepared.module_name || moduleItem?.name || manifest.module_name || moduleId),
+        preview_url: safeText(prepared.preview_url),
+        version: safeText(prepared.version || manifest.version),
+        channel: safeText(prepared.channel || moduleChannel.value),
+        local_ready: prepared.local_ready !== false,
+        source: safeText(prepared.source || ''),
+        cache_dir: safeText(prepared.cache_dir || ''),
+        bundle_path: safeText(prepared.bundle_path || '')
+      }
     })
   } catch (err) {
     setModuleState(moduleId, {
@@ -400,26 +412,26 @@ onMounted(async () => {
           <span>模块中心</span>
           <span class="section-subtitle">每行 2 个</span>
         </div>
-        <div class="module-grid">
+        <div class="more-module-grid">
           <button
             v-for="item in moduleCards"
             :key="item.id"
-            class="module-card"
+            class="more-module-card"
             :disabled="moduleBusyKey === item.id"
             @click="handleModuleClick(item)"
           >
-            <div class="module-card__head">
-              <span class="module-card__icon">{{ item.icon || '📦' }}</span>
+            <div class="more-module-card__head">
+              <span class="more-module-card__icon">{{ item.icon || '📦' }}</span>
               <TStatusBadge
                 :type="resolveModuleBadgeType(item, readModuleState(item.id))"
                 :text="resolveModuleStatusText(item, readModuleState(item.id))"
               />
             </div>
-            <div class="module-card__body">
+            <div class="more-module-card__body">
               <strong>{{ item.name }}</strong>
               <p>{{ item.description || '模块说明缺失' }}</p>
             </div>
-            <div class="module-card__foot">
+            <div class="more-module-card__foot">
               <span v-if="readModuleState(item.id).version">v{{ readModuleState(item.id).version }}</span>
               <span v-else>渠道 {{ moduleChannel }}</span>
               <small>{{ readModuleState(item.id).message || '点击进入' }}</small>
@@ -493,13 +505,13 @@ onMounted(async () => {
   color: color-mix(in oklab, var(--ui-primary) 80%, white 20%);
 }
 
-.module-grid {
+.more-module-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.module-card {
+.more-module-card {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: calc(18px * var(--ui-radius-scale));
   background: color-mix(in oklab, var(--ui-surface) 74%, #fff 10%);
@@ -513,22 +525,22 @@ onMounted(async () => {
   transition: transform 0.15s ease, border-color 0.15s ease;
 }
 
-.module-card:not(:disabled):hover {
+.more-module-card:not(:disabled):hover {
   transform: translateY(-1px);
   border-color: color-mix(in oklab, var(--ui-primary) 36%, transparent);
 }
 
-.module-card:disabled {
+.more-module-card:disabled {
   opacity: 0.7;
 }
 
-.module-card__head {
+.more-module-card__head {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.module-card__icon {
+.more-module-card__icon {
   width: 34px;
   height: 34px;
   border-radius: calc(10px * var(--ui-radius-scale));
@@ -539,35 +551,35 @@ onMounted(async () => {
   background: color-mix(in oklab, var(--ui-primary) 10%, var(--ui-surface) 90%);
 }
 
-.module-card__body {
+.more-module-card__body {
   flex: 1;
 }
 
-.module-card__body strong {
+.more-module-card__body strong {
   display: block;
   color: var(--ui-text);
   font-size: calc(15px * var(--ui-font-scale));
 }
 
-.module-card__body p {
+.more-module-card__body p {
   margin: 5px 0 0;
   color: var(--ui-muted);
   font-size: calc(12px * var(--ui-font-scale));
   line-height: 1.35;
 }
 
-.module-card__foot {
+.more-module-card__foot {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.module-card__foot > span {
+.more-module-card__foot > span {
   font-size: calc(11px * var(--ui-font-scale));
   color: var(--ui-muted);
 }
 
-.module-card__foot > small {
+.more-module-card__foot > small {
   color: var(--ui-text-secondary, var(--ui-muted));
   font-size: calc(11px * var(--ui-font-scale));
   line-height: 1.25;
@@ -686,12 +698,12 @@ onMounted(async () => {
 }
 
 @media (max-width: 760px) {
-  .module-grid {
+  .more-module-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
-  .module-card {
+  .more-module-card {
     min-height: 142px;
     padding: 10px;
   }

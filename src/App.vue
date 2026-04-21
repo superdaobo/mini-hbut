@@ -23,6 +23,7 @@ import SettingsView from './components/SettingsView.vue'
 import ExportCenterView from './components/ExportCenterView.vue'
 import MoreView from './components/MoreView.vue'
 import MoreShuakeView from './components/MoreShuakeView.vue'
+import MoreModuleHostView from './components/MoreModuleHostView.vue'
 import OnlineLearningChaoxingView from './components/OnlineLearningChaoxingView.vue'
 import OnlineLearningYuketangView from './components/OnlineLearningYuketangView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
@@ -101,6 +102,7 @@ const ME_SUB_VIEWS = [
   'export_center',
   'more',
   'more_shuake',
+  'more_module_host',
   'online_learning_chaoxing',
   'online_learning_yuketang'
 ]
@@ -116,6 +118,7 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   export_center: 'me',
   more: 'me',
   more_shuake: 'more',
+  more_module_host: 'more',
   online_learning_chaoxing: 'more_shuake',
   online_learning_yuketang: 'more_shuake'
 })
@@ -167,6 +170,43 @@ const initialModule = String(
     (MAIN_TABS.includes(initialView) ? '' : initialView === 'home' ? '' : initialView)
 ).trim()
 
+const MODULE_HOST_SESSION_KEY = 'hbu_more_module_host_session'
+
+const buildModuleHostSession = (payload = {}) => {
+  const raw = payload && typeof payload === 'object' ? payload : {}
+  return {
+    module_id: String(raw.module_id || raw.moduleId || '').trim(),
+    module_name: String(raw.module_name || raw.moduleName || '').trim(),
+    preview_url: String(raw.preview_url || raw.previewUrl || '').trim(),
+    version: String(raw.version || '').trim(),
+    channel: String(raw.channel || 'main').trim() || 'main',
+    local_ready: raw.local_ready !== false,
+    source: String(raw.source || '').trim(),
+    cache_dir: String(raw.cache_dir || '').trim(),
+    bundle_path: String(raw.bundle_path || '').trim()
+  }
+}
+
+const readModuleHostSession = () => {
+  try {
+    const raw = localStorage.getItem(MODULE_HOST_SESSION_KEY)
+    if (!raw) return buildModuleHostSession()
+    return buildModuleHostSession(JSON.parse(raw))
+  } catch {
+    return buildModuleHostSession()
+  }
+}
+
+const persistModuleHostSession = (payload) => {
+  const normalized = buildModuleHostSession(payload)
+  try {
+    localStorage.setItem(MODULE_HOST_SESSION_KEY, JSON.stringify(normalized))
+  } catch {
+    // ignore storage failure
+  }
+  return normalized
+}
+
 // 视图状态: home, schedule, me, grades...
 const currentView = ref(initialView)
 const activeTab = ref(initialTab)
@@ -174,6 +214,7 @@ const gradeData = ref([])
 const studentId = ref(String(initialRouteSnapshot?.sid || '').trim())
 const userUuid = ref('')
 const currentModule = ref(initialModule)
+const moduleHostSession = ref(readModuleHostSession())
 const viewRenderNonce = ref(0)
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
@@ -243,6 +284,12 @@ const activeAnnouncement = ref(null)
 const showAnnouncementModal = ref(false)
 const blockingAnnouncement = ref(null)
 const showBlockingAnnouncement = ref(false)
+
+if (currentView.value === 'more_module_host' && !moduleHostSession.value.preview_url) {
+  currentView.value = 'more'
+  activeTab.value = 'me'
+  currentModule.value = 'more'
+}
 
 // 默认登录方式：新融合门户账号密码
 const savedLoginMode = String(localStorage.getItem(LOGIN_METHOD_VIEW_KEY) || '').trim()
@@ -521,12 +568,21 @@ const collectCurrentViewSnapshot = () => ({
   sid: String(studentId.value || '').trim(),
   view: normalizeViewName(currentView.value),
   tab: String(activeTab.value || '').trim(),
-  module: String(currentModule.value || '').trim()
+  module:
+    currentView.value === 'more_module_host'
+      ? String(moduleHostSession.value?.module_id || '').trim()
+      : String(currentModule.value || '').trim()
 })
 
 const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) => {
   const resolved = snapshot || collectCurrentViewSnapshot()
-  const targetView = normalizeViewName(resolved?.view || resolved?.module || resolved?.tab || currentView.value)
+  const targetViewRaw = normalizeViewName(
+    resolved?.view || resolved?.module || resolved?.tab || currentView.value
+  )
+  const targetView =
+    targetViewRaw === 'more_module_host' && !moduleHostSession.value.preview_url
+      ? 'more'
+      : targetViewRaw
   if (resolved?.sid) {
     studentId.value = String(resolved.sid || '').trim()
     try {
@@ -604,7 +660,10 @@ const replaceHistorySnapshot = (view = currentView.value) => {
     sid,
     view,
     tab: activeTab.value,
-    module: currentModule.value
+    module:
+      view === 'more_module_host'
+        ? String(moduleHostSession.value?.module_id || '').trim()
+        : currentModule.value
   }
   window.history.replaceState(state, '', resolveHash(sid, view))
 }
@@ -616,7 +675,10 @@ const pushHistorySnapshot = (view = currentView.value) => {
     sid,
     view,
     tab: activeTab.value,
-    module: currentModule.value
+    module:
+      view === 'more_module_host'
+        ? String(moduleHostSession.value?.module_id || '').trim()
+        : currentModule.value
   }
   window.history.pushState(state, '', resolveHash(sid, view))
 }
@@ -631,7 +693,10 @@ const applyViewState = (view) => {
   if (ME_SUB_VIEWS.includes(view)) {
     activeTab.value = 'me'
   }
-  currentModule.value = view
+  currentModule.value =
+    view === 'more_module_host'
+      ? String(moduleHostSession.value?.module_id || 'more_module_host').trim()
+      : view
 }
 
 const resolveAccessFallbackView = (view = 'home') => {
@@ -811,10 +876,40 @@ const handleLoginSuccess = (data) => {
   recoverViewportAfterTransition()
 }
 
+const normalizeNavigateTarget = (target) => {
+  if (typeof target === 'string') {
+    return {
+      view: normalizeViewName(target),
+      payload: null
+    }
+  }
+  if (target && typeof target === 'object') {
+    return {
+      view: normalizeViewName(target.view || target.route || target.moduleId || target.module_id),
+      payload: target.payload && typeof target.payload === 'object' ? target.payload : null
+    }
+  }
+  return {
+    view: 'home',
+    payload: null
+  }
+}
+
 // 处理导航
-const handleNavigate = async (moduleId) => {
+const handleNavigate = async (target) => {
+  const normalized = normalizeNavigateTarget(target)
+
+  if (normalized.view === 'more_module_host') {
+    const session = persistModuleHostSession(normalized.payload || {})
+    if (!session.preview_url) {
+      goToView('more')
+      return
+    }
+    moduleHostSession.value = session
+  }
+
   // 如果是成绩页面且数据为空，先获取数据
-  if (moduleId === 'grades' && gradeData.value.length === 0) {
+  if (normalized.view === 'grades' && gradeData.value.length === 0) {
     const success = await fetchGradesFromAPI(studentId.value)
     if (!success) {
       // 获取失败，跳转到个人中心
@@ -823,7 +918,7 @@ const handleNavigate = async (moduleId) => {
     }
   }
 
-  goToView(moduleId)
+  goToView(normalized.view)
 }
 
 // 处理返回仪表盘
@@ -1940,6 +2035,12 @@ onBeforeUnmount(() => {
         :student-id="studentId"
         @back="handleBackToMoreCenter"
         @navigate="handleNavigate"
+      />
+
+      <MoreModuleHostView
+        v-else-if="currentView === 'more_module_host'"
+        :session="moduleHostSession"
+        @back="handleBackToMoreCenter"
       />
 
       <OnlineLearningChaoxingView
