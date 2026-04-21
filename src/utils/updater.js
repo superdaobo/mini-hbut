@@ -1,5 +1,5 @@
 import { openExternal } from './external_link'
-import { getNativeAppVersion } from '../platform/native'
+import { getNativeAppVersion, invokeNative, isTauriRuntime } from '../platform/native'
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
@@ -69,6 +69,69 @@ const uniqueUrls = (list) => {
     out.push(url)
   }
   return out
+}
+
+const withCacheBust = (url) => {
+  const text = String(url || '').trim()
+  if (!text) return ''
+  const joiner = text.includes('?') ? '&' : '?'
+  return `${text}${joiner}_t=${Date.now()}`
+}
+
+const describeError = (error) => {
+  if (!error) return ''
+  if (error instanceof Error) return `${error.message}\n${error.stack || ''}`.trim()
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+const isRecoverableNativeFetchError = (error) => {
+  const text = describeError(error).toLowerCase()
+  if (!text) return true
+  return (
+    text.includes('当前运行时不支持 invoke') ||
+    text.includes('window.__tauri_internal') ||
+    text.includes('__tauri_internal') ||
+    text.includes('__tauri_ipc__') ||
+    text.includes('tauri is not defined') ||
+    text.includes('ipc channel not found') ||
+    text.includes('could not find the webview window') ||
+    text.includes('this command is not allowed') ||
+    text.includes('not running in tauri')
+  )
+}
+
+const fetchJson = async (url, timeoutMs = 6000) => {
+  const requestUrl = withCacheBust(url)
+
+  if (isTauriRuntime()) {
+    try {
+      return await withTimeout(
+        invokeNative('fetch_remote_json', { url: requestUrl }),
+        timeoutMs
+      )
+    } catch (error) {
+      if (!isRecoverableNativeFetchError(error)) {
+        throw error
+      }
+    }
+  }
+
+  const resp = await withTimeout(
+    fetch(requestUrl, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    }),
+    timeoutMs
+  )
+  if (!resp.ok) {
+    throw new Error(`请求远程 JSON 失败: HTTP ${resp.status}`)
+  }
+  return resp.json()
 }
 
 const withTimeout = async (promise, ms = 9000) => {
@@ -178,16 +241,10 @@ async function fetchReleaseInfo(currentVersion) {
   // 优先尝试网站 active 清单，按最近一次网站部署决定当前推荐渠道。
   if (EDGEONE_ACTIVE_MANIFEST) {
     try {
-      const resp = await withTimeout(
-        fetch(EDGEONE_ACTIVE_MANIFEST, { headers: { Accept: 'application/json' } }),
-        6000
-      )
-      if (resp.ok) {
-        const manifest = await resp.json()
-        const release = normalizeCdnManifestAsRelease(manifest)
-        if (release) {
-          return release
-        }
+      const manifest = await fetchJson(EDGEONE_ACTIVE_MANIFEST, 6000)
+      const release = normalizeCdnManifestAsRelease(manifest)
+      if (release) {
+        return release
       }
     } catch (_) {
       // active 清单不可用，继续 fallback
@@ -197,17 +254,12 @@ async function fetchReleaseInfo(currentVersion) {
   // 再尝试稳定版清单，兼容旧站点结构。
   if (EDGEONE_CDN_BASE) {
     try {
-      const resp = await withTimeout(
-        fetch(`${EDGEONE_CDN_BASE}/releases/latest.json`, { headers: { Accept: 'application/json' } }),
-        6000
-      )
-      if (resp.ok) {
-        const release = normalizeCdnManifestAsRelease(await resp.json())
-        if (release) {
-          const latest = String(release.version || '').replace(/^v/, '')
-          if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
-            return release
-          }
+      const manifest = await fetchJson(`${EDGEONE_CDN_BASE}/releases/latest.json`, 6000)
+      const release = normalizeCdnManifestAsRelease(manifest)
+      if (release) {
+        const latest = String(release.version || '').replace(/^v/, '')
+        if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
+          return release
         }
       }
     } catch (_) {
@@ -218,9 +270,7 @@ async function fetchReleaseInfo(currentVersion) {
   let fallback = null
   for (const url of API_PROXIES) {
     try {
-      const response = await withTimeout(fetch(url, { headers: { Accept: 'application/json' } }), 9000)
-      if (!response.ok) continue
-      const data = await response.json()
+      const data = await fetchJson(url, 9000)
       const release = data?.tag_name ? data : normalizePackageJsonAsRelease(data)
       if (!release) continue
       // 优先保留含 assets 的 release，避免 jsdelivr 空 assets 覆盖完整数据
