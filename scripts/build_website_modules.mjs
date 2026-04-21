@@ -45,6 +45,23 @@ const listModuleDirs = () => {
     .filter((dir) => fs.existsSync(path.join(dir, 'module.json')))
 }
 
+const installModuleDeps = (sourceDir) => {
+  try {
+    execSync('npm ci --prefer-offline --no-audit --no-fund', {
+      cwd: sourceDir,
+      stdio: 'inherit'
+    })
+    return
+  } catch (error) {
+    console.warn(`[modules] npm ci failed, fallback to npm install: ${error.message}`)
+  }
+
+  execSync('npm install --prefer-offline --no-audit --no-fund', {
+    cwd: sourceDir,
+    stdio: 'inherit'
+  })
+}
+
 const zipDirectoryWithPython = (sourceDir, zipPath) => {
   const script = [
     'import os, sys, zipfile',
@@ -101,7 +118,7 @@ for (const moduleDir of listModuleDirs()) {
   }
 
   console.log(`[modules] building ${moduleId} from ${sourceDir}`)
-  execSync('npm ci --prefer-offline --no-audit --no-fund', { cwd: sourceDir, stdio: 'inherit' })
+  installModuleDeps(sourceDir)
   execSync('npm run build', { cwd: sourceDir, stdio: 'inherit' })
 
   const distDir = path.resolve(sourceDir, String(meta.dist_dir || 'dist').trim() || 'dist')
