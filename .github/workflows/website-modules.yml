@@ -3,7 +3,6 @@ name: Website Modules Deploy
 on:
   push:
     branches:
-      - main
       - dev
     paths:
       - "website/**"

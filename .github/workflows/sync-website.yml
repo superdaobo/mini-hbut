@@ -6,8 +6,6 @@ on:
       - main
     paths-ignore:
       - "**.md"
-      - "website/**"
-      - "scripts/build_website_modules.mjs"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +17,7 @@ jobs:
     # 跳过 tag 推送触发（tag push 由 release.yml 的 deploy-website 负责）
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Get latest release tag
         id: release
@@ -185,11 +183,30 @@ jobs:
           DEV_MANIFEST
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: website/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install zip
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zip
+
+      - name: Build website modules (main channel)
+        env:
+          MODULE_CHANNEL: main
+          MODULE_BASE_URL: https://hbut.6661111.xyz/modules
+        run: |
+          set -euo pipefail
+          node scripts/build_website_modules.mjs
 
       - name: Build website
         run: |
