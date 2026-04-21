@@ -17,8 +17,10 @@ permissions:
 jobs:
   deploy-website-modules:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Resolve module channel
         id: channel
@@ -55,14 +57,14 @@ jobs:
           fi
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: website/package-lock.json
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -73,12 +75,44 @@ jobs:
           sudo apt-get install -y zip
 
       - name: Build website modules
+        id: build_modules
+        continue-on-error: true
         env:
           MODULE_CHANNEL: ${{ steps.channel.outputs.channel }}
           MODULE_BASE_URL: https://hbut.6661111.xyz/modules
         run: |
           set -euo pipefail
-          node scripts/build_website_modules.mjs
+          mkdir -p .ci-logs
+          node scripts/build_website_modules.mjs 2>&1 | tee .ci-logs/build-website-modules.log
+
+      - name: Summarize module build log
+        if: always()
+        run: |
+          {
+            echo "## Build website modules"
+            echo ""
+            if [ -f .ci-logs/build-website-modules.log ]; then
+              echo '```text'
+              tail -n 200 .ci-logs/build-website-modules.log
+              echo '```'
+            else
+              echo "No build log generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload module build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-website-modules-log-${{ github.run_id }}
+          path: .ci-logs/build-website-modules.log
+          if-no-files-found: ignore
+
+      - name: Fail when module build failed
+        if: steps.build_modules.outcome == 'failure'
+        run: |
+          echo "Website module build failed. See step summary or uploaded artifact."
+          exit 1
 
       - name: Build website
         run: |

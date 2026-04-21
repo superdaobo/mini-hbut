@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 
 const CHANNEL = String(process.env.MODULE_CHANNEL || 'main').trim().toLowerCase() === 'dev' ? 'dev' : 'main'
 const BASE_URL = String(process.env.MODULE_BASE_URL || 'https://hbut.6661111.xyz/modules').trim().replace(/\/+$/, '')
@@ -13,6 +13,41 @@ const MODULE_VERSION =
   `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}-${SHA}`
 
 const ensureDir = (dir) => fs.mkdirSync(dir, { recursive: true })
+
+const resolveBinary = (binary) => {
+  if (process.platform === 'win32' && binary === 'npm') {
+    return 'npm.cmd'
+  }
+  return binary
+}
+
+const runCommand = (binary, args, options = {}) => {
+  const cwd = options.cwd || process.cwd()
+  const resolvedBinary = resolveBinary(binary)
+  const isWindowsBatch = process.platform === 'win32' && /\.cmd$/i.test(resolvedBinary)
+  try {
+    if (isWindowsBatch) {
+      execFileSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', resolvedBinary, ...args], {
+        cwd,
+        stdio: 'inherit'
+      })
+    } else {
+      execFileSync(resolvedBinary, args, {
+        cwd,
+        stdio: 'inherit'
+      })
+    }
+  } catch (error) {
+    const detail = [
+      `[modules] command failed`,
+      `binary=${resolvedBinary}`,
+      `args=${JSON.stringify(args)}`,
+      `cwd=${cwd}`
+    ].join(' ')
+    console.error(detail)
+    throw error
+  }
+}
 
 const copyDir = (source, target) => {
   ensureDir(target)
@@ -47,18 +82,16 @@ const listModuleDirs = () => {
 
 const installModuleDeps = (sourceDir) => {
   try {
-    execSync('npm ci --prefer-offline --no-audit --no-fund', {
-      cwd: sourceDir,
-      stdio: 'inherit'
+    runCommand('npm', ['ci', '--prefer-offline', '--no-audit', '--no-fund'], {
+      cwd: sourceDir
     })
     return
   } catch (error) {
     console.warn(`[modules] npm ci failed, fallback to npm install: ${error.message}`)
   }
 
-  execSync('npm install --prefer-offline --no-audit --no-fund', {
-    cwd: sourceDir,
-    stdio: 'inherit'
+  runCommand('npm', ['install', '--prefer-offline', '--no-audit', '--no-fund'], {
+    cwd: sourceDir
   })
 }
 
@@ -90,9 +123,8 @@ const zipDirectory = (sourceDir, zipPath) => {
   ensureDir(path.dirname(zipPath))
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath, { force: true })
   try {
-    execSync(`zip -rq "${zipPath}" .`, {
-      cwd: sourceDir,
-      stdio: 'inherit'
+    runCommand('zip', ['-rq', zipPath, '.'], {
+      cwd: sourceDir
     })
     return
   } catch (error) {
@@ -119,7 +151,7 @@ for (const moduleDir of listModuleDirs()) {
 
   console.log(`[modules] building ${moduleId} from ${sourceDir}`)
   installModuleDeps(sourceDir)
-  execSync('npm run build', { cwd: sourceDir, stdio: 'inherit' })
+  runCommand('npm', ['run', 'build'], { cwd: sourceDir })
 
   const distDir = path.resolve(sourceDir, String(meta.dist_dir || 'dist').trim() || 'dist')
   if (!fs.existsSync(distDir)) {
