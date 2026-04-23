@@ -1,6 +1,5 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import hbutLogo from '../assets/hbut-logo.svg'
 
 const props = defineProps({
   status: { type: String, default: 'connecting' },
@@ -15,7 +14,7 @@ const logoReady = ref(false)
 const buildingReady = ref(false)
 const contentReady = ref(false)
 const dotsCount = ref(0)
-const splashLogoSrc = ref(hbutLogo)
+const splashLogoSrc = ref('/splash/app_icon.png')
 
 let dotsTimer = null
 let staggerTimer = null
@@ -36,8 +35,8 @@ const dismiss = () => {
 }
 
 const handleSplashLogoError = () => {
-  if (splashLogoSrc.value !== '/splash/app_icon.webp') {
-    splashLogoSrc.value = '/splash/app_icon.webp'
+  if (splashLogoSrc.value !== '/splash/app_icon.png') {
+    splashLogoSrc.value = '/splash/app_icon.png'
   }
 }
 
