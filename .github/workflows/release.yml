@@ -178,6 +178,9 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init
 
+      - name: Sync Android icons
+        run: node scripts/sync_tauri_platform_icons.mjs android
+
       - name: Patch Android notification permissions
         run: |
           set -euo pipefail
@@ -208,23 +211,6 @@ jobs:
           print("Patched AndroidManifest permissions.")
           PY
           grep -n "POST_NOTIFICATIONS\\|WAKE_LOCK\\|FOREGROUND_SERVICE\\|REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"
-
-      - name: Copy Android icons
-        run: |
-          set -euo pipefail
-          ANDROID_RES="src-tauri/gen/android/app/src/main/res"
-          ICONS_SRC="src-tauri/icons/android"
-          for density in hdpi mdpi xhdpi xxhdpi xxxhdpi; do
-            if [ -d "$ICONS_SRC/$density" ]; then
-              mkdir -p "$ANDROID_RES/mipmap-$density"
-              cp -f "$ICONS_SRC/$density"/*.png "$ANDROID_RES/mipmap-$density/" 2>/dev/null || true
-            fi
-            if [ -d "$ICONS_SRC/mipmap-$density" ]; then
-              mkdir -p "$ANDROID_RES/mipmap-$density"
-              cp -f "$ICONS_SRC/mipmap-$density"/*.png "$ANDROID_RES/mipmap-$density/" 2>/dev/null || true
-            fi
-          done
-          ls -la "$ANDROID_RES/mipmap-xxxhdpi/" || true
 
       - name: Optimize Android package size
         run: |
@@ -579,16 +565,7 @@ jobs:
           NODE
 
           npm run tauri ios init
-
-          IOS_ICON_DIR="src-tauri/icons/ios"
-          IOS_APPICONSET="src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset"
-          if [ -d "$IOS_ICON_DIR" ] && [ -d "$IOS_APPICONSET" ]; then
-            find "$IOS_APPICONSET" -type f -name "*.png" -delete
-            cp -f "$IOS_ICON_DIR"/*.png "$IOS_APPICONSET"/
-            echo "Injected iOS AppIcon set from $IOS_ICON_DIR"
-          else
-            echo "iOS icon source or destination not found, skipping icon injection"
-          fi
+          node scripts/sync_tauri_platform_icons.mjs ios
 
           npm run build
           node scripts/check_dist_boundary.mjs

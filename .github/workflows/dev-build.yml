@@ -242,6 +242,9 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init
 
+      - name: Sync Android icons
+        run: node scripts/sync_tauri_platform_icons.mjs android
+
       - name: Patch Android notification permissions
         run: |
           set -euo pipefail
@@ -528,6 +531,7 @@ jobs:
           NODE
 
           npm run tauri ios init
+          node scripts/sync_tauri_platform_icons.mjs ios
           npm run build
           node scripts/check_dist_boundary.mjs
           node scripts/report_bundle_sizes.mjs
@@ -842,12 +846,17 @@ jobs:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: |
           set -euo pipefail
-          DEST="website/public/releases/dev-latest"
-          mkdir -p "$DEST"
-          cp dev-assets/* "$DEST/"
-          find "$DEST" -size +25M -delete
-          echo "Dev assets for CDN (<=25MB):"
-          ls -lh "$DEST"
+          LATEST_DEST="website/public/releases/dev-latest"
+          HISTORY_DEST="website/public/releases/${BETA_VERSION}"
+          mkdir -p "$LATEST_DEST" "$HISTORY_DEST"
+          cp dev-assets/* "$LATEST_DEST/"
+          cp dev-assets/* "$HISTORY_DEST/"
+          find "$LATEST_DEST" -size +25M -delete
+          find "$HISTORY_DEST" -size +25M -delete
+          echo "Dev latest assets for CDN (<=25MB):"
+          ls -lh "$LATEST_DEST"
+          echo "Dev history assets for CDN (<=25MB):"
+          ls -lh "$HISTORY_DEST"
 
       - name: Generate release manifests
         env:

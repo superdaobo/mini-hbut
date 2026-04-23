@@ -220,6 +220,7 @@ function main() {
   const stableDir = stableTag ? path.join(RELEASES_ROOT, stableTag) : ''
   const devDir = path.join(RELEASES_ROOT, 'dev-latest')
   const devVersion = pickDevVersion(devDir, existingDev)
+  const devHistoryDir = devVersion ? path.join(RELEASES_ROOT, devVersion) : ''
 
   const stableManifest = stableTag
     ? buildManifest({
@@ -252,6 +253,13 @@ function main() {
 
   if (devManifest) {
     writeJson(path.join(devDir, 'manifest.json'), devManifest)
+    if (devHistoryDir && fs.existsSync(devHistoryDir)) {
+      writeJson(path.join(devHistoryDir, 'manifest.json'), {
+        ...devManifest,
+        tag: devVersion,
+        version: devVersion
+      })
+    }
     writeJson(devAliasPath, devManifest)
   } else if (fs.existsSync(devAliasPath)) {
     fs.rmSync(devAliasPath, { force: true })
