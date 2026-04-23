@@ -1,10 +1,12 @@
-import { getNativeAppVersion, invokeNative, isTauriRuntime } from '../platform/native'
+import { getNativeAppVersion, isTauriRuntime } from '../platform/native'
+import { pushDebugLog } from './debug_logger'
 import { openExternal } from './external_link'
 
 const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
 const MODULE_STATE_STORAGE_KEY = 'hbu_more_module_state_v1'
 const DEFAULT_CHANNEL = 'main'
 const MODULE_CHANNELS = new Set(['main', 'dev'])
+const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 5000
 
 const withCacheBust = (url) => {
   const text = safeText(url)
@@ -14,6 +16,92 @@ const withCacheBust = (url) => {
 }
 
 const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
+
+const describeError = (error) => {
+  if (!error) return ''
+  if (error instanceof Error) {
+    return [error.message, error.stack].filter(Boolean).join('\n')
+  }
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+const withTimeout = async (promise, timeoutMs, timeoutMessage) => {
+  let timer = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage || '请求超时'))
+        }, timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+const fetchWithTimeout = async (url, init = {}, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS) => {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  let timer = null
+  try {
+    if (controller) {
+      timer = setTimeout(() => controller.abort(), timeoutMs)
+    }
+    return await withTimeout(
+      fetch(url, {
+        ...init,
+        signal: controller?.signal
+      }),
+      timeoutMs,
+      '请求超时'
+    )
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+const isNativeBridgeUnavailableError = (error) => {
+  const text = describeError(error).toLowerCase()
+  if (!text) return true
+  return (
+    text.includes('当前运行时不支持 invoke') ||
+    text.includes('window.__tauri_internal') ||
+    text.includes('__tauri_internal') ||
+    text.includes('__tauri_ipc__') ||
+    text.includes('tauri is not defined') ||
+    text.includes('ipc channel not found') ||
+    text.includes('could not find the webview window') ||
+    text.includes('this command is not allowed') ||
+    text.includes('not running in tauri')
+  )
+}
+
+const invokeNativeBridge = async (command, args, label = '') => {
+  const core = await import('@tauri-apps/api/core')
+  try {
+    const result = await core.invoke(command, args)
+    if (label) {
+      pushDebugLog('MoreModules', `${label}：原生桥接成功`, 'debug', {
+        command
+      })
+    }
+    return result
+  } catch (error) {
+    if (label) {
+      pushDebugLog('MoreModules', `${label}：原生桥接失败`, 'warn', {
+        command,
+        error: describeError(error)
+      })
+    }
+    throw error
+  }
+}
 
 const safeText = (value) => String(value ?? '').trim()
 
@@ -76,13 +164,36 @@ export const getLocalModuleState = (moduleId) => {
   return value && typeof value === 'object' ? value : null
 }
 
-const fetchJsonNoStore = async (url) => {
+const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS) => {
   const targetUrl = toAbsoluteUrl(url, globalThis?.location?.href || MODULE_CDN_BASE)
-  if (isTauriRuntime() && isAbsoluteHttpUrl(targetUrl)) {
-    return invokeNative('fetch_remote_json', { url: withCacheBust(targetUrl) })
+  const requestUrl = withCacheBust(targetUrl)
+
+  if (isAbsoluteHttpUrl(targetUrl)) {
+    try {
+      return await withTimeout(
+        invokeNativeBridge(
+          'fetch_remote_json',
+          { url: requestUrl },
+          `远程 JSON ${targetUrl}`
+        ),
+        timeoutMs,
+        '远程 JSON 请求超时'
+      )
+    } catch (error) {
+      if (!isNativeBridgeUnavailableError(error)) {
+        throw error
+      }
+      pushDebugLog('MoreModules', `远程 JSON 回退浏览器请求：${targetUrl}`, 'warn', {
+        error: describeError(error)
+      })
+    }
   }
 
-  const response = await fetch(withCacheBust(targetUrl), { cache: 'no-store' })
+  const response = await fetchWithTimeout(
+    requestUrl,
+    { cache: 'no-store' },
+    timeoutMs
+  )
   if (!response.ok) {
     throw new Error(`请求失败：HTTP ${response.status}`)
   }
@@ -135,7 +246,7 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
     tried.push(resolved)
     const url = `${MODULE_CDN_BASE}/${resolved}/catalog.json`
     try {
-      const payload = await fetchJsonNoStore(url)
+      const payload = await fetchJsonNoStore(url, 3500)
       const rawModules = Array.isArray(payload?.modules) ? payload.modules : []
       const modules = rawModules
         .map((item) => normalizeCatalogModule(item, resolved))
@@ -162,7 +273,7 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
 export const fetchModuleManifest = async (manifestUrl) => {
   const url = toAbsoluteUrl(manifestUrl)
   if (!url) throw new Error('模块 manifest 地址为空')
-  const payload = await fetchJsonNoStore(url)
+  const payload = await fetchJsonNoStore(url, 5000)
 
   const moduleId = safeText(payload?.module_id || payload?.id)
   const version = safeText(payload?.version)
@@ -205,10 +316,11 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
   const openUrl = resolveOpenUrl({ manifest, channel })
   const packageUrl = safeText(manifest?.package_url)
 
-  if (isTauriRuntime()) {
-    try {
-      const prepared = await invokeNative('prepare_module_bundle', {
-        req: {
+  try {
+    const prepared = await invokeNativeBridge(
+      'prepare_module_bundle',
+      {
+        request: {
           channel: normalizeChannel(channel),
           moduleId,
           moduleName: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
@@ -217,34 +329,40 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
           packageSha256: safeText(manifest?.package_sha256),
           entryPath: safeText(manifest?.entry_path || 'index.html')
         }
-      })
-      updateModuleState(moduleId, {
-        channel: normalizeChannel(channel),
-        version: safeText(prepared?.version || manifest?.version),
-        package_url: packageUrl,
-        open_url: safeText(prepared?.preview_url || openUrl),
-        preview_url: safeText(prepared?.preview_url || openUrl),
-        cache_dir: safeText(prepared?.cache_dir),
-        bundle_path: safeText(prepared?.bundle_path),
-        source: safeText(prepared?.source || 'download')
-      })
-      return {
-        ready: true,
-        launch_mode: safeText(prepared?.source) === 'cache' ? 'cache' : 'in_app',
-        version: safeText(prepared?.version || manifest?.version),
-        package_url: packageUrl,
-        cache_dir: safeText(prepared?.cache_dir),
-        bundle_path: safeText(prepared?.bundle_path),
-        preview_url: safeText(prepared?.preview_url || openUrl),
-        source: safeText(prepared?.source || 'download'),
-        module_id: moduleId,
-        module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
-        channel: normalizeChannel(channel),
-        local_ready: true
-      }
-    } catch (error) {
+      },
+      `模块本地准备 ${moduleId}`
+    )
+    updateModuleState(moduleId, {
+      channel: normalizeChannel(channel),
+      version: safeText(prepared?.version || manifest?.version),
+      package_url: packageUrl,
+      open_url: safeText(prepared?.preview_url || openUrl),
+      preview_url: safeText(prepared?.preview_url || openUrl),
+      cache_dir: safeText(prepared?.cache_dir),
+      bundle_path: safeText(prepared?.bundle_path),
+      source: safeText(prepared?.source || 'download')
+    })
+    return {
+      ready: true,
+      launch_mode: safeText(prepared?.source) === 'cache' ? 'cache' : 'in_app',
+      version: safeText(prepared?.version || manifest?.version),
+      package_url: packageUrl,
+      cache_dir: safeText(prepared?.cache_dir),
+      bundle_path: safeText(prepared?.bundle_path),
+      preview_url: safeText(prepared?.preview_url || openUrl),
+      source: safeText(prepared?.source || 'download'),
+      module_id: moduleId,
+      module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
+      channel: normalizeChannel(channel),
+      local_ready: true
+    }
+  } catch (error) {
+    if (isTauriRuntime() || !isNativeBridgeUnavailableError(error)) {
       throw new Error(safeText(error?.message || error) || '模块本地准备失败')
     }
+    pushDebugLog('MoreModules', `模块本地准备不可用，回退官网打开：${moduleId}`, 'warn', {
+      error: describeError(error)
+    })
   }
 
   if (openUrl) {

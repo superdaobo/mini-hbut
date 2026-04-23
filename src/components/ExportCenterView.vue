@@ -88,6 +88,8 @@ const preparing = ref(false)
 const exporting = ref(false)
 const exportError = ref('')
 const exportSuccess = ref('')
+const exportSuccessPath = ref('')
+const exportSuccessHint = ref('')
 
 const previewRef = ref(null)
 const exportPayload = ref(null)
@@ -169,6 +171,18 @@ const readCacheEntry = (matcher) => {
     }
   }
   return latest
+}
+
+const clearExportSuccess = () => {
+  exportSuccess.value = ''
+  exportSuccessPath.value = ''
+  exportSuccessHint.value = ''
+}
+
+const setExportSuccess = (message, { path = '', hint = '' } = {}) => {
+  exportSuccess.value = String(message || '').trim()
+  exportSuccessPath.value = String(path || '').trim()
+  exportSuccessHint.value = String(hint || '').trim()
 }
 
 const ensureModuleSelected = () => {
@@ -672,7 +686,7 @@ const fetchByModule = async (moduleId, semesterList) => {
 
 const collectExportData = async () => {
   exportError.value = ''
-  exportSuccess.value = ''
+  clearExportSuccess()
   preparing.value = true
   try {
     const payload = {
@@ -701,7 +715,7 @@ const collectExportData = async () => {
 
     exportPayload.value = payload
     lastSyncTime.value = newestSync
-    exportSuccess.value = '导出数据已准备完成，可直接导出 JSON 或长图片。'
+    setExportSuccess('导出数据已准备完成，可直接导出 JSON 或长图片。')
   } catch (e) {
     exportError.value = `准备导出数据失败：${e?.message || e}`
   } finally {
@@ -765,7 +779,7 @@ const exportJson = async () => {
 
   exporting.value = true
   exportError.value = ''
-  exportSuccess.value = ''
+  clearExportSuccess()
   try {
     const fileName = `Mini-HBUT_Export_${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)}.json`
     const jsonText = JSON.stringify(exportPayload.value, null, 2)
@@ -773,7 +787,7 @@ const exportJson = async () => {
     if (isNative) {
       const base64 = btoa(unescape(encodeURIComponent(jsonText)))
       const saved = await saveByTauri(fileName, 'application/json', base64, false)
-      exportSuccess.value = `JSON 导出成功：${saved.path}`
+      setExportSuccess('JSON 导出成功。', { path: saved.path })
     } else if (isCapacitor) {
       const { Filesystem, Directory } = await import('@capacitor/filesystem')
       const base64 = btoa(unescape(encodeURIComponent(jsonText)))
@@ -781,10 +795,10 @@ const exportJson = async () => {
       const { Share } = await import('@capacitor/share')
       const written = await Filesystem.getUri({ path: fileName, directory: Directory.Cache })
       await Share.share({ title: fileName, url: written.uri, dialogTitle: '保存 JSON 文件' })
-      exportSuccess.value = 'JSON 已生成，请通过分享面板保存。'
+      setExportSuccess('JSON 已生成，请通过分享面板保存。')
     } else {
       saveByBrowser(fileName, 'application/json', jsonText)
-      exportSuccess.value = 'JSON 已通过浏览器下载。'
+      setExportSuccess('JSON 已通过浏览器下载。')
     }
   } catch (e) {
     exportError.value = `JSON 导出失败：${e?.message || e}`
@@ -839,7 +853,7 @@ const exportImage = async () => {
 
   exporting.value = true
   exportError.value = ''
-  exportSuccess.value = ''
+  clearExportSuccess()
   try {
     const canvas = await renderWideCanvas()
     const blob = await new Promise((resolve, reject) => {
@@ -854,14 +868,16 @@ const exportImage = async () => {
       const dataUrl = await blobToDataUrl(blob)
       const base64 = dataUrl.split(',')[1] || ''
       const saved = await saveByTauri(fileName, 'image/png', base64, true)
-      const tip = saved.needs_manual_import ? '（已写入应用目录，可在系统文件中导入相册）' : ''
-      exportSuccess.value = `长图片导出成功：${saved.path}${tip}`
+      setExportSuccess('长图片导出成功。', {
+        path: saved.path,
+        hint: saved.needs_manual_import ? '已写入应用目录，可在系统文件中导入相册。' : ''
+      })
     } else if (isCapacitor) {
       await saveByCapacitor(fileName, blob)
-      exportSuccess.value = '长图片已生成，请在弹出面板中选择「保存到相册」。'
+      setExportSuccess('长图片已生成，请在弹出面板中选择“保存到相册”。')
     } else {
       saveByBrowser(fileName, 'image/png', blob)
-      exportSuccess.value = '长图片已通过浏览器下载。'
+      setExportSuccess('长图片已通过浏览器下载。')
     }
   } catch (e) {
     exportError.value = `长图片导出失败：${e?.message || e}`
@@ -957,11 +973,11 @@ onMounted(async () => {
 
     <section v-for="group in moduleGroups" :key="group.id" class="config-card">
       <h3>{{ group.title }}</h3>
-      <div class="module-grid">
+      <div class="export-module-grid">
         <label
           v-for="mod in group.modules"
           :key="mod.id"
-          class="module-item"
+          class="export-module-item"
           :class="{ active: selectedModules.includes(mod.id) }"
         >
           <input
@@ -969,27 +985,36 @@ onMounted(async () => {
             :checked="selectedModules.includes(mod.id)"
             @change="toggleModule(mod.id)"
           />
-          <span class="module-icon">{{ mod.icon }}</span>
-          <span class="module-name">{{ mod.name }}</span>
-          <span v-if="mod.semesterAware" class="semester-tag">学期</span>
+          <span class="export-module-icon">{{ mod.icon }}</span>
+          <span class="export-module-name">{{ mod.name }}</span>
+          <span v-if="mod.semesterAware" class="export-semester-tag">学期</span>
         </label>
       </div>
     </section>
 
     <section class="actions-card">
-      <button class="action-btn prepare" :disabled="preparing || exporting" @click="collectExportData">
+      <button class="export-action-btn prepare" :disabled="preparing || exporting" @click="collectExportData">
         {{ preparing ? '正在准备数据...' : '预览导出数据' }}
       </button>
-      <button class="action-btn json" :disabled="preparing || exporting" @click="exportJson">
+      <button class="export-action-btn json" :disabled="preparing || exporting" @click="exportJson">
         {{ exporting ? '处理中...' : '导出 JSON' }}
       </button>
-      <button class="action-btn image" :disabled="preparing || exporting" @click="exportImage">
+      <button class="export-action-btn image" :disabled="preparing || exporting" @click="exportImage">
         {{ exporting ? '处理中...' : '导出长图片' }}
       </button>
     </section>
 
-    <p v-if="exportError" class="feedback error">{{ exportError }}</p>
-    <p v-if="exportSuccess" class="feedback success">{{ exportSuccess }}</p>
+    <div v-if="exportError" class="export-feedback export-feedback--error">
+      <div class="export-feedback__title">{{ exportError }}</div>
+    </div>
+    <div v-if="exportSuccess" class="export-feedback export-feedback--success">
+      <div class="export-feedback__title">{{ exportSuccess }}</div>
+      <div v-if="exportSuccessPath" class="export-feedback__path">
+        <span>保存位置</span>
+        <strong>{{ exportSuccessPath }}</strong>
+      </div>
+      <div v-if="exportSuccessHint" class="export-feedback__hint">{{ exportSuccessHint }}</div>
+    </div>
 
     <section v-if="hasPreparedData" class="preview-wrap">
       <div ref="previewRef" class="preview-content">
@@ -1483,13 +1508,13 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
-.module-grid {
+.export-module-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px;
 }
 
-.module-item {
+.export-module-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1502,19 +1527,19 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.module-item input {
+.export-module-item input {
   width: 16px;
   height: 16px;
   margin: 0;
   flex: 0 0 auto;
 }
 
-.module-item.active {
+.export-module-item.active {
   border-color: #2563eb;
   background: rgba(219, 234, 254, 0.75);
 }
 
-.module-icon {
+.export-module-icon {
   display: inline-flex;
   justify-content: center;
   font-size: 18px;
@@ -1522,18 +1547,19 @@ onMounted(async () => {
   flex: 0 0 auto;
 }
 
-.module-name {
+.export-module-name {
   font-size: 14px;
   color: #1f2937;
   line-height: 1.3;
   font-weight: 600;
   flex: 1;
   min-width: 0;
-  word-break: keep-all;
-  overflow-wrap: break-word;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
-.semester-tag {
+.export-semester-tag {
   border-radius: 999px;
   background: rgba(99, 102, 241, 0.14);
   color: #4f46e5;
@@ -1547,9 +1573,10 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: stretch;
 }
 
-.action-btn {
+.export-action-btn {
   border: none;
   border-radius: 12px;
   padding: 10px 14px;
@@ -1560,42 +1587,78 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.action-btn:disabled {
+.export-action-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
 
-.action-btn.prepare {
+.export-action-btn.prepare {
   background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
 }
 
-.action-btn.json {
+.export-action-btn.json {
   background: linear-gradient(135deg, #16a34a, #22c55e);
 }
 
-.action-btn.image {
+.export-action-btn.image {
   background: linear-gradient(135deg, #7c3aed, #a855f7);
 }
 
-.feedback {
+.export-feedback {
   max-width: 1080px;
   margin: 0 auto 12px;
   border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.feedback.error {
+.export-feedback--error {
   background: rgba(254, 226, 226, 0.92);
   border: 1px solid rgba(248, 113, 113, 0.5);
   color: #b91c1c;
 }
 
-.feedback.success {
+.export-feedback--success {
   background: rgba(220, 252, 231, 0.92);
   border: 1px solid rgba(74, 222, 128, 0.5);
   color: #166534;
+}
+
+.export-feedback__title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.export-feedback__path {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.export-feedback__path > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.82;
+}
+
+.export-feedback__path > strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.export-feedback__hint {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.88;
 }
 
 .preview-content {
@@ -1807,24 +1870,29 @@ onMounted(async () => {
     font-size: 17px;
   }
 
-  .module-grid {
+  .export-module-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .module-name {
+  .export-module-name {
     font-size: 14px;
   }
 
-  .semester-tag {
+  .export-semester-tag {
     font-size: 12px;
   }
 
-  .action-btn {
+  .export-action-btn {
     width: 100%;
     font-size: 14px;
   }
 
-  .feedback {
+  .export-feedback {
+    padding: 12px;
+  }
+
+  .export-feedback__title,
+  .export-feedback__path > strong {
     font-size: 13px;
   }
 

@@ -13,7 +13,7 @@ use axum::{routing::{get, post}, Json, Router, extract::State, extract::Query, e
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::body::Body;
-use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -215,7 +215,10 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use crate::http_client::HbutClient;
 use tauri::{AppHandle, Emitter};
 use crate::debug_bridge::{
-    self, DebugScreenshotBridgeError, DebugScreenshotRequest,
+    self, DebugScreenshotBridgeError, DebugScreenshotRequest, DebugStateBridgeError, DebugStateRequest,
+};
+use crate::modules::module_bundle::{
+    self, ModuleBundlePrepareRequest, OpenModuleBundleWindowRequest,
 };
 
 #[derive(Clone)]
@@ -323,6 +326,7 @@ struct DebugCustomScheduleUpsertRequest {
 struct DebugNavigateRequest {
     view: String,
     student_id: Option<String>,
+    payload: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -511,6 +515,12 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/debug/custom_schedule/upsert", post(debug_custom_schedule_upsert))
         .route("/debug/navigate", post(debug_navigate))
         .route("/debug/screenshot", post(debug_screenshot))
+        .route("/debug/state", get(debug_state))
+        .route("/debug/save_export_file", post(debug_save_export_file))
+        .route("/module_bundle/prepare", post(module_bundle_prepare))
+        .route("/module_bundle/open", post(module_bundle_open))
+        .route("/module_bundle/content/:channel/:module_id/:version", get(module_bundle_content_index))
+        .route("/module_bundle/content/:channel/:module_id/:version/*path", get(module_bundle_content))
         .route("/fetch_exams", post(fetch_exams))
         .route("/fetch_ranking", post(fetch_ranking))
         .route("/fetch_student_info", post(fetch_student_info))
@@ -1351,6 +1361,39 @@ async fn debug_screenshot(
     }
 }
 
+async fn debug_state(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_state skipped auth: local_api_key not configured"
+        );
+    }
+
+    match debug_bridge::request_debug_state(&state.app, DebugStateRequest::default(), 8_000).await {
+        Ok(result) => Ok(ok(result.state)),
+        Err(DebugStateBridgeError::NotReady) => Err(err(
+            StatusCode::CONFLICT,
+            "页面未就绪",
+            "当前页面尚未注册调试状态响应器".to_string(),
+        )),
+        Err(DebugStateBridgeError::Timeout) => Err(err(
+            StatusCode::GATEWAY_TIMEOUT,
+            "状态读取超时",
+            "8 秒内未收到页面状态响应".to_string(),
+        )),
+        Err(DebugStateBridgeError::Failed(message)) => Err(err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "状态读取失败",
+            message,
+        )),
+    }
+}
+
 async fn debug_navigate(
     State(state): State<HttpState>,
     headers: HeaderMap,
@@ -1383,6 +1426,7 @@ async fn debug_navigate(
     let payload = serde_json::json!({
         "view": view,
         "studentId": student_id,
+        "payload": req.payload,
     });
 
     state
@@ -1401,6 +1445,25 @@ async fn debug_navigate(
         "view": req.view,
         "student_id": req.student_id
     })))
+}
+
+async fn debug_save_export_file(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<crate::SaveExportFileRequest>,
+) -> Result<Json<ApiResponse<crate::SaveExportFileResult>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_save_export_file skipped auth: local_api_key not configured"
+        );
+    }
+
+    crate::save_export_file_impl(state.app.clone(), req)
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "导出失败", e))
 }
 
 fn sanitize_filename_part(input: &str) -> String {
@@ -1646,6 +1709,113 @@ async fn download_export(Path(filename): Path<String>) -> impl IntoResponse {
         resp.headers_mut().insert(CONTENT_DISPOSITION, value);
     }
     resp
+}
+
+fn module_content_type(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "application/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        Some("otf") => "font/otf",
+        Some("wasm") => "application/wasm",
+        Some("txt") => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn module_bundle_prepare(
+    State(state): State<HttpState>,
+    Json(req): Json<ModuleBundlePrepareRequest>,
+) -> Result<
+    Json<ApiResponse<module_bundle::ModuleBundlePrepareResult>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    module_bundle::prepare_module_bundle(&state.app, req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "模块准备失败", e))
+}
+
+async fn module_bundle_open(
+    State(state): State<HttpState>,
+    Json(req): Json<OpenModuleBundleWindowRequest>,
+) -> Result<
+    Json<ApiResponse<module_bundle::OpenModuleBundleWindowResult>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
+    module_bundle::open_module_bundle_window(state.app.clone(), req)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "模块打开失败", e))
+}
+
+async fn module_bundle_content_index(
+    State(state): State<HttpState>,
+    Path((channel, module_id, version)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    serve_module_bundle_file(state, channel, module_id, version, None).await
+}
+
+async fn module_bundle_content(
+    State(state): State<HttpState>,
+    Path((channel, module_id, version, path)): Path<(String, String, String, String)>,
+) -> impl IntoResponse {
+    serve_module_bundle_file(state, channel, module_id, version, Some(path)).await
+}
+
+async fn serve_module_bundle_file(
+    state: HttpState,
+    channel: String,
+    module_id: String,
+    version: String,
+    relative_path: Option<String>,
+) -> Response {
+    let file_path = match module_bundle::resolve_module_bundle_file(
+        &state.app,
+        &channel,
+        &module_id,
+        &version,
+        relative_path.as_deref(),
+    ) {
+        Ok(path) => path,
+        Err(message) => return (StatusCode::NOT_FOUND, message).into_response(),
+    };
+
+    let bytes = match tokio::fs::read(&file_path).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("读取模块文件失败: {}", err),
+            )
+                .into_response()
+        }
+    };
+
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static(module_content_type(&file_path)),
+    );
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {

@@ -20,6 +20,7 @@ const JWXT_KEY_PREFIXES = [
   'calendar:',
   'academic:',
   'training:',
+  'studentinfo:',
   'student_info:',
   'student_login_access:'
 ]

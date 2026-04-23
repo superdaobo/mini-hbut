@@ -19,7 +19,7 @@ const DEFAULT_COOLDOWN_SEC = 180
 const DEFAULT_UPLOAD_COOLDOWN_SEC = 120
 const DEFAULT_DOWNLOAD_COOLDOWN_SEC = 10
 const DEFAULT_SECRET_REF = 'kv1-main'
-const SYNC_SCHEMA_VERSION = 2
+const SYNC_SCHEMA_VERSION = 3
 const STUDENT_ID_RE = /^\d{10}$/
 const CHALLENGE_SKEW_MS = 3000
 const CHALLENGE_FALLBACK_TTL_MS = 60 * 1000
@@ -512,13 +512,38 @@ const deriveGradeSemester = (item, fallback = '') => {
   return merged || toSafeText(fallback)
 }
 
+const normalizeGradeItem = (item, fallbackSemester = '') => {
+  if (!item || typeof item !== 'object') return null
+  const term = deriveGradeSemester(item, fallbackSemester)
+  const courseName = toSafeText(item?.course_name || item?.name || item?.kcmc)
+  if (!courseName) return null
+  return pruneValue({
+    ...item,
+    term,
+    course_name: courseName,
+    grade_id: toSafeText(item?.grade_id || item?.gradeId || item?.id),
+    course_code: toSafeText(item?.course_code || item?.courseCode || item?.kch),
+    course_nature: toSafeText(item?.course_nature || item?.courseNature || item?.kcxzmc || item?.kcxz),
+    course_nature_code: toSafeText(item?.course_nature_code || item?.courseNatureCode || item?.kcxz),
+    course_credit: toSafeText(item?.course_credit || item?.courseCredit || item?.xf),
+    final_score: toSafeText(item?.final_score || item?.finalScore || item?.score || item?.zhcj || item?.cj),
+    earned_credit: toSafeText(item?.earned_credit || item?.earnedCredit || item?.hdxf || item?.jd),
+    xfjd: toSafeText(item?.xfjd || item?.creditGradePoint || item?.gpa || item?.fxcj),
+    sfbk: toSafeText(item?.sfbk),
+    sfsq: toSafeText(item?.sfsq),
+    cjbj: toSafeText(item?.cjbj),
+    teacher: toSafeText(item?.teacher || item?.teacher_name || item?.jsxm || item?.cjlrjsxm)
+  })
+}
+
 const makeGradeFingerprint = (item, semester = '') => {
   const sem = toSafeText(semester) || deriveGradeSemester(item)
   const name = toSafeText(item?.course_name || item?.name || item?.kcmc)
   const score = toSafeText(item?.score || item?.final_score || item?.zcj || item?.cj)
   const credit = toSafeText(item?.credit || item?.xf || item?.course_credit)
-  const code = toSafeText(item?.course_code || item?.kch || item?.id)
-  return `${sem}|${code}|${name}|${score}|${credit}`
+  const gradeId = toSafeText(item?.grade_id || item?.gradeId || item?.id)
+  const code = toSafeText(item?.course_code || item?.courseCode || item?.kch)
+  return `${sem}|${gradeId}|${code}|${name}|${score}|${credit}`
 }
 
 const buildGradeSnapshot = (studentId, latestGrades = []) => {
@@ -542,16 +567,18 @@ const buildGradeSnapshot = (studentId, latestGrades = []) => {
   const seen = new Set()
   sourceEntries.forEach(({ semester, list }) => {
     list.forEach((item) => {
-      const sem = deriveGradeSemester(item, semester)
-      const fp = makeGradeFingerprint(item, sem)
+      const normalized = normalizeGradeItem(item, semester)
+      if (!normalized) return
+      const sem = deriveGradeSemester(normalized, semester)
+      const fp = makeGradeFingerprint(normalized, sem)
       if (seen.has(fp)) return
       seen.add(fp)
-      all.push(item)
+      all.push(normalized)
       if (sem) {
         if (!Array.isArray(bySemester[sem])) {
           bySemester[sem] = []
         }
-        bySemester[sem].push(item)
+        bySemester[sem].push(normalized)
       }
     })
   })
@@ -559,6 +586,37 @@ const buildGradeSnapshot = (studentId, latestGrades = []) => {
     all,
     bySemester
   }
+}
+
+const normalizePersonalInfoPayload = (payload, fallbackStudentId = '') => {
+  const source = payload?.data && typeof payload.data === 'object' ? payload.data : payload
+  if (!source || typeof source !== 'object') return null
+  const normalized = pruneValue({
+    student_id: toSafeText(source?.student_id || source?.studentId || fallbackStudentId),
+    name: toSafeText(source?.name || source?.student_name || source?.studentName),
+    gender: toSafeText(source?.gender),
+    birth_date: toSafeText(source?.birth_date || source?.birthDate),
+    id_number: toSafeText(source?.id_number || source?.idNumber || source?.id_card),
+    ethnicity: toSafeText(source?.ethnicity),
+    college: toSafeText(source?.college),
+    major: toSafeText(source?.major),
+    class_name: toSafeText(source?.class_name || source?.className),
+    grade: toSafeText(source?.grade || source?.grade_year || source?.gradeYear),
+    duration: toSafeText(source?.duration),
+    enrollment_date: toSafeText(source?.enrollment_date || source?.enrollmentDate),
+    phone: toSafeText(source?.phone),
+    email: toSafeText(source?.email)
+  })
+  if (!normalized || typeof normalized !== 'object') return null
+  if (!normalized.student_id && !normalized.name) return null
+  return normalized
+}
+
+const buildPersonalInfoSnapshot = (studentId) => {
+  const sid = toSafeText(studentId)
+  const direct = readCacheEntry(`studentinfo:${sid}`)?.data
+  const legacy = readCacheEntry(`student_info:${sid}`)?.data
+  return normalizePersonalInfoPayload(direct, sid) || normalizePersonalInfoPayload(legacy, sid) || {}
 }
 
 const extractRankingObject = (value) => {
@@ -656,6 +714,7 @@ const buildAcademicSnapshot = (studentId, latestGrades = []) => {
     grades_by_semester: gradesSnapshot.bySemester,
     ranking: rankingSnapshot.current || {},
     ranking_by_semester: rankingSnapshot.bySemester,
+    personal_info: buildPersonalInfoSnapshot(sid),
     schedule_meta: scheduleMeta && typeof scheduleMeta === 'object' ? scheduleMeta : {},
     schedule: buildScheduleSnapshot(sid)
   }
@@ -717,6 +776,15 @@ const primeAcademicCaches = async (studentId, seedGrades = []) => {
       }
     } else {
       setCachedData(`grades:${sid}`, { success: true, data: grades })
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const studentInfoRes = await axios.post(`${API_BASE}/v2/student_info`, { student_id: sid })
+    if (studentInfoRes?.data?.success) {
+      setCachedData(`studentinfo:${sid}`, studentInfoRes.data)
+      setCachedData(`student_info:${sid}`, studentInfoRes.data)
     }
   } catch {
     // ignore
@@ -1010,6 +1078,7 @@ const applyAcademicFromCloud = (studentId, academic) => {
     return {
       gradesCached: false,
       rankingCached: false,
+      personalInfoCached: false,
       scheduleMetaApplied: false,
       scheduleCacheWrites: 0,
       scheduleSemesters: []
@@ -1018,6 +1087,7 @@ const applyAcademicFromCloud = (studentId, academic) => {
 
   let gradesCached = false
   let rankingCached = false
+  let personalInfoCached = false
   let scheduleMetaApplied = false
   let scheduleCacheWrites = 0
   const scheduleSemesters = []
@@ -1074,6 +1144,14 @@ const applyAcademicFromCloud = (studentId, academic) => {
     rankingCached = true
   }
 
+  const personalInfo = normalizePersonalInfoPayload(academic?.personal_info || academic?.profile, sid)
+  if (personalInfo) {
+    const payload = { success: true, data: personalInfo }
+    setCachedData(`studentinfo:${sid}`, payload)
+    setCachedData(`student_info:${sid}`, payload)
+    personalInfoCached = true
+  }
+
   const scheduleMeta = academic?.schedule_meta
   if (scheduleMeta && typeof scheduleMeta === 'object') {
     try {
@@ -1100,6 +1178,7 @@ const applyAcademicFromCloud = (studentId, academic) => {
   return {
     gradesCached,
     rankingCached,
+    personalInfoCached,
     scheduleMetaApplied,
     scheduleCacheWrites,
     scheduleSemesters: normalizeSemesterList(scheduleSemesters)

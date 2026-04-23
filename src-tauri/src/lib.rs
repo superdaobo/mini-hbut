@@ -45,6 +45,7 @@ use http_client::HbutClient;
 
 
 use modules::ai::*;
+use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
 
 // ... imports
@@ -240,6 +241,7 @@ struct ChaoxingLoginPagePayload {
 pub struct Grade {
     pub term: String,
     pub course_name: String,
+    pub grade_id: Option<String>,
     pub course_code: Option<String>,
     pub course_nature: String,
     pub course_nature_code: String,
@@ -1809,30 +1811,7 @@ async fn get_ocr_runtime_status(state: State<'_, AppState>) -> Result<serde_json
 
 #[tauri::command]
 async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("??????: {}", e))?;
-
-    let response = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("????: {}", e))?;
-
-    let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|e| format!("??????: {}", e))?;
-
-    if !status.is_success() {
-        return Err(format!("????: {}", status));
-    }
-
-    let parsed: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("?? JSON ??: {}", e))?;
+    let parsed = fetch_remote_json(url.clone()).await?;
 
     let ocr = parsed.get("ocr").cloned().unwrap_or_default();
     let ocr_enabled = ocr
@@ -1908,6 +1887,33 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     );
 
     Ok(parsed)
+}
+
+#[tauri::command]
+async fn fetch_remote_json(url: String) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建远程 JSON 客户端失败: {}", e))?;
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("请求远程 JSON 失败: {}", e))?;
+
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("读取远程 JSON 响应失败: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("远程 JSON 请求失败: {}", status));
+    }
+
+    serde_json::from_str(&text).map_err(|e| format!("解析远程 JSON 失败: {}", e))
 }
 
 #[tauri::command]
@@ -2210,15 +2216,17 @@ struct RemoteImageCachePayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SaveExportFileRequest {
+pub(crate) struct SaveExportFileRequest {
     file_name: String,
     mime_type: String,
     content_base64: String,
     prefer_media: Option<bool>,
+    #[serde(default)]
+    debug_save_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SaveExportFileResult {
+pub(crate) struct SaveExportFileResult {
     path: String,
     saved_to: String,
     size: u64,
@@ -2325,9 +2333,30 @@ fn pick_export_directory() -> Option<std::path::PathBuf> {
         .pick_folder()
 }
 
+#[cfg(target_os = "windows")]
+fn pick_debug_export_directory(req: &SaveExportFileRequest) -> Option<std::path::PathBuf> {
+    req.debug_save_dir
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var("HBUT_DEBUG_EXPORT_DIR")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .map(std::path::PathBuf::from)
+        })
+}
+
 #[tauri::command]
 #[allow(unused_variables)]
 fn save_export_file(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result<SaveExportFileResult, String> {
+    save_export_file_impl(app, req)
+}
+
+#[allow(unused_variables)]
+pub(crate) fn save_export_file_impl(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result<SaveExportFileResult, String> {
     let ext = extension_from_mime(&req.mime_type);
     let file_name = sanitize_export_file_name(&req.file_name, ext);
     let bytes = general_purpose::STANDARD
@@ -2337,7 +2366,9 @@ fn save_export_file(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result
     #[cfg(target_os = "windows")]
     {
         // Windows 导出要求用户选择目录，便于企业环境下做路径管理
-        let selected_dir = pick_export_directory().ok_or_else(|| "已取消选择保存目录".to_string())?;
+        let selected_dir = pick_debug_export_directory(&req)
+            .or_else(pick_export_directory)
+            .ok_or_else(|| "已取消选择保存目录".to_string())?;
         std::fs::create_dir_all(&selected_dir)
             .map_err(|e| format!("创建目录失败: {}", e))?;
         let file_path = selected_dir.join(file_name);
@@ -2980,6 +3011,14 @@ fn open_file_with_system(app: tauri::AppHandle, path: String) -> Result<(), Stri
     app.shell()
         .open(&target, None)
         .map_err(|e| format!("open file failed: {}", e))
+}
+
+#[tauri::command]
+async fn open_module_bundle_window(
+    app: tauri::AppHandle,
+    req: OpenModuleBundleWindowRequest,
+) -> Result<modules::module_bundle::OpenModuleBundleWindowResult, String> {
+    modules::module_bundle::open_module_bundle_window(app, req).await
 }
 
 #[tauri::command]
@@ -5373,6 +5412,7 @@ pub fn run() {
             get_ocr_runtime_status,
             set_temp_upload_endpoint,
             fetch_remote_config,
+            fetch_remote_json,
             exit_app,
             download_deyihei_font,
             download_deyihei_font_payload,
@@ -5383,10 +5423,12 @@ pub fn run() {
             debug_bridge::set_debug_runtime_config,
             debug_bridge::set_debug_bridge_ready,
             debug_bridge::complete_debug_screenshot,
+            debug_bridge::complete_debug_state,
             debug_bridge::save_debug_capture_file,
             open_external_url,
             prepare_module_bundle,
             open_file_with_system,
+            open_module_bundle_window,
             resource_share_direct_url_native,
             resource_share_fetch_file_payload_native,
             resource_share_list_dir_native,

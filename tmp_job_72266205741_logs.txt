@@ -1,0 +1,585 @@
+﻿2026-04-21T06:45:27.5869435Z Current runner version: '2.333.1'
+2026-04-21T06:45:27.5892606Z ##[group]Runner Image Provisioner
+2026-04-21T06:45:27.5893379Z Hosted Compute Agent
+2026-04-21T06:45:27.5894021Z Version: 20260213.493
+2026-04-21T06:45:27.5894631Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-04-21T06:45:27.5895371Z Build Date: 2026-02-13T00:28:41Z
+2026-04-21T06:45:27.5896108Z Worker ID: {7c602bbe-e34d-4cca-8120-fac2a4ebd2ab}
+2026-04-21T06:45:27.5896972Z Azure Region: westus3
+2026-04-21T06:45:27.5897507Z ##[endgroup]
+2026-04-21T06:45:27.5899705Z ##[group]Operating System
+2026-04-21T06:45:27.5900360Z Ubuntu
+2026-04-21T06:45:27.5900788Z 24.04.4
+2026-04-21T06:45:27.5901314Z LTS
+2026-04-21T06:45:27.5901737Z ##[endgroup]
+2026-04-21T06:45:27.5902238Z ##[group]Runner Image
+2026-04-21T06:45:27.5902831Z Image: ubuntu-24.04
+2026-04-21T06:45:27.5903344Z Version: 20260413.86.1
+2026-04-21T06:45:27.5904463Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260413.86/images/ubuntu/Ubuntu2404-Readme.md
+2026-04-21T06:45:27.5905993Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260413.86
+2026-04-21T06:45:27.5907230Z ##[endgroup]
+2026-04-21T06:45:27.5908344Z ##[group]GITHUB_TOKEN Permissions
+2026-04-21T06:45:27.5910351Z Contents: write
+2026-04-21T06:45:27.5910985Z Metadata: read
+2026-04-21T06:45:27.5911477Z ##[endgroup]
+2026-04-21T06:45:27.5913559Z Secret source: Actions
+2026-04-21T06:45:27.5914233Z Prepare workflow directory
+2026-04-21T06:45:27.6311535Z Prepare all required actions
+2026-04-21T06:45:27.6349206Z Getting action download info
+2026-04-21T06:45:28.0912825Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-04-21T06:45:28.1985835Z Download action repository 'actions/download-artifact@v4' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-04-21T06:45:29.2261047Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-04-21T06:45:29.4136511Z Complete job name: deploy-dev-release
+2026-04-21T06:45:29.4891355Z ##[group]Run actions/checkout@v4
+2026-04-21T06:45:29.4892271Z with:
+2026-04-21T06:45:29.4892739Z   repository: superdaobo/mini-hbut
+2026-04-21T06:45:29.4893502Z   token: ***
+2026-04-21T06:45:29.4893951Z   ssh-strict: true
+2026-04-21T06:45:29.4894414Z   ssh-user: git
+2026-04-21T06:45:29.4894874Z   persist-credentials: true
+2026-04-21T06:45:29.4895405Z   clean: true
+2026-04-21T06:45:29.4895875Z   sparse-checkout-cone-mode: true
+2026-04-21T06:45:29.4896485Z   fetch-depth: 1
+2026-04-21T06:45:29.4897206Z   fetch-tags: false
+2026-04-21T06:45:29.4897689Z   show-progress: true
+2026-04-21T06:45:29.4898159Z   lfs: false
+2026-04-21T06:45:29.4898591Z   submodules: false
+2026-04-21T06:45:29.4899051Z   set-safe-directory: true
+2026-04-21T06:45:29.4899840Z env:
+2026-04-21T06:45:29.4900284Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:29.4900865Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:29.4901359Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:29.4901857Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:29.4902522Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:29.4903140Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:29.4903695Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:29.4904250Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:29.4904838Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:29.4905415Z   npm_config_audit: false
+2026-04-21T06:45:29.4905924Z   npm_config_fund: false
+2026-04-21T06:45:29.4906417Z ##[endgroup]
+2026-04-21T06:45:29.5975018Z Syncing repository: superdaobo/mini-hbut
+2026-04-21T06:45:29.5977141Z ##[group]Getting Git version info
+2026-04-21T06:45:29.5977939Z Working directory is '/home/runner/work/mini-hbut/mini-hbut'
+2026-04-21T06:45:29.5978987Z [command]/usr/bin/git version
+2026-04-21T06:45:29.6019981Z git version 2.53.0
+2026-04-21T06:45:29.6045753Z ##[endgroup]
+2026-04-21T06:45:29.6065190Z Temporarily overriding HOME='/home/runner/work/_temp/e12b1b1d-45f4-498e-9bd3-29ac437b9766' before making global git config changes
+2026-04-21T06:45:29.6067331Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-21T06:45:29.6070500Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mini-hbut/mini-hbut
+2026-04-21T06:45:29.6100337Z Deleting the contents of '/home/runner/work/mini-hbut/mini-hbut'
+2026-04-21T06:45:29.6103799Z ##[group]Initializing the repository
+2026-04-21T06:45:29.6107775Z [command]/usr/bin/git init /home/runner/work/mini-hbut/mini-hbut
+2026-04-21T06:45:29.6203905Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-04-21T06:45:29.6205757Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-04-21T06:45:29.6207137Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-04-21T06:45:29.6207955Z hint: call:
+2026-04-21T06:45:29.6208361Z hint:
+2026-04-21T06:45:29.6208890Z hint: 	git config --global init.defaultBranch <name>
+2026-04-21T06:45:29.6209565Z hint:
+2026-04-21T06:45:29.6210489Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-04-21T06:45:29.6211787Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-04-21T06:45:29.6212559Z hint:
+2026-04-21T06:45:29.6212978Z hint: 	git branch -m <name>
+2026-04-21T06:45:29.6213469Z hint:
+2026-04-21T06:45:29.6214130Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-04-21T06:45:29.6215334Z Initialized empty Git repository in /home/runner/work/mini-hbut/mini-hbut/.git/
+2026-04-21T06:45:29.6218295Z [command]/usr/bin/git remote add origin https://github.com/superdaobo/mini-hbut
+2026-04-21T06:45:29.6248736Z ##[endgroup]
+2026-04-21T06:45:29.6250825Z ##[group]Disabling automatic garbage collection
+2026-04-21T06:45:29.6252961Z [command]/usr/bin/git config --local gc.auto 0
+2026-04-21T06:45:29.6284897Z ##[endgroup]
+2026-04-21T06:45:29.6286312Z ##[group]Setting up auth
+2026-04-21T06:45:29.6292662Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-21T06:45:29.6323665Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-21T06:45:29.6620467Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-04-21T06:45:29.6651874Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-04-21T06:45:29.6891341Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-21T06:45:29.6930064Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-21T06:45:29.7146936Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-04-21T06:45:29.7181180Z ##[endgroup]
+2026-04-21T06:45:29.7182021Z ##[group]Fetching the repository
+2026-04-21T06:45:29.7190001Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +e61feda89b627f6de21dda61466e5c2a724da6ac:refs/remotes/origin/dev
+2026-04-21T06:45:31.5500475Z From https://github.com/superdaobo/mini-hbut
+2026-04-21T06:45:31.5502147Z  * [new ref]         e61feda89b627f6de21dda61466e5c2a724da6ac -> origin/dev
+2026-04-21T06:45:31.5527659Z ##[endgroup]
+2026-04-21T06:45:31.5528760Z ##[group]Determining the checkout info
+2026-04-21T06:45:31.5530077Z ##[endgroup]
+2026-04-21T06:45:31.5534498Z [command]/usr/bin/git sparse-checkout disable
+2026-04-21T06:45:31.5570752Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-04-21T06:45:31.5597578Z ##[group]Checking out the ref
+2026-04-21T06:45:31.5602099Z [command]/usr/bin/git checkout --progress --force -B dev refs/remotes/origin/dev
+2026-04-21T06:45:31.6851401Z Switched to a new branch 'dev'
+2026-04-21T06:45:31.6853203Z branch 'dev' set up to track 'origin/dev'.
+2026-04-21T06:45:31.6868469Z ##[endgroup]
+2026-04-21T06:45:31.6904774Z [command]/usr/bin/git log -1 --format=%H
+2026-04-21T06:45:31.6926243Z e61feda89b627f6de21dda61466e5c2a724da6ac
+2026-04-21T06:45:31.7142637Z ##[group]Run set -euo pipefail
+2026-04-21T06:45:31.7143817Z [36;1mset -euo pipefail[0m
+2026-04-21T06:45:31.7144887Z [36;1mmkdir -p website/public/releases[0m
+2026-04-21T06:45:31.7146088Z [36;1mTMP_EXISTING="$(mktemp -d)"[0m
+2026-04-21T06:45:31.7149398Z [36;1mif git clone --depth=1 --branch website-pages "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$TMP_EXISTING/repo"; then[0m
+2026-04-21T06:45:31.7152535Z [36;1m  if [ -d "$TMP_EXISTING/repo/dist/releases" ]; then[0m
+2026-04-21T06:45:31.7154257Z [36;1m    cp -a "$TMP_EXISTING/repo/dist/releases/." website/public/releases/[0m
+2026-04-21T06:45:31.7156095Z [36;1m    echo "Restored existing releases from website-pages"[0m
+2026-04-21T06:45:31.7157592Z [36;1m  else[0m
+2026-04-21T06:45:31.7158577Z [36;1m    echo "website-pages has no dist/releases yet"[0m
+2026-04-21T06:45:31.7159833Z [36;1m  fi[0m
+2026-04-21T06:45:31.7160557Z [36;1melse[0m
+2026-04-21T06:45:31.7161715Z [36;1m  echo "website-pages branch not found yet, skip restore"[0m
+2026-04-21T06:45:31.7163102Z [36;1mfi[0m
+2026-04-21T06:45:31.7189204Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:31.7190168Z env:
+2026-04-21T06:45:31.7190933Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:31.7191991Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:31.7192839Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:31.7193718Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:31.7194834Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:31.7195968Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:31.7197208Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:31.7198224Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:31.7199326Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:31.7200416Z   npm_config_audit: false
+2026-04-21T06:45:31.7201315Z   npm_config_fund: false
+2026-04-21T06:45:31.7202803Z   GITHUB_TOKEN: ***
+2026-04-21T06:45:31.7203575Z ##[endgroup]
+2026-04-21T06:45:31.7313753Z Cloning into '/tmp/tmp.m35r2M9VnT/repo'...
+2026-04-21T06:45:34.5859424Z Restored existing releases from website-pages
+2026-04-21T06:45:34.5987838Z ##[group]Run actions/download-artifact@v4
+2026-04-21T06:45:34.5988295Z with:
+2026-04-21T06:45:34.5988567Z   path: dev-assets
+2026-04-21T06:45:34.5988948Z   pattern: {android,windows,macos,ios,linux}-*
+2026-04-21T06:45:34.5989431Z   merge-multiple: true
+2026-04-21T06:45:34.5989806Z   repository: superdaobo/mini-hbut
+2026-04-21T06:45:34.5990198Z   run-id: 24708008508
+2026-04-21T06:45:34.5990504Z env:
+2026-04-21T06:45:34.5990785Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:34.5991179Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:34.5991498Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:34.5991883Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:34.5992355Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:34.5992790Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:34.5993136Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:34.5993378Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:34.5993630Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:34.5993904Z   npm_config_audit: false
+2026-04-21T06:45:34.5994111Z   npm_config_fund: false
+2026-04-21T06:45:34.5994309Z ##[endgroup]
+2026-04-21T06:45:35.0613366Z Found 4 artifact(s)
+2026-04-21T06:45:35.0615178Z Filtering artifacts by pattern '{android,windows,macos,ios,linux}-*'
+2026-04-21T06:45:35.0641035Z Preparing to download the following artifacts:
+2026-04-21T06:45:35.0642528Z - windows-1.3.3-beta.24708008508 (ID: 6548554993, Size: 5381760, Expected Digest: sha256:2b85998e1093380ce81058b6c7147a03ee24e5d5063a03a11e8cd312282ad951)
+2026-04-21T06:45:35.0644831Z - linux-1.3.3-beta.24708008508 (ID: 6548547611, Size: 81648328, Expected Digest: sha256:c381c7bd18267387478072e7461f0c67a6ef63df47a66e565a4687ce5c541e2b)
+2026-04-21T06:45:35.0647899Z - macos-1.3.3-beta.24708008508 (ID: 6548541521, Size: 16897545, Expected Digest: sha256:1872ad946d5f3f73a6e05dd015acb7e2e26ca85d0052e501004584b6b2c261bb)
+2026-04-21T06:45:35.2564171Z Redirecting to blob download url: https://productionresultssa2.blob.core.windows.net/actions-results/1f9a95a4-dd47-4407-b759-9cbb32c93f29/workflow-job-run-fbd37af7-354a-5c3a-badf-2db147497b42/artifacts/e8e54d320079feb3d15fa0ee982a53299bd9682f63f1019632ddb9043b831a9f.zip
+2026-04-21T06:45:35.2566932Z Starting download of artifact to: /home/runner/work/mini-hbut/mini-hbut/dev-assets
+2026-04-21T06:45:35.3748297Z Redirecting to blob download url: https://productionresultssa2.blob.core.windows.net/actions-results/1f9a95a4-dd47-4407-b759-9cbb32c93f29/workflow-job-run-29ddc3b4-5899-5f12-abf9-d6ad3a8a160b/artifacts/b24fa0678bb5a2e84d3f7e90448474ff60c0f14cb86685a21261b94f79b78272.zip
+2026-04-21T06:45:35.3749878Z Starting download of artifact to: /home/runner/work/mini-hbut/mini-hbut/dev-assets
+2026-04-21T06:45:35.3864162Z Redirecting to blob download url: https://productionresultssa2.blob.core.windows.net/actions-results/1f9a95a4-dd47-4407-b759-9cbb32c93f29/workflow-job-run-9227792e-97c0-5942-8740-a01ee8a59853/artifacts/07d3cfe7d1665f427ddc9fd57ba174094624bde88f4a3deb6bcaf988a3aa894c.zip
+2026-04-21T06:45:35.3867121Z Starting download of artifact to: /home/runner/work/mini-hbut/mini-hbut/dev-assets
+2026-04-21T06:45:35.5253849Z (node:2277) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+2026-04-21T06:45:35.5255524Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-04-21T06:45:36.2811309Z SHA256 digest of downloaded artifact is 2b85998e1093380ce81058b6c7147a03ee24e5d5063a03a11e8cd312282ad951
+2026-04-21T06:45:36.2812303Z Artifact download completed successfully.
+2026-04-21T06:45:37.1003973Z SHA256 digest of downloaded artifact is 1872ad946d5f3f73a6e05dd015acb7e2e26ca85d0052e501004584b6b2c261bb
+2026-04-21T06:45:37.1005009Z Artifact download completed successfully.
+2026-04-21T06:45:39.6000219Z SHA256 digest of downloaded artifact is c381c7bd18267387478072e7461f0c67a6ef63df47a66e565a4687ce5c541e2b
+2026-04-21T06:45:39.6001121Z Artifact download completed successfully.
+2026-04-21T06:45:39.6001825Z Total of 3 artifact(s) downloaded
+2026-04-21T06:45:39.6007800Z Download artifact has finished successfully
+2026-04-21T06:45:39.6126349Z ##[group]Run ls -lhR dev-assets
+2026-04-21T06:45:39.6126659Z [36;1mls -lhR dev-assets[0m
+2026-04-21T06:45:39.6147474Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:39.6147849Z env:
+2026-04-21T06:45:39.6148155Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:39.6148583Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:39.6148931Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:39.6149300Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:39.6149626Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:39.6149928Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:39.6150195Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:39.6150440Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:39.6150697Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:39.6150954Z   npm_config_audit: false
+2026-04-21T06:45:39.6151178Z   npm_config_fund: false
+2026-04-21T06:45:39.6151393Z ##[endgroup]
+2026-04-21T06:45:39.6202795Z dev-assets:
+2026-04-21T06:45:39.6203180Z total 100M
+2026-04-21T06:45:39.6203795Z -rw-r--r-- 1 runner runner  78M Apr 21 06:45 Mini-HBUT_1.3.3-beta.24708008508_amd64.AppImage
+2026-04-21T06:45:39.6204798Z -rw-r--r-- 1 runner runner  17M Apr 21 06:45 Mini-HBUT_1.3.3-beta.24708008508_universal.app.zip
+2026-04-21T06:45:39.6205787Z -rw-r--r-- 1 runner runner 5.2M Apr 21 06:45 Mini-HBUT_1.3.3-beta.24708008508_x64-setup.exe
+2026-04-21T06:45:39.6229934Z ##[group]Run set -euo pipefail
+2026-04-21T06:45:39.6230239Z [36;1mset -euo pipefail[0m
+2026-04-21T06:45:39.6230474Z [36;1mTAG="dev-latest"[0m
+2026-04-21T06:45:39.6230692Z [36;1m[0m
+2026-04-21T06:45:39.6231184Z [36;1m# 删除旧 release（静默失败）[0m
+2026-04-21T06:45:39.6231543Z [36;1mgh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true[0m
+2026-04-21T06:45:39.6231914Z [36;1msleep 2[0m
+2026-04-21T06:45:39.6232103Z [36;1m[0m
+2026-04-21T06:45:39.6232332Z [36;1m# 创建新 release（prerelease + 标题含 beta 版本号）[0m
+2026-04-21T06:45:39.6232677Z [36;1mgh release create "$TAG" \[0m
+2026-04-21T06:45:39.6232946Z [36;1m  --prerelease \[0m
+2026-04-21T06:45:39.6233195Z [36;1m  --title "测试版 ${BETA_VERSION}" \[0m
+2026-04-21T06:45:39.6233520Z [36;1m  --notes "自动构建的测试版本 \`${BETA_VERSION}\`，仅用于开发测试。[0m
+2026-04-21T06:45:39.6233821Z [36;1m[0m
+2026-04-21T06:45:39.6234040Z [36;1m**构建时间**: $(date -u '+%Y-%m-%d %H:%M UTC')[0m
+2026-04-21T06:45:39.6234386Z [36;1m**Commit**: ${GITHUB_SHA::7}[0m
+2026-04-21T06:45:39.6234634Z [36;1m[0m
+2026-04-21T06:45:39.6234832Z [36;1m> ⚠️ 此版本为自动生成的开发测试版，可能存在未完成的功能或已知问题。" \[0m
+2026-04-21T06:45:39.6235109Z [36;1m  dev-assets/*[0m
+2026-04-21T06:45:39.6235331Z [36;1m[0m
+2026-04-21T06:45:39.6235591Z [36;1mecho "✅ dev-latest release created with ${BETA_VERSION}"[0m
+2026-04-21T06:45:39.6254770Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:39.6255006Z env:
+2026-04-21T06:45:39.6255195Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:39.6255455Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:39.6255663Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:39.6255877Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:39.6256147Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:39.6256427Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:39.6256671Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:39.6257218Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:39.6257485Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:39.6257753Z   npm_config_audit: false
+2026-04-21T06:45:39.6257977Z   npm_config_fund: false
+2026-04-21T06:45:39.6258404Z   GH_TOKEN: ***
+2026-04-21T06:45:39.6258616Z   BETA_VERSION: 1.3.3-beta.24708008508
+2026-04-21T06:45:39.6258872Z ##[endgroup]
+2026-04-21T06:45:48.0772949Z https://github.com/superdaobo/mini-hbut/releases/tag/dev-latest
+2026-04-21T06:45:48.0791985Z ✅ dev-latest release created with 1.3.3-beta.24708008508
+2026-04-21T06:45:48.0830669Z ##[group]Run set -euo pipefail
+2026-04-21T06:45:48.0831014Z [36;1mset -euo pipefail[0m
+2026-04-21T06:45:48.0831696Z [36;1mTAG="$(gh release list --limit 100 --json tagName,isPrerelease,isDraft --jq '[.[] | select(.isPrerelease==false and .isDraft==false)][0].tagName' 2>/dev/null || true)"[0m
+2026-04-21T06:45:48.0832399Z [36;1mif [ -z "$TAG" ]; then[0m
+2026-04-21T06:45:48.0832678Z [36;1m  echo "No stable release found, skip"[0m
+2026-04-21T06:45:48.0833003Z [36;1m  echo "HAS_STABLE=false" >> "$GITHUB_ENV"[0m
+2026-04-21T06:45:48.0833283Z [36;1melse[0m
+2026-04-21T06:45:48.0833510Z [36;1m  DEST="website/public/releases/${TAG}"[0m
+2026-04-21T06:45:48.0833795Z [36;1m  rm -rf "$DEST"[0m
+2026-04-21T06:45:48.0834023Z [36;1m  mkdir -p "$DEST"[0m
+2026-04-21T06:45:48.0834372Z [36;1m  gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*"[0m
+2026-04-21T06:45:48.0834789Z [36;1m  find "$DEST" -size +25M -delete[0m
+2026-04-21T06:45:48.0835099Z [36;1m  echo "Stable assets (<=25MB):"[0m
+2026-04-21T06:45:48.0835367Z [36;1m  ls -lh "$DEST"[0m
+2026-04-21T06:45:48.0835619Z [36;1m  echo "STABLE_TAG=$TAG" >> "$GITHUB_ENV"[0m
+2026-04-21T06:45:48.0835929Z [36;1m  echo "HAS_STABLE=true" >> "$GITHUB_ENV"[0m
+2026-04-21T06:45:48.0836196Z [36;1mfi[0m
+2026-04-21T06:45:48.0856536Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:48.0857032Z env:
+2026-04-21T06:45:48.0857329Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:48.0857603Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:48.0857817Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:48.0858041Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:48.0858315Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:48.0858592Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:48.0858839Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:48.0859082Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:48.0859537Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:48.0859796Z   npm_config_audit: false
+2026-04-21T06:45:48.0860024Z   npm_config_fund: false
+2026-04-21T06:45:48.0860440Z   GH_TOKEN: ***
+2026-04-21T06:45:48.0860638Z ##[endgroup]
+2026-04-21T06:45:50.2918050Z Stable assets (<=25MB):
+2026-04-21T06:45:50.2931267Z total 47M
+2026-04-21T06:45:50.2931602Z -rw-r--r-- 1 runner runner  19M Apr 21 06:45 Mini-HBUT_1.3.4_arm64.apk
+2026-04-21T06:45:50.2932077Z -rw-r--r-- 1 runner runner  13M Apr 21 06:45 Mini-HBUT_1.3.4_iOS.ipa
+2026-04-21T06:45:50.2932542Z -rw-r--r-- 1 runner runner  12M Apr 21 06:45 Mini-HBUT_1.3.4_universal.dmg
+2026-04-21T06:45:50.2933013Z -rw-r--r-- 1 runner runner 4.5M Apr 21 06:45 Mini-HBUT_1.3.4_x64-setup.exe
+2026-04-21T06:45:50.2965247Z ##[group]Run set -euo pipefail
+2026-04-21T06:45:50.2965563Z [36;1mset -euo pipefail[0m
+2026-04-21T06:45:50.2965862Z [36;1mDEST="website/public/releases/dev-latest"[0m
+2026-04-21T06:45:50.2966169Z [36;1mrm -rf "$DEST"[0m
+2026-04-21T06:45:50.2966408Z [36;1mmkdir -p "$DEST"[0m
+2026-04-21T06:45:50.2966644Z [36;1mcp dev-assets/* "$DEST/"[0m
+2026-04-21T06:45:50.2967206Z [36;1mfind "$DEST" -size +25M -delete[0m
+2026-04-21T06:45:50.2967506Z [36;1mecho "Dev assets for CDN (<=25MB):"[0m
+2026-04-21T06:45:50.2967785Z [36;1mls -lh "$DEST"[0m
+2026-04-21T06:45:50.2987773Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:50.2988008Z env:
+2026-04-21T06:45:50.2988201Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:50.2988467Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:50.2988679Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:50.2988899Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:50.2989175Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:50.2989490Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:50.2989741Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:50.2989983Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:50.2990248Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:50.2990513Z   npm_config_audit: false
+2026-04-21T06:45:50.2990737Z   npm_config_fund: false
+2026-04-21T06:45:50.2990950Z   STABLE_TAG: v1.3.4
+2026-04-21T06:45:50.2991148Z   HAS_STABLE: true
+2026-04-21T06:45:50.2991353Z   BETA_VERSION: 1.3.3-beta.24708008508
+2026-04-21T06:45:50.2991600Z ##[endgroup]
+2026-04-21T06:45:50.3477145Z Dev assets for CDN (<=25MB):
+2026-04-21T06:45:50.3488823Z total 22M
+2026-04-21T06:45:50.3489305Z -rw-r--r-- 1 runner runner  17M Apr 21 06:45 Mini-HBUT_1.3.3-beta.24708008508_universal.app.zip
+2026-04-21T06:45:50.3489936Z -rw-r--r-- 1 runner runner 5.2M Apr 21 06:45 Mini-HBUT_1.3.3-beta.24708008508_x64-setup.exe
+2026-04-21T06:45:50.3522389Z ##[group]Run set -euo pipefail
+2026-04-21T06:45:50.3522716Z [36;1mset -euo pipefail[0m
+2026-04-21T06:45:50.3523010Z [36;1mnode scripts/build_release_manifests.mjs[0m
+2026-04-21T06:45:50.3543324Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:50.3543564Z env:
+2026-04-21T06:45:50.3543757Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:50.3544021Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:50.3544247Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:50.3544466Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:50.3544740Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:50.3545019Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:50.3545266Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:50.3545517Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:50.3545788Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:50.3546045Z   npm_config_audit: false
+2026-04-21T06:45:50.3546272Z   npm_config_fund: false
+2026-04-21T06:45:50.3546488Z   STABLE_TAG: v1.3.4
+2026-04-21T06:45:50.3546954Z   HAS_STABLE: true
+2026-04-21T06:45:50.3547169Z   RELEASE_CHANNEL: dev
+2026-04-21T06:45:50.3547389Z   BETA_VERSION: 1.3.3-beta.24708008508
+2026-04-21T06:45:50.3547642Z   SOURCE_REF: dev
+2026-04-21T06:45:50.3547890Z   SOURCE_SHA: e61feda89b627f6de21dda61466e5c2a724da6ac
+2026-04-21T06:45:50.3548186Z ##[endgroup]
+2026-04-21T06:45:50.4650818Z {
+2026-04-21T06:45:50.4651570Z   "currentChannel": "dev",
+2026-04-21T06:45:50.4652330Z   "stableTag": "v1.3.4",
+2026-04-21T06:45:50.4652767Z   "devVersion": "1.3.3-beta.24708008508",
+2026-04-21T06:45:50.4653125Z   "activeChannel": "dev",
+2026-04-21T06:45:50.4653483Z   "stableGeneratedAt": "2026-04-21T02:53:21.890Z",
+2026-04-21T06:45:50.4653892Z   "devGeneratedAt": "2026-04-21T06:45:50.443Z"
+2026-04-21T06:45:50.4654223Z }
+2026-04-21T06:45:50.4793361Z ##[group]Run actions/setup-node@v4
+2026-04-21T06:45:50.4793638Z with:
+2026-04-21T06:45:50.4793817Z   node-version: 20
+2026-04-21T06:45:50.4794013Z   cache: npm
+2026-04-21T06:45:50.4794251Z   cache-dependency-path: website/package-lock.json
+2026-04-21T06:45:50.4794558Z   always-auth: false
+2026-04-21T06:45:50.4794765Z   check-latest: false
+2026-04-21T06:45:50.4795100Z   token: ***
+2026-04-21T06:45:50.4795282Z env:
+2026-04-21T06:45:50.4795467Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:50.4795728Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:50.4795935Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:50.4796163Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:50.4796434Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:50.4797044Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:50.4797335Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:50.4797586Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:50.4797852Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:50.4798145Z   npm_config_audit: false
+2026-04-21T06:45:50.4798370Z   npm_config_fund: false
+2026-04-21T06:45:50.4798587Z   STABLE_TAG: v1.3.4
+2026-04-21T06:45:50.4798787Z   HAS_STABLE: true
+2026-04-21T06:45:50.4798978Z ##[endgroup]
+2026-04-21T06:45:50.6583045Z Found in cache @ /opt/hostedtoolcache/node/20.20.2/x64
+2026-04-21T06:45:50.6589483Z ##[group]Environment details
+2026-04-21T06:45:50.9639268Z node: v20.20.2
+2026-04-21T06:45:50.9639711Z npm: 10.8.2
+2026-04-21T06:45:50.9640036Z yarn: 1.22.22
+2026-04-21T06:45:50.9641298Z ##[endgroup]
+2026-04-21T06:45:50.9663267Z [command]/opt/hostedtoolcache/node/20.20.2/x64/bin/npm config get cache
+2026-04-21T06:45:51.0781202Z /home/runner/.npm
+2026-04-21T06:45:51.3343600Z Cache hit for: node-cache-Linux-x64-npm-c1c087f35eb26e791666577394dceee530bd9964ef12928aa97e5c2dffb3d090
+2026-04-21T06:45:52.5688218Z Received 12582912 of 81288191 (15.5%), 12.0 MBs/sec
+2026-04-21T06:45:53.1148087Z Received 81288191 of 81288191 (100.0%), 50.1 MBs/sec
+2026-04-21T06:45:53.1148902Z Cache Size: ~78 MB (81288191 B)
+2026-04-21T06:45:53.1259005Z [command]/usr/bin/tar -xf /home/runner/work/_temp/c808a999-576f-44e8-9635-5de4529d898d/cache.tzst -P -C /home/runner/work/mini-hbut/mini-hbut --use-compress-program unzstd
+2026-04-21T06:45:53.2954546Z Cache restored successfully
+2026-04-21T06:45:53.3000154Z Cache restored from key: node-cache-Linux-x64-npm-c1c087f35eb26e791666577394dceee530bd9964ef12928aa97e5c2dffb3d090
+2026-04-21T06:45:53.3126464Z ##[group]Run cd website
+2026-04-21T06:45:53.3127186Z [36;1mcd website[0m
+2026-04-21T06:45:53.3127492Z [36;1mnpm ci --prefer-offline --no-audit --no-fund[0m
+2026-04-21T06:45:53.3127834Z [36;1mnpm run build[0m
+2026-04-21T06:45:53.3156163Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:45:53.3156414Z env:
+2026-04-21T06:45:53.3156609Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:45:53.3157148Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:45:53.3157371Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:45:53.3157590Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:45:53.3157866Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:45:53.3158140Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:45:53.3158386Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:45:53.3158635Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:45:53.3158909Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:45:53.3159175Z   npm_config_audit: false
+2026-04-21T06:45:53.3159406Z   npm_config_fund: false
+2026-04-21T06:45:53.3159663Z   STABLE_TAG: v1.3.4
+2026-04-21T06:45:53.3159878Z   HAS_STABLE: true
+2026-04-21T06:45:53.3160079Z ##[endgroup]
+2026-04-21T06:46:00.3363174Z 
+2026-04-21T06:46:00.3371776Z added 540 packages in 7s
+2026-04-21T06:46:00.4899257Z 
+2026-04-21T06:46:00.4899838Z > my-app@0.0.0 build
+2026-04-21T06:46:00.4900300Z > tsc -b && vite build
+2026-04-21T06:46:00.4900514Z 
+2026-04-21T06:46:08.0133695Z [36mvite v7.3.0 [32mbuilding client environment for production...[36m[39m
+2026-04-21T06:46:08.4227023Z transforming...
+2026-04-21T06:46:14.1236505Z [32m✓[39m 1814 modules transformed.
+2026-04-21T06:46:14.7608169Z rendering chunks...
+2026-04-21T06:46:14.7763736Z computing gzip size...
+2026-04-21T06:46:14.8188509Z [2mdist/[22m[32mindex.html                 [39m[1m[2m    0.45 kB[22m[1m[22m[2m │ gzip:   0.33 kB[22m
+2026-04-21T06:46:14.8190944Z [2mdist/[22m[2massets/[22m[35mindex-B4GWL6el.css  [39m[1m[2m  106.96 kB[22m[1m[22m[2m │ gzip:  18.09 kB[22m
+2026-04-21T06:46:14.8191719Z [33m
+2026-04-21T06:46:14.8192179Z (!) Some chunks are larger than 500 kB after minification. Consider:
+2026-04-21T06:46:14.8192692Z - Using dynamic import() to code-split the application
+2026-04-21T06:46:14.8193780Z - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+2026-04-21T06:46:14.8194878Z - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+2026-04-21T06:46:14.8195743Z [2mdist/[22m[2massets/[22m[36mindex-BJsDD9X6.js   [39m[1m[33m1,648.85 kB[39m[22m[2m │ gzip: 457.25 kB[22m
+2026-04-21T06:46:14.8197523Z [32m✓ built in 6.78s[39m
+2026-04-21T06:46:14.8898426Z ##[group]Run set -euo pipefail
+2026-04-21T06:46:14.8898783Z [36;1mset -euo pipefail[0m
+2026-04-21T06:46:14.8899038Z [36;1mDEPLOY=$(mktemp -d)[0m
+2026-04-21T06:46:14.8899538Z [36;1mecho '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"[0m
+2026-04-21T06:46:14.8900083Z [36;1mcp -r website/dist "$DEPLOY/dist"[0m
+2026-04-21T06:46:14.8900365Z [36;1mcd "$DEPLOY"[0m
+2026-04-21T06:46:14.8900573Z [36;1mgit init[0m
+2026-04-21T06:46:14.8900822Z [36;1mgit config user.name "github-actions[bot]"[0m
+2026-04-21T06:46:14.8901276Z [36;1mgit config user.email "github-actions[bot]@users.noreply.github.com"[0m
+2026-04-21T06:46:14.8901669Z [36;1mgit add -A[0m
+2026-04-21T06:46:14.8901943Z [36;1mgit commit -m "deploy: dev-build ${BETA_VERSION}"[0m
+2026-04-21T06:46:14.8902572Z [36;1mgit push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages[0m
+2026-04-21T06:46:14.8923957Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:46:14.8924210Z env:
+2026-04-21T06:46:14.8924404Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:46:14.8924673Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:46:14.8924899Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:46:14.8925128Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:46:14.8925413Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:46:14.8925702Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:46:14.8925952Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:46:14.8926200Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:46:14.8926474Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:46:14.8927000Z   npm_config_audit: false
+2026-04-21T06:46:14.8927253Z   npm_config_fund: false
+2026-04-21T06:46:14.8927475Z   STABLE_TAG: v1.3.4
+2026-04-21T06:46:14.8927688Z   HAS_STABLE: true
+2026-04-21T06:46:14.8928260Z   GITHUB_TOKEN: ***
+2026-04-21T06:46:14.8928492Z   BETA_VERSION: 1.3.3-beta.24708008508
+2026-04-21T06:46:14.8928760Z ##[endgroup]
+2026-04-21T06:46:14.9268631Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-04-21T06:46:14.9269789Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-04-21T06:46:14.9270890Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-04-21T06:46:14.9271653Z hint: call:
+2026-04-21T06:46:14.9271972Z hint:
+2026-04-21T06:46:14.9272503Z hint: 	git config --global init.defaultBranch <name>
+2026-04-21T06:46:14.9273019Z hint:
+2026-04-21T06:46:14.9273808Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-04-21T06:46:14.9275203Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-04-21T06:46:14.9275654Z hint:
+2026-04-21T06:46:14.9275895Z hint: 	git branch -m <name>
+2026-04-21T06:46:14.9276154Z hint:
+2026-04-21T06:46:14.9276609Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-04-21T06:46:14.9277546Z Initialized empty Git repository in /tmp/tmp.R4E0eYapsu/.git/
+2026-04-21T06:46:16.8545868Z [master (root-commit) 19ba080] deploy: dev-build 1.3.3-beta.24708008508
+2026-04-21T06:46:16.8546515Z  34 files changed, 4922 insertions(+)
+2026-04-21T06:46:16.8547299Z  create mode 100644 dist/_redirects
+2026-04-21T06:46:16.8547970Z  create mode 100644 dist/assets/index-B4GWL6el.css
+2026-04-21T06:46:16.8548728Z  create mode 100644 dist/assets/index-BJsDD9X6.js
+2026-04-21T06:46:16.8549451Z  create mode 100644 dist/fonts/SmileySans-Oblique.ttf
+2026-04-21T06:46:16.8550048Z  create mode 100644 dist/fonts/SmileySans-Oblique.woff2
+2026-04-21T06:46:16.8550485Z  create mode 100644 dist/icon.png
+2026-04-21T06:46:16.8550822Z  create mode 100644 dist/index.html
+2026-04-21T06:46:16.8551233Z  create mode 100644 dist/modules/dev/catalog.json
+2026-04-21T06:46:16.8551787Z  create mode 100644 dist/modules/dev/hecheng_hugongda/bundle.zip
+2026-04-21T06:46:16.8552415Z  create mode 100644 dist/modules/dev/hecheng_hugongda/manifest.json
+2026-04-21T06:46:16.8553355Z  create mode 100644 dist/modules/dev/hecheng_hugongda/site/index.html
+2026-04-21T06:46:16.8553998Z  create mode 100644 dist/modules/dev/hugongda_escape/bundle.zip
+2026-04-21T06:46:16.8554613Z  create mode 100644 dist/modules/dev/hugongda_escape/manifest.json
+2026-04-21T06:46:16.8555243Z  create mode 100644 dist/modules/dev/hugongda_escape/site/index.html
+2026-04-21T06:46:16.8555798Z  create mode 100644 dist/modules/main/catalog.json
+2026-04-21T06:46:16.8556348Z  create mode 100644 dist/modules/main/hecheng_hugongda/bundle.zip
+2026-04-21T06:46:16.8557286Z  create mode 100644 dist/modules/main/hecheng_hugongda/manifest.json
+2026-04-21T06:46:16.8557937Z  create mode 100644 dist/modules/main/hecheng_hugongda/site/index.html
+2026-04-21T06:46:16.8558559Z  create mode 100644 dist/modules/main/hugongda_escape/bundle.zip
+2026-04-21T06:46:16.8559169Z  create mode 100644 dist/modules/main/hugongda_escape/manifest.json
+2026-04-21T06:46:16.8559807Z  create mode 100644 dist/modules/main/hugongda_escape/site/index.html
+2026-04-21T06:46:16.8560348Z  create mode 100644 dist/releases/active.json
+2026-04-21T06:46:16.8560797Z  create mode 100644 dist/releases/channels.json
+2026-04-21T06:46:16.8561258Z  create mode 100644 dist/releases/dev-latest.json
+2026-04-21T06:46:16.8561956Z  create mode 100644 dist/releases/dev-latest/Mini-HBUT_1.3.3-beta.24708008508_universal.app.zip
+2026-04-21T06:46:16.8562765Z  create mode 100644 dist/releases/dev-latest/Mini-HBUT_1.3.3-beta.24708008508_x64-setup.exe
+2026-04-21T06:46:16.8563311Z  create mode 100644 dist/releases/dev-latest/manifest.json
+2026-04-21T06:46:16.8563808Z  create mode 100644 dist/releases/latest.json
+2026-04-21T06:46:16.8564499Z  create mode 100644 dist/releases/v1.3.4/Mini-HBUT_1.3.4_arm64.apk
+2026-04-21T06:46:16.8565302Z  create mode 100644 dist/releases/v1.3.4/Mini-HBUT_1.3.4_iOS.ipa
+2026-04-21T06:46:16.8566144Z  create mode 100644 dist/releases/v1.3.4/Mini-HBUT_1.3.4_universal.dmg
+2026-04-21T06:46:16.8567615Z  create mode 100644 dist/releases/v1.3.4/Mini-HBUT_1.3.4_x64-setup.exe
+2026-04-21T06:46:16.8568541Z  create mode 100644 dist/releases/v1.3.4/manifest.json
+2026-04-21T06:46:16.8569168Z  create mode 100644 package.json
+2026-04-21T06:46:22.9311413Z To https://github.com/superdaobo/mini-hbut.git
+2026-04-21T06:46:22.9312218Z  + 82a2259...19ba080 HEAD -> website-pages (forced update)
+2026-04-21T06:46:22.9375813Z ##[group]Run set -euo pipefail
+2026-04-21T06:46:22.9376158Z [36;1mset -euo pipefail[0m
+2026-04-21T06:46:22.9376430Z [36;1mBASE="https://hbut.6661111.xyz"[0m
+2026-04-21T06:46:22.9377016Z [36;1mURLS=([0m
+2026-04-21T06:46:22.9377315Z [36;1m  "$BASE/releases/latest.json"[0m
+2026-04-21T06:46:22.9377800Z [36;1m  "$BASE/releases/dev-latest.json"[0m
+2026-04-21T06:46:22.9378100Z [36;1m  "$BASE/modules/main/catalog.json"[0m
+2026-04-21T06:46:22.9378397Z [36;1m  "$BASE/modules/dev/catalog.json"[0m
+2026-04-21T06:46:22.9378659Z [36;1m)[0m
+2026-04-21T06:46:22.9378834Z [36;1m[0m
+2026-04-21T06:46:22.9379021Z [36;1mfor URL in "${URLS[@]}"; do[0m
+2026-04-21T06:46:22.9379287Z [36;1m  echo "[smoke] checking $URL"[0m
+2026-04-21T06:46:22.9379750Z [36;1m  STATUS="$(curl -sS -L -D /tmp/smoke.headers -o /tmp/smoke.out -w '%{http_code}' "$URL")"[0m
+2026-04-21T06:46:22.9380280Z [36;1m  if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 400 ]; then[0m
+2026-04-21T06:46:22.9380681Z [36;1m    echo "[smoke] FAIL $URL -> HTTP $STATUS"[0m
+2026-04-21T06:46:22.9380999Z [36;1m    exit 1[0m
+2026-04-21T06:46:22.9381206Z [36;1m  fi[0m
+2026-04-21T06:46:22.9381423Z [36;1m  if [[ "$URL" == *".json" ]]; then[0m
+2026-04-21T06:46:22.9381886Z [36;1m    if ! grep -Eiq '^content-type:\s*(application/json|text/json)' /tmp/smoke.headers; then[0m
+2026-04-21T06:46:22.9382392Z [36;1m      if ! grep -Eq '^\s*\{' /tmp/smoke.out; then[0m
+2026-04-21T06:46:22.9382767Z [36;1m        echo "[smoke] FAIL $URL -> payload is not json"[0m
+2026-04-21T06:46:22.9383120Z [36;1m        head -c 200 /tmp/smoke.out || true[0m
+2026-04-21T06:46:22.9383403Z [36;1m        exit 1[0m
+2026-04-21T06:46:22.9383615Z [36;1m      fi[0m
+2026-04-21T06:46:22.9383806Z [36;1m    fi[0m
+2026-04-21T06:46:22.9383995Z [36;1m  fi[0m
+2026-04-21T06:46:22.9384213Z [36;1m  if [[ "$URL" == *"/catalog.json" ]]; then[0m
+2026-04-21T06:46:22.9384556Z [36;1m    if ! grep -Eq '"modules"\s*:' /tmp/smoke.out; then[0m
+2026-04-21T06:46:22.9384947Z [36;1m      echo "[smoke] FAIL $URL -> catalog missing modules"[0m
+2026-04-21T06:46:22.9385305Z [36;1m      head -c 200 /tmp/smoke.out || true[0m
+2026-04-21T06:46:22.9385582Z [36;1m      exit 1[0m
+2026-04-21T06:46:22.9385781Z [36;1m    fi[0m
+2026-04-21T06:46:22.9385963Z [36;1m  fi[0m
+2026-04-21T06:46:22.9386193Z [36;1m  echo "[smoke] OK $URL -> HTTP $STATUS"[0m
+2026-04-21T06:46:22.9386468Z [36;1mdone[0m
+2026-04-21T06:46:22.9407358Z shell: /usr/bin/bash -e {0}
+2026-04-21T06:46:22.9407606Z env:
+2026-04-21T06:46:22.9407802Z   MINI_HBUT_BUILD_PROFILE: dev-fast
+2026-04-21T06:46:22.9408064Z   CARGO_INCREMENTAL: 1
+2026-04-21T06:46:22.9408278Z   CARGO_BUILD_JOBS: 8
+2026-04-21T06:46:22.9408498Z   CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
+2026-04-21T06:46:22.9408770Z   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
+2026-04-21T06:46:22.9409053Z   CARGO_PROFILE_RELEASE_LTO: off
+2026-04-21T06:46:22.9409302Z   CARGO_PROFILE_RELEASE_DEBUG: 0
+2026-04-21T06:46:22.9409550Z   CARGO_PROFILE_RELEASE_PANIC: abort
+2026-04-21T06:46:22.9409820Z   CARGO_PROFILE_RELEASE_STRIP: symbols
+2026-04-21T06:46:22.9410083Z   npm_config_audit: false
+2026-04-21T06:46:22.9410307Z   npm_config_fund: false
+2026-04-21T06:46:22.9410525Z   STABLE_TAG: v1.3.4
+2026-04-21T06:46:22.9410733Z   HAS_STABLE: true
+2026-04-21T06:46:22.9410931Z ##[endgroup]
+2026-04-21T06:46:22.9454818Z [smoke] checking https://hbut.6661111.xyz/releases/latest.json
+2026-04-21T06:46:23.0932079Z [smoke] OK https://hbut.6661111.xyz/releases/latest.json -> HTTP 200
+2026-04-21T06:46:23.0933101Z [smoke] checking https://hbut.6661111.xyz/releases/dev-latest.json
+2026-04-21T06:46:24.5622831Z [smoke] OK https://hbut.6661111.xyz/releases/dev-latest.json -> HTTP 200
+2026-04-21T06:46:24.5623907Z [smoke] checking https://hbut.6661111.xyz/modules/main/catalog.json
+2026-04-21T06:46:24.6142596Z [smoke] OK https://hbut.6661111.xyz/modules/main/catalog.json -> HTTP 200
+2026-04-21T06:46:24.6143725Z [smoke] checking https://hbut.6661111.xyz/modules/dev/catalog.json
+2026-04-21T06:46:24.6666120Z [smoke] OK https://hbut.6661111.xyz/modules/dev/catalog.json -> HTTP 200
+2026-04-21T06:46:24.6718425Z Post job cleanup.
+2026-04-21T06:46:24.8251258Z Cache hit occurred on the primary key node-cache-Linux-x64-npm-c1c087f35eb26e791666577394dceee530bd9964ef12928aa97e5c2dffb3d090, not saving cache.
+2026-04-21T06:46:24.8361655Z Post job cleanup.
+2026-04-21T06:46:24.9310471Z [command]/usr/bin/git version
+2026-04-21T06:46:24.9346912Z git version 2.53.0
+2026-04-21T06:46:24.9389354Z Temporarily overriding HOME='/home/runner/work/_temp/6244bf6b-54cf-4b17-87b4-ed0d4ea72001' before making global git config changes
+2026-04-21T06:46:24.9390398Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-21T06:46:24.9403139Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/mini-hbut/mini-hbut
+2026-04-21T06:46:24.9435290Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-21T06:46:24.9466426Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-21T06:46:24.9684950Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-04-21T06:46:24.9704586Z http.https://github.com/.extraheader
+2026-04-21T06:46:24.9721680Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-04-21T06:46:24.9754774Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-04-21T06:46:24.9995768Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-21T06:46:25.0028021Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-21T06:46:25.0373139Z Cleaning up orphan processes
+2026-04-21T06:46:25.0645886Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4, actions/download-artifact@v4, actions/setup-node@v4. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

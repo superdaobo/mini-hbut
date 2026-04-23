@@ -63,12 +63,14 @@ export const captureElementToBlob = async ({
   selector,
   format = 'png',
   backgroundColor = '#f4f7ff',
-  scale
+  scale,
+  maxHeight
 }: {
   selector?: string | null
   format?: 'png' | 'webp'
   backgroundColor?: string
   scale?: number
+  maxHeight?: number
 }) => {
   const target = resolveCaptureTarget(selector)
   const exportWidth = Math.max(
@@ -76,31 +78,22 @@ export const captureElementToBlob = async ({
     Math.ceil(target.clientWidth || 0),
     640
   )
-  const wrapper = document.createElement('div')
-  wrapper.style.position = 'fixed'
-  wrapper.style.left = '-99999px'
-  wrapper.style.top = '0'
-  wrapper.style.width = `${exportWidth}px`
-  wrapper.style.opacity = '0'
-  wrapper.style.pointerEvents = 'none'
-  wrapper.style.zIndex = '0'
-  wrapper.style.background = backgroundColor
-  wrapper.style.padding = '0'
-  wrapper.style.overflow = 'visible'
-
-  const clone = target.cloneNode(true) as HTMLElement
-  clone.classList.add('capture-mode')
-  clone.style.width = `${exportWidth}px`
-  clone.style.minWidth = `${exportWidth}px`
-  clone.style.maxWidth = `${exportWidth}px`
-  clone.style.boxSizing = 'border-box'
-  wrapper.appendChild(clone)
-  document.body.appendChild(wrapper)
-
+  const exportHeight = Math.max(
+    Math.ceil(target.clientHeight || 0),
+    Number(maxHeight) > 0
+      ? Math.min(
+          Math.ceil(target.scrollHeight || target.clientHeight || 0),
+          Math.ceil(Number(maxHeight))
+        )
+      : Math.ceil(target.scrollHeight || target.clientHeight || 0),
+    480
+  )
+  target.classList.add('capture-mode')
   try {
-    await waitForCaptureReady(clone)
-    const canvas = await renderElementToCanvas(clone, {
+    await waitForCaptureReady(target)
+    const canvas = await renderElementToCanvas(target, {
       exportWidth,
+      exportHeight,
       backgroundColor,
       scale
     })
@@ -122,9 +115,7 @@ export const captureElementToBlob = async ({
       height: canvas.height
     }
   } finally {
-    if (wrapper.parentNode) {
-      wrapper.parentNode.removeChild(wrapper)
-    }
+    target.classList.remove('capture-mode')
   }
 }
 
@@ -132,10 +123,12 @@ export const renderElementToCanvas = async (
   element: HTMLElement,
   {
     exportWidth,
+    exportHeight,
     backgroundColor = '#f4f7ff',
     scale
   }: {
     exportWidth?: number
+    exportHeight?: number
     backgroundColor?: string
     scale?: number
   } = {}
@@ -145,6 +138,15 @@ export const renderElementToCanvas = async (
     Math.ceil(element.scrollWidth || 0),
     Math.ceil(element.clientWidth || 0),
     640
+  )
+  const height = Math.max(
+    Math.ceil(
+      exportHeight ||
+      element.scrollHeight ||
+      element.clientHeight ||
+      0
+    ),
+    480
   )
   const baseOptions = {
     useCORS: true,
@@ -156,8 +158,9 @@ export const renderElementToCanvas = async (
     scrollX: 0,
     scrollY: 0,
     windowWidth: width,
-    windowHeight: Math.ceil(element.scrollHeight + 64),
-    width
+    windowHeight: height,
+    width,
+    height
   }
 
   try {
@@ -174,7 +177,7 @@ export const renderElementToCanvas = async (
     return html2canvas(element, {
       ...baseOptions,
       foreignObjectRendering: true,
-      backgroundColor: null
+      backgroundColor
     })
   }
 }

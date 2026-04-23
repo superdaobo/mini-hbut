@@ -10,9 +10,11 @@ import {
   consumeScheduleSwitchPending,
   getCachedScheduleSnapshot,
   isAutoScheduleLockReason,
+  readScheduleRenderSnapshot,
   readScheduleLockDetail,
   readScheduleLock,
   SCHEDULE_POPUP_PENDING_KEY,
+  writeScheduleRenderSnapshot,
   warmupScheduleForStudent,
   writeScheduleLock
 } from '../utils/schedule_prefetch.js'
@@ -23,6 +25,7 @@ import {
   runCloudSyncUpload
 } from '../utils/cloud_sync.js'
 import { pushDebugLog } from '../utils/debug_logger'
+import { hasBootMetric, markBootMetric } from '../utils/boot_metrics.js'
 import { showToast } from '../utils/toast'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 
@@ -48,6 +51,7 @@ const errorMsg = ref('')
 const showDetail = ref(false)
 const selectedCourse = ref(null)
 const offline = ref(false)
+const offlineHint = ref('')
 const syncTime = ref('')
 const initialFetchDone = ref(false)
 const vacationNotice = ref('')
@@ -335,6 +339,13 @@ const formatCooldownText = (value) => {
 
 const syncUploadCooldownText = computed(() => formatCooldownText(syncUploadCooldownMs.value))
 const syncDownloadCooldownText = computed(() => formatCooldownText(syncDownloadCooldownMs.value))
+const offlineBannerText = computed(() => {
+  if (offlineHint.value) return offlineHint.value
+  if (syncTime.value) {
+    return `当前显示为离线数据，更新于${formatRelativeTime(syncTime.value)}`
+  }
+  return '当前显示为离线数据'
+})
 
 const openConfirmDialog = ({
   title = '请确认',
@@ -454,6 +465,7 @@ const loadCustomCourses = async (targetSemester = '') => {
       .filter(Boolean)
       .filter((course) => course.name && course.weekday >= 1 && course.weekday <= 7 && course.period >= 1 && course.period <= 11)
     mergeScheduleSources()
+    persistScheduleRenderSnapshot('custom-load')
     return true
   } catch (e) {
     console.warn('加载自定义课程失败', e)
@@ -535,6 +547,93 @@ const loadAllCustomCourses = async () => {
   }
 }
 
+const buildScheduleRenderSnapshotPayload = () => {
+  const sid = resolveDisplayStudentId()
+  const sem = String(semester.value || semesterDraft.value || '').trim()
+  if (!sid || !sem) return null
+  return {
+    student_id: sid,
+    semester: sem,
+    meta: {
+      semester: sem,
+      start_date: String(startDateStr.value || '').trim(),
+      current_week: Number(currentWeek.value || 1),
+      total_weeks: Number(totalWeeks.value || 25),
+      vacation_notice: String(vacationNotice.value || '').trim()
+    },
+    selected_week: Number(selectedWeek.value || currentWeek.value || 1),
+    sync_time: String(syncTime.value || '').trim(),
+    offline: !!offline.value,
+    remote_schedule_data: Array.isArray(remoteScheduleData.value) ? remoteScheduleData.value : [],
+    custom_schedule_data: Array.isArray(customScheduleData.value) ? customScheduleData.value : [],
+    merged_schedule_data: Array.isArray(scheduleData.value) ? scheduleData.value : [],
+    updated_at: new Date().toISOString()
+  }
+}
+
+const persistScheduleRenderSnapshot = (reason = 'unknown') => {
+  const payload = buildScheduleRenderSnapshotPayload()
+  if (!payload) return false
+  const courseCount = Array.isArray(payload.merged_schedule_data) ? payload.merged_schedule_data.length : 0
+  const hasRenderableData =
+    courseCount > 0 ||
+    (Array.isArray(payload.remote_schedule_data) && payload.remote_schedule_data.length > 0) ||
+    (Array.isArray(payload.custom_schedule_data) && payload.custom_schedule_data.length > 0)
+  if (!hasRenderableData) return false
+  const saved = writeScheduleRenderSnapshot(payload.student_id, payload)
+  if (!saved) return false
+  pushDebugLog(
+    'Schedule',
+    `课表首屏快照已写入 reason=${reason} semester=${saved.semester} courses=${courseCount}`,
+    'debug'
+  )
+  return true
+}
+
+const applyScheduleRenderSnapshot = (snapshot, options = {}) => {
+  const saved = snapshot && typeof snapshot === 'object' ? snapshot : null
+  if (!saved) return false
+
+  const resolvedSemester = String(saved.semester || saved.meta?.semester || '').trim()
+  if (!resolvedSemester) return false
+
+  semester.value = resolvedSemester
+  semesterDraft.value = resolvedSemester
+  remoteScheduleData.value = Array.isArray(saved.remote_schedule_data) ? saved.remote_schedule_data : []
+  customScheduleData.value = Array.isArray(saved.custom_schedule_data) ? saved.custom_schedule_data : []
+  scheduleData.value = Array.isArray(saved.merged_schedule_data) && saved.merged_schedule_data.length
+    ? saved.merged_schedule_data
+    : processScheduleData([...remoteScheduleData.value, ...customScheduleData.value])
+
+  applyMeta(saved.meta, resolvedSemester)
+  const nextWeek = Number(saved.selected_week || currentWeek.value || 1)
+  const safeWeek = Math.min(Math.max(nextWeek, 1), Math.max(Number(totalWeeks.value || 1), 1))
+  selectedWeek.value = safeWeek
+  syncTime.value = String(saved.sync_time || '').trim()
+  offline.value = options?.markOffline !== false
+  offlineHint.value = String(
+    options?.offlineHint ||
+      '当前为缓存课表，登录恢复后自动刷新。'
+  ).trim()
+  errorMsg.value = scheduleData.value.length ? '' : '暂无可用课表'
+  initialFetchDone.value = true
+
+  if (options?.markBoot !== false) {
+    markBootMetric('schedule_snapshot_applied', {
+      semester: resolvedSemester,
+      courses: scheduleData.value.length,
+      updated_at: saved.updated_at || ''
+    })
+    requestAnimationFrame(() => {
+      markBootMetric('schedule_first_paint', {
+        semester: resolvedSemester,
+        courses: scheduleData.value.length
+      })
+    })
+  }
+  return true
+}
+
 const applyMeta = (meta, requestedSemester = '') => {
   const safeMeta = meta && typeof meta === 'object' ? meta : {}
   const resolvedSemester = String(safeMeta.semester || requestedSemester || semester.value || '').trim()
@@ -569,6 +668,7 @@ const applySchedulePayload = (payload, requestedSemester = '') => {
   if (!payload?.success) return false
   const rawData = Array.isArray(payload?.data) ? payload.data : []
   offline.value = !!payload.offline
+  offlineHint.value = payload.offline ? '当前显示为离线数据，登录恢复后自动刷新。' : ''
   syncTime.value = payload.sync_time || ''
   remoteScheduleData.value = processScheduleData(rawData)
   mergeScheduleSources()
@@ -590,6 +690,19 @@ const applyCachedScheduleImmediately = (targetSemester = '') => {
   return applied
 }
 
+const applyStoredScheduleRenderSnapshot = (targetSemester = '', options = {}) => {
+  const sid = resolveDisplayStudentId()
+  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
+  if (!sid) return false
+  const snapshot = readScheduleRenderSnapshot(sid, sem || '')
+  if (!snapshot) return false
+  return applyScheduleRenderSnapshot(snapshot, options)
+}
+
+const initialRenderSnapshotApplied = applyStoredScheduleRenderSnapshot('', {
+  markBoot: true
+})
+
 const fetchSchedule = async (targetSemester = '', options = {}) => {
   loading.value = true
   semesterError.value = ''
@@ -608,7 +721,10 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
     }
     if (!props.studentId) {
       const fallbackSemester = String(requestedSemester || semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()).trim()
-      const hasInstantCache = fallbackSemester ? applyCachedScheduleImmediately(fallbackSemester) : false
+      const hasRenderSnapshot = fallbackSemester
+        ? applyStoredScheduleRenderSnapshot(fallbackSemester, { markBoot: false })
+        : false
+      const hasInstantCache = hasRenderSnapshot || (fallbackSemester ? applyCachedScheduleImmediately(fallbackSemester) : false)
       if (hasInstantCache) {
         initialFetchDone.value = true
         errorMsg.value = ''
@@ -632,8 +748,19 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
     if (data?.success) {
       applySchedulePayload(data, requestedSemester)
       await loadCustomCourses(requestedSemester || semester.value)
+      offlineHint.value = offline.value ? '当前显示为离线数据，登录恢复后自动刷新。' : ''
       if (!remoteScheduleData.value.length && customScheduleData.value.length > 0) {
         errorMsg.value = ''
+      }
+      persistScheduleRenderSnapshot('fetch-success')
+      if (!hasBootMetric('schedule_first_paint')) {
+        requestAnimationFrame(() => {
+          markBootMetric('schedule_first_paint', {
+            semester: String(requestedSemester || semester.value || '').trim(),
+            courses: scheduleData.value.length,
+            source: 'remote-refresh'
+          })
+        })
       }
       if (requestedSemester && persistLock) {
         writeScheduleLock(props.studentId, requestedSemester, lockReason)
@@ -649,12 +776,17 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
         }
         if (remoteScheduleData.value.length || customScheduleData.value.length) {
           offline.value = true
+          offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
           errorMsg.value = ''
           return false
         }
-        const hasCached = requestedSemester ? applyCachedScheduleImmediately(requestedSemester) : false
+        const hasRenderSnapshot = requestedSemester
+          ? applyStoredScheduleRenderSnapshot(requestedSemester, { markBoot: false })
+          : false
+        const hasCached = hasRenderSnapshot || (requestedSemester ? applyCachedScheduleImmediately(requestedSemester) : false)
         if (hasCached) {
           offline.value = true
+          offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
           errorMsg.value = ''
           return false
         }
@@ -672,6 +804,7 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
         totalWeeks.value = 25
       } else {
         offline.value = true
+        offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
       }
       await loadCustomCourses(requestedSemester || semester.value)
       const message = String(data?.error || '获取课表失败')
@@ -696,6 +829,7 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
       totalWeeks.value = 25
     } else {
       offline.value = true
+      offlineHint.value = '当前为缓存课表，连接恢复后自动刷新。'
     }
     await loadCustomCourses(requestedSemester || semester.value)
     const message = String(e?.message || '获取课表失败')
@@ -709,6 +843,19 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
   } finally {
     loading.value = false
     initialFetchDone.value = true
+    if (!hasBootMetric('schedule_snapshot_applied')) {
+      markBootMetric('schedule_snapshot_applied', {
+        semester: String(requestedSemester || semester.value || '').trim(),
+        courses: scheduleData.value.length,
+        applied: false,
+        reason: 'snapshot-missing'
+      })
+    }
+    markBootMetric('schedule_remote_refresh_finished', {
+      semester: String(requestedSemester || semester.value || '').trim(),
+      courses: scheduleData.value.length,
+      offline: !!offline.value
+    })
   }
 }
 
@@ -784,6 +931,12 @@ watch(totalWeeks, (maxWeeks) => {
   }
 })
 
+watch(selectedWeek, (next, prev) => {
+  if (next === prev) return
+  if (!initialFetchDone.value) return
+  persistScheduleRenderSnapshot('selected-week')
+})
+
 watch(
   () => props.studentId,
   async (nextSid, prevSid) => {
@@ -793,7 +946,8 @@ watch(
     if (!next || next === prev) return
     const targetSemester = String(semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()).trim()
     if (targetSemester) {
-      const hasInstantCache = applyCachedScheduleImmediately(targetSemester)
+      const hasRenderSnapshot = applyStoredScheduleRenderSnapshot(targetSemester, { markBoot: false })
+      const hasInstantCache = hasRenderSnapshot || applyCachedScheduleImmediately(targetSemester)
       if (hasInstantCache) {
         initialFetchDone.value = true
         errorMsg.value = ''
@@ -2604,6 +2758,12 @@ const handleCloudSyncUpdated = (event) => {
   })
 }
 
+const handleScheduleVisibilityChange = () => {
+  if (document.hidden) {
+    persistScheduleRenderSnapshot('app-hidden')
+  }
+}
+
 const handleCloudSyncUpload = async () => {
   if (!hasValidLoginSession()) {
     await promptLoginRequired()
@@ -2640,8 +2800,8 @@ const handleCloudSyncUpload = async () => {
       reason: 'schedule-manual-upload',
       force: false,
       includeCustomCourses: true,
-      includeAcademic: true,
-      includeSettings: true
+      includeAcademic: false,
+      includeSettings: false
     })
     if (!result?.success) {
       if (result?.cooldown) {
@@ -2683,8 +2843,9 @@ const handleCloudSyncDownload = async () => {
       studentId: sid,
       reason: 'schedule-manual-download',
       force: false,
-      applySettings: true,
-      applyCustomCourses: true
+      applySettings: false,
+      applyCustomCourses: true,
+      applyAcademic: false
     })
     if (!result?.success) {
       if (result?.cooldown) {
@@ -2700,7 +2861,7 @@ const handleCloudSyncDownload = async () => {
     if (result?.empty) {
       showToast('云端暂无备份，已记录本次同步', 'info')
     } else {
-      showToast('云下载完成，已应用本地设置与自定义课程', 'success')
+      showToast('云下载完成，已应用自定义课程', 'success')
     }
   } catch (e) {
     showToast(String(e?.message || '云下载失败'), 'error')
@@ -2713,6 +2874,7 @@ const handleCloudSyncDownload = async () => {
 onMounted(async () => {
   window.addEventListener('keydown', handleWeekKeydown)
   window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
+  document.addEventListener('visibilitychange', handleScheduleVisibilityChange)
   refreshCloudSyncCooldown()
   ensureCloudSyncCooldownTimer()
   void fetchSemesterOptions()
@@ -2747,7 +2909,9 @@ onMounted(async () => {
   // 旧版本可能只留下了 hbu_schedule_meta，不能把它当作锁定依据。
   const lockedSemester = String(readScheduleLock(props.studentId) || '').trim()
   const startupSemester = String(semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()).trim()
-  const startupCached = startupSemester ? applyCachedScheduleImmediately(startupSemester) : false
+  const startupRenderSnapshot = initialRenderSnapshotApplied ||
+    (startupSemester ? applyStoredScheduleRenderSnapshot(startupSemester, { markBoot: false }) : false)
+  const startupCached = startupRenderSnapshot || (startupSemester ? applyCachedScheduleImmediately(startupSemester) : false)
   if (startupCached) {
     initialFetchDone.value = true
     errorMsg.value = ''
@@ -2808,8 +2972,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  persistScheduleRenderSnapshot('component-unmount')
   window.removeEventListener('keydown', handleWeekKeydown)
   window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
+  document.removeEventListener('visibilitychange', handleScheduleVisibilityChange)
   document.removeEventListener('click', closeSemesterBadgePopover)
   clearCloudSyncCooldownTimer()
 })
@@ -2976,7 +3142,7 @@ onBeforeUnmount(() => {
     </Transition>
 
     <div v-if="offline && initialFetchDone" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      {{ offlineBannerText }}
     </div>
 
     <div v-if="vacationNotice" class="vacation-banner">

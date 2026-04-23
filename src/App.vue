@@ -36,7 +36,11 @@ import LibraryView from './components/LibraryView.vue'
 import ResourceShareView from './components/ResourceShareView.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { fetchWithCache } from './utils/api.js'
-import { SCHEDULE_POPUP_PENDING_KEY, SCHEDULE_SWITCH_PENDING_KEY } from './utils/schedule_prefetch.js'
+import {
+  readScheduleRenderSnapshot,
+  SCHEDULE_POPUP_PENDING_KEY,
+  SCHEDULE_SWITCH_PENDING_KEY
+} from './utils/schedule_prefetch.js'
 import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
 import { renderMarkdown } from './utils/markdown.js'
 import {
@@ -49,6 +53,7 @@ import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
+import { hasBootMetric, markBootMetric, resetBootMetrics } from './utils/boot_metrics.js'
 import {
   clearDailyAccessGrant,
   getProtectedViewLabel,
@@ -90,6 +95,7 @@ let desktopResizePerfTimer = null
 let pendingScrollToTopOnViewChange = false
 let lastResumeHandledAt = 0
 let resumePendingSnapshot = null
+let iosReloadFallbackAt = 0
 let appBootstrapped = false
 let capacitorAppStateListener = null
 
@@ -158,6 +164,11 @@ const readWindowRouteSnapshot = () => {
   }
 }
 
+const readCachedStudentId = () => {
+  if (typeof window === 'undefined') return ''
+  return String(localStorage.getItem('hbu_username') || '').trim()
+}
+
 const initialRouteSnapshot = readWindowRouteSnapshot()
 const startupPageSetting = useUiSettings().startupPage || 'home'
 const initialView = resolveInitialAccessibleView(initialRouteSnapshot?.view || startupPageSetting)
@@ -169,8 +180,20 @@ const initialModule = String(
   initialRouteSnapshot?.module ||
     (MAIN_TABS.includes(initialView) ? '' : initialView === 'home' ? '' : initialView)
 ).trim()
+const bootStudentIdHint = String(initialRouteSnapshot?.sid || readCachedStudentId() || '').trim()
+const bootScheduleSnapshot =
+  initialView === 'schedule' && bootStudentIdHint
+    ? readScheduleRenderSnapshot(bootStudentIdHint)
+    : null
+const skipSplashForFastScheduleBoot = !!bootScheduleSnapshot
 
 const MODULE_HOST_SESSION_KEY = 'hbu_more_module_host_session'
+
+resetBootMetrics({
+  initial_view: initialView,
+  fast_schedule_boot: skipSplashForFastScheduleBoot,
+  startup_page: startupPageSetting
+})
 
 const buildModuleHostSession = (payload = {}) => {
   const raw = payload && typeof payload === 'object' ? payload : {}
@@ -218,7 +241,14 @@ const moduleHostSession = ref(readModuleHostSession())
 const viewRenderNonce = ref(0)
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
-const showSplash = ref(useUiSettings().splashEnabled !== false)
+const showSplash = ref(useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot)
+if (skipSplashForFastScheduleBoot && !hasBootMetric('splash_dismissed')) {
+  markBootMetric('splash_dismissed', {
+    current_view: initialView,
+    fast_schedule_boot: true,
+    skipped: true
+  })
+}
 const splashStatus = ref('connecting')
 const splashStatusText = ref('正在启动…')
 const splashRef = ref(null)
@@ -513,7 +543,26 @@ const recoverViewportAfterTransition = ({ scrollToTop = true, blurActive = true 
   })
 }
 
-const nudgeWebViewPaint = () => {
+const VIEW_HEALTH_SELECTOR_MAP = Object.freeze({
+  home: '.dashboard',
+  schedule: '.schedule-view',
+  classroom: '.classroom-view',
+  more_module_host: '.more-module-host-view'
+})
+
+const isCurrentViewDomHealthy = (view = currentView.value) => {
+  const root = appShellRef.value || document.querySelector('.app-shell')
+  if (!root) return false
+  const transitionRoot = root.querySelector('.view-transition-root')
+  if (!transitionRoot) return false
+  const expectedSelector = VIEW_HEALTH_SELECTOR_MAP[normalizeViewName(view)]
+  if (expectedSelector) {
+    return !!transitionRoot.querySelector(expectedSelector)
+  }
+  return transitionRoot.childElementCount > 0 && String(transitionRoot.textContent || '').trim().length >= 0
+}
+
+const nudgeWebViewPaint = (targetView = currentView.value, { verify = false, allowReload = false } = {}) => {
   const root = document.getElementById('app')
   if (!root) return
   root.style.opacity = '0.999'
@@ -522,12 +571,15 @@ const nudgeWebViewPaint = () => {
     root.style.opacity = '1'
     root.style.transform = ''
   })
-  // 延迟检测 DOM 是否真正恢复，否则强制重载
+  if (!verify) return
+  // 仅在恢复场景下做健康检查，避免普通切页被误伤。
   setTimeout(() => {
-    const content = document.getElementById('app')
-    if (!content || !content.innerHTML || content.innerHTML.length < 50) {
-      window.location.reload()
-    }
+    if (isCurrentViewDomHealthy(targetView)) return
+    if (!allowReload) return
+    const now = Date.now()
+    if (now - iosReloadFallbackAt < 15000) return
+    iosReloadFallbackAt = now
+    window.location.reload()
   }, 800)
 }
 
@@ -579,6 +631,9 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
   const targetViewRaw = normalizeViewName(
     resolved?.view || resolved?.module || resolved?.tab || currentView.value
   )
+  if (targetViewRaw === 'more_module_host' && !moduleHostSession.value.preview_url) {
+    moduleHostSession.value = readModuleHostSession()
+  }
   const targetView =
     targetViewRaw === 'more_module_host' && !moduleHostSession.value.preview_url
       ? 'more'
@@ -606,9 +661,12 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
   }
   await nextTick()
   recoverViewportAfterTransition({ scrollToTop: false, blurActive: false })
-  if (isIOSLike) {
+  if (isIOSLike && (softRemount || !isCurrentViewDomHealthy(targetView))) {
     requestAnimationFrame(() => {
-      nudgeWebViewPaint()
+      nudgeWebViewPaint(targetView, {
+        verify: true,
+        allowReload: softRemount
+      })
     })
   }
 }
@@ -623,10 +681,11 @@ const handleAppResume = (source = 'visibilitychange') => {
   const snapshot = resumePendingSnapshot || readWindowRouteSnapshot() || collectCurrentViewSnapshot()
   resumePendingSnapshot = null
   scheduleViewportUpdate()
-  if (isIOSLike) {
-    nudgeWebViewPaint()
+  const targetView = normalizeViewName(snapshot?.view || snapshot?.module || currentView.value)
+  const softRemount = isIOSLike && idle >= IOS_RESUME_RELOAD_MS && !isCurrentViewDomHealthy(targetView)
+  if (isIOSLike && !softRemount) {
+    nudgeWebViewPaint(targetView, { verify: false, allowReload: false })
   }
-  const softRemount = isIOSLike && idle >= IOS_RESUME_RELOAD_MS
   void restoreViewFromSnapshot(snapshot, { softRemount, source })
 }
 
@@ -745,11 +804,6 @@ const goToViewInternal = (view, { push = true } = {}) => {
     replaceHistorySnapshot(view)
   }
   recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
-  if (isIOSLike) {
-    requestAnimationFrame(() => {
-      nudgeWebViewPaint()
-    })
-  }
 }
 
 const goToView = (view, { push = true } = {}) => {
@@ -1211,6 +1265,24 @@ const handleCheckUpdate = () => {
   showUpdateDialog.value = true
 }
 
+const handleSplashDismissed = () => {
+  showSplash.value = false
+  if (!hasBootMetric('splash_dismissed')) {
+    markBootMetric('splash_dismissed', {
+      current_view: currentView.value,
+      fast_schedule_boot: skipSplashForFastScheduleBoot
+    })
+  }
+}
+
+const dismissSplash = () => {
+  if (!showSplash.value) {
+    handleSplashDismissed()
+    return
+  }
+  splashRef.value?.dismiss()
+}
+
 // 自动检查更新
 const autoCheckUpdate = async () => {
   try {
@@ -1638,21 +1710,11 @@ const handlePopState = async () => {
       replaceHistorySnapshot('home')
     }
     recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
-    if (isIOSLike) {
-      requestAnimationFrame(() => {
-        nudgeWebViewPaint()
-      })
-    }
     return
   }
 
   await syncFromHash({ scrollToTop: true })
   recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
-  if (isIOSLike) {
-    requestAnimationFrame(() => {
-      nudgeWebViewPaint()
-    })
-  }
 }
 
 const installCloseInterceptor = async () => {
@@ -1756,7 +1818,7 @@ onMounted(async () => {
   // 3s 超时保护：连不上教务系统也直接进入
   const splashTimeout = showSplash.value ? setTimeout(() => {
     splashStatusText.value = '连接超时，直接进入'
-    splashRef.value?.dismiss()
+    dismissSplash()
   }, 3000) : null
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -1777,6 +1839,10 @@ onMounted(async () => {
   // 非主动退出时，启动优先恢复本地账号态（保证缓存可立即读取）。
   splashStatusText.value = '正在恢复身份…'
   const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
+  markBootMetric('identity_restored', {
+    restored: !!bootstrappedCachedIdentity,
+    student_id: String(studentId.value || '').trim()
+  })
   await primeOcrEndpointFromCache()
   // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
   splashStatusText.value = '正在加载配置…'
@@ -1794,6 +1860,12 @@ onMounted(async () => {
     relogged = await attemptAutoRelogin()
   }
   const onlineReady = restored || relogged
+  markBootMetric('session_restore_finished', {
+    restored: !!restored,
+    relogged: !!relogged,
+    online_ready: !!onlineReady,
+    student_id: String(studentId.value || '').trim()
+  })
 
   await syncFromHash({ scrollToTop: false })
 
@@ -1843,10 +1915,19 @@ onMounted(async () => {
   replaceHistorySnapshot(currentView.value)
   
   // 启动即检查更新
-  autoCheckUpdate()
+  if (skipSplashForFastScheduleBoot) {
+    window.setTimeout(() => {
+      autoCheckUpdate()
+    }, 1500)
+  } else {
+    autoCheckUpdate()
+  }
 
   ensureConfigAccess()
   appBootstrapped = true
+  if (!showSplash.value) {
+    handleSplashDismissed()
+  }
 
   // 启动画面消失
   if (onlineReady) {
@@ -1856,7 +1937,7 @@ onMounted(async () => {
   }
   // 延迟最少 600ms 确保入场动画播完
   setTimeout(() => {
-    splashRef.value?.dismiss()
+    dismissSplash()
   }, 600)
   // 清除 3s 超时保护
   if (splashTimeout) clearTimeout(splashTimeout)
@@ -1920,7 +2001,7 @@ onBeforeUnmount(() => {
     ref="splashRef"
     :status="splashStatus"
     :status-text="splashStatusText"
-    @dismiss="showSplash = false"
+    @dismiss="handleSplashDismissed"
   />
 
   <main
@@ -1933,7 +2014,7 @@ onBeforeUnmount(() => {
     }"
     ref="appShellRef"
   >
-    <Transition name="module-fade" mode="out-in">
+    <Transition name="module-fade" :css="!isIOSLike" :mode="isIOSLike ? undefined : 'out-in'">
       <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
       <!-- 首页 -->
       <Dashboard 

@@ -93,6 +93,12 @@ const buildDefaultManifestUrl = (channel, moduleId) => {
   return `${MODULE_CDN_BASE}/${normalizedChannel}/${id}/manifest.json`
 }
 
+const buildDefaultModules = (channel = 'main') => {
+  return DEFAULT_MODULES.map((item, index) =>
+    normalizeConfiguredModule(item, index, channel)
+  ).filter(Boolean)
+}
+
 const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
   const raw = item && typeof item === 'object' ? item : {}
   const id = safeText(raw.id || raw.module_id)
@@ -119,9 +125,9 @@ const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
   }
 }
 
-const mergeWithCatalog = (item) => {
+const mergeWithCatalog = (item, catalogMap = moduleCatalogMap.value) => {
   if (!item || item.kind !== 'remote') return item
-  const catalogItem = moduleCatalogMap.value.get(item.id)
+  const catalogItem = catalogMap.get(item.id)
   if (!catalogItem) return item
   return {
     ...catalogItem,
@@ -129,6 +135,13 @@ const mergeWithCatalog = (item) => {
     kind: 'remote',
     manifest_url: safeText(item.manifest_url || catalogItem.manifest_url)
   }
+}
+
+const applyModuleCards = (items, channel, catalogModules = []) => {
+  moduleChannel.value = normalizeChannel(channel)
+  moduleCatalogMap.value = new Map((catalogModules || []).map((item) => [item.id, item]))
+  moduleCardsSource.value = Array.isArray(items) ? items.filter(Boolean) : []
+  bootstrapModuleState()
 }
 
 const moduleCards = computed(() => {
@@ -176,11 +189,17 @@ const bootstrapModuleState = () => {
     if (safeText(local?.version)) {
       setModuleState(item.id, {
         status: 'ready',
+        channel: safeText(local?.channel || moduleChannel.value),
         version: safeText(local.version),
+        source: safeText(local?.source || 'cache'),
         message: '本地缓存可用'
       })
     } else {
-      setModuleState(item.id, { status: 'not_downloaded', message: '首次使用需下载' })
+      setModuleState(item.id, {
+        status: 'not_downloaded',
+        channel: moduleChannel.value,
+        message: '首次使用需下载'
+      })
     }
   }
 }
@@ -204,6 +223,32 @@ const resolveModuleStatusText = (moduleItem, state) => {
   if (status === 'failed') return '打开失败'
   if (status === 'locked') return '未解锁'
   return '未下载'
+}
+
+const resolveModuleSourceText = (value) => {
+  const source = safeText(value).toLowerCase()
+  if (source === 'cache') return '缓存'
+  if (source === 'download') return '下载'
+  if (source === 'in_app') return '内嵌'
+  if (source === 'remote') return '官网'
+  return ''
+}
+
+const resolveModuleMetaLine = (state) => {
+  const parts = []
+  const channel = safeText(state?.channel || moduleChannel.value)
+  if (channel) parts.push(`渠道 ${channel}`)
+  if (safeText(state?.version)) parts.push(`v${safeText(state.version)}`)
+  return parts.join(' · ') || '渠道 main'
+}
+
+const resolveModuleDetailLine = (state) => {
+  const parts = []
+  const sourceLabel = resolveModuleSourceText(state?.source)
+  if (sourceLabel) parts.push(`来源 ${sourceLabel}`)
+  const message = safeText(state?.message)
+  if (message) parts.push(message)
+  return parts.join(' · ') || '点击进入'
 }
 
 const setBrushModulesState = (status, message) => {
@@ -262,16 +307,26 @@ const handleOpenRemoteModule = async (moduleItem) => {
   if (!moduleId) return
 
   if (!safeText(moduleItem?.manifest_url)) {
-    setModuleState(moduleId, { status: 'failed', message: '模块清单未发布' })
+    setModuleState(moduleId, {
+      status: 'failed',
+      channel: moduleChannel.value,
+      message: '模块清单未发布'
+    })
     return
   }
 
   moduleBusyKey.value = moduleId
-  setModuleState(moduleId, { status: 'checking', message: '检查更新中' })
+  setModuleState(moduleId, {
+    status: 'checking',
+    channel: moduleChannel.value,
+    message: '检查更新中'
+  })
   try {
     const manifest = await fetchModuleManifest(moduleItem.manifest_url)
     setModuleState(moduleId, {
       status: 'downloading',
+      channel: moduleChannel.value,
+      source: 'download',
       message: '下载并准备本地包',
       version: safeText(manifest.version)
     })
@@ -282,10 +337,12 @@ const handleOpenRemoteModule = async (moduleItem) => {
     })
     setModuleState(moduleId, {
       status: 'ready',
+      channel: safeText(prepared.channel || moduleChannel.value),
+      source: safeText(prepared.source || ''),
       message:
         prepared.launch_mode === 'cache'
           ? '已加载本地缓存'
-          : '已在当前页面打开',
+          : '已在当前页面内嵌打开',
       version: safeText(prepared.version || manifest.version)
     })
     emit('navigate', {
@@ -305,6 +362,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
   } catch (err) {
     setModuleState(moduleId, {
       status: 'failed',
+      channel: moduleChannel.value,
       message: safeText(err?.message || err) || '模块打开失败'
     })
   } finally {
@@ -330,6 +388,9 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
   moduleError.value = ''
 
   const preferredChannel = normalizeChannel(await resolveModuleChannel(), 'main')
+  if (!moduleCardsSource.value.length) {
+    applyModuleCards(buildDefaultModules(preferredChannel), preferredChannel)
+  }
   let targetChannel = preferredChannel
   let configuredModules = []
   let catalogModules = []
@@ -357,12 +418,11 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
     moduleChannel.value = targetChannel
     catalogModules = []
   }
-
-  moduleCatalogMap.value = new Map(catalogModules.map((item) => [item.id, item]))
+  const nextCatalogMap = new Map(catalogModules.map((item) => [item.id, item]))
 
   let merged = []
   if (configuredModules.length > 0) {
-    merged = configuredModules.map((item) => mergeWithCatalog(item))
+    merged = configuredModules.map((item) => mergeWithCatalog(item, nextCatalogMap))
   } else if (catalogModules.length > 0) {
     merged = catalogModules
       .map((item, index) => normalizeConfiguredModule(item, index, moduleChannel.value))
@@ -380,8 +440,11 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
     if (brush) merged.unshift(brush)
   }
 
-  moduleCardsSource.value = merged
-  bootstrapModuleState()
+  applyModuleCards(
+    merged.length > 0 ? merged : buildDefaultModules(targetChannel),
+    moduleChannel.value || targetChannel,
+    catalogModules
+  )
 
   if (!silent) moduleLoading.value = false
 }
@@ -393,7 +456,10 @@ const refreshModules = async () => {
 }
 
 onMounted(async () => {
-  await loadModuleCatalog()
+  const preferredChannel = normalizeChannel(await resolveModuleChannel(), 'main')
+  applyModuleCards(buildDefaultModules(preferredChannel), preferredChannel)
+  moduleLoading.value = false
+  void loadModuleCatalog({ silent: true })
 })
 </script>
 
@@ -432,9 +498,8 @@ onMounted(async () => {
               <p>{{ item.description || '模块说明缺失' }}</p>
             </div>
             <div class="more-module-card__foot">
-              <span v-if="readModuleState(item.id).version">v{{ readModuleState(item.id).version }}</span>
-              <span v-else>渠道 {{ moduleChannel }}</span>
-              <small>{{ readModuleState(item.id).message || '点击进入' }}</small>
+              <span>{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
+              <small>{{ resolveModuleDetailLine(readModuleState(item.id)) }}</small>
             </div>
           </button>
         </div>

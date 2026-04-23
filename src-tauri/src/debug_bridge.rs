@@ -12,11 +12,16 @@ use tokio::sync::oneshot;
 const DEBUG_CONFIG_PATH: &str = "debug/runtime_config.json";
 const DEBUG_CAPTURE_DIR: &str = "debug-captures";
 const SCREENSHOT_EVENT_NAME: &str = "hbu-debug-screenshot-request";
+const STATE_EVENT_NAME: &str = "hbu-debug-state-request";
 
 static DEBUG_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
 static SCREENSHOT_SEQ: AtomicU64 = AtomicU64::new(1);
+static STATE_SEQ: AtomicU64 = AtomicU64::new(1);
 static SCREENSHOT_WAITERS: OnceLock<
     StdMutex<HashMap<String, oneshot::Sender<Result<DebugScreenshotResponse, String>>>>,
+> = OnceLock::new();
+static STATE_WAITERS: OnceLock<
+    StdMutex<HashMap<String, oneshot::Sender<Result<DebugStateResponse, String>>>>,
 > = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +59,31 @@ struct DebugScreenshotBridgeRequest {
     #[serde(rename = "return")]
     return_mode: Option<String>,
     filename: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugStateRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DebugStateBridgeRequest {
+    request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugStateResponse {
+    pub state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugStateCompletePayload {
+    pub request_id: String,
+    pub success: bool,
+    pub error: Option<String>,
+    pub state: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,9 +132,21 @@ pub enum DebugScreenshotBridgeError {
     Failed(String),
 }
 
+#[derive(Debug)]
+pub enum DebugStateBridgeError {
+    NotReady,
+    Timeout,
+    Failed(String),
+}
+
 fn screenshot_waiters(
 ) -> &'static StdMutex<HashMap<String, oneshot::Sender<Result<DebugScreenshotResponse, String>>>> {
     SCREENSHOT_WAITERS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn state_waiters(
+) -> &'static StdMutex<HashMap<String, oneshot::Sender<Result<DebugStateResponse, String>>>> {
+    STATE_WAITERS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
 fn read_env_flag(key: &str) -> Option<bool> {
@@ -267,6 +309,27 @@ pub async fn complete_debug_screenshot(
     Ok(true)
 }
 
+#[tauri::command]
+pub async fn complete_debug_state(payload: DebugStateCompletePayload) -> Result<bool, String> {
+    let sender = state_waiters()
+        .lock()
+        .map_err(|e| format!("调试状态回调锁定失败: {}", e))?
+        .remove(payload.request_id.as_str());
+    let Some(sender) = sender else {
+        return Ok(false);
+    };
+
+    let result = if payload.success {
+        Ok(DebugStateResponse {
+            state: payload.state.unwrap_or(serde_json::Value::Null),
+        })
+    } else {
+        Err(payload.error.unwrap_or_else(|| "读取调试状态失败".to_string()))
+    };
+    let _ = sender.send(result);
+    Ok(true)
+}
+
 pub(crate) fn is_bridge_tools_enabled(app: &AppHandle) -> bool {
     load_debug_runtime_config_inner(app)
         .map(|config| config.enable_bridge_tools)
@@ -323,6 +386,56 @@ pub(crate) async fn request_debug_screenshot(
                 .lock()
                 .map(|mut waiters| waiters.remove(request_id.as_str()));
             Err(DebugScreenshotBridgeError::Timeout)
+        }
+    }
+}
+
+pub(crate) async fn request_debug_state(
+    app: &AppHandle,
+    _req: DebugStateRequest,
+    timeout_ms: u64,
+) -> Result<DebugStateResponse, DebugStateBridgeError> {
+    if !DEBUG_BRIDGE_READY.load(Ordering::SeqCst) {
+        return Err(DebugStateBridgeError::NotReady);
+    }
+
+    let request_id = format!(
+        "dbgstate-{}-{}",
+        chrono::Utc::now().timestamp_millis(),
+        STATE_SEQ.fetch_add(1, Ordering::SeqCst)
+    );
+    let bridge_payload = DebugStateBridgeRequest {
+        request_id: request_id.clone(),
+    };
+    let (tx, rx) = oneshot::channel::<Result<DebugStateResponse, String>>();
+    state_waiters()
+        .lock()
+        .map_err(|e| DebugStateBridgeError::Failed(format!("状态请求注册失败: {}", e)))?
+        .insert(request_id.clone(), tx);
+
+    if let Err(e) = app.emit(STATE_EVENT_NAME, &bridge_payload) {
+        let _ = state_waiters()
+            .lock()
+            .map(|mut waiters| waiters.remove(request_id.as_str()));
+        return Err(DebugStateBridgeError::Failed(format!("发送状态事件失败: {}", e)));
+    }
+
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms.max(1000)),
+        rx,
+    )
+    .await
+    {
+        Ok(Ok(Ok(result))) => Ok(result),
+        Ok(Ok(Err(message))) => Err(DebugStateBridgeError::Failed(message)),
+        Ok(Err(_)) => Err(DebugStateBridgeError::Failed(
+            "状态响应通道已关闭".to_string(),
+        )),
+        Err(_) => {
+            let _ = state_waiters()
+                .lock()
+                .map(|mut waiters| waiters.remove(request_id.as_str()));
+            Err(DebugStateBridgeError::Timeout)
         }
     }
 }

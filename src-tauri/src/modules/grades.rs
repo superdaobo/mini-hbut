@@ -22,6 +22,8 @@ pub struct Grade {
     pub term: String,
     /// 课程名称
     pub course_name: String,
+    /// 成绩记录编号
+    pub grade_id: Option<String>,
     /// 课程号 (kch，教务系统可能不返回)
     pub course_code: Option<String>,
     /// 课程性质 (必修/选修)
@@ -174,7 +176,16 @@ impl GradesModule {
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string());
-            
+
+            let grade_id = item.get("id")
+                .and_then(|v| {
+                    if let Some(s) = v.as_str() {
+                        let text = s.trim().to_string();
+                        return if text.is_empty() { None } else { Some(text) };
+                    }
+                    v.as_i64().map(|n| n.to_string())
+                });
+
             let course_code = item.get("kch")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
@@ -188,6 +199,7 @@ impl GradesModule {
             grades.push(Grade {
                 term,
                 course_name,
+                grade_id,
                 course_code,
                 course_nature,
                 course_nature_code,

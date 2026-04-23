@@ -5,6 +5,8 @@ import { normalizeSemesterList, resolveCurrentSemester, semesterIsNewer } from '
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SCHEDULE_META_KEY = 'hbu_schedule_meta'
 const SCHEDULE_LOCK_KEY = 'hbu_schedule_lock'
+const SCHEDULE_RENDER_SNAPSHOT_SCHEMA = 1
+const SCHEDULE_RENDER_SNAPSHOT_PREFIX = 'hbu_schedule_render_snapshot_v1'
 export const SCHEDULE_POPUP_PENDING_KEY = 'hbu_schedule_popup_pending'
 export const SCHEDULE_SWITCH_PENDING_KEY = 'hbu_schedule_switch_pending'
 const MAX_SEMESTER_PROBE = 8
@@ -76,6 +78,89 @@ export const buildScheduleCacheKey = (studentId, semester = '') => {
   const sem = toSafeText(semester)
   if (!sid) return ''
   return sem ? `schedule:${sid}:${sem}` : `schedule:${sid}`
+}
+
+const buildScheduleRenderSnapshotKey = (studentId) => {
+  const sid = toSafeText(studentId)
+  if (!sid) return ''
+  return `${SCHEDULE_RENDER_SNAPSHOT_PREFIX}:${sid}`
+}
+
+const normalizeScheduleRenderSnapshot = (raw, studentId = '', semester = '') => {
+  if (!raw || typeof raw !== 'object') return null
+  const sid = toSafeText(raw.student_id || studentId)
+  const sem = toSafeText(raw.semester)
+  if (!sid || !sem) return null
+  if (studentId && sid !== toSafeText(studentId)) return null
+  if (semester && sem !== toSafeText(semester)) return null
+  const schemaVersion = Number(raw.schema_version || 0)
+  if (schemaVersion !== SCHEDULE_RENDER_SNAPSHOT_SCHEMA) return null
+
+  return {
+    schema_version: SCHEDULE_RENDER_SNAPSHOT_SCHEMA,
+    student_id: sid,
+    semester: sem,
+    meta: raw.meta && typeof raw.meta === 'object'
+      ? {
+          semester: toSafeText(raw.meta.semester || sem),
+          start_date: toSafeText(raw.meta.start_date),
+          current_week: toPositiveInt(raw.meta.current_week, 1),
+          total_weeks: toPositiveInt(raw.meta.total_weeks, 25),
+          vacation_notice: toSafeText(raw.meta.vacation_notice)
+        }
+      : {
+          semester: sem,
+          start_date: '',
+          current_week: 1,
+          total_weeks: 25,
+          vacation_notice: ''
+        },
+    selected_week: toPositiveInt(raw.selected_week, 1),
+    sync_time: toSafeText(raw.sync_time),
+    offline: !!raw.offline,
+    remote_schedule_data: Array.isArray(raw.remote_schedule_data) ? raw.remote_schedule_data : [],
+    custom_schedule_data: Array.isArray(raw.custom_schedule_data) ? raw.custom_schedule_data : [],
+    merged_schedule_data: Array.isArray(raw.merged_schedule_data) ? raw.merged_schedule_data : [],
+    updated_at: toSafeText(raw.updated_at)
+  }
+}
+
+export const readScheduleRenderSnapshot = (studentId, semester = '') => {
+  const key = buildScheduleRenderSnapshotKey(studentId)
+  if (!key) return null
+  const raw = readJSON(key, null)
+  return normalizeScheduleRenderSnapshot(raw, studentId, semester)
+}
+
+export const hasScheduleRenderSnapshot = (studentId, semester = '') => {
+  return !!readScheduleRenderSnapshot(studentId, semester)
+}
+
+export const writeScheduleRenderSnapshot = (studentId, snapshot) => {
+  const normalized = normalizeScheduleRenderSnapshot(
+    {
+      schema_version: SCHEDULE_RENDER_SNAPSHOT_SCHEMA,
+      ...snapshot,
+      student_id: toSafeText(snapshot?.student_id || studentId)
+    },
+    studentId
+  )
+  if (!normalized) return null
+  const key = buildScheduleRenderSnapshotKey(normalized.student_id)
+  if (!key) return null
+  writeJSON(key, normalized)
+  return normalized
+}
+
+export const clearScheduleRenderSnapshot = (studentId = '') => {
+  const key = buildScheduleRenderSnapshotKey(studentId)
+  if (!key) return false
+  try {
+    localStorage.removeItem(key)
+    return true
+  } catch {
+    return false
+  }
 }
 
 const courseCount = (payload) => (Array.isArray(payload?.data) ? payload.data.length : 0)

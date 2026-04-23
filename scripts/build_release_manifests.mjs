@@ -65,23 +65,50 @@ function parseTimestamp(value) {
 }
 
 function compareSemverLike(left, right) {
-  const normalize = (input) =>
-    safeText(input)
-      .replace(/^v/i, '')
-      .split('.')
-      .map((part) => {
-        const match = part.match(/^(\d+)/)
-        return match ? Number(match[1]) : 0
-      })
+  const parse = (input) => {
+    const raw = safeText(input).replace(/^v/i, '')
+    const [corePart, prereleasePart = ''] = raw.split('-', 2)
+    const core = corePart.split('.').map((part) => {
+      const match = String(part || '').match(/^(\d+)/)
+      return match ? Number(match[1]) : 0
+    })
+    const prerelease = prereleasePart
+      ? prereleasePart
+          .split('.')
+          .map((part) => (/^\d+$/.test(part) ? Number(part) : String(part || '').toLowerCase()))
+      : []
+    return {
+      core,
+      prerelease,
+      isPrerelease: prerelease.length > 0
+    }
+  }
 
-  const a = normalize(left)
-  const b = normalize(right)
-  const len = Math.max(a.length, b.length)
+  const a = parse(left)
+  const b = parse(right)
+  const len = Math.max(a.core.length, b.core.length)
   for (let i = 0; i < len; i += 1) {
-    const av = a[i] || 0
-    const bv = b[i] || 0
+    const av = a.core[i] || 0
+    const bv = b.core[i] || 0
     if (av !== bv) return av - bv
   }
+
+  if (a.isPrerelease && !b.isPrerelease) return -1
+  if (!a.isPrerelease && b.isPrerelease) return 1
+
+  const preLen = Math.max(a.prerelease.length, b.prerelease.length)
+  for (let i = 0; i < preLen; i += 1) {
+    const av = a.prerelease[i]
+    const bv = b.prerelease[i]
+    if (av === undefined) return -1
+    if (bv === undefined) return 1
+    if (av === bv) continue
+    if (typeof av === 'number' && typeof bv === 'number') return av - bv
+    if (typeof av === 'number') return -1
+    if (typeof bv === 'number') return 1
+    return String(av).localeCompare(String(bv))
+  }
+
   return 0
 }
 
@@ -174,13 +201,7 @@ function pickActiveManifest(stableManifest, devManifest) {
   if (stableManifest && !devManifest) return stableManifest
   if (devManifest && !stableManifest) return devManifest
   if (!stableManifest && !devManifest) return null
-
-  const stableTs = parseTimestamp(stableManifest?.generatedAt)
-  const devTs = parseTimestamp(devManifest?.generatedAt)
-  if (stableTs > devTs) return stableManifest
-  if (devTs > stableTs) return devManifest
-
-  if (CURRENT_CHANNEL === 'dev' && devManifest) return devManifest
+  // active 清单固定优先稳定版，避免站点把 dev/beta 误当成默认更新来源。
   return stableManifest || devManifest
 }
 

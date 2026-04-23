@@ -8,8 +8,6 @@ const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
-const EDGEONE_ACTIVE_MANIFEST = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/active.json` : ''
-
 const API_PROXIES = [
   `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
@@ -148,15 +146,71 @@ const withTimeout = async (promise, ms = 9000) => {
   }
 }
 
-function compareVersions(v1, v2) {
-  const parts1 = String(v1 || '').replace(/^v/, '').split('.').map((n) => Number(n) || 0)
-  const parts2 = String(v2 || '').replace(/^v/, '').split('.').map((n) => Number(n) || 0)
-  const len = Math.max(parts1.length, parts2.length)
-  for (let i = 0; i < len; i += 1) {
-    if (parts1[i] > parts2[i]) return 1
-    if (parts1[i] < parts2[i]) return -1
+function parseVersion(version) {
+  const raw = String(version || '').trim().replace(/^v/i, '')
+  const [corePart, prereleasePart = ''] = raw.split('-', 2)
+  const core = corePart
+    .split('.')
+    .map((segment) => {
+      const match = String(segment || '').match(/^(\d+)/)
+      return Number(match?.[1] || 0)
+    })
+  const prerelease = prereleasePart
+    ? prereleasePart
+        .split('.')
+        .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : String(segment || '').toLowerCase()))
+    : []
+  return {
+    raw,
+    core,
+    prerelease,
+    isPrerelease: prerelease.length > 0
   }
+}
+
+function compareVersions(v1, v2) {
+  const left = parseVersion(v1)
+  const right = parseVersion(v2)
+  const len = Math.max(left.core.length, right.core.length)
+  for (let i = 0; i < len; i += 1) {
+    const lv = left.core[i] || 0
+    const rv = right.core[i] || 0
+    if (lv > rv) return 1
+    if (lv < rv) return -1
+  }
+
+  if (left.isPrerelease && !right.isPrerelease) return -1
+  if (!left.isPrerelease && right.isPrerelease) return 1
+
+  const preLen = Math.max(left.prerelease.length, right.prerelease.length)
+  for (let i = 0; i < preLen; i += 1) {
+    const lv = left.prerelease[i]
+    const rv = right.prerelease[i]
+    if (lv === undefined) return -1
+    if (rv === undefined) return 1
+    if (lv === rv) continue
+    if (typeof lv === 'number' && typeof rv === 'number') return lv > rv ? 1 : -1
+    if (typeof lv === 'number') return -1
+    if (typeof rv === 'number') return 1
+    return String(lv).localeCompare(String(rv))
+  }
+
   return 0
+}
+
+function isPrereleaseVersion(version) {
+  return parseVersion(version).isPrerelease
+}
+
+function shouldOfferRelease(release, currentVersion) {
+  const latestVersion = String(release?.version || release?.tag_name || '').replace(/^v/i, '')
+  const currentText = String(currentVersion || '').replace(/^v/i, '')
+  if (!latestVersion) return false
+  if (!currentText) return true
+  if (release?.prerelease && !isPrereleaseVersion(currentText)) {
+    return false
+  }
+  return compareVersions(latestVersion, currentText) > 0
 }
 
 function getPlatform() {
@@ -233,34 +287,18 @@ const normalizeCdnManifestAsRelease = (manifest) => {
     version,
     prerelease: !!manifest.prerelease,
     channel: String(manifest.channel || '').trim(),
-    __fromActiveManifest: true
+    __fromCdnManifest: true
   }
 }
 
 async function fetchReleaseInfo(currentVersion) {
-  // 优先尝试网站 active 清单，按最近一次网站部署决定当前推荐渠道。
-  if (EDGEONE_ACTIVE_MANIFEST) {
-    try {
-      const manifest = await fetchJson(EDGEONE_ACTIVE_MANIFEST, 6000)
-      const release = normalizeCdnManifestAsRelease(manifest)
-      if (release) {
-        return release
-      }
-    } catch (_) {
-      // active 清单不可用，继续 fallback
-    }
-  }
-
-  // 再尝试稳定版清单，兼容旧站点结构。
+  // 只检测稳定版最新发布，不消费 active/dev 渠道，避免 beta 被自动推送给用户。
   if (EDGEONE_CDN_BASE) {
     try {
       const manifest = await fetchJson(`${EDGEONE_CDN_BASE}/releases/latest.json`, 6000)
       const release = normalizeCdnManifestAsRelease(manifest)
-      if (release) {
-        const latest = String(release.version || '').replace(/^v/, '')
-        if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
-          return release
-        }
+      if (release && shouldOfferRelease(release, currentVersion)) {
+        return release
       }
     } catch (_) {
       // EdgeOne CDN 不可用，继续 fallback
@@ -277,8 +315,7 @@ async function fetchReleaseInfo(currentVersion) {
       if (!fallback || (release.assets?.length || 0) > (fallback.assets?.length || 0)) {
         fallback = release
       }
-      const latest = String(release.tag_name || '').replace(/^v/, '')
-      if (!currentVersion || !latest || compareVersions(latest, currentVersion) > 0) {
+      if (shouldOfferRelease(release, currentVersion)) {
         return release
       }
     } catch (_) {
@@ -302,16 +339,7 @@ export async function checkForUpdates(currentVersion) {
     const tagName = release.tag_name || release.name || ''
     const latestVersion = String(release.version || tagName).replace(/^v/, '')
     const currentText = String(currentVersion || '').replace(/^v/, '')
-    const fromActiveManifest = release.__fromActiveManifest === true
-
-    if (
-      !latestVersion ||
-      (
-        fromActiveManifest
-          ? latestVersion === currentText
-          : compareVersions(latestVersion, currentVersion) <= 0
-      )
-    ) {
+    if (!shouldOfferRelease(release, currentText)) {
       return { hasUpdate: false, currentVersion, latestVersion }
     }
 

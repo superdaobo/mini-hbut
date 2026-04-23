@@ -116,6 +116,7 @@ const REMOTE_CONFIG_KEYS = [
 ]
 // 远程配置短时内存缓存：降低登录期重复拉取与并发请求。
 const REMOTE_CONFIG_MEMORY_TTL_MS = 45 * 1000
+const REMOTE_CONFIG_FETCH_TIMEOUT_MS = 3000
 let remoteConfigMemory = null
 let remoteConfigMemoryAt = 0
 let remoteConfigInFlight = null
@@ -256,6 +257,22 @@ const withCacheBust = (url) => {
   if (!text) return ''
   const joiner = text.includes('?') ? '&' : '?'
   return `${text}${joiner}_t=${Date.now()}`
+}
+
+const withTimeout = async (promise, timeoutMs, timeoutMessage) => {
+  let timer = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage || '请求超时'))
+        }, timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 const resolveAnnouncements = (cfg) => {
@@ -520,7 +537,11 @@ const loadSnapshot = () => {
 
 const fetchByInvoke = async (url) => {
   try {
-    const payload = await invoke('fetch_remote_config', { url })
+    const payload = await withTimeout(
+      invoke('fetch_remote_config', { url }),
+      REMOTE_CONFIG_FETCH_TIMEOUT_MS,
+      '远程配置原生请求超时'
+    )
     if (payload && typeof payload === 'object') return payload
   } catch {
     // ignore
@@ -566,14 +587,28 @@ const fetchByCapacitor = async (url) => {
 }
 
 const fetchByWeb = async (url) => {
-  const res = await fetch(url, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' }
-  })
-  if (!res.ok) {
-    throw new Error(`remote config http ${res.status}`)
+  const controller = typeof AbortController === 'function' ? new AbortController() : null
+  let abortTimer = null
+  try {
+    if (controller) {
+      abortTimer = setTimeout(() => controller.abort(), REMOTE_CONFIG_FETCH_TIMEOUT_MS)
+    }
+    const res = await withTimeout(
+      fetch(url, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+        signal: controller?.signal
+      }),
+      REMOTE_CONFIG_FETCH_TIMEOUT_MS,
+      '远程配置网页请求超时'
+    )
+    if (!res.ok) {
+      throw new Error(`remote config http ${res.status}`)
+    }
+    return res.json()
+  } finally {
+    if (abortTimer) clearTimeout(abortTimer)
   }
-  return res.json()
 }
 
 const fetchFromAnyUrl = async () => {

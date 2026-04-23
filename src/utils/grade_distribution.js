@@ -1,7 +1,7 @@
 /**
  * 给分记录 API 封装
- * 复用 OCR 服务同域的 /api/grade-distribution/* 端点
- * + 本地成绩-教师富化逻辑
+ * 统一以 OCR 服务公开接口为准，不在前端做本地教师富化，
+ * 这样返回字段能与 SQLPub / ocr-service 保持一致。
  */
 
 // 从 OCR 端点推导服务基址
@@ -13,7 +13,7 @@ function getServiceBaseUrl() {
       return `${url.protocol}//${url.host}`
     }
   } catch { /* ignore */ }
-  return 'https://mini-hbut-testocr1.hf.space'
+  return 'https://mini-hbut-ocr-service.hf.space'
 }
 
 const GRADE_API_PREFIX = '/api/grade-distribution'
@@ -64,72 +64,4 @@ export async function fetchGradeDistribution(params = {}) {
     page_size: data.page_size || 50,
     items: data.items || [],
   }
-}
-
-/**
- * 从本地课表缓存查找教师
- * 策略：在同学期课表中找课程名一致且节次最多的教师
- * @param {string} courseName
- * @param {string} semester
- * @param {string} studentId
- * @returns {string|null}
- */
-export function findTeacherFromSchedule(courseName, semester, studentId) {
-  if (!courseName || !semester || !studentId) return null
-  try {
-    const raw = localStorage.getItem(`cache:schedule:${studentId}:${semester}`)
-    if (!raw) return null
-    const cached = JSON.parse(raw)
-    const courses = cached?.data?.data || cached?.data || []
-    if (!Array.isArray(courses)) return null
-
-    // 按教师统计节次总和
-    const teacherSessions = {}
-    for (const c of courses) {
-      const name = c.name || c.kcmc || ''
-      if (name !== courseName) continue
-      const teacher = c.teacher || c.tmc || c.xm || ''
-      if (!teacher) continue
-      const sessions = (c.djs || 1) * ((c.weeks && c.weeks.length) || 1)
-      teacherSessions[teacher] = (teacherSessions[teacher] || 0) + sessions
-    }
-
-    // 选节次最多的教师
-    let best = null, max = 0
-    for (const [t, count] of Object.entries(teacherSessions)) {
-      if (count > max) { best = t; max = count }
-    }
-    return best
-  } catch { return null }
-}
-
-/**
- * 获取富化后的本地成绩数据（教师从课表补充）
- * @param {string} studentId
- * @returns {{ grades: Array, enrichedCount: number }}
- */
-export function getEnrichedLocalGrades(studentId) {
-  if (!studentId) return { grades: [], enrichedCount: 0 }
-  try {
-    const raw = localStorage.getItem(`cache:grades:${studentId}`)
-    if (!raw) return { grades: [], enrichedCount: 0 }
-    const cached = JSON.parse(raw)
-    const grades = cached?.data || cached || []
-    if (!Array.isArray(grades)) return { grades: [], enrichedCount: 0 }
-
-    let enrichedCount = 0
-    const enriched = grades.map(g => {
-      const teacher = g.teacher || null
-      if (teacher) return g
-      const semester = g.term || g.xnxq || ''
-      const courseName = g.course_name || g.kcmc || ''
-      const found = findTeacherFromSchedule(courseName, semester, studentId)
-      if (found) {
-        enrichedCount++
-        return { ...g, teacher: found, _teacherFromSchedule: true }
-      }
-      return g
-    })
-    return { grades: enriched, enrichedCount }
-  } catch { return { grades: [], enrichedCount: 0 } }
 }
