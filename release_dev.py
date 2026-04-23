@@ -31,6 +31,7 @@ EXCLUDE_GLOBS = [
     "debug_*.log",
     "debug_*.json",
     "debug_*.html",
+    ".dist-trash-*",
 ]
 EXCLUDE_DIRS = [
     "tools",
@@ -103,8 +104,7 @@ def collect_excluded_paths() -> list[str]:
     excluded: set[str] = set()
     for pattern in EXCLUDE_GLOBS:
         for path in PROJECT_DIR.rglob(pattern):
-            if path.is_file():
-                excluded.add(path.relative_to(PROJECT_DIR).as_posix())
+            excluded.add(path.relative_to(PROJECT_DIR).as_posix())
     for dirname in EXCLUDE_DIRS:
         p = PROJECT_DIR / dirname
         if p.exists():
