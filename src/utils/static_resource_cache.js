@@ -1,12 +1,21 @@
 import { getCachedData, setCachedData } from './api.js'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const STATIC_RESOURCE_BASE = 'https://hbut.6661111.xyz/app-resources'
 const DORMITORY_MANIFEST_URL = `${STATIC_RESOURCE_BASE}/dormitory/manifest.json`
 const DORMITORY_FALLBACK_URL = `${STATIC_RESOURCE_BASE}/dormitory/dormitory_data-20260423.json`
 const DORMITORY_CACHE_KEY = 'static_resource:dormitory_data'
 const STATIC_RESOURCE_TTL = 30 * 24 * 60 * 60 * 1000
+const STATIC_RESOURCE_TIMEOUT_MS = 10000
 
 const safeText = (value) => String(value ?? '').trim()
+
+const withCacheBust = (url) => {
+  const text = safeText(url)
+  if (!text) return ''
+  const joiner = text.includes('?') ? '&' : '?'
+  return `${text}${joiner}_t=${Date.now()}`
+}
 
 const toAbsoluteUrl = (value, base) => {
   const raw = safeText(value)
@@ -35,19 +44,64 @@ const withOfflineMeta = (data, timestamp) => {
 }
 
 const fetchJsonNoStore = async (url) => {
-  const response = await fetch(url, { cache: 'no-store' })
+  const requestUrl = withCacheBust(url)
+
+  if (isTauriRuntime()) {
+    try {
+      return await withTimeout(
+        invokeNative('fetch_remote_json', { url: requestUrl }),
+        STATIC_RESOURCE_TIMEOUT_MS
+      )
+    } catch (error) {
+      console.warn('[StaticResource] 原生静态资源拉取失败，回退浏览器 fetch', {
+        url: requestUrl,
+        error: String(error?.message || error || '')
+      })
+    }
+  }
+
+  const response = await fetch(requestUrl, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json'
+    }
+  })
   if (!response.ok) {
     throw new Error(`拉取静态资源失败：HTTP ${response.status}`)
   }
-  return response.json()
+  const text = await response.text()
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new Error(`解析静态资源失败：${error?.message || error || 'unknown error'}`)
+  }
 }
 
 const fetchTextNoStore = async (url) => {
-  const response = await fetch(url, { cache: 'no-store' })
+  const response = await fetch(withCacheBust(url), {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json'
+    }
+  })
   if (!response.ok) {
     throw new Error(`拉取静态资源失败：HTTP ${response.status}`)
   }
   return response.text()
+}
+
+const withTimeout = async (promise, ms = STATIC_RESOURCE_TIMEOUT_MS) => {
+  let timer
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('static-resource-timeout')), ms)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 const sha256Hex = async (text) => {
@@ -87,17 +141,22 @@ export const fetchDormitoryDataset = async ({ forceRefresh = false } = {}) => {
       manifest?.url || manifest?.resource_url || DORMITORY_FALLBACK_URL,
       DORMITORY_MANIFEST_URL
     ) || DORMITORY_FALLBACK_URL
-    const payloadText = await fetchTextNoStore(resourceUrl)
-
+    let payloadData = null
     const expectedSha = safeText(manifest?.sha256 || manifest?.hash || '')
-    if (expectedSha) {
-      const actualSha = await sha256Hex(payloadText)
-      if (actualSha && actualSha.toLowerCase() !== expectedSha.toLowerCase()) {
-        throw new Error('宿舍静态资源校验失败，请稍后重试')
+
+    if (isTauriRuntime()) {
+      payloadData = await fetchJsonNoStore(resourceUrl)
+    } else {
+      const payloadText = await fetchTextNoStore(resourceUrl)
+      if (expectedSha) {
+        const actualSha = await sha256Hex(payloadText)
+        if (actualSha && actualSha.toLowerCase() !== expectedSha.toLowerCase()) {
+          throw new Error('宿舍静态资源校验失败，请稍后重试')
+        }
       }
+      payloadData = JSON.parse(payloadText)
     }
 
-    const payloadData = JSON.parse(payloadText)
     const nextPayload = {
       success: true,
       data: Array.isArray(payloadData) ? payloadData : [],
@@ -109,12 +168,22 @@ export const fetchDormitoryDataset = async ({ forceRefresh = false } = {}) => {
     }
 
     setCachedData(DORMITORY_CACHE_KEY, nextPayload)
+    console.info('[StaticResource] 宿舍数据加载成功', {
+      fromCache: false,
+      version: nextPayload.version,
+      count: nextPayload.data.length,
+      source: isTauriRuntime() ? 'native-json' : 'web-fetch'
+    })
     return {
       data: nextPayload,
       fromCache: false,
       timestamp: Date.now()
     }
   } catch (error) {
+    console.error('[StaticResource] 宿舍数据加载失败', {
+      error: String(error?.message || error || ''),
+      hasCache: !!cached?.data
+    })
     if (cached?.data) {
       return {
         data: withOfflineMeta(cached.data, cached.timestamp),
