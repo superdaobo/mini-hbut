@@ -8,7 +8,8 @@ Mini-HBUT 开发分支推送脚本（默认 dev）
 2. 不打 tag
 3. 不创建 release
 4. 仅提交（可选）并推送到目标分支（默认 dev）
-5. 无交互确认，自动提交并输出中文变更说明
+5. 默认对 dev 进行强制推送（本地直推远端）
+6. 无交互确认，自动提交并输出中文变更说明
 """
 
 from __future__ import annotations
@@ -269,7 +270,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--message", default="", help="提交信息")
     parser.add_argument("--skip-commit", action="store_true", help="跳过提交，仅推送")
     parser.add_argument("--skip-build", action="store_true", help="跳过构建检查（默认会先执行 npm run build）")
-    parser.add_argument("--force", action="store_true", help="强制推送")
+    parser.add_argument("--force", action="store_true", help="强制推送（优先级高于 --no-force）")
+    parser.add_argument("--no-force", action="store_true", help="禁用强制推送（即使目标分支是 dev）")
     parser.add_argument("--dry-run", action="store_true", help="仅打印命令")
     return parser.parse_args()
 
@@ -285,6 +287,14 @@ def main() -> int:
         print(f"[ERROR] 不是 git 仓库: {PROJECT_DIR}")
         return 1
 
+    if args.force and args.no_force:
+        print("[ERROR] --force 与 --no-force 不能同时使用")
+        return 1
+
+    target_branch = args.branch.strip()
+    target_is_dev = target_branch.lower() == "dev"
+    effective_force = args.force or (target_is_dev and not args.no_force)
+
     message = args.message.strip() or f"chore: 开发分支自动提交 {datetime.now():%Y-%m-%d %H:%M:%S}"
 
     print("=" * 60)
@@ -292,16 +302,17 @@ def main() -> int:
     print("=" * 60)
     print(f"project: {PROJECT_DIR}")
     print(f"remote : {args.remote} -> {args.remote_url}")
-    print(f"branch : {args.branch}")
+    print(f"branch : {target_branch}")
     print("mode   : no version bump / no tag / no release")
     print(f"build  : {'skip' if args.skip_build else 'npm run build'}")
+    print(f"push   : {'force' if effective_force else 'normal'}")
     print("[INFO] 自动模式：不询问确认，直接执行提交与推送")
 
     try:
         run_build_check(args.skip_build, args.dry_run)
         ensure_origin(args.remote, args.remote_url, args.dry_run)
         stage_and_commit(message, args.skip_commit, args.dry_run)
-        push(args.remote, args.branch, args.force, args.dry_run)
+        push(args.remote, target_branch, effective_force, args.dry_run)
     except Exception as exc:
         print(f"[ERROR] 推送失败: {exc}")
         return 1
