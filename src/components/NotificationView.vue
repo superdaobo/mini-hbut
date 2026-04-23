@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
-import hbutLogo from '../assets/hbut-logo.svg'
 import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
@@ -540,7 +539,7 @@ onBeforeUnmount(() => {
   <div class="notification-view fade-in">
     <header class="dashboard-header">
       <div class="brand">
-        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+        <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
         <span class="title">HBUT 校园助手</span>
         <span class="page-tag">通知</span>
       </div>

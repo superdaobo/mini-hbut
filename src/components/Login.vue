@@ -1,7 +1,6 @@
 ﻿<script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import hbutLogo from '../assets/hbut-logo.svg'
 import { encryptData, decryptData } from '../utils/encryption.js'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke } from '../platform/native'
@@ -244,7 +243,7 @@ const handleKeyPress = (event) => {
 <template>
   <div class="login-container glass-card">
     <div class="logo">
-      <img class="logo-img" :src="hbutLogo" alt="Mini-HBUT" />
+      <img class="logo-img" src="/splash/app_icon.png" alt="Mini-HBUT" />
     </div>
     <h2>HBUT 成绩查询系统</h2>
     

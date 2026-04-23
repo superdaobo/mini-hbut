@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from 'axios'
-import hbutLogo from '../assets/hbut-logo.svg'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from '../utils/debug_logger'
@@ -933,7 +932,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="login-container glass-card">
     <div class="logo">
-      <img class="logo-img" :src="hbutLogo" alt="Mini-HBUT" />
+      <img class="logo-img" src="/splash/app_icon.png" alt="Mini-HBUT" />
     </div>
     <h2>账号登录</h2>
     <p class="subtitle">选择入口后继续</p>

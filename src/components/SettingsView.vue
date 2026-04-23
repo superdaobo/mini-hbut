@@ -37,7 +37,6 @@ import {
   pushDebugLog,
   subscribeDebugLogs
 } from '../utils/debug_logger'
-import hbutLogo from '../assets/hbut-logo.svg'
 
 const emit = defineEmits(['back'])
 
@@ -1010,7 +1009,7 @@ const handleDownloadFont = async (force = false) => {
   <div class="settings-view">
     <header class="dashboard-header settings-header">
       <div class="brand">
-        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+        <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
         <div class="title-wrap">
           <span class="title">系统设置</span>
           <span class="sub-title">主题、后端、调试与测速</span>
@@ -2506,4 +2505,3 @@ const handleDownloadFont = async (force = false) => {
   }
 }
 </style>
-

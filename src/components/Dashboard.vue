@@ -5,7 +5,6 @@ import { fetchWithCache, getCachedData, setCachedData } from '../utils/api'
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown_text.js'
-import hbutLogo from '../assets/hbut-logo.svg'
 import ThemeModuleIcon from './icons/ThemeModuleIcon.vue'
 import { readScheduleLockDetail } from '../utils/schedule_prefetch.js'
 
@@ -932,7 +931,7 @@ watch(
     <header class="dashboard-header dashboard-header--home">
       <div class="home-header-top">
         <div class="brand">
-          <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+          <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
           <span class="title">HBUT 校园助手</span>
         </div>
         <span class="page-tag">首页</span>

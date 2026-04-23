@@ -2,7 +2,6 @@
 import { ref, nextTick } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
-import hbutLogo from '../assets/hbut-logo.svg'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -50,7 +49,7 @@ const handleShowLegal = async (tab) => {
   <div class="me-view">
     <header class="dashboard-header">
       <div class="brand">
-        <img class="logo-img" :src="hbutLogo" alt="HBUT" />
+        <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
         <span class="title">HBUT 校园助手</span>
         <span class="page-tag">我的</span>
       </div>
