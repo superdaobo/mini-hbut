@@ -145,12 +145,11 @@ function pickStableTag(existingStable) {
 function pickDevVersion(devDir, existingDev) {
   if (DEV_VERSION_HINT) return DEV_VERSION_HINT
   if (safeText(existingDev?.version)) return safeText(existingDev.version)
-  const files = listAssetFiles(devDir)
-  for (const file of files) {
-    const version = parseVersionFromFileName(file)
-    if (version) return version
-  }
-  return ''
+  const versions = listAssetFiles(devDir)
+    .map((file) => parseVersionFromFileName(file))
+    .filter(Boolean)
+  if (!versions.length) return ''
+  return [...versions].sort((a, b) => compareSemverLike(a, b)).at(-1) || ''
 }
 
 function buildManifest({
