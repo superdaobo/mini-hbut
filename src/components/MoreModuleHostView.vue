@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
 
 const props = defineProps({
@@ -14,6 +14,9 @@ const emit = defineEmits(['back'])
 const frameKey = ref(0)
 const loading = ref(true)
 const loadError = ref('')
+const loadHint = ref('')
+
+let loadingGuardTimer = null
 
 const safeText = (value) => String(value ?? '').trim()
 
@@ -23,9 +26,25 @@ const moduleChannel = computed(() => safeText(props.session?.channel) || 'main')
 const previewUrl = computed(() => safeText(props.session?.preview_url))
 const ready = computed(() => !!previewUrl.value)
 
+const clearLoadingGuardTimer = () => {
+  if (loadingGuardTimer) {
+    clearTimeout(loadingGuardTimer)
+    loadingGuardTimer = null
+  }
+}
+
 const resetFrameState = () => {
+  clearLoadingGuardTimer()
   loading.value = ready.value
   loadError.value = ''
+  loadHint.value = ''
+  if (!ready.value) return
+  // iOS / WKWebView 下 iframe 的 load 事件并不稳定，超时后先撤掉遮罩，避免一直转圈。
+  loadingGuardTimer = window.setTimeout(() => {
+    if (!loading.value) return
+    loading.value = false
+    loadHint.value = '模块已开始渲染；如果仍是空白，请点右上角刷新。'
+  }, 4500)
 }
 
 const reloadFrame = () => {
@@ -35,13 +54,17 @@ const reloadFrame = () => {
 }
 
 const handleLoad = () => {
+  clearLoadingGuardTimer()
   loading.value = false
   loadError.value = ''
+  loadHint.value = ''
 }
 
 const handleError = () => {
+  clearLoadingGuardTimer()
   loading.value = false
   loadError.value = '模块页面加载失败，请返回更多页后重试。'
+  loadHint.value = ''
 }
 
 watch(
@@ -52,6 +75,10 @@ watch(
   },
   { immediate: true }
 )
+
+onBeforeUnmount(() => {
+  clearLoadingGuardTimer()
+})
 </script>
 
 <template>
@@ -77,13 +104,15 @@ watch(
       </div>
 
       <div v-else class="module-frame-shell">
-        <TEmptyState v-if="loading" type="loading" message="正在加载模块页面..." />
+        <div v-if="loading" class="module-loading-overlay">
+          <TEmptyState type="loading" message="正在加载模块页面..." />
+        </div>
         <div v-if="loadError" class="module-frame-error">{{ loadError }}</div>
+        <div v-else-if="loadHint" class="module-frame-hint">{{ loadHint }}</div>
         <iframe
           :key="frameKey"
           class="module-frame"
           :src="previewUrl"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-pointer-lock"
           allowfullscreen
           loading="eager"
           @load="handleLoad"
@@ -146,7 +175,20 @@ watch(
   overflow: hidden;
 }
 
+.module-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.78));
+  backdrop-filter: blur(6px);
+}
+
 .module-frame {
+  display: block;
   width: 100%;
   height: calc(var(--app-vh, 1vh) * 100 - 170px);
   min-height: 620px;
@@ -164,6 +206,20 @@ watch(
   border-radius: calc(12px * var(--ui-radius-scale));
   background: rgba(239, 68, 68, 0.12);
   color: var(--ui-danger);
+  font-size: calc(12px * var(--ui-font-scale));
+  font-weight: 600;
+}
+
+.module-frame-hint {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  z-index: 2;
+  padding: 10px 12px;
+  border-radius: calc(12px * var(--ui-radius-scale));
+  background: rgba(59, 130, 246, 0.12);
+  color: color-mix(in oklab, var(--ui-primary) 78%, #1d4ed8 22%);
   font-size: calc(12px * var(--ui-font-scale));
   font-weight: 600;
 }
