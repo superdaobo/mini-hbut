@@ -34,6 +34,7 @@ struct ApiResponse<T> {
 const DB_FILENAME: &str = "grades.db";
 const LOCAL_API_SCOPE: &str = "cache:read";
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct LocalClaims {
     sub: String,

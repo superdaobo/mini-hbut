@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const DIST_DIR = path.resolve(process.cwd(), 'dist')
+const TRASH_DIR = path.resolve(process.cwd(), `.dist-trash-${Date.now()}`)
 
 const walkFiles = (dir, out = []) => {
   const entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -31,14 +32,68 @@ if (!fs.existsSync(DIST_DIR)) {
   process.exit(0)
 }
 
-let truncated = 0
-for (const filePath of walkFiles(DIST_DIR)) {
+try {
+  fs.renameSync(DIST_DIR, TRASH_DIR)
   try {
-    fs.truncateSync(filePath, 0)
-    truncated += 1
+    fs.rmSync(TRASH_DIR, { recursive: true, force: true })
   } catch {
-    // ignore single file failure
+    // ignore best-effort trash cleanup failure
+  }
+  console.warn(`[prepare-dist] rm blocked; moved stale dist to ${path.basename(TRASH_DIR)}`)
+  process.exit(0)
+} catch {
+  // continue to per-entry cleanup
+}
+
+const entries = fs.readdirSync(DIST_DIR, { withFileTypes: true })
+let removed = 0
+let truncated = 0
+
+for (const entry of entries) {
+  const targetPath = path.join(DIST_DIR, entry.name)
+  try {
+    fs.rmSync(targetPath, { recursive: true, force: true })
+  } catch {
+    // fallback below
+  }
+
+  if (!fs.existsSync(targetPath)) {
+    removed += 1
+    continue
+  }
+
+  if (entry.isDirectory()) {
+    for (const filePath of walkFiles(targetPath)) {
+      try {
+        fs.truncateSync(filePath, 0)
+        truncated += 1
+      } catch {
+        // ignore single file failure
+      }
+    }
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true })
+    } catch {
+      // keep last-resort leftover for visibility
+    }
+  } else {
+    try {
+      fs.truncateSync(targetPath, 0)
+      truncated += 1
+    } catch {
+      // ignore single file failure
+    }
+    try {
+      fs.rmSync(targetPath, { force: true })
+    } catch {
+      // keep last-resort leftover for visibility
+    }
+  }
+
+  if (!fs.existsSync(targetPath)) {
+    removed += 1
   }
 }
 
-console.warn(`[prepare-dist] rm blocked; truncated ${truncated} stale files`)
+const remaining = fs.readdirSync(DIST_DIR)
+console.warn(`[prepare-dist] rm blocked; removed ${removed} entries, truncated ${truncated} stale files, remaining ${remaining.length}`)

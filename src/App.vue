@@ -1,39 +1,8 @@
 ﻿<script setup>
-import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import axios from 'axios'
-import Dashboard from './components/Dashboard.vue'
-import GradeView from './components/GradeView.vue'
-import ElectricityView from './components/ElectricityView.vue'
-import ClassroomView from './components/ClassroomView.vue'
-import ScheduleView from './components/ScheduleView.vue'
-import GlobalScheduleView from './components/GlobalScheduleView.vue'
-import CourseSelectionView from './components/CourseSelectionView.vue'
-import StudentInfoView from './components/StudentInfoView.vue'
-import ExamView from './components/ExamView.vue'
-import RankingView from './components/RankingView.vue'
-import CalendarView from './components/CalendarView.vue'
-import AcademicProgressView from './components/AcademicProgressView.vue'
-import TrainingPlanView from './components/TrainingPlanView.vue'
-import MeView from './components/MeView.vue'
-import OfficialView from './components/OfficialView.vue'
-import FeedbackView from './components/FeedbackView.vue'
-import NotificationView from './components/NotificationView.vue'
-import ConfigEditor from './components/ConfigEditor.vue'
-import SettingsView from './components/SettingsView.vue'
-import ExportCenterView from './components/ExportCenterView.vue'
-import MoreView from './components/MoreView.vue'
-import MoreShuakeView from './components/MoreShuakeView.vue'
-import MoreModuleHostView from './components/MoreModuleHostView.vue'
-import OnlineLearningChaoxingView from './components/OnlineLearningChaoxingView.vue'
-import OnlineLearningYuketangView from './components/OnlineLearningYuketangView.vue'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
-import TransactionHistory from './components/TransactionHistory.vue'
-import CampusCodeView from './components/CampusCodeView.vue'
-import AiChatView from './components/AiChatView.vue'
-import CampusMapView from './components/CampusMapView.vue'
-import LibraryView from './components/LibraryView.vue'
-import ResourceShareView from './components/ResourceShareView.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import { fetchWithCache } from './utils/api.js'
 import {
@@ -42,7 +11,6 @@ import {
   SCHEDULE_SWITCH_PENDING_KEY
 } from './utils/schedule_prefetch.js'
 import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
-import { renderMarkdown } from './utils/markdown.js'
 import {
   fetchRemoteConfig,
   applyOcrRuntimeConfig,
@@ -70,6 +38,76 @@ import {
   isTauriRuntime
 } from './platform/native'
 import { isCapacitorRuntime } from './platform/native'
+
+const createAsyncPage = (loader) => defineAsyncComponent({
+  loader,
+  delay: 0,
+  suspensible: false
+})
+
+const loadDashboardView = () => import('./components/Dashboard.vue')
+const loadGradeView = () => import('./components/GradeView.vue')
+const loadElectricityView = () => import('./components/ElectricityView.vue')
+const loadClassroomView = () => import('./components/ClassroomView.vue')
+const loadScheduleView = () => import('./components/ScheduleView.vue')
+const loadGlobalScheduleView = () => import('./components/GlobalScheduleView.vue')
+const loadCourseSelectionView = () => import('./components/CourseSelectionView.vue')
+const loadStudentInfoView = () => import('./components/StudentInfoView.vue')
+const loadExamView = () => import('./components/ExamView.vue')
+const loadRankingView = () => import('./components/RankingView.vue')
+const loadCalendarView = () => import('./components/CalendarView.vue')
+const loadAcademicProgressView = () => import('./components/AcademicProgressView.vue')
+const loadTrainingPlanView = () => import('./components/TrainingPlanView.vue')
+const loadMeView = () => import('./components/MeView.vue')
+const loadOfficialView = () => import('./components/OfficialView.vue')
+const loadFeedbackView = () => import('./components/FeedbackView.vue')
+const loadNotificationView = () => import('./components/NotificationView.vue')
+const loadConfigEditorView = () => import('./components/ConfigEditor.vue')
+const loadSettingsView = () => import('./components/SettingsView.vue')
+const loadExportCenterView = () => import('./components/ExportCenterView.vue')
+const loadMoreView = () => import('./components/MoreView.vue')
+const loadMoreShuakeView = () => import('./components/MoreShuakeView.vue')
+const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
+const loadOnlineLearningChaoxingView = () => import('./components/OnlineLearningChaoxingView.vue')
+const loadOnlineLearningYuketangView = () => import('./components/OnlineLearningYuketangView.vue')
+const loadTransactionHistoryView = () => import('./components/TransactionHistory.vue')
+const loadCampusCodeView = () => import('./components/CampusCodeView.vue')
+const loadAiChatView = () => import('./components/AiChatView.vue')
+const loadCampusMapView = () => import('./components/CampusMapView.vue')
+const loadLibraryView = () => import('./components/LibraryView.vue')
+const loadResourceShareView = () => import('./components/ResourceShareView.vue')
+
+const Dashboard = createAsyncPage(loadDashboardView)
+const GradeView = createAsyncPage(loadGradeView)
+const ElectricityView = createAsyncPage(loadElectricityView)
+const ClassroomView = createAsyncPage(loadClassroomView)
+const ScheduleView = createAsyncPage(loadScheduleView)
+const GlobalScheduleView = createAsyncPage(loadGlobalScheduleView)
+const CourseSelectionView = createAsyncPage(loadCourseSelectionView)
+const StudentInfoView = createAsyncPage(loadStudentInfoView)
+const ExamView = createAsyncPage(loadExamView)
+const RankingView = createAsyncPage(loadRankingView)
+const CalendarView = createAsyncPage(loadCalendarView)
+const AcademicProgressView = createAsyncPage(loadAcademicProgressView)
+const TrainingPlanView = createAsyncPage(loadTrainingPlanView)
+const MeView = createAsyncPage(loadMeView)
+const OfficialView = createAsyncPage(loadOfficialView)
+const FeedbackView = createAsyncPage(loadFeedbackView)
+const NotificationView = createAsyncPage(loadNotificationView)
+const ConfigEditor = createAsyncPage(loadConfigEditorView)
+const SettingsView = createAsyncPage(loadSettingsView)
+const ExportCenterView = createAsyncPage(loadExportCenterView)
+const MoreView = createAsyncPage(loadMoreView)
+const MoreShuakeView = createAsyncPage(loadMoreShuakeView)
+const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
+const OnlineLearningChaoxingView = createAsyncPage(loadOnlineLearningChaoxingView)
+const OnlineLearningYuketangView = createAsyncPage(loadOnlineLearningYuketangView)
+const TransactionHistory = createAsyncPage(loadTransactionHistoryView)
+const CampusCodeView = createAsyncPage(loadCampusCodeView)
+const AiChatView = createAsyncPage(loadAiChatView)
+const CampusMapView = createAsyncPage(loadCampusMapView)
+const LibraryView = createAsyncPage(loadLibraryView)
+const ResourceShareView = createAsyncPage(loadResourceShareView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const hasTauri = isTauriRuntime()
@@ -132,6 +170,47 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
 const normalizeViewName = (view) => {
   const normalized = String(view || '').trim()
   return normalized || 'home'
+}
+
+const VIEW_PREFETCHERS = Object.freeze({
+  home: loadDashboardView,
+  schedule: loadScheduleView,
+  qxzkb: loadGlobalScheduleView,
+  course_selection: loadCourseSelectionView,
+  me: loadMeView,
+  official: loadOfficialView,
+  feedback: loadFeedbackView,
+  config: loadConfigEditorView,
+  settings: loadSettingsView,
+  export_center: loadExportCenterView,
+  more: loadMoreView,
+  more_shuake: loadMoreShuakeView,
+  more_module_host: loadMoreModuleHostView,
+  online_learning_chaoxing: loadOnlineLearningChaoxingView,
+  online_learning_yuketang: loadOnlineLearningYuketangView,
+  grades: loadGradeView,
+  electricity: loadElectricityView,
+  transactions: loadTransactionHistoryView,
+  campus_code: loadCampusCodeView,
+  notifications: loadNotificationView,
+  classroom: loadClassroomView,
+  studentinfo: loadStudentInfoView,
+  exams: loadExamView,
+  ranking: loadRankingView,
+  calendar: loadCalendarView,
+  academic: loadAcademicProgressView,
+  training: loadTrainingPlanView,
+  ai: loadAiChatView,
+  campus_map: loadCampusMapView,
+  library: loadLibraryView,
+  resource_share: loadResourceShareView
+})
+
+const prefetchViewComponent = (view) => {
+  const loader = VIEW_PREFETCHERS[normalizeViewName(view)]
+  if (typeof loader === 'function') {
+    void loader()
+  }
 }
 
 const resolveInitialAccessibleView = (view) => {
@@ -242,6 +321,10 @@ const viewRenderNonce = ref(0)
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
 const showSplash = ref(useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot)
+prefetchViewComponent(initialView)
+watch(currentView, (view) => {
+  prefetchViewComponent(view)
+})
 if (skipSplashForFastScheduleBoot && !hasBootMetric('splash_dismissed')) {
   markBootMetric('splash_dismissed', {
     current_view: initialView,
@@ -314,6 +397,33 @@ const activeAnnouncement = ref(null)
 const showAnnouncementModal = ref(false)
 const blockingAnnouncement = ref(null)
 const showBlockingAnnouncement = ref(false)
+const activeAnnouncementHtml = ref('')
+const blockingAnnouncementHtml = ref('')
+
+let markdownModulePromise = null
+let activeAnnouncementRenderToken = 0
+let blockingAnnouncementRenderToken = 0
+
+const escapeHtml = (content = '') =>
+  String(content || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const renderAnnouncementMarkdown = async (content = '') => {
+  const normalized = String(content || '')
+  if (!normalized.trim()) return ''
+  try {
+    markdownModulePromise ||= import('./utils/markdown.js')
+    const { renderMarkdown } = await markdownModulePromise
+    return renderMarkdown(normalized)
+  } catch (error) {
+    console.warn('[Announcement] markdown render fallback:', error)
+    return `<p>${escapeHtml(normalized)}</p>`
+  }
+}
 
 if (currentView.value === 'more_module_host' && !moduleHostSession.value.preview_url) {
   currentView.value = 'more'
@@ -464,6 +574,48 @@ const confirmBlockingAnnouncement = () => {
   blockingAnnouncement.value = null
   setTimeout(findNextBlockingAnnouncement, 200)
 }
+
+watch(
+  () => [
+    activeAnnouncement.value?.id,
+    activeAnnouncement.value?.content,
+    activeAnnouncement.value?.summary
+  ],
+  async () => {
+    const content = String(activeAnnouncement.value?.content || activeAnnouncement.value?.summary || '')
+    const token = ++activeAnnouncementRenderToken
+    if (!content.trim()) {
+      activeAnnouncementHtml.value = ''
+      return
+    }
+    const html = await renderAnnouncementMarkdown(content)
+    if (token === activeAnnouncementRenderToken) {
+      activeAnnouncementHtml.value = html
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => [
+    blockingAnnouncement.value?.id,
+    blockingAnnouncement.value?.content,
+    blockingAnnouncement.value?.summary
+  ],
+  async () => {
+    const content = String(blockingAnnouncement.value?.content || blockingAnnouncement.value?.summary || '')
+    const token = ++blockingAnnouncementRenderToken
+    if (!content.trim()) {
+      blockingAnnouncementHtml.value = ''
+      return
+    }
+    const html = await renderAnnouncementMarkdown(content)
+    if (token === blockingAnnouncementRenderToken) {
+      blockingAnnouncementHtml.value = html
+    }
+  },
+  { immediate: true }
+)
 
 const handleContentClick = async (e) => {
   const target = e.target.closest('a')
@@ -2398,7 +2550,7 @@ onBeforeUnmount(() => {
       <div v-if="activeAnnouncement?.image" class="notice-modal-image">
         <img :src="activeAnnouncement.image" :alt="activeAnnouncement.title" />
       </div>
-      <div class="notice-modal-content select-text" @click="handleContentClick" v-html="renderMarkdown(activeAnnouncement?.content || activeAnnouncement?.summary || '')"></div>
+      <div class="notice-modal-content select-text" @click="handleContentClick" v-html="activeAnnouncementHtml"></div>
       <a
         v-if="activeAnnouncement?.link"
         class="notice-link"
@@ -2416,7 +2568,7 @@ onBeforeUnmount(() => {
     <div class="notice-confirm-card">
       <h3>重要公告</h3>
       <p class="notice-confirm-title">{{ blockingAnnouncement?.title }}</p>
-      <div class="notice-confirm-content" v-html="renderMarkdown(blockingAnnouncement?.content || blockingAnnouncement?.summary || '')"></div>
+      <div class="notice-confirm-content" v-html="blockingAnnouncementHtml"></div>
       <div class="notice-confirm-actions">
         <button class="btn-secondary" @click="openAnnouncement(blockingAnnouncement)">查看详情</button>
         <button class="btn-primary" @click="confirmBlockingAnnouncement">我已知晓</button>

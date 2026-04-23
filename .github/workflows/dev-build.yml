@@ -10,12 +10,12 @@ permissions:
   contents: write
 
 env:
-  MINI_HBUT_BUILD_PROFILE: dev-fast
-  CARGO_INCREMENTAL: 1
+  MINI_HBUT_BUILD_PROFILE: release
+  CARGO_INCREMENTAL: 0
   CARGO_BUILD_JOBS: 8
-  CARGO_PROFILE_RELEASE_OPT_LEVEL: 1
-  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 32
-  CARGO_PROFILE_RELEASE_LTO: "off"
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+  CARGO_PROFILE_RELEASE_LTO: fat
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_PROFILE_RELEASE_PANIC: abort
   CARGO_PROFILE_RELEASE_STRIP: symbols
@@ -163,8 +163,36 @@ jobs:
           echo "VERSION=$VERSION"
           echo "BETA_VERSION=$BETA_VERSION"
 
+  smoke-fast-build:
+    needs: source
+    runs-on: ubuntu-latest
+    env:
+      MINI_HBUT_BUILD_PROFILE: dev-fast
+    steps:
+      - name: Download source artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: source-tar
+      - name: Extract source
+        run: tar -xzf source.tar.gz
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build fast-check web bundle
+        run: |
+          npm run build
+          node scripts/check_dist_boundary.mjs
+          node scripts/report_bundle_sizes.mjs
+
   build-android:
-    needs: [source, meta]
+    needs: [source, meta, smoke-fast-build]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -250,6 +278,11 @@ jobs:
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
 
+      - name: Report Android raw build size
+        env:
+          BUNDLE_ROOT: src-tauri/gen/android/app/build/outputs/apk
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Sign and rename APK
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
@@ -288,6 +321,11 @@ jobs:
           "${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner" verify -v "$OUT_APK"
           ls -lh "$OUT_APK"
 
+      - name: Report Android package size
+        env:
+          BUNDLE_ROOT: .
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
         with:
@@ -298,7 +336,7 @@ jobs:
           compression-level: 0
 
   build-windows:
-    needs: [source, meta]
+    needs: [source, meta, smoke-fast-build]
     runs-on: windows-latest
     steps:
       - name: Download source artifact
@@ -329,7 +367,10 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build Windows app
-        run: npm run tauri build -- --bundles nsis
+        run: npm run tauri build -- --bundles nsis,msi
+
+      - name: Report dist and raw Windows bundle size
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Rename Windows bundles
         shell: powershell
@@ -341,7 +382,17 @@ jobs:
           if (-not $exe) { throw "NSIS EXE not found" }
           Copy-Item $exe.FullName "dist-dev/Mini-HBUT_$env:BETA_VERSION`_x64-setup.exe" -Force
 
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($msi) {
+            Copy-Item $msi.FullName "dist-dev/Mini-HBUT_$env:BETA_VERSION`_x64_en-US.msi" -Force
+          }
+
           Get-ChildItem dist-dev
+
+      - name: Report packaged Windows size
+        env:
+          BUNDLE_ROOT: dist-dev
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -353,7 +404,7 @@ jobs:
           compression-level: 0
 
   build-macos:
-    needs: [source, meta]
+    needs: [source, meta, smoke-fast-build]
     runs-on: macos-latest
     steps:
       - name: Download source artifact
@@ -387,6 +438,11 @@ jobs:
       - name: Build macOS app (universal, app only)
         run: npm run tauri build -- --target universal-apple-darwin --bundles app
 
+      - name: Report macOS raw build size
+        env:
+          BUNDLE_ROOT: src-tauri/target/universal-apple-darwin/release/bundle
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Package macOS bundle
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
@@ -405,6 +461,11 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_OUT"
           ls -lh "$ZIP_OUT"
 
+      - name: Report macOS package size
+        env:
+          BUNDLE_ROOT: dist-dev
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
@@ -415,7 +476,7 @@ jobs:
           compression-level: 0
 
   build-ios:
-    needs: [source, meta]
+    needs: [source, meta, smoke-fast-build]
     runs-on: macos-latest
     continue-on-error: true
     steps:
@@ -460,7 +521,7 @@ jobs:
           conf.build = conf.build || {};
           delete conf.build.devUrl;
           delete conf.build.beforeDevCommand;
-          conf.build.beforeBuildCommand = 'npm run build';
+          conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
           console.log('Patched tauri.conf.json for iOS CI.');
@@ -468,6 +529,8 @@ jobs:
 
           npm run tauri ios init
           npm run build
+          node scripts/check_dist_boundary.mjs
+          node scripts/report_bundle_sizes.mjs
 
           export TMPDIR="$PWD/.tauri-tmp"
           export NPM_CONFIG_AUDIT=false
@@ -569,6 +632,11 @@ jobs:
           zip -9 -r "$IPA_NAME" Payload
           ls -lh "$IPA_NAME"
 
+      - name: Report iOS package size
+        env:
+          BUNDLE_ROOT: .
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
@@ -579,7 +647,7 @@ jobs:
           compression-level: 0
 
   build-linux:
-    needs: [source, meta]
+    needs: [source, meta, smoke-fast-build]
     runs-on: ubuntu-latest
     steps:
       - name: Download source artifact
@@ -622,6 +690,11 @@ jobs:
       - name: Build Linux app
         run: npm run tauri build -- --bundles appimage
 
+      - name: Report Linux raw build size
+        env:
+          BUNDLE_ROOT: src-tauri/target/release/bundle
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Rename Linux bundles
         env:
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
@@ -636,6 +709,11 @@ jobs:
 
           cp "$APPIMAGE" "dist-dev/Mini-HBUT_${BETA_VERSION}_amd64.AppImage"
           ls -lh dist-dev
+
+      - name: Report Linux package size
+        env:
+          BUNDLE_ROOT: dist-dev
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -747,6 +825,17 @@ jobs:
             echo "STABLE_TAG=$TAG" >> "$GITHUB_ENV"
             echo "HAS_STABLE=true" >> "$GITHUB_ENV"
           fi
+
+      - name: Compare beta asset sizes against stable
+        if: ${{ env.HAS_STABLE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASELINE_DIR="stable-assets"
+          mkdir -p "$BASELINE_DIR"
+          gh release download "$STABLE_TAG" --dir "$BASELINE_DIR" --pattern "Mini-HBUT_*" --clobber
+          BUNDLE_ROOT="dev-assets" BASELINE_DIR="$BASELINE_DIR" node scripts/report_bundle_sizes.mjs
 
       - name: Copy dev assets for CDN
         env:

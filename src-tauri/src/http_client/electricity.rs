@@ -16,6 +16,7 @@ use reqwest::cookie::CookieStore;
 use std::sync::Arc;
 use chrono::{Utc, Duration as ChronoDuration};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ElectricityTokenBundle {
     pub access_token: String,

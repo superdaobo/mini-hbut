@@ -371,6 +371,7 @@ pub fn resolve_module_bundle_file(
     Ok(target)
 }
 
+#[cfg(desktop)]
 pub async fn open_module_bundle_window(
     app: AppHandle,
     req: OpenModuleBundleWindowRequest,
@@ -391,7 +392,7 @@ pub async fn open_module_bundle_window(
     let height = req.height.unwrap_or(780.0).clamp(520.0, 1200.0);
 
     if let Some(existing) = app.get_webview_window(&window_label) {
-        let _ = existing.close();
+        let _ = existing.destroy();
         tokio::time::sleep(Duration::from_millis(120)).await;
     }
 
@@ -409,4 +410,16 @@ pub async fn open_module_bundle_window(
         prepared,
         window_label,
     })
+}
+
+#[cfg(not(desktop))]
+pub async fn open_module_bundle_window(
+    app: AppHandle,
+    req: OpenModuleBundleWindowRequest,
+) -> Result<OpenModuleBundleWindowResult, String> {
+    let prepared = prepare_module_bundle(&app, req.prepare).await?;
+    Err(format!(
+        "当前平台不支持独立模块窗口，请改用主窗口内嵌模式：{}",
+        prepared.preview_url
+    ))
 }

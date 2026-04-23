@@ -6,11 +6,10 @@ import IOSSelect from './components/IOSSelect.vue'
 import { initUiSettings } from './utils/ui_settings'
 import { initAppSettings } from './utils/app_settings'
 import { initFontSettings } from './utils/font_settings'
-import { initMarkdownRuntime } from './utils/markdown'
 import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
-import { initDebugBridgeClient } from './utils/debug_bridge'
+import { invokeNative, isTauriRuntime } from './platform/native'
 
 const mountApp = () => {
   const app = createApp(App)
@@ -21,13 +20,22 @@ const mountApp = () => {
 const runDeferredInitializers = () => {
   const run = () => {
     // 先完成首屏挂载，再异步初始化重任务，避免安卓首次安装时白屏等待。
-    void initMarkdownRuntime(6000).catch((error) => {
-      console.warn('[Bootstrap] markdown runtime init failed:', error)
-    })
+    void import('./utils/markdown')
+      .then(({ initMarkdownRuntime }) => initMarkdownRuntime(6000))
+      .catch((error) => {
+        console.warn('[Bootstrap] markdown runtime init failed:', error)
+      })
 
-    void initDebugBridgeClient().catch((error) => {
-      console.warn('[Bootstrap] debug bridge init failed:', error)
-    })
+    if (isTauriRuntime()) {
+      void invokeNative<{ enableBridgeTools?: boolean } | null>('get_debug_runtime_config')
+        .then((config) => {
+          if (!config?.enableBridgeTools) return null
+          return import('./utils/debug_bridge').then(({ initDebugBridgeClient }) => initDebugBridgeClient())
+        })
+        .catch((error) => {
+          console.warn('[Bootstrap] debug bridge init failed:', error)
+        })
+    }
 
     void initBackgroundFetchScheduler(async ({ studentId, reason, taskId }) => {
       try {

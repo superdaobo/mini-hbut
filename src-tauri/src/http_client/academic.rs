@@ -355,7 +355,7 @@ impl HbutClient {
         days_to_next_start: Option<i64>,
         today: NaiveDate,
     ) -> serde_json::Value {
-        let expected_semester = Self::semester_by_date(today);
+        let _expected_semester = Self::semester_by_date(today);
         let mut total_weeks = summary.map(|s| s.total_weeks).unwrap_or(25).max(1);
         let mut current_week = summary
             .map(|s| s.current_week.clamp(1, s.total_weeks.max(1)))

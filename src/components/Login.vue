@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import hbutLogo from '../assets/hbut-logo.png'
+import hbutLogo from '../assets/hbut-logo.svg'
 import { encryptData, decryptData } from '../utils/encryption.js'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke } from '../platform/native'

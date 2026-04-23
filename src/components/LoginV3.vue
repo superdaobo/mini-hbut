@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import axios from 'axios'
-import hbutLogo from '../assets/hbut-logo.png'
+import hbutLogo from '../assets/hbut-logo.svg'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from '../utils/debug_logger'

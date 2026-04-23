@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import hbutLogo from '../assets/hbut-logo.svg'
 
 const props = defineProps({
   status: { type: String, default: 'connecting' },
@@ -14,6 +15,7 @@ const logoReady = ref(false)
 const buildingReady = ref(false)
 const contentReady = ref(false)
 const dotsCount = ref(0)
+const splashLogoSrc = ref(hbutLogo)
 
 let dotsTimer = null
 let staggerTimer = null
@@ -31,6 +33,12 @@ const dismiss = () => {
       emit('dismiss')
     }, 500)
   })
+}
+
+const handleSplashLogoError = () => {
+  if (splashLogoSrc.value !== '/splash/app_icon.webp') {
+    splashLogoSrc.value = '/splash/app_icon.webp'
+  }
 }
 
 defineExpose({ dismiss })
@@ -70,7 +78,7 @@ onBeforeUnmount(() => {
         <!-- 校徽 + 标题 -->
         <div class="splash-brand" :class="{ 'brand-enter': logoReady }">
           <div class="splash-logo-ring">
-            <img src="/splash/app_icon.png" alt="Mini-HBUT" class="splash-logo" />
+            <img :src="splashLogoSrc" alt="Mini-HBUT" class="splash-logo" @error="handleSplashLogoError" />
           </div>
           <h1 class="splash-title">Mini-HBUT</h1>
           <p class="splash-subtitle">湖北工业大学智慧校园助手</p>
@@ -141,7 +149,9 @@ onBeforeUnmount(() => {
 .splash-bg-image {
   position: absolute;
   inset: 0;
-  background: url('/splash/cas_bg.png') 50% center / cover no-repeat;
+  background:
+    url('/splash/cas_bg.webp') center/cover no-repeat,
+    linear-gradient(145deg, #0f172a 0%, #0f4c81 42%, #1d4ed8 100%);
   animation: bgKen 20s ease-in-out infinite alternate;
   will-change: transform;
 }

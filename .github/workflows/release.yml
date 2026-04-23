@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create_release.outputs.id }}
+      previous_tag: ${{ steps.release_notes.outputs.previous_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,6 +85,7 @@ jobs:
           } > "$NOTES_FILE"
 
           echo "body_path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         id: create_release
@@ -299,6 +301,11 @@ jobs:
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
 
+      - name: Report Android raw build size
+        env:
+          BUNDLE_ROOT: src-tauri/gen/android/app/build/outputs/apk
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Sign APK
         run: |
           set -euo pipefail
@@ -346,6 +353,11 @@ jobs:
             app-aligned.apk
           "${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner" verify -v "$APK_NAME"
           ls -lh "$APK_NAME"
+
+      - name: Report Android package size
+        env:
+          BUNDLE_ROOT: .
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Upload signed APK
         uses: softprops/action-gh-release@v1
@@ -398,7 +410,10 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Build Windows App
-        run: npm run tauri build -- --bundles nsis
+        run: npm run tauri build -- --bundles nsis,msi
+
+      - name: Report dist and raw Windows bundle size
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Rename Windows artifacts to tag version
         shell: pwsh
@@ -409,7 +424,18 @@ jobs:
           $exe = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
           if (-not $exe) { throw "NSIS exe not found" }
           Copy-Item $exe.FullName ("dist-release/Mini-HBUT_{0}_x64-setup.exe" -f $env:VERSION) -Force
+
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($msi) {
+            Copy-Item $msi.FullName ("dist-release/Mini-HBUT_{0}_x64_en-US.msi" -f $env:VERSION) -Force
+          }
+
           Get-ChildItem dist-release | Format-Table Name,Length -AutoSize
+
+      - name: Report packaged Windows size
+        env:
+          BUNDLE_ROOT: dist-release
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Upload Windows artifacts
         uses: softprops/action-gh-release@v1
@@ -448,6 +474,11 @@ jobs:
       - name: Build macOS App (Universal, app only)
         run: npm run tauri build -- --target universal-apple-darwin --bundles app
 
+      - name: Report macOS raw build size
+        env:
+          BUNDLE_ROOT: src-tauri/target/universal-apple-darwin/release/bundle
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Package macOS DMG manually
         run: |
           set -euo pipefail
@@ -472,6 +503,11 @@ jobs:
             -format UDBZ \
             "$DMG_NAME"
           ls -lh "$DMG_NAME"
+
+      - name: Report macOS package size
+        env:
+          BUNDLE_ROOT: .
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v1
@@ -533,7 +569,7 @@ jobs:
           conf.build = conf.build || {};
           delete conf.build.devUrl;
           delete conf.build.beforeDevCommand;
-          conf.build.beforeBuildCommand = 'npm run build';
+          conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
           console.log('Patched tauri.conf.json for iOS CI:', {
@@ -555,6 +591,8 @@ jobs:
           fi
 
           npm run build
+          node scripts/check_dist_boundary.mjs
+          node scripts/report_bundle_sizes.mjs
 
           export TMPDIR="$PWD/.tauri-tmp"
           export NPM_CONFIG_AUDIT=false
@@ -659,6 +697,11 @@ jobs:
           zip -9 -r "$IPA_NAME" Payload
           ls -lh "$IPA_NAME"
 
+      - name: Report iOS package size
+        env:
+          BUNDLE_ROOT: .
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Upload iOS IPA
         uses: softprops/action-gh-release@v1
         with:
@@ -709,6 +752,11 @@ jobs:
       - name: Build Linux App
         run: npm run tauri build -- --bundles appimage
 
+      - name: Report Linux raw build size
+        env:
+          BUNDLE_ROOT: src-tauri/target/release/bundle
+        run: node scripts/report_bundle_sizes.mjs
+
       - name: Rename Linux artifacts to tag version
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
@@ -722,6 +770,11 @@ jobs:
           fi
           cp "$APPIMAGE" "dist-release/Mini-HBUT_${VERSION}_amd64.AppImage"
           ls -lh dist-release
+
+      - name: Report Linux package size
+        env:
+          BUNDLE_ROOT: dist-release
+        run: node scripts/report_bundle_sizes.mjs
 
       - name: Upload Linux artifacts
         uses: softprops/action-gh-release@v1
@@ -793,6 +846,24 @@ jobs:
           find "$DEST" -size +25M -delete
           echo "Assets for CDN (<=25MB):"
           ls -lh "$DEST"
+
+      - name: Download previous stable assets for size baseline
+        if: ${{ needs.create-release.outputs.previous_tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREVIOUS_TAG: ${{ needs.create-release.outputs.previous_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p baseline-assets
+          gh release download "$PREVIOUS_TAG" --dir baseline-assets --pattern "Mini-HBUT_*" --clobber
+
+      - name: Compare current release asset sizes against previous stable
+        if: ${{ needs.create-release.outputs.previous_tag != '' }}
+        env:
+          CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          BUNDLE_ROOT="website/public/releases/${CURRENT_TAG}" BASELINE_DIR="baseline-assets" node scripts/report_bundle_sizes.mjs
 
       - name: Download dev-latest release assets
         env:

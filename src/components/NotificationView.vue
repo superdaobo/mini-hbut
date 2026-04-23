@@ -1,10 +1,11 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
-import hbutLogo from '../assets/hbut-logo.png'
+import hbutLogo from '../assets/hbut-logo.svg'
 import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
+import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
 import {
   NOTIFY_SNAPSHOT_EVENT,
   getLastNotifySnapshot,
@@ -504,8 +505,8 @@ onMounted(async () => {
   snapshot.value = getLastNotifySnapshot(props.studentId) || null
 
   try {
-    const res = await axios.get('/dormitory_data.json')
-    dormData.value = Array.isArray(res?.data) ? res.data : []
+    const { data } = await fetchDormitoryDataset()
+    dormData.value = Array.isArray(data?.data) ? data.data : []
   } catch {
     dormData.value = []
   }

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">Mini-HBUT Logo</title>
+  <desc id="desc">A compact HBUT emblem used across Mini-HBUT.</desc>
+  <defs>
+    <linearGradient id="bg" x1="18" y1="18" x2="142" y2="142" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f6dff"/>
+      <stop offset="1" stop-color="#00b8d9"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="28" y1="28" x2="132" y2="132" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#dbeafe" stop-opacity="0.88"/>
+    </linearGradient>
+  </defs>
+  <rect width="160" height="160" rx="42" fill="url(#bg)"/>
+  <circle cx="80" cy="80" r="50" fill="none" stroke="url(#ring)" stroke-width="10"/>
+  <path d="M54 52h18v22h16V52h18v56H88V90H72v18H54z" fill="#fff"/>
+  <path d="M52 118c10-8 23-12 38-12s28 4 38 12" fill="none" stroke="#d8f3ff" stroke-width="6" stroke-linecap="round"/>
+  <text x="80" y="142" text-anchor="middle" fill="#eaf6ff" font-size="16" font-family="'Segoe UI', 'PingFang SC', sans-serif" font-weight="700" letter-spacing="2">HBUT</text>
+</svg>

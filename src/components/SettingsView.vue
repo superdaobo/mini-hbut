@@ -37,7 +37,7 @@ import {
   pushDebugLog,
   subscribeDebugLogs
 } from '../utils/debug_logger'
-import hbutLogo from '../assets/hbut-logo.png'
+import hbutLogo from '../assets/hbut-logo.svg'
 
 const emit = defineEmits(['back'])
 
@@ -2506,5 +2506,4 @@ const handleDownloadFont = async (force = false) => {
   }
 }
 </style>
-
 

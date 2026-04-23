@@ -1,9 +1,10 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
-import { fetchWithCache, setCachedData } from '../utils/api.js'
+import { setCachedData } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
+import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -162,10 +163,7 @@ const mergeLevels = (rawData) => {
 // 加载宿舍数据
 onMounted(async () => {
   try {
-    const { data } = await fetchWithCache('dormitory:data', async () => {
-      const res = await axios.get('/dormitory_data.json')
-      return { success: true, data: res.data }
-    })
+    const { data } = await fetchDormitoryDataset()
     dormData.value = mergeLevels(data?.data || [])
     
     // 尝试加载上次选择

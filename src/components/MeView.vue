@@ -2,7 +2,7 @@
 import { ref, nextTick } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
-import hbutLogo from '../assets/hbut-logo.png'
+import hbutLogo from '../assets/hbut-logo.svg'
 
 const props = defineProps({
   studentId: { type: String, default: '' },

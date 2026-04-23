@@ -41,6 +41,10 @@ const shouldPersistToLocalStorage = (key, payloadText) => {
   const text = String(key || '')
   // 空教室已由后端 SQLite 缓存，前端不再落 localStorage，避免配额被高频查询打满。
   if (text.startsWith('classroom:')) return false
+  // 远程静态资源体积较大，但数量极少，允许单条缓存放宽到 2.5MB。
+  if (text.startsWith('static_resource:')) {
+    return payloadText.length <= 2.5 * 1024 * 1024
+  }
   if (!payloadText) return true
   return payloadText.length <= MAX_LOCAL_CACHE_VALUE_BYTES
 }

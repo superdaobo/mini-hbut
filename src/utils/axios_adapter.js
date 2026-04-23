@@ -105,14 +105,6 @@ const adapter = {
                     inputs: {}
                 });
             }
-            if (url.includes('/dormitory_data.json')) {
-                // 这是静态 JSON 文件请求，直接使用原生 fetch 读取 public 目录资源
-                // 避免 axios adapter 再次拦截导致循环调用
-                const res = await fetch(url);
-                const data = await res.json();
-                return mockResponse(data);
-            }
-            
             // 瀛︽列表
 
             if (url.includes('/v2/semesters')) {
