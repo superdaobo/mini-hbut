@@ -2166,7 +2166,7 @@ onBeforeUnmount(() => {
     }"
     ref="appShellRef"
   >
-    <Transition name="module-fade" :css="!isIOSLike" :mode="isIOSLike ? undefined : 'out-in'">
+    <Transition name="module-fade" :mode="isIOSLike ? undefined : 'out-in'">
       <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
       <!-- 首页 -->
       <Dashboard 
