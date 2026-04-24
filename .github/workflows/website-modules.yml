@@ -81,6 +81,7 @@ jobs:
 
       - name: Generate release manifests
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_CHANNEL: ${{ steps.channel.outputs.channel }}
           SOURCE_REF: ${{ github.ref_name }}
           SOURCE_SHA: ${{ github.sha }}

@@ -862,6 +862,7 @@ jobs:
 
       - name: Generate release manifests
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_CHANNEL: dev
           STABLE_TAG: ${{ env.STABLE_TAG }}
           BETA_VERSION: ${{ needs.meta.outputs.beta_version }}

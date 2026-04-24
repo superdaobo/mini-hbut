@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 const RELEASES_ROOT = path.resolve(process.env.RELEASES_DIR || 'website/public/releases')
 const CURRENT_CHANNEL = normalizeChannel(process.env.RELEASE_CHANNEL || process.env.CHANNEL || '')
@@ -11,6 +12,7 @@ const DEV_VERSION_HINT = safeText(
 )
 const NOW = new Date().toISOString()
 const REPO = safeText(process.env.GITHUB_REPOSITORY || 'superdaobo/mini-hbut')
+const GITHUB_TOKEN = safeText(process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '')
 
 function safeText(value) {
   return String(value ?? '').trim()
@@ -137,6 +139,177 @@ function mapAssets(files) {
   return assets
 }
 
+async function fetchGithubReleases() {
+  if (!GITHUB_TOKEN) {
+    return fetchGithubReleasesViaGh()
+  }
+
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'mini-hbut-release-manifest'
+  }
+
+  headers.Authorization = `Bearer ${GITHUB_TOKEN}`
+
+  const releases = []
+  let page = 1
+
+  while (true) {
+    const url = `https://api.github.com/repos/${REPO}/releases?per_page=100&page=${page}`
+    const response = await fetch(url, { headers })
+    if (!response.ok) {
+      throw new Error(`GitHub releases API failed: ${response.status} ${response.statusText}`)
+    }
+
+    const batch = await response.json()
+    if (!Array.isArray(batch) || !batch.length) {
+      break
+    }
+
+    releases.push(...batch)
+    if (batch.length < 100) {
+      break
+    }
+    page += 1
+  }
+
+  return releases
+}
+
+function fetchGithubReleasesViaGh() {
+  const releases = []
+  let page = 1
+  const ghBinary = resolveGhBinary()
+
+  while (true) {
+    const endpoint = `repos/${REPO}/releases?per_page=100&page=${page}`
+    const result = spawnSync(ghBinary, ['api', endpoint], {
+      encoding: 'utf8',
+      windowsHide: true
+    })
+
+    if (result.status !== 0) {
+      throw new Error(
+        `gh api failed: ${safeText(
+          result.stderr || result.stdout || result.error?.message || `exit ${result.status}`
+        )}`
+      )
+    }
+
+    const batch = JSON.parse(result.stdout || '[]')
+    if (!Array.isArray(batch) || !batch.length) {
+      break
+    }
+
+    releases.push(...batch)
+    if (batch.length < 100) {
+      break
+    }
+    page += 1
+  }
+
+  return releases
+}
+
+function resolveGhBinary() {
+  if (process.platform !== 'win32') {
+    return 'gh'
+  }
+
+  const scriptResult = spawnSync(
+    'powershell.exe',
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-gh-path.ps1'],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      cwd: process.cwd()
+    }
+  )
+
+  if (scriptResult.status === 0) {
+    const firstLine = String(scriptResult.stdout || '')
+      .split(/\r?\n/)
+      .map((item) => safeText(item))
+      .find(Boolean)
+    if (firstLine && firstLine !== 'NOT_FOUND' && isFile(firstLine)) {
+      return firstLine
+    }
+  }
+
+  const entries = String(process.env.PATH || '')
+    .split(';')
+    .map((item) => safeText(item))
+    .filter(Boolean)
+
+  const exeCandidates = []
+  const cmdCandidates = []
+  for (const entry of entries) {
+    exeCandidates.push(path.join(entry, 'gh.exe'))
+    cmdCandidates.push(path.join(entry, 'gh.cmd'))
+  }
+
+  for (const candidate of [...exeCandidates, ...cmdCandidates]) {
+    if (isFile(candidate)) {
+      return candidate
+    }
+  }
+
+  return 'gh'
+}
+
+function buildGithubAssetUrl(tag, fileName) {
+  return `https://hbut.6661111.xyz/releases/${tag}/${fileName}`
+}
+
+function mapGithubAsset(tag, asset) {
+  const name = safeText(asset?.name || '')
+  const localPath = name ? path.join(RELEASES_ROOT, tag, name) : ''
+
+  return {
+    name,
+    browser_download_url: safeText(asset?.browser_download_url || ''),
+    cdn_download_url: localPath && isFile(localPath) ? buildGithubAssetUrl(tag, name) : '',
+    download_count: Number(asset?.download_count || 0),
+    size: Number(asset?.size || 0)
+  }
+}
+
+function buildStableHistoryFromGithub(releases) {
+  const normalized = releases
+    .filter((release) => !release?.draft)
+    .filter((release) => !release?.prerelease)
+    .filter((release) => safeText(release?.tag_name) && safeText(release?.tag_name) !== 'dev-latest')
+    .sort((a, b) => compareSemverLike(safeText(a?.tag_name), safeText(b?.tag_name)) * -1)
+    .map((release) => {
+      const tag = safeText(release?.tag_name)
+      const name = safeText(release?.name || tag)
+      const body = String(release?.body || '')
+      const assets = Array.isArray(release?.assets)
+        ? release.assets.map((asset) => mapGithubAsset(tag, asset)).filter((asset) => asset.name)
+        : []
+
+      return {
+        id: Number(release?.id || 0),
+        tag_name: tag,
+        name,
+        body,
+        published_at: safeText(release?.published_at || release?.created_at || NOW),
+        prerelease: false,
+        draft: false,
+        assets,
+        html_url: safeText(release?.html_url || `https://github.com/${REPO}/releases/tag/${tag}`)
+      }
+    })
+
+  return {
+    generatedAt: NOW,
+    sourceRef: SOURCE_REF,
+    sourceSha: SOURCE_SHA,
+    source: 'github',
+    releases: normalized
+  }
+}
+
 function pickStableTag(existingStable) {
   if (STABLE_TAG_HINT) return STABLE_TAG_HINT
   if (safeText(existingStable?.tag)) return safeText(existingStable.tag)
@@ -239,6 +412,7 @@ function buildStableHistory(stableEntries) {
     generatedAt: NOW,
     sourceRef: SOURCE_REF,
     sourceSha: SOURCE_SHA,
+    source: 'local',
     releases: normalized
   }
 }
@@ -251,7 +425,7 @@ function pickActiveManifest(stableManifest, devManifest) {
   return stableManifest || devManifest
 }
 
-function main() {
+async function main() {
   ensureDir(RELEASES_ROOT)
 
   const stableAliasPath = path.join(RELEASES_ROOT, 'latest.json')
@@ -338,16 +512,24 @@ function main() {
         .filter((name) => /^v/i.test(name))
     : []
 
-  const stableHistory = buildStableHistory(
-    stableDirs.map((tag) => {
-      const dirPath = path.join(RELEASES_ROOT, tag)
-      return {
-        tag,
-        dirPath,
-        manifest: readJsonIfExists(path.join(dirPath, 'manifest.json'))
-      }
-    })
-  )
+  let stableHistory = null
+  try {
+    const githubReleases = await fetchGithubReleases()
+    stableHistory = buildStableHistoryFromGithub(githubReleases)
+  } catch (error) {
+    console.warn('[build_release_manifests] fallback to local stable history:', error?.message || error)
+    stableHistory = buildStableHistory(
+      stableDirs.map((tag) => {
+        const dirPath = path.join(RELEASES_ROOT, tag)
+        return {
+          tag,
+          dirPath,
+          manifest: readJsonIfExists(path.join(dirPath, 'manifest.json'))
+        }
+      })
+    )
+  }
+
   writeJson(historyPath, stableHistory)
 
   console.log(
@@ -357,6 +539,7 @@ function main() {
         stableTag,
         devVersion,
         activeChannel: safeText(activeManifest?.channel || ''),
+        stableHistorySource: safeText(stableHistory?.source || ''),
         stableHistoryCount: stableHistory.releases.length,
         stableGeneratedAt: safeText(stableManifest?.generatedAt || ''),
         devGeneratedAt: safeText(devManifest?.generatedAt || '')
@@ -367,4 +550,7 @@ function main() {
   )
 }
 
-main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

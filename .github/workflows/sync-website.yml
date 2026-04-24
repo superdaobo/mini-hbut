@@ -118,6 +118,7 @@ jobs:
 
       - name: Generate release manifests
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_CHANNEL: main
           STABLE_TAG: ${{ steps.release.outputs.TAG }}
           SOURCE_REF: ${{ github.ref_name }}
