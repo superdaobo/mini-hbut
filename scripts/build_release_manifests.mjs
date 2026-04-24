@@ -10,6 +10,7 @@ const DEV_VERSION_HINT = safeText(
   process.env.DEV_VERSION || process.env.BETA_VERSION || process.env.DEV_TAG || ''
 )
 const NOW = new Date().toISOString()
+const REPO = safeText(process.env.GITHUB_REPOSITORY || 'superdaobo/mini-hbut')
 
 function safeText(value) {
   return String(value ?? '').trim()
@@ -35,6 +36,14 @@ function readJsonIfExists(filePath) {
 function writeJson(filePath, payload) {
   ensureDir(path.dirname(filePath))
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`)
+}
+
+function getFileSize(filePath) {
+  try {
+    return fs.statSync(filePath).size
+  } catch {
+    return 0
+  }
 }
 
 function isFile(filePath) {
@@ -196,6 +205,44 @@ function buildManifest({
   }
 }
 
+function buildStableHistory(stableEntries) {
+  const normalized = stableEntries
+    .filter((entry) => entry?.manifest && entry?.tag)
+    .sort((a, b) => compareSemverLike(a.tag, b.tag) * -1)
+    .map((entry, index) => {
+      const assets = Object.values(entry.manifest.assets || {})
+        .filter(Boolean)
+        .map((fileName) => {
+          const filePath = path.join(entry.dirPath, fileName)
+          return {
+            name: fileName,
+            browser_download_url: `https://hbut.6661111.xyz/releases/${entry.tag}/${fileName}`,
+            download_count: 0,
+            size: getFileSize(filePath)
+          }
+        })
+
+      return {
+        id: index + 1,
+        tag_name: entry.tag,
+        name: entry.tag,
+        body: '',
+        published_at: safeText(entry.manifest.generatedAt || NOW),
+        prerelease: false,
+        draft: false,
+        assets,
+        html_url: `https://github.com/${REPO}/releases/tag/${entry.tag}`
+      }
+    })
+
+  return {
+    generatedAt: NOW,
+    sourceRef: SOURCE_REF,
+    sourceSha: SOURCE_SHA,
+    releases: normalized
+  }
+}
+
 function pickActiveManifest(stableManifest, devManifest) {
   if (stableManifest && !devManifest) return stableManifest
   if (devManifest && !stableManifest) return devManifest
@@ -211,6 +258,7 @@ function main() {
   const devAliasPath = path.join(RELEASES_ROOT, 'dev-latest.json')
   const activePath = path.join(RELEASES_ROOT, 'active.json')
   const channelsPath = path.join(RELEASES_ROOT, 'channels.json')
+  const historyPath = path.join(RELEASES_ROOT, 'history.json')
 
   const existingStable = readJsonIfExists(stableAliasPath)
   const existingDev = readJsonIfExists(devAliasPath)
@@ -282,6 +330,26 @@ function main() {
     dev: devManifest
   })
 
+  const stableDirs = fs.existsSync(RELEASES_ROOT)
+    ? fs
+        .readdirSync(RELEASES_ROOT, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .filter((name) => /^v/i.test(name))
+    : []
+
+  const stableHistory = buildStableHistory(
+    stableDirs.map((tag) => {
+      const dirPath = path.join(RELEASES_ROOT, tag)
+      return {
+        tag,
+        dirPath,
+        manifest: readJsonIfExists(path.join(dirPath, 'manifest.json'))
+      }
+    })
+  )
+  writeJson(historyPath, stableHistory)
+
   console.log(
     JSON.stringify(
       {
@@ -289,6 +357,7 @@ function main() {
         stableTag,
         devVersion,
         activeChannel: safeText(activeManifest?.channel || ''),
+        stableHistoryCount: stableHistory.releases.length,
         stableGeneratedAt: safeText(stableManifest?.generatedAt || ''),
         devGeneratedAt: safeText(devManifest?.generatedAt || '')
       },

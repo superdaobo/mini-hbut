@@ -29,6 +29,7 @@ import Navbar from '../components/Navbar';
 const REPO = 'superdaobo/mini-hbut';
 const releasesApi = `https://api.github.com/repos/${REPO}/releases`;
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz';
+const STABLE_HISTORY_JSON = `${EDGEONE_CDN_BASE}/releases/history.json`;
 const DEV_LATEST_JSON = `${EDGEONE_CDN_BASE}/releases/dev-latest.json`;
 const DEV_CDN_DIR = `${EDGEONE_CDN_BASE}/releases/dev-latest`;
 
@@ -96,6 +97,21 @@ function buildProxiedCandidates(rawUrl: string): string[] {
 }
 
 async function fetchReleasesJson(): Promise<Release[]> {
+  try {
+    const historyRes = await fetch(STABLE_HISTORY_JSON, {
+      signal: AbortSignal.timeout(6000),
+      headers: { Accept: 'application/json' },
+    });
+    if (historyRes.ok) {
+      const history = await historyRes.json();
+      if (Array.isArray(history?.releases)) {
+        return history.releases as Release[];
+      }
+    }
+  } catch {
+    // ignore and fallback to GitHub API
+  }
+
   const candidates = [
     ...apiProxyPrefixes.map((p) => `${p}${releasesApi}`),
     releasesApi,
