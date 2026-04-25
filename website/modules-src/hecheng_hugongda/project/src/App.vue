@@ -1,135 +1,280 @@
 <template>
   <div class="game-container">
-    <div class="glass-header">
-      <div class="header-content">
-        <h1>合成湖工大</h1>
-        <div class="header-right">
-           <button class="history-btn" @click="toggleHistory">📜 记录</button>
-           <div class="score-pill">
-            <span class="score-label">得分</span>
-            <span class="score-value">{{ score }}</span>
+    <div class="game-shell">
+      <header class="game-header panel">
+        <div class="header-row">
+          <div class="header-title">
+            <p class="eyebrow">校园合成赛</p>
+            <h1>合成湖工大</h1>
+          </div>
+          <div class="header-actions">
+            <button class="chip-btn" type="button" @click="toggleHistory">记录</button>
+            <button class="chip-btn chip-btn--accent" type="button" @click="toggleLeaderboard">
+              排行榜
+            </button>
+            <div class="score-pill">
+              <span class="score-label">得分</span>
+              <span class="score-value">{{ score }}</span>
+            </div>
           </div>
         </div>
-      </div>
-      <p class="subtitle">清北只是起点，湖工大才是巅峰！</p>
-    </div>
-
-    <div class="game-area" ref="gameArea">
-      <div class="game-canvas-wrapper" :style="{ width: canvasWidth + 'px', height: canvasHeight + 'px' }">
-        <canvas 
-          ref="gameCanvas" 
-          class="game-canvas"
-          :width="canvasWidth"
-          :height="canvasHeight"
-          @mousedown="handleInputStart"
-          @mousemove="handleInputMove"
-          @mouseup="handleInputEnd"
-          @touchstart="handleInputStart"
-          @touchmove="handleInputMove"
-          @touchend="handleInputEnd"
-        ></canvas>
-
-        <div class="guide-line" :style="{ left: dropX + 'px' }" v-if="isDragging || !isMobile"></div>
-        
-        <div 
-          class="current-ball" 
-          v-if="!hasDropped"
-          :style="{ 
-            left: (dropX - schools[nextBallLevel].radius) + 'px', 
-            top: '20px',
-            width: schools[nextBallLevel].radius * 2 + 'px',
-            height: schools[nextBallLevel].radius * 2 + 'px'
-          }"
-        >
-          <img 
-            :src="resolveLogoPath(schools[nextBallLevel].image)" 
-            :alt="schools[nextBallLevel].short"
-            class="ball-img"
-          />
+        <p class="subtitle">结算后自动上传成绩，可查看班级榜、全校榜和班级总分榜。</p>
+        <div class="header-meta">
+          <span>{{ rankHintText }}</span>
+          <span v-if="rankSummaryText">{{ rankSummaryText }}</span>
         </div>
+      </header>
 
-        <div class="next-preview glass-panel">
-          <span>下个登场</span>
-          <div class="preview-circle">
-            <img 
-              :src="resolveLogoPath(schools[previewBallLevel].image)" 
-              :alt="schools[previewBallLevel].short"
-              class="preview-img"
+      <section class="game-area" ref="gameArea">
+        <div
+          class="game-canvas-wrapper"
+          :style="{ width: canvasWidth + 'px', height: canvasHeight + 'px' }"
+        >
+          <canvas
+            ref="gameCanvas"
+            class="game-canvas"
+            :width="canvasWidth"
+            :height="canvasHeight"
+            @mousedown="handleInputStart"
+            @mousemove="handleInputMove"
+            @mouseup="handleInputEnd"
+            @mouseleave="handleInputEnd"
+            @touchstart="handleInputStart"
+            @touchmove="handleInputMove"
+            @touchend="handleInputEnd"
+          ></canvas>
+
+          <div class="guide-line" :style="{ left: dropX + 'px' }" v-if="isDragging || !isMobile"></div>
+
+          <div
+            class="current-ball"
+            v-if="!hasDropped"
+            :style="{
+              left: dropX - schools[nextBallLevel].radius + 'px',
+              top: '20px',
+              width: schools[nextBallLevel].radius * 2 + 'px',
+              height: schools[nextBallLevel].radius * 2 + 'px'
+            }"
+          >
+            <img
+              :src="resolveLogoPath(schools[nextBallLevel].image)"
+              :alt="schools[nextBallLevel].short"
+              class="ball-img"
             />
           </div>
-        </div>
 
-        <!-- Drama Toast -->
-        <div class="drama-toast" :class="{ show: showToast }">
-           <div class="drama-content">
-             <span class="drama-text">{{ toastMessage }}</span>
-           </div>
-        </div>
-
-        <!-- Overlays -->
-        <div v-if="gameOver" class="overlay glass-overlay">
-          <h2>🚧 挑战失败 🚧</h2>
-          <p class="final-score">最终得分: {{ score }}</p>
-          <p class="message">清北太多，挤不下了...</p>
-          <div class="overlay-btns">
-            <button class="restart-btn" @click="forceRestart">再战一局</button>
-            <button class="history-btn-large" @click="toggleHistory">查看记录</button>
+          <div class="next-preview panel panel--compact">
+            <span>下个登场</span>
+            <div class="preview-circle">
+              <img
+                :src="resolveLogoPath(schools[previewBallLevel].image)"
+                :alt="schools[previewBallLevel].short"
+                class="preview-img"
+              />
+            </div>
           </div>
-        </div>
-        
-        <div v-if="hasWon" class="overlay glass-overlay win">
-          <h2>🏆 恭喜圆梦！🏆</h2>
-          <p class="message">你也是湖工大的骄傲！</p>
-          <p class="final-score">最终得分: {{ score }}</p>
-          <button class="restart-btn" @click="forceRestart">再刷亿次</button>
-        </div>
 
-        <!-- History Overlay -->
-        <div v-if="showHistory" class="overlay glass-overlay history-overlay">
-          <div class="history-panel glass-panel">
-             <div class="history-header">
-                <h3>📜 历史战绩</h3>
-                <button class="close-btn" @click="toggleHistory">×</button>
-             </div>
-             <div class="history-list">
-                <div v-if="historyRecords.length === 0" class="no-history">暂无记录，快去合成吧！</div>
-                <div v-else class="history-item" v-for="(record, idx) in historyRecords" :key="idx">
-                    <div class="history-info">
-                       <span class="history-date">{{ formatDate(record.date) }}</span>
-                       <span class="user-score">得分: {{ record.score }}</span>
-                    </div>
-                    <div class="history-badge">
-                       <img :src="resolveLogoPath(schools[record.maxLevel].image)" class="badge-img" />
-                       <span>{{ schools[record.maxLevel].short }}</span>
-                    </div>
+          <div v-if="rankSubmitBusy" class="sync-status">正在同步排行榜成绩...</div>
+          <button
+            v-else-if="rankSubmitError && (gameOver || hasWon)"
+            class="sync-status sync-status--error"
+            type="button"
+            @click="retryRankSubmit"
+          >
+            上传失败，点此重试
+          </button>
+
+          <div class="drama-toast" :class="{ show: showToast }">
+            <div class="drama-content">
+              <span class="drama-text">{{ toastMessage }}</span>
+            </div>
+          </div>
+
+          <div v-if="gameOver" class="overlay glass-overlay">
+            <h2>挑战结束</h2>
+            <p class="final-score">最终得分 {{ score }}</p>
+            <p class="message">场上已经没有安全落点了。</p>
+            <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
+            <div class="overlay-btns">
+              <button class="restart-btn" type="button" @click="forceRestart">再来一局</button>
+              <button class="secondary-btn" type="button" @click="toggleLeaderboard">查看排行榜</button>
+            </div>
+          </div>
+
+          <div v-if="hasWon" class="overlay glass-overlay win">
+            <h2>成功合成湖工大</h2>
+            <p class="message">本局已自动记录，你可以直接查看排名。</p>
+            <p class="final-score">最终得分 {{ score }}</p>
+            <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
+            <div class="overlay-btns">
+              <button class="restart-btn" type="button" @click="forceRestart">继续挑战</button>
+              <button class="secondary-btn" type="button" @click="toggleLeaderboard">查看排行榜</button>
+            </div>
+          </div>
+
+          <div v-if="showHistory" class="overlay glass-overlay sheet-overlay">
+            <div class="sheet-panel">
+              <div class="sheet-header">
+                <div>
+                  <p class="sheet-eyebrow">本地</p>
+                  <h3>历史战绩</h3>
                 </div>
-             </div>
-             <button class="clear-history-btn" v-if="historyRecords.length > 0" @click="clearHistory">清空记录</button>
+                <button class="close-btn" type="button" @click="toggleHistory">×</button>
+              </div>
+              <div class="sheet-body history-list">
+                <div v-if="historyRecords.length === 0" class="sheet-empty">暂无记录，先完成一局。</div>
+                <div v-else class="history-item" v-for="(record, idx) in historyRecords" :key="idx">
+                  <div class="history-info">
+                    <span class="history-date">{{ formatDate(record.date) }}</span>
+                    <strong>得分 {{ record.score }}</strong>
+                  </div>
+                  <div class="history-badge">
+                    <img :src="resolveLogoPath(schools[record.maxLevel].image)" class="badge-img" />
+                    <span>{{ schools[record.maxLevel].short }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="sheet-footer">
+                <button
+                  v-if="historyRecords.length > 0"
+                  class="ghost-btn"
+                  type="button"
+                  @click="clearHistory"
+                >
+                  清空记录
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="showLeaderboard" class="overlay glass-overlay sheet-overlay">
+            <div class="sheet-panel sheet-panel--wide">
+              <div class="sheet-header">
+                <div>
+                  <p class="sheet-eyebrow">云端</p>
+                  <h3>排行榜</h3>
+                </div>
+                <button class="close-btn" type="button" @click="toggleLeaderboard">×</button>
+              </div>
+
+              <div class="sheet-body">
+                <div class="leaderboard-meta">
+                  <span>{{ rankEnabled ? '结算后自动上传最新成绩' : '当前未注入学号，无法上传排行榜' }}</span>
+                  <span v-if="leaderboardUpdatedAt">更新于 {{ formatDateTime(leaderboardUpdatedAt) }}</span>
+                </div>
+
+                <div class="scope-tabs">
+                  <button
+                    v-for="scope in availableScopes"
+                    :key="scope.value"
+                    class="scope-tab"
+                    :class="{ active: leaderboardScope === scope.value }"
+                    type="button"
+                    @click="selectLeaderboardScope(scope.value)"
+                  >
+                    {{ scope.label }}
+                  </button>
+                </div>
+
+                <div v-if="leaderboardPlayer" class="leaderboard-self">
+                  <div class="leaderboard-self__title">我的最好成绩</div>
+                  <div class="leaderboard-self__stats">
+                    <span>得分 {{ leaderboardPlayer.score }}</span>
+                    <span>最高 {{ schools[leaderboardPlayer.max_level]?.short || '未命名' }}</span>
+                    <span v-if="leaderboardPlayer.class_rank">班级第 {{ leaderboardPlayer.class_rank }}</span>
+                    <span v-if="leaderboardPlayer.school_rank">全校第 {{ leaderboardPlayer.school_rank }}</span>
+                    <span v-if="leaderboardPlayer.class_total_rank">
+                      班级总分第 {{ leaderboardPlayer.class_total_rank }}
+                    </span>
+                  </div>
+                </div>
+
+                <div v-if="leaderboardLoading" class="sheet-empty">正在加载排行榜...</div>
+                <div v-else-if="leaderboardError" class="sheet-empty sheet-empty--error">
+                  {{ leaderboardError }}
+                </div>
+                <div v-else-if="leaderboardItems.length === 0" class="sheet-empty">暂无上榜数据。</div>
+                <div v-else class="leaderboard-list">
+                  <div
+                    class="leaderboard-item"
+                    :class="{ 'leaderboard-item--self': item.is_self }"
+                    v-for="item in leaderboardItems"
+                    :key="leaderboardItemKey(item)"
+                  >
+                    <div class="leaderboard-rank">#{{ item.rank }}</div>
+                    <div class="leaderboard-main">
+                      <template v-if="leaderboardScope === 'class_total'">
+                        <strong>{{ item.class_name }}</strong>
+                        <span>{{ item.player_count }} 人 · 平均 {{ item.avg_score }}</span>
+                      </template>
+                      <template v-else>
+                        <strong>{{ item.player_name || item.student_id }}</strong>
+                        <span>{{ item.class_name || '未绑定班级' }}</span>
+                      </template>
+                    </div>
+                    <div class="leaderboard-side">
+                      <template v-if="leaderboardScope === 'class_total'">
+                        <strong>{{ item.total_score }}</strong>
+                        <span>总分</span>
+                      </template>
+                      <template v-else>
+                        <strong>{{ item.score }}</strong>
+                        <span>
+                          {{ schools[item.max_level]?.short || '未命名' }}
+                          · {{ formatDuration(item.duration_ms) }}
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sheet-footer">
+                <button class="ghost-btn" type="button" @click="loadLeaderboard(leaderboardScope)">
+                  刷新
+                </button>
+                <button
+                  v-if="rankSubmitError && (gameOver || hasWon)"
+                  class="ghost-btn ghost-btn--warn"
+                  type="button"
+                  @click="retryRankSubmit"
+                >
+                  重试上传
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
-    
-    <div class="legend-panel glass-panel">
-      <div class="legend-scroll">
-        <div 
-          v-for="(school, index) in schools" 
-          :key="index" 
-          class="legend-item"
-          :class="{ 'current-target': index === schools.length - 1 }"
-        >
-          <div class="legend-icon">
-            <img :src="resolveLogoPath(school.image)" :alt="school.short" />
+      </section>
+
+      <footer class="legend-panel panel">
+        <div class="legend-scroll">
+          <div
+            v-for="(school, index) in schools"
+            :key="index"
+            class="legend-item"
+            :class="{ 'current-target': index === schools.length - 1 }"
+          >
+            <div class="legend-icon">
+              <img :src="resolveLogoPath(school.image)" :alt="school.short" />
+            </div>
+            <span class="legend-name">{{ school.short }}</span>
           </div>
-          <span class="legend-name">{{ school.short }}</span>
         </div>
-      </div>
+      </footer>
     </div>
   </div>
 </template>
 
 <script>
 import Matter from 'matter-js'
+import {
+  canUseGameRank,
+  createRunId,
+  fetchGameLeaderboard,
+  readGameModuleContext,
+  submitGameRank
+} from './utils/game_rank'
 
 const MODULE_LOGO_BASE = `${import.meta.env.BASE_URL || '/'}logos/`
 
@@ -149,88 +294,136 @@ export default {
       hasDropped: false,
       isMobile: false,
       showHistory: false,
+      showLeaderboard: false,
       historyRecords: [],
       particles: [],
-      
-      // Drama System
+      rankContext: readGameModuleContext(),
+      availableScopes: [
+        { value: 'class', label: '班级榜' },
+        { value: 'school', label: '全校榜' },
+        { value: 'class_total', label: '班级总分榜' }
+      ],
+      leaderboardScope: 'class',
+      leaderboardItems: [],
+      leaderboardPlayer: null,
+      leaderboardLoading: false,
+      leaderboardError: '',
+      leaderboardUpdatedAt: '',
+      rankSubmitBusy: false,
+      rankSubmitError: '',
+      lastRankSubmission: null,
+      currentRunId: '',
+      gameStartedAt: 0,
+      moveCount: 0,
+      bestLevelReached: 0,
+      hasSubmittedResult: false,
+
       toastMessage: '',
       showToast: false,
       toastTimer: null,
+      autoSaveInterval: null,
+      gameOverWatcher: null,
       dramaScripts: {
-         0: ["清华？就这？", "起步价而已", "勉强能看"],
-         1: ["北大也一般般", "还差点意思", "继续努力"],
-         2: ["复旦？小意思", "离目标还远", "稍微有点东西"],
-         3: ["浙大？这也能叫好？", "还得练", "也就图一乐"],
-         4: ["上交？马马虎虎", "还是太年轻", "这就是你的极限？"],
-         5: ["中科大？还行吧", "稍微认真点", "快到碗里来"],
-         6: ["南大？有点意思了", "别骄傲", "稳住，并在"],
-         7: ["武大？樱花不错", "离巅峰一步之遥", "颤抖吧凡人"],
-         8: ["华科？只要湖工大！", "清北皆浮云", "见证奇迹的时刻"],
-         9: ["湖工大！神之降临！", "这才是学术巅峰！", "圆满了！"]
+        0: ['起步稳住', '热身完成', '场子开了'],
+        1: ['节奏起来了', '继续往上合', '这局能成'],
+        2: ['开始有点强度', '节奏不错', '继续稳一手'],
+        3: ['中盘成型', '别急着乱丢', '准备冲高分'],
+        4: ['上半场很稳', '局面已经打开', '离目标更近了'],
+        5: ['高分段开始', '别给自己留死角', '这局值得继续'],
+        6: ['强度上来了', '继续压住节奏', '全校榜有机会'],
+        7: ['离终点不远', '保持耐心', '再稳几步'],
+        8: ['就差最后一口气', '冲一把湖工大', '这一局已经够硬'],
+        9: ['湖工大合成成功', '本局可以上榜了', '这把很完整']
       },
-      
+
       engine: null,
       render: null,
       runner: null,
-      
+
       deathLineY: 100,
       schoolImages: {},
       schools: [
-        { name: '清华大学', short: '清华', radius: 20, color: '#8e44ad', score: 1, image: 'qinghua.png' },
-        { name: '北京大学', short: '北大', radius: 28, color: '#e74c3c', score: 2, image: 'beida.png' },
-        { name: '复旦大学', short: '复旦', radius: 36, color: '#e67e22', score: 4, image: 'fudan.png' },
-        { name: '浙江大学', short: '浙大', radius: 44, color: '#f1c40f', score: 8, image: 'zheda.png' },
-        { name: '上海交通大学', short: '上交', radius: 52, color: '#2ecc71', score: 16, image: 'shangjiao.png' },
-        { name: '中国科学技术大学', short: '中科大', radius: 60, color: '#1abc9c', score: 32, image: 'zhongkeda.png' },
-        { name: '南京大学', short: '南大', radius: 66, color: '#3498db', score: 64, image: 'nanda.png' },
-        { name: '武汉大学', short: '武大', radius: 72, color: '#9b59b6', score: 128, image: 'wuda.png' },
-        { name: '华中科技大学', short: '华科', radius: 78, color: '#e91e63', score: 256, image: 'huake.png' },
-        { name: '湖北工业大学', short: '湖工大', radius: 85, color: '#FFD700', score: 512, image: 'hugongda.png' }
+        { name: '清华大学', short: '清华', radius: 20, color: '#9d6c42', score: 1, image: 'qinghua.png' },
+        { name: '北京大学', short: '北大', radius: 28, color: '#b55f45', score: 2, image: 'beida.png' },
+        { name: '复旦大学', short: '复旦', radius: 36, color: '#c97f38', score: 4, image: 'fudan.png' },
+        { name: '浙江大学', short: '浙大', radius: 44, color: '#d9a83d', score: 8, image: 'zheda.png' },
+        { name: '上海交通大学', short: '上交', radius: 52, color: '#6b9a74', score: 16, image: 'shangjiao.png' },
+        { name: '中国科学技术大学', short: '中科大', radius: 60, color: '#4f8c7f', score: 32, image: 'zhongkeda.png' },
+        { name: '南京大学', short: '南大', radius: 66, color: '#517b95', score: 64, image: 'nanda.png' },
+        { name: '武汉大学', short: '武大', radius: 72, color: '#5567a1', score: 128, image: 'wuda.png' },
+        { name: '华中科技大学', short: '华科', radius: 78, color: '#7b6a9a', score: 256, image: 'huake.png' },
+        { name: '湖北工业大学', short: '湖工大', radius: 85, color: '#d0a34b', score: 512, image: 'hugongda.png' }
       ]
+    }
+  },
+  computed: {
+    rankEnabled() {
+      return canUseGameRank(this.rankContext)
+    },
+    rankSummaryText() {
+      const player = this.lastRankSubmission || this.leaderboardPlayer
+      if (!player) return ''
+      const parts = []
+      if (player.class_rank) parts.push(`班级第 ${player.class_rank}`)
+      if (player.school_rank) parts.push(`全校第 ${player.school_rank}`)
+      if (player.class_total_rank) parts.push(`班级总分第 ${player.class_total_rank}`)
+      return parts.join(' · ')
+    },
+    rankHintText() {
+      if (!this.rankEnabled) return '当前未注入学号，排行榜会保持关闭。'
+      if (this.rankSubmitBusy) return '本局结束后正在同步成绩。'
+      if (this.rankSubmitError) return `成绩上传失败：${this.rankSubmitError}`
+      return '本局结束后会自动上传最佳成绩。'
     }
   },
   mounted() {
     this.checkMobile()
     window.addEventListener('resize', this.handleResize)
-    // Auto-save on page close/refresh
     window.addEventListener('beforeunload', this.saveGame)
-    
     this.initDimensions()
     this.loadHistory()
-    
     this.loadImages().then(() => {
       this.initGame()
+      if (this.rankEnabled) {
+        void this.loadLeaderboard('class', { silent: true })
+      }
     })
   },
   beforeUnmount() {
     window.removeEventListener('resize', this.handleResize)
     window.removeEventListener('beforeunload', this.saveGame)
-    // Also save when component unmounts
+    if (this.autoSaveInterval) clearInterval(this.autoSaveInterval)
+    if (this.gameOverWatcher) clearInterval(this.gameOverWatcher)
+    if (this.toastTimer) clearTimeout(this.toastTimer)
     this.saveGame()
     this.stopGame()
   },
   methods: {
-    checkMobile() {
-      this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    resolveLogoPath(fileName) {
+      return `${MODULE_LOGO_BASE}${fileName}`
     },
-    
+
+    checkMobile() {
+      this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      )
+    },
+
     initDimensions() {
       const maxWidth = 500
       const padding = 20
-      const availableHeight = window.innerHeight - 180 
-      
+      const availableHeight = window.innerHeight - 198
       this.canvasWidth = Math.min(window.innerWidth - padding, maxWidth)
-      this.canvasHeight = Math.max(400, Math.min(availableHeight, 800))
-      
+      this.canvasHeight = Math.max(420, Math.min(availableHeight, 820))
       this.dropX = this.canvasWidth / 2
-      this.deathLineY = 120 
+      this.deathLineY = 120
     },
-    
+
     handleResize() {
-      this.saveGame() // Save before resize reset
+      this.saveGame()
       this.stopGame()
       this.initDimensions()
-      this.initGame() // Will try to load save
+      this.initGame()
     },
 
     async loadImages() {
@@ -238,12 +431,12 @@ export default {
         return new Promise((resolve) => {
           const img = new Image()
           img.onload = () => {
-             this.schoolImages[index] = img
-             resolve()
+            this.schoolImages[index] = img
+            resolve()
           }
           img.onerror = () => {
-             this.schoolImages[index] = null 
-             resolve()
+            this.schoolImages[index] = null
+            resolve()
           }
           img.src = this.resolveLogoPath(school.image)
         })
@@ -251,14 +444,13 @@ export default {
       await Promise.all(promises)
     },
 
-    resolveLogoPath(fileName) {
-      return `${MODULE_LOGO_BASE}${fileName}`
-    },
-
     stopGame() {
+      if (this.gameOverWatcher) {
+        clearInterval(this.gameOverWatcher)
+        this.gameOverWatcher = null
+      }
       if (this.render) {
         Matter.Render.stop(this.render)
-        // Do NOT remove canvas element, Vue manages it
       }
       if (this.runner) {
         Matter.Runner.stop(this.runner)
@@ -266,6 +458,20 @@ export default {
       if (this.engine) {
         Matter.Engine.clear(this.engine)
       }
+      this.render = null
+      this.runner = null
+      this.engine = null
+    },
+
+    resetRunState() {
+      this.currentRunId = createRunId()
+      this.gameStartedAt = Date.now()
+      this.moveCount = 0
+      this.bestLevelReached = 0
+      this.hasSubmittedResult = false
+      this.rankSubmitBusy = false
+      this.rankSubmitError = ''
+      this.lastRankSubmission = null
     },
 
     initGame() {
@@ -277,7 +483,7 @@ export default {
       const Runner = Matter.Runner
 
       this.engine = Engine.create()
-      this.engine.world.gravity.y = 1.2 
+      this.engine.world.gravity.y = 1.2
 
       this.render = Render.create({
         canvas: this.$refs.gameCanvas,
@@ -291,227 +497,336 @@ export default {
         }
       })
 
-      // Walls
       const wallThick = 60
-      const wallOptions = { 
-        isStatic: true, 
-        render: { fillStyle: '#ffffff33' },
+      const wallOptions = {
+        isStatic: true,
+        render: { fillStyle: '#00000010' },
         friction: 0.1,
         restitution: 0.2
       }
-      
+
       const walls = [
-        Bodies.rectangle(this.canvasWidth / 2, this.canvasHeight + wallThick/2, this.canvasWidth, wallThick, wallOptions), // Floor
-        Bodies.rectangle(-wallThick/2, this.canvasHeight / 2, wallThick, this.canvasHeight * 2, wallOptions), // Left
-        Bodies.rectangle(this.canvasWidth + wallThick/2, this.canvasHeight / 2, wallThick, this.canvasHeight * 2, wallOptions) // Right
+        Bodies.rectangle(this.canvasWidth / 2, this.canvasHeight + wallThick / 2, this.canvasWidth, wallThick, wallOptions),
+        Bodies.rectangle(-wallThick / 2, this.canvasHeight / 2, wallThick, this.canvasHeight * 2, wallOptions),
+        Bodies.rectangle(
+          this.canvasWidth + wallThick / 2,
+          this.canvasHeight / 2,
+          wallThick,
+          this.canvasHeight * 2,
+          wallOptions
+        )
       ]
       World.add(this.engine.world, walls)
 
-      // Events
       Events.on(this.engine, 'collisionStart', this.handleCollision)
       Events.on(this.render, 'afterRender', this.drawOverlay)
 
-      // Try to Restore Game
-      // If manually restarted (score=0), loadGame returns false because we cleared storage in forceRestart
-      const restored = this.score > 0 ? this.loadGame() : false 
-      // Actually loadGame checks storage. In forceRestart we clear storage. So loadGame returns false.
-      // But we need to make sure we don't accidentally load a cleared save if logic differs.
-      // loadGame() handles empty storage gracefully.
-
       const loadSuccess = this.loadGame()
-
       if (!loadSuccess) {
-        this.nextBallLevel = this.getRandomBallLevel()
-        this.previewBallLevel = this.getRandomBallLevel()
+        this.resetRunState()
         this.score = 0
         this.gameOver = false
         this.hasWon = false
         this.hasDropped = false
+        this.nextBallLevel = this.getRandomBallLevel()
+        this.previewBallLevel = this.getRandomBallLevel()
       }
 
-      // Run
       Render.run(this.render)
       this.runner = Runner.create()
       Runner.run(this.runner, this.engine)
 
-      this.checkGameOver()
-      
-      // Auto-save periodically
-      if(this.autoSaveInterval) clearInterval(this.autoSaveInterval)
+      this.startGameOverWatcher()
+      if (this.autoSaveInterval) clearInterval(this.autoSaveInterval)
       this.autoSaveInterval = setInterval(this.saveGame, 5000)
     },
 
-    // --- Persistence & History ---
-
     saveGame() {
-       if (this.gameOver || this.hasWon) {
-         localStorage.removeItem('hbut_current_save')
-         return
-       }
-       
-       const bodies = Matter.Composite.allBodies(this.engine.world)
-       const gameBodies = bodies
-         .filter(b => b.schoolLevel !== undefined && !b.isRemoved)
-         .map(b => ({
-           x: b.position.x,
-           y: b.position.y,
-           level: b.schoolLevel,
-           angle: b.angle
-         }))
-         
-       const saveData = {
-         score: this.score,
-         nextBallLevel: this.nextBallLevel,
-         previewBallLevel: this.previewBallLevel,
-         bodies: gameBodies,
-         timestamp: Date.now()
-       }
-       
-       localStorage.setItem('hbut_current_save', JSON.stringify(saveData))
+      if (!this.engine || !this.engine.world) return
+      if (this.gameOver || this.hasWon) {
+        localStorage.removeItem('hbut_current_save')
+        return
+      }
+
+      const bodies = Matter.Composite.allBodies(this.engine.world)
+      const gameBodies = bodies
+        .filter((body) => body.schoolLevel !== undefined && !body.isRemoved)
+        .map((body) => ({
+          x: body.position.x,
+          y: body.position.y,
+          level: body.schoolLevel,
+          angle: body.angle
+        }))
+
+      const saveData = {
+        score: this.score,
+        nextBallLevel: this.nextBallLevel,
+        previewBallLevel: this.previewBallLevel,
+        bodies: gameBodies,
+        timestamp: Date.now(),
+        currentRunId: this.currentRunId,
+        gameStartedAt: this.gameStartedAt,
+        moveCount: this.moveCount,
+        bestLevelReached: this.bestLevelReached,
+        hasSubmittedResult: this.hasSubmittedResult
+      }
+
+      localStorage.setItem('hbut_current_save', JSON.stringify(saveData))
     },
 
     loadGame() {
       try {
         const raw = localStorage.getItem('hbut_current_save')
         if (!raw) return false
-        
         const data = JSON.parse(raw)
-        // Basic Reset
-        this.score = data.score || 0
-        this.nextBallLevel = data.nextBallLevel || 0
-        this.previewBallLevel = data.previewBallLevel || 0
-        
-        // Restore bodies
-        if (data.bodies && Array.isArray(data.bodies)) {
-           data.bodies.forEach(b => {
-              const school = this.schools[b.level]
-              const ball = Matter.Bodies.circle(b.x, b.y, school.radius, {
-                restitution: 0.3,
-                friction: 0.1,
-                angle: b.angle || 0,
-                label: `ball_${b.level}`,
-                render: {
-                  fillStyle: 'transparent',
-                  strokeStyle: 'transparent'
-                }
-              })
-              ball.schoolLevel = b.level
-              ball.dropTime = Date.now() // Treat as safe
-              Matter.World.add(this.engine.world, ball)
-           })
+        this.score = Number(data.score || 0)
+        this.nextBallLevel = Number(data.nextBallLevel || 0)
+        this.previewBallLevel = Number(data.previewBallLevel || 0)
+        this.currentRunId = String(data.currentRunId || createRunId())
+        this.gameStartedAt = Number(data.gameStartedAt || Date.now())
+        this.moveCount = Number(data.moveCount || 0)
+        this.bestLevelReached = Number(data.bestLevelReached || 0)
+        this.hasSubmittedResult = !!data.hasSubmittedResult
+        this.rankSubmitBusy = false
+        this.rankSubmitError = ''
+        this.lastRankSubmission = null
+        this.gameOver = false
+        this.hasWon = false
+        this.hasDropped = false
+
+        if (Array.isArray(data.bodies)) {
+          data.bodies.forEach((item) => {
+            const school = this.schools[item.level]
+            if (!school) return
+            const ball = Matter.Bodies.circle(item.x, item.y, school.radius, {
+              restitution: 0.3,
+              friction: 0.1,
+              angle: item.angle || 0,
+              label: `ball_${item.level}`,
+              render: {
+                fillStyle: 'transparent',
+                strokeStyle: 'transparent'
+              }
+            })
+            ball.schoolLevel = item.level
+            ball.dropTime = Date.now()
+            Matter.World.add(this.engine.world, ball)
+          })
         }
         return true
-      } catch (e) {
-        console.error("Failed to load game", e)
+      } catch (error) {
+        console.error('Failed to load game', error)
         localStorage.removeItem('hbut_current_save')
         return false
       }
     },
-    
-    saveToHistory() {
-       // Find max level
-       const bodies = Matter.Composite.allBodies(this.engine.world)
-       let maxLevel = 0
-       bodies.forEach(b => {
-         if (b.schoolLevel !== undefined && b.schoolLevel > maxLevel) {
-           maxLevel = b.schoolLevel
-         }
-       })
-       
-       // If won, maxLevel should be top
-       if (this.hasWon) {
-          maxLevel = this.schools.length - 1
-       }
-       
-       const record = {
-         date: Date.now(),
-         score: this.score,
-         maxLevel: maxLevel
-       }
-       
-       this.historyRecords.unshift(record)
-       // Limit history size
-       if (this.historyRecords.length > 20) {
-         this.historyRecords = this.historyRecords.slice(0, 20)
-       }
-       
-       localStorage.setItem('hbut_history', JSON.stringify(this.historyRecords))
-       // Clear current save
-       localStorage.removeItem('hbut_current_save')
+
+    computeCurrentMaxLevel() {
+      if (this.hasWon) return this.schools.length - 1
+      let maxLevel = Number(this.bestLevelReached || 0)
+      if (this.engine && this.engine.world) {
+        const bodies = Matter.Composite.allBodies(this.engine.world)
+        bodies.forEach((body) => {
+          if (body.schoolLevel !== undefined && !body.isRemoved) {
+            maxLevel = Math.max(maxLevel, Number(body.schoolLevel || 0))
+          }
+        })
+      }
+      return maxLevel
     },
-    
+
+    saveToHistory() {
+      const record = {
+        date: Date.now(),
+        score: this.score,
+        maxLevel: this.computeCurrentMaxLevel()
+      }
+      this.historyRecords.unshift(record)
+      if (this.historyRecords.length > 20) {
+        this.historyRecords = this.historyRecords.slice(0, 20)
+      }
+      localStorage.setItem('hbut_history', JSON.stringify(this.historyRecords))
+      localStorage.removeItem('hbut_current_save')
+    },
+
     loadHistory() {
       try {
         const raw = localStorage.getItem('hbut_history')
         if (raw) {
           this.historyRecords = JSON.parse(raw)
         }
-      } catch(e) {
-        console.error("Failed to load history", e)
+      } catch (error) {
+        console.error('Failed to load history', error)
       }
     },
-    
+
     toggleHistory() {
       this.showHistory = !this.showHistory
+      if (this.showHistory) this.showLeaderboard = false
     },
-    
+
     clearHistory() {
-      if(confirm('确定要清空历史记录吗？')) {
+      if (window.confirm('确定要清空历史记录吗？')) {
         this.historyRecords = []
         localStorage.removeItem('hbut_history')
       }
     },
-    
+
     formatDate(ts) {
       const d = new Date(ts)
-      return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`
+      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${d
+        .getMinutes()
+        .toString()
+        .padStart(2, '0')}`
     },
-    
+
+    formatDateTime(value) {
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return value || ''
+      return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${date
+        .getMinutes()
+        .toString()
+        .padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`
+    },
+
+    formatDuration(durationMs) {
+      const totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000))
+      if (!totalSeconds) return '未计时'
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      return `${minutes}:${String(seconds).padStart(2, '0')}`
+    },
+
+    leaderboardItemKey(item) {
+      return `${this.leaderboardScope}:${item.student_id || item.class_name || item.rank}`
+    },
+
+    toggleLeaderboard() {
+      this.showLeaderboard = !this.showLeaderboard
+      if (this.showLeaderboard) {
+        this.showHistory = false
+        void this.loadLeaderboard(this.leaderboardScope)
+      }
+    },
+
+    selectLeaderboardScope(scope) {
+      if (scope === this.leaderboardScope && this.leaderboardItems.length > 0) return
+      void this.loadLeaderboard(scope)
+    },
+
+    async loadLeaderboard(scope = 'class', { silent = false } = {}) {
+      this.leaderboardScope = scope
+      if (!this.rankEnabled) {
+        this.leaderboardError = '当前没有登录信息，无法读取排行榜。'
+        this.leaderboardItems = []
+        return
+      }
+      if (!silent) {
+        this.leaderboardLoading = true
+      }
+      this.leaderboardError = ''
+      try {
+        const response = await fetchGameLeaderboard(this.rankContext, {
+          scope,
+          studentId: this.rankContext.studentId,
+          className: this.rankContext.className,
+          schoolName: this.rankContext.schoolName,
+          limit: 20
+        })
+        this.leaderboardItems = Array.isArray(response.leaderboard) ? response.leaderboard : []
+        this.leaderboardPlayer = response.player || this.lastRankSubmission || null
+        this.leaderboardUpdatedAt = response.refreshed_at || ''
+      } catch (error) {
+        this.leaderboardItems = []
+        this.leaderboardError = error?.message || '排行榜加载失败'
+      } finally {
+        this.leaderboardLoading = false
+      }
+    },
+
+    async finalizeRankSubmission(endedReason) {
+      if (!this.rankEnabled || this.rankSubmitBusy || this.hasSubmittedResult) return
+      this.rankSubmitBusy = true
+      this.rankSubmitError = ''
+      try {
+        const result = await submitGameRank(this.rankContext, {
+          runId: this.currentRunId,
+          score: this.score,
+          maxLevel: this.computeCurrentMaxLevel(),
+          durationMs: Math.max(0, Date.now() - Number(this.gameStartedAt || Date.now())),
+          moveCount: this.moveCount,
+          endedReason,
+          extra: {
+            source: 'mini-hbut-module',
+            is_mobile: this.isMobile,
+            from: this.rankContext.from || '',
+            runtime: this.rankContext.runtime || ''
+          }
+        })
+        this.lastRankSubmission = result?.player || null
+        this.leaderboardPlayer = result?.player || this.leaderboardPlayer
+        this.hasSubmittedResult = true
+        if (this.showLeaderboard) {
+          await this.loadLeaderboard(this.leaderboardScope, { silent: true })
+        }
+      } catch (error) {
+        this.rankSubmitError = error?.message || '排行榜上传失败'
+        this.hasSubmittedResult = false
+      } finally {
+        this.rankSubmitBusy = false
+      }
+    },
+
+    retryRankSubmit() {
+      if (this.hasWon) {
+        void this.finalizeRankSubmission('cleared')
+      } else if (this.gameOver) {
+        void this.finalizeRankSubmission('failed')
+      }
+    },
+
     forceRestart() {
-      clearInterval(this.autoSaveInterval)
+      if (this.autoSaveInterval) clearInterval(this.autoSaveInterval)
       localStorage.removeItem('hbut_current_save')
       this.restartGame()
     },
 
-    // --- End Persistence ---
-
     getRandomBallLevel() {
-      return Math.floor(Math.random() * 4) 
+      return Math.floor(Math.random() * 4)
     },
 
-    getEventX(e) {
+    getEventX(event) {
       const rect = this.$refs.gameCanvas.getBoundingClientRect()
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const clientX = event.touches ? event.touches[0].clientX : event.clientX
       return clientX - rect.left
     },
 
-    handleInputStart(e) {
+    handleInputStart(event) {
       if (this.gameOver || this.hasWon || this.hasDropped) return
-      e.preventDefault() 
+      event.preventDefault()
       this.isDragging = true
-      this.updateDropX(this.getEventX(e))
+      this.updateDropX(this.getEventX(event))
     },
 
-    handleInputMove(e) {
-      if (e.type === 'mousemove') {
-        // Always track mouse movement for hover effect
-        e.preventDefault()
-        this.updateDropX(this.getEventX(e))
+    handleInputMove(event) {
+      if (event.type === 'mousemove') {
+        event.preventDefault()
+        this.updateDropX(this.getEventX(event))
         return
       }
-      
-      // For touch, only track if dragging
       if (!this.isDragging) return
-      e.preventDefault()
-      this.updateDropX(this.getEventX(e))
+      event.preventDefault()
+      this.updateDropX(this.getEventX(event))
     },
 
-    handleInputEnd(e) {
-      if (e.type === 'mouseup' || (this.isDragging && e.type === 'touchend')) {
-         e.preventDefault()
-         this.isDragging = false
-         this.dropBall()
+    handleInputEnd(event) {
+      if (event?.type === 'mouseleave' && !this.isDragging) return
+      if (event && (event.type === 'mouseup' || event.type === 'mouseleave' || this.isDragging)) {
+        event.preventDefault()
       }
+      if (!this.isDragging) return
+      this.isDragging = false
+      this.dropBall()
     },
 
     updateDropX(x) {
@@ -520,161 +835,143 @@ export default {
     },
 
     dropBall() {
-        if(this.hasDropped || this.gameOver) return;
+      if (this.hasDropped || this.gameOver || this.hasWon) return
+      this.hasDropped = true
+      const currentLevel = this.nextBallLevel
+      const school = this.schools[currentLevel]
 
-        this.hasDropped = true;
-        const currentLevel = this.nextBallLevel
-        const school = this.schools[currentLevel]
-        
-        const ball = Matter.Bodies.circle(this.dropX, 40, school.radius, {
-          restitution: 0.3,
-          friction: 0.1,
-          label: `ball_${currentLevel}`,
-          render: {
-            fillStyle: 'transparent', 
-            strokeStyle: 'transparent'
-          }
-        })
-        
-        ball.schoolLevel = currentLevel
-        ball.dropTime = Date.now()
-        Matter.World.add(this.engine.world, ball)
+      const ball = Matter.Bodies.circle(this.dropX, 40, school.radius, {
+        restitution: 0.3,
+        friction: 0.1,
+        label: `ball_${currentLevel}`,
+        render: {
+          fillStyle: 'transparent',
+          strokeStyle: 'transparent'
+        }
+      })
 
-        this.nextBallLevel = this.previewBallLevel
-        this.previewBallLevel = this.getRandomBallLevel()
-        
-        // Save state immediately after drop setup
-        this.saveGame()
+      ball.schoolLevel = currentLevel
+      ball.dropTime = Date.now()
+      Matter.World.add(this.engine.world, ball)
 
-        setTimeout(() => {
-          if (!this.gameOver) this.hasDropped = false
-        }, 600) 
+      this.moveCount += 1
+      this.bestLevelReached = Math.max(this.bestLevelReached, currentLevel)
+      this.nextBallLevel = this.previewBallLevel
+      this.previewBallLevel = this.getRandomBallLevel()
+      this.saveGame()
+
+      setTimeout(() => {
+        if (!this.gameOver && !this.hasWon) this.hasDropped = false
+      }, 600)
     },
 
     handleCollision(event) {
-      const pairs = event.pairs
-      pairs.forEach(pair => {
+      const pairs = event.pairs || []
+      pairs.forEach((pair) => {
         const bodyA = pair.bodyA
         const bodyB = pair.bodyB
+        if (bodyA.schoolLevel === undefined || bodyB.schoolLevel === undefined) return
+        if (bodyA.schoolLevel !== bodyB.schoolLevel) return
+        if (bodyA.schoolLevel >= this.schools.length - 1) return
+        if (bodyA.isRemoved || bodyB.isRemoved) return
 
-        if (bodyA.schoolLevel !== undefined && bodyB.schoolLevel !== undefined) {
-          if (bodyA.schoolLevel === bodyB.schoolLevel && bodyA.schoolLevel < this.schools.length - 1) {
-            
-            if(bodyA.isRemoved || bodyB.isRemoved) return;
-            bodyA.isRemoved = true;
-            bodyB.isRemoved = true;
+        bodyA.isRemoved = true
+        bodyB.isRemoved = true
 
-            const newLevel = bodyA.schoolLevel + 1
-            const newSchool = this.schools[newLevel]
-            
-            const newX = (bodyA.position.x + bodyB.position.x) / 2
-            const newY = (bodyA.position.y + bodyB.position.y) / 2
+        const newLevel = bodyA.schoolLevel + 1
+        const newSchool = this.schools[newLevel]
+        const newX = (bodyA.position.x + bodyB.position.x) / 2
+        const newY = (bodyA.position.y + bodyB.position.y) / 2
 
-            Matter.World.remove(this.engine.world, [bodyA, bodyB])
-            
-            const newBall = Matter.Bodies.circle(newX, newY, newSchool.radius, {
-              restitution: 0.3,
-              friction: 0.1,
-              label: `ball_${newLevel}`,
-              render: {
-                 fillStyle: 'transparent',
-                 strokeStyle: 'transparent'
-              }
-            })
-            newBall.schoolLevel = newLevel
-            newBall.dropTime = Date.now() 
-            Matter.World.add(this.engine.world, newBall)
+        Matter.World.remove(this.engine.world, [bodyA, bodyB])
 
-            this.score += newSchool.score
-            this.saveGame() // Save on merge
-            
-            this.createMergeEffect(newX, newY, this.schools[newLevel].color)
-            this.triggerDrama(newLevel)
-            
-            if (newLevel === this.schools.length - 1) {
-              this.hasWon = true
-              this.saveToHistory() // Save history on win
-            }
+        const newBall = Matter.Bodies.circle(newX, newY, newSchool.radius, {
+          restitution: 0.3,
+          friction: 0.1,
+          label: `ball_${newLevel}`,
+          render: {
+            fillStyle: 'transparent',
+            strokeStyle: 'transparent'
           }
+        })
+        newBall.schoolLevel = newLevel
+        newBall.dropTime = Date.now()
+        Matter.World.add(this.engine.world, newBall)
+
+        this.score += newSchool.score
+        this.bestLevelReached = Math.max(this.bestLevelReached, newLevel)
+        this.saveGame()
+        this.createMergeEffect(newX, newY, this.schools[newLevel].color)
+        this.triggerDrama(newLevel)
+
+        if (newLevel === this.schools.length - 1) {
+          this.hasWon = true
+          this.saveToHistory()
+          void this.finalizeRankSubmission('cleared')
         }
       })
     },
 
     triggerDrama(level) {
-       // Only trigger for larger balls (level >= 3, which is Fudan and above)
-       // Increase chance for very large balls
-       if (level < 3) return // Ignore small merges
-       
-       const scripts = this.dramaScripts[level]
-       if (!scripts) return
-       
-       const text = scripts[Math.floor(Math.random() * scripts.length)]
-       
-       this.toastMessage = text
-       this.showToast = true
-       
-       if (this.toastTimer) clearTimeout(this.toastTimer)
-       this.toastTimer = setTimeout(() => {
-         this.showToast = false
-       }, 3000)
+      if (level < 2) return
+      const scripts = this.dramaScripts[level]
+      if (!scripts || scripts.length === 0) return
+      this.toastMessage = scripts[Math.floor(Math.random() * scripts.length)]
+      this.showToast = true
+      if (this.toastTimer) clearTimeout(this.toastTimer)
+      this.toastTimer = setTimeout(() => {
+        this.showToast = false
+      }, 2600)
     },
 
     createMergeEffect(x, y, color) {
-       // 1. Visual Particles
-       for (let i = 0; i < 12; i++) {
-         const angle = (Math.PI * 2 * i) / 12
-         const speed = 2 + Math.random() * 3
-         this.particles.push({
-           x: x,
-           y: y,
-           vx: Math.cos(angle) * speed,
-           vy: Math.sin(angle) * speed,
-           life: 1.0,
-           color: color,
-           size: 3 + Math.random() * 3
-         })
-       }
-       
-       // 2. Physics Shockwave
-       const blastRadius = 150
-       const blastForce = 0.05
-       const bodies = Matter.Composite.allBodies(this.engine.world)
-       
-       bodies.forEach(body => {
-         if (body.isStatic || body.schoolLevel === undefined) return
-         
-         const dx = body.position.x - x
-         const dy = body.position.y - y
-         const dist = Math.sqrt(dx * dx + dy * dy)
-         
-         if (dist < blastRadius && dist > 10) {
-           const forceMagnitude = (1 - dist / blastRadius) * blastForce * body.mass
-           Matter.Body.applyForce(body, body.position, {
-             x: (dx / dist) * forceMagnitude,
-             y: (dy / dist) * forceMagnitude
-           })
-         }
-       })
+      for (let index = 0; index < 12; index += 1) {
+        const angle = (Math.PI * 2 * index) / 12
+        const speed = 2 + Math.random() * 3
+        this.particles.push({
+          x,
+          y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1.0,
+          color,
+          size: 3 + Math.random() * 3
+        })
+      }
+
+      const blastRadius = 150
+      const blastForce = 0.05
+      const bodies = Matter.Composite.allBodies(this.engine.world)
+      bodies.forEach((body) => {
+        if (body.isStatic || body.schoolLevel === undefined) return
+        const dx = body.position.x - x
+        const dy = body.position.y - y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < blastRadius && dist > 10) {
+          const forceMagnitude = (1 - dist / blastRadius) * blastForce * body.mass
+          Matter.Body.applyForce(body, body.position, {
+            x: (dx / dist) * forceMagnitude,
+            y: (dy / dist) * forceMagnitude
+          })
+        }
+      })
     },
 
-    checkGameOver() {
-      setInterval(() => {
-        if (this.gameOver || this.hasWon) return
-        
+    startGameOverWatcher() {
+      if (this.gameOverWatcher) clearInterval(this.gameOverWatcher)
+      this.gameOverWatcher = setInterval(() => {
+        if (this.gameOver || this.hasWon || !this.engine) return
         const bodies = Matter.Composite.allBodies(this.engine.world)
         const now = Date.now()
-        
-        for (let body of bodies) {
-          if (body.schoolLevel !== undefined && body.dropTime && !body.isRemoved) {
-             if (now - body.dropTime > 2000) {
-                if (body.position.y - this.schools[body.schoolLevel].radius < this.deathLineY) {
-                   if (body.speed < 0.2) {
-                     this.gameOver = true
-                     this.saveToHistory()
-                   }
-                }
-             }
-          }
+        for (const body of bodies) {
+          if (body.schoolLevel === undefined || !body.dropTime || body.isRemoved) continue
+          if (now - body.dropTime <= 2000) continue
+          if (body.position.y - this.schools[body.schoolLevel].radius >= this.deathLineY) continue
+          if (body.speed >= 0.2) continue
+          this.gameOver = true
+          this.saveToHistory()
+          void this.finalizeRankSubmission('failed')
+          break
         }
       }, 1000)
     },
@@ -685,87 +982,79 @@ export default {
     },
 
     drawOverlay() {
+      if (!this.$refs.gameCanvas) return
       const ctx = this.$refs.gameCanvas.getContext('2d')
-      
-      // Update and Draw Particles
-      for (let i = this.particles.length - 1; i >= 0; i--) {
-        const p = this.particles[i]
-        p.x += p.vx
-        p.y += p.vy
-        p.vy += 0.1 // Gravity for particles
-        p.life -= 0.02
-        
-        if (p.life <= 0) {
-          this.particles.splice(i, 1)
+
+      for (let index = this.particles.length - 1; index >= 0; index -= 1) {
+        const particle = this.particles[index]
+        particle.x += particle.vx
+        particle.y += particle.vy
+        particle.vy += 0.1
+        particle.life -= 0.02
+        if (particle.life <= 0) {
+          this.particles.splice(index, 1)
           continue
         }
-        
         ctx.save()
-        ctx.globalAlpha = p.life
-        ctx.fillStyle = p.color
+        ctx.globalAlpha = particle.life
+        ctx.fillStyle = particle.color
         ctx.beginPath()
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
+        ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2)
         ctx.fill()
         ctx.restore()
       }
 
-      // Draw Death Line
       ctx.save()
-      ctx.strokeStyle = '#ff6b6b'
+      ctx.strokeStyle = 'rgba(182, 72, 56, 0.65)'
       ctx.lineWidth = 2
-      ctx.setLineDash([5, 5])
+      ctx.setLineDash([6, 6])
       ctx.beginPath()
       ctx.moveTo(0, this.deathLineY)
       ctx.lineTo(this.canvasWidth, this.deathLineY)
       ctx.stroke()
-      ctx.fillStyle = '#ff6b6b'
-      ctx.font = '12px Arial'
-      ctx.fillText('WARNING LINE', 10, this.deathLineY - 5)
+      ctx.fillStyle = 'rgba(153, 58, 46, 0.9)'
+      ctx.font = '12px Segoe UI'
+      ctx.fillText('警戒线', 12, this.deathLineY - 7)
       ctx.restore()
 
-      // Draw Balls
       const bodies = Matter.Composite.allBodies(this.engine.world)
-      bodies.forEach(body => {
-        if (body.schoolLevel !== undefined && !body.isRemoved) {
-          const school = this.schools[body.schoolLevel]
-          const img = this.schoolImages[body.schoolLevel]
-          const x = body.position.x
-          const y = body.position.y
-          const r = school.radius
+      bodies.forEach((body) => {
+        if (body.schoolLevel === undefined || body.isRemoved) return
+        const school = this.schools[body.schoolLevel]
+        const img = this.schoolImages[body.schoolLevel]
+        const x = body.position.x
+        const y = body.position.y
+        const radius = school.radius
 
-          ctx.save()
-          ctx.translate(x, y)
-          ctx.rotate(body.angle)
-          
-          if (img) {
-            // Draw white background circle first
-            ctx.beginPath()
-            ctx.arc(0, 0, r, 0, Math.PI * 2)
-            ctx.fillStyle = '#ffffff'
-            ctx.fill()
-            
-            // Clip and draw image
-            ctx.beginPath()
-            ctx.arc(0, 0, r, 0, Math.PI * 2)
-            ctx.clip()
-            ctx.drawImage(img, -r, -r, r * 2, r * 2)
-            
-            // Add border
-            ctx.strokeStyle = 'rgba(0,0,0,0.1)'
-            ctx.lineWidth = 1
-            ctx.stroke()
-          } else {
-            ctx.beginPath()
-            ctx.arc(0, 0, r, 0, Math.PI * 2)
-            ctx.fillStyle = school.color
-            ctx.fill()
-            ctx.fillStyle = '#fff'
-            ctx.textAlign = 'center'
-            ctx.textBaseline = 'middle'
-            ctx.fillText(school.short, 0, 0)
-          }
-          ctx.restore()
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.rotate(body.angle)
+
+        if (img) {
+          ctx.beginPath()
+          ctx.arc(0, 0, radius, 0, Math.PI * 2)
+          ctx.fillStyle = '#f8f3ea'
+          ctx.fill()
+
+          ctx.beginPath()
+          ctx.arc(0, 0, radius, 0, Math.PI * 2)
+          ctx.clip()
+          ctx.drawImage(img, -radius, -radius, radius * 2, radius * 2)
+
+          ctx.strokeStyle = 'rgba(52, 45, 39, 0.12)'
+          ctx.lineWidth = 1
+          ctx.stroke()
+        } else {
+          ctx.beginPath()
+          ctx.arc(0, 0, radius, 0, Math.PI * 2)
+          ctx.fillStyle = school.color
+          ctx.fill()
+          ctx.fillStyle = '#fff'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(school.short, 0, 0)
         }
+        ctx.restore()
       })
     }
   }
