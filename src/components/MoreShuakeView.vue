@@ -164,7 +164,7 @@ onMounted(async () => {
 
 <template>
   <div class="more-shuake-view">
-    <TPageHeader title="刷课中心" @back="emit('back')">
+    <TPageHeader title="学习记录" @back="emit('back')">
       <template #actions>
         <button class="icon-btn" :disabled="refreshing" @click="refreshAll">↻</button>
       </template>
@@ -265,7 +265,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <TEmptyState v-if="loading" type="loading" message="正在加载刷课中心..." />
+      <TEmptyState v-if="loading" type="loading" message="正在加载学习记录..." />
     </div>
   </div>
 </template>

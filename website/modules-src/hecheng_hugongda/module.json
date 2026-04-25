@@ -5,6 +5,7 @@
   "order": 2,
   "key_required": false,
   "entry_path": "index.html",
+  "min_compatible_version": "self",
   "source_dir": "project",
   "release_notes": "合成湖工大模块自动构建包"
 }

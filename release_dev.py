@@ -45,6 +45,7 @@ def run_command(
     cwd: Path | None = None,
     check: bool = False,
     dry_run: bool = False,
+    env: dict[str, str] | None = None,
 ) -> tuple[bool, str, str]:
     if dry_run:
         print("[dry-run]", " ".join(cmd))
@@ -72,6 +73,7 @@ def run_command(
             text=True,
             encoding="utf-8",
             errors="replace",
+            env={**os.environ, **(env or {})},
         )
     except FileNotFoundError:
         err = f"命令不存在或未加入 PATH: {cmd[0]}"
@@ -88,7 +90,7 @@ def run_command(
     return ok, out, err
 
 
-def run_build_check(skip_build: bool, dry_run: bool) -> None:
+def run_build_check(skip_build: bool, dry_run: bool, target_branch: str) -> None:
     if skip_build:
         print("[INFO] 已跳过构建检查（--skip-build）")
         return
@@ -98,6 +100,19 @@ def run_build_check(skip_build: bool, dry_run: bool) -> None:
         preview = "\n".join((out or "").splitlines()[-20:] + (err or "").splitlines()[-20:])
         raise RuntimeError(f"构建失败（npm run build）\n{preview}".strip())
     print("[OK] 构建通过")
+
+    module_channel = "main" if target_branch.strip().lower() == "main" else "dev"
+    print(f"[STEP] 构建网站模块产物（channel={module_channel}）")
+    ok, out, err = run_command(
+        ["node", "scripts/build_website_modules.mjs"],
+        dry_run=dry_run,
+        check=False,
+        env={"MODULE_CHANNEL": module_channel},
+    )
+    if not ok:
+        preview = "\n".join((out or "").splitlines()[-20:] + (err or "").splitlines()[-20:])
+        raise RuntimeError(f"模块产物构建失败（scripts/build_website_modules.mjs）\n{preview}".strip())
+    print("[OK] 模块产物已更新")
 
 
 def collect_excluded_paths() -> list[str]:
@@ -113,7 +128,8 @@ def collect_excluded_paths() -> list[str]:
 
 
 def ensure_origin(remote: str, remote_url: str, dry_run: bool) -> None:
-    ok, out, _ = run_command(["git", "remote", "get-url", remote], dry_run=dry_run)
+    # 读操作在 dry-run 下也直接执行，避免误报需要重建 remote。
+    ok, out, _ = run_command(["git", "remote", "get-url", remote], dry_run=False)
     if ok and out.strip() == remote_url:
         print(f"[OK] {remote} = {remote_url}")
         return
@@ -123,6 +139,11 @@ def ensure_origin(remote: str, remote_url: str, dry_run: bool) -> None:
     if not ok:
         raise RuntimeError(f"设置远端失败: {err}")
     print(f"[OK] 已设置 {remote} = {remote_url}")
+
+
+def get_current_branch(dry_run: bool = False) -> str:
+    ok, out, _ = run_command(["git", "branch", "--show-current"])
+    return out.strip() if ok else ""
 
 
 def has_staged_changes() -> bool:
@@ -253,13 +274,23 @@ def stage_and_commit(message: str, skip_commit: bool, dry_run: bool) -> None:
 
 
 def push(remote: str, branch: str, force: bool, dry_run: bool) -> None:
-    cmd = ["git", "push", "-u", remote, f"HEAD:{branch}"]
+    current_branch = get_current_branch(dry_run=dry_run)
+    set_upstream = bool(current_branch) and current_branch == branch
+
+    if set_upstream:
+        cmd = ["git", "push", "-u", remote, branch]
+    else:
+        # 本地 main 推远端 dev 时，只推送 HEAD，不改本地分支 upstream。
+        cmd = ["git", "push", remote, f"HEAD:{branch}"]
     if force:
         cmd.append("--force")
     ok, out, err = run_command(cmd, dry_run=dry_run)
     if not ok:
         raise RuntimeError(err or out)
-    print(f"[OK] 已推送到 {remote}/{branch}")
+    if set_upstream:
+        print(f"[OK] 已推送到 {remote}/{branch}，并保持 upstream 追踪")
+    else:
+        print(f"[OK] 已将当前 HEAD 推送到 {remote}/{branch}，未修改本地 upstream")
 
 
 def parse_args() -> argparse.Namespace:
@@ -294,6 +325,7 @@ def main() -> int:
     target_branch = args.branch.strip()
     target_is_dev = target_branch.lower() == "dev"
     effective_force = args.force or (target_is_dev and not args.no_force)
+    current_branch = get_current_branch(dry_run=args.dry_run)
 
     message = args.message.strip() or f"chore: 开发分支自动提交 {datetime.now():%Y-%m-%d %H:%M:%S}"
 
@@ -302,6 +334,7 @@ def main() -> int:
     print("=" * 60)
     print(f"project: {PROJECT_DIR}")
     print(f"remote : {args.remote} -> {args.remote_url}")
+    print(f"local  : {current_branch or 'HEAD(detached)'}")
     print(f"branch : {target_branch}")
     print("mode   : no version bump / no tag / no release")
     print(f"build  : {'skip' if args.skip_build else 'npm run build'}")
@@ -309,7 +342,7 @@ def main() -> int:
     print("[INFO] 自动模式：不询问确认，直接执行提交与推送")
 
     try:
-        run_build_check(args.skip_build, args.dry_run)
+        run_build_check(args.skip_build, args.dry_run, target_branch)
         ensure_origin(args.remote, args.remote_url, args.dry_run)
         stage_and_commit(message, args.skip_commit, args.dry_run)
         push(args.remote, target_branch, effective_force, args.dry_run)

@@ -71,6 +71,15 @@ const sanitizeToken = (value, field) => {
   return text
 }
 
+const resolveVersionField = (value, field) => {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text === 'self' || text === '__MODULE_VERSION__') {
+    return MODULE_VERSION
+  }
+  return sanitizeToken(text, field)
+}
+
 const listModuleDirs = () => {
   if (!fs.existsSync(SOURCE_ROOT)) return []
   return fs
@@ -143,6 +152,7 @@ for (const moduleDir of listModuleDirs()) {
   const moduleId = sanitizeToken(meta.id, 'module.id')
   const moduleName = String(meta.name || moduleId).trim() || moduleId
   const entryPath = String(meta.entry_path || 'index.html').trim() || 'index.html'
+  const minCompatibleVersion = resolveVersionField(meta.min_compatible_version, 'module.min_compatible_version')
   const sourceRel = String(meta.source_dir || 'project').trim() || 'project'
   const sourceDir = path.resolve(moduleDir, sourceRel)
   if (!fs.existsSync(sourceDir)) {
@@ -189,6 +199,9 @@ for (const moduleDir of listModuleDirs()) {
     release_notes: String(meta.release_notes || '').trim(),
     open_url: openUrl
   }
+  if (minCompatibleVersion) {
+    manifest.min_compatible_version = minCompatibleVersion
+  }
 
   fs.writeFileSync(path.join(versionDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(moduleRootDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
@@ -200,7 +213,8 @@ for (const moduleDir of listModuleDirs()) {
     key_required: !!meta.key_required,
     order: Number(meta.order || 999),
     icon: String(meta.icon || '').trim(),
-    description: String(meta.description || '').trim()
+    description: String(meta.description || '').trim(),
+    min_compatible_version: minCompatibleVersion
   })
 }
 

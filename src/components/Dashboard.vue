@@ -6,7 +6,18 @@ import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown_text.js'
 import ThemeModuleIcon from './icons/ThemeModuleIcon.vue'
+import LayoutCollisionFxLayer from './LayoutCollisionFxLayer.vue'
+import SortableSurface from './SortableSurface.vue'
 import { readScheduleLockDetail } from '../utils/schedule_prefetch.js'
+import { buildDefaultWorkspaceLayout } from '../config/ui_settings'
+import { cloneWorkspaceLayout, flushUiSettings, useUiSettings } from '../utils/ui_settings'
+import { captureLayoutSlotAnchors, moveLayoutItemToIndex, resolveLayoutSlotTarget } from '../utils/layout_drag.js'
+import {
+  advanceLayoutCollisionFx,
+  createLayoutCollisionBurst,
+  resolveCollisionPalette,
+  resolveRelativeCollisionPoint
+} from '../utils/layout_collision_fx.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -20,7 +31,9 @@ const props = defineProps({
   noticeList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice'])
+const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice', 'openSettings'])
+
+const uiSettings = useUiSettings()
 
 const brokenImages = ref(new Set())
 const cardListeners = []
@@ -61,6 +74,8 @@ const JWXT_MODULE_ALLOWLIST = new Set([
 ])
 const loginMethod = ref('')
 const isChaoxingMethod = (value) => String(value || '').trim().startsWith('chaoxing')
+const HOME_LAYOUT_LONG_PRESS_MS = 380
+const HOME_LAYOUT_LONG_PRESS_DISTANCE = 14
 
 const refreshLoginMethod = () => {
   loginMethod.value = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
@@ -578,7 +593,34 @@ const modules = computed(() => {
   if (!isChaoxingMethod(loginMethod.value)) return baseModules
   return baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
 })
+const homeWorkspaceRef = ref(null)
+const isHomeLayoutEditing = ref(false)
+const draftHomeWidgetsOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceLayout).home.widgetsOrder])
+const draftHomeModuleOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceLayout).home.moduleOrder])
+const activeHomeDragSection = ref('')
+const hoverLayoutKey = ref('')
+const orderedModules = computed(() => {
+  const currentOrder = isHomeLayoutEditing.value
+    ? draftHomeModuleOrder.value
+    : uiSettings.workspaceLayout.home.moduleOrder
+  const moduleMap = new Map(modules.value.map((item) => [item.id, item]))
+  return currentOrder
+    .map((key) => moduleMap.get(key))
+    .filter(Boolean)
+})
+const homeWidgetOrder = computed(() =>
+  isHomeLayoutEditing.value ? draftHomeWidgetsOrder.value : uiSettings.workspaceLayout.home.widgetsOrder
+)
 const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
+const homeCollisionFx = ref([])
+
+let homeLayoutLongPressTimer = null
+let homeLayoutPointerStart = { x: 0, y: 0 }
+let suppressModuleClickUntil = 0
+let homeDragAnchors = []
+let homeDragTargetIndex = -1
+let homeCollisionFxRaf = 0
+let homeCollisionFxLastTs = 0
 
 const navigateTo = (moduleId) => {
   const module = modules.value.find((m) => m.id === moduleId)
@@ -587,6 +629,191 @@ const navigateTo = (moduleId) => {
     return
   }
   emit('navigate', moduleId)
+}
+
+const syncHomeLayoutDraft = () => {
+  const snapshot = cloneWorkspaceLayout(uiSettings.workspaceLayout)
+  draftHomeWidgetsOrder.value = [...snapshot.home.widgetsOrder]
+  draftHomeModuleOrder.value = [...snapshot.home.moduleOrder]
+}
+
+const getModuleCardStyle = (module) => {
+  return {
+    '--accent-color': module.color
+  }
+}
+
+const getHomeCollisionPalette = (section, activeKey, targetKey = '') => {
+  if (section === 'modules') {
+    const moduleMap = new Map(modules.value.map((item) => [item.id, item]))
+    return resolveCollisionPalette(
+      moduleMap.get(activeKey)?.color,
+      moduleMap.get(targetKey)?.color,
+      '#8fd6ff'
+    )
+  }
+  const widgetPalette = {
+    module_grid: ['#5b8cff', '#7c3aed', '#c4b5fd'],
+    today_panel: ['#22c55e', '#38bdf8', '#bef264']
+  }
+  return resolveCollisionPalette(widgetPalette[activeKey], widgetPalette[targetKey], '#8fd6ff')
+}
+
+const stopHomeCollisionFxLoop = () => {
+  if (homeCollisionFxRaf) {
+    cancelAnimationFrame(homeCollisionFxRaf)
+    homeCollisionFxRaf = 0
+  }
+  homeCollisionFxLastTs = 0
+}
+
+const tickHomeCollisionFx = (timestamp) => {
+  const previousTs = homeCollisionFxLastTs || timestamp
+  homeCollisionFxLastTs = timestamp
+  homeCollisionFx.value = advanceLayoutCollisionFx(homeCollisionFx.value, timestamp - previousTs)
+  if (homeCollisionFx.value.length === 0) {
+    stopHomeCollisionFxLoop()
+    return
+  }
+  homeCollisionFxRaf = requestAnimationFrame(tickHomeCollisionFx)
+}
+
+const ensureHomeCollisionFxLoop = () => {
+  if (homeCollisionFxRaf) return
+  homeCollisionFxLastTs = performance.now()
+  homeCollisionFxRaf = requestAnimationFrame(tickHomeCollisionFx)
+}
+
+const spawnHomeCollisionFx = (section, activeKey, target) => {
+  const root = homeWorkspaceRef.value
+  const rootRect = root?.getBoundingClientRect?.()
+  if (!rootRect || !target?.rect) return
+  const sourceRect = homeDragAnchors.find((item) => item.id === activeKey)?.rect || null
+  const origin = resolveRelativeCollisionPoint({
+    rootRect,
+    sourceRect,
+    targetRect: target.rect
+  })
+  const burst = createLayoutCollisionBurst({
+    x: origin.x,
+    y: origin.y,
+    colors: getHomeCollisionPalette(section, activeKey, target.id)
+  })
+  homeCollisionFx.value = [...homeCollisionFx.value.slice(-48), ...burst]
+  ensureHomeCollisionFxLoop()
+}
+
+const stopHomeLayoutDrag = () => {
+  activeHomeDragSection.value = ''
+  hoverLayoutKey.value = ''
+  homeDragAnchors = []
+  homeDragTargetIndex = -1
+}
+
+const enterHomeLayoutEdit = () => {
+  if (!isHomeLayoutEditing.value) {
+    syncHomeLayoutDraft()
+    isHomeLayoutEditing.value = true
+    suppressModuleClickUntil = Date.now() + 180
+  }
+}
+
+const cancelHomeLayoutEdit = () => {
+  stopHomeLayoutDrag()
+  syncHomeLayoutDraft()
+  isHomeLayoutEditing.value = false
+}
+
+const resetHomeLayoutEdit = () => {
+  const defaults = buildDefaultWorkspaceLayout()
+  draftHomeWidgetsOrder.value = [...defaults.home.widgetsOrder]
+  draftHomeModuleOrder.value = [...defaults.home.moduleOrder]
+  showToast('首页布局已恢复默认。', 'success')
+}
+
+const saveHomeLayoutEdit = () => {
+  const nextLayout = cloneWorkspaceLayout(uiSettings.workspaceLayout)
+  nextLayout.home.widgetsOrder = [...draftHomeWidgetsOrder.value]
+  nextLayout.home.moduleOrder = [...draftHomeModuleOrder.value]
+  uiSettings.workspaceLayout = nextLayout
+  flushUiSettings()
+  stopHomeLayoutDrag()
+  isHomeLayoutEditing.value = false
+  showToast('首页布局已保存。', 'success')
+}
+
+const handleHomeDragStart = ({ section, id }) => {
+  const activeSection = String(section || '')
+  const activeId = String(id || '')
+  activeHomeDragSection.value = activeSection
+  hoverLayoutKey.value = activeId
+  homeDragAnchors = captureLayoutSlotAnchors(homeWorkspaceRef.value, activeSection)
+  homeDragTargetIndex = homeDragAnchors.find((item) => item.id === activeId)?.index ?? -1
+}
+
+const reorderDraftHomeLayout = (section, activeKey, targetIndex) => {
+  if (!activeKey || !Number.isFinite(Number(targetIndex))) return
+  if (section === 'widgets') {
+    draftHomeWidgetsOrder.value = moveLayoutItemToIndex(draftHomeWidgetsOrder.value, activeKey, targetIndex)
+    return
+  }
+  draftHomeModuleOrder.value = moveLayoutItemToIndex(draftHomeModuleOrder.value, activeKey, targetIndex)
+}
+
+const handleHomeDragMove = ({ id, section, point }) => {
+  if (!isHomeLayoutEditing.value) return
+  const activeId = String(id || '').trim()
+  const activeSection = String(section || '').trim()
+  if (!activeId || !point || activeSection !== activeHomeDragSection.value) return
+  const target = resolveLayoutSlotTarget(homeDragAnchors, point)
+  if (!target || homeDragTargetIndex === target.index) return
+  spawnHomeCollisionFx(activeSection, activeId, target)
+  homeDragTargetIndex = target.index
+  hoverLayoutKey.value = target.id
+  reorderDraftHomeLayout(activeSection, activeId, target.index)
+}
+
+const clearHomeLayoutLongPress = () => {
+  if (homeLayoutLongPressTimer) {
+    window.clearTimeout(homeLayoutLongPressTimer)
+    homeLayoutLongPressTimer = null
+  }
+}
+
+const isTouchPointerEvent = (event) => String(event?.pointerType || '').toLowerCase() === 'touch'
+
+const handleHomeLayoutPressStart = (event) => {
+  if (isHomeLayoutEditing.value) return
+  if (!isTouchPointerEvent(event)) return
+  clearHomeLayoutLongPress()
+  homeLayoutPointerStart = {
+    x: Number(event.clientX || 0),
+    y: Number(event.clientY || 0)
+  }
+  homeLayoutLongPressTimer = window.setTimeout(() => {
+    suppressModuleClickUntil = Date.now() + 420
+    enterHomeLayoutEdit()
+    clearHomeLayoutLongPress()
+  }, HOME_LAYOUT_LONG_PRESS_MS)
+}
+
+const handleHomeLayoutPressMove = (event) => {
+  if (!homeLayoutLongPressTimer || !isTouchPointerEvent(event)) return
+  const deltaX = Math.abs(Number(event.clientX || 0) - homeLayoutPointerStart.x)
+  const deltaY = Math.abs(Number(event.clientY || 0) - homeLayoutPointerStart.y)
+  if (deltaX > HOME_LAYOUT_LONG_PRESS_DISTANCE || deltaY > HOME_LAYOUT_LONG_PRESS_DISTANCE) {
+    clearHomeLayoutLongPress()
+  }
+}
+
+const handleHomeLayoutPressEnd = () => {
+  clearHomeLayoutLongPress()
+}
+
+const handleModuleCardClick = (moduleId) => {
+  if (isHomeLayoutEditing.value) return
+  if (Date.now() < suppressModuleClickUntil) return
+  navigateTo(moduleId)
 }
 
 const handleProfileClick = () => {
@@ -887,6 +1114,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   detachCardSpotlight()
   stopTickerLoop()
+  clearHomeLayoutLongPress()
+  stopHomeLayoutDrag()
+  stopHomeCollisionFxLoop()
   if (clockTimer) {
     window.clearInterval(clockTimer)
     clockTimer = null
@@ -923,6 +1153,19 @@ watch(
   },
   { immediate: true }
 )
+
+watch(
+  () => [
+    uiSettings.workspaceLayout.home.widgetsOrder.join('|'),
+    uiSettings.workspaceLayout.home.moduleOrder.join('|')
+  ],
+  () => {
+    if (!isHomeLayoutEditing.value) {
+      syncHomeLayoutDraft()
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -944,13 +1187,23 @@ watch(
           </svg>
           {{ studentId || '未登录' }}
         </button>
-        <button class="share-btn btn-ripple" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L9.5 6.42" />
-            <path d="M14 11a5 5 0 0 0-7.07 0L4.8 13.12a5 5 0 0 0 7.07 7.07l2.62-2.62" />
-          </svg>
-        </button>
-        <button v-if="isLoggedIn" class="logout-btn btn-ripple" @click="$emit('logout')" title="退出登录">退出</button>
+        <div class="home-header-actions">
+          <button
+            class="layout-btn btn-ripple"
+            :class="{ active: isHomeLayoutEditing }"
+            @click="enterHomeLayoutEdit"
+            :title="isHomeLayoutEditing ? '正在编辑首页布局' : '配置首页布局'"
+          >
+            {{ isHomeLayoutEditing ? '编辑中' : '配置' }}
+          </button>
+          <button class="share-btn btn-ripple" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L9.5 6.42" />
+              <path d="M14 11a5 5 0 0 0-7.07 0L4.8 13.12a5 5 0 0 0 7.07 7.07l2.62-2.62" />
+            </svg>
+          </button>
+          <button v-if="isLoggedIn" class="logout-btn btn-ripple" @click="$emit('logout')" title="退出登录">退出</button>
+        </div>
       </div>
     </header>
 
@@ -1005,52 +1258,107 @@ watch(
       <div class="maintenance-text">当前已开放教务模块 + 图书查询 + 校园地图 + 资料分享。</div>
     </section>
 
-    <!-- 模块卡片 -->
-    <div class="module-grid">
-      <div 
-        v-for="mod in modules" 
-        :key="mod.id"
-        class="module-card"
-        :class="{ disabled: !mod.available }"
-        :style="{ '--accent-color': mod.color }"
-        @click="mod.available && navigateTo(mod.id)"
-      >
-        <div class="module-icon" aria-hidden="true">
-          <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="46" :icon-size="22" />
-        </div>
-        <div class="module-name">{{ mod.name }}</div>
-        <div v-if="!mod.available" class="coming-soon">即将上线</div>
+    <div v-if="isHomeLayoutEditing" class="home-layout-toolbar home-layout-toolbar--floating glass-card">
+      <strong>首页布局编辑</strong>
+      <div class="home-layout-toolbar__actions">
+        <button type="button" class="toolbar-btn ghost" @click="cancelHomeLayoutEdit">取消</button>
+        <button type="button" class="toolbar-btn ghost" @click="resetHomeLayoutEdit">恢复默认</button>
+        <button type="button" class="toolbar-btn primary" @click="saveHomeLayoutEdit">完成</button>
       </div>
     </div>
 
-    <!-- 页脚 -->
-    <section class="today-panel">
-      <div class="today-panel-head">
-        <h3 class="today-title">{{ todayBlockTitle }}</h3>
-        <span class="today-time">{{ currentTimeText }}</span>
-      </div>
+    <section
+      ref="homeWorkspaceRef"
+      class="home-workspace"
+      :class="{ 'home-workspace--editing': isHomeLayoutEditing }"
+      @pointerdown.passive="handleHomeLayoutPressStart"
+      @pointermove.passive="handleHomeLayoutPressMove"
+      @pointerup.passive="handleHomeLayoutPressEnd"
+      @pointercancel.passive="handleHomeLayoutPressEnd"
+      @pointerleave.passive="handleHomeLayoutPressEnd"
+    >
+      <LayoutCollisionFxLayer :items="homeCollisionFx" />
 
-      <div v-if="!isLoggedIn" class="today-empty">登录后可查看今日课程</div>
-      <div v-else-if="todayLoading" class="today-empty">正在加载今日课程...</div>
-      <div v-else-if="todayError" class="today-empty today-error">{{ todayError }}</div>
-      <div v-else-if="timelineCourses.length === 0" class="today-empty">今日课程已上完</div>
+      <TransitionGroup name="workspace-stack" tag="div" class="home-workspace-stack">
+        <SortableSurface
+          v-for="widgetKey in homeWidgetOrder"
+          :key="widgetKey"
+          :id="widgetKey"
+          group="home-widgets"
+          section="widgets"
+          :tag="widgetKey === 'module_grid' ? 'div' : 'section'"
+          :editing="isHomeLayoutEditing"
+          :surface-class="[
+            'workspace-widget',
+            widgetKey === 'module_grid' ? 'workspace-widget--modules' : 'workspace-widget--today today-panel'
+          ]"
+          @drag-start="handleHomeDragStart"
+          @drag-move="handleHomeDragMove"
+          @drag-end="stopHomeLayoutDrag"
+        >
+          <template v-if="widgetKey === 'module_grid'">
+            <TransitionGroup name="workspace-module" tag="div" class="module-grid">
+              <SortableSurface
+                v-for="mod in orderedModules"
+                :key="mod.id"
+                :id="mod.id"
+                group="home-modules"
+                section="modules"
+                :editing="isHomeLayoutEditing"
+                :surface-class="[
+                  'module-card',
+                  {
+                    disabled: !mod.available,
+                    'module-card--over': activeHomeDragSection === 'modules' && hoverLayoutKey === mod.id
+                  }
+                ]"
+                :surface-style="getModuleCardStyle(mod)"
+                @click="mod.available && handleModuleCardClick(mod.id)"
+                @drag-start="handleHomeDragStart"
+                @drag-move="handleHomeDragMove"
+                @drag-end="stopHomeLayoutDrag"
+              >
+                <div class="module-card__inner">
+                  <div class="module-icon" aria-hidden="true">
+                    <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="46" :icon-size="22" />
+                  </div>
+                  <div class="module-name">{{ mod.name }}</div>
+                </div>
+                <div v-if="!mod.available" class="coming-soon">即将上线</div>
+              </SortableSurface>
+            </TransitionGroup>
+          </template>
 
-      <div v-else class="today-timeline">
-        <div v-for="course in timelineCourses" :key="course.key" class="today-item">
-          <div class="today-item-time">{{ course.start }}</div>
-          <div class="today-item-line">
-            <span class="today-item-dot"></span>
-          </div>
-          <div class="today-item-main">
-            <div class="today-item-name">{{ course.name }}</div>
-            <div class="today-item-meta today-item-meta--location">
-              <span class="today-meta-label">上课地点：</span>
-              <span class="today-room-pill">{{ course.room }}</span>
+          <template v-else>
+            <div class="today-panel-head">
+              <h3 class="today-title">{{ todayBlockTitle }}</h3>
+              <span class="today-time">{{ currentTimeText }}</span>
             </div>
-            <div class="today-item-meta">授课教师：{{ course.teacher }}</div>
-          </div>
-        </div>
-      </div>
+
+            <div v-if="!isLoggedIn" class="today-empty">登录后可查看今日课程</div>
+            <div v-else-if="todayLoading" class="today-empty">正在加载今日课程...</div>
+            <div v-else-if="todayError" class="today-empty today-error">{{ todayError }}</div>
+            <div v-else-if="timelineCourses.length === 0" class="today-empty">今日课程已上完</div>
+
+            <div v-else class="today-timeline">
+              <div v-for="course in timelineCourses" :key="course.key" class="today-item">
+                <div class="today-item-time">{{ course.start }}</div>
+                <div class="today-item-line">
+                  <span class="today-item-dot"></span>
+                </div>
+                <div class="today-item-main">
+                  <div class="today-item-name">{{ course.name }}</div>
+                  <div class="today-item-meta today-item-meta--location">
+                    <span class="today-meta-label">上课地点：</span>
+                    <span class="today-room-pill">{{ course.room }}</span>
+                  </div>
+                  <div class="today-item-meta">授课教师：{{ course.teacher }}</div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </SortableSurface>
+      </TransitionGroup>
     </section>
 
   </div>
@@ -1146,6 +1454,13 @@ html[data-theme='cyberpunk'] .dashboard > * {
   gap: 10px;
 }
 
+.home-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -1224,6 +1539,7 @@ html[data-theme='cyberpunk'] .dashboard > * {
   stroke-linejoin: round;
 }
 
+.layout-btn,
 .logout-btn {
   min-width: 68px;
   height: 36px;
@@ -1234,6 +1550,23 @@ html[data-theme='cyberpunk'] .dashboard > * {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.layout-btn {
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
+  color: var(--ui-text);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
+}
+
+.layout-btn.active,
+.layout-btn:hover {
+  background: color-mix(in oklab, var(--ui-primary) 20%, #fff 80%);
+}
+
+.layout-btn.active {
+  color: #ffffff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
 }
 
 .share-btn {
@@ -1254,6 +1587,168 @@ html[data-theme='cyberpunk'] .dashboard > * {
 .logout-btn:hover {
   background: #dc2626;
   color: white;
+}
+
+.home-workspace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.home-workspace--editing {
+  gap: 18px;
+}
+
+.home-workspace-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.home-layout-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(255, 255, 255, 0.32));
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.74), rgba(240, 246, 255, 0.5)),
+    radial-gradient(circle at top right, color-mix(in oklab, var(--ui-primary) 18%, transparent), transparent 58%);
+  box-shadow:
+    0 18px 42px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(20px) saturate(1.12);
+  -webkit-backdrop-filter: blur(20px) saturate(1.12);
+}
+
+.home-layout-toolbar strong {
+  flex: 0 1 auto;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ui-text);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.home-layout-toolbar--floating {
+  position: fixed;
+  top: calc(84px + env(safe-area-inset-top));
+  right: clamp(12px, 3vw, 24px);
+  z-index: 48;
+  width: min(360px, calc(100vw - 24px));
+  pointer-events: auto;
+}
+
+.home-layout-toolbar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.toolbar-btn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(255, 255, 255, 0.4));
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease, opacity 0.22s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.toolbar-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px color-mix(in oklab, var(--ui-primary) 14%, transparent);
+}
+
+.toolbar-btn.ghost {
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-primary-soft) 46%, #fff 54%);
+}
+
+.toolbar-btn.primary {
+  color: #ffffff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+}
+
+.workspace-widget {
+  --drag-translate-x: 0px;
+  --drag-translate-y: 0px;
+  position: relative;
+  --edit-pointer-x: 50%;
+  --edit-pointer-y: 50%;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.28s ease,
+    filter 0.28s ease,
+    opacity 0.22s ease;
+}
+
+.workspace-widget.editing {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.workspace-widget.editing:not(.dragging) {
+  animation: workspace-panel-float 2.8s ease-in-out infinite;
+}
+
+.workspace-widget.editing::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 30px;
+  border: 1px dashed color-mix(in oklab, var(--ui-primary) 28%, rgba(255, 255, 255, 0.14));
+  background:
+    radial-gradient(circle at var(--edit-pointer-x) var(--edit-pointer-y), rgba(255, 255, 255, 0.26), transparent 56%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+  pointer-events: none;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+}
+
+.workspace-widget.dragging {
+  z-index: 6;
+  cursor: grabbing;
+  pointer-events: none;
+  transform:
+    translate3d(var(--drag-translate-x), var(--drag-translate-y), 0)
+    scale(1.015)
+    rotate(0.35deg);
+  filter: saturate(1.06) brightness(1.02);
+}
+
+.workspace-widget.dragging::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 32px;
+  background:
+    linear-gradient(112deg, transparent 10%, rgba(255, 255, 255, 0.14) 34%, transparent 58%);
+  pointer-events: none;
+  animation: workspace-drag-sheen 1.12s linear infinite;
+}
+
+.workspace-widget.drop-target::before {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--ui-primary) 40%, rgba(255, 255, 255, 0.34));
+  box-shadow:
+    0 22px 42px color-mix(in oklab, var(--ui-primary) 14%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--ui-primary) 22%, transparent);
+  animation: workspace-target-pulse 1.05s ease-in-out infinite;
 }
 
 /* 模块网格 */
@@ -1409,13 +1904,17 @@ html[data-theme='graphite_night'] .ticker-card-sub {
 }
 
 .module-card {
+  --drag-translate-x: 0px;
+  --drag-translate-y: 0px;
+  --edit-pointer-x: 50%;
+  --edit-pointer-y: 50%;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.86));
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   padding: 6px 9px 6px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, filter 0.28s ease, opacity 0.28s ease, background 0.28s ease, border-color 0.28s ease;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
   position: relative;
   overflow: hidden;
@@ -1425,6 +1924,73 @@ html[data-theme='graphite_night'] .ticker-card-sub {
   justify-content: center;
   align-items: center;
   gap: 4px;
+  will-change: transform, box-shadow, filter;
+}
+
+.module-card__inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.module-card.editing {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  opacity: 0.92;
+  border-color: rgba(148, 163, 184, 0.18);
+  background:
+    radial-gradient(circle at var(--edit-pointer-x) var(--edit-pointer-y), rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.08) 56%, transparent 76%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.78), rgba(240, 246, 255, 0.62));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 18px 34px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.module-card.editing:not(.dragging) .module-card__inner {
+  animation: workspace-card-float 2.6s ease-in-out infinite;
+}
+
+.module-card.dragging {
+  z-index: 7;
+  cursor: grabbing;
+  pointer-events: none;
+  opacity: 1;
+  transform:
+    translate3d(var(--drag-translate-x), var(--drag-translate-y), 0)
+    scale(1.08)
+    rotate(0.8deg);
+  box-shadow:
+    0 28px 46px rgba(15, 23, 42, 0.22),
+    0 0 0 1px color-mix(in oklab, var(--accent-color) 18%, rgba(255, 255, 255, 0.4));
+  filter: saturate(1.08) brightness(1.03);
+}
+
+.module-card.dragging::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  background:
+    linear-gradient(116deg, transparent 10%, rgba(255, 255, 255, 0.22) 36%, transparent 62%);
+  pointer-events: none;
+  animation: module-card-sheen 1s linear infinite;
+}
+
+.module-card.drop-target {
+  opacity: 1;
+  border-color: color-mix(in oklab, var(--accent-color) 22%, rgba(148, 163, 184, 0.22));
+  box-shadow:
+    0 22px 34px color-mix(in oklab, var(--accent-color) 16%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: translate3d(0, -2px, 0) scale(1.04);
+  animation: module-card-target-pulse 1.04s ease-in-out infinite;
 }
 
 html[data-theme='cyberpunk'] .module-card {
@@ -1543,6 +2109,108 @@ html[data-theme='minimal'] .logout-btn {
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.12);
 }
 
+.module-card.editing:hover:not(.disabled) {
+  transform: translate3d(0, -4px, 0) scale(1.01);
+  box-shadow: 0 20px 34px rgba(15, 23, 42, 0.14);
+}
+
+@keyframes workspace-card-float {
+  0%,
+  100% {
+    transform: translate3d(0, -2px, 0);
+  }
+  50% {
+    transform: translate3d(0, 4px, 0);
+  }
+}
+
+@keyframes workspace-panel-float {
+  0%,
+  100% {
+    transform: translate3d(0, -1px, 0);
+  }
+  50% {
+    transform: translate3d(0, 6px, 0);
+  }
+}
+
+@keyframes workspace-drag-sheen {
+  0% {
+    transform: translate3d(-28%, 0, 0);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate3d(28%, 0, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes workspace-target-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 22px 42px color-mix(in oklab, var(--ui-primary) 14%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--ui-primary) 22%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 26px 50px color-mix(in oklab, var(--ui-primary) 20%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  }
+}
+
+@keyframes module-card-sheen {
+  0% {
+    transform: translate3d(-32%, 0, 0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translate3d(32%, 0, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes module-card-target-pulse {
+  0%,
+  100% {
+    transform: translate3d(0, -2px, 0) scale(1.04);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0) scale(1.052);
+  }
+}
+
+.workspace-stack-move,
+.workspace-module-move {
+  transition:
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.workspace-stack-enter-active,
+.workspace-stack-leave-active,
+.workspace-module-enter-active,
+.workspace-module-leave-active {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.workspace-stack-enter-from,
+.workspace-stack-leave-to,
+.workspace-module-enter-from,
+.workspace-module-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+
 .module-card.disabled {
   opacity: 0.65;
   cursor: not-allowed;
@@ -1594,13 +2262,18 @@ html[data-theme='minimal'] .logout-btn {
 }
 
 .today-panel {
+  width: min(100%, 980px);
   max-width: 980px;
-  margin: 26px auto 0;
+  margin: 0 auto;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(148, 163, 184, 0.26);
   border-radius: 22px;
   box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
   padding: 22px 20px;
+}
+
+.workspace-widget--today {
+  width: 100%;
 }
 
 html[data-theme='cyberpunk'] .today-panel {
@@ -1792,6 +2465,28 @@ html[data-theme='cyberpunk'] .today-room-pill {
 }
 
 @media (max-width: 720px) {
+  .home-layout-toolbar {
+    width: auto;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .home-layout-toolbar--floating {
+    top: calc(74px + env(safe-area-inset-top));
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+
+  .home-layout-toolbar__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .toolbar-btn {
+    flex: 1 1 0;
+  }
+
   .dashboard-header--home {
     gap: 8px;
   }
@@ -1799,6 +2494,10 @@ html[data-theme='cyberpunk'] .today-room-pill {
   .home-header-top,
   .home-header-bottom {
     gap: 8px;
+  }
+
+  .home-header-actions {
+    gap: 6px;
   }
 
   .brand .title {
@@ -1871,13 +2570,18 @@ html[data-theme='cyberpunk'] .today-room-pill {
     padding: 0 10px;
   }
 
+  .layout-btn,
+  .logout-btn {
+    min-width: 56px;
+    padding: 0 10px;
+  }
+
   .logout-btn {
     min-width: 60px;
     padding: 0 10px;
   }
 
   .today-panel {
-    margin-top: 20px;
     padding: 14px 12px;
   }
 
@@ -1924,6 +2628,10 @@ html[data-theme='cyberpunk'] .today-room-pill {
 
   .module-icon {
     transform: scale(0.88);
+  }
+
+  .home-layout-toolbar--floating {
+    top: calc(68px + env(safe-area-inset-top));
   }
 }
 

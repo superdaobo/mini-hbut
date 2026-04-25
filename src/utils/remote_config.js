@@ -26,7 +26,7 @@ const DEFAULT_MODULE_CENTER = Object.freeze({
   modules: [
     {
       id: 'shuake',
-      name: '刷课',
+      name: '学习记录',
       icon: '🔐',
       description: '在线学习入口、数据同步与同步记录',
       key_required: true,

@@ -1891,6 +1891,14 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
 
 #[tauri::command]
 async fn fetch_remote_json(url: String) -> Result<serde_json::Value, String> {
+    if let Some(local_file) = modules::module_bundle::resolve_local_dev_module_file_from_url(&url) {
+        let text = tokio::fs::read_to_string(&local_file)
+            .await
+            .map_err(|e| format!("读取本地模块 JSON 失败: {} ({})", e, local_file.display()))?;
+        return serde_json::from_str(&text)
+            .map_err(|e| format!("解析本地模块 JSON 失败: {} ({})", e, local_file.display()));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()

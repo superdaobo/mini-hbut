@@ -35,6 +35,17 @@ const completeState = async (payload) => {
   await invokeNative('complete_debug_state', { payload })
 }
 
+const readStoredModuleHostSession = () => {
+  try {
+    const raw = localStorage.getItem(MODULE_HOST_SESSION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export const initDebugBridgeClient = async () => {
   if (initialized || !isTauriRuntime()) return
   const eventApi = await import('@tauri-apps/api/event')
@@ -143,7 +154,8 @@ export const initDebugBridgeClient = async () => {
           href: window.location.href || '',
           title: document.title || '',
           capturedAt: new Date().toISOString(),
-          bootMetrics: getBootMetricsSnapshot()
+          bootMetrics: getBootMetricsSnapshot(),
+          moduleHostSession: readStoredModuleHostSession()
         }
       })
     } catch (error) {

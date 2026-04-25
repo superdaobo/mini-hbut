@@ -28,7 +28,7 @@ const MODULE_CDN_BASE = getModuleCdnBase()
 const DEFAULT_MODULES = Object.freeze([
   {
     id: 'shuake',
-    name: '刷课',
+    name: '学习记录',
     icon: '🔐',
     description: '在线学习入口、数据同步与同步记录',
     key_required: true,
@@ -142,6 +142,28 @@ const resolveGameRankApi = () => {
   return DEFAULT_GAME_RANK_API
 }
 
+const compareModuleVersion = (left, right) => {
+  const a = safeText(left)
+  const b = safeText(right)
+  if (!a && !b) return 0
+  if (!a) return -1
+  if (!b) return 1
+  return a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: 'base'
+  })
+}
+
+const isManifestVersionCompatible = (manifest, minVersion = '') => {
+  const currentVersion = safeText(manifest?.version)
+  const requiredVersion = safeText(minVersion || manifest?.min_compatible_version)
+  if (!requiredVersion) return true
+  if (!currentVersion) return false
+  return compareModuleVersion(currentVersion, requiredVersion) >= 0
+}
+
+const INCOMPATIBLE_CACHE_MESSAGE = '当前缓存版本存在已知布局问题，请联网更新后再打开。'
+
 const appendModuleContextQuery = (moduleId, rawUrl) => {
   const previewUrl = safeText(rawUrl)
   if (!previewUrl || moduleId !== 'hecheng_hugongda') return previewUrl
@@ -177,6 +199,7 @@ const buildCachedManifestSnapshot = (moduleItem) => {
     package_url: packageUrl,
     package_sha256: safeText(local?.package_sha256),
     entry_path: entryPath,
+    min_compatible_version: safeText(local?.min_compatible_version || moduleItem?.min_compatible_version),
     open_url: safeText(local?.preview_url || local?.open_url)
   }
 }
@@ -194,6 +217,7 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest) => {
       module_name: safeText(prepared?.module_name || moduleItem?.name || manifest?.module_name || moduleId),
       preview_url: previewUrl,
       version: safeText(prepared?.version || manifest?.version),
+      min_compatible_version: safeText(prepared?.min_compatible_version || manifest?.min_compatible_version),
       channel: safeText(prepared?.channel || moduleChannel.value),
       local_ready: prepared?.local_ready !== false,
       source: safeText(prepared?.source || ''),
@@ -231,6 +255,7 @@ const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
     kind,
     view,
     order,
+    min_compatible_version: safeText(raw.min_compatible_version || raw.minCompatibleVersion),
     manifest_url: kind === 'remote' ? manifestUrl || buildDefaultManifestUrl(channel, id) : ''
   }
 }
@@ -476,6 +501,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
         cachedManifest &&
         cachedVersion &&
         cachedVersion === remoteVersion &&
+        isManifestVersionCompatible(cachedManifest, remoteManifest.min_compatible_version) &&
         (!remoteSha || !cachedSha || cachedSha === remoteSha)
 
       if (canUseCache) {
@@ -506,6 +532,9 @@ const handleOpenRemoteModule = async (moduleItem) => {
     }
 
     if (cachedManifest) {
+      if (!isManifestVersionCompatible(cachedManifest, moduleItem?.min_compatible_version)) {
+        throw new Error(INCOMPATIBLE_CACHE_MESSAGE)
+      }
       await openPreparedModule(cachedManifest, '线上检查失败，回退本地缓存')
       return
     }
@@ -663,8 +692,8 @@ onMounted(async () => {
 
     <div v-if="showBrushKeyDialog" class="daily-key-overlay" @click.self="closeBrushKeyDialog">
       <div class="daily-key-dialog">
-        <h3>刷课模块秘钥</h3>
-        <p>请输入今日秘钥后进入刷课中心。</p>
+        <h3>学习记录模块秘钥</h3>
+        <p>请输入今日秘钥后进入学习记录。</p>
         <input
           v-model="brushKeyInput"
           type="text"

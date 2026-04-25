@@ -4,6 +4,7 @@ import axios from 'axios'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
+import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
 import { fetchWithCache } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
@@ -281,6 +282,7 @@ const buildModuleHostSession = (payload = {}) => {
     module_name: String(raw.module_name || raw.moduleName || '').trim(),
     preview_url: String(raw.preview_url || raw.previewUrl || '').trim(),
     version: String(raw.version || '').trim(),
+    min_compatible_version: String(raw.min_compatible_version || raw.minCompatibleVersion || '').trim(),
     channel: String(raw.channel || 'main').trim() || 'main',
     local_ready: raw.local_ready !== false,
     source: String(raw.source || '').trim(),
@@ -318,6 +320,8 @@ const userUuid = ref('')
 const currentModule = ref(initialModule)
 const moduleHostSession = ref(readModuleHostSession())
 const viewRenderNonce = ref(0)
+const showWorkspaceLayoutEditor = ref(false)
+const workspaceLayoutEditorTab = ref('home')
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
 const showSplash = ref(useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot)
@@ -783,7 +787,7 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
   const targetViewRaw = normalizeViewName(
     resolved?.view || resolved?.module || resolved?.tab || currentView.value
   )
-  if (targetViewRaw === 'more_module_host' && !moduleHostSession.value.preview_url) {
+  if (targetViewRaw === 'more_module_host') {
     moduleHostSession.value = readModuleHostSession()
   }
   const targetView =
@@ -1410,6 +1414,15 @@ const handleOpenConfig = () => {
 
 const handleOpenSettings = () => {
   goToView('settings')
+}
+
+const openWorkspaceLayoutEditor = (tab = 'home') => {
+  workspaceLayoutEditorTab.value = tab === 'notifications' ? 'notifications' : 'home'
+  showWorkspaceLayoutEditor.value = true
+}
+
+const closeWorkspaceLayoutEditor = () => {
+  showWorkspaceLayoutEditor.value = false
 }
 
 // 检查更新
@@ -2184,6 +2197,7 @@ onBeforeUnmount(() => {
         @logout="handleLogout"
         @require-login="handleRequireLogin"
         @open-notice="openAnnouncement"
+        @openSettings="openWorkspaceLayoutEditor('home')"
       />
 
       <!-- 课表（Tab） -->
@@ -2247,6 +2261,7 @@ onBeforeUnmount(() => {
       <SettingsView
         v-else-if="currentView === 'settings'"
         @back="handleBackToMe"
+        @openWorkspaceLayout="openWorkspaceLayoutEditor"
       />
 
       <ExportCenterView
@@ -2327,6 +2342,7 @@ onBeforeUnmount(() => {
         v-else-if="currentView === 'notifications'"
         :student-id="studentId"
         @back="handleBackToDashboard"
+        @openWorkspaceLayout="openWorkspaceLayoutEditor('notifications')"
       />
 
       <!-- 空教室查询 -->
@@ -2577,6 +2593,11 @@ onBeforeUnmount(() => {
   </div>
     
   <!-- 全局提示 -->
+  <WorkspaceLayoutEditor
+    :visible="showWorkspaceLayoutEditor"
+    :initial-tab="workspaceLayoutEditorTab"
+    @close="closeWorkspaceLayoutEditor"
+  />
   <Toast />
 </template>
 

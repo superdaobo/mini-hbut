@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-04-21T09:40:27.740Z",
+  "generated_at": "2026-04-25T16:39:06.980Z",
   "channel": "main",
   "modules": [
     {
@@ -10,7 +10,8 @@
       "key_required": false,
       "order": 2,
       "icon": "🎮",
-      "description": ""
+      "description": "",
+      "min_compatible_version": "20260425163856-local"
     },
     {
       "id": "hugongda_escape",
@@ -19,7 +20,8 @@
       "key_required": false,
       "order": 3,
       "icon": "🧭",
-      "description": ""
+      "description": "",
+      "min_compatible_version": ""
     }
   ]
 }

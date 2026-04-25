@@ -1,4 +1,5 @@
 :root {
+  --page-safe-bottom: calc(18px + env(safe-area-inset-bottom));
   --page-bg:
     radial-gradient(circle at top, rgba(245, 235, 214, 0.78), transparent 38%),
     linear-gradient(180deg, #ebe4d5 0%, #d9e1dc 48%, #c4d1d5 100%);
@@ -33,7 +34,8 @@ body {
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: var(--page-bg);
   color: var(--text-main);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 button,
@@ -44,7 +46,12 @@ textarea {
 
 .game-container {
   min-height: 100vh;
-  padding: 14px 12px 18px;
+  min-height: 100dvh;
+  padding: 14px 12px var(--page-safe-bottom);
+}
+
+.game-container--embedded {
+  min-height: 0;
 }
 
 .game-shell {
@@ -188,6 +195,24 @@ textarea {
 .game-area {
   display: flex;
   justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.game-stage-viewport {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.game-stage-scale {
+  position: relative;
+  flex: 0 0 auto;
+  transform-origin: top center;
 }
 
 .game-canvas-wrapper {
@@ -282,6 +307,7 @@ textarea {
 
 .legend-panel {
   padding: 12px 14px;
+  scroll-margin-bottom: var(--page-safe-bottom);
 }
 
 .legend-scroll {
@@ -580,12 +606,18 @@ textarea {
   background: rgba(255, 255, 255, 0.62);
   color: var(--text-soft);
   cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
 }
 
 .scope-tab.active {
   border-color: rgba(41, 107, 115, 0.26);
   background: rgba(41, 107, 115, 0.12);
   color: var(--accent-strong);
+}
+
+.scope-tab.disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .leaderboard-self {
@@ -626,6 +658,40 @@ textarea {
   background: rgba(222, 240, 240, 0.72);
 }
 
+.leaderboard-item--top1,
+.leaderboard-item--top2,
+.leaderboard-item--top3 {
+  position: relative;
+  overflow: hidden;
+}
+
+.leaderboard-item--top1::after,
+.leaderboard-item--top2::after,
+.leaderboard-item--top3::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.26) 48%, transparent 100%);
+  transform: translateX(-115%);
+  animation: leaderboard-sheen 3.8s ease-in-out infinite;
+}
+
+.leaderboard-item--top1 {
+  border-color: rgba(186, 141, 58, 0.34);
+  background: linear-gradient(135deg, rgba(255, 244, 211, 0.88), rgba(255, 251, 240, 0.74));
+}
+
+.leaderboard-item--top2 {
+  border-color: rgba(129, 140, 160, 0.3);
+  background: linear-gradient(135deg, rgba(239, 243, 249, 0.86), rgba(255, 255, 255, 0.74));
+}
+
+.leaderboard-item--top3 {
+  border-color: rgba(176, 116, 73, 0.32);
+  background: linear-gradient(135deg, rgba(252, 236, 223, 0.86), rgba(255, 250, 243, 0.74));
+}
+
 .leaderboard-rank {
   width: 38px;
   height: 38px;
@@ -636,6 +702,24 @@ textarea {
   align-items: center;
   justify-content: center;
   font-weight: 700;
+}
+
+.leaderboard-rank--top1 {
+  background: linear-gradient(135deg, #e8bc57, #f8e2a8);
+  color: #6e4610;
+  box-shadow: 0 10px 20px rgba(191, 145, 52, 0.24);
+}
+
+.leaderboard-rank--top2 {
+  background: linear-gradient(135deg, #b6c1d2, #e6edf7);
+  color: #435066;
+  box-shadow: 0 10px 20px rgba(118, 133, 158, 0.18);
+}
+
+.leaderboard-rank--top3 {
+  background: linear-gradient(135deg, #d79a63, #f1d2b6);
+  color: #724326;
+  box-shadow: 0 10px 20px rgba(178, 120, 78, 0.18);
 }
 
 .leaderboard-main,
@@ -673,9 +757,21 @@ textarea {
   border-color: rgba(153, 58, 46, 0.16);
 }
 
+@keyframes leaderboard-sheen {
+  0%,
+  70%,
+  100% {
+    transform: translateX(-115%);
+  }
+
+  24% {
+    transform: translateX(115%);
+  }
+}
+
 @media (max-width: 560px) {
   .game-container {
-    padding: 10px 10px 14px;
+    padding: 10px 10px var(--page-safe-bottom);
   }
 
   .game-shell {

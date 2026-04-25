@@ -1,8 +1,17 @@
 const DEFAULT_GAME_ID = 'hecheng_hugongda'
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
 const REQUEST_TIMEOUT_MS = 12000
+const MODULE_CONTEXT_STORAGE_KEY = 'hbut_game_rank_context_v1'
 
 const safeText = (value) => String(value ?? '').trim()
+
+const safeParseJson = (raw, fallback = null) => {
+  try {
+    return JSON.parse(raw || '')
+  } catch {
+    return fallback
+  }
+}
 
 const normalizeApiBase = (value) => {
   const text = safeText(value)
@@ -58,20 +67,64 @@ const requestJson = async (url, init = {}) => {
   return parsed
 }
 
+const readStoredContext = () => {
+  const stored = safeParseJson(localStorage.getItem(MODULE_CONTEXT_STORAGE_KEY), null)
+  return stored && typeof stored === 'object' ? stored : {}
+}
+
+const writeStoredContext = (context) => {
+  const next = context && typeof context === 'object' ? context : {}
+  if (
+    !safeText(next.studentId) &&
+    !safeText(next.playerName) &&
+    !safeText(next.className) &&
+    !safeText(next.major)
+  ) {
+    return
+  }
+  // URL 参数优先，剩余字段落本地，避免重新进入模块时班级信息丢失。
+  localStorage.setItem(
+    MODULE_CONTEXT_STORAGE_KEY,
+    JSON.stringify({
+      gameId: safeText(next.gameId || DEFAULT_GAME_ID),
+      studentId: safeText(next.studentId),
+      playerName: safeText(next.playerName),
+      className: safeText(next.className),
+      schoolName: safeText(next.schoolName || '湖北工业大学'),
+      major: safeText(next.major),
+      runtime: safeText(next.runtime),
+      appVersion: safeText(next.appVersion),
+      from: safeText(next.from),
+      rankApiBase: safeText(next.rankApiBase || DEFAULT_GAME_RANK_API)
+    })
+  )
+}
+
+const pickText = (...values) => {
+  for (const value of values) {
+    const text = safeText(value)
+    if (text) return text
+  }
+  return ''
+}
+
 export const readGameModuleContext = () => {
   const params = new URLSearchParams(window.location.search || '')
-  return {
-    gameId: safeText(params.get('game_id')) || DEFAULT_GAME_ID,
-    studentId: safeText(params.get('student_id')),
-    playerName: safeText(params.get('player_name')),
-    className: safeText(params.get('class_name')),
-    schoolName: safeText(params.get('school_name')) || '湖北工业大学',
-    major: safeText(params.get('major')),
-    runtime: safeText(params.get('runtime')) || 'module-web',
-    appVersion: safeText(params.get('app_version')),
-    from: safeText(params.get('from')),
-    rankApiBase: normalizeApiBase(params.get('rank_api'))
+  const stored = readStoredContext()
+  const context = {
+    gameId: pickText(params.get('game_id'), stored.gameId) || DEFAULT_GAME_ID,
+    studentId: pickText(params.get('student_id'), stored.studentId),
+    playerName: pickText(params.get('player_name'), stored.playerName),
+    className: pickText(params.get('class_name'), stored.className),
+    schoolName: pickText(params.get('school_name'), stored.schoolName) || '湖北工业大学',
+    major: pickText(params.get('major'), stored.major),
+    runtime: pickText(params.get('runtime'), stored.runtime) || 'module-web',
+    appVersion: pickText(params.get('app_version'), stored.appVersion),
+    from: pickText(params.get('from'), stored.from),
+    rankApiBase: normalizeApiBase(pickText(params.get('rank_api'), stored.rankApiBase))
   }
+  writeStoredContext(context)
+  return context
 }
 
 export const canUseGameRank = (context) => {

@@ -1,5 +1,12 @@
 import { effectScope, reactive, watch } from 'vue'
-import { SYSTEM_UI_SETTINGS, UI_PRESETS } from '../config/ui_settings'
+import {
+  buildDefaultWorkspaceLayout,
+  HOME_MODULE_ORDER_DEFAULT,
+  HOME_WIDGET_ORDER_DEFAULT,
+  NOTIFICATION_CARD_ORDER_DEFAULT,
+  SYSTEM_UI_SETTINGS,
+  UI_PRESETS
+} from '../config/ui_settings'
 
 const STORAGE_KEY = 'hbu_ui_settings_v2'
 
@@ -12,6 +19,8 @@ const SCHEDULE_COURSE_CARD_STYLES = ['modern', 'traditional', 'class']
 const STARTUP_PAGES = ['home', 'schedule']
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+const cloneWorkspaceLayout = (layout = buildDefaultWorkspaceLayout()) =>
+  JSON.parse(JSON.stringify(layout))
 
 const hexToRgb = (hex) => {
   if (!hex || typeof hex !== 'string') return null
@@ -53,14 +62,61 @@ const isProfileEqual = (a = {}, b = {}) =>
   a.iconStyle === b.iconStyle &&
   a.decor === b.decor
 
+const normalizeOrderedKeys = (rawList, defaults) => {
+  const seen = new Set()
+  const output = []
+  ;(Array.isArray(rawList) ? rawList : []).forEach((item) => {
+    const key = String(item || '').trim()
+    if (!key || !defaults.includes(key) || seen.has(key)) return
+    seen.add(key)
+    output.push(key)
+  })
+  defaults.forEach((key) => {
+    if (seen.has(key)) return
+    seen.add(key)
+    output.push(key)
+  })
+  return output
+}
+
+const normalizeWorkspaceLayout = (raw) => {
+  const base = buildDefaultWorkspaceLayout()
+  if (!raw || typeof raw !== 'object') return base
+
+  return {
+    version: 1,
+    home: {
+      widgetsOrder: normalizeOrderedKeys(
+        raw?.home?.widgetsOrder,
+        [...HOME_WIDGET_ORDER_DEFAULT]
+      ),
+      moduleOrder: normalizeOrderedKeys(
+        raw?.home?.moduleOrder,
+        [...HOME_MODULE_ORDER_DEFAULT]
+      )
+    },
+    notifications: {
+      cardsOrder: normalizeOrderedKeys(
+        raw?.notifications?.cardsOrder,
+        [...NOTIFICATION_CARD_ORDER_DEFAULT]
+      )
+    }
+  }
+}
+
 const normalizeSettings = (raw) => {
-  const base = { ...SYSTEM_UI_SETTINGS, profile: { ...SYSTEM_UI_SETTINGS.profile } }
+  const base = {
+    ...SYSTEM_UI_SETTINGS,
+    profile: { ...SYSTEM_UI_SETTINGS.profile },
+    workspaceLayout: cloneWorkspaceLayout(SYSTEM_UI_SETTINGS.workspaceLayout)
+  }
   if (!raw || typeof raw !== 'object') return base
 
   const merged = {
     ...base,
     ...raw,
-    profile: normalizeProfile(raw.profile)
+    profile: normalizeProfile(raw.profile),
+    workspaceLayout: normalizeWorkspaceLayout(raw.workspaceLayout)
   }
 
   if (!UI_PRESETS[merged.preset]) {
@@ -84,6 +140,7 @@ const normalizeSettings = (raw) => {
     : base.startupPage
   merged.splashEnabled = typeof merged.splashEnabled === 'boolean' ? merged.splashEnabled : base.splashEnabled
   merged.profile = normalizeProfile(merged.profile)
+  merged.workspaceLayout = normalizeWorkspaceLayout(merged.workspaceLayout)
   return merged
 }
 
@@ -196,7 +253,7 @@ const flushUiSettings = () => {
   const normalized = normalizeSettings(state)
   let needsPatch = false
   for (const key of Object.keys(normalized)) {
-    if (key === 'profile') continue
+    if (key === 'profile' || key === 'workspaceLayout') continue
     if (normalized[key] !== state[key]) {
       needsPatch = true
       state[key] = normalized[key]
@@ -205,6 +262,12 @@ const flushUiSettings = () => {
   if (!isProfileEqual(normalized.profile, state.profile)) {
     needsPatch = true
     state.profile = { ...normalized.profile }
+  }
+  const nextLayoutText = JSON.stringify(normalized.workspaceLayout)
+  const prevLayoutText = JSON.stringify(state.workspaceLayout)
+  if (nextLayoutText !== prevLayoutText) {
+    needsPatch = true
+    state.workspaceLayout = cloneWorkspaceLayout(normalized.workspaceLayout)
   }
   if (!needsPatch) {
     storeSettings(normalized)
@@ -228,13 +291,16 @@ const initUiSettings = () => {
     const sync = () => {
       const normalized = normalizeSettings(state)
       for (const key of Object.keys(normalized)) {
-        if (key === 'profile') continue
+        if (key === 'profile' || key === 'workspaceLayout') continue
         if (normalized[key] !== state[key]) {
           state[key] = normalized[key]
         }
       }
       if (!isProfileEqual(normalized.profile, state.profile)) {
         state.profile = { ...normalized.profile }
+      }
+      if (JSON.stringify(normalized.workspaceLayout) !== JSON.stringify(state.workspaceLayout)) {
+        state.workspaceLayout = cloneWorkspaceLayout(normalized.workspaceLayout)
       }
       storeSettings(normalized)
       applyUiSettings(normalized)
@@ -272,6 +338,7 @@ const applyUiSettingsSnapshot = (raw) => {
   const normalized = normalizeSettings(raw)
   Object.assign(state, normalized)
   state.profile = { ...normalized.profile }
+  state.workspaceLayout = cloneWorkspaceLayout(normalized.workspaceLayout)
   flushUiSettings()
 }
 
@@ -283,6 +350,8 @@ export {
   applyUiSettingsSnapshot,
   applyUiSettings,
   flushUiSettings,
+  normalizeWorkspaceLayout,
+  cloneWorkspaceLayout,
   normalizeSettings,
   UI_PRESETS
 }

@@ -228,6 +228,7 @@ const normalizeCatalogModule = (item, channel) => {
     id,
     name: safeText(raw.name || raw.module_name || id),
     manifest_url: manifestUrl,
+    min_compatible_version: safeText(raw.min_compatible_version || raw.minCompatibleVersion),
     key_required: !!raw.key_required,
     order: Number(raw.order || 999),
     icon: safeText(raw.icon || ''),
@@ -293,6 +294,7 @@ export const fetchModuleManifest = async (manifestUrl) => {
     package_sha256: safeText(payload?.package_sha256 || payload?.sha256 || ''),
     package_size: Number(payload?.package_size || 0),
     entry_path: entryPath,
+    min_compatible_version: safeText(payload?.min_compatible_version || payload?.minCompatibleVersion || ''),
     published_at: safeText(payload?.published_at || ''),
     release_notes: safeText(payload?.release_notes || ''),
     open_url: toAbsoluteUrl(payload?.open_url, url)
@@ -335,12 +337,17 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
     updateModuleState(moduleId, {
       channel: normalizeChannel(channel),
       version: safeText(prepared?.version || manifest?.version),
+      module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
       package_url: packageUrl,
+      package_sha256: safeText(manifest?.package_sha256),
+      entry_path: safeText(manifest?.entry_path || 'index.html'),
+      min_compatible_version: safeText(manifest?.min_compatible_version),
       open_url: safeText(prepared?.preview_url || openUrl),
       preview_url: safeText(prepared?.preview_url || openUrl),
       cache_dir: safeText(prepared?.cache_dir),
       bundle_path: safeText(prepared?.bundle_path),
-      source: safeText(prepared?.source || 'download')
+      source: safeText(prepared?.source || 'download'),
+      manifest_checked_at: new Date().toISOString()
     })
     return {
       ready: true,
@@ -350,6 +357,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
       cache_dir: safeText(prepared?.cache_dir),
       bundle_path: safeText(prepared?.bundle_path),
       preview_url: safeText(prepared?.preview_url || openUrl),
+      min_compatible_version: safeText(manifest?.min_compatible_version),
       source: safeText(prepared?.source || 'download'),
       module_id: moduleId,
       module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
@@ -371,6 +379,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
       updateModuleState(moduleId, {
         channel: normalizeChannel(channel),
         version: safeText(manifest?.version),
+        min_compatible_version: safeText(manifest?.min_compatible_version),
         open_url: openUrl
       })
       return {
@@ -379,6 +388,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
         version: safeText(manifest?.version),
         open_url: openUrl,
         preview_url: openUrl,
+        min_compatible_version: safeText(manifest?.min_compatible_version),
         module_id: moduleId,
         module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
         channel: normalizeChannel(channel),

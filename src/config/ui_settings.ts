@@ -6,6 +6,40 @@ export type DensityStyle = 'comfortable' | 'balanced' | 'compact'
 export type IconStyle = 'duotone' | 'line' | 'mono'
 export type DecorStyle = 'mesh' | 'grain' | 'none'
 export type ScheduleCourseCardStyle = 'modern' | 'traditional' | 'class'
+export type HomeWidgetKey = 'module_grid' | 'today_panel'
+export type HomeModuleKey =
+  | 'grades'
+  | 'classroom'
+  | 'electricity'
+  | 'transactions'
+  | 'exams'
+  | 'ranking'
+  | 'campus_code'
+  | 'calendar'
+  | 'academic'
+  | 'qxzkb'
+  | 'course_selection'
+  | 'training'
+  | 'library'
+  | 'campus_map'
+  | 'resource_share'
+  | 'ai'
+export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams'
+
+export interface WorkspaceLayoutHome {
+  widgetsOrder: HomeWidgetKey[]
+  moduleOrder: HomeModuleKey[]
+}
+
+export interface WorkspaceLayoutNotifications {
+  cardsOrder: NotificationCardKey[]
+}
+
+export interface WorkspaceLayout {
+  version: number
+  home: WorkspaceLayoutHome
+  notifications: WorkspaceLayoutNotifications
+}
 
 export interface UiPreset {
   label: string
@@ -31,6 +65,43 @@ export interface UiSettingsProfile {
   iconStyle: IconStyle
   decor: DecorStyle
 }
+
+export const HOME_WIDGET_ORDER_DEFAULT = ['module_grid', 'today_panel'] as const satisfies readonly HomeWidgetKey[]
+export const HOME_MODULE_ORDER_DEFAULT = [
+  'grades',
+  'classroom',
+  'electricity',
+  'transactions',
+  'exams',
+  'ranking',
+  'campus_code',
+  'calendar',
+  'academic',
+  'qxzkb',
+  'course_selection',
+  'training',
+  'library',
+  'campus_map',
+  'resource_share',
+  'ai'
+] as const satisfies readonly HomeModuleKey[]
+export const NOTIFICATION_CARD_ORDER_DEFAULT = [
+  'class_reminder',
+  'electricity',
+  'grades',
+  'exams'
+] as const satisfies readonly NotificationCardKey[]
+
+export const buildDefaultWorkspaceLayout = (): WorkspaceLayout => ({
+  version: 1,
+  home: {
+    widgetsOrder: [...HOME_WIDGET_ORDER_DEFAULT],
+    moduleOrder: [...HOME_MODULE_ORDER_DEFAULT]
+  },
+  notifications: {
+    cardsOrder: [...NOTIFICATION_CARD_ORDER_DEFAULT]
+  }
+})
 
 export const UI_PRESETS: Record<string, UiPreset> = {
   campus_blue: {
@@ -140,6 +211,7 @@ export const SYSTEM_UI_SETTINGS = {
   scheduleCourseCardStyle: 'modern' as ScheduleCourseCardStyle,
   startupPage: 'home' as 'home' | 'schedule',
   splashEnabled: true,
+  workspaceLayout: buildDefaultWorkspaceLayout(),
   profile: {
     cardStyle: 'glass' as CardStyle,
     navStyle: 'floating' as NavStyle,

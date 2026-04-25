@@ -1,10 +1,21 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { enableBackgroundPowerLock, disableBackgroundPowerLock } from '../utils/power_guard'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
 import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
+import { buildDefaultWorkspaceLayout } from '../config/ui_settings'
+import { cloneWorkspaceLayout, flushUiSettings, useUiSettings } from '../utils/ui_settings'
+import { captureLayoutSlotAnchors, moveLayoutItemToIndex, resolveLayoutSlotTarget } from '../utils/layout_drag.js'
+import {
+  advanceLayoutCollisionFx,
+  createLayoutCollisionBurst,
+  resolveCollisionPalette,
+  resolveRelativeCollisionPoint
+} from '../utils/layout_collision_fx.js'
+import LayoutCollisionFxLayer from './LayoutCollisionFxLayer.vue'
+import SortableSurface from './SortableSurface.vue'
 import {
   NOTIFY_SNAPSHOT_EVENT,
   getLastNotifySnapshot,
@@ -20,6 +31,12 @@ import { formatRelativeTime } from '../utils/time.js'
 const props = defineProps({
   studentId: String
 })
+
+const emit = defineEmits(['back', 'openWorkspaceLayout'])
+const uiSettings = useUiSettings()
+const NOTIFICATION_LAYOUT_LONG_PRESS_MS = 380
+const NOTIFICATION_LAYOUT_LONG_PRESS_DISTANCE = 14
+const NOTIFICATION_LAYOUT_SCROLL_OFFSET_PX = 18
 
 const enableBackground = ref(false)
 const enableExamReminders = ref(true)
@@ -44,6 +61,12 @@ const snapshot = ref(null)
 const dormData = ref([])
 const selectedPath = ref([])
 const currentRuntime = ref(getRuntime())
+const notificationLayoutRef = ref(null)
+const isNotificationLayoutEditing = ref(false)
+const draftNotificationCardsOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceLayout).notifications.cardsOrder])
+const draggingNotificationKey = ref('')
+const hoverNotificationKey = ref('')
+const notificationCollisionFx = ref([])
 
 const runtimeDisplayText = computed(() => {
   const ua = String(navigator.userAgent || '')
@@ -234,6 +257,225 @@ const backgroundLockStatusText = computed(() => {
   }
   return '未启用'
 })
+
+const notificationCardsOrder = computed(() =>
+  isNotificationLayoutEditing.value
+    ? draftNotificationCardsOrder.value
+    : uiSettings.workspaceLayout.notifications.cardsOrder
+)
+
+const orderedInfoCards = computed(() => {
+  const cardMap = {
+    class_reminder: { key: 'class_reminder' },
+    electricity: { key: 'electricity' },
+    grades: { key: 'grades' },
+    exams: { key: 'exams' }
+  }
+  return notificationCardsOrder.value
+    .map((key) => cardMap[key])
+    .filter(Boolean)
+})
+
+let notificationLayoutLongPressTimer = null
+let notificationLayoutLongPressStart = { x: 0, y: 0 }
+let notificationDragAnchors = []
+let notificationDragTargetIndex = -1
+let notificationCollisionFxRaf = 0
+let notificationCollisionFxLastTs = 0
+
+const syncNotificationLayoutDraft = () => {
+  const snapshot = cloneWorkspaceLayout(uiSettings.workspaceLayout)
+  draftNotificationCardsOrder.value = [...snapshot.notifications.cardsOrder]
+}
+
+const getNotificationCollisionPalette = (activeKey, targetKey = '') => {
+  const paletteMap = {
+    class_reminder: ['#5b8cff', '#8fd6ff', '#c4b5fd'],
+    electricity: ['#22c55e', '#86efac', '#bef264'],
+    grades: ['#f59e0b', '#fcd34d', '#fdba74'],
+    exams: ['#ef4444', '#fda4af', '#fbbf24']
+  }
+  return resolveCollisionPalette(paletteMap[activeKey], paletteMap[targetKey], '#8fd6ff')
+}
+
+const stopNotificationCollisionFxLoop = () => {
+  if (notificationCollisionFxRaf) {
+    cancelAnimationFrame(notificationCollisionFxRaf)
+    notificationCollisionFxRaf = 0
+  }
+  notificationCollisionFxLastTs = 0
+}
+
+const tickNotificationCollisionFx = (timestamp) => {
+  const previousTs = notificationCollisionFxLastTs || timestamp
+  notificationCollisionFxLastTs = timestamp
+  notificationCollisionFx.value = advanceLayoutCollisionFx(
+    notificationCollisionFx.value,
+    timestamp - previousTs
+  )
+  if (notificationCollisionFx.value.length === 0) {
+    stopNotificationCollisionFxLoop()
+    return
+  }
+  notificationCollisionFxRaf = requestAnimationFrame(tickNotificationCollisionFx)
+}
+
+const ensureNotificationCollisionFxLoop = () => {
+  if (notificationCollisionFxRaf) return
+  notificationCollisionFxLastTs = performance.now()
+  notificationCollisionFxRaf = requestAnimationFrame(tickNotificationCollisionFx)
+}
+
+const spawnNotificationCollisionFx = (activeKey, target) => {
+  const root = notificationLayoutRef.value
+  const rootRect = root?.getBoundingClientRect?.()
+  if (!rootRect || !target?.rect) return
+  const sourceRect = notificationDragAnchors.find((item) => item.id === activeKey)?.rect || null
+  const origin = resolveRelativeCollisionPoint({
+    rootRect,
+    sourceRect,
+    targetRect: target.rect
+  })
+  const burst = createLayoutCollisionBurst({
+    x: origin.x,
+    y: origin.y,
+    colors: getNotificationCollisionPalette(activeKey, target.id)
+  })
+  notificationCollisionFx.value = [...notificationCollisionFx.value.slice(-48), ...burst]
+  ensureNotificationCollisionFxLoop()
+}
+
+const reorderDraftNotificationLayout = (activeKey, targetIndex) => {
+  if (!activeKey || !Number.isFinite(Number(targetIndex))) return
+  draftNotificationCardsOrder.value = moveLayoutItemToIndex(
+    draftNotificationCardsOrder.value,
+    activeKey,
+    targetIndex
+  )
+}
+
+const stopNotificationLayoutDrag = () => {
+  draggingNotificationKey.value = ''
+  hoverNotificationKey.value = ''
+  notificationDragAnchors = []
+  notificationDragTargetIndex = -1
+}
+
+const scrollNotificationLayoutIntoView = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const root = notificationLayoutRef.value
+        if (!root) return
+        const shell = root.closest?.('.app-shell')
+        if (shell && typeof shell.scrollTo === 'function') {
+          const shellRect = shell.getBoundingClientRect()
+          const rootRect = root.getBoundingClientRect()
+          const nextTop = Math.max(
+            0,
+            shell.scrollTop + rootRect.top - shellRect.top - NOTIFICATION_LAYOUT_SCROLL_OFFSET_PX
+          )
+          shell.scrollTo({
+            top: nextTop,
+            behavior: 'smooth'
+          })
+          return
+        }
+        const nextTop = Math.max(
+          0,
+          window.scrollY + root.getBoundingClientRect().top - NOTIFICATION_LAYOUT_SCROLL_OFFSET_PX
+        )
+        window.scrollTo({
+          top: nextTop,
+          behavior: 'smooth'
+        })
+      })
+    })
+  })
+}
+
+const enterNotificationLayoutEdit = () => {
+  if (!isNotificationLayoutEditing.value) {
+    syncNotificationLayoutDraft()
+    isNotificationLayoutEditing.value = true
+  }
+  scrollNotificationLayoutIntoView()
+}
+
+const cancelNotificationLayoutEdit = () => {
+  stopNotificationLayoutDrag()
+  syncNotificationLayoutDraft()
+  isNotificationLayoutEditing.value = false
+}
+
+const resetNotificationLayoutEdit = () => {
+  draftNotificationCardsOrder.value = [...buildDefaultWorkspaceLayout().notifications.cardsOrder]
+}
+
+const saveNotificationLayoutEdit = () => {
+  const nextLayout = cloneWorkspaceLayout(uiSettings.workspaceLayout)
+  nextLayout.notifications.cardsOrder = [...draftNotificationCardsOrder.value]
+  uiSettings.workspaceLayout = nextLayout
+  flushUiSettings()
+  stopNotificationLayoutDrag()
+  isNotificationLayoutEditing.value = false
+}
+
+const handleNotificationDragStart = ({ id }) => {
+  const activeId = String(id || '')
+  draggingNotificationKey.value = activeId
+  hoverNotificationKey.value = activeId
+  notificationDragAnchors = captureLayoutSlotAnchors(notificationLayoutRef.value, 'notifications')
+  notificationDragTargetIndex = notificationDragAnchors.find((item) => item.id === activeId)?.index ?? -1
+}
+
+const handleNotificationDragMove = ({ id, point }) => {
+  if (!isNotificationLayoutEditing.value) return
+  const activeId = String(id || '').trim()
+  if (!activeId || !point) return
+  const target = resolveLayoutSlotTarget(notificationDragAnchors, point)
+  if (!target || notificationDragTargetIndex === target.index) return
+  spawnNotificationCollisionFx(activeId, target)
+  notificationDragTargetIndex = target.index
+  hoverNotificationKey.value = target.id
+  reorderDraftNotificationLayout(activeId, target.index)
+}
+
+const clearNotificationLayoutLongPress = () => {
+  if (notificationLayoutLongPressTimer) {
+    window.clearTimeout(notificationLayoutLongPressTimer)
+    notificationLayoutLongPressTimer = null
+  }
+}
+
+const isTouchPointerEvent = (event) => String(event?.pointerType || '').toLowerCase() === 'touch'
+
+const handleInfoGridPressStart = (event) => {
+  if (isNotificationLayoutEditing.value) return
+  if (!isTouchPointerEvent(event)) return
+  clearNotificationLayoutLongPress()
+  notificationLayoutLongPressStart = {
+    x: Number(event.clientX || 0),
+    y: Number(event.clientY || 0)
+  }
+  notificationLayoutLongPressTimer = window.setTimeout(() => {
+    enterNotificationLayoutEdit()
+    clearNotificationLayoutLongPress()
+  }, NOTIFICATION_LAYOUT_LONG_PRESS_MS)
+}
+
+const handleInfoGridPressMove = (event) => {
+  if (!notificationLayoutLongPressTimer || !isTouchPointerEvent(event)) return
+  const deltaX = Math.abs(Number(event.clientX || 0) - notificationLayoutLongPressStart.x)
+  const deltaY = Math.abs(Number(event.clientY || 0) - notificationLayoutLongPressStart.y)
+  if (deltaX > NOTIFICATION_LAYOUT_LONG_PRESS_DISTANCE || deltaY > NOTIFICATION_LAYOUT_LONG_PRESS_DISTANCE) {
+    clearNotificationLayoutLongPress()
+  }
+}
+
+const handleInfoGridPressEnd = () => {
+  clearNotificationLayoutLongPress()
+}
 
 const getNativePermissionState = async (requestNow = false) => {
   try {
@@ -531,8 +773,21 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  clearNotificationLayoutLongPress()
+  stopNotificationLayoutDrag()
+  stopNotificationCollisionFxLoop()
   window.removeEventListener(NOTIFY_SNAPSHOT_EVENT, handleSnapshotEvent)
 })
+
+watch(
+  () => uiSettings.workspaceLayout.notifications.cardsOrder.join('|'),
+  () => {
+    if (!isNotificationLayoutEditing.value) {
+      syncNotificationLayoutDraft()
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -542,6 +797,16 @@ onBeforeUnmount(() => {
         <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
         <span class="title">HBUT 校园助手</span>
         <span class="page-tag">通知</span>
+      </div>
+      <div class="notification-header-actions">
+        <button
+          class="layout-btn"
+          :class="{ active: isNotificationLayoutEditing }"
+          @click="enterNotificationLayoutEdit"
+          :title="isNotificationLayoutEditing ? '正在编辑通知布局' : '配置通知布局'"
+        >
+          {{ isNotificationLayoutEditing ? '编辑中' : '配置' }}
+        </button>
       </div>
     </header>
 
@@ -672,75 +937,126 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section class="info-grid">
-      <article class="info-card">
-        <h3>上课提醒</h3>
-        <p class="hint">{{ classReminderText }}</p>
-        <div class="kv">
-          <span>提醒提前</span>
-          <strong>{{ classLeadMinutes }} 分钟</strong>
+    <section
+      ref="notificationLayoutRef"
+      class="notification-layout"
+      @pointerdown.passive="handleInfoGridPressStart"
+      @pointermove.passive="handleInfoGridPressMove"
+      @pointerup.passive="handleInfoGridPressEnd"
+      @pointercancel.passive="handleInfoGridPressEnd"
+      @pointerleave.passive="handleInfoGridPressEnd"
+    >
+      <LayoutCollisionFxLayer :items="notificationCollisionFx" />
+      <div
+        v-if="isNotificationLayoutEditing"
+        class="notification-layout-toolbar notification-layout-toolbar--floating"
+      >
+        <div class="notification-layout-toolbar__copy">
+          <span class="notification-layout-toolbar__eyebrow">Workspace Edit</span>
+          <strong>通知布局编辑</strong>
+          <span>直接拖动卡片上下换位，点击“完成”后才会保存。</span>
         </div>
-        <div class="kv">
-          <span>下一门课</span>
-          <strong>{{ nextClassText }}</strong>
+        <div class="notification-layout-toolbar__meta">
+          <span>{{ draftNotificationCardsOrder.length }} 张卡片</span>
+          <span>草稿态未提交</span>
         </div>
-      </article>
-
-      <article class="info-card electricity-card">
-        <h3>电费监控</h3>
-        <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
-        <!-- 双计费模式：照明+空调分行显示 -->
-        <template v-if="powerSummary?.isDual">
-          <div class="kv">
-            <span>💡 照明电量</span>
-            <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
-          </div>
-          <div class="kv">
-            <span>❄️ 空调电量</span>
-            <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
-          </div>
-        </template>
-        <!-- 单计费模式 -->
-        <template v-else>
-          <div class="kv">
-            <span>剩余电量</span>
-            <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
-          </div>
-        </template>
-        <div class="kv">
-          <span>状态</span>
-          <strong>{{ powerStatusText }}</strong>
+        <div class="notification-layout-toolbar__actions">
+          <button type="button" class="toolbar-btn ghost" @click="cancelNotificationLayoutEdit">取消</button>
+          <button type="button" class="toolbar-btn ghost" @click="resetNotificationLayoutEdit">恢复默认</button>
+          <button type="button" class="toolbar-btn primary" @click="saveNotificationLayoutEdit">完成</button>
         </div>
-      </article>
+      </div>
 
-      <article class="info-card">
-        <h3>成绩动态</h3>
-        <p class="hint">总成绩：{{ gradeSummary?.total || 0 }} 条 · 本次是否变化：{{ gradeSummary?.changed ? '是' : '否' }}</p>
-        <ul class="list" v-if="gradeItems.length">
-          <li v-for="(item, idx) in gradeItems" :key="`${item.course_name}-${item.term}-${idx}`">
-            <span class="item-main">{{ item.course_name || '-' }}</span>
-            <span class="item-sub">{{ item.term || '未知学期' }} · {{ item.final_score || '-' }}</span>
-          </li>
-        </ul>
-        <p v-else class="empty">暂无成绩摘要</p>
-      </article>
+      <TransitionGroup name="notification-card" tag="div" class="info-grid" :class="{ editing: isNotificationLayoutEditing }">
+        <SortableSurface
+          v-for="card in orderedInfoCards"
+          :key="card.key"
+          :id="card.key"
+          group="notification-cards"
+          section="notifications"
+          :editing="isNotificationLayoutEditing"
+          :surface-class="[
+            'info-card',
+            {
+              'electricity-card': card.key === 'electricity',
+              'info-card--over': hoverNotificationKey === card.key && draggingNotificationKey !== card.key
+            }
+          ]"
+          @drag-start="handleNotificationDragStart"
+          @drag-move="handleNotificationDragMove"
+          @drag-end="stopNotificationLayoutDrag"
+        >
+          <template v-if="card.key === 'class_reminder'">
+            <div class="info-card-head">
+              <h3>上课提醒</h3>
+              <span class="drag-hint">{{ isNotificationLayoutEditing ? '拖动换位' : '长按进入编辑' }}</span>
+            </div>
+            <p class="hint">{{ classReminderText }}</p>
+            <div class="kv">
+              <span>提醒提前</span>
+              <strong>{{ classLeadMinutes }} 分钟</strong>
+            </div>
+            <div class="kv">
+              <span>下一门课</span>
+              <strong>{{ nextClassText }}</strong>
+            </div>
+          </template>
 
-      <article class="info-card">
-        <h3>考试列表</h3>
-        <p class="hint">近期考试：{{ examSummary?.upcoming?.length || 0 }} 门 · 明日考试：{{ examSummary?.tomorrowCount || 0 }} 门</p>
-        <ul class="list" v-if="examItems.length">
-          <li v-for="(item, idx) in examItems" :key="`${item.course_name}-${item.exam_date}-${idx}`">
-            <span class="item-main">
-              {{ item.course_name || '-' }}
-              <small v-if="item.is_tomorrow" class="tag">明日</small>
-            </span>
-            <span class="item-sub">
-              {{ item.exam_date || '日期待定' }} {{ item.exam_time || '' }} · {{ item.location || '地点待定' }}
-            </span>
-          </li>
-        </ul>
-        <p v-else class="empty">暂无考试安排</p>
-      </article>
+          <template v-else-if="card.key === 'electricity'">
+            <h3>电费监控</h3>
+            <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
+            <template v-if="powerSummary?.isDual">
+              <div class="kv">
+                <span>💡 照明电量</span>
+                <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
+              </div>
+              <div class="kv">
+                <span>❄️ 空调电量</span>
+                <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
+              </div>
+            </template>
+            <template v-else>
+              <div class="kv">
+                <span>剩余电量</span>
+                <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
+              </div>
+            </template>
+            <div class="kv">
+              <span>状态</span>
+              <strong>{{ powerStatusText }}</strong>
+            </div>
+          </template>
+
+          <template v-else-if="card.key === 'grades'">
+            <h3>成绩动态</h3>
+            <p class="hint">总成绩：{{ gradeSummary?.total || 0 }} 条 · 本次是否变化：{{ gradeSummary?.changed ? '是' : '否' }}</p>
+            <ul class="list" v-if="gradeItems.length">
+              <li v-for="(item, idx) in gradeItems" :key="`${item.course_name}-${item.term}-${idx}`">
+                <span class="item-main">{{ item.course_name || '-' }}</span>
+                <span class="item-sub">{{ item.term || '未知学期' }} · {{ item.final_score || '-' }}</span>
+              </li>
+            </ul>
+            <p v-else class="empty">暂无成绩摘要</p>
+          </template>
+
+          <template v-else>
+            <h3>考试列表</h3>
+            <p class="hint">近期考试：{{ examSummary?.upcoming?.length || 0 }} 门 · 明日考试：{{ examSummary?.tomorrowCount || 0 }} 门</p>
+            <ul class="list" v-if="examItems.length">
+              <li v-for="(item, idx) in examItems" :key="`${item.course_name}-${item.exam_date}-${idx}`">
+                <span class="item-main">
+                  {{ item.course_name || '-' }}
+                  <small v-if="item.is_tomorrow" class="tag">明日</small>
+                </span>
+                <span class="item-sub">
+                  {{ item.exam_date || '日期待定' }} {{ item.exam_time || '' }} · {{ item.location || '地点待定' }}
+                </span>
+              </li>
+            </ul>
+            <p v-else class="empty">暂无考试安排</p>
+          </template>
+        </SortableSurface>
+      </TransitionGroup>
     </section>
 
     <p v-if="statusMessage" class="status-msg">{{ statusMessage }}</p>
@@ -771,6 +1087,37 @@ onBeforeUnmount(() => {
   width: 18px;
   height: 18px;
   object-fit: contain;
+}
+
+.notification-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.layout-btn {
+  min-width: 68px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
+  color: var(--ui-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+}
+
+.layout-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px color-mix(in oklab, var(--ui-primary) 14%, transparent);
+}
+
+.layout-btn.active {
+  color: #ffffff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
 }
 
 .hero-card,
@@ -931,14 +1278,218 @@ input:checked + .slider:before {
   gap: 12px;
 }
 
+.notification-layout {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.notification-layout-toolbar {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, transparent);
+  background:
+    linear-gradient(160deg, color-mix(in oklab, var(--ui-primary-soft) 62%, rgba(255, 255, 255, 0.76) 38%), rgba(255, 255, 255, 0.74)),
+    radial-gradient(circle at top right, color-mix(in oklab, var(--ui-primary) 14%, transparent), transparent 54%);
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.notification-layout-toolbar--floating {
+  position: sticky;
+  top: 84px;
+  z-index: 14;
+}
+
+.notification-layout-toolbar__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-layout-toolbar__copy strong {
+  color: var(--ui-text);
+  font-size: 15px;
+}
+
+.notification-layout-toolbar__copy span {
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.notification-layout-toolbar__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-primary);
+  background: color-mix(in oklab, var(--ui-primary-soft) 68%, #fff 32%);
+}
+
+.notification-layout-toolbar__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notification-layout-toolbar__meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ui-text);
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.48);
+}
+
+.notification-layout-toolbar__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+}
+
+.toolbar-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px color-mix(in oklab, var(--ui-primary) 14%, transparent);
+}
+
+.toolbar-btn.ghost {
+  color: var(--ui-text);
+  background: color-mix(in oklab, var(--ui-primary-soft) 46%, #fff 54%);
+}
+
+.toolbar-btn.primary {
+  color: #ffffff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+}
+
+.info-grid.editing {
+  padding-bottom: 96px;
+}
+
 .info-card {
+  --drag-translate-x: 0px;
+  --drag-translate-y: 0px;
   padding: 14px;
+  position: relative;
+  transition:
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.26s ease,
+    filter 0.26s ease,
+    opacity 0.26s ease;
+  will-change: transform, box-shadow, filter;
+}
+
+.info-card.editing {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(244, 248, 255, 0.74));
+  border-color: color-mix(in oklab, var(--ui-primary) 12%, rgba(148, 163, 184, 0.3));
+  box-shadow:
+    0 18px 34px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.44);
+}
+
+.info-card.editing:not(.dragging) {
+  animation: notification-card-float 2.6s ease-in-out infinite;
+}
+
+.info-card.dragging {
+  z-index: 5;
+  cursor: grabbing;
+  pointer-events: none;
+  transform:
+    translate3d(var(--drag-translate-x), var(--drag-translate-y), 0)
+    scale(1.04)
+    rotate(0.5deg);
+  box-shadow:
+    0 24px 42px rgba(15, 23, 42, 0.18),
+    0 0 0 1px color-mix(in oklab, var(--ui-primary) 16%, transparent);
+  filter: saturate(1.05) brightness(1.02);
+}
+
+.info-card.dragging::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  background:
+    linear-gradient(112deg, transparent 8%, rgba(255, 255, 255, 0.18) 34%, transparent 60%);
+  pointer-events: none;
+  animation: notification-drag-sheen 1s linear infinite;
+}
+
+.info-card.drop-target,
+.info-card--over {
+  box-shadow:
+    0 22px 38px color-mix(in oklab, var(--ui-primary) 14%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  border-color: color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  transform: translate3d(0, 0, 0) scale(1.02);
+  animation: notification-target-pulse 1.04s ease-in-out infinite;
+}
+
+.notification-card-move {
+  transition:
+    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.info-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .info-card h3 {
   margin: 0 0 8px;
   font-size: 15px;
   font-weight: 800;
+}
+
+.drag-hint {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in oklab, var(--ui-primary) 28%, transparent);
+  background: color-mix(in oklab, var(--ui-primary-soft) 40%, #fff 60%);
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .hint {
@@ -1117,6 +1668,40 @@ input:checked + .slider:before {
   font-weight: 700;
 }
 
+@keyframes notification-card-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0);
+  }
+}
+
+@keyframes notification-drag-sheen {
+  0% {
+    transform: translate3d(-30%, 0, 0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.72;
+  }
+  100% {
+    transform: translate3d(30%, 0, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes notification-target-pulse {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+  50% {
+    transform: translate3d(0, -2px, 0) scale(1.03);
+  }
+}
+
 @media (max-width: 980px) {
   .info-grid {
     grid-template-columns: 1fr;
@@ -1124,6 +1709,18 @@ input:checked + .slider:before {
 }
 
 @media (max-width: 768px) {
+  .notification-layout-toolbar {
+    padding: 14px 14px 16px;
+  }
+
+  .notification-layout-toolbar__actions {
+    width: 100%;
+  }
+
+  .toolbar-btn {
+    flex: 1 1 0;
+  }
+
   .hero-actions {
     flex-direction: column;
   }
@@ -1131,6 +1728,36 @@ input:checked + .slider:before {
   .hero-actions .btn-primary,
   .hero-actions .btn-secondary {
     width: 100%;
+  }
+
+  .info-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .notification-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .layout-btn {
+    min-width: 60px;
+    padding: 0 12px;
+  }
+
+  .info-grid.editing {
+    padding-bottom: 128px;
+  }
+}
+
+@media (max-width: 480px) {
+  .notification-view {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .info-grid.editing {
+    padding-bottom: 150px;
   }
 }
 </style>

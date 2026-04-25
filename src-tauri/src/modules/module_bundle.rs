@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const DEFAULT_BRIDGE_PORT: u16 = 4399;
 const MODULE_CACHE_ROOT: &str = "more_modules";
+const REMOTE_MODULE_CDN_HOST: &str = "hbut.6661111.xyz";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModuleBundlePrepareRequest {
@@ -192,6 +193,47 @@ fn build_preview_url(channel: &str, module_id: &str, version: &str, entry_path: 
     )
 }
 
+fn local_dev_module_root() -> Option<PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()?
+        .join("website")
+        .join("public")
+        .join("modules");
+    if root.is_dir() {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+pub fn resolve_local_dev_module_file_from_url(raw_url: &str) -> Option<PathBuf> {
+    let parsed = reqwest::Url::parse(raw_url).ok()?;
+    if parsed.host_str()? != REMOTE_MODULE_CDN_HOST {
+        return None;
+    }
+    let mut segments = parsed.path_segments()?;
+    if segments.next()? != "modules" {
+        return None;
+    }
+
+    let mut target = local_dev_module_root()?;
+    for segment in segments {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return None;
+        }
+        target.push(segment);
+    }
+
+    if target.is_file() {
+        Some(target)
+    } else {
+        None
+    }
+}
+
 fn write_bundle_archive(dest_root: &Path, zip_bytes: &[u8]) -> Result<(), String> {
     let parent = dest_root
         .parent()
@@ -252,6 +294,11 @@ fn write_bundle_archive(dest_root: &Path, zip_bytes: &[u8]) -> Result<(), String
 }
 
 async fn download_bundle_bytes(package_url: &str) -> Result<Vec<u8>, String> {
+    if let Some(local_file) = resolve_local_dev_module_file_from_url(package_url) {
+        return fs::read(&local_file)
+            .map_err(|e| format!("读取本地模块压缩包失败: {} ({})", e, local_file.display()));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()

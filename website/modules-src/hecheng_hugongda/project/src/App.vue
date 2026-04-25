@@ -1,7 +1,7 @@
 <template>
-  <div class="game-container">
-    <div class="game-shell">
-      <header class="game-header panel">
+  <div class="game-container" :class="{ 'game-container--embedded': embeddedHostRuntime }">
+    <div class="game-shell" ref="gameShell">
+      <header class="game-header panel" ref="gameHeader">
         <div class="header-row">
           <div class="header-title">
             <p class="eyebrow">校园合成赛</p>
@@ -27,227 +27,242 @@
 
       <section class="game-area" ref="gameArea">
         <div
-          class="game-canvas-wrapper"
-          :style="{ width: canvasWidth + 'px', height: canvasHeight + 'px' }"
+          class="game-stage-viewport"
+          :style="{ width: stageViewportWidth + 'px', height: stageViewportHeight + 'px' }"
         >
-          <canvas
-            ref="gameCanvas"
-            class="game-canvas"
-            :width="canvasWidth"
-            :height="canvasHeight"
-            @mousedown="handleInputStart"
-            @mousemove="handleInputMove"
-            @mouseup="handleInputEnd"
-            @mouseleave="handleInputEnd"
-            @touchstart="handleInputStart"
-            @touchmove="handleInputMove"
-            @touchend="handleInputEnd"
-          ></canvas>
-
-          <div class="guide-line" :style="{ left: dropX + 'px' }" v-if="isDragging || !isMobile"></div>
-
           <div
-            class="current-ball"
-            v-if="!hasDropped"
+            class="game-stage-scale"
             :style="{
-              left: dropX - schools[nextBallLevel].radius + 'px',
-              top: '20px',
-              width: schools[nextBallLevel].radius * 2 + 'px',
-              height: schools[nextBallLevel].radius * 2 + 'px'
+              width: canvasWidth + 'px',
+              height: canvasHeight + 'px',
+              transform: `scale(${stageScale})`
             }"
           >
-            <img
-              :src="resolveLogoPath(schools[nextBallLevel].image)"
-              :alt="schools[nextBallLevel].short"
-              class="ball-img"
-            />
-          </div>
+            <div
+              class="game-canvas-wrapper"
+              :style="{ width: canvasWidth + 'px', height: canvasHeight + 'px' }"
+            >
+              <canvas
+                ref="gameCanvas"
+                class="game-canvas"
+                :width="canvasWidth"
+                :height="canvasHeight"
+                @mousedown="handleInputStart"
+                @mousemove="handleInputMove"
+                @mouseup="handleInputEnd"
+                @mouseleave="handleInputEnd"
+                @touchstart="handleInputStart"
+                @touchmove="handleInputMove"
+                @touchend="handleInputEnd"
+              ></canvas>
 
-          <div class="next-preview panel panel--compact">
-            <span>下个登场</span>
-            <div class="preview-circle">
-              <img
-                :src="resolveLogoPath(schools[previewBallLevel].image)"
-                :alt="schools[previewBallLevel].short"
-                class="preview-img"
-              />
-            </div>
-          </div>
+              <div class="guide-line" :style="{ left: dropX + 'px' }" v-if="isDragging || !isMobile"></div>
 
-          <div v-if="rankSubmitBusy" class="sync-status">正在同步排行榜成绩...</div>
-          <button
-            v-else-if="rankSubmitError && (gameOver || hasWon)"
-            class="sync-status sync-status--error"
-            type="button"
-            @click="retryRankSubmit"
-          >
-            上传失败，点此重试
-          </button>
-
-          <div class="drama-toast" :class="{ show: showToast }">
-            <div class="drama-content">
-              <span class="drama-text">{{ toastMessage }}</span>
-            </div>
-          </div>
-
-          <div v-if="gameOver" class="overlay glass-overlay">
-            <h2>挑战结束</h2>
-            <p class="final-score">最终得分 {{ score }}</p>
-            <p class="message">场上已经没有安全落点了。</p>
-            <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
-            <div class="overlay-btns">
-              <button class="restart-btn" type="button" @click="forceRestart">再来一局</button>
-              <button class="secondary-btn" type="button" @click="toggleLeaderboard">查看排行榜</button>
-            </div>
-          </div>
-
-          <div v-if="hasWon" class="overlay glass-overlay win">
-            <h2>成功合成湖工大</h2>
-            <p class="message">本局已自动记录，你可以直接查看排名。</p>
-            <p class="final-score">最终得分 {{ score }}</p>
-            <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
-            <div class="overlay-btns">
-              <button class="restart-btn" type="button" @click="forceRestart">继续挑战</button>
-              <button class="secondary-btn" type="button" @click="toggleLeaderboard">查看排行榜</button>
-            </div>
-          </div>
-
-          <div v-if="showHistory" class="overlay glass-overlay sheet-overlay">
-            <div class="sheet-panel">
-              <div class="sheet-header">
-                <div>
-                  <p class="sheet-eyebrow">本地</p>
-                  <h3>历史战绩</h3>
-                </div>
-                <button class="close-btn" type="button" @click="toggleHistory">×</button>
-              </div>
-              <div class="sheet-body history-list">
-                <div v-if="historyRecords.length === 0" class="sheet-empty">暂无记录，先完成一局。</div>
-                <div v-else class="history-item" v-for="(record, idx) in historyRecords" :key="idx">
-                  <div class="history-info">
-                    <span class="history-date">{{ formatDate(record.date) }}</span>
-                    <strong>得分 {{ record.score }}</strong>
-                  </div>
-                  <div class="history-badge">
-                    <img :src="resolveLogoPath(schools[record.maxLevel].image)" class="badge-img" />
-                    <span>{{ schools[record.maxLevel].short }}</span>
-                  </div>
-                </div>
-              </div>
-              <div class="sheet-footer">
-                <button
-                  v-if="historyRecords.length > 0"
-                  class="ghost-btn"
-                  type="button"
-                  @click="clearHistory"
-                >
-                  清空记录
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="showLeaderboard" class="overlay glass-overlay sheet-overlay">
-            <div class="sheet-panel sheet-panel--wide">
-              <div class="sheet-header">
-                <div>
-                  <p class="sheet-eyebrow">云端</p>
-                  <h3>排行榜</h3>
-                </div>
-                <button class="close-btn" type="button" @click="toggleLeaderboard">×</button>
+              <div
+                class="current-ball"
+                v-if="!hasDropped"
+                :style="{
+                  left: dropX - schools[nextBallLevel].radius + 'px',
+                  top: '20px',
+                  width: schools[nextBallLevel].radius * 2 + 'px',
+                  height: schools[nextBallLevel].radius * 2 + 'px'
+                }"
+              >
+                <img
+                  :src="resolveLogoPath(schools[nextBallLevel].image)"
+                  :alt="schools[nextBallLevel].short"
+                  class="ball-img"
+                />
               </div>
 
-              <div class="sheet-body">
-                <div class="leaderboard-meta">
-                  <span>{{ rankEnabled ? '结算后自动上传最新成绩' : '当前未注入学号，无法上传排行榜' }}</span>
-                  <span v-if="leaderboardUpdatedAt">更新于 {{ formatDateTime(leaderboardUpdatedAt) }}</span>
+              <div class="next-preview panel panel--compact">
+                <span>下个登场</span>
+                <div class="preview-circle">
+                  <img
+                    :src="resolveLogoPath(schools[previewBallLevel].image)"
+                    :alt="schools[previewBallLevel].short"
+                    class="preview-img"
+                  />
                 </div>
+              </div>
 
-                <div class="scope-tabs">
-                  <button
-                    v-for="scope in availableScopes"
-                    :key="scope.value"
-                    class="scope-tab"
-                    :class="{ active: leaderboardScope === scope.value }"
-                    type="button"
-                    @click="selectLeaderboardScope(scope.value)"
-                  >
-                    {{ scope.label }}
-                  </button>
-                </div>
+              <div v-if="rankSubmitBusy" class="sync-status">正在同步排行榜成绩...</div>
+              <button
+                v-else-if="rankSubmitError && (gameOver || hasWon)"
+                class="sync-status sync-status--error"
+                type="button"
+                @click="retryRankSubmit"
+              >
+                上传失败，点此重试
+              </button>
 
-                <div v-if="leaderboardPlayer" class="leaderboard-self">
-                  <div class="leaderboard-self__title">我的最好成绩</div>
-                  <div class="leaderboard-self__stats">
-                    <span>得分 {{ leaderboardPlayer.score }}</span>
-                    <span>最高 {{ schools[leaderboardPlayer.max_level]?.short || '未命名' }}</span>
-                    <span v-if="leaderboardPlayer.class_rank">班级第 {{ leaderboardPlayer.class_rank }}</span>
-                    <span v-if="leaderboardPlayer.school_rank">全校第 {{ leaderboardPlayer.school_rank }}</span>
-                    <span v-if="leaderboardPlayer.class_total_rank">
-                      班级总分第 {{ leaderboardPlayer.class_total_rank }}
-                    </span>
-                  </div>
+              <div class="drama-toast" :class="{ show: showToast }">
+                <div class="drama-content">
+                  <span class="drama-text">{{ toastMessage }}</span>
                 </div>
+              </div>
 
-                <div v-if="leaderboardLoading" class="sheet-empty">正在加载排行榜...</div>
-                <div v-else-if="leaderboardError" class="sheet-empty sheet-empty--error">
-                  {{ leaderboardError }}
+              <div v-if="gameOver" class="overlay glass-overlay">
+                <h2>挑战结束</h2>
+                <p class="final-score">最终得分 {{ score }}</p>
+                <p class="message">场上已经没有安全落点了。</p>
+                <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
+                <div class="overlay-btns">
+                  <button class="restart-btn" type="button" @click="forceRestart">再来一局</button>
+                  <button class="secondary-btn" type="button" @click="toggleLeaderboard">查看排行榜</button>
                 </div>
-                <div v-else-if="leaderboardItems.length === 0" class="sheet-empty">暂无上榜数据。</div>
-                <div v-else class="leaderboard-list">
-                  <div
-                    class="leaderboard-item"
-                    :class="{ 'leaderboard-item--self': item.is_self }"
-                    v-for="item in leaderboardItems"
-                    :key="leaderboardItemKey(item)"
-                  >
-                    <div class="leaderboard-rank">#{{ item.rank }}</div>
-                    <div class="leaderboard-main">
-                      <template v-if="leaderboardScope === 'class_total'">
-                        <strong>{{ item.class_name }}</strong>
-                        <span>{{ item.player_count }} 人 · 平均 {{ item.avg_score }}</span>
-                      </template>
-                      <template v-else>
-                        <strong>{{ item.player_name || item.student_id }}</strong>
-                        <span>{{ item.class_name || '未绑定班级' }}</span>
-                      </template>
+              </div>
+
+              <div v-if="hasWon" class="overlay glass-overlay win">
+                <h2>成功合成湖工大</h2>
+                <p class="message">本局已自动记录，你可以直接查看排名。</p>
+                <p class="final-score">最终得分 {{ score }}</p>
+                <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
+                <div class="overlay-btns">
+                  <button class="restart-btn" type="button" @click="forceRestart">继续挑战</button>
+                  <button class="secondary-btn" type="button" @click="toggleLeaderboard">查看排行榜</button>
+                </div>
+              </div>
+
+              <div v-if="showHistory" class="overlay glass-overlay sheet-overlay">
+                <div class="sheet-panel">
+                  <div class="sheet-header">
+                    <div>
+                      <p class="sheet-eyebrow">本地</p>
+                      <h3>历史战绩</h3>
                     </div>
-                    <div class="leaderboard-side">
-                      <template v-if="leaderboardScope === 'class_total'">
-                        <strong>{{ item.total_score }}</strong>
-                        <span>总分</span>
-                      </template>
-                      <template v-else>
-                        <strong>{{ item.score }}</strong>
-                        <span>
-                          {{ schools[item.max_level]?.short || '未命名' }}
-                          · {{ formatDuration(item.duration_ms) }}
+                    <button class="close-btn" type="button" @click="toggleHistory">×</button>
+                  </div>
+                  <div class="sheet-body history-list">
+                    <div v-if="historyRecords.length === 0" class="sheet-empty">暂无记录，先完成一局。</div>
+                    <div v-else class="history-item" v-for="(record, idx) in historyRecords" :key="idx">
+                      <div class="history-info">
+                        <span class="history-date">{{ formatDate(record.date) }}</span>
+                        <strong>得分 {{ record.score }}</strong>
+                      </div>
+                      <div class="history-badge">
+                        <img :src="resolveLogoPath(schools[record.maxLevel].image)" class="badge-img" />
+                        <span>{{ schools[record.maxLevel].short }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="sheet-footer">
+                    <button
+                      v-if="historyRecords.length > 0"
+                      class="ghost-btn"
+                      type="button"
+                      @click="clearHistory"
+                    >
+                      清空记录
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="showLeaderboard" class="overlay glass-overlay sheet-overlay">
+                <div class="sheet-panel sheet-panel--wide">
+                  <div class="sheet-header">
+                    <div>
+                      <p class="sheet-eyebrow">云端</p>
+                      <h3>排行榜</h3>
+                    </div>
+                    <button class="close-btn" type="button" @click="toggleLeaderboard">×</button>
+                  </div>
+
+                  <div class="sheet-body">
+                    <div class="leaderboard-meta">
+                      <span>{{ rankEnabled ? '结算后自动上传最新成绩' : '当前未注入学号，无法上传排行榜' }}</span>
+                      <span v-if="leaderboardUpdatedAt">更新于 {{ formatDateTime(leaderboardUpdatedAt) }}</span>
+                    </div>
+
+                    <div class="scope-tabs">
+                      <button
+                        v-for="scope in resolvedScopes"
+                        :key="scope.value"
+                        class="scope-tab"
+                        :class="{ active: leaderboardScope === scope.value, disabled: scope.disabled }"
+                        :disabled="scope.disabled"
+                        type="button"
+                        @click="selectLeaderboardScope(scope.value)"
+                      >
+                        {{ scope.label }}
+                      </button>
+                    </div>
+
+                    <div v-if="leaderboardPlayer" class="leaderboard-self">
+                      <div class="leaderboard-self__title">我的最好成绩</div>
+                      <div class="leaderboard-self__stats">
+                        <span>得分 {{ leaderboardPlayer.score }}</span>
+                        <span>最高 {{ schools[leaderboardPlayer.max_level]?.short || '未命名' }}</span>
+                        <span v-if="leaderboardPlayer.class_rank">班级第 {{ leaderboardPlayer.class_rank }}</span>
+                        <span v-if="leaderboardPlayer.school_rank">全校第 {{ leaderboardPlayer.school_rank }}</span>
+                        <span v-if="leaderboardPlayer.class_total_rank">
+                          班级总分第 {{ leaderboardPlayer.class_total_rank }}
                         </span>
-                      </template>
+                      </div>
+                    </div>
+
+                    <div v-if="leaderboardLoading" class="sheet-empty">正在加载排行榜...</div>
+                    <div v-else-if="leaderboardError" class="sheet-empty sheet-empty--error">
+                      {{ leaderboardError }}
+                    </div>
+                    <div v-else-if="leaderboardItems.length === 0" class="sheet-empty">暂无上榜数据。</div>
+                    <div v-else class="leaderboard-list">
+                      <div
+                        class="leaderboard-item"
+                        :class="leaderboardItemClasses(item)"
+                        v-for="item in leaderboardItems"
+                        :key="leaderboardItemKey(item)"
+                      >
+                        <div class="leaderboard-rank" :class="leaderboardRankClasses(item)">#{{ item.rank }}</div>
+                        <div class="leaderboard-main">
+                          <template v-if="leaderboardScope === 'class_total'">
+                            <strong>{{ item.class_name }}</strong>
+                            <span>{{ item.player_count }} 人 · 平均 {{ item.avg_score }}</span>
+                          </template>
+                          <template v-else>
+                            <strong>{{ item.player_name || item.student_id }}</strong>
+                            <span>{{ item.class_name || '未绑定班级' }}</span>
+                          </template>
+                        </div>
+                        <div class="leaderboard-side">
+                          <template v-if="leaderboardScope === 'class_total'">
+                            <strong>{{ item.total_score }}</strong>
+                            <span>总分</span>
+                          </template>
+                          <template v-else>
+                            <strong>{{ item.score }}</strong>
+                            <span>
+                              {{ schools[item.max_level]?.short || '未命名' }}
+                              · {{ formatDuration(item.duration_ms) }}
+                            </span>
+                          </template>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              <div class="sheet-footer">
-                <button class="ghost-btn" type="button" @click="loadLeaderboard(leaderboardScope)">
-                  刷新
-                </button>
-                <button
-                  v-if="rankSubmitError && (gameOver || hasWon)"
-                  class="ghost-btn ghost-btn--warn"
-                  type="button"
-                  @click="retryRankSubmit"
-                >
-                  重试上传
-                </button>
+                  <div class="sheet-footer">
+                    <button class="ghost-btn" type="button" @click="loadLeaderboard(leaderboardScope)">
+                      刷新
+                    </button>
+                    <button
+                      v-if="rankSubmitError && (gameOver || hasWon)"
+                      class="ghost-btn ghost-btn--warn"
+                      type="button"
+                      @click="retryRankSubmit"
+                    >
+                      重试上传
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <footer class="legend-panel panel">
+      <footer class="legend-panel panel" ref="legendPanel">
         <div class="legend-scroll">
           <div
             v-for="(school, index) in schools"
@@ -277,14 +292,22 @@ import {
 } from './utils/game_rank'
 
 const MODULE_LOGO_BASE = `${import.meta.env.BASE_URL || '/'}logos/`
+const REFERENCE_STAGE_WIDTH = 360
+const REFERENCE_STAGE_HEIGHT = 600
+const LOGICAL_STAGE_WIDTH = 320
+const LOGICAL_STAGE_HEIGHT = Math.round((LOGICAL_STAGE_WIDTH / REFERENCE_STAGE_WIDTH) * REFERENCE_STAGE_HEIGHT)
 
 export default {
   name: 'App',
   data() {
+    const rankContext = readGameModuleContext()
     return {
-      canvasWidth: 360,
-      canvasHeight: 600,
-      dropX: 180,
+      canvasWidth: LOGICAL_STAGE_WIDTH,
+      canvasHeight: LOGICAL_STAGE_HEIGHT,
+      stageScale: 1,
+      stageViewportWidth: LOGICAL_STAGE_WIDTH,
+      stageViewportHeight: LOGICAL_STAGE_HEIGHT,
+      dropX: LOGICAL_STAGE_WIDTH / 2,
       score: 0,
       gameOver: false,
       hasWon: false,
@@ -297,13 +320,13 @@ export default {
       showLeaderboard: false,
       historyRecords: [],
       particles: [],
-      rankContext: readGameModuleContext(),
+      rankContext,
       availableScopes: [
-        { value: 'class', label: '班级榜' },
+        { value: 'class', label: '班级榜', requiresClass: true },
         { value: 'school', label: '全校榜' },
-        { value: 'class_total', label: '班级总分榜' }
+        { value: 'class_total', label: '班级总分榜', requiresClass: true }
       ],
-      leaderboardScope: 'class',
+      leaderboardScope: rankContext.className ? 'class' : 'school',
       leaderboardItems: [],
       leaderboardPlayer: null,
       leaderboardLoading: false,
@@ -323,6 +346,11 @@ export default {
       toastTimer: null,
       autoSaveInterval: null,
       gameOverWatcher: null,
+      embeddedHostRuntime: false,
+      embeddedLayoutObserver: null,
+      embeddedLayoutRaf: 0,
+      hostResizeObserver: null,
+      hostLayoutSyncTimer: null,
       dramaScripts: {
         0: ['起步稳住', '热身完成', '场子开了'],
         1: ['节奏起来了', '继续往上合', '这局能成'],
@@ -340,7 +368,7 @@ export default {
       render: null,
       runner: null,
 
-      deathLineY: 100,
+      deathLineY: 120,
       schoolImages: {},
       schools: [
         { name: '清华大学', short: '清华', radius: 20, color: '#9d6c42', score: 1, image: 'qinghua.png' },
@@ -360,6 +388,15 @@ export default {
     rankEnabled() {
       return canUseGameRank(this.rankContext)
     },
+    hasClassContext() {
+      return !!this.rankContext.className
+    },
+    resolvedScopes() {
+      return this.availableScopes.map((scope) => ({
+        ...scope,
+        disabled: !!scope.requiresClass && !this.hasClassContext
+      }))
+    },
     rankSummaryText() {
       const player = this.lastRankSubmission || this.leaderboardPlayer
       if (!player) return ''
@@ -373,21 +410,30 @@ export default {
       if (!this.rankEnabled) return '当前未注入学号，排行榜会保持关闭。'
       if (this.rankSubmitBusy) return '本局结束后正在同步成绩。'
       if (this.rankSubmitError) return `成绩上传失败：${this.rankSubmitError}`
+      if (!this.hasClassContext) return '当前未注入班级信息，排行榜默认显示全校榜。'
       return '本局结束后会自动上传最佳成绩。'
     }
   },
   mounted() {
     this.checkMobile()
+    this.embeddedHostRuntime = this.isEmbeddedHostRuntime()
     window.addEventListener('resize', this.handleResize)
     window.addEventListener('beforeunload', this.saveGame)
     this.initDimensions()
+    this.initHostLayoutBridge()
+    this.initEmbeddedLayoutBridge()
     this.loadHistory()
     this.loadImages().then(() => {
+      this.$nextTick(() => {
+        this.initDimensions()
+      })
       this.initGame()
+      this.scheduleHostLayoutSync()
       if (this.rankEnabled) {
-        void this.loadLeaderboard('class', { silent: true })
+        void this.loadLeaderboard(this.leaderboardScope, { silent: true })
       }
     })
+    this.scheduleHostLayoutSync()
   },
   beforeUnmount() {
     window.removeEventListener('resize', this.handleResize)
@@ -395,10 +441,80 @@ export default {
     if (this.autoSaveInterval) clearInterval(this.autoSaveInterval)
     if (this.gameOverWatcher) clearInterval(this.gameOverWatcher)
     if (this.toastTimer) clearTimeout(this.toastTimer)
+    if (this.hostLayoutSyncTimer) clearTimeout(this.hostLayoutSyncTimer)
+    if (this.hostResizeObserver) {
+      this.hostResizeObserver.disconnect()
+      this.hostResizeObserver = null
+    }
+    if (this.embeddedLayoutObserver) {
+      this.embeddedLayoutObserver.disconnect()
+      this.embeddedLayoutObserver = null
+    }
+    if (this.embeddedLayoutRaf) {
+      cancelAnimationFrame(this.embeddedLayoutRaf)
+      this.embeddedLayoutRaf = 0
+    }
     this.saveGame()
     this.stopGame()
   },
   methods: {
+    initEmbeddedLayoutBridge() {
+      if (!this.embeddedHostRuntime || typeof ResizeObserver !== 'function') return
+      const targets = [this.$refs.gameHeader, this.$refs.legendPanel].filter(
+        (target) => target instanceof HTMLElement
+      )
+      if (!targets.length) return
+      this.embeddedLayoutObserver = new ResizeObserver(() => {
+        if (this.embeddedLayoutRaf) return
+        this.embeddedLayoutRaf = window.requestAnimationFrame(() => {
+          this.embeddedLayoutRaf = 0
+          this.initDimensions()
+          this.scheduleHostLayoutSync()
+        })
+      })
+      targets.forEach((target) => this.embeddedLayoutObserver.observe(target))
+    },
+
+    initHostLayoutBridge() {
+      if (typeof window === 'undefined' || window.parent === window) return
+      const observedTarget = this.$refs.gameShell || this.$el
+      if (typeof ResizeObserver === 'function' && observedTarget instanceof HTMLElement) {
+        this.hostResizeObserver = new ResizeObserver(() => {
+          this.scheduleHostLayoutSync()
+        })
+        this.hostResizeObserver.observe(observedTarget)
+      }
+    },
+
+    scheduleHostLayoutSync() {
+      if (typeof window === 'undefined' || window.parent === window) return
+      if (this.hostLayoutSyncTimer) {
+        clearTimeout(this.hostLayoutSyncTimer)
+      }
+      this.hostLayoutSyncTimer = setTimeout(() => {
+        this.notifyHostLayout()
+      }, 16)
+    },
+
+    notifyHostLayout() {
+      if (typeof window === 'undefined' || window.parent === window) return
+      const root = this.$el instanceof HTMLElement ? this.$el : null
+      const shell = this.$refs.gameShell instanceof HTMLElement ? this.$refs.gameShell : null
+      const rootStyle = root ? window.getComputedStyle(root) : null
+      const paddingTop = parseFloat(rootStyle?.paddingTop || '0') || 0
+      const paddingBottom = parseFloat(rootStyle?.paddingBottom || '0') || 0
+      const shellHeight = Number(shell?.getBoundingClientRect().height || 0)
+      const nextHeight = Math.max(1, Math.ceil(shellHeight + paddingTop + paddingBottom))
+      window.parent.postMessage(
+        {
+          type: 'mini-hbut:module-size',
+          moduleId: 'hecheng_hugongda',
+          height: nextHeight
+        },
+        '*'
+      )
+    },
+
     resolveLogoPath(fileName) {
       return `${MODULE_LOGO_BASE}${fileName}`
     },
@@ -409,21 +525,48 @@ export default {
       )
     },
 
+    isEmbeddedHostRuntime() {
+      return typeof window !== 'undefined' && window.parent !== window
+    },
+
     initDimensions() {
-      const maxWidth = 500
-      const padding = 20
-      const availableHeight = window.innerHeight - 198
-      this.canvasWidth = Math.min(window.innerWidth - padding, maxWidth)
-      this.canvasHeight = Math.max(420, Math.min(availableHeight, 820))
-      this.dropX = this.canvasWidth / 2
+      const fallbackWidth = Math.max(280, window.innerWidth - 20)
+      const areaWidth = this.$refs.gameArea?.clientWidth || fallbackWidth
+      const nextViewportWidth = Math.max(280, Math.min(areaWidth, LOGICAL_STAGE_WIDTH))
+      const nextScale = nextViewportWidth / LOGICAL_STAGE_WIDTH
+
+      this.canvasWidth = LOGICAL_STAGE_WIDTH
+      this.canvasHeight = LOGICAL_STAGE_HEIGHT
+      this.stageScale = Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1
+      this.stageViewportWidth = Math.round(this.canvasWidth * this.stageScale)
+      this.stageViewportHeight = Math.round(this.canvasHeight * this.stageScale)
+      const radius = this.schools[this.nextBallLevel]?.radius || 0
+      this.dropX = Math.max(radius, Math.min(this.canvasWidth - radius, this.dropX || this.canvasWidth / 2))
       this.deathLineY = 120
+      this.scheduleHostLayoutSync()
+    },
+
+    buildBallBodyOptions(level, { angle = 0 } = {}) {
+      const isCompactStage = this.canvasWidth <= 320
+      return {
+        restitution: isCompactStage ? 0.05 : 0.12,
+        friction: isCompactStage ? 0.26 : 0.16,
+        frictionStatic: isCompactStage ? 0.44 : 0.28,
+        frictionAir: isCompactStage ? 0.028 : 0.016,
+        sleepThreshold: isCompactStage ? 25 : 35,
+        angle,
+        label: `ball_${level}`,
+        render: {
+          fillStyle: 'transparent',
+          strokeStyle: 'transparent'
+        }
+      }
     },
 
     handleResize() {
-      this.saveGame()
-      this.stopGame()
+      this.checkMobile()
       this.initDimensions()
-      this.initGame()
+      this.scheduleHostLayoutSync()
     },
 
     async loadImages() {
@@ -482,7 +625,7 @@ export default {
       const Events = Matter.Events
       const Runner = Matter.Runner
 
-      this.engine = Engine.create()
+      this.engine = Engine.create({ enableSleeping: true })
       this.engine.world.gravity.y = 1.2
 
       this.render = Render.create({
@@ -501,8 +644,8 @@ export default {
       const wallOptions = {
         isStatic: true,
         render: { fillStyle: '#00000010' },
-        friction: 0.1,
-        restitution: 0.2
+        friction: 0.32,
+        restitution: 0.03
       }
 
       const walls = [
@@ -598,16 +741,12 @@ export default {
           data.bodies.forEach((item) => {
             const school = this.schools[item.level]
             if (!school) return
-            const ball = Matter.Bodies.circle(item.x, item.y, school.radius, {
-              restitution: 0.3,
-              friction: 0.1,
-              angle: item.angle || 0,
-              label: `ball_${item.level}`,
-              render: {
-                fillStyle: 'transparent',
-                strokeStyle: 'transparent'
-              }
-            })
+            const ball = Matter.Bodies.circle(
+              item.x,
+              item.y,
+              school.radius,
+              this.buildBallBodyOptions(item.level, { angle: item.angle || 0 })
+            )
             ball.schoolLevel = item.level
             ball.dropTime = Date.now()
             Matter.World.add(this.engine.world, ball)
@@ -663,12 +802,14 @@ export default {
     toggleHistory() {
       this.showHistory = !this.showHistory
       if (this.showHistory) this.showLeaderboard = false
+      this.scheduleHostLayoutSync()
     },
 
     clearHistory() {
       if (window.confirm('确定要清空历史记录吗？')) {
         this.historyRecords = []
         localStorage.removeItem('hbut_history')
+        this.scheduleHostLayoutSync()
       }
     },
 
@@ -701,21 +842,65 @@ export default {
       return `${this.leaderboardScope}:${item.student_id || item.class_name || item.rank}`
     },
 
+    leaderboardItemClasses(item) {
+      const rank = Number(item?.rank || 0)
+      return {
+        'leaderboard-item--self': !!item?.is_self,
+        'leaderboard-item--top1': rank === 1,
+        'leaderboard-item--top2': rank === 2,
+        'leaderboard-item--top3': rank === 3
+      }
+    },
+
+    leaderboardRankClasses(item) {
+      const rank = Number(item?.rank || 0)
+      return {
+        'leaderboard-rank--top1': rank === 1,
+        'leaderboard-rank--top2': rank === 2,
+        'leaderboard-rank--top3': rank === 3
+      }
+    },
+
+    resolveLeaderboardScope(scope) {
+      const nextScope = String(scope || '').trim() || 'class'
+      if (!this.hasClassContext && (nextScope === 'class' || nextScope === 'class_total')) {
+        return 'school'
+      }
+      if (nextScope === 'class' || nextScope === 'school' || nextScope === 'class_total') {
+        return nextScope
+      }
+      return this.hasClassContext ? 'class' : 'school'
+    },
+
+    buildLeaderboardErrorMessage(error, scope) {
+      const message = error?.message || '排行榜加载失败'
+      if (!this.hasClassContext && (scope === 'class' || scope === 'class_total' || /class_name/i.test(message))) {
+        return '当前未注入班级信息，班级榜暂不可用，已自动切换为全校榜。'
+      }
+      if (/class_name/i.test(message)) {
+        return '排行榜缺少班级信息，请重新进入模块后再试。'
+      }
+      return message
+    },
+
     toggleLeaderboard() {
       this.showLeaderboard = !this.showLeaderboard
       if (this.showLeaderboard) {
         this.showHistory = false
-        void this.loadLeaderboard(this.leaderboardScope)
+        void this.loadLeaderboard(this.resolveLeaderboardScope(this.leaderboardScope))
       }
+      this.scheduleHostLayoutSync()
     },
 
     selectLeaderboardScope(scope) {
-      if (scope === this.leaderboardScope && this.leaderboardItems.length > 0) return
-      void this.loadLeaderboard(scope)
+      const nextScope = this.resolveLeaderboardScope(scope)
+      if (nextScope === this.leaderboardScope && this.leaderboardItems.length > 0) return
+      void this.loadLeaderboard(nextScope)
     },
 
     async loadLeaderboard(scope = 'class', { silent = false } = {}) {
-      this.leaderboardScope = scope
+      const resolvedScope = this.resolveLeaderboardScope(scope)
+      this.leaderboardScope = resolvedScope
       if (!this.rankEnabled) {
         this.leaderboardError = '当前没有登录信息，无法读取排行榜。'
         this.leaderboardItems = []
@@ -727,7 +912,7 @@ export default {
       this.leaderboardError = ''
       try {
         const response = await fetchGameLeaderboard(this.rankContext, {
-          scope,
+          scope: resolvedScope,
           studentId: this.rankContext.studentId,
           className: this.rankContext.className,
           schoolName: this.rankContext.schoolName,
@@ -738,9 +923,13 @@ export default {
         this.leaderboardUpdatedAt = response.refreshed_at || ''
       } catch (error) {
         this.leaderboardItems = []
-        this.leaderboardError = error?.message || '排行榜加载失败'
+        this.leaderboardError = this.buildLeaderboardErrorMessage(error, resolvedScope)
       } finally {
         this.leaderboardLoading = false
+        this.$nextTick(() => {
+          this.initDimensions()
+          this.scheduleHostLayoutSync()
+        })
       }
     },
 
@@ -789,6 +978,7 @@ export default {
       if (this.autoSaveInterval) clearInterval(this.autoSaveInterval)
       localStorage.removeItem('hbut_current_save')
       this.restartGame()
+      this.scheduleHostLayoutSync()
     },
 
     getRandomBallLevel() {
@@ -798,7 +988,8 @@ export default {
     getEventX(event) {
       const rect = this.$refs.gameCanvas.getBoundingClientRect()
       const clientX = event.touches ? event.touches[0].clientX : event.clientX
-      return clientX - rect.left
+      if (!rect.width) return clientX - rect.left
+      return ((clientX - rect.left) / rect.width) * this.canvasWidth
     },
 
     handleInputStart(event) {
@@ -840,15 +1031,12 @@ export default {
       const currentLevel = this.nextBallLevel
       const school = this.schools[currentLevel]
 
-      const ball = Matter.Bodies.circle(this.dropX, 40, school.radius, {
-        restitution: 0.3,
-        friction: 0.1,
-        label: `ball_${currentLevel}`,
-        render: {
-          fillStyle: 'transparent',
-          strokeStyle: 'transparent'
-        }
-      })
+      const ball = Matter.Bodies.circle(
+        this.dropX,
+        40,
+        school.radius,
+        this.buildBallBodyOptions(currentLevel)
+      )
 
       ball.schoolLevel = currentLevel
       ball.dropTime = Date.now()
@@ -885,15 +1073,12 @@ export default {
 
         Matter.World.remove(this.engine.world, [bodyA, bodyB])
 
-        const newBall = Matter.Bodies.circle(newX, newY, newSchool.radius, {
-          restitution: 0.3,
-          friction: 0.1,
-          label: `ball_${newLevel}`,
-          render: {
-            fillStyle: 'transparent',
-            strokeStyle: 'transparent'
-          }
-        })
+        const newBall = Matter.Bodies.circle(
+          newX,
+          newY,
+          newSchool.radius,
+          this.buildBallBodyOptions(newLevel)
+        )
         newBall.schoolLevel = newLevel
         newBall.dropTime = Date.now()
         Matter.World.add(this.engine.world, newBall)
@@ -957,6 +1142,19 @@ export default {
       })
     },
 
+    drawLogoCover(ctx, img, radius) {
+      const naturalWidth = Number(img?.naturalWidth || img?.width || 0)
+      const naturalHeight = Number(img?.naturalHeight || img?.height || 0)
+      if (!naturalWidth || !naturalHeight) {
+        ctx.drawImage(img, -radius, -radius, radius * 2, radius * 2)
+        return
+      }
+      const coverScale = Math.max((radius * 2) / naturalWidth, (radius * 2) / naturalHeight)
+      const drawWidth = naturalWidth * coverScale
+      const drawHeight = naturalHeight * coverScale
+      ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight)
+    },
+
     startGameOverWatcher() {
       if (this.gameOverWatcher) clearInterval(this.gameOverWatcher)
       this.gameOverWatcher = setInterval(() => {
@@ -966,8 +1164,10 @@ export default {
         for (const body of bodies) {
           if (body.schoolLevel === undefined || !body.dropTime || body.isRemoved) continue
           if (now - body.dropTime <= 2000) continue
-          if (body.position.y - this.schools[body.schoolLevel].radius >= this.deathLineY) continue
-          if (body.speed >= 0.2) continue
+          // 只有圆心越过警戒线且球体基本停稳，才判定失败，避免边缘抖动误杀。
+          if (body.position.y >= this.deathLineY) continue
+          if (body.speed >= 0.12) continue
+          if (Math.abs(Number(body.angularSpeed || 0)) >= 0.08) continue
           this.gameOver = true
           this.saveToHistory()
           void this.finalizeRankSubmission('failed')
@@ -1039,7 +1239,7 @@ export default {
           ctx.beginPath()
           ctx.arc(0, 0, radius, 0, Math.PI * 2)
           ctx.clip()
-          ctx.drawImage(img, -radius, -radius, radius * 2, radius * 2)
+          this.drawLogoCover(ctx, img, radius)
 
           ctx.strokeStyle = 'rgba(52, 45, 39, 0.12)'
           ctx.lineWidth = 1
