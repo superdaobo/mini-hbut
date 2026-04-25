@@ -15,9 +15,10 @@ import {
   prepareModuleBundle,
   resolveModuleChannel
 } from '../utils/more_modules.js'
+import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync.js'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
 
-defineProps({
+const props = defineProps({
   studentId: { type: String, default: '' }
 })
 
@@ -70,6 +71,13 @@ const brushKeyInput = ref('')
 const brushKeyError = ref('')
 
 const safeText = (value) => String(value ?? '').trim()
+const safeParseJson = (raw, fallback = null) => {
+  try {
+    return JSON.parse(raw || '')
+  } catch {
+    return fallback
+  }
+}
 const safeNumber = (value, fallback = 0) => {
   const num = Number(value)
   return Number.isFinite(num) ? num : fallback
@@ -91,6 +99,108 @@ const buildDefaultManifestUrl = (channel, moduleId) => {
   const id = safeText(moduleId)
   if (!id) return ''
   return `${MODULE_CDN_BASE}/${normalizedChannel}/${id}/manifest.json`
+}
+
+const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
+
+const readCachedStudentProfile = () => {
+  const sid = safeText(props.studentId)
+  if (!sid) {
+    return {
+      student_id: '',
+      name: '',
+      class_name: '',
+      major: '',
+      school_name: '湖北工业大学'
+    }
+  }
+  const direct = safeParseJson(localStorage.getItem(`cache:studentinfo:${sid}`), null)
+  const legacy = safeParseJson(localStorage.getItem(`cache:student_info:${sid}`), null)
+  const source =
+    (direct?.data && typeof direct.data === 'object' ? direct.data : direct) ||
+    (legacy?.data && typeof legacy.data === 'object' ? legacy.data : legacy) ||
+    {}
+  return {
+    student_id: sid,
+    name: safeText(source?.name || source?.student_name || source?.studentName),
+    class_name: safeText(source?.class_name || source?.className),
+    major: safeText(source?.major),
+    school_name: '湖北工业大学'
+  }
+}
+
+const resolveGameRankApi = () => {
+  try {
+    const runtime = getCloudSyncRuntimeConfig()
+    const endpoint = safeText(runtime?.proxyEndpoint || runtime?.endpoint)
+    if (endpoint) {
+      return endpoint.replace(/\/cloud-sync$/i, '/game-rank')
+    }
+  } catch {
+    // ignore runtime config failure
+  }
+  return DEFAULT_GAME_RANK_API
+}
+
+const appendModuleContextQuery = (moduleId, rawUrl) => {
+  const previewUrl = safeText(rawUrl)
+  if (!previewUrl || moduleId !== 'hecheng_hugongda') return previewUrl
+
+  try {
+    const url = new URL(previewUrl, window.location.origin)
+    const profile = readCachedStudentProfile()
+    url.searchParams.set('from', 'mini_hbut')
+    url.searchParams.set('runtime', 'tauri-host')
+    url.searchParams.set('student_id', safeText(profile.student_id))
+    url.searchParams.set('player_name', safeText(profile.name))
+    url.searchParams.set('class_name', safeText(profile.class_name))
+    url.searchParams.set('major', safeText(profile.major))
+    url.searchParams.set('school_name', safeText(profile.school_name))
+    url.searchParams.set('rank_api', resolveGameRankApi())
+    return url.toString()
+  } catch {
+    return previewUrl
+  }
+}
+
+const buildCachedManifestSnapshot = (moduleItem) => {
+  const local = getLocalModuleState(moduleItem?.id)
+  if (!local || typeof local !== 'object') return null
+  const version = safeText(local?.version)
+  const packageUrl = safeText(local?.package_url)
+  const entryPath = safeText(local?.entry_path || 'index.html')
+  if (!version || !packageUrl || !entryPath) return null
+  return {
+    module_id: safeText(moduleItem?.id),
+    module_name: safeText(local?.module_name || moduleItem?.name || moduleItem?.module_name || moduleItem?.id),
+    version,
+    package_url: packageUrl,
+    package_sha256: safeText(local?.package_sha256),
+    entry_path: entryPath,
+    open_url: safeText(local?.preview_url || local?.open_url)
+  }
+}
+
+const emitPreparedModuleNavigate = (moduleItem, prepared, manifest) => {
+  const moduleId = safeText(prepared?.module_id || moduleItem?.id)
+  const previewUrl = appendModuleContextQuery(
+    moduleId,
+    safeText(prepared?.preview_url || manifest?.open_url)
+  )
+  emit('navigate', {
+    view: 'more_module_host',
+    payload: {
+      module_id: moduleId,
+      module_name: safeText(prepared?.module_name || moduleItem?.name || manifest?.module_name || moduleId),
+      preview_url: previewUrl,
+      version: safeText(prepared?.version || manifest?.version),
+      channel: safeText(prepared?.channel || moduleChannel.value),
+      local_ready: prepared?.local_ready !== false,
+      source: safeText(prepared?.source || ''),
+      cache_dir: safeText(prepared?.cache_dir || ''),
+      bundle_path: safeText(prepared?.bundle_path || '')
+    }
+  })
 }
 
 const buildDefaultModules = (channel = 'main') => {
@@ -316,19 +426,11 @@ const handleOpenRemoteModule = async (moduleItem) => {
   }
 
   moduleBusyKey.value = moduleId
-  setModuleState(moduleId, {
-    status: 'checking',
-    channel: moduleChannel.value,
-    message: '检查更新中'
-  })
-  try {
-    const manifest = await fetchModuleManifest(moduleItem.manifest_url)
+  const openPreparedModule = async (manifest, initialMessage = '检查更新中') => {
     setModuleState(moduleId, {
-      status: 'downloading',
+      status: 'checking',
       channel: moduleChannel.value,
-      source: 'download',
-      message: '下载并准备本地包',
-      version: safeText(manifest.version)
+      message: initialMessage
     })
     const prepared = await prepareModuleBundle({
       channel: moduleChannel.value,
@@ -341,24 +443,74 @@ const handleOpenRemoteModule = async (moduleItem) => {
       source: safeText(prepared.source || ''),
       message:
         prepared.launch_mode === 'cache'
-          ? '已加载本地缓存'
-          : '已在当前页面内嵌打开',
+          ? '已命中本地缓存'
+          : '已更新并内嵌打开',
       version: safeText(prepared.version || manifest.version)
     })
-    emit('navigate', {
-      view: 'more_module_host',
-      payload: {
-        module_id: safeText(prepared.module_id || moduleId),
-        module_name: safeText(prepared.module_name || moduleItem?.name || manifest.module_name || moduleId),
-        preview_url: safeText(prepared.preview_url),
-        version: safeText(prepared.version || manifest.version),
-        channel: safeText(prepared.channel || moduleChannel.value),
-        local_ready: prepared.local_ready !== false,
-        source: safeText(prepared.source || ''),
-        cache_dir: safeText(prepared.cache_dir || ''),
-        bundle_path: safeText(prepared.bundle_path || '')
-      }
+    emitPreparedModuleNavigate(moduleItem, prepared, manifest)
+  }
+
+  try {
+    const cachedManifest = buildCachedManifestSnapshot(moduleItem)
+    let remoteManifest = null
+    let remoteManifestError = null
+
+    setModuleState(moduleId, {
+      status: 'checking',
+      channel: moduleChannel.value,
+      message: cachedManifest ? '检查线上版本中' : '获取模块清单中'
     })
+
+    try {
+      remoteManifest = await fetchModuleManifest(moduleItem.manifest_url)
+    } catch (error) {
+      remoteManifestError = error
+    }
+
+    if (remoteManifest) {
+      const cachedVersion = safeText(cachedManifest?.version)
+      const remoteVersion = safeText(remoteManifest.version)
+      const cachedSha = safeText(cachedManifest?.package_sha256)
+      const remoteSha = safeText(remoteManifest.package_sha256)
+      const canUseCache =
+        cachedManifest &&
+        cachedVersion &&
+        cachedVersion === remoteVersion &&
+        (!remoteSha || !cachedSha || cachedSha === remoteSha)
+
+      if (canUseCache) {
+        try {
+          await openPreparedModule(cachedManifest, '命中最新缓存中')
+          return
+        } catch {
+          setModuleState(moduleId, {
+            status: 'checking',
+            channel: moduleChannel.value,
+            message: '本地缓存失效，重新准备最新版本'
+          })
+        }
+      }
+
+      setModuleState(moduleId, {
+        status: 'downloading',
+        channel: moduleChannel.value,
+        source: cachedManifest ? 'download' : '',
+        message: cachedManifest ? '发现新版本，更新本地包' : '下载并准备本地包',
+        version: remoteVersion
+      })
+      await openPreparedModule(
+        remoteManifest,
+        cachedManifest ? '发现新版本，更新本地包' : '下载并准备本地包'
+      )
+      return
+    }
+
+    if (cachedManifest) {
+      await openPreparedModule(cachedManifest, '线上检查失败，回退本地缓存')
+      return
+    }
+
+    throw remoteManifestError || new Error('模块清单获取失败')
   } catch (err) {
     setModuleState(moduleId, {
       status: 'failed',
