@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 const DEFAULT_BRIDGE_PORT: u16 = 4399;
 const MODULE_CACHE_ROOT: &str = "more_modules";
 const REMOTE_MODULE_CDN_HOST: &str = "hbut.6661111.xyz";
+const LOCAL_MODULE_REDIRECT_ENV: &str = "HBUT_DEBUG_LOCAL_MODULE_REDIRECT";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModuleBundlePrepareRequest {
@@ -193,8 +194,21 @@ fn build_preview_url(channel: &str, module_id: &str, version: &str, entry_path: 
     )
 }
 
-fn local_dev_module_root() -> Option<PathBuf> {
+fn local_dev_module_redirect_enabled() -> bool {
     if !cfg!(debug_assertions) {
+        return false;
+    }
+    match std::env::var(LOCAL_MODULE_REDIRECT_ENV) {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => true,
+    }
+}
+
+fn local_dev_module_root() -> Option<PathBuf> {
+    if !local_dev_module_redirect_enabled() {
         return None;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -66,6 +66,19 @@ const minCompatibleVersion = computed(() => safeText(props.session?.min_compatib
 const moduleChannel = computed(() => safeText(props.session?.channel) || 'main')
 const previewUrl = computed(() => safeText(props.session?.preview_url))
 const ready = computed(() => !!previewUrl.value)
+const isHechengModule = computed(() => moduleId.value === 'hecheng_hugongda')
+const isCrossOriginPreview = computed(() => {
+  const text = previewUrl.value
+  if (!text) return false
+  try {
+    return new URL(text, window.location.href).origin !== window.location.origin
+  } catch {
+    return false
+  }
+})
+const usesHechengLegacyHeightFallback = computed(
+  () => isHechengModule.value && isCrossOriginPreview.value
+)
 const usesManagedHechengLayout = computed(
   () => false
 )
@@ -241,19 +254,45 @@ const measureLegacyGameFrameHeight = () => {
   }
 }
 
+const estimateHechengFrameHeightByWidth = () => {
+  const shell = frameShellRef.value
+  const shellWidth = Math.max(
+    0,
+    Math.floor(shell?.clientWidth || shell?.getBoundingClientRect?.().width || 0)
+  )
+  const viewportWidth =
+    Number(window.innerWidth || 0) ||
+    Number(document.documentElement?.clientWidth || 0) ||
+    shellWidth ||
+    0
+  const viewportHeight =
+    hostViewportHeight.value ||
+    Number(window.innerHeight || 0) ||
+    Number(document.documentElement?.clientHeight || 0) ||
+    0
+
+  const contentWidth = Math.max(360, Math.min(480, (shellWidth || viewportWidth) - 20))
+  const headerHeight = Math.round(contentWidth * 0.41)
+  const legendHeight = Math.max(88, Math.round(contentWidth * 0.2))
+  const canvasAspect = viewportHeight >= 880 ? 1.46 : viewportHeight >= 760 ? 1.4 : 1.32
+  const canvasHeight = Math.round(contentWidth * canvasAspect)
+
+  return Math.max(840, Math.min(1120, headerHeight + canvasHeight + legendHeight + 42))
+}
+
 const estimateLegacyFrameHeight = () => {
   if (usesManagedHechengLayout.value) {
     return 0
   }
   const measuredHeight = measureLegacyGameFrameHeight()
   if (measuredHeight > 0) return measuredHeight
+  if (isHechengModule.value) {
+    return estimateHechengFrameHeightByWidth()
+  }
   const viewportHeight =
     Number(window.innerHeight || 0) ||
     Number(document.documentElement?.clientHeight || 0) ||
     900
-  if (moduleId.value === 'hecheng_hugongda') {
-    return Math.max(640, Math.min(860, viewportHeight - 80))
-  }
   if (moduleId.value === 'hugongda_escape') {
     return Math.max(820, Math.min(1160, viewportHeight + 180))
   }
@@ -335,6 +374,19 @@ const syncFrameHeight = () => {
 
 const setupFrameAutoHeight = () => {
   teardownFrameAutoHeight()
+  if (usesHechengLegacyHeightFallback.value) {
+    frameContentHeight.value = estimateLegacyFrameHeight()
+    ;[120, 420, 960].forEach((delay) => {
+      frameSyncTimers.push(
+        window.setTimeout(() => {
+          if (frameContentHeight.value <= 0) {
+            frameContentHeight.value = estimateLegacyFrameHeight()
+          }
+        }, delay)
+      )
+    })
+    return
+  }
   try {
     const doc = frameRef.value?.contentDocument
     const win = frameRef.value?.contentWindow
@@ -392,6 +444,9 @@ const handleLoad = () => {
   loading.value = false
   loadError.value = ''
   loadHint.value = ''
+  if (isHechengModule.value && frameContentHeight.value <= 0) {
+    frameContentHeight.value = estimateLegacyFrameHeight()
+  }
   syncManagedViewportSpace()
   setupFrameAutoHeight()
   requestAnimationFrame(() => syncManagedViewportSpace())
@@ -419,6 +474,9 @@ onMounted(() => {
   hostResizeHandler = () => {
     hostViewportHeight.value = readHostViewportHeight()
     syncManagedViewportSpace()
+    if (isHechengModule.value && frameContentHeight.value > 0) {
+      frameContentHeight.value = estimateLegacyFrameHeight()
+    }
   }
   window.addEventListener('resize', hostResizeHandler)
   window.addEventListener('message', handleFrameSizeMessage)

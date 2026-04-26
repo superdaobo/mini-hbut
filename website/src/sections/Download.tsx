@@ -60,6 +60,7 @@ type ReleaseAsset = {
 
 type LatestRelease = {
   tag_name?: string;
+  version?: string;
   assets?: ReleaseAsset[];
   channel?: string;
 };
@@ -69,6 +70,7 @@ type ReleaseManifest = {
   version?: string;
   channel?: string;
   generatedAt?: string;
+  downloadDir?: string;
   assets?: Record<string, string>;
 };
 
@@ -336,15 +338,17 @@ async function fetchLatestReleaseJson(): Promise<LatestRelease> {
         const manifest = (await resp.json()) as ReleaseManifest;
         if (manifest?.tag && manifest?.assets) {
           const tag = manifest.tag;
+          const downloadDir = String(manifest.downloadDir || tag).trim() || tag;
           const assets: ReleaseAsset[] = Object.values(manifest.assets)
             .filter(Boolean)
             .map((filename) => ({
               name: filename as string,
-              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`,
+              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`,
               download_count: 0,
             }));
           return {
             tag_name: tag,
+            version: manifest.version,
             channel: manifest.channel,
             assets,
           };
@@ -364,19 +368,23 @@ async function fetchLatestReleaseJson(): Promise<LatestRelease> {
         8000
       );
       if (resp.ok) {
-        const manifest = await resp.json();
+        const manifest = (await resp.json()) as ReleaseManifest;
         if (manifest?.tag && manifest?.assets) {
-          // 将 manifest 转换为 GitHub API 兼容格式
           const tag = manifest.tag;
-          const assetMap = manifest.assets as Record<string, string>;
-          const assets: ReleaseAsset[] = Object.values(assetMap)
+          const downloadDir = String(manifest.downloadDir || tag).trim() || tag;
+          const assets: ReleaseAsset[] = Object.values(manifest.assets)
             .filter(Boolean)
             .map((filename) => ({
               name: filename as string,
-              browser_download_url: `https://github.com/${REPO}/releases/download/${tag}/${filename}`,
+              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`,
               download_count: 0,
             }));
-          return { tag_name: tag, assets };
+          return {
+            tag_name: tag,
+            version: manifest.version,
+            channel: manifest.channel,
+            assets,
+          };
         }
       }
     } catch {
@@ -423,7 +431,7 @@ export default function DownloadSection() {
     try {
       const release = await fetchLatestReleaseJson();
       const tag = release.tag_name || '';
-      setVersion(tag);
+      setVersion(String(release.version || tag));
       setChannel(String(release.channel || '').trim());
 
       const assets = Array.isArray(release.assets) ? release.assets : [];

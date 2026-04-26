@@ -26,6 +26,11 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true })
 }
 
+function removePath(targetPath) {
+  if (!targetPath || !fs.existsSync(targetPath)) return
+  fs.rmSync(targetPath, { recursive: true, force: true })
+}
+
 function readJsonIfExists(filePath) {
   if (!fs.existsSync(filePath)) return null
   try {
@@ -339,6 +344,7 @@ function buildManifest({
   tag,
   version,
   prerelease,
+  downloadDir,
   dirPath,
   previousManifest,
   updateNow
@@ -369,12 +375,67 @@ function buildManifest({
   return {
     version,
     tag,
+    downloadDir: safeText(downloadDir || tag),
     prerelease,
     channel,
     generatedAt,
     sourceRef,
     sourceSha,
     assets
+  }
+}
+
+function compareManifestFreshness(left, right) {
+  if (left && !right) return 1
+  if (right && !left) return -1
+  if (!left && !right) return 0
+
+  const leftTs = parseTimestamp(left.generatedAt)
+  const rightTs = parseTimestamp(right.generatedAt)
+  if (leftTs !== rightTs) {
+    return leftTs - rightTs
+  }
+
+  const versionCompare = compareSemverLike(
+    safeText(left.version || left.tag),
+    safeText(right.version || right.tag)
+  )
+  if (versionCompare !== 0) {
+    return versionCompare
+  }
+
+  if (safeText(left.channel) === CURRENT_CHANNEL && safeText(right.channel) !== CURRENT_CHANNEL) {
+    return 1
+  }
+  if (safeText(right.channel) === CURRENT_CHANNEL && safeText(left.channel) !== CURRENT_CHANNEL) {
+    return -1
+  }
+
+  return 0
+}
+
+function pickLatestManifest(stableManifest, devManifest) {
+  return compareManifestFreshness(stableManifest, devManifest) >= 0 ? stableManifest : devManifest
+}
+
+function copyAliasAssets(sourceDir, targetDir) {
+  removePath(targetDir)
+  ensureDir(targetDir)
+  if (!sourceDir || !fs.existsSync(sourceDir)) return false
+
+  const files = listAssetFiles(sourceDir)
+  for (const fileName of files) {
+    fs.copyFileSync(path.join(sourceDir, fileName), path.join(targetDir, fileName))
+  }
+
+  return files.length > 0
+}
+
+function buildLatestAliasManifest(manifest) {
+  if (!manifest) return null
+  return {
+    ...manifest,
+    downloadDir: 'latest'
   }
 }
 
@@ -417,25 +478,22 @@ function buildStableHistory(stableEntries) {
   }
 }
 
-function pickActiveManifest(stableManifest, devManifest) {
-  if (stableManifest && !devManifest) return stableManifest
-  if (devManifest && !stableManifest) return devManifest
-  if (!stableManifest && !devManifest) return null
-  // active 清单固定优先稳定版，避免站点把 dev/beta 误当成默认更新来源。
-  return stableManifest || devManifest
-}
-
 async function main() {
   ensureDir(RELEASES_ROOT)
 
-  const stableAliasPath = path.join(RELEASES_ROOT, 'latest.json')
+  const latestAliasPath = path.join(RELEASES_ROOT, 'latest.json')
+  const stableAliasPath = path.join(RELEASES_ROOT, 'stable-latest.json')
   const devAliasPath = path.join(RELEASES_ROOT, 'dev-latest.json')
   const activePath = path.join(RELEASES_ROOT, 'active.json')
   const channelsPath = path.join(RELEASES_ROOT, 'channels.json')
   const historyPath = path.join(RELEASES_ROOT, 'history.json')
+  const latestDir = path.join(RELEASES_ROOT, 'latest')
 
-  const existingStable = readJsonIfExists(stableAliasPath)
-  const existingDev = readJsonIfExists(devAliasPath)
+  const existingLatest = readJsonIfExists(latestAliasPath)
+  const existingStable =
+    readJsonIfExists(stableAliasPath) || (safeText(existingLatest?.channel) === 'main' ? existingLatest : null)
+  const existingDev =
+    readJsonIfExists(devAliasPath) || (safeText(existingLatest?.channel) === 'dev' ? existingLatest : null)
 
   const stableTag = pickStableTag(existingStable)
   const stableDir = stableTag ? path.join(RELEASES_ROOT, stableTag) : ''
@@ -449,6 +507,7 @@ async function main() {
         tag: stableTag,
         version: stableTag.replace(/^v/i, ''),
         prerelease: false,
+        downloadDir: stableTag,
         dirPath: stableDir,
         previousManifest: existingStable,
         updateNow: CURRENT_CHANNEL === 'main'
@@ -460,6 +519,7 @@ async function main() {
     tag: 'dev-latest',
     version: devVersion || safeText(existingDev?.version || 'unknown'),
     prerelease: true,
+    downloadDir: 'dev-latest',
     dirPath: devDir,
     previousManifest: existingDev,
     updateNow: CURRENT_CHANNEL === 'dev'
@@ -478,7 +538,8 @@ async function main() {
       writeJson(path.join(devHistoryDir, 'manifest.json'), {
         ...devManifest,
         tag: devVersion,
-        version: devVersion
+        version: devVersion,
+        downloadDir: devVersion
       })
     }
     writeJson(devAliasPath, devManifest)
@@ -486,20 +547,34 @@ async function main() {
     fs.rmSync(devAliasPath, { force: true })
   }
 
-  const activeManifest = pickActiveManifest(stableManifest, devManifest)
-  if (activeManifest) {
+  const latestSourceManifest = pickLatestManifest(stableManifest, devManifest)
+  const latestManifest = buildLatestAliasManifest(latestSourceManifest)
+
+  if (latestManifest) {
+    const latestSourceDir =
+      safeText(latestSourceManifest?.channel) === 'dev' ? devDir : stableDir
+    copyAliasAssets(latestSourceDir, latestDir)
+    writeJson(path.join(latestDir, 'manifest.json'), latestManifest)
+    writeJson(latestAliasPath, latestManifest)
     writeJson(activePath, {
-      ...activeManifest,
+      ...latestManifest,
       selectedAt: NOW
     })
-  } else if (fs.existsSync(activePath)) {
-    fs.rmSync(activePath, { force: true })
+  } else {
+    removePath(latestDir)
+    if (fs.existsSync(latestAliasPath)) {
+      fs.rmSync(latestAliasPath, { force: true })
+    }
+    if (fs.existsSync(activePath)) {
+      fs.rmSync(activePath, { force: true })
+    }
   }
 
   writeJson(channelsPath, {
     generatedAt: NOW,
     currentChannel: CURRENT_CHANNEL,
-    activeChannel: safeText(activeManifest?.channel || ''),
+    activeChannel: safeText(latestManifest?.channel || ''),
+    latest: latestManifest,
     stable: stableManifest,
     dev: devManifest
   })
@@ -538,7 +613,8 @@ async function main() {
         currentChannel: CURRENT_CHANNEL,
         stableTag,
         devVersion,
-        activeChannel: safeText(activeManifest?.channel || ''),
+        activeChannel: safeText(latestManifest?.channel || ''),
+        latestVersion: safeText(latestManifest?.version || latestManifest?.tag || ''),
         stableHistorySource: safeText(stableHistory?.source || ''),
         stableHistoryCount: stableHistory.releases.length,
         stableGeneratedAt: safeText(stableManifest?.generatedAt || ''),

@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "tag": "v1.0.0",
+  "downloadDir": "v1.0.0",
+  "prerelease": false,
+  "channel": "main",
+  "generatedAt": "2026-04-26T02:41:53.464Z",
+  "sourceRef": "dev",
+  "sourceSha": "test-sha",
+  "assets": {
+    "windows_exe": "Mini-HBUT_1.0.0_x64-setup.exe"
+  }
+}

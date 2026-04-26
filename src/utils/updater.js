@@ -8,6 +8,8 @@ const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
+const ACTIVE_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/active.json` : ''
+const LATEST_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/latest.json` : ''
 const API_PROXIES = [
   `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
@@ -207,6 +209,9 @@ function shouldOfferRelease(release, currentVersion) {
   const currentText = String(currentVersion || '').replace(/^v/i, '')
   if (!latestVersion) return false
   if (!currentText) return true
+  if (release?.__fromCdnManifest) {
+    return latestVersion !== currentText
+  }
   if (release?.prerelease && !isPrereleaseVersion(currentText)) {
     return false
   }
@@ -269,12 +274,13 @@ function buildExpectedAssetName(platform, version) {
 const normalizeCdnManifestAsRelease = (manifest) => {
   if (!manifest?.tag || !manifest?.assets) return null
   const tag = String(manifest.tag || '').trim()
+  const downloadDir = String(manifest.downloadDir || tag).trim() || tag
   const version = String(manifest.version || tag).replace(/^v/, '')
   const assets = Object.values(manifest.assets || {})
     .filter(Boolean)
     .map((filename) => ({
       name: filename,
-      browser_download_url: `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`
+      browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`
     }))
 
   return {
@@ -292,16 +298,27 @@ const normalizeCdnManifestAsRelease = (manifest) => {
 }
 
 async function fetchReleaseInfo(currentVersion) {
-  // 只检测稳定版最新发布，不消费 active/dev 渠道，避免 beta 被自动推送给用户。
-  if (EDGEONE_CDN_BASE) {
+  if (ACTIVE_MANIFEST_URL) {
     try {
-      const manifest = await fetchJson(`${EDGEONE_CDN_BASE}/releases/latest.json`, 6000)
+      const manifest = await fetchJson(ACTIVE_MANIFEST_URL, 6000)
       const release = normalizeCdnManifestAsRelease(manifest)
       if (release && shouldOfferRelease(release, currentVersion)) {
         return release
       }
     } catch (_) {
-      // EdgeOne CDN 不可用，继续 fallback
+      // active manifest 不可用，继续 fallback
+    }
+  }
+
+  if (LATEST_MANIFEST_URL) {
+    try {
+      const manifest = await fetchJson(LATEST_MANIFEST_URL, 6000)
+      const release = normalizeCdnManifestAsRelease(manifest)
+      if (release && shouldOfferRelease(release, currentVersion)) {
+        return release
+      }
+    } catch (_) {
+      // latest manifest 不可用，继续 fallback
     }
   }
 
