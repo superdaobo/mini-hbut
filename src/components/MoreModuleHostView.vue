@@ -57,6 +57,7 @@ const frameSrc = computed(() =>
 
 const formatModuleChannel = (value) => {
   const channel = safeText(value).toLowerCase()
+  if (channel === 'latest') return '最新包'
   if (channel === 'main') return '正式渠道'
   if (channel === 'dev') return '测试渠道'
   return channel ? `渠道 ${channel}` : ''

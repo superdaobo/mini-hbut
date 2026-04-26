@@ -89,6 +89,10 @@ fn normalize_channel(raw: &str) -> Result<String, String> {
     if value == "dev" {
         return Ok("dev".to_string());
     }
+    if value == "latest" {
+        // 共享最新包只影响远端下载地址；原生缓存命名仍复用既有稳定通道。
+        return Ok("main".to_string());
+    }
     Err("channel 仅支持 main 或 dev".to_string())
 }
 

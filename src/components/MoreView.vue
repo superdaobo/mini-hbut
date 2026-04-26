@@ -59,7 +59,7 @@ const DEFAULT_MODULES = Object.freeze([
 const moduleLoading = ref(true)
 const refreshing = ref(false)
 const moduleError = ref('')
-const moduleChannel = ref('latest')
+const moduleChannel = ref('main')
 const moduleCatalogMap = ref(new Map())
 const moduleCardsSource = ref([])
 const moduleStates = ref({})
@@ -83,12 +83,11 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback
 }
 const toBool = (value) => value === true || value === 1 || value === '1'
-const normalizeChannel = (value, fallback = 'latest') => {
+const normalizeChannel = (value, fallback = 'main') => {
   const normalized = safeText(value).toLowerCase()
   if (normalized === 'latest') return 'latest'
   if (normalized === 'dev') return 'dev'
   if (normalized === 'main') return 'main'
-  if (fallback === 'latest') return 'latest'
   if (fallback === 'dev') return 'dev'
   return 'main'
 }
@@ -372,12 +371,20 @@ const resolveModuleSourceText = (value) => {
   return ''
 }
 
+const formatModuleChannelLabel = (value) => {
+  const channel = safeText(value).toLowerCase()
+  if (channel === 'latest') return '最新包'
+  if (channel === 'dev') return '测试渠道'
+  if (channel === 'main') return '正式渠道'
+  return channel ? `渠道 ${channel}` : ''
+}
+
 const resolveModuleMetaLine = (state) => {
   const parts = []
-  const channel = safeText(state?.channel || moduleChannel.value)
-  if (channel) parts.push(`渠道 ${channel}`)
+  const channelLabel = formatModuleChannelLabel(state?.channel || moduleChannel.value)
+  if (channelLabel) parts.push(channelLabel)
   if (safeText(state?.version)) parts.push(`v${safeText(state.version)}`)
-  return parts.join(' · ') || '渠道 main'
+  return parts.join(' · ') || '正式渠道'
 }
 
 const resolveModuleDetailLine = (state) => {
@@ -605,11 +612,11 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
 
   try {
     const catalogPayload = await fetchModuleCatalog(targetChannel)
-    moduleChannel.value = normalizeChannel(catalogPayload?.channel, targetChannel)
+    moduleChannel.value = normalizeChannel(targetChannel, preferredChannel)
     catalogModules = Array.isArray(catalogPayload?.catalog?.modules) ? catalogPayload.catalog.modules : []
   } catch (err) {
     moduleError.value = safeText(err?.message || err) || '模块清单获取失败'
-    moduleChannel.value = targetChannel
+    moduleChannel.value = normalizeChannel(targetChannel, preferredChannel)
     catalogModules = []
   }
   const nextCatalogMap = new Map(catalogModules.map((item) => [item.id, item]))
