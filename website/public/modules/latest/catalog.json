@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-04-26T05:49:29.143Z",
+  "channel": "latest",
+  "source_channel": "dev",
+  "modules": [
+    {
+      "id": "hecheng_hugongda",
+      "name": "合成湖工大",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hecheng_hugongda/manifest.json",
+      "key_required": false,
+      "order": 2,
+      "icon": "🎮",
+      "description": "",
+      "min_compatible_version": "20260426054917-local"
+    },
+    {
+      "id": "hugongda_escape",
+      "name": "湖工大逃生",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hugongda_escape/manifest.json",
+      "key_required": false,
+      "order": 3,
+      "icon": "🧭",
+      "description": "",
+      "min_compatible_version": ""
+    }
+  ]
+}

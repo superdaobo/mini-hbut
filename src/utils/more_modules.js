@@ -5,7 +5,8 @@ import { openExternal } from './external_link'
 const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
 const MODULE_STATE_STORAGE_KEY = 'hbu_more_module_state_v1'
 const DEFAULT_CHANNEL = 'main'
-const MODULE_CHANNELS = new Set(['main', 'dev'])
+const SHARED_CHANNEL = 'latest'
+const MODULE_CHANNELS = new Set(['main', 'dev', SHARED_CHANNEL])
 const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 5000
 
 const withCacheBust = (url) => {
@@ -114,6 +115,18 @@ const detectChannelFromVersion = (version) => {
   const value = safeText(version).toLowerCase()
   if (!value) return DEFAULT_CHANNEL
   return /(dev|beta|alpha|rc)/.test(value) ? 'dev' : 'main'
+}
+
+const buildCatalogFetchOrder = (inputChannel = '') => {
+  const preferred = normalizeChannel(inputChannel)
+  const order = [SHARED_CHANNEL, preferred]
+  if (preferred === 'dev') {
+    order.push('main')
+  } else if (preferred === 'main') {
+    order.push('dev')
+  }
+  order.push(DEFAULT_CHANNEL)
+  return Array.from(new Set(order.filter(Boolean)))
 }
 
 const toAbsoluteUrl = (input, base = MODULE_CDN_BASE) => {
@@ -238,10 +251,9 @@ const normalizeCatalogModule = (item, channel) => {
 }
 
 export const fetchModuleCatalog = async (inputChannel = '') => {
-  const preferred = normalizeChannel(inputChannel)
   const tried = []
 
-  for (const channel of [preferred, preferred === 'dev' ? 'main' : '']) {
+  for (const channel of buildCatalogFetchOrder(inputChannel)) {
     const resolved = normalizeChannel(channel)
     if (!resolved || tried.includes(resolved)) continue
     tried.push(resolved)
@@ -262,7 +274,7 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
           generated_at: safeText(payload?.generated_at || payload?.generatedAt || ''),
           modules
         },
-        from_fallback: resolved !== preferred
+        from_fallback: resolved !== SHARED_CHANNEL
       }
     } catch {
       // try next channel

@@ -59,7 +59,7 @@ const DEFAULT_MODULES = Object.freeze([
 const moduleLoading = ref(true)
 const refreshing = ref(false)
 const moduleError = ref('')
-const moduleChannel = ref('main')
+const moduleChannel = ref('latest')
 const moduleCatalogMap = ref(new Map())
 const moduleCardsSource = ref([])
 const moduleStates = ref({})
@@ -83,19 +83,22 @@ const safeNumber = (value, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback
 }
 const toBool = (value) => value === true || value === 1 || value === '1'
-const normalizeChannel = (value, fallback = 'main') => {
+const normalizeChannel = (value, fallback = 'latest') => {
   const normalized = safeText(value).toLowerCase()
+  if (normalized === 'latest') return 'latest'
   if (normalized === 'dev') return 'dev'
   if (normalized === 'main') return 'main'
-  return fallback === 'dev' ? 'dev' : 'main'
+  if (fallback === 'latest') return 'latest'
+  if (fallback === 'dev') return 'dev'
+  return 'main'
 }
 const resolveBrushModule = (moduleItem) => {
   const id = safeText(moduleItem?.id)
   const view = safeText(moduleItem?.view)
   return id === 'shuake' || view === 'more_shuake'
 }
-const buildDefaultManifestUrl = (channel, moduleId) => {
-  const normalizedChannel = normalizeChannel(channel)
+const buildDefaultManifestUrl = (_channel, moduleId) => {
+  const normalizedChannel = 'latest'
   const id = safeText(moduleId)
   if (!id) return ''
   return `${MODULE_CDN_BASE}/${normalizedChannel}/${id}/manifest.json`
@@ -246,8 +249,6 @@ const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
   const order = safeNumber(raw.order, index + 1)
   const view = safeText(raw.view || raw.route || (isBrush ? 'more_shuake' : ''))
   const icon = safeText(raw.icon || (isBrush ? '🔐' : kind === 'remote' ? '📦' : '🧩'))
-  const manifestUrl = safeText(raw.manifest_url || raw.manifestUrl)
-
   return {
     id,
     name: safeText(raw.name || raw.module_name || raw.title || id),
@@ -258,7 +259,7 @@ const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
     view,
     order,
     min_compatible_version: safeText(raw.min_compatible_version || raw.minCompatibleVersion),
-    manifest_url: kind === 'remote' ? manifestUrl || buildDefaultManifestUrl(channel, id) : ''
+    manifest_url: kind === 'remote' ? buildDefaultManifestUrl(channel, id) : ''
   }
 }
 
@@ -270,7 +271,7 @@ const mergeWithCatalog = (item, catalogMap = moduleCatalogMap.value) => {
     ...catalogItem,
     ...item,
     kind: 'remote',
-    manifest_url: safeText(item.manifest_url || catalogItem.manifest_url)
+    manifest_url: safeText(catalogItem.manifest_url || item.manifest_url || buildDefaultManifestUrl('latest', item.id))
   }
 }
 

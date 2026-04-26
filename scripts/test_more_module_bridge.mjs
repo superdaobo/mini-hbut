@@ -3,7 +3,7 @@ import fs from 'node:fs'
 
 const bridgeBase = process.env.BRIDGE_BASE || 'http://127.0.0.1:4399'
 const moduleBase = process.env.MODULE_CDN_BASE || 'https://hbut.6661111.xyz/modules'
-const channel = process.env.MODULE_CHANNEL || 'dev'
+const channel = process.env.MODULE_CHANNEL || 'latest'
 const moduleId = process.env.MODULE_ID || 'hecheng_hugongda'
 const moduleCatalogUrl = `${moduleBase}/${channel}/catalog.json`
 const placeholderMarkers = [

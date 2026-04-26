@@ -1283,6 +1283,15 @@ input:checked + .slider:before {
   display: grid;
   gap: 12px;
   margin-top: 2px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.notification-layout :deep(*) {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .notification-layout-toolbar {

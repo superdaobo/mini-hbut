@@ -7,6 +7,8 @@ const CHANNEL = String(process.env.MODULE_CHANNEL || 'main').trim().toLowerCase(
 const BASE_URL = String(process.env.MODULE_BASE_URL || 'https://hbut.6661111.xyz/modules').trim().replace(/\/+$/, '')
 const SOURCE_ROOT = path.resolve(process.env.MODULE_SOURCE_ROOT || 'website/modules-src')
 const OUTPUT_ROOT = path.resolve(process.env.MODULE_OUTPUT_ROOT || `website/public/modules/${CHANNEL}`)
+const SHARED_CHANNEL = 'latest'
+const SHARED_OUTPUT_ROOT = path.resolve(process.env.MODULE_SHARED_OUTPUT_ROOT || `website/public/modules/${SHARED_CHANNEL}`)
 const SHA = String(process.env.GITHUB_SHA || 'local').trim().slice(0, 7) || 'local'
 const MODULE_VERSION =
   String(process.env.MODULE_VERSION || '').trim() ||
@@ -145,7 +147,75 @@ const zipDirectory = (sourceDir, zipPath) => {
 const sha256File = (filePath) =>
   crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')
 
-const modules = []
+const publishBuiltModule = ({
+  outputRoot,
+  publishChannel,
+  moduleId,
+  moduleName,
+  moduleMeta,
+  distDir,
+  entryPath,
+  version,
+  minCompatibleVersion
+}) => {
+  const moduleRootDir = path.join(outputRoot, moduleId)
+  const versionDir = path.join(moduleRootDir, version)
+  const siteDir = path.join(versionDir, 'site')
+  const latestSiteDir = path.join(moduleRootDir, 'site')
+  const bundleZip = path.join(versionDir, 'bundle.zip')
+
+  ensureDir(versionDir)
+  if (fs.existsSync(siteDir)) fs.rmSync(siteDir, { recursive: true, force: true })
+  copyDir(distDir, siteDir)
+  ensureDir(moduleRootDir)
+  if (fs.existsSync(latestSiteDir)) fs.rmSync(latestSiteDir, { recursive: true, force: true })
+  copyDir(distDir, latestSiteDir)
+  zipDirectory(distDir, bundleZip)
+
+  const packageSha = sha256File(bundleZip)
+  const packageSize = fs.statSync(bundleZip).size
+  const packageUrl = `${BASE_URL}/${publishChannel}/${moduleId}/${version}/bundle.zip`
+  const openUrl = `${BASE_URL}/${publishChannel}/${moduleId}/${version}/site/${entryPath}`
+
+  const manifest = {
+    schema_version: 1,
+    module_id: moduleId,
+    module_name: moduleName,
+    version,
+    package_url: packageUrl,
+    package_sha256: packageSha,
+    package_size: packageSize,
+    entry_path: entryPath,
+    published_at: new Date().toISOString(),
+    release_notes: String(moduleMeta.release_notes || '').trim(),
+    open_url: openUrl,
+    published_channel: publishChannel,
+    source_channel: CHANNEL
+  }
+  if (minCompatibleVersion) {
+    manifest.min_compatible_version = minCompatibleVersion
+  }
+
+  fs.writeFileSync(path.join(versionDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+  fs.writeFileSync(path.join(moduleRootDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
+
+  return {
+    manifest,
+    catalogItem: {
+      id: moduleId,
+      name: moduleName,
+      manifest_url: `${BASE_URL}/${publishChannel}/${moduleId}/manifest.json`,
+      key_required: !!moduleMeta.key_required,
+      order: Number(moduleMeta.order || 999),
+      icon: String(moduleMeta.icon || '').trim(),
+      description: String(moduleMeta.description || '').trim(),
+      min_compatible_version: minCompatibleVersion
+    }
+  }
+}
+
+const channelModules = []
+const sharedModules = []
 for (const moduleDir of listModuleDirs()) {
   const metaPath = path.join(moduleDir, 'module.json')
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
@@ -168,63 +238,52 @@ for (const moduleDir of listModuleDirs()) {
     throw new Error(`模块 ${moduleId} 缺少构建输出目录: ${distDir}`)
   }
 
-  const moduleRootDir = path.join(OUTPUT_ROOT, moduleId)
-  const versionDir = path.join(moduleRootDir, MODULE_VERSION)
-  const siteDir = path.join(versionDir, 'site')
-  const latestSiteDir = path.join(moduleRootDir, 'site')
-  const bundleZip = path.join(versionDir, 'bundle.zip')
-  ensureDir(versionDir)
-  if (fs.existsSync(siteDir)) fs.rmSync(siteDir, { recursive: true, force: true })
-  copyDir(distDir, siteDir)
-  ensureDir(moduleRootDir)
-  if (fs.existsSync(latestSiteDir)) fs.rmSync(latestSiteDir, { recursive: true, force: true })
-  copyDir(distDir, latestSiteDir)
-  zipDirectory(distDir, bundleZip)
-
-  const packageSha = sha256File(bundleZip)
-  const packageSize = fs.statSync(bundleZip).size
-  const packageUrl = `${BASE_URL}/${CHANNEL}/${moduleId}/${MODULE_VERSION}/bundle.zip`
-  const openUrl = `${BASE_URL}/${CHANNEL}/${moduleId}/${MODULE_VERSION}/site/${entryPath}`
-
-  const manifest = {
-    schema_version: 1,
-    module_id: moduleId,
-    module_name: moduleName,
+  const channelPublished = publishBuiltModule({
+    outputRoot: OUTPUT_ROOT,
+    publishChannel: CHANNEL,
+    moduleId,
+    moduleName,
+    moduleMeta: meta,
+    distDir,
+    entryPath,
     version: MODULE_VERSION,
-    package_url: packageUrl,
-    package_sha256: packageSha,
-    package_size: packageSize,
-    entry_path: entryPath,
-    published_at: new Date().toISOString(),
-    release_notes: String(meta.release_notes || '').trim(),
-    open_url: openUrl
-  }
-  if (minCompatibleVersion) {
-    manifest.min_compatible_version = minCompatibleVersion
-  }
-
-  fs.writeFileSync(path.join(versionDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-  fs.writeFileSync(path.join(moduleRootDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-
-  modules.push({
-    id: moduleId,
-    name: moduleName,
-    manifest_url: `${BASE_URL}/${CHANNEL}/${moduleId}/manifest.json`,
-    key_required: !!meta.key_required,
-    order: Number(meta.order || 999),
-    icon: String(meta.icon || '').trim(),
-    description: String(meta.description || '').trim(),
-    min_compatible_version: minCompatibleVersion
+    minCompatibleVersion
   })
+  const sharedPublished = publishBuiltModule({
+    outputRoot: SHARED_OUTPUT_ROOT,
+    publishChannel: SHARED_CHANNEL,
+    moduleId,
+    moduleName,
+    moduleMeta: meta,
+    distDir,
+    entryPath,
+    version: MODULE_VERSION,
+    minCompatibleVersion
+  })
+
+  channelModules.push(channelPublished.catalogItem)
+  sharedModules.push(sharedPublished.catalogItem)
 }
 
-modules.sort((a, b) => a.order - b.order)
+channelModules.sort((a, b) => a.order - b.order)
+sharedModules.sort((a, b) => a.order - b.order)
 ensureDir(OUTPUT_ROOT)
+ensureDir(SHARED_OUTPUT_ROOT)
+
 const catalog = {
   schema_version: 1,
   generated_at: new Date().toISOString(),
   channel: CHANNEL,
-  modules
+  modules: channelModules
+}
+const sharedCatalog = {
+  schema_version: 1,
+  generated_at: new Date().toISOString(),
+  channel: SHARED_CHANNEL,
+  source_channel: CHANNEL,
+  modules: sharedModules
 }
 fs.writeFileSync(path.join(OUTPUT_ROOT, 'catalog.json'), JSON.stringify(catalog, null, 2))
+fs.writeFileSync(path.join(SHARED_OUTPUT_ROOT, 'catalog.json'), JSON.stringify(sharedCatalog, null, 2))
 console.log(`[modules] catalog generated: ${path.join(OUTPUT_ROOT, 'catalog.json')}`)
+console.log(`[modules] shared catalog generated: ${path.join(SHARED_OUTPUT_ROOT, 'catalog.json')}`)

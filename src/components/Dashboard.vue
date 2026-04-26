@@ -1595,6 +1595,15 @@ html[data-theme='cyberpunk'] .dashboard > * {
   flex-direction: column;
   gap: 18px;
   margin-top: 18px;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.home-workspace :deep(*) {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .home-workspace--editing {
