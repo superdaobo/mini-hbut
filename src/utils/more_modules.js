@@ -12,6 +12,7 @@ const MODULE_CDN_OVERRIDE_STORAGE_KEY = 'hbu_debug_module_cdn_base'
 const MODULE_STATE_STORAGE_KEY = 'hbu_more_module_state_v1'
 const MODULE_CATALOG_CACHE_STORAGE_KEY = 'hbu_more_module_catalog_cache_v1'
 const MODULE_MANIFEST_CACHE_STORAGE_KEY = 'hbu_more_module_manifest_cache_v1'
+const MODULE_SOURCE_ROTATION_STORAGE_KEY = 'hbu_more_module_remote_source_rotation_v1'
 const DEFAULT_CHANNEL = 'main'
 const SHARED_CHANNEL = 'latest'
 const MODULE_CHANNELS = new Set(['main', 'dev', SHARED_CHANNEL])
@@ -56,6 +57,8 @@ const resolveModuleCdnBase = () => {
   }
   return DEFAULT_MODULE_CDN_BASE
 }
+
+const isModuleCdnOverrideActive = () => resolveModuleCdnBase() !== DEFAULT_MODULE_CDN_BASE
 
 const sleep = (ms = 0) =>
   new Promise((resolve) => {
@@ -211,6 +214,12 @@ const buildGithubRawUrl = (relativePath) => {
   return `${GITHUB_RAW_BASE}/${GITHUB_WEBSITE_BRANCH}/${MODULE_PUBLIC_REPO_PATH}/${safePath}`
 }
 
+const buildCurrentBaseUrl = (relativePath) => {
+  const safePath = safeText(relativePath).replace(/^\/+/, '')
+  if (!safePath) return ''
+  return `${resolveModuleCdnBase().replace(/\/+$/, '')}/${safePath}`
+}
+
 const buildMirrorCandidateUrls = (targetUrl) => {
   const absolute = safeText(targetUrl)
   if (!absolute) return []
@@ -219,19 +228,60 @@ const buildMirrorCandidateUrls = (targetUrl) => {
   )
 }
 
-const buildRemoteUrlCandidates = (inputUrl, preferredChannel = '') => {
+const readSourceRotationMap = () => {
+  try {
+    const raw = globalThis?.localStorage?.getItem(MODULE_SOURCE_ROTATION_STORAGE_KEY)
+    const parsed = JSON.parse(raw || '{}')
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const writeSourceRotationMap = (nextMap) => {
+  try {
+    globalThis?.localStorage?.setItem(
+      MODULE_SOURCE_ROTATION_STORAGE_KEY,
+      JSON.stringify(nextMap || {})
+    )
+  } catch {
+    // ignore storage failure
+  }
+}
+
+const rotateRemoteCandidates = (items, purpose = 'remote', scope = '') => {
+  const list = toUniqueTextList(items)
+  if (list.length <= 1) return list
+  const rotationKey = `${safeText(purpose || 'remote')}:${safeText(scope || list[0])}`
+  const rotationMap = readSourceRotationMap()
+  const rawIndex = Number(rotationMap?.[rotationKey] || 0)
+  const startIndex = Number.isFinite(rawIndex) && rawIndex >= 0 ? rawIndex % list.length : 0
+  rotationMap[rotationKey] = startIndex + 1
+  writeSourceRotationMap(rotationMap)
+  return [...list.slice(startIndex), ...list.slice(0, startIndex)]
+}
+
+const buildRemoteUrlCandidates = (inputUrl, preferredChannel = '', purpose = 'remote') => {
   const absolute = toAbsoluteUrl(inputUrl)
   if (!absolute) return []
   const relativePath = extractModuleRelativePath(absolute)
-  if (!relativePath) return [absolute]
+  if (!relativePath) return rotateRemoteCandidates([absolute], purpose, absolute)
   const channelHint = detectModuleChannelHintFromPath(relativePath)
   const normalizedRelativePath =
     channelHint && preferredChannel && normalizeChannel(preferredChannel) !== channelHint
       ? relativePath.replace(new RegExp(`^${channelHint}/`), `${normalizeChannel(preferredChannel)}/`)
       : relativePath
+  const currentBaseUrl = buildCurrentBaseUrl(normalizedRelativePath)
   const rawUrl = buildGithubRawUrl(normalizedRelativePath)
   const githubCandidates = buildMirrorCandidateUrls(rawUrl)
-  return toUniqueTextList([absolute, ...githubCandidates])
+  const primaryCandidates = isModuleCdnOverrideActive()
+    ? [currentBaseUrl]
+    : [currentBaseUrl, absolute]
+  return rotateRemoteCandidates(
+    toUniqueTextList([...primaryCandidates, ...githubCandidates]),
+    purpose,
+    normalizedRelativePath
+  )
 }
 
 const readModuleStateMap = () => {
@@ -478,10 +528,10 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
     const resolved = normalizeChannel(channel)
     if (!resolved || tried.includes(resolved)) continue
     tried.push(resolved)
-    const url = `${resolveModuleCdnBase()}/${resolved}/catalog.json`
-    try {
-      const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
-        buildRemoteUrlCandidates(url, resolved),
+      const url = `${resolveModuleCdnBase()}/${resolved}/catalog.json`
+      try {
+        const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
+          buildRemoteUrlCandidates(url, resolved, 'catalog'),
         [6000, 9000]
       )
       const rawModules = Array.isArray(payload?.modules) ? payload.modules : []
@@ -523,7 +573,7 @@ export const fetchModuleManifest = async (manifestUrl) => {
   if (!url) throw new Error('模块 manifest 地址为空')
   try {
     const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
-      buildRemoteUrlCandidates(url),
+      buildRemoteUrlCandidates(url, '', 'manifest'),
       [7000, 10000]
     )
 
@@ -538,7 +588,7 @@ export const fetchModuleManifest = async (manifestUrl) => {
       safeText(payload?.channel) ||
       detectModuleChannelHintFromPath(extractModuleRelativePath(resolvedUrl)) ||
       detectModuleChannelHintFromPath(extractModuleRelativePath(packageUrl))
-    const packageUrls = buildRemoteUrlCandidates(packageUrl, preferredChannel)
+    const packageUrls = buildRemoteUrlCandidates(packageUrl, preferredChannel, 'package')
 
     const manifest = {
       url: resolvedUrl,
@@ -574,7 +624,7 @@ const buildOpenUrlCandidates = ({ manifest, channel }) => {
   const entryPath = safeText(manifest?.entry_path || 'index.html')
   const explicit = toAbsoluteUrl(manifest?.open_url, safeText(manifest?.url))
   if (explicit) {
-    return buildRemoteUrlCandidates(explicit, preferredChannel)
+    return buildRemoteUrlCandidates(explicit, preferredChannel, 'open')
   }
   const packageCandidates = toUniqueTextList(manifest?.package_urls || manifest?.package_url)
   const siteCandidates = packageCandidates.map((candidate) => {
@@ -583,10 +633,14 @@ const buildOpenUrlCandidates = ({ manifest, channel }) => {
     }
     return `${candidate.replace(/\/+$/, '')}/site/${entryPath}`
   })
-  return toUniqueTextList([
-    ...siteCandidates,
-    `${resolveModuleCdnBase()}/${normalizeChannel(preferredChannel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
-  ])
+  return rotateRemoteCandidates(
+    toUniqueTextList([
+      ...siteCandidates,
+      `${resolveModuleCdnBase()}/${normalizeChannel(preferredChannel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
+    ]),
+    'open',
+    `${normalizeChannel(preferredChannel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
+  )
 }
 
 export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => {

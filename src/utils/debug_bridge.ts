@@ -15,6 +15,7 @@ const MORE_MODULE_STORAGE_KEYS = [
   'hbu_more_module_state_v1',
   'hbu_more_module_catalog_cache_v1',
   'hbu_more_module_manifest_cache_v1',
+  'hbu_more_module_remote_source_rotation_v1',
   'hbu_module_channel'
 ]
 

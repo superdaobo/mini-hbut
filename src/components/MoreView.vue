@@ -25,7 +25,6 @@ const props = defineProps({
 
 const emit = defineEmits(['back', 'navigate'])
 
-const MODULE_CDN_BASE = getModuleCdnBase()
 const STUDENT_PROFILE_STORAGE_PREFIX = 'hbu_more_module_student_profile:'
 const DEFAULT_MODULES = Object.freeze([
   {
@@ -102,7 +101,7 @@ const buildDefaultManifestUrl = (_channel, moduleId) => {
   const normalizedChannel = normalizeChannel(_channel, 'main')
   const id = safeText(moduleId)
   if (!id) return ''
-  return `${MODULE_CDN_BASE}/${normalizedChannel}/${id}/manifest.json`
+  return `${getModuleCdnBase()}/${normalizedChannel}/${id}/manifest.json`
 }
 
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
