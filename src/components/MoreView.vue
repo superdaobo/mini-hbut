@@ -204,7 +204,7 @@ const buildCachedManifestSnapshot = (moduleItem) => {
   }
 }
 
-const emitPreparedModuleNavigate = (moduleItem, prepared, manifest) => {
+const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta = {}) => {
   const moduleId = safeText(prepared?.module_id || moduleItem?.id)
   const previewUrl = appendModuleContextQuery(
     moduleId,
@@ -222,7 +222,9 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest) => {
       local_ready: prepared?.local_ready !== false,
       source: safeText(prepared?.source || ''),
       cache_dir: safeText(prepared?.cache_dir || ''),
-      bundle_path: safeText(prepared?.bundle_path || '')
+      bundle_path: safeText(prepared?.bundle_path || ''),
+      manifest_url: safeText(sessionMeta?.manifest_url || manifest?.url || moduleItem?.manifest_url),
+      manifest_checked_at: safeText(sessionMeta?.manifest_checked_at || '')
     }
   })
 }
@@ -451,7 +453,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
   }
 
   moduleBusyKey.value = moduleId
-  const openPreparedModule = async (manifest, initialMessage = '检查更新中') => {
+  const openPreparedModule = async (manifest, initialMessage = '检查更新中', sessionMeta = {}) => {
     setModuleState(moduleId, {
       status: 'checking',
       channel: moduleChannel.value,
@@ -472,7 +474,7 @@ const handleOpenRemoteModule = async (moduleItem) => {
           : '已更新并内嵌打开',
       version: safeText(prepared.version || manifest.version)
     })
-    emitPreparedModuleNavigate(moduleItem, prepared, manifest)
+    emitPreparedModuleNavigate(moduleItem, prepared, manifest, sessionMeta)
   }
 
   try {
@@ -509,7 +511,10 @@ const handleOpenRemoteModule = async (moduleItem) => {
 
       if (canUseCache) {
         try {
-          await openPreparedModule(cachedManifest, '命中最新缓存中')
+          await openPreparedModule(cachedManifest, '命中最新缓存中', {
+            manifest_url: safeText(remoteManifest.url || moduleItem.manifest_url),
+            manifest_checked_at: new Date().toISOString()
+          })
           return
         } catch {
           setModuleState(moduleId, {
@@ -529,7 +534,11 @@ const handleOpenRemoteModule = async (moduleItem) => {
       })
       await openPreparedModule(
         remoteManifest,
-        cachedManifest ? '发现新版本，更新本地包' : '下载并准备本地包'
+        cachedManifest ? '发现新版本，更新本地包' : '下载并准备本地包',
+        {
+          manifest_url: safeText(remoteManifest.url || moduleItem.manifest_url),
+          manifest_checked_at: new Date().toISOString()
+        }
       )
       return
     }

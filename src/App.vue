@@ -287,7 +287,9 @@ const buildModuleHostSession = (payload = {}) => {
     local_ready: raw.local_ready !== false,
     source: String(raw.source || '').trim(),
     cache_dir: String(raw.cache_dir || '').trim(),
-    bundle_path: String(raw.bundle_path || '').trim()
+    bundle_path: String(raw.bundle_path || '').trim(),
+    manifest_url: String(raw.manifest_url || raw.manifestUrl || '').trim(),
+    manifest_checked_at: String(raw.manifest_checked_at || raw.manifestCheckedAt || '').trim()
   }
 }
 
