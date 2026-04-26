@@ -268,6 +268,10 @@ const bootScheduleSnapshot =
 const skipSplashForFastScheduleBoot = !!bootScheduleSnapshot
 
 const MODULE_HOST_SESSION_KEY = 'hbu_more_module_host_session'
+const isLocalModuleBridgePreviewUrl = (url) =>
+  /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(
+    String(url || '').trim()
+  )
 
 resetBootMetrics({
   initial_view: initialView,
@@ -277,10 +281,13 @@ resetBootMetrics({
 
 const buildModuleHostSession = (payload = {}) => {
   const raw = payload && typeof payload === 'object' ? payload : {}
+  const previewUrl = String(raw.preview_url || raw.previewUrl || '').trim()
+  const sanitizedPreviewUrl =
+    isCapacitorRuntime() && isLocalModuleBridgePreviewUrl(previewUrl) ? '' : previewUrl
   return {
     module_id: String(raw.module_id || raw.moduleId || '').trim(),
     module_name: String(raw.module_name || raw.moduleName || '').trim(),
-    preview_url: String(raw.preview_url || raw.previewUrl || '').trim(),
+    preview_url: sanitizedPreviewUrl,
     version: String(raw.version || '').trim(),
     min_compatible_version: String(raw.min_compatible_version || raw.minCompatibleVersion || '').trim(),
     channel: String(raw.channel || 'main').trim() || 'main',

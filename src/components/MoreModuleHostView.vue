@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
+import { isCapacitorRuntime } from '../platform/native'
 
 const props = defineProps({
   session: {
@@ -22,13 +23,21 @@ let loadingGuardTimer = null
 let frameSizeHintTimer = null
 
 const safeText = (value) => String(value ?? '').trim()
+const isLocalModuleBridgePreviewUrl = (url) =>
+  /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
 
 const moduleName = computed(() => safeText(props.session?.module_name) || '远程模块')
 const moduleId = computed(() => safeText(props.session?.module_id))
 const moduleVersion = computed(() => safeText(props.session?.version))
 const minCompatibleVersion = computed(() => safeText(props.session?.min_compatible_version))
 const moduleChannel = computed(() => safeText(props.session?.channel) || 'main')
-const previewUrl = computed(() => safeText(props.session?.preview_url))
+const previewUrl = computed(() => {
+  const raw = safeText(props.session?.preview_url)
+  if (isCapacitorRuntime() && isLocalModuleBridgePreviewUrl(raw)) {
+    return ''
+  }
+  return raw
+})
 const ready = computed(() => !!previewUrl.value)
 
 const withFrameCacheBust = (url, keyParts = []) => {

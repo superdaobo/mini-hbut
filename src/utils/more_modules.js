@@ -1,4 +1,4 @@
-import { getNativeAppVersion, isTauriRuntime } from '../platform/native'
+import { getNativeAppVersion, isCapacitorRuntime, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
 import { openExternal } from './external_link'
 
@@ -26,6 +26,8 @@ const withCacheBust = (url) => {
 }
 
 const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
+const isLocalModuleBridgePreviewUrl = (url) =>
+  /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
 
 const describeError = (error) => {
   if (!error) return ''
@@ -650,60 +652,72 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
   const packageUrl = safeText(manifest?.package_url)
   const packageUrls = toUniqueTextList(manifest?.package_urls || packageUrl)
 
-  try {
-    const prepared = await invokeNativeBridge(
-      'prepare_module_bundle',
-      {
-        request: {
-          channel: normalizeChannel(channel),
-          moduleId,
-          moduleName: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
-          version: safeText(manifest?.version),
-          packageUrl,
-          packageUrls,
-          packageSha256: safeText(manifest?.package_sha256),
-          minCompatibleVersion: safeText(manifest?.min_compatible_version),
-          entryPath: safeText(manifest?.entry_path || 'index.html')
-        }
-      },
-      `模块本地准备 ${moduleId}`
-    )
-    updateModuleState(moduleId, {
-      channel: normalizeChannel(channel),
-      version: safeText(prepared?.version || manifest?.version),
-      module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
-      package_url: packageUrl,
-      package_sha256: safeText(manifest?.package_sha256),
-      entry_path: safeText(manifest?.entry_path || 'index.html'),
-      min_compatible_version: safeText(manifest?.min_compatible_version),
-      open_url: safeText(prepared?.preview_url || openUrl),
-      preview_url: safeText(prepared?.preview_url || openUrl),
-      cache_dir: safeText(prepared?.cache_dir),
-      bundle_path: safeText(prepared?.bundle_path),
-      source: safeText(prepared?.source || 'download'),
-      manifest_checked_at: new Date().toISOString()
-    })
-    return {
-      ready: true,
-      launch_mode: safeText(prepared?.source) === 'cache' ? 'cache' : 'in_app',
-      version: safeText(prepared?.version || manifest?.version),
-      package_url: packageUrl,
-      cache_dir: safeText(prepared?.cache_dir),
-      bundle_path: safeText(prepared?.bundle_path),
-      preview_url: safeText(prepared?.preview_url || openUrl),
-      min_compatible_version: safeText(manifest?.min_compatible_version),
-      source: safeText(prepared?.source || 'download'),
-      module_id: moduleId,
-      module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
-      channel: normalizeChannel(channel),
-      local_ready: true
+  if (!isCapacitorRuntime()) {
+    try {
+      const prepared = await invokeNativeBridge(
+        'prepare_module_bundle',
+        {
+          request: {
+            channel: normalizeChannel(channel),
+            moduleId,
+            moduleName: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
+            version: safeText(manifest?.version),
+            packageUrl,
+            packageUrls,
+            packageSha256: safeText(manifest?.package_sha256),
+            minCompatibleVersion: safeText(manifest?.min_compatible_version),
+            entryPath: safeText(manifest?.entry_path || 'index.html')
+          }
+        },
+        `模块本地准备 ${moduleId}`
+      )
+      const preparedPreviewUrl = safeText(prepared?.preview_url || openUrl)
+      if (!isTauriRuntime() && isLocalModuleBridgePreviewUrl(preparedPreviewUrl)) {
+        throw new Error('当前运行时不支持桌面本地模块预览地址')
+      }
+      updateModuleState(moduleId, {
+        channel: normalizeChannel(channel),
+        version: safeText(prepared?.version || manifest?.version),
+        module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
+        package_url: packageUrl,
+        package_sha256: safeText(manifest?.package_sha256),
+        entry_path: safeText(manifest?.entry_path || 'index.html'),
+        min_compatible_version: safeText(manifest?.min_compatible_version),
+        open_url: preparedPreviewUrl,
+        preview_url: preparedPreviewUrl,
+        cache_dir: safeText(prepared?.cache_dir),
+        bundle_path: safeText(prepared?.bundle_path),
+        source: safeText(prepared?.source || 'download'),
+        manifest_checked_at: new Date().toISOString()
+      })
+      return {
+        ready: true,
+        launch_mode: safeText(prepared?.source) === 'cache' ? 'cache' : 'in_app',
+        version: safeText(prepared?.version || manifest?.version),
+        package_url: packageUrl,
+        cache_dir: safeText(prepared?.cache_dir),
+        bundle_path: safeText(prepared?.bundle_path),
+        preview_url: preparedPreviewUrl,
+        min_compatible_version: safeText(manifest?.min_compatible_version),
+        source: safeText(prepared?.source || 'download'),
+        module_id: moduleId,
+        module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
+        channel: normalizeChannel(channel),
+        local_ready: true
+      }
+    } catch (error) {
+      if (isTauriRuntime() || !isNativeBridgeUnavailableError(error)) {
+        throw new Error(safeText(error?.message || error) || '模块本地准备失败')
+      }
+      pushDebugLog('MoreModules', `模块本地准备不可用，回退官网打开：${moduleId}`, 'warn', {
+        error: describeError(error)
+      })
     }
-  } catch (error) {
-    if (isTauriRuntime() || !isNativeBridgeUnavailableError(error)) {
-      throw new Error(safeText(error?.message || error) || '模块本地准备失败')
-    }
-    pushDebugLog('MoreModules', `模块本地准备不可用，回退官网打开：${moduleId}`, 'warn', {
-      error: describeError(error)
+  } else {
+    // Capacitor 移动端统一走 HTTPS 远端页面，避免误用桌面本地桥地址。
+    pushDebugLog('MoreModules', `Capacitor 环境跳过本地模块桥接：${moduleId}`, 'info', {
+      channel: normalizeChannel(channel),
+      packageUrl
     })
   }
 
