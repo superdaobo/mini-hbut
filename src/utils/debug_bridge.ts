@@ -6,13 +6,23 @@ import { getBootMetricsSnapshot } from './boot_metrics'
 const SCREENSHOT_EVENT_NAME = 'hbu-debug-screenshot-request'
 const OPEN_MODULE_EVENT_NAME = 'hbu-debug-open-module-request'
 const NAVIGATE_EVENT_NAME = 'hbu-debug-navigate-request'
+const RESET_MORE_MODULES_EVENT_NAME = 'hbu-debug-reset-more-modules-request'
 const STATE_EVENT_NAME = 'hbu-debug-state-request'
 const MODULE_HOST_SESSION_KEY = 'hbu_more_module_host_session'
+const MODULE_CDN_OVERRIDE_STORAGE_KEY = 'hbu_debug_module_cdn_base'
+const MORE_MODULE_STORAGE_KEYS = [
+  MODULE_HOST_SESSION_KEY,
+  'hbu_more_module_state_v1',
+  'hbu_more_module_catalog_cache_v1',
+  'hbu_more_module_manifest_cache_v1',
+  'hbu_module_channel'
+]
 
 let initialized = false
 let unlistenScreenshot = null
 let unlistenOpenModule = null
 let unlistenNavigate = null
+let unlistenResetMoreModules = null
 let unlistenState = null
 
 const resolveDebugHash = (sid: string, view: string) => {
@@ -35,6 +45,10 @@ const completeScreenshot = async (payload) => {
 
 const completeOpenModule = async (payload) => {
   await invokeNative('complete_debug_open_module', { payload })
+}
+
+const completeResetMoreModules = async (payload) => {
+  await invokeNative('complete_debug_reset_more_modules', { payload })
 }
 
 const completeState = async (payload) => {
@@ -331,6 +345,64 @@ export const initDebugBridgeClient = async () => {
     }
   })
 
+  unlistenResetMoreModules = await eventApi.listen(RESET_MORE_MODULES_EVENT_NAME, async (event) => {
+    const payload = event?.payload || {}
+    const requestId = String(payload.requestId || '')
+    if (!requestId) return
+
+    try {
+      const sid = String(localStorage.getItem('hbu_username') || '').trim()
+      const moreHash = resolveDebugHash(sid, 'more')
+      if (
+        sid &&
+        typeof window.location.hash === 'string' &&
+        window.location.hash.includes('/more_module_host') &&
+        moreHash &&
+        moreHash !== '#/'
+      ) {
+        window.location.hash = moreHash
+        await sleep(260)
+      }
+
+      for (const key of MORE_MODULE_STORAGE_KEYS) {
+        try {
+          localStorage.removeItem(key)
+        } catch {
+          // ignore per-key local storage failure
+        }
+        try {
+          sessionStorage.removeItem(key)
+        } catch {
+          // ignore per-key session storage failure
+        }
+      }
+
+      const cdnBaseOverride = String(payload.cdnBaseOverride || payload.cdn_base_override || '').trim()
+      if (cdnBaseOverride) {
+        localStorage.setItem(MODULE_CDN_OVERRIDE_STORAGE_KEY, cdnBaseOverride)
+      } else {
+        localStorage.removeItem(MODULE_CDN_OVERRIDE_STORAGE_KEY)
+      }
+
+      await waitForNextPaint()
+      await completeResetMoreModules({
+        requestId,
+        success: true
+      })
+      pushDebugLog('DebugBridge', '模块缓存状态已清空', 'info', {
+        clearedKeys: MORE_MODULE_STORAGE_KEYS,
+        cdnBaseOverride
+      })
+    } catch (error) {
+      await completeResetMoreModules({
+        requestId,
+        success: false,
+        error: error?.message || String(error || '模块缓存状态清空失败')
+      }).catch(() => {})
+      pushDebugLog('DebugBridge', '模块缓存状态清空失败', 'error', error)
+    }
+  })
+
   unlistenNavigate = await eventApi.listen(NAVIGATE_EVENT_NAME, async (event) => {
     const payload = event?.payload || {}
     const navigatePayload = payload.payload && typeof payload.payload === 'object' ? payload.payload : null
@@ -419,6 +491,10 @@ export const initDebugBridgeClient = async () => {
     if (typeof unlistenNavigate === 'function') {
       unlistenNavigate()
       unlistenNavigate = null
+    }
+    if (typeof unlistenResetMoreModules === 'function') {
+      unlistenResetMoreModules()
+      unlistenResetMoreModules = null
     }
     if (typeof unlistenState === 'function') {
       unlistenState()

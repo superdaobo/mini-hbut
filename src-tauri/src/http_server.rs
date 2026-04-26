@@ -214,10 +214,12 @@ use crate::{
 use crate::db;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use crate::http_client::HbutClient;
-use tauri::{AppHandle, Emitter};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 use crate::debug_bridge::{
-    self, DebugOpenModuleBridgeError, DebugOpenModuleRequest, DebugScreenshotBridgeError,
-    DebugScreenshotRequest, DebugStateBridgeError, DebugStateRequest,
+    self, DebugOpenModuleBridgeError, DebugOpenModuleRequest,
+    DebugResetMoreModulesBridgeError, DebugResetMoreModulesRequest,
+    DebugScreenshotBridgeError, DebugScreenshotRequest, DebugStateBridgeError,
+    DebugStateRequest,
 };
 use crate::modules::module_bundle::{
     self, ModuleBundlePrepareRequest, OpenModuleBundleWindowRequest,
@@ -517,6 +519,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/debug/custom_schedule/upsert", post(debug_custom_schedule_upsert))
         .route("/debug/navigate", post(debug_navigate))
         .route("/debug/open_module", post(debug_open_module))
+        .route("/debug/reset_more_modules", post(debug_reset_more_modules))
         .route("/debug/screenshot", post(debug_screenshot))
         .route("/debug/dom_screenshot", post(debug_dom_screenshot))
         .route("/debug/state", get(debug_state))
@@ -1462,6 +1465,81 @@ async fn debug_state(
             message,
         )),
     }
+}
+
+async fn debug_reset_more_modules(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    payload: Option<Json<DebugResetMoreModulesRequest>>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_reset_more_modules skipped auth: local_api_key not configured"
+        );
+    }
+
+    let request = payload
+        .map(|json| json.0)
+        .unwrap_or_else(DebugResetMoreModulesRequest::default);
+
+    match debug_bridge::request_debug_reset_more_modules(&state.app, request, 8_000).await
+    {
+        Ok(()) => {}
+        Err(DebugResetMoreModulesBridgeError::NotReady) => {
+            return Err(err(
+                StatusCode::CONFLICT,
+                "页面未就绪",
+                "当前页面尚未注册调试模块缓存重置响应器".to_string(),
+            ));
+        }
+        Err(DebugResetMoreModulesBridgeError::Timeout) => {
+            return Err(err(
+                StatusCode::GATEWAY_TIMEOUT,
+                "重置超时",
+                "8 秒内未完成模块缓存状态清理".to_string(),
+            ));
+        }
+        Err(DebugResetMoreModulesBridgeError::Failed(message)) => {
+            return Err(err(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "重置失败",
+                message,
+            ));
+        }
+    }
+
+    let cache_dir = state
+        .app
+        .path()
+        .resolve("more_modules", BaseDirectory::AppCache)
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "路径解析失败",
+                format!("解析模块缓存目录失败: {}", e),
+            )
+        })?;
+    let cache_deleted = if cache_dir.exists() {
+        std::fs::remove_dir_all(&cache_dir).map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "删除失败",
+                format!("删除模块缓存目录失败: {}", e),
+            )
+        })?;
+        true
+    } else {
+        false
+    };
+
+    Ok(ok(serde_json::json!({
+        "storage_cleared": true,
+        "cache_deleted": cache_deleted,
+        "cache_dir": cache_dir.to_string_lossy().to_string()
+    })))
 }
 
 async fn debug_navigate(

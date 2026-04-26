@@ -2,12 +2,20 @@ import { getNativeAppVersion, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
 import { openExternal } from './external_link'
 
-const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
+const DEFAULT_MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
+const GITHUB_REPO = 'superdaobo/mini-hbut'
+const GITHUB_RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}`
+const GITHUB_WEBSITE_BRANCH = 'website-pages'
+const GITHUB_PROXY_PREFIXES = Object.freeze(['https://hk.gh-proxy.org/', 'https://gh-proxy.com/', ''])
+const MODULE_PUBLIC_REPO_PATH = 'dist/modules'
+const MODULE_CDN_OVERRIDE_STORAGE_KEY = 'hbu_debug_module_cdn_base'
 const MODULE_STATE_STORAGE_KEY = 'hbu_more_module_state_v1'
+const MODULE_CATALOG_CACHE_STORAGE_KEY = 'hbu_more_module_catalog_cache_v1'
+const MODULE_MANIFEST_CACHE_STORAGE_KEY = 'hbu_more_module_manifest_cache_v1'
 const DEFAULT_CHANNEL = 'main'
 const SHARED_CHANNEL = 'latest'
 const MODULE_CHANNELS = new Set(['main', 'dev', SHARED_CHANNEL])
-const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 5000
+const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 8000
 
 const withCacheBust = (url) => {
   const text = safeText(url)
@@ -30,6 +38,29 @@ const describeError = (error) => {
     return String(error)
   }
 }
+
+const resolveModuleCdnBase = () => {
+  try {
+    const override = safeText(
+      globalThis?.__HBUT_MODULE_CDN_BASE_OVERRIDE__ ||
+        globalThis?.localStorage?.getItem(MODULE_CDN_OVERRIDE_STORAGE_KEY)
+    )
+    if (override) {
+      return override.replace(/\/+$/, '')
+    }
+  } catch {
+    const override = safeText(globalThis?.__HBUT_MODULE_CDN_BASE_OVERRIDE__)
+    if (override) {
+      return override.replace(/\/+$/, '')
+    }
+  }
+  return DEFAULT_MODULE_CDN_BASE
+}
+
+const sleep = (ms = 0) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 
 const withTimeout = async (promise, timeoutMs, timeoutMessage) => {
   let timer = null
@@ -119,7 +150,7 @@ const detectChannelFromVersion = (version) => {
 
 const buildCatalogFetchOrder = (inputChannel = '') => {
   const preferred = normalizeChannel(inputChannel)
-  const order = [SHARED_CHANNEL, preferred]
+  const order = [preferred, SHARED_CHANNEL]
   if (preferred === 'dev') {
     order.push('main')
   } else if (preferred === 'main') {
@@ -129,7 +160,7 @@ const buildCatalogFetchOrder = (inputChannel = '') => {
   return Array.from(new Set(order.filter(Boolean)))
 }
 
-const toAbsoluteUrl = (input, base = MODULE_CDN_BASE) => {
+const toAbsoluteUrl = (input, base = resolveModuleCdnBase()) => {
   const value = safeText(input)
   if (!value) return ''
   try {
@@ -137,6 +168,70 @@ const toAbsoluteUrl = (input, base = MODULE_CDN_BASE) => {
   } catch {
     return value
   }
+}
+
+const toUniqueTextList = (items = []) =>
+  Array.from(
+    new Set(
+      (Array.isArray(items) ? items : [items])
+        .map((item) => safeText(item))
+        .filter(Boolean)
+    )
+  )
+
+const detectModuleChannelHintFromPath = (relativePath = '') => {
+  const firstSegment = safeText(relativePath).split('/').filter(Boolean)[0]
+  if (firstSegment === 'dev') return 'dev'
+  if (firstSegment === 'main') return 'main'
+  if (firstSegment === SHARED_CHANNEL) return SHARED_CHANNEL
+  return ''
+}
+
+const extractModuleRelativePath = (inputUrl) => {
+  const absolute = toAbsoluteUrl(inputUrl)
+  if (!absolute) return ''
+  try {
+    const pathname = new URL(absolute).pathname.replace(/\\/g, '/')
+    const markers = ['/dist/modules/', '/website/public/modules/', '/modules/']
+    for (const marker of markers) {
+      const index = pathname.toLowerCase().indexOf(marker.toLowerCase())
+      if (index >= 0) {
+        return pathname.slice(index + marker.length).replace(/^\/+/, '')
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return ''
+}
+
+const buildGithubRawUrl = (relativePath) => {
+  const safePath = safeText(relativePath).replace(/^\/+/, '')
+  if (!safePath) return ''
+  return `${GITHUB_RAW_BASE}/${GITHUB_WEBSITE_BRANCH}/${MODULE_PUBLIC_REPO_PATH}/${safePath}`
+}
+
+const buildMirrorCandidateUrls = (targetUrl) => {
+  const absolute = safeText(targetUrl)
+  if (!absolute) return []
+  return toUniqueTextList(
+    GITHUB_PROXY_PREFIXES.map((prefix) => (prefix ? `${prefix}${absolute}` : absolute))
+  )
+}
+
+const buildRemoteUrlCandidates = (inputUrl, preferredChannel = '') => {
+  const absolute = toAbsoluteUrl(inputUrl)
+  if (!absolute) return []
+  const relativePath = extractModuleRelativePath(absolute)
+  if (!relativePath) return [absolute]
+  const channelHint = detectModuleChannelHintFromPath(relativePath)
+  const normalizedRelativePath =
+    channelHint && preferredChannel && normalizeChannel(preferredChannel) !== channelHint
+      ? relativePath.replace(new RegExp(`^${channelHint}/`), `${normalizeChannel(preferredChannel)}/`)
+      : relativePath
+  const rawUrl = buildGithubRawUrl(normalizedRelativePath)
+  const githubCandidates = buildMirrorCandidateUrls(rawUrl)
+  return toUniqueTextList([absolute, ...githubCandidates])
 }
 
 const readModuleStateMap = () => {
@@ -177,8 +272,106 @@ export const getLocalModuleState = (moduleId) => {
   return value && typeof value === 'object' ? value : null
 }
 
+const readStorageJson = (key, fallback = null) => {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
+const writeStorageJson = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // ignore storage failure
+  }
+}
+
+const readCachedCatalogSnapshot = (channel) => {
+  const id = safeText(channel)
+  if (!id) return null
+  const cacheMap = readStorageJson(MODULE_CATALOG_CACHE_STORAGE_KEY, {})
+  const snapshot = cacheMap?.[id]
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const modules = Array.isArray(snapshot?.catalog?.modules) ? snapshot.catalog.modules : []
+  if (!modules.length) return null
+  return {
+    channel: normalizeChannel(snapshot.channel || id),
+    url: safeText(snapshot.url),
+    catalog: {
+      schema_version: Number(snapshot?.catalog?.schema_version || 1),
+      generated_at: safeText(snapshot?.catalog?.generated_at || snapshot?.catalog?.generatedAt || ''),
+      modules
+    },
+    from_cache: true
+  }
+}
+
+const writeCachedCatalogSnapshot = (channel, payload) => {
+  const id = safeText(channel)
+  if (!id || !payload?.catalog || !Array.isArray(payload.catalog.modules) || !payload.catalog.modules.length) return
+  const cacheMap = readStorageJson(MODULE_CATALOG_CACHE_STORAGE_KEY, {})
+  cacheMap[id] = {
+    channel: normalizeChannel(payload.channel || id),
+    url: safeText(payload.url),
+    stored_at: new Date().toISOString(),
+    catalog: {
+      schema_version: Number(payload?.catalog?.schema_version || 1),
+      generated_at: safeText(payload?.catalog?.generated_at || payload?.catalog?.generatedAt || ''),
+      modules: payload.catalog.modules
+    }
+  }
+  writeStorageJson(MODULE_CATALOG_CACHE_STORAGE_KEY, cacheMap)
+}
+
+const buildManifestCacheKey = (url) => safeText(toAbsoluteUrl(url))
+
+const readCachedManifestSnapshot = (url) => {
+  const cacheKey = buildManifestCacheKey(url)
+  if (!cacheKey) return null
+  const cacheMap = readStorageJson(MODULE_MANIFEST_CACHE_STORAGE_KEY, {})
+  const snapshot = cacheMap?.[cacheKey]
+  if (!snapshot || typeof snapshot !== 'object') return null
+  if (!safeText(snapshot.module_id) || !safeText(snapshot.version) || !safeText(snapshot.package_url)) return null
+  return {
+    ...snapshot,
+    url: cacheKey,
+    from_cache: true
+  }
+}
+
+const writeCachedManifestSnapshot = (manifest) => {
+  const cacheKey = buildManifestCacheKey(manifest?.url)
+  if (!cacheKey || !safeText(manifest?.module_id) || !safeText(manifest?.version) || !safeText(manifest?.package_url)) {
+    return
+  }
+  const cacheMap = readStorageJson(MODULE_MANIFEST_CACHE_STORAGE_KEY, {})
+  cacheMap[cacheKey] = {
+    url: cacheKey,
+    stored_at: new Date().toISOString(),
+    schema_version: Number(manifest?.schema_version || 1),
+    module_id: safeText(manifest?.module_id),
+    module_name: safeText(manifest?.module_name || manifest?.module_id),
+    version: safeText(manifest?.version),
+    package_url: safeText(manifest?.package_url),
+    package_urls: toUniqueTextList(manifest?.package_urls),
+    package_sha256: safeText(manifest?.package_sha256),
+    channel: safeText(manifest?.channel),
+    entry_path: safeText(manifest?.entry_path || 'index.html'),
+    min_compatible_version: safeText(manifest?.min_compatible_version),
+    published_at: safeText(manifest?.published_at),
+    release_notes: safeText(manifest?.release_notes),
+    open_url: safeText(manifest?.open_url)
+  }
+  writeStorageJson(MODULE_MANIFEST_CACHE_STORAGE_KEY, cacheMap)
+}
+
 const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS) => {
-  const targetUrl = toAbsoluteUrl(url, globalThis?.location?.href || MODULE_CDN_BASE)
+  const targetUrl = toAbsoluteUrl(url, globalThis?.location?.href || resolveModuleCdnBase())
   const requestUrl = withCacheBust(targetUrl)
 
   if (isAbsoluteHttpUrl(targetUrl)) {
@@ -213,6 +406,34 @@ const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS)
   return response.json()
 }
 
+const fetchJsonWithRetry = async (urlOrUrls, timeoutMsList = [DEFAULT_REMOTE_JSON_TIMEOUT_MS]) => {
+  const candidates = toUniqueTextList(urlOrUrls).map((item) => toAbsoluteUrl(item))
+  if (!candidates.length) {
+    throw new Error('远程配置地址为空')
+  }
+  let lastError = null
+  for (const candidate of candidates) {
+    for (let index = 0; index < timeoutMsList.length; index += 1) {
+      try {
+        const payload = await fetchJsonNoStore(
+          candidate,
+          Number(timeoutMsList[index]) || DEFAULT_REMOTE_JSON_TIMEOUT_MS
+        )
+        return {
+          payload,
+          url: candidate
+        }
+      } catch (error) {
+        lastError = error
+        if (index < timeoutMsList.length - 1) {
+          await sleep(180 * (index + 1))
+        }
+      }
+    }
+  }
+  throw lastError || new Error('远程配置请求失败')
+}
+
 export const resolveModuleChannel = async () => {
   const overridden = normalizeChannel(localStorage.getItem('hbu_module_channel'))
   if (MODULE_CHANNELS.has(overridden)) return overridden
@@ -234,8 +455,8 @@ const normalizeCatalogModule = (item, channel) => {
   const raw = item && typeof item === 'object' ? item : {}
   const id = safeText(raw.id || raw.module_id)
   const manifestUrl = toAbsoluteUrl(
-    raw.manifest_url || `${MODULE_CDN_BASE}/${channel}/${id}/manifest.json`,
-    `${MODULE_CDN_BASE}/${channel}/`
+    raw.manifest_url || `${resolveModuleCdnBase()}/${channel}/${id}/manifest.json`,
+    `${resolveModuleCdnBase()}/${channel}/`
   )
   return {
     id,
@@ -257,18 +478,21 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
     const resolved = normalizeChannel(channel)
     if (!resolved || tried.includes(resolved)) continue
     tried.push(resolved)
-    const url = `${MODULE_CDN_BASE}/${resolved}/catalog.json`
+    const url = `${resolveModuleCdnBase()}/${resolved}/catalog.json`
     try {
-      const payload = await fetchJsonNoStore(url, 3500)
+      const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
+        buildRemoteUrlCandidates(url, resolved),
+        [6000, 9000]
+      )
       const rawModules = Array.isArray(payload?.modules) ? payload.modules : []
       const modules = rawModules
         .map((item) => normalizeCatalogModule(item, resolved))
         .filter((item) => item.id && item.manifest_url)
         .sort((a, b) => a.order - b.order)
 
-      return {
+      const snapshot = {
         channel: resolved,
-        url,
+        url: resolvedUrl,
         catalog: {
           schema_version: Number(payload?.schema_version || 1),
           generated_at: safeText(payload?.generated_at || payload?.generatedAt || ''),
@@ -276,8 +500,19 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
         },
         from_fallback: resolved !== SHARED_CHANNEL
       }
+      writeCachedCatalogSnapshot(resolved, snapshot)
+      return snapshot
     } catch {
       // try next channel
+    }
+  }
+  for (const channel of tried) {
+    const snapshot = readCachedCatalogSnapshot(channel)
+    if (snapshot) {
+      return {
+        ...snapshot,
+        from_fallback: normalizeChannel(snapshot.channel || channel) !== SHARED_CHANNEL
+      }
     }
   }
   throw new Error('无法获取模块清单，请检查网络后重试')
@@ -286,49 +521,80 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
 export const fetchModuleManifest = async (manifestUrl) => {
   const url = toAbsoluteUrl(manifestUrl)
   if (!url) throw new Error('模块 manifest 地址为空')
-  const payload = await fetchJsonNoStore(url, 5000)
+  try {
+    const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
+      buildRemoteUrlCandidates(url),
+      [7000, 10000]
+    )
 
-  const moduleId = safeText(payload?.module_id || payload?.id)
-  const version = safeText(payload?.version)
-  const packageUrl = toAbsoluteUrl(payload?.package_url, url)
-  const entryPath = safeText(payload?.entry_path || 'index.html')
-  if (!moduleId || !version || !packageUrl) {
-    throw new Error('模块 manifest 字段不完整')
-  }
+    const moduleId = safeText(payload?.module_id || payload?.id)
+    const version = safeText(payload?.version)
+    const packageUrl = toAbsoluteUrl(payload?.package_url, resolvedUrl)
+    const entryPath = safeText(payload?.entry_path || 'index.html')
+    if (!moduleId || !version || !packageUrl) {
+      throw new Error('模块 manifest 字段不完整')
+    }
+    const preferredChannel =
+      safeText(payload?.channel) ||
+      detectModuleChannelHintFromPath(extractModuleRelativePath(resolvedUrl)) ||
+      detectModuleChannelHintFromPath(extractModuleRelativePath(packageUrl))
+    const packageUrls = buildRemoteUrlCandidates(packageUrl, preferredChannel)
 
-  return {
-    url,
-    schema_version: Number(payload?.schema_version || 1),
-    module_id: moduleId,
-    module_name: safeText(payload?.module_name || payload?.name || moduleId),
-    version,
-    package_url: packageUrl,
-    package_sha256: safeText(payload?.package_sha256 || payload?.sha256 || ''),
-    package_size: Number(payload?.package_size || 0),
-    entry_path: entryPath,
-    min_compatible_version: safeText(payload?.min_compatible_version || payload?.minCompatibleVersion || ''),
-    published_at: safeText(payload?.published_at || ''),
-    release_notes: safeText(payload?.release_notes || ''),
-    open_url: toAbsoluteUrl(payload?.open_url, url)
+    const manifest = {
+      url: resolvedUrl,
+      schema_version: Number(payload?.schema_version || 1),
+      module_id: moduleId,
+      module_name: safeText(payload?.module_name || payload?.name || moduleId),
+      version,
+      package_url: packageUrl,
+      package_urls: packageUrls,
+      package_sha256: safeText(payload?.package_sha256 || payload?.sha256 || ''),
+      package_size: Number(payload?.package_size || 0),
+      channel: safeText(payload?.channel),
+      entry_path: entryPath,
+      min_compatible_version: safeText(payload?.min_compatible_version || payload?.minCompatibleVersion || ''),
+      published_at: safeText(payload?.published_at || ''),
+      release_notes: safeText(payload?.release_notes || ''),
+      open_url: toAbsoluteUrl(payload?.open_url, resolvedUrl)
+    }
+    writeCachedManifestSnapshot(manifest)
+    return manifest
+  } catch (error) {
+    const cachedManifest = readCachedManifestSnapshot(url)
+    if (cachedManifest) return cachedManifest
+    throw error
   }
 }
 
-const resolveOpenUrl = ({ manifest, channel }) => {
-  const explicit = toAbsoluteUrl(manifest?.open_url)
-  if (explicit) return explicit
-
-  const packageUrl = safeText(manifest?.package_url)
+const buildOpenUrlCandidates = ({ manifest, channel }) => {
+  const preferredChannel =
+    safeText(manifest?.channel) ||
+    normalizeChannel(channel) ||
+    detectModuleChannelHintFromPath(extractModuleRelativePath(manifest?.url))
   const entryPath = safeText(manifest?.entry_path || 'index.html')
-  if (packageUrl.includes('/bundle.zip')) {
-    return packageUrl.replace(/\/bundle\.zip(?:\?.*)?$/i, `/site/${entryPath}`)
+  const explicit = toAbsoluteUrl(manifest?.open_url, safeText(manifest?.url))
+  if (explicit) {
+    return buildRemoteUrlCandidates(explicit, preferredChannel)
   }
-  return `${MODULE_CDN_BASE}/${normalizeChannel(channel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
+  const packageCandidates = toUniqueTextList(manifest?.package_urls || manifest?.package_url)
+  const siteCandidates = packageCandidates.map((candidate) => {
+    if (candidate.includes('/bundle.zip')) {
+      return candidate.replace(/\/bundle\.zip(?:\?.*)?$/i, `/site/${entryPath}`)
+    }
+    return `${candidate.replace(/\/+$/, '')}/site/${entryPath}`
+  })
+  return toUniqueTextList([
+    ...siteCandidates,
+    `${resolveModuleCdnBase()}/${normalizeChannel(preferredChannel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
+  ])
 }
 
 export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => {
   const moduleId = safeText(moduleInfo?.id || manifest?.module_id)
-  const openUrl = resolveOpenUrl({ manifest, channel })
+  const openUrlCandidates = buildOpenUrlCandidates({ manifest, channel })
+  const openUrl = safeText(openUrlCandidates[0])
   const packageUrl = safeText(manifest?.package_url)
+  const packageUrls = toUniqueTextList(manifest?.package_urls || packageUrl)
 
   try {
     const prepared = await invokeNativeBridge(
@@ -340,6 +606,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
           moduleName: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
           version: safeText(manifest?.version),
           packageUrl,
+          packageUrls,
           packageSha256: safeText(manifest?.package_sha256),
           minCompatibleVersion: safeText(manifest?.min_compatible_version),
           entryPath: safeText(manifest?.entry_path || 'index.html')
@@ -386,21 +653,21 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
     })
   }
 
-  if (openUrl) {
-    const opened = await openExternal(openUrl)
+  for (const candidate of openUrlCandidates) {
+    const opened = await openExternal(candidate)
     if (opened) {
       updateModuleState(moduleId, {
         channel: normalizeChannel(channel),
         version: safeText(manifest?.version),
         min_compatible_version: safeText(manifest?.min_compatible_version),
-        open_url: openUrl
+        open_url: candidate
       })
       return {
         ready: true,
         launch_mode: 'remote',
         version: safeText(manifest?.version),
-        open_url: openUrl,
-        preview_url: openUrl,
+        open_url: candidate,
+        preview_url: candidate,
         min_compatible_version: safeText(manifest?.min_compatible_version),
         module_id: moduleId,
         module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
@@ -415,4 +682,4 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
 
 export const prepareAndOpenModule = prepareModuleBundle
 
-export const getModuleCdnBase = () => MODULE_CDN_BASE
+export const getModuleCdnBase = () => resolveModuleCdnBase()

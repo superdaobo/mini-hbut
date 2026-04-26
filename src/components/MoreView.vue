@@ -15,6 +15,7 @@ import {
   prepareModuleBundle,
   resolveModuleChannel
 } from '../utils/more_modules.js'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync.js'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
 
@@ -25,6 +26,7 @@ const props = defineProps({
 const emit = defineEmits(['back', 'navigate'])
 
 const MODULE_CDN_BASE = getModuleCdnBase()
+const STUDENT_PROFILE_STORAGE_PREFIX = 'hbu_more_module_student_profile:'
 const DEFAULT_MODULES = Object.freeze([
   {
     id: 'shuake',
@@ -97,7 +99,7 @@ const resolveBrushModule = (moduleItem) => {
   return id === 'shuake' || view === 'more_shuake'
 }
 const buildDefaultManifestUrl = (_channel, moduleId) => {
-  const normalizedChannel = 'latest'
+  const normalizedChannel = normalizeChannel(_channel, 'main')
   const id = safeText(moduleId)
   if (!id) return ''
   return `${MODULE_CDN_BASE}/${normalizedChannel}/${id}/manifest.json`
@@ -105,29 +107,96 @@ const buildDefaultManifestUrl = (_channel, moduleId) => {
 
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
 
+const buildStudentProfileStorageKey = (studentId) => {
+  const sid = safeText(studentId || props.studentId)
+  return sid ? `${STUDENT_PROFILE_STORAGE_PREFIX}${sid}` : ''
+}
+
+const buildEmptyStudentProfile = (studentId = '') => ({
+  student_id: safeText(studentId || props.studentId),
+  name: '',
+  class_name: '',
+  major: '',
+  school_name: '湖北工业大学'
+})
+
+const extractStudentProfilePayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return {}
+  return payload?.data && typeof payload.data === 'object' ? payload.data : payload
+}
+
+const normalizeStudentProfile = (payload, fallbackStudentId = '') => {
+  const source = extractStudentProfilePayload(payload)
+  return {
+    student_id: safeText(
+      source?.student_id ||
+        source?.studentId ||
+        source?.xh ||
+        source?.XH ||
+        fallbackStudentId ||
+        props.studentId
+    ),
+    name: safeText(
+      source?.name || source?.student_name || source?.studentName || source?.xm || source?.XM
+    ),
+    class_name: safeText(
+      source?.class_name ||
+        source?.className ||
+        source?.class ||
+        source?.bjmc ||
+        source?.BJMC
+    ),
+    major: safeText(source?.major || source?.major_name || source?.majorName || source?.zymc),
+    school_name: safeText(source?.school_name || source?.schoolName) || '湖北工业大学'
+  }
+}
+
+const mergeStudentProfiles = (...profiles) => {
+  const merged = buildEmptyStudentProfile()
+  for (const item of profiles) {
+    const profile = normalizeStudentProfile(item, merged.student_id || props.studentId)
+    if (!profile.student_id && !profile.name && !profile.class_name && !profile.major) continue
+    merged.student_id = merged.student_id || profile.student_id
+    merged.name = merged.name || profile.name
+    merged.class_name = merged.class_name || profile.class_name
+    merged.major = merged.major || profile.major
+    merged.school_name = merged.school_name || profile.school_name || '湖北工业大学'
+  }
+  return merged
+}
+
+const persistStudentProfile = (profile) => {
+  const normalized = normalizeStudentProfile(profile, props.studentId)
+  const sid = safeText(normalized.student_id || props.studentId)
+  if (!sid) return normalized
+  const storageKey = buildStudentProfileStorageKey(sid)
+  if (storageKey) {
+    localStorage.setItem(storageKey, JSON.stringify(normalized))
+  }
+  return normalized
+}
+
 const readCachedStudentProfile = () => {
   const sid = safeText(props.studentId)
-  if (!sid) {
-    return {
-      student_id: '',
-      name: '',
-      class_name: '',
-      major: '',
-      school_name: '湖北工业大学'
-    }
-  }
+  const empty = buildEmptyStudentProfile(sid)
+  const storageKey = buildStudentProfileStorageKey(sid)
+  const custom = storageKey ? safeParseJson(localStorage.getItem(storageKey), null) : null
+  if (!sid) return mergeStudentProfiles(empty, custom)
   const direct = safeParseJson(localStorage.getItem(`cache:studentinfo:${sid}`), null)
   const legacy = safeParseJson(localStorage.getItem(`cache:student_info:${sid}`), null)
-  const source =
-    (direct?.data && typeof direct.data === 'object' ? direct.data : direct) ||
-    (legacy?.data && typeof legacy.data === 'object' ? legacy.data : legacy) ||
-    {}
-  return {
-    student_id: sid,
-    name: safeText(source?.name || source?.student_name || source?.studentName),
-    class_name: safeText(source?.class_name || source?.className),
-    major: safeText(source?.major),
-    school_name: '湖北工业大学'
+  return mergeStudentProfiles(empty, custom, direct, legacy)
+}
+
+const ensureStudentProfile = async () => {
+  const cached = readCachedStudentProfile()
+  if (cached.student_id && cached.class_name) return cached
+  if (!isTauriRuntime()) return cached
+  try {
+    const payload = await invokeNative('fetch_student_info')
+    const merged = mergeStudentProfiles(cached, payload)
+    return persistStudentProfile(merged)
+  } catch {
+    return cached
   }
 }
 
@@ -166,13 +235,12 @@ const isManifestVersionCompatible = (manifest, minVersion = '') => {
 
 const INCOMPATIBLE_CACHE_MESSAGE = '当前缓存版本存在已知布局问题，请联网更新后再打开。'
 
-const appendModuleContextQuery = (moduleId, rawUrl) => {
+const appendModuleContextQuery = (moduleId, rawUrl, profile = readCachedStudentProfile()) => {
   const previewUrl = safeText(rawUrl)
   if (!previewUrl || moduleId !== 'hecheng_hugongda') return previewUrl
 
   try {
     const url = new URL(previewUrl, window.location.origin)
-    const profile = readCachedStudentProfile()
     url.searchParams.set('from', 'mini_hbut')
     url.searchParams.set('runtime', 'tauri-host')
     url.searchParams.set('student_id', safeText(profile.student_id))
@@ -210,7 +278,8 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
   const moduleId = safeText(prepared?.module_id || moduleItem?.id)
   const previewUrl = appendModuleContextQuery(
     moduleId,
-    safeText(prepared?.preview_url || manifest?.open_url)
+    safeText(prepared?.preview_url || manifest?.open_url),
+    sessionMeta?.preview_profile || readCachedStudentProfile()
   )
   emit('navigate', {
     view: 'more_module_host',
@@ -270,7 +339,11 @@ const mergeWithCatalog = (item, catalogMap = moduleCatalogMap.value) => {
     ...catalogItem,
     ...item,
     kind: 'remote',
-    manifest_url: safeText(catalogItem.manifest_url || item.manifest_url || buildDefaultManifestUrl('latest', item.id))
+    manifest_url: safeText(
+      catalogItem.manifest_url ||
+        item.manifest_url ||
+        buildDefaultManifestUrl(moduleChannel.value || 'main', item.id)
+    )
   }
 }
 
@@ -450,6 +523,7 @@ const handleOpenInternalModule = (moduleItem) => {
 const handleOpenRemoteModule = async (moduleItem) => {
   const moduleId = safeText(moduleItem?.id)
   if (!moduleId) return
+  const profile = moduleId === 'hecheng_hugongda' ? await ensureStudentProfile() : readCachedStudentProfile()
 
   if (!safeText(moduleItem?.manifest_url)) {
     setModuleState(moduleId, {
@@ -482,7 +556,10 @@ const handleOpenRemoteModule = async (moduleItem) => {
           : '已更新并内嵌打开',
       version: safeText(prepared.version || manifest.version)
     })
-    emitPreparedModuleNavigate(moduleItem, prepared, manifest, sessionMeta)
+    emitPreparedModuleNavigate(moduleItem, prepared, manifest, {
+      ...sessionMeta,
+      preview_profile: profile
+    })
   }
 
   try {
@@ -615,7 +692,7 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
     moduleChannel.value = normalizeChannel(targetChannel, preferredChannel)
     catalogModules = Array.isArray(catalogPayload?.catalog?.modules) ? catalogPayload.catalog.modules : []
   } catch (err) {
-    moduleError.value = safeText(err?.message || err) || '模块清单获取失败'
+    moduleError.value = ''
     moduleChannel.value = normalizeChannel(targetChannel, preferredChannel)
     catalogModules = []
   }
@@ -660,6 +737,7 @@ onMounted(async () => {
   const preferredChannel = normalizeChannel(await resolveModuleChannel(), 'main')
   applyModuleCards(buildDefaultModules(preferredChannel), preferredChannel)
   moduleLoading.value = false
+  void ensureStudentProfile()
   void loadModuleCatalog({ silent: true })
 })
 </script>

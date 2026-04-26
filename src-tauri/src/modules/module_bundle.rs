@@ -21,6 +21,8 @@ pub struct ModuleBundlePrepareRequest {
     pub version: String,
     #[serde(alias = "packageUrl")]
     pub package_url: String,
+    #[serde(default, alias = "packageUrls")]
+    pub package_urls: Vec<String>,
     #[serde(default, alias = "packageSha256")]
     pub package_sha256: String,
     #[serde(default, alias = "minCompatibleVersion")]
@@ -374,30 +376,59 @@ fn write_bundle_archive(dest_root: &Path, zip_bytes: &[u8]) -> Result<(), String
     Ok(())
 }
 
-async fn download_bundle_bytes(package_url: &str) -> Result<Vec<u8>, String> {
-    if let Some(local_file) = resolve_local_dev_module_file_from_url(package_url) {
-        return fs::read(&local_file)
-            .map_err(|e| format!("读取本地模块压缩包失败: {} ({})", e, local_file.display()));
+async fn download_bundle_bytes(package_urls: &[String]) -> Result<Vec<u8>, String> {
+    let candidates: Vec<String> = package_urls
+        .iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect();
+    if candidates.is_empty() {
+        return Err("模块 package_url 为空，无法准备本地包".to_string());
     }
-
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| format!("创建模块下载客户端失败: {}", e))?;
-    let response = client
-        .get(package_url)
-        .send()
-        .await
-        .map_err(|e| format!("下载模块压缩包失败: {}", e))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("下载模块压缩包失败：HTTP {}", status.as_u16()));
+    let mut last_error = None;
+    for package_url in candidates {
+        if let Some(local_file) = resolve_local_dev_module_file_from_url(&package_url) {
+            match fs::read(&local_file) {
+                Ok(bytes) => return Ok(bytes),
+                Err(e) => {
+                    last_error = Some(format!(
+                        "读取本地模块压缩包失败: {} ({})",
+                        e,
+                        local_file.display()
+                    ));
+                    continue;
+                }
+            }
+        }
+
+        let response = match client.get(&package_url).send().await {
+            Ok(response) => response,
+            Err(e) => {
+                last_error = Some(format!("下载模块压缩包失败: {} ({})", e, package_url));
+                continue;
+            }
+        };
+        let status = response.status();
+        if !status.is_success() {
+            last_error = Some(format!(
+                "下载模块压缩包失败：HTTP {} ({})",
+                status.as_u16(),
+                package_url
+            ));
+            continue;
+        }
+        match response.bytes().await {
+            Ok(bytes) => return Ok(bytes.to_vec()),
+            Err(e) => {
+                last_error = Some(format!("读取模块压缩包失败: {} ({})", e, package_url));
+            }
+        }
     }
-    response
-        .bytes()
-        .await
-        .map(|bytes| bytes.to_vec())
-        .map_err(|e| format!("读取模块压缩包失败: {}", e))
+    Err(last_error.unwrap_or_else(|| "下载模块压缩包失败：没有可用下载地址".to_string()))
 }
 
 pub async fn prepare_module_bundle(
@@ -413,6 +444,15 @@ pub async fn prepare_module_bundle(
     )?;
     let requested_entry = normalize_relative_path(&req.entry_path, "index.html")?;
     let package_url = req.package_url.trim().to_string();
+    let mut package_urls: Vec<String> = req
+        .package_urls
+        .iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect();
+    if !package_url.is_empty() && !package_urls.iter().any(|item| item == &package_url) {
+        package_urls.insert(0, package_url.clone());
+    }
     let module_name = if req.module_name.trim().is_empty() {
         module_id.clone()
     } else {
@@ -445,11 +485,11 @@ pub async fn prepare_module_bundle(
         fs::remove_dir_all(&cache_dir).map_err(|e| format!("清理失效模块缓存失败: {}", e))?;
     }
 
-    if package_url.is_empty() {
+    if package_urls.is_empty() {
         return Err("模块 package_url 为空，无法准备本地包".to_string());
     }
 
-    let bundle_bytes = download_bundle_bytes(&package_url).await?;
+    let bundle_bytes = download_bundle_bytes(&package_urls).await?;
     let actual_sha = sha256_hex(&bundle_bytes);
     if !expected_sha.is_empty() {
         if actual_sha != expected_sha {

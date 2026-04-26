@@ -2834,6 +2834,8 @@ struct PrepareModuleBundleRequest {
     pub version: String,
     #[serde(alias = "packageUrl")]
     pub package_url: String,
+    #[serde(alias = "packageUrls", default)]
+    pub package_urls: Vec<String>,
     #[serde(alias = "packageSha256", default)]
     pub package_sha256: String,
     #[serde(alias = "minCompatibleVersion", default)]
@@ -2931,6 +2933,7 @@ async fn prepare_module_bundle(
             module_id: request.module_id,
             version: request.version,
             package_url: request.package_url,
+            package_urls: request.package_urls,
             package_sha256: request.package_sha256,
             min_compatible_version: request.min_compatible_version,
             entry_path: request.entry_path,
@@ -5364,6 +5367,7 @@ pub fn run() {
             debug_bridge::set_debug_bridge_ready,
             debug_bridge::complete_debug_screenshot,
             debug_bridge::complete_debug_open_module,
+            debug_bridge::complete_debug_reset_more_modules,
             debug_bridge::complete_debug_state,
             debug_bridge::save_debug_capture_file,
             open_external_url,

@@ -93,7 +93,7 @@ jobs:
         id: build_modules
         continue-on-error: true
         env:
-          MODULE_CHANNEL: ${{ steps.channel.outputs.channel }}
+          MODULE_SOURCE_CHANNEL: ${{ github.ref_name }}
           MODULE_BASE_URL: https://hbut.6661111.xyz/modules
         run: |
           set -euo pipefail

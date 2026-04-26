@@ -204,17 +204,31 @@ function isPrereleaseVersion(version) {
   return parseVersion(version).isPrerelease
 }
 
+function isStableRelease(release) {
+  const latestVersion = String(release?.version || release?.tag_name || '').replace(/^v/i, '')
+  if (!latestVersion) return false
+  if (release?.prerelease) return false
+  if (isPrereleaseVersion(latestVersion)) return false
+
+  const channel = String(release?.channel || '').trim().toLowerCase()
+  if (channel && channel !== 'main' && channel !== 'stable' && channel !== 'release') {
+    return false
+  }
+
+  const tag = String(release?.tag_name || '').trim().toLowerCase()
+  if (/(^|[-._])(alpha|beta|rc|dev)([-._]|$)/.test(tag) || tag === 'dev-latest') {
+    return false
+  }
+
+  return true
+}
+
 function shouldOfferRelease(release, currentVersion) {
   const latestVersion = String(release?.version || release?.tag_name || '').replace(/^v/i, '')
   const currentText = String(currentVersion || '').replace(/^v/i, '')
   if (!latestVersion) return false
+  if (!isStableRelease(release)) return false
   if (!currentText) return true
-  if (release?.__fromCdnManifest) {
-    return latestVersion !== currentText
-  }
-  if (release?.prerelease && !isPrereleaseVersion(currentText)) {
-    return false
-  }
   return compareVersions(latestVersion, currentText) > 0
 }
 
@@ -350,6 +364,13 @@ export async function checkForUpdates(currentVersion) {
         error: true,
         message: '无法连接更新服务',
         currentVersion
+      }
+    }
+    if (!isStableRelease(release)) {
+      return {
+        hasUpdate: false,
+        currentVersion,
+        latestVersion: ''
       }
     }
 

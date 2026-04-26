@@ -703,6 +703,44 @@ export default {
       this.lastRankSubmission = null
     },
 
+    getActiveBallBodies() {
+      const bodies = this.engine?.world?.bodies
+      if (!Array.isArray(bodies)) return []
+      return bodies.filter((body) => body && body.schoolLevel !== undefined && !body.isRemoved)
+    },
+
+    rebalanceBodiesAfterMerge(newBall, removedBodies = []) {
+      if (!newBall) return
+      const removedSet = new Set(removedBodies.filter(Boolean))
+      const baseRadius = this.schools[newBall.schoolLevel]?.radius || 0
+      const activationRadius = Math.max(baseRadius * 2.8, 96)
+      const anchorX = Number(newBall.position?.x || 0)
+      const anchorY = Number(newBall.position?.y || 0)
+      Matter.Sleeping.set(newBall, false)
+      if (Math.abs(Number(newBall.velocity?.y || 0)) < 0.16) {
+        Matter.Body.setVelocity(newBall, {
+          x: Number(newBall.velocity?.x || 0),
+          y: 0.28
+        })
+      }
+      this.getActiveBallBodies().forEach((body) => {
+        if (!body || body === newBall || removedSet.has(body) || body.isRemoved) return
+        const dx = Number(body.position?.x || 0) - anchorX
+        const dy = Number(body.position?.y || 0) - anchorY
+        const nearMergeZone = Math.abs(dx) <= activationRadius && Math.abs(dy) <= activationRadius * 1.1
+        const suspendedAbove =
+          dy < -6 && Math.abs(dx) <= activationRadius * 0.72 && Math.abs(dy) <= activationRadius * 1.7
+        if (!nearMergeZone && !suspendedAbove) return
+        Matter.Sleeping.set(body, false)
+        if (suspendedAbove && Math.abs(Number(body.velocity?.y || 0)) < 0.22) {
+          Matter.Body.setVelocity(body, {
+            x: Number(body.velocity?.x || 0) * 0.94,
+            y: Math.max(Number(body.velocity?.y || 0), 0.42)
+          })
+        }
+      })
+    },
+
     initGame() {
       const Engine = Matter.Engine
       const Render = Matter.Render
@@ -711,7 +749,7 @@ export default {
       const Events = Matter.Events
       const Runner = Matter.Runner
 
-      this.engine = Engine.create({ enableSleeping: true })
+      this.engine = Engine.create({ enableSleeping: false })
       this.engine.world.gravity.y = 1.2
 
       this.render = Render.create({
@@ -1155,7 +1193,12 @@ export default {
         const newLevel = bodyA.schoolLevel + 1
         const newSchool = this.schools[newLevel]
         const newX = (bodyA.position.x + bodyB.position.x) / 2
-        const newY = (bodyA.position.y + bodyB.position.y) / 2
+        const newY = (bodyA.position.y + bodyB.position.y) / 2 + Math.max(2, newSchool.radius * 0.08)
+        const mergedVelocityX = (Number(bodyA.velocity?.x || 0) + Number(bodyB.velocity?.x || 0)) / 2
+        const mergedVelocityY = Math.max(
+          (Number(bodyA.velocity?.y || 0) + Number(bodyB.velocity?.y || 0)) / 2,
+          0.3
+        )
 
         Matter.World.remove(this.engine.world, [bodyA, bodyB])
 
@@ -1168,6 +1211,11 @@ export default {
         newBall.schoolLevel = newLevel
         newBall.dropTime = Date.now()
         Matter.World.add(this.engine.world, newBall)
+        Matter.Body.setVelocity(newBall, {
+          x: mergedVelocityX * 0.35,
+          y: mergedVelocityY
+        })
+        this.rebalanceBodiesAfterMerge(newBall, [bodyA, bodyB])
 
         this.score += newSchool.score
         this.bestLevelReached = Math.max(this.bestLevelReached, newLevel)

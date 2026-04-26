@@ -27,17 +27,22 @@ const DEBUG_CONFIG_PATH: &str = "debug/runtime_config.json";
 const DEBUG_CAPTURE_DIR: &str = "debug-captures";
 const SCREENSHOT_EVENT_NAME: &str = "hbu-debug-screenshot-request";
 const OPEN_MODULE_EVENT_NAME: &str = "hbu-debug-open-module-request";
+const RESET_MORE_MODULES_EVENT_NAME: &str = "hbu-debug-reset-more-modules-request";
 const STATE_EVENT_NAME: &str = "hbu-debug-state-request";
 
 static DEBUG_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
 static SCREENSHOT_SEQ: AtomicU64 = AtomicU64::new(1);
 static OPEN_MODULE_SEQ: AtomicU64 = AtomicU64::new(1);
+static RESET_MORE_MODULES_SEQ: AtomicU64 = AtomicU64::new(1);
 static STATE_SEQ: AtomicU64 = AtomicU64::new(1);
 static SCREENSHOT_WAITERS: OnceLock<
     StdMutex<HashMap<String, oneshot::Sender<Result<DebugScreenshotResponse, String>>>>,
 > = OnceLock::new();
 static OPEN_MODULE_WAITERS: OnceLock<StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>>> =
     OnceLock::new();
+static RESET_MORE_MODULES_WAITERS: OnceLock<
+    StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+> = OnceLock::new();
 static STATE_WAITERS: OnceLock<
     StdMutex<HashMap<String, oneshot::Sender<Result<DebugStateResponse, String>>>>,
 > = OnceLock::new();
@@ -98,6 +103,20 @@ struct DebugOpenModuleBridgeRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct DebugResetMoreModulesRequest {
+    #[serde(default)]
+    pub cdn_base_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DebugResetMoreModulesBridgeRequest {
+    request_id: String,
+    cdn_base_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct DebugStateRequest {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,6 +173,14 @@ pub struct DebugOpenModuleCompletePayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DebugResetMoreModulesCompletePayload {
+    pub request_id: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DebugCaptureSaveRequest {
     pub filename: Option<String>,
     pub mime_type: String,
@@ -194,6 +221,13 @@ pub enum DebugOpenModuleBridgeError {
 }
 
 #[derive(Debug)]
+pub enum DebugResetMoreModulesBridgeError {
+    NotReady,
+    Timeout,
+    Failed(String),
+}
+
+#[derive(Debug)]
 pub enum DebugStateBridgeError {
     NotReady,
     Timeout,
@@ -207,6 +241,11 @@ fn screenshot_waiters(
 
 fn open_module_waiters() -> &'static StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>> {
     OPEN_MODULE_WAITERS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn reset_more_modules_waiters(
+) -> &'static StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>> {
+    RESET_MORE_MODULES_WAITERS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
 fn state_waiters(
@@ -389,6 +428,27 @@ pub async fn complete_debug_open_module(
 }
 
 #[tauri::command]
+pub async fn complete_debug_reset_more_modules(
+    payload: DebugResetMoreModulesCompletePayload,
+) -> Result<bool, String> {
+    let sender = reset_more_modules_waiters()
+        .lock()
+        .map_err(|e| format!("模块缓存重置回调锁定失败: {}", e))?
+        .remove(payload.request_id.as_str());
+    let Some(sender) = sender else {
+        return Ok(false);
+    };
+
+    let result = if payload.success {
+        Ok(())
+    } else {
+        Err(payload.error.unwrap_or_else(|| "模块缓存重置失败".to_string()))
+    };
+    let _ = sender.send(result);
+    Ok(true)
+}
+
+#[tauri::command]
 pub async fn complete_debug_state(payload: DebugStateCompletePayload) -> Result<bool, String> {
     let sender = state_waiters()
         .lock()
@@ -517,6 +577,63 @@ pub(crate) async fn request_debug_open_module(
                 .lock()
                 .map(|mut waiters| waiters.remove(request_id.as_str()));
             Err(DebugOpenModuleBridgeError::Timeout)
+        }
+    }
+}
+
+pub(crate) async fn request_debug_reset_more_modules(
+    app: &AppHandle,
+    req: DebugResetMoreModulesRequest,
+    timeout_ms: u64,
+) -> Result<(), DebugResetMoreModulesBridgeError> {
+    if !DEBUG_BRIDGE_READY.load(Ordering::SeqCst) {
+        return Err(DebugResetMoreModulesBridgeError::NotReady);
+    }
+
+    let request_id = format!(
+        "dbgresetmods-{}-{}",
+        chrono::Utc::now().timestamp_millis(),
+        RESET_MORE_MODULES_SEQ.fetch_add(1, Ordering::SeqCst)
+    );
+    let bridge_payload = DebugResetMoreModulesBridgeRequest {
+        request_id: request_id.clone(),
+        cdn_base_override: req.cdn_base_override,
+    };
+    let (tx, rx) = oneshot::channel::<Result<(), String>>();
+    reset_more_modules_waiters()
+        .lock()
+        .map_err(|e| DebugResetMoreModulesBridgeError::Failed(format!(
+            "模块缓存重置请求注册失败: {}",
+            e
+        )))?
+        .insert(request_id.clone(), tx);
+
+    if let Err(e) = app.emit(RESET_MORE_MODULES_EVENT_NAME, &bridge_payload) {
+        let _ = reset_more_modules_waiters()
+            .lock()
+            .map(|mut waiters| waiters.remove(request_id.as_str()));
+        return Err(DebugResetMoreModulesBridgeError::Failed(format!(
+            "发送模块缓存重置事件失败: {}",
+            e
+        )));
+    }
+
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(timeout_ms.max(1000)),
+        rx,
+    )
+    .await
+    {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(message))) => Err(DebugResetMoreModulesBridgeError::Failed(message)),
+        Ok(Err(_)) => Err(DebugResetMoreModulesBridgeError::Failed(
+            "模块缓存重置响应通道已关闭".to_string(),
+        )),
+        Err(_) => {
+            let _ = reset_more_modules_waiters()
+                .lock()
+                .map(|mut waiters| waiters.remove(request_id.as_str()));
+            Err(DebugResetMoreModulesBridgeError::Timeout)
         }
     }
 }

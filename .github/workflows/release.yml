@@ -880,9 +880,9 @@ jobs:
           cache: npm
           cache-dependency-path: website/package-lock.json
 
-      - name: Build website modules (main channel)
+      - name: Build website modules
         env:
-          MODULE_CHANNEL: main
+          MODULE_SOURCE_CHANNEL: main
           MODULE_BASE_URL: https://hbut.6661111.xyz/modules
           MODULE_VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
