@@ -2836,8 +2836,12 @@ struct PrepareModuleBundleRequest {
     pub package_url: String,
     #[serde(alias = "packageSha256", default)]
     pub package_sha256: String,
+    #[serde(alias = "minCompatibleVersion", default)]
+    pub min_compatible_version: String,
     #[serde(alias = "entryPath")]
     pub entry_path: String,
+    #[serde(alias = "moduleName", default)]
+    pub module_name: String,
 }
 
 fn sanitize_module_token(raw: &str, label: &str) -> Result<String, String> {
@@ -2920,93 +2924,21 @@ async fn prepare_module_bundle(
     app: tauri::AppHandle,
     request: PrepareModuleBundleRequest,
 ) -> Result<serde_json::Value, String> {
-    let channel = if request.channel.trim().eq_ignore_ascii_case("dev") {
-        "dev".to_string()
-    } else {
-        "main".to_string()
-    };
-    let module_id = sanitize_module_token(&request.module_id, "module_id")?;
-    let version = sanitize_module_token(&request.version, "version")?;
-    let package_url = request.package_url.trim().to_string();
-    if package_url.is_empty() {
-        return Err("package_url 不能为空".to_string());
-    }
-    if !(package_url.starts_with("http://") || package_url.starts_with("https://")) {
-        return Err("package_url 非法".to_string());
-    }
-    let package_sha256 = request.package_sha256.trim().to_lowercase();
-    let entry_rel = sanitize_zip_entry_path(&request.entry_path)
-        .ok_or_else(|| "entry_path 非法".to_string())?;
-
-    let cache_root = app
-        .path()
-        .resolve(
-            format!("modules/{}/{}/{}", channel, module_id, version),
-            BaseDirectory::AppCache,
-        )
-        .map_err(|e| format!("解析模块缓存目录失败: {}", e))?;
-
-    if tokio::fs::try_exists(&cache_root).await.unwrap_or(false) {
-        let _ = tokio::fs::remove_dir_all(&cache_root).await;
-    }
-    tokio::fs::create_dir_all(&cache_root)
-        .await
-        .map_err(|e| format!("创建模块缓存目录失败: {}", e))?;
-
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(12))
-        .timeout(Duration::from_secs(180))
-        .build()
-        .map_err(|e| format!("创建模块下载客户端失败: {}", e))?;
-
-    let response = client
-        .get(&package_url)
-        .send()
-        .await
-        .map_err(|e| format!("模块下载请求失败: {}", e))?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("模块下载失败: HTTP {}", status.as_u16()));
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("读取模块包字节失败: {}", e))?;
-    let package_size = bytes.len();
-    let digest_hex = sha256_hex(bytes.as_ref());
-
-    if !package_sha256.is_empty() && digest_hex != package_sha256 {
-        return Err(format!(
-            "模块 SHA256 校验失败: {} != {}",
-            digest_hex, package_sha256
-        ));
-    }
-
-    let cache_root_for_extract = cache_root.clone();
-    let bytes_for_extract = bytes.to_vec();
-    tokio::task::spawn_blocking(move || extract_zip_bytes_to_dir(bytes_for_extract, cache_root_for_extract))
-        .await
-        .map_err(|e| format!("模块解压任务异常: {}", e))??;
-
-    let entry_abs = cache_root.join(entry_rel);
-    if !tokio::fs::try_exists(&entry_abs).await.unwrap_or(false) {
-        return Err(format!(
-            "模块入口文件不存在: {}",
-            entry_abs.to_string_lossy()
-        ));
-    }
-
-    Ok(serde_json::json!({
-        "success": true,
-        "channel": channel,
-        "module_id": module_id,
-        "version": version,
-        "entry_path": entry_abs.to_string_lossy().to_string(),
-        "cache_root": cache_root.to_string_lossy().to_string(),
-        "package_size": package_size,
-        "package_sha256": digest_hex
-    }))
+    let prepared = modules::module_bundle::prepare_module_bundle(
+        &app,
+        modules::module_bundle::ModuleBundlePrepareRequest {
+            channel: request.channel,
+            module_id: request.module_id,
+            version: request.version,
+            package_url: request.package_url,
+            package_sha256: request.package_sha256,
+            min_compatible_version: request.min_compatible_version,
+            entry_path: request.entry_path,
+            module_name: request.module_name,
+        },
+    )
+    .await?;
+    serde_json::to_value(prepared).map_err(|e| format!("序列化模块准备结果失败: {}", e))
 }
 
 #[tauri::command]
@@ -5431,6 +5363,7 @@ pub fn run() {
             debug_bridge::set_debug_runtime_config,
             debug_bridge::set_debug_bridge_ready,
             debug_bridge::complete_debug_screenshot,
+            debug_bridge::complete_debug_open_module,
             debug_bridge::complete_debug_state,
             debug_bridge::save_debug_capture_file,
             open_external_url,

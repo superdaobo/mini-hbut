@@ -140,7 +140,7 @@ def main():
             "return": "path",
             "filename": filename,
         }
-        shot_code, shot_body = post_json(args.base_url, "/debug/screenshot", token, shot_payload, timeout=20)
+        shot_code, shot_body = post_json(args.base_url, "/debug/dom_screenshot", token, shot_payload, timeout=20)
 
         if shot_code >= 400 or not shot_body.get("success"):
             report["errors"].append({

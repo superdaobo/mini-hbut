@@ -1,4 +1,5 @@
 import net from 'node:net'
+import path from 'node:path'
 import { spawn } from 'node:child_process'
 
 const VITE_PORT = Number(process.env.TAURI_DEV_VITE_PORT || 1420)
@@ -38,14 +39,31 @@ const main = async () => {
     return
   }
 
-  const npmBinary = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-  const child = spawn(npmBinary, ['run', 'tauri', '--', 'dev'], {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      HBUT_DEBUG_ENABLE_BRIDGE_TOOLS: 'true'
-    }
-  })
+  const child =
+    process.platform === 'win32'
+      ? spawn(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            path.resolve('scripts/run_tauri_debug_dev.ps1')
+          ],
+          {
+            stdio: 'inherit',
+            env: {
+              ...process.env
+            }
+          }
+        )
+      : spawn('npm', ['run', 'tauri', '--', 'dev'], {
+          stdio: 'inherit',
+          env: {
+            ...process.env,
+            HBUT_DEBUG_ENABLE_BRIDGE_TOOLS: 'true'
+          }
+        })
 
   child.on('exit', (code, signal) => {
     if (signal) {

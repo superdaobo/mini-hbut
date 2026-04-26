@@ -42,4 +42,7 @@ export const debugCustomScheduleUpsert = (payload, options = {}) =>
   postDebugBridge('/debug/custom_schedule/upsert', payload, options)
 
 export const debugCaptureCurrentPage = (payload, options = {}) =>
+  postDebugBridge('/debug/dom_screenshot', payload, options)
+
+export const debugCaptureNativeWindow = (payload, options = {}) =>
   postDebugBridge('/debug/screenshot', payload, options)

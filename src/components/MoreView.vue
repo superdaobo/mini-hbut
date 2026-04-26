@@ -497,11 +497,14 @@ const handleOpenRemoteModule = async (moduleItem) => {
       const remoteVersion = safeText(remoteManifest.version)
       const cachedSha = safeText(cachedManifest?.package_sha256)
       const remoteSha = safeText(remoteManifest.package_sha256)
+      const cachedMinCompatible = safeText(cachedManifest?.min_compatible_version)
+      const remoteMinCompatible = safeText(remoteManifest.min_compatible_version)
       const canUseCache =
         cachedManifest &&
         cachedVersion &&
         cachedVersion === remoteVersion &&
         isManifestVersionCompatible(cachedManifest, remoteManifest.min_compatible_version) &&
+        cachedMinCompatible === remoteMinCompatible &&
         (!remoteSha || !cachedSha || cachedSha === remoteSha)
 
       if (canUseCache) {
@@ -664,6 +667,7 @@ onMounted(async () => {
             v-for="item in moduleCards"
             :key="item.id"
             class="more-module-card"
+            :data-module-id="item.id"
             :disabled="moduleBusyKey === item.id"
             @click="handleModuleClick(item)"
           >

@@ -41,7 +41,7 @@ const server = http.createServer(async (request, response) => {
     return
   }
 
-  if (request.url === '/debug/screenshot') {
+  if (request.url === '/debug/dom_screenshot') {
     if (request.headers.authorization !== 'Bearer local-debug-token') {
       send(response, 401, { success: false, error: { message: '未授权' } })
       return

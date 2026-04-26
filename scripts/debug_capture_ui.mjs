@@ -2,6 +2,7 @@ const bridgeBase = String(process.env.BRIDGE_BASE || 'http://127.0.0.1:4399').re
 const debugToken = String(process.env.DEBUG_TOKEN || '').trim()
 const debugView = String(process.env.DEBUG_VIEW || '').trim()
 const debugStudentId = String(process.env.DEBUG_STUDENT_ID || '').trim()
+const debugOpenModuleId = String(process.env.DEBUG_OPEN_MODULE_ID || '').trim()
 const debugSelector = String(process.env.DEBUG_SELECTOR || '.app-shell').trim()
 const debugFilename = String(process.env.DEBUG_FILENAME || `debug-capture-${Date.now()}.png`).trim()
 const debugWaitMs = Math.max(0, Number(process.env.DEBUG_WAIT_MS || 1800) || 1800)
@@ -56,6 +57,16 @@ const main = async () => {
       view: debugView,
       student_id: debugStudentId || undefined,
       payload: navigatePayload
+    })
+    if (debugWaitMs > 0) {
+      await sleep(debugWaitMs)
+    }
+  }
+
+  if (debugOpenModuleId) {
+    await postJson('/debug/open_module', {
+      module_id: debugOpenModuleId,
+      student_id: debugStudentId || undefined
     })
     if (debugWaitMs > 0) {
       await sleep(debugWaitMs)

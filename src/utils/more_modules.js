@@ -329,6 +329,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
           version: safeText(manifest?.version),
           packageUrl,
           packageSha256: safeText(manifest?.package_sha256),
+          minCompatibleVersion: safeText(manifest?.min_compatible_version),
           entryPath: safeText(manifest?.entry_path || 'index.html')
         }
       },

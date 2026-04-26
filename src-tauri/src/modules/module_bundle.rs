@@ -10,6 +10,7 @@ const DEFAULT_BRIDGE_PORT: u16 = 4399;
 const MODULE_CACHE_ROOT: &str = "more_modules";
 const REMOTE_MODULE_CDN_HOST: &str = "hbut.6661111.xyz";
 const LOCAL_MODULE_REDIRECT_ENV: &str = "HBUT_DEBUG_LOCAL_MODULE_REDIRECT";
+const CACHE_META_FILE: &str = ".module-cache-meta.json";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModuleBundlePrepareRequest {
@@ -22,6 +23,8 @@ pub struct ModuleBundlePrepareRequest {
     pub package_url: String,
     #[serde(default, alias = "packageSha256")]
     pub package_sha256: String,
+    #[serde(default, alias = "minCompatibleVersion")]
+    pub min_compatible_version: String,
     #[serde(default, alias = "entryPath")]
     pub entry_path: String,
     #[serde(default, alias = "moduleName")]
@@ -38,7 +41,16 @@ pub struct ModuleBundlePrepareResult {
     pub preview_url: String,
     pub cache_dir: String,
     pub bundle_path: String,
+    pub min_compatible_version: String,
     pub source: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+struct ModuleBundleCacheMetadata {
+    version: String,
+    package_sha256: String,
+    min_compatible_version: String,
+    entry_path: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,6 +104,13 @@ fn sanitize_storage_segment(raw: &str, field: &str) -> Result<String, String> {
         return Err(format!("{} 包含非法字符", field));
     }
     Ok(value.to_string())
+}
+
+fn sanitize_optional_storage_segment(raw: &str, field: &str) -> Result<String, String> {
+    if raw.trim().is_empty() {
+        return Ok(String::new());
+    }
+    sanitize_storage_segment(raw, field)
 }
 
 fn sanitize_window_label(raw: &str) -> String {
@@ -192,6 +211,50 @@ fn build_preview_url(channel: &str, module_id: &str, version: &str, entry_path: 
         version,
         entry_path
     )
+}
+
+fn cache_meta_path(cache_dir: &Path) -> PathBuf {
+    cache_dir.join(CACHE_META_FILE)
+}
+
+fn read_cache_metadata(cache_dir: &Path) -> Option<ModuleBundleCacheMetadata> {
+    let raw = fs::read_to_string(cache_meta_path(cache_dir)).ok()?;
+    serde_json::from_str::<ModuleBundleCacheMetadata>(&raw).ok()
+}
+
+fn write_cache_metadata(cache_dir: &Path, metadata: &ModuleBundleCacheMetadata) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(metadata)
+        .map_err(|e| format!("序列化模块缓存元信息失败: {}", e))?;
+    fs::write(cache_meta_path(cache_dir), text).map_err(|e| format!("写入模块缓存元信息失败: {}", e))
+}
+
+fn resolve_cached_entry_path(
+    cache_dir: &Path,
+    requested_entry: &str,
+    expected_sha: &str,
+    min_compatible_version: &str,
+) -> Option<String> {
+    let entry_path = locate_entry_path(cache_dir, requested_entry).ok()?;
+    if expected_sha.is_empty() && min_compatible_version.is_empty() {
+        return Some(entry_path);
+    }
+
+    let metadata = read_cache_metadata(cache_dir)?;
+    if !expected_sha.is_empty()
+        && !metadata
+            .package_sha256
+            .trim()
+            .eq_ignore_ascii_case(expected_sha.trim())
+    {
+        return None;
+    }
+    if metadata.min_compatible_version.trim() != min_compatible_version.trim() {
+        return None;
+    }
+    if !metadata.entry_path.trim().is_empty() && metadata.entry_path.trim() != entry_path {
+        return None;
+    }
+    Some(entry_path)
 }
 
 fn local_dev_module_redirect_enabled() -> bool {
@@ -340,6 +403,10 @@ pub async fn prepare_module_bundle(
     let channel = normalize_channel(&req.channel)?;
     let module_id = sanitize_storage_segment(&req.module_id, "module_id")?;
     let version = sanitize_storage_segment(&req.version, "version")?;
+    let min_compatible_version = sanitize_optional_storage_segment(
+        &req.min_compatible_version,
+        "min_compatible_version",
+    )?;
     let requested_entry = normalize_relative_path(&req.entry_path, "index.html")?;
     let package_url = req.package_url.trim().to_string();
     let module_name = if req.module_name.trim().is_empty() {
@@ -348,9 +415,15 @@ pub async fn prepare_module_bundle(
         req.module_name.trim().to_string()
     };
     let cache_dir = module_cache_dir(app, &channel, &module_id, &version)?;
+    let expected_sha = req.package_sha256.trim().to_ascii_lowercase();
 
     if cache_dir.exists() {
-        if let Ok(entry_path) = locate_entry_path(&cache_dir, &requested_entry) {
+        if let Some(entry_path) = resolve_cached_entry_path(
+            &cache_dir,
+            &requested_entry,
+            &expected_sha,
+            &min_compatible_version,
+        ) {
             let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
             return Ok(ModuleBundlePrepareResult {
                 channel,
@@ -361,9 +434,11 @@ pub async fn prepare_module_bundle(
                 preview_url,
                 cache_dir: cache_dir.display().to_string(),
                 bundle_path: cache_dir.join("bundle.zip").display().to_string(),
+                min_compatible_version,
                 source: "cache".to_string(),
             });
         }
+        fs::remove_dir_all(&cache_dir).map_err(|e| format!("清理失效模块缓存失败: {}", e))?;
     }
 
     if package_url.is_empty() {
@@ -371,9 +446,8 @@ pub async fn prepare_module_bundle(
     }
 
     let bundle_bytes = download_bundle_bytes(&package_url).await?;
-    let expected_sha = req.package_sha256.trim().to_ascii_lowercase();
+    let actual_sha = sha256_hex(&bundle_bytes);
     if !expected_sha.is_empty() {
-        let actual_sha = sha256_hex(&bundle_bytes);
         if actual_sha != expected_sha {
             return Err(format!(
                 "模块压缩包校验失败：期望 {}，实际 {}",
@@ -388,6 +462,17 @@ pub async fn prepare_module_bundle(
         .map_err(|e| format!("写入模块缓存任务失败: {}", e))??;
 
     let entry_path = locate_entry_path(&cache_dir, &requested_entry)?;
+    let metadata = ModuleBundleCacheMetadata {
+        version: version.clone(),
+        package_sha256: if expected_sha.is_empty() {
+            actual_sha.clone()
+        } else {
+            expected_sha.clone()
+        },
+        min_compatible_version: min_compatible_version.clone(),
+        entry_path: entry_path.clone(),
+    };
+    write_cache_metadata(&cache_dir, &metadata)?;
     let preview_url = build_preview_url(&channel, &module_id, &version, &entry_path);
     Ok(ModuleBundlePrepareResult {
         channel,
@@ -398,6 +483,7 @@ pub async fn prepare_module_bundle(
         preview_url,
         cache_dir: cache_dir.display().to_string(),
         bundle_path: cache_dir.join("bundle.zip").display().to_string(),
+        min_compatible_version,
         source: "download".to_string(),
     })
 }

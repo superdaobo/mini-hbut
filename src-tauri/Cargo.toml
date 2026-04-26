@@ -60,9 +60,11 @@ qrcode = "0.14"
 jsonwebtoken = "9.3"
 sha2 = "0.10"
 zip = "2.2"
+png = "0.17"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "0.15"
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"

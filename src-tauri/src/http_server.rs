@@ -216,7 +216,8 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use crate::http_client::HbutClient;
 use tauri::{AppHandle, Emitter};
 use crate::debug_bridge::{
-    self, DebugScreenshotBridgeError, DebugScreenshotRequest, DebugStateBridgeError, DebugStateRequest,
+    self, DebugOpenModuleBridgeError, DebugOpenModuleRequest, DebugScreenshotBridgeError,
+    DebugScreenshotRequest, DebugStateBridgeError, DebugStateRequest,
 };
 use crate::modules::module_bundle::{
     self, ModuleBundlePrepareRequest, OpenModuleBundleWindowRequest,
@@ -515,7 +516,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/schedule/custom/update", post(schedule_custom_update))
         .route("/debug/custom_schedule/upsert", post(debug_custom_schedule_upsert))
         .route("/debug/navigate", post(debug_navigate))
+        .route("/debug/open_module", post(debug_open_module))
         .route("/debug/screenshot", post(debug_screenshot))
+        .route("/debug/dom_screenshot", post(debug_dom_screenshot))
         .route("/debug/state", get(debug_state))
         .route("/debug/save_export_file", post(debug_save_export_file))
         .route("/module_bundle/prepare", post(module_bundle_prepare))
@@ -1315,7 +1318,73 @@ async fn debug_custom_schedule_upsert(
     })))
 }
 
+async fn debug_open_module(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<DebugOpenModuleRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_open_module skipped auth: local_api_key not configured"
+        );
+    }
+    match debug_bridge::request_debug_open_module(&state.app, req, 12_000).await {
+        Ok(()) => Ok(ok(serde_json::json!({
+            "opened": true
+        }))),
+        Err(DebugOpenModuleBridgeError::NotReady) => Err(err(
+            StatusCode::CONFLICT,
+            "页面未就绪",
+            "当前页面尚未注册调试模块点击响应器".to_string(),
+        )),
+        Err(DebugOpenModuleBridgeError::Timeout) => Err(err(
+            StatusCode::GATEWAY_TIMEOUT,
+            "点击超时",
+            "12 秒内未完成模块按钮点击".to_string(),
+        )),
+        Err(DebugOpenModuleBridgeError::Failed(message)) => Err(err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "点击失败",
+            message,
+        )),
+    }
+}
+
 async fn debug_screenshot(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<DebugScreenshotRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_debug_bridge_enabled(&state)?;
+    if state.local_api_key.is_some() {
+        ensure_local_cache_auth(&headers, &state)?;
+    } else {
+        eprintln!(
+            "[DebugBridge] debug_screenshot skipped auth: local_api_key not configured"
+        );
+    }
+
+    match debug_bridge::capture_native_debug_screenshot(&state.app, req) {
+        Ok(result) => Ok(ok(serde_json::json!({
+            "saved_path": result.saved_path,
+            "mime": result.mime,
+            "width": result.width,
+            "height": result.height,
+            "captured_at": result.captured_at,
+            "base64": result.base64
+        }))),
+        Err(message) => Err(err(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "截图失败",
+            message,
+        )),
+    }
+}
+
+async fn debug_dom_screenshot(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<DebugScreenshotRequest>,

@@ -296,6 +296,26 @@ const REFERENCE_STAGE_WIDTH = 360
 const REFERENCE_STAGE_HEIGHT = 600
 const LOGICAL_STAGE_WIDTH = 320
 const LOGICAL_STAGE_HEIGHT = Math.round((LOGICAL_STAGE_WIDTH / REFERENCE_STAGE_WIDTH) * REFERENCE_STAGE_HEIGHT)
+const MODULE_HOST_BRIDGE_TYPE = 'mini-hbut:module-size'
+
+const resolveModuleRuntimeVersion = () => {
+  if (typeof window === 'undefined') return ''
+  const href = String(window.location.href || '')
+  const pathname = String(window.location.pathname || '')
+  const patterns = [
+    /\/module_bundle\/content\/[^/]+\/[^/]+\/([^/]+)\//i,
+    /\/modules\/[^/]+\/[^/]+\/([^/]+)\//i
+  ]
+  for (const source of [href, pathname]) {
+    for (const pattern of patterns) {
+      const matched = source.match(pattern)
+      if (matched?.[1]) {
+        return String(matched[1]).trim()
+      }
+    }
+  }
+  return ''
+}
 
 export default {
   name: 'App',
@@ -351,6 +371,9 @@ export default {
       embeddedLayoutRaf: 0,
       hostResizeObserver: null,
       hostLayoutSyncTimer: null,
+      hostLayoutSyncRaf: 0,
+      hostLayoutStabilizeRaf: 0,
+      moduleBuildVersion: resolveModuleRuntimeVersion(),
       dramaScripts: {
         0: ['起步稳住', '热身完成', '场子开了'],
         1: ['节奏起来了', '继续往上合', '这局能成'],
@@ -414,6 +437,32 @@ export default {
       return '本局结束后会自动上传最佳成绩。'
     }
   },
+  watch: {
+    showHistory() {
+      this.scheduleHostLayoutSync()
+    },
+    showLeaderboard() {
+      this.scheduleHostLayoutSync()
+    },
+    gameOver() {
+      this.scheduleHostLayoutSync()
+    },
+    hasWon() {
+      this.scheduleHostLayoutSync()
+    },
+    rankSubmitBusy() {
+      this.scheduleHostLayoutSync()
+    },
+    rankSubmitError() {
+      this.scheduleHostLayoutSync()
+    },
+    leaderboardLoading() {
+      this.scheduleHostLayoutSync()
+    },
+    leaderboardError() {
+      this.scheduleHostLayoutSync()
+    }
+  },
   mounted() {
     this.checkMobile()
     this.embeddedHostRuntime = this.isEmbeddedHostRuntime()
@@ -442,6 +491,14 @@ export default {
     if (this.gameOverWatcher) clearInterval(this.gameOverWatcher)
     if (this.toastTimer) clearTimeout(this.toastTimer)
     if (this.hostLayoutSyncTimer) clearTimeout(this.hostLayoutSyncTimer)
+    if (this.hostLayoutSyncRaf) {
+      cancelAnimationFrame(this.hostLayoutSyncRaf)
+      this.hostLayoutSyncRaf = 0
+    }
+    if (this.hostLayoutStabilizeRaf) {
+      cancelAnimationFrame(this.hostLayoutStabilizeRaf)
+      this.hostLayoutStabilizeRaf = 0
+    }
     if (this.hostResizeObserver) {
       this.hostResizeObserver.disconnect()
       this.hostResizeObserver = null
@@ -477,7 +534,7 @@ export default {
 
     initHostLayoutBridge() {
       if (typeof window === 'undefined' || window.parent === window) return
-      const observedTarget = this.$refs.gameShell || this.$el
+      const observedTarget = this.$el instanceof HTMLElement ? this.$el : this.$refs.gameShell
       if (typeof ResizeObserver === 'function' && observedTarget instanceof HTMLElement) {
         this.hostResizeObserver = new ResizeObserver(() => {
           this.scheduleHostLayoutSync()
@@ -490,25 +547,54 @@ export default {
       if (typeof window === 'undefined' || window.parent === window) return
       if (this.hostLayoutSyncTimer) {
         clearTimeout(this.hostLayoutSyncTimer)
+        this.hostLayoutSyncTimer = null
       }
-      this.hostLayoutSyncTimer = setTimeout(() => {
+      if (this.hostLayoutSyncRaf) {
+        cancelAnimationFrame(this.hostLayoutSyncRaf)
+        this.hostLayoutSyncRaf = 0
+      }
+      if (this.hostLayoutStabilizeRaf) {
+        cancelAnimationFrame(this.hostLayoutStabilizeRaf)
+        this.hostLayoutStabilizeRaf = 0
+      }
+      this.hostLayoutSyncRaf = window.requestAnimationFrame(() => {
+        this.hostLayoutSyncRaf = 0
+        this.hostLayoutStabilizeRaf = window.requestAnimationFrame(() => {
+          this.hostLayoutStabilizeRaf = 0
+          this.notifyHostLayout()
+        })
+      })
+      this.hostLayoutSyncTimer = window.setTimeout(() => {
+        this.hostLayoutSyncTimer = null
         this.notifyHostLayout()
-      }, 16)
+      }, 180)
     },
 
     notifyHostLayout() {
       if (typeof window === 'undefined' || window.parent === window) return
       const root = this.$el instanceof HTMLElement ? this.$el : null
-      const shell = this.$refs.gameShell instanceof HTMLElement ? this.$refs.gameShell : null
-      const rootStyle = root ? window.getComputedStyle(root) : null
-      const paddingTop = parseFloat(rootStyle?.paddingTop || '0') || 0
-      const paddingBottom = parseFloat(rootStyle?.paddingBottom || '0') || 0
-      const shellHeight = Number(shell?.getBoundingClientRect().height || 0)
-      const nextHeight = Math.max(1, Math.ceil(shellHeight + paddingTop + paddingBottom))
+      const docEl = document.documentElement
+      const body = document.body
+      const nextHeight = Math.max(
+        1,
+        Math.ceil(
+          Math.max(
+            Number(root?.scrollHeight || 0),
+            Number(root?.offsetHeight || 0),
+            Number(root?.getBoundingClientRect?.().height || 0),
+            Number(docEl?.scrollHeight || 0),
+            Number(docEl?.offsetHeight || 0),
+            Number(body?.scrollHeight || 0),
+            Number(body?.offsetHeight || 0)
+          )
+        )
+      )
       window.parent.postMessage(
         {
-          type: 'mini-hbut:module-size',
+          type: MODULE_HOST_BRIDGE_TYPE,
           moduleId: 'hecheng_hugongda',
+          module_id: 'hecheng_hugongda',
+          version: this.moduleBuildVersion,
           height: nextHeight
         },
         '*'
