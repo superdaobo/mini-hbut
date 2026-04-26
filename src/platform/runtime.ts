@@ -1,9 +1,10 @@
+import { Capacitor as CapacitorCore } from '@capacitor/core'
 import type { RuntimePlatform } from './types'
 
 const hasNativeCapacitor = () => {
   if (typeof window === 'undefined') return false
   const w = window as any
-  const cap = w.Capacitor
+  const cap = w.Capacitor || CapacitorCore
   if (!cap) return false
   try {
     if (typeof cap.isNativePlatform === 'function') {
@@ -24,6 +25,24 @@ const hasNativeCapacitor = () => {
   return !!raw && raw !== 'web'
 }
 
+const looksLikePackagedCapacitorHost = () => {
+  if (typeof window === 'undefined') return false
+  const protocol = String(window.location?.protocol || '').toLowerCase()
+  const host = String(window.location?.host || '').toLowerCase()
+  if (protocol !== 'http:' && protocol !== 'https:') return false
+  if (
+    host !== 'localhost' &&
+    !host.startsWith('localhost:') &&
+    host !== '127.0.0.1' &&
+    !host.startsWith('127.0.0.1:')
+  ) {
+    return false
+  }
+  const ua = String(globalThis?.navigator?.userAgent || '')
+  const isMobileUa = /(android|iphone|ipad|ipod)/i.test(ua)
+  return isMobileUa && !import.meta.env.DEV
+}
+
 const isTauriRuntime = () => {
   if (typeof window === 'undefined') return false
   if (hasNativeCapacitor()) return false
@@ -42,6 +61,7 @@ const isTauriRuntime = () => {
 const isCapacitorRuntime = () => {
   if (typeof window === 'undefined') return false
   if (hasNativeCapacitor()) return true
+  if (looksLikePackagedCapacitorHost()) return true
   const protocol = window.location?.protocol || ''
   return protocol === 'capacitor:' || protocol === 'ionic:'
 }

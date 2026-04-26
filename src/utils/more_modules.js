@@ -1,6 +1,5 @@
 import { getNativeAppVersion, isCapacitorRuntime, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
-import { openExternal } from './external_link'
 
 const DEFAULT_MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
 const GITHUB_REPO = 'superdaobo/mini-hbut'
@@ -16,7 +15,9 @@ const MODULE_SOURCE_ROTATION_STORAGE_KEY = 'hbu_more_module_remote_source_rotati
 const DEFAULT_CHANNEL = 'main'
 const SHARED_CHANNEL = 'latest'
 const MODULE_CHANNELS = new Set(['main', 'dev', SHARED_CHANNEL])
-const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 8000
+const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 4500
+const FAST_REMOTE_RACE_TIMEOUT_MS = 2200
+const FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS = 1800
 
 const withCacheBust = (url) => {
   const text = safeText(url)
@@ -100,6 +101,54 @@ const fetchWithTimeout = async (url, init = {}, timeoutMs = DEFAULT_REMOTE_JSON_
     )
   } finally {
     if (timer) clearTimeout(timer)
+  }
+}
+
+const parseJsonPayload = (payload) => {
+  if (payload && typeof payload === 'object') return payload
+  if (typeof payload === 'string') {
+    const parsed = JSON.parse(payload)
+    if (parsed && typeof parsed === 'object') return parsed
+  }
+  throw new Error('远程 JSON 响应无效')
+}
+
+const fetchJsonViaCapacitor = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS) => {
+  const core = await import('@capacitor/core')
+  const capHttp = core?.CapacitorHttp || globalThis?.Capacitor?.Plugins?.CapacitorHttp
+  if (!capHttp?.request) {
+    throw new Error('CapacitorHttp 不可用')
+  }
+  const result = await capHttp.request({
+    method: 'GET',
+    url,
+    headers: { Accept: 'application/json' },
+    connectTimeout: timeoutMs,
+    readTimeout: timeoutMs
+  })
+  const status = Number(result?.status || 0)
+  if (status < 200 || status >= 400) {
+    throw new Error(`请求失败：HTTP ${status || 0}`)
+  }
+  return parseJsonPayload(result?.data)
+}
+
+const probeUrlViaCapacitor = async (url, timeoutMs = FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS) => {
+  const core = await import('@capacitor/core')
+  const capHttp = core?.CapacitorHttp || globalThis?.Capacitor?.Plugins?.CapacitorHttp
+  if (!capHttp?.request) return false
+  try {
+    const result = await capHttp.request({
+      method: 'GET',
+      url: withCacheBust(url),
+      headers: { Accept: 'text/html,*/*' },
+      connectTimeout: timeoutMs,
+      readTimeout: timeoutMs
+    })
+    const status = Number(result?.status || 0)
+    return status >= 200 && status < 400
+  } catch {
+    return false
   }
 }
 
@@ -426,7 +475,7 @@ const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS)
   const targetUrl = toAbsoluteUrl(url, globalThis?.location?.href || resolveModuleCdnBase())
   const requestUrl = withCacheBust(targetUrl)
 
-  if (isAbsoluteHttpUrl(targetUrl)) {
+  if (isAbsoluteHttpUrl(targetUrl) && isTauriRuntime()) {
     try {
       return await withTimeout(
         invokeNativeBridge(
@@ -447,6 +496,16 @@ const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS)
     }
   }
 
+  if (isAbsoluteHttpUrl(targetUrl) && isCapacitorRuntime()) {
+    try {
+      return await withTimeout(fetchJsonViaCapacitor(requestUrl, timeoutMs), timeoutMs, '远程 JSON 请求超时')
+    } catch (error) {
+      pushDebugLog('MoreModules', `远程 JSON 回退浏览器请求：${targetUrl}`, 'warn', {
+        error: describeError(error)
+      })
+    }
+  }
+
   const response = await fetchWithTimeout(
     requestUrl,
     { cache: 'no-store' },
@@ -458,18 +517,60 @@ const fetchJsonNoStore = async (url, timeoutMs = DEFAULT_REMOTE_JSON_TIMEOUT_MS)
   return response.json()
 }
 
+const fetchJsonFromAnyCandidate = async (candidates, timeoutMs) => {
+  const urls = toUniqueTextList(candidates)
+  if (!urls.length) {
+    throw new Error('远程配置地址为空')
+  }
+  return await new Promise((resolve, reject) => {
+    let settled = false
+    let pending = urls.length
+    let lastError = null
+    urls.forEach((candidate) => {
+      fetchJsonNoStore(candidate, timeoutMs)
+        .then((payload) => {
+          if (settled) return
+          settled = true
+          resolve({ payload, url: candidate })
+        })
+        .catch((error) => {
+          lastError = error
+        })
+        .finally(() => {
+          pending -= 1
+          if (!settled && pending <= 0) {
+            reject(lastError || new Error('远程配置请求失败'))
+          }
+        })
+    })
+  })
+}
+
 const fetchJsonWithRetry = async (urlOrUrls, timeoutMsList = [DEFAULT_REMOTE_JSON_TIMEOUT_MS]) => {
   const candidates = toUniqueTextList(urlOrUrls).map((item) => toAbsoluteUrl(item))
   if (!candidates.length) {
     throw new Error('远程配置地址为空')
   }
+  const normalizedTimeouts = toUniqueTextList(timeoutMsList)
+    .map((item) => Number(item) || DEFAULT_REMOTE_JSON_TIMEOUT_MS)
+    .filter((item) => item > 0)
   let lastError = null
+  if (candidates.length > 1) {
+    try {
+      return await fetchJsonFromAnyCandidate(
+        candidates,
+        Math.min(FAST_REMOTE_RACE_TIMEOUT_MS, normalizedTimeouts[0] || DEFAULT_REMOTE_JSON_TIMEOUT_MS)
+      )
+    } catch (error) {
+      lastError = error
+    }
+  }
   for (const candidate of candidates) {
-    for (let index = 0; index < timeoutMsList.length; index += 1) {
+    for (let index = 0; index < normalizedTimeouts.length; index += 1) {
       try {
         const payload = await fetchJsonNoStore(
           candidate,
-          Number(timeoutMsList[index]) || DEFAULT_REMOTE_JSON_TIMEOUT_MS
+          normalizedTimeouts[index] || DEFAULT_REMOTE_JSON_TIMEOUT_MS
         )
         return {
           payload,
@@ -484,6 +585,33 @@ const fetchJsonWithRetry = async (urlOrUrls, timeoutMsList = [DEFAULT_REMOTE_JSO
     }
   }
   throw lastError || new Error('远程配置请求失败')
+}
+
+const pickFastestOpenUrl = async (candidates = []) => {
+  const urls = toUniqueTextList(candidates)
+  if (!urls.length) return ''
+  if (!isCapacitorRuntime() || urls.length === 1) return urls[0]
+  return await new Promise((resolve) => {
+    let settled = false
+    let pending = urls.length
+    urls.forEach((candidate) => {
+      probeUrlViaCapacitor(candidate, FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS)
+        .then((ok) => {
+          if (!ok || settled) return
+          settled = true
+          resolve(candidate)
+        })
+        .catch(() => {
+          // ignore single candidate probe failure
+        })
+        .finally(() => {
+          pending -= 1
+          if (!settled && pending <= 0) {
+            resolve(urls[0] || '')
+          }
+        })
+    })
+  })
 }
 
 export const resolveModuleChannel = async () => {
@@ -534,8 +662,8 @@ export const fetchModuleCatalog = async (inputChannel = '') => {
       try {
         const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
           buildRemoteUrlCandidates(url, resolved, 'catalog'),
-        [6000, 9000]
-      )
+          [2500, 4200]
+        )
       const rawModules = Array.isArray(payload?.modules) ? payload.modules : []
       const modules = rawModules
         .map((item) => normalizeCatalogModule(item, resolved))
@@ -576,7 +704,7 @@ export const fetchModuleManifest = async (manifestUrl) => {
   try {
     const { payload, url: resolvedUrl } = await fetchJsonWithRetry(
       buildRemoteUrlCandidates(url, '', 'manifest'),
-      [7000, 10000]
+      [2800, 4500]
     )
 
     const moduleId = safeText(payload?.module_id || payload?.id)
@@ -721,27 +849,25 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
     })
   }
 
-  for (const candidate of openUrlCandidates) {
-    const opened = await openExternal(candidate)
-    if (opened) {
-      updateModuleState(moduleId, {
-        channel: normalizeChannel(channel),
-        version: safeText(manifest?.version),
-        min_compatible_version: safeText(manifest?.min_compatible_version),
-        open_url: candidate
-      })
-      return {
-        ready: true,
-        launch_mode: 'remote',
-        version: safeText(manifest?.version),
-        open_url: candidate,
-        preview_url: candidate,
-        min_compatible_version: safeText(manifest?.min_compatible_version),
-        module_id: moduleId,
-        module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
-        channel: normalizeChannel(channel),
-        local_ready: false
-      }
+  const bestOpenUrl = await pickFastestOpenUrl(openUrlCandidates)
+  if (bestOpenUrl) {
+    updateModuleState(moduleId, {
+      channel: normalizeChannel(channel),
+      version: safeText(manifest?.version),
+      min_compatible_version: safeText(manifest?.min_compatible_version),
+      open_url: bestOpenUrl
+    })
+    return {
+      ready: true,
+      launch_mode: 'remote',
+      version: safeText(manifest?.version),
+      open_url: bestOpenUrl,
+      preview_url: bestOpenUrl,
+      min_compatible_version: safeText(manifest?.min_compatible_version),
+      module_id: moduleId,
+      module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
+      channel: normalizeChannel(channel),
+      local_ready: false
     }
   }
 

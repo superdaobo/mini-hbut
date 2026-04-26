@@ -175,14 +175,24 @@ const persistStudentProfile = (profile) => {
   return normalized
 }
 
+const unwrapCachedStudentProfilePayload = (payload) => {
+  if (!payload || typeof payload !== 'object') return payload
+  return payload?.data && typeof payload.data === 'object' ? payload.data : payload
+}
+
 const readCachedStudentProfile = () => {
   const sid = safeText(props.studentId)
   const empty = buildEmptyStudentProfile(sid)
   const storageKey = buildStudentProfileStorageKey(sid)
   const custom = storageKey ? safeParseJson(localStorage.getItem(storageKey), null) : null
   if (!sid) return mergeStudentProfiles(empty, custom)
-  const direct = safeParseJson(localStorage.getItem(`cache:studentinfo:${sid}`), null)
-  const legacy = safeParseJson(localStorage.getItem(`cache:student_info:${sid}`), null)
+  // setCachedData 会把学生信息写成 { data, timestamp } 包装结构，这里需要先拆包。
+  const direct = unwrapCachedStudentProfilePayload(
+    safeParseJson(localStorage.getItem(`cache:studentinfo:${sid}`), null)
+  )
+  const legacy = unwrapCachedStudentProfilePayload(
+    safeParseJson(localStorage.getItem(`cache:student_info:${sid}`), null)
+  )
   return mergeStudentProfiles(empty, custom, direct, legacy)
 }
 
