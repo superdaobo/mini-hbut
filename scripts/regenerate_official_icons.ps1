@@ -7,30 +7,37 @@ Add-Type -AssemblyName System.Drawing
 
 $rootDir = Split-Path -Parent $PSScriptRoot
 function Resolve-OfficialIconSource {
-  $relativePath = 'src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png'
-  try {
-    $gitOutput = & git -C $rootDir checkout-index --temp -- $relativePath 2>$null
-    if ($LASTEXITCODE -eq 0 -and $gitOutput) {
-      $tempPath = ($gitOutput -split "`t")[0].Trim()
-      if ($tempPath -and (Test-Path $tempPath)) {
-        return @{
-          Path   = $tempPath
-          IsTemp = $true
+  $relativePaths = @(
+    'src-tauri/icons/source/official_badge.png',
+    'src-tauri/icons/source/official_badge.svg.png',
+    'src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png'
+  )
+
+  foreach ($relativePath in $relativePaths) {
+    try {
+      $gitOutput = & git -C $rootDir checkout-index --temp -- $relativePath 2>$null
+      if ($LASTEXITCODE -eq 0 -and $gitOutput) {
+        $tempPath = ($gitOutput -split "`t")[0].Trim()
+        if ($tempPath -and (Test-Path $tempPath)) {
+          return @{
+            Path   = $tempPath
+            IsTemp = $true
+          }
         }
       }
+    } catch {
+      # fall through to workspace file
     }
-  } catch {
-    # fall through to workspace file
-  }
 
-  $workspacePath = Join-Path $rootDir ($relativePath -replace '/', '\')
-  if (-not (Test-Path $workspacePath)) {
-    throw "Icon source not found: $workspacePath"
+    $workspacePath = Join-Path $rootDir ($relativePath -replace '/', '\')
+    if (Test-Path $workspacePath) {
+      return @{
+        Path   = $workspacePath
+        IsTemp = $false
+      }
+    }
   }
-  return @{
-    Path   = $workspacePath
-    IsTemp = $false
-  }
+  throw "Icon source not found in official source candidates"
 }
 
 $outputQuality = @{
@@ -55,6 +62,30 @@ function New-SizedBitmap {
     $graphics.PixelOffsetMode = $outputQuality.PixelOffset
     $graphics.CompositingQuality = $outputQuality.Compositing
     $graphics.DrawImage($Source, 0, 0, $Size, $Size)
+    return $bitmap
+  } finally {
+    $graphics.Dispose()
+  }
+}
+
+function New-ScaledMasterBitmap {
+  param(
+    [Parameter(Mandatory = $true)][System.Drawing.Image]$Source,
+    [Parameter(Mandatory = $true)][int]$CanvasSize,
+    [Parameter(Mandatory = $true)][double]$Scale
+  )
+
+  $bitmap = [System.Drawing.Bitmap]::new($CanvasSize, $CanvasSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  try {
+    $contentSize = [int][Math]::Round($CanvasSize * $Scale)
+    $offset = [int][Math]::Floor(($CanvasSize - $contentSize) / 2)
+    $graphics.Clear([System.Drawing.Color]::Transparent)
+    $graphics.InterpolationMode = $outputQuality.Interpolation
+    $graphics.SmoothingMode = $outputQuality.Smoothing
+    $graphics.PixelOffsetMode = $outputQuality.PixelOffset
+    $graphics.CompositingQuality = $outputQuality.Compositing
+    $graphics.DrawImage($Source, $offset, $offset, $contentSize, $contentSize)
     return $bitmap
   } finally {
     $graphics.Dispose()
@@ -137,24 +168,15 @@ $sourceBytes = [System.IO.File]::ReadAllBytes($sourceInfo.Path)
 $sourceStream = [System.IO.MemoryStream]::new($sourceBytes)
 $sourceImage = [System.Drawing.Image]::FromStream($sourceStream)
 $masterBitmap = $null
+$adaptiveForegroundBitmap = $null
 try {
   $masterSize = 1024
   $masterScale = 0.74
-  $contentSize = [int][Math]::Round($masterSize * $masterScale)
-  $offset = [int][Math]::Floor(($masterSize - $contentSize) / 2)
+  $androidAdaptiveForegroundScale = 0.58
 
-  $masterBitmap = [System.Drawing.Bitmap]::new($masterSize, $masterSize, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-  $masterGraphics = [System.Drawing.Graphics]::FromImage($masterBitmap)
-  try {
-    $masterGraphics.Clear([System.Drawing.Color]::Transparent)
-    $masterGraphics.InterpolationMode = $outputQuality.Interpolation
-    $masterGraphics.SmoothingMode = $outputQuality.Smoothing
-    $masterGraphics.PixelOffsetMode = $outputQuality.PixelOffset
-    $masterGraphics.CompositingQuality = $outputQuality.Compositing
-    $masterGraphics.DrawImage($sourceImage, $offset, $offset, $contentSize, $contentSize)
-  } finally {
-    $masterGraphics.Dispose()
-  }
+  $masterBitmap = New-ScaledMasterBitmap -Source $sourceImage -CanvasSize $masterSize -Scale $masterScale
+  $adaptiveForegroundBitmap =
+    New-ScaledMasterBitmap -Source $sourceImage -CanvasSize $masterSize -Scale $androidAdaptiveForegroundScale
 
   $rootPngTargets = @(
     'src-tauri/icons/32x32.png',
@@ -207,7 +229,8 @@ try {
   foreach ($file in $androidTargets) {
     $targetSize = Get-ExistingPngSize -Path $file.FullName
     if ($targetSize) {
-      Save-Png -Source $masterBitmap -TargetPath $file.FullName -Size $targetSize
+      $targetSource = if ($file.Name -eq 'ic_launcher_foreground.png') { $adaptiveForegroundBitmap } else { $masterBitmap }
+      Save-Png -Source $targetSource -TargetPath $file.FullName -Size $targetSize
     }
   }
 
@@ -243,6 +266,9 @@ try {
   }
   if ($masterBitmap) {
     $masterBitmap.Dispose()
+  }
+  if ($adaptiveForegroundBitmap) {
+    $adaptiveForegroundBitmap.Dispose()
   }
 }
 

@@ -272,7 +272,7 @@ fn local_dev_module_redirect_enabled() -> bool {
             value.trim().to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"
         ),
-        Err(_) => true,
+        Err(_) => false,
     }
 }
 

@@ -473,11 +473,19 @@ const rotateRemoteCandidates = (items, purpose = 'remote', scope = '') => {
   return [...list.slice(startIndex), ...list.slice(0, startIndex)]
 }
 
+const shouldRotateRemoteCandidates = (purpose = 'remote') => safeText(purpose).toLowerCase() === 'open'
+
+const finalizeRemoteCandidates = (items, purpose = 'remote', scope = '') => {
+  const list = toUniqueTextList(items)
+  if (list.length <= 1) return list
+  return shouldRotateRemoteCandidates(purpose) ? rotateRemoteCandidates(list, purpose, scope) : list
+}
+
 const buildRemoteUrlCandidates = (inputUrl, preferredChannel = '', purpose = 'remote') => {
   const absolute = toAbsoluteUrl(inputUrl)
   if (!absolute) return []
   const relativePath = extractModuleRelativePath(absolute)
-  if (!relativePath) return rotateRemoteCandidates([absolute], purpose, absolute)
+  if (!relativePath) return finalizeRemoteCandidates([absolute], purpose, absolute)
   const channelHint = detectModuleChannelHintFromPath(relativePath)
   const normalizedRelativePath =
     channelHint && preferredChannel && normalizeChannel(preferredChannel) !== channelHint
@@ -489,7 +497,7 @@ const buildRemoteUrlCandidates = (inputUrl, preferredChannel = '', purpose = 're
   const primaryCandidates = isModuleCdnOverrideActive()
     ? [currentBaseUrl]
     : [currentBaseUrl, absolute]
-  return rotateRemoteCandidates(
+  return finalizeRemoteCandidates(
     toUniqueTextList([...primaryCandidates, ...githubCandidates]),
     purpose,
     normalizedRelativePath
@@ -707,7 +715,11 @@ const fetchJsonFromAnyCandidate = async (candidates, timeoutMs) => {
   })
 }
 
-const fetchJsonWithRetry = async (urlOrUrls, timeoutMsList = [DEFAULT_REMOTE_JSON_TIMEOUT_MS]) => {
+const fetchJsonWithRetry = async (
+  urlOrUrls,
+  timeoutMsList = [DEFAULT_REMOTE_JSON_TIMEOUT_MS],
+  options = {}
+) => {
   const candidates = toUniqueTextList(urlOrUrls).map((item) => toAbsoluteUrl(item))
   if (!candidates.length) {
     throw new Error('远程配置地址为空')
@@ -715,8 +727,9 @@ const fetchJsonWithRetry = async (urlOrUrls, timeoutMsList = [DEFAULT_REMOTE_JSO
   const normalizedTimeouts = toUniqueTextList(timeoutMsList)
     .map((item) => Number(item) || DEFAULT_REMOTE_JSON_TIMEOUT_MS)
     .filter((item) => item > 0)
+  const raceFirst = options && options.raceFirst === true
   let lastError = null
-  if (candidates.length > 1) {
+  if (raceFirst && candidates.length > 1) {
     try {
       return await fetchJsonFromAnyCandidate(
         candidates,
@@ -739,7 +752,7 @@ const fetchJsonWithRetry = async (urlOrUrls, timeoutMsList = [DEFAULT_REMOTE_JSO
         }
       } catch (error) {
         lastError = error
-        if (index < timeoutMsList.length - 1) {
+        if (index < normalizedTimeouts.length - 1) {
           await sleep(180 * (index + 1))
         }
       }
@@ -934,7 +947,7 @@ const buildRemoteOpenUrlCandidates = ({
     }
     return `${candidate.replace(/\/+$/, '')}/site/${normalizedEntryPath}`
   })
-  return rotateRemoteCandidates(
+  return finalizeRemoteCandidates(
     toUniqueTextList([
       ...siteCandidates,
       `${resolveModuleCdnBase()}/${normalizeChannel(preferredChannel)}/${safeText(moduleId)}/${safeText(version)}/site/${normalizedEntryPath}`
