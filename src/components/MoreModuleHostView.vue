@@ -1,8 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
-import { isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
-import { isTauriRuntime } from '../platform/native'
+import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
 
 const props = defineProps({
   session: {
@@ -38,15 +37,15 @@ const previewMode = computed(() => {
     return resolvedKind
   }
   const fallbackMode = safeText(props.session?.preview_mode || props.session?.previewMode)
-  if (!isTauriRuntime() && fallbackMode === 'tauri-local') {
+  if (!canUseLocalModuleBridgePreview() && fallbackMode === 'tauri-local') {
     return ''
   }
   return fallbackMode
 })
 const previewUrl = computed(() => {
   const resolvedUrl = safeText(resolvedPreviewSource.value?.resolvedPreviewUrl)
-  const raw = resolvedUrl || (isTauriRuntime() ? safeText(props.session?.preview_url) : '')
-  if (isLocalModuleBridgePreviewUrl(raw) && !isTauriRuntime()) {
+  const raw = resolvedUrl || (canUseLocalModuleBridgePreview() ? safeText(props.session?.preview_url) : '')
+  if (isLocalModuleBridgePreviewUrl(raw) && !canUseLocalModuleBridgePreview()) {
     return ''
   }
   return raw

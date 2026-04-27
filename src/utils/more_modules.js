@@ -34,6 +34,9 @@ const withCacheBust = (url) => {
 const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
 export const isLocalModuleBridgePreviewUrl = (url) =>
   /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
+const isLikelyMobileUserAgent = () =>
+  /(android|iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+export const canUseLocalModuleBridgePreview = () => isTauriRuntime() && !isLikelyMobileUserAgent()
 
 const describeError = (error) => {
   if (!error) return ''
@@ -1228,7 +1231,7 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
   let resolvedPreviewUrl = ''
   let sourceKind = 'invalid'
 
-  if (isTauriRuntime()) {
+  if (canUseLocalModuleBridgePreview()) {
     const tauriPreviewUrl = safeText(rawPreviewUrl || localState?.preview_url)
     if (isLocalModuleBridgePreviewUrl(tauriPreviewUrl) || previewMode === PREVIEW_MODE_TAURI_LOCAL) {
       resolvedPreviewUrl = tauriPreviewUrl
@@ -1305,7 +1308,7 @@ export const normalizeModuleHostSessionPayload = async (payload = {}, options = 
     isLocalModuleBridgePreviewUrl(resolvedPreviewUrl) ||
     rawPreviewMode === PREVIEW_MODE_TAURI_LOCAL
 
-  if (isTauriRuntime()) {
+  if (canUseLocalModuleBridgePreview()) {
     return {
       ...raw,
       module_id: moduleId || resolved.moduleId,
@@ -1449,7 +1452,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
   const packageUrl = safeText(manifest?.package_url)
   const packageUrls = toUniqueTextList(manifest?.package_urls || packageUrl)
 
-  if (isTauriRuntime()) {
+  if (canUseLocalModuleBridgePreview()) {
     try {
       const prepared = await invokeNativeBridge(
         'prepare_module_bundle',

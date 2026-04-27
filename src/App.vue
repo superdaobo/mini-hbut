@@ -33,6 +33,7 @@ import {
   verifyDailyAccessKey
 } from './utils/daily_access_key.js'
 import {
+  canUseLocalModuleBridgePreview,
   isLocalModuleBridgePreviewUrl,
   normalizeModuleHostSessionPayload,
   resolveModuleHostPreviewSource
@@ -286,16 +287,16 @@ const buildModuleHostSession = (payload = {}) => {
   const rawPreviewUrl = String(raw.preview_url || raw.previewUrl || '').trim()
   const rawPreviewMode = String(raw.preview_mode || raw.previewMode || '').trim()
   const sanitizedPreviewUrl =
-    !isTauriRuntime() && isLocalModuleBridgePreviewUrl(resolved.resolvedPreviewUrl)
+    !canUseLocalModuleBridgePreview() && isLocalModuleBridgePreviewUrl(resolved.resolvedPreviewUrl)
       ? ''
       : String(resolved.resolvedPreviewUrl || '').trim()
   const sanitizedLocalPreviewUrl =
-    !isTauriRuntime() &&
+    !canUseLocalModuleBridgePreview() &&
     isLocalModuleBridgePreviewUrl(String(raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl || '').trim())
       ? ''
       : String(raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl || '').trim()
   const bridgeBlocked =
-    !isTauriRuntime() && (isLocalModuleBridgePreviewUrl(rawPreviewUrl) || rawPreviewMode === 'tauri-local')
+    !canUseLocalModuleBridgePreview() && (isLocalModuleBridgePreviewUrl(rawPreviewUrl) || rawPreviewMode === 'tauri-local')
   const normalizedPreviewMode =
     String(resolved.sourceKind || '').trim() ||
     (bridgeBlocked ? '' : rawPreviewMode)

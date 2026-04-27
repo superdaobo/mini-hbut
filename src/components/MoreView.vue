@@ -8,6 +8,7 @@ import {
   verifyDailyAccessKey
 } from '../utils/daily_access_key.js'
 import {
+  canUseLocalModuleBridgePreview,
   fetchModuleCatalog,
   fetchModuleManifest,
   getLocalModuleState,
@@ -338,9 +339,9 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
     moduleId,
     safeText(
       (() => {
-        const fallback = isTauriRuntime() ? sessionPayload.preview_url || manifest?.open_url : ''
+        const fallback = canUseLocalModuleBridgePreview() ? sessionPayload.preview_url || manifest?.open_url : ''
         const candidate = resolvedPreviewUrl || fallback
-        if (!isTauriRuntime() && isLocalModuleBridgePreviewUrl(candidate)) return ''
+        if (!canUseLocalModuleBridgePreview() && isLocalModuleBridgePreviewUrl(candidate)) return ''
         return candidate
       })()
     ),
@@ -348,9 +349,9 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
     runtimeTag
   )
   const invalidReason = safeText(
-    sessionPayload.invalid_reason ||
+      sessionPayload.invalid_reason ||
       sessionMeta?.invalid_reason ||
-      (!previewUrl && !isTauriRuntime() && safeText(sessionPayload.preview_mode) === 'tauri-local'
+      (!previewUrl && !canUseLocalModuleBridgePreview() && safeText(sessionPayload.preview_mode) === 'tauri-local'
         ? 'tauri-bridge-blocked'
         : '')
   )
