@@ -37,12 +37,8 @@ const copyFiles = (sourceDir, targetDir, predicate = () => true) => {
   return copied
 }
 
-const syncAndroidIcons = () => {
-  const sourceRoot = path.join(rootDir, 'src-tauri', 'icons', 'android')
-  const targetRoot = path.join(rootDir, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'res')
-  if (!fs.existsSync(sourceRoot)) fail(`Android 图标源目录不存在: ${sourceRoot}`)
-  if (!fs.existsSync(targetRoot)) fail(`Android 目标目录不存在，请先执行 tauri android init: ${targetRoot}`)
-
+const copyAndroidIconsToTarget = (sourceRoot, targetRoot) => {
+  ensureDir(targetRoot)
   const densityPairs = [
     ['hdpi', 'mipmap-hdpi'],
     ['mdpi', 'mipmap-mdpi'],
@@ -76,7 +72,28 @@ const syncAndroidIcons = () => {
   )
 
   if (copied === 0) fail('Android 图标同步失败：未复制任何文件')
-  console.log(`[icon-sync] Android 图标已同步，共复制 ${copied} 个文件`)
+  return copied
+}
+
+const syncAndroidIcons = () => {
+  const sourceRoot = path.join(rootDir, 'src-tauri', 'icons', 'android')
+  if (!fs.existsSync(sourceRoot)) fail(`Android 图标源目录不存在: ${sourceRoot}`)
+
+  const targetRoots = [
+    path.join(rootDir, 'android', 'app', 'src', 'main', 'res'),
+    path.join(rootDir, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'res')
+  ].filter((dirPath) => fs.existsSync(path.dirname(dirPath)) || fs.existsSync(dirPath))
+
+  if (!targetRoots.length) {
+    fail('Android 目标目录不存在，请先执行 cap sync 或 tauri android init')
+  }
+
+  let copied = 0
+  for (const targetRoot of targetRoots) {
+    copied += copyAndroidIconsToTarget(sourceRoot, targetRoot)
+  }
+
+  console.log(`[icon-sync] Android 图标已同步到 ${targetRoots.length} 个目标，共复制 ${copied} 个文件`)
 }
 
 const syncIosIcons = () => {

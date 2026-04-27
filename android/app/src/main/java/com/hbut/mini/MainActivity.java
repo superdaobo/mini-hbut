@@ -16,22 +16,23 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(HBUTNativePlugin.class);
         super.onCreate(savedInstanceState);
-        configureWebViewForModuleBridge();
+        configureWebViewForEmbeddedModules();
         registerBackgroundFetchHeadless();
     }
 
-    private void configureWebViewForModuleBridge() {
+    private void configureWebViewForEmbeddedModules() {
         try {
             WebView webView = bridge != null ? bridge.getWebView() : null;
             if (webView == null) return;
             WebSettings settings = webView.getSettings();
             if (settings == null) return;
-            // 宿主页是 https://localhost，本地模块桥是 http://127.0.0.1:4399。
-            // 部分 Android WebView 会把这条链路当成混合内容直接拦截，这里显式放行。
+            // 安卓模块页统一改为 Capacitor 本地文件映射内嵌。
+            // 宿主页仍是 https://localhost，部分 WebView 对本地映射资源会误判为混合内容，
+            // 这里保留兼容配置，但不再把 127.0.0.1 module bridge 视为安卓预期链路。
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
             settings.setDomStorageEnabled(true);
             settings.setJavaScriptCanOpenWindowsAutomatically(true);
-            Log.i(TAG, "WebView mixed content enabled for module bridge");
+            Log.i(TAG, "WebView configured for embedded local module pages");
         } catch (Throwable e) {
             Log.w(TAG, "WebView configure skipped: " + e.getMessage());
         }

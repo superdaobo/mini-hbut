@@ -328,6 +328,27 @@ const buildCapacitorLocalPreviewUrl = async (versionRootPath, entryPath) => {
   return await toNativeFileSrc(safeText(resolved?.uri || filePath))
 }
 
+const resolveCapacitorVersionRootPath = ({
+  moduleId,
+  channel,
+  version,
+  cacheDir,
+  siteRootPath
+}) => {
+  const explicitCacheDir = safeText(cacheDir).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (explicitCacheDir) return explicitCacheDir
+  const explicitSiteRoot = safeText(siteRootPath).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  if (explicitSiteRoot) {
+    return explicitSiteRoot.replace(/\/site$/i, '')
+  }
+  if (!safeText(moduleId) || !safeText(version)) return ''
+  return buildCapacitorModulePaths({
+    channel: normalizeChannel(channel || DEFAULT_CHANNEL),
+    moduleId,
+    version
+  }).versionRootPath
+}
+
 const normalizeChannel = (value) => {
   const normalized = safeText(value).toLowerCase()
   return MODULE_CHANNELS.has(normalized) ? normalized : DEFAULT_CHANNEL
@@ -1239,7 +1260,7 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
     resolvedPreviewUrl,
     sourceKind,
     candidateUrls,
-    previewMode,
+    previewMode: sourceKind && sourceKind !== 'invalid' ? sourceKind : previewMode,
     moduleId,
     packageUrl,
     packageUrls,
@@ -1252,6 +1273,172 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
       raw.resolved_entry_path || raw.resolvedEntryPath || localState?.resolved_entry_path
     ),
     manifestUrl: safeText(raw.manifest_url || raw.manifestUrl || localState?.manifest_url)
+  }
+}
+
+export const normalizeModuleHostSessionPayload = async (payload = {}, options = {}) => {
+  const raw = payload && typeof payload === 'object' ? payload : {}
+  const moduleId = safeText(raw.module_id || raw.moduleId)
+  const localState =
+    options && Object.prototype.hasOwnProperty.call(options, 'localState')
+      ? options.localState
+      : getLocalModuleState(moduleId)
+  const resolved = resolveModuleHostPreviewSource(raw, {
+    ...options,
+    localState
+  })
+  const rawPreviewUrl = safeText(raw.preview_url || raw.previewUrl || localState?.preview_url)
+  const rawPreviewMode = safeText(raw.preview_mode || raw.previewMode || localState?.preview_mode)
+  let resolvedPreviewUrl = safeText(resolved.resolvedPreviewUrl)
+  let sourceKind = safeText(resolved.sourceKind)
+  let localPreviewUrl = safeText(
+    raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl
+  )
+  let siteRootPath = safeText(raw.site_root_path || raw.siteRootPath || resolved.siteRootPath)
+  let bundleZipPath = safeText(raw.bundle_zip_path || raw.bundleZipPath || resolved.bundleZipPath)
+  let resolvedEntryPath = safeText(
+    raw.resolved_entry_path || raw.resolvedEntryPath || resolved.resolvedEntryPath
+  )
+  let invalidReason = ''
+  const bridgeBlocked =
+    isLocalModuleBridgePreviewUrl(rawPreviewUrl) ||
+    isLocalModuleBridgePreviewUrl(resolvedPreviewUrl) ||
+    rawPreviewMode === PREVIEW_MODE_TAURI_LOCAL
+
+  if (isTauriRuntime()) {
+    return {
+      ...raw,
+      module_id: moduleId || resolved.moduleId,
+      channel: safeText(raw.channel || localState?.channel || DEFAULT_CHANNEL) || DEFAULT_CHANNEL,
+      version: safeText(raw.version || localState?.version),
+      preview_url: resolvedPreviewUrl,
+      preview_mode: sourceKind === 'invalid' ? rawPreviewMode : sourceKind || rawPreviewMode,
+      local_preview_url: localPreviewUrl,
+      site_root_path: siteRootPath,
+      bundle_zip_path: bundleZipPath,
+      resolved_entry_path: resolvedEntryPath,
+      entry_path: safeText(raw.entry_path || raw.entryPath || resolved.entryPath),
+      open_url: safeText(raw.open_url || raw.openUrl || resolved.openUrl),
+      package_url: safeText(raw.package_url || raw.packageUrl || resolved.packageUrl),
+      package_urls: Array.isArray(raw.package_urls)
+        ? raw.package_urls
+        : Array.isArray(raw.packageUrls)
+          ? raw.packageUrls
+          : resolved.packageUrls,
+      manifest_url: safeText(raw.manifest_url || raw.manifestUrl || resolved.manifestUrl),
+      invalid_reason: ''
+    }
+  }
+
+  if (isCapacitorRuntime()) {
+    const versionRootPath = resolveCapacitorVersionRootPath({
+      moduleId: moduleId || resolved.moduleId,
+      channel: safeText(raw.channel || localState?.channel || DEFAULT_CHANNEL),
+      version: safeText(raw.version || localState?.version),
+      cacheDir: safeText(raw.cache_dir || raw.cacheDir || localState?.cache_dir),
+      siteRootPath: siteRootPath || safeText(localState?.site_root_path)
+    })
+    const shouldRecoverLocal =
+      !!(localPreviewUrl || versionRootPath || siteRootPath || bundleZipPath) &&
+      (
+        bridgeBlocked ||
+        rawPreviewMode === PREVIEW_MODE_CAPACITOR_LOCAL ||
+        sourceKind === PREVIEW_MODE_CAPACITOR_LOCAL ||
+        !resolvedPreviewUrl
+      )
+
+    if (shouldRecoverLocal && versionRootPath) {
+      try {
+        const recoveredEntryPath = await locateCapacitorEntryPath(
+          versionRootPath,
+          resolved.entryPath || 'index.html'
+        )
+        const recoveredPreviewUrl = await buildCapacitorLocalPreviewUrl(
+          versionRootPath,
+          recoveredEntryPath
+        )
+        resolvedPreviewUrl = recoveredPreviewUrl
+        sourceKind = PREVIEW_MODE_CAPACITOR_LOCAL
+        localPreviewUrl = recoveredPreviewUrl
+        resolvedEntryPath = recoveredEntryPath
+        siteRootPath = siteRootPath || joinRelativePath(versionRootPath, 'site')
+        bundleZipPath = bundleZipPath || joinRelativePath(versionRootPath, 'bundle.zip')
+        updateModuleState(moduleId || resolved.moduleId, {
+          preview_url: recoveredPreviewUrl,
+          preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+          local_preview_url: recoveredPreviewUrl,
+          resolved_entry_path: recoveredEntryPath,
+          site_root_path: siteRootPath,
+          bundle_zip_path: bundleZipPath,
+          cache_dir: versionRootPath
+        })
+        if (bridgeBlocked) {
+          pushDebugLog('MoreModules', `安卓宿主入口已重写为本地 bundle：${moduleId || resolved.moduleId}`, 'info', {
+            preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+            preview_url: recoveredPreviewUrl,
+            entry_path: recoveredEntryPath
+          })
+        }
+      } catch (error) {
+        if (
+          bridgeBlocked ||
+          rawPreviewMode === PREVIEW_MODE_CAPACITOR_LOCAL ||
+          sourceKind === PREVIEW_MODE_CAPACITOR_LOCAL
+        ) {
+          resolvedPreviewUrl = ''
+          sourceKind = 'invalid'
+          localPreviewUrl = ''
+          resolvedEntryPath = ''
+          invalidReason = 'local-cache-missing'
+          updateModuleState(moduleId || resolved.moduleId, {
+            preview_url: '',
+            preview_mode: '',
+            local_preview_url: '',
+            resolved_entry_path: ''
+          })
+          pushDebugLog('MoreModules', `安卓宿主入口恢复失败：${moduleId || resolved.moduleId}`, 'warn', {
+            invalid_reason: invalidReason,
+            error: safeText(error?.message || error)
+          })
+        }
+      }
+    } else if (bridgeBlocked) {
+      resolvedPreviewUrl = ''
+      sourceKind = 'invalid'
+      invalidReason = 'tauri-bridge-blocked'
+      pushDebugLog('MoreModules', `安卓宿主入口已拦截桌面本地桥：${moduleId || resolved.moduleId}`, 'warn', {
+        preview_mode: rawPreviewMode,
+        preview_url: rawPreviewUrl
+      })
+    }
+  } else if (bridgeBlocked) {
+    resolvedPreviewUrl = ''
+    sourceKind = 'invalid'
+    invalidReason = 'tauri-bridge-blocked'
+  }
+
+  return {
+    ...raw,
+    module_id: moduleId || resolved.moduleId,
+    channel: safeText(raw.channel || localState?.channel || DEFAULT_CHANNEL) || DEFAULT_CHANNEL,
+    version: safeText(raw.version || localState?.version),
+    preview_url: resolvedPreviewUrl,
+    preview_mode: sourceKind === 'invalid' ? '' : sourceKind || rawPreviewMode,
+    local_preview_url: localPreviewUrl,
+    site_root_path: siteRootPath,
+    bundle_zip_path: bundleZipPath,
+    resolved_entry_path: resolvedEntryPath,
+    entry_path: safeText(raw.entry_path || raw.entryPath || resolved.entryPath),
+    open_url: safeText(raw.open_url || raw.openUrl || resolved.openUrl),
+    package_url: safeText(raw.package_url || raw.packageUrl || resolved.packageUrl),
+    package_urls: Array.isArray(raw.package_urls)
+      ? raw.package_urls
+      : Array.isArray(raw.packageUrls)
+        ? raw.packageUrls
+        : resolved.packageUrls,
+    manifest_url: safeText(raw.manifest_url || raw.manifestUrl || resolved.manifestUrl),
+    local_ready: !!resolvedPreviewUrl && raw.local_ready !== false,
+    invalid_reason: invalidReason
   }
 }
 

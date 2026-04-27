@@ -32,7 +32,11 @@ import {
   sanitizeDailyAccessInput,
   verifyDailyAccessKey
 } from './utils/daily_access_key.js'
-import { isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from './utils/more_modules.js'
+import {
+  isLocalModuleBridgePreviewUrl,
+  normalizeModuleHostSessionPayload,
+  resolveModuleHostPreviewSource
+} from './utils/more_modules.js'
 import {
   exitNativeApp,
   getCurrentNativeWindow,
@@ -279,11 +283,25 @@ resetBootMetrics({
 const buildModuleHostSession = (payload = {}) => {
   const raw = payload && typeof payload === 'object' ? payload : {}
   const resolved = resolveModuleHostPreviewSource(raw)
-  const previewMode = String(raw.preview_mode || raw.previewMode || resolved.sourceKind || '').trim()
+  const rawPreviewUrl = String(raw.preview_url || raw.previewUrl || '').trim()
+  const rawPreviewMode = String(raw.preview_mode || raw.previewMode || '').trim()
   const sanitizedPreviewUrl =
     !isTauriRuntime() && isLocalModuleBridgePreviewUrl(resolved.resolvedPreviewUrl)
       ? ''
       : String(resolved.resolvedPreviewUrl || '').trim()
+  const sanitizedLocalPreviewUrl =
+    !isTauriRuntime() &&
+    isLocalModuleBridgePreviewUrl(String(raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl || '').trim())
+      ? ''
+      : String(raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl || '').trim()
+  const bridgeBlocked =
+    !isTauriRuntime() && (isLocalModuleBridgePreviewUrl(rawPreviewUrl) || rawPreviewMode === 'tauri-local')
+  const normalizedPreviewMode =
+    String(resolved.sourceKind || '').trim() ||
+    (bridgeBlocked ? '' : rawPreviewMode)
+  const normalizedInvalidReason = String(
+    raw.invalid_reason || raw.invalidReason || (!sanitizedPreviewUrl && bridgeBlocked ? 'tauri-bridge-blocked' : '')
+  ).trim()
   return {
     module_id: String(raw.module_id || raw.moduleId || '').trim(),
     module_name: String(raw.module_name || raw.moduleName || '').trim(),
@@ -291,9 +309,10 @@ const buildModuleHostSession = (payload = {}) => {
     version: String(raw.version || '').trim(),
     min_compatible_version: String(raw.min_compatible_version || raw.minCompatibleVersion || '').trim(),
     channel: String(raw.channel || 'main').trim() || 'main',
-    local_ready: raw.local_ready !== false,
+    local_ready: !!sanitizedPreviewUrl && raw.local_ready !== false,
     source: String(raw.source || '').trim(),
-    preview_mode: previewMode,
+    preview_mode: normalizedPreviewMode,
+    invalid_reason: normalizedInvalidReason,
     open_url: String(raw.open_url || raw.openUrl || resolved.openUrl || '').trim(),
     package_url: String(raw.package_url || raw.packageUrl || resolved.packageUrl || '').trim(),
     package_urls: Array.isArray(raw.package_urls)
@@ -305,9 +324,7 @@ const buildModuleHostSession = (payload = {}) => {
     resolved_entry_path: String(
       raw.resolved_entry_path || raw.resolvedEntryPath || resolved.resolvedEntryPath || ''
     ).trim(),
-    local_preview_url: String(
-      raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl || ''
-    ).trim(),
+    local_preview_url: sanitizedLocalPreviewUrl,
     site_root_path: String(raw.site_root_path || raw.siteRootPath || resolved.siteRootPath || '').trim(),
     bundle_zip_path: String(
       raw.bundle_zip_path || raw.bundleZipPath || resolved.bundleZipPath || ''
@@ -316,6 +333,14 @@ const buildModuleHostSession = (payload = {}) => {
     bundle_path: String(raw.bundle_path || '').trim(),
     manifest_url: String(raw.manifest_url || raw.manifestUrl || resolved.manifestUrl || '').trim(),
     manifest_checked_at: String(raw.manifest_checked_at || raw.manifestCheckedAt || '').trim()
+  }
+}
+
+const writeModuleHostSessionStorage = (payload) => {
+  try {
+    localStorage.setItem(MODULE_HOST_SESSION_KEY, JSON.stringify(payload))
+  } catch {
+    // ignore storage failure
   }
 }
 
@@ -331,12 +356,21 @@ const readModuleHostSession = () => {
 
 const persistModuleHostSession = (payload) => {
   const normalized = buildModuleHostSession(payload)
-  try {
-    localStorage.setItem(MODULE_HOST_SESSION_KEY, JSON.stringify(normalized))
-  } catch {
-    // ignore storage failure
-  }
+  writeModuleHostSessionStorage(normalized)
   return normalized
+}
+
+const repairModuleHostSession = async (payload) => {
+  try {
+    const repaired = await normalizeModuleHostSessionPayload(payload || {})
+    const normalized = buildModuleHostSession(repaired)
+    writeModuleHostSessionStorage(normalized)
+    return normalized
+  } catch {
+    const fallback = buildModuleHostSession(payload)
+    writeModuleHostSessionStorage(fallback)
+    return fallback
+  }
 }
 
 // 视图状态: home, schedule, me, grades...
@@ -816,7 +850,7 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
     resolved?.view || resolved?.module || resolved?.tab || currentView.value
   )
   if (targetViewRaw === 'more_module_host') {
-    moduleHostSession.value = readModuleHostSession()
+    moduleHostSession.value = await repairModuleHostSession(readModuleHostSession())
   }
   const targetView =
     targetViewRaw === 'more_module_host' && !moduleHostSession.value.preview_url
@@ -1139,11 +1173,12 @@ const handleNavigate = async (target) => {
 
   if (normalized.view === 'more_module_host') {
     const session = persistModuleHostSession(normalized.payload || {})
-    if (!session.preview_url) {
+    const repairedSession = await repairModuleHostSession(session)
+    moduleHostSession.value = repairedSession
+    if (!repairedSession.preview_url) {
       goToView('more')
       return
     }
-    moduleHostSession.value = session
   }
 
   // 如果是成绩页面且数据为空，先获取数据
@@ -2071,6 +2106,14 @@ onMounted(async () => {
       fallbackView: 'home'
     })) {
       applyViewState(startupPage)
+    }
+  }
+
+  if (currentView.value === 'more_module_host') {
+    moduleHostSession.value = await repairModuleHostSession(moduleHostSession.value)
+    if (!moduleHostSession.value.preview_url) {
+      pendingScrollToTopOnViewChange = false
+      applyViewState('more')
     }
   }
 

@@ -13,7 +13,8 @@ import {
   getLocalModuleState,
   getModuleCdnBase,
   prepareModuleBundle,
-  resolveModuleChannel
+  resolveModuleChannel,
+  resolveModuleHostPreviewSource
 } from '../utils/more_modules.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync.js'
@@ -292,7 +293,38 @@ const buildCachedManifestSnapshot = (moduleItem) => {
 
 const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta = {}) => {
   const moduleId = safeText(prepared?.module_id || moduleItem?.id)
-  const previewMode = safeText(prepared?.preview_mode || prepared?.previewMode || '')
+  const sessionPayload = {
+    module_id: moduleId,
+    module_name: safeText(prepared?.module_name || moduleItem?.name || manifest?.module_name || moduleId),
+    preview_url: safeText(prepared?.preview_url || manifest?.open_url),
+    version: safeText(prepared?.version || manifest?.version),
+    min_compatible_version: safeText(prepared?.min_compatible_version || manifest?.min_compatible_version),
+    channel: safeText(prepared?.channel || moduleChannel.value),
+    local_ready: prepared?.local_ready !== false,
+    source: safeText(prepared?.source || ''),
+    preview_mode: safeText(prepared?.preview_mode || prepared?.previewMode || ''),
+    open_url: safeText(prepared?.open_url || manifest?.open_url),
+    package_url: safeText(prepared?.package_url || manifest?.package_url),
+    package_urls: Array.isArray(prepared?.package_urls)
+      ? prepared.package_urls
+      : Array.isArray(manifest?.package_urls)
+        ? manifest.package_urls
+        : [],
+    entry_path: safeText(prepared?.requested_entry_path || prepared?.entry_path || manifest?.entry_path || 'index.html'),
+    resolved_entry_path: safeText(prepared?.resolved_entry_path || ''),
+    local_preview_url: safeText(prepared?.local_preview_url || ''),
+    site_root_path: safeText(prepared?.site_root_path || ''),
+    bundle_zip_path: safeText(prepared?.bundle_zip_path || ''),
+    cache_dir: safeText(prepared?.cache_dir || ''),
+    bundle_path: safeText(prepared?.bundle_path || ''),
+    manifest_url: safeText(sessionMeta?.manifest_url || manifest?.url || moduleItem?.manifest_url),
+    manifest_checked_at: safeText(sessionMeta?.manifest_checked_at || '')
+  }
+  const resolvedSource = resolveModuleHostPreviewSource(sessionPayload)
+  const resolvedPreviewUrl = safeText(resolvedSource.resolvedPreviewUrl)
+  const previewMode = safeText(
+    resolvedSource.sourceKind && resolvedSource.sourceKind !== 'invalid' ? resolvedSource.sourceKind : ''
+  )
   const runtimeTag =
     previewMode === 'capacitor-local'
       ? 'capacitor-local'
@@ -303,38 +335,42 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
           : 'module-host'
   const previewUrl = appendModuleContextQuery(
     moduleId,
-    safeText(prepared?.preview_url || manifest?.open_url),
+    safeText(resolvedPreviewUrl || (isTauriRuntime() ? sessionPayload.preview_url || manifest?.open_url : '')),
     sessionMeta?.preview_profile || readCachedStudentProfile(),
     runtimeTag
+  )
+  const invalidReason = safeText(
+    sessionPayload.invalid_reason ||
+      sessionMeta?.invalid_reason ||
+      (!previewUrl && !isTauriRuntime() && safeText(sessionPayload.preview_mode) === 'tauri-local'
+        ? 'tauri-bridge-blocked'
+        : '')
   )
   emit('navigate', {
     view: 'more_module_host',
     payload: {
       module_id: moduleId,
-      module_name: safeText(prepared?.module_name || moduleItem?.name || manifest?.module_name || moduleId),
+      module_name: sessionPayload.module_name,
       preview_url: previewUrl,
-      version: safeText(prepared?.version || manifest?.version),
-      min_compatible_version: safeText(prepared?.min_compatible_version || manifest?.min_compatible_version),
-      channel: safeText(prepared?.channel || moduleChannel.value),
-      local_ready: prepared?.local_ready !== false,
-      source: safeText(prepared?.source || ''),
+      version: sessionPayload.version,
+      min_compatible_version: sessionPayload.min_compatible_version,
+      channel: sessionPayload.channel,
+      local_ready: sessionPayload.local_ready,
+      source: sessionPayload.source,
       preview_mode: previewMode,
-      open_url: safeText(prepared?.open_url || manifest?.open_url),
-      package_url: safeText(prepared?.package_url || manifest?.package_url),
-      package_urls: Array.isArray(prepared?.package_urls)
-        ? prepared.package_urls
-        : Array.isArray(manifest?.package_urls)
-          ? manifest.package_urls
-          : [],
-      entry_path: safeText(prepared?.requested_entry_path || prepared?.entry_path || manifest?.entry_path || 'index.html'),
-      resolved_entry_path: safeText(prepared?.resolved_entry_path || ''),
-      local_preview_url: safeText(prepared?.local_preview_url || ''),
-      site_root_path: safeText(prepared?.site_root_path || ''),
-      bundle_zip_path: safeText(prepared?.bundle_zip_path || ''),
-      cache_dir: safeText(prepared?.cache_dir || ''),
-      bundle_path: safeText(prepared?.bundle_path || ''),
-      manifest_url: safeText(sessionMeta?.manifest_url || manifest?.url || moduleItem?.manifest_url),
-      manifest_checked_at: safeText(sessionMeta?.manifest_checked_at || '')
+      invalid_reason: invalidReason,
+      open_url: sessionPayload.open_url,
+      package_url: sessionPayload.package_url,
+      package_urls: sessionPayload.package_urls,
+      entry_path: sessionPayload.entry_path,
+      resolved_entry_path: safeText(sessionPayload.resolved_entry_path || resolvedSource.resolvedEntryPath),
+      local_preview_url: safeText(sessionPayload.local_preview_url || resolvedSource.localPreviewUrl),
+      site_root_path: safeText(sessionPayload.site_root_path || resolvedSource.siteRootPath),
+      bundle_zip_path: safeText(sessionPayload.bundle_zip_path || resolvedSource.bundleZipPath),
+      cache_dir: sessionPayload.cache_dir,
+      bundle_path: sessionPayload.bundle_path,
+      manifest_url: sessionPayload.manifest_url,
+      manifest_checked_at: sessionPayload.manifest_checked_at
     }
   })
 }

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
 import { isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
+import { isTauriRuntime } from '../platform/native'
 
 const props = defineProps({
   session: {
@@ -29,24 +30,37 @@ const moduleId = computed(() => safeText(props.session?.module_id))
 const moduleVersion = computed(() => safeText(props.session?.version))
 const minCompatibleVersion = computed(() => safeText(props.session?.min_compatible_version))
 const moduleChannel = computed(() => safeText(props.session?.channel) || 'main')
+const invalidReason = computed(() => safeText(props.session?.invalid_reason || props.session?.invalidReason))
 const resolvedPreviewSource = computed(() => resolveModuleHostPreviewSource(props.session || {}))
-const previewMode = computed(
-  () => safeText(props.session?.preview_mode || resolvedPreviewSource.value?.sourceKind)
-)
+const previewMode = computed(() => {
+  const resolvedKind = safeText(resolvedPreviewSource.value?.sourceKind)
+  if (resolvedKind && resolvedKind !== 'invalid') {
+    return resolvedKind
+  }
+  const fallbackMode = safeText(props.session?.preview_mode || props.session?.previewMode)
+  if (!isTauriRuntime() && fallbackMode === 'tauri-local') {
+    return ''
+  }
+  return fallbackMode
+})
 const previewUrl = computed(() => {
-  const raw = safeText(resolvedPreviewSource.value?.resolvedPreviewUrl || props.session?.preview_url)
-  if (isLocalModuleBridgePreviewUrl(raw) && previewMode.value !== 'tauri-local') {
+  const resolvedUrl = safeText(resolvedPreviewSource.value?.resolvedPreviewUrl)
+  const raw = resolvedUrl || (isTauriRuntime() ? safeText(props.session?.preview_url) : '')
+  if (isLocalModuleBridgePreviewUrl(raw) && !isTauriRuntime()) {
     return ''
   }
   return raw
 })
 const ready = computed(() => !!previewUrl.value)
 const emptyStateMessage = computed(() => {
-  if (previewMode.value === 'capacitor-local') {
+  if (invalidReason.value === 'local-cache-missing' || previewMode.value === 'capacitor-local') {
     return '本地模块缓存缺失或入口失效，请返回更多页重新下载模块。'
   }
-  if (isLocalModuleBridgePreviewUrl(safeText(props.session?.preview_url))) {
-    return '当前运行时不支持桌面本地桥地址，请返回更多页重新进入模块。'
+  if (
+    invalidReason.value === 'tauri-bridge-blocked' ||
+    isLocalModuleBridgePreviewUrl(safeText(props.session?.preview_url))
+  ) {
+    return '当前运行时已禁止桌面本地桥地址，请返回更多页重新进入模块。'
   }
   return '模块预览地址缺失，请返回更多页重新进入。'
 })
