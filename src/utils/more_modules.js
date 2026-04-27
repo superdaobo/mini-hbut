@@ -1,4 +1,4 @@
-import { getNativeAppVersion, isCapacitorRuntime, isTauriRuntime } from '../platform/native'
+import { getNativeAppVersion, isCapacitorRuntime, isTauriRuntime, toNativeFileSrc } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
 
 const DEFAULT_MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
@@ -18,6 +18,11 @@ const MODULE_CHANNELS = new Set(['main', 'dev', SHARED_CHANNEL])
 const DEFAULT_REMOTE_JSON_TIMEOUT_MS = 4500
 const FAST_REMOTE_RACE_TIMEOUT_MS = 2200
 const FAST_REMOTE_OPEN_PROBE_TIMEOUT_MS = 1800
+const CAPACITOR_MODULE_CACHE_ROOT = 'modules'
+const CAPACITOR_BUNDLE_TIMEOUT_MS = 20000
+const PREVIEW_MODE_TAURI_LOCAL = 'tauri-local'
+const PREVIEW_MODE_CAPACITOR_LOCAL = 'capacitor-local'
+const PREVIEW_MODE_REMOTE = 'remote-site'
 
 const withCacheBust = (url) => {
   const text = safeText(url)
@@ -27,7 +32,7 @@ const withCacheBust = (url) => {
 }
 
 const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
-const isLocalModuleBridgePreviewUrl = (url) =>
+export const isLocalModuleBridgePreviewUrl = (url) =>
   /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
 
 const describeError = (error) => {
@@ -190,6 +195,138 @@ const invokeNativeBridge = async (command, args, label = '') => {
 }
 
 const safeText = (value) => String(value ?? '').trim()
+
+const sanitizeStorageSegment = (value, fallback = '') => {
+  const normalized = safeText(value || fallback)
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, '-')
+  const compact = normalized.replace(/-+/g, '-').replace(/^-+|-+$/g, '')
+  return compact || safeText(fallback)
+}
+
+const joinRelativePath = (...parts) =>
+  parts
+    .map((part) => safeText(part).replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''))
+    .filter(Boolean)
+    .join('/')
+
+const normalizeRelativeModulePath = (value, fallback = 'index.html') => {
+  const normalized = safeText(value || fallback).replace(/\\/g, '/').replace(/^\/+/, '')
+  const segments = normalized.split('/').filter(Boolean)
+  if (!segments.length || segments.some((segment) => segment === '.' || segment === '..')) {
+    return safeText(fallback)
+  }
+  return segments.join('/')
+}
+
+const normalizeZipEntryPath = (value) => {
+  let normalized = safeText(value).replace(/\\/g, '/').replace(/^\/+/, '')
+  if (!normalized || normalized.endsWith('/')) return ''
+  if (/^site\//i.test(normalized)) {
+    normalized = normalized.replace(/^site\//i, '')
+  }
+  const segments = normalized.split('/').filter(Boolean)
+  if (!segments.length || segments.some((segment) => segment === '.' || segment === '..')) {
+    return ''
+  }
+  return segments.join('/')
+}
+
+const candidateEntryPaths = (requested = 'index.html') => {
+  const normalized = normalizeRelativeModulePath(requested, 'index.html')
+  return toUniqueTextList([
+    normalized,
+    `site/${normalized}`,
+    'index.html',
+    'site/index.html'
+  ]).map((item) => normalizeRelativeModulePath(item, 'index.html'))
+}
+
+const uint8ArrayToBase64 = (bytes) => {
+  const buffer = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || [])
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < buffer.length; index += chunkSize) {
+    const chunk = buffer.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
+}
+
+const base64ToUint8Array = (base64Text = '') => {
+  const text = safeText(base64Text)
+  if (!text) return new Uint8Array()
+  const binary = atob(text)
+  const result = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    result[index] = binary.charCodeAt(index)
+  }
+  return result
+}
+
+const sha256Hex = async (bytes) => {
+  const cryptoApi = globalThis?.crypto?.subtle
+  if (!cryptoApi) return ''
+  const buffer = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || [])
+  const digest = await cryptoApi.digest('SHA-256', buffer)
+  return Array.from(new Uint8Array(digest))
+    .map((item) => item.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+const buildCapacitorModulePaths = ({ channel, moduleId, version }) => {
+  const safeChannel = sanitizeStorageSegment(normalizeChannel(channel), DEFAULT_CHANNEL)
+  const safeModuleId = sanitizeStorageSegment(moduleId, 'module')
+  const safeVersion = sanitizeStorageSegment(version, 'latest')
+  const versionRootPath = joinRelativePath(
+    CAPACITOR_MODULE_CACHE_ROOT,
+    safeChannel,
+    safeModuleId,
+    safeVersion
+  )
+  return {
+    versionRootPath,
+    siteRootPath: joinRelativePath(versionRootPath, 'site'),
+    bundleZipPath: joinRelativePath(versionRootPath, 'bundle.zip')
+  }
+}
+
+const safeCapacitorRemoveDir = async (path) => {
+  const targetPath = safeText(path)
+  if (!targetPath) return
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  await Filesystem.rmdir({
+    path: targetPath,
+    directory: Directory.Data,
+    recursive: true
+  }).catch(() => {})
+}
+
+const locateCapacitorEntryPath = async (versionRootPath, requestedEntryPath = 'index.html') => {
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  for (const candidate of candidateEntryPaths(requestedEntryPath)) {
+    try {
+      await Filesystem.stat({
+        path: joinRelativePath(versionRootPath, candidate),
+        directory: Directory.Data
+      })
+      return candidate
+    } catch {
+      // try next candidate
+    }
+  }
+  throw new Error(`模块入口不存在：${requestedEntryPath}`)
+}
+
+const buildCapacitorLocalPreviewUrl = async (versionRootPath, entryPath) => {
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  const filePath = joinRelativePath(versionRootPath, entryPath)
+  const resolved = await Filesystem.getUri({
+    path: filePath,
+    directory: Directory.Data
+  })
+  return await toNativeFileSrc(safeText(resolved?.uri || filePath))
+}
 
 const normalizeChannel = (value) => {
   const normalized = safeText(value).toLowerCase()
@@ -746,31 +883,376 @@ export const fetchModuleManifest = async (manifestUrl) => {
   }
 }
 
-const buildOpenUrlCandidates = ({ manifest, channel }) => {
+const buildRemoteOpenUrlCandidates = ({
+  manifestUrl,
+  channel,
+  moduleId,
+  version,
+  packageUrl,
+  packageUrls,
+  entryPath,
+  openUrl
+}) => {
   const preferredChannel =
-    safeText(manifest?.channel) ||
+    safeText(channel) ||
     normalizeChannel(channel) ||
-    detectModuleChannelHintFromPath(extractModuleRelativePath(manifest?.url))
-  const entryPath = safeText(manifest?.entry_path || 'index.html')
-  const explicit = toAbsoluteUrl(manifest?.open_url, safeText(manifest?.url))
-  if (explicit) {
+    detectModuleChannelHintFromPath(extractModuleRelativePath(manifestUrl)) ||
+    detectModuleChannelHintFromPath(extractModuleRelativePath(packageUrl))
+  const normalizedEntryPath = normalizeRelativeModulePath(entryPath, 'index.html')
+  const explicit = toAbsoluteUrl(openUrl, safeText(manifestUrl))
+  if (explicit && !isLocalModuleBridgePreviewUrl(explicit)) {
     return buildRemoteUrlCandidates(explicit, preferredChannel, 'open')
   }
-  const packageCandidates = toUniqueTextList(manifest?.package_urls || manifest?.package_url)
+  const packageCandidates = toUniqueTextList(packageUrls || packageUrl)
   const siteCandidates = packageCandidates.map((candidate) => {
     if (candidate.includes('/bundle.zip')) {
-      return candidate.replace(/\/bundle\.zip(?:\?.*)?$/i, `/site/${entryPath}`)
+      return candidate.replace(/\/bundle\.zip(?:\?.*)?$/i, `/site/${normalizedEntryPath}`)
     }
-    return `${candidate.replace(/\/+$/, '')}/site/${entryPath}`
+    return `${candidate.replace(/\/+$/, '')}/site/${normalizedEntryPath}`
   })
   return rotateRemoteCandidates(
     toUniqueTextList([
       ...siteCandidates,
-      `${resolveModuleCdnBase()}/${normalizeChannel(preferredChannel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
+      `${resolveModuleCdnBase()}/${normalizeChannel(preferredChannel)}/${safeText(moduleId)}/${safeText(version)}/site/${normalizedEntryPath}`
     ]),
     'open',
-    `${normalizeChannel(preferredChannel)}/${safeText(manifest?.module_id)}/${safeText(manifest?.version)}/site/${entryPath}`
+    `${normalizeChannel(preferredChannel)}/${safeText(moduleId)}/${safeText(version)}/site/${normalizedEntryPath}`
   )
+}
+
+const buildOpenUrlCandidates = ({ manifest, channel }) =>
+  buildRemoteOpenUrlCandidates({
+    manifestUrl: safeText(manifest?.url),
+    channel: safeText(manifest?.channel || channel),
+    moduleId: safeText(manifest?.module_id),
+    version: safeText(manifest?.version),
+    packageUrl: safeText(manifest?.package_url),
+    packageUrls: manifest?.package_urls,
+    entryPath: safeText(manifest?.entry_path || 'index.html'),
+    openUrl: safeText(manifest?.open_url)
+  })
+
+const prepareCapacitorLocalModuleBundle = async ({
+  channel,
+  moduleInfo,
+  manifest,
+  moduleId,
+  packageUrl,
+  packageUrls,
+  openUrlCandidates
+}) => {
+  const { unzipSync } = await import('fflate')
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  const requestedEntryPath = normalizeRelativeModulePath(manifest?.entry_path, 'index.html')
+  const resolvedChannel = normalizeChannel(channel || manifest?.channel)
+  const version = safeText(manifest?.version)
+  const moduleName = safeText(moduleInfo?.name || manifest?.module_name || moduleId)
+  const packageSha256 = safeText(manifest?.package_sha256).toLowerCase()
+  const minCompatibleVersion = safeText(manifest?.min_compatible_version)
+  const openUrl = safeText(manifest?.open_url || openUrlCandidates[0])
+  const manifestUrl = safeText(manifest?.url)
+  const manifestCheckedAt = new Date().toISOString()
+  const modulePaths = buildCapacitorModulePaths({
+    channel: resolvedChannel,
+    moduleId,
+    version
+  })
+  const localState = getLocalModuleState(moduleId) || {}
+
+  const reuseCachedBundle = async () => {
+    if (safeText(localState?.version) !== version) return null
+    if (
+      packageSha256 &&
+      safeText(localState?.package_sha256).toLowerCase() &&
+      safeText(localState?.package_sha256).toLowerCase() !== packageSha256
+    ) {
+      return null
+    }
+    if (safeText(localState?.min_compatible_version) !== minCompatibleVersion) {
+      return null
+    }
+    try {
+      const resolvedEntryPath = await locateCapacitorEntryPath(
+        modulePaths.versionRootPath,
+        safeText(localState?.requested_entry_path || requestedEntryPath)
+      )
+      const localPreviewUrl =
+        safeText(localState?.local_preview_url) ||
+        (await buildCapacitorLocalPreviewUrl(modulePaths.versionRootPath, resolvedEntryPath))
+      return {
+        resolvedEntryPath,
+        localPreviewUrl
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const cachedBundle = await reuseCachedBundle()
+  if (cachedBundle) {
+    updateModuleState(moduleId, {
+      channel: resolvedChannel,
+      version,
+      module_name: moduleName,
+      package_url: packageUrl,
+      package_urls: packageUrls,
+      package_sha256: packageSha256,
+      requested_entry_path: requestedEntryPath,
+      resolved_entry_path: cachedBundle.resolvedEntryPath,
+      entry_path: requestedEntryPath,
+      min_compatible_version: minCompatibleVersion,
+      open_url: openUrl,
+      preview_url: cachedBundle.localPreviewUrl,
+      preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+      local_preview_url: cachedBundle.localPreviewUrl,
+      site_root_path: modulePaths.siteRootPath,
+      bundle_zip_path: modulePaths.bundleZipPath,
+      cache_dir: modulePaths.versionRootPath,
+      bundle_path: modulePaths.bundleZipPath,
+      manifest_url: manifestUrl,
+      manifest_checked_at: manifestCheckedAt,
+      source: 'cache'
+    })
+    pushDebugLog('MoreModules', `安卓模块缓存命中：${moduleId}`, 'info', {
+      preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+      entry_path: cachedBundle.resolvedEntryPath,
+      preview_url: cachedBundle.localPreviewUrl
+    })
+    return {
+      ready: true,
+      launch_mode: 'cache',
+      version,
+      package_url: packageUrl,
+      package_urls: packageUrls,
+      cache_dir: modulePaths.versionRootPath,
+      bundle_path: modulePaths.bundleZipPath,
+      bundle_zip_path: modulePaths.bundleZipPath,
+      site_root_path: modulePaths.siteRootPath,
+      preview_url: cachedBundle.localPreviewUrl,
+      local_preview_url: cachedBundle.localPreviewUrl,
+      open_url: openUrl,
+      min_compatible_version: minCompatibleVersion,
+      source: 'cache',
+      module_id: moduleId,
+      module_name: moduleName,
+      channel: resolvedChannel,
+      requested_entry_path: requestedEntryPath,
+      resolved_entry_path: cachedBundle.resolvedEntryPath,
+      preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+      local_ready: true
+    }
+  }
+
+  await safeCapacitorRemoveDir(modulePaths.versionRootPath)
+  await Filesystem.mkdir({
+    path: modulePaths.siteRootPath,
+    directory: Directory.Data,
+    recursive: true
+  }).catch(() => {})
+
+  let lastError = null
+  for (const candidate of packageUrls) {
+    try {
+      await Filesystem.downloadFile({
+        url: withCacheBust(candidate),
+        path: modulePaths.bundleZipPath,
+        directory: Directory.Data,
+        progress: false,
+        connectTimeout: CAPACITOR_BUNDLE_TIMEOUT_MS,
+        readTimeout: CAPACITOR_BUNDLE_TIMEOUT_MS
+      })
+      lastError = null
+      break
+    } catch (error) {
+      lastError = error
+    }
+  }
+  if (lastError) {
+    throw new Error(`模块压缩包下载失败：${safeText(lastError?.message || lastError) || '未知错误'}`)
+  }
+
+  const bundleFile = await Filesystem.readFile({
+    path: modulePaths.bundleZipPath,
+    directory: Directory.Data
+  })
+  const bundleBytes = base64ToUint8Array(bundleFile?.data || '')
+  if (!bundleBytes.length) {
+    throw new Error('模块压缩包为空，无法解压')
+  }
+  const actualSha = await sha256Hex(bundleBytes)
+  if (packageSha256 && actualSha && actualSha !== packageSha256) {
+    throw new Error(`模块压缩包校验失败：期望 ${packageSha256}，实际 ${actualSha}`)
+  }
+
+  const archive = unzipSync(bundleBytes)
+  const archiveEntries = Object.entries(archive)
+  if (!archiveEntries.length) {
+    throw new Error('模块压缩包内容为空')
+  }
+
+  // 安卓本地运行统一解压到 site 根目录，保持宿主与线上目录结构一致。
+  for (const [entryName, entryBytes] of archiveEntries) {
+    const normalizedEntry = normalizeZipEntryPath(entryName)
+    if (!normalizedEntry) continue
+    await Filesystem.writeFile({
+      path: joinRelativePath(modulePaths.siteRootPath, normalizedEntry),
+      directory: Directory.Data,
+      data: uint8ArrayToBase64(entryBytes),
+      recursive: true
+    })
+  }
+
+  const resolvedEntryPath = await locateCapacitorEntryPath(
+    modulePaths.versionRootPath,
+    requestedEntryPath
+  )
+  const localPreviewUrl = await buildCapacitorLocalPreviewUrl(
+    modulePaths.versionRootPath,
+    resolvedEntryPath
+  )
+
+  updateModuleState(moduleId, {
+    channel: resolvedChannel,
+    version,
+    module_name: moduleName,
+    package_url: packageUrl,
+    package_urls: packageUrls,
+    package_sha256: packageSha256 || actualSha,
+    requested_entry_path: requestedEntryPath,
+    resolved_entry_path: resolvedEntryPath,
+    entry_path: requestedEntryPath,
+    min_compatible_version: minCompatibleVersion,
+    open_url: openUrl,
+    preview_url: localPreviewUrl,
+    preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+    local_preview_url: localPreviewUrl,
+    site_root_path: modulePaths.siteRootPath,
+    bundle_zip_path: modulePaths.bundleZipPath,
+    cache_dir: modulePaths.versionRootPath,
+    bundle_path: modulePaths.bundleZipPath,
+    manifest_url: manifestUrl,
+    manifest_checked_at: manifestCheckedAt,
+    source: 'download'
+  })
+
+  pushDebugLog('MoreModules', `安卓模块已切换到真本地 bundle：${moduleId}`, 'info', {
+    preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+    entry_path: resolvedEntryPath,
+    preview_url: localPreviewUrl
+  })
+
+  return {
+    ready: true,
+    launch_mode: 'in_app',
+    version,
+    package_url: packageUrl,
+    package_urls: packageUrls,
+    cache_dir: modulePaths.versionRootPath,
+    bundle_path: modulePaths.bundleZipPath,
+    bundle_zip_path: modulePaths.bundleZipPath,
+    site_root_path: modulePaths.siteRootPath,
+    preview_url: localPreviewUrl,
+    local_preview_url: localPreviewUrl,
+    open_url: openUrl,
+    min_compatible_version: minCompatibleVersion,
+    source: 'download',
+    module_id: moduleId,
+    module_name: moduleName,
+    channel: resolvedChannel,
+    requested_entry_path: requestedEntryPath,
+    resolved_entry_path: resolvedEntryPath,
+    preview_mode: PREVIEW_MODE_CAPACITOR_LOCAL,
+    local_ready: true
+  }
+}
+
+export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
+  const raw = payload && typeof payload === 'object' ? payload : {}
+  const moduleId = safeText(raw.module_id || raw.moduleId)
+  const localState =
+    options && Object.prototype.hasOwnProperty.call(options, 'localState')
+      ? options.localState
+      : getLocalModuleState(moduleId)
+  const requestedEntryPath = normalizeRelativeModulePath(
+    raw.requested_entry_path ||
+      raw.requestedEntryPath ||
+      raw.entry_path ||
+      raw.entryPath ||
+      localState?.requested_entry_path ||
+      localState?.entry_path ||
+      'index.html',
+    'index.html'
+  )
+  const packageUrl = safeText(raw.package_url || raw.packageUrl || localState?.package_url)
+  const packageUrls = toUniqueTextList(
+    raw.package_urls || raw.packageUrls || localState?.package_urls || packageUrl
+  )
+  const openUrl = safeText(raw.open_url || raw.openUrl || localState?.open_url)
+  const rawPreviewUrl = safeText(raw.preview_url || raw.previewUrl || localState?.preview_url)
+  const previewMode = safeText(raw.preview_mode || raw.previewMode || localState?.preview_mode)
+  const localPreviewUrl = safeText(
+    raw.local_preview_url || raw.localPreviewUrl || localState?.local_preview_url
+  )
+  const candidateUrls = buildRemoteOpenUrlCandidates({
+    manifestUrl: safeText(raw.manifest_url || raw.manifestUrl || localState?.manifest_url),
+    channel: safeText(raw.channel || localState?.channel || DEFAULT_CHANNEL),
+    moduleId,
+    version: safeText(raw.version || localState?.version),
+    packageUrl,
+    packageUrls,
+    entryPath: requestedEntryPath,
+    openUrl
+  })
+
+  let resolvedPreviewUrl = ''
+  let sourceKind = 'invalid'
+
+  if (isTauriRuntime()) {
+    const tauriPreviewUrl = safeText(rawPreviewUrl || localState?.preview_url)
+    if (isLocalModuleBridgePreviewUrl(tauriPreviewUrl) || previewMode === PREVIEW_MODE_TAURI_LOCAL) {
+      resolvedPreviewUrl = tauriPreviewUrl
+      sourceKind = PREVIEW_MODE_TAURI_LOCAL
+    }
+  } else if (localPreviewUrl) {
+    resolvedPreviewUrl = localPreviewUrl
+    sourceKind = PREVIEW_MODE_CAPACITOR_LOCAL
+  } else if (
+    rawPreviewUrl &&
+    !isLocalModuleBridgePreviewUrl(rawPreviewUrl) &&
+    (!isCapacitorRuntime() || previewMode === PREVIEW_MODE_REMOTE)
+  ) {
+    resolvedPreviewUrl = rawPreviewUrl
+    sourceKind = PREVIEW_MODE_REMOTE
+  } else if (
+    openUrl &&
+    !isLocalModuleBridgePreviewUrl(openUrl) &&
+    (!isCapacitorRuntime() || previewMode === PREVIEW_MODE_REMOTE)
+  ) {
+    resolvedPreviewUrl = openUrl
+    sourceKind = PREVIEW_MODE_REMOTE
+  } else if (candidateUrls.length && !isCapacitorRuntime()) {
+    resolvedPreviewUrl = candidateUrls[0]
+    sourceKind = PREVIEW_MODE_REMOTE
+  }
+
+  return {
+    resolvedPreviewUrl,
+    sourceKind,
+    candidateUrls,
+    previewMode,
+    moduleId,
+    packageUrl,
+    packageUrls,
+    entryPath: requestedEntryPath,
+    openUrl: openUrl || candidateUrls[0] || '',
+    localPreviewUrl,
+    siteRootPath: safeText(raw.site_root_path || raw.siteRootPath || localState?.site_root_path),
+    bundleZipPath: safeText(raw.bundle_zip_path || raw.bundleZipPath || localState?.bundle_zip_path),
+    resolvedEntryPath: safeText(
+      raw.resolved_entry_path || raw.resolvedEntryPath || localState?.resolved_entry_path
+    ),
+    manifestUrl: safeText(raw.manifest_url || raw.manifestUrl || localState?.manifest_url)
+  }
 }
 
 export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => {
@@ -780,7 +1262,7 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
   const packageUrl = safeText(manifest?.package_url)
   const packageUrls = toUniqueTextList(manifest?.package_urls || packageUrl)
 
-  if (!isCapacitorRuntime()) {
+  if (isTauriRuntime()) {
     try {
       const prepared = await invokeNativeBridge(
         'prepare_module_bundle',
@@ -800,21 +1282,25 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
         `模块本地准备 ${moduleId}`
       )
       const preparedPreviewUrl = safeText(prepared?.preview_url || openUrl)
-      if (!isTauriRuntime() && isLocalModuleBridgePreviewUrl(preparedPreviewUrl)) {
-        throw new Error('当前运行时不支持桌面本地模块预览地址')
-      }
       updateModuleState(moduleId, {
         channel: normalizeChannel(channel),
         version: safeText(prepared?.version || manifest?.version),
         module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
         package_url: packageUrl,
+        package_urls: packageUrls,
         package_sha256: safeText(manifest?.package_sha256),
-        entry_path: safeText(manifest?.entry_path || 'index.html'),
+        requested_entry_path: normalizeRelativeModulePath(manifest?.entry_path, 'index.html'),
+        resolved_entry_path: safeText(prepared?.entry_path || manifest?.entry_path || 'index.html'),
+        entry_path: normalizeRelativeModulePath(manifest?.entry_path, 'index.html'),
         min_compatible_version: safeText(manifest?.min_compatible_version),
-        open_url: preparedPreviewUrl,
+        open_url: safeText(manifest?.open_url || openUrl),
         preview_url: preparedPreviewUrl,
+        preview_mode: PREVIEW_MODE_TAURI_LOCAL,
         cache_dir: safeText(prepared?.cache_dir),
+        site_root_path: safeText(prepared?.cache_dir),
+        bundle_zip_path: safeText(prepared?.bundle_path),
         bundle_path: safeText(prepared?.bundle_path),
+        manifest_url: safeText(manifest?.url),
         source: safeText(prepared?.source || 'download'),
         manifest_checked_at: new Date().toISOString()
       })
@@ -823,29 +1309,37 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
         launch_mode: safeText(prepared?.source) === 'cache' ? 'cache' : 'in_app',
         version: safeText(prepared?.version || manifest?.version),
         package_url: packageUrl,
+        package_urls: packageUrls,
         cache_dir: safeText(prepared?.cache_dir),
+        site_root_path: safeText(prepared?.cache_dir),
+        bundle_zip_path: safeText(prepared?.bundle_path),
         bundle_path: safeText(prepared?.bundle_path),
         preview_url: preparedPreviewUrl,
+        open_url: safeText(manifest?.open_url || openUrl),
         min_compatible_version: safeText(manifest?.min_compatible_version),
         source: safeText(prepared?.source || 'download'),
         module_id: moduleId,
         module_name: safeText(prepared?.module_name || moduleInfo?.name || manifest?.module_name || moduleId),
         channel: normalizeChannel(channel),
+        requested_entry_path: normalizeRelativeModulePath(manifest?.entry_path, 'index.html'),
+        resolved_entry_path: safeText(prepared?.entry_path || manifest?.entry_path || 'index.html'),
+        preview_mode: PREVIEW_MODE_TAURI_LOCAL,
         local_ready: true
       }
     } catch (error) {
-      if (isTauriRuntime() || !isNativeBridgeUnavailableError(error)) {
-        throw new Error(safeText(error?.message || error) || '模块本地准备失败')
-      }
-      pushDebugLog('MoreModules', `模块本地准备不可用，回退官网打开：${moduleId}`, 'warn', {
-        error: describeError(error)
-      })
+      throw new Error(safeText(error?.message || error) || '模块本地准备失败')
     }
-  } else {
-    // Capacitor 移动端统一走 HTTPS 远端页面，避免误用桌面本地桥地址。
-    pushDebugLog('MoreModules', `Capacitor 环境跳过本地模块桥接：${moduleId}`, 'info', {
-      channel: normalizeChannel(channel),
-      packageUrl
+  }
+
+  if (isCapacitorRuntime()) {
+    return await prepareCapacitorLocalModuleBundle({
+      channel,
+      moduleInfo,
+      manifest,
+      moduleId,
+      packageUrl,
+      packageUrls,
+      openUrlCandidates
     })
   }
 
@@ -854,8 +1348,17 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
     updateModuleState(moduleId, {
       channel: normalizeChannel(channel),
       version: safeText(manifest?.version),
+      module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
+      package_url: packageUrl,
+      package_urls: packageUrls,
+      requested_entry_path: normalizeRelativeModulePath(manifest?.entry_path, 'index.html'),
+      entry_path: normalizeRelativeModulePath(manifest?.entry_path, 'index.html'),
       min_compatible_version: safeText(manifest?.min_compatible_version),
-      open_url: bestOpenUrl
+      open_url: bestOpenUrl,
+      preview_url: bestOpenUrl,
+      preview_mode: PREVIEW_MODE_REMOTE,
+      manifest_url: safeText(manifest?.url),
+      manifest_checked_at: new Date().toISOString()
     })
     return {
       ready: true,
@@ -863,10 +1366,14 @@ export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => 
       version: safeText(manifest?.version),
       open_url: bestOpenUrl,
       preview_url: bestOpenUrl,
+      package_url: packageUrl,
+      package_urls: packageUrls,
       min_compatible_version: safeText(manifest?.min_compatible_version),
       module_id: moduleId,
       module_name: safeText(moduleInfo?.name || manifest?.module_name || moduleId),
       channel: normalizeChannel(channel),
+      requested_entry_path: normalizeRelativeModulePath(manifest?.entry_path, 'index.html'),
+      preview_mode: PREVIEW_MODE_REMOTE,
       local_ready: false
     }
   }

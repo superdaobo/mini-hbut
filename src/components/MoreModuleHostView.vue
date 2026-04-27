@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
-import { isCapacitorRuntime } from '../platform/native'
+import { isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
 
 const props = defineProps({
   session: {
@@ -23,22 +23,33 @@ let loadingGuardTimer = null
 let frameSizeHintTimer = null
 
 const safeText = (value) => String(value ?? '').trim()
-const isLocalModuleBridgePreviewUrl = (url) =>
-  /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
 
 const moduleName = computed(() => safeText(props.session?.module_name) || '远程模块')
 const moduleId = computed(() => safeText(props.session?.module_id))
 const moduleVersion = computed(() => safeText(props.session?.version))
 const minCompatibleVersion = computed(() => safeText(props.session?.min_compatible_version))
 const moduleChannel = computed(() => safeText(props.session?.channel) || 'main')
+const resolvedPreviewSource = computed(() => resolveModuleHostPreviewSource(props.session || {}))
+const previewMode = computed(
+  () => safeText(props.session?.preview_mode || resolvedPreviewSource.value?.sourceKind)
+)
 const previewUrl = computed(() => {
-  const raw = safeText(props.session?.preview_url)
-  if (isCapacitorRuntime() && isLocalModuleBridgePreviewUrl(raw)) {
+  const raw = safeText(resolvedPreviewSource.value?.resolvedPreviewUrl || props.session?.preview_url)
+  if (isLocalModuleBridgePreviewUrl(raw) && previewMode.value !== 'tauri-local') {
     return ''
   }
   return raw
 })
 const ready = computed(() => !!previewUrl.value)
+const emptyStateMessage = computed(() => {
+  if (previewMode.value === 'capacitor-local') {
+    return '本地模块缓存缺失或入口失效，请返回更多页重新下载模块。'
+  }
+  if (isLocalModuleBridgePreviewUrl(safeText(props.session?.preview_url))) {
+    return '当前运行时不支持桌面本地桥地址，请返回更多页重新进入模块。'
+  }
+  return '模块预览地址缺失，请返回更多页重新进入。'
+})
 
 const withFrameCacheBust = (url, keyParts = []) => {
   const text = safeText(url)
@@ -85,6 +96,9 @@ const formatModuleVersion = (value) => {
 
 const moduleRuntimeBadges = computed(() => {
   const badges = ['内嵌运行']
+  if (previewMode.value === 'capacitor-local') badges.push('安卓本地包')
+  if (previewMode.value === 'tauri-local') badges.push('桌面本地包')
+  if (previewMode.value === 'remote-site') badges.push('远端页面')
   const channel = formatModuleChannel(moduleChannel.value)
   const version = formatModuleVersion(moduleVersion.value)
   if (channel) badges.push(channel)
@@ -182,7 +196,10 @@ const handleError = () => {
   clearFrameSizeHintTimer()
   loading.value = false
   frameContentHeight.value = 0
-  loadError.value = '模块页面加载失败，请返回更多页后重试。'
+  loadError.value =
+    previewMode.value === 'capacitor-local'
+      ? '本地模块页面加载失败，请返回更多页重新下载后再试。'
+      : '模块页面加载失败，请返回更多页后重试。'
   loadHint.value = ''
 }
 
@@ -227,7 +244,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="!ready" class="module-empty-card">
-        <TEmptyState type="empty" message="模块预览地址缺失，请返回更多页重新进入。" />
+        <TEmptyState type="empty" :message="emptyStateMessage" />
       </div>
 
       <div

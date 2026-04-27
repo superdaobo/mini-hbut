@@ -101,9 +101,15 @@ export const getNativeAppVersion = async (): Promise<string> => {
  * 非 Tauri 运行时直接返回原路径。
  */
 export const toNativeFileSrc = async (filePath: string): Promise<string> => {
-  if (!isTauriRuntime()) return filePath
-  const core = await import('@tauri-apps/api/core')
-  return core.convertFileSrc(filePath)
+  if (isTauriRuntime()) {
+    const core = await import('@tauri-apps/api/core')
+    return core.convertFileSrc(filePath)
+  }
+  if (isCapacitorRuntime()) {
+    const core = await import('@capacitor/core')
+    return core.Capacitor.convertFileSrc(filePath)
+  }
+  return filePath
 }
 
 /**

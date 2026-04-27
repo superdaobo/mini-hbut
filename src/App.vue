@@ -32,6 +32,7 @@ import {
   sanitizeDailyAccessInput,
   verifyDailyAccessKey
 } from './utils/daily_access_key.js'
+import { isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from './utils/more_modules.js'
 import {
   exitNativeApp,
   getCurrentNativeWindow,
@@ -268,10 +269,6 @@ const bootScheduleSnapshot =
 const skipSplashForFastScheduleBoot = !!bootScheduleSnapshot
 
 const MODULE_HOST_SESSION_KEY = 'hbu_more_module_host_session'
-const isLocalModuleBridgePreviewUrl = (url) =>
-  /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(
-    String(url || '').trim()
-  )
 
 resetBootMetrics({
   initial_view: initialView,
@@ -281,9 +278,12 @@ resetBootMetrics({
 
 const buildModuleHostSession = (payload = {}) => {
   const raw = payload && typeof payload === 'object' ? payload : {}
-  const previewUrl = String(raw.preview_url || raw.previewUrl || '').trim()
+  const resolved = resolveModuleHostPreviewSource(raw)
+  const previewMode = String(raw.preview_mode || raw.previewMode || resolved.sourceKind || '').trim()
   const sanitizedPreviewUrl =
-    isCapacitorRuntime() && isLocalModuleBridgePreviewUrl(previewUrl) ? '' : previewUrl
+    !isTauriRuntime() && isLocalModuleBridgePreviewUrl(resolved.resolvedPreviewUrl)
+      ? ''
+      : String(resolved.resolvedPreviewUrl || '').trim()
   return {
     module_id: String(raw.module_id || raw.moduleId || '').trim(),
     module_name: String(raw.module_name || raw.moduleName || '').trim(),
@@ -293,9 +293,28 @@ const buildModuleHostSession = (payload = {}) => {
     channel: String(raw.channel || 'main').trim() || 'main',
     local_ready: raw.local_ready !== false,
     source: String(raw.source || '').trim(),
+    preview_mode: previewMode,
+    open_url: String(raw.open_url || raw.openUrl || resolved.openUrl || '').trim(),
+    package_url: String(raw.package_url || raw.packageUrl || resolved.packageUrl || '').trim(),
+    package_urls: Array.isArray(raw.package_urls)
+      ? raw.package_urls
+      : Array.isArray(raw.packageUrls)
+        ? raw.packageUrls
+        : resolved.packageUrls,
+    entry_path: String(raw.entry_path || raw.entryPath || resolved.entryPath || '').trim(),
+    resolved_entry_path: String(
+      raw.resolved_entry_path || raw.resolvedEntryPath || resolved.resolvedEntryPath || ''
+    ).trim(),
+    local_preview_url: String(
+      raw.local_preview_url || raw.localPreviewUrl || resolved.localPreviewUrl || ''
+    ).trim(),
+    site_root_path: String(raw.site_root_path || raw.siteRootPath || resolved.siteRootPath || '').trim(),
+    bundle_zip_path: String(
+      raw.bundle_zip_path || raw.bundleZipPath || resolved.bundleZipPath || ''
+    ).trim(),
     cache_dir: String(raw.cache_dir || '').trim(),
     bundle_path: String(raw.bundle_path || '').trim(),
-    manifest_url: String(raw.manifest_url || raw.manifestUrl || '').trim(),
+    manifest_url: String(raw.manifest_url || raw.manifestUrl || resolved.manifestUrl || '').trim(),
     manifest_checked_at: String(raw.manifest_checked_at || raw.manifestCheckedAt || '').trim()
   }
 }

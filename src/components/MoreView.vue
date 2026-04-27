@@ -244,14 +244,19 @@ const isManifestVersionCompatible = (manifest, minVersion = '') => {
 
 const INCOMPATIBLE_CACHE_MESSAGE = '当前缓存版本存在已知布局问题，请联网更新后再打开。'
 
-const appendModuleContextQuery = (moduleId, rawUrl, profile = readCachedStudentProfile()) => {
+const appendModuleContextQuery = (
+  moduleId,
+  rawUrl,
+  profile = readCachedStudentProfile(),
+  runtimeTag = 'module-host'
+) => {
   const previewUrl = safeText(rawUrl)
   if (!previewUrl || moduleId !== 'hecheng_hugongda') return previewUrl
 
   try {
     const url = new URL(previewUrl, window.location.origin)
     url.searchParams.set('from', 'mini_hbut')
-    url.searchParams.set('runtime', 'tauri-host')
+    url.searchParams.set('runtime', safeText(runtimeTag) || 'module-host')
     url.searchParams.set('student_id', safeText(profile.student_id))
     url.searchParams.set('player_name', safeText(profile.name))
     url.searchParams.set('class_name', safeText(profile.class_name))
@@ -269,26 +274,38 @@ const buildCachedManifestSnapshot = (moduleItem) => {
   if (!local || typeof local !== 'object') return null
   const version = safeText(local?.version)
   const packageUrl = safeText(local?.package_url)
-  const entryPath = safeText(local?.entry_path || 'index.html')
+  const entryPath = safeText(local?.requested_entry_path || local?.entry_path || 'index.html')
   if (!version || !packageUrl || !entryPath) return null
   return {
     module_id: safeText(moduleItem?.id),
     module_name: safeText(local?.module_name || moduleItem?.name || moduleItem?.module_name || moduleItem?.id),
     version,
     package_url: packageUrl,
+    package_urls: Array.isArray(local?.package_urls) ? local.package_urls : [],
     package_sha256: safeText(local?.package_sha256),
     entry_path: entryPath,
     min_compatible_version: safeText(local?.min_compatible_version || moduleItem?.min_compatible_version),
-    open_url: safeText(local?.preview_url || local?.open_url)
+    channel: safeText(local?.channel || moduleItem?.channel),
+    open_url: safeText(local?.open_url || '')
   }
 }
 
 const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta = {}) => {
   const moduleId = safeText(prepared?.module_id || moduleItem?.id)
+  const previewMode = safeText(prepared?.preview_mode || prepared?.previewMode || '')
+  const runtimeTag =
+    previewMode === 'capacitor-local'
+      ? 'capacitor-local'
+      : previewMode === 'tauri-local'
+        ? 'tauri-local'
+        : previewMode === 'remote-site'
+          ? 'remote-site'
+          : 'module-host'
   const previewUrl = appendModuleContextQuery(
     moduleId,
     safeText(prepared?.preview_url || manifest?.open_url),
-    sessionMeta?.preview_profile || readCachedStudentProfile()
+    sessionMeta?.preview_profile || readCachedStudentProfile(),
+    runtimeTag
   )
   emit('navigate', {
     view: 'more_module_host',
@@ -301,6 +318,19 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
       channel: safeText(prepared?.channel || moduleChannel.value),
       local_ready: prepared?.local_ready !== false,
       source: safeText(prepared?.source || ''),
+      preview_mode: previewMode,
+      open_url: safeText(prepared?.open_url || manifest?.open_url),
+      package_url: safeText(prepared?.package_url || manifest?.package_url),
+      package_urls: Array.isArray(prepared?.package_urls)
+        ? prepared.package_urls
+        : Array.isArray(manifest?.package_urls)
+          ? manifest.package_urls
+          : [],
+      entry_path: safeText(prepared?.requested_entry_path || prepared?.entry_path || manifest?.entry_path || 'index.html'),
+      resolved_entry_path: safeText(prepared?.resolved_entry_path || ''),
+      local_preview_url: safeText(prepared?.local_preview_url || ''),
+      site_root_path: safeText(prepared?.site_root_path || ''),
+      bundle_zip_path: safeText(prepared?.bundle_zip_path || ''),
       cache_dir: safeText(prepared?.cache_dir || ''),
       bundle_path: safeText(prepared?.bundle_path || ''),
       manifest_url: safeText(sessionMeta?.manifest_url || manifest?.url || moduleItem?.manifest_url),
