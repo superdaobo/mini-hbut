@@ -25,22 +25,29 @@ const hasNativeCapacitor = () => {
   return !!raw && raw !== 'web'
 }
 
+const isLoopbackHost = (host: string) =>
+  host === 'localhost' ||
+  host.startsWith('localhost:') ||
+  host === '127.0.0.1' ||
+  host.startsWith('127.0.0.1:')
+
+const isMobileUserAgent = () => {
+  const ua = String(globalThis?.navigator?.userAgent || '')
+  return /(android|iphone|ipad|ipod)/i.test(ua)
+}
+
 const looksLikePackagedCapacitorHost = () => {
   if (typeof window === 'undefined') return false
+  const w = window as any
   const protocol = String(window.location?.protocol || '').toLowerCase()
   const host = String(window.location?.host || '').toLowerCase()
   if (protocol !== 'http:' && protocol !== 'https:') return false
-  if (
-    host !== 'localhost' &&
-    !host.startsWith('localhost:') &&
-    host !== '127.0.0.1' &&
-    !host.startsWith('127.0.0.1:')
-  ) {
-    return false
-  }
+  if (!isLoopbackHost(host)) return false
+  if (!isMobileUserAgent()) return false
   const ua = String(globalThis?.navigator?.userAgent || '')
-  const isMobileUa = /(android|iphone|ipad|ipod)/i.test(ua)
-  return isMobileUa && !import.meta.env.DEV
+  const hasWebViewMarker = /;\s*wv\)/i.test(ua)
+  const hasCapacitorBridge = !!w.Capacitor
+  return hasCapacitorBridge || hasWebViewMarker
 }
 
 const isTauriRuntime = () => {
@@ -53,6 +60,8 @@ const isTauriRuntime = () => {
   const protocol = window.location?.protocol || ''
   const host = window.location?.host || ''
   if (protocol === 'tauri:' || host === 'tauri.localhost') return true
+  // 安卓/iOS 的 loopback WebView（含 dev live reload）一律不判定为 Tauri。
+  if (looksLikePackagedCapacitorHost()) return false
   // Tauri v2 默认不注入 window.__TAURI__，但 __TAURI_INTERNALS__.invoke 通常可用。
   if (hasInternalInvoke) return true
   return hasTauriApi && hasInternalMarker

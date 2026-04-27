@@ -12,6 +12,7 @@ import {
   fetchModuleManifest,
   getLocalModuleState,
   getModuleCdnBase,
+  isLocalModuleBridgePreviewUrl,
   prepareModuleBundle,
   resolveModuleChannel,
   resolveModuleHostPreviewSource
@@ -335,7 +336,14 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
           : 'module-host'
   const previewUrl = appendModuleContextQuery(
     moduleId,
-    safeText(resolvedPreviewUrl || (isTauriRuntime() ? sessionPayload.preview_url || manifest?.open_url : '')),
+    safeText(
+      (() => {
+        const fallback = isTauriRuntime() ? sessionPayload.preview_url || manifest?.open_url : ''
+        const candidate = resolvedPreviewUrl || fallback
+        if (!isTauriRuntime() && isLocalModuleBridgePreviewUrl(candidate)) return ''
+        return candidate
+      })()
+    ),
     sessionMeta?.preview_profile || readCachedStudentProfile(),
     runtimeTag
   )
