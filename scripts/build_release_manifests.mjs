@@ -28,7 +28,7 @@ function ensureDir(dir) {
 
 function removePath(targetPath) {
   if (!targetPath || !fs.existsSync(targetPath)) return
-  fs.rmSync(targetPath, { recursive: true, force: true })
+  fs.rmSync(targetPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }
 
 function readJsonIfExists(filePath) {
@@ -440,6 +440,26 @@ function buildStableHistory(stableEntries) {
   }
 }
 
+function pruneReleaseDirectories({ stableTag, keepDevLatest }) {
+  if (!fs.existsSync(RELEASES_ROOT)) return
+
+  const keepDirs = new Set(['latest'])
+  if (stableTag) keepDirs.add(stableTag)
+  if (keepDevLatest) keepDirs.add('dev-latest')
+
+  const removed = []
+  const entries = fs.readdirSync(RELEASES_ROOT, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+  for (const entry of entries) {
+    if (keepDirs.has(entry.name)) continue
+    removePath(path.join(RELEASES_ROOT, entry.name))
+    removed.push(entry.name)
+  }
+
+  if (removed.length) {
+    console.log(`[build_release_manifests] pruned stale release directories: ${removed.join(', ')}`)
+  }
+}
+
 async function main() {
   ensureDir(RELEASES_ROOT)
 
@@ -461,7 +481,6 @@ async function main() {
   const stableDir = stableTag ? path.join(RELEASES_ROOT, stableTag) : ''
   const devDir = path.join(RELEASES_ROOT, 'dev-latest')
   const devVersion = pickDevVersion(devDir, existingDev)
-  const devHistoryDir = devVersion ? path.join(RELEASES_ROOT, devVersion) : ''
 
   const stableManifest = stableTag
     ? buildManifest({
@@ -487,6 +506,12 @@ async function main() {
     updateNow: CURRENT_CHANNEL === 'dev'
   })
 
+  // EdgeOne 构建磁盘有限，只保留最新 stable/main 和最新 dev 安装包目录。
+  pruneReleaseDirectories({
+    stableTag,
+    keepDevLatest: !!devManifest
+  })
+
   if (stableManifest && stableDir) {
     writeJson(path.join(stableDir, 'manifest.json'), stableManifest)
     writeJson(stableAliasPath, stableManifest)
@@ -496,14 +521,6 @@ async function main() {
 
   if (devManifest) {
     writeJson(path.join(devDir, 'manifest.json'), devManifest)
-    if (devHistoryDir && fs.existsSync(devHistoryDir)) {
-      writeJson(path.join(devHistoryDir, 'manifest.json'), {
-        ...devManifest,
-        tag: devVersion,
-        version: devVersion,
-        downloadDir: devVersion
-      })
-    }
     writeJson(devAliasPath, devManifest)
   } else if (fs.existsSync(devAliasPath)) {
     fs.rmSync(devAliasPath, { force: true })

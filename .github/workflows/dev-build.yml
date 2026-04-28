@@ -843,22 +843,15 @@ jobs:
           BUNDLE_ROOT="dev-assets" BASELINE_DIR="$BASELINE_DIR" node scripts/report_bundle_sizes.mjs
 
       - name: Copy dev assets for CDN
-        env:
-          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: |
           set -euo pipefail
           LATEST_DEST="website/public/releases/dev-latest"
-          HISTORY_DEST="website/public/releases/${BETA_VERSION}"
-          rm -rf "$LATEST_DEST" "$HISTORY_DEST"
-          mkdir -p "$LATEST_DEST" "$HISTORY_DEST"
+          rm -rf "$LATEST_DEST"
+          mkdir -p "$LATEST_DEST"
           cp dev-assets/* "$LATEST_DEST/"
-          cp dev-assets/* "$HISTORY_DEST/"
           find "$LATEST_DEST" -size +25M -delete
-          find "$HISTORY_DEST" -size +25M -delete
           echo "Dev latest assets for CDN (<=25MB):"
           ls -lh "$LATEST_DEST"
-          echo "Dev history assets for CDN (<=25MB):"
-          ls -lh "$HISTORY_DEST"
 
       - name: Generate release manifests
         env:
