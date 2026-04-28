@@ -1,25 +1,50 @@
-﻿const REPO = 'superdaobo/mini-hbut';
+import fs from 'node:fs';
+
+const REPO = 'superdaobo/mini-hbut';
 const PROXY_PREFIX = 'https://gh-proxy.com/';
 const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz';
+const LOCAL_STABLE_MANIFEST = new URL('../public/releases/stable-latest.json', import.meta.url);
 
 function toProxy(url) {
-  return url.startsWith(PROXY_PREFIX) ? url : `${PROXY_PREFIX}${url}`;
+  if (url.startsWith(PROXY_PREFIX)) return url;
+  if (url.startsWith('https://github.com/') || url.startsWith('https://api.github.com/')) {
+    return `${PROXY_PREFIX}${url}`;
+  }
+  return url;
 }
 
 function normalizeVersion(tag) {
   return String(tag || '').replace(/^v/i, '').trim();
 }
 
+function normalizeManifestAsRelease(manifest) {
+  if (!manifest?.tag || !manifest?.assets) return null;
+  const tag = String(manifest.tag || '').trim();
+  const downloadDir = String(manifest.downloadDir || tag).trim() || tag;
+  const assets = Object.values(manifest.assets)
+    .filter(Boolean)
+    .map((filename) => ({
+      name: filename,
+      browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`,
+    }));
+
+  return {
+    tag_name: tag,
+    version: manifest.version,
+    assets,
+    channel: manifest.channel,
+  };
+}
+
 function fallbackLinks(version) {
   const base = `https://github.com/${REPO}/releases/download/v${version}`;
   return {
     windowsExe: toProxy(`${base}/Mini-HBUT_${version}_x64-setup.exe`),
-    windowsMsi: toProxy(`${base}/Mini-HBUT_${version}_x64_en-US.msi`),
     macDmg: toProxy(`${base}/Mini-HBUT_${version}_universal.dmg`),
     androidApk: toProxy(`${base}/Mini-HBUT_${version}_arm64.apk`),
     iosIpa: toProxy(`${base}/Mini-HBUT_${version}_iOS.ipa`),
     linuxAppImage: toProxy(`${base}/Mini-HBUT_${version}_amd64.AppImage`),
-    linuxDeb: toProxy(`${base}/Mini-HBUT_${version}_amd64.deb`),
   };
 }
 
@@ -38,6 +63,16 @@ function applyAsset(links, asset) {
 }
 
 async function fetchLatest() {
+  try {
+    if (fs.existsSync(LOCAL_STABLE_MANIFEST)) {
+      const manifest = JSON.parse(fs.readFileSync(LOCAL_STABLE_MANIFEST, 'utf8'));
+      const release = normalizeManifestAsRelease(manifest);
+      if (release) return release;
+    }
+  } catch (e) {
+    console.warn('local stable manifest unavailable:', String(e));
+  }
+
   const endpoints = [toProxy(LATEST_API), LATEST_API];
   let lastError = null;
 
@@ -73,14 +108,15 @@ async function testUrl(name, url) {
 
 async function main() {
   const release = await fetchLatest();
-  const version = normalizeVersion(release?.tag_name);
-  if (!version) throw new Error('missing latest release tag_name');
+  const version = normalizeVersion(release?.version || release?.tag_name);
+  if (!version) throw new Error('missing latest release version');
 
   const links = fallbackLinks(version);
   const assets = Array.isArray(release?.assets) ? release.assets : [];
   for (const asset of assets) applyAsset(links, asset);
 
-  const keys = [
+  const requiredKeys = ['windowsExe', 'macDmg', 'androidApk', 'iosIpa', 'linuxAppImage'];
+  const orderedKeys = [
     'windowsExe',
     'windowsMsi',
     'macDmg',
@@ -90,11 +126,12 @@ async function main() {
     'linuxDeb',
   ];
 
-  const missing = keys.filter((key) => !links[key]);
+  const missing = requiredKeys.filter((key) => !links[key]);
   if (missing.length) {
     throw new Error(`missing links: ${missing.join(', ')}`);
   }
 
+  const keys = orderedKeys.filter((key) => links[key]);
   const results = [];
   for (const key of keys) {
     // eslint-disable-next-line no-await-in-loop

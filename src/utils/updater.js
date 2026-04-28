@@ -8,8 +8,7 @@ const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
-const ACTIVE_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/active.json` : ''
-const LATEST_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/latest.json` : ''
+const STABLE_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/stable-latest.json` : ''
 const API_PROXIES = [
   `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
@@ -312,27 +311,16 @@ const normalizeCdnManifestAsRelease = (manifest) => {
 }
 
 async function fetchReleaseInfo(currentVersion) {
-  if (ACTIVE_MANIFEST_URL) {
+  if (STABLE_MANIFEST_URL) {
     try {
-      const manifest = await fetchJson(ACTIVE_MANIFEST_URL, 6000)
+      // 自动更新只允许读取稳定版 manifest，避免 dev alias 触发错误下载。
+      const manifest = await fetchJson(STABLE_MANIFEST_URL, 6000)
       const release = normalizeCdnManifestAsRelease(manifest)
       if (release && shouldOfferRelease(release, currentVersion)) {
         return release
       }
     } catch (_) {
-      // active manifest 不可用，继续 fallback
-    }
-  }
-
-  if (LATEST_MANIFEST_URL) {
-    try {
-      const manifest = await fetchJson(LATEST_MANIFEST_URL, 6000)
-      const release = normalizeCdnManifestAsRelease(manifest)
-      if (release && shouldOfferRelease(release, currentVersion)) {
-        return release
-      }
-    } catch (_) {
-      // latest manifest 不可用，继续 fallback
+      // stable manifest 不可用，继续 fallback
     }
   }
 

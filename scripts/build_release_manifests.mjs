@@ -75,11 +75,6 @@ function parseVersionFromFileName(fileName) {
   return safeText(match?.[1] || '')
 }
 
-function parseTimestamp(value) {
-  const ts = Date.parse(safeText(value))
-  return Number.isFinite(ts) ? ts : 0
-}
-
 function compareSemverLike(left, right) {
   const parse = (input) => {
     const raw = safeText(input).replace(/^v/i, '')
@@ -385,39 +380,6 @@ function buildManifest({
   }
 }
 
-function compareManifestFreshness(left, right) {
-  if (left && !right) return 1
-  if (right && !left) return -1
-  if (!left && !right) return 0
-
-  const leftTs = parseTimestamp(left.generatedAt)
-  const rightTs = parseTimestamp(right.generatedAt)
-  if (leftTs !== rightTs) {
-    return leftTs - rightTs
-  }
-
-  const versionCompare = compareSemverLike(
-    safeText(left.version || left.tag),
-    safeText(right.version || right.tag)
-  )
-  if (versionCompare !== 0) {
-    return versionCompare
-  }
-
-  if (safeText(left.channel) === CURRENT_CHANNEL && safeText(right.channel) !== CURRENT_CHANNEL) {
-    return 1
-  }
-  if (safeText(right.channel) === CURRENT_CHANNEL && safeText(left.channel) !== CURRENT_CHANNEL) {
-    return -1
-  }
-
-  return 0
-}
-
-function pickLatestManifest(stableManifest, devManifest) {
-  return compareManifestFreshness(stableManifest, devManifest) >= 0 ? stableManifest : devManifest
-}
-
 function copyAliasAssets(sourceDir, targetDir) {
   removePath(targetDir)
   ensureDir(targetDir)
@@ -547,13 +509,11 @@ async function main() {
     fs.rmSync(devAliasPath, { force: true })
   }
 
-  const latestSourceManifest = pickLatestManifest(stableManifest, devManifest)
+  // 主站首页和自动更新只允许 stable/main，latest/active 绝不再指向 dev。
+  const latestSourceManifest = stableManifest
   const latestManifest = buildLatestAliasManifest(latestSourceManifest)
 
-  if (latestManifest) {
-    const latestSourceDir =
-      safeText(latestSourceManifest?.channel) === 'dev' ? devDir : stableDir
-    copyAliasAssets(latestSourceDir, latestDir)
+  if (latestManifest && stableDir && copyAliasAssets(stableDir, latestDir)) {
     writeJson(path.join(latestDir, 'manifest.json'), latestManifest)
     writeJson(latestAliasPath, latestManifest)
     writeJson(activePath, {

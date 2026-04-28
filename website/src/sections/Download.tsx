@@ -63,6 +63,7 @@ type LatestRelease = {
   version?: string;
   assets?: ReleaseAsset[];
   channel?: string;
+  source?: 'stable-manifest' | 'github-api';
 };
 
 type ReleaseManifest = {
@@ -94,7 +95,7 @@ const downloadProxyPrefixes = [
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz';
-const ACTIVE_MANIFEST_JSON = `${EDGEONE_CDN_BASE}/releases/active.json`;
+const STABLE_MANIFEST_JSON = `${EDGEONE_CDN_BASE}/releases/stable-latest.json`;
 
 const uniqueUrls = (list: string[]): string[] => {
   const seen = new Set<string>();
@@ -178,6 +179,12 @@ function getHostLabel(rawUrl: string): string {
   }
 }
 
+function normalizeReleaseChannel(channel?: string): string {
+  const value = String(channel || '').trim().toLowerCase();
+  if (!value || value === 'stable' || value === 'release') return 'main';
+  return value;
+}
+
 function assignLink(
   links: ReleaseLinks,
   primaryKey: LinkPrimaryKey,
@@ -188,6 +195,62 @@ function assignLink(
   if (!candidates.length) return;
   links[primaryKey] = candidates[0];
   links[candidatesKey] = candidates;
+}
+
+function applyExpectedAssetFallbacks(links: ReleaseLinks, versionOrTag: string): void {
+  const version = String(versionOrTag || '').replace(/^v/i, '').trim();
+  if (!version) return;
+
+  const releaseBase = `https://github.com/${REPO}/releases/download/v${version}`;
+
+  if (!links.windowsExe) {
+    assignLink(
+      links,
+      'windowsExe',
+      'windowsExeCandidates',
+      `${releaseBase}/Mini-HBUT_${version}_x64-setup.exe`
+    );
+  }
+  if (!links.windowsMsi) {
+    assignLink(
+      links,
+      'windowsMsi',
+      'windowsMsiCandidates',
+      `${releaseBase}/Mini-HBUT_${version}_x64_en-US.msi`
+    );
+  }
+  if (!links.macDmg) {
+    assignLink(
+      links,
+      'macDmg',
+      'macDmgCandidates',
+      `${releaseBase}/Mini-HBUT_${version}_universal.dmg`
+    );
+  }
+  if (!links.androidApk) {
+    assignLink(
+      links,
+      'androidApk',
+      'androidApkCandidates',
+      `${releaseBase}/Mini-HBUT_${version}_arm64.apk`
+    );
+  }
+  if (!links.iosIpa) {
+    assignLink(
+      links,
+      'iosIpa',
+      'iosIpaCandidates',
+      `${releaseBase}/Mini-HBUT_${version}_iOS.ipa`
+    );
+  }
+  if (!links.linuxAppImage) {
+    assignLink(
+      links,
+      'linuxAppImage',
+      'linuxAppImageCandidates',
+      `${releaseBase}/Mini-HBUT_${version}_amd64.AppImage`
+    );
+  }
 }
 
 function applyAssetLink(links: ReleaseLinks, assetNameRaw: string, assetUrlRaw: string): boolean {
@@ -330,8 +393,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 12000): Promise<T
 async function fetchLatestReleaseJson(): Promise<LatestRelease> {
   if (EDGEONE_CDN_BASE) {
     try {
+      // 首页下载入口只允许稳定版，避免 dev alias 污染主站展示与下载。
       const resp = await withTimeout(
-        fetch(ACTIVE_MANIFEST_JSON, { cache: 'no-store' }),
+        fetch(STABLE_MANIFEST_JSON, { cache: 'no-store' }),
         8000
       );
       if (resp.ok) {
@@ -349,46 +413,14 @@ async function fetchLatestReleaseJson(): Promise<LatestRelease> {
           return {
             tag_name: tag,
             version: manifest.version,
-            channel: manifest.channel,
+            channel: normalizeReleaseChannel(manifest.channel),
+            source: 'stable-manifest',
             assets,
           };
         }
       }
     } catch {
-      // active manifest 失败，继续回退
-    }
-  }
-
-  // 优先从 CDN manifest 获取（无 CORS 问题，同源请求）
-  if (EDGEONE_CDN_BASE) {
-    try {
-      const manifestUrl = `${EDGEONE_CDN_BASE}/releases/latest.json`;
-      const resp = await withTimeout(
-        fetch(manifestUrl, { cache: 'no-store' }),
-        8000
-      );
-      if (resp.ok) {
-        const manifest = (await resp.json()) as ReleaseManifest;
-        if (manifest?.tag && manifest?.assets) {
-          const tag = manifest.tag;
-          const downloadDir = String(manifest.downloadDir || tag).trim() || tag;
-          const assets: ReleaseAsset[] = Object.values(manifest.assets)
-            .filter(Boolean)
-            .map((filename) => ({
-              name: filename as string,
-              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`,
-              download_count: 0,
-            }));
-          return {
-            tag_name: tag,
-            version: manifest.version,
-            channel: manifest.channel,
-            assets,
-          };
-        }
-      }
-    } catch {
-      // CDN manifest 失败，回退到 GitHub API
+      // stable manifest 失败，回退到 GitHub API
     }
   }
 
@@ -404,7 +436,10 @@ async function fetchLatestReleaseJson(): Promise<LatestRelease> {
         12000
       );
       if (!resp.ok) throw new Error(`${endpoint} => ${resp.status}`);
-      return (await resp.json()) as LatestRelease;
+      return {
+        ...((await resp.json()) as LatestRelease),
+        source: 'github-api',
+      };
     } catch (e) {
       lastError = e;
     }
@@ -432,7 +467,7 @@ export default function DownloadSection() {
       const release = await fetchLatestReleaseJson();
       const tag = release.tag_name || '';
       setVersion(String(release.version || tag));
-      setChannel(String(release.channel || '').trim());
+      setChannel(normalizeReleaseChannel(release.channel));
 
       const assets = Array.isArray(release.assets) ? release.assets : [];
       if (!assets.length) throw new Error('release assets empty');
@@ -452,28 +487,8 @@ export default function DownloadSection() {
         throw new Error('no known asset matched');
       }
 
-      // EdgeOne CDN 优先注入：将 CDN 直链插入为各平台首选下载源
-      if (EDGEONE_CDN_BASE && tag) {
-        const cdnPairs: [LinkPrimaryKey, LinkCandidatesKey][] = [
-          ['windowsExe', 'windowsExeCandidates'],
-          ['windowsMsi', 'windowsMsiCandidates'],
-          ['macDmg', 'macDmgCandidates'],
-          ['androidApk', 'androidApkCandidates'],
-          ['iosIpa', 'iosIpaCandidates'],
-          ['linuxAppImage', 'linuxAppImageCandidates'],
-          ['linuxDeb', 'linuxDebCandidates'],
-        ];
-        for (const [pk, ck] of cdnPairs) {
-          const cands = links[ck];
-          if (!cands?.length) continue;
-          const src = extractGithubSourceUrl(cands[0]);
-          const fn = src.split('/').pop() || '';
-          if (!fn) continue;
-          const cdnUrl = `${EDGEONE_CDN_BASE}/releases/${tag}/${fn}`;
-          links[ck] = uniqueUrls([cdnUrl, ...cands]);
-          links[pk] = cdnUrl;
-        }
-      }
+      // CDN manifest 可能因单文件大小限制缺少大包，此时回退到 GitHub Release 正式版直链。
+      applyExpectedAssetFallbacks(links, release.version || tag);
 
       setPlatforms(buildPlatforms(links));
     } catch (e) {
