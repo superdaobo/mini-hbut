@@ -76,9 +76,17 @@ jobs:
               if [ "${#CHANGED_FILES[@]}" -eq 0 ]; then
                 echo "- No file changes detected."
               else
+                MAX_FILES=100
+                count=0
                 for file in "${CHANGED_FILES[@]}"; do
+                  if [ "$count" -ge "$MAX_FILES" ]; then
+                    REMAINING=$(( ${#CHANGED_FILES[@]} - MAX_FILES ))
+                    echo "- ... and $REMAINING more file(s) changed. See [compare range]($COMPARE_URL) for full details."
+                    break
+                  fi
                   DIFF_HASH="$(printf '%s' "$file" | sha256sum | cut -d ' ' -f1)"
                   echo "- [\`$file\`]($COMPARE_URL#diff-$DIFF_HASH)"
+                  count=$((count+1))
                 done
               fi
             fi
