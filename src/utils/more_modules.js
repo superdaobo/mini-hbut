@@ -1251,8 +1251,21 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
       sourceKind = PREVIEW_MODE_TAURI_LOCAL
     }
   } else if (localPreviewUrl) {
-    resolvedPreviewUrl = localPreviewUrl
-    sourceKind = PREVIEW_MODE_CAPACITOR_LOCAL
+    // Capacitor WebView 的 _capacitor_file_ 在 iframe 内加载 HTML 文档时
+    // 部分安卓/iOS 设备上 shouldInterceptRequest 不能正确拦截，
+    // 导致嵌入页面白屏或黑屏。优先使用远端 open_url，本地路径保留为离线降级。
+    if (
+      isCapacitorRuntime() &&
+      openUrl &&
+      isAbsoluteHttpUrl(openUrl) &&
+      !isLocalModuleBridgePreviewUrl(openUrl)
+    ) {
+      resolvedPreviewUrl = openUrl
+      sourceKind = PREVIEW_MODE_REMOTE
+    } else {
+      resolvedPreviewUrl = localPreviewUrl
+      sourceKind = PREVIEW_MODE_CAPACITOR_LOCAL
+    }
   } else if (
     rawPreviewUrl &&
     !isLocalModuleBridgePreviewUrl(rawPreviewUrl) &&

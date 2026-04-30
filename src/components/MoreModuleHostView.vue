@@ -18,9 +18,11 @@ const frameContentHeight = ref(0)
 const loading = ref(true)
 const loadError = ref('')
 const loadHint = ref('')
+const usedCapacitorLocalFallback = ref(false)
 
 let loadingGuardTimer = null
 let frameSizeHintTimer = null
+let capacitorFallbackTimer = null
 
 const safeText = (value) => String(value ?? '').trim()
 
@@ -49,6 +51,13 @@ const previewUrl = computed(() => {
     return ''
   }
   return raw
+})
+const capacitorLocalFallbackUrl = computed(() => {
+  if (usedCapacitorLocalFallback.value) return ''
+  const localUrl = safeText(resolvedPreviewSource.value?.localPreviewUrl || props.session?.local_preview_url)
+  if (!localUrl || localUrl === previewUrl.value) return ''
+  if (isLocalModuleBridgePreviewUrl(localUrl)) return ''
+  return localUrl
 })
 const ready = computed(() => !!previewUrl.value)
 const emptyStateMessage = computed(() => {
@@ -80,8 +89,15 @@ const withFrameCacheBust = (url, keyParts = []) => {
   return hashPart ? `${nextUrl}#${hashPart}` : nextUrl
 }
 
+const activePreviewUrl = computed(() => {
+  if (usedCapacitorLocalFallback.value) {
+    const localUrl = safeText(resolvedPreviewSource.value?.localPreviewUrl || props.session?.local_preview_url)
+    if (localUrl && !isLocalModuleBridgePreviewUrl(localUrl)) return localUrl
+  }
+  return previewUrl.value
+})
 const frameSrc = computed(() =>
-  withFrameCacheBust(previewUrl.value, [
+  withFrameCacheBust(activePreviewUrl.value, [
     moduleChannel.value || 'main',
     moduleVersion.value || 'unknown',
     String(frameKey.value)
@@ -144,6 +160,22 @@ const clearFrameSizeHintTimer = () => {
   }
 }
 
+const clearCapacitorFallbackTimer = () => {
+  if (capacitorFallbackTimer) {
+    clearTimeout(capacitorFallbackTimer)
+    capacitorFallbackTimer = null
+  }
+}
+
+const tryCapacitorLocalFallback = () => {
+  const fallbackUrl = capacitorLocalFallbackUrl.value
+  if (!fallbackUrl) return false
+  usedCapacitorLocalFallback.value = true
+  frameKey.value += 1
+  resetFrameState()
+  return true
+}
+
 const scheduleFrameSizeHint = () => {
   clearFrameSizeHintTimer()
   frameSizeHintTimer = window.setTimeout(() => {
@@ -155,6 +187,7 @@ const scheduleFrameSizeHint = () => {
 const resetFrameState = () => {
   clearLoadingGuardTimer()
   clearFrameSizeHintTimer()
+  clearCapacitorFallbackTimer()
   frameContentHeight.value = 0
   loading.value = ready.value
   loadError.value = ''
@@ -207,6 +240,9 @@ const handleLoad = () => {
 const handleError = () => {
   clearLoadingGuardTimer()
   clearFrameSizeHintTimer()
+  clearCapacitorFallbackTimer()
+  // 远端加载失败时尝试降级到本地 Capacitor 缓存
+  if (tryCapacitorLocalFallback()) return
   loading.value = false
   frameContentHeight.value = 0
   loadError.value =
@@ -232,6 +268,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearLoadingGuardTimer()
   clearFrameSizeHintTimer()
+  clearCapacitorFallbackTimer()
   window.removeEventListener('message', handleFrameSizeMessage)
 })
 </script>
