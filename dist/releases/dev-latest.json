@@ -1,0 +1,17 @@
+{
+  "version": "1.3.5-beta.25148556222",
+  "tag": "dev-latest",
+  "downloadDir": "dev-latest",
+  "prerelease": true,
+  "channel": "dev",
+  "generatedAt": "2026-04-30T05:21:25.190Z",
+  "sourceRef": "dev",
+  "sourceSha": "33ea2ddb1c1158db1ed45d68f9395763b879f735",
+  "assets": {
+    "android_apk": "Mini-HBUT_1.3.5-beta.25148556222_arm64.apk",
+    "ios_ipa": "Mini-HBUT_1.3.5-beta.25148556222_iOS.ipa",
+    "mac_zip": "Mini-HBUT_1.3.5-beta.25148556222_universal.app.zip",
+    "windows_msi": "Mini-HBUT_1.3.5-beta.25148556222_x64_en-US.msi",
+    "windows_exe": "Mini-HBUT_1.3.5-beta.25148556222_x64-setup.exe"
+  }
+}

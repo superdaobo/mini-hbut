@@ -1,0 +1,35 @@
+/app-resources/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+
+/releases/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+
+/releases/stable-latest.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/releases/latest.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/releases/dev-latest.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/releases/active.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/releases/channels.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/releases/history.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/releases/dev-latest/manifest.json
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+
+/modules/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *

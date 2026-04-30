@@ -1,0 +1,17 @@
+{
+  "version": "1.3.5",
+  "tag": "v1.3.5",
+  "downloadDir": "v1.3.5",
+  "prerelease": false,
+  "channel": "main",
+  "generatedAt": "2026-04-28T14:07:48.255Z",
+  "sourceRef": "main",
+  "sourceSha": "e6fa740eabb9bf59acfdd85acad124b0ab1b0231",
+  "assets": {
+    "android_apk": "Mini-HBUT_1.3.5_arm64.apk",
+    "ios_ipa": "Mini-HBUT_1.3.5_iOS.ipa",
+    "mac_dmg": "Mini-HBUT_1.3.5_universal.dmg",
+    "windows_msi": "Mini-HBUT_1.3.5_x64_en-US.msi",
+    "windows_exe": "Mini-HBUT_1.3.5_x64-setup.exe"
+  }
+}
