@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Releases from './pages/Releases';
+import Search from './pages/Search';
 import DocsLayout from './layouts/DocsLayout';
 import Overview from './pages/docs/Overview';
 import Guide from './pages/docs/Guide';
@@ -17,6 +18,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/releases" element={<Releases />} />
+        <Route path="/search" element={<Search />} />
         <Route path="/docs" element={<DocsLayout />}>
           <Route index element={<Overview />} />
           <Route path="guide" element={<Guide />} />
