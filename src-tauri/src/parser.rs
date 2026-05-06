@@ -219,6 +219,14 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
             .filter(|s| !s.is_empty());
 
         let course_code = item.get("kch")
+            .or_else(|| item.get("kcbh"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        // 课程编号 (kcbh)，用于关联已选课程数据
+        let kcbh = item.get("kcbh")
+            .or_else(|| item.get("kch"))
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
@@ -251,6 +259,8 @@ pub fn parse_grades(json: &Value) -> Result<Vec<Grade>, Box<dyn std::error::Erro
             sfsq,
             cjbj,
             teacher,
+            kcbh,
+            course_teacher: None,
         };
         grades.push(grade);
     }

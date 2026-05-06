@@ -167,6 +167,19 @@ const clearCapacitorFallbackTimer = () => {
   }
 }
 
+const scheduleFrameSizeFallback = () => {
+  // iOS WKWebView 有时不会发送 mini-hbut:module-size 消息，
+  // 超时后设置一个默认高度让 iframe 可见，避免黑屏
+  clearFrameSizeHintTimer()
+  frameSizeHintTimer = window.setTimeout(() => {
+    if (frameContentHeight.value > 0 || loadError.value) return
+    // 默认设为 800px 以保证内容可见，后续收到真实高度再调整
+    frameContentHeight.value = 800
+    loading.value = false
+    loadHint.value = '模块页面已加载，使用默认显示高度。'
+  }, 3500)
+}
+
 const tryCapacitorLocalFallback = () => {
   const fallbackUrl = capacitorLocalFallbackUrl.value
   if (!fallbackUrl) return false
@@ -174,6 +187,19 @@ const tryCapacitorLocalFallback = () => {
   frameKey.value += 1
   resetFrameState()
   return true
+}
+
+// Android 连接拒绝重试：检测到 127.0.0.1 连接失败时自动切换远程 URL
+const scheduleConnectionRefusedRetry = () => {
+  capacitorFallbackTimer = window.setTimeout(() => {
+    if (frameContentHeight.value > 0) return
+    if (usedCapacitorLocalFallback.value) return
+    const currentSrc = frameSrc.value
+    if (!currentSrc || !currentSrc.includes('127.0.0.1')) return
+    if (tryCapacitorLocalFallback()) {
+      loadHint.value = '本地桥接连接超时，切换到备用地址...'
+    }
+  }, 3000)
 }
 
 const scheduleFrameSizeHint = () => {
@@ -198,6 +224,8 @@ const resetFrameState = () => {
     if (!loading.value) return
     loading.value = false
     loadHint.value = '模块页面已开始渲染，正在等待模块上报真实高度。'
+    // 同时启动连接拒绝兜底（Android 场景）
+    scheduleConnectionRefusedRetry()
   }, 4500)
 }
 
@@ -230,10 +258,12 @@ const reloadFrame = () => {
 
 const handleLoad = () => {
   clearLoadingGuardTimer()
+  clearCapacitorFallbackTimer()
   loading.value = false
   loadError.value = ''
   if (!frameContentHeight.value) {
     scheduleFrameSizeHint()
+    scheduleFrameSizeFallback()
   }
 }
 
@@ -241,6 +271,12 @@ const handleError = () => {
   clearLoadingGuardTimer()
   clearFrameSizeHintTimer()
   clearCapacitorFallbackTimer()
+  clearFrameSizeHintTimer()
+  // 连接拒绝检测：本地桥接失败时尝试降级
+  const currentSrc = frameSrc.value
+  if (currentSrc && currentSrc.includes('127.0.0.1')) {
+    if (tryCapacitorLocalFallback()) return
+  }
   // 远端加载失败时尝试降级到本地 Capacitor 缓存
   if (tryCapacitorLocalFallback()) return
   loading.value = false
@@ -384,11 +420,14 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   isolation: isolate;
+  /* iOS 安全区：防止内嵌页面被状态栏/Home指示器遮挡 */
+  padding: 0;
 }
 
 .module-frame-shell--content {
   flex: 0 0 auto;
-  min-height: 0;
+  min-height: 200px;
+  overflow: visible;
 }
 
 .module-loading-overlay {
@@ -408,9 +447,9 @@ onBeforeUnmount(() => {
   flex: 1;
   width: 100%;
   height: 100%;
-  min-height: 0;
+  min-height: 400px;
   border: 0;
-  background: #0b1120;
+  background: transparent;
 }
 
 .module-frame--content {

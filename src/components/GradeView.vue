@@ -102,16 +102,24 @@ const resolveCourseNatureLabel = (grade) => {
   return toSafeText(grade.course_nature || grade.kcxzmc || codes[0] || '')
 }
 
-const resolveTeacherName = (grade) => {
+const resolveCardTeacherName = (grade) => {
+  // 首页卡片：优先显示录入教师(cjlrjsxm)，为空则显示课程教师(course_teacher)
   if (!grade || typeof grade !== 'object') return ''
-  return String(
-    grade.teacher ??
-      grade.cjlrjsxm ??
-      grade.jsxm ??
-      grade.teacher_name ??
-      ''
-  )
-    .trim()
+  const entryTeacher = grade.teacher ?? grade.cjlrjsxm ?? grade.jsxm ?? ''
+  if (String(entryTeacher).trim()) return String(entryTeacher).trim()
+  return String(grade.course_teacher ?? grade.courseTeacher ?? '').trim()
+}
+
+const resolveCourseTeacherName = (grade) => {
+  // 详情页课程教师：只取课程教师数据
+  if (!grade || typeof grade !== 'object') return ''
+  return String(grade.course_teacher ?? grade.courseTeacher ?? '').trim()
+}
+
+const resolveEntryTeacherName = (grade) => {
+  // 详情页录入教师：只取原始录入教师(cjlrjsxm)
+  if (!grade || typeof grade !== 'object') return ''
+  return String(grade.teacher ?? grade.cjlrjsxm ?? grade.jsxm ?? '').trim()
 }
 
 const resolveStatusTags = (grade, scoreText, scoreNumber) => {
@@ -491,8 +499,8 @@ watch(
                   {{ tag.label }}
                 </span>
               </div>
-              <div class="card-teacher" v-if="grade.teacher">
-                👨‍🏫 {{ grade.teacher }}
+              <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
+                👨‍🏫 {{ resolveCardTeacherName(grade) }}
               </div>
             </div>
           </div>
@@ -501,8 +509,8 @@ watch(
 
       <template v-else>
         <div class="grade-grid">
-          <div 
-            v-for="grade in sortedGrades" 
+          <div
+            v-for="grade in sortedGrades"
             :key="`all-${grade.term}-${grade.course_name}-${grade.originIndex}`"
             class="grade-card"
             :class="getScoreClass(grade.final_score)"
@@ -525,8 +533,8 @@ watch(
                 {{ tag.label }}
               </span>
             </div>
-            <div class="card-teacher" v-if="grade.teacher">
-              👨‍🏫 {{ grade.teacher }}
+            <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
+              👨‍🏫 {{ resolveCardTeacherName(grade) }}
             </div>
           </div>
         </div>
@@ -577,7 +585,11 @@ watch(
             </div>
             <div class="detail-item">
               <span class="detail-label">录入教师</span>
-              <span class="detail-value">{{ selectedGrade.teacher || '-' }}</span>
+              <span class="detail-value">{{ resolveEntryTeacherName(selectedGrade) || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">课程教师</span>
+              <span class="detail-value">{{ resolveCourseTeacherName(selectedGrade) || '-' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">是否挂科</span>

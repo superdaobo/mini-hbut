@@ -1984,6 +1984,9 @@ async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest
 
 async fn fetch_ranking(State(state): State<HttpState>, Json(req): Json<RankingRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
+    if !client.is_logged_in && client.user_info.is_none() {
+        return Err(err(StatusCode::UNAUTHORIZED, "未登录", "请先登录后再查询排名".to_string()));
+    }
     client.fetch_ranking(req.student_id.as_deref(), req.semester.as_deref()).await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))

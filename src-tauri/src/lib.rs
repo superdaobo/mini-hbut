@@ -253,6 +253,12 @@ pub struct Grade {
     pub sfsq: String,
     pub cjbj: String,
     pub teacher: Option<String>,
+    /// 课程编号，用于关联已选课程数据（如任课教师）
+    #[serde(default)]
+    pub kcbh: Option<String>,
+    /// 任课教师（从已选课程数据获取，不同于录入教师 cjlrjsxm）
+    #[serde(default)]
+    pub course_teacher: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3214,7 +3220,8 @@ async fn refresh_session(state: State<'_, AppState>) -> Result<UserInfo, String>
 async fn sync_grades(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    match client.fetch_grades().await {
+    // 使用增强版成绩查询，自动从已选课程获取任课教师
+    match client.fetch_grades_with_teachers().await {
         Ok(grades) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = serde_json::json!({

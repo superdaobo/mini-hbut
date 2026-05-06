@@ -22,6 +22,9 @@ const selectedSemester = ref('')
 const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
+const retryCount = ref(0)
+
+const MAX_RETRIES = 2
 
 // 获取学期列表
 const fetchSemesters = async () => {
@@ -43,37 +46,55 @@ const fetchSemesters = async () => {
   }
 }
 
-// 获取排名
-const fetchRanking = async () => {
+// 获取排名（带自动重试）
+const fetchRanking = async (forceRetry = false) => {
+  if (!forceRetry) retryCount.value = 0
   loading.value = true
   error.value = ''
-  
-  try {
-    const cacheKey = `ranking:${props.studentId}:${selectedSemester.value || 'all'}`
-    const { data } = await fetchWithCache(cacheKey, async () => {
-      const res = await axios.post(`${API_BASE}/v2/ranking`, {
-        student_id: props.studentId,
-        semester: selectedSemester.value
+
+  const doFetch = async (attempt) => {
+    try {
+      const cacheKey = `ranking:${props.studentId}:${selectedSemester.value || 'all'}`
+      const { data } = await fetchWithCache(cacheKey, async () => {
+        const res = await axios.post(`${API_BASE}/v2/ranking`, {
+          student_id: props.studentId,
+          semester: selectedSemester.value
+        })
+        return res.data
       })
-      return res.data
-    })
-    
-    if (data?.success) {
-      ranking.value = data.data || {}
-      offline.value = !!data.offline
-      syncTime.value = data.sync_time || ''
-    } else {
-      error.value = data?.error || '获取排名失败'
+
+      if (data?.success) {
+        ranking.value = data.data || {}
+        offline.value = !!data.offline
+        syncTime.value = data.sync_time || ''
+        return
+      }
+
+      // 若返回"会话已过期"尝试重试
+      const errMsg = data?.error || ''
+      if (attempt < MAX_RETRIES && (errMsg.includes('会话已过期') || errMsg.includes('登录'))) {
+        console.warn(`[Ranking] 会话过期，第${attempt + 1}次重试...`)
+        await new Promise(r => setTimeout(r, 800))
+        return doFetch(attempt + 1)
+      }
+      error.value = errMsg || '获取排名失败'
+    } catch (e) {
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[Ranking] 网络错误，第${attempt + 1}次重试:`, e)
+        await new Promise(r => setTimeout(r, 1000))
+        return doFetch(attempt + 1)
+      }
+      error.value = e.response?.data?.error || e.message || '网络错误，请稍后重试'
     }
-  } catch (e) {
-    error.value = e.response?.data?.error || '网络错误'
-  } finally {
-    loading.value = false
   }
+
+  await doFetch(0)
+  loading.value = false
 }
 
-// 切换学期
+// 切换学期（清空重试计数）
 const handleSemesterChange = () => {
+  retryCount.value = 0
   fetchRanking()
 }
 
