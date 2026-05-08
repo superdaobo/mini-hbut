@@ -80,31 +80,20 @@ object WidgetRenderer {
             }
         }
 
-        // ── PendingIntent：点击 widget 跳转到课表页 ──
-        val deepLinkUri = Uri.parse("minihbut://schedule")
-            .buildUpon()
-            .appendQueryParameter("date", date)
-            .appendQueryParameter("source", "widget")
-            .build()
-
-        // 使用 MAIN/LAUNCHER intent 作为兜底（确保能启动 App）
+        // ── PendingIntent：点击 widget 启动 App ──
+        // 直接使用 MAIN/LAUNCHER intent（最可靠的方式）
         val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-        val targetIntent = if (launchIntent != null) {
-            launchIntent.apply {
-                data = deepLinkUri
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            ?: Intent().apply {
+                setClassName(packageName, "${packageName}.MainActivity")
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
             }
-        } else {
-            Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
-                setPackage(packageName)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-        }
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
         val pendingIntent = PendingIntent.getActivity(
             context,
             appWidgetId,
-            targetIntent,
+            launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 

@@ -8,16 +8,16 @@
     android:paddingTop="6dp"
     android:paddingBottom="6dp">
 
-    <!-- 节次徽标 -->
+    <!-- 节次 -->
     <TextView
         android:id="@+id/widget_item_period"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:gravity="center"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:textColor="@color/widget_accent"
-        android:textSize="12sp"
+        android:textSize="13sp"
         android:textStyle="bold"
-        android:background="@drawable/widget_period_badge" />
+        android:paddingEnd="8dp"
+        android:minWidth="36dp" />
 
     <!-- 时间 -->
     <TextView
@@ -26,7 +26,6 @@
         android:layout_height="wrap_content"
         android:textColor="@color/widget_text_secondary"
         android:textSize="12sp"
-        android:paddingStart="8dp"
         android:paddingEnd="8dp" />
 
     <!-- 课程名 -->
@@ -50,11 +49,6 @@
         android:textColor="@color/widget_text_secondary"
         android:textSize="11sp"
         android:maxLines="1"
-        android:ellipsize="end"
-        android:background="@drawable/widget_badge_bg"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="2dp" />
+        android:ellipsize="end" />
 
 </LinearLayout>

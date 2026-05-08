@@ -189,6 +189,12 @@ jobs:
       - name: Sync Android icons
         run: node scripts/sync_tauri_platform_icons.mjs android
 
+      - name: Fix Android adaptive icon padding
+        run: |
+          python -m pip install --upgrade pip
+          pip install Pillow
+          python scripts/fix_android_adaptive_icons.py
+
       - name: Patch Android widget support
         run: python scripts/patch_android_widget.py
 

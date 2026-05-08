@@ -32,7 +32,51 @@ const isPassed = (examDate) => {
   return date < today
 }
 
-// 处理后的考试列表：未考最早的排最前，已考的排最后且灰色
+// 格式化考试时间：只保留时间部分（如 "10:00~12:00"），去掉重复的日期
+const formatExamTime = (timeStr) => {
+  if (!timeStr) return ''
+  const text = String(timeStr).trim()
+  // 匹配 "YYYY-MM-DD HH:mm~HH:mm" 或 "MM-DD HH:mm~HH:mm" 格式，只取时间部分
+  const match = text.match(/(\d{1,2}:\d{2})\s*[~～-]\s*(\d{1,2}:\d{2})/)
+  if (match) return `${match[1]}~${match[2]}`
+  // 如果只有时间
+  const timeOnly = text.match(/^\d{1,2}:\d{2}/)
+  if (timeOnly) return text
+  return text
+}
+
+// 格式化考试日期：YYYY-MM-DD
+const formatExamDate = (dateStr) => {
+  if (!dateStr) return ''
+  const text = String(dateStr).trim()
+  const match = text.match(/(\d{4})-(\d{2})-(\d{2})/)
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`
+  return text
+}
+
+// 计算距离考试的天数
+const daysUntilExam = (examDate) => {
+  if (!examDate) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const date = new Date(examDate)
+  date.setHours(0, 0, 0, 0)
+  const diff = Math.ceil((date - today) / (1000 * 60 * 60 * 24))
+  return diff
+}
+
+// 获取倒计时标签
+const getCountdownLabel = (examDate) => {
+  const days = daysUntilExam(examDate)
+  if (days === null) return ''
+  if (days === 0) return '今天'
+  if (days === 1) return '明天'
+  if (days < 0) return ''
+  if (days <= 7) return `${days}天后`
+  return ''
+}
+
+// 处理后的考试列表
 const processedExams = computed(() => {
   if (!exams.value) return []
   
@@ -47,18 +91,17 @@ const processedExams = computed(() => {
     }
   })
   
-  // 未考的：按日期升序（最早的在最前）
   future.sort((a, b) => new Date(a.exam_date) - new Date(b.exam_date))
-  
-  // 已考的：按日期降序（最近考完的在历史记录最前）
   passed.sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
   
   return [...future, ...passed]
 })
 
+const futureCount = computed(() => processedExams.value.filter(e => !isPassed(e.exam_date)).length)
+const passedCount = computed(() => processedExams.value.filter(e => isPassed(e.exam_date)).length)
+
 // 获取学期列表
 const fetchSemesters = async () => {
-// ... (rest of the functions)
   try {
     const { data } = await fetchWithCache('semesters', async () => {
       const res = await axios.get(`${API_BASE}/v2/semesters`)
@@ -106,7 +149,6 @@ const fetchExams = async () => {
   }
 }
 
-// 切换学期
 const handleSemesterChange = () => {
   fetchExams()
 }
@@ -119,7 +161,6 @@ onMounted(async () => {
 
 <template>
   <div class="exam-view">
-    <!-- 头部 -->
     <TPageHeader title="考试安排" icon="📝" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
@@ -134,17 +175,22 @@ onMounted(async () => {
       </IOSSelect>
     </div>
 
+    <!-- 统计摘要 -->
+    <div v-if="!loading && exams.length > 0" class="exam-summary">
+      <span class="summary-capsule capsule-upcoming" v-if="futureCount > 0">
+        🔥 待考 {{ futureCount }} 科
+      </span>
+      <span class="summary-capsule capsule-passed" v-if="passedCount > 0">
+        ✅ 已考 {{ passedCount }} 科
+      </span>
+    </div>
+
     <!-- 内容区 -->
     <div class="view-content">
-      <!-- 加载中 -->
       <TEmptyState v-if="loading" type="loading" message="正在获取考试安排..." />
-
-      <!-- 错误状态 -->
       <TEmptyState v-else-if="error" type="error" :message="error">
         <button class="btn" style="margin-top: 12px" @click="fetchExams">重试</button>
       </TEmptyState>
-
-      <!-- 无考试 -->
       <TEmptyState v-else-if="exams.length === 0" type="empty" message="本学期暂无考试安排" />
 
       <!-- 考试列表 -->
@@ -154,27 +200,39 @@ onMounted(async () => {
           :key="index" 
           :class="['exam-card', { 'is-passed': isPassed(exam.exam_date) }]"
         >
+          <!-- 卡片头部 -->
           <div class="exam-header">
-            <span class="exam-type" v-if="exam.exam_type">{{ exam.exam_type }}</span>
-            <span class="exam-status-badge" v-if="isPassed(exam.exam_date)">已结束</span>
-            <span class="course-name">{{ exam.course_name }}</span>
+            <div class="header-left">
+              <span class="exam-status-badge badge-passed" v-if="isPassed(exam.exam_date)">已结束</span>
+              <span class="exam-status-badge badge-upcoming" v-else-if="getCountdownLabel(exam.exam_date)">
+                {{ getCountdownLabel(exam.exam_date) }}
+              </span>
+              <span class="course-name">{{ exam.course_name }}</span>
+            </div>
+            <span class="exam-type-capsule" v-if="exam.exam_type">{{ exam.exam_type }}</span>
           </div>
+
+          <!-- 详情区域 -->
           <div class="exam-details">
-            <div class="detail-item" v-if="exam.exam_date">
-              <span class="icon">📅</span>
-              <span>{{ exam.exam_date }}</span>
+            <div class="detail-capsule capsule-date" v-if="exam.exam_date">
+              <span class="capsule-icon">📅</span>
+              <span class="capsule-label">日期：</span>
+              <span>{{ formatExamDate(exam.exam_date) }}</span>
             </div>
-            <div class="detail-item" v-if="exam.exam_time">
-              <span class="icon">⏰</span>
-              <span>{{ exam.exam_time }}</span>
+            <div class="detail-capsule capsule-time" v-if="exam.exam_time">
+              <span class="capsule-icon">⏰</span>
+              <span class="capsule-label">时间：</span>
+              <span>{{ formatExamTime(exam.exam_time) }}</span>
             </div>
-            <div class="detail-item" v-if="exam.location">
-              <span class="icon">📍</span>
+            <div class="detail-capsule capsule-location" v-if="exam.location">
+              <span class="capsule-icon">📍</span>
+              <span class="capsule-label">地点：</span>
               <span>{{ exam.location }}</span>
             </div>
-            <div class="detail-item" v-if="exam.seat_no">
-              <span class="icon">💺</span>
-              <span>座位号: {{ exam.seat_no }}</span>
+            <div class="detail-capsule capsule-seat" v-if="exam.seat_no">
+              <span class="capsule-icon">💺</span>
+              <span class="capsule-label">座位号：</span>
+              <span>{{ exam.seat_no }}</span>
             </div>
           </div>
         </div>
@@ -191,63 +249,12 @@ onMounted(async () => {
   color: var(--ui-text);
 }
 
-.view-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 24px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
-  box-shadow: var(--ui-shadow-soft);
-  margin-bottom: 16px;
-}
-
-.view-header h1 {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 20px;
-  margin: 0;
-  color: var(--ui-text);
-  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
-}
-
-.back-btn, .logout-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.back-btn {
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-}
-
-.back-btn:hover {
-  background: var(--ui-primary);
-  color: #ffffff;
-}
-
-.logout-btn {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.logout-btn:hover {
-  background: #dc2626;
-  color: white;
-}
-
 .semester-selector {
   background: var(--ui-surface);
   border: 1px solid var(--ui-surface-border);
   padding: 16px 24px;
   border-radius: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -259,92 +266,39 @@ onMounted(async () => {
   color: var(--ui-text);
 }
 
-.semester-selector select {
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--ui-surface-border);
-  font-size: 14px;
-  min-width: 180px;
-  cursor: pointer;
-  background: var(--ui-surface);
-  color: var(--ui-text);
+/* 统计摘要 */
+.exam-summary {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
-.semester-selector select:focus {
-  outline: none;
-  border-color: var(--ui-primary);
+.summary-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.capsule-upcoming {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.capsule-passed {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.2);
 }
 
 .view-content {
   max-width: 800px;
   margin: 0 auto;
-}
-
-.loading-state, .error-state, .empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 20px;
-  color: var(--ui-text);
-  box-shadow: var(--ui-shadow-soft);
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #e5e7eb;
-  border-top-color: var(--ui-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.error-icon, .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.error-state button {
-  margin-top: 16px;
-  padding: 10px 24px;
-  background: var(--ui-primary);
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-/* 已结束考试样式 */
-.exam-card.is-passed {
-  background: var(--ui-surface);
-  opacity: 0.8;
-  box-shadow: var(--ui-shadow-soft);
-  border: 1px dashed var(--ui-surface-border);
-}
-
-.exam-card.is-passed .course-name {
-  color: var(--ui-muted);
-}
-
-.exam-card.is-passed .exam-type {
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-}
-
-.exam-status-badge {
-  display: inline-block;
-  padding: 4px 10px;
-  background: rgba(148, 163, 184, 0.6);
-  color: #ffffff;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  margin-right: 12px;
 }
 
 .exam-list {
@@ -353,58 +307,213 @@ onMounted(async () => {
   gap: 12px;
 }
 
+/* 考试卡片 — 待考 */
 .exam-card {
   background: var(--ui-surface);
   border: 1px solid var(--ui-surface-border);
   border-radius: 16px;
-  padding: 14px 16px;
+  padding: 16px;
   box-shadow: var(--ui-shadow-soft);
+  border-left: 4px solid var(--ui-primary);
+  transition: all 0.2s;
 }
 
+/* 考试卡片 — 已结束（强对比） */
+.exam-card.is-passed {
+  background: var(--ui-surface);
+  opacity: 0.55;
+  border-left: 4px solid transparent;
+  border: 1px dashed var(--ui-surface-border);
+  box-shadow: none;
+}
+
+.exam-card.is-passed .course-name {
+  color: var(--ui-muted);
+  text-decoration: line-through;
+  text-decoration-color: rgba(148, 163, 184, 0.5);
+}
+
+.exam-card.is-passed .detail-capsule {
+  opacity: 0.6;
+}
+
+/* 卡片头部 */
 .exam-header {
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--ui-surface-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 8px;
 }
 
-.exam-type {
-  display: inline-block;
-  padding: 4px 10px;
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  margin-right: 12px;
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .course-name {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--ui-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.exam-details {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px 10px;
-}
-
-.detail-item {
-  display: flex;
+/* 状态徽章 */
+.exam-status-badge {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: var(--ui-muted);
-  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.detail-item .icon {
-  font-size: 16px;
+.badge-passed {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--ui-muted);
+}
+
+.badge-upcoming {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+  animation: pulse-soft 2s infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 考试类型胶囊 */
+.exam-type-capsule {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--ui-primary-soft);
+  color: var(--ui-primary);
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 详情区域 — 彩色胶囊（每行一个） */
+.exam-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.capsule-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.capsule-label {
+  color: inherit;
+  opacity: 0.7;
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.capsule-date {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.capsule-time {
+  background: rgba(168, 85, 247, 0.1);
+  color: #7c3aed;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.capsule-location {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.capsule-seat {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+/* 深色模式适配 */
+:root[data-theme="dark"] .capsule-date,
+.dark .capsule-date {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+:root[data-theme="dark"] .capsule-time,
+.dark .capsule-time {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a78bfa;
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+:root[data-theme="dark"] .capsule-location,
+.dark .capsule-location {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+:root[data-theme="dark"] .capsule-seat,
+.dark .capsule-seat {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+:root[data-theme="dark"] .badge-upcoming,
+.dark .badge-upcoming {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+:root[data-theme="dark"] .capsule-upcoming,
+.dark .capsule-upcoming {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.offline-banner {
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #b91c1c;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 @media (max-width: 640px) {
   .exam-card {
-    padding: 12px 14px;
+    padding: 14px;
   }
 
   .course-name {
@@ -412,26 +521,17 @@ onMounted(async () => {
   }
 
   .exam-details {
-    grid-template-columns: 1fr;
+    gap: 6px;
   }
-  
+
+  .detail-capsule {
+    font-size: 11px;
+    padding: 4px 10px;
+  }
+
   .semester-selector {
     flex-direction: column;
     align-items: flex-start;
   }
-  
-  .semester-selector select {
-    width: 100%;
-  }
-}
-
-.offline-banner {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
-  border-radius: 12px;
-  font-weight: 600;
 }
 </style>

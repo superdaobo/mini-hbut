@@ -186,6 +186,16 @@ const examSummary = computed(() => snapshot.value?.exams || {})
 const examItems = computed(() =>
   Array.isArray(examSummary.value?.upcoming) ? examSummary.value.upcoming : []
 )
+
+// 格式化考试时间：去掉重复的日期部分，只保留 HH:mm~HH:mm
+const formatNotifyExamTime = (timeStr) => {
+  if (!timeStr) return ''
+  const text = String(timeStr).trim()
+  const match = text.match(/(\d{1,2}:\d{2})\s*[~～-]\s*(\d{1,2}:\d{2})/)
+  if (match) return `${match[1]}~${match[2]}`
+  return text
+}
+
 const classSummary = computed(() => snapshot.value?.classReminder || {})
 const powerSummary = computed(() => snapshot.value?.electricity || {})
 
@@ -993,11 +1003,11 @@ watch(
             </div>
             <p class="hint">{{ classReminderText }}</p>
             <div class="kv">
-              <span>提醒提前</span>
+              <span class="mini-capsule mc-time">⏰ 提醒提前</span>
               <strong>{{ classLeadMinutes }} 分钟</strong>
             </div>
             <div class="kv">
-              <span>下一门课</span>
+              <span class="mini-capsule mc-location">📚 下一门课</span>
               <strong>{{ nextClassText }}</strong>
             </div>
           </template>
@@ -1007,22 +1017,22 @@ watch(
             <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
             <template v-if="powerSummary?.isDual">
               <div class="kv">
-                <span>💡 照明电量</span>
+                <span class="mini-capsule mc-seat">💡 照明电量</span>
                 <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
               </div>
               <div class="kv">
-                <span>❄️ 空调电量</span>
+                <span class="mini-capsule mc-date">❄️ 空调电量</span>
                 <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
               </div>
             </template>
             <template v-else>
               <div class="kv">
-                <span>剩余电量</span>
+                <span class="mini-capsule mc-seat">⚡ 剩余电量</span>
                 <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
               </div>
             </template>
             <div class="kv">
-              <span>状态</span>
+              <span class="mini-capsule mc-location">📊 状态</span>
               <strong>{{ powerStatusText }}</strong>
             </div>
           </template>
@@ -1033,7 +1043,10 @@ watch(
             <ul class="list" v-if="gradeItems.length">
               <li v-for="(item, idx) in gradeItems" :key="`${item.course_name}-${item.term}-${idx}`">
                 <span class="item-main">{{ item.course_name || '-' }}</span>
-                <span class="item-sub">{{ item.term || '未知学期' }} · {{ item.final_score || '-' }}</span>
+                <span class="item-sub-capsules">
+                  <span class="mini-capsule mc-date">📅 {{ item.term || '未知学期' }}</span>
+                  <span class="mini-capsule mc-time">📊 {{ item.final_score || '-' }}</span>
+                </span>
               </li>
             </ul>
             <p v-else class="empty">暂无成绩摘要</p>
@@ -1046,10 +1059,13 @@ watch(
               <li v-for="(item, idx) in examItems" :key="`${item.course_name}-${item.exam_date}-${idx}`">
                 <span class="item-main">
                   {{ item.course_name || '-' }}
-                  <small v-if="item.is_tomorrow" class="tag">明日</small>
+                  <small v-if="item.is_tomorrow" class="tag tag-urgent">明日</small>
                 </span>
-                <span class="item-sub">
-                  {{ item.exam_date || '日期待定' }} {{ item.exam_time || '' }} · {{ item.location || '地点待定' }}
+                <span class="item-sub-capsules">
+                  <span class="mini-capsule mc-date" v-if="item.exam_date">📅 {{ item.exam_date }}</span>
+                  <span class="mini-capsule mc-time" v-if="item.exam_time">⏰ {{ formatNotifyExamTime(item.exam_time) }}</span>
+                  <span class="mini-capsule mc-location" v-if="item.location">📍 {{ item.location }}</span>
+                  <span class="mini-capsule mc-seat" v-if="item.seat_no">💺 {{ item.seat_no }}</span>
                 </span>
               </li>
             </ul>
@@ -1561,6 +1577,47 @@ input:checked + .slider:before {
   color: var(--ui-muted);
 }
 
+.item-sub-capsules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.mini-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mc-date {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.mc-time {
+  background: rgba(168, 85, 247, 0.1);
+  color: #7c3aed;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.mc-location {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.mc-seat {
+  background: rgba(245, 158, 11, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
 .tag {
   border-radius: 999px;
   background: color-mix(in oklab, var(--ui-danger) 15%, #fff 85%);
@@ -1569,6 +1626,15 @@ input:checked + .slider:before {
   padding: 1px 6px;
   font-size: 10px;
   font-weight: 700;
+}
+
+.tag-urgent {
+  animation: pulse-tag 2s infinite;
+}
+
+@keyframes pulse-tag {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .empty {
