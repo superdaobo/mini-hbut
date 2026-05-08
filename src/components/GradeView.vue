@@ -173,7 +173,7 @@ const normalizedGrades = computed(() =>
       final_score: finalScore,
       scoreNumber,
       course_nature: resolveCourseNatureLabel(grade),
-      teacher: resolveTeacherName(grade),
+      teacher: resolveCardTeacherName(grade),
       statusTags: status.tags,
       isPass: status.isPass,
       isFailed: status.isFailed,

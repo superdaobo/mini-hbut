@@ -26,6 +26,7 @@ const CLASSROOM_DEFERRED_REFRESH_MS = 2500
 const loading = ref(false)
 const buildings = ref([])
 const classrooms = ref([])
+const displayLimit = ref(50) // 初始显示 50 条，避免大量 DOM 导致卡顿
 const errorMsg = ref('')
 const offline = ref(false)
 const syncTime = ref('')
@@ -36,6 +37,11 @@ const currentMeta = ref({
   semester: ''
 })
 const hasSuccessfulQuery = ref(false)
+
+// 显示的教室列表（带分页限制，避免大量 DOM 卡顿）
+const displayedClassrooms = computed(() => classrooms.value.slice(0, displayLimit.value))
+const hasMoreClassrooms = computed(() => classrooms.value.length > displayLimit.value)
+const showMoreClassrooms = () => { displayLimit.value += 50 }
 
 // 生命周期与并发保护：
 // 1) 组件卸载后不再写入响应数据，避免返回首页后被旧请求回写导致白屏
@@ -501,6 +507,7 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
 
     if (data?.success) {
       classrooms.value = safeArray(data.data)
+      displayLimit.value = 50 // 重置分页
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
       hasSuccessfulQuery.value = true
@@ -752,7 +759,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="classroom-list">
-        <div v-for="room in classrooms" :key="room.id" class="room-card">
+        <div v-for="room in displayedClassrooms" :key="room.id" class="room-card">
           <div class="card-top">
             <span class="room-seats">{{ room.seats }}座</span>
             <span class="room-type">{{ room.type }}</span>
@@ -767,6 +774,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
         
+        <!-- 加载更多按钮 -->
+        <div v-if="hasMoreClassrooms" class="load-more-container">
+          <button class="load-more-btn" @click="showMoreClassrooms">
+            加载更多（还有 {{ classrooms.length - displayLimit }} 间）
+          </button>
+        </div>
+
         <TEmptyState v-if="!loading && classrooms.length === 0 && !errorMsg" icon="🏢" message="当前条件下没有找到空教室" />
       </div>
     </div>
@@ -1029,6 +1043,29 @@ input {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 16px;
+}
+
+.load-more-container {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.load-more-btn {
+  padding: 10px 24px;
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-surface-border);
+  border-radius: 20px;
+  color: var(--ui-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.load-more-btn:active {
+  transform: scale(0.96);
+  background: var(--ui-surface-hover);
 }
 
 .room-card {

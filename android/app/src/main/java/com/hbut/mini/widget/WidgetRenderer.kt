@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
 
@@ -12,27 +13,18 @@ import org.json.JSONObject
  * Widget 渲染器 — 构建 RemoteViews 并推送到 AppWidgetManager。
  *
  * 职责：
- * - 设置 PendingIntent（点击跳转 minihbut://schedule?date=...&source=widget）
+ * - 从 WidgetDataStore 读取快照数据
+ * - 更新标题栏（周次 + 脱敏学号）
+ * - 设置 PendingIntent（点击跳转）
  * - 绑定 RemoteAdapter 到 ListView（课程列表）
- * - 推送 RemoteViews 到 AppWidgetManager
+ * - 处理无数据/未登录状态的占位显示
  */
 object WidgetRenderer {
 
-    /**
-     * 批量更新所有 widget 实例。
-     */
     fun updateWidgets(context: Context, appWidgetManager: AppWidgetManager, ids: IntArray) {
         ids.forEach { id -> updateWidget(context, appWidgetManager, id) }
     }
 
-    /**
-     * 根据当前快照数据构建 RemoteViews 并更新指定 widget 实例。
-     *
-     * - 从 WidgetDataStore 读取 snapshot 获取 date 字段
-     * - 构建 deep link URI: minihbut://schedule?date=YYYY-MM-DD&source=widget
-     * - 创建 PendingIntent 设置到根视图（点击整个 widget 跳转）
-     * - 设置 RemoteAdapter 绑定 ListView 到 TodayCoursesRemoteViewsService
-     */
     fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
         val packageName = context.packageName
         val layoutId = context.resources.getIdentifier(
@@ -41,27 +33,78 @@ object WidgetRenderer {
         if (layoutId == 0) return
 
         val views = RemoteViews(packageName, layoutId)
-
-        // ── 1. PendingIntent：点击 widget 跳转到课表页 ──
         val store = WidgetDataStore(context)
         val snapshotJson = store.readSnapshot()
-        val date = parseDateFromSnapshot(snapshotJson)
 
+        // ── 解析快照数据 ──
+        val snapshot = parseSnapshot(snapshotJson)
+        val date = snapshot?.optString("date", "") ?: ""
+        val weekIndex = snapshot?.optInt("week_index", 0) ?: 0
+        val studentId = snapshot?.optString("student_id", "") ?: ""
+        val courses = snapshot?.optJSONArray("courses")
+        val courseCount = courses?.length() ?: 0
+
+        // ── 更新标题栏 ──
+        val titleId = context.resources.getIdentifier("widget_title", "id", packageName)
+        val studentIdViewId = context.resources.getIdentifier("widget_student_id", "id", packageName)
+        val overflowId = context.resources.getIdentifier("widget_overflow_tag", "id", packageName)
+
+        if (titleId != 0) {
+            val titleText = if (weekIndex > 0 && date.isNotEmpty()) {
+                "今日课程 · 第 ${weekIndex} 周 · $date"
+            } else if (snapshot == null || studentId.isEmpty()) {
+                "请先在 Mini-HBUT 登录"
+            } else {
+                "今日课程"
+            }
+            views.setTextViewText(titleId, titleText)
+        }
+
+        if (studentIdViewId != 0) {
+            if (studentId.isNotEmpty()) {
+                views.setTextViewText(studentIdViewId, maskStudentId(studentId))
+                views.setViewVisibility(studentIdViewId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(studentIdViewId, View.GONE)
+            }
+        }
+
+        // ── 溢出角标 ──
+        if (overflowId != 0) {
+            val capacity = 3
+            if (courseCount > capacity) {
+                views.setTextViewText(overflowId, "+${courseCount - capacity} 节")
+                views.setViewVisibility(overflowId, View.VISIBLE)
+            } else {
+                views.setViewVisibility(overflowId, View.GONE)
+            }
+        }
+
+        // ── PendingIntent：点击 widget 跳转到课表页 ──
         val deepLinkUri = Uri.parse("minihbut://schedule")
             .buildUpon()
             .appendQueryParameter("date", date)
             .appendQueryParameter("source", "widget")
             .build()
 
-        val intent = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
-            setPackage(packageName) // 强制本应用处理
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        // 使用 MAIN/LAUNCHER intent 作为兜底（确保能启动 App）
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+        val targetIntent = if (launchIntent != null) {
+            launchIntent.apply {
+                data = deepLinkUri
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+        } else {
+            Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
+                setPackage(packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
         }
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            date.hashCode(), // requestCode 基于日期，确保每天更新
-            intent,
+            appWidgetId,
+            targetIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -70,30 +113,45 @@ object WidgetRenderer {
             views.setOnClickPendingIntent(rootId, pendingIntent)
         }
 
-        // ── 2. RemoteAdapter：绑定 ListView 到 RemoteViewsService ──
+        // ── RemoteAdapter：绑定 ListView 到 RemoteViewsService ──
         val listId = context.resources.getIdentifier("widget_list", "id", packageName)
         if (listId != 0) {
             val serviceIntent = Intent(context, TodayCoursesRemoteViewsService::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                // 使 Intent 唯一，避免多实例共享同一 Factory
                 data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
             }
             views.setRemoteAdapter(listId, serviceIntent)
+
+            // 设置 ListView 项的点击 PendingIntent 模板
+            views.setPendingIntentTemplate(listId, pendingIntent)
+        }
+
+        // ── 处理无课程状态 ──
+        val listVisibility = if (courseCount > 0) View.VISIBLE else View.GONE
+        if (listId != 0) {
+            views.setViewVisibility(listId, listVisibility)
         }
 
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 
     /**
-     * 从 snapshot JSON 中安全解析 date 字段。
-     * 返回 "YYYY-MM-DD" 格式字符串；解析失败时返回空串。
+     * 安全解析 snapshot JSON。
      */
-    private fun parseDateFromSnapshot(json: String?): String {
-        if (json.isNullOrBlank()) return ""
+    private fun parseSnapshot(json: String?): JSONObject? {
+        if (json.isNullOrBlank()) return null
         return try {
-            JSONObject(json).optString("date", "")
+            JSONObject(json)
         } catch (_: Exception) {
-            ""
+            null
         }
+    }
+
+    /**
+     * 学号脱敏：保留前 2 后 2，中间用 ** 替代。
+     */
+    private fun maskStudentId(s: String): String {
+        if (s.length <= 4) return "*".repeat(s.length)
+        return "${s.substring(0, 2)}**${s.substring(s.length - 2)}"
     }
 }
