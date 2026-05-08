@@ -248,6 +248,9 @@ jobs:
       - name: Sync Android icons
         run: node scripts/sync_tauri_platform_icons.mjs android
 
+      - name: Patch Android widget support
+        run: python scripts/patch_android_widget.py
+
       - name: Patch Android notification permissions
         run: |
           set -euo pipefail

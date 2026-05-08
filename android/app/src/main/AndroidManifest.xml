@@ -63,11 +63,10 @@
         <!-- 今日课程小组件 Provider -->
         <receiver
             android:name="com.hbut.mini.widget.TodayCoursesProvider"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_today_courses_title">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="com.hbut.mini.widget.ACTION_REFRESH" />
             </intent-filter>
             <meta-data
