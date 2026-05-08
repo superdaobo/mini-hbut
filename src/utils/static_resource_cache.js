@@ -2,6 +2,8 @@ import { getCachedData, setCachedData } from './api.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const STATIC_RESOURCE_BASE = 'https://hbut.6661111.xyz/app-resources'
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/superdaobo/mini-hbut-config/main/app-resources'
+const GITHUB_PROXY_BASE = 'https://gh-proxy.com/https://raw.githubusercontent.com/superdaobo/mini-hbut-config/main/app-resources'
 const DORMITORY_MANIFEST_URL = `${STATIC_RESOURCE_BASE}/dormitory/manifest.json`
 const DORMITORY_FALLBACK_URL = `${STATIC_RESOURCE_BASE}/dormitory/dormitory_data-20260423.json`
 const DORMITORY_CACHE_KEY = 'static_resource:dormitory_data'
@@ -43,51 +45,107 @@ const withOfflineMeta = (data, timestamp) => {
   }
 }
 
+/**
+ * 将主站 URL 转换为 GitHub 代理 URL（用于兜底）
+ * 仅对 hbut.6661111.xyz/app-resources/ 路径生效
+ */
+const toProxyUrls = (url) => {
+  const raw = safeText(url).split('?')[0] // 去掉 cache bust 参数
+  const suffix = raw.replace(STATIC_RESOURCE_BASE, '')
+  if (!suffix || suffix === raw) return [] // 非主站 URL，不做代理
+  return [
+    `${GITHUB_RAW_BASE}${suffix}`,
+    `${GITHUB_PROXY_BASE}${suffix}`
+  ]
+}
+
 const fetchJsonNoStore = async (url) => {
   const requestUrl = withCacheBust(url)
 
   if (isTauriRuntime()) {
+    // Tauri 环境：通过原生命令 fetch，支持主站 + GitHub + gh-proxy 三级兜底
+    const nativeUrls = [requestUrl, ...toProxyUrls(url).map(withCacheBust)]
+    let lastNativeError = null
+    for (const tryUrl of nativeUrls) {
+      try {
+        return await withTimeout(
+          invokeNative('fetch_remote_json', { url: tryUrl }),
+          STATIC_RESOURCE_TIMEOUT_MS
+        )
+      } catch (error) {
+        lastNativeError = error
+        console.warn('[StaticResource] 原生 fetch 失败，尝试下一个源', {
+          url: tryUrl,
+          error: String(error?.message || error || '')
+        })
+      }
+    }
+    // 所有原生源都失败，尝试浏览器 fetch（可能在某些 Tauri 配置下可用）
+    console.warn('[StaticResource] 所有原生源失败，尝试浏览器 fetch 兜底')
+  }
+
+  // 非 Tauri 环境 或 Tauri 原生全部失败后的浏览器 fetch 兜底
+  // 主站 → GitHub raw → gh-proxy 三级兜底
+  const urlsToTry = [requestUrl, ...toProxyUrls(url).map(withCacheBust)]
+  let lastError = null
+
+  for (const tryUrl of urlsToTry) {
     try {
-      return await withTimeout(
-        invokeNative('fetch_remote_json', { url: requestUrl }),
+      const response = await withTimeout(
+        fetch(tryUrl, {
+          cache: 'no-store',
+          headers: { Accept: 'application/json' }
+        }),
         STATIC_RESOURCE_TIMEOUT_MS
       )
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      const text = await response.text()
+      try {
+        return JSON.parse(text)
+      } catch (parseErr) {
+        throw new Error(`解析静态资源失败：${parseErr?.message || 'unknown'}`)
+      }
     } catch (error) {
-      console.warn('[StaticResource] 原生静态资源拉取失败，回退浏览器 fetch', {
-        url: requestUrl,
+      lastError = error
+      console.warn('[StaticResource] fetch 失败，尝试下一个源', {
+        url: tryUrl,
         error: String(error?.message || error || '')
       })
     }
   }
 
-  const response = await fetch(requestUrl, {
-    cache: 'no-store',
-    headers: {
-      Accept: 'application/json'
-    }
-  })
-  if (!response.ok) {
-    throw new Error(`拉取静态资源失败：HTTP ${response.status}`)
-  }
-  const text = await response.text()
-  try {
-    return JSON.parse(text)
-  } catch (error) {
-    throw new Error(`解析静态资源失败：${error?.message || error || 'unknown error'}`)
-  }
+  throw lastError || new Error('所有静态资源源均不可用')
 }
 
 const fetchTextNoStore = async (url) => {
-  const response = await fetch(withCacheBust(url), {
-    cache: 'no-store',
-    headers: {
-      Accept: 'application/json'
+  const urlsToTry = [withCacheBust(url), ...toProxyUrls(url).map(withCacheBust)]
+  let lastError = null
+
+  for (const tryUrl of urlsToTry) {
+    try {
+      const response = await withTimeout(
+        fetch(tryUrl, {
+          cache: 'no-store',
+          headers: { Accept: 'application/json' }
+        }),
+        STATIC_RESOURCE_TIMEOUT_MS
+      )
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      return await response.text()
+    } catch (error) {
+      lastError = error
+      console.warn('[StaticResource] fetchText 失败，尝试下一个源', {
+        url: tryUrl,
+        error: String(error?.message || error || '')
+      })
     }
-  })
-  if (!response.ok) {
-    throw new Error(`拉取静态资源失败：HTTP ${response.status}`)
   }
-  return response.text()
+
+  throw lastError || new Error('所有静态资源源均不可用')
 }
 
 const withTimeout = async (promise, ms = STATIC_RESOURCE_TIMEOUT_MS) => {

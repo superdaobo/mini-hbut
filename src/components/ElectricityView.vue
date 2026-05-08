@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
-import { setCachedData } from '../utils/api.js'
+import { setCachedData, fetchWithCache } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
 import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
