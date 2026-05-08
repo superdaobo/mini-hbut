@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { fetchWithCache, getCacheKey, setCachedData } from './api.js'
 import { normalizeSemesterList, resolveCurrentSemester, semesterIsNewer } from './semester.js'
+import { afterScheduleRefresh } from './widget_bridge'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SCHEDULE_META_KEY = 'hbu_schedule_meta'
@@ -526,6 +527,10 @@ export const warmupScheduleForStudent = async (studentId, options = {}) => {
   if (!options?.skipPopup) {
     queueScheduleSemesterPopup(sid, selectedSemester, reasonText)
   }
+
+  // Widget 快照写入（异步，不阻塞返回）
+  const metaWeek = Number(picked.payload?.meta?.current_week) || 1
+  afterScheduleRefresh(sid, picked.payload, { selectedWeek: metaWeek }).catch(() => {})
 
   return {
     success: true,

@@ -62,6 +62,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@': path.resolve(__dirname, 'src'),
       'axios': path.resolve(__dirname, 'src/utils/axios_adapter.js')
     }
   },

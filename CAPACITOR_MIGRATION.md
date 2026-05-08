@@ -44,3 +44,75 @@
 2. 新能力必须先定义到 `src/platform/types.ts`。  
 3. 适配器内需要中文注释说明平台差异和兜底行为。  
 4. 迁移中保持“行为兼容优先”，再做性能优化。
+
+---
+
+## 5. 今日课程桌面小组件（Widget）
+
+### 5.1 技术路线
+
+采用 **路线 B**：在 Capacitor 架构下新增原生 Widget + 自研 Capacitor 插件，不迁移到 Tauri Mobile。
+
+- 插件包：`packages/capacitor-plugin-mini-hbut-widget/`（monorepo 内联，不发 npm）
+- Android：`AppWidgetProvider` + `RemoteViewsService` + WorkManager
+- iOS：WidgetKit Extension + `TimelineProvider` + App Group
+
+### 5.2 安装步骤
+
+```bash
+# 1. 安装依赖（workspace 自动解析插件包）
+npm install
+
+# 2. 构建前端
+npm run build
+
+# 3. 同步到原生工程
+npx cap sync
+```
+
+### 5.3 App Group 配置（iOS）
+
+> ⚠️ **必须配置**，否则 Widget Extension 无法读取主 App 写入的快照。
+
+1. 在 Xcode 中为主 App Target 和 Widget Extension Target 都添加 App Group：`group.com.hbut.mini`
+2. 确认 entitlements 文件包含：
+   ```xml
+   <key>com.apple.security.application-groups</key>
+   <array><string>group.com.hbut.mini</string></array>
+   ```
+3. 重新生成 Provisioning Profile
+
+涉及文件：
+- `ios/App/App/App.entitlements`
+- `ios/App/MiniHbutTodayWidget/MiniHbutTodayWidget.entitlements`
+
+### 5.4 Android Receiver 注册
+
+确认 `android/app/src/main/AndroidManifest.xml` 包含：
+
+```xml
+<receiver android:name="com.hbut.mini.widget.TodayCoursesProvider" android:exported="false">
+    <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+    </intent-filter>
+    <meta-data android:name="android.appwidget.provider"
+               android:resource="@xml/appwidget_today_courses" />
+</receiver>
+```
+
+### 5.5 构建前检查
+
+`release.py` 在发布前会自动检查：
+- iOS：`App.entitlements` 存在且包含 `group.com.hbut.mini`
+- Android：`AndroidManifest.xml` 中注册了 `com.hbut.mini.widget.TodayCoursesProvider`
+
+未通过时直接 fail-fast，阻止发布。
+
+### 5.6 FAQ
+
+| 问题 | 回答 |
+|------|------|
+| 为什么不用 `s00d/tauri-plugin-widgets`？ | 移动端使用 Capacitor，该插件仅适用于 Tauri Mobile |
+| 是否计划迁移到 Tauri Mobile？ | 当前无计划，成本远大于收益 |
+| Widget 数据从哪来？ | 从课表缓存派生，不发起额外网络请求 |
+| 支持多账号吗？ | 当前 v1 仅支持单账号，后续可扩展 |

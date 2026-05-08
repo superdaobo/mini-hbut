@@ -33,7 +33,49 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        // 小组件深链接：minihbut://schedule?date=...&source=widget[&period=N]
+        if url.scheme == "minihbut" && url.host == "schedule" {
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let queryItems = components?.queryItems ?? []
+            var payload: [String: Any] = [:]
+            for item in queryItems {
+                if let value = item.value {
+                    if item.name == "period", let intVal = Int(value) {
+                        payload[item.name] = intVal
+                    } else {
+                        payload[item.name] = value
+                    }
+                }
+            }
+            // 通过 Capacitor Bridge 通知 Web 层
+            NotificationCenter.default.post(
+                name: Notification.Name("widgetDeeplinkReceived"),
+                object: nil,
+                userInfo: payload
+            )
+            // 延迟派发确保 Bridge 已就绪
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.dispatchWidgetDeeplink(payload: payload)
+            }
+            return true
+        }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+    }
+
+    /// 通过 Capacitor Bridge 向 Web 层派发 widgetDeeplink 事件
+    private func dispatchWidgetDeeplink(payload: [String: Any]) {
+        guard let rootVC = window?.rootViewController as? CAPBridgeViewController,
+              let bridge = rootVC.bridge else { return }
+        bridge.triggerJSEvent(eventName: "widgetDeeplink", target: "window", data: jsonString(from: payload))
+    }
+
+    /// 将字典转为 JSON 字符串
+    private func jsonString(from dict: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: []),
+              let str = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return str
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {

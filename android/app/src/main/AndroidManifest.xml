@@ -24,6 +24,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Deep link: minihbut://schedule（小组件点击跳转） -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="minihbut" android:host="schedule" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -51,6 +59,27 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 今日课程小组件 Provider -->
+        <receiver
+            android:name="com.hbut.mini.widget.TodayCoursesProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.hbut.mini.widget.ACTION_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_today_courses" />
+        </receiver>
+
+        <!-- 今日课程小组件 RemoteViewsService（列表行渲染） -->
+        <service
+            android:name="com.hbut.mini.widget.TodayCoursesRemoteViewsService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
     </application>
 
     <!-- Permissions -->

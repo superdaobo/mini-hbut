@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget 标题与描述 -->
+    <string name="widget_today_courses_title">今日课程</string>
+    <string name="widget_today_courses_desc">在桌面查看今天的课程安排</string>
+    
+    <!-- 占位文案 -->
+    <string name="widget_no_course">今日无课</string>
+    <string name="widget_weekend">周末愉快</string>
+    <string name="widget_login_required">请先在 Mini-HBUT 登录</string>
+    <string name="widget_stale_hint">数据可能已过期，打开 App 刷新</string>
+    <string name="widget_data_error">小组件数据异常，请打开 App</string>
+    <string name="widget_open_app">打开 Mini-HBUT</string>
+    
+    <!-- 无障碍 -->
+    <string name="widget_course_row_desc_placeholder">课程信息</string>
+    
+    <!-- 溢出标签格式 -->
+    <string name="widget_overflow_format">+%d 节</string>
+</resources>

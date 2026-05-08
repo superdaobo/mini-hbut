@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Widget Material You 深色动态色（API 31+） -->
+    <color name="widget_bg">@android:color/system_accent1_900</color>
+    <color name="widget_text_primary">@android:color/system_neutral1_50</color>
+    <color name="widget_text_secondary">@android:color/system_neutral1_200</color>
+    <color name="widget_accent">@android:color/system_accent1_200</color>
+</resources>

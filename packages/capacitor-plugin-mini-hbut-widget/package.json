@@ -1,0 +1,30 @@
+{
+  "name": "@mini-hbut/capacitor-plugin-mini-hbut-widget",
+  "version": "0.0.1",
+  "description": "Capacitor plugin for Mini-HBUT today courses home screen widget bridge",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src/",
+    "android/",
+    "ios/"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "widget",
+    "mini-hbut"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    },
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  }
+}

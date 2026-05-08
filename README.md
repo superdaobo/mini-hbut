@@ -173,6 +173,53 @@ python release.py --minor -y
 
 > 说明：发布脚本默认推送 `origin/main` 并重建对应 tag，不处理归档分支。
 
+## 📲 今日课程桌面小组件（Widget）
+
+在 Android / iOS 桌面添加「今日课程」小组件，无需打开 App 即可查看当天课表。
+
+### 技术路线
+
+采用 **路线 B**：保留 Capacitor 移动端架构，新增原生 Widget + 自研 Capacitor 插件 `@mini-hbut/capacitor-plugin-mini-hbut-widget`。
+
+- Android：`AppWidgetProvider` + `RemoteViews` + WorkManager 周期刷新
+- iOS：WidgetKit Widget Extension + `TimelineProvider`
+- 数据桥接：Capacitor 插件通过 SharedPreferences (Android) / App Group UserDefaults (iOS) 共享快照
+
+> 不使用 `s00d/tauri-plugin-widgets`（该插件仅适用于 Tauri Mobile 运行时）。
+
+### 安装步骤
+
+1. 确保根目录 `npm install` 完成（workspace 自动解析插件包）
+2. 构建前端：`npm run build`
+3. 同步原生工程：`npx cap sync`
+
+### App Group 配置（iOS 必须）
+
+> ⚠️ 未配置 App Group 将导致 Widget 无法读取数据，构建脚本会 fail-fast 报错。
+
+1. Xcode → 主 App Target → Signing & Capabilities → App Groups → 添加 `group.com.hbut.mini`
+2. Xcode → Widget Extension Target → 同样添加 `group.com.hbut.mini`
+3. 确认 `ios/App/App/App.entitlements` 和 `ios/App/MiniHbutTodayWidget/MiniHbutTodayWidget.entitlements` 都包含该 group
+
+### Android Receiver 注册
+
+确认 `android/app/src/main/AndroidManifest.xml` 中包含：
+- `<receiver android:name="com.hbut.mini.widget.TodayCoursesProvider" ...>`
+- `<service android:name="com.hbut.mini.widget.TodayCoursesRemoteViewsService" ...>`
+
+### FAQ
+
+| 问题 | 回答 |
+|------|------|
+| 为什么不用 `s00d/tauri-plugin-widgets`？ | 移动端使用 Capacitor 而非 Tauri Mobile，该插件不兼容 |
+| Widget 不显示数据？ | 检查 App Group 配置（iOS）或 receiver 注册（Android），确认已登录并打开过课表 |
+| 支持哪些尺寸？ | Android: 4×2（默认）、2×2、4×1；iOS: medium（默认）、small、large |
+| 数据多久刷新一次？ | 主动刷新（打开 App / 下拉刷新）即时同步；被动刷新 Android 15min / iOS 系统决定 |
+
+详细插件文档见 [`packages/capacitor-plugin-mini-hbut-widget/README.md`](packages/capacitor-plugin-mini-hbut-widget/README.md)。
+
+---
+
 ## 📄 License
 
 [GNU General Public License v3.0](LICENSE)

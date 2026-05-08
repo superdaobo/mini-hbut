@@ -138,6 +138,42 @@ def run_with_retry(
     return False, last_out, last_err
 
 
+def run_widget_prechecks() -> None:
+    """构建前检查：Widget 相关配置完整性（fail-fast）"""
+    print("\n[STEP] Widget 构建前检查")
+
+    # ── iOS: App.entitlements 存在且包含 group.com.hbut.mini ──
+    entitlements_path = PROJECT_DIR / "ios" / "App" / "App" / "App.entitlements"
+    if entitlements_path.exists():
+        content = read_text(entitlements_path)
+        if "group.com.hbut.mini" not in content:
+            raise RuntimeError(
+                f"[Widget] App.entitlements 缺少 App Group 'group.com.hbut.mini'\n"
+                f"  路径: {entitlements_path}\n"
+                f"  请在 Xcode 中为主 App Target 添加 App Group: group.com.hbut.mini"
+            )
+        print("  [OK] iOS App.entitlements 包含 group.com.hbut.mini")
+    else:
+        print("  [WARN] iOS App.entitlements 不存在，跳过检查（非 iOS 构建环境）")
+
+    # ── Android: AndroidManifest.xml 注册了 TodayCoursesProvider ──
+    manifest_path = PROJECT_DIR / "android" / "app" / "src" / "main" / "AndroidManifest.xml"
+    receiver_fqn = "com.hbut.mini.widget.TodayCoursesProvider"
+    if manifest_path.exists():
+        content = read_text(manifest_path)
+        if receiver_fqn not in content:
+            raise RuntimeError(
+                f"[Widget] AndroidManifest.xml 未注册 receiver '{receiver_fqn}'\n"
+                f"  路径: {manifest_path}\n"
+                f"  请确保 <receiver android:name=\"{receiver_fqn}\" ...> 已声明"
+            )
+        print(f"  [OK] Android AndroidManifest.xml 包含 {receiver_fqn}")
+    else:
+        print("  [WARN] Android AndroidManifest.xml 不存在，跳过检查（非 Android 构建环境）")
+
+    print("  [OK] Widget 构建前检查通过")
+
+
 def run_build_check() -> None:
     print("\n[STEP] 构建检查（npm run build）")
     ok, out, err = run_command(["npm", "run", "build"], check=False)
@@ -392,7 +428,7 @@ def main() -> None:
     if not args.no_confirm:
         print("\n将执行以下操作：")
         if not args.skip_build:
-            print("  0) 执行构建检查（npm run build）")
+            print("  0) 执行 Widget 构建前检查 + 构建检查（npm run build）")
         if not args.push_only:
             print("  1) 更新版本文件并提交")
         else:
@@ -405,6 +441,7 @@ def main() -> None:
             return
 
     if not args.skip_build:
+        run_widget_prechecks()
         run_build_check()
 
     if not args.push_only:

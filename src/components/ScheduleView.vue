@@ -28,12 +28,15 @@ import { pushDebugLog } from '../utils/debug_logger'
 import { hasBootMetric, markBootMetric } from '../utils/boot_metrics.js'
 import { showToast } from '../utils/toast'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { afterScheduleRefresh } from '../utils/widget_bridge'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
+  widgetDate: { type: String, default: '' },
+  widgetPeriod: { type: Number, default: 0 },
 })
 
-const emit = defineEmits(['back', 'logout'])
+const emit = defineEmits(['back', 'logout', 'widget-deeplink-consumed'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -113,6 +116,11 @@ const addCourseForm = ref({
 })
 const returnToDetailAfterCourseSubmit = ref(false)
 const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
+
+// Widget 深链接高亮状态
+const widgetHighlightPeriod = ref(0)
+const widgetHighlightDay = ref(0)
+let widgetHighlightTimer = null
 
 const courseDialogSemester = computed(() => {
   if (courseDialogMode.value === 'edit') {
@@ -753,6 +761,10 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
         errorMsg.value = ''
       }
       persistScheduleRenderSnapshot('fetch-success')
+      // Widget 快照写入（异步，不阻塞 UI）
+      if (props.studentId) {
+        afterScheduleRefresh(props.studentId, data, { selectedWeek: selectedWeek.value || currentWeek.value || 1 }).catch(() => {})
+      }
       if (!hasBootMetric('schedule_first_paint')) {
         requestAnimationFrame(() => {
           markBootMetric('schedule_first_paint', {
@@ -965,6 +977,75 @@ watch(
   },
   { immediate: true }
 )
+
+// Widget 深链接：接收 date + period，定位到对应周次/日并高亮
+watch(
+  () => props.widgetDate,
+  (dateStr) => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return
+    if (!startDateStr.value) return // 课表尚未加载
+
+    // 计算目标日期对应的周次和星期几
+    const targetDate = new Date(dateStr + 'T00:00:00+08:00')
+    const startDate = new Date(startDateStr.value + 'T00:00:00+08:00')
+    if (isNaN(targetDate.getTime()) || isNaN(startDate.getTime())) return
+
+    const diffMs = targetDate.getTime() - startDate.getTime()
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000))
+    const targetWeek = Math.max(1, Math.floor(diffDays / 7) + 1)
+    const targetDay = (diffDays % 7) + 1 // 1=周一
+
+    // 切换到目标周次
+    const maxWeeks = Math.max(1, Number(totalWeeks.value || 1))
+    if (targetWeek >= 1 && targetWeek <= maxWeeks) {
+      selectedWeek.value = targetWeek
+    }
+
+    // 设置高亮
+    const period = Number(props.widgetPeriod) || 0
+    widgetHighlightDay.value = targetDay >= 1 && targetDay <= 7 ? targetDay : 0
+    widgetHighlightPeriod.value = period >= 1 && period <= 14 ? period : 0
+
+    // 延迟滚动到目标位置
+    nextTick(() => {
+      scrollToWidgetTarget(targetDay, period)
+    })
+
+    // 3 秒后清除高亮
+    if (widgetHighlightTimer) clearTimeout(widgetHighlightTimer)
+    widgetHighlightTimer = setTimeout(() => {
+      widgetHighlightPeriod.value = 0
+      widgetHighlightDay.value = 0
+      widgetHighlightTimer = null
+    }, 3000)
+
+    // 通知父组件已消费深链接参数
+    emit('widget-deeplink-consumed')
+  },
+  { immediate: true }
+)
+
+/**
+ * 滚动到 Widget 深链接指定的日/节次位置
+ */
+const scrollToWidgetTarget = (day, period) => {
+  try {
+    const gridBody = document.querySelector('.schedule-view .grid-body')
+    if (!gridBody) return
+
+    if (period >= 1) {
+      // 滚动到对应节次行（每行约 55px 高度，基于 time-slot 高度）
+      const timeSlots = gridBody.querySelectorAll('.time-axis .time-slot')
+      const targetSlot = timeSlots[period - 1]
+      if (targetSlot) {
+        const offsetTop = targetSlot.offsetTop
+        gridBody.scrollTo({ top: Math.max(0, offsetTop - 20), behavior: 'smooth' })
+      }
+    }
+  } catch {
+    // ignore scroll errors
+  }
+}
 
 watch(
   () => addCourseForm.value.period,
@@ -1513,6 +1594,19 @@ const openDetail = (course) => {
   detailActionError.value = ''
   selectedCourse.value = course
   showDetail.value = true
+}
+
+/**
+ * 判断课程卡片是否应被 Widget 深链接高亮
+ * 匹配条件：同一天 + period 范围包含目标节次
+ */
+const isWidgetHighlighted = (course, day) => {
+  if (!widgetHighlightPeriod.value || !widgetHighlightDay.value) return false
+  if (day !== widgetHighlightDay.value) return false
+  const start = Number(course?.period) || 1
+  const span = Math.max(1, Number(course?.djs) || 1)
+  const end = start + span - 1
+  return widgetHighlightPeriod.value >= start && widgetHighlightPeriod.value <= end
 }
 
 const buildLocationText = (course) => {
@@ -2978,6 +3072,10 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleScheduleVisibilityChange)
   document.removeEventListener('click', closeSemesterBadgePopover)
   clearCloudSyncCooldownTimer()
+  if (widgetHighlightTimer) {
+    clearTimeout(widgetHighlightTimer)
+    widgetHighlightTimer = null
+  }
 })
 </script>
 
@@ -3354,7 +3452,8 @@ onBeforeUnmount(() => {
                   class="course-card"
                   :class="[
                     `course-card--${scheduleCourseCardStyle}`,
-                    { conflict: course.is_conflict }
+                    { conflict: course.is_conflict },
+                    { 'widget-highlight': isWidgetHighlighted(course, day) }
                   ]"
                   :style="getCourseStyle(course)"
                   @click="openDetail(course)"
@@ -4132,6 +4231,22 @@ onBeforeUnmount(() => {
 .course-card:active {
   transform: scale(0.98);
   box-shadow: 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+/* Widget 深链接高亮动画 */
+.course-card.widget-highlight {
+  animation: widget-highlight-pulse 1.5s ease-in-out 2;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25) !important;
+  z-index: 10 !important;
+}
+
+@keyframes widget-highlight-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 8px 20px rgba(59, 130, 246, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.3), 0 12px 28px rgba(59, 130, 246, 0.35);
+  }
 }
 
 .course-name {

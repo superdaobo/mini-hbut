@@ -23,6 +23,7 @@ import { startNotificationMonitor, stopNotificationMonitor } from './utils/notif
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
 import { hasBootMetric, markBootMetric, resetBootMetrics } from './utils/boot_metrics.js'
+import { tryWriteSnapshotFromCache, clearWidgetForLogout } from './utils/widget_bridge'
 import {
   clearDailyAccessGrant,
   getProtectedViewLabel,
@@ -143,6 +144,11 @@ let resumePendingSnapshot = null
 let iosReloadFallbackAt = 0
 let appBootstrapped = false
 let capacitorAppStateListener = null
+let widgetCrossDayTimer = null
+
+// Widget 深链接参数（由 widgetDeeplink 事件或 appUrlOpen 注入）
+const widgetDeeplinkDate = ref('')
+const widgetDeeplinkPeriod = ref(0)
 
 const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
 const ME_SUB_VIEWS = [
@@ -890,6 +896,143 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
   }
 }
 
+// ─── Widget 跨天调度 ─────────────────────────────────────────────────────
+// 对齐 design §9.2：注册 setTimeout 到下一个 00:00 + 60s（Asia/Shanghai），触发 tryWriteSnapshotFromCache
+
+/**
+ * 计算距离下一个 Asia/Shanghai 00:00:00 + 60s 的毫秒数
+ */
+const msUntilNextDayCrossover = () => {
+  const now = new Date()
+  // 获取 Asia/Shanghai 当前日期
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+  const parts = formatter.formatToParts(now)
+  const get = (type) => parts.find(p => p.type === type)?.value ?? '0'
+  const h = Number(get('hour'))
+  const m = Number(get('minute'))
+  const s = Number(get('second'))
+  // 当天已过的秒数
+  const elapsedSeconds = h * 3600 + m * 60 + s
+  // 距离明天 00:00:00 的秒数
+  const secondsUntilMidnight = 86400 - elapsedSeconds
+  // 加 60s 缓冲
+  return (secondsUntilMidnight + 60) * 1000
+}
+
+const scheduleWidgetCrossDayTimer = () => {
+  if (widgetCrossDayTimer) {
+    clearTimeout(widgetCrossDayTimer)
+    widgetCrossDayTimer = null
+  }
+  if (!studentId.value) return
+  const delay = msUntilNextDayCrossover()
+  widgetCrossDayTimer = setTimeout(() => {
+    widgetCrossDayTimer = null
+    if (studentId.value) {
+      tryWriteSnapshotFromCache(studentId.value).catch(() => {})
+      // 递归注册下一天
+      scheduleWidgetCrossDayTimer()
+    }
+  }, delay)
+}
+
+/**
+ * 处理 Widget 深链接 payload
+ * 切换到课表视图并注入 date + period 参数
+ */
+const handleWidgetDeeplinkPayload = (payload) => {
+  if (!payload) return
+  const date = String(payload.date || '').trim()
+  const source = String(payload.source || '').trim()
+  const period = Number(payload.period) || 0
+
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+  if (source && source !== 'widget') return
+
+  console.info('[Widget] Deep link received:', { date, source, period })
+
+  // 注入深链接参数
+  widgetDeeplinkDate.value = date
+  widgetDeeplinkPeriod.value = period
+
+  // 切换到课表视图
+  if (currentView.value !== 'schedule') {
+    goToView('schedule', { push: true })
+  }
+}
+
+/**
+ * 解析 minihbut://schedule?... URL 并派发
+ */
+const parseWidgetDeeplinkUrl = (urlStr) => {
+  try {
+    const url = new URL(urlStr)
+    if (url.protocol !== 'minihbut:' || url.hostname !== 'schedule') return null
+    return {
+      date: url.searchParams.get('date') || '',
+      source: url.searchParams.get('source') || 'widget',
+      period: url.searchParams.get('period') || ''
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 注册 Widget 深链接监听器（Capacitor appUrlOpen + 原生 bridge 事件）
+ */
+const installWidgetDeeplinkListeners = () => {
+  // 监听原生 bridge 派发的 widgetDeeplink 事件（Android triggerJSEvent / iOS triggerJSEvent）
+  window.addEventListener('widgetDeeplink', (e) => {
+    try {
+      const detail = typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail
+      handleWidgetDeeplinkPayload(detail)
+    } catch {
+      // 尝试从 event 本身解析（triggerJSEvent 会把 JSON 字符串作为 CustomEvent.detail）
+      try {
+        const raw = (e && typeof e === 'object') ? JSON.parse(String(e.data || '{}')) : {}
+        handleWidgetDeeplinkPayload(raw)
+      } catch {
+        // ignore
+      }
+    }
+  })
+
+  // Capacitor appUrlOpen 事件（冷启动 / 热启动 URL 打开）
+  if (isCapacitorRuntime()) {
+    import('@capacitor/app').then((mod) => {
+      mod.App.addListener('appUrlOpen', (event) => {
+        if (!event?.url) return
+        const payload = parseWidgetDeeplinkUrl(event.url)
+        if (payload) {
+          // 冷启动路径：等 appBootstrapped 后再执行
+          if (!appBootstrapped) {
+            const waitForBoot = setInterval(() => {
+              if (appBootstrapped) {
+                clearInterval(waitForBoot)
+                handleWidgetDeeplinkPayload(payload)
+              }
+            }, 100)
+            // 最多等 5s
+            setTimeout(() => clearInterval(waitForBoot), 5000)
+          } else {
+            handleWidgetDeeplinkPayload(payload)
+          }
+        }
+      })
+    }).catch(() => {})
+  }
+}
+
 const handleAppResume = (source = 'visibilitychange') => {
   if (!appBootstrapped || document.hidden) return
   const now = Date.now()
@@ -906,6 +1049,10 @@ const handleAppResume = (source = 'visibilitychange') => {
     nudgeWebViewPaint(targetView, { verify: false, allowReload: false })
   }
   void restoreViewFromSnapshot(snapshot, { softRemount, source })
+  // 回前台时重算跨天定时器剩余时间
+  if (studentId.value) {
+    scheduleWidgetCrossDayTimer()
+  }
 }
 
 const handleVisibilityChange = () => {
@@ -1246,6 +1393,13 @@ const handleLogout = (options = {}) => {
     window.setTimeout(() => {
       window.alert(notice)
     }, 80)
+  }
+  // Widget 快照清空（异步，不阻塞登出流程）
+  clearWidgetForLogout().catch(() => {})
+  // 清除跨天定时器
+  if (widgetCrossDayTimer) {
+    clearTimeout(widgetCrossDayTimer)
+    widgetCrossDayTimer = null
   }
 }
 
@@ -2059,6 +2213,7 @@ onMounted(async () => {
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
   scheduleViewportUpdate()
+  installWidgetDeeplinkListeners()
   clearJwxtMaintenance()
   const cachedAnnouncements = restoreAnnouncementSnapshot()
   if (cachedAnnouncements) {
@@ -2166,6 +2321,12 @@ onMounted(async () => {
     handleSplashDismissed()
   }
 
+  // Widget 快照：启动尾部从缓存写入（仅登录态，异步不阻塞）
+  if (studentId.value) {
+    tryWriteSnapshotFromCache(studentId.value).catch(() => {})
+    scheduleWidgetCrossDayTimer()
+  }
+
   // 启动画面消失
   if (onlineReady) {
     splashStatusText.value = '准备就绪'
@@ -2224,6 +2385,10 @@ onBeforeUnmount(() => {
   void stopNotificationMonitor()
   stopJwxtRecoveryPolling()
   stopRemoteConfigRefresh()
+  if (widgetCrossDayTimer) {
+    clearTimeout(widgetCrossDayTimer)
+    widgetCrossDayTimer = null
+  }
   if (capacitorAppStateListener) {
     capacitorAppStateListener.remove().catch(() => {})
     capacitorAppStateListener = null
@@ -2276,8 +2441,11 @@ onBeforeUnmount(() => {
       <ScheduleView 
         v-else-if="currentView === 'schedule'"
         :student-id="studentId"
+        :widget-date="widgetDeeplinkDate"
+        :widget-period="widgetDeeplinkPeriod"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+        @widget-deeplink-consumed="widgetDeeplinkDate = ''; widgetDeeplinkPeriod = 0"
       />
 
       <!-- 全校课表 -->

@@ -191,6 +191,9 @@ jobs:
           node scripts/check_dist_boundary.mjs
           node scripts/report_bundle_sizes.mjs
 
+      - name: Verify Capacitor sync
+        run: npx cap sync
+
   build-android:
     needs: [source, meta, smoke-fast-build]
     runs-on: ubuntu-latest

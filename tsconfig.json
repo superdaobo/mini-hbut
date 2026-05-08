@@ -16,7 +16,8 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@mini-hbut/capacitor-plugin-mini-hbut-widget": ["packages/capacitor-plugin-mini-hbut-widget/src"]
     },
     "baseUrl": "."
   },

@@ -1,5 +1,7 @@
 package com.hbut.mini;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.webkit.WebSettings;
@@ -18,6 +20,54 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         configureWebViewForEmbeddedModules();
         registerBackgroundFetchHeadless();
+        // 冷启动时也检查 intent 中的 deep link
+        handleDeepLinkIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleDeepLinkIntent(intent);
+    }
+
+    /**
+     * 解析 minihbut://schedule 深链接并派发到 Web 层
+     * 仅当 scheme == "minihbut" 且 host == "schedule" 时处理
+     */
+    private void handleDeepLinkIntent(Intent intent) {
+        if (intent == null) return;
+        Uri data = intent.getData();
+        if (data == null) return;
+        if (!"minihbut".equals(data.getScheme()) || !"schedule".equals(data.getHost())) return;
+
+        String date = data.getQueryParameter("date");
+        String source = data.getQueryParameter("source");
+        String period = data.getQueryParameter("period");
+
+        // 构建 JSON payload
+        StringBuilder json = new StringBuilder("{");
+        json.append("\"date\":").append(date != null ? "\"" + escapeJson(date) + "\"" : "null");
+        json.append(",\"source\":").append(source != null ? "\"" + escapeJson(source) + "\"" : "\"widget\"");
+        json.append(",\"period\":").append(period != null ? period : "null");
+        json.append("}");
+
+        String payloadJson = json.toString();
+        Log.i(TAG, "Widget deep link received: " + payloadJson);
+
+        if (getBridge() != null) {
+            getBridge().triggerJSEvent("widgetDeeplink", "window", payloadJson);
+        }
+    }
+
+    /** 简单 JSON 字符串转义（防止注入） */
+    private static String escapeJson(String value) {
+        if (value == null) return "";
+        return value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
     }
 
     private void configureWebViewForEmbeddedModules() {
