@@ -10,7 +10,6 @@ import {
   AlertCircle,
   Server,
   RefreshCw,
-  Link2,
 } from 'lucide-react';
 import {
   Dialog,
@@ -549,26 +548,53 @@ export default function DownloadSection() {
     return () => ctx.revert();
   }, []);
 
-  const renderFallbackLinks = (urls: string[] | undefined, labelPrefix: string) => {
-    const fallbackUrls = uniqueUrls((urls || []).slice(1));
-    if (!fallbackUrls.length) return null;
+  const getSourceLabel = (url: string): string => {
+    if (url.includes('hbut.6661111.xyz')) return '本站下载';
+    if (url.includes('hk.gh-proxy.org')) return '代理下载 1';
+    if (url.includes('ghfast.top')) return '代理下载 2';
+    if (url.includes('gh-proxy.com')) return '代理下载 3';
+    if (url.includes('ghproxy.net')) return '代理下载 4';
+    if (url.includes('mirror.ghproxy.com')) return '代理下载 4';
+    if (url.includes('github.com')) return 'GitHub 源站';
+    return `线路 ${url.slice(0, 20)}`;
+  };
+
+  const getSourceIcon = (url: string): string => {
+    if (url.includes('hbut.6661111.xyz')) return '⚡';
+    if (url.includes('github.com')) return '🐙';
+    return '🔗';
+  };
+
+  const renderDownloadSources = (urls: string[] | undefined) => {
+    const allUrls = uniqueUrls(urls || []);
+    if (!allUrls.length) return null;
     return (
       <div className="space-y-2">
-        {fallbackUrls.map((url, idx) => (
-          <a
-            key={`${labelPrefix}-${url}-${idx}`}
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full py-2 px-3 flex items-center justify-between gap-2 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:text-white hover:border-white transition-colors font-mono text-xs"
-          >
-            <span className="inline-flex items-center gap-2">
-              <Link2 className="w-3 h-3" />
-              {labelPrefix}备用线路 {idx + 1}
-            </span>
-            <span className="text-gray-500">{getHostLabel(url)}</span>
-          </a>
-        ))}
+        {allUrls.map((url, idx) => {
+          const label = getSourceLabel(url);
+          const icon = getSourceIcon(url);
+          const isCdn = url.includes('hbut.6661111.xyz');
+          return (
+            <a
+              key={`source-${url}-${idx}`}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`w-full py-2.5 px-3 flex items-center justify-between gap-2 border rounded-lg transition-colors font-mono text-xs ${
+                isCdn
+                  ? 'border-cyan/40 text-cyan hover:bg-cyan/10'
+                  : 'border-dashed border-gray-600 text-gray-400 hover:text-white hover:border-white'
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <span>{icon}</span>
+                <Download className="w-3 h-3" />
+                {label}
+              </span>
+              <span className="text-gray-500">{getHostLabel(url)}</span>
+            </a>
+          );
+        })}
       </div>
     );
   };
@@ -718,21 +744,25 @@ export default function DownloadSection() {
               </div>
             )}
 
-            {renderFallbackLinks(selectedPlatform?.downloadCandidates, '主包')}
+            {renderDownloadSources(selectedPlatform?.downloadCandidates)}
 
             {selectedPlatform?.secondaryUrl && (
-              <a
-                href={selectedPlatform.secondaryUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-3 flex items-center justify-center gap-2 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:text-white hover:border-white transition-colors font-mono text-sm"
-              >
-                <Download className="w-4 h-4" />
-                下载 {selectedPlatform.secondaryLabel || '备用包'}
-              </a>
+              <>
+                <div className="border-t border-gray-700/50 pt-3 mt-3">
+                  <p className="text-xs text-gray-500 mb-2">备用安装包（{selectedPlatform.secondaryLabel || '备用包'}）</p>
+                </div>
+                <a
+                  href={selectedPlatform.secondaryUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 flex items-center justify-center gap-2 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:text-white hover:border-white transition-colors font-mono text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  下载 {selectedPlatform.secondaryLabel || '备用包'}
+                </a>
+                {renderDownloadSources(selectedPlatform?.secondaryCandidates)}
+              </>
             )}
-
-            {renderFallbackLinks(selectedPlatform?.secondaryCandidates, selectedPlatform?.secondaryLabel || '备用包')}
           </div>
         </DialogContent>
       </Dialog>
