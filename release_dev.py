@@ -36,6 +36,7 @@ EXCLUDE_GLOBS = [
 EXCLUDE_DIRS = [
     "tools",
     "src-tauri/exports",
+    "website/public/modules",
 ]
 
 
@@ -239,9 +240,23 @@ def print_staged_change_report(reports: list[dict[str, Any]]) -> None:
         )
 
 
+def has_uncommitted_changes() -> bool:
+    """检查工作区是否有未提交的变更（包括未暂存和已暂存）。"""
+    # 检查工作区是否干净（未暂存 + 已暂存 + 未跟踪）
+    ok, out, _ = run_command(["git", "status", "--porcelain"])
+    if not ok:
+        return False
+    return bool(out.strip())
+
+
 def stage_and_commit(message: str, skip_commit: bool, dry_run: bool) -> None:
     if skip_commit:
         print("[INFO] 跳过提交，仅推送当前 HEAD")
+        return
+
+    # 先检查是否有实际的未提交变更，避免重复提交已有内容
+    if not dry_run and not has_uncommitted_changes():
+        print("[INFO] 工作区干净，没有新的未提交变更，跳过 commit")
         return
 
     run_command(["git", "add", "-A"], dry_run=dry_run, check=True)
