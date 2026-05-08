@@ -1,14 +1,76 @@
 // src/utils/widget_bridge.ts
 // 门面汇总：封装 Widget 上层 API，供 App 集成层调用
 // 对齐 design §9.2 — afterScheduleRefresh / tryWriteSnapshotFromCache / clearWidgetForLogout
+//
+// 注意：本文件不得从 schedule_prefetch.js 导入，避免循环依赖。
+// schedule_prefetch.js 导入了本文件的 afterScheduleRefresh。
 
 import { buildTodayCourseSnapshot } from './widget_snapshot'
 import { writeSnapshotWithRetry, clearSnapshot } from '@/platform/capacitor/widget'
 import { pushDebugLog } from './debug_logger'
-import {
-  getCachedScheduleSnapshot,
-  readScheduleLock
-} from './schedule_prefetch.js'
+import { getCacheKey } from './api.js'
+
+// ─── 内联的缓存读取逻辑（避免循环依赖 schedule_prefetch ↔ widget_bridge） ───
+
+const SCHEDULE_LOCK_KEY = 'hbu_schedule_lock'
+
+function readJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function toSafeText(value: unknown): string {
+  return String(value ?? '').trim()
+}
+
+/**
+ * 读取课表锁定的学期（内联版，不依赖 schedule_prefetch）
+ */
+function readScheduleLockInline(studentId: string): string {
+  const record = readJson(SCHEDULE_LOCK_KEY) as Record<string, unknown> | null
+  if (!record) return ''
+  const sid = toSafeText(studentId)
+  const recordSid = toSafeText(record.student_id)
+  if (sid && recordSid && sid !== recordSid) return ''
+  return toSafeText(record.semester)
+}
+
+/**
+ * 从 localStorage 读取课表缓存快照（内联版，不依赖 schedule_prefetch）
+ */
+function getCachedScheduleSnapshotInline(studentId: string, semester: string): { data: { data?: unknown[] } } | null {
+  const sid = toSafeText(studentId)
+  if (!sid) return null
+
+  const buildKey = (s: string, sem?: string) => sem ? `schedule:${s}:${sem}` : `schedule:${s}`
+
+  const tryParse = (cacheKey: string) => {
+    try {
+      const raw = localStorage.getItem(getCacheKey(cacheKey))
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      if (!parsed?.data) return null
+      return { data: parsed.data }
+    } catch {
+      return null
+    }
+  }
+
+  const sem = toSafeText(semester)
+  if (sem) {
+    const scoped = tryParse(buildKey(sid, sem))
+    if (scoped) return scoped
+  }
+
+  return tryParse(buildKey(sid))
+}
+
+// ─── 公开 API ───
 
 /**
  * 从 schedule meta（localStorage）读取 current_week
@@ -70,8 +132,8 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
   try {
     if (!sid) return
 
-    const lockedSemester = readScheduleLock(sid)
-    const cached = getCachedScheduleSnapshot(sid, lockedSemester)
+    const lockedSemester = readScheduleLockInline(sid)
+    const cached = getCachedScheduleSnapshotInline(sid, lockedSemester)
     const cache = cached?.data?.data
     if (!Array.isArray(cache)) return
 

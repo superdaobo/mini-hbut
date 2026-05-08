@@ -3,7 +3,6 @@ package com.hbut.mini.widget
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
-import androidx.work.ListenableWorker
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 
@@ -15,11 +14,11 @@ import androidx.work.WorkerParameters
  */
 class WidgetRefreshWorker(
     appContext: Context,
-    params: WorkerParameters
-) : Worker(appContext, params) {
+    workerParams: WorkerParameters
+) : Worker(appContext, workerParams) {
 
-    override fun doWork(): ListenableWorker.Result {
-        val ctx = applicationContext
+    override fun doWork(): androidx.work.ListenableWorker.Result {
+        val ctx: Context = applicationContext
         val mgr = AppWidgetManager.getInstance(ctx)
         val ids = mgr.getAppWidgetIds(ComponentName(ctx, TodayCoursesProvider::class.java))
         if (ids.isNotEmpty()) {
@@ -28,6 +27,6 @@ class WidgetRefreshWorker(
                 ctx.resources.getIdentifier("widget_list", "id", ctx.packageName)
             )
         }
-        return ListenableWorker.Result.success()
+        return androidx.work.ListenableWorker.Result.success()
     }
 }
