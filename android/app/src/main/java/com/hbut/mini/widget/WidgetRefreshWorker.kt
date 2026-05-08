@@ -1,32 +1,8 @@
 package com.hbut.mini.widget
 
-import android.appwidget.AppWidgetManager
-import android.content.ComponentName
-import android.content.Context
-import androidx.work.Worker
-import androidx.work.WorkerParameters
-
 /**
- * WorkManager Worker — 周期刷新 widget 列表数据。
- *
- * 仅调用 notifyAppWidgetViewDataChanged 触发 RemoteViewsFactory.onDataSetChanged，
- * 不执行任何网络请求（满足 R9.4）。
+ * 占位文件 — WorkManager Worker 在 Tauri 构建中不可用。
+ * 
+ * 刷新逻辑由 WidgetRefreshScheduler.triggerImmediate() 直接触发，
+ * 系统 updatePeriodMillis (30min) 作为兜底周期刷新。
  */
-class WidgetRefreshWorker(
-    appContext: Context,
-    workerParams: WorkerParameters
-) : Worker(appContext, workerParams) {
-
-    override fun doWork(): androidx.work.ListenableWorker.Result {
-        val ctx: Context = applicationContext
-        val mgr = AppWidgetManager.getInstance(ctx)
-        val ids = mgr.getAppWidgetIds(ComponentName(ctx, TodayCoursesProvider::class.java))
-        if (ids.isNotEmpty()) {
-            mgr.notifyAppWidgetViewDataChanged(
-                ids,
-                ctx.resources.getIdentifier("widget_list", "id", ctx.packageName)
-            )
-        }
-        return androidx.work.ListenableWorker.Result.success()
-    }
-}

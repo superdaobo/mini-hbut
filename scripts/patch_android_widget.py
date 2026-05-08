@@ -6,11 +6,12 @@
 在 `npm run tauri android init` 之后、构建之前执行。
 将 android/app/src/main/ 下的 widget 相关文件复制到 src-tauri/gen/android/app/src/main/，
 并 patch AndroidManifest.xml 注册 receiver + service。
+
+注意：widget 代码仅使用 Android SDK 标准 API，不依赖 WorkManager 等额外库。
 """
 
 from __future__ import annotations
 
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -130,67 +131,6 @@ def patch_manifest():
     return True
 
 
-def patch_build_gradle():
-    """在 Tauri 生成的 app/build.gradle.kts 中添加 WorkManager 依赖。
-    
-    注意：Tauri 已经配置了 Kotlin 插件，我们只需要添加 WorkManager 依赖。
-    """
-    app_dir = TAURI_ANDROID.parent  # src-tauri/gen/android/app
-    candidates = [
-        app_dir / "build.gradle.kts",
-        app_dir / "build.gradle",
-    ]
-    app_gradle = next((p for p in candidates if p.exists()), None)
-
-    if app_gradle is None:
-        print("[WARN] App build.gradle not found, skip WorkManager patch")
-        return False
-
-    text = app_gradle.read_text(encoding="utf-8")
-    modified = False
-
-    # 只添加 WorkManager 依赖（Tauri 已有 Kotlin 支持）
-    if "work-runtime" not in text:
-        if app_gradle.suffix == ".kts":
-            if "dependencies {" in text:
-                text = text.replace(
-                    "dependencies {",
-                    'dependencies {\n    implementation("androidx.work:work-runtime-ktx:2.9.0")',
-                    1
-                )
-                modified = True
-            elif "dependencies{" in text:
-                text = text.replace(
-                    "dependencies{",
-                    'dependencies{\n    implementation("androidx.work:work-runtime-ktx:2.9.0")',
-                    1
-                )
-                modified = True
-            else:
-                # 没有 dependencies 块，在文件末尾添加
-                text += '\n\ndependencies {\n    implementation("androidx.work:work-runtime-ktx:2.9.0")\n}\n'
-                modified = True
-        else:
-            if "dependencies {" in text:
-                text = text.replace(
-                    "dependencies {",
-                    'dependencies {\n    implementation "androidx.work:work-runtime-ktx:2.9.0"',
-                    1
-                )
-                modified = True
-            else:
-                text += '\n\ndependencies {\n    implementation "androidx.work:work-runtime-ktx:2.9.0"\n}\n'
-                modified = True
-
-    if modified:
-        app_gradle.write_text(text, encoding="utf-8")
-        print(f"[OK] Added WorkManager dependency to {app_gradle.name}")
-    else:
-        print(f"[OK] WorkManager dependency already present in {app_gradle.name}")
-
-    return True
-
-
 def main() -> int:
     print("=" * 60)
     print("Patch Tauri Android project with Widget support")
@@ -209,7 +149,6 @@ def main() -> int:
     ok = copy_widget_sources() and ok
     ok = copy_widget_resources() and ok
     ok = patch_manifest() and ok
-    ok = patch_build_gradle() and ok
 
     if ok:
         print("\n[OK] All widget patches applied successfully.")
