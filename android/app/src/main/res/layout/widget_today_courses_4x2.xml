@@ -3,8 +3,9 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/widget_bg"
-    android:padding="12dp">
+    android:background="@drawable/widget_background"
+    android:padding="14dp"
+    android:clipToPadding="false">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,30 +18,42 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingBottom="6dp">
+            android:paddingBottom="8dp">
 
             <TextView
                 android:id="@+id/widget_title"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="今日课程 · 第 W 周"
+                android:text="今日课程"
                 android:textColor="@color/widget_text_primary"
-                android:textSize="14sp"
+                android:textSize="15sp"
                 android:textStyle="bold"
                 android:maxLines="1"
-                android:ellipsize="end" />
+                android:ellipsize="end"
+                android:letterSpacing="0.02" />
 
             <TextView
                 android:id="@+id/widget_student_id"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="学号 12**34"
                 android:textColor="@color/widget_text_secondary"
-                android:textSize="14sp"
-                android:maxLines="1" />
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:background="@drawable/widget_badge_bg"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp" />
 
         </LinearLayout>
+
+        <!-- 分隔线 -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/widget_divider"
+            android:layout_marginBottom="8dp" />
 
         <!-- 课程列表 -->
         <ListView
@@ -50,16 +63,18 @@
             android:layout_weight="1"
             android:divider="@null"
             android:dividerHeight="0dp"
-            android:scrollbars="none" />
+            android:scrollbars="none"
+            android:fadingEdge="none" />
 
         <!-- 溢出标签 "+N 节" -->
         <TextView
             android:id="@+id/widget_overflow_tag"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="end|bottom"
-            android:textColor="@color/widget_text_secondary"
-            android:textSize="14sp"
+            android:layout_gravity="end"
+            android:textColor="@color/widget_accent"
+            android:textSize="11sp"
+            android:textStyle="bold"
             android:visibility="gone"
             android:paddingTop="4dp" />
 

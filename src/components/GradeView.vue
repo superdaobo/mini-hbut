@@ -117,9 +117,9 @@ const resolveCourseTeacherName = (grade) => {
 }
 
 const resolveEntryTeacherName = (grade) => {
-  // 详情页录入教师：只取原始录入教师(cjlrjsxm)
+  // 详情页录入教师：只取原始后端字段 cjlrjsxm / jsxm，不使用 normalized 的 teacher 字段
   if (!grade || typeof grade !== 'object') return ''
-  return String(grade.teacher ?? grade.cjlrjsxm ?? grade.jsxm ?? '').trim()
+  return String(grade.cjlrjsxm ?? grade.jsxm ?? '').trim()
 }
 
 const resolveStatusTags = (grade, scoreText, scoreNumber) => {

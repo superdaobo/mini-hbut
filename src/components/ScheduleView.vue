@@ -4150,7 +4150,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-rows: repeat(11, var(--slot-height));
   grid-template-columns: 1fr; /* 强制单列 */
-  padding: 0 2px;
+  padding: 0 1px;
   position: relative;
   min-height: calc(var(--slot-height) * 11);
 }
@@ -4171,8 +4171,8 @@ onBeforeUnmount(() => {
 }
 
 .course-card {
-  margin: 2px;
-  padding: 7px 5px;
+  margin: 1px;
+  padding: 5px 4px;
   background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
   color: var(--course-text, #0f172a) !important;
   border-color: var(--course-border, rgba(148, 163, 184, 0.55)) !important;
@@ -5067,7 +5067,8 @@ onBeforeUnmount(() => {
   }
 
   .course-card {
-    padding: 4px 2px;
+    padding: 3px 2px;
+    margin: 1px 0;
     font-size: 10px;
   }
 

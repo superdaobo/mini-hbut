@@ -44,7 +44,7 @@ describe('getWidgetBridge', () => {
 
     const bridge = getWidgetBridge()
     expect(debugSpy).toHaveBeenCalledTimes(1)
-    expect(debugSpy).toHaveBeenCalledWith('[widget] Not in Capacitor environment, widget bridge is no-op')
+    expect(debugSpy).toHaveBeenCalledWith('[widget] Non-mobile environment, widget bridge is no-op')
 
     // 第二次调用不再 log
     const bridge2 = getWidgetBridge()

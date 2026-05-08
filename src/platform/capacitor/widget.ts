@@ -1,11 +1,12 @@
 // src/platform/capacitor/widget.ts
 // 门面：封装 Widget Bridge 单例 + schema/字节数校验 + 重试
-// 对齐 design §6.2, §9.2, §9.3
+// 支持 Capacitor 和 Tauri Android 两种运行时
 
 import { MiniHbutWidget } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
 import type { TodayCourseSnapshot, MiniHbutWidgetPlugin } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
 import { validateSnapshot } from '@/utils/widget_snapshot_schema'
 import { pushDebugLog } from '@/utils/debug_logger'
+import { isTauriRuntime, isCapacitorRuntime, invokeNative } from '@/platform/native'
 
 /** 最大 snapshot 字节数：32 KB */
 const MAX_SNAPSHOT_BYTES = 32 * 1024
@@ -21,9 +22,37 @@ export class WidgetBridgeError extends Error {
   }
 }
 
-// ─── No-op Proxy（非 Capacitor 环境） ───────────────────────────────────
+// ─── Tauri Android Bridge ────────────────────────────────────────────────
 
-/** 创建一个所有方法静默 resolve 的 no-op 代理 */
+/** 检测是否为 Tauri Android 环境 */
+function isTauriAndroid(): boolean {
+  if (!isTauriRuntime()) return false
+  const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
+  return ua.includes('android')
+}
+
+/** Tauri Android 实现：通过 invokeNative 写入 SharedPreferences */
+function createTauriAndroidBridge(): MiniHbutWidgetPlugin {
+  return {
+    async writeSnapshot(options: { snapshot: TodayCourseSnapshot }): Promise<void> {
+      const json = JSON.stringify(options.snapshot)
+      await invokeNative('write_widget_snapshot', { snapshotJson: json })
+    },
+    async clearSnapshot(): Promise<void> {
+      await invokeNative('clear_widget_snapshot')
+    },
+    async requestRefresh(): Promise<void> {
+      // Tauri 无法直接触发 AppWidgetManager 刷新，依赖系统 30 分钟周期
+      // 写入 SharedPreferences 后 widget 下次刷新时会读到新数据
+    },
+    async getCapabilities(): Promise<{ platform: 'android-appwidget' | 'ios-widgetkit' | 'unavailable'; pinned: boolean }> {
+      return { platform: 'android-appwidget', pinned: false }
+    },
+  }
+}
+
+// ─── No-op Proxy（桌面/Web 环境） ───────────────────────────────────────
+
 function createNoOpProxy(): MiniHbutWidgetPlugin {
   return {
     writeSnapshot: () => Promise.resolve(),
@@ -40,28 +69,37 @@ let _debugLogged = false
 
 /**
  * 获取 Widget Bridge 单例。
- * - Capacitor 环境：返回真实插件实例
- * - 非 Capacitor 环境：console.debug 一次后返回 no-op proxy
+ * 优先级：Tauri Android > Capacitor > No-op
  */
 export function getWidgetBridge(): MiniHbutWidgetPlugin {
   if (_bridge) return _bridge
 
-  // 检测 Capacitor 运行时
-  const isCapacitor =
-    typeof window !== 'undefined' &&
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    !!(window as any).Capacitor
-
-  if (!isCapacitor) {
+  // 1. Tauri Android：通过 invokeNative 写入 SharedPreferences
+  if (isTauriAndroid()) {
     if (!_debugLogged) {
-      console.debug('[widget] Not in Capacitor environment, widget bridge is no-op')
+      console.debug('[widget] Tauri Android detected, using native SharedPreferences bridge')
       _debugLogged = true
     }
-    _bridge = createNoOpProxy()
+    _bridge = createTauriAndroidBridge()
     return _bridge
   }
 
-  _bridge = MiniHbutWidget
+  // 2. Capacitor：使用 Capacitor 插件
+  if (isCapacitorRuntime()) {
+    if (!_debugLogged) {
+      console.debug('[widget] Capacitor detected, using MiniHbutWidget plugin')
+      _debugLogged = true
+    }
+    _bridge = MiniHbutWidget
+    return _bridge
+  }
+
+  // 3. 其他环境（桌面 Tauri / Web dev）：no-op
+  if (!_debugLogged) {
+    console.debug('[widget] Non-mobile environment, widget bridge is no-op')
+    _debugLogged = true
+  }
+  _bridge = createNoOpProxy()
   return _bridge
 }
 
@@ -69,7 +107,7 @@ export function getWidgetBridge(): MiniHbutWidgetPlugin {
 
 /**
  * 写入快照到原生 Widget 共享存储。
- * 执行 Ajv schema 校验 + UTF-8 字节数校验（≤ 32 KB）后委托插件写入。
+ * 执行 Ajv schema 校验 + UTF-8 字节数校验（≤ 32 KB）后委托写入。
  */
 export async function writeSnapshot(snapshot: TodayCourseSnapshot): Promise<void> {
   // 1. Ajv schema 校验
@@ -91,13 +129,12 @@ export async function writeSnapshot(snapshot: TodayCourseSnapshot): Promise<void
     )
   }
 
-  // 3. 委托插件写入
+  // 3. 委托写入
   await getWidgetBridge().writeSnapshot({ snapshot })
 }
 
 /**
  * 清空 Widget 共享存储中的快照数据。
- * 委托插件执行清空 + 触发 Widget 刷新。
  */
 export async function clearSnapshot(): Promise<void> {
   await getWidgetBridge().clearSnapshot()
@@ -112,17 +149,11 @@ export async function requestRefresh(): Promise<void> {
 
 // ─── 重试逻辑 ────────────────────────────────────────────────────────────
 
-/** 不可重试的错误码：立即抛出，不进入退避循环 */
 const NON_RETRYABLE_CODES = new Set(['SNAPSHOT_TOO_LARGE', 'INVALID_SNAPSHOT'])
-
-/** 指数退避间隔（ms）：最多 3 次重试 */
 const RETRY_DELAYS = [250, 1000, 4000] as const
 
 /**
  * 带指数退避重试的 writeSnapshot。
- * - 不可重试错误（SNAPSHOT_TOO_LARGE / INVALID_SNAPSHOT）立即 reject
- * - 可重试错误（WRITE_FAILED / UNAVAILABLE）最多重试 3 次
- * - 退避间隔：250ms → 1000ms → 4000ms
  */
 export async function writeSnapshotWithRetry(snapshot: TodayCourseSnapshot): Promise<void> {
   let lastError: unknown
@@ -134,27 +165,20 @@ export async function writeSnapshotWithRetry(snapshot: TodayCourseSnapshot): Pro
     } catch (err: unknown) {
       lastError = err
 
-      // 不可重试错误：立即抛出
       const code = (err as { code?: string })?.code
       if (code && NON_RETRYABLE_CODES.has(code)) {
         throw err
       }
 
-      // 已用尽所有重试次数
-      if (attempt === RETRY_DELAYS.length) {
-        break
-      }
+      if (attempt === RETRY_DELAYS.length) break
 
-      // 记录重试日志
       const message = err instanceof Error ? err.message : String(err)
       console.warn(`[widget] writeSnapshot retry ${attempt + 1}/3: ${message}`)
       pushDebugLog('widget', `writeSnapshot retry ${attempt + 1}/3: ${message}`, 'warn', { code })
 
-      // 指数退避等待
       await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]))
     }
   }
 
-  // 所有重试耗尽，抛出最后一个错误
   throw lastError
 }

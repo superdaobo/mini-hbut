@@ -5,21 +5,19 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingTop="4dp"
-    android:paddingBottom="4dp"
-    android:contentDescription="@string/widget_course_row_desc_placeholder">
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
     <!-- 节次徽标 -->
     <TextView
         android:id="@+id/widget_item_period"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textColor="@color/widget_text_primary"
-        android:textSize="14sp"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:gravity="center"
+        android:textColor="@color/widget_accent"
+        android:textSize="12sp"
         android:textStyle="bold"
-        android:paddingEnd="8dp"
-        android:minWidth="28dp"
-        android:gravity="center" />
+        android:background="@drawable/widget_period_badge" />
 
     <!-- 时间 -->
     <TextView
@@ -27,7 +25,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="14sp"
+        android:textSize="12sp"
+        android:paddingStart="8dp"
         android:paddingEnd="8dp" />
 
     <!-- 课程名 -->
@@ -37,10 +36,11 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:textColor="@color/widget_text_primary"
-        android:textSize="14sp"
+        android:textSize="13sp"
+        android:textStyle="bold"
         android:maxLines="1"
         android:ellipsize="end"
-        android:paddingEnd="8dp" />
+        android:paddingEnd="6dp" />
 
     <!-- 教室 -->
     <TextView
@@ -48,8 +48,13 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="14sp"
+        android:textSize="11sp"
         android:maxLines="1"
-        android:ellipsize="end" />
+        android:ellipsize="end"
+        android:background="@drawable/widget_badge_bg"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp" />
 
 </LinearLayout>

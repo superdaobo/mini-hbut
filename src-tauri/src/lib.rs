@@ -1895,6 +1895,97 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     Ok(parsed)
 }
 
+// ─── Widget SharedPreferences 写入（Android 专用） ───────────────────────────
+
+/// 将 widget 快照 JSON 写入 Android SharedPreferences XML 文件。
+/// SharedPreferences 路径：/data/data/{package}/shared_prefs/mini_hbut_widget.xml
+/// Widget 的 WidgetDataStore.kt 从同一文件读取。
+#[tauri::command]
+async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> Result<(), String> {
+    let data_dir = app.path().data_dir().map_err(|e| format!("获取数据目录失败: {}", e))?;
+    
+    // Android SharedPreferences 存储路径
+    // Tauri Android 的 data_dir 通常是 /data/data/com.hbut.mini/files
+    // SharedPreferences 在 /data/data/com.hbut.mini/shared_prefs/
+    let prefs_dir = data_dir
+        .parent()
+        .unwrap_or(&data_dir)
+        .join("shared_prefs");
+    
+    tokio::fs::create_dir_all(&prefs_dir)
+        .await
+        .map_err(|e| format!("创建 shared_prefs 目录失败: {}", e))?;
+    
+    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    
+    // 构建 SharedPreferences XML 格式
+    let xml_content = format!(
+        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="snapshot_json">{}</string>
+    <int name="snapshot_version" value="1" />
+    <long name="last_write_ts" value="{}" />
+</map>
+"#,
+        escape_xml(&snapshot_json),
+        now_ms
+    );
+    
+    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+        .await
+        .map_err(|e| format!("写入 widget 快照失败: {}", e))?;
+    
+    Ok(())
+}
+
+/// 清空 widget 快照数据
+#[tauri::command]
+async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
+    let data_dir = app.path().data_dir().map_err(|e| format!("获取数据目录失败: {}", e))?;
+    let prefs_dir = data_dir
+        .parent()
+        .unwrap_or(&data_dir)
+        .join("shared_prefs");
+    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
+    
+    if prefs_file.exists() {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        
+        let xml_content = format!(
+            r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="snapshot_json"></string>
+    <int name="snapshot_version" value="1" />
+    <long name="last_write_ts" value="{}" />
+</map>
+"#,
+            now_ms
+        );
+        
+        tokio::fs::write(&prefs_file, xml_content.as_bytes())
+            .await
+            .map_err(|e| format!("清空 widget 快照失败: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+/// XML 特殊字符转义
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 #[tauri::command]
 async fn fetch_remote_json(url: String) -> Result<serde_json::Value, String> {
     if let Some(local_file) = modules::module_bundle::resolve_local_dev_module_file_from_url(&url) {
@@ -5473,6 +5564,8 @@ pub fn run() {
             hbut_ai_upload,
             hbut_ai_chat,
             hbut_one_code_token,
+            write_widget_snapshot,
+            clear_widget_snapshot,
         ])
 
         .run(tauri::generate_context!())

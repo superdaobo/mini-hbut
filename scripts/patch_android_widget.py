@@ -51,6 +51,8 @@ def copy_widget_resources():
         "res/layout/widget_item_course_row.xml",
         "res/drawable/widget_preview_today_courses.xml",
         "res/drawable/widget_background.xml",
+        "res/drawable/widget_badge_bg.xml",
+        "res/drawable/widget_period_badge.xml",
         "res/values/colors_widget.xml",
         "res/values-night/colors_widget.xml",
         "res/values-v31/colors_widget.xml",
