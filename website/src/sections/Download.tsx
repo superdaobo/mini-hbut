@@ -191,7 +191,29 @@ function assignLink(
   rawUrl: string
 ): void {
   const candidates = buildGithubUrlCandidates(rawUrl, downloadProxyPrefixes, 'last');
-  if (!candidates.length) return;
+  if (!candidates.length) {
+    // 非 GitHub URL（如 CDN），直接使用并尝试推导 GitHub 源站 + 代理
+    const cdnUrl = rawUrl.trim();
+    if (!cdnUrl) return;
+    links[primaryKey] = cdnUrl;
+
+    // 从 CDN URL 推导 GitHub 下载链接：
+    // CDN: https://hbut.6661111.xyz/releases/{tag}/{filename}
+    // GitHub: https://github.com/superdaobo/mini-hbut/releases/download/{tag}/{filename}
+    const cdnPrefix = `${EDGEONE_CDN_BASE}/releases/`;
+    let githubCandidates: string[] = [];
+    if (cdnUrl.startsWith(cdnPrefix)) {
+      const pathAfterReleases = cdnUrl.slice(cdnPrefix.length); // "{tag}/{filename}"
+      const githubUrl = `https://github.com/${REPO}/releases/download/${pathAfterReleases}`;
+      githubCandidates = [
+        ...downloadProxyPrefixes.map((p) => `${p}${githubUrl}`),
+        githubUrl,
+      ];
+    }
+
+    links[candidatesKey] = uniqueUrls([cdnUrl, ...githubCandidates]);
+    return;
+  }
   links[primaryKey] = candidates[0];
   links[candidatesKey] = candidates;
 }
