@@ -1897,20 +1897,43 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
 
 // ─── Widget SharedPreferences 写入（Android 专用） ───────────────────────────
 
+/// 解析 Android SharedPreferences 目录路径。
+/// 从 data_dir 向上查找到包含 "com.hbut.mini" 的目录，然后拼接 shared_prefs/。
+/// 兜底：直接使用 /data/data/com.hbut.mini/shared_prefs/
+fn resolve_shared_prefs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    // 方案 1：从 data_dir 推导
+    if let Ok(data_dir) = app.path().data_dir() {
+        // 向上遍历找到包名目录
+        let mut current = data_dir.as_path();
+        for _ in 0..5 {
+            if let Some(name) = current.file_name() {
+                if name.to_string_lossy().contains("com.hbut.mini") {
+                    return Ok(current.join("shared_prefs"));
+                }
+            }
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        // 如果没找到包名目录，尝试 data_dir 的 parent
+        if let Some(parent) = data_dir.parent() {
+            let candidate = parent.join("shared_prefs");
+            return Ok(candidate);
+        }
+    }
+    
+    // 方案 2：硬编码路径（Android 标准位置）
+    let hardcoded = std::path::PathBuf::from("/data/data/com.hbut.mini/shared_prefs");
+    Ok(hardcoded)
+}
+
 /// 将 widget 快照 JSON 写入 Android SharedPreferences XML 文件。
 /// SharedPreferences 路径：/data/data/{package}/shared_prefs/mini_hbut_widget.xml
 /// Widget 的 WidgetDataStore.kt 从同一文件读取。
 #[tauri::command]
 async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> Result<(), String> {
-    let data_dir = app.path().data_dir().map_err(|e| format!("获取数据目录失败: {}", e))?;
-    
-    // Android SharedPreferences 存储路径
-    // Tauri Android 的 data_dir 通常是 /data/data/com.hbut.mini/files
-    // SharedPreferences 在 /data/data/com.hbut.mini/shared_prefs/
-    let prefs_dir = data_dir
-        .parent()
-        .unwrap_or(&data_dir)
-        .join("shared_prefs");
+    let prefs_dir = resolve_shared_prefs_dir(&app)?;
     
     tokio::fs::create_dir_all(&prefs_dir)
         .await
@@ -1937,7 +1960,7 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
     
     tokio::fs::write(&prefs_file, xml_content.as_bytes())
         .await
-        .map_err(|e| format!("写入 widget 快照失败: {}", e))?;
+        .map_err(|e| format!("写入 widget 快照失败: {} (path: {:?})", e, prefs_file))?;
     
     Ok(())
 }
@@ -1945,11 +1968,7 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
 /// 清空 widget 快照数据
 #[tauri::command]
 async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
-    let data_dir = app.path().data_dir().map_err(|e| format!("获取数据目录失败: {}", e))?;
-    let prefs_dir = data_dir
-        .parent()
-        .unwrap_or(&data_dir)
-        .join("shared_prefs");
+    let prefs_dir = resolve_shared_prefs_dir(&app)?;
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
     
     if prefs_file.exists() {
