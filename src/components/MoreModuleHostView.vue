@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
 import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
 import { openExternal } from '../utils/external_link'
+import { pushDebugLog } from '../utils/debug_logger'
 
 const props = defineProps({
   session: {
@@ -179,6 +180,21 @@ const scheduleFrameSizeFallback = () => {
     frameContentHeight.value = 800
     loading.value = false
     loadHint.value = '模块页面已加载，使用默认显示高度。'
+    pushDebugLog('ModuleHost', `使用默认高度 800px（模块未上报尺寸）`, 'info')
+    // iOS 额外检测：如果 iframe 内容实际为空（白屏），10 秒后提供外部打开选项
+    const isIos = /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+    if (isIos) {
+      window.setTimeout(() => {
+        if (frameContentHeight.value === 800 && !loadError.value) {
+          const src = frameSrc.value
+          if (src && src.startsWith('http')) {
+            externalOpenUrl.value = src
+            loadHint.value = 'iOS 设备可能无法嵌入显示，可尝试在浏览器中打开。'
+            pushDebugLog('ModuleHost', `iOS 白屏检测触发，提供外部打开`, 'warn', { src: src?.slice(0, 100) })
+          }
+        }
+      }, 6000)
+    }
   }, 3500)
 }
 
@@ -220,12 +236,22 @@ const resetFrameState = () => {
   loading.value = ready.value
   loadError.value = ''
   loadHint.value = ''
+  externalOpenUrl.value = ''
+  pushDebugLog('ModuleHost', `iframe 开始加载`, 'info', {
+    src: frameSrc.value?.slice(0, 150),
+    previewMode: previewMode.value,
+    ua: String(globalThis?.navigator?.userAgent || '').slice(0, 80)
+  })
   if (!ready.value) return
   // WebView 某些场景下 iframe load 事件可能延迟，超时后先给出明确状态。
   loadingGuardTimer = window.setTimeout(() => {
     if (!loading.value) return
     loading.value = false
     loadHint.value = '模块页面已开始渲染，正在等待模块上报真实高度。'
+    pushDebugLog('ModuleHost', `加载超时（4.5s），iframe 未触发 load 事件`, 'warn', {
+      src: frameSrc.value?.slice(0, 120),
+      previewMode: previewMode.value
+    })
     // 同时启动连接拒绝兜底（Android 场景）
     scheduleConnectionRefusedRetry()
   }, 4500)
@@ -263,6 +289,10 @@ const handleLoad = () => {
   clearCapacitorFallbackTimer()
   loading.value = false
   loadError.value = ''
+  pushDebugLog('ModuleHost', `iframe onload 触发`, 'info', {
+    src: frameSrc.value?.slice(0, 120),
+    hasHeight: frameContentHeight.value > 0
+  })
   if (!frameContentHeight.value) {
     scheduleFrameSizeHint()
     scheduleFrameSizeFallback()
@@ -274,6 +304,10 @@ const handleError = () => {
   clearFrameSizeHintTimer()
   clearCapacitorFallbackTimer()
   clearFrameSizeHintTimer()
+  pushDebugLog('ModuleHost', `iframe onerror 触发`, 'error', {
+    src: frameSrc.value?.slice(0, 120),
+    previewMode: previewMode.value
+  })
   // 连接拒绝检测：本地桥接失败时尝试降级
   const currentSrc = frameSrc.value
   if (currentSrc && currentSrc.includes('127.0.0.1')) {
@@ -357,7 +391,12 @@ onBeforeUnmount(() => {
             在浏览器中打开
           </button>
         </div>
-        <div v-else-if="loadHint" class="module-frame-hint">{{ loadHint }}</div>
+        <div v-else-if="loadHint" class="module-frame-hint">
+          {{ loadHint }}
+          <button v-if="externalOpenUrl" class="external-open-btn" @click="openExternal(externalOpenUrl)">
+            在浏览器中打开
+          </button>
+        </div>
         <iframe
           :key="frameKey"
           ref="frameRef"
@@ -494,6 +533,24 @@ onBeforeUnmount(() => {
 .module-frame-hint {
   background: rgba(59, 130, 246, 0.12);
   color: color-mix(in oklab, var(--ui-primary) 78%, #1d4ed8 22%);
+}
+
+.external-open-btn {
+  display: block;
+  margin: 10px auto 0;
+  padding: 8px 20px;
+  background: var(--ui-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.external-open-btn:active {
+  transform: scale(0.96);
+  opacity: 0.8;
 }
 
 .icon-btn {
