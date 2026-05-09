@@ -259,6 +259,14 @@ const handleSelect = (level, value) => {
   if (level === 3 && selectedPath.value.length === 4) {
     // 保存选择
     localStorage.setItem('last_dorm_selection', JSON.stringify(selectedPath.value))
+    // 保存房间标签文本（供小组件显示）
+    const labels = [
+      currentArea.value?.label || '',
+      currentBuilding.value?.label || '',
+      currentLevel.value?.label || '',
+      currentLevel.value?.children?.find(r => r.value === selectedPath.value[3])?.label || ''
+    ].filter(Boolean)
+    localStorage.setItem('last_dorm_selection_label', labels.join(' '))
     // 保存空调房间映射（供通知中心后台查询用）
     const roomNode = currentLevel.value?.children?.find(r => r.value === selectedPath.value[3])
     if (roomNode?._acRoomValue) {

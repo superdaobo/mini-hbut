@@ -389,16 +389,16 @@ export function renderFromBytes(raw: string | null | undefined, now: Date): Rend
 // ─── 内部辅助 ─────────────────────────────────────────────────────────────────
 
 /**
- * 解析 period_end，支持多种字段名与 duration/djs 推导
+ * 解析 period_end：
+ * - 如果有明确的 period_end/end_period 字段且合理，使用它
+ * - 否则默认 period_end = period_start（每条记录代表单节课）
+ * - 不使用 djs 推导，因为 djs 是整门课的总节数，不是从当前 period_start 的跨度
  */
 function resolvePeriodEnd(entry: Record<string, unknown>, periodStart: number): number {
   const explicit = toPositiveInt(entry.period_end ?? entry.end_period, 0)
   if (explicit >= periodStart && explicit <= 14) return explicit
-
-  // 从 duration / djs 推导
-  const span = toPositiveInt(entry.duration ?? entry.djs, 1)
-  const computed = periodStart + span - 1
-  return Math.min(14, Math.max(periodStart, computed))
+  // 默认：每条记录代表单节课
+  return periodStart
 }
 
 /**
