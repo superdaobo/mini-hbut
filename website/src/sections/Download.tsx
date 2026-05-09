@@ -735,7 +735,7 @@ export default function DownloadSection() {
       </div>
 
       <Dialog open={!!selectedPlatform} onOpenChange={() => setSelectedPlatform(null)}>
-        <DialogContent className="bg-cyber-dark border border-cyan/30 text-white max-w-md">
+        <DialogContent className="bg-cyber-dark border border-cyan/30 text-white max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-pixel text-lg">下载 {selectedPlatform?.name}{version ? ` — ${version}` : ''}</DialogTitle>
             <DialogDescription className="text-gray-400">多 CDN 加速节点，主链默认使用最快线路，可切换备用</DialogDescription>
