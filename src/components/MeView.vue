@@ -1,5 +1,5 @@
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, watch } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
 
@@ -15,6 +15,45 @@ const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkU
 const activeLegalTab = ref('disclaimer')
 const legalSectionRef = ref(null)
 const showOpenSourceModal = ref(false)
+const showSponsorModal = ref(false)
+const sponsorImageUrl = ref('')
+const sponsorImageLoading = ref(false)
+
+const SPONSOR_IMAGE_CACHE_KEY = 'hbu_sponsor_qr_cache'
+const SPONSOR_IMAGE_SRC = 'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/%E8%B5%9E%E8%B5%8F%E7%A0%81.JPG'
+
+// 加载赞赏码（首次下载，之后缓存）
+const loadSponsorImage = async () => {
+  // 检查缓存
+  const cached = localStorage.getItem(SPONSOR_IMAGE_CACHE_KEY)
+  if (cached) {
+    sponsorImageUrl.value = cached
+    return
+  }
+  // 首次下载
+  sponsorImageLoading.value = true
+  try {
+    const res = await fetch(SPONSOR_IMAGE_SRC)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const blob = await res.blob()
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result
+      sponsorImageUrl.value = dataUrl
+      try { localStorage.setItem(SPONSOR_IMAGE_CACHE_KEY, dataUrl) } catch { /* quota */ }
+      sponsorImageLoading.value = false
+    }
+    reader.readAsDataURL(blob)
+  } catch {
+    // 降级：直接用远程 URL
+    sponsorImageUrl.value = SPONSOR_IMAGE_SRC
+    sponsorImageLoading.value = false
+  }
+}
+
+watch(showSponsorModal, (val) => {
+  if (val && !sponsorImageUrl.value) loadSponsorImage()
+})
 
 const handleLogout = () => emit('logout')
 const goStudentInfo = () => emit('navigate', 'studentinfo')
@@ -148,6 +187,14 @@ const handleShowLegal = async (tab) => {
           </span>
           <span class="link-text">开源说明</span>
         </button>
+        <button class="link-item" @click="showSponsorModal = true">
+          <span class="link-icon" aria-hidden="true">
+            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+            </svg>
+          </span>
+          <span class="link-text">赞助</span>
+        </button>
         <button class="link-item" @click="handleOpenMore">
           <span class="link-icon" aria-hidden="true">
             <svg class="link-svg" viewBox="0 0 24 24" fill="none">
@@ -237,6 +284,27 @@ const handleShowLegal = async (tab) => {
         
         <div class="modal-actions">
           <button class="btn-primary" @click="showOpenSourceModal = false">知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 赞助弹窗 -->
+    <div v-if="showSponsorModal" class="modal-mask" @click="showSponsorModal = false">
+      <div class="modal-card sponsor-modal" @click.stop>
+        <h3>❤️ 赞助支持</h3>
+        <p class="intro">如果 Mini-HBUT 对你有帮助，欢迎请作者喝杯咖啡 ☕</p>
+        <div class="sponsor-qr-container">
+          <div v-if="sponsorImageLoading" class="sponsor-loading">加载中...</div>
+          <img
+            v-else-if="sponsorImageUrl"
+            :src="sponsorImageUrl"
+            alt="微信赞赏码"
+            class="sponsor-qr-image"
+          />
+        </div>
+        <p class="sponsor-hint">长按或截图扫码 · 微信赞赏</p>
+        <div class="modal-actions">
+          <button class="btn-primary" @click="showSponsorModal = false">关闭</button>
         </div>
       </div>
     </div>
@@ -699,6 +767,37 @@ const handleShowLegal = async (tab) => {
   align-items: center;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.sponsor-modal {
+  max-width: 340px;
+  text-align: center;
+}
+
+.sponsor-qr-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  margin: 16px 0;
+}
+
+.sponsor-qr-image {
+  max-width: 240px;
+  max-height: 300px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.sponsor-loading {
+  color: var(--ui-muted);
+  font-size: 14px;
+}
+
+.sponsor-hint {
+  font-size: 12px;
+  color: var(--ui-muted);
+  margin: 8px 0 16px;
 }
 </style>
 
