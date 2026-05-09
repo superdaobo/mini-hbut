@@ -1996,6 +1996,32 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 调试命令：返回 widget 相关路径信息，用于诊断写入问题
+#[tauri::command]
+async fn debug_widget_paths(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let data_dir = app.path().data_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|e| format!("ERROR: {}", e));
+    
+    let prefs_dir = resolve_shared_prefs_dir(&app)?;
+    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
+    let file_exists = prefs_file.exists();
+    let file_content = if file_exists {
+        tokio::fs::read_to_string(&prefs_file).await.unwrap_or_else(|e| format!("READ_ERROR: {}", e))
+    } else {
+        "FILE_NOT_FOUND".to_string()
+    };
+    
+    Ok(serde_json::json!({
+        "data_dir": data_dir,
+        "prefs_dir": prefs_dir.to_string_lossy().to_string(),
+        "prefs_file": prefs_file.to_string_lossy().to_string(),
+        "file_exists": file_exists,
+        "file_content_preview": if file_content.len() > 500 { format!("{}...(truncated)", &file_content[..500]) } else { file_content },
+        "platform": std::env::consts::OS,
+    }))
+}
+
 /// XML 特殊字符转义
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -5585,6 +5611,7 @@ pub fn run() {
             hbut_one_code_token,
             write_widget_snapshot,
             clear_widget_snapshot,
+            debug_widget_paths,
         ])
 
         .run(tauri::generate_context!())

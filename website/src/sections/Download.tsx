@@ -191,31 +191,23 @@ function assignLink(
   rawUrl: string
 ): void {
   const candidates = buildGithubUrlCandidates(rawUrl, downloadProxyPrefixes, 'last');
-  if (!candidates.length) {
-    // 非 GitHub URL（如 CDN），直接使用并尝试推导 GitHub 源站 + 代理
-    const cdnUrl = rawUrl.trim();
-    if (!cdnUrl) return;
-    links[primaryKey] = cdnUrl;
-
-    // 从 CDN URL 推导 GitHub 下载链接：
-    // CDN: https://hbut.6661111.xyz/releases/{tag}/{filename}
-    // GitHub: https://github.com/superdaobo/mini-hbut/releases/download/{tag}/{filename}
-    const cdnPrefix = `${EDGEONE_CDN_BASE}/releases/`;
-    let githubCandidates: string[] = [];
-    if (cdnUrl.startsWith(cdnPrefix)) {
-      const pathAfterReleases = cdnUrl.slice(cdnPrefix.length); // "{tag}/{filename}"
-      const githubUrl = `https://github.com/${REPO}/releases/download/${pathAfterReleases}`;
-      githubCandidates = [
-        ...downloadProxyPrefixes.map((p) => `${p}${githubUrl}`),
-        githubUrl,
-      ];
-    }
-
-    links[candidatesKey] = uniqueUrls([cdnUrl, ...githubCandidates]);
-    return;
-  }
+  
+  // 设置主链接
+  if (!candidates.length) return;
   links[primaryKey] = candidates[0];
-  links[candidatesKey] = candidates;
+
+  // 如果 candidates 只有 CDN 链接（非 GitHub），补充代理 + GitHub 源站
+  const hasGithubUrl = candidates.some((u) => u.includes('github.com/'));
+  if (!hasGithubUrl && candidates[0].startsWith(`${EDGEONE_CDN_BASE}/releases/`)) {
+    const cdnUrl = candidates[0];
+    const cdnPrefix = `${EDGEONE_CDN_BASE}/releases/`;
+    const pathAfterReleases = cdnUrl.slice(cdnPrefix.length); // "v1.3.5/filename.exe"
+    const githubUrl = `https://github.com/${REPO}/releases/download/${pathAfterReleases}`;
+    const proxiedGithub = downloadProxyPrefixes.map((p) => `${p}${githubUrl}`);
+    links[candidatesKey] = uniqueUrls([cdnUrl, ...proxiedGithub, githubUrl]);
+  } else {
+    links[candidatesKey] = candidates;
+  }
 }
 
 function applyExpectedAssetFallbacks(links: ReleaseLinks, versionOrTag: string): void {

@@ -9,6 +9,7 @@ import { buildTodayCourseSnapshot } from './widget_snapshot'
 import { writeSnapshotWithRetry, clearSnapshot } from '@/platform/capacitor/widget'
 import { pushDebugLog } from './debug_logger'
 import { getCacheKey } from './api.js'
+import { isTauriRuntime, invokeNative } from '@/platform/native'
 
 // ─── 内联的缓存读取逻辑（避免循环依赖 schedule_prefetch ↔ widget_bridge） ───
 
@@ -167,5 +168,17 @@ export async function clearWidgetForLogout(): Promise<void> {
     const message = err instanceof Error ? err.message : String(err)
     console.warn(`[widget] clearWidgetForLogout failed: ${message}`)
     pushDebugLog('widget', 'widget_write_failed', 'warn', { code, source: 'clearWidgetForLogout' })
+  }
+}
+
+/**
+ * 调试：获取 widget 路径信息（仅 Tauri Android 可用）
+ */
+export async function debugWidgetPaths(): Promise<unknown> {
+  try {
+    if (!isTauriRuntime()) return { error: 'not tauri runtime' }
+    return await invokeNative('debug_widget_paths')
+  } catch (err: unknown) {
+    return { error: String(err) }
   }
 }
