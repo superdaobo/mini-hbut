@@ -14,6 +14,7 @@ import {
   clearBackgroundFetchContext,
   syncBackgroundFetchContext
 } from './background_fetch.js'
+import { writeElectricityToWidget, writeExamToWidget } from './widget_bridge'
 
 const RAW_API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const FALLBACK_API_BASE = 'https://hbut.6661111.xyz/api'
@@ -299,6 +300,47 @@ const getRequestTimeoutMs = () => {
 const emitSnapshotUpdate = (snapshot) => {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent(NOTIFY_SNAPSHOT_EVENT, { detail: snapshot }))
+}
+
+/**
+ * 将通知中心的电费和考试数据同步到 Android 小组件
+ */
+const syncWidgetData = async (snapshot) => {
+  // 电费数据
+  const elec = snapshot?.electricity
+  if (elec?.success && elec?.configured) {
+    await writeElectricityToWidget({
+      quantity: Number(elec.quantity) || 0,
+      room: Array.isArray(elec.selectedPath) ? elec.selectedPath.join('/') : '',
+      acQuantity: Number(elec.acQuantity) || 0,
+      isLow: !!elec.isLow
+    })
+  }
+
+  // 考试数据
+  const exams = snapshot?.exams
+  if (exams?.upcoming && Array.isArray(exams.upcoming) && exams.upcoming.length > 0) {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const futureExams = exams.upcoming.filter(e => {
+      if (!e.exam_date) return true
+      return new Date(e.exam_date) >= today
+    })
+    if (futureExams.length > 0) {
+      const first = futureExams[0]
+      const examDate = first.exam_date ? new Date(first.exam_date) : null
+      const daysLeft = examDate ? Math.ceil((examDate - today) / (1000 * 60 * 60 * 24)) : -1
+      await writeExamToWidget({
+        exams: futureExams.slice(0, 3).map(e => ({
+          course_name: e.course_name || '',
+          exam_date: e.exam_date || '',
+          exam_time: e.exam_time || '',
+          location: e.location || ''
+        })),
+        days_left: daysLeft
+      })
+    }
+  }
 }
 
 const getStoredSnapshot = (studentId) => {
@@ -1040,6 +1082,10 @@ export const runNotificationCheck = async ({
 
   setStoredSnapshot(sid, snapshot)
   emitSnapshotUpdate(snapshot)
+
+  // 同步数据到 Android 小组件
+  syncWidgetData(snapshot).catch(() => {})
+
   return snapshot
 }
 

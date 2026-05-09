@@ -2,8 +2,8 @@ import { getCachedData, setCachedData } from './api.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const STATIC_RESOURCE_BASE = 'https://hbut.6661111.xyz/app-resources'
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/superdaobo/mini-hbut-config/main/app-resources'
-const GITHUB_PROXY_BASE = 'https://gh-proxy.com/https://raw.githubusercontent.com/superdaobo/mini-hbut-config/main/app-resources'
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/superdaobo/mini-hbut/website-pages/dist/app-resources'
+const GITHUB_PROXY_BASE = 'https://ghfast.top/https://raw.githubusercontent.com/superdaobo/mini-hbut/website-pages/dist/app-resources'
 const DORMITORY_MANIFEST_URL = `${STATIC_RESOURCE_BASE}/dormitory/manifest.json`
 const DORMITORY_FALLBACK_URL = `${STATIC_RESOURCE_BASE}/dormitory/dormitory_data-20260423.json`
 const DORMITORY_CACHE_KEY = 'static_resource:dormitory_data'
@@ -175,73 +175,102 @@ const readDormitoryCache = () => getCachedData(DORMITORY_CACHE_KEY, STATIC_RESOU
 
 export const getDormitoryManifestUrl = () => DORMITORY_MANIFEST_URL
 
+// Gitcode 直链（首选，国内访问快）
+const GITCODE_DIRECT_URL = 'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/dormitory_data.json'
+
 export const fetchDormitoryDataset = async ({ forceRefresh = false } = {}) => {
   const cached = readDormitoryCache()
 
-  try {
-    const manifest = await fetchJsonNoStore(DORMITORY_MANIFEST_URL)
-    const manifestVersion = safeText(manifest?.version || manifest?.resource_version || '')
-
-    if (
-      !forceRefresh &&
-      cached?.data?.data &&
-      manifestVersion &&
-      safeText(cached.data.version) === manifestVersion
-    ) {
-      return {
-        data: cached.data,
-        fromCache: true,
-        timestamp: cached.timestamp
-      }
-    }
-
-    const resourceUrl = toAbsoluteUrl(
-      manifest?.url || manifest?.resource_url || DORMITORY_FALLBACK_URL,
-      DORMITORY_MANIFEST_URL
-    ) || DORMITORY_FALLBACK_URL
-    let payloadData = null
-    const expectedSha = safeText(manifest?.sha256 || manifest?.hash || '')
-
-    if (isTauriRuntime()) {
-      payloadData = await fetchJsonNoStore(resourceUrl)
-    } else {
-      const payloadText = await fetchTextNoStore(resourceUrl)
-      if (expectedSha) {
-        const actualSha = await sha256Hex(payloadText)
-        if (actualSha && actualSha.toLowerCase() !== expectedSha.toLowerCase()) {
-          throw new Error('宿舍静态资源校验失败，请稍后重试')
-        }
-      }
-      payloadData = JSON.parse(payloadText)
-    }
-
-    const nextPayload = {
-      success: true,
-      data: Array.isArray(payloadData) ? payloadData : [],
-      version: manifestVersion || safeText(cached?.data?.version || 'legacy'),
-      sync_time: new Date().toISOString(),
-      manifest_url: DORMITORY_MANIFEST_URL,
-      source_url: resourceUrl,
-      sha256: expectedSha
-    }
-
-    setCachedData(DORMITORY_CACHE_KEY, nextPayload)
-    console.info('[StaticResource] 宿舍数据加载成功', {
-      fromCache: false,
-      version: nextPayload.version,
-      count: nextPayload.data.length,
-      source: isTauriRuntime() ? 'native-json' : 'web-fetch'
+  // ── 有缓存且非强制刷新 → 直接返回（宿舍数据只需第一次下载） ──
+  if (!forceRefresh && cached?.data?.data && Array.isArray(cached.data.data) && cached.data.data.length > 0) {
+    console.info('[StaticResource] 宿舍数据命中缓存，跳过网络请求', {
+      version: cached.data.version,
+      count: cached.data.data.length
     })
     return {
-      data: nextPayload,
-      fromCache: false,
-      timestamp: Date.now()
+      data: cached.data,
+      fromCache: true,
+      timestamp: cached.timestamp
     }
-  } catch (error) {
-    console.error('[StaticResource] 宿舍数据加载失败', {
-      error: String(error?.message || error || ''),
-      hasCache: !!cached?.data
-    })
+  }
+
+  // ── 无缓存或强制刷新，按优先级多重兜底加载 ──
+  let payloadData = null
+  let sourceLabel = ''
+
+  // 优先级 1：Gitcode 直链（国内最快）
+  try {
+    console.info('[StaticResource] 尝试 Gitcode 直链...')
+    payloadData = await fetchJsonNoStore(GITCODE_DIRECT_URL)
+    if (Array.isArray(payloadData) && payloadData.length > 0) {
+      sourceLabel = 'gitcode-direct'
+    } else {
+      payloadData = null
+    }
+  } catch (e) {
+    console.warn('[StaticResource] Gitcode 直链失败:', e?.message)
+  }
+
+  // 优先级 2：通过 manifest 获取最新版本
+  if (!payloadData) {
+    try {
+      console.info('[StaticResource] 尝试 manifest 方式...')
+      const manifest = await fetchJsonNoStore(DORMITORY_MANIFEST_URL)
+      const resourceUrl = toAbsoluteUrl(
+        manifest?.url || manifest?.resource_url || DORMITORY_FALLBACK_URL,
+        DORMITORY_MANIFEST_URL
+      ) || DORMITORY_FALLBACK_URL
+
+      if (isTauriRuntime()) {
+        payloadData = await fetchJsonNoStore(resourceUrl)
+      } else {
+        const payloadText = await fetchTextNoStore(resourceUrl)
+        payloadData = JSON.parse(payloadText)
+      }
+      if (Array.isArray(payloadData) && payloadData.length > 0) {
+        sourceLabel = 'manifest-cdn'
+      } else {
+        payloadData = null
+      }
+    } catch (e) {
+      console.warn('[StaticResource] manifest 方式失败:', e?.message)
+    }
+  }
+
+  // 优先级 3：ghfast 代理 GitHub Pages
+  if (!payloadData) {
+    try {
+      console.info('[StaticResource] 尝试 ghfast 代理...')
+      const proxyUrl = `${GITHUB_PROXY_BASE}/dormitory/dormitory_data-20260423.json`
+      payloadData = await fetchJsonNoStore(proxyUrl)
+      if (Array.isArray(payloadData) && payloadData.length > 0) {
+        sourceLabel = 'ghfast-proxy'
+      } else {
+        payloadData = null
+      }
+    } catch (e) {
+      console.warn('[StaticResource] ghfast 代理失败:', e?.message)
+    }
+  }
+
+  // 优先级 4：GitHub 源站直连（website-pages 分支）
+  if (!payloadData) {
+    try {
+      console.info('[StaticResource] 尝试 GitHub 源站...')
+      const githubUrl = `${GITHUB_RAW_BASE}/dormitory/dormitory_data-20260423.json`
+      payloadData = await fetchJsonNoStore(githubUrl)
+      if (Array.isArray(payloadData) && payloadData.length > 0) {
+        sourceLabel = 'github-pages'
+      } else {
+        payloadData = null
+      }
+    } catch (e) {
+      console.warn('[StaticResource] GitHub 源站失败:', e?.message)
+    }
+  }
+
+  // ── 所有源都失败 ──
+  if (!payloadData || !Array.isArray(payloadData) || payloadData.length === 0) {
     if (cached?.data) {
       return {
         data: withOfflineMeta(cached.data, cached.timestamp),
@@ -250,6 +279,27 @@ export const fetchDormitoryDataset = async ({ forceRefresh = false } = {}) => {
         stale: true
       }
     }
-    throw error
+    throw new Error('所有宿舍数据源均不可用，请检查网络连接')
+  }
+
+  // ── 成功，写入缓存 ──
+  const nextPayload = {
+    success: true,
+    data: payloadData,
+    version: new Date().toISOString().slice(0, 10),
+    sync_time: new Date().toISOString(),
+    source: sourceLabel
+  }
+
+  setCachedData(DORMITORY_CACHE_KEY, nextPayload)
+  console.info('[StaticResource] 宿舍数据加载成功', {
+    fromCache: false,
+    count: payloadData.length,
+    source: sourceLabel
+  })
+  return {
+    data: nextPayload,
+    fromCache: false,
+    timestamp: Date.now()
   }
 }

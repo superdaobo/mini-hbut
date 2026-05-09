@@ -91,7 +91,6 @@ export function extractCoursesOfDay(
   if (!Array.isArray(cache) || cache.length === 0) return []
 
   const results: WidgetCourse[] = []
-  const seen = new Set<string>()
 
   for (const item of cache) {
     if (!item || typeof item !== 'object') continue
@@ -139,10 +138,26 @@ export function extractCoursesOfDay(
       ? entry.color
       : undefined
 
-    // ── 去重：name + period_start + period_end + location ──
-    const dedupeKey = `${name}|${periodStart}|${periodEnd}|${location}`
-    if (seen.has(dedupeKey)) continue
-    seen.add(dedupeKey)
+    // ── 去重：同名同地点的课程，如果节次有重叠则只保留第一个 ──
+    const dedupeKey = `${name}|${location}`
+    const existingIdx = results.findIndex(r =>
+      r.name === name.slice(0, 80) &&
+      r.location === location.slice(0, 80) &&
+      // 节次有重叠
+      periodStart <= r.period_end && periodEnd >= r.period_start
+    )
+    if (existingIdx >= 0) {
+      // 合并：扩展已有条目的范围
+      const existing = results[existingIdx]
+      results[existingIdx] = {
+        ...existing,
+        period_start: Math.min(existing.period_start, periodStart),
+        period_end: Math.max(existing.period_end, periodEnd),
+        time_start: periodStart < existing.period_start ? timeStart : existing.time_start,
+        time_end: periodEnd > existing.period_end ? timeEnd : existing.time_end,
+      }
+      continue
+    }
 
     const course: WidgetCourse = {
       period_start: periodStart,

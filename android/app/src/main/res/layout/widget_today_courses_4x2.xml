@@ -4,8 +4,9 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FFFFFFFF"
-    android:padding="14dp">
+    android:background="#F0FFFFFF"
+    android:padding="14dp"
+    android:clipToOutline="true">
 
     <!-- 标题 -->
     <TextView
@@ -14,7 +15,7 @@
         android:layout_height="wrap_content"
         android:text="今日课程"
         android:textColor="#FF1A2332"
-        android:textSize="15sp"
+        android:textSize="14sp"
         android:textStyle="bold"
         android:maxLines="1"
         android:ellipsize="end"
