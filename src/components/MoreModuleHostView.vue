@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TEmptyState, TPageHeader } from './templates'
 import { canUseLocalModuleBridgePreview, isLocalModuleBridgePreviewUrl, resolveModuleHostPreviewSource } from '../utils/more_modules.js'
+import { openExternal } from '../utils/external_link'
 
 const props = defineProps({
   session: {
@@ -17,6 +18,7 @@ const frameRef = ref(null)
 const frameContentHeight = ref(0)
 const loading = ref(true)
 const loadError = ref('')
+const externalOpenUrl = ref('')
 const loadHint = ref('')
 const usedCapacitorLocalFallback = ref(false)
 
@@ -281,10 +283,17 @@ const handleError = () => {
   if (tryCapacitorLocalFallback()) return
   loading.value = false
   frameContentHeight.value = 0
-  loadError.value =
-    previewMode.value === 'capacitor-local'
-      ? '本地模块页面加载失败，请返回更多页重新下载后再试。'
-      : '模块页面加载失败，请返回更多页后重试。'
+  // iOS 特殊处理：提供外部浏览器打开选项
+  const isIos = /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+  if (isIos && currentSrc && currentSrc.startsWith('http')) {
+    loadError.value = '当前设备不支持嵌入加载，请点击下方按钮在浏览器中打开。'
+    externalOpenUrl.value = currentSrc
+  } else {
+    loadError.value =
+      previewMode.value === 'capacitor-local'
+        ? '本地模块页面加载失败，请返回更多页重新下载后再试。'
+        : '模块页面加载失败，请返回更多页后重试。'
+  }
   loadHint.value = ''
 }
 
@@ -342,7 +351,12 @@ onBeforeUnmount(() => {
         <div v-if="loading" class="module-loading-overlay">
           <TEmptyState type="loading" message="正在加载模块页面..." />
         </div>
-        <div v-if="loadError" class="module-frame-error">{{ loadError }}</div>
+        <div v-if="loadError" class="module-frame-error">
+          {{ loadError }}
+          <button v-if="externalOpenUrl" class="external-open-btn" @click="openExternal(externalOpenUrl)">
+            在浏览器中打开
+          </button>
+        </div>
         <div v-else-if="loadHint" class="module-frame-hint">{{ loadHint }}</div>
         <iframe
           :key="frameKey"
@@ -352,6 +366,8 @@ onBeforeUnmount(() => {
           :style="frameStyle"
           :src="frameSrc"
           allowfullscreen
+          allow="cross-origin-isolated; clipboard-write"
+          referrerpolicy="no-referrer-when-downgrade"
           loading="eager"
           @load="handleLoad"
           @error="handleError"

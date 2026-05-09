@@ -476,7 +476,12 @@ const rotateRemoteCandidates = (items, purpose = 'remote', scope = '') => {
 const shouldRotateRemoteCandidates = (purpose = 'remote') => safeText(purpose).toLowerCase() === 'open'
 
 const finalizeRemoteCandidates = (items, purpose = 'remote', scope = '') => {
-  const list = toUniqueTextList(items)
+  let list = toUniqueTextList(items)
+  // 页面加载（open）时排除代理 URL — 代理服务器通常设置 X-Frame-Options 阻止 iframe 嵌入
+  if (purpose === 'open') {
+    const filtered = list.filter(url => !GITHUB_PROXY_PREFIXES.some(p => p && url.startsWith(p)))
+    if (filtered.length > 0) list = filtered
+  }
   if (list.length <= 1) return list
   return shouldRotateRemoteCandidates(purpose) ? rotateRemoteCandidates(list, purpose, scope) : list
 }
