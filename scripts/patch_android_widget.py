@@ -53,16 +53,6 @@ def copy_widget_resources():
         "res/layout/widget_item_course_row.xml",
         "res/layout/widget_electricity.xml",
         "res/layout/widget_exam.xml",
-        "res/drawable/widget_preview_today_courses.xml",
-        "res/drawable/widget_background.xml",
-        "res/drawable/widget_dot_accent.xml",
-        "res/drawable/widget_capsule_accent.xml",
-        "res/drawable/widget_capsule_period.xml",
-        "res/drawable/widget_capsule_location.xml",
-        "res/values/colors_widget.xml",
-        "res/values-night/colors_widget.xml",
-        "res/values-v31/colors_widget.xml",
-        "res/values-night-v31/colors_widget.xml",
         "res/values/strings_widget.xml",
     ]
 

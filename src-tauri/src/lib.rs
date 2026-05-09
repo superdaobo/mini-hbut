@@ -1945,16 +1945,27 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
         .unwrap_or_default()
         .as_millis();
     
-    // 构建 SharedPreferences XML 格式
+    // 读取现有内容保留其他字段
+    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let electricity_json = extract_xml_string(&existing, "electricity_json");
+    let exam_json = extract_xml_string(&existing, "exam_json");
+    let theme_color = extract_xml_string(&existing, "theme_color");
+    
     let xml_content = format!(
         r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
     <string name="snapshot_json">{}</string>
+    <string name="electricity_json">{}</string>
+    <string name="exam_json">{}</string>
+    <string name="theme_color">{}</string>
     <int name="snapshot_version" value="1" />
     <long name="last_write_ts" value="{}" />
 </map>
 "#,
         escape_xml(&snapshot_json),
+        electricity_json,
+        exam_json,
+        theme_color,
         now_ms
     );
     
@@ -1993,6 +2004,43 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| format!("清空 widget 快照失败: {}", e))?;
     }
     
+    Ok(())
+}
+
+/// 写入主题色到 SharedPreferences（供小组件读取）
+#[tauri::command]
+async fn write_widget_theme_color(app: tauri::AppHandle, color: String) -> Result<(), String> {
+    let prefs_dir = resolve_shared_prefs_dir(&app)?;
+    tokio::fs::create_dir_all(&prefs_dir).await
+        .map_err(|e| format!("创建目录失败: {}", e))?;
+    
+    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
+    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    
+    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
+    let electricity_json = extract_xml_string(&existing, "electricity_json");
+    let exam_json = extract_xml_string(&existing, "exam_json");
+    
+    let xml_content = format!(
+        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="snapshot_json">{}</string>
+    <string name="electricity_json">{}</string>
+    <string name="exam_json">{}</string>
+    <string name="theme_color">{}</string>
+    <int name="snapshot_version" value="1" />
+    <long name="last_write_ts" value="{}" />
+</map>
+"#,
+        snapshot_json, electricity_json, exam_json, escape_xml(&color), now_ms
+    );
+    
+    tokio::fs::write(&prefs_file, xml_content.as_bytes()).await
+        .map_err(|e| format!("写入主题色失败: {}", e))?;
     Ok(())
 }
 
@@ -5697,6 +5745,7 @@ pub fn run() {
             hbut_one_code_token,
             write_widget_snapshot,
             clear_widget_snapshot,
+            write_widget_theme_color,
             write_electricity_snapshot,
             write_exam_snapshot,
             debug_widget_paths,

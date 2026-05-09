@@ -35,6 +35,7 @@ object WidgetRenderer {
         val views = RemoteViews(packageName, layoutId)
         val store = WidgetDataStore(context)
         val snapshotJson = store.readSnapshot()
+        val themeColor = parseColor(store.readThemeColor())
 
         // ── 解析快照数据 ──
         val snapshot = parseSnapshot(snapshotJson)
@@ -65,6 +66,7 @@ object WidgetRenderer {
             val capacity = 3
             if (courseCount > capacity) {
                 views.setTextViewText(overflowId, "+${courseCount - capacity} 节")
+                views.setTextColor(overflowId, themeColor)
                 views.setViewVisibility(overflowId, View.VISIBLE)
             } else {
                 views.setViewVisibility(overflowId, View.GONE)
@@ -142,6 +144,17 @@ object WidgetRenderer {
             }
         } catch (_: Exception) {
             date
+        }
+    }
+
+    /**
+     * 解析 hex 颜色字符串为 Android Color int
+     */
+    private fun parseColor(hex: String): Int {
+        return try {
+            android.graphics.Color.parseColor(hex)
+        } catch (_: Exception) {
+            android.graphics.Color.parseColor("#2563eb") // 默认蓝色
         }
     }
 }

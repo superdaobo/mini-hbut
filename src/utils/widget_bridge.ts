@@ -220,3 +220,18 @@ export async function writeExamToWidget(data: {
     console.warn('[widget] writeExamToWidget failed:', err)
   }
 }
+
+/**
+ * 将当前主题色写入小组件 SharedPreferences
+ * 在主题切换时调用
+ */
+export async function writeWidgetThemeColor(color: string): Promise<void> {
+  try {
+    if (!isTauriRuntime()) return
+    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
+    if (!ua.includes('android')) return
+    await invokeNative('write_widget_theme_color', { color })
+  } catch (err: unknown) {
+    console.warn('[widget] writeWidgetThemeColor failed:', err)
+  }
+}

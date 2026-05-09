@@ -71,16 +71,24 @@ class TodayCoursesRemoteViewsFactory(
         )
         val views = RemoteViews(packageName, layoutId)
 
+        // 读取主题色
+        val store = WidgetDataStore(context)
+        val themeColor = try {
+            android.graphics.Color.parseColor(store.readThemeColor())
+        } catch (_: Exception) {
+            android.graphics.Color.parseColor("#2563eb")
+        }
+
         // 节次徽标（合并后显示范围，如 "3-4节"）
         val periodText = if (row.periodStart == row.periodEnd) {
             "${row.periodStart}节"
         } else {
             "${row.periodStart}-${row.periodEnd}节"
         }
-        views.setTextViewText(
-            context.resources.getIdentifier("widget_item_period", "id", packageName),
-            periodText
-        )
+        val periodId = context.resources.getIdentifier("widget_item_period", "id", packageName)
+        views.setTextViewText(periodId, periodText)
+        views.setTextColor(periodId, themeColor)
+
         // 时间
         views.setTextViewText(
             context.resources.getIdentifier("widget_item_time", "id", packageName),

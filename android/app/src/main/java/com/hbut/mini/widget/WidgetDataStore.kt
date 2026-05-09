@@ -63,6 +63,14 @@ class WidgetDataStore(context: Context) {
         private const val KEY_LAST_WRITE_TS = "last_write_ts"
         private const val KEY_ELECTRICITY_JSON = "electricity_json"
         private const val KEY_EXAM_JSON = "exam_json"
+        private const val KEY_THEME_COLOR = "theme_color"
+        const val DEFAULT_THEME_COLOR = "#2563eb" // campus_blue 默认
+    }
+
+    /** 读取主题色（hex 格式如 #2563eb） */
+    fun readThemeColor(): String {
+        return prefs.getString(KEY_THEME_COLOR, DEFAULT_THEME_COLOR) ?: DEFAULT_THEME_COLOR
+    }
     }
 
     /** 读取电费快照 */

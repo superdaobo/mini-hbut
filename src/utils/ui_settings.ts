@@ -223,6 +223,9 @@ const applyUiSettings = (settings) => {
   root.style.setProperty('--ui-radius-scale', String(settings.radiusScale))
   root.style.setProperty('--ui-font-scale', String(settings.fontScale))
   root.style.setProperty('--ui-space-scale', String(settings.spaceScale))
+
+  // 同步主题色到 Android 小组件
+  import('./widget_bridge').then(m => m.writeWidgetThemeColor(settings.primary)).catch(() => {})
   root.style.setProperty('--ui-motion-scale', String(settings.motionScale))
   root.style.setProperty('--ui-danger', settings.danger)
   root.style.setProperty('--ui-success', settings.success)
