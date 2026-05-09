@@ -61,5 +61,29 @@ class WidgetDataStore(context: Context) {
         private const val KEY_SNAPSHOT_JSON = "snapshot_json"
         private const val KEY_SNAPSHOT_VERSION = "snapshot_version"
         private const val KEY_LAST_WRITE_TS = "last_write_ts"
+        private const val KEY_ELECTRICITY_JSON = "electricity_json"
+        private const val KEY_EXAM_JSON = "exam_json"
+    }
+
+    /** 读取电费快照 */
+    fun readElectricity(): String? = prefs.getString(KEY_ELECTRICITY_JSON, null)
+
+    /** 写入电费快照 */
+    fun writeElectricity(json: String): Boolean {
+        return prefs.edit()
+            .putString(KEY_ELECTRICITY_JSON, json)
+            .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
+            .commit()
+    }
+
+    /** 读取考试快照 */
+    fun readExam(): String? = prefs.getString(KEY_EXAM_JSON, null)
+
+    /** 写入考试快照 */
+    fun writeExam(json: String): Boolean {
+        return prefs.edit()
+            .putString(KEY_EXAM_JSON, json)
+            .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
+            .commit()
     }
 }

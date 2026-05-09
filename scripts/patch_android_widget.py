@@ -45,10 +45,14 @@ def copy_widget_resources():
     """复制 widget 相关的 XML 资源文件。"""
     resource_files = [
         "res/xml/appwidget_today_courses.xml",
+        "res/xml/appwidget_electricity.xml",
+        "res/xml/appwidget_exam.xml",
         "res/layout/widget_today_courses_4x2.xml",
         "res/layout/widget_today_courses_2x2.xml",
         "res/layout/widget_today_courses_4x1.xml",
         "res/layout/widget_item_course_row.xml",
+        "res/layout/widget_electricity.xml",
+        "res/layout/widget_exam.xml",
         "res/drawable/widget_preview_today_courses.xml",
         "res/drawable/widget_background.xml",
         "res/drawable/widget_dot_accent.xml",
@@ -103,6 +107,34 @@ def patch_manifest():
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appwidget_today_courses" />
+        </receiver>
+
+        <!-- 电费小组件 Provider -->
+        <receiver
+            android:name="com.hbut.mini.widget.ElectricityWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_electricity_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.hbut.mini.widget.ACTION_ELECTRICITY_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_electricity" />
+        </receiver>
+
+        <!-- 考试安排小组件 Provider -->
+        <receiver
+            android:name="com.hbut.mini.widget.ExamWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_exam_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.hbut.mini.widget.ACTION_EXAM_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_exam" />
         </receiver>
 
         <!-- 今日课程小组件 RemoteViewsService -->

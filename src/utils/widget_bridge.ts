@@ -182,3 +182,41 @@ export async function debugWidgetPaths(): Promise<unknown> {
     return { error: String(err) }
   }
 }
+
+/**
+ * 写入电费数据到小组件
+ */
+export async function writeElectricityToWidget(data: {
+  quantity: number
+  room?: string
+  acQuantity?: number
+  isLow?: boolean
+}): Promise<void> {
+  try {
+    if (!isTauriRuntime()) return
+    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
+    if (!ua.includes('android')) return
+    const json = JSON.stringify(data)
+    await invokeNative('write_electricity_snapshot', { json })
+  } catch (err: unknown) {
+    console.warn('[widget] writeElectricityToWidget failed:', err)
+  }
+}
+
+/**
+ * 写入考试数据到小组件
+ */
+export async function writeExamToWidget(data: {
+  exams: Array<{ course_name: string; exam_date: string; exam_time: string; location: string }>
+  days_left?: number
+}): Promise<void> {
+  try {
+    if (!isTauriRuntime()) return
+    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
+    if (!ua.includes('android')) return
+    const json = JSON.stringify(data)
+    await invokeNative('write_exam_snapshot', { json })
+  } catch (err: unknown) {
+    console.warn('[widget] writeExamToWidget failed:', err)
+  }
+}

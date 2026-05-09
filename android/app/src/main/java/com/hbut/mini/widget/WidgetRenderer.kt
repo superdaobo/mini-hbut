@@ -44,13 +44,14 @@ object WidgetRenderer {
         val courses = snapshot?.optJSONArray("courses")
         val courseCount = courses?.length() ?: 0
 
-        // ── 更新标题 ──
+        // ── 更新标题（含日期） ──
         val titleId = context.resources.getIdentifier("widget_title", "id", packageName)
         val overflowId = context.resources.getIdentifier("widget_overflow_tag", "id", packageName)
 
         if (titleId != 0) {
             val titleText = if (weekIndex > 0 && date.isNotEmpty()) {
-                "今日课程 · 第${weekIndex}周"
+                val displayDate = formatDateChinese(date)
+                "今日课程 · $displayDate"
             } else if (snapshot == null || studentId.isEmpty()) {
                 "请先在 Mini-HBUT 登录"
             } else {
@@ -123,6 +124,24 @@ object WidgetRenderer {
             JSONObject(json)
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /**
+     * 将 "2026-05-12" 格式化为 "5月12日"
+     */
+    private fun formatDateChinese(date: String): String {
+        return try {
+            val parts = date.split("-")
+            if (parts.size == 3) {
+                val month = parts[1].trimStart('0')
+                val day = parts[2].trimStart('0')
+                "${month}月${day}日"
+            } else {
+                date
+            }
+        } catch (_: Exception) {
+            date
         }
     }
 }

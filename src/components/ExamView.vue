@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import { writeExamToWidget } from '../utils/widget_bridge'
 import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -139,6 +140,20 @@ const fetchExams = async () => {
       exams.value = data.data || []
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
+      // 写入小组件（只写未来的考试）
+      const futureExams = (data.data || []).filter(e => !isPassed(e.exam_date))
+      if (futureExams.length > 0) {
+        const daysLeft = daysUntilExam(futureExams[0].exam_date)
+        writeExamToWidget({
+          exams: futureExams.slice(0, 3).map(e => ({
+            course_name: e.course_name || '',
+            exam_date: e.exam_date || '',
+            exam_time: e.exam_time || '',
+            location: e.location || ''
+          })),
+          days_left: daysLeft ?? -1
+        }).catch(() => {})
+      }
     } else {
       error.value = data?.error || '获取考试安排失败'
     }

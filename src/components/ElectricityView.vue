@@ -5,6 +5,7 @@ import { setCachedData, fetchWithCache } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
 import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
+import { writeElectricityToWidget } from '../utils/widget_bridge'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -337,6 +338,12 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
       balanceData.value = lightResult.data
       offline.value = lightResult.data?.offline === true
       syncTime.value = lightResult.data?.sync_time || ''
+      // 写入小组件
+      writeElectricityToWidget({
+        quantity: Number(lightResult.data?.quantity) || 0,
+        room: selectedPath.value.join(' / ') || '',
+        isLow: Number(lightResult.data?.quantity) < 10
+      }).catch(() => {})
     } else {
       const cached = getStaleCache(lightCacheKey)
       if (cached?.data) {

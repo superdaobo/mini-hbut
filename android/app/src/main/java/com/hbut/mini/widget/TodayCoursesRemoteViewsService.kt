@@ -160,7 +160,7 @@ class TodayCoursesRemoteViewsFactory(
 
     /**
      * 合并连续节次的同名同地点课程。
-     * 如果课程 A 的 periodEnd == 课程 B 的 periodStart - 1，且名称和地点相同，则合并。
+     * 严格条件：next.periodStart == current.periodEnd + 1 且名称和地点完全相同。
      */
     private fun mergeContinuousCourses(courses: List<CourseRow>): List<CourseRow> {
         if (courses.size <= 1) return courses
@@ -171,7 +171,7 @@ class TodayCoursesRemoteViewsFactory(
             val next = courses[i]
             if (next.name == current.name &&
                 next.location == current.location &&
-                next.periodStart <= current.periodEnd + 1
+                next.periodStart == current.periodEnd + 1
             ) {
                 // 合并：扩展 periodEnd 和 timeEnd
                 current = current.copy(

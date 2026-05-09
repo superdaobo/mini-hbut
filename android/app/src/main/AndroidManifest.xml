@@ -74,6 +74,34 @@
                 android:resource="@xml/appwidget_today_courses" />
         </receiver>
 
+        <!-- 电费小组件 Provider -->
+        <receiver
+            android:name="com.hbut.mini.widget.ElectricityWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_electricity_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.hbut.mini.widget.ACTION_ELECTRICITY_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_electricity" />
+        </receiver>
+
+        <!-- 考试安排小组件 Provider -->
+        <receiver
+            android:name="com.hbut.mini.widget.ExamWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_exam_title">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.hbut.mini.widget.ACTION_EXAM_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_exam" />
+        </receiver>
+
         <!-- 今日课程小组件 RemoteViewsService（列表行渲染） -->
         <service
             android:name="com.hbut.mini.widget.TodayCoursesRemoteViewsService"

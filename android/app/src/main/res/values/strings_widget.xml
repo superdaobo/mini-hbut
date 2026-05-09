@@ -3,6 +3,10 @@
     <!-- Widget 标题与描述 -->
     <string name="widget_today_courses_title">今日课程</string>
     <string name="widget_today_courses_desc">在桌面查看今天的课程安排</string>
+    <string name="widget_electricity_title">电费余量</string>
+    <string name="widget_electricity_desc">在桌面查看宿舍电费余量</string>
+    <string name="widget_exam_title">即将考试</string>
+    <string name="widget_exam_desc">在桌面查看最近的考试安排</string>
     
     <!-- 占位文案 -->
     <string name="widget_no_course">今日无课</string>

@@ -1996,6 +1996,92 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 写入电费快照到 SharedPreferences
+#[tauri::command]
+async fn write_electricity_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    let prefs_dir = resolve_shared_prefs_dir(&app)?;
+    tokio::fs::create_dir_all(&prefs_dir).await
+        .map_err(|e| format!("创建目录失败: {}", e))?;
+    
+    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
+    
+    // 读取现有内容并更新 electricity_json 字段
+    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    
+    // 提取现有的 snapshot_json
+    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
+    let exam_json = extract_xml_string(&existing, "exam_json");
+    
+    let xml_content = format!(
+        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="snapshot_json">{}</string>
+    <string name="electricity_json">{}</string>
+    <string name="exam_json">{}</string>
+    <int name="snapshot_version" value="1" />
+    <long name="last_write_ts" value="{}" />
+</map>
+"#,
+        snapshot_json, escape_xml(&json), exam_json, now_ms
+    );
+    
+    tokio::fs::write(&prefs_file, xml_content.as_bytes()).await
+        .map_err(|e| format!("写入电费快照失败: {}", e))?;
+    Ok(())
+}
+
+/// 写入考试快照到 SharedPreferences
+#[tauri::command]
+async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    let prefs_dir = resolve_shared_prefs_dir(&app)?;
+    tokio::fs::create_dir_all(&prefs_dir).await
+        .map_err(|e| format!("创建目录失败: {}", e))?;
+    
+    let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
+    
+    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    
+    let snapshot_json = extract_xml_string(&existing, "snapshot_json");
+    let electricity_json = extract_xml_string(&existing, "electricity_json");
+    
+    let xml_content = format!(
+        r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="snapshot_json">{}</string>
+    <string name="electricity_json">{}</string>
+    <string name="exam_json">{}</string>
+    <int name="snapshot_version" value="1" />
+    <long name="last_write_ts" value="{}" />
+</map>
+"#,
+        snapshot_json, electricity_json, escape_xml(&json), now_ms
+    );
+    
+    tokio::fs::write(&prefs_file, xml_content.as_bytes()).await
+        .map_err(|e| format!("写入考试快照失败: {}", e))?;
+    Ok(())
+}
+
+/// 从 SharedPreferences XML 中提取指定 key 的 string 值
+fn extract_xml_string(xml: &str, key: &str) -> String {
+    let pattern = format!(r#"<string name="{}">"#, key);
+    if let Some(start_idx) = xml.find(&pattern) {
+        let value_start = start_idx + pattern.len();
+        if let Some(end_idx) = xml[value_start..].find("</string>") {
+            return xml[value_start..value_start + end_idx].to_string();
+        }
+    }
+    String::new()
+}
+
 /// 调试命令：返回 widget 相关路径信息，用于诊断写入问题
 #[tauri::command]
 async fn debug_widget_paths(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -5611,6 +5697,8 @@ pub fn run() {
             hbut_one_code_token,
             write_widget_snapshot,
             clear_widget_snapshot,
+            write_electricity_snapshot,
+            write_exam_snapshot,
             debug_widget_paths,
         ])
 
