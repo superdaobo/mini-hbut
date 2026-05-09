@@ -20,6 +20,7 @@ env:
   MINI_HBUT_BUILD_PROFILE: release
   npm_config_audit: "false"
   npm_config_fund: "false"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   create-release:

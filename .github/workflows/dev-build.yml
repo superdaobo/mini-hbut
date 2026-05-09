@@ -21,6 +21,7 @@ env:
   CARGO_PROFILE_RELEASE_STRIP: symbols
   npm_config_audit: "false"
   npm_config_fund: "false"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 concurrency:
   group: dev-build-${{ github.ref }}

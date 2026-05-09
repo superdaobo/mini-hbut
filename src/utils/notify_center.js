@@ -353,9 +353,43 @@ const resolveRoomLabel = () => {
   // 优先使用 ElectricityView 保存的标签文本
   const savedLabel = localStorage.getItem('last_dorm_selection_label')
   if (savedLabel && savedLabel.trim()) return savedLabel.trim()
-  // 降级：返回 ID 路径
-  const selection = readJSON(STORAGE_KEYS.dormSelection, [])
-  return Array.isArray(selection) ? selection.join('/') : ''
+  
+  // 降级：从宿舍数据缓存中查找标签
+  try {
+    const selection = readJSON(STORAGE_KEYS.dormSelection, [])
+    if (!Array.isArray(selection) || selection.length !== 4) return ''
+    
+    const cacheRaw = localStorage.getItem('cache:static_resource:dormitory_data')
+    if (!cacheRaw) return selection.join(' / ')
+    const cached = JSON.parse(cacheRaw)
+    const dormData = cached?.data?.data || cached?.data
+    if (!Array.isArray(dormData)) return selection.join(' / ')
+    
+    const [areaId, buildingId, layerId] = selection
+    const labels = []
+    
+    const area = dormData.find(a => String(a?.value) === String(areaId))
+    labels.push(area?.label || areaId)
+    
+    const building = area?.children?.find(b => String(b?.value) === String(buildingId))
+    labels.push(building?.label || buildingId)
+    
+    // 楼层：处理 merged_ 前缀
+    let layer = building?.children?.find(l => String(l?.value) === String(layerId))
+    if (!layer && String(layerId).startsWith('merged_')) {
+      const parts = String(layerId).split('_')
+      const lightId = parts[2]
+      layer = building?.children?.find(l => String(l?.value) === lightId)
+    }
+    const layerLabel = layer?.label || ''
+    const floorMatch = layerLabel.match(/(\d+)/)
+    labels.push(floorMatch ? `${floorMatch[0]}层` : layerLabel || '?')
+    
+    return labels.join(' ')
+  } catch {
+    const selection = readJSON(STORAGE_KEYS.dormSelection, [])
+    return Array.isArray(selection) ? selection.join('/') : ''
+  }
 }
 
 const getStoredSnapshot = (studentId) => {

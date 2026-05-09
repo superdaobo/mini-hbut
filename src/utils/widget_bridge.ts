@@ -73,20 +73,18 @@ function getCachedScheduleSnapshotInline(studentId: string, semester: string): {
 
 /**
  * 从 localStorage 读取自定义课程（内联版）
+ * 自定义课程存储在 schedule render snapshot 中的 custom_schedule_data 字段
  */
-function readCustomCoursesInline(studentId: string, semester: string): unknown[] {
+function readCustomCoursesInline(studentId: string, _semester: string): unknown[] {
   try {
     const sid = toSafeText(studentId)
-    const sem = toSafeText(semester)
     if (!sid) return []
-    // 自定义课程存储 key 格式：custom_schedule:{sid}:{semester}
-    const keys = [`custom_schedule:${sid}:${sem}`, `custom_schedule:${sid}`]
-    for (const key of keys) {
-      const raw = localStorage.getItem(key)
-      if (!raw) continue
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) return parsed
-      if (parsed?.courses && Array.isArray(parsed.courses)) return parsed.courses
+    const key = `hbu_schedule_render_snapshot_v1:${sid}`
+    const raw = localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (parsed?.custom_schedule_data && Array.isArray(parsed.custom_schedule_data)) {
+      return parsed.custom_schedule_data
     }
     return []
   } catch {
