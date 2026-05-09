@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Widget 浅色主题（API < 31 兜底） -->
+    <!-- Widget 浅色主题 -->
     <color name="widget_bg">#FFFFFFFF</color>
-    <color name="widget_text_primary">#FF1C1B1F</color>
-    <color name="widget_text_secondary">#FF49454F</color>
-    <color name="widget_accent">#FF6750A4</color>
-    <color name="widget_divider">#14000000</color>
+    <color name="widget_text_primary">#FF1A2332</color>
+    <color name="widget_text_secondary">#FF5C6B7A</color>
+    <color name="widget_accent">#FF10B981</color>
+    <color name="widget_accent_soft">#1A10B981</color>
+    <color name="widget_divider">#12000000</color>
+    <color name="widget_period_bg">#1A10B981</color>
+    <color name="widget_period_text">#FF059669</color>
+    <color name="widget_location_bg">#1A3B82F6</color>
+    <color name="widget_location_text">#FF2563EB</color>
+    <color name="widget_title_accent">#FF10B981</color>
 </resources>

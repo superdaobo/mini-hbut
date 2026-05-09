@@ -5,50 +5,68 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp">
+    android:paddingTop="5dp"
+    android:paddingBottom="5dp">
 
-    <!-- 节次 -->
+    <!-- 节次胶囊 -->
     <TextView
         android:id="@+id/widget_item_period"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="@color/widget_accent"
-        android:textSize="13sp"
+        android:background="@drawable/widget_capsule_period"
+        android:textColor="@color/widget_period_text"
+        android:textSize="11sp"
         android:textStyle="bold"
+        android:paddingStart="8dp"
         android:paddingEnd="8dp"
-        android:minWidth="36dp" />
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:layout_marginEnd="8dp" />
 
-    <!-- 时间 -->
-    <TextView
-        android:id="@+id/widget_item_time"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textColor="@color/widget_text_secondary"
-        android:textSize="12sp"
-        android:paddingEnd="8dp" />
-
-    <!-- 课程名 -->
-    <TextView
-        android:id="@+id/widget_item_name"
+    <!-- 中间区域：课程名 + 时间 -->
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textColor="@color/widget_text_primary"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:paddingEnd="6dp" />
+        android:orientation="vertical"
+        android:layout_marginEnd="6dp">
 
-    <!-- 教室 -->
+        <TextView
+            android:id="@+id/widget_item_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_item_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:layout_marginTop="1dp" />
+
+    </LinearLayout>
+
+    <!-- 地点胶囊 -->
     <TextView
         android:id="@+id/widget_item_location"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="@color/widget_text_secondary"
+        android:background="@drawable/widget_capsule_location"
+        android:textColor="@color/widget_location_text"
         android:textSize="11sp"
+        android:textStyle="bold"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
         android:maxLines="1"
-        android:ellipsize="end" />
+        android:ellipsize="end"
+        android:maxWidth="90dp" />
 
 </LinearLayout>
