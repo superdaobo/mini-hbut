@@ -71,10 +71,15 @@ class TodayCoursesRemoteViewsFactory(
         )
         val views = RemoteViews(packageName, layoutId)
 
-        // 节次徽标
+        // 节次徽标（合并后显示范围，如 "3-4节"）
+        val periodText = if (row.periodStart == row.periodEnd) {
+            "${row.periodStart}节"
+        } else {
+            "${row.periodStart}-${row.periodEnd}节"
+        }
         views.setTextViewText(
             context.resources.getIdentifier("widget_item_period", "id", packageName),
-            "第${row.periodStart}节"
+            periodText
         )
         // 时间
         views.setTextViewText(
@@ -123,18 +128,18 @@ class TodayCoursesRemoteViewsFactory(
     }
 
     /**
-     * 从 snapshot JSON 解析课程列表。
-     * 对 null / 空串 / 非法 JSON 均安全返回空列表，绝不抛异常。
+     * 从 snapshot JSON 解析课程列表，并合并连续节次的同名课程。
+     * 例如：第3节历史 + 第4节历史 → 合并为 "第3-4节 历史"
      */
     private fun parseCoursesFromSnapshot(json: String?): List<CourseRow> {
         if (json.isNullOrBlank()) return emptyList()
         return try {
             val obj = JSONObject(json)
             val arr = obj.optJSONArray("courses") ?: return emptyList()
-            val result = mutableListOf<CourseRow>()
+            val raw = mutableListOf<CourseRow>()
             for (i in 0 until arr.length()) {
                 val c = arr.getJSONObject(i)
-                result.add(
+                raw.add(
                     CourseRow(
                         periodStart = c.optInt("period_start", 0),
                         periodEnd = c.optInt("period_end", 0),
@@ -146,10 +151,40 @@ class TodayCoursesRemoteViewsFactory(
                     )
                 )
             }
-            result
+            // 合并连续节次的同名同地点课程
+            mergeContinuousCourses(raw)
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * 合并连续节次的同名同地点课程。
+     * 如果课程 A 的 periodEnd == 课程 B 的 periodStart - 1，且名称和地点相同，则合并。
+     */
+    private fun mergeContinuousCourses(courses: List<CourseRow>): List<CourseRow> {
+        if (courses.size <= 1) return courses
+        val merged = mutableListOf<CourseRow>()
+        var current = courses[0]
+
+        for (i in 1 until courses.size) {
+            val next = courses[i]
+            if (next.name == current.name &&
+                next.location == current.location &&
+                next.periodStart <= current.periodEnd + 1
+            ) {
+                // 合并：扩展 periodEnd 和 timeEnd
+                current = current.copy(
+                    periodEnd = next.periodEnd,
+                    timeEnd = next.timeEnd
+                )
+            } else {
+                merged.add(current)
+                current = next
+            }
+        }
+        merged.add(current)
+        return merged
     }
 
     companion object {

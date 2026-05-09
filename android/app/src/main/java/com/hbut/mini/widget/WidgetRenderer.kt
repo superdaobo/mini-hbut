@@ -44,29 +44,19 @@ object WidgetRenderer {
         val courses = snapshot?.optJSONArray("courses")
         val courseCount = courses?.length() ?: 0
 
-        // ── 更新标题栏 ──
+        // ── 更新标题 ──
         val titleId = context.resources.getIdentifier("widget_title", "id", packageName)
-        val studentIdViewId = context.resources.getIdentifier("widget_student_id", "id", packageName)
         val overflowId = context.resources.getIdentifier("widget_overflow_tag", "id", packageName)
 
         if (titleId != 0) {
             val titleText = if (weekIndex > 0 && date.isNotEmpty()) {
-                "今日课程 · 第 ${weekIndex} 周 · $date"
+                "今日课程 · 第${weekIndex}周"
             } else if (snapshot == null || studentId.isEmpty()) {
                 "请先在 Mini-HBUT 登录"
             } else {
                 "今日课程"
             }
             views.setTextViewText(titleId, titleText)
-        }
-
-        if (studentIdViewId != 0) {
-            if (studentId.isNotEmpty()) {
-                views.setTextViewText(studentIdViewId, maskStudentId(studentId))
-                views.setViewVisibility(studentIdViewId, View.VISIBLE)
-            } else {
-                views.setViewVisibility(studentIdViewId, View.GONE)
-            }
         }
 
         // ── 溢出角标 ──
@@ -134,13 +124,5 @@ object WidgetRenderer {
         } catch (_: Exception) {
             null
         }
-    }
-
-    /**
-     * 学号脱敏：保留前 2 后 2，中间用 ** 替代。
-     */
-    private fun maskStudentId(s: String): String {
-        if (s.length <= 4) return "*".repeat(s.length)
-        return "${s.substring(0, 2)}**${s.substring(s.length - 2)}"
     }
 }

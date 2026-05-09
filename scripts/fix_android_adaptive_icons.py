@@ -42,8 +42,9 @@ LEGACY_DIRS = {
     "xxxhdpi": 432,
 }
 
-# 安全区域比例（72/108 = 0.6667）
-SAFE_ZONE_RATIO = 72.0 / 108.0
+# 安全区域比例：使用 80% 填充（比标准 66% 更大，但仍在大多数 launcher 安全范围内）
+# 标准安全区是 72/108 = 66.7%，但实际上大多数 launcher 只裁剪 ~10% 边缘
+SAFE_ZONE_RATIO = 80.0 / 108.0
 
 
 def fix_foreground(dir_name: str, target_size: int) -> bool:

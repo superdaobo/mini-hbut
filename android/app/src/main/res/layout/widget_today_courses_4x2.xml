@@ -7,35 +7,18 @@
     android:background="@color/widget_bg"
     android:padding="14dp">
 
-    <!-- 顶部栏 -->
-    <LinearLayout
+    <!-- 标题 -->
+    <TextView
+        android:id="@+id/widget_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingBottom="8dp">
-
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="今日课程"
-            android:textColor="@color/widget_text_primary"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end" />
-
-        <TextView
-            android:id="@+id/widget_student_id"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_secondary"
-            android:textSize="11sp"
-            android:maxLines="1" />
-
-    </LinearLayout>
+        android:text="今日课程"
+        android:textColor="@color/widget_text_primary"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:paddingBottom="8dp" />
 
     <!-- 课程列表 -->
     <ListView
