@@ -40,6 +40,7 @@ object ExamWidgetRenderer {
                 val examDate = next.optString("exam_date", "")
                 val examTime = next.optString("exam_time", "")
                 val location = next.optString("location", "")
+                val seatNo = next.optString("seat_no", "")
                 val daysLeft = data.optInt("days_left", -1)
 
                 if (courseId != 0) views.setTextViewText(courseId, courseName)
@@ -47,9 +48,18 @@ object ExamWidgetRenderer {
                     val timeText = extractTimeOnly(examTime)
                     views.setTextViewText(dateId, "$examDate $timeText")
                 }
-                if (locationId != 0 && location.isNotEmpty()) {
-                    views.setTextViewText(locationId, "📍 $location")
-                    views.setViewVisibility(locationId, View.VISIBLE)
+                if (locationId != 0) {
+                    val locationText = buildString {
+                        if (location.isNotEmpty()) append("📍 $location")
+                        if (seatNo.isNotEmpty()) {
+                            if (isNotEmpty()) append("  ")
+                            append("💺 座位$seatNo")
+                        }
+                    }
+                    if (locationText.isNotEmpty()) {
+                        views.setTextViewText(locationId, locationText)
+                        views.setViewVisibility(locationId, View.VISIBLE)
+                    }
                 }
                 if (countdownId != 0 && daysLeft >= 0) {
                     val countdownText = when (daysLeft) {

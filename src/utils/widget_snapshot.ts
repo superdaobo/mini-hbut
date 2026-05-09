@@ -138,23 +138,26 @@ export function extractCoursesOfDay(
       ? entry.color
       : undefined
 
-    // ── 去重：同名同地点的课程，如果节次有重叠则只保留第一个 ──
-    const dedupeKey = `${name}|${location}`
+    // ── 去重：同名同地点的课程，如果节次有重叠或相邻则合并 ──
+    const trimmedName = name.slice(0, 80)
+    const trimmedLocation = location.slice(0, 80)
     const existingIdx = results.findIndex(r =>
-      r.name === name.slice(0, 80) &&
-      r.location === location.slice(0, 80) &&
-      // 节次有重叠
-      periodStart <= r.period_end && periodEnd >= r.period_start
+      r.name === trimmedName &&
+      r.location === trimmedLocation &&
+      // 节次有重叠或相邻（periodStart <= existing.period_end + 1）
+      periodStart <= r.period_end + 1 && periodEnd >= r.period_start - 1
     )
     if (existingIdx >= 0) {
       // 合并：扩展已有条目的范围
       const existing = results[existingIdx]
+      const newStart = Math.min(existing.period_start, periodStart)
+      const newEnd = Math.max(existing.period_end, periodEnd)
       results[existingIdx] = {
         ...existing,
-        period_start: Math.min(existing.period_start, periodStart),
-        period_end: Math.max(existing.period_end, periodEnd),
-        time_start: periodStart < existing.period_start ? timeStart : existing.time_start,
-        time_end: periodEnd > existing.period_end ? timeEnd : existing.time_end,
+        period_start: newStart,
+        period_end: newEnd,
+        time_start: newStart < existing.period_start ? timeStart : existing.time_start,
+        time_end: newEnd > existing.period_end ? timeEnd : existing.time_end,
       }
       continue
     }

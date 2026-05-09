@@ -309,9 +309,11 @@ const syncWidgetData = async (snapshot) => {
   // 电费数据
   const elec = snapshot?.electricity
   if (elec?.success && elec?.configured) {
+    // 从 localStorage 读取宿舍标签名（ElectricityView 存储的）
+    const roomLabel = resolveRoomLabel()
     await writeElectricityToWidget({
       quantity: Number(elec.quantity) || 0,
-      room: Array.isArray(elec.selectedPath) ? elec.selectedPath.join('/') : '',
+      room: roomLabel,
       acQuantity: Number(elec.acQuantity) || 0,
       isLow: !!elec.isLow
     })
@@ -335,11 +337,64 @@ const syncWidgetData = async (snapshot) => {
           course_name: e.course_name || '',
           exam_date: e.exam_date || '',
           exam_time: e.exam_time || '',
-          location: e.location || ''
+          location: e.location || '',
+          seat_no: e.seat_no || ''
         })),
         days_left: daysLeft
       })
     }
+  }
+}
+
+/**
+ * 从宿舍缓存数据中解析房间标签名
+ * 返回格式如："东苑公寓 / 7栋 / 1层 / 101室"
+ */
+const resolveRoomLabel = () => {
+  try {
+    const selection = readJSON(STORAGE_KEYS.dormSelection, [])
+    if (!Array.isArray(selection) || selection.length !== 4) return ''
+    
+    // 尝试从宿舍数据缓存中查找标签
+    const cacheRaw = localStorage.getItem('cache:static_resource:dormitory_data')
+    if (!cacheRaw) return selection.join(' / ')
+    const cached = JSON.parse(cacheRaw)
+    const dormData = cached?.data?.data
+    if (!Array.isArray(dormData)) return selection.join(' / ')
+    
+    const [areaId, buildingId, layerId, roomId] = selection
+    const labels = []
+    
+    // 查找区域
+    const area = dormData.find(a => String(a?.value) === String(areaId))
+    labels.push(area?.label || areaId)
+    
+    // 查找楼栋
+    const building = area?.children?.find(b => String(b?.value) === String(buildingId))
+    labels.push(building?.label || buildingId)
+    
+    // 查找楼层（处理 merged_ 前缀）
+    let layer = building?.children?.find(l => String(l?.value) === String(layerId))
+    if (!layer && String(layerId).startsWith('merged_')) {
+      // merged 楼层：尝试匹配数字部分
+      const parts = String(layerId).split('_')
+      const lightId = parts[2]
+      layer = building?.children?.find(l => String(l?.value) === lightId)
+    }
+    const layerLabel = layer?.label || ''
+    // 从标签中提取楼层数字（如 "照明3层" → "3层"）
+    const floorMatch = layerLabel.match(/(\d+)层/)
+    labels.push(floorMatch ? `${floorMatch[1]}层` : layerLabel || '?层')
+    
+    // 查找房间
+    const room = layer?.children?.find(r => String(r?.value) === String(roomId))
+    const roomLabel = room?.label || ''
+    const roomMatch = roomLabel.match(/(\d+)/)
+    labels.push(roomMatch ? `${roomMatch[0]}室` : roomLabel || roomId)
+    
+    return labels.join(' ')
+  } catch {
+    return ''
   }
 }
 
