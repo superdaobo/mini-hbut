@@ -71,6 +71,29 @@ function getCachedScheduleSnapshotInline(studentId: string, semester: string): {
   return tryParse(buildKey(sid))
 }
 
+/**
+ * 从 localStorage 读取自定义课程（内联版）
+ */
+function readCustomCoursesInline(studentId: string, semester: string): unknown[] {
+  try {
+    const sid = toSafeText(studentId)
+    const sem = toSafeText(semester)
+    if (!sid) return []
+    // 自定义课程存储 key 格式：custom_schedule:{sid}:{semester}
+    const keys = [`custom_schedule:${sid}:${sem}`, `custom_schedule:${sid}`]
+    for (const key of keys) {
+      const raw = localStorage.getItem(key)
+      if (!raw) continue
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed
+      if (parsed?.courses && Array.isArray(parsed.courses)) return parsed.courses
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
 // ─── 公开 API ───
 
 /**
@@ -104,11 +127,16 @@ export async function afterScheduleRefresh(
   opts: { selectedWeek: number }
 ): Promise<void> {
   try {
-    const cache = (payload as { data?: unknown[] })?.data
-    if (!Array.isArray(cache)) return
+    const remoteCourses = (payload as { data?: unknown[] })?.data
+    if (!Array.isArray(remoteCourses)) return
+
+    // 合并自定义课程
+    const lockedSemester = readScheduleLockInline(sid)
+    const customCourses = readCustomCoursesInline(sid, lockedSemester)
+    const allCourses = [...remoteCourses, ...customCourses]
 
     const snapshot = buildTodayCourseSnapshot({
-      cache,
+      cache: allCourses,
       studentId: sid,
       weekIndex: opts.selectedWeek
     })
@@ -135,13 +163,17 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
 
     const lockedSemester = readScheduleLockInline(sid)
     const cached = getCachedScheduleSnapshotInline(sid, lockedSemester)
-    const cache = cached?.data?.data
-    if (!Array.isArray(cache)) return
+    const remoteCourses = cached?.data?.data
+    if (!Array.isArray(remoteCourses)) return
+
+    // 合并自定义课程
+    const customCourses = readCustomCoursesInline(sid, lockedSemester)
+    const allCourses = [...remoteCourses, ...customCourses]
 
     const weekIndex = readCurrentWeekFromMeta()
 
     const snapshot = buildTodayCourseSnapshot({
-      cache,
+      cache: allCourses,
       studentId: sid,
       weekIndex
     })

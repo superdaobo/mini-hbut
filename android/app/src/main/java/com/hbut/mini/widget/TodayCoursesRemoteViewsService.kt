@@ -136,18 +136,18 @@ class TodayCoursesRemoteViewsFactory(
     }
 
     /**
-     * 从 snapshot JSON 解析课程列表，并合并连续节次的同名课程。
-     * 例如：第3节历史 + 第4节历史 → 合并为 "第3-4节 历史"
+     * 从 snapshot JSON 解析课程列表。
+     * 合并已在 TypeScript 层完成，这里直接解析即可。
      */
     private fun parseCoursesFromSnapshot(json: String?): List<CourseRow> {
         if (json.isNullOrBlank()) return emptyList()
         return try {
             val obj = JSONObject(json)
             val arr = obj.optJSONArray("courses") ?: return emptyList()
-            val raw = mutableListOf<CourseRow>()
+            val result = mutableListOf<CourseRow>()
             for (i in 0 until arr.length()) {
                 val c = arr.getJSONObject(i)
-                raw.add(
+                result.add(
                     CourseRow(
                         periodStart = c.optInt("period_start", 0),
                         periodEnd = c.optInt("period_end", 0),
@@ -159,40 +159,10 @@ class TodayCoursesRemoteViewsFactory(
                     )
                 )
             }
-            // 合并连续节次的同名同地点课程
-            mergeContinuousCourses(raw)
+            result
         } catch (_: Exception) {
             emptyList()
         }
-    }
-
-    /**
-     * 合并连续节次的同名同地点课程。
-     * 严格条件：next.periodStart == current.periodEnd + 1 且名称和地点完全相同。
-     */
-    private fun mergeContinuousCourses(courses: List<CourseRow>): List<CourseRow> {
-        if (courses.size <= 1) return courses
-        val merged = mutableListOf<CourseRow>()
-        var current = courses[0]
-
-        for (i in 1 until courses.size) {
-            val next = courses[i]
-            if (next.name == current.name &&
-                next.location == current.location &&
-                next.periodStart == current.periodEnd + 1
-            ) {
-                // 合并：扩展 periodEnd 和 timeEnd
-                current = current.copy(
-                    periodEnd = next.periodEnd,
-                    timeEnd = next.timeEnd
-                )
-            } else {
-                merged.add(current)
-                current = next
-            }
-        }
-        merged.add(current)
-        return merged
     }
 
     companion object {

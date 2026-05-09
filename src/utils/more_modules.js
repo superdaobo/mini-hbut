@@ -36,7 +36,7 @@ export const isLocalModuleBridgePreviewUrl = (url) =>
   /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
 const isLikelyMobileUserAgent = () =>
   /(android|iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
-export const canUseLocalModuleBridgePreview = () => isTauriRuntime() && !isLikelyMobileUserAgent()
+export const canUseLocalModuleBridgePreview = () => isTauriRuntime()
 
 const describeError = (error) => {
   if (!error) return ''

@@ -247,13 +247,22 @@ const resetFrameState = () => {
   loadingGuardTimer = window.setTimeout(() => {
     if (!loading.value) return
     loading.value = false
-    loadHint.value = '模块页面已开始渲染，正在等待模块上报真实高度。'
-    pushDebugLog('ModuleHost', `加载超时（4.5s），iframe 未触发 load 事件`, 'warn', {
-      src: frameSrc.value?.slice(0, 120),
-      previewMode: previewMode.value
-    })
-    // 同时启动连接拒绝兜底（Android 场景）
-    scheduleConnectionRefusedRetry()
+    const isIos = /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+    const currentSrc = frameSrc.value
+    if (isIos && currentSrc && currentSrc.startsWith('http')) {
+      // iOS WKWebView 无法加载跨域 iframe，直接提供外部打开
+      loadHint.value = 'iOS 暂不支持嵌入显示此模块，请在浏览器中打开。'
+      externalOpenUrl.value = currentSrc
+      pushDebugLog('ModuleHost', `iOS 加载超时，提供外部打开`, 'warn', { src: currentSrc?.slice(0, 100) })
+    } else {
+      loadHint.value = '模块页面已开始渲染，正在等待模块上报真实高度。'
+      pushDebugLog('ModuleHost', `加载超时（4.5s），iframe 未触发 load 事件`, 'warn', {
+        src: currentSrc?.slice(0, 120),
+        previewMode: previewMode.value
+      })
+      // 同时启动连接拒绝兜底（Android 场景）
+      scheduleConnectionRefusedRetry()
+    }
   }, 4500)
 }
 
