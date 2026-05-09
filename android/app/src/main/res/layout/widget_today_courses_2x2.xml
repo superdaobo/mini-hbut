@@ -1,60 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/widget_bg"
-    android:padding="12dp">
+    android:orientation="vertical"
+    android:background="#FFFFFFFF"
+    android:padding="12dp"
+    android:gravity="center_vertical">
 
-    <LinearLayout
+    <TextView
+        android:id="@+id/widget_title"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center_vertical">
+        android:layout_height="wrap_content"
+        android:text="今日课程"
+        android:textColor="#FF1A2332"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:paddingBottom="6dp" />
 
-        <!-- 标题 -->
-        <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="今日课程"
-            android:textColor="@color/widget_text_primary"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:paddingBottom="6dp" />
+    <TextView
+        android:id="@+id/widget_next_course_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#FF1A2332"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
 
-        <!-- 下一节课程摘要 -->
-        <TextView
-            android:id="@+id/widget_next_course_name"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_primary"
-            android:textSize="14sp"
-            android:maxLines="1"
-            android:ellipsize="end" />
+    <TextView
+        android:id="@+id/widget_next_course_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#FF5C6B7A"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:paddingTop="2dp" />
 
-        <TextView
-            android:id="@+id/widget_next_course_time"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_secondary"
-            android:textSize="14sp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:paddingTop="2dp" />
+    <TextView
+        android:id="@+id/widget_next_course_location"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="#FF5C6B7A"
+        android:textSize="12sp"
+        android:maxLines="1"
+        android:paddingTop="2dp" />
 
-        <TextView
-            android:id="@+id/widget_next_course_location"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_secondary"
-            android:textSize="14sp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:paddingTop="2dp" />
-
-    </LinearLayout>
-
-</FrameLayout>
+</LinearLayout>
