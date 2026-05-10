@@ -1,0 +1,3 @@
+# Clippy 严格模式配置
+# 测试模块中允许 unwrap/expect，生产代码禁止
+disallowed-methods = []

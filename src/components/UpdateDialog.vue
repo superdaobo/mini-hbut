@@ -304,7 +304,7 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   padding: 20px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--ui-primary, #6366f1);
   color: white;
 }
 
@@ -330,7 +330,7 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   border: 3px solid #e5e7eb;
-  border-top-color: #6366f1;
+  border-top-color: var(--ui-primary, #6366f1);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -503,7 +503,7 @@ onMounted(() => {
 
 .retry-btn {
   padding: 8px 20px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: var(--ui-primary, #6366f1);
   color: white;
   border: none;
   border-radius: 8px;
@@ -532,7 +532,7 @@ onMounted(() => {
 
 .dialog-actions button:active { transform: scale(0.98); }
 .dialog-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-primary { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; }
+.btn-primary { background: var(--ui-primary, #6366f1); color: white; }
 .btn-secondary { background: #e5e7eb; color: #374151; }
 
 .download-progress {
@@ -555,7 +555,7 @@ onMounted(() => {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+  background: var(--ui-primary, #6366f1);
   border-radius: 4px;
   transition: width 0.3s ease;
 }

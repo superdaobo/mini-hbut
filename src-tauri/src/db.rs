@@ -272,7 +272,49 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
 
     ensure_user_session_columns(&conn);
 
+    // kv_store 通用键值表（用于位置历史等小型 JSON 数据）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS kv_store (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )",
+        [],
+    )?;
+
+    migrate_add_chaoxing_checkin_log(&conn)?;
+
     Ok(())
+}
+
+/// 创建 chaoxing_checkin_log 表与索引（幂等迁移）。
+fn migrate_add_chaoxing_checkin_log(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS chaoxing_checkin_log (
+            student_id    TEXT    NOT NULL,
+            active_id     TEXT    NOT NULL,
+            activity_type TEXT    NOT NULL CHECK (activity_type IN ('normal','location','photo','qrcode','gesture')),
+            course_name   TEXT    NOT NULL DEFAULT '',
+            result        TEXT    NOT NULL CHECK (result IN ('success','already_signed','failure')),
+            error_code    TEXT,
+            error_message TEXT,
+            submitted_at  INTEGER NOT NULL,
+            payload_hash  TEXT    NOT NULL DEFAULT '',
+            PRIMARY KEY (student_id, active_id, submitted_at)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_checkin_log_student_time
+            ON chaoxing_checkin_log (student_id, submitted_at DESC);",
+    )?;
+    Ok(())
+}
+
+/// 按学号删除签到日志（供 clear_chaoxing_data 级联调用）。
+pub fn delete_chaoxing_checkin_log_by_student<P: AsRef<Path>>(path: P, student_id: &str) -> Result<usize> {
+    let conn = open_connection(path)?;
+    conn.execute(
+        "DELETE FROM chaoxing_checkin_log WHERE student_id = ?1",
+        params![student_id],
+    )
 }
 
 // 保存缓存

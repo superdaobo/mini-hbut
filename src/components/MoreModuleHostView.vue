@@ -14,7 +14,7 @@ const props = defineProps({
 
 const emit = defineEmits(['back'])
 
-const frameKey = ref(0)
+const frameKey = ref(Date.now())
 const frameRef = ref(null)
 const frameContentHeight = ref(0)
 const loading = ref(true)
@@ -86,7 +86,8 @@ const withFrameCacheBust = (url, keyParts = []) => {
     .filter(Boolean)
     .join('-')
   const params = new URLSearchParams()
-  params.set('_host_frame_v', token || `${Date.now()}`)
+  // 使用 token + 时间戳确保每次加载 URL 唯一，避免 WebView 缓存导致二次进入白屏
+  params.set('_host_frame_v', `${token || 'f'}-${Date.now()}`)
   const joiner = basePart.includes('?') ? '&' : '?'
   const nextUrl = `${basePart}${joiner}${params.toString()}`
   return hashPart ? `${nextUrl}#${hashPart}` : nextUrl

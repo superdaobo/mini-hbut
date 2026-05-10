@@ -113,7 +113,7 @@ pub(super) fn encrypt_password_aes(password: &str, salt: &str) -> Result<String,
 
 /// 功能说明（待补充）
 pub struct HbutClient {
-    pub(super) client: Client,
+    pub(crate) client: Client,
     pub(super) ocr_client: Client,
     pub(super) cookie_jar: Arc<Jar>,
     pub(super) is_logged_in: bool,

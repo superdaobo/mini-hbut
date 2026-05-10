@@ -19,8 +19,10 @@ const DOWNLOAD_PROXIES = [
   ...(EDGEONE_CDN_BASE
     ? [(tag, filename) => `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`]
     : []),
+  (tag, filename) => `https://hk.gh-proxy.org/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
-  (tag, filename) => `https://mirror.ghproxy.com/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://ghfast.top/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://ghproxy.net/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
 ]
 
@@ -299,7 +301,7 @@ const normalizeCdnManifestAsRelease = (manifest) => {
   return {
     tag_name: tag,
     name: `v${version}`,
-    body: '',
+    body: String(manifest.release_notes || manifest.body || ''),
     html_url: `${GITHUB_RELEASES_URL}/tag/${tag}`,
     assets,
     published_at: manifest.generatedAt,

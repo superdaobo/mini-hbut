@@ -19,3 +19,4 @@ pub mod ai;
 pub mod one_code;
 pub mod module_bundle;
 pub mod online_learning;
+pub mod chaoxing_checkin;

@@ -76,6 +76,7 @@ const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
 const loadMoreShuakeView = () => import('./components/MoreShuakeView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
+const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
 const loadOnlineLearningChaoxingView = () => import('./components/OnlineLearningChaoxingView.vue')
 const loadOnlineLearningYuketangView = () => import('./components/OnlineLearningYuketangView.vue')
 const loadTransactionHistoryView = () => import('./components/TransactionHistory.vue')
@@ -108,6 +109,7 @@ const ExportCenterView = createAsyncPage(loadExportCenterView)
 const MoreView = createAsyncPage(loadMoreView)
 const MoreShuakeView = createAsyncPage(loadMoreShuakeView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
+const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
 const OnlineLearningChaoxingView = createAsyncPage(loadOnlineLearningChaoxingView)
 const OnlineLearningYuketangView = createAsyncPage(loadOnlineLearningYuketangView)
 const TransactionHistory = createAsyncPage(loadTransactionHistoryView)
@@ -160,6 +162,7 @@ const ME_SUB_VIEWS = [
   'more',
   'more_shuake',
   'more_module_host',
+  'more_chaoxing_checkin',
   'online_learning_chaoxing',
   'online_learning_yuketang'
 ]
@@ -176,6 +179,7 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   more: 'me',
   more_shuake: 'more',
   more_module_host: 'more',
+  more_chaoxing_checkin: 'more',
   online_learning_chaoxing: 'more_shuake',
   online_learning_yuketang: 'more_shuake'
 })
@@ -199,6 +203,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   more: loadMoreView,
   more_shuake: loadMoreShuakeView,
   more_module_host: loadMoreModuleHostView,
+  more_chaoxing_checkin: loadMoreChaoxingCheckinView,
   online_learning_chaoxing: loadOnlineLearningChaoxingView,
   online_learning_yuketang: loadOnlineLearningYuketangView,
   grades: loadGradeView,
@@ -2528,6 +2533,12 @@ onBeforeUnmount(() => {
       <MoreModuleHostView
         v-else-if="currentView === 'more_module_host'"
         :session="moduleHostSession"
+        @back="handleBackToMoreCenter"
+      />
+
+      <MoreChaoxingCheckinView
+        v-else-if="currentView === 'more_chaoxing_checkin'"
+        :student-id="studentId"
         @back="handleBackToMoreCenter"
       />
 

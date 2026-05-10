@@ -61,6 +61,13 @@ jsonwebtoken = "9.3"
 sha2 = "0.10"
 zip = "2.2"
 png = "0.17"
+rqrr = "0.9"
+image = "0.25"
+dashmap = "6"
+url = "2"
+
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+xcap = "0.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 rfd = "0.15"
@@ -73,3 +80,14 @@ ndk-context = "0.1"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+testing = []
+
+[dev-dependencies]
+proptest = "1"
+proptest-derive = "0.5"
+wiremock = "0.6"
+tempfile = "3"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

@@ -40,6 +40,7 @@ pub mod modules;
 pub mod http_server;
 pub mod qxzkb_options;
 pub mod debug_bridge;
+pub mod utils;
 
 use http_client::HbutClient;
 
@@ -47,6 +48,7 @@ use http_client::HbutClient;
 use modules::ai::*;
 use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
+use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
 
 // ... imports
 
@@ -5623,6 +5625,7 @@ pub fn run() {
         .manage(AppState {
             client: Arc::new(Mutex::new(HbutClient::new())),
         })
+        .manage(chaoxing_checkin_cmd::CheckinState::new())
         .invoke_handler(tauri::generate_handler![
             get_login_page,
             get_captcha,
@@ -5749,6 +5752,18 @@ pub fn run() {
             write_electricity_snapshot,
             write_exam_snapshot,
             debug_widget_paths,
+            chaoxing_checkin_cmd::chaoxing_checkin_list,
+            chaoxing_checkin_cmd::chaoxing_checkin_submit_common,
+            chaoxing_checkin_cmd::chaoxing_checkin_submit_location,
+            chaoxing_checkin_cmd::chaoxing_checkin_upload_photo,
+            chaoxing_checkin_cmd::chaoxing_checkin_submit_photo,
+            chaoxing_checkin_cmd::chaoxing_checkin_submit_qrcode,
+            chaoxing_checkin_cmd::chaoxing_checkin_submit_gesture,
+            chaoxing_checkin_cmd::chaoxing_checkin_history,
+            chaoxing_checkin_cmd::chaoxing_checkin_parse_qr_url,
+            chaoxing_checkin_cmd::chaoxing_checkin_decode_qr_image,
+            chaoxing_checkin_cmd::chaoxing_checkin_capture_screen_qr,
+            chaoxing_checkin_cmd::clear_chaoxing_data,
         ])
 
         .run(tauri::generate_context!())

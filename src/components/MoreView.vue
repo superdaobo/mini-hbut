@@ -41,13 +41,23 @@ const DEFAULT_MODULES = Object.freeze([
     order: 1
   },
   {
+    id: 'chaoxing_checkin',
+    name: '学习通签到',
+    icon: '✅',
+    description: '学习通签到助手，支持普通/位置/拍照/二维码/手势签到',
+    key_required: true,
+    kind: 'internal',
+    view: 'more_chaoxing_checkin',
+    order: 2
+  },
+  {
     id: 'hecheng_hugongda',
     name: '合成湖工大',
     icon: '🎮',
     description: '下载最新游戏包并打开',
     key_required: false,
     kind: 'remote',
-    order: 2
+    order: 3
   },
   {
     id: 'hugongda_escape',
@@ -56,7 +66,7 @@ const DEFAULT_MODULES = Object.freeze([
     description: '下载最新逃生包并打开',
     key_required: false,
     kind: 'remote',
-    order: 3
+    order: 4
   }
 ])
 
@@ -73,6 +83,7 @@ const brushUnlocked = ref(hasDailyAccessGrant())
 const showBrushKeyDialog = ref(false)
 const brushKeyInput = ref('')
 const brushKeyError = ref('')
+const pendingBrushModuleView = ref('more_shuake')
 
 const safeText = (value) => String(value ?? '').trim()
 const safeParseJson = (raw, fallback = null) => {
@@ -98,7 +109,7 @@ const normalizeChannel = (value, fallback = 'main') => {
 const resolveBrushModule = (moduleItem) => {
   const id = safeText(moduleItem?.id)
   const view = safeText(moduleItem?.view)
-  return id === 'shuake' || view === 'more_shuake'
+  return id === 'shuake' || view === 'more_shuake' || id === 'chaoxing_checkin' || view === 'more_chaoxing_checkin'
 }
 const buildDefaultManifestUrl = (_channel, moduleId) => {
   const normalizedChannel = normalizeChannel(_channel, 'main')
@@ -396,11 +407,11 @@ const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
   if (!id) return null
 
   const kindText = safeText(raw.kind || raw.type).toLowerCase()
-  const isBrush = id === 'shuake'
+  const isBrush = id === 'shuake' || id === 'chaoxing_checkin'
   const kind = kindText === 'internal' || isBrush ? 'internal' : 'remote'
   const order = safeNumber(raw.order, index + 1)
-  const view = safeText(raw.view || raw.route || (isBrush ? 'more_shuake' : ''))
-  const icon = safeText(raw.icon || (isBrush ? '🔐' : kind === 'remote' ? '📦' : '🧩'))
+  const view = safeText(raw.view || raw.route || (id === 'shuake' ? 'more_shuake' : id === 'chaoxing_checkin' ? 'more_chaoxing_checkin' : ''))
+  const icon = safeText(raw.icon || (id === 'shuake' ? '🔐' : id === 'chaoxing_checkin' ? '✅' : kind === 'remote' ? '📦' : '🧩'))
   return {
     id,
     name: safeText(raw.name || raw.module_name || raw.title || id),
@@ -583,19 +594,21 @@ const submitBrushKey = () => {
   brushUnlocked.value = true
   setBrushModulesState('ready', '今日已解锁')
   closeBrushKeyDialog()
-  emit('navigate', 'more_shuake')
+  emit('navigate', pendingBrushModuleView.value || 'more_shuake')
 }
 
 const handleOpenBrushModule = (moduleItem) => {
   const moduleId = safeText(moduleItem?.id || 'shuake')
+  const targetView = safeText(moduleItem?.view || (moduleId === 'chaoxing_checkin' ? 'more_chaoxing_checkin' : 'more_shuake'))
   brushUnlocked.value = hasDailyAccessGrant()
   if (!brushUnlocked.value) {
     setModuleState(moduleId, { status: 'locked', message: '点击输入今日秘钥' })
+    pendingBrushModuleView.value = targetView
     openBrushKeyDialog()
     return
   }
   setModuleState(moduleId, { status: 'ready', message: '今日已解锁' })
-  emit('navigate', 'more_shuake')
+  emit('navigate', targetView)
 }
 
 const handleOpenInternalModule = (moduleItem) => {
@@ -800,6 +813,12 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
   if (!merged.some((item) => resolveBrushModule(item))) {
     const brush = normalizeConfiguredModule(DEFAULT_MODULES[0], 0, moduleChannel.value)
     if (brush) merged.unshift(brush)
+  }
+
+  // 确保学习通签到模块始终存在（不被远程清单覆盖删除）
+  if (!merged.some((item) => safeText(item?.id) === 'chaoxing_checkin')) {
+    const checkin = normalizeConfiguredModule(DEFAULT_MODULES[1], 1, moduleChannel.value)
+    if (checkin) merged.splice(1, 0, checkin)
   }
 
   applyModuleCards(

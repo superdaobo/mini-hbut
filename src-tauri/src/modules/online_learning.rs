@@ -730,6 +730,91 @@ async fn ensure_chaoxing_session_ready(client: &mut HbutClient, student_id: &str
     }
 }
 
+/// 公开接口：为签到模块确保学习通会话就绪。
+/// 复用 ensure_chaoxing_session_ready 的逻辑，但不要求课程 API 可用（签到只需要 UID cookie）。
+/// 同时将关键 cookie 传播到 mobilelearn.chaoxing.com 域（签到 API 所在域）。
+pub async fn ensure_chaoxing_session_for_checkin(client: &mut HbutClient, student_id: &str) -> bool {
+    eprintln!("[签到调试] ensure_chaoxing_session_for_checkin: student_id={}", student_id);
+    try_restore_chaoxing_session(client, student_id);
+    if has_chaoxing_full_session(client) {
+        eprintln!("[签到调试] 学习通会话已就绪（从 DB 恢复或内存中已有）");
+        propagate_chaoxing_cookies_for_checkin(client);
+        return true;
+    }
+    eprintln!("[签到调试] 尝试从教务域 seed cookie...");
+    let _ = seed_chaoxing_cookie_from_jwxt(client);
+    if has_chaoxing_full_session(client) {
+        eprintln!("[签到调试] seed 后会话就绪");
+        propagate_chaoxing_cookies_for_checkin(client);
+        return true;
+    }
+    // 尝试 CAS→学习通桥接
+    eprintln!("[签到调试] 尝试 CAS→学习通桥接, is_logged_in={}", client.is_logged_in);
+    if client.is_logged_in && client.try_bridge_cas_to_chaoxing().await {
+        if has_chaoxing_full_session(client) {
+            eprintln!("[签到调试] CAS 桥接后会话就绪");
+            propagate_chaoxing_cookies_for_checkin(client);
+            return true;
+        }
+    }
+    eprintln!("[签到调试] 所有尝试失败，会话未就绪");
+    false
+}
+
+/// 将学习通关键 cookies 传播到签到 API 所需的域名（mobilelearn / mooc1-api / pan-yz）。
+fn propagate_chaoxing_cookies_for_checkin(client: &HbutClient) {
+    let source_urls = [
+        "https://passport2.chaoxing.com",
+        "https://i.chaoxing.com",
+        "https://hbut.jw.chaoxing.com",
+    ];
+    let target_urls = [
+        "https://mobilelearn.chaoxing.com",
+        "https://mooc1-api.chaoxing.com",
+        "https://pan-yz.chaoxing.com",
+    ];
+    let key_names: &[&str] = &[
+        "UID", "_uid", "fid", "cx_p_token", "p_auth_token", "xxtenc",
+        "_d", "uf", "spaceFid", "spaceRoleId", "uname", "sso_puid",
+        "KI4SO_SERVER_EC", "_tid", "DSSTASH_LOG",
+    ];
+
+    let mut collected: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for src in &source_urls {
+        if let Ok(url) = Url::parse(src) {
+            if let Some(header) = client.cookie_jar.cookies(&url) {
+                if let Ok(s) = header.to_str() {
+                    for pair in s.split(';') {
+                        let pair = pair.trim();
+                        if let Some((name, value)) = pair.split_once('=') {
+                            let name = name.trim();
+                            if key_names.iter().any(|k| k.eq_ignore_ascii_case(name)) {
+                                collected.entry(name.to_string()).or_insert_with(|| value.trim().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if collected.is_empty() {
+        eprintln!("[签到调试] propagate_chaoxing_cookies_for_checkin: 无可传播的 cookie");
+        return;
+    }
+
+    eprintln!("[签到调试] propagate_chaoxing_cookies_for_checkin: 传播 {} 个 cookie 到签到域", collected.len());
+
+    for target in &target_urls {
+        if let Ok(target_url) = Url::parse(target) {
+            for (name, value) in &collected {
+                let cookie_str = format!("{}={}; Path=/; Domain=.chaoxing.com", name, value);
+                client.cookie_jar.add_cookie_str(&cookie_str, &target_url);
+            }
+        }
+    }
+}
+
 fn update_pending_yuketang_login(
     session_id: &str,
     updater: impl FnOnce(&mut PendingYuketangLogin),

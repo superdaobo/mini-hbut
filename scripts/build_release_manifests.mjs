@@ -376,8 +376,19 @@ function buildManifest({
     generatedAt,
     sourceRef,
     sourceSha,
-    assets
+    assets,
+    release_notes: readReleaseNotes()
   }
+}
+
+function readReleaseNotes() {
+  try {
+    const releaseFile = path.resolve(process.cwd(), 'release.md')
+    if (fs.existsSync(releaseFile)) {
+      return fs.readFileSync(releaseFile, 'utf8').trim()
+    }
+  } catch { /* ignore */ }
+  return ''
 }
 
 function copyAliasAssets(sourceDir, targetDir) {

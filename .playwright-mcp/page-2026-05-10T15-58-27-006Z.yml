@@ -1,0 +1,317 @@
+- generic [ref=e4]:
+  - iframe [active] [ref=e6]:
+    - generic [ref=f4e1]:
+      - generic [ref=f4e2]:
+        - generic [ref=f4e9]:
+          - banner [ref=f4e10]:
+            - generic [ref=f4e11]:
+              - banner [ref=f4e14]:
+                - menubar [ref=f4e15]:
+                  - generic [ref=f4e16]:
+                    - menuitem "首页" [ref=f4e17] [cursor=pointer]:
+                      - generic [ref=f4e19]: 首页
+                    - menuitem "办事大厅" [ref=f4e20] [cursor=pointer]:
+                      - generic [ref=f4e22]: 办事大厅
+              - generic [ref=f4e23]:
+                - generic [ref=f4e26]:
+                  - generic [ref=f4e28]:
+                    - textbox [ref=f4e29]
+                    - generic [ref=f4e31]: 
+                  - text: 
+                - generic [ref=f4e32]:
+                  - generic [ref=f4e34] [cursor=pointer]: 校历
+                  - generic [ref=f4e37] [cursor=pointer]: 个人中心
+                  - generic [ref=f4e40] [cursor=pointer]: 
+                  - button " 杨道博 " [ref=f4e42] [cursor=pointer]:
+                    - generic [ref=f4e43]: 
+                    - generic "杨道博" [ref=f4e44]
+                    - generic [ref=f4e45]: 
+          - main [ref=f4e48]:
+            - generic [ref=f4e49]:
+              - generic [ref=f4e50]:
+                - generic [ref=f4e53]:
+                  - tablist [ref=f4e57]:
+                    - tab "待办任务" [selected] [ref=f4e58]:
+                      - generic [ref=f4e59]: 待办任务
+                    - tab "已办任务" [ref=f4e60]:
+                      - generic [ref=f4e61]: 已办任务
+                    - tab "我的申请" [ref=f4e62]:
+                      - generic [ref=f4e63]: 我的申请
+                    - tab "抄送我的" [ref=f4e64]:
+                      - generic [ref=f4e65]: 抄送我的
+                  - tabpanel "待办任务" [ref=f4e67]:
+                    - paragraph [ref=f4e74]: 暂无数据
+                - generic [ref=f4e78]:
+                  - generic [ref=f4e85]:
+                    - generic [ref=f4e86]:
+                      - img "个人图像" [ref=f4e89]
+                      - generic [ref=f4e90]:
+                        - heading "杨道博，晚上好~" [level=2] [ref=f4e92]
+                        - generic [ref=f4e93]: "2510231106"
+                        - generic [ref=f4e95]: 本科生/电气与电子工程学院/2025/25通信1
+                    - generic [ref=f4e98]:
+                      - generic [ref=f4e100] [cursor=pointer]:
+                        - generic "校园一码通" [ref=f4e103]
+                        - generic [ref=f4e105]: 余额：***元
+                      - generic [ref=f4e107] [cursor=pointer]:
+                        - generic "图书信息" [ref=f4e110]
+                        - generic [ref=f4e112]: 未还：**本
+                    - generic: 
+                  - text: 
+              - generic [ref=f4e113]:
+                - generic [ref=f4e115]:
+                  - heading "OA公告" [level=3] [ref=f4e116]:
+                    - generic [ref=f4e117]:
+                      - img [ref=f4e118]
+                      - generic [ref=f4e120]: OA公告
+                  - generic [ref=f4e122]:
+                    - generic [ref=f4e123]:
+                      - tablist [ref=f4e127]:
+                        - tab "信息发布" [selected] [ref=f4e128]
+                        - tab "校级文件" [ref=f4e129]
+                        - tab "校领导安排" [ref=f4e130]
+                        - tab "会议通报" [ref=f4e131]
+                      - generic:
+                        - tabpanel "信息发布"
+                    - paragraph [ref=f4e135]: 暂无数据
+                    - img [ref=f4e138]
+                - generic [ref=f4e141]:
+                  - heading "校园服务" [level=3] [ref=f4e142]:
+                    - generic [ref=f4e143]:
+                      - img [ref=f4e144]
+                      - generic [ref=f4e146]: 校园服务
+                  - generic [ref=f4e148]:
+                    - generic [ref=f4e156]:
+                      - tablist [ref=f4e160]:
+                        - tab "主题" [selected] [ref=f4e161]
+                        - tab "部门" [ref=f4e162]
+                      - tabpanel "主题" [ref=f4e164]:
+                        - generic [ref=f4e165]:
+                          - generic [ref=f4e166] [cursor=pointer]:
+                            - generic [ref=f4e167]: 行政
+                            - generic [ref=f4e168]: "3"
+                          - generic [ref=f4e169] [cursor=pointer]:
+                            - generic [ref=f4e170]: 教学
+                            - generic [ref=f4e171]: "2"
+                          - generic [ref=f4e172] [cursor=pointer]:
+                            - generic [ref=f4e173]: 科研
+                            - generic [ref=f4e174]: "4"
+                          - generic [ref=f4e175] [cursor=pointer]:
+                            - generic [ref=f4e176]: 综合
+                            - generic [ref=f4e177]: "1"
+                    - generic [ref=f4e185]:
+                      - generic [ref=f4e186] [cursor=pointer]:
+                        - generic [ref=f4e187]: 临时用户校园网服务申请表
+                        - text: 
+                      - generic [ref=f4e188] [cursor=pointer]:
+                        - generic [ref=f4e189]: 数据使用申请表
+                        - text: 
+                      - generic [ref=f4e190] [cursor=pointer]:
+                        - generic [ref=f4e191]: 信息中心办事流程
+                        - text: 
+                - generic [ref=f4e194]:
+                  - generic [ref=f4e196]:
+                    - generic [ref=f4e198] [cursor=pointer]: 
+                    - generic [ref=f4e200] [cursor=pointer]: 
+                    - tablist [ref=f4e202]:
+                      - tab "热门服务" [selected] [ref=f4e203]:
+                        - generic [ref=f4e204]:
+                          - img [ref=f4e205]
+                          - text: 热门服务
+                      - tab "我的收藏" [ref=f4e207]:
+                        - generic [ref=f4e208]:
+                          - img [ref=f4e209]
+                          - text: 我的收藏
+                  - tabpanel "待办任务" [ref=f4e212]:
+                    - list [ref=f4e223]:
+                      - listitem [ref=f4e224]:
+                        - generic [ref=f4e225] [cursor=pointer]:
+                          - heading "教管一体化平台" [active] [level=3] [ref=f4e228]
+                          - generic [ref=f4e230]: 
+                      - listitem [ref=f4e231]:
+                        - generic [ref=f4e232] [cursor=pointer]:
+                          - heading "学生工作一体化服务平台" [level=3] [ref=f4e235]
+                          - generic [ref=f4e237]: 
+                      - listitem [ref=f4e238]:
+                        - generic [ref=f4e239] [cursor=pointer]:
+                          - heading "财务系统" [level=3] [ref=f4e242]
+                          - generic [ref=f4e244]: 
+                      - listitem [ref=f4e245]:
+                        - generic [ref=f4e246] [cursor=pointer]:
+                          - generic [ref=f4e248]: "4"
+                          - heading "科研系统" [level=3] [ref=f4e250]
+                          - generic [ref=f4e252]: 
+                      - listitem [ref=f4e253]:
+                        - generic [ref=f4e254] [cursor=pointer]:
+                          - generic [ref=f4e256]: "5"
+                          - heading "电子资源服务" [level=3] [ref=f4e258]
+                          - generic [ref=f4e260]: 
+                      - listitem [ref=f4e261]:
+                        - generic [ref=f4e262] [cursor=pointer]:
+                          - generic [ref=f4e264]: "6"
+                          - heading "大型仪器共享平台" [level=3] [ref=f4e266]
+                          - generic [ref=f4e268]: 
+              - generic [ref=f4e269]:
+                - generic [ref=f4e271]:
+                  - heading "我的课表" [level=3] [ref=f4e272]:
+                    - generic [ref=f4e273]:
+                      - img [ref=f4e274]
+                      - generic [ref=f4e276]: 我的课表
+                  - generic [ref=f4e278]:
+                    - generic [ref=f4e281]:
+                      - generic [ref=f4e282]: 2025年 第二学期
+                      - generic [ref=f4e283]:
+                        - generic [ref=f4e284] [cursor=pointer]: 
+                        - paragraph [ref=f4e285]: 第66周(本) | 第66周(研)
+                        - generic [ref=f4e286] [cursor=pointer]: 
+                    - generic [ref=f4e301]:
+                      - generic [ref=f4e302]:
+                        - paragraph [ref=f4e303]: 日期
+                        - paragraph [ref=f4e304]: 节次
+                      - generic [ref=f4e307]: 周一 4
+                      - generic [ref=f4e310]: 周二 5
+                      - generic [ref=f4e313]: 周三 6
+                      - generic [ref=f4e316]: 周四 7
+                      - generic [ref=f4e319]: 周五 8
+                      - generic [ref=f4e322]: 周六 9
+                      - generic [ref=f4e325]: 周日 10
+                - generic [ref=f4e327]:
+                  - heading "我的日程" [level=3] [ref=f4e328]:
+                    - generic [ref=f4e329]:
+                      - img [ref=f4e330]
+                      - generic [ref=f4e332]: 我的日程
+                  - generic [ref=f4e334]:
+                    - generic [ref=f4e339]:
+                      - generic [ref=f4e340]:
+                        - generic [ref=f4e341]:
+                          - generic [ref=f4e342]:
+                            - img [ref=f4e344] [cursor=pointer]
+                            - generic [ref=f4e347]: 2026-05-04 ~ 2026-05-10
+                            - img [ref=f4e349] [cursor=pointer]
+                          - generic [ref=f4e352]:
+                            - img [ref=f4e354] [cursor=pointer]
+                            - text: 
+                        - generic [ref=f4e364]:
+                          - generic [ref=f4e367] [cursor=pointer]:
+                            - generic [ref=f4e368]: "4"
+                            - generic [ref=f4e369]: 周一
+                          - generic [ref=f4e372] [cursor=pointer]:
+                            - generic [ref=f4e373]: "5"
+                            - generic [ref=f4e374]: 周二
+                          - generic [ref=f4e377] [cursor=pointer]:
+                            - generic [ref=f4e378]: "6"
+                            - generic [ref=f4e379]: 周三
+                          - generic [ref=f4e382] [cursor=pointer]:
+                            - generic [ref=f4e383]: "7"
+                            - generic [ref=f4e384]: 周四
+                          - generic [ref=f4e387] [cursor=pointer]:
+                            - generic [ref=f4e388]: "8"
+                            - generic [ref=f4e389]: 周五
+                          - generic [ref=f4e392] [cursor=pointer]:
+                            - generic [ref=f4e393]: "9"
+                            - generic [ref=f4e394]: 周六
+                          - generic [ref=f4e397] [cursor=pointer]:
+                            - generic [ref=f4e398]: "10"
+                            - generic [ref=f4e399]: 周日
+                      - generic [ref=f4e406]: 暂无日程
+                    - text: 
+              - generic [ref=f4e409]:
+                - heading "数据看板" [level=3] [ref=f4e410]:
+                  - generic [ref=f4e411]:
+                    - img [ref=f4e412]
+                    - generic [ref=f4e416]: 数据看板
+                - generic [ref=f4e419]:
+                  - generic [ref=f4e420]:
+                    - generic [ref=f4e421]:
+                      - generic [ref=f4e422]: TOP5
+                      - generic [ref=f4e423]: (闪耀区)
+                    - generic [ref=f4e425]:
+                      - table [ref=f4e427]:
+                        - rowgroup [ref=f4e433]:
+                          - row "序号 课程名称 课程成绩 学分" [ref=f4e434]:
+                            - columnheader "序号" [ref=f4e435]:
+                              - generic [ref=f4e436]: 序号
+                            - columnheader "课程名称" [ref=f4e437]:
+                              - generic [ref=f4e438]: 课程名称
+                            - columnheader "课程成绩" [ref=f4e439]:
+                              - generic [ref=f4e440]: 课程成绩
+                            - columnheader "学分" [ref=f4e441]:
+                              - generic [ref=f4e442]: 学分
+                      - generic [ref=f4e443]:
+                        - table:
+                          - rowgroup
+                        - generic [ref=f4e445]: 暂无数据
+                  - generic [ref=f4e446]:
+                    - generic [ref=f4e447]:
+                      - generic [ref=f4e448]: BOT5
+                      - generic [ref=f4e449]: (奋斗区)
+                    - generic [ref=f4e451]:
+                      - table [ref=f4e453]:
+                        - rowgroup [ref=f4e459]:
+                          - row "序号 课程名称 课程成绩 学分" [ref=f4e460]:
+                            - columnheader "序号" [ref=f4e461]:
+                              - generic [ref=f4e462]: 序号
+                            - columnheader "课程名称" [ref=f4e463]:
+                              - generic [ref=f4e464]: 课程名称
+                            - columnheader "课程成绩" [ref=f4e465]:
+                              - generic [ref=f4e466]: 课程成绩
+                            - columnheader "学分" [ref=f4e467]:
+                              - generic [ref=f4e468]: 学分
+                      - generic [ref=f4e469]:
+                        - table:
+                          - rowgroup
+                        - generic [ref=f4e471]: 暂无数据
+              - generic [ref=f4e473]:
+                - generic [ref=f4e474]:
+                  - img [ref=f4e475]
+                  - generic [ref=f4e477]: 业务系统
+                - generic [ref=f4e479]:
+                  - tablist [ref=f4e483]:
+                    - tab "我的服务" [selected] [ref=f4e484]:
+                      - generic [ref=f4e485]: 我的服务
+                    - tab "全部业务系统" [ref=f4e486]:
+                      - generic [ref=f4e487]: 全部业务系统
+                  - tabpanel "待办任务" [ref=f4e489]:
+                    - paragraph [ref=f4e496]: 暂无相关服务
+          - generic [ref=f4e498]:
+            - generic [ref=f4e499]: 常用链接：
+            - generic [ref=f4e500]:
+              - generic [ref=f4e501] [cursor=pointer]: 共产党员网
+              - generic [ref=f4e502] [cursor=pointer]: 教育部
+              - generic [ref=f4e503] [cursor=pointer]: 湖北省科技厅
+              - generic [ref=f4e504] [cursor=pointer]: 中国共产党历史和文献网
+              - generic [ref=f4e505] [cursor=pointer]: 党建网
+              - generic [ref=f4e506] [cursor=pointer]: 学信网
+              - generic [ref=f4e507] [cursor=pointer]: 湖北省教育厅
+              - generic [ref=f4e508] [cursor=pointer]: 湖北省人社厅
+              - generic [ref=f4e509] [cursor=pointer]: 中国教育干部网络学院
+              - generic [ref=f4e510] [cursor=pointer]: 中国保密在线
+          - contentinfo [ref=f4e511]:
+            - generic [ref=f4e512]:
+              - img [ref=f4e514]
+              - generic [ref=f4e515]:
+                - generic [ref=f4e516]: 联系我们
+                - generic [ref=f4e517]:
+                  - generic [ref=f4e518]: 湖北工业大学办公室
+                  - img [ref=f4e519]
+                  - generic [ref=f4e520]: 电话：027-59750009
+                  - generic [ref=f4e521]: 技术支持
+                  - img [ref=f4e522]
+                  - generic [ref=f4e523]: 电话：027-59750818
+            - generic [ref=f4e524]: 鄂ICP备05003306号-1
+          - generic [ref=f4e525]:
+            - text:   
+            - generic [ref=f4e526]:
+              - generic [ref=f4e527] [cursor=pointer]:
+                - generic [ref=f4e529]: 
+                - generic "智能问答" [ref=f4e530]
+              - generic [ref=f4e531] [cursor=pointer]:
+                - generic [ref=f4e533]: 
+                - generic "我的消息" [ref=f4e534]
+        - text: 
+        - generic: 
+      - tooltip "教管一体化平台" [ref=f4e535]: 教管一体化平台
+  - generic: 
+  - text:  
+  - generic: 
+  - generic:   

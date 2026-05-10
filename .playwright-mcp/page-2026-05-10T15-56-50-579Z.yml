@@ -1,0 +1,44 @@
+- generic [active] [ref=e1]:
+  - text: tr
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "融合门户" [level=5] [ref=e8]
+      - generic [ref=e9]:
+        - link "注册中心" [ref=e13] [cursor=pointer]:
+          - /url: https://auth.hbut.edu.cn/retrieve-password/accountActivation/index.html?service=https%3A%2F%2Fe.hbut.edu.cn%2Flogin%23%2F
+        - link "旧门户入口" [ref=e17] [cursor=pointer]:
+          - /url: http://portal.hbut.edu.cn/
+        - link "帮助中心" [ref=e21] [cursor=pointer]:
+          - /url: /authserver/fetchOnlineGuider
+    - generic [ref=e23]:
+      - generic [ref=e25]:
+        - generic "欢迎登录" [ref=e27]
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic "账号登录" [ref=e30] [cursor=pointer]:
+              - link "账号登录" [ref=e31]:
+                - /url: javascript:void(0)
+            - generic "扫码登录" [ref=e32] [cursor=pointer]:
+              - link "扫码登录" [ref=e33]:
+                - /url: javascript:void(0)
+          - generic [ref=e34]:
+            - generic [ref=e38]:
+              - generic [ref=e39]:
+                - textbox "请输入学号/工号" [ref=e42]
+                - textbox "请输入密码" [ref=e45]
+                - generic [ref=e47]:
+                  - textbox "请输入验证码" [ref=e49]
+                  - img "验证码错误" [ref=e51] [cursor=pointer]
+              - link "登录" [ref=e54] [cursor=pointer]:
+                - /url: javascript:void(0);
+            - paragraph [ref=e56]:
+              - text: 新入职教职工、新入学学生首次登录前请先前往
+              - link "注册中心" [ref=e57] [cursor=pointer]:
+                - /url: ../retrieve-password/accountActivation/index.html
+              - text: 进行注册
+            - link "忘记密码" [ref=e60] [cursor=pointer]:
+              - /url: https://auth.hbut.edu.cn/retrieve-password/retrievePassword/index.html?service=https%3A%2F%2Fe.hbut.edu.cn%2Flogin%23%2F
+      - generic [ref=e61]:
+        - generic [ref=e62]: 其他登录方式
+        - generic [ref=e64] [cursor=pointer]: 短信登录
+    - generic [ref=e67]: 版权归属©湖北工业大学 鄂ICP备05003306号-1 地址：湖北省武汉市洪山区南李路28号
