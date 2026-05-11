@@ -24,6 +24,8 @@ class SceneManager {
     this._resizeTimer = null
     /** @type {Function|null} */
     this._boundResize = null
+    /** @type {Function|null} */
+    this._onResizeCallback = null
   }
 
   /**
@@ -182,6 +184,19 @@ class SceneManager {
     // 更新渲染器尺寸
     this._renderer.setSize(width, height)
     this._renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+    // 通知外部（如相机控制器）更新
+    if (this._onResizeCallback) {
+      this._onResizeCallback(width, height)
+    }
+  }
+
+  /**
+   * 设置 resize 回调（用于通知相机控制器等外部模块）
+   * @param {Function} callback - (width, height) => void
+   */
+  onResize(callback) {
+    this._onResizeCallback = callback
   }
 
   /**

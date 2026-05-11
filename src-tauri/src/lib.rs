@@ -3124,6 +3124,7 @@ struct PrepareModuleBundleRequest {
     pub module_name: String,
 }
 
+#[allow(dead_code)]
 fn sanitize_module_token(raw: &str, label: &str) -> Result<String, String> {
     let value = raw.trim();
     if value.is_empty() {
@@ -3138,6 +3139,7 @@ fn sanitize_module_token(raw: &str, label: &str) -> Result<String, String> {
     Err(format!("{} 含非法字符", label))
 }
 
+#[allow(dead_code)]
 fn sanitize_zip_entry_path(raw: &str) -> Option<PathBuf> {
     let path = Path::new(raw);
     let mut normalized = PathBuf::new();
@@ -3155,6 +3157,7 @@ fn sanitize_zip_entry_path(raw: &str) -> Option<PathBuf> {
     }
 }
 
+#[allow(dead_code)]
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
@@ -3165,6 +3168,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect::<String>()
 }
 
+#[allow(dead_code)]
 fn extract_zip_bytes_to_dir(bytes: Vec<u8>, target_dir: PathBuf) -> Result<(), String> {
     let cursor = Cursor::new(bytes);
     let mut archive = zip::ZipArchive::new(cursor)

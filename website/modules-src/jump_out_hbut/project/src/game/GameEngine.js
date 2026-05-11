@@ -85,6 +85,11 @@ export class GameEngine {
       container.clientHeight
     )
 
+    // 注册 resize 回调，确保相机视锥体随窗口比例更新（防止拉伸）
+    this._sceneManager.onResize((width, height) => {
+      this._cameraController.resize(width, height)
+    })
+
     // 初始化角色
     const playerMesh = this._playerRenderer.init()
     scene.add(playerMesh)

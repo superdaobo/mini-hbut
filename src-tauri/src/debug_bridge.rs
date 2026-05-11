@@ -657,6 +657,7 @@ fn save_debug_capture_bytes(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+#[allow(dead_code)]
 fn encode_rgba_to_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     let mut encoder = Encoder::new(&mut out, width, height);

@@ -722,6 +722,7 @@ jobs:
             librsvg2-dev \
             libssl-dev \
             libpipewire-0.3-dev \
+            libgbm-dev \
             build-essential
 
       - name: Setup Node.js
