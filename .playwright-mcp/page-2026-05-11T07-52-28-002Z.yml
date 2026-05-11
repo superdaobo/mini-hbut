@@ -1,0 +1,19 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: "404:"
+      - text: NOT_FOUND
+    - paragraph [ref=e6]: "(Code: NOT_FOUND)"
+    - paragraph [ref=e7]: The page does not exist
+    - generic [ref=e8]:
+      - paragraph [ref=e9]: "Site Visitor: Contact the site owner or try again."
+      - paragraph [ref=e10]:
+        - text: "Site Owner: Please check"
+        - link "document" [ref=e11] [cursor=pointer]:
+          - /url: https://pages.edgeone.ai/document/error-codes
+        - text: or contact us.
+  - generic [ref=e12]:
+    - generic [ref=e13]: Powered by
+    - link [ref=e14] [cursor=pointer]:
+      - /url: https://pages.edgeone.ai/
+      - img [ref=e15]

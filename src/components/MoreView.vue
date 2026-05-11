@@ -67,6 +67,15 @@ const DEFAULT_MODULES = Object.freeze([
     key_required: false,
     kind: 'remote',
     order: 4
+  },
+  {
+    id: 'jump_out_hbut',
+    name: '跳出湖工大',
+    icon: '🦘',
+    description: '跳一跳风格校园跳跃小游戏',
+    key_required: false,
+    kind: 'remote',
+    order: 5
   }
 ])
 
@@ -265,7 +274,7 @@ const appendModuleContextQuery = (
   runtimeTag = 'module-host'
 ) => {
   const previewUrl = safeText(rawUrl)
-  if (!previewUrl || moduleId !== 'hecheng_hugongda') return previewUrl
+  if (!previewUrl || (moduleId !== 'hecheng_hugongda' && moduleId !== 'jump_out_hbut')) return previewUrl
 
   try {
     const url = new URL(previewUrl, window.location.origin)

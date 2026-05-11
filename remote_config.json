@@ -85,6 +85,58 @@
     { "label": "DeepSeek-R1", "value": "deepseek-r1" },
     { "label": "Doubao1.5-Pro", "value": "doubao-1.5-pro" }
   ],
+  "module_center": {
+    "channel": "main",
+    "modules": [
+      {
+        "id": "shuake",
+        "name": "学习记录",
+        "icon": "🔐",
+        "description": "在线学习入口、数据同步与同步记录",
+        "key_required": true,
+        "kind": "internal",
+        "view": "more_shuake",
+        "order": 1
+      },
+      {
+        "id": "chaoxing_checkin",
+        "name": "学习通签到",
+        "icon": "✅",
+        "description": "学习通签到助手，支持普通/位置/拍照/二维码/手势签到",
+        "key_required": true,
+        "kind": "internal",
+        "view": "more_chaoxing_checkin",
+        "order": 2
+      },
+      {
+        "id": "hecheng_hugongda",
+        "name": "合成湖工大",
+        "icon": "🎮",
+        "description": "下载最新游戏包并打开",
+        "key_required": false,
+        "kind": "remote",
+        "order": 3
+      },
+      {
+        "id": "hugongda_escape",
+        "name": "湖工大逃生",
+        "icon": "🧭",
+        "description": "下载最新逃生包并打开",
+        "key_required": false,
+        "kind": "remote",
+        "order": 4
+      },
+      {
+        "id": "jump_out_hbut",
+        "name": "跳出湖工大",
+        "icon": "🦘",
+        "description": "跳一跳风格校园跳跃小游戏",
+        "key_required": false,
+        "kind": "remote",
+        "order": 5
+      }
+    ]
+  },
   "config_admin_ids": [],
   "ai_entry_url_template": "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?NCPNavBarAlpha=0&customerServiceConfId=122&response_type=code&identityTypeCode=null&flag=bjdk_hbgy_dk_echar&hidden=true&isBindEcard=true&customerCode=2002135&force_login=false&client_id=c20653ee0dd54a8faca19fb127680714&token="
 }

@@ -20,6 +20,9 @@ const getExpectedPatterns = (targetModuleId) => {
   if (targetModuleId === 'hugongda_escape') {
     return [/(湖工大|撤离)/i, /(开始行动|选择你的职业|行动失败|成功撤离)/i]
   }
+  if (targetModuleId === 'jump_out_hbut') {
+    return [/跳出湖工大/i, /(开始游戏|蓄力|跳跃)/i]
+  }
   return [/(<!doctype html>|<html|<body)/i]
 }
 
