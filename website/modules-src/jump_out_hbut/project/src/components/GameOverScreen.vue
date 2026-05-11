@@ -1,6 +1,14 @@
 <template>
   <div class="gameover-screen">
     <div class="gameover-content">
+      <!-- 上传失败提示（顶部） -->
+      <div v-if="uploadFailed" class="upload-error-banner">
+        <span class="upload-error-text">⚠️ 分数上传失败</span>
+        <button class="upload-retry-btn" :disabled="retrying" @click="$emit('retryUpload')">
+          {{ retrying ? '重试中...' : '重试' }}
+        </button>
+      </div>
+
       <h2 class="gameover-title">游戏结束</h2>
 
       <!-- 本次得分 -->
@@ -56,10 +64,18 @@ const props = defineProps({
   duration: {
     type: Number,
     default: 0
+  },
+  uploadFailed: {
+    type: Boolean,
+    default: false
+  },
+  retrying: {
+    type: Boolean,
+    default: false
   }
 })
 
-defineEmits(['restart', 'showLeaderboard'])
+defineEmits(['restart', 'showLeaderboard', 'retryUpload'])
 
 // 最高分
 const bestScore = computed(() => {
@@ -113,6 +129,51 @@ const formattedDuration = computed(() => {
   font-weight: 700;
   color: #fff;
   margin-bottom: 1.5rem;
+}
+
+/* 上传失败提示条 */
+.upload-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 1rem;
+  background: rgba(255, 69, 0, 0.15);
+  border: 1px solid rgba(255, 69, 0, 0.4);
+  border-radius: 8px;
+  animation: slideDown 0.3s ease;
+}
+
+.upload-error-text {
+  font-size: 0.8rem;
+  color: #FF6B35;
+  font-weight: 600;
+}
+
+.upload-retry-btn {
+  background: #FF6B35;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.upload-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.upload-retry-btn:not(:disabled):active {
+  transform: scale(0.95);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .score-section {

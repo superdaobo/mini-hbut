@@ -47,9 +47,9 @@ export class JumpController {
     // 计算跳跃时长：400 + chargePercent * 200 ms
     this._duration = JUMP_DURATION_BASE + chargePercent * JUMP_DURATION_ADDITIONAL
 
-    // 计算方向向量（±45° 相对于 Z 轴正方向）
-    // left → angle = -45°, right → angle = +45°
-    const angle = direction === 'left' ? -Math.PI / 4 : Math.PI / 4
+    // 计算方向向量（±30° 相对于 Z 轴正方向，形成 60° 夹角的 zigzag）
+    // left → angle = -30°, right → angle = +30°
+    const angle = direction === 'left' ? -Math.PI / 6 : Math.PI / 6
     this._direction = {
       x: Math.sin(angle),
       z: Math.cos(angle)

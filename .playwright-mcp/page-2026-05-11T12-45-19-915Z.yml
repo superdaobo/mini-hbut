@@ -1,0 +1,10 @@
+- generic [ref=e7]:
+  - heading "跳出湖工大" [level=1] [ref=e8]
+  - paragraph [ref=e9]: 🦘 按住蓄力，松开跳跃
+  - generic [ref=e10]: 💡 按住屏幕蓄力，松开跳跃到下一个平台
+  - generic [ref=e11]:
+    - generic [ref=e12]: 最高分
+    - generic [ref=e13]: "2"
+  - generic [ref=e14]:
+    - button "开始游戏" [ref=e15] [cursor=pointer]
+    - button "排行榜" [ref=e16] [cursor=pointer]

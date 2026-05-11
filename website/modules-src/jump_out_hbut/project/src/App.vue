@@ -28,8 +28,11 @@
       :score="gameData.score"
       :jumpCount="gameData.jumpCount"
       :duration="gameData.duration"
+      :uploadFailed="gameData.uploadFailed"
+      :retrying="gameData.retrying"
       @restart="handleRestart"
       @showLeaderboard="handleShowLeaderboard"
+      @retryUpload="handleRetryUpload"
     />
 
     <!-- 排行榜面板 -->
@@ -62,7 +65,9 @@ const gameData = reactive({
   jumpCount: 0,
   chargePercent: 0,
   duration: 0,
-  muted: false
+  muted: false,
+  uploadFailed: false,
+  retrying: false
 })
 
 // 最高分
@@ -157,6 +162,8 @@ function updateChargeLoop() {
 
 // 提交分数到排名服务（Task 11.2）
 async function submitScore(score, jumpCount, duration) {
+  gameData.uploadFailed = false
+  gameData.retrying = false
   try {
     const result = await submitGameRank({
       score,
@@ -168,9 +175,36 @@ async function submitScore(score, jumpCount, duration) {
     })
     if (!result.success) {
       console.warn('分数提交未成功:', result.error)
+      gameData.uploadFailed = true
     }
   } catch (e) {
     console.warn('分数提交失败:', e)
+    gameData.uploadFailed = true
+  }
+}
+
+// 重试上传
+async function handleRetryUpload() {
+  if (gameData.retrying) return
+  gameData.retrying = true
+  try {
+    const result = await submitGameRank({
+      score: gameData.score,
+      max_level: gameData.jumpCount,
+      duration_ms: gameData.duration,
+      move_count: gameData.jumpCount,
+      run_id: currentRunId,
+      ended_reason: 'fall'
+    })
+    if (result.success) {
+      gameData.uploadFailed = false
+    } else {
+      console.warn('重试提交未成功:', result.error)
+    }
+  } catch (e) {
+    console.warn('重试提交失败:', e)
+  } finally {
+    gameData.retrying = false
   }
 }
 

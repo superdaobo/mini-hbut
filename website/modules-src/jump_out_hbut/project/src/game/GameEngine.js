@@ -59,6 +59,7 @@ export class GameEngine {
     this._lastFrameTime = 0    // 上一帧时间戳
     this._animationFrameId = null
     this._landingTimer = null   // 着陆动画定时器
+    this._fallAnimFrame = null  // 坠落动画帧 ID
 
     // 事件系统
     this._listeners = {}
@@ -160,6 +161,10 @@ export class GameEngine {
   reset() {
     this._stopUpdateLoop()
     this._clearLandingTimer()
+    if (this._fallAnimFrame) {
+      cancelAnimationFrame(this._fallAnimFrame)
+      this._fallAnimFrame = null
+    }
 
     // 清除场景中的平台
     this._clearPlatforms()
@@ -177,6 +182,10 @@ export class GameEngine {
   destroy() {
     this._stopUpdateLoop()
     this._clearLandingTimer()
+    if (this._fallAnimFrame) {
+      cancelAnimationFrame(this._fallAnimFrame)
+      this._fallAnimFrame = null
+    }
 
     // 销毁服务层
     this._inputHandler.destroy()
@@ -310,8 +319,9 @@ export class GameEngine {
    * @param {number} chargePercent - 蓄力百分比
    */
   _executeJump(chargePercent) {
-    // 随机选择方向
-    const direction = Math.random() < 0.5 ? 'left' : 'right'
+    // 获取下一个平台（目标平台）的方向
+    const targetPlatform = this._platforms[this._platforms.length - 1]
+    const direction = targetPlatform?.direction || 'right'
 
     // 获取角色当前位置作为起始位置
     const playerPos = this._playerRenderer.getPosition()
@@ -415,7 +425,7 @@ export class GameEngine {
       this._stateMachine.transition('landed')
       this._onLandingSuccess(result)
     } else {
-      // 坠落失败
+      // 坠落失败 — 先停止主更新循环，然后播放坠落动画
       this._stateMachine.transition('gameover')
       this._onLandingFail()
     }
@@ -423,7 +433,7 @@ export class GameEngine {
 
   /**
    * 着陆成功处理
-   * @param {{ type: string, platform: object }} result - 落点判定结果
+   * @param {{ type: string, platform: object, landingPos: object }} result - 落点判定结果
    */
   _onLandingSuccess(result) {
     const { type, platform } = result
@@ -431,11 +441,12 @@ export class GameEngine {
     // 更新当前平台
     this._currentPlatform = platform
 
-    // 设置角色位置到平台顶部
+    // 保持角色在实际落点位置（不强制居中），只修正 Y 到平台顶部
+    const playerPos = this._playerRenderer.getPosition()
     this._playerRenderer.setPosition(
-      platform.position.x,
+      playerPos.x,
       platform.position.y + platform.size.height,
-      platform.position.z
+      playerPos.z
     )
 
     // 更新连击
@@ -484,21 +495,101 @@ export class GameEngine {
   }
 
   /**
-   * 着陆失败处理（坠落）
+   * 着陆失败处理（坠落 + 物理弹跳动画）
    */
   _onLandingFail() {
     this._vibrate(VIBRATION_FAIL)
     this._audioManager.play('fall')
 
-    // 停止更新循环
-    this._stopUpdateLoop()
+    // 播放坠落弹跳动画，完成后再触发 gameOver
+    this._playFallAnimation(() => {
+      // 停止更新循环
+      this._stopUpdateLoop()
 
-    // 触发 gameOver 事件
-    this._emit('gameOver', {
-      score: this._scoreManager.getTotal(),
-      jumpCount: this._jumpCount,
-      duration: this.getDuration()
+      // 触发 gameOver 事件
+      this._emit('gameOver', {
+        score: this._scoreManager.getTotal(),
+        jumpCount: this._jumpCount,
+        duration: this.getDuration()
+      })
     })
+  }
+
+  /**
+   * 播放坠落物理弹跳动画
+   * 角色从落点位置下坠，碰到地面后弹跳几次，逐渐停止
+   * @param {Function} onComplete - 动画完成回调
+   */
+  _playFallAnimation(onComplete) {
+    const playerPos = this._playerRenderer.getPosition()
+    const startY = playerPos.y
+    const groundY = -2 // 地面以下（视觉消失点）
+
+    // 物理参数
+    let velocityY = 0
+    const gravity = 35 // 重力加速度
+    const bounceFactor = 0.4 // 每次弹跳衰减
+    const minBounceVelocity = 1.5 // 低于此速度停止弹跳
+    let currentY = startY
+    let bounceCount = 0
+    const maxBounces = 4
+    let elapsed = 0
+    const maxDuration = 2000 // 最长 2 秒
+
+    // 同时让角色旋转（翻滚效果）
+    let rotationAngle = 0
+    const rotationSpeed = 8 // 弧度/秒
+
+    const fallLoop = (timestamp) => {
+      if (!this._fallAnimFrame) return
+
+      const dt = 1 / 60 // 固定步长
+      elapsed += dt * 1000
+
+      // 重力加速
+      velocityY -= gravity * dt
+      currentY += velocityY * dt
+
+      // 旋转
+      rotationAngle += rotationSpeed * dt
+
+      // 碰到地面（y=0 为地面）
+      if (currentY <= 0 && bounceCount < maxBounces) {
+        currentY = 0
+        velocityY = Math.abs(velocityY) * bounceFactor
+        bounceCount++
+
+        if (velocityY < minBounceVelocity) {
+          velocityY = 0
+        }
+      }
+
+      // 更新角色位置
+      this._playerRenderer.setPosition(playerPos.x, currentY, playerPos.z)
+
+      // 设置角色旋转（翻滚）
+      const mesh = this._playerRenderer.getMesh()
+      if (mesh) {
+        mesh.rotation.x = rotationAngle
+        mesh.rotation.z = rotationAngle * 0.5
+      }
+
+      // 动画结束条件：超时 或 落到地面以下 或 弹跳结束
+      if (elapsed >= maxDuration || (currentY <= 0 && velocityY <= 0 && bounceCount >= 1)) {
+        this._fallAnimFrame = null
+        // 恢复旋转
+        if (mesh) {
+          mesh.rotation.x = 0
+          mesh.rotation.z = 0
+        }
+        if (onComplete) onComplete()
+        return
+      }
+
+      this._fallAnimFrame = requestAnimationFrame(fallLoop)
+    }
+
+    this._fallAnimFrame = requestAnimationFrame(fallLoop)
   }
 
   /**

@@ -7,6 +7,17 @@
         <button class="close-btn" @click="$emit('close')">✕</button>
       </div>
 
+      <!-- Tab 切换 -->
+      <div class="tab-bar">
+        <button
+          v-for="tab in tabs"
+          :key="tab.scope"
+          class="tab-btn"
+          :class="{ active: activeScope === tab.scope }"
+          @click="switchTab(tab.scope)"
+        >{{ tab.label }}</button>
+      </div>
+
       <!-- 加载中 -->
       <div v-if="loading" class="state-container">
         <div class="loading-spinner"></div>
@@ -26,16 +37,40 @@
 
       <!-- 排行榜列表 -->
       <div v-else class="leaderboard-list">
-        <div
-          v-for="(item, index) in list"
-          :key="index"
-          class="rank-item"
-          :class="{ 'rank-top': index < 3 }"
-        >
-          <span class="rank-number">{{ getRankDisplay(index) }}</span>
-          <span class="rank-name">{{ item.player_name || '匿名玩家' }}</span>
-          <span class="rank-score">{{ item.score }}</span>
-        </div>
+        <!-- 班级总分榜 -->
+        <template v-if="activeScope === 'class_total'">
+          <div
+            v-for="(item, index) in list"
+            :key="index"
+            class="rank-item"
+            :class="{ 'rank-top': index < 3, 'rank-self': item.is_self }"
+          >
+            <span class="rank-number">{{ getRankDisplay(index) }}</span>
+            <span class="rank-name">{{ item.class_name || '未知班级' }}</span>
+            <span class="rank-meta">{{ item.player_count }}人</span>
+            <span class="rank-score">{{ item.total_score }}</span>
+          </div>
+        </template>
+        <!-- 个人榜（班级/全校） -->
+        <template v-else>
+          <div
+            v-for="(item, index) in list"
+            :key="index"
+            class="rank-item"
+            :class="{ 'rank-top': index < 3, 'rank-self': item.is_self }"
+          >
+            <span class="rank-number">{{ getRankDisplay(index) }}</span>
+            <span class="rank-name">{{ item.player_name || '匿名玩家' }}</span>
+            <span class="rank-score">{{ item.score }}</span>
+          </div>
+        </template>
+      </div>
+
+      <!-- 我的排名 -->
+      <div v-if="!loading && !error && player" class="my-rank-bar">
+        <span>我的最高分: {{ player.score }}</span>
+        <span v-if="player.class_rank">班级第{{ player.class_rank }}名</span>
+        <span v-if="player.school_rank">全校第{{ player.school_rank }}名</span>
       </div>
     </div>
   </div>
@@ -47,9 +82,17 @@ import { fetchGameLeaderboard } from '../utils/game_rank.js'
 
 defineEmits(['close'])
 
+const tabs = [
+  { scope: 'class', label: '班级榜' },
+  { scope: 'school', label: '全校榜' },
+  { scope: 'class_total', label: '班级总分' }
+]
+
+const activeScope = ref('class')
 const loading = ref(true)
 const error = ref(false)
 const list = ref([])
+const player = ref(null)
 
 function getRankDisplay(index) {
   if (index === 0) return '🥇'
@@ -58,15 +101,25 @@ function getRankDisplay(index) {
   return `${index + 1}`
 }
 
+function switchTab(scope) {
+  activeScope.value = scope
+  loadLeaderboard()
+}
+
 async function loadLeaderboard() {
   loading.value = true
   error.value = false
   list.value = []
+  player.value = null
 
   try {
-    const result = await fetchGameLeaderboard({ scope: 'class', limit: 20 })
-    if (result.success && Array.isArray(result.data)) {
-      list.value = result.data
+    const result = await fetchGameLeaderboard({
+      scope: activeScope.value,
+      limit: 30
+    })
+    if (result.success) {
+      list.value = Array.isArray(result.leaderboard) ? result.leaderboard : (Array.isArray(result.data) ? result.data : [])
+      player.value = result.player || null
     } else {
       error.value = true
     }
@@ -142,6 +195,36 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Tab 栏 */
+.tab-bar {
+  display: flex;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 0.5rem 0;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn.active {
+  background: rgba(70, 130, 180, 0.3);
+  color: #fff;
+}
+
+.tab-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .state-container {
   display: flex;
   flex-direction: column;
@@ -188,7 +271,7 @@ onMounted(() => {
 .leaderboard-list {
   overflow-y: auto;
   padding: 0.5rem 0;
-  max-height: 60vh;
+  max-height: 50vh;
 }
 
 .rank-item {
@@ -204,6 +287,11 @@ onMounted(() => {
 
 .rank-item.rank-top {
   background: rgba(255, 215, 0, 0.05);
+}
+
+.rank-item.rank-self {
+  background: rgba(70, 130, 180, 0.15);
+  border-left: 3px solid #4682B4;
 }
 
 .rank-number {
@@ -228,11 +316,29 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.rank-meta {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.4);
+  margin-left: 0.5rem;
+}
+
 .rank-score {
   font-size: 1rem;
   font-weight: 700;
   color: #FFD700;
   margin-left: 0.5rem;
+}
+
+/* 我的排名条 */
+.my-rank-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 @keyframes fadeIn {

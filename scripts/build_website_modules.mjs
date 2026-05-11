@@ -223,6 +223,10 @@ const catalogModulesByChannel = new Map(PUBLISH_CHANNELS.map((channel) => [chann
 for (const moduleDir of listModuleDirs()) {
   const metaPath = path.join(moduleDir, 'module.json')
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+  if (meta.disabled === true) {
+    console.log(`[modules] skipping disabled module: ${meta.id || path.basename(moduleDir)}`)
+    continue
+  }
   const moduleId = sanitizeToken(meta.id, 'module.id')
   const moduleName = String(meta.name || moduleId).trim() || moduleId
   const entryPath = String(meta.entry_path || 'index.html').trim() || 'index.html'

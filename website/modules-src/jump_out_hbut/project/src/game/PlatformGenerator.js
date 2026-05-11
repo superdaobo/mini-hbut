@@ -77,6 +77,7 @@ function pickTypeFromCategory(category) {
 export class PlatformGenerator {
   constructor() {
     this._idCounter = 0
+    this._lastDirection = 'left' // 交替方向：上一次是 left，下一次就是 right
   }
 
   /**
@@ -102,8 +103,9 @@ export class PlatformGenerator {
    * @returns {Platform}
    */
   generateNext(currentPlatform, score) {
-    // 1. 随机选择方向：left 或 right
-    const direction = Math.random() < 0.5 ? 'left' : 'right'
+    // 1. 交替方向：right → left → right → left...（整体向上移动）
+    const direction = this._lastDirection === 'left' ? 'right' : 'left'
+    this._lastDirection = direction
 
     // 2. 根据分数阶段选择建筑类型
     const prob = getStageProb(score)
@@ -111,9 +113,10 @@ export class PlatformGenerator {
     const type = pickTypeFromCategory(category)
     const data = BUILDING_DATA[type]
 
-    // 3. 计算距离
-    const currentWidth = currentPlatform.size.width
-    let distance = currentWidth * randomRange(
+    // 3. 计算距离（使用固定基准距离，不依赖当前平台宽度）
+    // 基准距离 = 跳跃范围的中间值附近，确保大部分跳跃可达
+    const baseDistance = 4.5 // 跳跃范围 2.0~8.0 的中间偏下
+    let distance = baseDistance * randomRange(
       PLATFORM_DISTANCE_MIN_FACTOR,
       PLATFORM_DISTANCE_MAX_FACTOR
     )
@@ -124,8 +127,8 @@ export class PlatformGenerator {
     }
 
     // 4. 计算位置
-    // 方向角度：left = -45°, right = +45°（相对 Z 轴正方向）
-    const angle = direction === 'left' ? -Math.PI / 4 : Math.PI / 4
+    // 方向角度：left = -30°, right = +30°（相对 Z 轴正方向，60° zigzag）
+    const angle = direction === 'left' ? -Math.PI / 6 : Math.PI / 6
     const nextX = currentPlatform.position.x + distance * Math.sin(angle)
     const nextZ = currentPlatform.position.z + distance * Math.cos(angle)
 
@@ -134,7 +137,8 @@ export class PlatformGenerator {
       type,
       position: { x: nextX, y: 0, z: nextZ },
       size: { ...data.size },
-      baseScore: data.baseScore
+      baseScore: data.baseScore,
+      direction // 记录方向，供 GameEngine 使用
     }
   }
 
@@ -143,5 +147,6 @@ export class PlatformGenerator {
    */
   reset() {
     _idCounter = 0
+    this._lastDirection = 'left'
   }
 }

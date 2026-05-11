@@ -5,13 +5,13 @@
 
 // ========== 蓄力系统 ==========
 /** 最大蓄力时间（毫秒） */
-export const MAX_CHARGE_MS = 2000
+export const MAX_CHARGE_MS = 1500
 
 // ========== 跳跃参数 ==========
 /** 最小跳跃距离（单位） */
-export const MIN_JUMP_DISTANCE = 1.5
+export const MIN_JUMP_DISTANCE = 2.0
 /** 最大跳跃距离（单位） */
-export const MAX_JUMP_DISTANCE = 6.0
+export const MAX_JUMP_DISTANCE = 8.0
 
 /**
  * 跳跃高度公式参数
@@ -24,8 +24,8 @@ export const JUMP_HEIGHT_ADDITIONAL = 1.5
  * 跳跃时长公式参数（毫秒）
  * duration = BASE + chargePercent * ADDITIONAL
  */
-export const JUMP_DURATION_BASE = 400
-export const JUMP_DURATION_ADDITIONAL = 200
+export const JUMP_DURATION_BASE = 350
+export const JUMP_DURATION_ADDITIONAL = 250
 
 // ========== 连击倍率表 ==========
 /**
@@ -157,18 +157,18 @@ export const CAMERA_CONFIG = {
 }
 
 // ========== 落点判定阈值 ==========
-/** 完美着陆阈值（距中心 30% 以内） */
-export const PERFECT_LANDING_THRESHOLD = 0.3
-/** 普通着陆阈值（距中心 100% 以内） */
-export const NORMAL_LANDING_THRESHOLD = 1.0
+/** 完美着陆阈值（距中心 35% 以内） */
+export const PERFECT_LANDING_THRESHOLD = 0.35
+/** 普通着陆阈值（距中心 110% 以内，稍微宽容） */
+export const NORMAL_LANDING_THRESHOLD = 1.1
 
 // ========== 平台生成参数 ==========
-/** 平台间距倍率范围 */
-export const PLATFORM_DISTANCE_MIN_FACTOR = 1.2
-export const PLATFORM_DISTANCE_MAX_FACTOR = 3.0
+/** 平台间距倍率范围（确保在跳跃距离范围内） */
+export const PLATFORM_DISTANCE_MIN_FACTOR = 0.8
+export const PLATFORM_DISTANCE_MAX_FACTOR = 1.6
 /** 高分难度缩放范围 */
 export const HIGH_SCORE_SCALE_MIN = 1.0
-export const HIGH_SCORE_SCALE_MAX = 1.3
+export const HIGH_SCORE_SCALE_MAX = 1.15
 /** 高分阈值 */
 export const HIGH_SCORE_THRESHOLD = 1500
 

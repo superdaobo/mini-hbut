@@ -74,9 +74,9 @@ export async function submitGameRank(payload) {
 /**
  * 获取排行榜数据
  * @param {object} [options]
- * @param {'class'|'global'} [options.scope='class'] - 排行榜范围
+ * @param {'class'|'school'|'class_total'} [options.scope='class'] - 排行榜范围
  * @param {number} [options.limit=20] - 返回条数
- * @returns {Promise<{ success: boolean, data: Array, error?: string }>}
+ * @returns {Promise<{ success: boolean, leaderboard?: Array, player?: object, data?: Array, error?: string }>}
  */
 export async function fetchGameLeaderboard({ scope = 'class', limit = 20 } = {}) {
   const ctx = readGameModuleContext()
@@ -88,7 +88,16 @@ export async function fetchGameLeaderboard({ scope = 'class', limit = 20 } = {})
   const timeout = setTimeout(() => controller.abort(), 12000)
 
   try {
-    const url = `${ctx.rank_api}/leaderboard?game_id=${GAME_ID}&scope=${scope}&limit=${limit}&class_name=${encodeURIComponent(ctx.class_name)}`
+    const params = new URLSearchParams({
+      game_id: GAME_ID,
+      scope,
+      limit: String(limit)
+    })
+    if (ctx.student_id) params.set('student_id', ctx.student_id)
+    if (ctx.class_name) params.set('class_name', ctx.class_name)
+    params.set('school_name', '湖北工业大学')
+
+    const url = `${ctx.rank_api}/leaderboard?${params.toString()}`
     const response = await fetch(url, {
       signal: controller.signal
     })

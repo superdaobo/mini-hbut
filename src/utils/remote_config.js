@@ -44,22 +44,13 @@ const DEFAULT_MODULE_CENTER = Object.freeze({
       order: 2
     },
     {
-      id: 'hugongda_escape',
-      name: '湖工大逃生',
-      icon: '🧭',
-      description: '下载最新逃生包并打开',
-      key_required: false,
-      kind: 'remote',
-      order: 3
-    },
-    {
       id: 'jump_out_hbut',
       name: '跳出湖工大',
       icon: '🦘',
       description: '跳一跳风格校园跳跃小游戏',
       key_required: false,
       kind: 'remote',
-      order: 4
+      order: 3
     }
   ]
 })
