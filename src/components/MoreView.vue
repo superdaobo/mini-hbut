@@ -67,6 +67,24 @@ const DEFAULT_MODULES = Object.freeze([
     key_required: false,
     kind: 'remote',
     order: 4
+  },
+  {
+    id: 'hbut_2048',
+    name: '2048 湖工大版',
+    icon: '🔢',
+    description: '经典 2048 数字合并游戏',
+    key_required: false,
+    kind: 'remote',
+    order: 5
+  },
+  {
+    id: 'clumsy_bird_hbut',
+    name: '笨鸟先飞',
+    icon: '🐦',
+    description: '点击屏幕控制小鸟飞行',
+    key_required: false,
+    kind: 'remote',
+    order: 6
   }
 ])
 
@@ -265,7 +283,7 @@ const appendModuleContextQuery = (
   runtimeTag = 'module-host'
 ) => {
   const previewUrl = safeText(rawUrl)
-  if (!previewUrl || (moduleId !== 'hecheng_hugongda' && moduleId !== 'jump_out_hbut')) return previewUrl
+  if (!previewUrl || (moduleId !== 'hecheng_hugongda' && moduleId !== 'jump_out_hbut' && moduleId !== 'hbut_2048' && moduleId !== 'clumsy_bird_hbut')) return previewUrl
 
   try {
     const url = new URL(previewUrl, window.location.origin)

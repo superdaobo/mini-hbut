@@ -1,0 +1,11 @@
+{
+  "id": "clumsy_bird_hbut",
+  "name": "笨鸟先飞",
+  "icon": "🐦",
+  "order": 6,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "self",
+  "source_dir": "project",
+  "release_notes": "笨鸟先飞模块自动构建包"
+}

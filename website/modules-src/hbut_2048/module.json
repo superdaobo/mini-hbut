@@ -1,0 +1,11 @@
+{
+  "id": "hbut_2048",
+  "name": "2048 湖工大版",
+  "icon": "🔢",
+  "order": 5,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "self",
+  "source_dir": "project",
+  "release_notes": "2048 湖工大版模块自动构建包"
+}

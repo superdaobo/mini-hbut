@@ -51,6 +51,24 @@ const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 3
+    },
+    {
+      id: 'hbut_2048',
+      name: '2048 湖工大版',
+      icon: '🔢',
+      description: '经典 2048 数字合并游戏',
+      key_required: false,
+      kind: 'remote',
+      order: 5
+    },
+    {
+      id: 'clumsy_bird_hbut',
+      name: '笨鸟先飞',
+      icon: '🐦',
+      description: '点击屏幕控制小鸟飞行',
+      key_required: false,
+      kind: 'remote',
+      order: 6
     }
   ]
 })
