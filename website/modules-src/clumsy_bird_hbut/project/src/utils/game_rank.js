@@ -1,7 +1,7 @@
 const DEFAULT_GAME_ID = 'clumsy_bird_hbut'
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
 const REQUEST_TIMEOUT_MS = 12000
-const MODULE_CONTEXT_STORAGE_KEY = 'hbut_game_rank_context_v1'
+const MODULE_CONTEXT_STORAGE_KEY = 'clumsy_bird_hbut_rank_context_v1'
 
 const safeText = (value) => String(value ?? '').trim()
 
@@ -111,7 +111,7 @@ export const readGameModuleContext = () => {
   const params = new URLSearchParams(window.location.search || '')
   const stored = readStoredContext()
   const context = {
-    gameId: pickText(params.get('game_id'), stored.gameId) || DEFAULT_GAME_ID,
+    gameId: DEFAULT_GAME_ID,
     studentId: pickText(params.get('student_id'), stored.studentId),
     playerName: pickText(params.get('player_name'), stored.playerName),
     className: pickText(params.get('class_name'), stored.className),

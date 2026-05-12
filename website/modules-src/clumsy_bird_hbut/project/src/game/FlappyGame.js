@@ -13,9 +13,9 @@ const STATE = {
 // 游戏常量
 const LOGICAL_WIDTH = 320
 const LOGICAL_HEIGHT = 480
-const GRAVITY = 0.5
-const FLAP_VELOCITY = -8
-const PIPE_SPEED = 2.5
+const GRAVITY = 0.3
+const FLAP_VELOCITY = -6
+const PIPE_SPEED = 2.0
 const PIPE_WIDTH = 52
 const PIPE_GAP_INITIAL = 140
 const PIPE_GAP_MIN = 100

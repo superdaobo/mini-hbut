@@ -8,6 +8,23 @@ import {
   createRunId
 } from './utils/game_rank.js'
 
+// 模块宿主高度桥接：通知父 iframe 当前页面实际高度
+function notifyHostHeight() {
+  if (typeof window === 'undefined' || window.parent === window) return
+  const height = Math.max(
+    document.documentElement.scrollHeight,
+    document.documentElement.offsetHeight,
+    document.body.scrollHeight,
+    document.body.offsetHeight
+  )
+  window.parent.postMessage({
+    type: 'mini-hbut:module-size',
+    moduleId: 'hbut_2048',
+    module_id: 'hbut_2048',
+    height
+  }, '*')
+}
+
 // 初始化模块上下文
 const moduleContext = readGameModuleContext()
 const rankEnabled = canUseGameRank(moduleContext)
@@ -299,6 +316,13 @@ function init() {
 
   // 启动游戏
   gameManager = new GameManager(4, handleScoreChange, handleGameEnd)
+
+  // 通知宿主当前页面高度
+  requestAnimationFrame(() => {
+    notifyHostHeight()
+    // 延迟再通知一次（等 DOM 完全渲染）
+    setTimeout(notifyHostHeight, 300)
+  })
 }
 
 // DOM 就绪后初始化
@@ -307,3 +331,8 @@ if (document.readyState === 'loading') {
 } else {
   init()
 }
+
+// 窗口 resize 时也通知高度
+window.addEventListener('resize', () => {
+  requestAnimationFrame(notifyHostHeight)
+})

@@ -6,12 +6,13 @@
 }
 
 html, body {
+  min-height: 100%;
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background: #faf8ef;
   color: #776e65;
   overflow: hidden;
-  touch-action: none;
+  touch-action: pan-y;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -158,6 +159,7 @@ html, body {
   margin: 0 auto;
   aspect-ratio: 1;
   flex-shrink: 0;
+  touch-action: none;
 }
 
 .grid-container {

@@ -12,6 +12,23 @@ import {
   createRunId
 } from './utils/game_rank.js'
 
+// 模块宿主高度桥接
+function notifyHostHeight() {
+  if (typeof window === 'undefined' || window.parent === window) return
+  const height = Math.max(
+    document.documentElement.scrollHeight,
+    document.documentElement.offsetHeight,
+    document.body.scrollHeight,
+    document.body.offsetHeight
+  )
+  window.parent.postMessage({
+    type: 'mini-hbut:module-size',
+    moduleId: 'clumsy_bird_hbut',
+    module_id: 'clumsy_bird_hbut',
+    height
+  }, '*')
+}
+
 // ========== 全局状态 ==========
 let game = null
 let moduleContext = null
@@ -252,7 +269,18 @@ function init() {
 
   // 启动游戏循环
   game.start()
+
+  // 通知宿主当前页面高度
+  requestAnimationFrame(() => {
+    notifyHostHeight()
+    setTimeout(notifyHostHeight, 300)
+  })
 }
 
 // 启动
 init()
+
+// 窗口 resize 时也通知高度
+window.addEventListener('resize', () => {
+  requestAnimationFrame(notifyHostHeight)
+})
