@@ -14,7 +14,7 @@ const props = defineProps({
 
 const emit = defineEmits(['back'])
 
-const frameKey = ref(Date.now())
+const frameKey = ref(0)
 const frameRef = ref(null)
 const frameContentHeight = ref(0)
 const loading = ref(true)
@@ -86,8 +86,7 @@ const withFrameCacheBust = (url, keyParts = []) => {
     .filter(Boolean)
     .join('-')
   const params = new URLSearchParams()
-  // 使用 token + 时间戳确保每次加载 URL 唯一，避免 WebView 缓存导致二次进入白屏
-  params.set('_host_frame_v', `${token || 'f'}-${Date.now()}`)
+  params.set('_host_frame_v', token || `${Date.now()}`)
   const joiner = basePart.includes('?') ? '&' : '?'
   const nextUrl = `${basePart}${joiner}${params.toString()}`
   return hashPart ? `${nextUrl}#${hashPart}` : nextUrl
@@ -177,16 +176,14 @@ const scheduleFrameSizeFallback = () => {
   clearFrameSizeHintTimer()
   frameSizeHintTimer = window.setTimeout(() => {
     if (frameContentHeight.value > 0 || loadError.value) return
-    // 默认设为视口高度以保证内容可见，后续收到真实高度再调整
-    const viewportHeight = Math.max(600, window.innerHeight - 120)
-    frameContentHeight.value = viewportHeight
+    // 默认设为 800px 以保证内容可见，后续收到真实高度再调整
+    frameContentHeight.value = 800
     loading.value = false
-    loadHint.value = ''
-    pushDebugLog('ModuleHost', `使用默认高度 ${viewportHeight}px（模块未上报尺寸）`, 'info')
+    loadHint.value = '模块页面已加载，使用默认显示高度。'
+    pushDebugLog('ModuleHost', `使用默认高度 800px（模块未上报尺寸）`, 'info')
     // iOS 额外检测：如果 iframe 内容实际为空（白屏），10 秒后提供外部打开选项
-    // 但如果是 Tauri 本地桥接模式，不提供外部打开（本地加载应该正常工作）
     const isIos = /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
-    if (isIos && previewMode.value !== 'tauri-local') {
+    if (isIos) {
       window.setTimeout(() => {
         if (frameContentHeight.value === 800 && !loadError.value) {
           const src = frameSrc.value
@@ -263,10 +260,8 @@ const resetFrameState = () => {
 const handleFrameSizeMessage = (event) => {
   const frameWindow = frameRef.value?.contentWindow
   const payload = event?.data
-  // 宽松匹配：iOS WKWebView 中 cross-origin iframe 的 event.source 可能不等于 contentWindow
-  // 只要消息类型和模块 ID 匹配即可接受
+  if (!frameWindow || event.source !== frameWindow) return
   if (!payload || payload.type !== 'mini-hbut:module-size') return
-  if (frameWindow && event.source && event.source !== frameWindow) return
 
   const nextModuleId = safeText(payload.module_id || payload.moduleId)
   const nextVersion = safeText(payload.version)
