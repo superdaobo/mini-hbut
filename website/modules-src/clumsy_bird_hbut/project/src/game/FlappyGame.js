@@ -13,13 +13,15 @@ const STATE = {
 // 游戏常量
 const LOGICAL_WIDTH = 320
 const LOGICAL_HEIGHT = 480
-const GRAVITY = 0.3
-const FLAP_VELOCITY = -6
-const PIPE_SPEED = 2.0
+// 物理参数（基于 60fps 标准化，使用 delta-time 缩放）
+const TARGET_FPS = 60
+const GRAVITY = 600 // 像素/秒²
+const FLAP_VELOCITY = -220 // 像素/秒（向上）
+const PIPE_SPEED = 100 // 像素/秒
 const PIPE_WIDTH = 52
-const PIPE_GAP_INITIAL = 140
-const PIPE_GAP_MIN = 100
-const PIPE_SPAWN_INTERVAL = 90 // 帧数间隔
+const PIPE_GAP_INITIAL = 150
+const PIPE_GAP_MIN = 110
+const PIPE_SPAWN_INTERVAL_MS = 1800 // 毫秒间隔
 const BIRD_RADIUS = 15
 const BIRD_X = 80
 const GROUND_HEIGHT = 60
@@ -47,6 +49,10 @@ export default class FlappyGame {
     // 管道
     this.pipes = []
     this.pipeTimer = 0
+    this.pipeTimerMs = 0
+
+    // 时间控制
+    this.lastTimestamp = 0
 
     // 动画
     this.animationId = null
@@ -153,6 +159,7 @@ export default class FlappyGame {
     this.birdRotation = 0
     this.pipes = []
     this.pipeTimer = 0
+    this.pipeTimerMs = 0
     this.frameCount = 0
     this.onScoreChange?.(0)
     this.onStateChange?.(this.state)
@@ -211,13 +218,13 @@ export default class FlappyGame {
     return false
   }
 
-  /** 更新游戏逻辑（每帧） */
-  _update() {
+  /** 更新游戏逻辑（每帧，使用 delta-time） */
+  _update(dt) {
     this.frameCount++
 
     if (this.state === STATE.READY) {
       // 待机状态：小鸟上下浮动
-      this.bobOffset += 0.08 * this.bobDirection
+      this.bobOffset += 60 * dt * 0.08 * this.bobDirection
       if (Math.abs(this.bobOffset) > 8) this.bobDirection *= -1
       this.birdY = LOGICAL_HEIGHT / 2 + this.bobOffset
       return
@@ -225,22 +232,25 @@ export default class FlappyGame {
 
     if (this.state !== STATE.PLAYING) return
 
-    // 更新小鸟物理
-    this.birdVelocity += GRAVITY
-    this.birdY += this.birdVelocity
+    // 更新小鸟物理（delta-time 缩放）
+    this.birdVelocity += GRAVITY * dt
+    this.birdY += this.birdVelocity * dt
+
+    // 限制最大下落速度
+    if (this.birdVelocity > 400) this.birdVelocity = 400
 
     // 小鸟旋转（根据速度）
-    this.birdRotation = Math.min(Math.max(this.birdVelocity * 3, -30), 90)
+    this.birdRotation = Math.min(Math.max(this.birdVelocity * 0.15, -30), 90)
 
-    // 生成管道
-    this.pipeTimer++
-    if (this.pipeTimer >= PIPE_SPAWN_INTERVAL) {
+    // 生成管道（基于时间间隔）
+    this.pipeTimerMs += dt * 1000
+    if (this.pipeTimerMs >= PIPE_SPAWN_INTERVAL_MS) {
       this._spawnPipe()
-      this.pipeTimer = 0
+      this.pipeTimerMs = 0
     }
 
-    // 更新管道位置
-    const speed = PIPE_SPEED + Math.min(this.score * 0.05, 1.5)
+    // 更新管道位置（delta-time 缩放）
+    const speed = (PIPE_SPEED + Math.min(this.score * 3, 60)) * dt
     for (let i = this.pipes.length - 1; i >= 0; i--) {
       const pipe = this.pipes[i]
       pipe.x -= speed
@@ -536,10 +546,15 @@ export default class FlappyGame {
   }
 
   /** 游戏主循环 */
-  _gameLoop() {
-    this._update()
+  _gameLoop(timestamp) {
+    if (!this.lastTimestamp) this.lastTimestamp = timestamp
+    // 计算 delta-time（秒），限制最大值防止跳帧
+    const dt = Math.min((timestamp - this.lastTimestamp) / 1000, 0.05)
+    this.lastTimestamp = timestamp
+
+    this._update(dt)
     this._render()
-    this.animationId = requestAnimationFrame(() => this._gameLoop())
+    this.animationId = requestAnimationFrame((ts) => this._gameLoop(ts))
   }
 
   // ========== 公共 API ==========
@@ -547,7 +562,8 @@ export default class FlappyGame {
   /** 启动游戏循环 */
   start() {
     if (this.animationId) return
-    this._gameLoop()
+    this.lastTimestamp = 0
+    this.animationId = requestAnimationFrame((ts) => this._gameLoop(ts))
   }
 
   /** 停止游戏循环 */

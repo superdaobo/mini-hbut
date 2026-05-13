@@ -13,7 +13,7 @@ use axum::{routing::{get, post}, Json, Router, extract::State, extract::Query, e
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::body::Body;
-use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HeaderName};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -1962,26 +1962,7 @@ async fn serve_module_bundle_file(
     );
     response
         .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store, no-cache, must-revalidate, max-age=0"));
-    // 允许 iframe 嵌入（iOS WKWebView 与 Android WebView 需要）
-    response
-        .headers_mut()
-        .insert(
-            HeaderName::from_static("x-frame-options"),
-            HeaderValue::from_static("ALLOWALL"),
-        );
-    response
-        .headers_mut()
-        .insert(
-            HeaderName::from_static("content-security-policy"),
-            HeaderValue::from_static("frame-ancestors *"),
-        );
-    response
-        .headers_mut()
-        .insert(
-            HeaderName::from_static("access-control-allow-origin"),
-            HeaderValue::from_static("*"),
-        );
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }
 
