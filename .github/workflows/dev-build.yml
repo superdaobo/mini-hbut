@@ -196,7 +196,7 @@ jobs:
         run: npx cap sync
 
   build-android:
-    needs: [source, meta, smoke-fast-build]
+    needs: [source, meta]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -349,7 +349,7 @@ jobs:
           compression-level: 0
 
   build-windows:
-    needs: [source, meta, smoke-fast-build]
+    needs: [source, meta]
     runs-on: windows-latest
     steps:
       - name: Download source artifact
@@ -417,7 +417,7 @@ jobs:
           compression-level: 0
 
   build-macos:
-    needs: [source, meta, smoke-fast-build]
+    needs: [source, meta]
     runs-on: macos-latest
     steps:
       - name: Download source artifact
@@ -489,7 +489,7 @@ jobs:
           compression-level: 0
 
   build-ios:
-    needs: [source, meta, smoke-fast-build]
+    needs: [source, meta]
     runs-on: macos-latest
     continue-on-error: true
     steps:
@@ -601,6 +601,21 @@ jobs:
           mkdir -p src-tauri/target/aarch64-apple-ios/debug
           ln -sf ../release/libhbut_helper_lib.a src-tauri/target/aarch64-apple-ios/debug/libhbut_helper_lib.a
 
+          # Patch Info.plist to allow local HTTP networking (required for module bridge on iOS)
+          PLIST_PATH="src-tauri/gen/apple/hbut-helper_iOS/Info.plist"
+          if [ -f "$PLIST_PATH" ]; then
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$PLIST_PATH" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$PLIST_PATH" 2>/dev/null || true
+            echo "Patched Info.plist with NSAllowsLocalNetworking=true"
+          else
+            echo "Warning: Info.plist not found at $PLIST_PATH, trying alternative paths..."
+            find src-tauri/gen/apple -name "Info.plist" -type f | while read plist; do
+              /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$plist" 2>/dev/null || true
+              /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" "$plist" 2>/dev/null || true
+              echo "Patched: $plist"
+            done
+          fi
+
           TMPDIR="$TMPDIR" xcodebuild \
             -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
             -scheme hbut-helper_iOS \
@@ -661,7 +676,7 @@ jobs:
           compression-level: 0
 
   build-linux:
-    needs: [source, meta, smoke-fast-build]
+    needs: [source, meta]
     runs-on: ubuntu-latest
     steps:
       - name: Download source artifact
@@ -746,7 +761,7 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: website-pages-deploy
-      cancel-in-progress: false
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
