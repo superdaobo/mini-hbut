@@ -1284,13 +1284,18 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
   } else if (
     openUrl &&
     !isLocalModuleBridgePreviewUrl(openUrl) &&
-    (!isCapacitorRuntime() || previewMode === PREVIEW_MODE_REMOTE)
+    isAbsoluteHttpUrl(openUrl)
   ) {
+    // Capacitor (iOS/Android) 也允许使用远端 open_url 作为 iframe src
     resolvedPreviewUrl = openUrl
     sourceKind = PREVIEW_MODE_REMOTE
-  } else if (candidateUrls.length && !isCapacitorRuntime()) {
-    resolvedPreviewUrl = candidateUrls[0]
-    sourceKind = PREVIEW_MODE_REMOTE
+  } else if (candidateUrls.length) {
+    // 使用候选 URL（从 manifest 推导的远端地址）
+    const httpCandidate = candidateUrls.find((url) => isAbsoluteHttpUrl(url))
+    if (httpCandidate) {
+      resolvedPreviewUrl = httpCandidate
+      sourceKind = PREVIEW_MODE_REMOTE
+    }
   }
 
   return {
