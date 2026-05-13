@@ -1258,43 +1258,46 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
       resolvedPreviewUrl = tauriPreviewUrl
       sourceKind = PREVIEW_MODE_TAURI_LOCAL
     }
-  } else if (localPreviewUrl) {
-    // Capacitor WebView 的 _capacitor_file_ 在 iframe 内加载 HTML 文档时
-    // 部分安卓/iOS 设备上 shouldInterceptRequest 不能正确拦截，
-    // 导致嵌入页面白屏或黑屏。优先使用远端 open_url，本地路径保留为离线降级。
-    if (
-      isCapacitorRuntime() &&
+  }
+
+  // 如果上面的 Tauri 本地桥接未能解析出 URL，继续尝试其他来源
+  if (!resolvedPreviewUrl) {
+    if (localPreviewUrl && !canUseLocalModuleBridgePreview()) {
+      // Capacitor WebView 的 _capacitor_file_ 在 iframe 内加载 HTML 文档时
+      // 部分安卓/iOS 设备上 shouldInterceptRequest 不能正确拦截，
+      // 导致嵌入页面白屏或黑屏。优先使用远端 open_url，本地路径保留为离线降级。
+      if (
+        isCapacitorRuntime() &&
+        openUrl &&
+        isAbsoluteHttpUrl(openUrl) &&
+        !isLocalModuleBridgePreviewUrl(openUrl)
+      ) {
+        resolvedPreviewUrl = openUrl
+        sourceKind = PREVIEW_MODE_REMOTE
+      } else {
+        resolvedPreviewUrl = localPreviewUrl
+        sourceKind = PREVIEW_MODE_CAPACITOR_LOCAL
+      }
+    } else if (
+      rawPreviewUrl &&
+      !isLocalModuleBridgePreviewUrl(rawPreviewUrl) &&
+      isAbsoluteHttpUrl(rawPreviewUrl)
+    ) {
+      resolvedPreviewUrl = rawPreviewUrl
+      sourceKind = PREVIEW_MODE_REMOTE
+    } else if (
       openUrl &&
-      isAbsoluteHttpUrl(openUrl) &&
-      !isLocalModuleBridgePreviewUrl(openUrl)
+      !isLocalModuleBridgePreviewUrl(openUrl) &&
+      isAbsoluteHttpUrl(openUrl)
     ) {
       resolvedPreviewUrl = openUrl
       sourceKind = PREVIEW_MODE_REMOTE
-    } else {
-      resolvedPreviewUrl = localPreviewUrl
-      sourceKind = PREVIEW_MODE_CAPACITOR_LOCAL
-    }
-  } else if (
-    rawPreviewUrl &&
-    !isLocalModuleBridgePreviewUrl(rawPreviewUrl) &&
-    (!isCapacitorRuntime() || previewMode === PREVIEW_MODE_REMOTE)
-  ) {
-    resolvedPreviewUrl = rawPreviewUrl
-    sourceKind = PREVIEW_MODE_REMOTE
-  } else if (
-    openUrl &&
-    !isLocalModuleBridgePreviewUrl(openUrl) &&
-    isAbsoluteHttpUrl(openUrl)
-  ) {
-    // Capacitor (iOS/Android) 也允许使用远端 open_url 作为 iframe src
-    resolvedPreviewUrl = openUrl
-    sourceKind = PREVIEW_MODE_REMOTE
-  } else if (candidateUrls.length) {
-    // 使用候选 URL（从 manifest 推导的远端地址）
-    const httpCandidate = candidateUrls.find((url) => isAbsoluteHttpUrl(url))
-    if (httpCandidate) {
-      resolvedPreviewUrl = httpCandidate
-      sourceKind = PREVIEW_MODE_REMOTE
+    } else if (candidateUrls.length) {
+      const httpCandidate = candidateUrls.find((url) => isAbsoluteHttpUrl(url))
+      if (httpCandidate) {
+        resolvedPreviewUrl = httpCandidate
+        sourceKind = PREVIEW_MODE_REMOTE
+      }
     }
   }
 
