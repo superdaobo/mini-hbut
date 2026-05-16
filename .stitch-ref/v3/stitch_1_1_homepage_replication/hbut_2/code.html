@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>考试安排 - HBUT 校园助手</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#f6fafe",
+                        "outline": "#727785",
+                        "inverse-primary": "#adc6ff",
+                        "tertiary-fixed": "#ffdcc6",
+                        "on-secondary-container": "#5e6572",
+                        "error": "#ba1a1a",
+                        "tertiary": "#924700",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-container-high": "#e4e9ed",
+                        "success-teal": "#14b8a6",
+                        "surface-tint": "#005ac2",
+                        "surface-container": "#eaeef2",
+                        "on-tertiary-fixed": "#311400",
+                        "on-surface-variant": "#424754",
+                        "outline-variant": "#c2c6d6",
+                        "on-secondary": "#ffffff",
+                        "on-primary-fixed-variant": "#004395",
+                        "surface-variant": "#dfe3e7",
+                        "secondary": "#585f6c",
+                        "accent-gradient-start": "#5b86e5",
+                        "on-surface": "#171c1f",
+                        "on-error-container": "#93000a",
+                        "primary": "#0058be",
+                        "inverse-surface": "#2c3134",
+                        "on-background": "#171c1f",
+                        "warning-orange": "#f97316",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-tertiary-fixed-variant": "#723600",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#d8e2ff",
+                        "surface-container-low": "#f0f4f8",
+                        "danger-red": "#ef4444",
+                        "on-secondary-fixed": "#151c27",
+                        "info-sky": "#38bdf8",
+                        "secondary-fixed-dim": "#c0c7d6",
+                        "surface-dim": "#d6dade",
+                        "tertiary-fixed-dim": "#ffb786",
+                        "tertiary-container": "#b75b00",
+                        "secondary-fixed": "#dce2f3",
+                        "on-secondary-fixed-variant": "#404754",
+                        "primary-container": "#2170e4",
+                        "on-primary-container": "#fefcff",
+                        "on-error": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#f6fafe",
+                        "accent-gradient-end": "#36d1dc",
+                        "inverse-on-surface": "#edf1f5",
+                        "secondary-container": "#dce2f3",
+                        "on-tertiary": "#ffffff",
+                        "background": "#f6fafe",
+                        "surface-container-highest": "#dfe3e7",
+                        "on-primary-fixed": "#001a42",
+                        "error-container": "#ffdad6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "1rem",
+                        "stack-gap": "1.25rem",
+                        "section-margin": "1.5rem",
+                        "inline-gap": "0.75rem",
+                        "safe": "env(safe-area-inset-bottom)"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["30px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "700" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface min-h-screen font-body-md flex flex-col mx-auto max-w-[448px] relative pb-[100px]">
+<!-- TopAppBar Semantic Shell (Suppressed since this is a sub-page with a 'Back' action, replacing with TPageHeader) -->
+<!-- TPageHeader -->
+<header class="sticky top-0 z-50 bg-surface/90 backdrop-blur-md px-container-padding h-16 flex items-center justify-between border-b border-surface-container-highest">
+<button class="w-10 h-10 flex items-center justify-center rounded-full active:bg-surface-container-highest transition-colors text-on-surface">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back_ios_new</span>
+</button>
+<h1 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">edit_document</span>
+            考试安排
+        </h1>
+<div class="w-10 h-10"></div> <!-- Placeholder for balance -->
+</header>
+<main class="flex-1 flex flex-col gap-stack-gap p-container-padding">
+<!-- Controls Section: Term Select & Stats -->
+<section class="flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div class="relative bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm px-3 py-2 flex items-center gap-2 cursor-pointer active:scale-95 transition-transform">
+<span class="font-body-md text-body-md text-on-surface font-medium">2023-2024学年 第一学期</span>
+<span class="material-symbols-outlined text-outline">arrow_drop_down</span>
+</div>
+</div>
+<!-- Stats Overview Bento -->
+<div class="grid grid-cols-2 gap-3">
+<div class="bg-primary-container rounded-2xl p-4 flex flex-col justify-center items-start shadow-sm">
+<span class="font-label-md text-label-md text-on-primary-container/80 mb-1">待考</span>
+<div class="flex items-baseline gap-1">
+<span class="font-headline-lg text-headline-lg text-on-primary-container">3</span>
+<span class="font-label-sm text-label-sm text-on-primary-container/80">科</span>
+</div>
+</div>
+<div class="bg-surface-container-lowest rounded-2xl p-4 flex flex-col justify-center items-start border border-surface-container-highest shadow-sm">
+<span class="font-label-md text-label-md text-on-surface-variant mb-1">已考</span>
+<div class="flex items-baseline gap-1">
+<span class="font-headline-lg text-headline-lg text-on-surface">2</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">科</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Exam List -->
+<section class="flex flex-col gap-4 mt-2">
+<!-- Upcoming Exam Card (Active) -->
+<article class="bg-surface-container-lowest rounded-2xl overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-primary/10 relative">
+<!-- Top Accent Line -->
+<div class="h-1 w-full bg-gradient-to-r from-accent-gradient-start to-accent-gradient-end"></div>
+<div class="p-4 flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-1">计算机网络原理</h2>
+<span class="inline-block bg-primary-fixed text-on-primary-fixed font-label-sm text-label-sm px-2 py-0.5 rounded text-xs">期末考试</span>
+</div>
+<div class="bg-error-container text-on-error-container font-label-md text-label-md px-2 py-1 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+                            2天后
+                        </div>
+</div>
+<div class="grid grid-cols-1 gap-2 mt-2">
+<div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px] text-primary">calendar_clock</span>
+<span>2024-01-15 (周一) 14:00 - 16:00</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px] text-primary">location_on</span>
+<span>教1栋 402教室</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px] text-primary">chair_alt</span>
+<span>座位号: 32</span>
+</div>
+</div>
+</div>
+</article>
+<!-- Upcoming Exam Card -->
+<article class="bg-surface-container-lowest rounded-2xl overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-surface-container-highest">
+<div class="p-4 flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface mb-1">软件工程</h2>
+<span class="inline-block bg-secondary-container text-on-secondary-container font-label-sm text-label-sm px-2 py-0.5 rounded text-xs">期末考试</span>
+</div>
+<div class="bg-surface-container text-on-surface-variant font-label-md text-label-md px-2 py-1 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">timer</span>
+                            5天后
+                        </div>
+</div>
+<div class="grid grid-cols-1 gap-2 mt-2">
+<div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px]">calendar_clock</span>
+<span>2024-01-18 (周四) 09:00 - 11:00</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span>教3栋 105教室</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px]">chair_alt</span>
+<span>座位号: 15</span>
+</div>
+</div>
+</div>
+</article>
+<!-- Finished Exam Card (Translucent) -->
+<article class="bg-surface-container-lowest/60 rounded-2xl overflow-hidden shadow-sm border border-surface-container-highest opacity-70">
+<div class="p-4 flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-on-surface mb-1 line-through decoration-outline-variant">数据库系统</h2>
+<span class="inline-block bg-surface-container text-on-surface-variant font-label-sm text-label-sm px-2 py-0.5 rounded text-xs">期中考试</span>
+</div>
+<div class="bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-2 py-1 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                            已结束
+                        </div>
+</div>
+<div class="grid grid-cols-1 gap-2 mt-2">
+<div class="flex items-center gap-2 text-on-surface-variant/80 font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px]">calendar_clock</span>
+<span>2023-11-20 (周一) 14:00 - 16:00</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant/80 font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span>实训楼 201</span>
+</div>
+</div>
+</div>
+</article>
+</section>
+</main>
+<!-- BottomNavBar Semantic Shell (Suppressed since this is a sub-page, not a top-level destination) -->
+</body></html>

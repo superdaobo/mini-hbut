@@ -448,499 +448,361 @@ const handleLogout = () => emit('logout')
 </script>
 
 <template>
-  <div class="elec-view">
-    <!-- 头部 -->
-    <TPageHeader icon="⚡" title="电费查询" @back="handleBack" />
-
-    <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
-    </div>
-
-    <div class="content">
-      <!-- 提示信息 -->
-      <div class="disclaimer-text">
-        <span class="icon">⚠️</span>
-        提示：此功能仅在首次登录后有效，长期未登录可能导致查询失败。若无法加载，请尝试退出后重新登录。
+  <div class="bg-surface text-on-surface min-h-screen flex flex-col font-body-md max-w-[448px] mx-auto relative overflow-x-hidden">
+    <!-- Header -->
+    <header class="bg-background/80 backdrop-blur-md sticky top-0 flex justify-between items-center px-container-padding h-16 w-full z-50">
+      <button
+        class="text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-full p-2 flex items-center justify-center active:opacity-80"
+        @click="handleBack"
+      >
+        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+      </button>
+      <div class="font-headline-sm text-on-surface flex items-center gap-1">
+        <span class="material-symbols-outlined text-warning-orange" style="font-variation-settings: 'FILL' 1;">bolt</span>
+        电费查询
       </div>
+      <div class="w-10"></div>
+    </header>
 
-      <!-- 宿舍选择器 -->
-      <div class="selector-card">
-        <h3>📍 选择宿舍</h3>
-        
-        <div class="select-group">
-          <!-- 校区 -->
-          <IOSSelect 
-            v-model="selectedAreaValue"
-            placeholder="选择校区"
-            class="modern-select"
-          >
-            <option v-for="area in dormData" :key="area.value" :value="area.value">
-              {{ area.label }}
-            </option>
-          </IOSSelect>
-          
-          <!-- 楼栋 -->
-          <IOSSelect 
-            v-model="selectedBuildingValue"
-            placeholder="选择楼栋"
-            class="modern-select"
-            :disabled="!selectedPath[0]"
-          >
-            <template v-if="currentArea">
-              <option v-for="b in currentArea.children" :key="b.value" :value="b.value">
-                {{ b.label }}
-              </option>
-            </template>
-          </IOSSelect>
-          
-          <!-- 楼层 -->
-          <IOSSelect 
-            v-model="selectedLevelValue"
-            placeholder="选择楼层"
-            class="modern-select"
-            :disabled="!selectedPath[1]"
-          >
-            <template v-if="currentBuilding">
-              <option v-for="l in currentBuilding.children" :key="l.value" :value="l.value">
-                {{ l.label }}
-              </option>
-            </template>
-          </IOSSelect>
-          
-          <!-- 房间 -->
-          <IOSSelect 
-            v-model="selectedRoomValue"
-            placeholder="选择房间"
-            class="modern-select"
-            :disabled="!selectedPath[2]"
-          >
-            <template v-if="currentLevel">
-              <option v-for="r in currentLevel.children" :key="r.value" :value="r.value">
-                {{ r.label }}
-              </option>
-            </template>
-          </IOSSelect>
+    <main class="flex-1 px-container-padding pb-[100px] flex flex-col gap-stack-gap mt-4">
+      <!-- Offline Banner -->
+      <div v-if="offline" class="bg-surface-container-high rounded-lg p-3 flex items-start gap-3">
+        <span class="material-symbols-outlined text-secondary mt-0.5" style="font-variation-settings: 'FILL' 0;">cloud_off</span>
+        <div>
+          <p class="font-body-md text-on-surface-variant text-body-md">当前显示为离线缓存数据</p>
+          <p class="font-label-md text-outline text-label-md mt-1">最后更新: {{ formatRelativeTime(syncTime) }}</p>
         </div>
       </div>
 
-      <!-- 结果展示 -->
-      <TEmptyState v-if="loading" type="loading" message="正在查询电费信息..." />
-      
-      <div v-else-if="balanceData" class="result-section">
-        <!-- 双计费模式：照明 + 空调 -->
-        <template v-if="isDualBilling">
-          <div class="result-card dual-card">
-            <div class="dual-header">
-              <div class="status-badge" :class="balanceData.status.includes('正常') ? 'normal' : 'warning'">
-                {{ balanceData.status }}
-              </div>
+      <!-- Dormitory Selector Card -->
+      <section class="glass-card rounded-2xl p-5">
+        <h2 class="font-headline-sm text-headline-sm text-on-surface mb-4 flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 0;">apartment</span>
+          宿舍信息
+        </h2>
+        <div class="grid grid-cols-2 gap-3">
+          <!-- 校区 -->
+          <div class="relative">
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">校区</label>
+            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
+              <select
+                v-model="selectedAreaValue"
+                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer"
+              >
+                <option value="" disabled>选择校区</option>
+                <option v-for="area in dormData" :key="area.value" :value="area.value">
+                  {{ area.label }}
+                </option>
+              </select>
+              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
             </div>
-            
-            <div class="dual-grid">
-              <!-- 照明 -->
-              <div class="dual-item light-item">
-                <div class="dual-icon">💡</div>
-                <div class="dual-type">照明电费</div>
-                <div class="dual-quantity" :class="{ low: parseFloat(balanceData.quantity) < 10 }">
-                  {{ balanceData.quantity }} <small>度</small>
-                </div>
-                <div class="dual-balance">¥{{ balanceData.balance }}</div>
-              </div>
-              
-              <!-- 空调 -->
-              <div class="dual-item ac-item">
-                <div class="dual-icon">❄️</div>
-                <div class="dual-type">空调电费</div>
-                <template v-if="acBalanceData">
-                  <div class="dual-quantity" :class="{ low: parseFloat(acBalanceData.quantity) < 10 }">
-                    {{ acBalanceData.quantity }} <small>度</small>
-                  </div>
-                  <div class="dual-balance">¥{{ acBalanceData.balance }}</div>
-                </template>
-                <template v-else>
-                  <div class="dual-quantity muted">-- <small>度</small></div>
-                  <div class="dual-balance muted">查询失败</div>
-                </template>
-              </div>
-            </div>
-
-            <div class="detail-row">
-              <div class="detail-item">
-                <span class="d-label">最后更新</span>
-                <span class="d-value">{{ new Date().toLocaleTimeString() }}</span>
-              </div>
-            </div>
-            
-            <button class="refresh-btn" @click="fetchBalance({ forceNetwork: true })">
-              🔄 刷新数据
-            </button>
           </div>
-        </template>
-
-        <!-- 单计费模式 -->
-        <template v-else>
-          <div class="result-card">
-            <div class="status-badge" :class="balanceData.status.includes('正常') ? 'normal' : 'warning'">
-              {{ balanceData.status }}
+          <!-- 楼栋 -->
+          <div class="relative">
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">楼栋</label>
+            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
+              <select
+                v-model="selectedBuildingValue"
+                :disabled="!selectedPath[0]"
+                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="" disabled>选择楼栋</option>
+                <template v-if="currentArea">
+                  <option v-for="b in currentArea.children" :key="b.value" :value="b.value">
+                    {{ b.label }}
+                  </option>
+                </template>
+              </select>
+              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
             </div>
-            
-            <div class="balance-display">
-              <div class="label">剩余电量</div>
-              <div class="value" :class="{ low: parseFloat(balanceData.quantity) < 10 }">
-                {{ balanceData.quantity }} <small>度</small>
-              </div>
-            </div>
-            
-            <div class="detail-row">
-              <div class="detail-item">
-                <span class="d-label">账户余额</span>
-                <span class="d-value">¥{{ balanceData.balance }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="d-label">最后更新</span>
-                <span class="d-value">{{ new Date().toLocaleTimeString() }}</span>
-              </div>
-            </div>
-            
-            <button class="refresh-btn" @click="fetchBalance({ forceNetwork: true })">
-              🔄 刷新数据
-            </button>
           </div>
-        </template>
+          <!-- 楼层 -->
+          <div class="relative">
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">楼层</label>
+            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
+              <select
+                v-model="selectedLevelValue"
+                :disabled="!selectedPath[1]"
+                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="" disabled>选择楼层</option>
+                <template v-if="currentBuilding">
+                  <option v-for="l in currentBuilding.children" :key="l.value" :value="l.value">
+                    {{ l.label }}
+                  </option>
+                </template>
+              </select>
+              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
+            </div>
+          </div>
+          <!-- 房间 -->
+          <div class="relative">
+            <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">房间</label>
+            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
+              <select
+                v-model="selectedRoomValue"
+                :disabled="!selectedPath[2]"
+                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="" disabled>选择房间</option>
+                <template v-if="currentLevel">
+                  <option v-for="r in currentLevel.children" :key="r.value" :value="r.value">
+                    {{ r.label }}
+                  </option>
+                </template>
+              </select>
+              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Loading State -->
+      <div v-if="loading" class="glass-card rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
+        <div class="animate-spin">
+          <span class="material-symbols-outlined text-primary text-3xl" style="font-variation-settings: 'FILL' 0;">progress_activity</span>
+        </div>
+        <p class="font-body-md text-body-md text-on-surface-variant">正在查询电费信息...</p>
       </div>
 
-      <TEmptyState v-else-if="errorMsg" type="error" :message="errorMsg" />
-      
-      <TEmptyState v-else message="👆 请先选择宿舍以查询电费" />
-    </div>
+      <!-- Results: Dual Billing Mode -->
+      <template v-else-if="balanceData && isDualBilling">
+        <!-- Lighting Billing Card (Warning style when low balance) -->
+        <section
+          :class="[
+            'rounded-2xl p-5 relative overflow-hidden',
+            parseFloat(balanceData.quantity) < 10 ? 'glass-card-warning' : 'glass-card-info'
+          ]"
+        >
+          <div class="absolute -right-4 -top-4 opacity-10">
+            <span
+              class="material-symbols-outlined text-9xl"
+              :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
+              style="font-variation-settings: 'FILL' 1;"
+            >lightbulb</span>
+          </div>
+          <div class="flex justify-between items-start mb-4 relative z-10">
+            <div class="flex items-center gap-2">
+              <div
+                :class="[
+                  'rounded-full p-2 flex items-center justify-center',
+                  parseFloat(balanceData.quantity) < 10 ? 'bg-error-container text-error' : 'bg-primary-container/20 text-primary'
+                ]"
+              >
+                <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
+              </div>
+              <h3 class="font-headline-sm text-headline-sm text-on-surface">照明用电</h3>
+            </div>
+            <div
+              :class="[
+                'font-label-sm text-label-sm px-2 py-1 rounded-md flex items-center gap-1',
+                parseFloat(balanceData.quantity) < 10 ? 'bg-error/10 text-error' : 'bg-success-teal/10 text-success-teal'
+              ]"
+            >
+              <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">
+                {{ parseFloat(balanceData.quantity) < 10 ? 'warning' : 'check_circle' }}
+              </span>
+              {{ parseFloat(balanceData.quantity) < 10 ? '余额不足' : '运行正常' }}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 relative z-10">
+            <div>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余电量 (度)</p>
+              <p
+                class="font-headline-lg text-headline-lg"
+                :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
+              >{{ balanceData.quantity }}</p>
+            </div>
+            <div>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余金额 (元)</p>
+              <p class="font-headline-md text-headline-md text-on-surface mt-1">¥ {{ balanceData.balance }}</p>
+            </div>
+          </div>
+          <div class="mt-5 flex gap-3 relative z-10">
+            <button
+              :class="[
+                'flex-1 font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform',
+                parseFloat(balanceData.quantity) < 10
+                  ? 'bg-primary text-on-primary shadow-md shadow-primary/20'
+                  : 'bg-primary-container/10 text-primary'
+              ]"
+            >
+              <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
+              {{ parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
+            </button>
+            <button
+              class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
+              @click="fetchBalance({ forceNetwork: true })"
+            >
+              <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">refresh</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- AC Billing Card -->
+        <section v-if="acBalanceData" class="glass-card-info rounded-2xl p-5 relative overflow-hidden">
+          <div class="absolute -right-4 -top-4 opacity-5">
+            <span class="material-symbols-outlined text-9xl text-info-sky" style="font-variation-settings: 'FILL' 1;">ac_unit</span>
+          </div>
+          <div class="flex justify-between items-start mb-4 relative z-10">
+            <div class="flex items-center gap-2">
+              <div class="bg-primary-container/20 text-primary rounded-full p-2 flex items-center justify-center">
+                <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">ac_unit</span>
+              </div>
+              <h3 class="font-headline-sm text-headline-sm text-on-surface">空调用电</h3>
+            </div>
+            <div
+              :class="[
+                'font-label-sm text-label-sm px-2 py-1 rounded-md flex items-center gap-1',
+                parseFloat(acBalanceData.quantity) < 10 ? 'bg-error/10 text-error' : 'bg-success-teal/10 text-success-teal'
+              ]"
+            >
+              <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">
+                {{ parseFloat(acBalanceData.quantity) < 10 ? 'warning' : 'check_circle' }}
+              </span>
+              {{ parseFloat(acBalanceData.quantity) < 10 ? '余额不足' : '运行正常' }}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 relative z-10">
+            <div>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余电量 (度)</p>
+              <p
+                class="font-headline-lg text-headline-lg"
+                :class="parseFloat(acBalanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
+              >{{ acBalanceData.quantity }}</p>
+            </div>
+            <div>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余金额 (元)</p>
+              <p class="font-headline-md text-headline-md text-on-surface mt-1">¥ {{ acBalanceData.balance }}</p>
+            </div>
+          </div>
+          <div class="mt-5 flex gap-3 relative z-10">
+            <button class="flex-1 bg-primary-container/10 text-primary font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform">
+              <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
+              去充值
+            </button>
+            <button
+              class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
+              @click="fetchBalance({ forceNetwork: true })"
+            >
+              <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">refresh</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- AC query failed fallback -->
+        <section v-else class="glass-card rounded-2xl p-5 flex items-center gap-3">
+          <span class="material-symbols-outlined text-outline" style="font-variation-settings: 'FILL' 0;">ac_unit</span>
+          <p class="font-body-md text-body-md text-on-surface-variant">空调电费查询失败</p>
+        </section>
+      </template>
+
+      <!-- Results: Single Billing Mode -->
+      <template v-else-if="balanceData && !isDualBilling">
+        <section
+          :class="[
+            'rounded-2xl p-5 relative overflow-hidden',
+            parseFloat(balanceData.quantity) < 10 ? 'glass-card-warning' : 'glass-card-info'
+          ]"
+        >
+          <div class="absolute -right-4 -top-4 opacity-10">
+            <span
+              class="material-symbols-outlined text-9xl"
+              :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
+              style="font-variation-settings: 'FILL' 1;"
+            >lightbulb</span>
+          </div>
+          <div class="flex justify-between items-start mb-4 relative z-10">
+            <div class="flex items-center gap-2">
+              <div
+                :class="[
+                  'rounded-full p-2 flex items-center justify-center',
+                  parseFloat(balanceData.quantity) < 10 ? 'bg-error-container text-error' : 'bg-primary-container/20 text-primary'
+                ]"
+              >
+                <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
+              </div>
+              <h3 class="font-headline-sm text-headline-sm text-on-surface">电费余额</h3>
+            </div>
+            <div
+              :class="[
+                'font-label-sm text-label-sm px-2 py-1 rounded-md flex items-center gap-1',
+                parseFloat(balanceData.quantity) < 10 ? 'bg-error/10 text-error' : 'bg-success-teal/10 text-success-teal'
+              ]"
+            >
+              <span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">
+                {{ parseFloat(balanceData.quantity) < 10 ? 'warning' : 'check_circle' }}
+              </span>
+              {{ balanceData.status }}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4 relative z-10">
+            <div>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余电量 (度)</p>
+              <p
+                class="font-headline-lg text-headline-lg"
+                :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
+              >{{ balanceData.quantity }}</p>
+            </div>
+            <div>
+              <p class="font-label-md text-label-md text-on-surface-variant mb-1">剩余金额 (元)</p>
+              <p class="font-headline-md text-headline-md text-on-surface mt-1">¥ {{ balanceData.balance }}</p>
+            </div>
+          </div>
+          <div class="mt-5 flex gap-3 relative z-10">
+            <button
+              :class="[
+                'flex-1 font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform',
+                parseFloat(balanceData.quantity) < 10
+                  ? 'bg-primary text-on-primary shadow-md shadow-primary/20'
+                  : 'bg-primary-container/10 text-primary'
+              ]"
+            >
+              <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
+              {{ parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
+            </button>
+            <button
+              class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
+              @click="fetchBalance({ forceNetwork: true })"
+            >
+              <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">refresh</span>
+            </button>
+          </div>
+        </section>
+      </template>
+
+      <!-- Error State -->
+      <div v-else-if="errorMsg" class="glass-card-warning rounded-2xl p-5 flex items-center gap-3">
+        <span class="material-symbols-outlined text-error" style="font-variation-settings: 'FILL' 0;">error</span>
+        <p class="font-body-md text-body-md text-error">{{ errorMsg }}</p>
+      </div>
+
+      <!-- Empty State -->
+      <div v-else class="glass-card rounded-2xl p-8 flex flex-col items-center justify-center gap-3 text-center">
+        <span class="material-symbols-outlined text-4xl text-outline" style="font-variation-settings: 'FILL' 0;">electric_meter</span>
+        <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
+      </div>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.elec-view {
-  min-height: 100vh;
-  background: #f5f7fa;
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
 }
 
-.elec-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
-  color: white;
+.glass-card-warning {
+  background: linear-gradient(135deg, rgba(255, 218, 214, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%);
+  border: 1px solid rgba(255, 218, 214, 0.5);
+  box-shadow: 0 10px 20px rgba(186, 26, 26, 0.1);
 }
 
-.elec-header .title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.back-btn, .logout-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  transition: background 0.2s;
-}
-
-.back-btn:hover, .logout-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.content {
-  padding: 20px;
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.selector-card {
-  background: white;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  margin-bottom: 20px;
-}
-
-.selector-card h3 {
-  margin: 0 0 16px 0;
-  font-size: 16px;
-  color: #2d3748;
-}
-
-.select-group {
-  display: grid;
-  gap: 12px;
-}
-
-.modern-select {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  font-size: 14px;
-  color: #4a5568;
-  background-color: #fff;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.modern-select:focus {
-  border-color: #e53e3e;
-}
-
-.modern-select:disabled {
-  background-color: #f7fafc;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-/* 结果卡片 */
-.result-card {
-  background: white;
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 8px 24px rgba(229, 62, 62, 0.1);
-  text-align: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.status-badge {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.status-badge.normal {
-  background: #def7ec;
-  color: #03543f;
-}
-
-.status-badge.warning {
-  background: #fde8e8;
-  color: #9b1c1c;
-}
-
-.balance-display {
-  margin: 20px 0;
-}
-
-.balance-display .label {
-  font-size: 14px;
-  color: #718096;
-  margin-bottom: 8px;
-}
-
-.balance-display .value {
-  font-size: 42px;
-  font-weight: 700;
-  color: #2d3748;
-}
-
-.balance-display .value.low {
-  color: #e53e3e;
-}
-
-.balance-display .value small {
-  font-size: 16px;
-  font-weight: 500;
-  color: #718096;
-}
-
-.disclaimer-text {
-  background: rgba(255, 247, 237, 0.95);
-  color: #c05621;
-  padding: 16px;
-  border-radius: 16px;
-  font-size: 13px;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 24px;
-  line-height: 1.6;
-  border: 1px solid rgba(251, 211, 141, 0.4);
-  box-shadow: 0 4px 12px rgba(237, 137, 54, 0.08);
-  backdrop-filter: blur(8px);
-}
-
-.disclaimer-text .icon {
-  font-size: 18px;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.detail-row {
-  display: flex;
-  justify-content: center;
-  gap: 32px;
-  margin-bottom: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #f0f0f0;
-}
-
-.detail-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.d-label {
-  font-size: 12px;
-  color: #a0aec0;
-}
-
-.d-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: #4a5568;
-}
-
-.refresh-btn {
-  width: 100%;
-  padding: 12px;
-  background: #f7fafc;
-  color: #4a5568;
-  border: none;
-  border-radius: 10px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.refresh-btn:hover {
-  background: #edf2f7;
-  transform: translateY(-2px);
-}
-
-.loading-state, .empty-state, .error-msg {
-  text-align: center;
-  padding: 40px;
-  color: #718096;
-}
-
-.error-msg {
-  color: #e53e3e;
-  background: #fff5f5;
-  border-radius: 12px;
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #e53e3e;
-  border-radius: 50%;
-  margin: 0 auto 16px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.offline-banner {
-  margin: 12px 20px 0;
-  padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
-  border-radius: 12px;
-  font-weight: 600;
-}
-
-/* 双计费布局 */
-.result-section {
-  margin-bottom: 20px;
-}
-
-.dual-card {
-  text-align: left;
-}
-
-.dual-header {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 8px;
-}
-
-.dual-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.dual-item {
-  background: #f7fafc;
-  border-radius: 12px;
-  padding: 16px;
-  text-align: center;
-}
-
-.light-item {
-  background: #fffbeb;
-  border: 1px solid #fef3c7;
-}
-
-.ac-item {
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
-}
-
-.dual-icon {
-  font-size: 28px;
-  margin-bottom: 6px;
-}
-
-.dual-type {
-  font-size: 13px;
-  color: #718096;
-  margin-bottom: 8px;
-  font-weight: 500;
-}
-
-.dual-quantity {
-  font-size: 32px;
-  font-weight: 700;
-  color: #2d3748;
-  line-height: 1.2;
-}
-
-.dual-quantity.low {
-  color: #e53e3e;
-}
-
-.dual-quantity.muted {
-  color: #a0aec0;
-}
-
-.dual-quantity small {
-  font-size: 14px;
-  font-weight: 500;
-  color: #718096;
-}
-
-.dual-balance {
-  font-size: 14px;
-  color: #4a5568;
-  margin-top: 4px;
-  font-weight: 600;
-}
-
-.dual-balance.muted {
-  color: #a0aec0;
-  font-weight: 400;
+.glass-card-info {
+  background: linear-gradient(135deg, rgba(216, 226, 255, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%);
+  border: 1px solid rgba(216, 226, 255, 0.5);
 }
 </style>

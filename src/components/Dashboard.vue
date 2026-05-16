@@ -59,18 +59,8 @@ let lastNoticeViewportWidth = 0
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
-  'grades',
-  'classroom',
-  'exams',
-  'ranking',
-  'calendar',
-  'academic',
-  'qxzkb',
-  'course_selection',
-  'training',
-  'library',
-  'campus_map',
-  'resource_share'
+  'grades', 'classroom', 'exams', 'ranking', 'calendar', 'academic',
+  'qxzkb', 'course_selection', 'training', 'library', 'campus_map', 'resource_share'
 ])
 const loginMethod = ref('')
 const isChaoxingMethod = (value) => String(value || '').trim().startsWith('chaoxing')
@@ -113,6 +103,37 @@ const currentMinute = computed(() => {
   return now.getHours() * 60 + now.getMinutes()
 })
 
+// 更细致的问候语（根据时间段）
+const greetingText = computed(() => {
+  const hour = new Date(nowTick.value).getHours()
+  if (hour >= 5 && hour < 8) return '早上好'
+  if (hour >= 8 && hour < 11) return '上午好'
+  if (hour >= 11 && hour < 13) return '中午好'
+  if (hour >= 13 && hour < 17) return '下午好'
+  if (hour >= 17 && hour < 19) return '傍晚好'
+  if (hour >= 19 && hour < 22) return '晚上好'
+  return '夜深了'
+})
+
+// 用户学院信息（从缓存的学生信息中读取）
+const userCollegeInfo = computed(() => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) return '湖北工业大学'
+  try {
+    // fetchWithCache 存储格式: cache:studentinfo:{studentId} -> { data: { success, data: {...} }, timestamp }
+    const raw = localStorage.getItem(`cache:studentinfo:${sid}`)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      const info = parsed?.data?.data || parsed?.data || {}
+      const college = String(info.college || '').trim()
+      const grade = String(info.grade || '').trim()
+      if (college && grade) return `${college} • ${grade}级`
+      if (college) return college
+    }
+  } catch (_e) { /* ignore */ }
+  return '湖北工业大学'
+})
+
 const currentMinutePrecise = computed(() => {
   const now = new Date(nowTick.value)
   return now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
@@ -126,7 +147,6 @@ const currentTimeText = computed(() => {
 })
 
 const timelineCourses = computed(() => {
-  // 结束时间采用右开区间：到达结束时刻即视为该课程结束，自动切换下一节。
   return todayCourses.value
     .filter((course) => course.endMinutes > currentMinutePrecise.value)
 })
@@ -135,29 +155,15 @@ const todayBlockTitle = computed(() => {
   if (!props.isLoggedIn) return '今日课程'
   if (timelineCourses.value.length === 0) return '今日课程'
   const first = timelineCourses.value[0]
-  if (
-    first.startMinutes <= currentMinutePrecise.value &&
-    currentMinutePrecise.value < first.endMinutes
-  ) {
+  if (first.startMinutes <= currentMinutePrecise.value && currentMinutePrecise.value < first.endMinutes) {
     return '正在进行'
   }
   return '即将开始'
 })
 
-const syncNowTick = () => {
-  nowTick.value = Date.now()
-}
-
-const handleVisibilityRefresh = () => {
-  if (document.visibilityState === 'visible') {
-    syncNowTick()
-  }
-}
-
-const getTodayWeekday = () => {
-  const day = new Date(nowTick.value).getDay()
-  return day === 0 ? 7 : day
-}
+const syncNowTick = () => { nowTick.value = Date.now() }
+const handleVisibilityRefresh = () => { if (document.visibilityState === 'visible') syncNowTick() }
+const getTodayWeekday = () => { const day = new Date(nowTick.value).getDay(); return day === 0 ? 7 : day }
 
 const getCurrentWeek = (metaWeek) => {
   if (Number(metaWeek) > 0) return Number(metaWeek)
@@ -167,33 +173,19 @@ const getCurrentWeek = (metaWeek) => {
     const parsed = JSON.parse(cachedMeta)
     const week = Number(parsed?.current_week || 1)
     return week > 0 ? week : 1
-  } catch (e) {
-    return 1
-  }
+  } catch (e) { return 1 }
 }
 
 const getPreferredScheduleSemester = () => {
   const lockDetail = readScheduleLockDetail(props.studentId)
   const lockedSemester = String(lockDetail?.semester || '').trim()
-  if (lockedSemester) {
-    return {
-      semester: lockedSemester,
-      source: 'lock',
-      reason: String(lockDetail?.reason || '').trim()
-    }
-  }
+  if (lockedSemester) return { semester: lockedSemester, source: 'lock', reason: String(lockDetail?.reason || '').trim() }
   try {
     const cachedMeta = localStorage.getItem('hbu_schedule_meta')
     if (!cachedMeta) return { semester: '', source: 'none', reason: '' }
     const parsed = JSON.parse(cachedMeta)
-    return {
-      semester: String(parsed?.semester || '').trim(),
-      source: 'meta',
-      reason: ''
-    }
-  } catch (e) {
-    return { semester: '', source: 'none', reason: '' }
-  }
+    return { semester: String(parsed?.semester || '').trim(), source: 'meta', reason: '' }
+  } catch (e) { return { semester: '', source: 'none', reason: '' } }
 }
 
 const isVacationPreviousMeta = (meta = {}) => {
@@ -217,20 +209,16 @@ const toPositiveInt = (value, fallback = 0) => {
 
 const normalizeWeeks = (weeks) => {
   if (!Array.isArray(weeks)) return []
-  return weeks
-    .map((item) => Number(item))
-    .filter((item) => Number.isFinite(item) && item > 0)
+  return weeks.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0)
 }
 
 const getCoursePeriodRange = (course) => {
   const startPeriod = toPositiveInt(course?.period ?? course?.start_period, 0)
   if (startPeriod < 1 || startPeriod > 11) return null
-
   const endByField = toPositiveInt(course?.end_period, 0)
   const span = Math.max(1, toPositiveInt(course?.djs ?? course?.duration, 1))
   const computedEnd = endByField > 0 ? endByField : startPeriod + span - 1
   const endPeriod = Math.min(11, Math.max(startPeriod, computedEnd))
-
   return { startPeriod, endPeriod }
 }
 
@@ -247,10 +235,7 @@ const fetchCustomCoursesForToday = async (semester) => {
   const sem = String(semester || '').trim()
   if (!sid || !sem) return []
   try {
-    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list`, {
-      student_id: sid,
-      semester: sem
-    })
+    const res = await axios.post(`${API_BASE}/v2/schedule/custom/list`, { student_id: sid, semester: sem })
     if (!res.data?.success) return []
     const list = Array.isArray(res.data?.data) ? res.data.data : []
     return list.filter((course) => {
@@ -259,9 +244,7 @@ const fetchCustomCoursesForToday = async (semester) => {
       const range = getCoursePeriodRange(course)
       return hasName && weekday >= 1 && weekday <= 7 && !!range
     })
-  } catch (_error) {
-    return []
-  }
+  } catch (_error) { return [] }
 }
 
 const buildTodayCourses = (courses, currentWeek) => {
@@ -276,13 +259,7 @@ const buildTodayCourses = (courses, currentWeek) => {
     .map((course) => {
       const range = getCoursePeriodRange(course)
       if (!range) return null
-      return {
-        ...course,
-        startPeriod: range.startPeriod,
-        endPeriod: range.endPeriod,
-        room: course?.room_code || course?.room || '-',
-        teacher: course?.teacher || '-'
-      }
+      return { ...course, startPeriod: range.startPeriod, endPeriod: range.endPeriod, room: course?.room_code || course?.room || '-', teacher: course?.teacher || '-' }
     })
     .filter(Boolean)
 
@@ -297,16 +274,9 @@ const buildTodayCourses = (courses, currentWeek) => {
       const signature = getTodayCourseSignature(course, course.room, course.teacher)
       const rawSpan = Math.max(1, course.endPeriod - course.startPeriod + 1)
       const duplicateCount = Number(signatureCount.get(signature) || 0)
-      // 与课表页一致：同签名多条（后端按节拆分）时按单节处理，避免结束时间被错误拉长。
       const unitSpan = course.is_custom ? rawSpan : (duplicateCount > 1 ? 1 : rawSpan)
       const endPeriod = Math.min(11, course.startPeriod + unitSpan - 1)
-      return {
-        ...course,
-        signature,
-        rawSpan,
-        unitSpan,
-        endPeriod
-      }
+      return { ...course, signature, rawSpan, unitSpan, endPeriod }
     })
     .sort((a, b) => a.startPeriod - b.startPeriod || a.endPeriod - b.endPeriod)
 
@@ -318,34 +288,21 @@ const buildTodayCourses = (courses, currentWeek) => {
     const teacher = current.teacher
     const startPeriod = current.startPeriod
     let endPeriod = current.endPeriod
-
     let nextIndex = index + 1
     while (nextIndex < daily.length) {
       const next = daily[nextIndex]
-      if (
-        current.unitSpan === 1 &&
-        next.unitSpan === 1 &&
-        next.signature === current.signature &&
-        next.startPeriod === endPeriod + 1
-      ) {
+      if (current.unitSpan === 1 && next.unitSpan === 1 && next.signature === current.signature && next.startPeriod === endPeriod + 1) {
         endPeriod = next.endPeriod
         nextIndex += 1
-      } else {
-        break
-      }
+      } else { break }
     }
-
     const startText = periodTimeMap[startPeriod]?.start || '--:--'
     const endText = periodTimeMap[endPeriod]?.end || '--:--'
     merged.push({
       key: `${current.name}-${teacher}-${startPeriod}-${endPeriod}-${room}`,
-      name: current.name,
-      teacher,
-      room,
-      start: startText,
-      end: endText,
-      startMinutes: toMinutes(startText),
-      endMinutes: toMinutes(endText)
+      name: current.name, teacher, room,
+      start: startText, end: endText,
+      startMinutes: toMinutes(startText), endMinutes: toMinutes(endText)
     })
     index = nextIndex
   }
@@ -353,11 +310,7 @@ const buildTodayCourses = (courses, currentWeek) => {
 }
 
 const fetchTodayCourses = async () => {
-  if (!props.isLoggedIn || !props.studentId) {
-    todayCourses.value = []
-    todayError.value = ''
-    return
-  }
+  if (!props.isLoggedIn || !props.studentId) { todayCourses.value = []; todayError.value = ''; return }
   todayLoading.value = true
   todayError.value = ''
   try {
@@ -370,229 +323,69 @@ const fetchTodayCourses = async () => {
     let payload = cached?.data
     if (!payload?.success) {
       const res = await fetchWithCache(cacheKey, async () => {
-        const rsp = await axios.post(`${API_BASE}/v2/schedule/query`, {
-          student_id: props.studentId,
-          semester: preferredSemester || undefined
-        })
+        const rsp = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId, semester: preferredSemester || undefined })
         return rsp.data
       })
       payload = res?.data
     }
-
-    const shouldForceOnlineRetry =
-      !!payload?.success &&
-      !!payload?.offline &&
-      isVacationPreviousMeta(payload?.meta)
-
+    const shouldForceOnlineRetry = !!payload?.success && !!payload?.offline && isVacationPreviousMeta(payload?.meta)
     if (shouldForceOnlineRetry && sid) {
       try {
-        const onlineRes = await axios.post(`${API_BASE}/v2/schedule/query`, {
-          student_id: sid,
-          semester: undefined
-        })
+        const onlineRes = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: sid, semester: undefined })
         const onlinePayload = onlineRes?.data
         if (onlinePayload?.success && !onlinePayload?.offline) {
           payload = onlinePayload
           const onlineSemester = String(onlinePayload?.meta?.semester || '').trim()
-          if (onlineSemester) {
-            setCachedData(`schedule:${sid}:${onlineSemester}`, onlinePayload)
-          }
+          if (onlineSemester) setCachedData(`schedule:${sid}:${onlineSemester}`, onlinePayload)
           setCachedData(`schedule:${sid}`, onlinePayload)
         }
-      } catch (_error) {
-        // keep stale payload as fallback
-      }
+      } catch (_error) { /* keep stale payload */ }
     }
-
     const semesterForCustom = String(payload?.meta?.semester || preferredSemester || '').trim()
     customCourses = await fetchCustomCoursesForToday(semesterForCustom)
-
     if (!payload?.success) {
-      if (customCourses.length > 0) {
-        const week = getCurrentWeek()
-        todayCourses.value = buildTodayCourses(customCourses, week)
-        todayError.value = ''
-      } else {
-        todayCourses.value = []
-        todayError.value = payload?.error || '今日课程加载失败'
-      }
+      if (customCourses.length > 0) { const week = getCurrentWeek(); todayCourses.value = buildTodayCourses(customCourses, week); todayError.value = '' }
+      else { todayCourses.value = []; todayError.value = payload?.error || '今日课程加载失败' }
       return
     }
-
     if (payload?.meta) {
       const nextWeek = Number(payload.meta.current_week || 0)
       const persistedWeek = nextWeek > 0 ? nextWeek : getCurrentWeek()
-      localStorage.setItem('hbu_schedule_meta', JSON.stringify({
-        semester: payload.meta.semester || preferredSemester || '',
-        start_date: payload.meta.start_date || '',
-        current_week: persistedWeek
-      }))
+      localStorage.setItem('hbu_schedule_meta', JSON.stringify({ semester: payload.meta.semester || preferredSemester || '', start_date: payload.meta.start_date || '', current_week: persistedWeek }))
     }
-
     const week = getCurrentWeek(payload?.meta?.current_week)
     const remoteCourses = Array.isArray(payload?.data) ? payload.data : []
     todayCourses.value = buildTodayCourses([...remoteCourses, ...customCourses], week)
     todayError.value = ''
-  } catch (error) {
-    todayCourses.value = []
-    todayError.value = '今日课程加载失败'
-  } finally {
-    todayLoading.value = false
-  }
+  } catch (error) { todayCourses.value = []; todayError.value = '今日课程加载失败' }
+  finally { todayLoading.value = false }
 }
 
 // 模块列表
 const baseModules = [
-  { 
-    id: 'grades', 
-    name: '成绩查询', 
-    iconKey: 'grades',
-    color: '#667eea',
-    desc: '查看所有学期成绩',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'classroom', 
-    name: '空教室', 
-    iconKey: 'classroom',
-    color: '#ed8936',
-    desc: '查询空闲教室',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'electricity', 
-    name: '电费查询', 
-    iconKey: 'electricity',
-    color: '#e53e3e',
-    desc: '宿舍电费余额',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'transactions', 
-    name: '交易记录', 
-    iconKey: 'transactions',
-    color: '#F56C6C',
-    desc: '一码通消费记录',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'exams', 
-    name: '考试安排', 
-    iconKey: 'exams',
-    color: '#38b2ac',
-    desc: '查询考试时间地点',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'ranking', 
-    name: '绩点排名', 
-    iconKey: 'ranking',
-    color: '#f6ad55',
-    desc: '专业班级排名',
-    available: true,
-    requiresLogin: true
-  },
-  {
-    id: 'campus_code',
-    name: '校园码',
-    iconKey: 'campus_code',
-    color: '#0f766e',
-    desc: '在线/高能模式二维码',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'calendar', 
-    name: '校历', 
-    iconKey: 'calendar',
-    color: '#3b82f6',
-    desc: '查看学期校历',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'academic', 
-    name: '学业情况', 
-    iconKey: 'academic',
-    color: '#10b981',
-    desc: '学业完成度与课程进度',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'qxzkb', 
-    name: '全校课表', 
-    iconKey: 'qxzkb',
-    color: '#6366f1',
-    desc: '查询全校课程与排课',
-    available: true,
-    requiresLogin: true
-  },
-  {
-    id: 'course_selection',
-    name: '选课中心',
-    iconKey: 'course_selection',
-    color: '#f59e0b',
-    desc: '通识选课与退课',
-    available: true,
-    requiresLogin: true
-  },
-  { 
-    id: 'training', 
-    name: '培养方案', 
-    iconKey: 'training',
-    color: '#0ea5e9',
-    desc: '培养方案与课程设置',
-    available: true,
-    requiresLogin: true
-  },
-  {
-    id: 'library',
-    name: '图书查询',
-    iconKey: 'library',
-    color: '#0f766e',
-    desc: '馆藏检索与定位',
-    available: true,
-    requiresLogin: false
-  },
-  {
-    id: 'campus_map',
-    name: '校园地图',
-    iconKey: 'campus_map',
-    color: '#14b8a6',
-    desc: '校园地图查看',
-    available: true,
-    requiresLogin: false
-  },
-  {
-    id: 'resource_share',
-    name: '资料分享',
-    iconKey: 'resource_share',
-    color: '#0ea5e9',
-    desc: 'WebDAV 资料浏览与下载',
-    available: true,
-    requiresLogin: false
-  },
-  { 
-    id: 'ai', 
-    name: '校园助手', 
-    iconKey: 'ai',
-    color: '#94a3b8',
-    desc: '暂不可用',
-    available: true,
-    requiresLogin: true
-  }
+  { id: 'grades', name: '成绩查询', iconKey: 'grades', color: '#667eea', desc: '查看所有学期成绩', available: true, requiresLogin: true },
+  { id: 'classroom', name: '空教室', iconKey: 'classroom', color: '#ed8936', desc: '查询空闲教室', available: true, requiresLogin: true },
+  { id: 'electricity', name: '电费查询', iconKey: 'electricity', color: '#e53e3e', desc: '宿舍电费余额', available: true, requiresLogin: true },
+  { id: 'transactions', name: '交易记录', iconKey: 'transactions', color: '#F56C6C', desc: '一码通消费记录', available: true, requiresLogin: true },
+  { id: 'exams', name: '考试安排', iconKey: 'exams', color: '#38b2ac', desc: '查询考试时间地点', available: true, requiresLogin: true },
+  { id: 'ranking', name: '绩点排名', iconKey: 'ranking', color: '#f6ad55', desc: '专业班级排名', available: true, requiresLogin: true },
+  { id: 'campus_code', name: '校园码', iconKey: 'campus_code', color: '#0f766e', desc: '在线/高能模式二维码', available: true, requiresLogin: true },
+  { id: 'calendar', name: '校历', iconKey: 'calendar', color: '#3b82f6', desc: '查看学期校历', available: true, requiresLogin: true },
+  { id: 'academic', name: '学业情况', iconKey: 'academic', color: '#10b981', desc: '学业完成度与课程进度', available: true, requiresLogin: true },
+  { id: 'qxzkb', name: '全校课表', iconKey: 'qxzkb', color: '#6366f1', desc: '查询全校课程与排课', available: true, requiresLogin: true },
+  { id: 'course_selection', name: '选课中心', iconKey: 'course_selection', color: '#f59e0b', desc: '通识选课与退课', available: true, requiresLogin: true },
+  { id: 'training', name: '培养方案', iconKey: 'training', color: '#0ea5e9', desc: '培养方案与课程设置', available: true, requiresLogin: true },
+  { id: 'library', name: '图书查询', iconKey: 'library', color: '#0f766e', desc: '馆藏检索与定位', available: true, requiresLogin: false },
+  { id: 'campus_map', name: '校园地图', iconKey: 'campus_map', color: '#14b8a6', desc: '校园地图查看', available: true, requiresLogin: false },
+  { id: 'resource_share', name: '资料分享', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
+  { id: 'ai', name: '校园助手', iconKey: 'ai', color: '#94a3b8', desc: '暂不可用', available: true, requiresLogin: true }
 ]
 
 const modules = computed(() => {
   if (!isChaoxingMethod(loginMethod.value)) return baseModules
   return baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
 })
+
 const homeWorkspaceRef = ref(null)
 const isHomeLayoutEditing = ref(false)
 const showAllModules = ref(false)
@@ -600,50 +393,29 @@ const draftHomeWidgetsOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceL
 const draftHomeModuleOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceLayout).home.moduleOrder])
 const activeHomeDragSection = ref('')
 const hoverLayoutKey = ref('')
+
 const orderedModules = computed(() => {
-  const currentOrder = isHomeLayoutEditing.value
-    ? draftHomeModuleOrder.value
-    : uiSettings.workspaceLayout.home.moduleOrder
+  const currentOrder = isHomeLayoutEditing.value ? draftHomeModuleOrder.value : uiSettings.workspaceLayout.home.moduleOrder
   const moduleMap = new Map(modules.value.map((item) => [item.id, item]))
-  return currentOrder
-    .map((key) => moduleMap.get(key))
-    .filter(Boolean)
+  return currentOrder.map((key) => moduleMap.get(key)).filter(Boolean)
 })
+
 const displayModules = computed(() => {
   const first7 = orderedModules.value.slice(0, 7)
   return [...first7, { id: '__more__', name: '更多', iconKey: 'more', color: '#6b7280', available: true, requiresLogin: false }]
 })
-const homeWidgetOrder = computed(() =>
-  isHomeLayoutEditing.value ? draftHomeWidgetsOrder.value : uiSettings.workspaceLayout.home.widgetsOrder
-)
+
+const homeWidgetOrder = computed(() => isHomeLayoutEditing.value ? draftHomeWidgetsOrder.value : uiSettings.workspaceLayout.home.widgetsOrder)
 const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 const homeCollisionFx = ref([])
 
 const moduleCategories = computed(() => [
-  {
-    title: '教务服务',
-    modules: modules.value.filter(m => 
-      ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar'].includes(m.id)
-    )
-  },
-  {
-    title: '一码通',
-    modules: modules.value.filter(m => 
-      ['campus_code', 'electricity', 'transactions'].includes(m.id)
-    )
-  },
-  {
-    title: '资源',
-    modules: modules.value.filter(m => 
-      ['library', 'campus_map', 'resource_share', 'ai'].includes(m.id)
-    )
-  }
+  { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar'].includes(m.id)) },
+  { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions'].includes(m.id)) },
+  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'ai'].includes(m.id)) }
 ])
 
-const handleCategoryModuleClick = (moduleId) => {
-  showAllModules.value = false
-  navigateTo(moduleId)
-}
+const handleCategoryModuleClick = (moduleId) => { showAllModules.value = false; navigateTo(moduleId) }
 
 let homeLayoutLongPressTimer = null
 let homeLayoutPointerStart = { x: 0, y: 0 }
@@ -655,10 +427,7 @@ let homeCollisionFxLastTs = 0
 
 const navigateTo = (moduleId) => {
   const module = modules.value.find((m) => m.id === moduleId)
-  if (module?.requiresLogin && !props.isLoggedIn) {
-    emit('require-login')
-    return
-  }
+  if (module?.requiresLogin && !props.isLoggedIn) { emit('require-login'); return }
   emit('navigate', moduleId)
 }
 
@@ -668,100 +437,42 @@ const syncHomeLayoutDraft = () => {
   draftHomeModuleOrder.value = [...snapshot.home.moduleOrder]
 }
 
-const getModuleCardStyle = (module) => {
-  return {
-    '--accent-color': module.color
-  }
-}
+const getModuleCardStyle = (module) => ({ '--accent-color': module.color })
 
 const getHomeCollisionPalette = (section, activeKey, targetKey = '') => {
   if (section === 'modules') {
     const moduleMap = new Map(modules.value.map((item) => [item.id, item]))
-    return resolveCollisionPalette(
-      moduleMap.get(activeKey)?.color,
-      moduleMap.get(targetKey)?.color,
-      '#8fd6ff'
-    )
+    return resolveCollisionPalette(moduleMap.get(activeKey)?.color, moduleMap.get(targetKey)?.color, '#8fd6ff')
   }
-  const widgetPalette = {
-    module_grid: ['#5b8cff', '#7c3aed', '#c4b5fd'],
-    today_panel: ['#22c55e', '#38bdf8', '#bef264']
-  }
+  const widgetPalette = { module_grid: ['#5b8cff', '#7c3aed', '#c4b5fd'], today_panel: ['#22c55e', '#38bdf8', '#bef264'] }
   return resolveCollisionPalette(widgetPalette[activeKey], widgetPalette[targetKey], '#8fd6ff')
 }
 
-const stopHomeCollisionFxLoop = () => {
-  if (homeCollisionFxRaf) {
-    cancelAnimationFrame(homeCollisionFxRaf)
-    homeCollisionFxRaf = 0
-  }
-  homeCollisionFxLastTs = 0
-}
-
+const stopHomeCollisionFxLoop = () => { if (homeCollisionFxRaf) { cancelAnimationFrame(homeCollisionFxRaf); homeCollisionFxRaf = 0 }; homeCollisionFxLastTs = 0 }
 const tickHomeCollisionFx = (timestamp) => {
   const previousTs = homeCollisionFxLastTs || timestamp
   homeCollisionFxLastTs = timestamp
   homeCollisionFx.value = advanceLayoutCollisionFx(homeCollisionFx.value, timestamp - previousTs)
-  if (homeCollisionFx.value.length === 0) {
-    stopHomeCollisionFxLoop()
-    return
-  }
+  if (homeCollisionFx.value.length === 0) { stopHomeCollisionFxLoop(); return }
   homeCollisionFxRaf = requestAnimationFrame(tickHomeCollisionFx)
 }
-
-const ensureHomeCollisionFxLoop = () => {
-  if (homeCollisionFxRaf) return
-  homeCollisionFxLastTs = performance.now()
-  homeCollisionFxRaf = requestAnimationFrame(tickHomeCollisionFx)
-}
+const ensureHomeCollisionFxLoop = () => { if (homeCollisionFxRaf) return; homeCollisionFxLastTs = performance.now(); homeCollisionFxRaf = requestAnimationFrame(tickHomeCollisionFx) }
 
 const spawnHomeCollisionFx = (section, activeKey, target) => {
   const root = homeWorkspaceRef.value
   const rootRect = root?.getBoundingClientRect?.()
   if (!rootRect || !target?.rect) return
   const sourceRect = homeDragAnchors.find((item) => item.id === activeKey)?.rect || null
-  const origin = resolveRelativeCollisionPoint({
-    rootRect,
-    sourceRect,
-    targetRect: target.rect
-  })
-  const burst = createLayoutCollisionBurst({
-    x: origin.x,
-    y: origin.y,
-    colors: getHomeCollisionPalette(section, activeKey, target.id)
-  })
+  const origin = resolveRelativeCollisionPoint({ rootRect, sourceRect, targetRect: target.rect })
+  const burst = createLayoutCollisionBurst({ x: origin.x, y: origin.y, colors: getHomeCollisionPalette(section, activeKey, target.id) })
   homeCollisionFx.value = [...homeCollisionFx.value.slice(-48), ...burst]
   ensureHomeCollisionFxLoop()
 }
 
-const stopHomeLayoutDrag = () => {
-  activeHomeDragSection.value = ''
-  hoverLayoutKey.value = ''
-  homeDragAnchors = []
-  homeDragTargetIndex = -1
-}
-
-const enterHomeLayoutEdit = () => {
-  if (!isHomeLayoutEditing.value) {
-    syncHomeLayoutDraft()
-    isHomeLayoutEditing.value = true
-    suppressModuleClickUntil = Date.now() + 180
-  }
-}
-
-const cancelHomeLayoutEdit = () => {
-  stopHomeLayoutDrag()
-  syncHomeLayoutDraft()
-  isHomeLayoutEditing.value = false
-}
-
-const resetHomeLayoutEdit = () => {
-  const defaults = buildDefaultWorkspaceLayout()
-  draftHomeWidgetsOrder.value = [...defaults.home.widgetsOrder]
-  draftHomeModuleOrder.value = [...defaults.home.moduleOrder]
-  showToast('首页布局已恢复默认。', 'success')
-}
-
+const stopHomeLayoutDrag = () => { activeHomeDragSection.value = ''; hoverLayoutKey.value = ''; homeDragAnchors = []; homeDragTargetIndex = -1 }
+const enterHomeLayoutEdit = () => { if (!isHomeLayoutEditing.value) { syncHomeLayoutDraft(); isHomeLayoutEditing.value = true; suppressModuleClickUntil = Date.now() + 180 } }
+const cancelHomeLayoutEdit = () => { stopHomeLayoutDrag(); syncHomeLayoutDraft(); isHomeLayoutEditing.value = false }
+const resetHomeLayoutEdit = () => { const defaults = buildDefaultWorkspaceLayout(); draftHomeWidgetsOrder.value = [...defaults.home.widgetsOrder]; draftHomeModuleOrder.value = [...defaults.home.moduleOrder]; showToast('首页布局已恢复默认。', 'success') }
 const saveHomeLayoutEdit = () => {
   const nextLayout = cloneWorkspaceLayout(uiSettings.workspaceLayout)
   nextLayout.home.widgetsOrder = [...draftHomeWidgetsOrder.value]
@@ -774,20 +485,15 @@ const saveHomeLayoutEdit = () => {
 }
 
 const handleHomeDragStart = ({ section, id }) => {
-  const activeSection = String(section || '')
-  const activeId = String(id || '')
-  activeHomeDragSection.value = activeSection
-  hoverLayoutKey.value = activeId
-  homeDragAnchors = captureLayoutSlotAnchors(homeWorkspaceRef.value, activeSection)
-  homeDragTargetIndex = homeDragAnchors.find((item) => item.id === activeId)?.index ?? -1
+  activeHomeDragSection.value = String(section || '')
+  hoverLayoutKey.value = String(id || '')
+  homeDragAnchors = captureLayoutSlotAnchors(homeWorkspaceRef.value, String(section || ''))
+  homeDragTargetIndex = homeDragAnchors.find((item) => item.id === String(id || ''))?.index ?? -1
 }
 
 const reorderDraftHomeLayout = (section, activeKey, targetIndex) => {
   if (!activeKey || !Number.isFinite(Number(targetIndex))) return
-  if (section === 'widgets') {
-    draftHomeWidgetsOrder.value = moveLayoutItemToIndex(draftHomeWidgetsOrder.value, activeKey, targetIndex)
-    return
-  }
+  if (section === 'widgets') { draftHomeWidgetsOrder.value = moveLayoutItemToIndex(draftHomeWidgetsOrder.value, activeKey, targetIndex); return }
   draftHomeModuleOrder.value = moveLayoutItemToIndex(draftHomeModuleOrder.value, activeKey, targetIndex)
 }
 
@@ -804,90 +510,323 @@ const handleHomeDragMove = ({ id, section, point }) => {
   reorderDraftHomeLayout(activeSection, activeId, target.index)
 }
 
-const clearHomeLayoutLongPress = () => {
-  if (homeLayoutLongPressTimer) {
-    window.clearTimeout(homeLayoutLongPressTimer)
-    homeLayoutLongPressTimer = null
-  }
-}
-
+const clearHomeLayoutLongPress = () => { if (homeLayoutLongPressTimer) { window.clearTimeout(homeLayoutLongPressTimer); homeLayoutLongPressTimer = null } }
 const isTouchPointerEvent = (event) => String(event?.pointerType || '').toLowerCase() === 'touch'
 
 const handleHomeLayoutPressStart = (event) => {
   if (isHomeLayoutEditing.value) return
   if (!isTouchPointerEvent(event)) return
   clearHomeLayoutLongPress()
-  homeLayoutPointerStart = {
-    x: Number(event.clientX || 0),
-    y: Number(event.clientY || 0)
-  }
-  homeLayoutLongPressTimer = window.setTimeout(() => {
-    suppressModuleClickUntil = Date.now() + 420
-    enterHomeLayoutEdit()
-    clearHomeLayoutLongPress()
-  }, HOME_LAYOUT_LONG_PRESS_MS)
+  homeLayoutPointerStart = { x: Number(event.clientX || 0), y: Number(event.clientY || 0) }
+  homeLayoutLongPressTimer = window.setTimeout(() => { suppressModuleClickUntil = Date.now() + 420; enterHomeLayoutEdit(); clearHomeLayoutLongPress() }, HOME_LAYOUT_LONG_PRESS_MS)
 }
 
 const handleHomeLayoutPressMove = (event) => {
   if (!homeLayoutLongPressTimer || !isTouchPointerEvent(event)) return
   const deltaX = Math.abs(Number(event.clientX || 0) - homeLayoutPointerStart.x)
   const deltaY = Math.abs(Number(event.clientY || 0) - homeLayoutPointerStart.y)
-  if (deltaX > HOME_LAYOUT_LONG_PRESS_DISTANCE || deltaY > HOME_LAYOUT_LONG_PRESS_DISTANCE) {
-    clearHomeLayoutLongPress()
-  }
+  if (deltaX > HOME_LAYOUT_LONG_PRESS_DISTANCE || deltaY > HOME_LAYOUT_LONG_PRESS_DISTANCE) clearHomeLayoutLongPress()
 }
 
-const handleHomeLayoutPressEnd = () => {
-  clearHomeLayoutLongPress()
+const handleHomeLayoutPressEnd = () => { clearHomeLayoutLongPress() }
+
+// 计算课程倒计时文字
+const getCourseCountdown = (course) => {
+  const now = currentMinutePrecise.value
+  if (course.startMinutes <= now && now < course.endMinutes) {
+    const remaining = Math.ceil(course.endMinutes - now)
+    return `剩余 ${remaining} 分钟`
+  }
+  const minutesUntil = Math.ceil(course.startMinutes - now)
+  if (minutesUntil <= 0) return '即将开始'
+  if (minutesUntil < 60) return `距开始 ${minutesUntil} 分钟`
+  const hours = Math.floor(minutesUntil / 60)
+  const mins = minutesUntil % 60
+  return `距开始 ${hours}h${mins > 0 ? mins + 'm' : ''}`
 }
 
 const handleModuleCardClick = (moduleId) => {
   if (isHomeLayoutEditing.value) return
   if (Date.now() < suppressModuleClickUntil) return
-  if (moduleId === '__more__') {
-    showAllModules.value = true
-    return
-  }
+  if (moduleId === '__more__') { showAllModules.value = true; return }
   navigateTo(moduleId)
 }
 
-const handleProfileClick = () => {
-  emit('navigate', 'me')
-}
+const handleProfileClick = () => { emit('navigate', 'me') }
 
-const noticeItems = computed(() => {
-  return [...props.noticeList]
+// === 天气数据 ===
+const weatherData = ref({
+  temp: '--',
+  city: '武汉市洪山区',
+  condition: '加载中',
+  icon: 'fa-cloud',
+  humidity: 0,
+  wind: '--',
+  aqi: 0,
+  forecast: []
+})
+const showWeatherDetail = ref(false)
+
+// 天气图标颜色映射
+const weatherIconColor = computed(() => {
+  const c = weatherData.value.condition
+  if (c === '晴') return '#f59e0b'
+  if (c === '多云') return '#6b7280'
+  if (c === '阴') return '#4b5563'
+  if (c === '小雨' || c === '中雨') return '#3b82f6'
+  if (c === '大雨' || c === '雷阵雨') return '#1e40af'
+  if (c === '雪') return '#7c3aed'
+  if (c === '雾') return '#6b7280'
+  return '#60a5fa'
 })
 
+const getWeatherIconColor = (condition) => {
+  if (condition === '晴') return '#f59e0b'
+  if (condition === '多云') return '#6b7280'
+  if (condition === '阴') return '#4b5563'
+  if (condition === '小雨' || condition === '中雨') return '#3b82f6'
+  if (condition === '大雨' || condition === '雷阵雨') return '#1e40af'
+  if (condition === '雪') return '#7c3aed'
+  return '#60a5fa'
+}
+
+// 温度条样式计算（蓝红渐变，位置根据温度范围动态计算）
+const getTempBarStyle = (low, high) => {
+  // 假设温度范围 -5 ~ 42 度
+  const minRange = -5
+  const maxRange = 42
+  const totalRange = maxRange - minRange
+  const leftPct = Math.max(0, Math.min(100, ((low - minRange) / totalRange) * 100))
+  const rightPct = Math.max(0, Math.min(100, 100 - ((high - minRange) / totalRange) * 100))
+  return { left: `${leftPct}%`, right: `${rightPct}%` }
+}
+
+// 天气卡片动态样式（严格按照 Stitch 设计规范）
+const weatherGradientClass = computed(() => {
+  const c = weatherData.value.condition
+  if (c === '晴') return 'bg-gradient-to-br from-orange-50 to-amber-100'
+  if (c === '多云') return 'bg-gradient-to-br from-blue-50 to-indigo-50'
+  if (c === '阴') return 'bg-gradient-to-br from-slate-100 to-slate-200'
+  if (c === '小雨' || c === '中雨') return 'bg-gradient-to-br from-cyan-50 to-blue-100'
+  if (c === '大雨' || c === '雷阵雨') return 'bg-gradient-to-br from-gray-200 to-zinc-300'
+  if (c === '雪') return 'bg-gradient-to-br from-sky-50 to-indigo-100'
+  if (c === '雾') return 'bg-gradient-to-br from-stone-100 to-stone-200'
+  return 'bg-gradient-to-br from-blue-50 to-indigo-50'
+})
+
+const weatherCardClass = computed(() => 'bg-white')
+
+const weatherTextClass = computed(() => {
+  const c = weatherData.value.condition
+  if (c === '晴') return 'text-amber-900'
+  if (c === '多云') return 'text-indigo-900'
+  if (c === '阴') return 'text-slate-800'
+  if (c === '小雨' || c === '中雨') return 'text-blue-900'
+  if (c === '大雨' || c === '雷阵雨') return 'text-zinc-900'
+  if (c === '雪') return 'text-indigo-900'
+  if (c === '雾') return 'text-stone-800'
+  return 'text-indigo-900'
+})
+
+const weatherGlowClass = computed(() => {
+  const c = weatherData.value.condition
+  if (c === '晴') return 'bg-amber-300/20'
+  if (c === '多云') return 'bg-blue-300/20'
+  if (c === '阴') return 'bg-slate-400/20'
+  if (c === '小雨' || c === '中雨') return 'bg-blue-400/20'
+  if (c === '大雨' || c === '雷阵雨') return 'bg-zinc-500/20'
+  if (c === '雪') return 'bg-indigo-300/20'
+  if (c === '雾') return 'bg-stone-400/20'
+  return 'bg-blue-300/20'
+})
+
+// 温度显示颜色（Stitch 规范中各天气的强调色）
+const weatherTempClass = computed(() => {
+  const c = weatherData.value.condition
+  if (c === '晴') return 'text-amber-600'
+  if (c === '多云') return 'text-indigo-600'
+  if (c === '阴') return 'text-slate-600'
+  if (c === '小雨' || c === '中雨') return 'text-blue-600'
+  if (c === '大雨' || c === '雷阵雨') return 'text-zinc-700'
+  if (c === '雪') return 'text-indigo-600'
+  if (c === '雾') return 'text-stone-600'
+  return 'text-indigo-600'
+})
+
+// 信息胶囊文字颜色
+const weatherPillTextClass = computed(() => {
+  const c = weatherData.value.condition
+  if (c === '晴') return 'text-amber-800'
+  if (c === '多云') return 'text-indigo-800'
+  if (c === '阴') return 'text-slate-700'
+  if (c === '小雨' || c === '中雨') return 'text-blue-800'
+  if (c === '大雨' || c === '雷阵雨') return 'text-zinc-800'
+  if (c === '雪') return 'text-indigo-800'
+  if (c === '雾') return 'text-stone-700'
+  return 'text-indigo-800'
+})
+
+// 逐时预报（从 wttr.in hourly 数据生成，或 mock）
+const hourlyForecast = computed(() => {
+  if (weatherData.value.hourly && weatherData.value.hourly.length > 0) {
+    return weatherData.value.hourly
+  }
+  // 生成 mock 逐时数据（基于当前温度上下浮动）
+  const now = new Date()
+  const baseTemp = Number(weatherData.value.temp) || 25
+  const result = []
+  for (let i = 0; i < 24; i++) {
+    const h = new Date(now.getTime() + i * 3600000)
+    const hour = h.getHours()
+    // 模拟日间温度变化曲线（14点最高，5点最低）
+    const tempOffset = Math.round(Math.sin((hour - 14) * Math.PI / 12) * 5)
+    result.push({
+      time: i === 0 ? '现在' : `${String(hour).padStart(2, '0')}:00`,
+      temp: baseTemp + tempOffset,
+      condition: weatherData.value.condition,
+      icon: weatherData.value.icon
+    })
+  }
+  return result
+})
+
+// 获取天气数据（调用 Rust 后端）
+const fetchWeather = async () => {
+  try {
+    const { invokeNative } = await import('../platform/native')
+    const data = await invokeNative('fetch_weather')
+    if (data) {
+      weatherData.value = data
+    }
+  } catch (e) {
+    console.warn('[Weather] 天气获取失败:', e)
+    // 保持默认 mock 数据
+    weatherData.value = {
+      temp: 26,
+      city: '武汉市洪山区',
+      condition: '晴',
+      icon: 'fa-sun',
+      humidity: 65,
+      wind: '东南风 3级',
+      aqi: 72,
+      forecast: [
+        { day: '明天', temp_high: 28, temp_low: 18, condition: '多云', icon: 'fa-cloud' },
+        { day: '后天', temp_high: 25, temp_low: 16, condition: '小雨', icon: 'fa-cloud-rain' },
+      ]
+    }
+  }
+}
+
+// === 快捷入口（可配置） ===
+const QUICK_ENTRY_KEY = 'hbu_quick_entry_modules'
+const defaultQuickEntries = ['grades', 'schedule', 'classroom', 'electricity', 'ranking']
+
+const quickEntryIds = ref([...defaultQuickEntries])
+const showQuickEntryEditor = ref(false)
+const draftQuickEntries = ref([...defaultQuickEntries])
+
+const loadQuickEntries = () => {
+  try {
+    const stored = localStorage.getItem(QUICK_ENTRY_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed) && parsed.length === 5) { quickEntryIds.value = parsed; return }
+    }
+  } catch (_e) { /* ignore */ }
+  quickEntryIds.value = [...defaultQuickEntries]
+}
+
+const saveQuickEntries = () => {
+  quickEntryIds.value = [...draftQuickEntries.value]
+  localStorage.setItem(QUICK_ENTRY_KEY, JSON.stringify(quickEntryIds.value))
+  showQuickEntryEditor.value = false
+  showToast('快捷入口已更新', 'success')
+}
+
+const openQuickEntryEditor = () => {
+  draftQuickEntries.value = [...quickEntryIds.value]
+  showQuickEntryEditor.value = true
+}
+
+const toggleDraftEntry = (id) => {
+  const idx = draftQuickEntries.value.indexOf(id)
+  if (idx >= 0) { draftQuickEntries.value.splice(idx, 1) }
+  else if (draftQuickEntries.value.length < 5) { draftQuickEntries.value.push(id) }
+}
+
+// 快捷入口的图标/颜色映射（含 schedule）
+const quickEntryMeta = {
+  grades: { name: '成绩查询', icon: 'fa-award', color: 'bg-blue-50', iconColor: 'text-blue-500' },
+  schedule: { name: '课表', icon: 'fa-calendar-check', color: 'bg-orange-50', iconColor: 'text-orange-500' },
+  classroom: { name: '空教室', icon: 'fa-door-open', color: 'bg-green-50', iconColor: 'text-green-500' },
+  electricity: { name: '电费查询', icon: 'fa-bolt', color: 'bg-red-50', iconColor: 'text-red-500' },
+  ranking: { name: '绩点排名', icon: 'fa-chart-bar', color: 'bg-yellow-50', iconColor: 'text-yellow-500' },
+  exams: { name: '考试安排', icon: 'fa-file-alt', color: 'bg-teal-50', iconColor: 'text-teal-500' },
+  calendar: { name: '校历', icon: 'fa-calendar-alt', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
+  academic: { name: '学业情况', icon: 'fa-chart-line', color: 'bg-emerald-50', iconColor: 'text-emerald-500' },
+  campus_code: { name: '校园码', icon: 'fa-qrcode', color: 'bg-cyan-50', iconColor: 'text-cyan-500' },
+  transactions: { name: '交易记录', icon: 'fa-wallet', color: 'bg-pink-50', iconColor: 'text-pink-500' },
+  qxzkb: { name: '全校课表', icon: 'fa-table', color: 'bg-violet-50', iconColor: 'text-violet-500' },
+  course_selection: { name: '选课中心', icon: 'fa-tasks', color: 'bg-amber-50', iconColor: 'text-amber-500' },
+  training: { name: '培养方案', icon: 'fa-sitemap', color: 'bg-sky-50', iconColor: 'text-sky-500' },
+  library: { name: '图书查询', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
+  campus_map: { name: '校园地图', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
+  resource_share: { name: '资料分享', icon: 'fa-folder-open', color: 'bg-blue-50', iconColor: 'text-blue-600' },
+  ai: { name: '校园助手', icon: 'fa-robot', color: 'bg-gray-50', iconColor: 'text-gray-500' }
+}
+
+const quickEntryItems = computed(() => {
+  return quickEntryIds.value.map(id => ({ id, ...quickEntryMeta[id] })).filter(item => item.name)
+})
+
+const handleQuickEntryClick = (id) => {
+  if (id === 'schedule') { emit('navigate', 'schedule'); return }
+  navigateTo(id)
+}
+
+// === 全部功能 Tab ===
+const activeFeatureTab = ref('教务服务')
+const featureTabModules = computed(() => {
+  const cat = moduleCategories.value.find(c => c.title === activeFeatureTab.value)
+  return cat ? cat.modules : []
+})
+
+// 全部功能图标颜色映射
+const featureIconColors = {
+  grades: 'bg-blue-500', classroom: 'bg-orange-400', exams: 'bg-teal-500',
+  ranking: 'bg-yellow-500', calendar: 'bg-blue-500', academic: 'bg-green-500',
+  qxzkb: 'bg-indigo-500', course_selection: 'bg-orange-500', training: 'bg-sky-400',
+  campus_code: 'bg-teal-600', electricity: 'bg-red-500', transactions: 'bg-pink-500',
+  library: 'bg-emerald-600', campus_map: 'bg-teal-500', resource_share: 'bg-blue-500',
+  ai: 'bg-gray-400'
+}
+
+const featureIcons = {
+  grades: 'fa-graduation-cap', classroom: 'fa-door-open', exams: 'fa-calendar-check',
+  ranking: 'fa-chart-bar', calendar: 'fa-calendar-alt', academic: 'fa-chart-line',
+  qxzkb: 'fa-table', course_selection: 'fa-tasks', training: 'fa-sitemap',
+  campus_code: 'fa-qrcode', electricity: 'fa-bolt', transactions: 'fa-wallet',
+  library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-folder-open',
+  ai: 'fa-robot'
+}
+
+// === 通知相关（保留原有逻辑） ===
+const noticeItems = computed(() => [...props.noticeList])
 const allNotices = computed(() => {
   const map = new Map()
   ;[...props.tickerNotices, ...props.pinnedNotices, ...noticeItems.value].forEach((item) => {
     if (!item) return
     const key = item.id || item.title
-    if (key && !map.has(key)) {
-      map.set(key, item)
-    }
+    if (key && !map.has(key)) map.set(key, item)
   })
   return [...map.values()]
 })
-
 const marqueeItems = computed(() => {
   if (!allNotices.value.length) return []
-  return allNotices.value.length > 1
-    ? [...allNotices.value, ...allNotices.value, ...allNotices.value]
-    : allNotices.value
+  return allNotices.value.length > 1 ? [...allNotices.value, ...allNotices.value, ...allNotices.value] : allNotices.value
 })
-
-const tickerItemsStyle = computed(() => ({
-  transform: `translate3d(${tickerTranslateX.value}px, 0, 0)`,
-  transitionDuration: `${tickerTransitionMs.value}ms`
-}))
-
-const getTickerBaseCount = () => {
-  const count = Number(allNotices.value.length || 0)
-  return Number.isFinite(count) && count > 0 ? count : 0
-}
-
+const tickerItemsStyle = computed(() => ({ transform: `translate3d(${tickerTranslateX.value}px, 0, 0)`, transitionDuration: `${tickerTransitionMs.value}ms` }))
+const getTickerBaseCount = () => { const count = Number(allNotices.value.length || 0); return Number.isFinite(count) && count > 0 ? count : 0 }
 const normalizeTickerTranslate = (value) => {
   const loopWidth = Number(tickerLoopWidth.value || 0)
   if (loopWidth <= 0) return 0
@@ -900,266 +839,72 @@ const normalizeTickerTranslate = (value) => {
   while (x > max) x -= loopWidth
   return x
 }
-
 const refreshTickerMetrics = async () => {
   await nextTick()
   const baseCount = getTickerBaseCount()
   const el = tickerItemsRef.value
-  if (!el || baseCount <= 0) {
-    tickerLoopWidth.value = 0
-    tickerStepWidth.value = 236
-    tickerTranslateX.value = 0
-    return
-  }
-
+  if (!el || baseCount <= 0) { tickerLoopWidth.value = 0; tickerStepWidth.value = 236; tickerTranslateX.value = 0; return }
   const prevLoopWidth = Number(tickerLoopWidth.value || 0)
   const firstItem = el.querySelector('.ticker-item')
   const gap = Number.parseFloat(window.getComputedStyle(el).gap || '20') || 20
   const width = firstItem?.getBoundingClientRect?.().width || 216
   tickerStepWidth.value = Math.max(140, width + gap)
   tickerLoopWidth.value = baseCount > 1 ? baseCount * tickerStepWidth.value : 0
-  if (baseCount <= 1) {
-    tickerTranslateX.value = 0
-    return
-  }
-  if (prevLoopWidth <= 0) {
-    tickerTranslateX.value = -tickerLoopWidth.value
-    return
-  }
+  if (baseCount <= 1) { tickerTranslateX.value = 0; return }
+  if (prevLoopWidth <= 0) { tickerTranslateX.value = -tickerLoopWidth.value; return }
   tickerTranslateX.value = normalizeTickerTranslate(tickerTranslateX.value)
 }
-
-const pauseTickerForSwipe = () => {
-  if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return
-  if (tickerResumeTimer) {
-    window.clearTimeout(tickerResumeTimer)
-    tickerResumeTimer = null
-  }
-  isTickerInteracting.value = true
-}
-
-const resumeTickerAfterSwipe = () => {
-  if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return
-  if (tickerResumeTimer) {
-    window.clearTimeout(tickerResumeTimer)
-  }
-  tickerResumeTimer = window.setTimeout(() => {
-    isTickerInteracting.value = false
-    tickerResumeTimer = null
-  }, 600)
-}
-
-const onTickerTouchStart = (event) => {
-  if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return
-  pauseTickerForSwipe()
-  tickerDragActive = true
-  tickerTransitionMs.value = 0
-  tickerDragStartX = event.touches?.[0]?.clientX || 0
-  tickerDragLastX = tickerDragStartX
-  tickerDragStartTranslate = tickerTranslateX.value
-  tickerDragStartAt = Date.now()
-}
-
-const onTickerTouchMove = (event) => {
-  if (!tickerDragActive) return
-  const currentX = event.touches?.[0]?.clientX || tickerDragLastX
-  tickerDragLastX = currentX
-  const deltaX = currentX - tickerDragStartX
-  const raw = tickerDragStartTranslate + deltaX
-  const normalized = normalizeTickerTranslate(raw)
-  // 拖拽时保持在循环范围内，避免松手后 normalize 产生大跨度动画
-  const wrapDelta = normalized - raw
-  if (Math.abs(wrapDelta) > 1) {
-    tickerDragStartTranslate += wrapDelta
-  }
-  tickerTranslateX.value = normalized
-}
-
+const pauseTickerForSwipe = () => { if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return; if (tickerResumeTimer) { window.clearTimeout(tickerResumeTimer); tickerResumeTimer = null }; isTickerInteracting.value = true }
+const resumeTickerAfterSwipe = () => { if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return; if (tickerResumeTimer) window.clearTimeout(tickerResumeTimer); tickerResumeTimer = window.setTimeout(() => { isTickerInteracting.value = false; tickerResumeTimer = null }, 600) }
+const onTickerTouchStart = (event) => { if (!isMobileNoticeSwipe.value || getTickerBaseCount() <= 1) return; pauseTickerForSwipe(); tickerDragActive = true; tickerTransitionMs.value = 0; tickerDragStartX = event.touches?.[0]?.clientX || 0; tickerDragLastX = tickerDragStartX; tickerDragStartTranslate = tickerTranslateX.value; tickerDragStartAt = Date.now() }
+const onTickerTouchMove = (event) => { if (!tickerDragActive) return; const currentX = event.touches?.[0]?.clientX || tickerDragLastX; tickerDragLastX = currentX; const deltaX = currentX - tickerDragStartX; const raw = tickerDragStartTranslate + deltaX; const normalized = normalizeTickerTranslate(raw); const wrapDelta = normalized - raw; if (Math.abs(wrapDelta) > 1) tickerDragStartTranslate += wrapDelta; tickerTranslateX.value = normalized }
 const onTickerTouchEnd = () => {
-  if (!tickerDragActive) return
-  tickerDragActive = false
-  const deltaX = tickerDragLastX - tickerDragStartX
-  const durationMs = Math.max(1, Date.now() - tickerDragStartAt)
-  const distance = Math.abs(deltaX)
-  const velocity = distance / durationMs // px/ms
+  if (!tickerDragActive) return; tickerDragActive = false
+  const deltaX = tickerDragLastX - tickerDragStartX; const durationMs = Math.max(1, Date.now() - tickerDragStartAt); const distance = Math.abs(deltaX); const velocity = distance / durationMs
   let target = tickerTranslateX.value
-  if (distance >= 8) {
-    const inertiaOffset = Math.sign(deltaX || -1) * Math.min(260, distance * 0.36 + velocity * 190)
-    target = tickerTranslateX.value + inertiaOffset
-  }
-  // 将目标限制在循环区间内，防止跨边界时 CSS 动画反向滚动
+  if (distance >= 8) { const inertiaOffset = Math.sign(deltaX || -1) * Math.min(260, distance * 0.36 + velocity * 190); target = tickerTranslateX.value + inertiaOffset }
   const loopWidth = Number(tickerLoopWidth.value || 0)
-  if (loopWidth > 0) {
-    const min = -loopWidth * 2 + 1
-    const max = -loopWidth
-    target = Math.max(min, Math.min(max, target))
-  }
+  if (loopWidth > 0) { const min = -loopWidth * 2 + 1; const max = -loopWidth; target = Math.max(min, Math.min(max, target)) }
   const transMs = Math.min(460, Math.max(220, Math.round(180 + velocity * 260)))
-  tickerTransitionMs.value = transMs
-  tickerTranslateX.value = target
-  if (Math.abs(deltaX) > 10) {
-    tickerSuppressClickUntil.value = Date.now() + 240
-  }
-  window.setTimeout(() => {
-    tickerTransitionMs.value = 0
-    // 动画结束后静默归位到标准区间
-    tickerTranslateX.value = normalizeTickerTranslate(tickerTranslateX.value)
-  }, transMs + 20)
+  tickerTransitionMs.value = transMs; tickerTranslateX.value = target
+  if (Math.abs(deltaX) > 10) tickerSuppressClickUntil.value = Date.now() + 240
+  window.setTimeout(() => { tickerTransitionMs.value = 0; tickerTranslateX.value = normalizeTickerTranslate(tickerTranslateX.value) }, transMs + 20)
   resumeTickerAfterSwipe()
 }
-
 const startTickerLoop = () => {
-  if (tickerRafId) return
-  tickerLastFrameTs = 0
-  const tick = (ts) => {
-    if (!tickerLastFrameTs) tickerLastFrameTs = ts
-    const dt = ts - tickerLastFrameTs
-    tickerLastFrameTs = ts
-    const canAutoMove =
-      getTickerBaseCount() > 1 &&
-      !isTickerInteracting.value &&
-      !tickerDragActive &&
-      tickerTransitionMs.value === 0
-    if (canAutoMove) {
-      const next = tickerTranslateX.value - (TICKER_AUTO_SPEED * dt) / 1000
-      tickerTranslateX.value = normalizeTickerTranslate(next)
-    }
-    tickerRafId = window.requestAnimationFrame(tick)
-  }
+  if (tickerRafId) return; tickerLastFrameTs = 0
+  const tick = (ts) => { if (!tickerLastFrameTs) tickerLastFrameTs = ts; const dt = ts - tickerLastFrameTs; tickerLastFrameTs = ts; const canAutoMove = getTickerBaseCount() > 1 && !isTickerInteracting.value && !tickerDragActive && tickerTransitionMs.value === 0; if (canAutoMove) { const next = tickerTranslateX.value - (TICKER_AUTO_SPEED * dt) / 1000; tickerTranslateX.value = normalizeTickerTranslate(next) }; tickerRafId = window.requestAnimationFrame(tick) }
   tickerRafId = window.requestAnimationFrame(tick)
 }
+const stopTickerLoop = () => { if (!tickerRafId) return; window.cancelAnimationFrame(tickerRafId); tickerRafId = 0; tickerLastFrameTs = 0 }
+const updateNoticeSwipeMode = (force = false) => { if (typeof window === 'undefined') return; const width = Math.max(0, Number(window.innerWidth || 0)); const mobile = width <= 720; const modeChanged = isMobileNoticeSwipe.value !== mobile; const widthDelta = Math.abs(width - lastNoticeViewportWidth); isMobileNoticeSwipe.value = mobile; lastNoticeViewportWidth = width; if (force || modeChanged || widthDelta >= 24) void refreshTickerMetrics() }
+const handleNoticeResize = () => { if (noticeResizeRaf) return; noticeResizeRaf = window.requestAnimationFrame(() => { noticeResizeRaf = 0; updateNoticeSwipeMode(false) }) }
+const noticeSummary = (notice) => notice?.summary || stripMarkdown(notice?.content || '') || '点击查看详情'
+const hasBrokenImage = (notice) => { const key = notice?.id || notice?.title; return key ? brokenImages.value.has(key) : false }
+const handleImageError = (notice) => { const key = notice?.id || notice?.title; if (!key) return; const next = new Set(brokenImages.value); next.add(key); brokenImages.value = next }
+const openNotice = (notice) => { if (Date.now() < tickerSuppressClickUntil.value) return; emit('open-notice', notice) }
 
-const stopTickerLoop = () => {
-  if (!tickerRafId) return
-  window.cancelAnimationFrame(tickerRafId)
-  tickerRafId = 0
-  tickerLastFrameTs = 0
-}
-
-const updateNoticeSwipeMode = (force = false) => {
-  if (typeof window === 'undefined') return
-  const width = Math.max(0, Number(window.innerWidth || 0))
-  const mobile = width <= 720
-  const modeChanged = isMobileNoticeSwipe.value !== mobile
-  const widthDelta = Math.abs(width - lastNoticeViewportWidth)
-  isMobileNoticeSwipe.value = mobile
-  lastNoticeViewportWidth = width
-  if (force || modeChanged || widthDelta >= 24) {
-    void refreshTickerMetrics()
-  }
-}
-
-const handleNoticeResize = () => {
-  if (noticeResizeRaf) return
-  noticeResizeRaf = window.requestAnimationFrame(() => {
-    noticeResizeRaf = 0
-    updateNoticeSwipeMode(false)
-  })
-}
-
-const noticeSummary = (notice) => {
-  return notice?.summary || stripMarkdown(notice?.content || '') || '点击查看详情'
-}
-
-const hasBrokenImage = (notice) => {
-  const key = notice?.id || notice?.title
-  return key ? brokenImages.value.has(key) : false
-}
-
-const handleImageError = (notice) => {
-  const key = notice?.id || notice?.title
-  if (!key) return
-  const next = new Set(brokenImages.value)
-  next.add(key)
-  brokenImages.value = next
-}
-
-const openNotice = (notice) => {
-  if (Date.now() < tickerSuppressClickUntil.value) return
-  emit('open-notice', notice)
-}
-
-// 公告轮播
 const currentAnnouncementIndex = ref(0)
 let announcementTimer = null
-
-const startAnnouncementRotation = () => {
-  stopAnnouncementRotation()
-  if (marqueeItems.value.length <= 1) return
-  announcementTimer = setInterval(() => {
-    currentAnnouncementIndex.value = (currentAnnouncementIndex.value + 1) % Math.min(marqueeItems.value.length, 5)
-  }, 3000)
-}
-
-const stopAnnouncementRotation = () => {
-  if (announcementTimer) {
-    clearInterval(announcementTimer)
-    announcementTimer = null
-  }
-}
-
-// 生成分享链接
-const shareLink = computed(() => {
-  return 'https://hbut.6661111.xyz'
-})
-
-const copyShareLink = async () => {
-  if (shareLink.value) {
-    await navigator.clipboard.writeText(shareLink.value)
-    showToast('链接已复制！', 'success')
-  }
-}
-
-const getRandomGradient = (idx) => {
-  const gradients = [
-    'linear-gradient(135deg, #f6d365 0%, #fda085 100%)',
-    'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)',
-    'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
-    'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
-  ]
-  return gradients[idx % gradients.length]
-}
-
-const handleContentClick = async (e) => {
-  const target = e.target.closest('a')
-  if (target && target.href) {
-    e.preventDefault()
-    await openExternal(target.href)
-  }
-}
-
-const attachCardSpotlight = () => {
-  const cards = document.querySelectorAll('.module-card')
-  cards.forEach((card) => {
-    const handleMove = (event) => {
-      const rect = card.getBoundingClientRect()
-      const x = event.clientX - rect.left
-      const y = event.clientY - rect.top
-      card.style.setProperty('--hover-x', `${x}px`)
-      card.style.setProperty('--hover-y', `${y}px`)
-    }
-    card.addEventListener('mousemove', handleMove)
-    cardListeners.push({ card, handleMove })
-  })
-}
-
-const detachCardSpotlight = () => {
-  cardListeners.forEach(({ card, handleMove }) => {
-    card.removeEventListener('mousemove', handleMove)
-  })
-  cardListeners.length = 0
-}
+const startAnnouncementRotation = () => { stopAnnouncementRotation(); if (marqueeItems.value.length <= 1) return; announcementTimer = setInterval(() => { currentAnnouncementIndex.value = (currentAnnouncementIndex.value + 1) % Math.min(marqueeItems.value.length, 5) }, 3000) }
+const stopAnnouncementRotation = () => { if (announcementTimer) { clearInterval(announcementTimer); announcementTimer = null } }
+const shareLink = computed(() => 'https://hbut.6661111.xyz')
+const copyShareLink = async () => { if (shareLink.value) { await navigator.clipboard.writeText(shareLink.value); showToast('链接已复制！', 'success') } }
+const getRandomGradient = (idx) => { const gradients = ['linear-gradient(135deg, #f6d365 0%, #fda085 100%)', 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)', 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)']; return gradients[idx % gradients.length] }
+const handleContentClick = async (e) => { const target = e.target.closest('a'); if (target && target.href) { e.preventDefault(); await openExternal(target.href) } }
+const attachCardSpotlight = () => { const cards = document.querySelectorAll('.module-card'); cards.forEach((card) => { const handleMove = (event) => { const rect = card.getBoundingClientRect(); const x = event.clientX - rect.left; const y = event.clientY - rect.top; card.style.setProperty('--hover-x', `${x}px`); card.style.setProperty('--hover-y', `${y}px`) }; card.addEventListener('mousemove', handleMove); cardListeners.push({ card, handleMove }) }) }
+const detachCardSpotlight = () => { cardListeners.forEach(({ card, handleMove }) => { card.removeEventListener('mousemove', handleMove) }); cardListeners.length = 0 }
 
 onMounted(() => {
   refreshLoginMethod()
+  loadQuickEntries()
+  fetchWeather()
   updateNoticeSwipeMode(true)
   void refreshTickerMetrics()
   startTickerLoop()
   attachCardSpotlight()
   syncNowTick()
-  clockTimer = window.setInterval(() => {
-    syncNowTick()
-  }, CLOCK_TICK_MS)
+  clockTimer = window.setInterval(() => { syncNowTick() }, CLOCK_TICK_MS)
   window.addEventListener('resize', handleNoticeResize)
   window.addEventListener('focus', syncNowTick)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
@@ -1172,1247 +917,422 @@ onBeforeUnmount(() => {
   clearHomeLayoutLongPress()
   stopHomeLayoutDrag()
   stopHomeCollisionFxLoop()
-  if (clockTimer) {
-    window.clearInterval(clockTimer)
-    clockTimer = null
-  }
-  if (tickerResumeTimer) {
-    window.clearTimeout(tickerResumeTimer)
-    tickerResumeTimer = null
-  }
+  if (clockTimer) { window.clearInterval(clockTimer); clockTimer = null }
+  if (tickerResumeTimer) { window.clearTimeout(tickerResumeTimer); tickerResumeTimer = null }
   window.removeEventListener('resize', handleNoticeResize)
-  if (noticeResizeRaf) {
-    window.cancelAnimationFrame(noticeResizeRaf)
-    noticeResizeRaf = 0
-  }
+  if (noticeResizeRaf) { window.cancelAnimationFrame(noticeResizeRaf); noticeResizeRaf = 0 }
   window.removeEventListener('focus', syncNowTick)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
 })
 
-watch(
-  () => marqueeItems.value.length,
-  () => {
-    tickerTransitionMs.value = 0
-    tickerTranslateX.value = 0
-    void refreshTickerMetrics()
-  },
-  { immediate: true }
-)
-
-watch(
-  () => marqueeItems.value.length,
-  (len) => {
-    if (len > 0) startAnnouncementRotation()
-    else stopAnnouncementRotation()
-  },
-  { immediate: true }
-)
-
-watch(
-  () => [props.studentId, props.isLoggedIn],
-  () => {
-    refreshLoginMethod()
-    nowTick.value = Date.now()
-    fetchTodayCourses()
-  },
-  { immediate: true }
-)
-
-watch(
-  () => [
-    uiSettings.workspaceLayout.home.widgetsOrder.join('|'),
-    uiSettings.workspaceLayout.home.moduleOrder.join('|')
-  ],
-  () => {
-    if (!isHomeLayoutEditing.value) {
-      syncHomeLayoutDraft()
-    }
-  },
-  { immediate: true }
-)
+watch(() => marqueeItems.value.length, () => { tickerTransitionMs.value = 0; tickerTranslateX.value = 0; void refreshTickerMetrics() }, { immediate: true })
+watch(() => marqueeItems.value.length, (len) => { if (len > 0) startAnnouncementRotation(); else stopAnnouncementRotation() }, { immediate: true })
+watch(() => [props.studentId, props.isLoggedIn], () => { refreshLoginMethod(); nowTick.value = Date.now(); fetchTodayCourses() }, { immediate: true })
+watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.workspaceLayout.home.moduleOrder.join('|')], () => { if (!isHomeLayoutEditing.value) syncHomeLayoutDraft() }, { immediate: true })
 </script>
 
 <template>
-  <div class="dashboard">
-    <!-- 头部 -->
-    <header class="dashboard-header">
-      <div class="header-left">
-        <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
-        <span class="header-title">HBUT 校园助手</span>
+  <div class="dashboard-root antialiased max-w-[520px] mx-auto relative min-h-screen bg-[#f0f4f8]">
+    <!-- Header -->
+    <header class="flex items-center justify-between px-4 pt-4 pb-4 sticky top-0 bg-[#f0f4f8]/90 backdrop-blur z-50">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
+          <img src="/splash/app_icon.png" class="w-6 h-6 object-contain" alt="HBUT" />
+        </div>
+        <span class="font-bold text-lg tracking-wide text-gray-800">HBUT 校园助手</span>
       </div>
-      <span class="header-pill">首页</span>
+      <div class="flex items-center space-x-3 flex-1 ml-4">
+        <div class="relative flex-1">
+          <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
+          <input
+            class="w-full bg-white rounded-full py-1.5 pl-8 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-blue-300 border-none shadow-sm text-gray-600"
+            placeholder="搜索服务/课程/资讯"
+            type="text"
+            readonly
+          />
+        </div>
+      </div>
     </header>
 
-    <!-- 用户信息卡片 -->
-    <section class="user-card">
-      <div class="user-card-left" @click="handleProfileClick">
-        <div class="user-avatar">
-          <span class="material-symbols-rounded">person</span>
+    <main class="px-4 space-y-6 pb-6">
+      <!-- Greeting & Weather -->
+      <div class="flex justify-between items-end">
+        <div>
+          <h1 class="text-3xl font-bold text-gray-900">
+            {{ greetingText }}
+          </h1>
+          <p class="text-gray-500 text-sm mt-1">新的一天，元气满满！</p>
         </div>
-        <div class="user-info-text">
-          <span class="user-info-id">{{ studentId || '未登录' }}</span>
-          <span class="user-info-school">湖北工业大学</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- 维护提示 -->
-    <section v-if="jwxtMaintenance" class="maintenance-banner">
-      <div class="maintenance-title">教务系统正在维护</div>
-      <div class="maintenance-text">
-        {{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}
-      </div>
-      <div v-if="jwxtLastCheckTime" class="maintenance-meta">
-        最近检测：{{ jwxtLastCheckTime }}
-      </div>
-    </section>
-
-    <section v-if="isChaoxingLogin" class="maintenance-banner maintenance-banner--chaoxing">
-      <div class="maintenance-title">学习通登录模式</div>
-      <div class="maintenance-text">当前已开放教务模块 + 图书查询 + 校园地图 + 资料分享。</div>
-    </section>
-
-    <!-- 今日概览卡片 -->
-    <section class="today-overview-card">
-      <img src="/splash/campus_illustration.webp" alt="" class="overview-decor-img" />
-      <div class="overview-content">
-        <div class="overview-label">今日概览</div>
-        <h2 class="overview-greeting">
-          {{ currentMinute < 720 ? '上午好，同学！' : currentMinute < 840 ? '中午好，同学！' : currentMinute < 1080 ? '下午好，同学！' : '晚上好，同学！' }}
-        </h2>
-        <p class="overview-subtitle">愿你专注当下，<br/>不负在校时光。</p>
-        <div class="overview-sub-grid">
-          <div class="overview-sub-card">
-            <div class="sub-card-header">
-              <span class="sub-card-label">今日课程</span>
-              <span class="material-symbols-rounded sub-card-icon">menu_book</span>
+        <div class="flex items-center space-x-4 cursor-pointer" @click="showWeatherDetail = true">
+          <div class="flex flex-col items-end">
+            <div class="flex items-center space-x-1">
+              <i class="fas" :class="weatherData.icon" :style="{ color: weatherIconColor }"></i>
+              <span class="font-semibold text-gray-800">{{ weatherData.temp }}°C</span>
             </div>
-            <div class="sub-card-value">{{ todayCourses.length }} <span class="sub-card-unit">节</span></div>
-            <div class="sub-card-hint">{{ timelineCourses.length > 0 ? `还有 ${timelineCourses.length} 节即将开始` : '今日课程已结束' }}</div>
-          </div>
-          <div class="overview-sub-card">
-            <div class="sub-card-header">
-              <span class="sub-card-label">下一节课</span>
-              <span v-if="timelineCourses.length > 0 && timelineCourses[0].startMinutes <= currentMinutePrecise" class="sub-card-badge sub-card-badge--green">进行中</span>
-              <span v-else-if="timelineCourses.length > 0" class="sub-card-badge sub-card-badge--blue">即将开始</span>
-              <span v-else class="sub-card-badge sub-card-badge--gray">无</span>
-            </div>
-            <div v-if="timelineCourses.length > 0" class="sub-card-course-name">{{ timelineCourses[0].name }}</div>
-            <div v-else class="sub-card-course-name sub-card-course-name--empty">暂无课程</div>
-            <div v-if="timelineCourses.length > 0" class="sub-card-hint">{{ timelineCourses[0].start }} · {{ timelineCourses[0].room }}</div>
+            <span class="text-xs text-gray-500">{{ weatherData.condition }}</span>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- 首页布局编辑工具栏 -->
-    <div v-if="isHomeLayoutEditing" class="home-layout-toolbar">
-      <strong>首页布局编辑</strong>
-      <div class="home-layout-toolbar__actions">
-        <button type="button" class="toolbar-btn ghost" @click="cancelHomeLayoutEdit">取消</button>
-        <button type="button" class="toolbar-btn ghost" @click="resetHomeLayoutEdit">恢复默认</button>
-        <button type="button" class="toolbar-btn primary" @click="saveHomeLayoutEdit">完成</button>
+      <!-- User Profile Card -->
+      <div class="bg-white rounded-2xl p-4 flex items-center card-shadow" @click="handleProfileClick">
+        <div class="flex items-center space-x-4">
+          <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
+            <i class="fas fa-user-graduate text-2xl"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h2 class="font-bold text-lg text-gray-800">{{ studentId || '未登录' }}</h2>
+              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm">本科生</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">{{ userCollegeInfo }}</p>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <!-- 常用工具 + 今日课程 workspace -->
-    <section
-      ref="homeWorkspaceRef"
-      class="home-workspace"
-      :class="{ 'home-workspace--editing': isHomeLayoutEditing }"
-      @pointerdown.passive="handleHomeLayoutPressStart"
-      @pointermove.passive="handleHomeLayoutPressMove"
-      @pointerup.passive="handleHomeLayoutPressEnd"
-      @pointercancel.passive="handleHomeLayoutPressEnd"
-      @pointerleave.passive="handleHomeLayoutPressEnd"
-    >
-      <LayoutCollisionFxLayer :items="homeCollisionFx" />
+      <!-- Maintenance Banner -->
+      <div v-if="jwxtMaintenance" class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow">
+        <div class="font-bold text-orange-700 text-sm">教务系统正在维护</div>
+        <div class="text-xs text-orange-600 mt-1">{{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}</div>
+      </div>
 
-      <TransitionGroup name="workspace-stack" tag="div" class="home-workspace-stack">
-        <SortableSurface
-          v-for="widgetKey in homeWidgetOrder"
-          :key="widgetKey"
-          :id="widgetKey"
-          group="home-widgets"
-          section="widgets"
-          :tag="widgetKey === 'module_grid' ? 'div' : 'section'"
-          :editing="isHomeLayoutEditing"
-          :surface-class="[
-            'workspace-widget',
-            widgetKey === 'module_grid' ? 'workspace-widget--modules widget-card' : 'workspace-widget--today widget-card'
-          ]"
-          @drag-start="handleHomeDragStart"
-          @drag-move="handleHomeDragMove"
-          @drag-end="stopHomeLayoutDrag"
-        >
-          <!-- 常用工具模块网格 -->
-          <template v-if="widgetKey === 'module_grid'">
-            <div class="widget-card-title">常用工具</div>
-            <TransitionGroup name="workspace-module" tag="div" class="module-grid">
-              <SortableSurface
-                v-for="mod in displayModules"
-                :key="mod.id"
-                :id="mod.id"
-                group="home-modules"
-                section="modules"
-                :editing="isHomeLayoutEditing"
-                :surface-class="[
-                  'module-card',
-                  {
-                    disabled: !mod.available,
-                    'module-card--over': activeHomeDragSection === 'modules' && hoverLayoutKey === mod.id
-                  }
-                ]"
-                :surface-style="getModuleCardStyle(mod)"
-                @click="mod.available && handleModuleCardClick(mod.id)"
-                @drag-start="handleHomeDragStart"
-                @drag-move="handleHomeDragMove"
-                @drag-end="stopHomeLayoutDrag"
-              >
-                <div class="module-card__inner">
-                  <div
-                    class="module-icon-square"
-                    :class="{ 'module-icon-square--more': mod.id === '__more__' }"
-                    :style="mod.id !== '__more__' ? { background: mod.color } : {}"
-                    aria-hidden="true"
-                  >
-                    <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="24" :icon-size="24" />
-                  </div>
-                  <div class="module-name">{{ mod.name }}</div>
-                </div>
-                <div v-if="!mod.available" class="coming-soon">即将上线</div>
-              </SortableSurface>
-            </TransitionGroup>
-          </template>
+      <!-- Today's Schedule -->
+      <div class="bg-white rounded-2xl p-5 card-shadow relative">
+        <div class="flex justify-between items-center mb-5">
+          <h3 class="font-bold text-lg text-gray-800">今日安排</h3>
+          <a class="text-sm text-blue-500 flex items-center cursor-pointer" @click="$emit('navigate', 'schedule')">
+            查看全部 <i class="fas fa-chevron-right text-xs ml-1"></i>
+          </a>
+        </div>
 
-          <!-- 今日课程面板 -->
-          <template v-else>
-            <div class="today-panel-head">
-              <h3 class="today-title">今日课程</h3>
-              <button class="today-panel-link" @click="$emit('navigate', 'schedule')">全部课表 ›</button>
-            </div>
+        <!-- Loading / Error / Empty states -->
+        <div v-if="!isLoggedIn" class="text-center py-8 text-gray-400 text-sm">登录后可查看今日课程</div>
+        <div v-else-if="todayLoading" class="text-center py-8 text-gray-400 text-sm">正在加载今日课程...</div>
+        <div v-else-if="todayError" class="text-center py-8 text-red-400 text-sm">{{ todayError }}</div>
+        <div v-else-if="todayCourses.length === 0" class="flex flex-col items-center py-8">
+          <img src="/splash/course_done_icon.webp" class="w-20 h-20 mb-3 opacity-80" alt="All done" />
+          <span class="text-gray-400 text-sm">今日无课程安排 🎉</span>
+        </div>
 
-            <div v-if="!isLoggedIn" class="today-empty">登录后可查看今日课程</div>
-            <div v-else-if="todayLoading" class="today-empty">正在加载今日课程...</div>
-            <div v-else-if="todayError" class="today-empty today-error">{{ todayError }}</div>
-            <div v-else-if="timelineCourses.length === 0" class="today-empty today-empty--done">
-              <img src="/splash/course_done_icon.webp" alt="" class="today-done-icon" />
-              <div class="today-done-text">
-                <span class="today-done-title">今日课程已结束</span>
-                <span class="today-done-subtitle">好好休息，明天继续加油！</span>
+        <!-- Timeline -->
+        <div v-else class="relative">
+          <div class="timeline-line"></div>
+
+          <div v-for="(course, idx) in todayCourses" :key="course.key" class="flex mb-6 relative z-10" :class="{ 'opacity-50': course.endMinutes <= currentMinutePrecise }">
+            <!-- Finished course -->
+            <template v-if="course.endMinutes <= currentMinutePrecise">
+              <div class="w-8 flex flex-col items-center shrink-0 pt-1">
+                <div class="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
               </div>
-            </div>
-
-            <div v-else class="today-timeline">
-              <div v-for="course in timelineCourses" :key="course.key" class="today-item">
-                <div class="today-item-time">{{ course.start }}</div>
-                <div class="today-item-line">
-                  <span class="today-item-dot"></span>
+              <div class="w-16 flex flex-col items-start shrink-0 pr-1">
+                <span class="text-sm font-medium text-gray-800 leading-tight">{{ course.start }}</span>
+                <span class="text-xs text-gray-400 mt-0.5">~ {{ course.end }}</span>
+              </div>
+              <div class="flex-1 flex justify-between items-start pl-2">
+                <div>
+                  <h4 class="font-medium text-gray-800 text-base">{{ course.name }}</h4>
+                  <p class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
                 </div>
-                <div class="today-item-main">
-                  <div class="today-item-name">{{ course.name }}</div>
-                  <div class="today-item-meta today-item-meta--location">
-                    <span class="today-meta-label">上课地点：</span>
-                    <span class="today-room-pill">{{ course.room }}</span>
+                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">已结束</span>
+              </div>
+            </template>
+
+            <!-- Active / Next course (highlighted - Stitch v2 design) -->
+            <template v-else-if="idx === 0 || (todayCourses[idx - 1] && todayCourses[idx - 1].endMinutes <= currentMinutePrecise && course.endMinutes > currentMinutePrecise)">
+              <div class="w-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl py-4 pr-4 flex shadow-lg relative overflow-hidden">
+                <!-- Decorative circle -->
+                <div class="absolute -right-8 -top-8 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
+                <div class="w-8 flex flex-col items-center shrink-0 pt-1 text-white relative z-10">
+                  <div class="w-3 h-3 bg-white border-2 border-blue-500 rounded-full"></div>
+                </div>
+                <div class="w-16 flex flex-col items-start shrink-0 pr-1 text-white relative z-10">
+                  <span class="text-sm font-bold leading-tight">{{ course.start }}</span>
+                  <span class="text-xs opacity-80 mt-0.5">~ {{ course.end }}</span>
+                </div>
+                <div class="flex-1 text-white relative z-10 pl-2 pr-20">
+                  <span class="text-[10px] bg-blue-400 bg-opacity-50 px-2 py-0.5 rounded text-white inline-block mb-1">
+                    {{ course.startMinutes <= currentMinutePrecise ? '进行中' : '下一节' }}
+                  </span>
+                  <h4 class="font-bold text-xl mb-1">{{ course.name }}</h4>
+                  <p class="text-xs opacity-90 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
+                </div>
+                <!-- Right side: illustration + countdown + button -->
+                <div class="absolute right-0 top-0 bottom-0 flex flex-col justify-center items-end w-36">
+                  <img src="/splash/campus_illustration.webp" class="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay pointer-events-none" alt="" />
+                  <div class="relative z-10 text-right mb-2 text-white text-xs pr-3">
+                    {{ getCourseCountdown(course) }}
                   </div>
-                  <div class="today-item-meta">授课教师：{{ course.teacher }}</div>
+                  <button class="relative z-10 bg-white text-blue-500 text-sm font-medium px-4 py-1.5 rounded-full flex items-center shadow-sm hover:bg-gray-50 mr-3" @click.stop="$emit('navigate', 'schedule')">
+                    去上课 <i class="fas fa-arrow-right ml-1 text-xs"></i>
+                  </button>
                 </div>
               </div>
-            </div>
-          </template>
-        </SortableSurface>
-      </TransitionGroup>
-    </section>
+            </template>
 
-    <!-- 全部模块面板 -->
-    <div v-if="showAllModules" class="all-modules-overlay" @click.self="showAllModules = false">
-      <div class="all-modules-panel">
-        <div class="all-modules-header">
-          <h3>全部功能</h3>
-          <button class="all-modules-close" @click="showAllModules = false">
-            <span class="material-symbols-rounded">close</span>
+            <!-- Upcoming course -->
+            <template v-else>
+              <div class="w-8 flex flex-col items-center shrink-0 pt-1">
+                <div class="w-2 h-2 bg-gray-300 rounded-full"></div>
+              </div>
+              <div class="w-16 flex flex-col items-start shrink-0 pr-1">
+                <span class="text-sm font-medium text-gray-800 leading-tight">{{ course.start }}</span>
+                <span class="text-xs text-gray-400 mt-0.5">~ {{ course.end }}</span>
+              </div>
+              <div class="flex-1 flex justify-between items-start pl-2">
+                <div>
+                  <h4 class="font-medium text-gray-800 text-base">{{ course.name }}</h4>
+                  <p class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
+                </div>
+                <span class="text-xs text-gray-400">未开始</span>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Status Footer -->
+        <div v-if="todayCourses.length > 0" class="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center px-2">
+          <div class="flex items-center space-x-2">
+            <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+              <i class="far fa-calendar-alt text-sm"></i>
+            </div>
+            <div>
+              <p class="text-[10px] text-gray-400">今日课程</p>
+              <p class="text-sm font-bold text-gray-800">{{ todayCourses.length }} <span class="text-xs font-normal">节</span></p>
+            </div>
+          </div>
+          <div class="w-px h-8 bg-gray-100"></div>
+          <div class="flex items-center space-x-2">
+            <div class="w-8 h-8 rounded-full bg-teal-50 flex items-center justify-center text-teal-500">
+              <i class="far fa-check-circle text-sm"></i>
+            </div>
+            <div>
+              <p class="text-[10px] text-gray-400">已完成</p>
+              <p class="text-sm font-bold text-gray-800">{{ todayCourses.length > 0 ? Math.round((todayCourses.length - timelineCourses.length) / todayCourses.length * 100) : 0 }} <span class="text-xs font-normal">%</span></p>
+            </div>
+          </div>
+          <div class="w-px h-8 bg-gray-100"></div>
+          <div class="flex items-center space-x-2">
+            <div class="w-8 h-8 rounded-full bg-orange-50 flex items-center justify-center text-orange-500">
+              <i class="far fa-clock text-sm"></i>
+            </div>
+            <div>
+              <p class="text-[10px] text-gray-400">剩余课程</p>
+              <p class="text-sm font-bold text-gray-800">{{ timelineCourses.length }} <span class="text-xs font-normal">节</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Entry -->
+      <div class="bg-white rounded-2xl p-5 card-shadow">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-bold text-lg text-gray-800">快捷入口</h3>
+          <i class="fas fa-pencil-alt text-gray-400 cursor-pointer hover:text-blue-500 transition-colors" @click="openQuickEntryEditor"></i>
+        </div>
+        <div class="grid grid-cols-5 gap-y-4">
+          <div
+            v-for="item in quickEntryItems"
+            :key="item.id"
+            class="flex flex-col items-center cursor-pointer group"
+            @click="handleQuickEntryClick(item.id)"
+          >
+            <div class="w-12 h-12 rounded-[14px] flex items-center justify-center mb-1 group-hover:scale-105 transition-transform" :class="item.color">
+              <i class="fas text-xl" :class="[item.icon, item.iconColor]"></i>
+            </div>
+            <span class="text-[11px] text-gray-600">{{ item.name }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- All Features -->
+      <div class="bg-white rounded-2xl p-5 card-shadow">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="font-bold text-lg text-gray-800">所有功能</h3>
+          <div class="flex overflow-x-auto whitespace-nowrap space-x-4">
+            <button
+              v-for="cat in moduleCategories"
+              :key="cat.title"
+              class="pb-1 px-1 text-sm font-medium transition-all"
+              :class="activeFeatureTab === cat.title ? 'font-bold text-blue-500 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'"
+              @click="activeFeatureTab = cat.title"
+            >
+              {{ cat.title }}
+            </button>
+          </div>
+        </div>
+        <div class="grid grid-cols-4 gap-y-6 gap-x-2">
+          <div
+            v-for="mod in featureTabModules"
+            :key="mod.id"
+            class="flex flex-col items-center cursor-pointer"
+            @click="navigateTo(mod.id)"
+          >
+            <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-2 shadow-sm" :class="featureIconColors[mod.id] || 'bg-gray-400'">
+              <i class="fas text-xl" :class="featureIcons[mod.id] || 'fa-cube'"></i>
+            </div>
+            <span class="text-xs text-gray-700 text-center">{{ mod.name }}</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Weather Detail Modal (iOS 26 Style, Stitch Design) -->
+    <Teleport to="body">
+      <div v-if="showWeatherDetail" class="fixed inset-0 z-[200] flex items-center justify-center bg-black/30 backdrop-blur-md" @click.self="showWeatherDetail = false">
+        <div class="w-[92%] max-w-sm rounded-[28px] overflow-hidden shadow-2xl animate-scale-in bg-white">
+          <!-- Top section with gradient -->
+          <div class="p-6 pb-5 relative rounded-t-[28px]" :class="weatherGradientClass">
+            <div class="absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl -mr-12 -mt-12 pointer-events-none" :class="weatherGlowClass"></div>
+            <div class="flex justify-between items-start relative z-10">
+              <div>
+                <p class="text-sm opacity-70" :class="weatherPillTextClass">洪山区</p>
+                <h3 class="font-bold text-2xl mt-1" :class="weatherTextClass">{{ weatherData.condition }}</h3>
+              </div>
+              <button class="w-8 h-8 rounded-full bg-black/10 flex items-center justify-center" @click="showWeatherDetail = false">
+                <i class="fas fa-times" :class="weatherTextClass"></i>
+              </button>
+            </div>
+            <div class="text-center my-6 relative z-10">
+              <span class="text-7xl font-extralight" :class="weatherTempClass">{{ weatherData.temp }}°</span>
+            </div>
+            <!-- Info pills -->
+            <div class="flex justify-center gap-3 relative z-10">
+              <div class="bg-black/5 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
+                <i class="fas fa-tint text-xs" :class="weatherPillTextClass"></i>
+                <span class="text-xs font-medium" :class="weatherPillTextClass">{{ weatherData.humidity }}%</span>
+              </div>
+              <div class="bg-black/5 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
+                <i class="fas fa-wind text-xs" :class="weatherPillTextClass"></i>
+                <span class="text-xs font-medium" :class="weatherPillTextClass">{{ weatherData.wind }}</span>
+              </div>
+              <div class="bg-black/5 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
+                <i class="fas fa-smog text-xs" :class="weatherPillTextClass"></i>
+                <span class="text-xs font-medium" :class="weatherPillTextClass">AQI {{ weatherData.aqi }}</span>
+              </div>
+            </div>
+          </div>
+          <!-- Hourly forecast (24h horizontal scroll) -->
+          <div class="bg-white px-5 pt-5 pb-4">
+            <h4 class="font-semibold text-sm text-gray-700 mb-3">逐时预报</h4>
+            <div class="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
+              <div v-for="h in hourlyForecast" :key="h.time" class="flex flex-col items-center shrink-0 min-w-[48px]">
+                <span class="text-[11px] text-gray-500 mb-1.5">{{ h.time }}</span>
+                <i class="fas mb-1.5" :class="h.icon" :style="{ color: getWeatherIconColor(h.condition) }"></i>
+                <span class="text-sm font-semibold text-gray-800">{{ h.temp }}°</span>
+              </div>
+            </div>
+          </div>
+          <!-- Daily forecast -->
+          <div class="bg-white px-5 pt-3 pb-5 border-t border-gray-100/80">
+            <h4 class="font-semibold text-sm text-gray-700 mb-3">未来天气</h4>
+            <div class="space-y-3">
+              <div v-for="f in weatherData.forecast" :key="f.day" class="flex items-center">
+                <span class="text-sm text-gray-600 w-10 font-medium">{{ f.day }}</span>
+                <i class="fas w-6 text-center" :class="f.icon" :style="{ color: getWeatherIconColor(f.condition) }"></i>
+                <span class="text-xs text-gray-400 w-10 ml-1">{{ f.condition }}</span>
+                <span class="text-xs text-blue-500 font-medium w-8 text-right">{{ f.temp_low }}°</span>
+                <div class="flex-1 mx-2 h-[6px] rounded-full bg-gray-100 relative overflow-hidden">
+                  <div class="absolute inset-y-0 rounded-full bg-gradient-to-r from-blue-400 via-green-400 to-red-400" :style="getTempBarStyle(f.temp_low, f.temp_high)"></div>
+                </div>
+                <span class="text-xs text-red-500 font-medium w-8">{{ f.temp_high }}°</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Quick Entry Editor Modal -->
+    <Teleport to="body">
+      <div v-if="showQuickEntryEditor" class="fixed inset-0 z-[200] flex items-end justify-center bg-black/40" @click.self="showQuickEntryEditor = false">
+        <div class="w-full max-w-md bg-white rounded-t-3xl p-6 animate-slide-up max-h-[80vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-bold text-lg text-gray-800">编辑快捷入口</h3>
+            <button class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center" @click="showQuickEntryEditor = false">
+              <i class="fas fa-times text-gray-500"></i>
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 mb-4">选择 5 个模块作为快捷入口（已选 {{ draftQuickEntries.length }}/5）</p>
+          <div class="grid grid-cols-4 gap-3 mb-6">
+            <div
+              v-for="(meta, id) in quickEntryMeta"
+              :key="id"
+              class="flex flex-col items-center p-2 rounded-xl cursor-pointer border-2 transition-all"
+              :class="draftQuickEntries.includes(id) ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-gray-50'"
+              @click="toggleDraftEntry(id)"
+            >
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-1" :class="meta.color">
+                <i class="fas" :class="[meta.icon, meta.iconColor]"></i>
+              </div>
+              <span class="text-[10px] text-gray-600 text-center">{{ meta.name }}</span>
+              <div v-if="draftQuickEntries.includes(id)" class="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center mt-1">
+                <i class="fas fa-check text-white text-[8px]"></i>
+              </div>
+            </div>
+          </div>
+          <button
+            class="w-full py-3 rounded-xl font-bold text-white transition-all"
+            :class="draftQuickEntries.length === 5 ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-300 cursor-not-allowed'"
+            :disabled="draftQuickEntries.length !== 5"
+            @click="saveQuickEntries"
+          >
+            保存
           </button>
         </div>
-        
-        <div class="all-modules-category" v-for="cat in moduleCategories" :key="cat.title">
-          <h4 class="category-title">{{ cat.title }}</h4>
-          <div class="category-grid">
-            <div 
-              v-for="mod in cat.modules" 
-              :key="mod.id" 
-              class="category-module-card"
-              :class="{ disabled: !mod.available }"
-              @click="mod.available && handleCategoryModuleClick(mod.id)"
-            >
-              <div class="category-module-icon" :style="{ background: mod.color }">
-                <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="40" :icon-size="22" />
-              </div>
-              <span class="category-module-name">{{ mod.name }}</span>
-            </div>
-          </div>
-        </div>
       </div>
-    </div>
-
-    <!-- 底部导航栏由 App.vue 全局提供，此处不再重复 -->
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-/* === 页面基础 === */
-.dashboard {
-  min-height: 100vh;
-  background: #f9f9ff;
-  padding: 20px 16px 80px;
-  max-width: 600px;
-  margin: 0 auto;
-  width: 100%;
+.dashboard-root {
+  padding-bottom: 80px;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* === 头部 === */
-.dashboard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+.card-shadow {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.logo-img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.header-title {
-  font-size: 18px;
-  font-weight: 800;
-  color: #1f2937;
-}
-
-.header-pill {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ui-primary, #2563eb);
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
-  padding: 6px 16px;
-  border-radius: 9999px;
-}
-
-/* === 用户信息卡片 === */
-.user-card {
-  background: #ffffff;
-  border-radius: 24px;
-  padding: 20px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.user-card-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-}
-
-.user-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #ffffff 90%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.user-avatar .material-symbols-rounded {
-  font-size: 28px;
-  color: var(--ui-primary, #2563eb);
-}
-
-.user-info-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.user-info-id {
-  font-size: 18px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.user-info-school {
-  font-size: 14px;
-  color: #6b7280;
-}
-
-.user-card-actions {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.action-btn-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-
-.action-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.action-btn--blue {
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
-}
-
-.action-btn--blue .material-symbols-rounded {
-  font-size: 20px;
-  color: var(--ui-primary, #2563eb);
-}
-
-.action-btn--red {
-  background: #fef2f2;
-}
-
-.action-btn--red .material-symbols-rounded {
-  font-size: 20px;
-  color: #ef4444;
-}
-
-.action-btn-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: #374151;
-}
-
-.action-btn-label--red {
-  color: #ef4444;
-}
-
-/* === 维护提示 === */
-.maintenance-banner {
-  margin-bottom: 14px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(249, 115, 22, 0.36);
-  background: #fff7ed;
-}
-
-.maintenance-banner--chaoxing {
-  border-color: color-mix(in srgb, var(--ui-primary, #2563eb) 34%, transparent 66%);
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 5%, #ffffff 95%);
-}
-
-.maintenance-banner--chaoxing .maintenance-title {
-  color: var(--ui-primary, #1d4ed8);
-}
-
-.maintenance-banner--chaoxing .maintenance-text {
-  color: #1e3a8a;
-}
-
-.maintenance-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #c2410c;
-  margin-bottom: 4px;
-}
-
-.maintenance-text {
-  font-size: 13px;
-  line-height: 1.5;
-  color: #9a3412;
-}
-
-.maintenance-meta {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-/* === 今日概览卡片 === */
-.today-overview-card {
-  position: relative;
-  background: linear-gradient(to bottom right, color-mix(in srgb, var(--ui-primary, #2563eb) 6%, #ffffff 94%), color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #f0f0ff 90%));
-  border-radius: 24px;
-  padding: 20px;
-  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 15%, #e0e0e0 85%);
-  margin-bottom: 14px;
-  overflow: hidden;
-}
-
-.overview-decor-img {
+.timeline-line {
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 66%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  opacity: 0.6;
-  pointer-events: none;
+  left: 15px;
+  top: 24px;
+  bottom: 24px;
+  width: 2px;
+  background-color: #e5e7eb;
   z-index: 0;
 }
 
-.overview-content {
-  position: relative;
-  z-index: 10;
+.gradient-card {
+  background: linear-gradient(135deg, #5b86e5 0%, #36d1dc 100%);
+  box-shadow: 0 10px 20px rgba(54, 209, 220, 0.3);
 }
 
-.overview-label {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2937;
-  margin-bottom: 4px;
+/* Animations */
+@keyframes scale-in {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
-.overview-greeting {
-  font-size: 24px;
-  font-weight: 800;
-  color: #111827;
-  margin: 0 0 4px;
-  line-height: 1.3;
-}
-
-.overview-subtitle {
-  font-size: 14px;
-  color: #6b7280;
-  margin: 0 0 16px;
-  line-height: 1.6;
-}
-
-.overview-sub-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.overview-sub-card {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-radius: 16px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-}
-
-.sub-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.sub-card-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #6b7280;
-}
-
-.sub-card-icon {
-  font-size: 18px;
-  color: var(--ui-primary, #3b82f6);
-}
-
-.sub-card-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 9999px;
-}
-
-.sub-card-badge--green {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.sub-card-badge--blue {
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 12%, #ffffff 88%);
-  color: var(--ui-primary, #2563eb);
-}
-
-.sub-card-badge--gray {
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.sub-card-value {
-  font-size: 28px;
-  font-weight: 800;
-  color: #111827;
-  line-height: 1.2;
-}
-
-.sub-card-unit {
-  font-size: 16px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.sub-card-course-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: #111827;
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sub-card-course-name--empty {
-  color: #9ca3af;
-  font-weight: 500;
-}
-
-.sub-card-hint {
-  font-size: 12px;
-  color: #6b7280;
-  margin-top: 4px;
-}
-
-
-/* === 首页布局编辑工具栏 === */
-.home-layout-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 18px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  margin-bottom: 14px;
-  position: sticky;
-  top: 12px;
-  z-index: 48;
-}
-
-.home-layout-toolbar strong {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2937;
-}
-
-.home-layout-toolbar__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.toolbar-btn {
-  min-height: 32px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: none;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.18s ease, background 0.18s ease;
-}
-
-.toolbar-btn:hover {
-  transform: translateY(-1px);
-}
-
-.toolbar-btn.ghost {
-  color: #374151;
-  background: #f3f4f6;
-}
-
-.toolbar-btn.primary {
-  color: #ffffff;
-  background: var(--ui-primary, #2563eb);
-}
-
-/* === 工作区 === */
-.home-workspace {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-.home-workspace :deep(*) {
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-}
-
-.home-workspace--editing {
-  gap: 14px;
-}
-
-.home-workspace-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-
-/* === 卡片通用 === */
-.widget-card {
-  background: #ffffff;
-  border-radius: 24px;
-  padding: 20px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-}
-
-.widget-card-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: #1f2937;
-  margin-bottom: 16px;
-}
-
-/* === 工具模块网格 === */
-.module-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px 8px;
-}
-
-.module-card {
-  --drag-translate-x: 0px;
-  --drag-translate-y: 0px;
-  --edit-pointer-x: 50%;
-  --edit-pointer-y: 50%;
-  background: transparent;
-  border-radius: 12px;
-  border: none;
-  padding: 8px 4px;
-  text-align: center;
-  cursor: pointer;
-  transition: transform 0.18s ease, opacity 0.18s ease;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  will-change: transform;
-}
-
-.module-card__inner {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.module-card:hover:not(.disabled) {
-  transform: translateY(-2px);
-}
-
-.module-icon-square {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  transition: transform 0.18s ease;
-}
-
-.module-icon-square--more {
-  background: #e5e7eb;
-  color: #6b7280;
-}
-
-.module-icon-square :deep(svg),
-.module-icon-square :deep(.theme-module-icon) {
-  color: inherit !important;
-}
-
-.module-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: #374151;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.coming-soon {
-  position: absolute;
-  top: 8px;
-  right: -24px;
-  background: #fbbf24;
-  color: #92400e;
-  font-size: 9px;
-  padding: 2px 24px;
-  transform: rotate(45deg);
-  font-weight: 600;
-}
-
-.module-card.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* === 拖拽编辑态 === */
-.workspace-widget {
-  --drag-translate-x: 0px;
-  --drag-translate-y: 0px;
-  position: relative;
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, opacity 0.22s ease;
-}
-
-.workspace-widget.editing {
-  cursor: grab;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: none;
-}
-
-.workspace-widget.editing:not(.dragging) {
-  animation: workspace-panel-float 2.8s ease-in-out infinite;
-}
-
-.workspace-widget.editing::before {
-  content: '';
-  position: absolute;
-  inset: -6px;
-  border-radius: 28px;
-  border: 2px dashed color-mix(in srgb, var(--ui-primary, #2563eb) 25%, transparent 75%);
-  pointer-events: none;
-}
-
-.workspace-widget.dragging {
-  z-index: 6;
-  cursor: grabbing;
-  pointer-events: none;
-  transform: translate3d(var(--drag-translate-x), var(--drag-translate-y), 0) scale(1.02);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-}
-
-.workspace-widget.drop-target::before {
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--ui-primary, #2563eb) 40%, transparent 60%);
-}
-
-.module-card.editing {
-  cursor: grab;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: none;
-}
-
-.module-card.editing:not(.dragging) .module-card__inner {
-  animation: workspace-card-float 2.6s ease-in-out infinite;
-}
-
-.module-card.dragging {
-  z-index: 7;
-  cursor: grabbing;
-  pointer-events: none;
-  transform: translate3d(var(--drag-translate-x), var(--drag-translate-y), 0) scale(1.08);
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.18);
-}
-
-.module-card.drop-target {
-  transform: scale(1.04);
-}
-
-/* === 今日课程面板 === */
-.today-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.today-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #1f2937;
-}
-
-.today-panel-link {
-  font-size: 13px;
-  color: #6b7280;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  transition: color 0.18s ease;
-}
-
-.today-panel-link:hover {
-  color: var(--ui-primary, #2563eb);
-}
-
-.today-empty {
-  border-radius: 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #475569;
-  font-weight: 500;
-  padding: 14px 16px;
-  font-size: 14px;
-}
-
-.today-error {
-  color: #b91c1c;
-  background: #fef2f2;
-  border-color: #fecaca;
-}
-
-.today-empty--done {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  background: transparent;
-  border: none;
-}
-
-.today-done-icon {
-  width: 96px;
-  height: 96px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.today-done-text {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.today-done-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #1f2937;
-}
-
-.today-done-subtitle {
-  font-size: 13px;
-  color: #6b7280;
-}
-
-/* === 今日课程时间线 === */
-.today-timeline {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-  max-height: min(52vh, 420px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.today-item {
-  display: grid;
-  grid-template-columns: 56px 24px 1fr;
-  align-items: stretch;
-}
-
-.today-item-time {
-  font-size: 18px;
-  font-weight: 800;
-  color: #111827;
-  padding-top: 2px;
-}
-
-.today-item-line {
-  position: relative;
-  display: flex;
-  justify-content: center;
-}
-
-.today-item-line::after {
-  content: '';
-  position: absolute;
-  top: 20px;
-  bottom: -10px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 2px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-primary, #3b82f6) 40%, #ffffff 60%), #e2e8f0);
-}
-
-.today-item:last-child .today-item-line::after {
-  display: none;
-}
-
-.today-item-dot {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-primary, #3b82f6) 70%, #ffffff 30%), var(--ui-primary, #3b82f6));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-primary, #3b82f6) 18%, transparent 82%);
-}
-
-.today-item-main {
-  padding: 0 0 12px;
-}
-
-.today-item-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: #111827;
-  margin-bottom: 6px;
-}
-
-.today-item-meta {
-  font-size: 13px;
-  color: #6b7280;
-  line-height: 1.6;
-}
-
-.today-item-meta--location {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.today-meta-label {
-  color: #6b7280;
-  font-weight: 500;
-}
-
-.today-room-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 9999px;
-  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 20%, #e0e0e0 80%);
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 5%, #ffffff 95%);
-  color: var(--ui-primary, #1d4ed8);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-/* === 全部模块面板 === */
-.all-modules-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  animation: fadeIn 0.2s ease;
-}
-
-.all-modules-panel {
-  width: 100%;
-  max-width: 500px;
-  max-height: 80vh;
-  background: #ffffff;
-  border-radius: 24px 24px 0 0;
-  padding: 24px 20px;
-  overflow-y: auto;
-  animation: slideUp 0.3s ease;
-}
-
-.all-modules-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.all-modules-header h3 {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1f2937;
-  margin: 0;
-}
-
-.all-modules-close {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: none;
-  background: #f3f4f6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #6b7280;
-}
-
-.all-modules-close .material-symbols-rounded {
-  font-size: 20px;
-}
-
-.all-modules-category {
-  margin-bottom: 24px;
-}
-
-.category-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: #9ca3af;
-  margin: 0 0 12px 4px;
-}
-
-.category-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.category-module-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 4px;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.category-module-card:hover {
-  background: #f9fafb;
-}
-
-.category-module-card.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.category-module-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  --module-icon-color: #ffffff;
-}
-
-.category-module-name {
-  font-size: 12px;
-  font-weight: 400;
-  color: #374151;
-  text-align: center;
-  line-height: 1.3;
-}
-
-/* === 动画 === */
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
+@keyframes slide-up {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
 
-@keyframes workspace-panel-float {
-  0%, 100% { transform: translateY(-1px); }
-  50% { transform: translateY(4px); }
+.animate-scale-in {
+  animation: scale-in 0.25s ease-out;
 }
 
-@keyframes workspace-card-float {
-  0%, 100% { transform: translateY(-2px); }
-  50% { transform: translateY(3px); }
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
 }
 
-/* === TransitionGroup 动画 === */
-.workspace-stack-move,
-.workspace-module-move {
-  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
-
-.workspace-stack-enter-active,
-.workspace-stack-leave-active,
-.workspace-module-enter-active,
-.workspace-module-leave-active {
-  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
-}
-
-.workspace-stack-enter-from,
-.workspace-stack-leave-to,
-.workspace-module-enter-from,
-.workspace-module-leave-to {
-  opacity: 0;
-  transform: scale(0.98);
-}
-
-/* === 响应式 === */
-@media (max-width: 480px) {
-  .dashboard {
-    padding: 16px 12px 80px;
-  }
-
-  .user-card {
-    padding: 16px;
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-
-  .user-card-actions {
-    gap: 12px;
-  }
-
-  .overview-greeting {
-    font-size: 20px;
-  }
-
-  .module-grid {
-    gap: 16px 4px;
-  }
-
-  .module-icon-square {
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
-  }
-
-  .today-item {
-    grid-template-columns: 48px 20px 1fr;
-  }
-
-  .today-item-time {
-    font-size: 16px;
-  }
-
-  .today-item-name {
-    font-size: 15px;
-  }
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 </style>

@@ -1,0 +1,74 @@
+- generic [ref=e3]:
+  - main [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - img "HBUT" [ref=e8]
+          - text: HBUT 校园助手
+        - text: 首页
+      - generic [ref=e10]:
+        - generic [ref=e12]: person
+        - generic [ref=e13]: 未登录湖北工业大学
+      - generic [ref=e15]:
+        - generic [ref=e16]: 今日概览
+        - heading "晚上好，同学！" [level=2] [ref=e17]
+        - paragraph [ref=e18]:
+          - text: 愿你专注当下，
+          - text: 不负在校时光。
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - generic [ref=e21]:
+              - text: 今日课程
+              - generic [ref=e22]: menu_book
+            - generic [ref=e23]: 0 节
+            - generic [ref=e24]: 今日课程已结束
+          - generic [ref=e25]:
+            - generic [ref=e26]: 下一节课无
+            - generic [ref=e27]: 暂无课程
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - generic [ref=e31]: 常用工具
+          - generic [ref=e32]:
+            - generic [ref=e34]:
+              - generic [ref=e35]: 📊
+              - generic [ref=e36]: 成绩查询
+            - generic [ref=e38]:
+              - generic [ref=e39]: 🏫
+              - generic [ref=e40]: 空教室
+            - generic [ref=e42]:
+              - generic [ref=e43]: ⚡
+              - generic [ref=e44]: 电费查询
+            - generic [ref=e46]:
+              - generic [ref=e47]: 💳
+              - generic [ref=e48]: 交易记录
+            - generic [ref=e50]:
+              - generic [ref=e51]: 📝
+              - generic [ref=e52]: 考试安排
+            - generic [ref=e54]:
+              - generic [ref=e55]: 🏆
+              - generic [ref=e56]: 绩点排名
+            - generic [ref=e58]:
+              - generic [ref=e59]: 📱
+              - generic [ref=e60]: 校园码
+            - generic [ref=e62]:
+              - generic [ref=e63]: ⋯
+              - generic [ref=e64]: 更多
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - heading "今日课程" [level=3] [ref=e67]
+            - button "全部课表 ›" [ref=e68] [cursor=pointer]
+          - generic [ref=e69]: 登录后可查看今日课程
+  - navigation [ref=e70]:
+    - button "首页" [ref=e71] [cursor=pointer]:
+      - img [ref=e73]
+      - text: 首页
+    - button "课表" [ref=e75] [cursor=pointer]:
+      - img [ref=e77]
+      - text: 课表
+    - button "通知" [ref=e80] [cursor=pointer]:
+      - img [ref=e82]
+      - text: 通知
+    - button "我的" [ref=e85] [cursor=pointer]:
+      - img [ref=e87]
+      - text: 我的
+  - region "Notifications alt+T"

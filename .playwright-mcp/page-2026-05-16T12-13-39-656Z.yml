@@ -1,0 +1,45 @@
+- generic [ref=e3]:
+  - main [ref=e4]:
+    - generic [ref=e90]:
+      - generic [ref=e91]:
+        - button "← 返回" [ref=e92] [cursor=pointer]
+        - heading "📅课程表" [level=1] [ref=e93]
+        - button "⋯" [ref=e94] [cursor=pointer]
+      - generic [ref=e95]:
+        - button "‹" [disabled] [ref=e96]
+        - generic [ref=e97]: 第 1 周 (本周)
+        - button "›" [ref=e98] [cursor=pointer]
+      - generic [ref=e99]:
+        - generic [ref=e100]: 周一
+        - generic [ref=e101]: 周二
+        - generic [ref=e102]: 周三
+        - generic [ref=e103]: 周四
+        - generic [ref=e104]: 周五
+        - generic [ref=e105]: 周六
+        - generic [ref=e106]: 周日
+      - generic [ref=e107]:
+        - generic [ref=e109]: 108:20
+        - generic [ref=e111]: 209:10
+        - generic [ref=e113]: 310:15
+        - generic [ref=e115]: 411:05
+        - generic [ref=e117]: 514:00
+        - generic [ref=e119]: 614:50
+        - generic [ref=e121]: 715:55
+        - generic [ref=e123]: 816:45
+        - generic [ref=e125]: 918:30
+        - generic [ref=e127]: 1019:20
+        - generic [ref=e129]: 1120:10
+  - navigation [ref=e70]:
+    - button "首页" [ref=e71] [cursor=pointer]:
+      - img [ref=e73]
+      - text: 首页
+    - button "课表" [active] [ref=e75] [cursor=pointer]:
+      - img [ref=e77]
+      - text: 课表
+    - button "通知" [ref=e80] [cursor=pointer]:
+      - img [ref=e82]
+      - text: 通知
+    - button "我的" [ref=e85] [cursor=pointer]:
+      - img [ref=e87]
+      - text: 我的
+  - region "Notifications alt+T"

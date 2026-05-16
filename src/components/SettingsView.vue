@@ -61,6 +61,45 @@ const uiSettings = useUiSettings()
 const appSettings = useAppSettings()
 const fontSettings = useFontSettings()
 
+// 夜间模式状态
+const isDarkMode = ref(document.documentElement.classList.contains('dark'))
+const themeTransitioning = ref(false)
+const themeTransitionType = ref('') // 'to-dark' or 'to-light'
+
+const toggleDarkMode = (event) => {
+  const willBeDark = !isDarkMode.value
+  themeTransitionType.value = willBeDark ? 'to-dark' : 'to-light'
+  themeTransitioning.value = true
+
+  // 延迟切换实际主题，让动画先播放
+  setTimeout(() => {
+    isDarkMode.value = willBeDark
+    if (willBeDark) {
+      document.documentElement.classList.add('dark')
+      localStorage.setItem('hbu_dark_mode', '1')
+    } else {
+      document.documentElement.classList.remove('dark')
+      localStorage.setItem('hbu_dark_mode', '0')
+    }
+  }, 400)
+
+  // 动画结束后移除遮罩
+  setTimeout(() => {
+    themeTransitioning.value = false
+    themeTransitionType.value = ''
+  }, 1200)
+}
+
+// 初始化时读取暗色模式偏好
+const initDarkMode = () => {
+  const stored = localStorage.getItem('hbu_dark_mode')
+  if (stored === '1') {
+    isDarkMode.value = true
+    document.documentElement.classList.add('dark')
+  }
+}
+initDarkMode()
+
 const downloadingFont = ref(false)
 const showFontModal = ref(false)
 const fontDownloadProgress = ref(0)
@@ -1075,21 +1114,33 @@ const handleDownloadFont = async (force = false) => {
 
       <section class="settings-section glass-card">
         <div class="section-head">
-          <h3>主题（5 选 1）</h3>
-          <button class="mini-btn btn-ripple" @click="handleResetAppearance">恢复默认</button>
+          <h3>主题模式</h3>
         </div>
-        <div class="preset-grid">
-          <button
-            v-for="preset in presetEntries"
-            :key="preset.key"
-            class="preset-card"
-            :class="{ active: uiSettings.preset === preset.key }"
-            @click="handleApplyPreset(preset.key)"
-          >
-            <span class="preset-swatch" :style="{ background: preset.background }"></span>
-            <span class="preset-name">{{ preset.label }}</span>
-            <span class="preset-tagline">{{ preset.tagline }}</span>
-          </button>
+        <!-- Day/Night Toggle with Animation -->
+        <div class="theme-toggle-container">
+          <div class="theme-toggle-track" :class="{ 'is-dark': isDarkMode }" @click="toggleDarkMode">
+            <!-- Sky background -->
+            <div class="theme-sky" :class="isDarkMode ? 'theme-sky--night' : 'theme-sky--day'">
+              <div class="theme-stars" :class="{ 'opacity-100': isDarkMode, 'opacity-0': !isDarkMode }">
+                <span v-for="i in 6" :key="i" class="star" :style="{ left: `${10 + i * 14}%`, top: `${15 + (i % 3) * 20}%`, animationDelay: `${i * 0.3}s` }"></span>
+              </div>
+            </div>
+            <!-- Sun/Moon -->
+            <div class="theme-celestial" :class="isDarkMode ? 'theme-celestial--moon' : 'theme-celestial--sun'">
+              <div v-if="!isDarkMode" class="sun-icon">
+                <i class="fas fa-sun"></i>
+              </div>
+              <div v-else class="moon-icon">
+                <i class="fas fa-moon"></i>
+              </div>
+            </div>
+            <!-- Labels -->
+            <div class="theme-labels">
+              <span class="theme-label" :class="{ active: !isDarkMode }">白天</span>
+              <span class="theme-label" :class="{ active: isDarkMode }">夜间</span>
+            </div>
+          </div>
+          <p class="theme-hint">{{ isDarkMode ? '夜间模式已开启，保护您的眼睛' : '白天模式，清爽明亮' }}</p>
         </div>
       </section>
 
@@ -1522,6 +1573,51 @@ const handleDownloadFont = async (force = false) => {
       </div>
     </div>
   </div>
+
+  <!-- Fullscreen Theme Transition Overlay -->
+  <Teleport to="body">
+    <div v-if="themeTransitioning" class="theme-fullscreen-overlay" :class="themeTransitionType">
+      <!-- Sky scene -->
+      <div class="theme-scene">
+        <!-- Horizon line -->
+        <div class="theme-horizon"></div>
+        <!-- To Light: Sun rises from left, Moon falls to right -->
+        <template v-if="themeTransitionType === 'to-light'">
+          <div class="theme-sun-anim">
+            <div class="sun-body">
+              <i class="fas fa-sun"></i>
+            </div>
+            <div class="sun-rays"></div>
+          </div>
+          <div class="theme-moon-fall">
+            <div class="moon-body" style="width:56px;height:56px;font-size:24px;">
+              <i class="fas fa-moon"></i>
+            </div>
+          </div>
+        </template>
+        <!-- To Dark: Moon rises from left, Sun falls to right -->
+        <template v-if="themeTransitionType === 'to-dark'">
+          <div class="theme-moon-anim">
+            <div class="moon-body">
+              <i class="fas fa-moon"></i>
+            </div>
+            <div class="moon-stars">
+              <span v-for="i in 12" :key="i" class="m-star" :style="{ '--delay': `${i * 0.08}s`, '--x': `${Math.random() * 100}%`, '--y': `${Math.random() * 60}%` }"></span>
+            </div>
+          </div>
+          <div class="theme-sun-fall">
+            <div class="sun-body" style="width:56px;height:56px;font-size:24px;">
+              <i class="fas fa-sun"></i>
+            </div>
+          </div>
+        </template>
+        <!-- Text -->
+        <div class="theme-transition-text">
+          {{ themeTransitionType === 'to-dark' ? '夜间模式' : '白天模式' }}
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1751,6 +1847,332 @@ const handleDownloadFont = async (force = false) => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--ui-muted);
+}
+
+/* Theme Toggle (Day/Night) */
+.theme-toggle-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+}
+
+.theme-toggle-track {
+  position: relative;
+  width: 200px;
+  height: 80px;
+  border-radius: 40px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.theme-sky {
+  position: absolute;
+  inset: 0;
+  transition: background 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-sky--day {
+  background: linear-gradient(180deg, #87CEEB 0%, #E0F7FA 100%);
+}
+
+.theme-sky--night {
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.theme-stars {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.6s ease;
+}
+
+.theme-stars .star {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: white;
+  border-radius: 50%;
+  animation: twinkle 2s infinite alternate;
+}
+
+@keyframes twinkle {
+  from { opacity: 0.3; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1.2); }
+}
+
+.theme-celestial {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  top: 16px;
+}
+
+.theme-celestial--sun {
+  left: 30px;
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+}
+
+.theme-celestial--moon {
+  left: 122px;
+  background: linear-gradient(135deg, #f0f0f0, #d4d4d4);
+  box-shadow: 0 0 20px rgba(200, 200, 255, 0.4);
+}
+
+.sun-icon {
+  color: white;
+  font-size: 22px;
+  animation: sun-rotate 10s linear infinite;
+}
+
+@keyframes sun-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.moon-icon {
+  color: #4a4a6a;
+  font-size: 20px;
+}
+
+.theme-labels {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 20px;
+}
+
+.theme-label {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.4;
+  transition: opacity 0.4s ease, color 0.4s ease;
+}
+
+.theme-label.active {
+  opacity: 1;
+}
+
+.theme-sky--day + .theme-celestial + .theme-labels .theme-label {
+  color: #1e3a5f;
+}
+
+.theme-sky--night + .theme-celestial + .theme-labels .theme-label {
+  color: #e0e0e0;
+}
+
+.is-dark .theme-label {
+  color: #e0e0e0;
+}
+
+.theme-toggle-track:not(.is-dark) .theme-label {
+  color: #1e3a5f;
+}
+
+.theme-hint {
+  font-size: 12px;
+  color: var(--ui-muted);
+  text-align: center;
+}
+
+/* ═══ Fullscreen Theme Transition ═══ */
+.theme-fullscreen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: overlay-fade-in 0.3s ease-out forwards;
+  pointer-events: none;
+}
+
+.theme-fullscreen-overlay.to-dark {
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 40%, #334155 100%);
+}
+
+.theme-fullscreen-overlay.to-light {
+  background: linear-gradient(180deg, #87CEEB 0%, #B0E0E6 40%, #FFF8DC 80%, #FFE4B5 100%);
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.theme-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.theme-horizon {
+  position: absolute;
+  bottom: 30%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  opacity: 0.3;
+}
+
+.to-light .theme-horizon {
+  background: linear-gradient(90deg, transparent, #f59e0b, transparent);
+}
+
+.to-dark .theme-horizon {
+  background: linear-gradient(90deg, transparent, #6366f1, transparent);
+}
+
+/* Sun animation (to-light): sun rises from left, moon falls to right */
+.theme-sun-anim {
+  position: absolute;
+  animation: sun-arc-rise 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes sun-arc-rise {
+  0% { left: -10%; top: 80%; opacity: 0; transform: scale(0.6); }
+  30% { opacity: 1; }
+  100% { left: 45%; top: 30%; opacity: 1; transform: scale(1); }
+}
+
+.sun-body {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FFD700, #FF8C00);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  color: white;
+  box-shadow: 0 0 60px rgba(255, 215, 0, 0.6), 0 0 120px rgba(255, 140, 0, 0.3);
+}
+
+.sun-rays {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 215, 0, 0.3);
+  animation: rays-expand 1.2s ease-out 0.3s forwards;
+  opacity: 0;
+}
+
+@keyframes rays-expand {
+  from { transform: scale(0.8); opacity: 0.6; }
+  to { transform: scale(2); opacity: 0; }
+}
+
+/* Moon falling to right (during to-light transition) */
+.theme-moon-fall {
+  position: absolute;
+  right: 45%;
+  top: 30%;
+  animation: moon-arc-fall-right 0.8s cubic-bezier(0.4, 0, 0.8, 1) forwards;
+}
+
+@keyframes moon-arc-fall-right {
+  0% { right: 45%; top: 30%; opacity: 1; transform: scale(1); }
+  100% { right: -10%; top: 85%; opacity: 0; transform: scale(0.5) rotate(20deg); }
+}
+
+/* Moon animation (to-dark): moon rises from left, sun falls to right */
+.theme-moon-anim {
+  position: absolute;
+  animation: moon-arc-rise 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes moon-arc-rise {
+  0% { left: -10%; top: 80%; opacity: 0; transform: scale(0.6) rotate(-20deg); }
+  30% { opacity: 1; }
+  100% { left: 45%; top: 30%; opacity: 1; transform: scale(1) rotate(0deg); }
+}
+
+.moon-body {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e8e8f0, #c8c8e0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #4a4a6a;
+  box-shadow: 0 0 40px rgba(200, 200, 255, 0.4), 0 0 80px rgba(150, 150, 220, 0.2);
+}
+
+.moon-stars {
+  position: absolute;
+  inset: -100px;
+}
+
+.m-star {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: white;
+  border-radius: 50%;
+  left: var(--x);
+  top: var(--y);
+  animation: star-appear 0.6s ease-out forwards;
+  animation-delay: var(--delay);
+  opacity: 0;
+}
+
+@keyframes star-appear {
+  from { opacity: 0; transform: scale(0); }
+  to { opacity: 0.8; transform: scale(1); }
+}
+
+/* Sun falling to right (during to-dark transition) */
+.theme-sun-fall {
+  position: absolute;
+  right: 45%;
+  top: 30%;
+  animation: sun-arc-fall-right 0.8s cubic-bezier(0.4, 0, 0.8, 1) forwards;
+}
+
+@keyframes sun-arc-fall-right {
+  0% { right: 45%; top: 30%; opacity: 1; transform: scale(1); }
+  100% { right: -10%; top: 85%; opacity: 0; transform: scale(0.5); }
+}
+
+/* Transition text */
+.theme-transition-text {
+  position: absolute;
+  bottom: 25%;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  animation: text-fade-in 0.6s ease-out 0.3s forwards;
+  opacity: 0;
+}
+
+.to-light .theme-transition-text {
+  color: #92400e;
+}
+
+.to-dark .theme-transition-text {
+  color: #e2e8f0;
+}
+
+@keyframes text-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .option-group {

@@ -5768,6 +5768,7 @@ pub fn run() {
             chaoxing_checkin_cmd::chaoxing_checkin_decode_qr_image,
             chaoxing_checkin_cmd::chaoxing_checkin_capture_screen_qr,
             chaoxing_checkin_cmd::clear_chaoxing_data,
+            modules::weather::fetch_weather,
         ])
 
         .run(tauri::generate_context!())
