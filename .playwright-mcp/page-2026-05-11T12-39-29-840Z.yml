@@ -1,6 +1,0 @@
-- generic [ref=e7]:
-  - heading "跳出湖工大" [level=1] [ref=e8]
-  - paragraph [ref=e9]: 🦘 按住蓄力，松开跳跃
-  - generic [ref=e10]:
-    - button "开始游戏" [ref=e11] [cursor=pointer]
-    - button "排行榜" [ref=e12] [cursor=pointer]

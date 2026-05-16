@@ -1,8 +1,0 @@
-- generic [ref=e3]:
-  - generic:
-    - generic:
-      - generic:
-        - generic: "0"
-      - generic:
-        - generic: 🦶 0
-        - button "🔊" [ref=e13] [cursor=pointer]

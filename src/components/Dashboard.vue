@@ -595,6 +595,7 @@ const modules = computed(() => {
 })
 const homeWorkspaceRef = ref(null)
 const isHomeLayoutEditing = ref(false)
+const showAllModules = ref(false)
 const draftHomeWidgetsOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceLayout).home.widgetsOrder])
 const draftHomeModuleOrder = ref([...cloneWorkspaceLayout(uiSettings.workspaceLayout).home.moduleOrder])
 const activeHomeDragSection = ref('')
@@ -608,11 +609,41 @@ const orderedModules = computed(() => {
     .map((key) => moduleMap.get(key))
     .filter(Boolean)
 })
+const displayModules = computed(() => {
+  const first7 = orderedModules.value.slice(0, 7)
+  return [...first7, { id: '__more__', name: '更多', iconKey: 'more', color: '#6b7280', available: true, requiresLogin: false }]
+})
 const homeWidgetOrder = computed(() =>
   isHomeLayoutEditing.value ? draftHomeWidgetsOrder.value : uiSettings.workspaceLayout.home.widgetsOrder
 )
 const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 const homeCollisionFx = ref([])
+
+const moduleCategories = computed(() => [
+  {
+    title: '教务服务',
+    modules: modules.value.filter(m => 
+      ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar'].includes(m.id)
+    )
+  },
+  {
+    title: '一码通',
+    modules: modules.value.filter(m => 
+      ['campus_code', 'electricity', 'transactions'].includes(m.id)
+    )
+  },
+  {
+    title: '资源',
+    modules: modules.value.filter(m => 
+      ['library', 'campus_map', 'resource_share', 'ai'].includes(m.id)
+    )
+  }
+])
+
+const handleCategoryModuleClick = (moduleId) => {
+  showAllModules.value = false
+  navigateTo(moduleId)
+}
 
 let homeLayoutLongPressTimer = null
 let homeLayoutPointerStart = { x: 0, y: 0 }
@@ -813,6 +844,10 @@ const handleHomeLayoutPressEnd = () => {
 const handleModuleCardClick = (moduleId) => {
   if (isHomeLayoutEditing.value) return
   if (Date.now() < suppressModuleClickUntil) return
+  if (moduleId === '__more__') {
+    showAllModules.value = true
+    return
+  }
   navigateTo(moduleId)
 }
 
@@ -1044,6 +1079,25 @@ const openNotice = (notice) => {
   emit('open-notice', notice)
 }
 
+// 公告轮播
+const currentAnnouncementIndex = ref(0)
+let announcementTimer = null
+
+const startAnnouncementRotation = () => {
+  stopAnnouncementRotation()
+  if (marqueeItems.value.length <= 1) return
+  announcementTimer = setInterval(() => {
+    currentAnnouncementIndex.value = (currentAnnouncementIndex.value + 1) % Math.min(marqueeItems.value.length, 5)
+  }, 3000)
+}
+
+const stopAnnouncementRotation = () => {
+  if (announcementTimer) {
+    clearInterval(announcementTimer)
+    announcementTimer = null
+  }
+}
+
 // 生成分享链接
 const shareLink = computed(() => {
   return 'https://hbut.6661111.xyz'
@@ -1114,6 +1168,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   detachCardSpotlight()
   stopTickerLoop()
+  stopAnnouncementRotation()
   clearHomeLayoutLongPress()
   stopHomeLayoutDrag()
   stopHomeCollisionFxLoop()
@@ -1145,6 +1200,15 @@ watch(
 )
 
 watch(
+  () => marqueeItems.value.length,
+  (len) => {
+    if (len > 0) startAnnouncementRotation()
+    else stopAnnouncementRotation()
+  },
+  { immediate: true }
+)
+
+watch(
   () => [props.studentId, props.isLoggedIn],
   () => {
     refreshLoginMethod()
@@ -1171,42 +1235,28 @@ watch(
 <template>
   <div class="dashboard">
     <!-- 头部 -->
-    <header class="dashboard-header dashboard-header--home">
-      <div class="home-header-top">
-        <div class="brand">
-          <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
-          <span class="title">HBUT 校园助手</span>
-        </div>
-        <span class="page-tag">首页</span>
+    <header class="dashboard-header">
+      <div class="header-left">
+        <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
+        <span class="header-title">HBUT 校园助手</span>
       </div>
-      <div class="home-header-bottom">
-        <button class="student-id student-entry" @click="handleProfileClick" title="进入我的页面">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c1.8-3.3 4.5-5 8-5s6.2 1.7 8 5" />
-          </svg>
-          {{ studentId || '未登录' }}
-        </button>
-        <div class="home-header-actions">
-          <button
-            class="layout-btn btn-ripple"
-            :class="{ active: isHomeLayoutEditing }"
-            @click="enterHomeLayoutEdit"
-            :title="isHomeLayoutEditing ? '正在编辑首页布局' : '配置首页布局'"
-          >
-            {{ isHomeLayoutEditing ? '编辑中' : '配置' }}
-          </button>
-          <button class="share-btn btn-ripple" @click="copyShareLink" v-if="shareLink" title="复制分享链接">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L9.5 6.42" />
-              <path d="M14 11a5 5 0 0 0-7.07 0L4.8 13.12a5 5 0 0 0 7.07 7.07l2.62-2.62" />
-            </svg>
-          </button>
-          <button v-if="isLoggedIn" class="logout-btn btn-ripple" @click="$emit('logout')" title="退出登录">退出</button>
-        </div>
-      </div>
+      <span class="header-pill">首页</span>
     </header>
 
+    <!-- 用户信息卡片 -->
+    <section class="user-card">
+      <div class="user-card-left" @click="handleProfileClick">
+        <div class="user-avatar">
+          <span class="material-symbols-rounded">person</span>
+        </div>
+        <div class="user-info-text">
+          <span class="user-info-id">{{ studentId || '未登录' }}</span>
+          <span class="user-info-school">湖北工业大学</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 维护提示 -->
     <section v-if="jwxtMaintenance" class="maintenance-banner">
       <div class="maintenance-title">教务系统正在维护</div>
       <div class="maintenance-text">
@@ -1217,48 +1267,46 @@ watch(
       </div>
     </section>
 
-    <!-- 公告区（单行滚动） -->
-    <section class="notice-panel" v-if="marqueeItems.length">
-      <div
-        class="notice-ticker"
-        :class="{ 'swipe-mode': isMobileNoticeSwipe, 'is-paused': isTickerInteracting }"
-        @touchstart.passive="onTickerTouchStart"
-        @touchmove.passive="onTickerTouchMove"
-        @touchend.passive="onTickerTouchEnd"
-        @touchcancel.passive="onTickerTouchEnd"
-      >
-        <div class="ticker-track">
-          <div class="ticker-items" ref="tickerItemsRef" :style="tickerItemsStyle">
-            <div
-              v-for="(notice, idx) in marqueeItems"
-              :key="`${notice.id || notice.title}-${idx}`"
-              class="ticker-item"
-              :class="{ 'has-image': notice.image && !hasBrokenImage(notice) }"
-              @click="openNotice(notice)"
-            >
-              <img
-                v-if="notice.image && !hasBrokenImage(notice)"
-                :src="notice.image"
-                :alt="notice.title"
-                class="ticker-img"
-                @error="handleImageError(notice)"
-              />
-              <div v-else class="ticker-card" :style="{ '--ticker-card-bg': getRandomGradient(idx) }">
-                <span class="ticker-card-title">{{ notice.title }}</span>
-                <span class="ticker-card-sub">查看详情</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section v-if="isChaoxingLogin" class="maintenance-banner maintenance-banner--chaoxing">
       <div class="maintenance-title">学习通登录模式</div>
       <div class="maintenance-text">当前已开放教务模块 + 图书查询 + 校园地图 + 资料分享。</div>
     </section>
 
-    <div v-if="isHomeLayoutEditing" class="home-layout-toolbar home-layout-toolbar--floating glass-card">
+    <!-- 今日概览卡片 -->
+    <section class="today-overview-card">
+      <img src="/splash/campus_illustration.webp" alt="" class="overview-decor-img" />
+      <div class="overview-content">
+        <div class="overview-label">今日概览</div>
+        <h2 class="overview-greeting">
+          {{ currentMinute < 720 ? '上午好，同学！' : currentMinute < 840 ? '中午好，同学！' : currentMinute < 1080 ? '下午好，同学！' : '晚上好，同学！' }}
+        </h2>
+        <p class="overview-subtitle">愿你专注当下，<br/>不负在校时光。</p>
+        <div class="overview-sub-grid">
+          <div class="overview-sub-card">
+            <div class="sub-card-header">
+              <span class="sub-card-label">今日课程</span>
+              <span class="material-symbols-rounded sub-card-icon">menu_book</span>
+            </div>
+            <div class="sub-card-value">{{ todayCourses.length }} <span class="sub-card-unit">节</span></div>
+            <div class="sub-card-hint">{{ timelineCourses.length > 0 ? `还有 ${timelineCourses.length} 节即将开始` : '今日课程已结束' }}</div>
+          </div>
+          <div class="overview-sub-card">
+            <div class="sub-card-header">
+              <span class="sub-card-label">下一节课</span>
+              <span v-if="timelineCourses.length > 0 && timelineCourses[0].startMinutes <= currentMinutePrecise" class="sub-card-badge sub-card-badge--green">进行中</span>
+              <span v-else-if="timelineCourses.length > 0" class="sub-card-badge sub-card-badge--blue">即将开始</span>
+              <span v-else class="sub-card-badge sub-card-badge--gray">无</span>
+            </div>
+            <div v-if="timelineCourses.length > 0" class="sub-card-course-name">{{ timelineCourses[0].name }}</div>
+            <div v-else class="sub-card-course-name sub-card-course-name--empty">暂无课程</div>
+            <div v-if="timelineCourses.length > 0" class="sub-card-hint">{{ timelineCourses[0].start }} · {{ timelineCourses[0].room }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 首页布局编辑工具栏 -->
+    <div v-if="isHomeLayoutEditing" class="home-layout-toolbar">
       <strong>首页布局编辑</strong>
       <div class="home-layout-toolbar__actions">
         <button type="button" class="toolbar-btn ghost" @click="cancelHomeLayoutEdit">取消</button>
@@ -1267,6 +1315,7 @@ watch(
       </div>
     </div>
 
+    <!-- 常用工具 + 今日课程 workspace -->
     <section
       ref="homeWorkspaceRef"
       class="home-workspace"
@@ -1290,16 +1339,18 @@ watch(
           :editing="isHomeLayoutEditing"
           :surface-class="[
             'workspace-widget',
-            widgetKey === 'module_grid' ? 'workspace-widget--modules' : 'workspace-widget--today today-panel'
+            widgetKey === 'module_grid' ? 'workspace-widget--modules widget-card' : 'workspace-widget--today widget-card'
           ]"
           @drag-start="handleHomeDragStart"
           @drag-move="handleHomeDragMove"
           @drag-end="stopHomeLayoutDrag"
         >
+          <!-- 常用工具模块网格 -->
           <template v-if="widgetKey === 'module_grid'">
+            <div class="widget-card-title">常用工具</div>
             <TransitionGroup name="workspace-module" tag="div" class="module-grid">
               <SortableSurface
-                v-for="mod in orderedModules"
+                v-for="mod in displayModules"
                 :key="mod.id"
                 :id="mod.id"
                 group="home-modules"
@@ -1319,8 +1370,13 @@ watch(
                 @drag-end="stopHomeLayoutDrag"
               >
                 <div class="module-card__inner">
-                  <div class="module-icon" aria-hidden="true">
-                    <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="46" :icon-size="22" />
+                  <div
+                    class="module-icon-square"
+                    :class="{ 'module-icon-square--more': mod.id === '__more__' }"
+                    :style="mod.id !== '__more__' ? { background: mod.color } : {}"
+                    aria-hidden="true"
+                  >
+                    <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="24" :icon-size="24" />
                   </div>
                   <div class="module-name">{{ mod.name }}</div>
                 </div>
@@ -1329,16 +1385,23 @@ watch(
             </TransitionGroup>
           </template>
 
+          <!-- 今日课程面板 -->
           <template v-else>
             <div class="today-panel-head">
-              <h3 class="today-title">{{ todayBlockTitle }}</h3>
-              <span class="today-time">{{ currentTimeText }}</span>
+              <h3 class="today-title">今日课程</h3>
+              <button class="today-panel-link" @click="$emit('navigate', 'schedule')">全部课表 ›</button>
             </div>
 
             <div v-if="!isLoggedIn" class="today-empty">登录后可查看今日课程</div>
             <div v-else-if="todayLoading" class="today-empty">正在加载今日课程...</div>
             <div v-else-if="todayError" class="today-empty today-error">{{ todayError }}</div>
-            <div v-else-if="timelineCourses.length === 0" class="today-empty">今日课程已上完</div>
+            <div v-else-if="timelineCourses.length === 0" class="today-empty today-empty--done">
+              <img src="/splash/course_done_icon.webp" alt="" class="today-done-icon" />
+              <div class="today-done-text">
+                <span class="today-done-title">今日课程已结束</span>
+                <span class="today-done-subtitle">好好休息，明天继续加油！</span>
+              </div>
+            </div>
 
             <div v-else class="today-timeline">
               <div v-for="course in timelineCourses" :key="course.key" class="today-item">
@@ -1361,69 +1424,221 @@ watch(
       </TransitionGroup>
     </section>
 
+    <!-- 全部模块面板 -->
+    <div v-if="showAllModules" class="all-modules-overlay" @click.self="showAllModules = false">
+      <div class="all-modules-panel">
+        <div class="all-modules-header">
+          <h3>全部功能</h3>
+          <button class="all-modules-close" @click="showAllModules = false">
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
+        
+        <div class="all-modules-category" v-for="cat in moduleCategories" :key="cat.title">
+          <h4 class="category-title">{{ cat.title }}</h4>
+          <div class="category-grid">
+            <div 
+              v-for="mod in cat.modules" 
+              :key="mod.id" 
+              class="category-module-card"
+              :class="{ disabled: !mod.available }"
+              @click="mod.available && handleCategoryModuleClick(mod.id)"
+            >
+              <div class="category-module-icon" :style="{ background: mod.color }">
+                <ThemeModuleIcon :icon-key="mod.iconKey" :badge-size="40" :icon-size="22" />
+              </div>
+              <span class="category-module-name">{{ mod.name }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部导航栏由 App.vue 全局提供，此处不再重复 -->
   </div>
 </template>
 
 <style scoped>
+/* === 页面基础 === */
 .dashboard {
   min-height: 100vh;
-  background: var(--ui-bg-gradient);
-  padding: 20px;
-  max-width: 1120px;
+  background: #f9f9ff;
+  padding: 20px 16px 80px;
+  max-width: 600px;
   margin: 0 auto;
+  width: 100%;
 }
 
-html[data-theme='cyberpunk'] .dashboard {
-  position: relative;
-  background: var(--ui-bg-gradient);
-}
-
-html[data-theme='cyberpunk'] .dashboard::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(41, 200, 224, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(41, 200, 224, 0.06) 1px, transparent 1px);
-  background-size: 48px 48px;
-  pointer-events: none;
-  z-index: 0;
-}
-
-html[data-theme='cyberpunk'] .dashboard > * {
-  position: relative;
-  z-index: 1;
-}
-
+/* === 头部 === */
 .dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #1f2937;
+}
+
+.header-pill {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-primary, #2563eb);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
+  padding: 6px 16px;
+  border-radius: 9999px;
+}
+
+/* === 用户信息卡片 === */
+.user-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 14px;
 }
 
+.user-card-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.user-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #ffffff 90%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-avatar .material-symbols-rounded {
+  font-size: 28px;
+  color: var(--ui-primary, #2563eb);
+}
+
+.user-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-info-id {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.user-info-school {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.user-card-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.action-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.action-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.action-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.action-btn--blue {
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
+}
+
+.action-btn--blue .material-symbols-rounded {
+  font-size: 20px;
+  color: var(--ui-primary, #2563eb);
+}
+
+.action-btn--red {
+  background: #fef2f2;
+}
+
+.action-btn--red .material-symbols-rounded {
+  font-size: 20px;
+  color: #ef4444;
+}
+
+.action-btn-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.action-btn-label--red {
+  color: #ef4444;
+}
+
+/* === 维护提示 === */
 .maintenance-banner {
   margin-bottom: 14px;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
-  background: color-mix(in srgb, #fff7ed 72%, var(--ui-surface));
-  box-shadow: var(--card-shadow-soft);
+  border: 1px solid rgba(249, 115, 22, 0.36);
+  background: #fff7ed;
 }
 
 .maintenance-banner--chaoxing {
-  border: 1px solid color-mix(in srgb, #2563eb 34%, transparent);
-  background: color-mix(in srgb, #eff6ff 74%, var(--ui-surface));
+  border-color: color-mix(in srgb, var(--ui-primary, #2563eb) 34%, transparent 66%);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 5%, #ffffff 95%);
 }
 
 .maintenance-banner--chaoxing .maintenance-title {
-  color: #1d4ed8;
+  color: var(--ui-primary, #1d4ed8);
 }
 
 .maintenance-banner--chaoxing .maintenance-text {
-  color: color-mix(in srgb, #1e3a8a 84%, var(--ui-text));
+  color: #1e3a8a;
 }
 
 .maintenance-title {
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 700;
   color: #c2410c;
   margin-bottom: 4px;
 }
@@ -1431,170 +1646,216 @@ html[data-theme='cyberpunk'] .dashboard > * {
 .maintenance-text {
   font-size: 13px;
   line-height: 1.5;
-  color: color-mix(in srgb, #9a3412 88%, var(--ui-text));
+  color: #9a3412;
 }
 
 .maintenance-meta {
   margin-top: 4px;
   font-size: 12px;
-  color: var(--ui-text-dim);
+  color: #9ca3af;
 }
 
-.dashboard-header--home {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* === 今日概览卡片 === */
+.today-overview-card {
+  position: relative;
+  background: linear-gradient(to bottom right, color-mix(in srgb, var(--ui-primary, #2563eb) 6%, #ffffff 94%), color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #f0f0ff 90%));
+  border-radius: 24px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 15%, #e0e0e0 85%);
+  margin-bottom: 14px;
+  overflow: hidden;
 }
 
-.home-header-top,
-.home-header-bottom {
+.overview-decor-img {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 66%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.overview-content {
+  position: relative;
+  z-index: 10;
+}
+
+.overview-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.overview-greeting {
+  font-size: 24px;
+  font-weight: 800;
+  color: #111827;
+  margin: 0 0 4px;
+  line-height: 1.3;
+}
+
+.overview-subtitle {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
+
+.overview-sub-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.overview-sub-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.sub-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  margin-bottom: 6px;
 }
 
-.home-header-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+.sub-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+.sub-card-icon {
+  font-size: 18px;
+  color: var(--ui-primary, #3b82f6);
 }
 
-.logo-img {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
+.sub-card-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
 }
 
-.brand .title {
-  font-size: clamp(15px, 4vw, 18px);
+.sub-card-badge--green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.sub-card-badge--blue {
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 12%, #ffffff 88%);
+  color: var(--ui-primary, #2563eb);
+}
+
+.sub-card-badge--gray {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.sub-card-value {
+  font-size: 28px;
   font-weight: 800;
-  color: var(--ui-text);
-  text-shadow: none;
-  line-height: 1;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.sub-card-unit {
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.sub-card-course-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.student-id {
-  color: var(--ui-text);
+.sub-card-course-name--empty {
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.sub-card-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+
+/* === 首页布局编辑工具栏 === */
+.home-layout-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  margin-bottom: 14px;
+  position: sticky;
+  top: 12px;
+  z-index: 48;
+}
+
+.home-layout-toolbar strong {
+  font-size: 14px;
   font-weight: 700;
-  display: inline-flex;
+  color: #1f2937;
+}
+
+.home-layout-toolbar__actions {
+  display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.toolbar-btn {
   min-height: 32px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  border-radius: 999px;
-  padding: 0 12px;
-}
-
-.student-id svg {
-  width: 16px;
-  height: 16px;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.student-entry {
-  border: none;
-  cursor: pointer;
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
-}
-
-.student-entry:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.2);
-}
-
-.share-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.share-btn svg {
-  width: 18px;
-  height: 18px;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.layout-btn,
-.logout-btn {
-  min-width: 68px;
-  height: 36px;
   padding: 0 14px;
   border-radius: 10px;
   border: none;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.18s ease, background 0.18s ease;
 }
 
-.layout-btn {
-  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
-  color: var(--ui-text);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
+.toolbar-btn:hover {
+  transform: translateY(-1px);
 }
 
-.layout-btn.active,
-.layout-btn:hover {
-  background: color-mix(in oklab, var(--ui-primary) 20%, #fff 80%);
+.toolbar-btn.ghost {
+  color: #374151;
+  background: #f3f4f6;
 }
 
-.layout-btn.active {
+.toolbar-btn.primary {
   color: #ffffff;
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  background: var(--ui-primary, #2563eb);
 }
 
-.share-btn {
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-}
-
-.share-btn:hover {
-  background: #667eea;
-  color: white;
-}
-
-.logout-btn {
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--ui-danger);
-}
-
-.logout-btn:hover {
-  background: #dc2626;
-  color: white;
-}
-
+/* === 工作区 === */
 .home-workspace {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin-top: 18px;
+  gap: 14px;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -1607,101 +1868,126 @@ html[data-theme='cyberpunk'] .dashboard > * {
 }
 
 .home-workspace--editing {
-  gap: 18px;
+  gap: 14px;
 }
 
 .home-workspace-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
-.home-layout-toolbar {
+
+/* === 卡片通用 === */
+.widget-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.widget-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 16px;
+}
+
+/* === 工具模块网格 === */
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px 8px;
+}
+
+.module-card {
+  --drag-translate-x: 0px;
+  --drag-translate-y: 0px;
+  --edit-pointer-x: 50%;
+  --edit-pointer-y: 50%;
+  background: transparent;
+  border-radius: 12px;
+  border: none;
+  padding: 8px 4px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 18px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(255, 255, 255, 0.32));
-  background:
-    linear-gradient(155deg, rgba(255, 255, 255, 0.74), rgba(240, 246, 255, 0.5)),
-    radial-gradient(circle at top right, color-mix(in oklab, var(--ui-primary) 18%, transparent), transparent 58%);
-  box-shadow:
-    0 18px 42px rgba(15, 23, 42, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.52);
-  backdrop-filter: blur(20px) saturate(1.12);
-  -webkit-backdrop-filter: blur(20px) saturate(1.12);
+  justify-content: center;
+  will-change: transform;
 }
 
-.home-layout-toolbar strong {
-  flex: 0 1 auto;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--ui-text);
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.home-layout-toolbar--floating {
-  position: fixed;
-  top: calc(84px + env(safe-area-inset-top));
-  right: clamp(12px, 3vw, 24px);
-  z-index: 48;
-  width: min(360px, calc(100vw - 24px));
-  pointer-events: auto;
-}
-
-.home-layout-toolbar__actions {
-  display: inline-flex;
+.module-card__inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
 }
 
-.toolbar-btn {
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, rgba(255, 255, 255, 0.4));
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease, opacity 0.22s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+.module-card:hover:not(.disabled) {
+  transform: translateY(-2px);
 }
 
-.toolbar-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 22px color-mix(in oklab, var(--ui-primary) 14%, transparent);
-}
-
-.toolbar-btn.ghost {
-  color: var(--ui-text);
-  background: color-mix(in oklab, var(--ui-primary-soft) 46%, #fff 54%);
-}
-
-.toolbar-btn.primary {
+.module-icon-square {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #ffffff;
-  border-color: transparent;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  transition: transform 0.18s ease;
 }
 
+.module-icon-square--more {
+  background: #e5e7eb;
+  color: #6b7280;
+}
+
+.module-icon-square :deep(svg),
+.module-icon-square :deep(.theme-module-icon) {
+  color: inherit !important;
+}
+
+.module-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.coming-soon {
+  position: absolute;
+  top: 8px;
+  right: -24px;
+  background: #fbbf24;
+  color: #92400e;
+  font-size: 9px;
+  padding: 2px 24px;
+  transform: rotate(45deg);
+  font-weight: 600;
+}
+
+.module-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* === 拖拽编辑态 === */
 .workspace-widget {
   --drag-translate-x: 0px;
   --drag-translate-y: 0px;
   position: relative;
-  --edit-pointer-x: 50%;
-  --edit-pointer-y: 50%;
-  width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  transition:
-    transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.28s ease,
-    filter 0.28s ease,
-    opacity 0.22s ease;
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, opacity 0.22s ease;
 }
 
 .workspace-widget.editing {
@@ -1718,231 +2004,23 @@ html[data-theme='cyberpunk'] .dashboard > * {
 .workspace-widget.editing::before {
   content: '';
   position: absolute;
-  inset: -8px;
-  border-radius: 30px;
-  border: 1px dashed color-mix(in oklab, var(--ui-primary) 28%, rgba(255, 255, 255, 0.14));
-  background:
-    radial-gradient(circle at var(--edit-pointer-x) var(--edit-pointer-y), rgba(255, 255, 255, 0.26), transparent 56%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent);
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+  inset: -6px;
+  border-radius: 28px;
+  border: 2px dashed color-mix(in srgb, var(--ui-primary, #2563eb) 25%, transparent 75%);
   pointer-events: none;
-  transition: border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
 }
 
 .workspace-widget.dragging {
   z-index: 6;
   cursor: grabbing;
   pointer-events: none;
-  transform:
-    translate3d(var(--drag-translate-x), var(--drag-translate-y), 0)
-    scale(1.015)
-    rotate(0.35deg);
-  filter: saturate(1.06) brightness(1.02);
-}
-
-.workspace-widget.dragging::after {
-  content: '';
-  position: absolute;
-  inset: -10px;
-  border-radius: 32px;
-  background:
-    linear-gradient(112deg, transparent 10%, rgba(255, 255, 255, 0.14) 34%, transparent 58%);
-  pointer-events: none;
-  animation: workspace-drag-sheen 1.12s linear infinite;
+  transform: translate3d(var(--drag-translate-x), var(--drag-translate-y), 0) scale(1.02);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
 }
 
 .workspace-widget.drop-target::before {
   border-style: solid;
-  border-color: color-mix(in oklab, var(--ui-primary) 40%, rgba(255, 255, 255, 0.34));
-  box-shadow:
-    0 22px 42px color-mix(in oklab, var(--ui-primary) 14%, transparent),
-    0 0 0 1px color-mix(in oklab, var(--ui-primary) 22%, transparent);
-  animation: workspace-target-pulse 1.05s ease-in-out infinite;
-}
-
-/* 模块网格 */
-.module-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  max-width: 980px;
-  margin: 0 auto;
-}
-
-.notice-panel {
-  margin: 0 auto 24px;
-  max-width: 980px;
-  background: var(--ui-surface);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 20px;
-  padding: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-
-html[data-theme='aurora'] .notice-panel {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: 0 12px 28px rgba(79, 70, 229, 0.12);
-}
-
-.notice-ticker {
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  height: 120px;
-}
-
-.ticker-track {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-}
-
-.ticker-items {
-  display: inline-flex;
-  align-items: center;
-  gap: 20px;
-  white-space: nowrap;
-  flex-wrap: nowrap;
-  width: max-content;
-  padding-right: 20px;
-  transform: translate3d(0, 0, 0);
-  transition-property: transform;
-  transition-timing-function: cubic-bezier(0.2, 0.9, 0.2, 1);
-  transition-duration: 0ms;
-  will-change: transform;
-}
-
-.notice-ticker.swipe-mode {
-  touch-action: pan-y;
-  user-select: none;
-}
-
-.notice-ticker.swipe-mode .ticker-track {
-  overflow: hidden;
-}
-
-.notice-ticker.swipe-mode.is-paused .ticker-items {
-  transition-duration: 0ms !important;
-}
-
-.ticker-item {
-  display: inline-block;
-  height: 120px;
-  border-radius: 12px;
-  overflow: hidden;
-  cursor: pointer;
-  flex: 0 0 auto;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  transition: transform 0.2s;
-  background: transparent; /* Fallback */
-}
-
-html[data-theme='aurora'] .ticker-item {
-  background: transparent;
-  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.18);
-}
-
-.ticker-item:hover {
-  transform: translateY(-2px);
-}
-
-.ticker-item.has-image {
-  width: auto; /* Let image define width */
-  background: transparent;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-.ticker-img {
-  height: 100%;
-  width: auto;
-  display: block;
-  object-fit: cover;
-  border-radius: 12px;
-  max-width: 300px;
-}
-
-.ticker-card {
-  height: 100%;
-  min-width: 214px;
-  background: var(--ticker-card-bg, linear-gradient(135deg, #60a5fa, #3b82f6));
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  padding: 16px;
-  color: white;
-  text-align: center;
-  backdrop-filter: blur(6px);
-}
-
-html[data-theme='aurora'] .ticker-card {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
-}
-
-.ticker-card-title {
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 8px;
-  white-space: normal; /* Allow title wrap */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.ticker-card-sub {
-  font-size: 12px;
-  opacity: 0.8;
-  border: 1px solid rgba(255,255,255,0.4);
-  padding: 2px 8px;
-  border-radius: 99px;
-}
-
-html[data-theme='graphite_night'] .ticker-card-title,
-html[data-theme='graphite_night'] .ticker-card-sub {
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
-  filter: none !important;
-  color: #ffffff !important;
-  text-shadow: none !important;
-}
-
-.module-card {
-  --drag-translate-x: 0px;
-  --drag-translate-y: 0px;
-  --edit-pointer-x: 50%;
-  --edit-pointer-y: 50%;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.95), rgba(247, 250, 255, 0.86));
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  padding: 6px 9px 6px;
-  text-align: center;
-  cursor: pointer;
-  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, filter 0.28s ease, opacity 0.28s ease, background 0.28s ease, border-color 0.28s ease;
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.11);
-  position: relative;
-  overflow: hidden;
-  min-height: 58px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 4px;
-  will-change: transform, box-shadow, filter;
-}
-
-.module-card__inner {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
+  border-color: color-mix(in srgb, var(--ui-primary, #2563eb) 40%, transparent 60%);
 }
 
 .module-card.editing {
@@ -1950,16 +2028,6 @@ html[data-theme='graphite_night'] .ticker-card-sub {
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
-  opacity: 0.92;
-  border-color: rgba(148, 163, 184, 0.18);
-  background:
-    radial-gradient(circle at var(--edit-pointer-x) var(--edit-pointer-y), rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.08) 56%, transparent 76%),
-    linear-gradient(165deg, rgba(255, 255, 255, 0.78), rgba(240, 246, 255, 0.62));
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow:
-    0 18px 34px rgba(15, 23, 42, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .module-card.editing:not(.dragging) .module-card__inner {
@@ -1970,388 +2038,94 @@ html[data-theme='graphite_night'] .ticker-card-sub {
   z-index: 7;
   cursor: grabbing;
   pointer-events: none;
-  opacity: 1;
-  transform:
-    translate3d(var(--drag-translate-x), var(--drag-translate-y), 0)
-    scale(1.08)
-    rotate(0.8deg);
-  box-shadow:
-    0 28px 46px rgba(15, 23, 42, 0.22),
-    0 0 0 1px color-mix(in oklab, var(--accent-color) 18%, rgba(255, 255, 255, 0.4));
-  filter: saturate(1.08) brightness(1.03);
-}
-
-.module-card.dragging::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-  border-radius: inherit;
-  background:
-    linear-gradient(116deg, transparent 10%, rgba(255, 255, 255, 0.22) 36%, transparent 62%);
-  pointer-events: none;
-  animation: module-card-sheen 1s linear infinite;
+  transform: translate3d(var(--drag-translate-x), var(--drag-translate-y), 0) scale(1.08);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.18);
 }
 
 .module-card.drop-target {
-  opacity: 1;
-  border-color: color-mix(in oklab, var(--accent-color) 22%, rgba(148, 163, 184, 0.22));
-  box-shadow:
-    0 22px 34px color-mix(in oklab, var(--accent-color) 16%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
-  transform: translate3d(0, -2px, 0) scale(1.04);
-  animation: module-card-target-pulse 1.04s ease-in-out infinite;
+  transform: scale(1.04);
 }
 
-html[data-theme='cyberpunk'] .module-card {
-  background: rgba(10, 15, 28, 0.85);
-  border: 1px solid rgba(41, 200, 224, 0.35);
-  box-shadow: 0 0 12px rgba(41, 200, 224, 0.25);
-  animation: cyber-pulse 5s ease-in-out infinite;
-}
-
-html[data-theme='cyberpunk'] .module-card::before {
-  height: 3px;
-  background: linear-gradient(90deg, var(--ui-neon-cyan), var(--ui-neon-pink));
-  box-shadow: 0 0 12px rgba(41, 200, 224, 0.5);
-}
-
-html[data-theme='cyberpunk'] .module-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at var(--hover-x, 50%) var(--hover-y, 50%), rgba(41, 200, 224, 0.25), transparent 60%);
-  opacity: 0;
-  transition: opacity 0.25s ease;
-  pointer-events: none;
-}
-
-html[data-theme='cyberpunk'] .module-card:hover::after {
-  opacity: 1;
-}
-
-html[data-theme='cyberpunk'] .module-card:hover:not(.disabled) {
-  box-shadow: 0 0 18px rgba(41, 200, 224, 0.5), 0 0 28px rgba(183, 76, 192, 0.35);
-  transform: translateY(-6px);
-}
-
-html[data-theme='cyberpunk'] .module-name {
-  color: var(--ui-text);
-  text-shadow: 0 0 8px rgba(41, 200, 224, 0.35);
-}
-
-html[data-theme='cyberpunk'] .module-icon {
-  text-shadow: 0 0 12px rgba(41, 200, 224, 0.6);
-  animation: cyber-float 3.5s ease-in-out infinite;
-}
-
-html[data-theme='cyberpunk'] .share-btn,
-html[data-theme='cyberpunk'] .logout-btn {
-  background: transparent;
-  border: 1px solid rgba(41, 200, 224, 0.4);
-  color: var(--ui-neon-cyan);
-  box-shadow: 0 0 10px rgba(41, 200, 224, 0.35);
-}
-
-html[data-theme='cyberpunk'] .logout-btn {
-  color: var(--ui-neon-pink);
-  border-color: rgba(183, 76, 192, 0.5);
-  box-shadow: 0 0 12px rgba(183, 76, 192, 0.35);
-}
-
-html[data-theme='minimal'] .dashboard {
-  background: #ffffff;
-}
-
-html[data-theme='minimal'] .dashboard-header {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: none;
-}
-
-html[data-theme='minimal'] .module-card {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: none;
-}
-
-html[data-theme='minimal'] .module-card::before {
-  height: 4px;
-  background: linear-gradient(90deg, #38bdf8 0%, #0ea5e9 100%);
-  top: auto;
-  bottom: 0;
-}
-
-html[data-theme='minimal'] .tab-bar {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: none;
-}
-
-html[data-theme='minimal'] .share-btn,
-html[data-theme='minimal'] .logout-btn {
-  background: rgba(14, 165, 233, 0.08);
-  color: #0ea5e9;
-  border: 1px solid rgba(14, 165, 233, 0.25);
-}
-
-@keyframes cyber-float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-.module-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: var(--accent-color);
-}
-
-.module-card:hover:not(.disabled) {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.12);
-}
-
-.module-card.editing:hover:not(.disabled) {
-  transform: translate3d(0, -4px, 0) scale(1.01);
-  box-shadow: 0 20px 34px rgba(15, 23, 42, 0.14);
-}
-
-@keyframes workspace-card-float {
-  0%,
-  100% {
-    transform: translate3d(0, -2px, 0);
-  }
-  50% {
-    transform: translate3d(0, 4px, 0);
-  }
-}
-
-@keyframes workspace-panel-float {
-  0%,
-  100% {
-    transform: translate3d(0, -1px, 0);
-  }
-  50% {
-    transform: translate3d(0, 6px, 0);
-  }
-}
-
-@keyframes workspace-drag-sheen {
-  0% {
-    transform: translate3d(-28%, 0, 0);
-    opacity: 0;
-  }
-  18% {
-    opacity: 0.7;
-  }
-  100% {
-    transform: translate3d(28%, 0, 0);
-    opacity: 0;
-  }
-}
-
-@keyframes workspace-target-pulse {
-  0%,
-  100% {
-    box-shadow:
-      0 22px 42px color-mix(in oklab, var(--ui-primary) 14%, transparent),
-      0 0 0 1px color-mix(in oklab, var(--ui-primary) 22%, transparent);
-  }
-  50% {
-    box-shadow:
-      0 26px 50px color-mix(in oklab, var(--ui-primary) 20%, transparent),
-      0 0 0 1px color-mix(in oklab, var(--ui-primary) 30%, transparent);
-  }
-}
-
-@keyframes module-card-sheen {
-  0% {
-    transform: translate3d(-32%, 0, 0);
-    opacity: 0;
-  }
-  20% {
-    opacity: 0.75;
-  }
-  100% {
-    transform: translate3d(32%, 0, 0);
-    opacity: 0;
-  }
-}
-
-@keyframes module-card-target-pulse {
-  0%,
-  100% {
-    transform: translate3d(0, -2px, 0) scale(1.04);
-  }
-  50% {
-    transform: translate3d(0, -4px, 0) scale(1.052);
-  }
-}
-
-.workspace-stack-move,
-.workspace-module-move {
-  transition:
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease;
-}
-
-.workspace-stack-enter-active,
-.workspace-stack-leave-active,
-.workspace-module-enter-active,
-.workspace-module-leave-active {
-  transition:
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease;
-}
-
-.workspace-stack-enter-from,
-.workspace-stack-leave-to,
-.workspace-module-enter-from,
-.workspace-module-leave-to {
-  opacity: 0;
-  transform: scale(0.98);
-}
-
-
-.module-card.disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-  filter: grayscale(1);
-  background: #e2e8f0;
-  border: 1px solid rgba(148, 163, 184, 0.6);
-  box-shadow: none;
-  --accent-color: #94a3b8;
-}
-
-.module-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease;
-  margin-top: -1px;
-}
-
-.module-name {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ui-text);
-  margin-bottom: 2px;
-  line-height: 1.32;
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-width: 100%;
-}
-
-.module-desc {
-  font-size: 12px;
-  color: var(--ui-muted);
-}
-
-.coming-soon {
-  position: absolute;
-  top: 12px;
-  right: -30px;
-  background: #fbbf24;
-  color: #92400e;
-  font-size: 10px;
-  padding: 4px 32px;
-  transform: rotate(45deg);
-  font-weight: 600;
-}
-
-.today-panel {
-  width: min(100%, 980px);
-  max-width: 980px;
-  margin: 0 auto;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  border-radius: 22px;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
-  padding: 22px 20px;
-}
-
-.workspace-widget--today {
-  width: 100%;
-}
-
-html[data-theme='cyberpunk'] .today-panel {
-  background: rgba(10, 15, 28, 0.9);
-  border: 1px solid rgba(41, 200, 224, 0.35);
-  box-shadow: 0 0 18px rgba(41, 200, 224, 0.25);
-}
-
+/* === 今日课程面板 === */
 .today-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
-  border: none !important;
 }
 
-.today-panel-head h3,
 .today-title {
   margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
-  color: var(--ui-text);
-  background: transparent !important;
-  background-image: none !important;
-  border: none !important;
-  box-shadow: none !important;
-  display: inline-flex;
-  align-items: center;
-}
-
-.today-panel-head h3::before,
-.today-panel-head h3::after,
-.today-title::before,
-.today-title::after {
-  content: none !important;
-}
-
-.today-time {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 700;
-  color: #4f46e5;
-  background: rgba(79, 70, 229, 0.12);
-  border-radius: 999px;
-  padding: 6px 12px;
+  color: #1f2937;
+}
+
+.today-panel-link {
+  font-size: 13px;
+  color: #6b7280;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.18s ease;
+}
+
+.today-panel-link:hover {
+  color: var(--ui-primary, #2563eb);
 }
 
 .today-empty {
   border-radius: 14px;
-  background: rgba(248, 250, 252, 0.9);
-  border: 1px solid rgba(203, 213, 225, 0.7);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   color: #475569;
-  font-weight: 600;
+  font-weight: 500;
   padding: 14px 16px;
+  font-size: 14px;
 }
 
 .today-error {
   color: #b91c1c;
-  background: rgba(254, 242, 242, 0.9);
-  border-color: rgba(252, 165, 165, 0.8);
+  background: #fef2f2;
+  border-color: #fecaca;
 }
 
+.today-empty--done {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: transparent;
+  border: none;
+}
+
+.today-done-icon {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.today-done-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.today-done-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.today-done-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* === 今日课程时间线 === */
 .today-timeline {
-  --timeline-dot-size: 14px;
-  --timeline-dot-top: 10px;
-  --timeline-line-width: 2px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
@@ -2362,15 +2136,14 @@ html[data-theme='cyberpunk'] .today-panel {
 
 .today-item {
   display: grid;
-  grid-template-columns: 72px 26px 1fr;
+  grid-template-columns: 56px 24px 1fr;
   align-items: stretch;
 }
 
 .today-item-time {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 800;
-  line-height: 1;
-  color: #0f172a;
+  color: #111827;
   padding-top: 2px;
 }
 
@@ -2383,12 +2156,12 @@ html[data-theme='cyberpunk'] .today-panel {
 .today-item-line::after {
   content: '';
   position: absolute;
-  top: calc(var(--timeline-dot-top) + var(--timeline-dot-size) / 2);
+  top: 20px;
   bottom: -10px;
   left: 50%;
   transform: translateX(-50%);
-  width: var(--timeline-line-width);
-  background: linear-gradient(180deg, rgba(96, 165, 250, 0.5), rgba(226, 232, 240, 0.6));
+  width: 2px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ui-primary, #3b82f6) 40%, #ffffff 60%), #e2e8f0);
 }
 
 .today-item:last-child .today-item-line::after {
@@ -2397,215 +2170,237 @@ html[data-theme='cyberpunk'] .today-panel {
 
 .today-item-dot {
   position: absolute;
-  top: var(--timeline-dot-top);
+  top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  width: var(--timeline-dot-size);
-  height: var(--timeline-dot-size);
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #60a5fa, #3b82f6);
-  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ui-primary, #3b82f6) 70%, #ffffff 30%), var(--ui-primary, #3b82f6));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-primary, #3b82f6) 18%, transparent 82%);
 }
 
 .today-item-main {
-  padding: 3px 0 10px;
+  padding: 0 0 12px;
 }
 
 .today-item-name {
-  font-size: 18px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
   color: #111827;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .today-item-meta {
-  font-size: 15px;
-  color: #64748b;
-  line-height: 1.65;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.6;
 }
 
 .today-item-meta--location {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .today-meta-label {
-  color: #64748b;
-  font-weight: 600;
+  color: #6b7280;
+  font-weight: 500;
 }
 
 .today-room-pill {
   display: inline-flex;
   align-items: center;
-  max-width: 100%;
-  padding: 4px 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 26%, rgba(148, 163, 184, 0.42));
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--ui-primary) 10%, #ffffff 90%),
-    color-mix(in oklab, var(--ui-secondary) 14%, #ffffff 86%)
-  );
-  color: color-mix(in oklab, var(--ui-primary) 68%, #0f172a 32%);
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1.25;
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  box-shadow: 0 5px 14px color-mix(in oklab, var(--ui-primary) 16%, transparent);
+  padding: 3px 10px;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 20%, #e0e0e0 80%);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 5%, #ffffff 95%);
+  color: var(--ui-primary, #1d4ed8);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-html[data-theme='cyberpunk'] .today-item-time,
-html[data-theme='cyberpunk'] .today-item-name {
-  color: #e2f7ff;
+/* === 全部模块面板 === */
+.all-modules-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
 }
 
-html[data-theme='cyberpunk'] .today-item-meta {
-  color: #94a3b8;
+.all-modules-panel {
+  width: 100%;
+  max-width: 500px;
+  max-height: 80vh;
+  background: #ffffff;
+  border-radius: 24px 24px 0 0;
+  padding: 24px 20px;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease;
 }
 
-html[data-theme='cyberpunk'] .today-room-pill {
-  color: #d8f3ff;
-  border-color: rgba(103, 232, 249, 0.42);
+.all-modules-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
 }
 
-@media (max-width: 720px) {
-  .home-layout-toolbar {
-    width: auto;
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-
-  .home-layout-toolbar--floating {
-    top: calc(74px + env(safe-area-inset-top));
-    left: 12px;
-    right: 12px;
-    width: auto;
-  }
-
-  .home-layout-toolbar__actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .toolbar-btn {
-    flex: 1 1 0;
-  }
-
-  .dashboard-header--home {
-    gap: 8px;
-  }
-
-  .home-header-top,
-  .home-header-bottom {
-    gap: 8px;
-  }
-
-  .home-header-actions {
-    gap: 6px;
-  }
-
-  .brand .title {
-    font-size: clamp(14px, 4vw, 17px);
-  }
-
-  .student-id {
-    max-width: 170px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .module-card {
-    padding: 5px 4px;
-    min-height: 64px;
-  }
-
-  .today-panel {
-    padding: 16px 14px;
-    border-radius: 16px;
-  }
-
-  .today-panel-head h3 {
-    font-size: 18px;
-  }
-
-  .today-item {
-    grid-template-columns: 56px 22px 1fr;
-  }
-
-  .today-item-time {
-    font-size: 18px;
-  }
-
-  .today-item-name {
-    font-size: 16px;
-  }
-
-  .today-item-meta {
-    font-size: 13px;
-  }
-
-  .today-room-pill {
-    font-size: 14px;
-    padding: 4px 10px;
-  }
-
-  .module-name {
-    font-size: clamp(12px, 3.2vw, 14px);
-    line-height: 1.25;
-  }
-
-  .module-icon {
-    transform: scale(0.92);
-  }
+.all-modules-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
 }
 
+.all-modules-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.all-modules-close .material-symbols-rounded {
+  font-size: 20px;
+}
+
+.all-modules-category {
+  margin-bottom: 24px;
+}
+
+.category-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+  margin: 0 0 12px 4px;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.category-module-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.category-module-card:hover {
+  background: #f9fafb;
+}
+
+.category-module-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.category-module-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  --module-icon-color: #ffffff;
+}
+
+.category-module-name {
+  font-size: 12px;
+  font-weight: 400;
+  color: #374151;
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* === 动画 === */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes workspace-panel-float {
+  0%, 100% { transform: translateY(-1px); }
+  50% { transform: translateY(4px); }
+}
+
+@keyframes workspace-card-float {
+  0%, 100% { transform: translateY(-2px); }
+  50% { transform: translateY(3px); }
+}
+
+/* === TransitionGroup 动画 === */
+.workspace-stack-move,
+.workspace-module-move {
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+}
+
+.workspace-stack-enter-active,
+.workspace-stack-leave-active,
+.workspace-module-enter-active,
+.workspace-module-leave-active {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+}
+
+.workspace-stack-enter-from,
+.workspace-stack-leave-to,
+.workspace-module-enter-from,
+.workspace-module-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+/* === 响应式 === */
 @media (max-width: 480px) {
-  .module-card {
-    padding: 4px 3px;
-    min-height: 60px;
+  .dashboard {
+    padding: 16px 12px 80px;
   }
 
-  .home-header-top {
-    gap: 6px;
+  .user-card {
+    padding: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
   }
 
-  .student-id {
-    max-width: 148px;
-    padding: 0 10px;
+  .user-card-actions {
+    gap: 12px;
   }
 
-  .layout-btn,
-  .logout-btn {
-    min-width: 56px;
-    padding: 0 10px;
+  .overview-greeting {
+    font-size: 20px;
   }
 
-  .logout-btn {
-    min-width: 60px;
-    padding: 0 10px;
+  .module-grid {
+    gap: 16px 4px;
   }
 
-  .today-panel {
-    padding: 14px 12px;
-  }
-
-  .today-timeline {
-    --timeline-dot-size: 12px;
-    --timeline-dot-top: 9px;
-  }
-
-  .today-panel-head h3 {
-    font-size: 17px;
-  }
-
-  .today-time {
-    font-size: 12px;
-    padding: 4px 10px;
+  .module-icon-square {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
   }
 
   .today-item {
@@ -2618,34 +2413,6 @@ html[data-theme='cyberpunk'] .today-room-pill {
 
   .today-item-name {
     font-size: 15px;
-    margin-bottom: 6px;
   }
-
-  .today-item-meta {
-    font-size: 12px;
-    line-height: 1.5;
-  }
-
-  .today-room-pill {
-    font-size: 13px;
-    padding: 3px 9px;
-  }
-
-  .module-name {
-    font-size: 12px;
-  }
-
-  .module-icon {
-    transform: scale(0.88);
-  }
-
-  .home-layout-toolbar--floating {
-    top: calc(68px + env(safe-area-inset-top));
-  }
-}
-
-.notice-modal-content {
-  user-select: text;
-  -webkit-user-select: text;
 }
 </style>

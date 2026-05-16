@@ -207,6 +207,18 @@ textarea:focus {
 }
 
 .back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 72px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
   background: var(--ui-back-btn-bg) !important;
   color: var(--ui-back-btn-text) !important;
   border: 1px solid var(--ui-back-btn-border) !important;
@@ -215,10 +227,20 @@ textarea:focus {
 
 .back-btn:hover {
   background: var(--ui-back-btn-hover-bg) !important;
+  transform: translateY(-1px);
+}
+
+.back-btn:active {
+  transform: scale(0.96);
 }
 
 ::-webkit-scrollbar {
   display: none;
+}
+
+html, body {
+  scrollbar-width: none;
+  overflow-x: hidden;
 }
 
 html.window-resizing,

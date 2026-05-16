@@ -1,4 +1,0 @@
-- generic [active] [ref=e1]:
-  - heading "500 Internal Server Error" [level=1] [ref=e3]
-  - separator [ref=e4]
-  - generic [ref=e5]: tengine

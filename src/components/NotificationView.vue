@@ -803,21 +803,11 @@ watch(
 <template>
   <div class="notification-view fade-in">
     <header class="dashboard-header">
-      <div class="brand">
+      <div class="header-left">
         <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
-        <span class="title">HBUT 校园助手</span>
-        <span class="page-tag">通知</span>
+        <span class="header-title">HBUT 校园助手</span>
       </div>
-      <div class="notification-header-actions">
-        <button
-          class="layout-btn"
-          :class="{ active: isNotificationLayoutEditing }"
-          @click="enterNotificationLayoutEdit"
-          :title="isNotificationLayoutEditing ? '正在编辑通知布局' : '配置通知布局'"
-        >
-          {{ isNotificationLayoutEditing ? '编辑中' : '配置' }}
-        </button>
-      </div>
+      <span class="header-pill">通知</span>
     </header>
 
     <section class="hero-card">
@@ -1003,11 +993,17 @@ watch(
             </div>
             <p class="hint">{{ classReminderText }}</p>
             <div class="kv">
-              <span class="mini-capsule mc-time">⏰ 提醒提前</span>
+              <div class="kv-left">
+                <span class="kv-icon kv-icon--red"><span class="material-symbols-rounded">alarm</span></span>
+                <span class="kv-label">提醒提前</span>
+              </div>
               <strong>{{ classLeadMinutes }} 分钟</strong>
             </div>
             <div class="kv">
-              <span class="mini-capsule mc-location">📚 下一门课</span>
+              <div class="kv-left">
+                <span class="kv-icon kv-icon--green"><span class="material-symbols-rounded">book</span></span>
+                <span class="kv-label">下一门课</span>
+              </div>
               <strong>{{ nextClassText }}</strong>
             </div>
           </template>
@@ -1017,22 +1013,34 @@ watch(
             <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
             <template v-if="powerSummary?.isDual">
               <div class="kv">
-                <span class="mini-capsule mc-seat">💡 照明电量</span>
+                <div class="kv-left">
+                  <span class="kv-icon kv-icon--yellow"><span class="material-symbols-rounded">lightbulb</span></span>
+                  <span class="kv-label">照明电量</span>
+                </div>
                 <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
               </div>
               <div class="kv">
-                <span class="mini-capsule mc-date">❄️ 空调电量</span>
+                <div class="kv-left">
+                  <span class="kv-icon kv-icon--blue"><span class="material-symbols-rounded">ac_unit</span></span>
+                  <span class="kv-label">空调电量</span>
+                </div>
                 <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
               </div>
             </template>
             <template v-else>
               <div class="kv">
-                <span class="mini-capsule mc-seat">⚡ 剩余电量</span>
+                <div class="kv-left">
+                  <span class="kv-icon kv-icon--yellow"><span class="material-symbols-rounded">bolt</span></span>
+                  <span class="kv-label">剩余电量</span>
+                </div>
                 <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
               </div>
             </template>
             <div class="kv">
-              <span class="mini-capsule mc-location">📊 状态</span>
+              <div class="kv-left">
+                <span class="kv-icon kv-icon--emerald"><span class="material-symbols-rounded">monitoring</span></span>
+                <span class="kv-label">状态</span>
+              </div>
               <strong>{{ powerStatusText }}</strong>
             </div>
           </template>
@@ -1044,8 +1052,8 @@ watch(
               <li v-for="(item, idx) in gradeItems" :key="`${item.course_name}-${item.term}-${idx}`">
                 <span class="item-main">{{ item.course_name || '-' }}</span>
                 <span class="item-sub-capsules">
-                  <span class="mini-capsule mc-date">📅 {{ item.term || '未知学期' }}</span>
-                  <span class="mini-capsule mc-time">📊 {{ item.final_score || '-' }}</span>
+                  <span class="mini-capsule mc-date"><span class="material-symbols-rounded mini-icon">calendar_month</span> {{ item.term || '未知学期' }}</span>
+                  <span class="mini-capsule mc-time"><span class="material-symbols-rounded mini-icon">bar_chart</span> {{ item.final_score || '-' }}</span>
                 </span>
               </li>
             </ul>
@@ -1062,10 +1070,10 @@ watch(
                   <small v-if="item.is_tomorrow" class="tag tag-urgent">明日</small>
                 </span>
                 <span class="item-sub-capsules">
-                  <span class="mini-capsule mc-date" v-if="item.exam_date">📅 {{ item.exam_date }}</span>
-                  <span class="mini-capsule mc-time" v-if="item.exam_time">⏰ {{ formatNotifyExamTime(item.exam_time) }}</span>
-                  <span class="mini-capsule mc-location" v-if="item.location">📍 {{ item.location }}</span>
-                  <span class="mini-capsule mc-seat" v-if="item.seat_no">💺 {{ item.seat_no }}</span>
+                  <span class="mini-capsule mc-date" v-if="item.exam_date"><span class="material-symbols-rounded mini-icon">calendar_today</span> {{ item.exam_date }}</span>
+                  <span class="mini-capsule mc-time" v-if="item.exam_time"><span class="material-symbols-rounded mini-icon">schedule</span> {{ formatNotifyExamTime(item.exam_time) }}</span>
+                  <span class="mini-capsule mc-location" v-if="item.location"><span class="material-symbols-rounded mini-icon">location_on</span> {{ item.location }}</span>
+                  <span class="mini-capsule mc-seat" v-if="item.seat_no"><span class="material-symbols-rounded mini-icon">event_seat</span> {{ item.seat_no }}</span>
                 </span>
               </li>
             </ul>
@@ -1096,13 +1104,45 @@ watch(
   min-height: 100%;
   padding: 18px 14px 120px;
   color: var(--ui-text);
-  background: var(--ui-bg-gradient);
+  background: #f9f9ff;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .logo-img {
-  width: 18px;
-  height: 18px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
+  border-radius: 50%;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.header-pill {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-primary, #2563eb);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
+  padding: 6px 16px;
+  border-radius: 9999px;
 }
 
 .notification-header-actions {
@@ -1422,8 +1462,11 @@ input:checked + .slider:before {
 .info-card {
   --drag-translate-x: 0px;
   --drag-translate-y: 0px;
-  padding: 14px;
+  padding: 16px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   transition:
     transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.26s ease,
@@ -1526,24 +1569,57 @@ input:checked + .slider:before {
 
 .kv {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin: 8px 0;
+  margin: 0;
+  padding: 12px;
+  background: #f9f9ff;
+  border-radius: 12px;
+  border: 1px solid rgba(195, 198, 215, 0.2);
 }
 
-.kv span {
-  color: var(--ui-muted);
-  font-size: 12px;
+.kv .kv-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.kv .kv-label {
+  color: var(--ui-muted, #6b7280);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.kv-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kv-icon .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.kv-icon--red { background: #fee2e2; color: #ef4444; }
+.kv-icon--green { background: #dcfce7; color: #16a34a; }
+.kv-icon--yellow { background: #fef9c3; color: #ca8a04; }
+.kv-icon--blue { background: #dbeafe; color: #3b82f6; }
+.kv-icon--emerald { background: #d1fae5; color: #059669; }
 
 .kv strong {
   color: var(--ui-text);
   font-size: 14px;
+  font-weight: 600;
 }
 
 .kv strong.low {
   color: #dc2626;
+  font-weight: 700;
 }
 
 .list {
@@ -1587,35 +1663,39 @@ input:checked + .slider:before {
 .mini-capsule {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px 8px;
-  border-radius: 12px;
+  gap: 3px;
+  padding: 3px 8px;
+  border-radius: 6px;
   font-size: 11px;
   font-weight: 500;
 }
 
+.mini-capsule .mini-icon {
+  font-size: 14px;
+}
+
 .mc-date {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(59, 130, 246, 0.08);
   color: #2563eb;
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.15);
 }
 
 .mc-time {
-  background: rgba(168, 85, 247, 0.1);
+  background: rgba(168, 85, 247, 0.08);
   color: #7c3aed;
-  border: 1px solid rgba(168, 85, 247, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.15);
 }
 
 .mc-location {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  background: rgba(16, 185, 129, 0.08);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.15);
 }
 
 .mc-seat {
-  background: rgba(245, 158, 11, 0.1);
+  background: rgba(245, 158, 11, 0.08);
   color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.15);
 }
 
 .tag {

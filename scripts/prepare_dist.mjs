@@ -2,20 +2,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const DIST_DIR = path.resolve(process.cwd(), 'dist')
-const TRASH_DIR = path.resolve(process.cwd(), `.dist-trash-${Date.now()}`)
+const TRASH_PREFIX = '.dist-trash-'
 
-const walkFiles = (dir, out = []) => {
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      walkFiles(fullPath, out)
-      continue
+// 清理之前残留的 .dist-trash-* 文件夹
+const cwd = process.cwd()
+try {
+  const rootEntries = fs.readdirSync(cwd, { withFileTypes: true })
+  for (const entry of rootEntries) {
+    if (entry.isDirectory() && entry.name.startsWith(TRASH_PREFIX)) {
+      try {
+        fs.rmSync(path.join(cwd, entry.name), { recursive: true, force: true })
+      } catch { /* ignore */ }
     }
-    out.push(fullPath)
   }
-  return out
-}
+} catch { /* ignore */ }
 
 if (!fs.existsSync(DIST_DIR)) {
   process.exit(0)
@@ -32,12 +32,17 @@ if (!fs.existsSync(DIST_DIR)) {
   process.exit(0)
 }
 
+// Fallback: rename then delete
+const TRASH_DIR = path.resolve(cwd, `${TRASH_PREFIX}${Date.now()}`)
 try {
   fs.renameSync(DIST_DIR, TRASH_DIR)
   try {
     fs.rmSync(TRASH_DIR, { recursive: true, force: true })
   } catch {
-    // ignore best-effort trash cleanup failure
+    // 异步延迟删除（Windows 文件锁释放后）
+    setTimeout(() => {
+      try { fs.rmSync(TRASH_DIR, { recursive: true, force: true }) } catch { /* give up */ }
+    }, 2000)
   }
   console.warn(`[prepare-dist] rm blocked; moved stale dist to ${path.basename(TRASH_DIR)}`)
   process.exit(0)

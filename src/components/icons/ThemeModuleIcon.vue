@@ -1,23 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 
-import iconGrades from '../../assets/module-icons/grades.svg?raw'
-import iconClassroom from '../../assets/module-icons/classroom.svg?raw'
-import iconElectricity from '../../assets/module-icons/electricity.svg?raw'
-import iconTransactions from '../../assets/module-icons/transactions.svg?raw'
-import iconCampusCode from '../../assets/module-icons/campus_code.svg?raw'
-import iconExams from '../../assets/module-icons/exams.svg?raw'
-import iconRanking from '../../assets/module-icons/ranking.svg?raw'
-import iconCalendar from '../../assets/module-icons/calendar.svg?raw'
-import iconAcademic from '../../assets/module-icons/academic.svg?raw'
-import iconQxzkb from '../../assets/module-icons/global_schedule.svg?raw'
-import iconTraining from '../../assets/module-icons/training.svg?raw'
-import iconCourseSelection from '../../assets/module-icons/course_selection.svg?raw'
-import iconLibrary from '../../assets/module-icons/library.svg?raw'
-import iconCampusMap from '../../assets/module-icons/campus_map.svg?raw'
-import iconResourceShare from '../../assets/module-icons/resource_share.svg?raw'
-import iconCampusAssistant from '../../assets/module-icons/campus_assistant.svg?raw'
-
 const props = defineProps({
   iconKey: { type: String, required: true },
   badgeSize: { type: Number, default: 44 },
@@ -26,273 +9,64 @@ const props = defineProps({
   variant: { type: String, default: 'module' }
 })
 
-const isAndroidLike = (() => {
-  if (typeof window === 'undefined') return false
-  return /android/i.test(window.navigator.userAgent || '')
-})()
-
-const removeBgIconKeys = new Set([
-  'classroom',
-  'campus_map'
-])
-
-const androidImgFallbackIconKeys = new Set([
-  'classroom',
-  'electricity',
-  'campus_code',
-  'exams',
-  'course_selection',
-  'training',
-  'ai'
-])
-
 const iconMap = {
-  grades: iconGrades,
-  classroom: iconClassroom,
-  electricity: iconElectricity,
-  transactions: iconTransactions,
-  campus_code: iconCampusCode,
-  exams: iconExams,
-  ranking: iconRanking,
-  calendar: iconCalendar,
-  academic: iconAcademic,
-  qxzkb: iconQxzkb,
-  course_selection: iconCourseSelection,
-  training: iconTraining,
-  library: iconLibrary,
-  campus_map: iconCampusMap,
-  resource_share: iconResourceShare,
-  ai: iconCampusAssistant,
-  home: iconCampusAssistant,
-  schedule: iconQxzkb,
-  notifications: iconExams,
-  me: iconRanking
+  grades: 'school',
+  classroom: 'meeting_room',
+  electricity: 'bolt',
+  transactions: 'receipt_long',
+  exams: 'event_note',
+  ranking: 'leaderboard',
+  campus_code: 'qr_code_2',
+  calendar: 'calendar_month',
+  academic: 'trending_up',
+  qxzkb: 'table_chart',
+  course_selection: 'playlist_add_check',
+  training: 'account_tree',
+  library: 'local_library',
+  campus_map: 'map',
+  resource_share: 'folder_shared',
+  ai: 'smart_toy',
+  more: 'apps',
+  home: 'home',
+  schedule: 'calendar_month',
+  notifications: 'notifications',
+  me: 'person'
 }
 
-const iconSrc = computed(() => iconMap[props.iconKey] || '')
+const symbolName = computed(() => iconMap[props.iconKey] || 'help')
 
 const iconStyle = computed(() => ({
   '--badge-size': `${props.badgeSize}px`,
-  '--icon-size': `${props.iconSize}px`
+  '--icon-size': `${props.iconSize}px`,
+  fontSize: `${props.iconSize}px`
 }))
-
-const iconKeyClass = computed(() =>
-  String(props.iconKey || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '-')
-)
-
-function normalizeSvgMarkup(svgText) {
-  if (!svgText) return ''
-  let normalized = svgText
-    .replace(/<\?xml[\s\S]*?\?>/gi, '')
-    .replace(/<!DOCTYPE[\s\S]*?>/gi, '')
-    .replace(/<svg\b([^>]*)>/i, '<svg$1 part="module-icon-svg">')
-
-  if (removeBgIconKeys.has(props.iconKey)) {
-    normalized = normalized.replace(
-      /(<svg\b[^>]*>)([\s\S]*?)(<\/svg>)/i,
-      (_match, openTag, body, closeTag) => {
-        const cleanedBody = body.replace(
-          /^\s*<(path|circle|ellipse|rect)\b[\s\S]*?(?:\/>|><\/\1>)\s*/i,
-          ''
-        )
-        return `${openTag}${cleanedBody}${closeTag}`
-      }
-    )
-  }
-
-  return normalized
-}
-
-const iconMarkup = computed(() => normalizeSvgMarkup(iconSrc.value))
-
-const useAndroidImgFallback = computed(() =>
-  // 安卓部分 WebView 对内联 SVG(v-html)兼容性不稳定，命中问题图标时退回 img 渲染。
-  isAndroidLike &&
-  props.variant === 'module' &&
-  androidImgFallbackIconKeys.has(props.iconKey)
-)
-
-const iconDataUrl = computed(() => {
-  if (!iconMarkup.value) return ''
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(iconMarkup.value)}`
-})
 </script>
 
 <template>
-  <span class="theme-module-icon" :class="`variant-${variant}`" :style="iconStyle" aria-hidden="true">
-    <span
-      v-if="useAndroidImgFallback && iconDataUrl"
-      class="icon-mask"
-      :class="`icon-${iconKeyClass}`"
-      :style="{ '--icon-mask-url': `url('${iconDataUrl}')` }"
-    />
-    <span v-else-if="iconMarkup" class="icon-svg" :class="`icon-${iconKeyClass}`" v-html="iconMarkup" />
-    <span v-else class="fallback-glyph">?</span>
-  </span>
+  <span 
+    class="theme-module-icon material-symbols-rounded" 
+    :class="`variant-${variant}`" 
+    :style="iconStyle" 
+    aria-hidden="true"
+  >{{ symbolName }}</span>
 </template>
 
 <style scoped>
 .theme-module-icon {
   width: var(--badge-size);
   height: var(--badge-size);
-  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(
-      120% 120% at 18% 18%,
-      color-mix(in oklab, var(--ui-primary) 22%, #dcf1ff 78%) 0%,
-      color-mix(in oklab, var(--ui-secondary) 14%, #eff8ff 86%) 100%
-    );
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.24));
-  box-shadow:
-    0 8px 16px color-mix(in oklab, var(--ui-primary) 14%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  overflow: hidden;
-  color: var(--module-icon-color, #2f8dff);
-}
-
-.icon-svg {
-  /* 保证图标始终完整落在圆圈内，且各模块缩放一致 */
-  width: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
-  height: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
+  font-size: var(--icon-size);
+  color: var(--module-icon-color, var(--ui-primary, #0066cc));
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   user-select: none;
-  -webkit-user-drag: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: inherit;
-}
-
-.icon-img {
-  width: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
-  height: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
-  user-select: none;
-  -webkit-user-drag: none;
-  object-fit: contain;
-  display: block;
-}
-
-.icon-mask {
-  width: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
-  height: min(calc(var(--badge-size) * 0.56), calc(var(--icon-size) * 0.92));
-  user-select: none;
-  -webkit-user-drag: none;
-  display: inline-block;
-  background-color: currentColor;
-  -webkit-mask-image: var(--icon-mask-url);
-  mask-image: var(--icon-mask-url);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
-}
-
-.icon-svg.icon-classroom {
-  width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
-  height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
-  transform: translate(-2px, 2px);
-}
-
-.icon-img.icon-classroom {
-  width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
-  height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
-  transform: translate(-2px, 2px);
-}
-
-.icon-mask.icon-classroom {
-  width: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
-  height: min(calc(var(--badge-size) * 0.64), calc(var(--icon-size) * 1.16));
-  transform: translate(-2px, 2px);
-}
-
-.icon-svg.icon-academic {
-  width: min(calc(var(--badge-size) * 0.62), calc(var(--icon-size) * 1.08));
-  height: min(calc(var(--badge-size) * 0.62), calc(var(--icon-size) * 1.08));
-  transform: translateY(1px);
-}
-
-.icon-svg :deep(svg) {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.icon-svg :deep(svg *) {
-  fill: currentColor !important;
-  stroke: currentColor !important;
-}
-
-.icon-svg :deep([fill='none']) {
-  fill: none !important;
-}
-
-.icon-svg :deep([stroke='none']) {
-  stroke: none !important;
+  line-height: 1;
 }
 
 .theme-module-icon.variant-tab {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-.theme-module-icon.variant-tab .icon-svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
   color: currentColor;
-}
-
-.theme-module-icon.variant-tab .icon-img {
-  width: var(--icon-size);
-  height: var(--icon-size);
-}
-
-.fallback-glyph {
-  font-size: calc(var(--icon-size) * 0.8);
-  line-height: 1;
-  color: color-mix(in oklab, var(--ui-primary) 84%, #111827 16%);
-}
-
-/* 主题级统一色调：圆圈底色和图标主色同步联动 */
-:global(html[data-theme='campus_blue']) .theme-module-icon,
-:global(html[data-theme='forest_mint']) .theme-module-icon,
-:global(html[data-theme='sunset_orange']) .theme-module-icon,
-:global(html[data-theme='minimal_slate']) .theme-module-icon,
-:global(html[data-theme='graphite_night']) .theme-module-icon {
-  --module-icon-color: color-mix(in oklab, var(--ui-primary) 88%, #2ea8ff 12%);
-}
-
-:global(html[data-theme='graphite_night']) .theme-module-icon {
-  color: var(--module-icon-color, #8fd8ff) !important;
-  background:
-    radial-gradient(
-      120% 120% at 20% 16%,
-      color-mix(in oklab, var(--ui-primary) 28%, #162033 72%) 0%,
-      color-mix(in oklab, var(--ui-secondary) 20%, #101a2b 80%) 100%
-    ) !important;
-  border-color: color-mix(in oklab, var(--ui-primary) 38%, rgba(148, 163, 184, 0.34)) !important;
-  box-shadow:
-    0 10px 20px rgba(8, 15, 28, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-}
-
-:global(html[data-theme='graphite_night']) .theme-module-icon :is(.icon-svg, .icon-mask, .icon-img, .fallback-glyph) {
-  color: inherit !important;
-  opacity: 1 !important;
-  filter: none !important;
-}
-
-:global(html[data-ui-icon='mono']) .theme-module-icon .icon-svg {
-  opacity: 0.9;
-}
-
-:global(html[data-ui-icon='line']) .theme-module-icon .icon-svg {
-  opacity: 0.95;
 }
 </style>

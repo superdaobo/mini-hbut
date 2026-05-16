@@ -86,31 +86,30 @@ const handleShowLegal = async (tab) => {
 
 <template>
   <div class="me-view">
+    <!-- Header -->
     <header class="dashboard-header">
-      <div class="brand">
+      <div class="header-left">
         <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
-        <span class="title">HBUT 校园助手</span>
-        <span class="page-tag">我的</span>
+        <span class="header-title">HBUT 校园助手</span>
       </div>
+      <span class="header-pill">我的</span>
     </header>
 
-    <section v-if="isLoggedIn" class="me-content glass-card">
-      <div class="me-row">
-        <span class="label">学号</span>
-        <span class="value">{{ studentId }}</span>
+    <!-- Profile Card -->
+    <section v-if="isLoggedIn" class="profile-card">
+      <div class="profile-avatar">
+        <span class="material-symbols-rounded avatar-icon">person</span>
       </div>
-      <div class="me-row">
-        <span class="label">静默登录</span>
-        <span class="value">已启用</span>
-      </div>
-      <div class="me-actions">
-        <button class="primary" @click="goStudentInfo">个人信息</button>
-        <button class="danger" @click="handleLogout">退出登录</button>
+      <h2 class="profile-student-id">{{ studentId }}</h2>
+      <p class="profile-school">湖北工业大学</p>
+      <div class="profile-actions">
+        <button class="btn-info" @click="goStudentInfo">个人信息</button>
+        <button class="btn-logout" @click="handleLogout">退出登录</button>
       </div>
     </section>
 
-    <section v-else class="me-content">
-      <LoginV3 
+    <section v-else class="profile-card">
+      <LoginV3
         :login-mode="loginMode"
         @success="emit('success', $event)"
         @switchMode="emit('switchMode', $event)"
@@ -118,97 +117,74 @@ const handleShowLegal = async (tab) => {
       />
     </section>
 
-    <!-- 功能入口 -->
-    <section class="quick-links glass-card">
-      <h3 class="section-title">更多功能</h3>
-      <div class="links-grid">
-        <button class="link-item" @click="handleOpenOfficial">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2a3 3 0 00-3 3v6a3 3 0 006 0V5a3 3 0 00-3-3z" />
-              <path d="M19 10v1a7 7 0 01-14 0v-1" />
-              <path d="M12 19v3" />
-              <path d="M8 22h8" />
-            </svg>
-          </span>
-          <span class="link-text">官方发布</span>
-        </button>
-        <button class="link-item" @click="handleOpenSettings">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
-            </svg>
-          </span>
-          <span class="link-text">设置</span>
-        </button>
-        <button class="link-item" @click="handleOpenExport">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-              <path d="M7 10l5 5 5-5" />
-              <path d="M12 15V3" />
-            </svg>
-          </span>
-          <span class="link-text">导出中心</span>
-        </button>
-        <button v-if="isConfigAdmin()" class="link-item" @click="handleOpenConfig">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
-            </svg>
-          </span>
-          <span class="link-text">配置工具</span>
-        </button>
-        <button class="link-item" @click="handleCheckUpdate">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M23 4v6h-6" />
-              <path d="M1 20v-6h6" />
-              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-            </svg>
-          </span>
-          <span class="link-text">检查更新</span>
-        </button>
-        <button class="link-item" @click="handleFeedback">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
-            </svg>
-          </span>
-          <span class="link-text">问题反馈</span>
-        </button>
-        <button class="link-item" @click="handleOpenSource">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
-              <path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72M2.8 10.3c6.02-.6 9.43-.25 17.72-2.33M2.08 14.5c4.13-.56 10.3.1 17.18-1.94" />
-            </svg>
-          </span>
-          <span class="link-text">开源说明</span>
-        </button>
-        <button class="link-item" @click="showSponsorModal = true">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-            </svg>
-          </span>
-          <span class="link-text">赞助</span>
-        </button>
-        <button class="link-item" @click="handleOpenMore">
-          <span class="link-icon" aria-hidden="true">
-            <svg class="link-svg" viewBox="0 0 24 24" fill="none">
-              <rect x="3.5" y="4" width="17" height="16" rx="4" />
-              <path d="M8 9.2h8M8 14.2h4.4" />
-              <circle cx="17.2" cy="14.2" r="1.2" />
-            </svg>
-          </span>
-          <span class="link-text">更多</span>
-        </button>
+    <!-- Login Status Card -->
+    <section class="status-card">
+      <div class="status-left">
+        <div class="status-icon-box">
+          <span class="material-symbols-rounded status-icon">verified_user</span>
+        </div>
+        <div class="status-text">
+          <span class="status-title">登录状态</span>
+          <span class="status-subtitle">静默登录已开启</span>
+        </div>
       </div>
+      <span class="status-dot"></span>
     </section>
 
-    <section ref="legalSectionRef" class="legal-section glass-card">
+    <!-- Functional Grid -->
+    <section class="func-grid">
+      <button class="grid-item" @click="handleOpenOfficial">
+        <div class="grid-icon-box" style="background: #E8F0FE;">
+          <span class="material-symbols-rounded" style="color: #1A73E8;">campaign</span>
+        </div>
+        <span class="grid-label">官方帖子</span>
+      </button>
+      <button class="grid-item" @click="handleOpenSettings">
+        <div class="grid-icon-box" style="background: #FCE8E6;">
+          <span class="material-symbols-rounded" style="color: #D93025;">settings</span>
+        </div>
+        <span class="grid-label">设置中心</span>
+      </button>
+      <button class="grid-item" @click="handleOpenExport">
+        <div class="grid-icon-box" style="background: #E6F4EA;">
+          <span class="material-symbols-rounded" style="color: #1E8E3E;">download</span>
+        </div>
+        <span class="grid-label">导出中心</span>
+      </button>
+      <button v-if="isConfigAdmin()" class="grid-item" @click="handleOpenConfig">
+        <div class="grid-icon-box" style="background: #FEF7E0;">
+          <span class="material-symbols-rounded" style="color: #F9AB00;">build</span>
+        </div>
+        <span class="grid-label">配置工具</span>
+      </button>
+      <button class="grid-item" @click="handleCheckUpdate">
+        <div class="grid-icon-box" style="background: #F3E8FD;">
+          <span class="material-symbols-rounded" style="color: #9333EA;">update</span>
+        </div>
+        <span class="grid-label">检查更新</span>
+      </button>
+      <button class="grid-item" @click="handleFeedback">
+        <div class="grid-icon-box" style="background: #E1F5FE;">
+          <span class="material-symbols-rounded" style="color: #0288D1;">feedback</span>
+        </div>
+        <span class="grid-label">意见反馈</span>
+      </button>
+      <button class="grid-item" @click="handleOpenSource">
+        <div class="grid-icon-box" style="background: #ECEFF1;">
+          <span class="material-symbols-rounded" style="color: #455A64;">code</span>
+        </div>
+        <span class="grid-label">开源协议</span>
+      </button>
+      <button class="grid-item" @click="showSponsorModal = true">
+        <div class="grid-icon-box" style="background: #FFF3E0;">
+          <span class="material-symbols-rounded" style="color: #E65100;">favorite</span>
+        </div>
+        <span class="grid-label">赞助</span>
+      </button>
+    </section>
+
+    <!-- Legal Section -->
+    <section ref="legalSectionRef" class="legal-card">
       <h3 class="legal-title">免责声明与隐私政策</h3>
       <div class="legal-tabs">
         <button
@@ -254,9 +230,7 @@ const handleShowLegal = async (tab) => {
     <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
       <div class="modal-card" @click.stop>
         <h3>📚 开源说明</h3>
-        
         <p class="intro">Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
-        
         <div class="section">
           <p class="label">项目地址</p>
           <a class="github-link" @click="openGithub">
@@ -266,7 +240,6 @@ const handleShowLegal = async (tab) => {
             https://github.com/superdaobo/mini-hbut
           </a>
         </div>
-        
         <div class="section">
           <p class="label">开源技术</p>
           <ul class="opensource-list">
@@ -275,13 +248,11 @@ const handleShowLegal = async (tab) => {
             <li><span class="tag">感谢</span> 所有开源贡献者</li>
           </ul>
         </div>
-        
         <div class="section thanks">
           <p>感谢原 <strong>Mini湖工</strong> 小程序的开发者，为本项目提供了宝贵的灵感</p>
           <p>感谢开发者的 <strong>朋友们和舍友们</strong>，提供了测试和反馈</p>
           <p class="highlight">感谢所有为 Mini-HBUT 做出贡献的人！ 🎉</p>
         </div>
-        
         <div class="modal-actions">
           <button class="btn-primary" @click="showOpenSourceModal = false">知道了</button>
         </div>
@@ -314,304 +285,282 @@ const handleShowLegal = async (tab) => {
 <style scoped>
 .me-view {
   min-height: 100vh;
-  padding: 20px 20px 110px;
-  background: var(--ui-bg-gradient);
+  background: #f9f9ff;
+  padding: 18px 16px 120px;
+  max-width: 600px;
+  margin: 0 auto;
+  width: 100%;
 }
 
-.dashboard-header .brand {
+/* Header */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.header-left {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 0;
 }
 
 .logo-img {
-  width: 18px;
-  height: 18px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
+  border-radius: 50%;
 }
 
-.dashboard-header .user-info {
+.header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.header-pill {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-primary, #2563eb);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
+  padding: 6px 16px;
+  border-radius: 9999px;
+}
+
+/* Profile Card */
+.profile-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 32px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  margin-bottom: 16px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
 }
 
-.dashboard-header .title {
-  font-size: clamp(16px, 4.2vw, 20px);
-  font-weight: 800;
-  letter-spacing: 0.2px;
-  color: var(--ui-text) !important;
-  background: none !important;
-  -webkit-text-fill-color: currentColor !important;
-  text-shadow: none !important;
-  position: relative;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.dashboard-header .title::selection {
-  color: #fff;
-  -webkit-text-fill-color: #fff;
-  background: color-mix(in oklab, var(--ui-primary) 70%, #111827 30%);
-}
-
-.dashboard-header .title.glitch-text::before {
-  content: none;
-}
-
-.dashboard-header .title.glitch-text::after {
-  content: none;
-}
-
-.page-tag {
-  display: inline-flex;
+.profile-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+  display: flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
-  min-width: 42px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.avatar-icon {
+  font-size: 40px;
+  color: var(--ui-primary, #2563eb);
+}
+
+.profile-student-id {
+  margin: 0 0 4px;
+  font-size: 24px;
   font-weight: 700;
-  color: var(--ui-primary);
-  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  color: #1f2937;
 }
 
-.profile-inline {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
-  border-radius: 12px;
-  background: var(--ui-primary-soft);
+.profile-school {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: #6b7280;
 }
 
-.avatar {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--ui-primary-soft-strong);
-}
-
-.avatar svg,
-.student-id svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
-}
-
-.student-id {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--ui-text);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--ui-primary) 20%, #fff 80%),
-    color-mix(in oklab, var(--ui-secondary) 15%, #fff 85%)
-  );
-  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 20%, transparent);
-}
-
-.hero-info h2 {
-  margin: 0 0 2px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ui-text);
-}
-
-.hero-info p {
-  margin: 0;
-  color: var(--ui-muted);
-  font-weight: 600;
-}
-
-.me-content {
-  padding: 20px;
-}
-
-.me-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--ui-surface-border);
-  font-size: 15px;
-}
-
-.me-row .label {
-  color: var(--ui-muted);
-}
-
-.me-row .value {
-  font-weight: 600;
-  color: var(--ui-text);
-}
-
-@media (max-width: 768px) {
-  .dashboard-header {
-    gap: 8px;
-    padding: 10px 12px;
-  }
-
-  .dashboard-header .user-info {
-    max-width: 62%;
-    justify-content: flex-end;
-    flex-wrap: nowrap;
-    gap: 6px;
-  }
-
-  .dashboard-header .student-id {
-    max-width: 170px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.me-actions {
+.profile-actions {
   display: flex;
   gap: 12px;
-  margin-top: 18px;
+  width: 100%;
+  max-width: 280px;
 }
 
-.me-actions button {
+.btn-info {
   flex: 1;
-  padding: 10px 14px;
+  padding: 10px 18px;
   border: none;
-  border-radius: 12px;
+  border-radius: 16px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  background: var(--ui-primary, #2563eb);
+  color: #ffffff;
+  transition: opacity 0.2s;
 }
 
-.me-actions .primary {
-  background: var(--ui-primary);
-  color: white;
+.btn-info:active {
+  opacity: 0.85;
 }
 
-.me-actions .danger {
-  background: var(--ui-danger);
-  color: white;
+.btn-logout {
+  flex: 1;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #fce8e6;
+  color: #d93025;
+  transition: opacity 0.2s;
 }
 
-.legal-section {
-  margin-top: 20px;
-  padding: 20px;
+.btn-logout:active {
+  opacity: 0.85;
 }
 
-.section-title {
-  margin: 0 0 16px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ui-text);
+/* Login Status Card */
+.status-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.quick-links {
-  margin-top: 20px;
-  padding: 20px;
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
-.links-grid {
+.status-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, #ffffff 90%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-icon {
+  font-size: 24px;
+  color: var(--ui-primary, #2563eb);
+}
+
+.status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.status-subtitle {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+/* Functional Grid */
+.func-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+  margin-bottom: 16px;
 }
 
-.link-item {
+.grid-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 16px 12px;
-  background: var(--ui-primary-soft);
-  border: 1px solid var(--ui-primary-soft-strong);
-  border-radius: 16px;
+  padding: 16px 8px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 20px;
   cursor: pointer;
-  transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.link-item:hover {
-  background: var(--ui-primary-soft-strong);
+.grid-item:hover {
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
-.link-item:active {
-  transform: scale(0.98);
+.grid-item:active {
+  transform: scale(0.96);
 }
 
-.link-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  display: inline-flex;
+.grid-icon-box {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.22);
 }
 
-.link-svg {
-  width: 14px;
-  height: 14px;
-  stroke: color-mix(in oklab, var(--ui-primary) 82%, var(--ui-secondary) 18%);
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
+.grid-icon-box .material-symbols-rounded {
+  font-size: 26px;
 }
 
-.link-text {
-  font-size: 14px;
+.grid-label {
+  font-size: 12px;
   font-weight: 600;
-  color: var(--ui-muted);
+  color: #374151;
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* Legal Section */
+.legal-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 24px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  margin-bottom: 16px;
 }
 
 .legal-title {
-  margin: 0 0 12px;
-  font-size: 18px;
+  margin: 0 0 14px;
+  font-size: 17px;
   font-weight: 700;
-  color: var(--ui-text);
+  color: #1f2937;
 }
 
 .legal-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .legal-tab {
-  padding: 10px 12px;
-  border: 1px solid var(--ui-primary-soft-strong);
-  border-radius: 12px;
-  background: var(--ui-primary-soft);
-  color: var(--ui-text);
+  padding: 8px 18px;
+  border: none;
+  border-radius: 9999px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  background: #f3f4f6;
+  color: #6b7280;
+  transition: all 0.2s;
 }
 
 .legal-tab.active {
-  background: var(--ui-primary);
-  color: white;
-  border-color: var(--ui-primary);
+  background: var(--ui-primary, #2563eb);
+  color: #ffffff;
 }
 
 .legal-content {
-  color: var(--ui-muted);
+  color: #4b5563;
   line-height: 1.7;
   font-size: 14px;
 }
@@ -638,111 +587,101 @@ const handleShowLegal = async (tab) => {
 }
 
 .modal-card {
-  background: var(--ui-surface);
+  background: #ffffff;
   width: 85%;
-  max-width: 320px;
+  max-width: 340px;
   padding: 24px;
-  border-radius: 16px;
-  box-shadow: var(--ui-shadow-strong);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
 }
 
 .modal-card h3 {
-  margin-top: 0;
-  color: var(--ui-text);
-}
-
-.github-link {
-    display: block;
-    margin: 10px 0;
-    color: var(--ui-primary);
-    text-decoration: underline;
-    cursor: pointer;
-    word-break: break-all;
-}
-
-.modal-card h3 {
-    margin-bottom: 16px;
-    font-size: 18px;
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f2937;
 }
 
 .modal-card .intro {
-    margin-bottom: 20px;
-    color: var(--ui-text);
-    line-height: 1.6;
+  margin-bottom: 20px;
+  color: #374151;
+  line-height: 1.6;
+  font-size: 14px;
 }
 
 .modal-card .section {
-    margin-bottom: 16px;
+  margin-bottom: 16px;
 }
 
 .modal-card .label {
-    font-size: 12px;
-    color: var(--ui-muted);
-    margin-bottom: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.modal-card .github-link {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    background: var(--ui-card-bg);
-    border-radius: 8px;
-    color: var(--ui-primary);
-    text-decoration: none;
-    font-size: 14px;
-    word-break: break-all;
+.github-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border-radius: 12px;
+  color: var(--ui-primary, #2563eb);
+  text-decoration: none;
+  font-size: 14px;
+  word-break: break-all;
+  cursor: pointer;
 }
 
-.modal-card .github-link .icon {
-    width: 18px;
-    height: 18px;
-    flex-shrink: 0;
+.github-link .icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .modal-card .tag {
-    display: inline-block;
-    padding: 2px 8px;
-    background: var(--ui-primary);
-    color: white;
-    border-radius: 4px;
-    font-size: 11px;
-    margin-right: 8px;
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--ui-primary, #2563eb);
+  color: white;
+  border-radius: 6px;
+  font-size: 11px;
+  margin-right: 8px;
 }
 
 .modal-card .thanks {
-    padding: 12px;
-    background: var(--ui-card-bg);
-    border-radius: 8px;
-    border-left: 3px solid var(--ui-primary);
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 12px;
+  border-left: 3px solid var(--ui-primary, #2563eb);
 }
 
 .modal-card .thanks p {
-    margin: 0 0 8px 0;
-    font-size: 13px;
-    color: var(--ui-muted);
-    line-height: 1.5;
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
 }
 
 .modal-card .thanks p:last-child {
-    margin-bottom: 0;
+  margin-bottom: 0;
 }
 
 .modal-card .thanks .highlight {
-    color: var(--ui-primary);
-    font-weight: 600;
-    text-align: center;
-    padding-top: 8px;
-    border-top: 1px dashed var(--ui-border);
+  color: var(--ui-primary, #2563eb);
+  font-weight: 600;
+  text-align: center;
+  padding-top: 8px;
+  border-top: 1px dashed #e5e7eb;
 }
 
 .opensource-list {
-    margin: 0;
-    padding-left: 20px;
-    font-size: 14px;
-    color: var(--ui-muted);
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: #6b7280;
 }
 
 .modal-actions {
@@ -753,22 +692,21 @@ const handleShowLegal = async (tab) => {
 }
 
 .btn-primary {
-  background: var(--ui-primary);
+  background: var(--ui-primary, #2563eb);
   color: white;
   border: none;
-  padding: 8px 20px;
-  border-radius: 8px;
+  padding: 10px 22px;
+  border-radius: 12px;
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.2s;
 }
 
-.profile-summary {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+.btn-primary:active {
+  opacity: 0.85;
 }
 
+/* Sponsor Modal */
 .sponsor-modal {
   max-width: 340px;
   text-align: center;
@@ -785,22 +723,25 @@ const handleShowLegal = async (tab) => {
 .sponsor-qr-image {
   max-width: 240px;
   max-height: 300px;
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
 .sponsor-loading {
-  color: var(--ui-muted);
+  color: #6b7280;
   font-size: 14px;
 }
 
 .sponsor-hint {
   font-size: 12px;
-  color: var(--ui-muted);
+  color: #6b7280;
   margin: 8px 0 16px;
 }
+
+/* Responsive: 小屏幕 grid 变 3 列 */
+@media (max-width: 380px) {
+  .func-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
 </style>
-
-
-
-

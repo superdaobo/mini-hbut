@@ -1,11 +1,11 @@
 import { createApp } from 'vue'
-import './style.css'
-import './styles/ui_ux_pro_max.css'
+import './index.css'
 import App from './App.vue'
 import IOSSelect from './components/IOSSelect.vue'
 import { initUiSettings } from './utils/ui_settings'
 import { initAppSettings } from './utils/app_settings'
 import { initFontSettings } from './utils/font_settings'
+import { initThemeBridge } from './utils/theme-bridge'
 import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
@@ -63,6 +63,9 @@ const runDeferredInitializers = () => {
 }
 
 const bootstrap = () => {
+  // 在 Vue 挂载前注入 CSS 变量，避免 FOUC（无样式内容闪烁）
+  initThemeBridge()
+
   initDebugLogger()
   pushDebugLog('Bootstrap', '开始初始化应用')
   initUiSettings()

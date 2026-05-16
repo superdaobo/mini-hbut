@@ -1522,19 +1522,19 @@ const getCourseStyle = (course) => {
   const isClassCard = scheduleCourseCardStyle.value === 'class'
   // 现代样式使用连续圆角，避免竖向出现“尖顶”视觉。
   const modernRadius = '14px'
-  const traditionalRadius = '8px'
+  const traditionalRadius = '12px'
   const classRadius = '12px'
   if (course.is_conflict) {
     return {
       '--course-bg': isTraditionalCard
-        ? '#dc2626'
+        ? '#fef2f2'
         : (isClassCard
           ? 'rgba(254, 242, 242, 0.96)'
           : 'repeating-linear-gradient(135deg, #fff1f2 0, #fff1f2 8px, #ffe4e6 8px, #ffe4e6 16px)'),
-      '--course-text': isTraditionalCard ? '#ffffff' : '#b91c1c',
-      '--course-border': '#dc2626',
+      '--course-text': isTraditionalCard ? '#b91c1c' : '#b91c1c',
+      '--course-border': isTraditionalCard ? '#fecaca' : '#dc2626',
       '--course-shadow': isTraditionalCard
-        ? '0 4px 10px rgba(220, 38, 38, 0.18)'
+        ? '0 2px 8px rgba(220, 38, 38, 0.08)'
         : (isClassCard
           ? '0 6px 14px rgba(220, 38, 38, 0.16)'
           : '0 8px 18px rgba(220, 38, 38, 0.2)'),
@@ -1563,14 +1563,15 @@ const getCourseStyle = (course) => {
   const theme = courseThemes[index]
   const isCustom = !!course.is_custom
   const borderColor = isCustom ? '#111111' : (theme.border || '#cbd5e1')
-  const traditionalBackground = isCustom ? '#111111' : borderColor
-  const traditionalText = '#ffffff'
+  // 传统样式：柔和彩色背景 + 同色系边框 + 深色文字（参考设计稿）
+  const traditionalBackground = isCustom ? '#111111' : theme.bg
+  const traditionalText = isCustom ? '#ffffff' : theme.text
   const modernBackground = 'rgba(255, 255, 255, 0.92)'
   const classBackground = 'rgba(255, 255, 255, 0.94)'
   const normalShadow = isCustom
     ? '0 7px 16px rgba(15, 23, 42, 0.24)'
     : '0 6px 14px rgba(71, 85, 105, 0.16)'
-  const traditionalShadow = '0 4px 10px rgba(15, 23, 42, 0.14)'
+  const traditionalShadow = '0 2px 8px rgba(0, 0, 0, 0.04)'
   const classShadow = isCustom
     ? '0 6px 14px rgba(15, 23, 42, 0.2)'
     : '0 4px 10px rgba(71, 85, 105, 0.14)'
@@ -3090,10 +3091,12 @@ onBeforeUnmount(() => {
     <!-- 头部导航 -->
     <div class="schedule-topbar">
       <button class="menu-btn btn-ripple" @click="toggleMenu" aria-label="打开课表菜单">
-        <span class="menu-bar"></span>
-        <span class="menu-bar"></span>
-        <span class="menu-bar"></span>
+        <span class="material-symbols-rounded menu-icon">menu</span>
       </button>
+      <div class="topbar-center">
+        <h1 class="topbar-title">课表</h1>
+        <p class="topbar-semester">{{ semester || '加载中...' }}</p>
+      </div>
       <div class="topbar-right">
         <div class="semester-badge-wrap" v-if="semesterPopupText">
           <button class="semester-badge-btn btn-ripple" @click="onSemesterBadgeClick" aria-label="学期信息">
@@ -3122,9 +3125,12 @@ onBeforeUnmount(() => {
     </Transition>
     <Transition name="drawer-slide">
       <aside v-if="showMenu" class="drawer-panel" @click.stop>
-        <div class="drawer-title">课表工具</div>
+        <div class="drawer-title">
+          <span class="material-symbols-rounded drawer-title-icon">calendar_month</span>
+          课表工具
+        </div>
         <div class="drawer-section">
-          <div class="drawer-subtitle">选择学期</div>
+          <div class="drawer-subtitle" data-step="1">选择学期</div>
           <div class="drawer-semester-row">
             <IOSSelect class="drawer-select" v-model="semesterDraft" :disabled="semesterLoading || loading" @change="onSemesterChange">
               <option disabled value="">请选择学期</option>
@@ -3135,7 +3141,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="drawer-section">
-          <div class="drawer-subtitle">课程样式</div>
+          <div class="drawer-subtitle" data-step="2">课程样式</div>
           <div class="drawer-style-switch" role="tablist" aria-label="课程样式切换">
             <button
               v-for="item in courseCardStyleOptions"
@@ -3155,24 +3161,27 @@ onBeforeUnmount(() => {
 
         <div class="drawer-actions">
           <div class="drawer-course-group">
-            <div class="drawer-subtitle">自定义课程管理</div>
+            <div class="drawer-subtitle" data-step="3">自定义课程管理</div>
             <div class="drawer-course-actions">
               <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
+                <span class="material-symbols-rounded">add_circle</span>
                 添加课程
               </button>
               <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="openManageCoursesDialog">
+                <span class="material-symbols-rounded">folder_copy</span>
                 {{ loadingManageCourses ? '加载中...' : '管理课程' }}
               </button>
             </div>
           </div>
           <div class="drawer-sync-group">
-            <div class="drawer-subtitle">自定义课程同步</div>
+            <div class="drawer-subtitle" data-step="4">自定义课程同步</div>
             <div class="drawer-sync-actions">
               <button
                 class="drawer-action sync-upload"
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="handleCloudSyncUpload"
               >
+                <span class="material-symbols-rounded">cloud_upload</span>
                 {{ syncUploading ? '云上传中...' : '云上传' }}
               </button>
               <button
@@ -3180,6 +3189,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="handleCloudSyncDownload"
               >
+                <span class="material-symbols-rounded">cloud_download</span>
                 {{ syncDownloading ? '云下载中...' : '云下载' }}
               </button>
             </div>
@@ -3189,6 +3199,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="exportCustomCoursesJson"
               >
+                <span class="material-symbols-rounded">data_object</span>
                 {{ customCourseExporting ? '导出中...' : '导出 JSON' }}
               </button>
               <button
@@ -3196,6 +3207,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="triggerImportCustomCourses"
               >
+                <span class="material-symbols-rounded">file_upload</span>
                 {{ customCourseImporting ? '导入中...' : '导入 JSON' }}
               </button>
             </div>
@@ -3213,14 +3225,17 @@ onBeforeUnmount(() => {
               <span v-if="customCourseExportLocation" class="drawer-sync-export-path">导出位置：{{ customCourseExportLocation }}</span>
             </div>
           </div>
+          <div class="drawer-subtitle" data-step="5">导出数据</div>
           <button
             class="drawer-action"
             :disabled="exporting"
             @click="exportCalendar('week')"
           >
+            <span class="material-symbols-rounded">calendar_today</span>
             {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
           </button>
           <button class="drawer-action ghost" :disabled="exporting" @click="exportCalendar('semester')">
+            <span class="material-symbols-rounded">school</span>
             {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
           </button>
         </div>
@@ -3577,7 +3592,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .schedule-view {
   --time-axis-width: 40px;
-  --topbar-height: 52px;
+  --topbar-height: 44px;
   --date-header-height: 50px;
   --schedule-bottom-gap: calc(108px + env(safe-area-inset-bottom));
   --schedule-safe-top: 0px;
@@ -3598,11 +3613,11 @@ onBeforeUnmount(() => {
   min-height: calc(var(--app-vh, 1vh) * 100);
   display: flex;
   flex-direction: column;
-  background: var(--ui-bg-gradient);
+  background: #f9f9ff;
   font-family: var(--ui-font-family);
   overflow: hidden;
   box-sizing: border-box;
-  padding-top: 8px;
+  padding-top: 0;
 }
 
 .schedule-topbar {
@@ -3610,51 +3625,78 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 14px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 6px;
   min-height: var(--topbar-height);
-  background: var(--ui-surface);
-  border-bottom: 1px solid var(--ui-surface-border);
+  background: #f9f9ff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 4px 20px -2px rgba(59, 130, 246, 0.05);
   box-sizing: border-box;
 }
 
+.topbar-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.topbar-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.topbar-semester {
+  font-size: 11px;
+  color: #9ca3af;
+  margin: 2px 0 0;
+}
+
 .schedule-topbar .menu-btn {
-  width: 36px;
-  height: 32px;
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 10px;
-  background: var(--ui-surface);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #f0f0f0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
   cursor: pointer;
-  box-shadow: var(--ui-shadow-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
 }
 
 .schedule-topbar .menu-btn:hover {
   transform: translateY(-1px);
-  box-shadow: var(--ui-shadow-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .menu-bar {
   width: 16px;
   height: 2px;
-  background: var(--ui-text);
-  border-radius: 2px;
+  background: #4b5563;
+  border-radius: 1px;
 }
 
 .week-selector {
   position: relative;
-  background: transparent !important;
-  padding: 0;
+  background: #ffffff !important;
+  padding: 8px 16px;
   min-height: 32px;
-  border-radius: 0;
-  border: none !important;
-  box-shadow: none !important;
+  border-radius: 9999px;
+  border: 1px solid #f0f0f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
   display: flex;
   align-items: center;
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .week-selector :deep(.ios26-select-trigger) {
@@ -3664,10 +3706,10 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 800;
   padding: 0 11px !important;
-  border-radius: 14px !important;
-  background: var(--ui-surface) !important;
+  border-radius: 9999px !important;
+  background: #ffffff !important;
   box-shadow: none !important;
-  border: 1px solid var(--ui-surface-border) !important;
+  border: 1px solid #f0f0f0 !important;
 }
 
 .week-selector :deep(.ios26-select-value) {
@@ -3691,18 +3733,18 @@ onBeforeUnmount(() => {
   position: fixed;
   top: calc(env(safe-area-inset-top, 0px) + 18px);
   left: 0;
-  width: min(78vw, 320px);
+  width: min(85vw, 360px);
   height: calc(100dvh - env(safe-area-inset-top, 0px) - 18px);
-  background: var(--ui-surface);
-  border-right: 1px solid var(--ui-surface-border);
-  border-top-right-radius: 16px;
-  border-bottom-right-radius: 16px;
-  padding: 18px 16px calc(28px + env(safe-area-inset-bottom, 0px));
-  box-shadow: 12px 0 24px rgba(15, 23, 42, 0.16);
+  background: #ffffff;
+  border-right: none;
+  border-top-right-radius: 24px;
+  border-bottom-right-radius: 24px;
+  padding: 24px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
   z-index: 50;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -3715,20 +3757,62 @@ onBeforeUnmount(() => {
 }
 
 .drawer-title {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 700;
-  color: var(--ui-text);
+  color: #1f2937;
+  padding: 0 0 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-title-icon {
+  font-size: 22px;
+  color: var(--ui-primary, #2563eb);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 8%, #ffffff 92%);
+  border-radius: 12px;
 }
 
 .drawer-section {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px dashed #e5e7eb;
+}
+
+.drawer-section:last-child {
+  border-bottom: none;
 }
 
 .drawer-subtitle {
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drawer-subtitle::before {
+  content: attr(data-step);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ui-primary, #2563eb);
+  color: #ffffff;
+  font-size: 11px;
   font-weight: 700;
-  color: var(--ui-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .drawer-semester-row {
@@ -3738,18 +3822,18 @@ onBeforeUnmount(() => {
 
 .drawer-select {
   width: 100%;
-  height: 36px;
-  border-radius: 10px;
-  border: 1px solid var(--ui-surface-border);
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 0 10px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--ui-primary, #2563eb) 20%, #e5e7eb 80%);
+  background: color-mix(in srgb, var(--ui-primary, #2563eb) 4%, #ffffff 96%);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 14px;
 }
 
 .drawer-select:focus {
-  outline: 2px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
   outline-offset: 1px;
 }
 
@@ -3762,49 +3846,62 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   width: 100%;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, rgba(148, 163, 184, 0.34));
-  background: color-mix(in oklab, var(--ui-primary-soft) 18%, var(--ui-surface) 82%);
+  gap: 0;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid #f0f0f0;
+  background: #f9fafb;
 }
 
 .drawer-style-chip {
   border: none;
   background: transparent;
-  color: var(--ui-muted);
-  border-radius: 999px;
-  min-height: 31px;
-  padding: 0 6px;
+  color: #6b7280;
+  border-radius: 12px;
+  min-height: 36px;
+  padding: 0 8px;
   text-align: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
 .drawer-style-chip strong {
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .drawer-style-chip.active {
   color: #ffffff;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: var(--ui-primary, #2563eb);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent 70%);
+  font-weight: 600;
 }
 
 .drawer-action {
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
   border: none;
-  background: linear-gradient(135deg, var(--ui-primary), #22d3ee);
+  background: linear-gradient(135deg, #3b82f6, #06b6d4);
   color: white;
   font-weight: 600;
+  font-size: 14px;
   cursor: pointer;
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.22);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s ease;
+}
+
+.drawer-action:active {
+  transform: scale(0.98);
 }
 
 .drawer-actions {
@@ -3814,31 +3911,66 @@ onBeforeUnmount(() => {
 
 .drawer-course-group {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, var(--ui-surface-border));
-  background: color-mix(in oklab, var(--ui-primary-soft) 24%, var(--ui-surface) 76%);
+  gap: 10px;
 }
 
 .drawer-course-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.drawer-course-actions button,
+.drawer-course-actions .drawer-action {
+  padding: 20px 12px;
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
+}
+
+.drawer-course-actions button:first-child,
+.drawer-course-actions .drawer-action:first-child {
+  background: linear-gradient(135deg, #f97316, #ec4899);
+  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.2);
+}
+
+.drawer-course-actions button:last-child,
+.drawer-course-actions .drawer-action:last-child {
+  background: linear-gradient(135deg, #6366f1, #3b82f6);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.2);
 }
 
 .drawer-sync-group {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, var(--ui-surface-border));
-  background: color-mix(in oklab, var(--ui-primary-soft) 28%, var(--ui-surface) 72%);
+  gap: 10px;
 }
 
 .drawer-sync-actions {
   display: grid;
+  gap: 10px;
+}
+
+.drawer-sync-actions button,
+.drawer-sync-actions .drawer-action {
+  padding: 14px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
+  transition: transform 0.15s ease;
+}
+
+.drawer-sync-actions button:active,
+.drawer-sync-actions .drawer-action:active {
+  transform: scale(0.98);
 }
 
 .drawer-sync-actions--json {
@@ -3893,7 +4025,7 @@ onBeforeUnmount(() => {
 .drawer-sync-cooldown,
 .drawer-sync-running {
   font-size: 12px;
-  color: var(--ui-muted);
+  color: #6b7280;
   line-height: 1.4;
 }
 
@@ -3904,7 +4036,7 @@ onBeforeUnmount(() => {
 
 .drawer-sync-export-path {
   font-size: 12px;
-  color: color-mix(in oklab, var(--ui-primary) 68%, #0f172a);
+  color: #2563eb;
   font-weight: 600;
   line-height: 1.4;
   word-break: break-all;
@@ -3912,20 +4044,20 @@ onBeforeUnmount(() => {
 
 .drawer-tip {
   font-size: 12px;
-  color: var(--ui-muted);
+  color: #6b7280;
   line-height: 1.5;
 }
 
 .export-result {
   padding: 10px;
-  background: rgba(248, 250, 252, 0.85);
+  background: #f9fafb;
   border-radius: 12px;
-  border: 1px solid var(--ui-surface-border);
+  border: 1px solid #e5e7eb;
 }
 
 .export-label {
   font-size: 12px;
-  color: var(--ui-muted);
+  color: #6b7280;
   margin-bottom: 6px;
 }
 
@@ -3938,9 +4070,9 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 8px 10px;
   border-radius: 10px;
-  border: 1px solid var(--ui-surface-border);
+  border: 1px solid #e5e7eb;
   font-size: 12px;
-  color: var(--ui-text);
+  color: #111827;
   background: white;
 }
 
@@ -3994,8 +4126,8 @@ onBeforeUnmount(() => {
 .date-header {
   height: var(--date-header-height);
   display: flex;
-  border-bottom: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-surface-border));
-  background: var(--ui-surface);
+  border-bottom: 1px solid #f0f0f0;
+  background: #ffffff;
   flex-shrink: 0;
 }
 
@@ -4006,13 +4138,13 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  color: var(--ui-text);
+  color: #111827;
   font-size: 14px;
 }
 .month-label {
   font-size: 10px;
   font-weight: normal;
-  color: var(--ui-muted);
+  color: #9ca3af;
 }
 
 .days-row {
@@ -4030,25 +4162,25 @@ onBeforeUnmount(() => {
 }
 
 .day-col.is-today {
-  background: color-mix(in oklab, var(--ui-primary-soft) 82%, #fff 18%);
-  border-radius: 0 0 12px 12px;
+  background: #dbeafe;
+  border-radius: 8px;
+  color: #2563eb;
 }
 
 .day-col.is-today .day-num {
-  color: color-mix(in oklab, var(--ui-primary) 78%, #0f172a 22%);
+  color: #2563eb;
   font-weight: 800;
-  text-shadow: 0 1px 0 color-mix(in oklab, #ffffff 70%, transparent);
 }
 
 .day-num {
   font-size: 14px;
-  color: var(--ui-text);
+  color: #111827;
   font-weight: 600;
 }
 
 .day-label {
   font-size: 10px;
-  color: var(--ui-muted);
+  color: #9ca3af;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4073,13 +4205,7 @@ onBeforeUnmount(() => {
   padding-bottom: var(--schedule-bottom-gap);
   box-sizing: border-box;
   position: relative;
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%) 0,
-      color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%) var(--time-axis-width),
-      transparent var(--time-axis-width)
-    );
+  background: #ffffff;
   /* 隐藏滚动条 */
   scrollbar-width: none; 
 }
@@ -4089,8 +4215,8 @@ onBeforeUnmount(() => {
 
 .time-axis {
   width: var(--time-axis-width);
-  background: color-mix(in oklab, var(--ui-surface) 96%, #ffffff 4%);
-  border-right: 1px solid color-mix(in oklab, var(--ui-primary) 18%, rgba(148, 163, 184, 0.35));
+  background: #f9fafb;
+  border-right: 1px solid #f0f0f0;
   display: flex;
   flex-direction: column;
   min-height: calc(var(--slot-height) * 11 + var(--schedule-bottom-gap));
@@ -4110,14 +4236,14 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  color: color-mix(in oklab, var(--ui-muted) 82%, #64748b 18%);
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+  color: #9ca3af;
+  border-bottom: 1px dashed #f0f0f0;
 }
 
 .period-num {
   font-size: 14px;
   font-weight: 700;
-  color: var(--ui-text);
+  color: #374151;
   margin: 2px 0;
 }
 
@@ -4141,7 +4267,7 @@ onBeforeUnmount(() => {
 
 .line-row {
   height: var(--slot-height);
-  border-bottom: 1px dashed color-mix(in oklab, var(--ui-primary) 16%, rgba(226, 232, 240, 0.78));
+  border-bottom: 1px dashed #e5e7eb;
   box-sizing: border-box;
 }
 
@@ -4161,58 +4287,76 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--ui-primary-soft) 56%, transparent) 0%,
-    color-mix(in oklab, var(--ui-primary-soft) 36%, transparent) 100%
-  );
-  border-left: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  border-right: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  background: rgba(219, 234, 254, 0.2);
+  border-left: 1px solid rgba(37, 99, 235, 0.08);
+  border-right: 1px solid rgba(37, 99, 235, 0.08);
 }
 
 .course-card {
   margin: 1px;
-  padding: 5px 4px;
-  background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
+  padding: 4px;
+  background: var(--course-bg, #ffffff) !important;
   color: var(--course-text, #0f172a) !important;
-  border-color: var(--course-border, rgba(148, 163, 184, 0.55)) !important;
+  border-color: var(--course-border, #e5e7eb) !important;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
-  border: var(--course-border-width, 1px) solid var(--course-border, rgba(148, 163, 184, 0.55)) !important;
-  border-radius: var(--course-radius, 14px) !important;
-  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16)) !important;
+  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
   z-index: 1;
 }
 
 .schedule-view .courses-grid .day-column > .course-card {
-  border: var(--course-border-width, 1px) solid var(--course-border, rgba(148, 163, 184, 0.55)) !important;
-  border-radius: var(--course-radius, 14px) !important;
-  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16)) !important;
-  background: var(--course-bg, rgba(255, 255, 255, 0.92)) !important;
+  border: var(--course-border-width, 1px) solid var(--course-border, #e5e7eb) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
+  background: var(--course-bg, #ffffff) !important;
   color: var(--course-text, #0f172a) !important;
 }
 
 .schedule-view .courses-grid .day-column > .course-card.course-card--modern {
-  border-radius: var(--course-radius, 14px) !important;
-  box-shadow: var(--course-shadow, 0 6px 14px rgba(71, 85, 105, 0.16)) !important;
+  border-radius: var(--course-radius, 12px) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
 }
 
 .schedule-view .courses-grid .day-column > .course-card.course-card--traditional {
-  border-radius: 8px !important;
-  box-shadow: var(--course-shadow, 0 4px 10px rgba(15, 23, 42, 0.14)) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border: 1px solid var(--course-border, #e5e7eb) !important;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 2px;
+}
+
+.schedule-view .courses-grid .day-column > .course-card.course-card--traditional .course-name {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 2px;
+}
+
+.schedule-view .courses-grid .day-column > .course-card.course-card--traditional .course-room,
+.schedule-view .courses-grid .day-column > .course-card.course-card--traditional .course-teacher {
+  font-size: 10px;
+  opacity: 0.8;
+  line-height: 1.3;
 }
 
 .schedule-view .courses-grid .day-column > .course-card.course-card--class {
-  border-left: 3px solid var(--course-border, rgba(148, 163, 184, 0.55)) !important;
+  border-left: 3px solid var(--course-border, #e5e7eb) !important;
   border-radius: 12px !important;
-  box-shadow: var(--course-shadow, 0 4px 10px rgba(15, 23, 42, 0.14)) !important;
+  box-shadow: var(--course-shadow, 0 2px 8px rgba(0, 0, 0, 0.04)) !important;
   padding: 4px 6px;
   gap: 2px;
   align-items: flex-start;
@@ -4250,9 +4394,9 @@ onBeforeUnmount(() => {
 }
 
 .course-name {
-  font-weight: 600;
-  font-size: 12px;
-  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  margin-bottom: 2px;
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -4262,7 +4406,7 @@ onBeforeUnmount(() => {
 }
 
 .course-room {
-  font-size: 11px;
+  font-size: 10px;
   opacity: 0.88;
   font-weight: 500;
 }
@@ -4568,7 +4712,7 @@ onBeforeUnmount(() => {
 }
 
 .manage-course-empty {
-  background: color-mix(in oklab, var(--ui-primary-soft) 18%, #ffffff 82%);
+  background: #f0f9ff;
   color: #475569;
 }
 
@@ -4585,8 +4729,8 @@ onBeforeUnmount(() => {
 
 .manage-course-group {
   border-radius: 14px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, var(--ui-surface-border));
-  background: color-mix(in oklab, var(--ui-primary-soft) 14%, var(--ui-surface) 86%);
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
   overflow: hidden;
 }
 
@@ -4814,21 +4958,21 @@ onBeforeUnmount(() => {
   position: relative;
   width: 32px;
   height: 32px;
-  border: 1px solid var(--ui-surface-border);
+  border: 1px solid #f0f0f0;
   border-radius: 10px;
-  background: var(--ui-surface);
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: var(--ui-text);
-  box-shadow: var(--ui-shadow-soft);
+  color: #374151;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .semester-badge-btn:hover {
   transform: translateY(-1px);
-  box-shadow: var(--ui-shadow-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .semester-badge-dot {
@@ -4839,7 +4983,7 @@ onBeforeUnmount(() => {
   height: 8px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 0 2px var(--ui-surface);
+  box-shadow: 0 0 0 2px #ffffff;
   pointer-events: none;
 }
 
@@ -4849,8 +4993,8 @@ onBeforeUnmount(() => {
   right: 0;
   min-width: 200px;
   padding: 12px 14px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
+  background: #ffffff;
+  border: 1px solid #f0f0f0;
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
   text-align: center;
@@ -4867,7 +5011,7 @@ onBeforeUnmount(() => {
   margin-top: 4px;
   font-size: 16px;
   font-weight: 800;
-  color: var(--ui-text);
+  color: #111827;
 }
 
 .semester-badge-popover-desc {
@@ -5023,17 +5167,17 @@ onBeforeUnmount(() => {
   }
 
   .schedule-topbar {
-    padding: 10px 12px;
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 6px;
   }
 
   .schedule-view {
     --time-axis-width: 32px;
-    --topbar-height: 50px;
+    --topbar-height: 42px;
     --date-header-height: 44px;
   }
 
   .week-selector {
-    padding: 0;
+    padding: 6px 12px;
   }
 
   .week-selector :deep(.ios26-select-trigger) {
@@ -5042,7 +5186,7 @@ onBeforeUnmount(() => {
     line-height: 30px !important;
     font-size: 12px;
     font-weight: 800;
-    border-radius: 13px !important;
+    border-radius: 9999px !important;
   }
 
   .month-col,
