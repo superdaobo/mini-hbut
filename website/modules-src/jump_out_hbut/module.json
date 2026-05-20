@@ -2,7 +2,7 @@
   "id": "jump_out_hbut",
   "name": "跳出湖工大",
   "icon": "🦘",
-  "order": 3,
+  "order": 2,
   "key_required": false,
   "entry_path": "index.html",
   "min_compatible_version": "",

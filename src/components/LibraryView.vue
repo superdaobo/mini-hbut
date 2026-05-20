@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="library-view">
-    <TPageHeader icon="📚" title="图书查询" @back="emit('back')" />
+    <TPageHeader icon="local_library" title="图书查询" @back="emit('back')" />
 
     <section class="search-panel">
       <div class="search-row">

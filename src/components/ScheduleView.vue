@@ -3098,19 +3098,6 @@ onBeforeUnmount(() => {
         <p class="topbar-semester">{{ semester || '加载中...' }}</p>
       </div>
       <div class="topbar-right">
-        <div class="semester-badge-wrap" v-if="semesterPopupText">
-          <button class="semester-badge-btn btn-ripple" @click="onSemesterBadgeClick" aria-label="学期信息">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            <span v-if="showSemesterPopup" class="semester-badge-dot"></span>
-          </button>
-          <Transition name="badge-popover">
-            <div v-if="showSemesterBadgePopover" class="semester-badge-popover">
-              <div class="semester-badge-popover-title">当前显示学期</div>
-              <div class="semester-badge-popover-value">{{ semesterPopupText }}</div>
-              <div class="semester-badge-popover-desc">已自动定位到最近有课表数据的学期</div>
-            </div>
-          </Transition>
-        </div>
         <div class="week-selector">
           <IOSSelect v-model.number="selectedWeek">
             <option disabled value="0">请选择周次</option>
@@ -3687,12 +3674,12 @@ onBeforeUnmount(() => {
 
 .week-selector {
   position: relative;
-  background: #ffffff !important;
-  padding: 8px 16px;
+  background: transparent !important;
+  padding: 0;
   min-height: 32px;
   border-radius: 9999px;
-  border: 1px solid #f0f0f0 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border: none !important;
+  box-shadow: none !important;
   display: flex;
   align-items: center;
   font-weight: 600;
@@ -3708,7 +3695,7 @@ onBeforeUnmount(() => {
   padding: 0 11px !important;
   border-radius: 9999px !important;
   background: #ffffff !important;
-  box-shadow: none !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
   border: 1px solid #f0f0f0 !important;
 }
 
@@ -4948,6 +4935,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .semester-badge-wrap {

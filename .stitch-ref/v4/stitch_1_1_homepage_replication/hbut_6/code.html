@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>HBUT 校园助手 - 校历</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed": "#311400",
+                        "inverse-on-surface": "#edf1f5",
+                        "outline-variant": "#c2c6d6",
+                        "on-error": "#ffffff",
+                        "success-teal": "#14b8a6",
+                        "surface": "#f6fafe",
+                        "on-surface": "#171c1f",
+                        "accent-gradient-end": "#36d1dc",
+                        "on-primary-fixed-variant": "#004395",
+                        "primary-fixed": "#d8e2ff",
+                        "surface-container-high": "#e4e9ed",
+                        "on-primary-fixed": "#001a42",
+                        "info-sky": "#38bdf8",
+                        "on-secondary-fixed-variant": "#404754",
+                        "background": "#f6fafe",
+                        "secondary-container": "#dce2f3",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-surface-variant": "#424754",
+                        "error": "#ba1a1a",
+                        "on-error-container": "#93000a",
+                        "danger-red": "#ef4444",
+                        "primary": "#0058be",
+                        "on-secondary-container": "#5e6572",
+                        "on-primary-container": "#fefcff",
+                        "warning-orange": "#f97316",
+                        "on-tertiary": "#ffffff",
+                        "surface-tint": "#005ac2",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-fixed-variant": "#723600",
+                        "on-secondary-fixed": "#151c27",
+                        "tertiary": "#924700",
+                        "primary-container": "#2170e4",
+                        "inverse-surface": "#2c3134",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-variant": "#dfe3e7",
+                        "secondary": "#585f6c",
+                        "surface-dim": "#d6dade",
+                        "secondary-fixed": "#dce2f3",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed-dim": "#ffb786",
+                        "on-secondary": "#ffffff",
+                        "tertiary-container": "#b75b00",
+                        "surface-container": "#eaeef2",
+                        "secondary-fixed-dim": "#c0c7d6",
+                        "error-container": "#ffdad6",
+                        "accent-gradient-start": "#5b86e5",
+                        "tertiary-fixed": "#ffdcc6",
+                        "surface-container-highest": "#dfe3e7",
+                        "surface-container-low": "#f0f4f8",
+                        "on-background": "#171c1f",
+                        "outline": "#727785",
+                        "surface-bright": "#f6fafe",
+                        "inverse-primary": "#adc6ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "section-margin": "1.5rem",
+                        "inline-gap": "0.75rem",
+                        "container-padding": "1rem",
+                        "stack-gap": "1.25rem"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "700" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["30px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #f0f4f8; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+        }
+        .active-week-gradient {
+            background: linear-gradient(135deg, rgba(91, 134, 229, 0.1) 0%, rgba(54, 209, 220, 0.1) 100%);
+            border-left: 4px solid #0058be;
+        }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 80px); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md text-on-surface antialiased min-h-screen pb-safe mx-auto max-w-[448px] relative overflow-x-hidden">
+<!-- TopAppBar -->
+<header class="bg-background/80 dark:bg-background/80 backdrop-blur-md flex justify-between items-center px-container_margin h-16 w-full z-50 sticky top-0 flat no shadows">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center overflow-hidden">
+<img alt="HBUT University Logo" class="w-full h-full object-cover" data-alt="A stylized, modern university logo featuring a shield emblem in vibrant academic blue and soft white tones. The logo is set against a clean, light-mode background, exuding an optimistic and professional campus vitality aesthetic. The composition is simple, clear, and perfectly circular, designed for a high-end digital interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDM6yW3J0eDeew_WMQZTkWFtJZTQTr8jPqTco7eTFT8tfyLrD_9JYvrRQKlSBGNs5KPqCmxuOEBC6cklQzrChUaSCSpHx3XyqQaTrSwhAAQqB-lJJrq_kCIet3wkvrwcwIfao7MGnQno_BvVe6gyPoYoj8nD0Y5lCyoQbuGXy3U8orb34mwJS8Kkb6rIVYEXe7xN1HsODQss0sOFB5f5xZpmblCJbX5Y54yAERqe_CpRMUVsD1mxYNUkhNDyVPZ5olT3LlaDVDBeHjH"/>
+</div>
+<h1 class="font-headline-md text-headline-md text-on-surface font-extrabold tracking-tight">HBUT 校园助手</h1>
+</div>
+<button class="w-10 h-10 rounded-full hover:bg-surface-container-low dark:hover:bg-surface-container-highest transition-colors flex items-center justify-center scale-95 active:opacity-80 transition-all text-primary dark:text-primary-fixed-dim">
+<span class="material-symbols-outlined text-[24px]">notifications</span>
+</button>
+</header>
+<main class="px-container_margin py-4 flex flex-col gap-stack-gap">
+<!-- Page Header & Semester Selector -->
+<section class="flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<h2 class="font-headline-lg text-headline-lg text-primary tracking-tight">📘 校历</h2>
+<div class="relative">
+<select class="appearance-none bg-surface-container-lowest border border-outline-variant/30 rounded-full px-4 py-2 pr-8 font-label-md text-label-md text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-sm">
+<option>2023-2024 学年 第 1 学期</option>
+<option>2023-2024 学年 第 2 学期</option>
+<option>2024-2025 学年 第 1 学期</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none text-[18px]">expand_more</span>
+</div>
+</div>
+<!-- Current Week Highlight Bento Box -->
+<div class="glass-card rounded-2xl p-5 flex items-center justify-between relative overflow-hidden">
+<div class="absolute -right-10 -top-10 w-32 h-32 bg-accent-gradient-start/10 rounded-full blur-2xl"></div>
+<div class="absolute -left-10 -bottom-10 w-24 h-24 bg-accent-gradient-end/10 rounded-full blur-xl"></div>
+<div class="flex flex-col gap-1 z-10">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">当前周次</span>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-lg text-headline-lg text-primary">第 9 周</span>
+<span class="font-body-md text-body-md text-on-secondary-container">/ 共 20 周</span>
+</div>
+</div>
+<div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center text-primary z-10 shadow-[0_10px_20px_rgba(54,209,220,0.15)]">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">calendar_month</span>
+</div>
+</div>
+</section>
+<!-- Calendar Table / Grid -->
+<section class="glass-card rounded-2xl overflow-hidden flex flex-col shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-outline-variant/10">
+<!-- Header Row -->
+<div class="grid grid-cols-8 bg-surface-container-low/50 border-b border-outline-variant/20 py-3">
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center">周次</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center">一</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center">二</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center">三</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center">四</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center">五</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center text-primary">六</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant text-center text-primary">日</div>
+</div>
+<!-- Calendar Body (Sample Rows) -->
+<div class="flex flex-col divide-y divide-outline-variant/10">
+<!-- Week 8 -->
+<div class="grid grid-cols-8 py-2 items-stretch hover:bg-surface-container-lowest transition-colors">
+<div class="flex flex-col items-center justify-center border-r border-outline-variant/10">
+<span class="font-label-md text-label-md text-on-surface-variant">8</span>
+</div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">23</span><span class="font-label-sm text-label-sm text-outline scale-75">初九</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">24</span><span class="font-label-sm text-label-sm text-outline scale-75">霜降</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">25</span><span class="font-label-sm text-label-sm text-outline scale-75">十一</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">26</span><span class="font-label-sm text-label-sm text-outline scale-75">十二</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">27</span><span class="font-label-sm text-label-sm text-outline scale-75">十三</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">28</span><span class="font-label-sm text-label-sm text-outline scale-75">十四</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">29</span><span class="font-label-sm text-label-sm text-outline scale-75">十五</span></div>
+</div>
+<!-- Week 9 (Active) -->
+<div class="grid grid-cols-8 py-2 items-stretch active-week-gradient relative shadow-sm">
+<div class="flex flex-col items-center justify-center border-r border-outline-variant/10">
+<span class="font-label-md text-label-md text-primary font-bold">9</span>
+</div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">30</span><span class="font-label-sm text-label-sm text-outline scale-75">十六</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">31</span><span class="font-label-sm text-label-sm text-outline scale-75">万圣</span></div>
+<div class="flex flex-col items-center p-1 bg-primary/10 rounded-lg mx-1"><span class="font-body-md text-body-md text-primary font-bold">1</span><span class="font-label-sm text-label-sm text-primary scale-75">十八</span></div>
+<div class="flex flex-col items-center p-1 bg-primary-container/20 rounded-lg mx-1"><span class="font-body-md text-body-md text-primary font-bold">2</span><span class="font-label-sm text-label-sm text-primary scale-75">十九</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">3</span><span class="font-label-sm text-label-sm text-outline scale-75">二十</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">4</span><span class="font-label-sm text-label-sm text-outline scale-75">廿一</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">5</span><span class="font-label-sm text-label-sm text-outline scale-75">廿二</span></div>
+</div>
+<!-- Week 10 -->
+<div class="grid grid-cols-8 py-2 items-stretch hover:bg-surface-container-lowest transition-colors">
+<div class="flex flex-col items-center justify-center border-r border-outline-variant/10">
+<span class="font-label-md text-label-md text-on-surface-variant">10</span>
+</div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">6</span><span class="font-label-sm text-label-sm text-outline scale-75">廿三</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">7</span><span class="font-label-sm text-label-sm text-outline scale-75">立冬</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">8</span><span class="font-label-sm text-label-sm text-outline scale-75">廿五</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">9</span><span class="font-label-sm text-label-sm text-outline scale-75">廿六</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">10</span><span class="font-label-sm text-label-sm text-outline scale-75">廿七</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">11</span><span class="font-label-sm text-label-sm text-danger-red scale-75">光棍</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">12</span><span class="font-label-sm text-label-sm text-outline scale-75">廿九</span></div>
+</div>
+<!-- Week 11 -->
+<div class="grid grid-cols-8 py-2 items-stretch hover:bg-surface-container-lowest transition-colors">
+<div class="flex flex-col items-center justify-center border-r border-outline-variant/10">
+<span class="font-label-md text-label-md text-on-surface-variant">11</span>
+</div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">13</span><span class="font-label-sm text-label-sm text-outline scale-75">三十</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">14</span><span class="font-label-sm text-label-sm text-outline scale-75">十月</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">15</span><span class="font-label-sm text-label-sm text-outline scale-75">初二</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">16</span><span class="font-label-sm text-label-sm text-outline scale-75">初三</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">17</span><span class="font-label-sm text-label-sm text-outline scale-75">初四</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">18</span><span class="font-label-sm text-label-sm text-outline scale-75">初五</span></div>
+<div class="flex flex-col items-center p-1"><span class="font-body-md text-body-md text-on-surface">19</span><span class="font-label-sm text-label-sm text-outline scale-75">初六</span></div>
+</div>
+</div>
+<!-- Key / Legend -->
+<div class="bg-surface-container-low px-4 py-3 flex gap-4 text-xs">
+<div class="flex items-center gap-1">
+<div class="w-3 h-3 rounded-sm bg-primary/20 border border-primary/30"></div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">当前周次/日期</span>
+</div>
+<div class="flex items-center gap-1">
+<div class="w-3 h-3 rounded-sm bg-danger-red/10 border border-danger-red/30"></div>
+<span class="font-label-sm text-label-sm text-on-surface-variant">节假日</span>
+</div>
+</div>
+</section>
+<!-- Events / Notes Cards -->
+<section class="flex flex-col gap-3">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mt-2">近期安排</h3>
+<!-- Event Card 1 -->
+<div class="glass-card rounded-2xl p-4 flex gap-4 items-center border border-outline-variant/20 hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-xl bg-info-sky/10 flex flex-col items-center justify-center text-info-sky shrink-0">
+<span class="font-headline-sm text-headline-sm leading-none">1</span>
+<span class="font-label-sm text-label-sm scale-75 uppercase">Nov</span>
+</div>
+<div class="flex flex-col flex-1">
+<h4 class="font-body-lg text-body-lg text-on-surface font-semibold">校运动会开幕式</h4>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1 mt-1">
+<span class="material-symbols-outlined text-[14px]">location_on</span> 东区田径场
+                     </p>
+</div>
+<button class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant shrink-0">
+<span class="material-symbols-outlined text-[18px]">chevron_right</span>
+</button>
+</div>
+<!-- Event Card 2 -->
+<div class="glass-card rounded-2xl p-4 flex gap-4 items-center border border-outline-variant/20 hover:shadow-md transition-shadow">
+<div class="w-12 h-12 rounded-xl bg-warning-orange/10 flex flex-col items-center justify-center text-warning-orange shrink-0">
+<span class="font-headline-sm text-headline-sm leading-none">15</span>
+<span class="font-label-sm text-label-sm scale-75 uppercase">Nov</span>
+</div>
+<div class="flex flex-col flex-1">
+<h4 class="font-body-lg text-body-lg text-on-surface font-semibold">期中考试周开始</h4>
+<p class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1 mt-1">
+<span class="material-symbols-outlined text-[14px]">menu_book</span> 请注意复习安排
+                    </p>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="bg-surface-container-lowest/95 dark:bg-inverse-surface/95 backdrop-blur-xl border-t border-outline-variant/30 dark:border-outline/20 shadow-lg dark:shadow-none docked full-width bottom-0 rounded-t-xl fixed left-0 w-full z-50 flex justify-around items-center px-4 py-2 pb-safe md:hidden">
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors group" href="#">
+<div class="w-16 h-8 rounded-full flex items-center justify-center group-active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-[24px]">home</span>
+</div>
+<span class="font-label-sm text-label-sm mt-1">首页</span>
+</a>
+<!-- Active Item (Intent Fallback: Calendar -> Class Schedule) -->
+<a class="flex flex-col items-center justify-center text-primary dark:text-primary-fixed-dim bg-primary-container/20 dark:bg-primary-container/10 rounded-xl px-4 py-1 transform scale-90 duration-200 ease-out transition-colors" href="#">
+<div class="w-16 h-8 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" style="font-variation-settings: 'FILL' 1;">calendar_today</span>
+</div>
+<span class="font-label-sm text-label-sm mt-1">课表</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors group" href="#">
+<div class="w-16 h-8 rounded-full flex items-center justify-center group-active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-[24px]">notifications</span>
+</div>
+<span class="font-label-sm text-label-sm mt-1">通知</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-surface-variant hover:text-primary dark:hover:text-primary-fixed-dim transition-colors group" href="#">
+<div class="w-16 h-8 rounded-full flex items-center justify-center group-active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-[24px]">person</span>
+</div>
+<span class="font-label-sm text-label-sm mt-1">我的</span>
+</a>
+</nav>
+</body></html>

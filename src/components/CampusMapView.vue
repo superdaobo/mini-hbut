@@ -290,7 +290,7 @@ onMounted(() => {
 
 <template>
   <div class="campus-map-view">
-    <TPageHeader title="校园地图" @back="emit('back')" />
+    <TPageHeader title="校园地图" icon="map" @back="emit('back')" />
 
     <section class="intro-card">
       <p>支持缩放、拖拽和手势查看，地图会自动缓存到本地。</p>

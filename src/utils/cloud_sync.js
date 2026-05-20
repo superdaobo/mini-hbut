@@ -522,7 +522,7 @@ const normalizeGradeItem = (item, fallbackSemester = '') => {
     term,
     course_name: courseName,
     grade_id: toSafeText(item?.grade_id || item?.gradeId || item?.id),
-    course_code: toSafeText(item?.course_code || item?.courseCode || item?.kch),
+    course_code: toSafeText(item?.course_code || item?.courseCode || item?.kcbh || item?.kch),
     course_nature: toSafeText(item?.course_nature || item?.courseNature || item?.kcxzmc || item?.kcxz),
     course_nature_code: toSafeText(item?.course_nature_code || item?.courseNatureCode || item?.kcxz),
     course_credit: toSafeText(item?.course_credit || item?.courseCredit || item?.xf),
@@ -532,6 +532,7 @@ const normalizeGradeItem = (item, fallbackSemester = '') => {
     sfbk: toSafeText(item?.sfbk),
     sfsq: toSafeText(item?.sfsq),
     cjbj: toSafeText(item?.cjbj),
+    course_teacher: toSafeText(item?.course_teacher || item?.courseTeacher || item?.rkjs),
     teacher: toSafeText(item?.teacher || item?.teacher_name || item?.jsxm || item?.cjlrjsxm)
   })
 }

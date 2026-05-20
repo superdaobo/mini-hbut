@@ -1493,15 +1493,14 @@ const restoreCachedIdentityFromLocal = async () => {
   }
 
   studentId.value = cachedSid
+  // 异步通知 Rust 侧，不阻塞首屏
   if (hasTauri) {
-    try {
-      await invokeNative('set_offline_user_context', {
-        student_id: cachedSid,
-        studentId: cachedSid
-      })
-    } catch (e) {
+    invokeNative('set_offline_user_context', {
+      student_id: cachedSid,
+      studentId: cachedSid
+    }).catch((e) => {
       console.warn('[Session] 设置离线上下文失败:', e)
-    }
+    })
   }
   return true
 }
@@ -2203,11 +2202,8 @@ watch(currentView, () => {
 })
 
 onMounted(async () => {
-  // 3s 超时保护：连不上教务系统也直接进入
-  const splashTimeout = showSplash.value ? setTimeout(() => {
-    splashStatusText.value = '连接超时，直接进入'
-    dismissSplash()
-  }, 3000) : null
+  console.time('[Boot] total')
+  console.time('[Boot] to-splash-dismiss')
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
@@ -2224,31 +2220,78 @@ onMounted(async () => {
   if (cachedAnnouncements) {
     announcementData.value = cachedAnnouncements
   }
-  await installCloseInterceptor()
-  // 非主动退出时，启动优先恢复本地账号态（保证缓存可立即读取）。
-  splashStatusText.value = '正在恢复身份…'
+
+  // ── 阶段 1：本地身份恢复（纯 localStorage，极快） ──
+  console.time('[Boot] local-identity')
   const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
+  console.timeEnd('[Boot] local-identity')
   markBootMetric('identity_restored', {
     restored: !!bootstrappedCachedIdentity,
     student_id: String(studentId.value || '').trim()
   })
-  await primeOcrEndpointFromCache()
-  // 先拉取远程配置并下发 OCR 端点，确保后续主动登录/自动重登优先使用远程 OCR
-  splashStatusText.value = '正在加载配置…'
-  await applyRemoteConfig()
-  startRemoteConfigRefresh()
-  let restored = false
-  let relogged = false
-  splashStatusText.value = '正在连接教务系统…'
-  restored = await tryRestoreSession()
-  if (!restored) {
-    restored = await tryRestoreLatestSession()
+
+  // ── 阶段 2：有缓存身份则立刻进入主界面（使用离线缓存数据） ──
+  if (bootstrappedCachedIdentity || skipSplashForFastScheduleBoot) {
+    await syncFromHash({ scrollToTop: false })
+    if (!window.location.hash) {
+      pendingScrollToTopOnViewChange = false
+      const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
+      if (ensureProtectedViewAccess(startupPage, {
+        push: false,
+        redirectToFallback: true,
+        fallbackView: 'home'
+      })) {
+        applyViewState(startupPage)
+      }
+    }
+    splashStatusText.value = '准备就绪'
+    dismissSplash()
+    console.timeEnd('[Boot] to-splash-dismiss')
+    appBootstrapped = true
+    handleSplashDismissed()
+    replaceHistorySnapshot(currentView.value)
+    ensureConfigAccess()
   }
-  if (!restored && !isTemporaryLoginSession()) {
-    splashStatusText.value = '正在自动登录…'
-    relogged = await attemptAutoRelogin()
-  }
+
+  // ── 阶段 3：后台并行执行所有网络任务 ──
+  console.time('[Boot] background-tasks')
+  const sessionRestoreTask = (async () => {
+    console.time('[Boot] session-restore')
+    let restored = false
+    let relogged = false
+    restored = await tryRestoreSession()
+    if (!restored) {
+      restored = await tryRestoreLatestSession()
+    }
+    if (!restored && !isTemporaryLoginSession()) {
+      relogged = await attemptAutoRelogin()
+    }
+    console.timeEnd('[Boot] session-restore')
+    return { restored, relogged }
+  })()
+
+  const remoteConfigTask = (async () => {
+    console.time('[Boot] remote-config')
+    try { await applyRemoteConfig() } catch (e) {
+      console.warn('[Config] 远程配置后台加载失败:', e)
+    } finally {
+      startRemoteConfigRefresh()
+      console.timeEnd('[Boot] remote-config')
+    }
+  })()
+
+  const infraTask = (async () => {
+    await Promise.all([
+      primeOcrEndpointFromCache(),
+      installCloseInterceptor()
+    ])
+  })()
+
+  // 等待所有后台任务完成
+  const [sessionResult] = await Promise.all([sessionRestoreTask, remoteConfigTask, infraTask])
+  const { restored, relogged } = sessionResult
   const onlineReady = restored || relogged
+  console.timeEnd('[Boot] background-tasks')
   markBootMetric('session_restore_finished', {
     restored: !!restored,
     relogged: !!relogged,
@@ -2256,18 +2299,27 @@ onMounted(async () => {
     student_id: String(studentId.value || '').trim()
   })
 
-  await syncFromHash({ scrollToTop: false })
-
-  if (restored && !window.location.hash) {
-    pendingScrollToTopOnViewChange = false
-    const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
-    if (ensureProtectedViewAccess(startupPage, {
-      push: false,
-      redirectToFallback: true,
-      fallbackView: 'home'
-    })) {
-      applyViewState(startupPage)
+  // ── 阶段 4：如果没有缓存身份（首次登录/已登出），现在才 dismiss ──
+  if (!bootstrappedCachedIdentity && !skipSplashForFastScheduleBoot) {
+    await syncFromHash({ scrollToTop: false })
+    if (restored && !window.location.hash) {
+      pendingScrollToTopOnViewChange = false
+      const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
+      if (ensureProtectedViewAccess(startupPage, {
+        push: false,
+        redirectToFallback: true,
+        fallbackView: 'home'
+      })) {
+        applyViewState(startupPage)
+      }
     }
+    splashStatusText.value = onlineReady ? '准备就绪' : '离线模式'
+    dismissSplash()
+    console.timeEnd('[Boot] to-splash-dismiss')
+    appBootstrapped = true
+    handleSplashDismissed()
+    replaceHistorySnapshot(currentView.value)
+    ensureConfigAccess()
   }
 
   if (currentView.value === 'more_module_host') {
@@ -2278,6 +2330,7 @@ onMounted(async () => {
     }
   }
 
+  // ── 阶段 5：后台启动长期任务 ──
   if (onlineReady) {
     startSessionKeepAlive()
     startElectricityKeepAlive()
@@ -2290,7 +2343,6 @@ onMounted(async () => {
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
   } else if (bootstrappedCachedIdentity || studentId.value) {
-    // 教务暂不可达时先静默尝试恢复，延迟后仍未连上再显示维护提示。
     startJwxtRecoveryPolling()
     attemptOnlineRecovery({ silent: true }).then((ok) => {
       if (!ok) {
@@ -2309,41 +2361,21 @@ onMounted(async () => {
     })
   }
 
-  replaceHistorySnapshot(currentView.value)
-  
-  // 启动即检查更新
-  if (skipSplashForFastScheduleBoot) {
-    window.setTimeout(() => {
-      autoCheckUpdate()
-    }, 1500)
-  } else {
-    autoCheckUpdate()
+  if (!appBootstrapped) {
+    replaceHistorySnapshot(currentView.value)
+    ensureConfigAccess()
+    appBootstrapped = true
   }
 
-  ensureConfigAccess()
-  appBootstrapped = true
-  if (!showSplash.value) {
-    handleSplashDismissed()
-  }
-
-  // Widget 快照：启动尾部从缓存写入（仅登录态，异步不阻塞）
+  // Widget 快照（异步不阻塞）
   if (studentId.value) {
     tryWriteSnapshotFromCache(studentId.value).catch(() => {})
     scheduleWidgetCrossDayTimer()
   }
 
-  // 启动画面消失
-  if (onlineReady) {
-    splashStatusText.value = '准备就绪'
-  } else {
-    splashStatusText.value = '离线模式'
-  }
-  // 延迟最少 600ms 确保入场动画播完
-  setTimeout(() => {
-    dismissSplash()
-  }, 600)
-  // 清除 3s 超时保护
-  if (splashTimeout) clearTimeout(splashTimeout)
+  // 延迟检查更新
+  window.setTimeout(() => { autoCheckUpdate() }, 1500)
+  console.timeEnd('[Boot] total')
 
   // Capacitor 环境注册原生 appStateChange 事件（补充浏览器 visibilitychange 的盲区）
   if (isCapacitorRuntime()) {
@@ -2947,11 +2979,19 @@ onBeforeUnmount(() => {
   position: relative;
   padding-top: env(safe-area-inset-top);
   padding-bottom: calc(128px + env(safe-area-inset-bottom));
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  /* 隐藏滚动条 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.app-shell::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .app-shell.no-scroll {

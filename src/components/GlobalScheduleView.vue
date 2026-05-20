@@ -927,7 +927,7 @@ onMounted(async () => {
 
 <template>
   <div class="qxzkb-view">
-    <TPageHeader icon="🏫" title="全校课表" @back="emit('back')" />
+    <TPageHeader icon="calendar_month" title="全校课表" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}

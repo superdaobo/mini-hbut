@@ -291,7 +291,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="campus-code-view">
-    <TPageHeader icon="🎫" title="校园码" @back="handleBack" />
+    <TPageHeader icon="qr_code" title="校园码" @back="handleBack" />
 
     <section class="mode-panel">
       <button

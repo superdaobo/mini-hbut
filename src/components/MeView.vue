@@ -181,6 +181,12 @@ const handleShowLegal = async (tab) => {
         </div>
         <span class="grid-label">赞助</span>
       </button>
+      <button class="grid-item" @click="handleOpenMore">
+        <div class="grid-icon-box" style="background: #F3E5F5;">
+          <span class="material-symbols-rounded" style="color: #7B1FA2;">apps</span>
+        </div>
+        <span class="grid-label">更多</span>
+      </button>
     </section>
 
     <!-- Legal Section -->

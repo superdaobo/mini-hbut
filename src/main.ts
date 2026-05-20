@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import './index.css'
+import './styles/dark-mode.css'
 import App from './App.vue'
 import IOSSelect from './components/IOSSelect.vue'
 import { initUiSettings } from './utils/ui_settings'
@@ -17,8 +18,23 @@ const mountApp = () => {
   app.mount('#app')
 }
 
+const loadLocalIconFonts = () => {
+  // 图标字体从本地 npm 包加载（无 CDN 依赖），延迟到首屏之后
+  void Promise.all([
+    import('material-icons/iconfont/material-icons.css'),
+    import('material-symbols/rounded.css'),
+    import('material-symbols/outlined.css'),
+    import('@fortawesome/fontawesome-free/css/all.css')
+  ]).catch((e) => {
+    console.warn('[Bootstrap] local icon fonts load failed:', e)
+  })
+}
+
 const runDeferredInitializers = () => {
   const run = () => {
+    // 本地图标字体延迟加载
+    loadLocalIconFonts()
+
     // 先完成首屏挂载，再异步初始化重任务，避免安卓首次安装时白屏等待。
     void import('./utils/markdown')
       .then(({ initMarkdownRuntime }) => initMarkdownRuntime(6000))

@@ -2,7 +2,7 @@
   "id": "hecheng_hugongda",
   "name": "合成湖工大",
   "icon": "🎮",
-  "order": 2,
+  "order": 1,
   "key_required": false,
   "entry_path": "index.html",
   "min_compatible_version": "",

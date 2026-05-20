@@ -1046,34 +1046,24 @@ const handleDownloadFont = async (force = false) => {
 
 <template>
   <div class="settings-view">
-    <header class="dashboard-header settings-header">
-      <div class="brand">
-        <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
-        <div class="title-wrap">
-          <span class="title">系统设置</span>
-          <span class="sub-title">主题、后端、调试与测速</span>
-        </div>
-      </div>
-      <button class="header-btn btn-ripple" @click="emit('back')">返回</button>
+    <!-- Header -->
+    <header class="settings-page-header">
+      <button class="header-icon-btn" @click="emit('back')">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <h1 class="header-title">设置中心</h1>
+      <div class="header-spacer"></div>
     </header>
 
-    <section class="settings-intro glass-card">
-      <div class="pill-row">
-        <span class="meta-pill student-pill">学号：{{ currentStudentId }}</span>
-        <span class="meta-pill">设备：{{ activeDeviceLabel }}</span>
-        <span class="meta-pill">主题：{{ currentPresetLabel }}</span>
-      </div>
-      <p>统一管理主题外观、后端地址、模块参数与调试日志，配置会自动保存并可一键测速验证。</p>
-    </section>
-
-    <div class="tab-bar">
-      <button class="tab-btn btn-ripple" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
+    <!-- Tabs -->
+    <div class="settings-tab-bar">
+      <button class="settings-tab-item" :class="{ active: activeTab === 'appearance' }" @click="activeTab = 'appearance'">
         外观
       </button>
-      <button class="tab-btn btn-ripple" :class="{ active: activeTab === 'backend' }" @click="activeTab = 'backend'">
+      <button class="settings-tab-item" :class="{ active: activeTab === 'backend' }" @click="activeTab = 'backend'">
         后端
       </button>
-      <button class="tab-btn btn-ripple" :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">
+      <button class="settings-tab-item" :class="{ active: activeTab === 'debug' }" @click="activeTab = 'debug'">
         调试
       </button>
     </div>
@@ -1621,11 +1611,103 @@ const handleDownloadFont = async (force = false) => {
 </template>
 
 <style scoped>
+/* ===== New Design System Header & Tabs ===== */
+.settings-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1rem;
+  height: 4rem;
+  background: rgba(246, 250, 254, 0.8);
+  backdrop-filter: blur(12px);
+}
+
+.header-icon-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.header-icon-btn:hover {
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
+}
+
+.header-title {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+.header-spacer {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.settings-tab-bar {
+  display: flex;
+  width: 100%;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  margin-top: 0.5rem;
+  position: sticky;
+  top: 4rem;
+  z-index: 40;
+  background: rgba(246, 250, 254, 0.95);
+  backdrop-filter: blur(8px);
+}
+
+.settings-tab-item {
+  flex: 1;
+  padding: 0.75rem;
+  text-align: center;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 2px solid transparent;
+}
+
+.settings-tab-item.active {
+  border-bottom-color: var(--md-sys-color-primary, #0058be);
+  color: var(--md-sys-color-primary, #0058be);
+  font-weight: 600;
+}
+
+.settings-tab-item:hover:not(.active) {
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
+  border-radius: 0.5rem 0.5rem 0 0;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ===== Legacy Styles (kept for existing template sections) ===== */
 .settings-view {
   min-height: 100vh;
-  padding: 22px 18px 124px;
-  color: var(--ui-text);
-  background: var(--ui-bg-gradient);
+  padding: 0 0 124px;
+  color: var(--ui-text, #171c1f);
+  background: var(--md-sys-color-background, #f6fafe);
+  max-width: 448px;
+  margin: 0 auto;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
 .settings-header {

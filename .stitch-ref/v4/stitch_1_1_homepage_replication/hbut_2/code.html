@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>HBUT 校园助手 - 个人信息</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-fixed": "#311400",
+                        "inverse-on-surface": "#edf1f5",
+                        "outline-variant": "#c2c6d6",
+                        "on-error": "#ffffff",
+                        "success-teal": "#14b8a6",
+                        "surface": "#f6fafe",
+                        "on-surface": "#171c1f",
+                        "accent-gradient-end": "#36d1dc",
+                        "on-primary-fixed-variant": "#004395",
+                        "primary-fixed": "#d8e2ff",
+                        "surface-container-high": "#e4e9ed",
+                        "on-primary-fixed": "#001a42",
+                        "info-sky": "#38bdf8",
+                        "on-secondary-fixed-variant": "#404754",
+                        "background": "#f6fafe",
+                        "secondary-container": "#dce2f3",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-surface-variant": "#424754",
+                        "error": "#ba1a1a",
+                        "on-error-container": "#93000a",
+                        "danger-red": "#ef4444",
+                        "primary": "#0058be",
+                        "on-secondary-container": "#5e6572",
+                        "on-primary-container": "#fefcff",
+                        "warning-orange": "#f97316",
+                        "on-tertiary": "#ffffff",
+                        "surface-tint": "#005ac2",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-fixed-variant": "#723600",
+                        "on-secondary-fixed": "#151c27",
+                        "tertiary": "#924700",
+                        "primary-container": "#2170e4",
+                        "inverse-surface": "#2c3134",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-variant": "#dfe3e7",
+                        "secondary": "#585f6c",
+                        "surface-dim": "#d6dade",
+                        "secondary-fixed": "#dce2f3",
+                        "on-primary": "#ffffff",
+                        "tertiary-fixed-dim": "#ffb786",
+                        "on-secondary": "#ffffff",
+                        "tertiary-container": "#b75b00",
+                        "surface-container": "#eaeef2",
+                        "secondary-fixed-dim": "#c0c7d6",
+                        "error-container": "#ffdad6",
+                        "accent-gradient-start": "#5b86e5",
+                        "tertiary-fixed": "#ffdcc6",
+                        "surface-container-highest": "#dfe3e7",
+                        "surface-container-low": "#f0f4f8",
+                        "on-background": "#171c1f",
+                        "outline": "#727785",
+                        "surface-bright": "#f6fafe",
+                        "inverse-primary": "#adc6ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "section-margin": "1.5rem",
+                        "inline-gap": "0.75rem",
+                        "container-padding": "1rem",
+                        "stack-gap": "1.25rem"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-md": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "700" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["30px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+            -webkit-tap-highlight-color: transparent;
+        }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 20px); }
+        .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+        
+        .ambient-shadow {
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+        }
+        
+        .active-shadow {
+            box-shadow: 0 10px 20px rgba(54, 209, 220, 0.3);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="antialiased min-h-screen flex flex-col mx-auto max-w-[448px] bg-background pb-safe">
+<!-- Header Section (Replacing TopAppBar for this sub-page) -->
+<header class="sticky top-0 z-50 bg-background/80 backdrop-blur-md pt-safe">
+<div class="flex justify-between items-center px-container-padding h-16 w-full">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="font-headline-sm text-headline-sm text-on-surface font-bold">个人信息</h1>
+<div class="w-10 h-10"></div> <!-- Placeholder for balance -->
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-container-padding pt-4 pb-24 flex flex-col gap-stack-gap">
+<!-- Top Profile Card (Bento Style) -->
+<section class="bg-surface-container-lowest rounded-[24px] p-5 ambient-shadow flex flex-col items-center gap-4 relative overflow-hidden">
+<div class="absolute top-0 left-0 w-full h-24 bg-gradient-to-r from-accent-gradient-start/20 to-accent-gradient-end/20"></div>
+<div class="relative z-10 flex flex-col items-center mt-6">
+<div class="w-24 h-24 rounded-full border-4 border-surface-container-lowest overflow-hidden shadow-sm mb-3">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A highly detailed close-up portrait of a young professional student with a friendly, approachable expression. The lighting is soft, high-key studio lighting that creates a bright, modern aesthetic suitable for a sleek UI app profile. The background is a clean, neutral gradient of soft blues and whites to match a vibrant, optimistic application theme." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYX0PVXTIOJoN77HDA_QJf63mxEHJ-tGPQDV4Mdxe1cSGis8Itvf2Q-vuiMXV80S7fX01D0MZRs3EqTNy9vKcMOSRSOVULkTF0JxLPgIo4MCE91CCguZORYHEM2pLG9ufHUSSsIkWFXDG3q0as94v-tRQd86UT7xKlAI_-8d83J46vxmNsqc7HpR6m2Dk3FC1v-z5OTzFBMbsv6NYV0nGUt2wellk2GfrdPrlZYfHwK8BF2rC_63aB_7uZhuM0ASSCSsjScT6AD1UJ"/>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface">张伟</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">202110234567</p>
+<div class="mt-3 bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full font-label-md text-label-md">
+                    本科生
+                </div>
+</div>
+</section>
+<!-- Tabs -->
+<div class="flex w-full bg-surface-container-low rounded-xl p-1 mb-2">
+<button class="flex-1 py-2 text-center rounded-lg font-body-md text-body-md font-bold bg-surface-container-lowest text-primary shadow-sm">基本信息</button>
+<button class="flex-1 py-2 text-center rounded-lg font-body-md text-body-md text-on-surface-variant hover:text-on-surface transition-colors">当前登录</button>
+<button class="flex-1 py-2 text-center rounded-lg font-body-md text-body-md text-on-surface-variant hover:text-on-surface transition-colors">登录信息</button>
+</div>
+<!-- Detailed Info Grid -->
+<section class="bg-surface-container-lowest rounded-[24px] p-5 ambient-shadow">
+<h3 class="font-body-lg text-body-lg font-bold text-on-surface mb-4 border-b border-surface-variant pb-2">详细信息</h3>
+<div class="grid grid-cols-2 gap-4">
+<!-- Info Item -->
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">person</span> 性别
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">男</span>
+</div>
+<!-- Info Item -->
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">cake</span> 出生日期
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">2003-05-12</span>
+</div>
+<!-- Info Item -->
+<div class="flex flex-col gap-1 col-span-2">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">school</span> 学院
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">计算机科学与技术学院</span>
+</div>
+<!-- Info Item -->
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">book</span> 专业
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">软件工程</span>
+</div>
+<!-- Info Item -->
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">groups</span> 班级
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">软工2102班</span>
+</div>
+<!-- Info Item -->
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">calendar_month</span> 年级
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">2021级</span>
+</div>
+<!-- Info Item -->
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">history_edu</span> 学制
+                    </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">4年</span>
+</div>
+</div>
+</section>
+<!-- Contact Info Section -->
+<section class="bg-surface-container-lowest rounded-[24px] p-5 ambient-shadow mb-4">
+<h3 class="font-body-lg text-body-lg font-bold text-on-surface mb-4 border-b border-surface-variant pb-2">联系方式</h3>
+<div class="flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">smartphone</span> 手机号码
+                        </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">138****5678</span>
+</div>
+<button class="text-primary font-label-md text-label-md px-3 py-1 bg-primary-fixed rounded-full">修改</button>
+</div>
+<div class="flex justify-between items-center">
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">mail</span> 电子邮箱
+                        </span>
+<span class="font-body-md text-body-md text-on-surface font-medium">zhangwei@hbut.edu.cn</span>
+</div>
+<button class="text-primary font-label-md text-label-md px-3 py-1 bg-primary-fixed rounded-full">修改</button>
+</div>
+</div>
+</section>
+</main>
+</body></html>

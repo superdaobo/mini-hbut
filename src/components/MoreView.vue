@@ -1,12 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { TEmptyState, TPageHeader, TStatusBadge } from './templates'
-import {
-  hasDailyAccessGrant,
-  markDailyAccessGranted,
-  sanitizeDailyAccessInput,
-  verifyDailyAccessKey
-} from '../utils/daily_access_key.js'
+import { TStatusBadge } from './templates'
 import {
   canUseLocalModuleBridgePreview,
   fetchModuleCatalog,
@@ -31,33 +25,13 @@ const emit = defineEmits(['back', 'navigate'])
 const STUDENT_PROFILE_STORAGE_PREFIX = 'hbu_more_module_student_profile:'
 const DEFAULT_MODULES = Object.freeze([
   {
-    id: 'shuake',
-    name: '学习记录',
-    icon: '🔐',
-    description: '在线学习入口、数据同步与同步记录',
-    key_required: true,
-    kind: 'internal',
-    view: 'more_shuake',
-    order: 1
-  },
-  {
-    id: 'chaoxing_checkin',
-    name: '学习通签到',
-    icon: '✅',
-    description: '学习通签到助手，支持普通/位置/拍照/二维码/手势签到',
-    key_required: true,
-    kind: 'internal',
-    view: 'more_chaoxing_checkin',
-    order: 2
-  },
-  {
     id: 'hecheng_hugongda',
     name: '合成湖工大',
     icon: '🎮',
     description: '下载最新游戏包并打开',
     key_required: false,
     kind: 'remote',
-    order: 3
+    order: 1
   },
   {
     id: 'jump_out_hbut',
@@ -66,7 +40,7 @@ const DEFAULT_MODULES = Object.freeze([
     description: '跳一跳风格校园跳跃小游戏',
     key_required: false,
     kind: 'remote',
-    order: 4
+    order: 2
   },
   {
     id: 'hbut_2048',
@@ -75,7 +49,7 @@ const DEFAULT_MODULES = Object.freeze([
     description: '经典 2048 数字合并游戏',
     key_required: false,
     kind: 'remote',
-    order: 5
+    order: 3
   },
   {
     id: 'clumsy_bird_hbut',
@@ -84,7 +58,7 @@ const DEFAULT_MODULES = Object.freeze([
     description: '点击屏幕控制小鸟飞行',
     key_required: false,
     kind: 'remote',
-    order: 6
+    order: 4
   }
 ])
 
@@ -96,12 +70,6 @@ const moduleCatalogMap = ref(new Map())
 const moduleCardsSource = ref([])
 const moduleStates = ref({})
 const moduleBusyKey = ref('')
-
-const brushUnlocked = ref(hasDailyAccessGrant())
-const showBrushKeyDialog = ref(false)
-const brushKeyInput = ref('')
-const brushKeyError = ref('')
-const pendingBrushModuleView = ref('more_shuake')
 
 const safeText = (value) => String(value ?? '').trim()
 const safeParseJson = (raw, fallback = null) => {
@@ -123,11 +91,6 @@ const normalizeChannel = (value, fallback = 'main') => {
   if (normalized === 'main') return 'main'
   if (fallback === 'dev') return 'dev'
   return 'main'
-}
-const resolveBrushModule = (moduleItem) => {
-  const id = safeText(moduleItem?.id)
-  const view = safeText(moduleItem?.view)
-  return id === 'shuake' || view === 'more_shuake' || id === 'chaoxing_checkin' || view === 'more_chaoxing_checkin'
 }
 const buildDefaultManifestUrl = (_channel, moduleId) => {
   const normalizedChannel = normalizeChannel(_channel, 'main')
@@ -425,17 +388,16 @@ const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
   if (!id) return null
 
   const kindText = safeText(raw.kind || raw.type).toLowerCase()
-  const isBrush = id === 'shuake' || id === 'chaoxing_checkin'
-  const kind = kindText === 'internal' || isBrush ? 'internal' : 'remote'
+  const kind = kindText === 'internal' ? 'internal' : 'remote'
   const order = safeNumber(raw.order, index + 1)
-  const view = safeText(raw.view || raw.route || (id === 'shuake' ? 'more_shuake' : id === 'chaoxing_checkin' ? 'more_chaoxing_checkin' : ''))
-  const icon = safeText(raw.icon || (id === 'shuake' ? '🔐' : id === 'chaoxing_checkin' ? '✅' : kind === 'remote' ? '📦' : '🧩'))
+  const view = safeText(raw.view || raw.route || '')
+  const icon = safeText(raw.icon || (kind === 'remote' ? '📦' : '🧩'))
   return {
     id,
     name: safeText(raw.name || raw.module_name || raw.title || id),
     icon,
     description: safeText(raw.description || raw.desc || ''),
-    key_required: isBrush || toBool(raw.key_required || raw.keyRequired),
+    key_required: toBool(raw.key_required || raw.keyRequired),
     kind,
     view,
     order,
@@ -495,14 +457,6 @@ const bootstrapModuleState = () => {
     const current = readModuleState(item.id)
     if (current.status && current.status !== 'not_downloaded') continue
 
-    if (resolveBrushModule(item)) {
-      setModuleState(item.id, {
-        status: brushUnlocked.value ? 'ready' : 'locked',
-        message: brushUnlocked.value ? '今日已解锁' : '点击输入今日秘钥'
-      })
-      continue
-    }
-
     if (item.kind !== 'remote') {
       setModuleState(item.id, { status: 'ready', message: '点击进入模块' })
       continue
@@ -527,8 +481,7 @@ const bootstrapModuleState = () => {
   }
 }
 
-const resolveModuleBadgeType = (moduleItem, state) => {
-  if (resolveBrushModule(moduleItem)) return brushUnlocked.value ? 'success' : 'warning'
+const resolveModuleBadgeType = (_moduleItem, state) => {
   const status = safeText(state?.status)
   if (status === 'ready') return 'success'
   if (status === 'checking' || status === 'downloading') return 'info'
@@ -537,8 +490,7 @@ const resolveModuleBadgeType = (moduleItem, state) => {
   return 'muted'
 }
 
-const resolveModuleStatusText = (moduleItem, state) => {
-  if (resolveBrushModule(moduleItem)) return brushUnlocked.value ? '已解锁' : '需秘钥'
+const resolveModuleStatusText = (_moduleItem, state) => {
   const status = safeText(state?.status)
   if (status === 'checking') return '检查更新'
   if (status === 'downloading') return '下载中'
@@ -580,53 +532,6 @@ const resolveModuleDetailLine = (state) => {
   const message = safeText(state?.message)
   if (message) parts.push(message)
   return parts.join(' · ') || '点击进入'
-}
-
-const setBrushModulesState = (status, message) => {
-  for (const item of moduleCards.value) {
-    if (!resolveBrushModule(item)) continue
-    setModuleState(item.id, { status, message })
-  }
-}
-
-const openBrushKeyDialog = () => {
-  showBrushKeyDialog.value = true
-  brushKeyInput.value = ''
-  brushKeyError.value = ''
-}
-
-const closeBrushKeyDialog = () => {
-  showBrushKeyDialog.value = false
-  brushKeyInput.value = ''
-  brushKeyError.value = ''
-}
-
-const submitBrushKey = () => {
-  const normalized = sanitizeDailyAccessInput(brushKeyInput.value)
-  brushKeyInput.value = normalized
-  if (!verifyDailyAccessKey(normalized)) {
-    brushKeyError.value = '秘钥无效，请输入当天秘钥'
-    return
-  }
-  markDailyAccessGranted()
-  brushUnlocked.value = true
-  setBrushModulesState('ready', '今日已解锁')
-  closeBrushKeyDialog()
-  emit('navigate', pendingBrushModuleView.value || 'more_shuake')
-}
-
-const handleOpenBrushModule = (moduleItem) => {
-  const moduleId = safeText(moduleItem?.id || 'shuake')
-  const targetView = safeText(moduleItem?.view || (moduleId === 'chaoxing_checkin' ? 'more_chaoxing_checkin' : 'more_shuake'))
-  brushUnlocked.value = hasDailyAccessGrant()
-  if (!brushUnlocked.value) {
-    setModuleState(moduleId, { status: 'locked', message: '点击输入今日秘钥' })
-    pendingBrushModuleView.value = targetView
-    openBrushKeyDialog()
-    return
-  }
-  setModuleState(moduleId, { status: 'ready', message: '今日已解锁' })
-  emit('navigate', targetView)
 }
 
 const handleOpenInternalModule = (moduleItem) => {
@@ -765,10 +670,6 @@ const handleOpenRemoteModule = async (moduleItem) => {
 
 const handleModuleClick = async (moduleItem) => {
   if (!moduleItem) return
-  if (resolveBrushModule(moduleItem)) {
-    handleOpenBrushModule(moduleItem)
-    return
-  }
   if (moduleItem.kind === 'internal') {
     handleOpenInternalModule(moduleItem)
     return
@@ -828,17 +729,6 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
     ).filter(Boolean)
   }
 
-  if (!merged.some((item) => resolveBrushModule(item))) {
-    const brush = normalizeConfiguredModule(DEFAULT_MODULES[0], 0, moduleChannel.value)
-    if (brush) merged.unshift(brush)
-  }
-
-  // 确保学习通签到模块始终存在（不被远程清单覆盖删除）
-  if (!merged.some((item) => safeText(item?.id) === 'chaoxing_checkin')) {
-    const checkin = normalizeConfiguredModule(DEFAULT_MODULES[1], 1, moduleChannel.value)
-    if (checkin) merged.splice(1, 0, checkin)
-  }
-
   applyModuleCards(
     merged.length > 0 ? merged : buildDefaultModules(targetChannel),
     moduleChannel.value || targetChannel,
@@ -864,276 +754,95 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="more-view">
-    <TPageHeader title="更多" @back="emit('back')">
-      <template #actions>
-        <button class="icon-btn" :disabled="refreshing" @click="refreshModules">↻</button>
-      </template>
-    </TPageHeader>
+  <div class="more-view antialiased max-w-[520px] mx-auto relative min-h-screen bg-[#f0f4f8]">
+    <!-- Header -->
+    <header class="grid grid-cols-[44px_1fr_44px] items-center px-4 pt-4 pb-4 sticky top-0 bg-[#f0f4f8]/90 backdrop-blur z-50">
+      <!-- 左侧：返回按钮 -->
+      <button
+        class="w-9 h-9 rounded-full bg-white flex items-center justify-center card-shadow text-gray-500 hover:text-gray-700 transition-colors"
+        @click="emit('back')"
+      >
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 12H5" />
+          <path d="M12 19l-7-7 7-7" />
+        </svg>
+      </button>
 
-    <div class="more-view__body">
-      <section class="menu-section">
-        <div class="section-title">
-          <span class="section-icon">🧩</span>
-          <span>模块中心</span>
-          <span class="section-subtitle">每行 2 个</span>
+      <!-- 中间：标题居中 -->
+      <div class="flex items-center justify-center gap-2">
+        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+          <span class="text-lg">🧩</span>
         </div>
-        <div class="more-module-grid">
-          <button
-            v-for="item in moduleCards"
-            :key="item.id"
-            class="more-module-card"
-            :data-module-id="item.id"
-            :disabled="moduleBusyKey === item.id"
-            @click="handleModuleClick(item)"
-          >
-            <div class="more-module-card__head">
-              <span class="more-module-card__icon">{{ item.icon || '📦' }}</span>
-              <TStatusBadge
-                :type="resolveModuleBadgeType(item, readModuleState(item.id))"
-                :text="resolveModuleStatusText(item, readModuleState(item.id))"
-              />
-            </div>
-            <div class="more-module-card__body">
-              <strong>{{ item.name }}</strong>
-              <p>{{ item.description || '模块说明缺失' }}</p>
-            </div>
-            <div class="more-module-card__foot">
-              <span>{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
-              <small>{{ resolveModuleDetailLine(readModuleState(item.id)) }}</small>
-            </div>
-          </button>
-        </div>
-        <p v-if="moduleError" class="error-text">{{ moduleError }}</p>
-      </section>
-
-      <TEmptyState v-if="moduleLoading" type="loading" message="正在加载模块中心..." />
-    </div>
-
-    <div v-if="showBrushKeyDialog" class="daily-key-overlay" @click.self="closeBrushKeyDialog">
-      <div class="daily-key-dialog">
-        <h3>学习记录模块秘钥</h3>
-        <p>请输入今日秘钥后进入学习记录。</p>
-        <input
-          v-model="brushKeyInput"
-          type="text"
-          maxlength="11"
-          inputmode="latin"
-          autocomplete="off"
-          placeholder="例如 ABCDE-12345"
-          @input="brushKeyInput = sanitizeDailyAccessInput(brushKeyInput)"
-          @keyup.enter="submitBrushKey"
-        />
-        <p v-if="brushKeyError" class="dialog-error">{{ brushKeyError }}</p>
-        <div class="dialog-actions">
-          <button type="button" class="dialog-btn ghost" @click="closeBrushKeyDialog">取消</button>
-          <button type="button" class="dialog-btn primary" @click="submitBrushKey">确认</button>
-        </div>
+        <span class="font-bold text-lg tracking-wide text-gray-800">模块中心</span>
       </div>
-    </div>
+
+      <!-- 右侧：刷新按钮 -->
+      <button
+        class="w-9 h-9 rounded-full bg-white flex items-center justify-center card-shadow text-gray-500 hover:text-blue-500 transition-colors"
+        :disabled="refreshing"
+        :class="{ 'animate-spin': refreshing }"
+        @click="refreshModules"
+      >
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 4v6h-6" />
+          <path d="M1 20v-6h6" />
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+          <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+        </svg>
+      </button>
+    </header>
+
+    <main class="px-4 space-y-5 pb-6">
+      <!-- Module Grid -->
+      <div class="grid grid-cols-2 gap-3">
+        <button
+          v-for="item in moduleCards"
+          :key="item.id"
+          class="bg-white rounded-2xl p-3 card-shadow text-left transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+          :data-module-id="item.id"
+          :disabled="moduleBusyKey === item.id"
+          @click="handleModuleClick(item)"
+        >
+          <div class="flex justify-between items-center mb-2">
+            <span class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center text-lg">{{ item.icon || '📦' }}</span>
+            <TStatusBadge
+              :type="resolveModuleBadgeType(item, readModuleState(item.id))"
+              :text="resolveModuleStatusText(item, readModuleState(item.id))"
+            />
+          </div>
+          <div class="min-h-[52px]">
+            <strong class="block text-sm font-bold text-gray-800">{{ item.name }}</strong>
+            <p class="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{{ item.description || '模块说明缺失' }}</p>
+          </div>
+          <div class="mt-2 pt-2 border-t border-gray-100">
+            <span class="text-[11px] text-gray-400">{{ resolveModuleMetaLine(readModuleState(item.id)) }}</span>
+            <small class="block text-[11px] text-gray-400 mt-0.5">{{ resolveModuleDetailLine(readModuleState(item.id)) }}</small>
+          </div>
+        </button>
+      </div>
+
+      <p v-if="moduleError" class="text-red-500 font-semibold text-sm px-1">{{ moduleError }}</p>
+
+      <!-- Loading -->
+      <div v-if="moduleLoading" class="text-center py-10 text-gray-400 text-sm">正在加载模块中心...</div>
+    </main>
   </div>
 </template>
 
 <style scoped>
 .more-view {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient);
+  padding-bottom: 80px;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-.more-view__body {
-  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
-}
-
-.menu-section {
-  margin-bottom: 20px;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 4px 10px;
-  font-weight: 700;
-  font-size: calc(14px * var(--ui-font-scale));
-  color: var(--ui-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.section-icon {
-  font-size: 16px;
-}
-
-.section-subtitle {
-  margin-left: auto;
-  font-size: calc(11px * var(--ui-font-scale));
-  font-weight: 700;
-  color: color-mix(in oklab, var(--ui-primary) 80%, white 20%);
-}
-
-.more-module-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.more-module-card {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: calc(18px * var(--ui-radius-scale));
-  background: color-mix(in oklab, var(--ui-surface) 74%, #fff 10%);
-  backdrop-filter: blur(16px);
-  padding: 12px;
-  min-height: 150px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  text-align: left;
-  transition: transform 0.15s ease, border-color 0.15s ease;
-}
-
-.more-module-card:not(:disabled):hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in oklab, var(--ui-primary) 36%, transparent);
-}
-
-.more-module-card:disabled {
-  opacity: 0.7;
-}
-
-.more-module-card__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.more-module-card__icon {
-  width: 34px;
-  height: 34px;
-  border-radius: calc(10px * var(--ui-radius-scale));
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  background: color-mix(in oklab, var(--ui-primary) 10%, var(--ui-surface) 90%);
-}
-
-.more-module-card__body {
-  flex: 1;
-}
-
-.more-module-card__body strong {
-  display: block;
-  color: var(--ui-text);
-  font-size: calc(15px * var(--ui-font-scale));
-}
-
-.more-module-card__body p {
-  margin: 5px 0 0;
-  color: var(--ui-muted);
-  font-size: calc(12px * var(--ui-font-scale));
-  line-height: 1.35;
-}
-
-.more-module-card__foot {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.more-module-card__foot > span {
-  font-size: calc(11px * var(--ui-font-scale));
-  color: var(--ui-muted);
-}
-
-.more-module-card__foot > small {
-  color: var(--ui-text-secondary, var(--ui-muted));
-  font-size: calc(11px * var(--ui-font-scale));
-  line-height: 1.25;
-}
-
-.error-text {
-  margin: 10px 0 0;
-  color: var(--ui-danger);
-  font-weight: 600;
-  font-size: calc(13px * var(--ui-font-scale));
-}
-
-.icon-btn {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: color-mix(in oklab, var(--ui-surface) 92%, #fff 8%);
-  color: var(--ui-text);
-  font-size: 16px;
-  cursor: pointer;
-  transition: transform 0.18s ease;
-}
-
-.icon-btn:hover {
-  transform: translateY(-1px);
-}
-
-.icon-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.daily-key-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1300;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(10, 15, 24, 0.44);
-  backdrop-filter: blur(3px);
-}
-
-.daily-key-dialog {
-  width: min(420px, 100%);
-  background: var(--ui-surface);
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: calc(18px * var(--ui-radius-scale));
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.22);
-  padding: 18px;
-}
-
-.daily-key-dialog h3 {
-  margin: 0;
-  font-size: calc(17px * var(--ui-font-scale));
-  color: var(--ui-text);
-}
-
-.daily-key-dialog p {
-  margin: 8px 0 0;
-  color: var(--ui-muted);
-  font-size: calc(13px * var(--ui-font-scale));
-  line-height: 1.45;
-}
-
-.daily-key-dialog input {
-  width: 100%;
-  margin-top: 12px;
-  height: 42px;
-  border-radius: calc(12px * var(--ui-radius-scale));
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: color-mix(in oklab, var(--ui-surface) 95%, #fff 5%);
-  color: var(--ui-text);
-  padding: 0 12px;
-  font-size: calc(14px * var(--ui-font-scale));
-  letter-spacing: 1px;
+.card-shadow {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
 }
 
 .dialog-error {
   margin-top: 8px;
-  color: var(--ui-danger);
-  font-size: calc(12px * var(--ui-font-scale));
+  color: #ef4444;
+  font-size: 12px;
 }
 
 .dialog-actions {
@@ -1146,7 +855,7 @@ onMounted(async () => {
 .dialog-btn {
   min-width: 88px;
   height: 36px;
-  border-radius: calc(10px * var(--ui-radius-scale));
+  border-radius: 10px;
   border: 1px solid transparent;
   cursor: pointer;
   font-weight: 600;
@@ -1155,23 +864,11 @@ onMounted(async () => {
 .dialog-btn.ghost {
   background: transparent;
   border-color: rgba(148, 163, 184, 0.3);
-  color: var(--ui-muted);
+  color: #64748b;
 }
 
 .dialog-btn.primary {
-  background: color-mix(in oklab, var(--ui-primary) 90%, white 10%);
+  background: #3b82f6;
   color: #fff;
-}
-
-@media (max-width: 760px) {
-  .more-module-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .more-module-card {
-    min-height: 142px;
-    padding: 10px;
-  }
 }
 </style>

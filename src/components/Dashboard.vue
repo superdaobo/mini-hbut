@@ -1016,40 +1016,40 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
         <!-- Timeline -->
         <div v-else class="relative">
-          <div class="timeline-line"></div>
+          <div class="timeline-line" :style="{ bottom: todayCourses.length <= 1 ? '100%' : undefined }"></div>
 
-          <div v-for="(course, idx) in todayCourses" :key="course.key" class="flex mb-6 relative z-10" :class="{ 'opacity-50': course.endMinutes <= currentMinutePrecise }">
+          <div v-for="(course, idx) in todayCourses" :key="course.key" class="flex relative z-10" :class="[{ 'opacity-50': course.endMinutes <= currentMinutePrecise }, idx < todayCourses.length - 1 ? 'mb-7' : '']">
             <!-- Finished course -->
             <template v-if="course.endMinutes <= currentMinutePrecise">
-              <div class="w-8 flex flex-col items-center shrink-0 pt-1">
+              <div class="w-6 flex flex-col items-center shrink-0 pt-1">
                 <div class="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
               </div>
-              <div class="w-16 flex flex-col items-start shrink-0 pr-1">
+              <div class="w-12 flex flex-col items-start shrink-0">
                 <span class="text-sm font-medium text-gray-800 leading-tight">{{ course.start }}</span>
                 <span class="text-xs text-gray-400 mt-0.5">~ {{ course.end }}</span>
               </div>
-              <div class="flex-1 flex justify-between items-start pl-2">
-                <div>
-                  <h4 class="font-medium text-gray-800 text-base">{{ course.name }}</h4>
+              <div class="flex-1 flex justify-between items-start pl-1 pr-1">
+                <div class="min-w-0 flex-1 mr-2">
+                  <h4 class="font-medium text-gray-800 text-base truncate">{{ course.name }}</h4>
                   <p class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
                 </div>
-                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">已结束</span>
+                <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full whitespace-nowrap shrink-0">已结束</span>
               </div>
             </template>
 
             <!-- Active / Next course (highlighted - Stitch v2 design) -->
             <template v-else-if="idx === 0 || (todayCourses[idx - 1] && todayCourses[idx - 1].endMinutes <= currentMinutePrecise && course.endMinutes > currentMinutePrecise)">
-              <div class="w-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl py-4 pr-4 flex shadow-lg relative overflow-hidden">
+              <div class="w-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-2xl pt-3 pb-4 pr-4 flex shadow-lg relative overflow-hidden">
                 <!-- Decorative circle -->
                 <div class="absolute -right-8 -top-8 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl"></div>
-                <div class="w-8 flex flex-col items-center shrink-0 pt-1 text-white relative z-10">
+                <div class="w-6 flex flex-col items-center shrink-0 pt-1 text-white relative z-10">
                   <div class="w-3 h-3 bg-white border-2 border-blue-500 rounded-full"></div>
                 </div>
-                <div class="w-16 flex flex-col items-start shrink-0 pr-1 text-white relative z-10">
+                <div class="w-12 flex flex-col items-start shrink-0 text-white relative z-10">
                   <span class="text-sm font-bold leading-tight">{{ course.start }}</span>
                   <span class="text-xs opacity-80 mt-0.5">~ {{ course.end }}</span>
                 </div>
-                <div class="flex-1 text-white relative z-10 pl-2 pr-20">
+                <div class="flex-1 text-white relative z-10 pl-1 pr-20">
                   <span class="text-[10px] bg-blue-400 bg-opacity-50 px-2 py-0.5 rounded text-white inline-block mb-1">
                     {{ course.startMinutes <= currentMinutePrecise ? '进行中' : '下一节' }}
                   </span>
@@ -1071,19 +1071,19 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
             <!-- Upcoming course -->
             <template v-else>
-              <div class="w-8 flex flex-col items-center shrink-0 pt-1">
+              <div class="w-6 flex flex-col items-center shrink-0 pt-1">
                 <div class="w-2 h-2 bg-gray-300 rounded-full"></div>
               </div>
-              <div class="w-16 flex flex-col items-start shrink-0 pr-1">
+              <div class="w-12 flex flex-col items-start shrink-0">
                 <span class="text-sm font-medium text-gray-800 leading-tight">{{ course.start }}</span>
                 <span class="text-xs text-gray-400 mt-0.5">~ {{ course.end }}</span>
               </div>
-              <div class="flex-1 flex justify-between items-start pl-2">
-                <div>
-                  <h4 class="font-medium text-gray-800 text-base">{{ course.name }}</h4>
+              <div class="flex-1 flex justify-between items-start pl-1 pr-1">
+                <div class="min-w-0 flex-1 mr-2">
+                  <h4 class="font-medium text-gray-800 text-base truncate">{{ course.name }}</h4>
                   <p class="text-xs text-gray-500 mt-1 flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> {{ course.room }}</p>
                 </div>
-                <span class="text-xs text-gray-400">未开始</span>
+                <span class="text-xs text-gray-400 whitespace-nowrap shrink-0">未开始</span>
               </div>
             </template>
           </div>
@@ -1296,9 +1296,9 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
 .timeline-line {
   position: absolute;
-  left: 15px;
-  top: 24px;
-  bottom: 24px;
+  left: 11px;
+  top: 10px;
+  bottom: 40px;
   width: 2px;
   background-color: #e5e7eb;
   z-index: 0;

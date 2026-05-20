@@ -293,7 +293,7 @@ onMounted(async () => {
 
 <template>
   <div class="calendar-view">
-    <TPageHeader title="校历信息" icon="📘" @back="emit('back')" />
+    <TPageHeader title="校历信息" icon="event_note" @back="emit('back')" />
 
     <div v-if="offline" class="offline-banner">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}

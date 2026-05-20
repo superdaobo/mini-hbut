@@ -337,7 +337,7 @@ watch(
 <template>
   <div class="grade-view">
     <!-- 头部 -->
-    <TPageHeader icon="📊" title="成绩查询" @back="handleBack" />
+    <TPageHeader icon="assessment" title="成绩查询" @back="handleBack" />
 
     <!-- Tab 切换栏 -->
     <div class="grade-tab-bar">

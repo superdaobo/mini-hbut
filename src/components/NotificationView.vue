@@ -810,278 +810,259 @@ watch(
       <span class="header-pill">通知</span>
     </header>
 
-    <section class="hero-card">
-      <div class="hero-left">
-        <span class="status-pill">通知权限：{{ permissionLabel }}</span>
-        <span class="status-pill soft">最近检测：{{ lastCheckText }}</span>
-        <span class="status-pill soft">运行环境：{{ runtimeDisplayText }}</span>
-      </div>
-      <div class="hero-actions">
-        <button class="btn-primary" @click="handleRequestPermission">请求通知权限</button>
-        <button class="btn-secondary" :disabled="checking" @click="runManualCheck">
+    <main class="notify-content">
+      <!-- Permission Status Card -->
+      <section class="permission-card">
+        <div class="permission-left">
+          <div class="permission-icon-circle">
+            <span class="material-symbols-outlined fill">notifications_active</span>
+          </div>
+          <div class="permission-info">
+            <h2 class="permission-title">推送通知{{ permissionLabel === '已授权' ? '已开启' : '未开启' }}</h2>
+            <p class="permission-desc">{{ permissionLabel === '已授权' ? '你将准时收到校园提醒' : '请授权通知权限以接收提醒' }}</p>
+          </div>
+        </div>
+        <button class="permission-manage-btn" @click="handleRequestPermission">管理</button>
+      </section>
+
+      <!-- Notification Types Panel (Bento Grid) -->
+      <section class="notify-types-section">
+        <h3 class="section-heading">通知类型设置</h3>
+        <div class="notify-types-grid" ref="notificationLayoutRef"
+          @pointerdown="handleInfoGridPressStart"
+          @pointermove="handleInfoGridPressMove"
+          @pointerup="handleInfoGridPressEnd"
+          @pointercancel="handleInfoGridPressEnd"
+        >
+          <SortableSurface
+            v-for="card in orderedInfoCards"
+            :key="card.key"
+            :item-id="card.key"
+            :editing="isNotificationLayoutEditing"
+            :dragging="draggingNotificationKey === card.key"
+            :hover="hoverNotificationKey === card.key"
+            @drag-start="handleNotificationDragStart"
+            @drag-move="handleNotificationDragMove"
+            @drag-end="stopNotificationLayoutDrag"
+          >
+            <!-- Grade Alerts -->
+            <div v-if="card.key === 'grades'" class="notify-type-card">
+              <div class="notify-type-top">
+                <div class="notify-type-icon icon-accent">
+                  <span class="material-symbols-outlined fill">school</span>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="enableGradeNotices" @change="handleOtherSettingChange">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="notify-type-body">
+                <h4 class="notify-type-name">成绩更新</h4>
+                <p class="notify-type-desc">出分第一时间提醒</p>
+              </div>
+            </div>
+
+            <!-- Exam Alerts -->
+            <div v-if="card.key === 'exams'" class="notify-type-card">
+              <div class="notify-type-top">
+                <div class="notify-type-icon icon-orange">
+                  <span class="material-symbols-outlined fill">edit_document</span>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="enableExamReminders" @change="handleOtherSettingChange">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="notify-type-body">
+                <h4 class="notify-type-name">考试安排</h4>
+                <p class="notify-type-desc">考前 3 天提醒</p>
+              </div>
+            </div>
+
+            <!-- Electricity Alerts -->
+            <div v-if="card.key === 'electricity'" class="notify-type-card">
+              <div class="notify-type-top">
+                <div class="notify-type-icon icon-teal">
+                  <span class="material-symbols-outlined fill">bolt</span>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="enablePowerNotices" @change="handleOtherSettingChange">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="notify-type-body">
+                <h4 class="notify-type-name">寝室电费</h4>
+                <p class="notify-type-desc">余额不足自动推送</p>
+              </div>
+            </div>
+
+            <!-- Class Alerts -->
+            <div v-if="card.key === 'class_reminder'" class="notify-type-card">
+              <div class="notify-type-top">
+                <div class="notify-type-icon icon-sky">
+                  <span class="material-symbols-outlined fill">schedule</span>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="enableClassReminders" @change="handleOtherSettingChange">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="notify-type-body">
+                <h4 class="notify-type-name">上课提醒</h4>
+                <p class="notify-type-desc">课前 {{ classLeadMinutes }} 分钟提醒</p>
+              </div>
+            </div>
+          </SortableSurface>
+          <LayoutCollisionFxLayer :particles="notificationCollisionFx" />
+        </div>
+
+        <!-- Layout Edit Controls -->
+        <div v-if="isNotificationLayoutEditing" class="layout-edit-bar">
+          <button class="layout-edit-btn" @click="resetNotificationLayoutEdit">重置</button>
+          <button class="layout-edit-btn" @click="cancelNotificationLayoutEdit">取消</button>
+          <button class="layout-edit-btn primary" @click="saveNotificationLayoutEdit">保存</button>
+        </div>
+      </section>
+
+      <!-- Background Sync Settings -->
+      <section class="sync-settings-card">
+        <div class="sync-header">
+          <div class="sync-header-left">
+            <span class="material-symbols-outlined">sync</span>
+            <h3 class="sync-title">后台自动检查</h3>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+        <div class="sync-interval-row">
+          <span class="sync-interval-label">检查间隔</span>
+          <select class="sync-interval-select" v-model="checkInterval" @change="handleIntervalChange">
+            <option :value="15">每 15 分钟</option>
+            <option :value="30">每 30 分钟</option>
+            <option :value="60">每 1 小时</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Action Buttons -->
+      <section class="action-buttons">
+        <button class="action-btn secondary" :disabled="checking" @click="runManualCheck">
           {{ checking ? '检查中...' : '立即检查一次' }}
         </button>
-        <button class="btn-secondary" :disabled="sending" @click="handleTestNotification">
+        <button class="action-btn secondary" :disabled="sending" @click="handleTestNotification">
           {{ sending ? '发送中...' : '发送测试通知' }}
         </button>
-      </div>
-    </section>
+      </section>
 
-    <section class="setting-card">
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>后台自动检查</h3>
-          <p>定时静默刷新课表/成绩，并检查考试与电费状态。</p>
+
+      <!-- Recent Notifications -->
+      <section class="recent-section">
+        <div class="recent-header">
+          <h3 class="section-heading">近期消息</h3>
+          <span class="recent-time">{{ lastCheckText }}</span>
         </div>
-        <label class="switch">
-          <input type="checkbox" v-model="enableBackground" @change="handleBackgroundToggle">
-          <span class="slider round"></span>
-        </label>
-      </div>
 
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>成绩更新通知</h3>
-          <p>检测到成绩变化时发送通知。</p>
+        <!-- Grade Card (Unread style with details) -->
+        <div v-if="gradeItems.length" class="notify-message-card unread">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-accent">
+              <span class="material-symbols-outlined fill">school</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title" :class="{ bold: gradeSummary?.changed }">{{ gradeSummary?.changed ? '新成绩发布' : '成绩动态' }}</h4>
+                <span class="notify-msg-time">{{ lastCheckText }}</span>
+              </div>
+              <p class="notify-msg-text">总成绩 {{ gradeSummary?.total || 0 }} 条 · 本次{{ gradeSummary?.changed ? '有变化' : '无变化' }}</p>
+              <ul v-if="gradeItems.length" class="notify-detail-list">
+                <li v-for="(item, idx) in gradeItems.slice(0, 3)" :key="`grade-${idx}`" class="detail-row">
+                  <span class="detail-main">{{ item.course_name || '-' }}</span>
+                  <span class="detail-sub">
+                    <span>{{ item.term || '未知学期' }}</span>
+                    <span class="detail-score">{{ item.final_score || '-' }}</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" v-model="enableGradeNotices" @change="handleOtherSettingChange">
-          <span class="slider round"></span>
-        </label>
-      </div>
 
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>考试提醒</h3>
-          <p>如果明天有考试，自动发送提醒通知。</p>
+        <!-- Class Reminder Card (with details) -->
+        <div v-if="classSummary?.enabled" class="notify-message-card">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-sky">
+              <span class="material-symbols-outlined fill">schedule</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title">上课提醒</h4>
+                <span class="notify-msg-time">{{ classReminderText }}</span>
+              </div>
+              <p class="notify-msg-text">{{ nextClassText }}</p>
+              <div class="notify-detail-kv" v-if="classSummary?.nextCourse?.name">
+                <span class="kv-item"><span class="material-symbols-outlined mini-icon">alarm</span> 提前 {{ classLeadMinutes }} 分钟</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" v-model="enableExamReminders" @change="handleOtherSettingChange">
-          <span class="slider round"></span>
-        </label>
-      </div>
 
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>电费低电通知</h3>
-          <p>电费实时请求，低于 10 度时通知；每次打开应用只提醒一次。</p>
+        <!-- Exam Card (with details) -->
+        <div v-if="examItems.length" class="notify-message-card">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-orange">
+              <span class="material-symbols-outlined fill">edit_document</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title">考试安排</h4>
+                <span class="notify-msg-time">{{ examSummary?.tomorrowCount ? '明日有考试' : '' }}</span>
+              </div>
+              <p class="notify-msg-text">近期 {{ examItems.length }} 门 · 明日 {{ examSummary?.tomorrowCount || 0 }} 门</p>
+              <ul class="notify-detail-list">
+                <li v-for="(item, idx) in examItems.slice(0, 3)" :key="`exam-${idx}`">
+                  <span class="detail-main">
+                    {{ item.course_name || '-' }}
+                    <small v-if="item.is_tomorrow" class="tag-urgent">明日</small>
+                  </span>
+                  <span class="detail-sub">
+                    <span v-if="item.exam_date">{{ item.exam_date }}</span>
+                    <span v-if="item.exam_time">{{ formatNotifyExamTime(item.exam_time) }}</span>
+                    <span v-if="item.location">{{ item.location }}</span>
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" v-model="enablePowerNotices" @change="handleOtherSettingChange">
-          <span class="slider round"></span>
-        </label>
-      </div>
 
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>上课提醒</h3>
-          <p>根据当日课表，在开课前指定分钟推送通知。</p>
+        <!-- Electricity Card -->
+        <div v-if="powerSummary?.quantity != null" class="notify-message-card">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-teal">
+              <span class="material-symbols-outlined fill">bolt</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title">电费监控</h4>
+                <span class="notify-msg-time">{{ powerStatusText }}</span>
+              </div>
+              <p class="notify-msg-text">剩余电量：{{ powerQuantityText }}</p>
+              <p v-if="powerSummary?.isDual" class="notify-msg-text">空调电量：{{ acPowerQuantityText }}</p>
+            </div>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" v-model="enableClassReminders" @change="handleOtherSettingChange">
-          <span class="slider round"></span>
-        </label>
-      </div>
 
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>上课提醒提前时间（分钟）</h3>
-        </div>
-        <IOSSelect
-          v-model.number="classLeadMinutes"
-          @change="handleClassLeadChange"
-          class="select-input"
-          :disabled="!enableClassReminders"
-        >
-          <option :value="5">5 分钟</option>
-          <option :value="10">10 分钟</option>
-          <option :value="15">15 分钟</option>
-          <option :value="20">20 分钟</option>
-          <option :value="30">30 分钟（默认）</option>
-          <option :value="45">45 分钟</option>
-          <option :value="60">60 分钟</option>
-        </IOSSelect>
-      </div>
+        <div class="notify-end-hint">长按卡片进入管理模式</div>
+      </section>
 
-      <div class="setting-item">
-        <div class="setting-label">
-          <h3>检查频率（分钟）</h3>
-        </div>
-        <IOSSelect v-model="checkInterval" @change="handleIntervalChange" class="select-input">
-          <option :value="15">15 分钟</option>
-          <option :value="30">30 分钟（默认）</option>
-          <option :value="60">60 分钟</option>
-        </IOSSelect>
-      </div>
-
+      <!-- Background Status -->
       <div class="status-row" v-if="enableBackground">
-        <span class="status-pill soft">
-          保活状态：{{ backgroundLockStatusText }}
-        </span>
-        <span class="status-pill soft">后台调度：{{ backgroundFetchStatusText }}</span>
-        <span class="status-pill soft">激进保活：{{ keepAliveStatusText }}</span>
-        <span class="status-pill soft" v-if="backgroundFetchState?.lastRunAt">
-          最近后台触发：{{ formatRelativeTime(backgroundFetchState.lastRunAt) }}
-        </span>
-        <span class="status-pill soft" v-if="backgroundFetchState?.lastError">
-          调度错误：{{ backgroundFetchState.lastError }}
-        </span>
-        <button
-          v-if="currentRuntime === 'capacitor'"
-          type="button"
-          class="btn-secondary btn-mini"
-          @click="openSystemPermissionSettings"
-        >
-          系统权限入口
-        </button>
+        <span class="status-pill soft">保活：{{ backgroundLockStatusText }}</span>
+        <span class="status-pill soft">调度：{{ backgroundFetchStatusText }}</span>
       </div>
-    </section>
-
-    <section
-      ref="notificationLayoutRef"
-      class="notification-layout"
-      @pointerdown.passive="handleInfoGridPressStart"
-      @pointermove.passive="handleInfoGridPressMove"
-      @pointerup.passive="handleInfoGridPressEnd"
-      @pointercancel.passive="handleInfoGridPressEnd"
-      @pointerleave.passive="handleInfoGridPressEnd"
-    >
-      <LayoutCollisionFxLayer :items="notificationCollisionFx" />
-      <div
-        v-if="isNotificationLayoutEditing"
-        class="notification-layout-toolbar notification-layout-toolbar--floating"
-      >
-        <div class="notification-layout-toolbar__copy">
-          <span class="notification-layout-toolbar__eyebrow">Workspace Edit</span>
-          <strong>通知布局编辑</strong>
-          <span>直接拖动卡片上下换位，点击“完成”后才会保存。</span>
-        </div>
-        <div class="notification-layout-toolbar__meta">
-          <span>{{ draftNotificationCardsOrder.length }} 张卡片</span>
-          <span>草稿态未提交</span>
-        </div>
-        <div class="notification-layout-toolbar__actions">
-          <button type="button" class="toolbar-btn ghost" @click="cancelNotificationLayoutEdit">取消</button>
-          <button type="button" class="toolbar-btn ghost" @click="resetNotificationLayoutEdit">恢复默认</button>
-          <button type="button" class="toolbar-btn primary" @click="saveNotificationLayoutEdit">完成</button>
-        </div>
-      </div>
-
-      <TransitionGroup name="notification-card" tag="div" class="info-grid" :class="{ editing: isNotificationLayoutEditing }">
-        <SortableSurface
-          v-for="card in orderedInfoCards"
-          :key="card.key"
-          :id="card.key"
-          group="notification-cards"
-          section="notifications"
-          :editing="isNotificationLayoutEditing"
-          :surface-class="[
-            'info-card',
-            {
-              'electricity-card': card.key === 'electricity',
-              'info-card--over': hoverNotificationKey === card.key && draggingNotificationKey !== card.key
-            }
-          ]"
-          @drag-start="handleNotificationDragStart"
-          @drag-move="handleNotificationDragMove"
-          @drag-end="stopNotificationLayoutDrag"
-        >
-          <template v-if="card.key === 'class_reminder'">
-            <div class="info-card-head">
-              <h3>上课提醒</h3>
-              <span class="drag-hint">{{ isNotificationLayoutEditing ? '拖动换位' : '长按进入编辑' }}</span>
-            </div>
-            <p class="hint">{{ classReminderText }}</p>
-            <div class="kv">
-              <div class="kv-left">
-                <span class="kv-icon kv-icon--red"><span class="material-symbols-rounded">alarm</span></span>
-                <span class="kv-label">提醒提前</span>
-              </div>
-              <strong>{{ classLeadMinutes }} 分钟</strong>
-            </div>
-            <div class="kv">
-              <div class="kv-left">
-                <span class="kv-icon kv-icon--green"><span class="material-symbols-rounded">book</span></span>
-                <span class="kv-label">下一门课</span>
-              </div>
-              <strong>{{ nextClassText }}</strong>
-            </div>
-          </template>
-
-          <template v-else-if="card.key === 'electricity'">
-            <h3>电费监控</h3>
-            <p class="hint">监控房间：{{ selectedRoomLabel }}</p>
-            <template v-if="powerSummary?.isDual">
-              <div class="kv">
-                <div class="kv-left">
-                  <span class="kv-icon kv-icon--yellow"><span class="material-symbols-rounded">lightbulb</span></span>
-                  <span class="kv-label">照明电量</span>
-                </div>
-                <strong :class="{ low: Number(powerSummary?.quantity) < 10 }">{{ powerQuantityText }}</strong>
-              </div>
-              <div class="kv">
-                <div class="kv-left">
-                  <span class="kv-icon kv-icon--blue"><span class="material-symbols-rounded">ac_unit</span></span>
-                  <span class="kv-label">空调电量</span>
-                </div>
-                <strong :class="{ low: Number(powerSummary?.acQuantity) < 10 }">{{ acPowerQuantityText }}</strong>
-              </div>
-            </template>
-            <template v-else>
-              <div class="kv">
-                <div class="kv-left">
-                  <span class="kv-icon kv-icon--yellow"><span class="material-symbols-rounded">bolt</span></span>
-                  <span class="kv-label">剩余电量</span>
-                </div>
-                <strong :class="{ low: powerSummary?.isLow }">{{ powerQuantityText }}</strong>
-              </div>
-            </template>
-            <div class="kv">
-              <div class="kv-left">
-                <span class="kv-icon kv-icon--emerald"><span class="material-symbols-rounded">monitoring</span></span>
-                <span class="kv-label">状态</span>
-              </div>
-              <strong>{{ powerStatusText }}</strong>
-            </div>
-          </template>
-
-          <template v-else-if="card.key === 'grades'">
-            <h3>成绩动态</h3>
-            <p class="hint">总成绩：{{ gradeSummary?.total || 0 }} 条 · 本次是否变化：{{ gradeSummary?.changed ? '是' : '否' }}</p>
-            <ul class="list" v-if="gradeItems.length">
-              <li v-for="(item, idx) in gradeItems" :key="`${item.course_name}-${item.term}-${idx}`">
-                <span class="item-main">{{ item.course_name || '-' }}</span>
-                <span class="item-sub-capsules">
-                  <span class="mini-capsule mc-date"><span class="material-symbols-rounded mini-icon">calendar_month</span> {{ item.term || '未知学期' }}</span>
-                  <span class="mini-capsule mc-time"><span class="material-symbols-rounded mini-icon">bar_chart</span> {{ item.final_score || '-' }}</span>
-                </span>
-              </li>
-            </ul>
-            <p v-else class="empty">暂无成绩摘要</p>
-          </template>
-
-          <template v-else>
-            <h3>考试列表</h3>
-            <p class="hint">近期考试：{{ examSummary?.upcoming?.length || 0 }} 门 · 明日考试：{{ examSummary?.tomorrowCount || 0 }} 门</p>
-            <ul class="list" v-if="examItems.length">
-              <li v-for="(item, idx) in examItems" :key="`${item.course_name}-${item.exam_date}-${idx}`">
-                <span class="item-main">
-                  {{ item.course_name || '-' }}
-                  <small v-if="item.is_tomorrow" class="tag tag-urgent">明日</small>
-                </span>
-                <span class="item-sub-capsules">
-                  <span class="mini-capsule mc-date" v-if="item.exam_date"><span class="material-symbols-rounded mini-icon">calendar_today</span> {{ item.exam_date }}</span>
-                  <span class="mini-capsule mc-time" v-if="item.exam_time"><span class="material-symbols-rounded mini-icon">schedule</span> {{ formatNotifyExamTime(item.exam_time) }}</span>
-                  <span class="mini-capsule mc-location" v-if="item.location"><span class="material-symbols-rounded mini-icon">location_on</span> {{ item.location }}</span>
-                  <span class="mini-capsule mc-seat" v-if="item.seat_no"><span class="material-symbols-rounded mini-icon">event_seat</span> {{ item.seat_no }}</span>
-                </span>
-              </li>
-            </ul>
-            <p v-else class="empty">暂无考试安排</p>
-          </template>
-        </SortableSurface>
-      </TransitionGroup>
-    </section>
+    </main>
 
     <p v-if="statusMessage" class="status-msg">{{ statusMessage }}</p>
     <p v-if="lastError" class="status-err">错误详情：{{ lastError }}</p>
@@ -1098,23 +1079,559 @@ watch(
     </div>
   </div>
 </template>
-
 <style scoped>
+/* ===== New Design System Styles ===== */
 .notification-view {
   min-height: 100%;
-  padding: 18px 14px 120px;
-  color: var(--ui-text);
-  background: #f9f9ff;
-  max-width: 600px;
+  color: var(--md-sys-color-on-background, #171c1f);
+  background: var(--md-sys-color-background, #f6fafe);
+  max-width: 448px;
   margin: 0 auto;
   width: 100%;
+  padding-bottom: 6rem;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
+.notify-content {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Permission Card */
+.permission-card {
+  background: var(--md-sys-color-primary-fixed, #d8e2ff);
+  border-radius: 1rem;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(173, 198, 255, 0.3);
+}
+
+.permission-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.permission-icon-circle {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  background: rgba(0, 88, 190, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-sys-color-primary, #0058be);
+}
+
+.permission-info h2 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-primary-fixed-variant, #004395);
+  margin: 0;
+}
+
+.permission-info p {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  margin: 0;
+}
+
+.permission-manage-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  background: var(--md-sys-color-primary, #0058be);
+  color: var(--md-sys-color-on-primary, #ffffff);
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Section Heading */
+.section-heading {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+/* Notification Types Grid */
+.notify-types-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.notify-types-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  position: relative;
+}
+
+.notify-type-card {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.notify-type-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.notify-type-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notify-type-icon .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.icon-accent {
+  background: rgba(91, 134, 229, 0.1);
+  color: #5b86e5;
+}
+
+.icon-orange {
+  background: rgba(249, 115, 22, 0.1);
+  color: #f97316;
+}
+
+.icon-teal {
+  background: rgba(20, 184, 166, 0.1);
+  color: #14b8a6;
+}
+
+.icon-sky {
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+}
+
+.notify-type-body h4 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+.notify-type-body p {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  margin: 0;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  display: block;
+  width: 2.5rem;
+  height: 1.5rem;
+  background: var(--md-sys-color-surface-variant, #dfe3e7);
+  border-radius: 9999px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  background: #ffffff;
+  border-radius: 9999px;
+  top: 0.25rem;
+  left: 0.25rem;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: var(--md-sys-color-primary, #0058be);
+}
+
+.toggle-switch input:checked + .toggle-track::after {
+  transform: translateX(1rem);
+}
+
+/* Sync Settings Card */
+.sync-settings-card {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+
+.sync-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.sync-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sync-header-left .material-symbols-outlined {
+  color: var(--md-sys-color-outline, #727785);
+}
+
+.sync-title {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+.sync-interval-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 2rem;
+  border-top: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  padding-top: 0.75rem;
+}
+
+.sync-interval-label {
+  font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+.sync-interval-select {
+  background: var(--md-sys-color-surface-container, #eaeef2);
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.5rem;
+  border: none;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  font-size: 12px;
+  font-weight: 500;
+  outline: none;
+}
+
+/* Action Buttons */
+.action-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.action-btn {
+  flex: 1;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn.secondary {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border: 1px solid var(--md-sys-color-outline-variant, #c2c6d6);
+  color: var(--md-sys-color-primary, #0058be);
+}
+
+.action-btn.secondary:hover {
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Recent Section */
+.recent-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.recent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.25rem;
+}
+
+.recent-time {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+/* Notification Message Cards */
+.notify-message-card {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.notify-message-card:active {
+  transform: scale(0.98);
+}
+
+.notify-message-card.unread {
+  border-left: 4px solid #5b86e5;
+}
+
+.notify-msg-left {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.notify-msg-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.notify-msg-body {
+  flex: 1;
+}
+
+.notify-msg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.25rem;
+}
+
+.notify-msg-title {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+.notify-msg-time {
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+.notify-msg-text {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notify-end-hint {
+  text-align: center;
+  padding: 0.5rem 0 1.5rem;
+  font-size: 12px;
+  color: rgba(66, 71, 84, 0.6);
+}
+
+/* Notification Detail Lists */
+.notify-detail-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.notify-detail-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.375rem 0.5rem;
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
+  border-radius: 0.5rem;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.detail-main {
+  flex: 1;
+  min-width: 0;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag-urgent {
+  display: inline-block;
+  margin-left: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.detail-badges {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  max-width: 50%;
+  justify-content: flex-end;
+}
+
+.detail-sub {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  margin-top: 0.125rem;
+}
+
+.detail-row {
+  flex-direction: row !important;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.detail-row .detail-sub {
+  margin-top: 0;
+}
+
+.detail-score {
+  font-weight: 700;
+  color: var(--md-sys-color-primary, #0058be);
+}
+
+.detail-badge {
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--md-sys-color-surface-container, #eaeef2);
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.detail-badge.highlight {
+  background: rgba(0, 88, 190, 0.1);
+  color: var(--md-sys-color-primary, #0058be);
+  font-weight: 700;
+}
+
+.notify-detail-kv {
+  margin-top: 0.375rem;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.kv-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+.mini-icon {
+  font-size: 14px;
+}
+
+.notify-msg-title.bold {
+  font-weight: 700;
+}
+
+/* Layout Edit Bar */
+.layout-edit-bar {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 0.75rem 0;
+}
+
+.layout-edit-btn {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--md-sys-color-outline-variant, #c2c6d6);
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  color: var(--md-sys-color-on-surface, #171c1f);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.layout-edit-btn.primary {
+  background: var(--md-sys-color-primary, #0058be);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+/* Material Symbols */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1;
+}
+
+/* ===== Legacy Styles (kept for header and status) ===== */
 .dashboard-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  padding: 0 1rem;
+  height: 4rem;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(246, 250, 254, 0.9);
+  backdrop-filter: blur(12px);
 }
 
 .header-left {

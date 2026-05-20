@@ -175,378 +175,121 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="exam-view">
-    <TPageHeader title="考试安排" icon="📝" @back="emit('back')" />
+  <div class="exam-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative pb-24">
+    <!-- Header -->
+    <TPageHeader title="考试安排" icon="edit_document" @back="emit('back')" />
 
-    <div v-if="offline" class="offline-banner">
+    <!-- Offline Banner -->
+    <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
-    <!-- 学期选择 -->
-    <div class="semester-selector">
-      <label>选择学期：</label>
-      <IOSSelect v-model="selectedSemester" @change="handleSemesterChange">
-        <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
-      </IOSSelect>
-    </div>
-
-    <!-- 统计摘要 -->
-    <div v-if="!loading && exams.length > 0" class="exam-summary">
-      <span class="summary-capsule capsule-upcoming" v-if="futureCount > 0">
-        🔥 待考 {{ futureCount }} 科
-      </span>
-      <span class="summary-capsule capsule-passed" v-if="passedCount > 0">
-        ✅ 已考 {{ passedCount }} 科
-      </span>
-    </div>
-
-    <!-- 内容区 -->
-    <div class="view-content">
-      <TEmptyState v-if="loading" type="loading" message="正在获取考试安排..." />
-      <TEmptyState v-else-if="error" type="error" :message="error">
-        <button class="btn" style="margin-top: 12px" @click="fetchExams">重试</button>
-      </TEmptyState>
-      <TEmptyState v-else-if="exams.length === 0" type="empty" message="本学期暂无考试安排" />
-
-      <!-- 考试列表 -->
-      <div v-else class="exam-list">
-        <div 
-          v-for="(exam, index) in processedExams" 
-          :key="index" 
-          :class="['exam-card', { 'is-passed': isPassed(exam.exam_date) }]"
-        >
-          <!-- 卡片头部 -->
-          <div class="exam-header">
-            <div class="header-left">
-              <span class="exam-status-badge badge-passed" v-if="isPassed(exam.exam_date)">已结束</span>
-              <span class="exam-status-badge badge-upcoming" v-else-if="getCountdownLabel(exam.exam_date)">
-                {{ getCountdownLabel(exam.exam_date) }}
-              </span>
-              <span class="course-name">{{ exam.course_name }}</span>
-            </div>
-            <span class="exam-type-capsule" v-if="exam.exam_type">{{ exam.exam_type }}</span>
+    <main class="flex-1 flex flex-col gap-5 p-4">
+      <!-- Semester Selector & Stats -->
+      <section class="flex flex-col gap-3">
+        <!-- Semester Dropdown -->
+        <div class="flex items-center justify-between">
+          <div class="relative bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm px-3 py-2 flex items-center gap-2 cursor-pointer active:scale-95 transition-transform">
+            <IOSSelect v-model="selectedSemester" @change="handleSemesterChange" class="appearance-none bg-transparent border-none text-sm text-on-surface font-medium pr-6 focus:outline-none">
+              <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
+            </IOSSelect>
+            <span class="material-symbols-outlined text-outline absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-base">arrow_drop_down</span>
           </div>
+        </div>
 
-          <!-- 详情区域 -->
-          <div class="exam-details">
-            <div class="detail-capsule capsule-date" v-if="exam.exam_date">
-              <span class="capsule-icon">📅</span>
-              <span class="capsule-label">日期：</span>
-              <span>{{ formatExamDate(exam.exam_date) }}</span>
+        <!-- Stats Bento Grid -->
+        <div v-if="!loading && exams.length > 0" class="grid grid-cols-2 gap-3">
+          <div class="bg-primary-container rounded-2xl p-4 flex flex-col justify-center items-start shadow-sm">
+            <span class="text-xs font-medium text-on-primary-container/80 mb-1">待考</span>
+            <div class="flex items-baseline gap-1">
+              <span class="text-3xl font-bold text-on-primary-container leading-tight">{{ futureCount }}</span>
+              <span class="text-[10px] font-semibold text-on-primary-container/80">科</span>
             </div>
-            <div class="detail-capsule capsule-time" v-if="exam.exam_time">
-              <span class="capsule-icon">⏰</span>
-              <span class="capsule-label">时间：</span>
-              <span>{{ formatExamTime(exam.exam_time) }}</span>
-            </div>
-            <div class="detail-capsule capsule-location" v-if="exam.location">
-              <span class="capsule-icon">📍</span>
-              <span class="capsule-label">地点：</span>
-              <span>{{ exam.location }}</span>
-            </div>
-            <div class="detail-capsule capsule-seat" v-if="exam.seat_no">
-              <span class="capsule-icon">💺</span>
-              <span class="capsule-label">座位号：</span>
-              <span>{{ exam.seat_no }}</span>
+          </div>
+          <div class="bg-surface-container-lowest rounded-2xl p-4 flex flex-col justify-center items-start border border-surface-container-highest shadow-sm">
+            <span class="text-xs font-medium text-on-surface-variant mb-1">已考</span>
+            <div class="flex items-baseline gap-1">
+              <span class="text-3xl font-bold text-on-surface leading-tight">{{ passedCount }}</span>
+              <span class="text-[10px] font-semibold text-on-surface-variant">科</span>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </section>
+
+      <!-- Content Area -->
+      <section class="flex flex-col gap-4">
+        <TEmptyState v-if="loading" type="loading" message="正在获取考试安排..." />
+        <TEmptyState v-else-if="error" type="error" :message="error">
+          <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchExams">重试</button>
+        </TEmptyState>
+        <TEmptyState v-else-if="exams.length === 0" type="empty" message="本学期暂无考试安排" />
+
+        <!-- Exam Cards -->
+        <template v-else>
+          <article
+            v-for="(exam, index) in processedExams"
+            :key="index"
+            :class="[
+              'bg-surface-container-lowest rounded-2xl overflow-hidden shadow-[0_4px_15px_rgba(0,0,0,0.03)] border relative',
+              isPassed(exam.exam_date)
+                ? 'border-surface-container-highest opacity-70'
+                : getCountdownLabel(exam.exam_date)
+                  ? 'border-primary/10'
+                  : 'border-surface-container-highest'
+            ]"
+          >
+            <!-- Top Accent Line (upcoming with countdown only) -->
+            <div v-if="!isPassed(exam.exam_date) && getCountdownLabel(exam.exam_date)" class="h-1 w-full bg-gradient-to-r from-accent-gradient-start to-accent-gradient-end"></div>
+
+            <div class="p-4 flex flex-col gap-3">
+              <!-- Header Row -->
+              <div class="flex justify-between items-start">
+                <div>
+                  <h2 :class="[
+                    'text-lg font-bold mb-1',
+                    isPassed(exam.exam_date) ? 'text-on-surface line-through decoration-outline-variant' : 'text-on-surface'
+                  ]">{{ exam.course_name }}</h2>
+                  <span v-if="exam.exam_type" :class="[
+                    'inline-block text-[10px] font-semibold px-2 py-0.5 rounded',
+                    isPassed(exam.exam_date)
+                      ? 'bg-surface-container text-on-surface-variant'
+                      : 'bg-primary-fixed text-on-primary-fixed'
+                  ]">{{ exam.exam_type }}</span>
+                </div>
+                <!-- Countdown / Status Badge -->
+                <div v-if="isPassed(exam.exam_date)" class="bg-surface-container-high text-on-surface-variant text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1">
+                  <span class="material-symbols-outlined text-[14px]">check_circle</span>
+                  已结束
+                </div>
+                <div v-else-if="getCountdownLabel(exam.exam_date)" class="bg-error-container text-on-error-container text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1">
+                  <span class="material-symbols-outlined text-[14px]">timer</span>
+                  {{ getCountdownLabel(exam.exam_date) }}
+                </div>
+              </div>
+
+              <!-- Detail Rows -->
+              <div class="grid grid-cols-1 gap-2 mt-1">
+                <div v-if="exam.exam_date" class="flex items-center gap-2 text-on-surface-variant text-sm">
+                  <span class="material-symbols-outlined text-[18px] text-primary">calendar_clock</span>
+                  <span>{{ formatExamDate(exam.exam_date) }} {{ formatExamTime(exam.exam_time) }}</span>
+                </div>
+                <div v-if="exam.location" class="flex items-center gap-2 text-on-surface-variant text-sm">
+                  <span class="material-symbols-outlined text-[18px] text-primary">location_on</span>
+                  <span>{{ exam.location }}</span>
+                </div>
+                <div v-if="exam.seat_no" class="flex items-center gap-2 text-on-surface-variant text-sm">
+                  <span class="material-symbols-outlined text-[18px] text-primary">chair_alt</span>
+                  <span>座位号: {{ exam.seat_no }}</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        </template>
+      </section>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.exam-view {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient);
-  padding: 20px;
-  color: var(--ui-text);
-}
-
-.semester-selector {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  padding: 16px 24px;
-  border-radius: 12px;
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  box-shadow: var(--ui-shadow-soft);
-}
-
-.semester-selector label {
-  font-weight: 500;
-  color: var(--ui-text);
-}
-
-/* 统计摘要 */
-.exam-summary {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-
-.summary-capsule {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.capsule-upcoming {
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-}
-
-.capsule-passed {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, 0.2);
-}
-
-.view-content {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.exam-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* 考试卡片 — 待考 */
-.exam-card {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: var(--ui-shadow-soft);
-  border-left: 4px solid var(--ui-primary);
-  transition: all 0.2s;
-}
-
-/* 考试卡片 — 已结束（强对比） */
-.exam-card.is-passed {
-  background: var(--ui-surface);
-  opacity: 0.55;
-  border-left: 4px solid transparent;
-  border: 1px dashed var(--ui-surface-border);
-  box-shadow: none;
-}
-
-.exam-card.is-passed .course-name {
-  color: var(--ui-muted);
-  text-decoration: line-through;
-  text-decoration-color: rgba(148, 163, 184, 0.5);
-}
-
-.exam-card.is-passed .detail-capsule {
-  opacity: 0.6;
-}
-
-/* 卡片头部 */
-.exam-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  gap: 8px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.course-name {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ui-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 状态徽章 */
-.exam-status-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.badge-passed {
-  background: rgba(148, 163, 184, 0.2);
-  color: var(--ui-muted);
-}
-
-.badge-upcoming {
-  background: rgba(239, 68, 68, 0.15);
-  color: #dc2626;
-  animation: pulse-soft 2s infinite;
-}
-
-@keyframes pulse-soft {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-/* 考试类型胶囊 */
-.exam-type-capsule {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* 详情区域 — 彩色胶囊（每行一个） */
-.exam-details {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.detail-capsule {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.capsule-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.capsule-label {
-  color: inherit;
-  opacity: 0.7;
-  font-size: 12px;
-  margin-right: 2px;
-}
-
-.capsule-date {
-  background: rgba(59, 130, 246, 0.1);
-  color: #2563eb;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.capsule-time {
-  background: rgba(168, 85, 247, 0.1);
-  color: #7c3aed;
-  border: 1px solid rgba(168, 85, 247, 0.2);
-}
-
-.capsule-location {
-  background: rgba(34, 197, 94, 0.1);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, 0.2);
-}
-
-.capsule-seat {
-  background: rgba(245, 158, 11, 0.1);
-  color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.2);
-}
-
-/* 深色模式适配 */
-:root[data-theme="dark"] .capsule-date,
-.dark .capsule-date {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-:root[data-theme="dark"] .capsule-time,
-.dark .capsule-time {
-  background: rgba(168, 85, 247, 0.15);
-  color: #a78bfa;
-  border-color: rgba(168, 85, 247, 0.3);
-}
-
-:root[data-theme="dark"] .capsule-location,
-.dark .capsule-location {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
-  border-color: rgba(34, 197, 94, 0.3);
-}
-
-:root[data-theme="dark"] .capsule-seat,
-.dark .capsule-seat {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-:root[data-theme="dark"] .badge-upcoming,
-.dark .badge-upcoming {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-}
-
-:root[data-theme="dark"] .capsule-upcoming,
-.dark .capsule-upcoming {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.3);
-}
-
-.offline-banner {
-  margin: 12px 0;
-  padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #b91c1c;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-@media (max-width: 640px) {
-  .exam-card {
-    padding: 14px;
-  }
-
-  .course-name {
-    font-size: 15px;
-  }
-
-  .exam-details {
-    gap: 6px;
-  }
-
-  .detail-capsule {
-    font-size: 11px;
-    padding: 4px 10px;
-  }
-
-  .semester-selector {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
+/* Minimal scoped styles - layout handled by Tailwind */
 </style>

@@ -258,6 +258,27 @@ export function initThemeBridge(): void {
 
   // 3. 监听 OS 颜色方案变化（仅在无用户偏好时响应）
   setupOsSchemeListener()
+
+  // 4. 初始化暗色模式 class（从 localStorage 读取用户偏好）
+  initDarkModeClass()
+}
+
+/**
+ * 初始化暗色模式 class
+ * 在首次绘制前根据 localStorage 偏好设置 html.dark class
+ */
+function initDarkModeClass(): void {
+  if (typeof document === 'undefined') return
+  try {
+    const stored = localStorage.getItem('hbu_dark_mode')
+    if (stored === '1') {
+      document.documentElement.classList.add('dark')
+    } else if (stored === '0') {
+      document.documentElement.classList.remove('dark')
+    }
+  } catch {
+    // localStorage 不可用时静默忽略
+  }
 }
 
 /**

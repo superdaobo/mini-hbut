@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>HBUT 校园助手 - 通知中心</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#f6fafe",
+                        "outline": "#727785",
+                        "inverse-primary": "#adc6ff",
+                        "tertiary-fixed": "#ffdcc6",
+                        "on-secondary-container": "#5e6572",
+                        "error": "#ba1a1a",
+                        "tertiary": "#924700",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-container-high": "#e4e9ed",
+                        "success-teal": "#14b8a6",
+                        "surface-tint": "#005ac2",
+                        "surface-container": "#eaeef2",
+                        "on-tertiary-fixed": "#311400",
+                        "on-surface-variant": "#424754",
+                        "outline-variant": "#c2c6d6",
+                        "on-secondary": "#ffffff",
+                        "on-primary-fixed-variant": "#004395",
+                        "surface-variant": "#dfe3e7",
+                        "secondary": "#585f6c",
+                        "accent-gradient-start": "#5b86e5",
+                        "on-surface": "#171c1f",
+                        "on-error-container": "#93000a",
+                        "primary": "#0058be",
+                        "inverse-surface": "#2c3134",
+                        "on-background": "#171c1f",
+                        "warning-orange": "#f97316",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-tertiary-fixed-variant": "#723600",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#d8e2ff",
+                        "surface-container-low": "#f0f4f8",
+                        "danger-red": "#ef4444",
+                        "on-secondary-fixed": "#151c27",
+                        "info-sky": "#38bdf8",
+                        "secondary-fixed-dim": "#c0c7d6",
+                        "surface-dim": "#d6dade",
+                        "tertiary-fixed-dim": "#ffb786",
+                        "tertiary-container": "#b75b00",
+                        "secondary-fixed": "#dce2f3",
+                        "on-secondary-fixed-variant": "#404754",
+                        "primary-container": "#2170e4",
+                        "on-primary-container": "#fefcff",
+                        "on-error": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#f6fafe",
+                        "accent-gradient-end": "#36d1dc",
+                        "inverse-on-surface": "#edf1f5",
+                        "secondary-container": "#dce2f3",
+                        "on-tertiary": "#ffffff",
+                        "background": "#f6fafe",
+                        "surface-container-highest": "#dfe3e7",
+                        "on-primary-fixed": "#001a42",
+                        "error-container": "#ffdad6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "1rem",
+                        "stack-gap": "1.25rem",
+                        "section-margin": "1.5rem",
+                        "inline-gap": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["30px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "700" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #f6fafe; }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md text-on-background max-w-[448px] mx-auto min-h-screen relative pb-24">
+<!-- Top App Bar (Task-focused context, so rendering a specific back header instead of the global top nav) -->
+<header class="sticky top-0 z-50 flex items-center justify-between px-container-padding h-16 w-full bg-background/90 backdrop-blur-md">
+<button class="w-10 h-10 flex items-center justify-center rounded-full bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+</button>
+<h1 class="font-headline-md text-headline-md text-on-surface">通知中心</h1>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">done_all</span>
+</button>
+</header>
+<main class="px-container-padding flex flex-col gap-stack-gap pt-4">
+<!-- Permission Status -->
+<section class="bg-primary-fixed rounded-2xl p-4 flex items-center justify-between shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-primary-fixed-dim/30">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">notifications_active</span>
+</div>
+<div>
+<h2 class="font-body-lg text-body-lg text-on-primary-fixed-variant">推送通知已开启</h2>
+<p class="font-label-md text-label-md text-on-surface-variant">你将准时收到校园提醒</p>
+</div>
+</div>
+<button class="px-3 py-1.5 rounded-full bg-primary text-on-primary font-label-md text-label-md">管理</button>
+</section>
+<!-- Notification Types Panel (Bento Grid Style) -->
+<section>
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-3 px-1">通知类型设置</h3>
+<div class="grid grid-cols-2 gap-3">
+<!-- Grade Alerts -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div class="w-8 h-8 rounded-full bg-accent-gradient-start/10 text-accent-gradient-start flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">school</span>
+</div>
+<!-- Toggle Switch -->
+<div class="w-10 h-6 bg-primary rounded-full relative cursor-pointer">
+<div class="w-4 h-4 bg-white rounded-full absolute right-1 top-1"></div>
+</div>
+</div>
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface">成绩更新</h4>
+<p class="font-label-md text-label-md text-on-surface-variant">出分第一时间提醒</p>
+</div>
+</div>
+<!-- Exam Alerts -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div class="w-8 h-8 rounded-full bg-warning-orange/10 text-warning-orange flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">edit_document</span>
+</div>
+<!-- Toggle Switch -->
+<div class="w-10 h-6 bg-primary rounded-full relative cursor-pointer">
+<div class="w-4 h-4 bg-white rounded-full absolute right-1 top-1"></div>
+</div>
+</div>
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface">考试安排</h4>
+<p class="font-label-md text-label-md text-on-surface-variant">考前 3 天提醒</p>
+</div>
+</div>
+<!-- Electricity Alerts -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div class="w-8 h-8 rounded-full bg-success-teal/10 text-success-teal flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">bolt</span>
+</div>
+<!-- Toggle Switch -->
+<div class="w-10 h-6 bg-surface-variant rounded-full relative cursor-pointer">
+<div class="w-4 h-4 bg-white rounded-full absolute left-1 top-1 shadow-sm"></div>
+</div>
+</div>
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface">寝室电费</h4>
+<p class="font-label-md text-label-md text-on-surface-variant">余额不足自动推送</p>
+</div>
+</div>
+<!-- Class Alerts -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] flex flex-col gap-3">
+<div class="flex justify-between items-start">
+<div class="w-8 h-8 rounded-full bg-info-sky/10 text-info-sky flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
+</div>
+<!-- Toggle Switch -->
+<div class="w-10 h-6 bg-primary rounded-full relative cursor-pointer">
+<div class="w-4 h-4 bg-white rounded-full absolute right-1 top-1"></div>
+</div>
+</div>
+<div>
+<h4 class="font-body-lg text-body-lg text-on-surface">上课提醒</h4>
+<p class="font-label-md text-label-md text-on-surface-variant">课前 20 分钟提醒</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Background Sync Settings -->
+<section class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-outline" style="font-variation-settings: 'FILL' 0;">sync</span>
+<h3 class="font-body-lg text-body-lg text-on-surface">后台自动检查</h3>
+</div>
+<div class="w-10 h-6 bg-primary rounded-full relative cursor-pointer">
+<div class="w-4 h-4 bg-white rounded-full absolute right-1 top-1"></div>
+</div>
+</div>
+<div class="flex items-center justify-between pl-8 border-t border-surface-variant pt-3">
+<span class="font-body-md text-body-md text-on-surface-variant">检查间隔</span>
+<select class="bg-surface-container px-3 py-1.5 rounded-lg border-none text-on-surface font-label-md text-label-md focus:ring-primary focus:ring-2 outline-none">
+<option>每 30 分钟</option>
+<option selected="">每 1 小时</option>
+<option>每 2 小时</option>
+<option>每天一次</option>
+</select>
+</div>
+</section>
+<!-- Recent Notifications List -->
+<section class="flex flex-col gap-3">
+<div class="flex justify-between items-center px-1 mb-1">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">近期消息</h3>
+<button class="text-primary font-label-md text-label-md flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">sort</span>
+                    按时间
+                </button>
+</div>
+<!-- Card 1 (Unread) -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border-l-4 border-l-accent-gradient-start relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-transform">
+<!-- Long press edit hint -->
+<div class="absolute inset-0 bg-primary/5 opacity-0 group-active:opacity-100 transition-opacity"></div>
+<div class="flex gap-3">
+<div class="w-10 h-10 rounded-full bg-accent-gradient-start/10 text-accent-gradient-start flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">school</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-start mb-1">
+<h4 class="font-body-lg text-body-lg text-on-surface font-bold">新成绩发布</h4>
+<span class="font-label-sm text-label-sm text-on-surface-variant">10分钟前</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant line-clamp-2">你的《高等数学B》成绩已更新，前往教务系统查看详情。</p>
+</div>
+</div>
+</div>
+<!-- Card 2 (Read) -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-transparent opacity-80 relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-transform">
+<div class="flex gap-3">
+<div class="w-10 h-10 rounded-full bg-info-sky/10 text-info-sky flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">schedule</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-start mb-1">
+<h4 class="font-body-lg text-body-lg text-on-surface">上课提醒</h4>
+<span class="font-label-sm text-label-sm text-on-surface-variant">昨天 09:40</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant line-clamp-2">《大学英语》即将于 10:00 在教学楼 3-201 开始上课。</p>
+</div>
+</div>
+</div>
+<!-- Card 3 (Read) -->
+<div class="bg-surface-container-lowest rounded-2xl p-4 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-transparent opacity-80 relative overflow-hidden group cursor-pointer active:scale-[0.98] transition-transform">
+<div class="flex gap-3">
+<div class="w-10 h-10 rounded-full bg-warning-orange/10 text-warning-orange flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">edit_document</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-start mb-1">
+<h4 class="font-body-lg text-body-lg text-on-surface">期中考试安排</h4>
+<span class="font-label-sm text-label-sm text-on-surface-variant">10-24</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant line-clamp-2">《计算机网络》期中考试安排已出，考试时间：下周四 14:00。</p>
+</div>
+</div>
+</div>
+<div class="text-center pt-2 pb-6">
+<span class="font-label-md text-label-md text-on-surface-variant/60">长按卡片进入管理模式</span>
+</div>
+</section>
+</main>
+</body></html>

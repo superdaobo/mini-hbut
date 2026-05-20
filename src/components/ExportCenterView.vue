@@ -909,7 +909,24 @@ onMounted(async () => {
 
 <template>
   <div class="export-view">
-    <TPageHeader title="导出中心" @back="emit('back')" />
+    <!-- Header -->
+    <header class="export-page-header">
+      <button class="header-icon-btn" @click="emit('back')">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <h1 class="header-title-center">导出中心</h1>
+      <div class="header-spacer"></div>
+    </header>
+
+    <!-- Hero Section -->
+    <main class="export-main">
+    <section class="export-hero">
+      <div class="hero-bg-icon">
+        <span class="material-symbols-outlined">cloud_download</span>
+      </div>
+      <h2 class="hero-title">数据自由导出</h2>
+      <p class="hero-desc">选择你需要的模块和时间范围，生成个性化的数据报告或图表。</p>
+    </section>
 
     <section class="intro-card">
       <h2>导出模块</h2>
@@ -993,14 +1010,16 @@ onMounted(async () => {
     </section>
 
     <section class="actions-card">
-      <button class="export-action-btn prepare" :disabled="preparing || exporting" @click="collectExportData">
-        {{ preparing ? '正在准备数据...' : '预览导出数据' }}
-      </button>
-      <button class="export-action-btn json" :disabled="preparing || exporting" @click="exportJson">
+      <button class="export-btn outline" :disabled="preparing || exporting" @click="exportJson">
+        <span class="material-symbols-outlined">data_object</span>
         {{ exporting ? '处理中...' : '导出 JSON' }}
       </button>
-      <button class="export-action-btn image" :disabled="preparing || exporting" @click="exportImage">
-        {{ exporting ? '处理中...' : '导出长图片' }}
+      <button class="export-btn primary" :disabled="preparing || exporting" @click="exportImage">
+        <span class="material-symbols-outlined">image</span>
+        {{ exporting ? '处理中...' : '生成长图分享' }}
+      </button>
+      <button class="export-btn outline" :disabled="preparing || exporting" @click="collectExportData">
+        {{ preparing ? '正在准备数据...' : '预览导出数据' }}
       </button>
     </section>
 
@@ -1357,17 +1376,178 @@ onMounted(async () => {
         </article>
       </div>
     </section>
+    </main>
   </div>
 </template>
 
 <style scoped>
+/* ===== New Design System ===== */
 .export-view {
   min-height: 100vh;
-  padding: 20px 20px 120px;
-  background: var(--ui-bg-gradient);
-  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans CN", sans-serif;
+  background: var(--md-sys-color-background, #f6fafe);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  max-width: 448px;
+  margin: 0 auto;
+  padding-bottom: 6rem;
 }
 
+.export-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1rem;
+  height: 4rem;
+  background: rgba(246, 250, 254, 0.8);
+  backdrop-filter: blur(12px);
+}
+
+.header-icon-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.header-icon-btn:hover {
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
+}
+
+.header-title-center {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+  flex: 1;
+  text-align: center;
+}
+
+.header-spacer {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.export-main {
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Hero */
+.export-hero {
+  background: linear-gradient(135deg, #0058be, #36d1dc);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(54, 209, 220, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-bg-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+.hero-bg-icon .material-symbols-outlined {
+  font-size: 120px;
+  margin-top: -1rem;
+  margin-right: -1rem;
+}
+
+.hero-title {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-desc {
+  font-size: 14px;
+  line-height: 20px;
+  opacity: 0.9;
+  margin: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* Export Buttons */
+.export-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  border-radius: 0.75rem;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.export-btn .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.export-btn.outline {
+  flex: 1;
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border: 1px solid rgba(194, 198, 214, 0.3);
+  color: var(--md-sys-color-primary, #0058be);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+.export-btn.primary {
+  flex: 1.5;
+  background: var(--md-sys-color-primary, #0058be);
+  color: var(--md-sys-color-on-primary, #ffffff);
+  box-shadow: 0 4px 15px rgba(0, 88, 190, 0.2);
+}
+
+.export-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* ===== Legacy Styles (kept for config/preview sections) ===== */
 .view-header {
   display: flex;
   align-items: center;
@@ -1572,7 +1752,7 @@ onMounted(async () => {
 .actions-card {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 0.75rem;
   align-items: stretch;
 }
 

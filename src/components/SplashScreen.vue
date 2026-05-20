@@ -30,7 +30,7 @@ const dismiss = () => {
     setTimeout(() => {
       show.value = false
       emit('dismiss')
-    }, 500)
+    }, 300)
   })
 }
 
@@ -44,13 +44,13 @@ defineExpose({ dismiss })
 
 onMounted(() => {
   dotsTimer = setInterval(() => { dotsCount.value++ }, 500)
-  // 分阶段入场动画
+  // 分阶段入场动画（加速版）
   requestAnimationFrame(() => {
     logoReady.value = true
     staggerTimer = setTimeout(() => {
       buildingReady.value = true
-      setTimeout(() => { contentReady.value = true }, 300)
-    }, 400)
+      setTimeout(() => { contentReady.value = true }, 100)
+    }, 150)
   })
 })
 
@@ -122,7 +122,7 @@ onBeforeUnmount(() => {
   contain: layout style;
 }
 .splash-fade-out {
-  animation: splashFadeOut 0.5s ease-out forwards;
+  animation: splashFadeOut 0.3s ease-out forwards;
   pointer-events: none;
 }
 .splash-fade-out .splash-bg-image,
@@ -216,7 +216,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   opacity: 0;
   transform: translateY(30px) scale(0.9);
-  transition: all 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .brand-enter {
   opacity: 1;
@@ -289,7 +289,7 @@ onBeforeUnmount(() => {
 .splash-illustration {
   opacity: 0;
   transform: translateY(20px);
-  transition: all 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .illustration-enter {
   opacity: 1;
@@ -311,7 +311,7 @@ onBeforeUnmount(() => {
   gap: 16px;
   opacity: 0;
   transform: translateY(15px);
-  transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .loader-enter {
   opacity: 1;
@@ -413,7 +413,7 @@ onBeforeUnmount(() => {
    ═══════════════════════════════════════════ */
 .splash-leave-enter-active,
 .splash-leave-leave-active {
-  transition: opacity 0.5s ease;
+  transition: opacity 0.3s ease;
 }
 .splash-leave-enter-from,
 .splash-leave-leave-to {

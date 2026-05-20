@@ -311,6 +311,24 @@ const authResultClass = (text) => {
 
 const authStatusClass = (status) => (status ? 'ok' : 'warn')
 
+const getFieldIcon = (label) => {
+  const iconMap = {
+    '学号': 'badge',
+    '姓名': 'person',
+    '性别': 'person',
+    '年级': 'calendar_month',
+    '学院': 'school',
+    '专业': 'book',
+    '班级': 'groups',
+    '身份证号': 'credit_card',
+    '民族': 'diversity_3',
+    '出生日期': 'cake',
+    '手机号': 'smartphone',
+    '邮箱': 'mail'
+  }
+  return iconMap[label] || 'info'
+}
+
 const setAccessPage = async (page) => {
   const total = accessTotalPages.value
   const nextPage = Math.min(Math.max(1, page), total)
@@ -337,127 +355,109 @@ onMounted(() => {
 
 <template>
   <div class="student-info-view">
-    <TPageHeader title="个人信息" @back="emit('back')" />
+    <!-- Header -->
+    <header class="page-header">
+      <button class="header-icon-btn" @click="emit('back')">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <h1 class="header-title">个人信息</h1>
+      <div class="header-spacer"></div>
+    </header>
 
     <div v-if="offline" class="offline-banner">
       当前显示离线数据，更新于 {{ formatRelativeTime(syncTime) }}
     </div>
 
-    <div class="view-content">
+    <main class="view-content">
       <TEmptyState v-if="loading" type="loading" message="正在加载个人信息与访问记录..." />
 
       <TEmptyState v-else-if="error && !canShowContent" type="error" :message="error">
-        <button class="btn" style="margin-top: 12px" @click="refreshData">重试</button>
+        <button class="btn-primary" style="margin-top: 12px" @click="refreshData">重试</button>
       </TEmptyState>
 
       <div v-else class="panel-stack">
-        <nav class="tab-nav">
-          <button class="tab-btn" :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">
-            基本信息(缓存)
-          </button>
-          <button class="tab-btn" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">
-            当前登录
-          </button>
-          <button class="tab-btn" :class="{ active: activeTab === 'access' }" @click="activeTab = 'access'">
-            登录信息
-          </button>
-        </nav>
-
-        <section v-show="activeTab === 'basic'" class="surface-card">
-          <div class="cache-tip">该分区仅读取本地缓存，避免重复请求教务系统。</div>
-          <div v-if="info" class="profile-top">
-            <div class="avatar">{{ info.name?.charAt(0) || '?' }}</div>
-            <div class="profile-meta">
-              <h2>{{ normalizeString(info.name) }}</h2>
-              <p class="student-id">{{ normalizeString(info.student_id) }}</p>
+        <!-- Profile Card -->
+        <section class="profile-card">
+          <div class="profile-gradient-bg"></div>
+          <div class="profile-content">
+            <div class="avatar-ring">
+              <div class="avatar-circle">{{ info?.name?.charAt(0) || '?' }}</div>
             </div>
+            <h2 class="profile-name">{{ normalizeString(info?.name) }}</h2>
+            <p class="profile-id">{{ normalizeString(info?.student_id) }}</p>
+            <span class="profile-badge">本科生</span>
           </div>
+        </section>
+
+        <!-- Tabs -->
+        <div class="tab-bar">
+          <button class="tab-item" :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">基本信息</button>
+          <button class="tab-item" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">当前登录</button>
+          <button class="tab-item" :class="{ active: activeTab === 'access' }" @click="activeTab = 'access'">登录信息</button>
+        </div>
+
+        <!-- Basic Info Tab -->
+        <section v-show="activeTab === 'basic'" class="info-card">
+          <h3 class="card-section-title">详细信息</h3>
           <div v-if="infoError" class="inline-error">{{ infoError }}</div>
           <div class="info-grid">
-            <article v-for="row in basicRows" :key="row.label" class="info-item">
-              <span class="label">{{ row.label }}</span>
-              <span class="value">{{ row.value }}</span>
+            <article v-for="row in basicRows" :key="row.label" class="info-field" :class="{ 'full-width': row.label === '学院' }">
+              <span class="field-label">
+                <span class="material-symbols-outlined field-icon">{{ getFieldIcon(row.label) }}</span>
+                {{ row.label }}
+              </span>
+              <span class="field-value">{{ row.value }}</span>
             </article>
           </div>
         </section>
 
-        <section v-show="activeTab === 'login'" class="surface-card">
+        <!-- Login Tab -->
+        <section v-show="activeTab === 'login'" class="info-card">
+          <h3 class="card-section-title">联系方式 & 认证</h3>
           <div v-if="accessError" class="inline-error">{{ accessError }}</div>
 
-          <div class="auth-info-box">
-            <div class="auth-title">认证信息</div>
-            <div class="auth-grid">
-              <div class="auth-item">
-                <span>手机认证</span>
-                <b :class="authStatusClass(authInfo.phone_verified)">{{ authInfo.phone_verified ? '已认证' : '未认证' }}</b>
+          <div class="contact-list">
+            <div class="contact-row">
+              <div class="contact-info">
+                <span class="field-label">
+                  <span class="material-symbols-outlined field-icon">smartphone</span> 手机号码
+                </span>
+                <span class="field-value">{{ authInfo.phone }}</span>
               </div>
-              <div class="auth-item">
-                <span>手机号</span>
-                <b>{{ authInfo.phone }}</b>
+              <span class="auth-pill" :class="authInfo.phone_verified ? 'verified' : 'unverified'">
+                {{ authInfo.phone_verified ? '已认证' : '未认证' }}
+              </span>
+            </div>
+            <div class="contact-row">
+              <div class="contact-info">
+                <span class="field-label">
+                  <span class="material-symbols-outlined field-icon">mail</span> 电子邮箱
+                </span>
+                <span class="field-value">{{ authInfo.email }}</span>
               </div>
-              <div class="auth-item">
-                <span>邮箱认证</span>
-                <b :class="authStatusClass(authInfo.email_verified)">{{ authInfo.email_verified ? '已认证' : '未认证' }}</b>
-              </div>
-              <div class="auth-item">
-                <span>邮箱</span>
-                <b>{{ authInfo.email }}</b>
-              </div>
-              <div class="auth-item auth-item-full">
-                <span>密码状态</span>
-                <b>{{ authInfo.password_hint }}</b>
-              </div>
+              <span class="auth-pill" :class="authInfo.email_verified ? 'verified' : 'unverified'">
+                {{ authInfo.email_verified ? '已认证' : '未认证' }}
+              </span>
             </div>
           </div>
 
           <TEmptyState v-if="currentLogins.length === 0" type="empty" message="暂无当前登录记录" />
 
           <template v-else>
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>客户端IP</th>
-                    <th>IP归属地</th>
-                    <th>登录时间</th>
-                    <th>浏览器</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(item, index) in currentLogins" :key="`${item.client_ip}-${item.login_time}-${index}`">
-                    <td>{{ item.client_ip }}</td>
-                    <td>{{ item.ip_location }}</td>
-                    <td>{{ item.login_time }}</td>
-                    <td>{{ item.browser }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="mobile-list">
-              <article v-for="(item, index) in currentLogins" :key="`m-${item.client_ip}-${item.login_time}-${index}`" class="record-card">
-                <div class="meta-row">
-                  <span class="label">客户端IP</span>
-                  <span class="value">{{ item.client_ip }}</span>
-                </div>
-                <div class="meta-row">
-                  <span class="label">IP归属地</span>
-                  <span class="value">{{ item.ip_location }}</span>
-                </div>
-                <div class="meta-row">
-                  <span class="label">登录时间</span>
-                  <span class="value">{{ item.login_time }}</span>
-                </div>
-                <div class="meta-row">
-                  <span class="label">浏览器</span>
-                  <span class="value">{{ item.browser }}</span>
-                </div>
+            <h3 class="card-section-title" style="margin-top: 1rem;">当前登录设备</h3>
+            <div class="login-list">
+              <article v-for="(item, index) in currentLogins" :key="`login-${index}`" class="login-card">
+                <div class="login-row"><span class="login-label">客户端IP</span><span class="login-value">{{ item.client_ip }}</span></div>
+                <div class="login-row"><span class="login-label">IP归属地</span><span class="login-value">{{ item.ip_location }}</span></div>
+                <div class="login-row"><span class="login-label">登录时间</span><span class="login-value">{{ item.login_time }}</span></div>
+                <div class="login-row"><span class="login-label">浏览器</span><span class="login-value">{{ item.browser }}</span></div>
               </article>
             </div>
           </template>
         </section>
 
-        <section v-show="activeTab === 'access'" class="surface-card">
+        <!-- Access Tab -->
+        <section v-show="activeTab === 'access'" class="info-card">
           <div v-if="accessLoading" class="inline-loading">
             <div class="mini-spinner"></div>
             <span>正在加载访问记录...</span>
@@ -466,58 +466,22 @@ onMounted(() => {
           <TEmptyState v-if="!accessLoading && appAccessRecords.length === 0" type="empty" message="暂无应用访问记录" />
 
           <template v-else-if="appAccessRecords.length > 0">
-            <div class="table-wrap">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>访问时间</th>
-                    <th>应用名称</th>
-                    <th>认证结果</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="record in pagedAppAccessRecords" :key="record.id">
-                    <td>{{ record.access_time }}</td>
-                    <td>{{ record.app_name }}</td>
-                    <td>
-                      <span class="auth-inline" :class="authResultClass(record.auth_result)">
-                        <span class="auth-dot"></span>
-                        {{ record.auth_result }}
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div class="mobile-list">
-              <article v-for="record in pagedAppAccessRecords" :key="`m-${record.id}`" class="record-card">
-                <div class="record-head">
-                  <h3>{{ record.app_name }}</h3>
-                  <span class="auth-badge" :class="authResultClass(record.auth_result)">
-                    {{ record.auth_result }}
-                  </span>
+            <div class="access-list">
+              <article v-for="record in pagedAppAccessRecords" :key="record.id" class="access-card">
+                <div class="access-head">
+                  <h4 class="access-app-name">{{ record.app_name }}</h4>
+                  <span class="auth-badge" :class="authResultClass(record.auth_result)">{{ record.auth_result }}</span>
                 </div>
-                <div class="record-meta">
-                  <div class="meta-row">
-                    <span class="label">访问时间</span>
-                    <span class="value">{{ record.access_time }}</span>
-                  </div>
-                  <div class="meta-row">
-                    <span class="label">浏览器</span>
-                    <span class="value">{{ record.browser }}</span>
-                  </div>
+                <div class="access-meta">
+                  <span class="access-time">{{ record.access_time }}</span>
                 </div>
               </article>
             </div>
 
             <div class="pagination-bar">
               <span class="total-text">共 {{ accessTotal }} 条</span>
-
               <div class="pager-controls">
-                <button class="pager-btn" :disabled="accessPage <= 1 || accessLoading" @click="setAccessPage(accessPage - 1)">
-                  上一页
-                </button>
+                <button class="pager-btn" :disabled="accessPage <= 1 || accessLoading" @click="setAccessPage(accessPage - 1)">上一页</button>
                 <button
                   v-for="page in visiblePageNumbers"
                   :key="page"
@@ -525,280 +489,400 @@ onMounted(() => {
                   :disabled="accessLoading"
                   :class="{ active: page === accessPage }"
                   @click="setAccessPage(page)"
-                >
-                  {{ page }}
-                </button>
-                <button class="pager-btn" :disabled="accessPage >= accessTotalPages || accessLoading" @click="setAccessPage(accessPage + 1)">
-                  下一页
-                </button>
+                >{{ page }}</button>
+                <button class="pager-btn" :disabled="accessPage >= accessTotalPages || accessLoading" @click="setAccessPage(accessPage + 1)">下一页</button>
               </div>
-
-              <label class="page-size">
-                每页
-                <IOSSelect :value="accessPageSize" :disabled="accessLoading" @change="handlePageSizeChange">
-                  <option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option>
-                </IOSSelect>
-                条
-              </label>
             </div>
           </template>
         </section>
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <style scoped>
 .student-info-view {
   min-height: 100vh;
-  background: var(--ui-bg-gradient);
-  padding: 20px;
-  color: var(--ui-text);
+  background: var(--md-sys-color-background, #f6fafe);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  max-width: 448px;
+  margin: 0 auto;
+  padding-bottom: 6rem;
 }
 
-.view-header {
+/* Header */
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
-  box-shadow: var(--ui-shadow-soft);
-  margin-bottom: 16px;
+  padding: 0 1rem;
+  height: 4rem;
+  background: rgba(246, 250, 254, 0.8);
+  backdrop-filter: blur(12px);
 }
 
-.view-header h1 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--ui-text);
-}
-
-.back-btn,
-.logout-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
+.header-icon-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
   border: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant, #424754);
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
+  transition: background 0.2s;
 }
 
-.back-btn {
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
+.header-icon-btn:hover {
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
 }
 
-.back-btn:hover {
-  background: var(--ui-primary);
-  color: #ffffff;
+.header-title {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
 }
 
-.logout-btn {
-  background: #fee2e2;
-  color: #dc2626;
+.header-spacer {
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
-.logout-btn:hover {
-  background: #dc2626;
-  color: #ffffff;
-}
-
+/* Offline Banner */
 .offline-banner {
-  margin: 12px auto 0;
-  max-width: 1024px;
   padding: 10px 14px;
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.4);
   color: #b91c1c;
   border-radius: 12px;
   font-weight: 600;
-}
-
-.cache-tip {
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid #dbe5ff;
-  background: #f3f7ff;
-  color: #345178;
+  margin: 0 1rem;
   font-size: 13px;
 }
 
-.auth-info-box {
-  margin-bottom: 16px;
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 12px;
-  background: #f8fbff;
-  padding: 12px;
-}
-
-.auth-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ui-text);
-  margin-bottom: 10px;
-}
-
-.auth-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.auth-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #e5ebf5;
-}
-
-.auth-item b {
-  font-size: 13px;
-  color: #1f2d3d;
-}
-
-.auth-item .ok {
-  color: #137333;
-}
-
-.auth-item .warn {
-  color: #b45309;
-}
-
-.auth-item-full {
-  grid-column: 1 / -1;
-}
-
+/* Content */
 .view-content {
-  max-width: 1024px;
-  margin: 16px auto 0;
-}
-
-.loading-state,
-.error-state,
-.empty-state {
-  text-align: center;
-  padding: 56px 24px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
-  box-shadow: var(--ui-shadow-soft);
-}
-
-.empty-state.compact {
-  padding: 30px 16px;
-  border-radius: 12px;
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid rgba(148, 163, 184, 0.28);
-  border-top-color: var(--ui-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.error-icon,
-.empty-icon {
-  font-size: 36px;
-  margin-bottom: 12px;
-}
-
-.error-state button {
-  margin-top: 14px;
-  padding: 10px 22px;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  background: var(--ui-primary);
-  color: #ffffff;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .panel-stack {
-  display: grid;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-.tab-nav {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 10px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 14px;
-  box-shadow: var(--ui-shadow-soft);
+/* Profile Card */
+.profile-card {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border-radius: 24px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
 }
 
-.tab-btn {
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--ui-muted);
+.profile-gradient-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 6rem;
+  background: linear-gradient(to right, rgba(91, 134, 229, 0.2), rgba(54, 209, 220, 0.2));
+}
+
+.profile-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.avatar-ring {
+  width: 6rem;
+  height: 6rem;
+  border-radius: 9999px;
+  border: 4px solid var(--md-sys-color-surface-container-lowest, #ffffff);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  margin-bottom: 0.75rem;
+}
+
+.avatar-circle {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #5b86e5, #36d1dc);
+}
+
+.profile-name {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+.profile-id {
   font-size: 14px;
-  font-weight: 600;
-  padding: 10px 8px;
+  line-height: 20px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  margin: 0;
+}
+
+.profile-badge {
+  margin-top: 0.75rem;
+  background: var(--md-sys-color-secondary-container, #dce2f3);
+  color: var(--md-sys-color-on-secondary-container, #5e6572);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  width: 100%;
+  background: var(--md-sys-color-surface-container-low, #f0f4f8);
+  border-radius: 0.75rem;
+  padding: 0.25rem;
+}
+
+.tab-item {
+  flex: 1;
+  padding: 0.5rem;
+  text-align: center;
+  border-radius: 0.5rem;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--md-sys-color-on-surface-variant, #424754);
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.tab-btn.active {
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-}
-
-.surface-card {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 16px;
-  box-shadow: var(--ui-shadow-soft);
-  padding: 22px;
-}
-
-.profile-top {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.avatar {
-  width: 68px;
-  height: 68px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  font-size: 28px;
+.tab-item.active {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  color: var(--md-sys-color-primary, #0058be);
   font-weight: 700;
-  background: linear-gradient(135deg, var(--ui-primary), #22d3ee);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.profile-meta h2 {
-  margin: 0;
-  font-size: 24px;
+.tab-item:hover:not(.active) {
+  color: var(--md-sys-color-on-surface, #171c1f);
 }
 
-.student-id {
-  margin: 6px 0 0;
-  color: var(--ui-muted);
+/* Info Card */
+.info-card {
+  background: var(--md-sys-color-surface-container-lowest, #ffffff);
+  border-radius: 24px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+}
+
+.card-section-title {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+}
+
+/* Info Grid */
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.info-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.field-icon {
+  font-size: 16px;
+}
+
+.field-value {
   font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface, #171c1f);
 }
 
+/* Contact List */
+.contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.contact-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.contact-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.auth-pill {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.auth-pill.verified {
+  background: rgba(20, 184, 166, 0.1);
+  color: #14b8a6;
+}
+
+.auth-pill.unverified {
+  background: rgba(249, 115, 22, 0.1);
+  color: #f97316;
+}
+
+/* Login List */
+.login-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-card {
+  border-radius: 12px;
+  border: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  background: var(--md-sys-color-surface, #f6fafe);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.login-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.login-label {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+.login-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface, #171c1f);
+}
+
+/* Access List */
+.access-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.access-card {
+  border-radius: 12px;
+  border: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+  background: var(--md-sys-color-surface, #f6fafe);
+  padding: 0.75rem;
+}
+
+.access-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.access-app-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface, #171c1f);
+  margin: 0;
+}
+
+.auth-badge {
+  display: inline-flex;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.auth-badge.success {
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+
+.auth-badge.fail {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+}
+
+.auth-badge.neutral {
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--md-sys-color-primary, #0058be);
+}
+
+.access-meta {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.access-time {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+}
+
+/* Inline States */
 .inline-error {
   margin: 0 0 14px;
   padding: 10px 12px;
@@ -814,7 +898,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  color: var(--ui-muted);
+  color: var(--md-sys-color-on-surface-variant, #424754);
   font-size: 13px;
   font-weight: 600;
 }
@@ -823,170 +907,16 @@ onMounted(() => {
   width: 14px;
   height: 14px;
   border: 2px solid rgba(148, 163, 184, 0.3);
-  border-top-color: var(--ui-primary);
+  border-top-color: var(--md-sys-color-primary, #0058be);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-.info-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.68);
-  border: 1px solid var(--ui-surface-border);
-}
-
-.label {
-  color: var(--ui-muted);
-  font-size: 12px;
-}
-
-.value {
-  color: var(--ui-text);
-  font-size: 15px;
-  font-weight: 600;
-  word-break: break-word;
-}
-
-.table-wrap {
-  width: 100%;
-  overflow-x: auto;
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.75);
-}
-
-.data-table {
-  width: 100%;
-  min-width: 680px;
-  border-collapse: collapse;
-}
-
-.data-table th,
-.data-table td {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--ui-surface-border);
-  text-align: left;
-  font-size: 14px;
-}
-
-.data-table th {
-  background: rgba(148, 163, 184, 0.12);
-  color: var(--ui-text);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.data-table tr:last-child td {
-  border-bottom: none;
-}
-
-.mobile-list {
-  display: none;
-}
-
-.record-card {
-  border-radius: 12px;
-  border: 1px solid var(--ui-surface-border);
-  background: rgba(255, 255, 255, 0.7);
-  padding: 14px;
-}
-
-.record-card + .record-card {
-  margin-top: 10px;
-}
-
-.record-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.record-head h3 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--ui-text);
-}
-
-.auth-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 56px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.auth-badge.success,
-.auth-inline.success {
-  color: #047857;
-}
-
-.auth-badge.success {
-  background: rgba(16, 185, 129, 0.16);
-}
-
-.auth-badge.fail,
-.auth-inline.fail {
-  color: #b91c1c;
-}
-
-.auth-badge.fail {
-  background: rgba(239, 68, 68, 0.16);
-}
-
-.auth-badge.neutral,
-.auth-inline.neutral {
-  color: var(--ui-primary);
-}
-
-.auth-badge.neutral {
-  background: rgba(59, 130, 246, 0.16);
-}
-
-.auth-inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-}
-
-.auth-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.record-meta {
-  display: grid;
-  gap: 8px;
-}
-
-.meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-}
-
-.meta-row .value {
-  text-align: right;
-  font-size: 14px;
-}
-
+/* Pagination */
 .pagination-bar {
   margin-top: 14px;
   display: flex;
@@ -997,8 +927,8 @@ onMounted(() => {
 }
 
 .total-text {
-  color: var(--ui-muted);
-  font-size: 14px;
+  color: var(--md-sys-color-on-surface-variant, #424754);
+  font-size: 13px;
 }
 
 .pager-controls {
@@ -1011,16 +941,17 @@ onMounted(() => {
   min-width: 34px;
   height: 34px;
   border-radius: 8px;
-  border: 1px solid var(--ui-surface-border);
+  border: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
   background: #ffffff;
-  color: var(--ui-text);
+  color: var(--md-sys-color-on-surface, #171c1f);
   cursor: pointer;
   padding: 0 10px;
+  font-size: 13px;
 }
 
 .pager-btn.active {
-  border-color: var(--ui-primary);
-  background: var(--ui-primary);
+  border-color: var(--md-sys-color-primary, #0058be);
+  background: var(--md-sys-color-primary, #0058be);
   color: #ffffff;
 }
 
@@ -1029,86 +960,21 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.page-size {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ui-muted);
+/* Button */
+.btn-primary {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 9999px;
+  cursor: pointer;
+  background: var(--md-sys-color-primary, #0058be);
+  color: #ffffff;
+  font-weight: 600;
   font-size: 14px;
 }
 
-.page-size select {
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 8px;
-  height: 34px;
-  padding: 0 10px;
-  background: #ffffff;
-}
-
-@media (max-width: 900px) {
-  .info-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 760px) {
-  .table-wrap {
-    display: none;
-  }
-
-  .mobile-list {
-    display: block;
-  }
-
-  .pagination-bar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
-@media (max-width: 640px) {
-  .student-info-view {
-    padding: 14px;
-  }
-
-  .view-header {
-    padding: 12px;
-  }
-
-  .view-header h1 {
-    font-size: 17px;
-  }
-
-  .back-btn,
-  .logout-btn {
-    padding: 7px 12px;
-    font-size: 13px;
-  }
-
-  .tab-nav {
-    grid-template-columns: 1fr;
-  }
-
-  .surface-card {
-    padding: 16px;
-  }
-
-  .profile-top {
-    align-items: flex-start;
-  }
-
-  .profile-meta h2 {
-    font-size: 20px;
-  }
-
-  .meta-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
-
-  .meta-row .value {
-    text-align: left;
-  }
+/* Material Symbols */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 </style>

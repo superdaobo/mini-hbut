@@ -2,7 +2,7 @@
   "id": "hbut_2048",
   "name": "2048 湖工大版",
   "icon": "🔢",
-  "order": 5,
+  "order": 3,
   "key_required": false,
   "entry_path": "index.html",
   "min_compatible_version": "",

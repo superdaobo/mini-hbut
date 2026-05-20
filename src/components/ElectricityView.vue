@@ -450,21 +450,9 @@ const handleLogout = () => emit('logout')
 <template>
   <div class="bg-surface text-on-surface min-h-screen flex flex-col font-body-md max-w-[448px] mx-auto relative overflow-x-hidden">
     <!-- Header -->
-    <header class="bg-background/80 backdrop-blur-md sticky top-0 flex justify-between items-center px-container-padding h-16 w-full z-50">
-      <button
-        class="text-on-surface-variant hover:bg-surface-container-low transition-colors rounded-full p-2 flex items-center justify-center active:opacity-80"
-        @click="handleBack"
-      >
-        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
-      </button>
-      <div class="font-headline-sm text-on-surface flex items-center gap-1">
-        <span class="material-symbols-outlined text-warning-orange" style="font-variation-settings: 'FILL' 1;">bolt</span>
-        电费查询
-      </div>
-      <div class="w-10"></div>
-    </header>
+    <TPageHeader icon="bolt" title="电费查询" @back="handleBack" />
 
-    <main class="flex-1 px-container-padding pb-[100px] flex flex-col gap-stack-gap mt-4">
+    <main class="flex-1 px-container-padding pb-[100px] flex flex-col gap-5 mt-4">
       <!-- Offline Banner -->
       <div v-if="offline" class="bg-surface-container-high rounded-lg p-3 flex items-start gap-3">
         <span class="material-symbols-outlined text-secondary mt-0.5" style="font-variation-settings: 'FILL' 0;">cloud_off</span>
@@ -484,75 +472,40 @@ const handleLogout = () => emit('logout')
           <!-- 校区 -->
           <div class="relative">
             <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">校区</label>
-            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
-              <select
-                v-model="selectedAreaValue"
-                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer"
-              >
-                <option value="" disabled>选择校区</option>
-                <option v-for="area in dormData" :key="area.value" :value="area.value">
-                  {{ area.label }}
-                </option>
-              </select>
-              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
-            </div>
+            <IOSSelect v-model="selectedAreaValue" placeholder="选择校区" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>选择校区</option>
+              <option v-for="area in dormData" :key="area.value" :value="area.value">{{ area.label }}</option>
+            </IOSSelect>
           </div>
           <!-- 楼栋 -->
           <div class="relative">
             <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">楼栋</label>
-            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
-              <select
-                v-model="selectedBuildingValue"
-                :disabled="!selectedPath[0]"
-                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <option value="" disabled>选择楼栋</option>
-                <template v-if="currentArea">
-                  <option v-for="b in currentArea.children" :key="b.value" :value="b.value">
-                    {{ b.label }}
-                  </option>
-                </template>
-              </select>
-              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
-            </div>
+            <IOSSelect v-model="selectedBuildingValue" :disabled="!selectedPath[0]" placeholder="选择楼栋" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>选择楼栋</option>
+              <template v-if="currentArea">
+                <option v-for="b in currentArea.children" :key="b.value" :value="b.value">{{ b.label }}</option>
+              </template>
+            </IOSSelect>
           </div>
           <!-- 楼层 -->
           <div class="relative">
             <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">楼层</label>
-            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
-              <select
-                v-model="selectedLevelValue"
-                :disabled="!selectedPath[1]"
-                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <option value="" disabled>选择楼层</option>
-                <template v-if="currentBuilding">
-                  <option v-for="l in currentBuilding.children" :key="l.value" :value="l.value">
-                    {{ l.label }}
-                  </option>
-                </template>
-              </select>
-              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
-            </div>
+            <IOSSelect v-model="selectedLevelValue" :disabled="!selectedPath[1]" placeholder="选择楼层" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>选择楼层</option>
+              <template v-if="currentBuilding">
+                <option v-for="l in currentBuilding.children" :key="l.value" :value="l.value">{{ l.label }}</option>
+              </template>
+            </IOSSelect>
           </div>
           <!-- 房间 -->
           <div class="relative">
             <label class="block font-label-sm text-label-sm text-outline mb-1 pl-1">房间</label>
-            <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between border border-transparent focus-within:border-primary transition-colors">
-              <select
-                v-model="selectedRoomValue"
-                :disabled="!selectedPath[2]"
-                class="w-full bg-transparent font-body-md text-body-md text-on-surface outline-none appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <option value="" disabled>选择房间</option>
-                <template v-if="currentLevel">
-                  <option v-for="r in currentLevel.children" :key="r.value" :value="r.value">
-                    {{ r.label }}
-                  </option>
-                </template>
-              </select>
-              <span class="material-symbols-outlined text-outline text-sm pointer-events-none" style="font-variation-settings: 'FILL' 0;">expand_more</span>
-            </div>
+            <IOSSelect v-model="selectedRoomValue" :disabled="!selectedPath[2]" placeholder="选择房间" class="w-full bg-surface-container-low rounded-xl text-sm">
+              <option value="" disabled>选择房间</option>
+              <template v-if="currentLevel">
+                <option v-for="r in currentLevel.children" :key="r.value" :value="r.value">{{ r.label }}</option>
+              </template>
+            </IOSSelect>
           </div>
         </div>
       </section>
@@ -574,7 +527,7 @@ const handleLogout = () => emit('logout')
             parseFloat(balanceData.quantity) < 10 ? 'glass-card-warning' : 'glass-card-info'
           ]"
         >
-          <div class="absolute -right-4 -top-4 opacity-10">
+          <div class="absolute -right-4 -top-4 opacity-[0.15]">
             <span
               class="material-symbols-outlined text-9xl"
               :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"
@@ -641,7 +594,7 @@ const handleLogout = () => emit('logout')
 
         <!-- AC Billing Card -->
         <section v-if="acBalanceData" class="glass-card-info rounded-2xl p-5 relative overflow-hidden">
-          <div class="absolute -right-4 -top-4 opacity-5">
+          <div class="absolute -right-4 -top-4 opacity-[0.12]">
             <span class="material-symbols-outlined text-9xl text-info-sky" style="font-variation-settings: 'FILL' 1;">ac_unit</span>
           </div>
           <div class="flex justify-between items-start mb-4 relative z-10">
@@ -705,7 +658,7 @@ const handleLogout = () => emit('logout')
             parseFloat(balanceData.quantity) < 10 ? 'glass-card-warning' : 'glass-card-info'
           ]"
         >
-          <div class="absolute -right-4 -top-4 opacity-10">
+          <div class="absolute -right-4 -top-4 opacity-[0.15]">
             <span
               class="material-symbols-outlined text-9xl"
               :class="parseFloat(balanceData.quantity) < 10 ? 'text-error' : 'text-primary'"

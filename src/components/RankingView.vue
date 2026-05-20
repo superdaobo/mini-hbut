@@ -105,458 +105,149 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="ranking-view">
-    <!-- 头部 -->
-    <TPageHeader title="绩点排名" icon="🏆" @back="emit('back')" />
+  <div class="ranking-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative pb-20">
+    <!-- Header -->
+    <TPageHeader title="绩点排名" icon="emoji_events" @back="emit('back')" />
 
-    <div v-if="offline" class="offline-banner">
+    <!-- Offline Banner -->
+    <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
-    <!-- 学期选择 -->
-    <div class="semester-selector">
-      <span class="label">学年学期：</span>
-      <IOSSelect v-model="selectedSemester" @change="handleSemesterChange">
-        <option value="">全部(从入学至今)</option>
-        <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
-      </IOSSelect>
-      <button class="search-btn" @click="fetchRanking">🔍 搜索</button>
-    </div>
+    <main class="flex-1 w-full px-4 pt-5 flex flex-col gap-5">
+      <!-- Semester Select -->
+      <section class="flex flex-col gap-3">
+        <div class="relative">
+          <IOSSelect
+            v-model="selectedSemester"
+            @change="handleSemesterChange"
+            class="w-full appearance-none bg-surface-container-lowest border-none shadow-[0_4px_15px_rgba(0,0,0,0.03)] rounded-xl py-3 px-4 text-base font-medium text-on-surface pr-10 focus:ring-2 focus:ring-primary focus:outline-none"
+          >
+            <option value="">全部(从入学至今)</option>
+            <option v-for="sem in semesters" :key="sem" :value="sem">{{ sem }}</option>
+          </IOSSelect>
+          <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+        </div>
+      </section>
 
-    <!-- 内容区 -->
-    <div class="view-content">
-      <!-- 加载中 -->
+      <!-- Loading / Error / Empty -->
       <TEmptyState v-if="loading" type="loading" message="正在获取排名数据..." />
-
-      <!-- 错误状态 -->
       <TEmptyState v-else-if="error" type="error" :message="error">
-        <button class="btn" style="margin-top: 12px" @click="fetchRanking">重试</button>
+        <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchRanking">重试</button>
+      </TEmptyState>
+      <TEmptyState v-else-if="!ranking || !ranking.gpa" type="empty" message="暂无排名数据">
+        <p class="text-on-surface-variant text-xs mt-1">该学期可能尚未公布排名</p>
       </TEmptyState>
 
-      <!-- 排名卡片 -->
-      <div v-else-if="ranking && ranking.gpa" class="ranking-card">
-        <!-- 学生信息区 -->
-        <div class="student-info">
-          <div class="info-row">
-            <span class="info-item"><strong>姓名：</strong>{{ ranking.name || '-' }}</span>
-            <span class="info-item"><strong>学号：</strong>{{ ranking.student_id || studentId }}</span>
-            <span class="info-item"><strong>年级：</strong>{{ ranking.grade || '-' }}</span>
+      <!-- Ranking Content -->
+      <template v-else>
+        <!-- Student Info Hero Card -->
+        <section class="bg-gradient-to-br from-accent-gradient-start to-accent-gradient-end rounded-[24px] p-5 text-on-primary shadow-[0_10px_20px_rgba(54,209,220,0.3)] relative overflow-hidden">
+          <div class="absolute inset-0 opacity-30 mix-blend-overlay" style="background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTU0LjYyNyAwTDYwIDUuMzczLjM3MyA2MEwwIDU0LjYyN1oiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wNSkiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjwvc3ZnPg==')"></div>
+          <div class="relative z-10 flex justify-between items-start mb-6">
+            <div>
+              <h2 class="text-3xl font-bold leading-tight mb-1">{{ ranking.name || '-' }}</h2>
+              <p class="text-sm text-on-primary/80">学号: {{ ranking.student_id || studentId }}</p>
+            </div>
+            <div class="bg-on-primary/20 backdrop-blur-sm rounded-lg px-3 py-1 text-xs font-medium border border-on-primary/30">
+              {{ ranking.major || '-' }}
+            </div>
           </div>
-          <div class="info-row">
-            <span class="info-item"><strong>学院：</strong>{{ ranking.college || '-' }}</span>
-            <span class="info-item"><strong>专业：</strong>{{ ranking.major || '-' }}</span>
-            <span class="info-item"><strong>班级：</strong>{{ ranking.class_name || '-' }}</span>
+          <div class="relative z-10 grid grid-cols-2 gap-4">
+            <div class="flex flex-col">
+              <span class="text-[10px] font-semibold text-on-primary/70 mb-1">平均学分绩点 (GPA)</span>
+              <div class="flex items-baseline gap-2">
+                <span class="text-3xl font-bold leading-tight">{{ ranking.gpa || '-' }}</span>
+                <span class="text-sm text-on-primary/80">/ 4.0</span>
+              </div>
+            </div>
+            <div class="flex flex-col pl-4 border-l border-on-primary/20">
+              <span class="text-[10px] font-semibold text-on-primary/70 mb-1">算术平均分</span>
+              <span class="text-xl font-bold mt-1">{{ ranking.avg_score || '-' }}</span>
+            </div>
           </div>
-          <div class="info-row highlight">
-            <span class="info-item"><strong>平均学分绩点：</strong><span class="score gpa-badge">{{ ranking.gpa || '-' }}</span></span>
-            <span class="info-item"><strong>算术平均分：</strong><span class="score">{{ ranking.avg_score || '-' }}</span></span>
-          </div>
-        </div>
+        </section>
 
-        <!-- 排名表格 -->
-        <div class="ranking-table-wrapper">
-          <table class="ranking-table">
-            <thead>
-              <tr>
-                <th class="col-method">排名方式</th>
-                <th class="col-rank">学院(年级)</th>
-                <th class="col-rank">专业</th>
-                <th class="col-rank">班级</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="method-name">平均学分绩点</td>
-                <td class="rank-cell">
-                  <span class="rank-value" v-if="ranking.gpa_college_rank">
-                    {{ ranking.gpa_college_rank }}/{{ ranking.gpa_college_total }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-                <td class="rank-cell">
-                  <span class="rank-value" v-if="ranking.gpa_major_rank">
-                    {{ ranking.gpa_major_rank }}/{{ ranking.gpa_major_total }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-                <td class="rank-cell">
-                  <span class="rank-value highlight-rank" v-if="ranking.gpa_class_rank">
-                    {{ ranking.gpa_class_rank }}/{{ ranking.gpa_class_total }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-              </tr>
-              <tr>
-                <td class="method-name bold">算术平均分</td>
-                <td class="rank-cell">
-                  <span class="rank-value" v-if="ranking.avg_college_rank">
-                    {{ ranking.avg_college_rank }}/{{ ranking.avg_college_total }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-                <td class="rank-cell">
-                  <span class="rank-value" v-if="ranking.avg_major_rank">
-                    {{ ranking.avg_major_rank }}/{{ ranking.avg_major_total }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-                <td class="rank-cell">
-                  <span class="rank-value highlight-rank" v-if="ranking.avg_class_rank">
-                    {{ ranking.avg_class_rank }}/{{ ranking.avg_class_total }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <!-- Ranking Tables -->
+        <section class="grid grid-cols-1 gap-5">
+          <h3 class="text-lg font-bold text-on-surface">综合排名概览</h3>
 
-        <!-- 专业排名高亮 -->
-        <div class="class-highlight" v-if="ranking.gpa_major_rank">
-          <div class="highlight-badge">
-            🎯 专业排名 <span class="big-rank">{{ ranking.gpa_major_rank }}</span> / {{ ranking.gpa_major_total }}
+          <!-- GPA Ranking Card -->
+          <div class="bg-surface-container-lowest rounded-[24px] p-5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] flex flex-col gap-4 border border-outline-variant/20">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <span class="material-symbols-outlined text-[18px]">trending_up</span>
+              </div>
+              <h4 class="text-base font-semibold text-on-surface">绩点排名</h4>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="bg-surface rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span class="text-[10px] font-semibold text-on-surface-variant mb-1">班级</span>
+                <span class="text-xl font-bold text-primary">
+                  <template v-if="ranking.gpa_class_rank">{{ ranking.gpa_class_rank }}<span class="text-[12px] text-on-surface-variant ml-1 font-normal">/{{ ranking.gpa_class_total }}</span></template>
+                  <template v-else>-</template>
+                </span>
+              </div>
+              <div class="bg-surface rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span class="text-[10px] font-semibold text-on-surface-variant mb-1">专业</span>
+                <span class="text-xl font-bold text-primary">
+                  <template v-if="ranking.gpa_major_rank">{{ ranking.gpa_major_rank }}<span class="text-[12px] text-on-surface-variant ml-1 font-normal">/{{ ranking.gpa_major_total }}</span></template>
+                  <template v-else>-</template>
+                </span>
+              </div>
+              <div class="bg-surface rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span class="text-[10px] font-semibold text-on-surface-variant mb-1">学院</span>
+                <span class="text-xl font-bold text-primary">
+                  <template v-if="ranking.gpa_college_rank">{{ ranking.gpa_college_rank }}<span class="text-[12px] text-on-surface-variant ml-1 font-normal">/{{ ranking.gpa_college_total }}</span></template>
+                  <template v-else>-</template>
+                </span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <!-- 无数据 -->
-      <TEmptyState v-else type="empty" message="暂无排名数据">
-        <p style="color: var(--ui-muted); font-size: 13px; margin-top: 4px">该学期可能尚未公布排名</p>
-      </TEmptyState>
-    </div>
+          <!-- Average Score Ranking Card -->
+          <div class="bg-surface-container-lowest rounded-[24px] p-5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] flex flex-col gap-4 border border-outline-variant/20">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="w-8 h-8 rounded-full bg-success-teal/10 flex items-center justify-center text-success-teal">
+                <span class="material-symbols-outlined text-[18px]">bar_chart</span>
+              </div>
+              <h4 class="text-base font-semibold text-on-surface">平均分排名</h4>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="bg-surface rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span class="text-[10px] font-semibold text-on-surface-variant mb-1">班级</span>
+                <span class="text-xl font-bold text-success-teal">
+                  <template v-if="ranking.avg_class_rank">{{ ranking.avg_class_rank }}<span class="text-[12px] text-on-surface-variant ml-1 font-normal">/{{ ranking.avg_class_total }}</span></template>
+                  <template v-else>-</template>
+                </span>
+              </div>
+              <div class="bg-surface rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span class="text-[10px] font-semibold text-on-surface-variant mb-1">专业</span>
+                <span class="text-xl font-bold text-success-teal">
+                  <template v-if="ranking.avg_major_rank">{{ ranking.avg_major_rank }}<span class="text-[12px] text-on-surface-variant ml-1 font-normal">/{{ ranking.avg_major_total }}</span></template>
+                  <template v-else>-</template>
+                </span>
+              </div>
+              <div class="bg-surface rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                <span class="text-[10px] font-semibold text-on-surface-variant mb-1">学院</span>
+                <span class="text-xl font-bold text-success-teal">
+                  <template v-if="ranking.avg_college_rank">{{ ranking.avg_college_rank }}<span class="text-[12px] text-on-surface-variant ml-1 font-normal">/{{ ranking.avg_college_total }}</span></template>
+                  <template v-else>-</template>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Update Time -->
+          <div v-if="syncTime" class="mt-4 text-center">
+            <p class="text-xs font-medium text-on-surface-variant">数据更新时间: {{ syncTime }}</p>
+          </div>
+        </section>
+      </template>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.ranking-view {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient);
-  padding: 18px 14px 110px;
-  color: var(--ui-text);
-}
-
-.view-header {
-  margin-bottom: 16px;
-}
-
-.view-header h1 {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: clamp(19px, 2.2vw, 24px);
-  margin: 0;
-  color: var(--ui-text);
-}
-
-.semester-selector {
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
-  padding: 16px;
-  border-radius: 16px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.semester-selector .label {
-  font-weight: 700;
-  color: var(--ui-text);
-}
-
-.semester-selector select {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--ui-surface-border);
-  font-size: 14px;
-  min-width: 200px;
-  cursor: pointer;
-  color: var(--ui-text);
-  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
-}
-
-.semester-selector select:focus {
-  outline: none;
-  border-color: var(--ui-primary);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-primary) 20%, transparent);
-}
-
-.search-btn {
-  padding: 10px 18px;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #ffffff;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 700;
-  transition: transform 0.2s;
-}
-
-.search-btn:hover {
-  transform: scale(1.02);
-}
-
-.view-content {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.loading-state, .error-state, .empty-state {
-  text-align: center;
-  padding: 60px 20px;
-  background: var(--ui-surface);
-  border-radius: 16px;
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
-  color: var(--ui-text);
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid color-mix(in oklab, var(--ui-primary) 14%, #e5e7eb);
-  border-top-color: var(--ui-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.error-icon, .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.error-state button {
-  margin-top: 16px;
-  padding: 10px 24px;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: white;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.hint {
-  font-size: 14px;
-  color: var(--ui-muted);
-  margin-top: 8px;
-}
-
-/* 排名卡片 */
-.ranking-card {
-  background: var(--ui-surface);
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: var(--ui-shadow-soft);
-  border: 1px solid var(--ui-surface-border);
-}
-
-/* 学生信息 */
-.student-info {
-  padding: 24px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--ui-primary-soft) 62%, #ffffff 38%),
-    color-mix(in oklab, var(--ui-primary-soft) 40%, var(--ui-secondary) 60%)
-  );
-  border-bottom: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-}
-
-.info-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  margin-bottom: 12px;
-}
-
-.info-row:last-child {
-  margin-bottom: 0;
-}
-
-.info-row.highlight {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px dashed color-mix(in oklab, var(--ui-primary) 38%, transparent);
-}
-
-.info-item {
-  font-size: 15px;
-  color: var(--ui-text);
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  background: color-mix(in oklab, #ffffff 78%, var(--ui-primary-soft) 22%);
-}
-
-.info-item strong {
-  color: color-mix(in oklab, var(--ui-primary) 72%, #1e3a8a 28%);
-  margin-right: 4px;
-}
-
-.info-item .score {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ui-secondary);
-}
-
-.info-item .gpa-badge {
-  display: inline-block;
-  padding: 6px 16px;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #ffffff;
-  border-radius: 999px;
-  font-size: 20px;
-  font-weight: 800;
-  box-shadow: 0 8px 16px color-mix(in oklab, var(--ui-primary) 26%, transparent);
-  margin-left: 4px;
-}
-
-/* 排名表格 */
-.ranking-table-wrapper {
-  padding: 24px;
-  overflow-x: auto;
-}
-
-.ranking-table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: center;
-}
-
-.ranking-table th {
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #ffffff;
-  padding: 14px 16px;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.ranking-table th:first-child {
-  border-radius: 8px 0 0 0;
-}
-
-.ranking-table th:last-child {
-  border-radius: 0 8px 0 0;
-}
-
-.ranking-table td {
-  padding: 16px;
-  border-bottom: 1px solid var(--ui-surface-border);
-}
-
-.method-name {
-  text-align: left;
-  font-weight: 500;
-  color: var(--ui-text);
-  background: color-mix(in oklab, var(--ui-primary-soft) 52%, #fff 48%);
-}
-
-.method-name.bold {
-  font-weight: 700;
-  color: var(--ui-text);
-}
-
-.rank-cell {
-  font-size: 16px;
-}
-
-.rank-value {
-  display: inline-block;
-  padding: 6px 10px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
-  color: var(--ui-primary);
-  border-radius: 999px;
-  font-weight: 700;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-}
-
-.rank-value.highlight-rank {
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--ui-secondary) 18%, #fff 82%),
-    color-mix(in oklab, var(--ui-primary) 16%, #fff 84%)
-  );
-  color: color-mix(in oklab, var(--ui-secondary) 68%, #111827 32%);
-  font-weight: 700;
-  border: 1px solid color-mix(in oklab, var(--ui-secondary) 34%, transparent);
-}
-
-/* 班级排名高亮 */
-.class-highlight {
-  padding: 20px 24px;
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--ui-secondary) 18%, #ffffff 82%),
-    color-mix(in oklab, var(--ui-primary) 16%, #ffffff 84%)
-  );
-  display: flex;
-  justify-content: center;
-  border-top: 1px solid color-mix(in oklab, var(--ui-primary) 20%, transparent);
-}
-
-.highlight-badge {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ui-text);
-}
-
-.big-rank {
-  font-size: 32px;
-  font-weight: 800;
-  color: var(--ui-primary);
-  margin: 0 4px;
-}
-
-@media (max-width: 640px) {
-  .info-row {
-    flex-direction: column;
-    gap: 8px;
-  }
-  
-  .semester-selector {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  
-  .semester-selector select,
-  .search-btn {
-    width: 100%;
-  }
-  
-  .ranking-table th,
-  .ranking-table td {
-    padding: 10px 8px;
-    font-size: 13px;
-  }
-  
-  .rank-value {
-    padding: 4px 8px;
-    font-size: 13px;
-  }
-  
-  .big-rank {
-    font-size: 24px;
-  }
-}
-
-.offline-banner {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
-  color: var(--ui-danger);
-  border-radius: 12px;
-  font-weight: 600;
-}
+/* Minimal scoped styles - layout handled by Tailwind */
 </style>

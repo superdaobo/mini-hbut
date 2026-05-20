@@ -2,7 +2,7 @@
   "id": "clumsy_bird_hbut",
   "name": "笨鸟先飞",
   "icon": "🐦",
-  "order": 6,
+  "order": 4,
   "key_required": false,
   "entry_path": "index.html",
   "min_compatible_version": "",

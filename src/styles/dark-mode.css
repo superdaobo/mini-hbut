@@ -1,0 +1,1181 @@
+/* ═══════════════════════════════════════════════════════════════
+   Global Dark Mode Overrides (class-based: html.dark)
+   覆盖所有页面的背景、文字、卡片、边框等颜色
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── CSS 变量覆盖 ─── */
+html.dark {
+  --ui-surface: rgba(30, 41, 59, 0.85);
+  --ui-text: #e2e8f0;
+  --ui-muted: #94a3b8;
+  --ui-primary: #60a5fa;
+  --ui-bg-gradient: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+  --gray-100: #0f172a;
+  --gray-50: #1e293b;
+  color-scheme: dark;
+  background-color: #0f172a;
+  background: #0f172a !important;
+}
+
+/* ─── Body 基础 ─── */
+html.dark body {
+  background: #0f172a !important;
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+  min-width: 100vw !important;
+}
+
+html.dark #app {
+  background: #0f172a !important;
+  background-color: #0f172a !important;
+  min-height: 100%;
+  min-width: 100vw !important;
+}
+
+html.dark .app-shell {
+  background: #0f172a !important;
+  background-color: #0f172a !important;
+  min-width: 100vw !important;
+}
+
+/* ─── 首页 Dashboard 特殊背景 ─── */
+html.dark .dashboard-root,
+html.dark .bg-\[\#f0f4f8\] {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-\[\#f0f4f8\]\/90 {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+}
+
+/* ─── 通用白色背景 → 深色 ─── */
+html.dark .bg-white {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-gray-50,
+html.dark .bg-gray-100 {
+  background-color: #334155 !important;
+}
+
+/* ─── 通用文字颜色 ─── */
+html.dark .text-gray-900,
+html.dark .text-gray-800 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-gray-700,
+html.dark .text-gray-600 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-gray-500,
+html.dark .text-gray-400 {
+  color: #94a3b8 !important;
+}
+
+/* ─── Stitch 设计系统表面色 ─── */
+html.dark .bg-surface {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-background {
+  background-color: #0f172a !important;
+}
+
+html.dark .bg-background\/80 {
+  background-color: rgba(15, 23, 42, 0.8) !important;
+}
+
+html.dark .bg-surface\/90 {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+}
+
+html.dark .bg-surface-container-lowest {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-surface-container,
+html.dark .bg-surface-container-low {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-surface-container-high {
+  background-color: #334155 !important;
+}
+
+html.dark .bg-surface-container-highest {
+  background-color: #475569 !important;
+}
+
+/* ─── 文字颜色覆盖 ─── */
+html.dark .text-on-surface {
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-on-surface-variant {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-secondary {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-outline {
+  color: #64748b !important;
+}
+
+/* ─── 边框颜色 ─── */
+html.dark .border-outline-variant,
+html.dark .border-surface-container-highest,
+html.dark .border-surface-variant,
+html.dark .border-gray-100,
+html.dark .border-gray-200 {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+/* ─── 毛玻璃卡片 ─── */
+html.dark .glass-card {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .glass-card-warning {
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.4) 0%, rgba(30, 41, 59, 0.9) 100%) !important;
+  border-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+html.dark .glass-card-info {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(30, 41, 59, 0.9) 100%) !important;
+  border-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+/* ─── 卡片阴影 ─── */
+html.dark .card-shadow {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+}
+
+html.dark .shadow-sm {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ─── 输入框 / Select ─── */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark input::placeholder {
+  color: #64748b !important;
+}
+
+/* ─── 底部导航栏 ─── */
+html.dark .bottom-tab-bar,
+html.dark nav.fixed {
+  background-color: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+/* ─── 弹窗 / Modal ─── */
+html.dark .modal-mask,
+html.dark .modal-overlay {
+  background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+html.dark .modal-card,
+html.dark .modal-content {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+/* ─── 首页特定元素 ─── */
+html.dark .gradient-card {
+  background: linear-gradient(135deg, #1e40af 0%, #0e7490 100%) !important;
+}
+
+/* ─── 课表页面 ─── */
+html.dark .schedule-view {
+  background-color: #0f172a !important;
+}
+
+html.dark .schedule-header {
+  background-color: #1e293b !important;
+}
+
+/* 课表页面 - 所有白色背景区域 */
+html.dark .schedule-view [class*="schedule-grid"],
+html.dark .schedule-view [class*="schedule-body"],
+html.dark .schedule-view [class*="schedule-table"],
+html.dark .schedule-view [class*="timetable"],
+html.dark .schedule-view .bg-white {
+  background-color: #0f172a !important;
+}
+
+/* 课表页面 - 周选择器（修复双重边框） */
+html.dark .schedule-view .week-selector {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  box-shadow: none !important;
+}
+
+/* 课表页面 - 周选择器内部按钮（去掉白色内框） */
+html.dark .schedule-view .week-selector select,
+html.dark .schedule-view .week-selector button,
+html.dark .schedule-view .week-selector [class*="select"],
+html.dark .schedule-view [class*="week-picker"],
+html.dark .schedule-view [class*="week-dropdown"] {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+  box-shadow: none !important;
+}
+
+/* 课表 - 顶部 header 区域（标题 + 周选择器） */
+html.dark .schedule-view > header,
+html.dark .schedule-view > div:first-child,
+html.dark .schedule-view .schedule-top-bar,
+html.dark .schedule-view [class*="header"] {
+  background: #0f172a !important;
+}
+
+/* 课表 - 日期行（5月 11 周一 12 周二...） */
+html.dark .schedule-view .date-header,
+html.dark .schedule-view .week-header,
+html.dark .schedule-view .day-header,
+html.dark .schedule-view [class*="day-col-header"],
+html.dark .schedule-view [class*="date-row"] {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+  color: #94a3b8 !important;
+}
+
+/* 课表 - 日期数字和星期文字 */
+html.dark .schedule-view [class*="day-num"],
+html.dark .schedule-view [class*="day-name"],
+html.dark .schedule-view [class*="weekday"] {
+  color: #94a3b8 !important;
+}
+
+/* 课表 - 今天高亮的日期 */
+html.dark .schedule-view [class*="today"] [class*="day-num"],
+html.dark .schedule-view [class*="active"] [class*="day-num"] {
+  color: #60a5fa !important;
+}
+
+/* 课表 - 主体网格区域背景 */
+html.dark .schedule-view [class*="grid-container"],
+html.dark .schedule-view [class*="courses-grid"],
+html.dark .schedule-view [class*="grid-body"],
+html.dark .schedule-view [class*="timetable-body"] {
+  background: #0f172a !important;
+}
+
+/* 课表 - 网格线（增加区分度） */
+html.dark .schedule-view [class*="grid-line"],
+html.dark .schedule-view [class*="time-slot"],
+html.dark .schedule-view [class*="day-column"] {
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+/* 课表 - 时间列文字 */
+html.dark .schedule-view [class*="time-label"],
+html.dark .schedule-view [class*="time-cell"],
+html.dark .schedule-view [class*="period-num"] {
+  color: #64748b !important;
+}
+
+/* 课表 - 左侧时间轴背景 */
+html.dark .schedule-view .time-axis {
+  background: #0f172a !important;
+  border-right-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark .schedule-view .month-col {
+  background: #0f172a !important;
+}
+
+html.dark .schedule-view .modal-content {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+/* 课表 - 侧边栏/工具面板 */
+html.dark .schedule-view .sidebar,
+html.dark .schedule-view .drawer,
+html.dark .schedule-view [class*="drawer"],
+html.dark .schedule-view [class*="sidebar"] {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+/* 课表工具面板 - 详细样式 */
+html.dark .schedule-view .drawer-panel {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .schedule-view .drawer-title {
+  color: #e2e8f0 !important;
+}
+
+html.dark .schedule-view .drawer-subtitle {
+  color: #cbd5e1 !important;
+}
+
+/* 课表工具 - 各模块之间的分割线 */
+html.dark .schedule-view .drawer-section {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2) !important;
+  padding-bottom: 16px !important;
+}
+
+html.dark .schedule-view .drawer-actions {
+  border-top: 1px solid rgba(148, 163, 184, 0.15) !important;
+  padding-top: 12px !important;
+}
+
+html.dark .schedule-view .drawer-sync-group,
+html.dark .schedule-view .drawer-course-group {
+  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+}
+
+/* 课表工具 - 按钮 */
+html.dark .schedule-view .drawer-action {
+  background: #334155 !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .schedule-view .drawer-action.ghost {
+  background: transparent !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  color: #94a3b8 !important;
+}
+
+/* 课表工具 - 选择器 */
+html.dark .schedule-view .drawer-select {
+  background: #334155 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+}
+
+/* 课表工具 - 样式切换 */
+html.dark .schedule-view .drawer-style-chip {
+  color: #94a3b8 !important;
+}
+
+html.dark .schedule-view .drawer-style-chip.active {
+  color: #ffffff !important;
+}
+
+/* 课表工具 - 提示和状态 */
+html.dark .schedule-view .drawer-tip,
+html.dark .schedule-view .drawer-sync-status,
+html.dark .schedule-view .drawer-sync-cooldown {
+  color: #64748b !important;
+}
+
+/* 课表工具 - 课程管理按钮保持渐变 */
+html.dark .schedule-view .drawer-course-actions button:first-child {
+  background: linear-gradient(135deg, #f97316, #ec4899) !important;
+  border: none !important;
+  color: #ffffff !important;
+}
+
+html.dark .schedule-view .drawer-course-actions button:last-child {
+  background: linear-gradient(135deg, #6366f1, #3b82f6) !important;
+  border: none !important;
+  color: #ffffff !important;
+}
+
+/* 课表 - 汉堡菜单按钮 */
+html.dark .schedule-view [class*="menu-btn"],
+html.dark .schedule-view [class*="hamburger"] {
+  color: #e2e8f0 !important;
+}
+
+/* 课表 - 标题文字 */
+html.dark .schedule-view h1,
+html.dark .schedule-view h2,
+html.dark .schedule-view [class*="title"] {
+  color: #e2e8f0 !important;
+}
+/* ─── 成绩页面 ─── */
+html.dark .grade-view {
+  background-color: #0f172a !important;
+  background: #0f172a !important;
+}
+
+html.dark .grade-card {
+  background-color: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+/* 成绩页面 - 搜索框、筛选区域、按钮 */
+html.dark .grade-view .bg-white,
+html.dark .grade-view [class*="filter"],
+html.dark .grade-view [class*="search"],
+html.dark .grade-view [class*="toolbar"] {
+  background-color: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .grade-view input,
+html.dark .grade-view select {
+  background-color: #334155 !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .grade-view button {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+/* 成绩页面 - 成绩卡片文字颜色 */
+html.dark .grade-view .grade-card .grade-score,
+html.dark .grade-view .grade-card .grade-name,
+html.dark .grade-view .grade-card h3,
+html.dark .grade-view .grade-card h4,
+html.dark .grade-view .grade-card .course-name {
+  color: #e2e8f0 !important;
+}
+
+html.dark .grade-view .grade-card .grade-meta,
+html.dark .grade-view .grade-card .grade-info,
+html.dark .grade-view .grade-card p,
+html.dark .grade-view .grade-card span {
+  color: #94a3b8 !important;
+}
+
+/* 成绩页面 - 统计卡片 */
+html.dark .grade-view .stat-card {
+  background: #1e293b !important;
+  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark .grade-view .stat-card .stat-value,
+html.dark .grade-view .stat-card .stat-number {
+  color: #e2e8f0 !important;
+}
+
+/* 成绩页面 - 筛选栏 */
+html.dark .grade-view .filter-bar {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+/* 成绩页面 - tab 栏 */
+html.dark .grade-view .grade-tab-bar {
+  background: #1e293b !important;
+}
+
+/* 成绩页面 - 学期标签 */
+html.dark .grade-view .semester-header {
+  color: #e2e8f0 !important;
+}
+
+/* ─── 我的页面 ─── */
+html.dark .me-view {
+  background-color: #0f172a !important;
+}
+
+html.dark .profile-card,
+html.dark .status-card,
+html.dark .func-grid,
+html.dark .legal-card {
+  background-color: #1e293b !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+}
+
+/* 我的页面 - 功能入口卡片 */
+html.dark .me-view .func-item,
+html.dark .me-view [class*="func-card"],
+html.dark .me-view [class*="menu-item"],
+html.dark .me-view [class*="grid-item"],
+html.dark .me-view [class*="action-card"] {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .me-view .func-item span,
+html.dark .me-view [class*="func-card"] span,
+html.dark .me-view [class*="grid-item"] span {
+  color: #cbd5e1 !important;
+}
+
+/* ─── 设置页面 ─── */
+html.dark .settings-view {
+  background-color: #0f172a !important;
+}
+
+/* ─── 通知页面 ─── */
+html.dark .notification-view {
+  background-color: #0f172a !important;
+}
+
+/* ─── 登录页面 ─── */
+html.dark .login-container {
+  background-color: #1e293b !important;
+}
+
+/* ─── 离线横幅 ─── */
+html.dark .offline-banner {
+  background-color: rgba(30, 58, 138, 0.3) !important;
+  color: #93c5fd !important;
+}
+
+/* ─── 按钮 ─── */
+html.dark .btn-primary,
+html.dark button.bg-primary {
+  background-color: #2563eb !important;
+}
+
+/* ─── 滚动条（已全局隐藏，此处仅做兜底） ─── */
+
+/* 确保整个视口背景为深色 */
+html.dark {
+  overflow-x: hidden;
+}
+
+html.dark body {
+  overflow-x: hidden !important;
+}
+
+/* ─── 页面特定覆盖（使用 min-h-screen 的页面） ─── */
+html.dark [class*="min-h-screen"] {
+  background-color: #0f172a;
+}
+
+html.dark .exam-page,
+html.dark .classroom-page,
+html.dark .ranking-page,
+html.dark .elec-view,
+html.dark .trans-view,
+html.dark .export-view,
+html.dark .more-view,
+html.dark .online-view,
+html.dark .campus-code-view,
+html.dark .library-view,
+html.dark .resource-share-view,
+html.dark .ai-view {
+  background-color: #0f172a !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v4 设计系统页面暗色模式覆盖
+   覆盖 TransactionHistory / StudentInfoView / NotificationView /
+   ExportCenterView / SettingsView 中使用 CSS 变量的新样式
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── CSS 变量暗色覆盖 ─── */
+html.dark {
+  --md-sys-color-background: #0f172a;
+  --md-sys-color-surface: #1e293b;
+  --md-sys-color-surface-container-lowest: #1e293b;
+  --md-sys-color-surface-container-low: #1e293b;
+  --md-sys-color-surface-container: #334155;
+  --md-sys-color-surface-container-high: #475569;
+  --md-sys-color-surface-variant: rgba(148, 163, 184, 0.2);
+  --md-sys-color-on-surface: #e2e8f0;
+  --md-sys-color-on-surface-variant: #94a3b8;
+  --md-sys-color-on-background: #e2e8f0;
+  --md-sys-color-outline: #64748b;
+  --md-sys-color-outline-variant: rgba(148, 163, 184, 0.2);
+  --md-sys-color-primary: #60a5fa;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-fixed: rgba(30, 58, 138, 0.4);
+  --md-sys-color-primary-fixed-dim: #93c5fd;
+  --md-sys-color-on-primary-fixed-variant: #93c5fd;
+  --md-sys-color-secondary-container: #334155;
+  --md-sys-color-on-secondary-container: #cbd5e1;
+}
+
+/* ─── 交易记录页面 ─── */
+html.dark .trans-view {
+  background: #0f172a !important;
+}
+
+html.dark .trans-header {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .month-selector-card {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .stat-card {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .glass-list-card {
+  background: rgba(30, 41, 59, 0.85) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .trans-item {
+  background: rgba(15, 23, 42, 0.6) !important;
+}
+
+html.dark .trans-item:hover {
+  background: rgba(51, 65, 85, 0.5) !important;
+}
+
+html.dark .disclaimer-card {
+  background: rgba(120, 53, 15, 0.2) !important;
+  border-color: rgba(251, 191, 36, 0.2) !important;
+  color: #fbbf24 !important;
+}
+
+/* ─── 个人信息页面 ─── */
+html.dark .student-info-view {
+  background: #0f172a !important;
+}
+
+html.dark .page-header {
+  background: rgba(15, 23, 42, 0.8) !important;
+}
+
+html.dark .profile-card {
+  background: #1e293b !important;
+}
+
+html.dark .profile-gradient-bg {
+  background: linear-gradient(to right, rgba(37, 99, 235, 0.3), rgba(14, 116, 144, 0.3)) !important;
+}
+
+html.dark .tab-bar {
+  background: #334155 !important;
+}
+
+html.dark .tab-item {
+  color: #94a3b8 !important;
+}
+
+html.dark .tab-item.active {
+  background: #1e293b !important;
+  color: #60a5fa !important;
+}
+
+html.dark .info-card {
+  background: #1e293b !important;
+}
+
+html.dark .card-section-title {
+  color: #e2e8f0 !important;
+  border-bottom-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .login-card {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .access-card {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+/* ─── 通知页面 ─── */
+html.dark .notify-content {
+  color: #e2e8f0 !important;
+}
+
+html.dark .permission-card {
+  background: rgba(30, 58, 138, 0.3) !important;
+  border-color: rgba(96, 165, 250, 0.2) !important;
+}
+
+html.dark .permission-info h2 {
+  color: #93c5fd !important;
+}
+
+html.dark .notify-type-card {
+  background: #1e293b !important;
+}
+
+html.dark .sync-settings-card {
+  background: #1e293b !important;
+}
+
+html.dark .sync-interval-row {
+  border-top-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .notify-message-card {
+  background: #1e293b !important;
+}
+
+html.dark .notify-message-card.unread {
+  border-left-color: #60a5fa !important;
+}
+
+html.dark .notify-detail-list li {
+  background: rgba(51, 65, 85, 0.5) !important;
+}
+
+html.dark .detail-badge {
+  background: rgba(71, 85, 105, 0.5) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .detail-badge.highlight {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .action-btn.secondary {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #60a5fa !important;
+}
+
+html.dark .dashboard-header {
+  background: rgba(15, 23, 42, 0.9) !important;
+}
+
+/* ─── 设置页面 ─── */
+html.dark .settings-page-header {
+  background: rgba(15, 23, 42, 0.8) !important;
+}
+
+html.dark .settings-tab-bar {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .settings-tab-item {
+  color: #94a3b8 !important;
+}
+
+html.dark .settings-tab-item.active {
+  color: #60a5fa !important;
+  border-bottom-color: #60a5fa !important;
+}
+
+/* ─── 导出中心页面 ─── */
+html.dark .export-page-header {
+  background: rgba(15, 23, 42, 0.8) !important;
+}
+
+html.dark .export-hero {
+  background: linear-gradient(135deg, #1e40af, #0e7490) !important;
+}
+
+html.dark .export-btn.outline {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #60a5fa !important;
+}
+
+/* ─── 通用：header 按钮暗色 ─── */
+html.dark .header-icon-btn {
+  color: #e2e8f0 !important;
+}
+
+html.dark .header-icon-btn:hover {
+  background: rgba(51, 65, 85, 0.5) !important;
+}
+
+html.dark .header-title,
+html.dark .header-title-center {
+  color: #e2e8f0 !important;
+}
+
+/* ─── 通用：toggle switch 暗色 ─── */
+html.dark .toggle-track {
+  background: #475569 !important;
+}
+
+html.dark .toggle-switch input:checked + .toggle-track {
+  background: #2563eb !important;
+}
+
+/* ─── 通用：section heading 暗色 ─── */
+html.dark .section-heading {
+  color: #e2e8f0 !important;
+}
+
+html.dark .config-section-title {
+  color: #e2e8f0 !important;
+}
+
+/* ─── Dashboard 时间线暗色 ─── */
+html.dark .timeline-line {
+  background-color: rgba(148, 163, 184, 0.3) !important;
+}
+
+/* ─── 确保所有新页面的 scoped 背景在暗色模式下为类黑色 ─── */
+html.dark .trans-view,
+html.dark .student-info-view,
+html.dark .export-view,
+html.dark .notification-view,
+html.dark .settings-view {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+/* ─── 通用 header 暗色 ─── */
+html.dark .trans-header,
+html.dark .page-header,
+html.dark .export-page-header,
+html.dark .settings-page-header,
+html.dark .dashboard-header {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+html.dark .header-title,
+html.dark .header-title-center,
+html.dark .header-title {
+  color: #e2e8f0 !important;
+}
+
+/* ─── 交易记录暗色补充 ─── */
+html.dark .month-selector-card,
+html.dark .stat-card,
+html.dark .glass-list-card {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark .month-title,
+html.dark .trans-name,
+html.dark .section-title {
+  color: #e2e8f0 !important;
+}
+
+html.dark .month-subtitle,
+html.dark .trans-meta,
+html.dark .stat-label,
+html.dark .date-group-label {
+  color: #94a3b8 !important;
+}
+
+html.dark .trans-item {
+  background: rgba(30, 41, 59, 0.5) !important;
+}
+
+html.dark .trans-item:hover {
+  background: rgba(51, 65, 85, 0.5) !important;
+}
+
+/* ─── 个人信息暗色补充 ─── */
+html.dark .profile-card,
+html.dark .info-card {
+  background: #1e293b !important;
+}
+
+html.dark .profile-name,
+html.dark .field-value,
+html.dark .login-value,
+html.dark .access-app-name {
+  color: #e2e8f0 !important;
+}
+
+html.dark .profile-id,
+html.dark .field-label,
+html.dark .login-label {
+  color: #94a3b8 !important;
+}
+
+html.dark .tab-bar {
+  background: rgba(51, 65, 85, 0.5) !important;
+}
+
+html.dark .tab-item {
+  color: #94a3b8 !important;
+}
+
+html.dark .tab-item.active {
+  background: #1e293b !important;
+  color: #60a5fa !important;
+}
+
+html.dark .login-card,
+html.dark .access-card {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+/* ─── 通知页面暗色补充 ─── */
+html.dark .permission-card {
+  background: rgba(30, 58, 138, 0.25) !important;
+  border-color: rgba(96, 165, 250, 0.15) !important;
+}
+
+html.dark .permission-title,
+html.dark .notify-type-body h4,
+html.dark .sync-title,
+html.dark .notify-msg-title {
+  color: #e2e8f0 !important;
+}
+
+html.dark .permission-desc,
+html.dark .notify-type-body p,
+html.dark .sync-interval-label,
+html.dark .notify-msg-text,
+html.dark .notify-msg-time {
+  color: #94a3b8 !important;
+}
+
+html.dark .notify-type-card,
+html.dark .sync-settings-card,
+html.dark .notify-message-card {
+  background: #1e293b !important;
+}
+
+html.dark .notify-detail-list li {
+  background: rgba(51, 65, 85, 0.4) !important;
+}
+
+html.dark .detail-main {
+  color: #e2e8f0 !important;
+}
+
+html.dark .detail-sub {
+  color: #94a3b8 !important;
+}
+
+html.dark .detail-score {
+  color: #60a5fa !important;
+}
+
+html.dark .action-btn.secondary {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+  color: #60a5fa !important;
+}
+
+/* ─── 设置页面暗色补充 ─── */
+html.dark .settings-tab-bar {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+html.dark .settings-tab-item {
+  color: #94a3b8 !important;
+}
+
+html.dark .settings-tab-item.active {
+  color: #60a5fa !important;
+  border-bottom-color: #60a5fa !important;
+}
+
+/* ─── 导出中心暗色补充 ─── */
+html.dark .export-hero {
+  background: linear-gradient(135deg, #1e40af, #0e7490) !important;
+}
+
+html.dark .export-btn.outline {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+  color: #60a5fa !important;
+}
+
+html.dark .intro-card,
+html.dark .config-card,
+html.dark .actions-card,
+html.dark .preview-wrap {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .semester-chip,
+html.dark .month-chip,
+html.dark .export-module-item {
+  background: rgba(51, 65, 85, 0.5) !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .semester-chip.active,
+html.dark .month-chip.active,
+html.dark .export-module-item.active {
+  background: rgba(37, 99, 235, 0.2) !important;
+  border-color: #60a5fa !important;
+  color: #93c5fd !important;
+}
+
+/* ─── 通用暗色：确保所有白色背景卡片变深 ─── */
+html.dark [style*="background: rgba(255, 255, 255"],
+html.dark [style*="background-color: #ffffff"],
+html.dark [style*="background: #fff"] {
+  background: #1e293b !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   全局兜底：暗色模式下所有残留白色背景强制覆盖
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 我的页面 - grid-item 白色卡片 ─── */
+html.dark .grid-item {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .grid-item .grid-label,
+html.dark .grid-item span {
+  color: #cbd5e1 !important;
+}
+
+html.dark .grid-icon {
+  background: #334155 !important;
+}
+
+/* 我的页面 - 图标颜色在暗色模式下提亮 */
+html.dark .grid-item .grid-icon .material-symbols-rounded {
+  opacity: 1 !important;
+  filter: brightness(1.3) saturate(1.2) !important;
+}
+
+/* 我的页面 - 所有卡片区域加边框区分 */
+html.dark .me-view .glass-card,
+html.dark .me-view section,
+html.dark .me-view .profile-section,
+html.dark .me-view .status-section,
+html.dark .me-view .func-section,
+html.dark .me-view .legal-section {
+  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border-radius: 16px;
+}
+
+/* 我的页面 - 学号文字可见 */
+html.dark .me-view h2,
+html.dark .me-view h3,
+html.dark .me-view .student-id,
+html.dark .me-view .user-name {
+  color: #e2e8f0 !important;
+}
+
+/* 我的页面 - 副文字 */
+html.dark .me-view p,
+html.dark .me-view .sub-text,
+html.dark .me-view .hint {
+  color: #94a3b8 !important;
+}
+
+/* 我的页面 - 登录状态文字 */
+html.dark .me-view .status-card {
+  background: #1e293b !important;
+  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark .me-view .status-title {
+  color: #e2e8f0 !important;
+}
+
+html.dark .me-view .status-subtitle {
+  color: #94a3b8 !important;
+}
+
+html.dark .me-view .status-icon {
+  color: #60a5fa !important;
+}
+
+html.dark .me-view .status-icon-box {
+  background: rgba(96, 165, 250, 0.15) !important;
+}
+
+/* ─── 课表页面 scoped 样式强制覆盖 ─── */
+html.dark .schedule-view .schedule-grid-wrapper,
+html.dark .schedule-view .schedule-grid-container,
+html.dark .schedule-view .schedule-content,
+html.dark .schedule-view .schedule-main {
+  background: #0f172a !important;
+}
+
+/* 课表 - 日期头部行 */
+html.dark .schedule-view .date-header,
+html.dark .schedule-view .week-header,
+html.dark .schedule-view .day-header {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+/* 课表 - 时间列 */
+html.dark .schedule-view .time-column,
+html.dark .schedule-view .time-cell {
+  color: #94a3b8 !important;
+}
+
+/* 课表 - 课程格子保持原色（不覆盖课程卡片的彩色背景） */
+
+/* ─── 成绩页面 - 白色卡片和表单 ─── */
+html.dark .grade-view .grade-header,
+html.dark .grade-view .grade-toolbar,
+html.dark .grade-view .grade-filter,
+html.dark .grade-view .grade-search {
+  background: #1e293b !important;
+}
+
+html.dark .grade-view .grade-stat-card,
+html.dark .grade-view [class*="stat-card"],
+html.dark .grade-view [class*="summary"] {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+/* ─── 全局：所有 scoped 组件中的 #ffffff 背景 ─── */
+html.dark [style*="background: #ffffff"],
+html.dark [style*="background-color: #ffffff"],
+html.dark [style*="background: rgb(255, 255, 255)"],
+html.dark [style*="background-color: rgb(255, 255, 255)"] {
+  background: #1e293b !important;
+}
+
+/* ─── 全局：所有 scoped 组件中的 white 背景 ─── */
+html.dark [style*="background: white"],
+html.dark [style*="background-color: white"] {
+  background: #1e293b !important;
+}
+
+/* ─── 全局文字颜色兜底 ─── */
+html.dark [style*="color: #000"],
+html.dark [style*="color: rgb(0, 0, 0)"],
+html.dark [style*="color: #111"],
+html.dark [style*="color: #1f2937"],
+html.dark [style*="color: rgb(31, 41, 55)"] {
+  color: #e2e8f0 !important;
+}
+
+/* ─── 全局：确保所有页面容器背景为深色 ─── */
+html.dark .view-transition-root {
+  background: #0f172a !important;
+}
+
+/* 确保 max-width 页面外部区域也是深色 */
+html.dark .app-shell {
+  background: #0f172a !important;
+}
+
+html.dark .app-shell > .view-transition-root {
+  background: #0f172a !important;
+  min-width: 100% !important;
+}
+
+/* ─── 更多页面（MoreView）暗色适配 ─── */
+html.dark .more-view {
+  background-color: #0f172a !important;
+}
+
+html.dark .dialog-btn.ghost {
+  color: #94a3b8 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+html.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}

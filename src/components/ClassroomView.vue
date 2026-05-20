@@ -669,524 +669,234 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="classroom-view">
-    <!-- 头部 -->
-    <TPageHeader icon="🏫" title="空教室查询" @back="$emit('back')" />
+  <div class="classroom-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative">
+    <!-- Header -->
+    <TPageHeader icon="school" title="空教室" @back="$emit('back')" />
 
-    <div v-if="offline" class="offline-banner">
+    <!-- Offline Banner -->
+    <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
       当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
     </div>
 
-    <div class="content-container">
-      <!-- 筛选区 -->
-      <div class="filter-card">
-        <div class="filter-row top-filter-row">
-          <div class="filter-item">
-            <label>教学楼</label>
-            <IOSSelect v-model="filters.building">
-              <option value="">全部教学楼</option>
-              <option v-for="b in buildings.filter(b => b.code)" :key="b.code" :value="b.name">{{ b.name }}</option>
-            </IOSSelect>
-          </div>
-          
-          <div class="filter-item">
-            <label>周次</label>
-            <IOSSelect v-model="filters.week">
-              <option value="">自动(当前周)</option>
-              <option v-for="w in weekOptions" :key="w" :value="w">第{{ w }}周</option>
-            </IOSSelect>
-          </div>
-          
-          <div class="filter-item">
-            <label>星期</label>
-            <IOSSelect v-model="filters.weekday">
-              <option value="">自动(今天)</option>
-              <option v-for="w in weekdayOptions" :key="w.value" :value="w.value">{{ w.label }}</option>
-            </IOSSelect>
-          </div>
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col gap-5 pb-24">
+      <!-- Filter Section -->
+      <section class="px-4 flex flex-col gap-3">
+        <!-- Quick Time Selection -->
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            @click="selectTimeRange('morning')"
+            :class="[
+              'py-2.5 rounded-lg text-xs font-medium transition-transform active:scale-95 flex items-center justify-center gap-1',
+              filters.periods.length > 0 && filters.periods.every(p => p <= 4)
+                ? 'bg-primary-container text-on-primary-container border border-transparent shadow-[0_4px_15px_rgba(33,112,228,0.15)]'
+                : 'bg-surface-container-lowest text-on-surface-variant border border-outline-variant/30 shadow-[0_4px_15px_rgba(0,0,0,0.03)]'
+            ]"
+          >
+            <span class="material-symbols-outlined text-[16px]">wb_sunny</span>
+            上午
+          </button>
+          <button
+            @click="selectTimeRange('afternoon')"
+            :class="[
+              'py-2.5 rounded-lg text-xs font-medium transition-transform active:scale-95 flex items-center justify-center gap-1',
+              filters.periods.length > 0 && filters.periods.every(p => p >= 5 && p <= 8)
+                ? 'bg-primary-container text-on-primary-container border border-transparent shadow-[0_4px_15px_rgba(33,112,228,0.15)]'
+                : 'bg-surface-container-lowest text-on-surface-variant border border-outline-variant/30 shadow-[0_4px_15px_rgba(0,0,0,0.03)]'
+            ]"
+          >
+            <span class="material-symbols-outlined text-[16px]">routine</span>
+            下午
+          </button>
+          <button
+            @click="selectTimeRange('evening')"
+            :class="[
+              'py-2.5 rounded-lg text-xs font-medium transition-transform active:scale-95 flex items-center justify-center gap-1',
+              filters.periods.length > 0 && filters.periods.every(p => p >= 9)
+                ? 'bg-primary-container text-on-primary-container border border-transparent shadow-[0_4px_15px_rgba(33,112,228,0.15)]'
+                : 'bg-surface-container-lowest text-on-surface-variant border border-outline-variant/30 shadow-[0_4px_15px_rgba(0,0,0,0.03)]'
+            ]"
+          >
+            <span class="material-symbols-outlined text-[16px]">bedtime</span>
+            晚上
+          </button>
         </div>
 
-        <div class="filter-row periods-row">
-          <div class="periods-label">
-            <label>节次选择</label>
-            <div class="quick-actions">
-              <span @click="selectTimeRange('morning')">上午</span>
-              <span @click="selectTimeRange('afternoon')">下午</span>
-              <span @click="selectTimeRange('evening')">晚上</span>
-              <span @click="selectTimeRange('clear')">清空</span>
+        <!-- Detailed Filters -->
+        <div class="flex flex-col gap-3 bg-surface-container-lowest p-4 rounded-[24px] shadow-[0_4px_15px_rgba(0,0,0,0.03)] mt-2">
+          <!-- Building -->
+          <div class="flex items-center">
+            <span class="text-secondary text-xs font-medium w-12 shrink-0">楼栋</span>
+            <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
+              <button
+                @click="filters.building = ''"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
+                  !filters.building ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                ]"
+              >全部</button>
+              <button
+                v-for="b in buildings.filter(b => b.code)"
+                :key="b.code"
+                @click="filters.building = b.name"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
+                  filters.building === b.name ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                ]"
+              >{{ b.name }}</button>
             </div>
           </div>
-          <div class="periods-grid">
-            <div 
-              v-for="p in periodOptions" 
-              :key="p.value"
-              class="period-tag"
-              :class="{ active: filters.periods.includes(p.value) }"
-              @click="togglePeriod(p.value)"
-            >
-              {{ p.value }}
+
+          <!-- Week -->
+          <div class="flex items-center">
+            <span class="text-secondary text-xs font-medium w-12 shrink-0">周次</span>
+            <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
+              <button
+                @click="filters.week = ''"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
+                  !filters.week ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                ]"
+              >本周{{ currentMeta.week ? `(第${currentMeta.week}周)` : '' }}</button>
+              <button
+                v-for="w in weekOptions.slice(0, 8)"
+                :key="w"
+                @click="filters.week = w"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
+                  Number(filters.week) === w ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                ]"
+              >第{{ w }}周</button>
             </div>
           </div>
-        </div>
-        
-        <div class="filter-row" style="margin-top: 12px;">
-          <div class="filter-item seats-input">
-             <label>座位</label>
-             <div class="input-group">
-               <input v-model="filters.minSeats" type="number" placeholder="最小" />
-               <span>-</span>
-               <input v-model="filters.maxSeats" type="number" placeholder="最大" />
-             </div>
+
+          <!-- Day -->
+          <div class="flex items-center">
+            <span class="text-secondary text-xs font-medium w-12 shrink-0">星期</span>
+            <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
+              <button
+                v-for="w in weekdayOptions"
+                :key="w.value"
+                @click="filters.weekday = w.value"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
+                  Number(filters.weekday) === w.value ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                ]"
+              >{{ w.label }}</button>
+            </div>
           </div>
-          <button class="query-btn" @click="handleManualQuery" :disabled="loading">
+
+          <!-- Periods (multi-select) -->
+          <div class="flex items-start">
+            <span class="text-secondary text-xs font-medium w-12 shrink-0 pt-2">节次</span>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="p in periodOptions"
+                :key="p.value"
+                @click="togglePeriod(p.value)"
+                :class="[
+                  'px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1',
+                  filters.periods.includes(p.value)
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                ]"
+              >
+                <span v-if="filters.periods.includes(p.value)" class="material-symbols-outlined text-[14px]">check</span>
+                {{ p.value }}-{{ p.value + 1 > 11 ? p.value : p.value + 1 }}节
+              </button>
+            </div>
+          </div>
+
+          <!-- Footer: count + reset + query -->
+          <div class="mt-2 flex justify-between items-center pt-3 border-t border-surface-variant">
+            <span class="text-on-surface-variant text-sm">
+              找到 <strong>{{ classrooms.length }}</strong> 个空教室
+            </span>
+            <button class="text-primary text-xs font-medium flex items-center gap-1" @click="selectTimeRange('clear'); filters.building = ''; filters.week = ''">
+              <span class="material-symbols-outlined text-[16px]">filter_alt_off</span>
+              重置筛选
+            </button>
+          </div>
+
+          <!-- Query Button -->
+          <button
+            class="w-full py-3 rounded-xl bg-primary text-on-primary font-bold text-sm active:scale-95 transition-transform disabled:opacity-60"
+            @click="handleManualQuery"
+            :disabled="loading"
+          >
             {{ loading ? '查询中...' : '查询空教室' }}
           </button>
         </div>
+      </section>
+
+      <!-- Error Message -->
+      <div v-if="errorMsg" class="mx-4 px-4 py-3 rounded-xl bg-error-container/60 text-on-error-container text-sm text-center">
+        {{ errorMsg }}
       </div>
 
-      <!-- 结果列表 -->
-      <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
-      
-      <div class="results-info" v-if="classrooms.length > 0">
-        <div class="date-container">
-          <div class="week-row">
-            <span class="week-info">第{{ currentMeta.week }}周</span>
-            <span class="weekday">{{ currentMeta.weekday_name }}</span>
+      <!-- Results List -->
+      <section class="px-4 flex flex-col gap-3">
+        <!-- Classroom Cards -->
+        <div
+          v-for="room in displayedClassrooms"
+          :key="room.id"
+          class="bg-surface-container-lowest rounded-[24px] p-5 shadow-[0_4px_15px_rgba(0,0,0,0.03)] border border-outline-variant/10 flex flex-col gap-3 relative overflow-hidden"
+        >
+          <div class="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-success-teal/10 to-transparent rounded-bl-full pointer-events-none"></div>
+          <div class="flex justify-between items-start">
+            <div class="flex flex-col">
+              <h3 class="text-lg font-bold text-on-surface flex items-center gap-2">
+                {{ room.name }}
+                <span class="px-2 py-0.5 rounded-md bg-success-teal/10 text-success-teal text-[10px] font-semibold">空闲</span>
+              </h3>
+              <span class="text-secondary text-sm mt-1">{{ room.type || room.campus }}</span>
+            </div>
+            <div class="flex flex-col items-end">
+              <span class="text-primary text-xl font-bold">{{ room.seats }}</span>
+              <span class="text-on-surface-variant text-[10px] font-semibold">座位数</span>
+            </div>
           </div>
-          <div class="date-row">{{ currentMeta.date_str }}</div>
+          <div class="flex gap-2 mt-1">
+            <span v-if="room.building" class="px-2.5 py-1 rounded bg-surface-container flex items-center gap-1 text-on-surface-variant text-[10px] font-semibold">
+              <span class="material-symbols-outlined text-[14px]">apartment</span>
+              {{ room.building }}
+            </span>
+            <span v-if="room.floor" class="px-2.5 py-1 rounded bg-surface-container flex items-center gap-1 text-on-surface-variant text-[10px] font-semibold">
+              <span class="material-symbols-outlined text-[14px]">layers</span>
+              {{ room.floor }}层
+            </span>
+          </div>
         </div>
-        <div class="semester-info">{{ currentMeta.semester }} 学期</div>
-      </div>
 
-      <div class="classroom-list">
-        <div v-for="room in displayedClassrooms" :key="room.id" class="room-card">
-          <div class="card-top">
-            <span class="room-seats">{{ room.seats }}座</span>
-            <span class="room-type">{{ room.type }}</span>
-          </div>
-          <div class="room-main">
-            <div class="room-name">{{ room.name }}</div>
-            <div class="room-building">{{ room.campus }} {{ room.building ? room.building : '' }}</div>
-          </div>
-          <div class="card-bottom">
-            <div class="floor-tag">{{ room.floor }}层</div>
-            <div class="status-tag available">空闲</div>
-          </div>
-        </div>
-        
-        <!-- 加载更多按钮 -->
-        <div v-if="hasMoreClassrooms" class="load-more-container">
-          <button class="load-more-btn" @click="showMoreClassrooms">
+        <!-- Load More -->
+        <div v-if="hasMoreClassrooms" class="py-4 flex justify-center">
+          <button
+            class="px-6 py-2.5 rounded-full bg-surface-container-lowest border border-outline-variant/30 text-on-surface-variant text-xs font-medium active:scale-95 transition-transform"
+            @click="showMoreClassrooms"
+          >
             加载更多（还有 {{ classrooms.length - displayLimit }} 间）
           </button>
         </div>
 
+        <!-- Loading Spinner -->
+        <div v-if="loading && classrooms.length > 0" class="py-6 flex flex-col items-center justify-center gap-2 text-on-surface-variant">
+          <span class="material-symbols-outlined animate-spin">autorenew</span>
+          <span class="text-xs font-medium">正在加载更多教室...</span>
+        </div>
+
+        <!-- Empty State -->
         <TEmptyState v-if="!loading && classrooms.length === 0 && !errorMsg" icon="🏢" message="当前条件下没有找到空教室" />
-      </div>
-    </div>
+      </section>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.classroom-view {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient);
-  color: var(--ui-text);
-  padding-bottom: 20px;
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
-
-.app-header {
-  margin-bottom: 12px;
-}
-
-.title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.content-container {
-  padding: 0 14px;
-  max-width: 860px;
-  margin: 0 auto;
-}
-
-.filter-card {
-  background: var(--ui-surface);
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: var(--ui-shadow-soft);
-  border: 1px solid var(--ui-surface-border);
-  margin-bottom: 16px;
-}
-
-.filter-row {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: flex-end;
-}
-
-.top-filter-row {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  flex-wrap: nowrap !important;
-  gap: 12px;
-  align-items: end;
-  width: 100%;
-}
-
-.filter-item {
-  flex: 1;
-  min-width: 100px;
-}
-
-.top-filter-row .filter-item {
-  min-width: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.top-filter-row select {
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
-  flex: 0 0 auto;
-}
-
-.filter-item label {
-  display: block;
-  font-size: 12px;
-  color: var(--ui-muted);
-  margin-bottom: 4px;
-}
-
-select,
-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 10px;
-  font-size: 14px;
-  background: color-mix(in oklab, var(--ui-surface) 86%, #fff 14%);
-  color: var(--ui-text);
-}
-
-.periods-row {
-  margin-top: 12px;
-  flex-direction: column;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.periods-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.periods-label label {
-  font-size: 12px;
-  color: var(--ui-muted);
-}
-
-.quick-actions span {
-  font-size: 12px;
-  color: var(--ui-primary);
-  margin-left: 12px;
-  cursor: pointer;
-}
-
-.periods-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.period-tag {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, var(--ui-surface-border));
-  border-radius: 10px;
-  font-size: 14px;
-  color: var(--ui-text);
-  cursor: pointer;
-  transition: all 0.2s;
-  background: color-mix(in oklab, var(--ui-surface) 90%, #fff 10%);
-}
-
-.period-tag.active {
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #ffffff;
-  border-color: transparent;
-}
-
-.seats-input {
-  flex: 2;
-}
-
-.input-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.input-group input {
-  text-align: center;
-}
-
-.query-btn {
-  flex: 1;
-  min-width: 130px;
-  height: 42px;
-  padding: 10px 12px;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #ffffff;
-  border: none;
-  border-radius: 10px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.query-btn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.empty-state {
-  grid-column: 1 / -1;
-  text-align: center;
-  padding: 40px;
-  color: var(--ui-muted);
-  background: var(--ui-surface);
-  border-radius: 16px;
-  border: 1px dashed var(--ui-surface-border);
-}
-
-.empty-state .emoji {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-
-.error-msg {
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
-  color: var(--ui-danger);
-  padding: 12px;
-  border-radius: 10px;
-  margin-bottom: 16px;
-  text-align: center;
-  font-size: 14px;
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 38%, transparent);
-}
-
-.results-info {
-  margin: 16px 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--ui-surface);
-  padding: 12px 16px;
-  border-radius: 14px;
-  box-shadow: var(--ui-shadow-soft);
-  border: 1px solid var(--ui-surface-border);
-}
-
-.date-container {
-  display: flex;
-  flex-direction: column;
-}
-
-.week-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 2px;
-}
-
-.week-info,
-.weekday,
-.semester-info {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.week-info {
-  color: var(--ui-text);
-}
-
-.weekday {
-  color: var(--ui-primary);
-}
-
-.date-row {
-  font-size: 13px;
-  color: var(--ui-muted);
-  margin-top: 4px;
-}
-
-.semester-info {
-  color: var(--ui-muted);
-}
-
-.classroom-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.load-more-container {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: center;
-  padding: 12px 0;
-}
-
-.load-more-btn {
-  padding: 10px 24px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 20px;
-  color: var(--ui-text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.load-more-btn:active {
-  transform: scale(0.96);
-  background: var(--ui-surface-hover);
-}
-
-.room-card {
-  background: var(--ui-surface);
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: var(--ui-shadow-soft);
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--ui-surface-border);
-}
-
-.room-card:active {
-  transform: scale(0.98);
-}
-
-.room-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 6px;
-  height: 100%;
-  background: linear-gradient(180deg, var(--ui-primary), var(--ui-secondary));
-}
-
-.card-top {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.room-seats {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ui-primary);
-  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-}
-
-.room-type {
-  font-size: 10px;
-  color: var(--ui-muted);
-  border: 1px solid var(--ui-surface-border);
-  padding: 1px 6px;
-  border-radius: 999px;
-}
-
-.room-main {
-  margin: 8px 0;
-}
-
-.room-name {
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--ui-text);
-  line-height: 1.2;
-}
-
-.room-building {
-  font-size: 12px;
-  color: var(--ui-muted);
-  margin-top: 4px;
-}
-
-.card-bottom {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-top: auto;
-}
-
-.floor-tag {
-  font-size: 12px;
-  color: var(--ui-muted);
-  background: color-mix(in oklab, var(--ui-primary-soft) 58%, #fff 42%);
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, transparent);
-}
-
-.status-tag {
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.status-tag.available {
-  color: var(--ui-success);
-  background: color-mix(in oklab, var(--ui-success) 13%, #fff 87%);
-  border: 1px solid color-mix(in oklab, var(--ui-success) 24%, transparent);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-
-.offline-banner {
-  margin: 12px 14px 0;
-  padding: 10px 14px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
-  color: var(--ui-danger);
-  border-radius: 12px;
-  font-weight: 600;
-}
-
-@media (max-width: 700px) {
-  .content-container {
-    padding: 0 10px;
-  }
-
-  .top-filter-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .results-info {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 </style>

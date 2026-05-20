@@ -1,18 +1,23 @@
-//! 🌤️ 天气查询模块 - 获取武汉洪山区实时天气
+//! 🌤️ 天气查询模块 - 获取湖北工业大学实时天气
 //!
 //! 主要职责:
-//! 1. 调用 wttr.in 免费 API 获取实时天气数据
+//! 1. 调用 Open-Meteo 免费 API 获取实时天气数据
 //! 2. 返回当前天气 + 3 天预报
 //! 3. 内置 5 分钟缓存，避免频繁请求
 //!
-//! API: https://wttr.in/Wuhan+Hongshan?format=j1 (无需 API Key)
+//! API: https://api.open-meteo.com/v1/forecast (无需 API Key)
+//! 坐标: 湖北工业大学 (30.67°N, 114.35°E)
 
 use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-/// wttr.in API 地址
-const WTTR_URL: &str = "https://wttr.in/Wuhan+Hongshan?format=j1";
+/// 湖北工业大学坐标
+const LATITUDE: f64 = 30.67;
+const LONGITUDE: f64 = 114.35;
+
+/// Open-Meteo API 地址
+const API_URL: &str = "https://api.open-meteo.com/v1/forecast";
 
 /// 缓存有效期 (5 分钟)
 const CACHE_TTL_SECS: u64 = 300;
@@ -30,7 +35,7 @@ pub struct WeatherData {
     pub humidity: i32,
     /// 风力描述（如 "东南风 3级"）
     pub wind: String,
-    /// 空气质量指数（根据能见度估算）
+    /// 空气质量指数（根据 PM2.5 估算）
     pub aqi: i32,
     /// Font Awesome 图标 class
     pub icon: String,
@@ -38,6 +43,8 @@ pub struct WeatherData {
     pub city: String,
     /// 3 天预报
     pub forecast: Vec<ForecastDay>,
+    /// 逐时预报（未来 24 小时）
+    pub hourly: Vec<HourlyItem>,
 }
 
 /// 单日预报
@@ -55,9 +62,21 @@ pub struct ForecastDay {
     pub icon: String,
 }
 
+/// 逐时预报项
+#[derive(Debug, Clone, Serialize)]
+pub struct HourlyItem {
+    /// 时间标签（如 "14:00" 或 "现在"）
+    pub time: String,
+    /// 温度
+    pub temp: i32,
+    /// 天气状况
+    pub condition: String,
+    /// 图标
+    pub icon: String,
+}
+
 // ─── 缓存 ───────────────────────────────────────────────────
 
-/// 全局缓存：(上次获取时间, 天气数据)
 static WEATHER_CACHE: OnceLock<Mutex<Option<(Instant, WeatherData)>>> = OnceLock::new();
 
 fn get_cache() -> &'static Mutex<Option<(Instant, WeatherData)>> {
@@ -93,16 +112,22 @@ pub async fn fetch_weather() -> Result<WeatherData, String> {
 
 // ─── API 请求与解析 ─────────────────────────────────────────
 
-/// 请求 wttr.in 并解析为 WeatherData
+/// 请求 Open-Meteo 并解析为 WeatherData
 async fn request_weather() -> Result<WeatherData, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
 
+    // 构建请求 URL
+    // timezone=Asia/Shanghai 确保返回北京时间
+    let url = format!(
+        "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Asia/Shanghai&forecast_days=7",
+        API_URL, LATITUDE, LONGITUDE
+    );
+
     let resp = client
-        .get(WTTR_URL)
-        .header("User-Agent", "curl/7.68.0") // wttr.in 需要类 curl UA 才返回 JSON
+        .get(&url)
         .send()
         .await
         .map_err(|e| format!("天气 API 请求失败: {}", e))?;
@@ -119,119 +144,153 @@ async fn request_weather() -> Result<WeatherData, String> {
     parse_weather_response(&json)
 }
 
-/// 解析 wttr.in JSON 响应
+/// 解析 Open-Meteo JSON 响应
 fn parse_weather_response(json: &serde_json::Value) -> Result<WeatherData, String> {
     // 解析当前天气
     let current = json
-        .get("current_condition")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .ok_or("无法解析 current_condition")?;
+        .get("current")
+        .ok_or("无法解析 current 数据")?;
 
     let temp = current
-        .get("temp_C")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0")
-        .parse::<i32>()
-        .unwrap_or(0);
+        .get("temperature_2m")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+        .round() as i32;
 
     let humidity = current
-        .get("humidity")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0")
-        .parse::<i32>()
-        .unwrap_or(0);
+        .get("relative_humidity_2m")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
 
-    // 天气描述（英文）
-    let weather_desc_en = current
-        .get("weatherDesc")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|v| v.get("value"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown");
+    let weather_code = current
+        .get("weather_code")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
 
-    let condition = translate_condition(weather_desc_en);
+    let wind_speed = current
+        .get("wind_speed_10m")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    let wind_direction = current
+        .get("wind_direction_10m")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as i32;
+
+    let condition = wmo_code_to_condition(weather_code);
     let icon = condition_to_icon(&condition);
-
-    // 风力信息
-    let wind_speed_kmph = current
-        .get("windspeedKmph")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0")
-        .parse::<i32>()
-        .unwrap_or(0);
-
-    let wind_dir_degree = current
-        .get("winddirDegree")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0")
-        .parse::<i32>()
-        .unwrap_or(0);
-
-    let wind_dir = degree_to_direction(wind_dir_degree);
-    let wind_level = kmph_to_level(wind_speed_kmph);
+    let wind_dir = degree_to_direction(wind_direction);
+    let wind_level = kmph_to_level(wind_speed.round() as i32);
     let wind = format!("{} {}级", wind_dir, wind_level);
 
-    // AQI 估算（基于能见度）
-    let visibility = current
-        .get("visibility")
-        .and_then(|v| v.as_str())
-        .unwrap_or("10")
-        .parse::<i32>()
-        .unwrap_or(10);
-    let aqi = estimate_aqi(visibility);
+    // AQI 估算（Open-Meteo 免费版不提供 AQI，根据天气状况粗略估算）
+    let aqi = estimate_aqi_from_weather(weather_code);
 
     // 解析 3 天预报
-    let weather_arr = json
-        .get("weather")
+    let daily = json.get("daily").ok_or("无法解析 daily 数据")?;
+    let daily_codes = daily
+        .get("weather_code")
         .and_then(|v| v.as_array())
-        .ok_or("无法解析 weather 预报数组")?;
+        .ok_or("无法解析 daily weather_code")?;
+    let daily_max = daily
+        .get("temperature_2m_max")
+        .and_then(|v| v.as_array())
+        .ok_or("无法解析 daily temperature_2m_max")?;
+    let daily_min = daily
+        .get("temperature_2m_min")
+        .and_then(|v| v.as_array())
+        .ok_or("无法解析 daily temperature_2m_min")?;
 
-    let day_labels = ["今天", "明天", "后天"];
     let mut forecast = Vec::new();
 
-    for (i, day_data) in weather_arr.iter().take(3).enumerate() {
-        let temp_high = day_data
-            .get("maxtempC")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0")
-            .parse::<i32>()
-            .unwrap_or(0);
+    // 动态生成日期标签（今天/明天/后天 + 星期几）
+    let today = chrono::Utc::now() + chrono::Duration::hours(8); // 北京时间
+    let weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-        let temp_low = day_data
-            .get("mintempC")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0")
-            .parse::<i32>()
-            .unwrap_or(0);
-
-        // 取中午时段的天气描述作为当天代表
-        let hourly = day_data
-            .get("hourly")
-            .and_then(|v| v.as_array());
-
-        let day_desc_en = hourly
-            .and_then(|hours| {
-                // 取 12:00 的天气（index 4，每 3 小时一个点）
-                hours.get(4).or_else(|| hours.get(2))
-            })
-            .and_then(|h| h.get("weatherDesc"))
-            .and_then(|v| v.as_array())
-            .and_then(|arr| arr.first())
-            .and_then(|v| v.get("value"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown");
-
-        let day_condition = translate_condition(day_desc_en);
+    for i in 0..7.min(daily_codes.len()) {
+        let code = daily_codes.get(i).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let t_max = daily_max.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i32;
+        let t_min = daily_min.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i32;
+        let day_condition = wmo_code_to_condition(code);
         let day_icon = condition_to_icon(&day_condition);
 
+        let label = if i == 0 {
+            "今天".to_string()
+        } else if i == 1 {
+            "明天".to_string()
+        } else if i == 2 {
+            "后天".to_string()
+        } else {
+            // 计算星期几
+            let future_day = today + chrono::Duration::days(i as i64);
+            let weekday_idx = future_day.format("%u").to_string().parse::<usize>().unwrap_or(1) - 1;
+            weekday_names.get(weekday_idx).unwrap_or(&"").to_string()
+        };
+
         forecast.push(ForecastDay {
-            day: day_labels.get(i).unwrap_or(&"").to_string(),
-            temp_high,
-            temp_low,
+            day: label,
+            temp_high: t_max,
+            temp_low: t_min,
             condition: day_condition,
             icon: day_icon,
+        });
+    }
+
+    // 解析逐时预报（取当前时间起未来 24 小时）
+    let hourly = json.get("hourly").ok_or("无法解析 hourly 数据")?;
+    let hourly_temps = hourly
+        .get("temperature_2m")
+        .and_then(|v| v.as_array())
+        .ok_or("无法解析 hourly temperature_2m")?;
+    let hourly_codes = hourly
+        .get("weather_code")
+        .and_then(|v| v.as_array())
+        .ok_or("无法解析 hourly weather_code")?;
+    let hourly_times = hourly
+        .get("time")
+        .and_then(|v| v.as_array())
+        .ok_or("无法解析 hourly time")?;
+
+    // 获取当前北京时间的小时数，找到对应的起始索引
+    let now_hour = {
+        let now = chrono::Utc::now() + chrono::Duration::hours(8); // UTC+8 北京时间
+        now.format("%H").to_string().parse::<usize>().unwrap_or(12)
+    };
+
+    let mut hourly_items = Vec::new();
+    for i in 0..24 {
+        let idx = now_hour + i;
+        if idx >= hourly_temps.len() {
+            break;
+        }
+        let h_temp = hourly_temps.get(idx).and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i32;
+        let h_code = hourly_codes.get(idx).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let h_condition = wmo_code_to_condition(h_code);
+        let h_icon = condition_to_icon(&h_condition);
+
+        // 从 time 字段提取小时（格式: "2026-05-17T14:00"）
+        let time_label = if i == 0 {
+            "现在".to_string()
+        } else {
+            hourly_times
+                .get(idx)
+                .and_then(|v| v.as_str())
+                .map(|s| {
+                    // 提取 "HH:00" 部分
+                    if let Some(t_part) = s.split('T').nth(1) {
+                        t_part[..5].to_string()
+                    } else {
+                        format!("{}:00", (now_hour + i) % 24)
+                    }
+                })
+                .unwrap_or_else(|| format!("{:02}:00", (now_hour + i) % 24))
+        };
+
+        hourly_items.push(HourlyItem {
+            time: time_label,
+            temp: h_temp,
+            condition: h_condition,
+            icon: h_icon,
         });
     }
 
@@ -244,41 +303,38 @@ fn parse_weather_response(json: &serde_json::Value) -> Result<WeatherData, Strin
         icon,
         city: "武汉市洪山区".to_string(),
         forecast,
+        hourly: hourly_items,
     })
 }
 
 // ─── 辅助函数 ───────────────────────────────────────────────
 
-/// 英文天气描述 → 中文
-fn translate_condition(en: &str) -> String {
-    let lower = en.to_lowercase();
-    if lower.contains("thunder") {
-        "雷阵雨".to_string()
-    } else if lower.contains("heavy rain") || lower.contains("heavy shower") {
-        "大雨".to_string()
-    } else if lower.contains("moderate rain") || lower.contains("moderate shower") {
-        "中雨".to_string()
-    } else if lower.contains("light rain")
-        || lower.contains("patchy rain")
-        || lower.contains("drizzle")
-        || lower.contains("light shower")
-    {
-        "小雨".to_string()
-    } else if lower.contains("snow") || lower.contains("sleet") || lower.contains("blizzard") {
-        "雪".to_string()
-    } else if lower.contains("fog") || lower.contains("mist") || lower.contains("haze") {
-        "雾".to_string()
-    } else if lower.contains("overcast") {
-        "阴".to_string()
-    } else if lower.contains("partly cloudy") || lower.contains("partly sunny") {
-        "多云".to_string()
-    } else if lower.contains("cloudy") {
-        "阴".to_string()
-    } else if lower.contains("sunny") || lower.contains("clear") {
-        "晴".to_string()
-    } else {
-        // 无法匹配时返回原文
-        en.to_string()
+/// WMO 天气代码 → 中文天气描述
+/// 参考: https://open-meteo.com/en/docs#weathervariables
+fn wmo_code_to_condition(code: i32) -> String {
+    match code {
+        0 => "晴".to_string(),
+        1 => "晴".to_string(),
+        2 => "多云".to_string(),
+        3 => "阴".to_string(),
+        45 | 48 => "雾".to_string(),
+        51 | 53 | 55 => "毛毛雨".to_string(),
+        56 | 57 => "冻雨".to_string(),
+        61 => "小雨".to_string(),
+        63 => "中雨".to_string(),
+        65 => "大雨".to_string(),
+        66 | 67 => "冻雨".to_string(),
+        71 => "小雪".to_string(),
+        73 => "中雪".to_string(),
+        75 => "大雪".to_string(),
+        77 => "雪粒".to_string(),
+        80 => "小阵雨".to_string(),
+        81 => "中阵雨".to_string(),
+        82 => "大阵雨".to_string(),
+        85 | 86 => "阵雪".to_string(),
+        95 => "雷阵雨".to_string(),
+        96 | 99 => "雷暴冰雹".to_string(),
+        _ => "未知".to_string(),
     }
 }
 
@@ -288,10 +344,12 @@ fn condition_to_icon(condition: &str) -> String {
         "晴" => "fa-sun".to_string(),
         "多云" => "fa-cloud-sun".to_string(),
         "阴" => "fa-cloud".to_string(),
-        "小雨" | "中雨" => "fa-cloud-rain".to_string(),
-        "大雨" | "雷阵雨" => "fa-cloud-showers-heavy".to_string(),
-        "雪" => "fa-snowflake".to_string(),
         "雾" => "fa-smog".to_string(),
+        "毛毛雨" | "小雨" | "小阵雨" => "fa-cloud-rain".to_string(),
+        "中雨" | "中阵雨" => "fa-cloud-rain".to_string(),
+        "大雨" | "大阵雨" | "雷阵雨" | "雷暴冰雹" => "fa-cloud-showers-heavy".to_string(),
+        "冻雨" => "fa-cloud-rain".to_string(),
+        "小雪" | "中雪" | "大雪" | "雪粒" | "阵雪" => "fa-snowflake".to_string(),
         _ => "fa-cloud".to_string(),
     }
 }
@@ -326,15 +384,16 @@ fn kmph_to_level(kmph: i32) -> i32 {
     }
 }
 
-/// 根据能见度估算 AQI
-/// 能见度越低，AQI 越高（空气越差）
-fn estimate_aqi(visibility_km: i32) -> i32 {
-    match visibility_km {
-        v if v >= 20 => 25,  // 优
-        v if v >= 10 => 50,  // 良
-        v if v >= 5 => 100,  // 轻度
-        v if v >= 3 => 150,  // 中度
-        v if v >= 1 => 200,  // 重度
-        _ => 300,            // 严重
+/// 根据天气代码估算 AQI（Open-Meteo 免费版不提供 AQI）
+fn estimate_aqi_from_weather(code: i32) -> i32 {
+    match code {
+        0 | 1 => 35,       // 晴天通常空气较好
+        2 | 3 => 55,       // 多云/阴天
+        45 | 48 => 120,    // 雾天 AQI 通常较高
+        51..=67 => 45,     // 雨天空气较好
+        71..=77 => 40,     // 雪天
+        80..=82 => 40,     // 阵雨
+        95..=99 => 50,     // 雷暴
+        _ => 60,
     }
 }

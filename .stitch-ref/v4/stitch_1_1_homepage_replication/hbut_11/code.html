@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>设置中心</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#f6fafe",
+                        "outline": "#727785",
+                        "inverse-primary": "#adc6ff",
+                        "tertiary-fixed": "#ffdcc6",
+                        "on-secondary-container": "#5e6572",
+                        "error": "#ba1a1a",
+                        "tertiary": "#924700",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-container-high": "#e4e9ed",
+                        "success-teal": "#14b8a6",
+                        "surface-tint": "#005ac2",
+                        "surface-container": "#eaeef2",
+                        "on-tertiary-fixed": "#311400",
+                        "on-surface-variant": "#424754",
+                        "outline-variant": "#c2c6d6",
+                        "on-secondary": "#ffffff",
+                        "on-primary-fixed-variant": "#004395",
+                        "surface-variant": "#dfe3e7",
+                        "secondary": "#585f6c",
+                        "accent-gradient-start": "#5b86e5",
+                        "on-surface": "#171c1f",
+                        "on-error-container": "#93000a",
+                        "primary": "#0058be",
+                        "inverse-surface": "#2c3134",
+                        "on-background": "#171c1f",
+                        "warning-orange": "#f97316",
+                        "primary-fixed-dim": "#adc6ff",
+                        "on-tertiary-fixed-variant": "#723600",
+                        "on-primary": "#ffffff",
+                        "primary-fixed": "#d8e2ff",
+                        "surface-container-low": "#f0f4f8",
+                        "danger-red": "#ef4444",
+                        "on-secondary-fixed": "#151c27",
+                        "info-sky": "#38bdf8",
+                        "secondary-fixed-dim": "#c0c7d6",
+                        "surface-dim": "#d6dade",
+                        "tertiary-fixed-dim": "#ffb786",
+                        "tertiary-container": "#b75b00",
+                        "secondary-fixed": "#dce2f3",
+                        "on-secondary-fixed-variant": "#404754",
+                        "primary-container": "#2170e4",
+                        "on-primary-container": "#fefcff",
+                        "on-error": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#f6fafe",
+                        "accent-gradient-end": "#36d1dc",
+                        "inverse-on-surface": "#edf1f5",
+                        "secondary-container": "#dce2f3",
+                        "on-tertiary": "#ffffff",
+                        "background": "#f6fafe",
+                        "surface-container-highest": "#dfe3e7",
+                        "on-primary-fixed": "#001a42",
+                        "error-container": "#ffdad6"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding": "1rem",
+                        "stack-gap": "1.25rem",
+                        "section-margin": "1.5rem",
+                        "inline-gap": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "label-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Plus Jakarta Sans"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "body-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Plus Jakarta Sans"]
+                    },
+                    "fontSize": {
+                        "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-lg": ["30px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "700"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                        "label-sm": ["10px", {"lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: theme('colors.background'); color: theme('colors.on-background'); }
+        .glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.4); }
+        .active-tab { border-bottom-width: 2px; border-color: theme('colors.primary'); color: theme('colors.primary'); font-weight: 600; }
+        .inactive-tab { color: theme('colors.on-surface-variant'); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md text-body-md max-w-[448px] mx-auto min-h-screen relative pb-8">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center px-container-padding h-16 w-full z-50 bg-background/80 backdrop-blur-md sticky top-0">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors text-on-surface">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="font-headline-sm text-headline-sm text-on-surface">设置中心</h1>
+<div class="w-10 h-10"></div> <!-- Placeholder for balance -->
+</header>
+<!-- Tabs -->
+<div class="flex w-full px-container-padding border-b border-surface-variant mt-2 sticky top-16 z-40 bg-background/95 backdrop-blur-sm">
+<button class="flex-1 py-3 text-center active-tab">
+            外观
+        </button>
+<button class="flex-1 py-3 text-center inactive-tab hover:bg-surface-container-low transition-colors rounded-t-lg">
+            后端
+        </button>
+<button class="flex-1 py-3 text-center inactive-tab hover:bg-surface-container-low transition-colors rounded-t-lg">
+            调试
+        </button>
+</div>
+<!-- Content Area (Appearance Tab Active) -->
+<main class="p-container-padding flex flex-col gap-stack-gap mt-4">
+<!-- Theme Presets -->
+<section class="flex flex-col gap-3">
+<h2 class="font-body-lg text-body-lg text-on-surface font-semibold">主题预设</h2>
+<div class="grid grid-cols-2 gap-4">
+<!-- Preset 1: Active -->
+<div class="glass-panel p-4 rounded-xl flex flex-col items-center gap-2 border-2 border-primary shadow-[0_4px_15px_rgba(0,0,0,0.03)] cursor-pointer">
+<div class="w-full h-20 rounded-lg bg-gradient-to-br from-surface to-surface-container-low flex items-center justify-center relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-r from-accent-gradient-start/20 to-accent-gradient-end/20"></div>
+<div class="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary" style="font-variation-settings: 'FILL' 1;">light_mode</span>
+</div>
+</div>
+<span class="font-label-md text-label-md text-primary font-bold">明亮模式 (默认)</span>
+</div>
+<!-- Preset 2 -->
+<div class="glass-panel p-4 rounded-xl flex flex-col items-center gap-2 hover:bg-surface-container-lowest transition-colors cursor-pointer shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<div class="w-full h-20 rounded-lg bg-inverse-surface flex items-center justify-center">
+<div class="w-12 h-12 rounded-full bg-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant" style="font-variation-settings: 'FILL' 1;">dark_mode</span>
+</div>
+</div>
+<span class="font-label-md text-label-md text-on-surface">暗黑模式</span>
+</div>
+<!-- Preset 3 -->
+<div class="glass-panel p-4 rounded-xl flex flex-col items-center gap-2 hover:bg-surface-container-lowest transition-colors cursor-pointer shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<div class="w-full h-20 rounded-lg bg-gradient-to-br from-tertiary-container to-tertiary flex items-center justify-center">
+<div class="w-12 h-12 rounded-full bg-on-tertiary/20 flex items-center justify-center backdrop-blur-sm">
+<span class="material-symbols-outlined text-on-tertiary" style="font-variation-settings: 'FILL' 1;">palette</span>
+</div>
+</div>
+<span class="font-label-md text-label-md text-on-surface">暖色活力</span>
+</div>
+<!-- Preset 4 -->
+<div class="glass-panel p-4 rounded-xl flex flex-col items-center gap-2 hover:bg-surface-container-lowest transition-colors cursor-pointer shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<div class="w-full h-20 rounded-lg bg-gradient-to-br from-success-teal to-info-sky flex items-center justify-center">
+<div class="w-12 h-12 rounded-full bg-on-primary/20 flex items-center justify-center backdrop-blur-sm">
+<span class="material-symbols-outlined text-on-primary" style="font-variation-settings: 'FILL' 1;">water_drop</span>
+</div>
+</div>
+<span class="font-label-md text-label-md text-on-surface">清爽水鸭</span>
+</div>
+</div>
+</section>
+<!-- Interaction Scheme -->
+<section class="glass-panel rounded-[24px] p-5 shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<h2 class="font-body-lg text-body-lg text-on-surface font-semibold mb-4">交互方案</h2>
+<div class="flex flex-col gap-3">
+<label class="flex items-center justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer border border-transparent hover:border-outline-variant/30">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">touch_app</span>
+<div>
+<div class="font-body-md text-body-md text-on-surface font-medium">默认卡片滑动</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant">推荐的丝滑体验</div>
+</div>
+</div>
+<input checked="" class="w-5 h-5 text-primary border-outline-variant focus:ring-primary focus:ring-offset-surface" name="interaction" type="radio"/>
+</label>
+<label class="flex items-center justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer border border-transparent hover:border-outline-variant/30">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant">list</span>
+<div>
+<div class="font-body-md text-body-md text-on-surface font-medium">紧凑列表点击</div>
+<div class="font-label-sm text-label-sm text-on-surface-variant">适合快速浏览</div>
+</div>
+</div>
+<input class="w-5 h-5 text-primary border-outline-variant focus:ring-primary focus:ring-offset-surface" name="interaction" type="radio"/>
+</label>
+</div>
+</section>
+<!-- Density -->
+<section class="glass-panel rounded-[24px] p-5 shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<div class="flex justify-between items-center mb-4">
+<h2 class="font-body-lg text-body-lg text-on-surface font-semibold">显示密度</h2>
+<span class="font-label-md text-label-md text-primary bg-primary-container/20 px-2 py-1 rounded-md">舒适</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">density_large</span>
+<input class="w-full h-2 bg-surface-variant rounded-lg appearance-none cursor-pointer accent-primary" max="3" min="1" type="range" value="2"/>
+<span class="material-symbols-outlined text-on-surface-variant">density_small</span>
+</div>
+<div class="flex justify-between text-label-sm text-on-surface-variant mt-2 px-1">
+<span>宽松</span>
+<span>舒适</span>
+<span>紧凑</span>
+</div>
+</section>
+<!-- Font Selection -->
+<section class="glass-panel rounded-[24px] p-5 shadow-[0_4px_15px_rgba(0,0,0,0.03)]">
+<h2 class="font-body-lg text-body-lg text-on-surface font-semibold mb-4">字体设置</h2>
+<div class="flex items-center justify-between p-3 bg-surface-container-lowest rounded-xl border border-outline-variant/30">
+<div class="flex flex-col">
+<span class="font-body-md text-body-md text-on-surface font-medium">系统默认字体</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">Plus Jakarta Sans</span>
+</div>
+<button class="px-4 py-2 bg-primary-container/20 text-primary font-label-md text-label-md rounded-full hover:bg-primary-container/30 transition-colors">
+                    更改
+                </button>
+</div>
+</section>
+<!-- Apply Button -->
+<div class="mt-4">
+<button class="w-full py-4 bg-primary text-on-primary font-headline-sm text-headline-sm rounded-full shadow-[0_10px_20px_rgba(0,88,190,0.2)] hover:bg-on-primary-fixed-variant transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">check_circle</span>
+                 保存外观设置
+             </button>
+</div>
+</main>
+</body></html>
