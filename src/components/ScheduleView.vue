@@ -3091,7 +3091,7 @@ onBeforeUnmount(() => {
     <!-- 头部导航 -->
     <div class="schedule-topbar">
       <button class="menu-btn btn-ripple" @click="toggleMenu" aria-label="打开课表菜单">
-        <span class="material-symbols-rounded menu-icon">menu</span>
+        <span class="material-symbols-outlined menu-icon">menu</span>
       </button>
       <div class="topbar-center">
         <h1 class="topbar-title">课表</h1>
@@ -3113,7 +3113,7 @@ onBeforeUnmount(() => {
     <Transition name="drawer-slide">
       <aside v-if="showMenu" class="drawer-panel" @click.stop>
         <div class="drawer-title">
-          <span class="material-symbols-rounded drawer-title-icon">calendar_month</span>
+          <span class="material-symbols-outlined drawer-title-icon">calendar_month</span>
           课表工具
         </div>
         <div class="drawer-section">
@@ -3151,11 +3151,11 @@ onBeforeUnmount(() => {
             <div class="drawer-subtitle" data-step="3">自定义课程管理</div>
             <div class="drawer-course-actions">
               <button class="drawer-action add-course" :disabled="addingCourse" @click="openAddCourseDialog">
-                <span class="material-symbols-rounded">add_circle</span>
+                <span class="material-symbols-outlined">add_circle</span>
                 添加课程
               </button>
               <button class="drawer-action manage-course" :disabled="loadingManageCourses" @click="openManageCoursesDialog">
-                <span class="material-symbols-rounded">folder_copy</span>
+                <span class="material-symbols-outlined">folder_copy</span>
                 {{ loadingManageCourses ? '加载中...' : '管理课程' }}
               </button>
             </div>
@@ -3168,7 +3168,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="handleCloudSyncUpload"
               >
-                <span class="material-symbols-rounded">cloud_upload</span>
+                <span class="material-symbols-outlined">cloud_upload</span>
                 {{ syncUploading ? '云上传中...' : '云上传' }}
               </button>
               <button
@@ -3176,7 +3176,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="handleCloudSyncDownload"
               >
-                <span class="material-symbols-rounded">cloud_download</span>
+                <span class="material-symbols-outlined">cloud_download</span>
                 {{ syncDownloading ? '云下载中...' : '云下载' }}
               </button>
             </div>
@@ -3186,7 +3186,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="exportCustomCoursesJson"
               >
-                <span class="material-symbols-rounded">data_object</span>
+                <span class="material-symbols-outlined">data_object</span>
                 {{ customCourseExporting ? '导出中...' : '导出 JSON' }}
               </button>
               <button
@@ -3194,7 +3194,7 @@ onBeforeUnmount(() => {
                 :disabled="syncUploading || syncDownloading || customCourseImporting || customCourseExporting"
                 @click="triggerImportCustomCourses"
               >
-                <span class="material-symbols-rounded">file_upload</span>
+                <span class="material-symbols-outlined">file_upload</span>
                 {{ customCourseImporting ? '导入中...' : '导入 JSON' }}
               </button>
             </div>
@@ -3218,11 +3218,11 @@ onBeforeUnmount(() => {
             :disabled="exporting"
             @click="exportCalendar('week')"
           >
-            <span class="material-symbols-rounded">calendar_today</span>
+            <span class="material-symbols-outlined">calendar_today</span>
             {{ exporting && exportingMode === 'week' ? '正在生成...' : '导出本周' }}
           </button>
           <button class="drawer-action ghost" :disabled="exporting" @click="exportCalendar('semester')">
-            <span class="material-symbols-rounded">school</span>
+            <span class="material-symbols-outlined">school</span>
             {{ exporting && exportingMode === 'semester' ? '正在生成...' : '导出本学期' }}
           </button>
         </div>

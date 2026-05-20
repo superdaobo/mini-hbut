@@ -19,12 +19,17 @@ const mountApp = () => {
 }
 
 const loadLocalIconFonts = () => {
-  // 图标字体从本地 npm 包加载（无 CDN 依赖），延迟到首屏之后
+  // 图标字体从本地加载（无 CDN 依赖），延迟到首屏之后
   void Promise.all([
-    import('material-icons/iconfont/material-icons.css'),
-    import('material-symbols/rounded.css'),
-    import('material-symbols/outlined.css'),
-    import('@fortawesome/fontawesome-free/css/all.css')
+    import('@fortawesome/fontawesome-free/css/all.css'),
+    new Promise((resolve, reject) => {
+      const link = document.createElement('link')
+      link.rel = 'stylesheet'
+      link.href = '/fonts/material-symbols-outlined.css'
+      link.onload = resolve
+      link.onerror = reject
+      document.head.appendChild(link)
+    })
   ]).catch((e) => {
     console.warn('[Bootstrap] local icon fonts load failed:', e)
   })

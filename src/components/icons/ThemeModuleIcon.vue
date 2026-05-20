@@ -44,7 +44,7 @@ const iconStyle = computed(() => ({
 
 <template>
   <span 
-    class="theme-module-icon material-symbols-rounded" 
+    class="theme-module-icon material-symbols-outlined" 
     :class="`variant-${variant}`" 
     :style="iconStyle" 
     aria-hidden="true"

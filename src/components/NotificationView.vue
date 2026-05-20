@@ -2118,7 +2118,7 @@ input:checked + .slider:before {
   flex-shrink: 0;
 }
 
-.kv-icon .material-symbols-rounded {
+.kv-icon .material-symbols-outlined {
   font-size: 18px;
 }
 

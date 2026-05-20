@@ -98,7 +98,7 @@ const handleShowLegal = async (tab) => {
     <!-- Profile Card -->
     <section v-if="isLoggedIn" class="profile-card">
       <div class="profile-avatar">
-        <span class="material-symbols-rounded avatar-icon">person</span>
+        <span class="material-symbols-outlined avatar-icon">person</span>
       </div>
       <h2 class="profile-student-id">{{ studentId }}</h2>
       <p class="profile-school">湖北工业大学</p>
@@ -121,7 +121,7 @@ const handleShowLegal = async (tab) => {
     <section class="status-card">
       <div class="status-left">
         <div class="status-icon-box">
-          <span class="material-symbols-rounded status-icon">verified_user</span>
+          <span class="material-symbols-outlined status-icon">verified_user</span>
         </div>
         <div class="status-text">
           <span class="status-title">登录状态</span>
@@ -135,55 +135,55 @@ const handleShowLegal = async (tab) => {
     <section class="func-grid">
       <button class="grid-item" @click="handleOpenOfficial">
         <div class="grid-icon-box" style="background: #E8F0FE;">
-          <span class="material-symbols-rounded" style="color: #1A73E8;">campaign</span>
+          <span class="material-symbols-outlined" style="color: #1A73E8;">campaign</span>
         </div>
         <span class="grid-label">官方帖子</span>
       </button>
       <button class="grid-item" @click="handleOpenSettings">
         <div class="grid-icon-box" style="background: #FCE8E6;">
-          <span class="material-symbols-rounded" style="color: #D93025;">settings</span>
+          <span class="material-symbols-outlined" style="color: #D93025;">settings</span>
         </div>
         <span class="grid-label">设置中心</span>
       </button>
       <button class="grid-item" @click="handleOpenExport">
         <div class="grid-icon-box" style="background: #E6F4EA;">
-          <span class="material-symbols-rounded" style="color: #1E8E3E;">download</span>
+          <span class="material-symbols-outlined" style="color: #1E8E3E;">download</span>
         </div>
         <span class="grid-label">导出中心</span>
       </button>
       <button v-if="isConfigAdmin()" class="grid-item" @click="handleOpenConfig">
         <div class="grid-icon-box" style="background: #FEF7E0;">
-          <span class="material-symbols-rounded" style="color: #F9AB00;">build</span>
+          <span class="material-symbols-outlined" style="color: #F9AB00;">build</span>
         </div>
         <span class="grid-label">配置工具</span>
       </button>
       <button class="grid-item" @click="handleCheckUpdate">
         <div class="grid-icon-box" style="background: #F3E8FD;">
-          <span class="material-symbols-rounded" style="color: #9333EA;">update</span>
+          <span class="material-symbols-outlined" style="color: #9333EA;">update</span>
         </div>
         <span class="grid-label">检查更新</span>
       </button>
       <button class="grid-item" @click="handleFeedback">
         <div class="grid-icon-box" style="background: #E1F5FE;">
-          <span class="material-symbols-rounded" style="color: #0288D1;">feedback</span>
+          <span class="material-symbols-outlined" style="color: #0288D1;">feedback</span>
         </div>
         <span class="grid-label">意见反馈</span>
       </button>
       <button class="grid-item" @click="handleOpenSource">
         <div class="grid-icon-box" style="background: #ECEFF1;">
-          <span class="material-symbols-rounded" style="color: #455A64;">code</span>
+          <span class="material-symbols-outlined" style="color: #455A64;">code</span>
         </div>
         <span class="grid-label">开源协议</span>
       </button>
       <button class="grid-item" @click="showSponsorModal = true">
         <div class="grid-icon-box" style="background: #FFF3E0;">
-          <span class="material-symbols-rounded" style="color: #E65100;">favorite</span>
+          <span class="material-symbols-outlined" style="color: #E65100;">favorite</span>
         </div>
         <span class="grid-label">赞助</span>
       </button>
       <button class="grid-item" @click="handleOpenMore">
         <div class="grid-icon-box" style="background: #F3E5F5;">
-          <span class="material-symbols-rounded" style="color: #7B1FA2;">apps</span>
+          <span class="material-symbols-outlined" style="color: #7B1FA2;">apps</span>
         </div>
         <span class="grid-label">更多</span>
       </button>
@@ -514,7 +514,7 @@ const handleShowLegal = async (tab) => {
   justify-content: center;
 }
 
-.grid-icon-box .material-symbols-rounded {
+.grid-icon-box .material-symbols-outlined {
   font-size: 26px;
 }
 
