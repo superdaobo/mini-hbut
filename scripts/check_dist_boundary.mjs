@@ -5,6 +5,7 @@ const distDir = path.resolve(process.cwd(), process.env.DIST_DIR || 'dist')
 const allowedTopLevelEntries = new Set([
   'assets',
   'favicon.svg',
+  'fonts',
   'index.html',
   'pdf-preview-lab.html',
   'remote_config.json',
