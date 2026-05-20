@@ -1179,3 +1179,127 @@ html.dark .bg-blue-50 {
 html.dark .bg-blue-100 {
   background-color: rgba(59, 130, 246, 0.2) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   设置页面 SettingsView 暗色模式修复
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 设置页面 - 选项卡片 option-chip ─── */
+html.dark .option-chip {
+  background: linear-gradient(160deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.85)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.2)) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .option-chip strong {
+  color: #e2e8f0 !important;
+}
+
+html.dark .option-chip small {
+  color: #94a3b8 !important;
+}
+
+html.dark .option-chip.active {
+  background: linear-gradient(160deg, rgba(37, 99, 235, 0.25), rgba(14, 165, 233, 0.15)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 60%, rgba(148, 163, 184, 0.3)) !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2) !important;
+}
+
+/* ─── 设置页面 - 预设卡片 preset-card ─── */
+html.dark .preset-card {
+  background: linear-gradient(160deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.85)) !important;
+  border-color: color-mix(in oklab, var(--ui-primary) 24%, rgba(148, 163, 184, 0.2)) !important;
+}
+
+html.dark .preset-card strong,
+html.dark .preset-card .preset-name {
+  color: #e2e8f0 !important;
+}
+
+html.dark .preset-card .preset-tagline {
+  color: #94a3b8 !important;
+}
+
+/* ─── 设置页面 - 区块标题 section-head ─── */
+html.dark .settings-section .section-head h3,
+html.dark .settings-section h3 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .option-group > label {
+  color: #cbd5e1 !important;
+}
+
+/* ─── 设置页面 - 主题切换器文字修复 ─── */
+html.dark .theme-label {
+  color: #e0e0e0 !important;
+}
+
+html.dark .theme-hint {
+  color: #94a3b8 !important;
+}
+
+/* ─── 设置页面 - mini-btn ─── */
+html.dark .mini-btn {
+  background: rgba(30, 41, 59, 0.9) !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .mini-btn.danger {
+  background: rgba(127, 29, 29, 0.4) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #fca5a5 !important;
+}
+
+/* ─── 设置页面 - 切换按钮 toggle-btn ─── */
+html.dark .startup-page-toggle .toggle-btn {
+  background: rgba(51, 65, 85, 0.6) !important;
+  color: #94a3b8 !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .startup-page-toggle .toggle-btn.active {
+  background: var(--ui-primary) !important;
+  color: #ffffff !important;
+}
+
+/* ─── iOS 选择器暗色模式 ─── */
+html.dark .ios26-select-sheet {
+  background: linear-gradient(165deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.96)) !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+}
+
+html.dark .ios26-select-item {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.86)) !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .ios26-select-item.is-active {
+  background: linear-gradient(160deg, rgba(37, 99, 235, 0.45), rgba(14, 165, 233, 0.38)) !important;
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+html.dark .ios26-select-item-label {
+  color: #e2e8f0 !important;
+}
+
+html.dark .ios26-select-cancel {
+  background: linear-gradient(165deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94)) !important;
+  color: #93c5fd !important;
+  border-top-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .ios26-select-trigger {
+  background: linear-gradient(160deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+}
+
+html.dark .ios26-select-text {
+  color: #e2e8f0 !important;
+}
+
+html.dark .ios26-select-overlay {
+  background: rgba(2, 6, 23, 0.6) !important;
+}

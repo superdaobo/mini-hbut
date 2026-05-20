@@ -3062,7 +3062,7 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
@@ -3076,11 +3076,12 @@ onBeforeUnmount(() => {
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)
   );
-  border-radius: 20px;
+  border-radius: 20px 20px 0 0;
   backdrop-filter: blur(20px);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78));
   border: 1px solid rgba(148, 163, 184, 0.3);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  border-bottom: none;
+  box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.08), 0 4px 20px rgba(15, 23, 42, 0.16);
   z-index: 60;
   pointer-events: auto;
 }

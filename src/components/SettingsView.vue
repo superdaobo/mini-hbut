@@ -1943,8 +1943,8 @@ const handleDownloadFont = async (force = false) => {
 .theme-toggle-track {
   position: relative;
   width: 200px;
-  height: 80px;
-  border-radius: 40px;
+  height: 88px;
+  border-radius: 44px;
   cursor: pointer;
   overflow: hidden;
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1987,14 +1987,15 @@ const handleDownloadFont = async (force = false) => {
 
 .theme-celestial {
   position: absolute;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  top: 16px;
+  top: 12px;
+  z-index: 2;
 }
 
 .theme-celestial--sun {
@@ -2027,12 +2028,13 @@ const handleDownloadFont = async (force = false) => {
 
 .theme-labels {
   position: absolute;
-  bottom: 8px;
+  bottom: 10px;
   left: 0;
   right: 0;
   display: flex;
   justify-content: space-around;
-  padding: 0 20px;
+  padding: 0 24px;
+  z-index: 3;
 }
 
 .theme-label {
