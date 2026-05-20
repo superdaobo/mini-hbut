@@ -3043,8 +3043,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 900px) {
   .app-shell.schedule-full {
-    --safe-top-fallback: max(var(--safe-top-fallback, 0px), 44px);
-    --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 44px));
+    --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
   }
 }
 
@@ -3063,13 +3062,13 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  bottom: max(env(safe-area-inset-bottom, 0px), 8px);
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 8px 14px 8px;
+  padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
   height: auto;
   min-height: 62px;
   max-height: 92px;

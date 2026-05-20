@@ -3612,7 +3612,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 6px;
+  padding: 8px 16px 6px;
   min-height: var(--topbar-height);
   background: #f9f9ff;
   position: sticky;
@@ -5155,7 +5155,7 @@ onBeforeUnmount(() => {
   }
 
   .schedule-topbar {
-    padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 6px;
+    padding: 8px 12px 6px;
   }
 
   .schedule-view {
