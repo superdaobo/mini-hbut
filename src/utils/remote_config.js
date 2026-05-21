@@ -20,6 +20,7 @@ const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
 ]
 const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
 const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
+const LOCAL_FORUM_API_BASE_KEY = 'hbu_forum_api_base'
 const DEFAULT_CLOUD_SYNC_SECRET_REF = 'kv1-main'
 const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
 const DEFAULT_MODULE_CENTER = Object.freeze({
@@ -174,6 +175,43 @@ const normalizeForumEndpoint = (value) => {
     return normalized
   }
   return `${normalized}/api/forum`
+}
+
+const isLocalForumEndpointOverride = (value) => {
+  const endpoint = normalizeForumEndpoint(value)
+  if (!endpoint) return ''
+  try {
+    const url = new URL(endpoint)
+    const host = url.hostname.toLowerCase()
+    const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+    return isLoopback ? endpoint : ''
+  } catch {
+    return ''
+  }
+}
+
+const getLocalForumEndpointOverride = () => {
+  let fromQuery = ''
+  try {
+    const search = globalThis.window?.location?.search || ''
+    const params = new URLSearchParams(search)
+    fromQuery = isLocalForumEndpointOverride(
+      firstNonEmpty(params.get('forumApiBase'), params.get('forum_api_base'))
+    )
+  } catch {
+    fromQuery = ''
+  }
+
+  let fromStorage = ''
+  try {
+    fromStorage = isLocalForumEndpointOverride(
+      firstNonEmpty(globalThis.localStorage?.getItem(LOCAL_FORUM_API_BASE_KEY))
+    )
+  } catch {
+    fromStorage = ''
+  }
+
+  return firstNonEmpty(fromQuery, fromStorage)
 }
 
 const normalizeEndpointList = (value) => {
@@ -425,6 +463,7 @@ export function normalizeRemoteConfig(raw) {
     normalizedLocalFallback.length > 0
       ? normalizedLocalFallback
       : [...DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS]
+  const forumEndpointOverride = getLocalForumEndpointOverride()
 
   return {
     announcements,
@@ -471,6 +510,7 @@ export function normalizeRemoteConfig(raw) {
       enabled: cfg.forum?.enabled !== false,
       api_base: normalizeForumEndpoint(
         firstNonEmpty(
+          forumEndpointOverride,
           cfg.forum?.api_base,
           cfg.forum?.apiBase,
           cfg.forum?.endpoint,

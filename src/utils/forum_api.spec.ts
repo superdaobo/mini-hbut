@@ -26,6 +26,42 @@ describe('forum api config', () => {
     expect(config.forum.api_base).toBe('https://mini-hbut-testocr1.hf.space/api/forum')
   })
 
+  it('allows local forum api override for browser and Tauri verification', () => {
+    vi.stubGlobal('window', {
+      location: new URL('http://127.0.0.1:1421/?forumApiBase=http://127.0.0.1:7860')
+    })
+    try {
+      const config = normalizeRemoteConfig({
+        forum: {
+          enabled: true,
+          api_base: 'https://mini-hbut-testocr1.hf.space/api/forum'
+        }
+      })
+
+      expect(config.forum.api_base).toBe('http://127.0.0.1:7860/api/forum')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('ignores non-loopback forum api overrides', () => {
+    vi.stubGlobal('window', {
+      location: new URL('http://127.0.0.1:1421/?forumApiBase=https://evil.example')
+    })
+    try {
+      const config = normalizeRemoteConfig({
+        forum: {
+          enabled: true,
+          api_base: 'https://mini-hbut-testocr1.hf.space/api/forum'
+        }
+      })
+
+      expect(config.forum.api_base).toBe('https://mini-hbut-testocr1.hf.space/api/forum')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('keeps /api/forum suffix only once', () => {
     expect(normalizeForumEndpoint('https://example.com/api/forum')).toBe('https://example.com/api/forum')
     expect(normalizeForumEndpoint('https://example.com/')).toBe('https://example.com/api/forum')
