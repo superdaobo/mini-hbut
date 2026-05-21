@@ -2728,7 +2728,11 @@ onBeforeUnmount(() => {
     </Transition>
   </main>
 
-  <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
+  <nav
+    v-if="showTabBar"
+    class="bottom-tab-bar glass-card"
+    :class="{ 'bottom-tab-bar--ios': isIOSLike }"
+  >
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
         <span class="tab-icon" aria-hidden="true">
           <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
@@ -3057,12 +3061,13 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar {
+  --bottom-tab-bar-bottom: 4px;
   position: fixed;
   top: auto;
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: 4px;
+  bottom: var(--bottom-tab-bar-bottom);
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
