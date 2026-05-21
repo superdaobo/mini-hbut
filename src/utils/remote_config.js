@@ -19,6 +19,7 @@ const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS = [
   'https://mini-hbut-testocr1.hf.space/api/ocr/recognize'
 ]
 const DEFAULT_WEBDAV_ENDPOINT = 'https://mini-hbut-chaoxing-webdav.hf.space'
+const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
 const DEFAULT_CLOUD_SYNC_SECRET_REF = 'kv1-main'
 const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
 const DEFAULT_MODULE_CENTER = Object.freeze({
@@ -93,6 +94,10 @@ const DEFAULT_CONFIG = {
     office_preview_proxy: 'https://view.officeapps.live.com/op/view.aspx?src=',
     temp_upload_endpoint: ''
   },
+  forum: {
+    enabled: true,
+    api_base: DEFAULT_FORUM_ENDPOINT
+  },
   cloud_sync: {
     enabled: true,
     mode: 'proxy',
@@ -116,6 +121,7 @@ const REMOTE_CONFIG_KEYS = [
   'ocr',
   'temp_file_server',
   'resource_share',
+  'forum',
   'cloud_sync',
   'module_center',
   'more_modules',
@@ -157,6 +163,17 @@ const normalizeOcrEndpoint = (value) => {
   return withProtocol.includes('/api/ocr/recognize')
     ? withProtocol
     : `${withProtocol.replace(/\/+$/, '')}/api/ocr/recognize`
+}
+
+const normalizeForumEndpoint = (value) => {
+  const text = toString(value).trim()
+  if (!text) return DEFAULT_FORUM_ENDPOINT
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`
+  const normalized = withProtocol.replace(/\/+$/, '')
+  if (/\/api\/forum$/i.test(normalized)) {
+    return normalized
+  }
+  return `${normalized}/api/forum`
 }
 
 const normalizeEndpointList = (value) => {
@@ -448,6 +465,18 @@ export function normalizeRemoteConfig(raw) {
         cfg.resource_share?.temp_upload_endpoint,
         cfg.temp_file_server?.schedule_upload_endpoint,
         cfg.temp_file_server?.upload_endpoint
+      )
+    },
+    forum: {
+      enabled: cfg.forum?.enabled !== false,
+      api_base: normalizeForumEndpoint(
+        firstNonEmpty(
+          cfg.forum?.api_base,
+          cfg.forum?.apiBase,
+          cfg.forum?.endpoint,
+          cfg.forum_api_base,
+          DEFAULT_FORUM_ENDPOINT
+        )
       )
     },
     cloud_sync: {

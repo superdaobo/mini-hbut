@@ -68,6 +68,7 @@ const loadRankingView = () => import('./components/RankingView.vue')
 const loadCalendarView = () => import('./components/CalendarView.vue')
 const loadAcademicProgressView = () => import('./components/AcademicProgressView.vue')
 const loadTrainingPlanView = () => import('./components/TrainingPlanView.vue')
+const loadForumView = () => import('./components/ForumView.vue')
 const loadMeView = () => import('./components/MeView.vue')
 const loadOfficialView = () => import('./components/OfficialView.vue')
 const loadFeedbackView = () => import('./components/FeedbackView.vue')
@@ -98,6 +99,7 @@ const RankingView = createAsyncPage(loadRankingView)
 const CalendarView = createAsyncPage(loadCalendarView)
 const AcademicProgressView = createAsyncPage(loadAcademicProgressView)
 const TrainingPlanView = createAsyncPage(loadTrainingPlanView)
+const ForumView = createAsyncPage(loadForumView)
 const MeView = createAsyncPage(loadMeView)
 const OfficialView = createAsyncPage(loadOfficialView)
 const FeedbackView = createAsyncPage(loadFeedbackView)
@@ -149,7 +151,7 @@ let removeNotificationActionListener = null
 const widgetDeeplinkDate = ref('')
 const widgetDeeplinkPeriod = ref(0)
 
-const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
+const MAIN_TABS = ['home', 'schedule', 'forum', 'notifications', 'me']
 const ME_SUB_VIEWS = [
   'official',
   'feedback',
@@ -163,6 +165,7 @@ const ME_SUB_VIEWS = [
 
 const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   schedule: 'home',
+  forum: 'home',
   notifications: 'home',
   me: 'home',
   official: 'me',
@@ -206,6 +209,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   calendar: loadCalendarView,
   academic: loadAcademicProgressView,
   training: loadTrainingPlanView,
+  forum: loadForumView,
   ai: loadAiChatView,
   campus_map: loadCampusMapView,
   library: loadLibraryView,
@@ -2519,6 +2523,14 @@ onBeforeUnmount(() => {
         @logout="handleLogout"
       />
 
+      <!-- 校园论坛（Tab） -->
+      <ForumView
+        v-else-if="currentView === 'forum'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @require-login="handleRequireLogin"
+      />
+
       <!-- 个人中心（Tab） -->
       <MeView 
         v-else-if="currentView === 'me'"
@@ -2749,6 +2761,16 @@ onBeforeUnmount(() => {
           </svg>
         </span>
         <span class="tab-label">课表</span>
+      </button>
+      <button class="tab-item tab-item--forum btn-ripple" :class="{ active: activeTab === 'forum' }" @click="handleTabChange('forum')">
+        <span class="tab-icon" aria-hidden="true">
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
+            <path d="M5.3 5.1h9.2a3.1 3.1 0 0 1 3.1 3.1v4.2a3.1 3.1 0 0 1-3.1 3.1H9.2L5 18.7v-3.2a3 3 0 0 1-2.8-3V8.2a3.1 3.1 0 0 1 3.1-3.1z" />
+            <path d="M14.2 16.2h1.1l3.7 2.7v-3a2.8 2.8 0 0 0 2.1-2.7V9.3a2.9 2.9 0 0 0-2.1-2.8" />
+            <path d="M6.8 9h6.2M6.8 12h4.2" />
+          </svg>
+        </span>
+        <span class="tab-label">论坛</span>
       </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
         <span class="tab-icon" aria-hidden="true">
@@ -3070,7 +3092,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   bottom: var(--bottom-tab-bar-bottom);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: center;
   align-content: center;
   gap: 6px;
@@ -3127,6 +3149,10 @@ onBeforeUnmount(() => {
 
 .tab-item.active .tab-icon {
   transform: translateY(-1px);
+}
+
+.tab-item--forum {
+  background: color-mix(in oklab, var(--ui-primary) 9%, transparent);
 }
 
 .tab-icon {
