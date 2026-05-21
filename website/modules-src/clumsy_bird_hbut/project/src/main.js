@@ -63,7 +63,7 @@ function scheduleModuleFrameSync() {
 // ========== 全局状态 ==========
 let game = null
 let moduleContext = null
-let currentRunId = ''
+let currentRunId = createRunId()
 let pendingSubmit = null // 用于重试
 
 // ========== DOM 构建 ==========
@@ -71,7 +71,7 @@ function buildUI() {
   const app = document.getElementById('app')
   app.innerHTML = `
     <div class="game-header">
-      <span class="title">🐦 笨鸟先飞</span>
+      <span class="title">笨鸟先飞 · 湖工飞行训练</span>
       <div class="scores">
         <span>分数: <span class="current" id="score-display">0</span></span>
         <span>最高: <span id="best-display">0</span></span>
@@ -84,7 +84,7 @@ function buildUI() {
     <div class="leaderboard-overlay" id="leaderboard-overlay">
       <div class="leaderboard-modal">
         <div class="leaderboard-header">
-          <h3>🏆 排行榜</h3>
+          <h3>排行榜</h3>
           <button class="leaderboard-close" id="leaderboard-close">✕</button>
         </div>
         <div class="leaderboard-tabs">
@@ -287,11 +287,15 @@ function init() {
 
   game.onGameOver = (data) => {
     updateBestDisplay(data.bestScore)
-    currentRunId = createRunId()
     submitScore(data)
   }
 
   game.onStateChange = (state) => {
+    if (state === 'playing') {
+      currentRunId = createRunId()
+      pendingSubmit = null
+      hideUploadStatus()
+    }
     if (state === 'ready') {
       updateScoreDisplay(0)
     }

@@ -4,7 +4,7 @@
  */
 
 // 游戏状态枚举
-const STATE = {
+export const STATE = {
   READY: 'ready',
   PLAYING: 'playing',
   GAME_OVER: 'game_over'
@@ -17,14 +17,47 @@ const LOGICAL_HEIGHT = 480
 const TARGET_FPS = 60
 const GRAVITY = 600 // 像素/秒²
 const FLAP_VELOCITY = -220 // 像素/秒（向上）
-const PIPE_SPEED = 100 // 像素/秒
+const PIPE_SPEED_INITIAL = 100 // 像素/秒
+const PIPE_SPEED_MAX = 160
 const PIPE_WIDTH = 52
 const PIPE_GAP_INITIAL = 150
 const PIPE_GAP_MIN = 110
-const PIPE_SPAWN_INTERVAL_MS = 1800 // 毫秒间隔
+const PIPE_SPAWN_INITIAL_MS = 1600 // 毫秒间隔
+const PIPE_SPAWN_MIN_MS = 1300
+const FIRST_PIPE_X = LOGICAL_WIDTH + 8
+const NEXT_PIPE_DELAY_MS = 520
 const BIRD_RADIUS = 15
 const BIRD_X = 80
 const GROUND_HEIGHT = 60
+
+export const GAMEPLAY_LIMITS = Object.freeze({
+  gapInitial: PIPE_GAP_INITIAL,
+  gapMin: PIPE_GAP_MIN,
+  speedInitial: PIPE_SPEED_INITIAL,
+  speedMax: PIPE_SPEED_MAX,
+  spawnInitialMs: PIPE_SPAWN_INITIAL_MS,
+  spawnMinMs: PIPE_SPAWN_MIN_MS
+})
+
+function normalizeScore(score) {
+  const value = Number(score)
+  return Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+export function getPipeGap(score) {
+  const currentScore = normalizeScore(score)
+  return Math.max(PIPE_GAP_MIN, PIPE_GAP_INITIAL - currentScore * 2)
+}
+
+export function getPipeSpeed(score) {
+  const currentScore = normalizeScore(score)
+  return Math.min(PIPE_SPEED_MAX, PIPE_SPEED_INITIAL + currentScore * 3)
+}
+
+export function getPipeSpawnInterval(score) {
+  const currentScore = normalizeScore(score)
+  return Math.max(PIPE_SPAWN_MIN_MS, PIPE_SPAWN_INITIAL_MS - currentScore * 8)
+}
 
 export default class FlappyGame {
   constructor(canvas) {
@@ -140,6 +173,9 @@ export default class FlappyGame {
     this.startTime = Date.now()
     this.birdVelocity = FLAP_VELOCITY
     this.flapCount = 1
+    this.pipes = []
+    this._spawnPipe(FIRST_PIPE_X)
+    this.pipeTimerMs = -NEXT_PIPE_DELAY_MS
     this.onStateChange?.(this.state)
   }
 
@@ -167,12 +203,11 @@ export default class FlappyGame {
 
   /** 获取当前管道间隙（随分数递减） */
   _getCurrentGap() {
-    const reduction = Math.min(this.score * 2, PIPE_GAP_INITIAL - PIPE_GAP_MIN)
-    return PIPE_GAP_INITIAL - reduction
+    return getPipeGap(this.score)
   }
 
   /** 生成新管道 */
-  _spawnPipe() {
+  _spawnPipe(x = LOGICAL_WIDTH + 10) {
     const gap = this._getCurrentGap()
     const playableHeight = LOGICAL_HEIGHT - GROUND_HEIGHT
     const minTop = 60
@@ -180,7 +215,7 @@ export default class FlappyGame {
     const topHeight = minTop + Math.random() * (maxTop - minTop)
 
     this.pipes.push({
-      x: LOGICAL_WIDTH + 10,
+      x,
       topHeight,
       bottomY: topHeight + gap,
       passed: false,
@@ -244,13 +279,13 @@ export default class FlappyGame {
 
     // 生成管道（基于时间间隔）
     this.pipeTimerMs += dt * 1000
-    if (this.pipeTimerMs >= PIPE_SPAWN_INTERVAL_MS) {
+    if (this.pipeTimerMs >= getPipeSpawnInterval(this.score)) {
       this._spawnPipe()
       this.pipeTimerMs = 0
     }
 
     // 更新管道位置（delta-time 缩放）
-    const speed = (PIPE_SPEED + Math.min(this.score * 3, 60)) * dt
+    const speed = getPipeSpeed(this.score) * dt
     for (let i = this.pipes.length - 1; i >= 0; i--) {
       const pipe = this.pipes[i]
       pipe.x -= speed
@@ -300,13 +335,35 @@ export default class FlappyGame {
   _drawBackground() {
     const ctx = this.ctx
     const gradient = ctx.createLinearGradient(0, 0, 0, LOGICAL_HEIGHT)
-    gradient.addColorStop(0, '#87CEEB')
-    gradient.addColorStop(0.6, '#B0E0E6')
-    gradient.addColorStop(1, '#E0F7FA')
+    gradient.addColorStop(0, '#7CC7F2')
+    gradient.addColorStop(0.58, '#BFE8F1')
+    gradient.addColorStop(1, '#F2FBF8')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT)
 
-    // 简单云朵装饰
+    // 南湖水面与远景教学楼，低成本增强湖工校园识别度。
+    ctx.fillStyle = 'rgba(64, 154, 178, 0.25)'
+    ctx.fillRect(0, LOGICAL_HEIGHT - GROUND_HEIGHT - 34, LOGICAL_WIDTH, 34)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'
+    for (let i = 0; i < 5; i++) {
+      const waveX = ((this.frameCount * 0.35) + i * 78) % (LOGICAL_WIDTH + 70) - 70
+      ctx.fillRect(waveX, LOGICAL_HEIGHT - GROUND_HEIGHT - 22 + (i % 2) * 8, 42, 2)
+    }
+
+    ctx.fillStyle = 'rgba(34, 76, 101, 0.28)'
+    this._drawCampusBlock(22, 268, 48, 44)
+    this._drawCampusBlock(88, 250, 72, 62)
+    this._drawCampusBlock(190, 262, 58, 50)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.42)'
+    ctx.fillRect(101, 270, 46, 4)
+    ctx.fillRect(101, 286, 46, 4)
+
+    ctx.fillStyle = '#224C65'
+    ctx.font = 'bold 10px Arial, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('HBUT', 124, 246)
+
+    // 云朵装饰
     ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
     const cloudOffset = (this.frameCount * 0.3) % (LOGICAL_WIDTH + 100)
     this._drawCloud(LOGICAL_WIDTH - cloudOffset, 60, 40)
@@ -324,22 +381,30 @@ export default class FlappyGame {
     ctx.fill()
   }
 
+  /** 绘制远景校园楼块 */
+  _drawCampusBlock(x, y, w, h) {
+    const ctx = this.ctx
+    ctx.fillRect(x, y, w, h)
+    ctx.fillRect(x + w * 0.18, y - 12, w * 0.64, 12)
+  }
+
   /** 绘制地面 */
   _drawGround() {
     const ctx = this.ctx
     const groundY = LOGICAL_HEIGHT - GROUND_HEIGHT
 
-    // 地面主体
-    ctx.fillStyle = '#8B4513'
+    // 校园跑道与草地
+    ctx.fillStyle = '#AF4C3A'
     ctx.fillRect(0, groundY, LOGICAL_WIDTH, GROUND_HEIGHT)
 
-    // 草地
-    ctx.fillStyle = '#4CAF50'
-    ctx.fillRect(0, groundY, LOGICAL_WIDTH, 12)
-
-    // 草地深色边
-    ctx.fillStyle = '#388E3C'
-    ctx.fillRect(0, groundY + 10, LOGICAL_WIDTH, 3)
+    ctx.fillStyle = '#3FA66B'
+    ctx.fillRect(0, groundY, LOGICAL_WIDTH, 13)
+    ctx.fillStyle = '#FFFFFF'
+    for (let x = -20; x < LOGICAL_WIDTH; x += 48) {
+      ctx.fillRect(x + ((this.frameCount * 1.1) % 48), groundY + 33, 22, 2)
+    }
+    ctx.fillStyle = '#7A3229'
+    ctx.fillRect(0, groundY + 13, LOGICAL_WIDTH, 3)
   }
 
   /** 绘制管道 */
@@ -347,34 +412,41 @@ export default class FlappyGame {
     const ctx = this.ctx
 
     for (const pipe of this.pipes) {
-      // 上管道
+      // 湖工校门柱障碍
       const topGradient = ctx.createLinearGradient(pipe.x, 0, pipe.x + pipe.width, 0)
-      topGradient.addColorStop(0, '#388E3C')
-      topGradient.addColorStop(0.3, '#4CAF50')
-      topGradient.addColorStop(0.7, '#4CAF50')
-      topGradient.addColorStop(1, '#2E7D32')
+      topGradient.addColorStop(0, '#174E73')
+      topGradient.addColorStop(0.35, '#2C7CA1')
+      topGradient.addColorStop(0.7, '#2C7CA1')
+      topGradient.addColorStop(1, '#123A55')
 
       ctx.fillStyle = topGradient
       ctx.fillRect(pipe.x, 0, pipe.width, pipe.topHeight)
 
-      // 上管道帽
-      ctx.fillStyle = '#2E7D32'
+      ctx.fillStyle = '#F5C542'
       ctx.fillRect(pipe.x - 4, pipe.topHeight - 20, pipe.width + 8, 20)
-      ctx.strokeStyle = '#1B5E20'
+      ctx.strokeStyle = '#153B52'
       ctx.lineWidth = 2
       ctx.strokeRect(pipe.x - 4, pipe.topHeight - 20, pipe.width + 8, 20)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)'
+      for (let y = 22; y < pipe.topHeight - 26; y += 24) {
+        ctx.fillRect(pipe.x + 12, y, 8, 12)
+        ctx.fillRect(pipe.x + 32, y, 8, 12)
+      }
 
-      // 下管道
       const groundY = LOGICAL_HEIGHT - GROUND_HEIGHT
       ctx.fillStyle = topGradient
       ctx.fillRect(pipe.x, pipe.bottomY, pipe.width, groundY - pipe.bottomY)
 
-      // 下管道帽
-      ctx.fillStyle = '#2E7D32'
+      ctx.fillStyle = '#F5C542'
       ctx.fillRect(pipe.x - 4, pipe.bottomY, pipe.width + 8, 20)
-      ctx.strokeStyle = '#1B5E20'
+      ctx.strokeStyle = '#153B52'
       ctx.lineWidth = 2
       ctx.strokeRect(pipe.x - 4, pipe.bottomY, pipe.width + 8, 20)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.55)'
+      for (let y = pipe.bottomY + 28; y < groundY - 18; y += 24) {
+        ctx.fillRect(pipe.x + 12, y, 8, 12)
+        ctx.fillRect(pipe.x + 32, y, 8, 12)
+      }
     }
   }
 
@@ -401,6 +473,12 @@ export default class FlappyGame {
     ctx.strokeStyle = '#E65100'
     ctx.lineWidth = 1.5
     ctx.stroke()
+
+    // 湖工蓝黄围巾
+    ctx.fillStyle = '#1E5B89'
+    ctx.fillRect(-9, 4, 18, 5)
+    ctx.fillStyle = '#F5C542'
+    ctx.fillRect(-5, 5, 10, 2)
 
     // 眼睛（白色底）
     ctx.fillStyle = '#FFFFFF'
@@ -458,17 +536,16 @@ export default class FlappyGame {
     ctx.font = 'bold 28px Arial, sans-serif'
     ctx.textAlign = 'center'
 
-    ctx.strokeText('笨鸟先飞', LOGICAL_WIDTH / 2, 120)
-    ctx.fillText('笨鸟先飞', LOGICAL_WIDTH / 2, 120)
+    ctx.strokeText('笨鸟先飞', LOGICAL_WIDTH / 2, 112)
+    ctx.fillText('笨鸟先飞', LOGICAL_WIDTH / 2, 112)
+
+    ctx.font = '16px Arial, sans-serif'
+    ctx.lineWidth = 1.5
+    ctx.strokeText('穿过南湖与图书馆', LOGICAL_WIDTH / 2, 350)
+    ctx.fillText('穿过南湖与图书馆', LOGICAL_WIDTH / 2, 350)
 
     ctx.font = '18px Arial, sans-serif'
-    ctx.lineWidth = 1.5
-    ctx.strokeText('点击屏幕开始', LOGICAL_WIDTH / 2, 360)
-    ctx.fillText('点击屏幕开始', LOGICAL_WIDTH / 2, 360)
-
-    // 提示图标（手指点击）
-    ctx.font = '36px Arial, sans-serif'
-    ctx.fillText('👆', LOGICAL_WIDTH / 2, 400)
+    ctx.fillText('点按屏幕起飞', LOGICAL_WIDTH / 2, 382)
   }
 
   /** 绘制游戏结束界面 */
@@ -512,7 +589,7 @@ export default class FlappyGame {
     // 重新开始提示
     ctx.fillStyle = '#666666'
     ctx.font = '16px Arial, sans-serif'
-    ctx.fillText('点击屏幕重新开始', LOGICAL_WIDTH / 2, panelY + 160)
+    ctx.fillText('点按屏幕回到起飞准备', LOGICAL_WIDTH / 2, panelY + 160)
   }
 
   /** 绘制圆角矩形路径 */

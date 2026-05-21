@@ -175,14 +175,39 @@
 
 ## Task 6：优化“笨鸟先飞”的页面体验和可玩性
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：“笨鸟先飞”页面布局、输入、难度、计分、失败/重开。
 - 目标：竖屏可玩，节奏合理，湖工特色清晰。
 - 验证：逻辑测试 + 竖屏手动/截图验证。
 - 执行记录：
+  - 根因定位：原 `FlappyGame` 开局不会立即生成首个障碍，玩家起飞后前 1.8 秒画面偏空，节奏反馈弱。
+  - 根因定位：难度曲线散落在实例方法和 `_update()` 内部，缺少可测试的速度、间隙、生成间隔边界契约。
+  - 根因定位：`main.js` 在 `onGameOver` 时才创建 `currentRunId`，排行榜提交的运行 ID 无法准确代表“一局从开始到结束”的生命周期。
+  - 根因定位：页面外壳和 Canvas 提示仍使用 `🐦/🏆/👆` 等 emoji 与通用绿色管道，湖工特色不足；窄屏 header 用 flex 分布，长标题容易和分数/排行榜挤压。
+  - 新增根目录回归测试 `src/utils/clumsy_bird_hbut_experience.spec.ts`，覆盖湖工主题文案、禁止旧 emoji、runId 开局生成、移动端 header 可读性、难度曲线边界、开局首个障碍、game over 点击回到 ready 状态。
+  - 修复 `website/modules-src/clumsy_bird_hbut/project/src/game/FlappyGame.js`：导出 `getPipeGap()`、`getPipeSpeed()`、`getPipeSpawnInterval()` 和 `GAMEPLAY_LIMITS`；开局立即生成首个校园门柱障碍；生成间隔和速度按分数渐进并封顶；失败后点按回到 ready 且清空障碍。
+  - 优化 `FlappyGame.js` Canvas 视觉：加入南湖水面、远景教学楼、HBUT 标识、校园跑道、蓝黄校门柱障碍和小鸟蓝黄围巾；准备页提示改为“穿过南湖与图书馆 / 点按屏幕起飞”，结束页提示改为“点按屏幕回到起飞准备”。
+  - 修复 `website/modules-src/clumsy_bird_hbut/project/src/main.js`：页面标题改为“笨鸟先飞 · 湖工飞行训练”，排行榜标题去掉 emoji；`currentRunId` 初始化后在每次 `state === 'playing'` 时重新生成，并清理待重试上传状态，`onGameOver` 只提交本局结果。
+  - 优化 `website/modules-src/clumsy_bird_hbut/project/src/style.css`：header 改为 `grid-template-columns: minmax(0, 1fr) auto auto`，标题使用省略和 `white-space: nowrap`，分数与按钮保持紧凑，避免竖屏挤出。
 - 验证结果：
+  - 红灯验证：`npx.cmd vitest run src/game/FlappyGame.test.js --testTimeout 60000`（模块目录内临时测试）失败于 `getPipeGap is not a function` 与开局 `pipes` 为空，证明测试捕捉到难度函数缺失和开局节奏缺口。
+  - 红灯验证：`npx.cmd vitest run src/ClumsyBirdExperience.test.js --testTimeout 60000`（模块目录内临时测试）失败于标题缺少“笨鸟先飞 · 湖工飞行训练”、`currentRunId` 未在开局生成、header 样式缺少 `minmax(0, 1fr)`。
+  - 绿灯验证：将测试迁入根目录 `src/utils/clumsy_bird_hbut_experience.spec.ts` 后，执行 `npx.cmd vitest run src\utils\clumsy_bird_hbut_experience.spec.ts --testTimeout 60000` 通过：1 个测试文件、6 个测试全部通过。
+  - 相邻回归：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts --testTimeout 60000` 通过：2 个测试文件、9 个测试全部通过。
+  - 模块构建：`npm.cmd run build`（workdir：`website/modules-src/clumsy_bird_hbut/project`）通过，产物为 `dist/index.html`、CSS 和 JS bundle。
+  - 竖屏运行时验证：启动 `http://127.0.0.1:5182/`，Playwright 390×844 检查首屏：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、header 390×46、title 文案完整、canvas 390×585、`--module-vh=8.44px`、`overflowX=hidden`、Canvas 非空像素 153600。
+  - 竖屏游戏态验证：点击 Canvas 起飞后仍为 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、header 390×46、canvas 390×585、score 为 0、Canvas 非空像素 153600，控制台无错误，仅保留 1 条 favicon warning。
+  - Playwright 截图：已保存 `task6-clumsy-bird-mobile.png` 作为 390×844 游戏态视觉证据。
+  - 服务清理：本轮验证用 5182 Vite 进程已停止，后续 `Get-NetTCPConnection -LocalPort 5182` 无监听结果。
+  - 依赖风险检查：曾尝试给模块本地 `package.json` 增加 `vitest`，`npm audit` 显示会扩大 Vite/esbuild 审计链；已撤回该依赖改动，最终测试使用根目录已有 Vitest，不改模块 package/lock。
+  - 空白检查：`git diff --check -- website\modules-src\clumsy_bird_hbut\project\src\game\FlappyGame.js website\modules-src\clumsy_bird_hbut\project\src\main.js website\modules-src\clumsy_bird_hbut\project\src\style.css src\utils\clumsy_bird_hbut_experience.spec.ts` 未发现空白错误，仅出现 Windows 换行提示。
 - 剩余风险：
+  - 浏览器验证仍是 Chromium 移动视口，不等同于真实 iOS WKWebView/Tauri WebView 长时间手动游玩。
+  - 本轮提升的是“笨鸟先飞”的节奏、主题和基础可玩性；排行榜接口只通过现有上下文和静态契约验证，未调用真实后端。
+  - `favicon` 404 warning 仍存在，和 Task 3 检查时一致，不阻断本轮玩法体验目标。
+  - `website/public/modules` 仍存在既有未提交产物改动，本轮继续隔离，未同步或提交发布产物。
 - 下一步：
+  - 执行大型检查 B：完成 Task 4-6 后，对跳出湖工大物理/视觉、笨鸟先飞玩法、移动端触控、构建测试、宿主集成和未提交产物隔离进行全面检查-debug循环。
 
 ## 大型检查 B：完成 Task 4-6 后执行
 

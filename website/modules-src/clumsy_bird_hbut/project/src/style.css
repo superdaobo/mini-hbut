@@ -52,10 +52,11 @@ body {
 
 /* 顶部栏 */
 .game-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -65,17 +66,22 @@ body {
 }
 
 .game-header .title {
-  font-size: 18px;
+  min-width: 0;
+  font-size: clamp(13px, 3.6vw, 16px);
   font-weight: 700;
-  color: #333;
+  color: #163F5C;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .game-header .scores {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-  font-size: 13px;
-  color: #666;
+  font-size: clamp(11px, 3vw, 13px);
+  color: #3E5968;
+  white-space: nowrap;
 }
 
 .game-header .scores .current {
@@ -84,19 +90,20 @@ body {
 }
 
 .game-header .rank-btn {
-  padding: 5px 12px;
+  padding: 6px 10px;
   border: none;
-  border-radius: 16px;
-  background: #FF6F00;
+  border-radius: 14px;
+  background: #1E5B89;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s;
+  white-space: nowrap;
 }
 
 .game-header .rank-btn:active {
-  background: #E65100;
+  background: #143C5B;
 }
 
 /* 游戏画布区域 */
