@@ -417,14 +417,38 @@
 
 ## Task 11：完整构建、测试、视觉和代码审查
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：全目标最终验证。
 - 目标：完成最终最大 review，修复高风险问题，确认目标全部满足。
 - 验证：测试、构建、diff、截图/浏览器检查、需求逐项审计。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行 Task 11，不进入最终完成审计。
+  - 工作区审计确认：当前仍有历史 `website/public/modules/...` 6 个构建产物改动、`.playwright-mcp` 临时文件和历史截图；本轮继续隔离，未回退、未覆盖、未纳入提交。
+  - 发布链路审计确认：`website/modules-src` 中启用游戏源码包含 7 个游戏，`hugongda_escape` 为 disabled；当前 `website/public/modules/{main,dev,latest}/catalog.json` 仍只有旧 4 个游戏，说明本地发布产物目录滞后。
+  - 为避免覆盖历史脏产物，使用临时输出目录 `.tmp-task11-modules-build` 验证 `scripts/build_website_modules.mjs`：设置 `MODULE_OUTPUT_ROOT=.tmp-task11-modules-build`、`MODULE_VERSION=task11-local`、`MODULE_SOURCE_CHANNEL=task11` 后完整运行发布脚本。
+  - 临时发布脚本结果：7 个启用模块均完成构建，`main/dev/latest` 三个 channel 均生成 catalog，且顺序为 `hecheng_hugongda -> jump_out_hbut -> hbut_2048 -> clumsy_bird_hbut -> hbut_monopoly -> hbut_miner -> hbut_memory_match`，order 为 1-7。
+  - 临时发布脚本过程中，Windows 上 `clumsy_bird_hbut` 和 `jump_out_hbut` 的 `npm ci` 遇到 `EPERM unlink esbuild.exe` 文件占用错误后自动 fallback 到 `npm install`，最终脚本退出码为 0；该现象记录为 Windows 本地构建环境风险，不影响 CI/干净环境的发布链路判断。
+  - 许可证/外部代码审计：对 `hbut_monopoly`、`hbut_miner`、`hbut_memory_match`、`jump_out_hbut`、`clumsy_bird_hbut` 及相关测试扫描 `https?://|cdn|unpkg|jsdelivr|license|copyright|from 'http|from "http`，未发现新增外部 CDN 或不明开源代码来源。
+  - 视觉复验启动本地 dev server：根应用 5200，`jump_out_hbut` 5201，`clumsy_bird_hbut` 5202，`hbut_monopoly` 5203，`hbut_miner` 5204，`hbut_memory_match` 5205；使用 Playwright 390×844 viewport 检查后已停止这些 dev server，并复查 5200-5205 无残留监听。
 - 验证结果：
+  - 根项目全量测试：`npx.cmd vitest run --testTimeout 60000` 通过，26 个测试文件、153 个测试全部通过。
+  - 根项目构建：`npm.cmd run build` 通过，Vite 完成 550 个模块构建；仍有既有 CSS `@media` 压缩 warning 和 Capacitor/Tauri 动态导入提示，退出码为 0。
+  - 发布脚本临时构建：`node -e "process.env.MODULE_OUTPUT_ROOT='.tmp-task11-modules-build'; process.env.MODULE_VERSION='task11-local'; process.env.MODULE_SOURCE_CHANNEL='task11'; import('./scripts/build_website_modules.mjs')"` 通过，临时 `main/dev/latest` catalog 均包含 7 个游戏。
+  - `jump_out_hbut` 390×844 直开验证：首屏 `scrollWidth=390`、`clientWidth=390`、`scrollHeight=844`、`bodyHeight=844`、`overflowX=hidden`、`--module-vh=8.44px`；点击“开始游戏”后 canvas 和 `#app` 均为 390×844，HUD 位于顶部，未出现横向溢出。
+  - `clumsy_bird_hbut` 390×844 直开验证：页面 `scrollWidth=390`、`bodyHeight=844`，canvas 为 390×585，非空像素检查通过；点击/交互后布局高度保持 844，无 `pageerror`。
+  - `hbut_monopoly` 390×844 直开验证：页面 `scrollWidth=390`、`bodyHeight=844`；点击“投骰前进”后回合、骰子、事件记录更新，布局仍保持 390×844，无 `pageerror`。
+  - `hbut_miner` 390×844 直开验证：页面 `scrollWidth=390`、`bodyHeight=844`，canvas 非空；点击“发射吊钩”后状态变为“吊钩下探”、按钮变为“回收中”，布局仍保持 390×844，无 `pageerror`。
+  - `hbut_memory_match` 390×844 直开验证：页面 `scrollWidth=390`、`bodyHeight=844`，共 12 张牌；翻开前两张后步数变为 1，布局仍保持 390×844，无 `pageerror`。
+  - 根应用宿主 iframe 390×844 验证：写入 `hbu_more_module_host_session` 后进入 `more_module_host`，`.app-shell` 与 `.more-module-host-view` 均为 390×844，`paddingBottom=0`、`overflow=hidden`，无 `.bottom-tab-bar`；`.module-frame-shell` 与 iframe 均为 390×742，`bottom=844`。
+  - 宿主子 iframe 验证：`hbut_miner` 在 iframe 内真实加载到 `http://127.0.0.1:5204/...`，子页面 `scrollWidth=390`、`clientWidth=390`、`scrollHeight=742`、`clientHeight=742`、`bodyHeight=742`、`--module-vh=7.42px`，canvas 和操作按钮可见。
+  - Dev server 清理：`Get-NetTCPConnection -LocalPort 5200,5201,5202,5203,5204,5205 -State Listen -ErrorAction SilentlyContinue` 无监听输出。
 - 剩余风险：
+  - 真实 iOS WKWebView/Tauri 设备截图仍未覆盖；当前证据来自 Chromium 移动 viewport、HTTP iframe 宿主和本地 dev server。
+  - `website/public/modules` 当前本地历史产物仍滞后于源码，只包含旧 4 个游戏；由于该目录被 `.gitignore` 标注为可再生成构建产物，且已有未提交改动，本轮没有直接覆盖。发布前应由发布脚本在干净环境或明确发布流程中重新生成并部署。
+  - Windows 本地发布脚本可能因 `esbuild.exe`/Rollup 原生文件被占用导致 `npm ci` EPERM，并 fallback 到 `npm install`；如需本机严格复现 CI，应先关闭占用进程或在干净 checkout 中运行。
+  - 根构建仍有既有 CSS minify warning 和动态导入提示；本轮确认不阻断构建，但最终审计应决定是否作为后续清理项记录。
 - 下一步：
+  - 执行最终完成审计：逐条对照 `input.md` 与 `plan.md` 的完成标准，确认是否需要补真实 iOS/Tauri 设备验证、发布产物同步策略和剩余 warning 处理，然后再决定是否标记 goal complete。
 
 ## 最终完成审计
 
