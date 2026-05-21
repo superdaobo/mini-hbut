@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { TPageHeader } from './templates'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import {
@@ -271,6 +271,21 @@ onMounted(async () => {
   await buildClient()
   await loadForumData()
 })
+
+watch(
+  () => props.studentId,
+  async (nextStudentId, previousStudentId) => {
+    if (String(nextStudentId || '').trim() === String(previousStudentId || '').trim()) return
+    profile.value = readForumProfile(props.studentId)
+    client = null
+    selectedThread.value = null
+    threadDetail.value = null
+    replyContent.value = ''
+    composerOpen.value = false
+    await buildClient()
+    await loadForumData({ force: true })
+  }
+)
 </script>
 
 <template>
