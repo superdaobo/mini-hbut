@@ -42,6 +42,15 @@ const hasSuccessfulQuery = ref(false)
 const displayedClassrooms = computed(() => classrooms.value.slice(0, displayLimit.value))
 const hasMoreClassrooms = computed(() => classrooms.value.length > displayLimit.value)
 const showMoreClassrooms = () => { displayLimit.value += 50 }
+const queryDateLabel = computed(() => String(currentMeta.value?.date_str || '').trim())
+const queryCalendarLabel = computed(() => {
+  const week = String(currentMeta.value?.week || '').trim()
+  const weekday = String(currentMeta.value?.weekday_name || '').trim()
+  const parts = []
+  if (week) parts.push(week === '?' || /^第.+周$/.test(week) ? week : `第${week}周`)
+  if (weekday) parts.push(weekday)
+  return parts.join(' · ')
+})
 
 // 生命周期与并发保护：
 // 1) 组件卸载后不再写入响应数据，避免返回首页后被旧请求回写导致白屏
@@ -726,7 +735,7 @@ onBeforeUnmount(() => {
         <div class="flex flex-col gap-3 bg-surface-container-lowest p-4 rounded-[24px] shadow-[0_4px_15px_rgba(0,0,0,0.03)] mt-2">
           <!-- Building -->
           <div class="flex items-center">
-            <span class="text-secondary text-xs font-medium w-12 shrink-0">楼栋</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">楼栋</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
                 @click="filters.building = ''"
@@ -749,7 +758,7 @@ onBeforeUnmount(() => {
 
           <!-- Week -->
           <div class="flex items-center">
-            <span class="text-secondary text-xs font-medium w-12 shrink-0">周次</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">周次</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
                 @click="filters.week = ''"
@@ -772,7 +781,7 @@ onBeforeUnmount(() => {
 
           <!-- Day -->
           <div class="flex items-center">
-            <span class="text-secondary text-xs font-medium w-12 shrink-0">星期</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">星期</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
                 v-for="w in weekdayOptions"
@@ -788,21 +797,23 @@ onBeforeUnmount(() => {
 
           <!-- Periods (multi-select) -->
           <div class="flex items-start">
-            <span class="text-secondary text-xs font-medium w-12 shrink-0 pt-2">节次</span>
+            <span class="classroom-filter-label text-xs font-medium w-12 shrink-0 pt-2">节次</span>
             <div class="flex flex-wrap gap-2">
               <button
                 v-for="p in periodOptions"
                 :key="p.value"
                 @click="togglePeriod(p.value)"
+                :aria-label="`第${p.value}节`"
+                :title="p.label"
                 :class="[
-                  'px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1',
+                  'classroom-period-button px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1',
                   filters.periods.includes(p.value)
                     ? 'bg-primary/10 text-primary border border-primary/20'
                     : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
               >
                 <span v-if="filters.periods.includes(p.value)" class="material-symbols-outlined text-[14px]">check</span>
-                {{ p.value }}-{{ p.value + 1 > 11 ? p.value : p.value + 1 }}节
+                {{ p.value }}
               </button>
             </div>
           </div>
@@ -836,6 +847,11 @@ onBeforeUnmount(() => {
 
       <!-- Results List -->
       <section class="px-4 flex flex-col gap-3">
+        <div v-if="hasSuccessfulQuery || classrooms.length > 0" class="classroom-result-meta">
+          <span>查询日期：<strong>{{ queryDateLabel || '未知日期' }}</strong></span>
+          <span v-if="queryCalendarLabel">{{ queryCalendarLabel }}</span>
+        </div>
+
         <!-- Classroom Cards -->
         <div
           v-for="room in displayedClassrooms"
@@ -892,6 +908,44 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.classroom-filter-label {
+  color: #334155;
+}
+
+.classroom-period-button {
+  min-width: 34px;
+  justify-content: center;
+}
+
+.classroom-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.classroom-result-meta strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+:global(html.dark) .classroom-filter-label {
+  color: #cbd5e1;
+}
+
+:global(html.dark) .classroom-result-meta {
+  color: #94a3b8;
+}
+
+:global(html.dark) .classroom-result-meta strong {
+  color: #e2e8f0;
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
