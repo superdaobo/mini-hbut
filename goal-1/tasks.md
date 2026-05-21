@@ -348,11 +348,34 @@
 
 ## 大型检查 C：完成 Task 7-9 后执行
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 检查项：新增游戏数量、玩法差异、catalog/manifest 一致性、许可证风险、构建、移动端可玩性。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行完成 Task 7-9 后的大型检查 C，不进入 Task 10。
+  - Git 状态检查确认 Task 7、Task 8、Task 9 已分别提交为 `32f8b60 feat: add hbut monopoly game module`、`25c8546 feat: add hbut miner game module`、`3d60391 feat: add hbut memory match game module`；当前仍有既有 `website/public/modules/...` 产物改动、`.playwright-mcp` 临时文件和历史截图，继续隔离，未纳入本轮提交。
+  - 静态接入检查：`rg -n "hbut_monopoly|hbut_miner|hbut_memory_match" src\utils website\modules-src ...` 确认三款新增游戏均存在 `module.json`、`MODULE_ID`、根目录玩法测试、模块中心入口和集成契约测试记录。
+  - 玩法差异检查：`hbut_monopoly` 为投骰走格/校园事件/金币绩点管理，`hbut_miner` 为摆动吊钩/抓取/回收计分，`hbut_memory_match` 为翻牌配对/计步计时；三者与既有跳跃、飞行、2048、合成类玩法有明确差异，满足“多做几个游戏”的新增范围。
+  - 许可证风险检查：对 `website/modules-src/hbut_monopoly`、`website/modules-src/hbut_miner`、`website/modules-src/hbut_memory_match` 及对应根目录测试执行 `rg -n "https?://|cdn|unpkg|jsdelivr|license|copyright|from 'http|from \"http"`，未命中外部代码来源、CDN 或版权声明；当前三款新增游戏均为自研轻量逻辑，无新增第三方玩法代码许可证风险。
+  - Fresh 测试：执行 `npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_monopoly_game.spec.ts src\utils\hbut_miner_game.spec.ts src\utils\hbut_memory_match_game.spec.ts --testTimeout 60000`，结果 5 个测试文件通过、24 个测试全部通过。
+  - Fresh 构建：`npm.cmd run build`（workdir：`website/modules-src/hbut_monopoly/project`）通过，Vite 输出 `dist/index.html`、CSS 和 JS bundle，无新增构建 warning。
+  - Fresh 构建：`npm.cmd run build`（workdir：`website/modules-src/hbut_miner/project`）通过，Vite 输出 `dist/index.html`、CSS 和 JS bundle，无新增构建 warning。
+  - Fresh 构建：`npm.cmd run build`（workdir：`website/modules-src/hbut_memory_match/project`）通过，Vite 输出 `dist/index.html`、CSS 和 JS bundle，无新增构建 warning。
+  - 竖屏运行时验证：启动 `hbut_monopoly=http://127.0.0.1:5191/`、`hbut_miner=http://127.0.0.1:5192/`、`hbut_memory_match=http://127.0.0.1:5193/`，Playwright 使用 390×844 viewport 逐个复验。
+  - `hbut_monopoly` 直开验证：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`appHeight=844`、`overflowX=hidden`、`overflowY=hidden`、`--module-vh=8.44px`、棋盘 16 格、当前位置“校门起点”；点击“投骰前进”后骰子为 6、回合为 1、事件记录更新，布局仍保持 390×844。
+  - `hbut_miner` 直开验证：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`appHeight=844`、`overflowX=hidden`、`overflowY=hidden`、`--module-vh=8.44px`、Canvas CSS 尺寸约 `368.67×496.84`、非空像素 `182528`；点击“发射吊钩”后状态变为“吊钩下探”、按钮变为“回收中”且禁用，布局仍保持 390×844。
+  - `hbut_memory_match` 直开验证：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`appHeight=844`、`overflowX=hidden`、`overflowY=hidden`、`--module-vh=8.44px`、共 12 张牌；翻开前两张后步数为 1、状态变为“记住位置，继续翻牌”，布局仍保持 390×844。
+  - 模拟 HTTP 宿主 iframe 验证：三个 390×844 iframe 均收到 `mini-hbut:module-size` 消息；`hbut_monopoly` 收到 3 条、`hbut_miner` 收到 2 条、`hbut_memory_match` 收到 3 条，`module_id/moduleId` 均正确，高度均为 844。
+  - 控制台检查：三款新增游戏运行时仅有 Vite dev server debug 连接日志，无 pageerror；新模块入口已使用空 favicon data URL，未出现 favicon 404。
+  - 服务清理：停止本轮实际监听在 5191/5192/5193 的 Vite/Node 进程，复查 `Get-NetTCPConnection -LocalPort 5191,5192,5193 -State Listen -ErrorAction SilentlyContinue` 无监听输出。
+  - 忽略目录检查：`git status --short --ignored website\modules-src\hbut_monopoly website\modules-src\hbut_miner website\modules-src\hbut_memory_match` 仅显示三个模块的 `dist/` 与 `node_modules/` 为 ignored，未纳入提交。
 - 结论：
+  - Task 7-9 已新增三款湖工特色游戏：大富翁类、矿工类、记忆配对类，数量和玩法差异满足当前阶段目标。
+  - 三款新增游戏均接入 `website/modules-src` 模块目录和默认模块中心，具备独立 Vite 构建、核心玩法测试、竖屏样式契约、宿主高度上报和基础可玩闭环。
+  - 当前证据覆盖源码契约、玩法单元测试、三个模块构建、Chromium 390×844 直开交互、HTTP iframe 宿主消息和许可证风险扫描；未发现 Task 7-9 范围内高风险回归。
+  - 当前总目标仍未完成：统一游戏中心体验与 Tauri 宿主联调、完整构建测试视觉代码审查、最终完成审计仍在 Task 10-11 和最终完成审计中。
 - 修复项：
+  - 本轮大型检查 C 未发现必须立即修复的新增游戏代码问题，因此没有修改业务源码。
+  - 剩余风险：真实 iOS WKWebView/Tauri 设备长时间游玩仍未覆盖；`website/public/modules` 既有产物改动仍未统一发布同步；新增游戏没有长线关卡/排行榜，只满足轻量可玩闭环。
 
 ## Task 10：统一游戏中心体验与 Tauri 宿主联调
 
