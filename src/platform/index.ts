@@ -37,6 +37,9 @@ export const platformBridge = {
   async sendLocalNotification(payload: NotifyPayload) {
     return pickBridge().sendLocalNotification(payload)
   },
+  async addNotificationActionListener(listener: (payload: unknown) => void) {
+    return pickBridge().addNotificationActionListener(listener)
+  },
   async keepScreenOn(enable: boolean) {
     return pickBridge().keepScreenOn(enable)
   },

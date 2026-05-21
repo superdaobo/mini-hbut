@@ -441,7 +441,8 @@ const sendQueuedNotifications = async (queue, allowPrompt = false) => {
         channelId: DEFAULT_CHANNEL_ID,
         title: notice.title,
         body: notice.body || '',
-        id: Math.floor(Date.now() / 1000) + i
+        id: Math.floor(Date.now() / 1000) + i,
+        targetView: notice.targetView || 'notifications'
       })
       if (ok) sent.push(notice)
     } catch {
@@ -544,7 +545,8 @@ const checkGrades = async (studentId, settings, queue) => {
     if (changed && settings.enableGradeNotice) {
       queue.push({
         title: '成绩有更新',
-        body: `检测到新的成绩变动，共 ${grades.length} 条成绩记录，请进入应用查看详情。`
+        body: `检测到新的成绩变动，共 ${grades.length} 条成绩记录，请进入应用查看详情。`,
+        targetView: 'grades'
       })
     }
 
@@ -607,7 +609,8 @@ const checkExams = async (studentId, settings, queue) => {
         body:
           tomorrow.length === 1
             ? `明天有考试：${toSafeText(tomorrow[0].course_name)}`
-            : `明天共有 ${tomorrow.length} 门考试，请提前做好准备。`
+            : `明天共有 ${tomorrow.length} 门考试，请提前做好准备。`,
+        targetView: 'exams'
       })
     }
 
@@ -750,7 +753,8 @@ const checkElectricity = async (studentId, settings, queue, launchCheck = false)
       }
       queue.push({
         title: '电费不足提醒',
-        body: bodyText
+        body: bodyText,
+        targetView: 'electricity'
       })
     }
 
@@ -987,7 +991,8 @@ const checkClassReminder = async (studentId, settings, queue, scheduleResult) =>
     const leadText = item.minsUntilStart > 0 ? `${item.minsUntilStart} 分钟后` : '即将'
     queue.push({
       title: '上课提醒',
-      body: `${leadText}开始：${item.name}（${item.startClock}，${item.room}${suffix}）`
+      body: `${leadText}开始：${item.name}（${item.startClock}，${item.room}${suffix}）`,
+      targetView: 'schedule'
     })
   })
 

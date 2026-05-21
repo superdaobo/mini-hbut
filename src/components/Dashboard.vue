@@ -18,6 +18,7 @@ import {
   resolveCollisionPalette,
   resolveRelativeCollisionPoint
 } from '../utils/layout_collision_fx.js'
+import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../utils/home_search.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -72,6 +73,7 @@ const refreshLoginMethod = () => {
 }
 
 const todayCourses = ref([])
+const homeSearchCourses = ref([])
 const todayLoading = ref(false)
 const todayError = ref('')
 const nowTick = ref(Date.now())
@@ -310,7 +312,7 @@ const buildTodayCourses = (courses, currentWeek) => {
 }
 
 const fetchTodayCourses = async () => {
-  if (!props.isLoggedIn || !props.studentId) { todayCourses.value = []; todayError.value = ''; return }
+  if (!props.isLoggedIn || !props.studentId) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = ''; return }
   todayLoading.value = true
   todayError.value = ''
   try {
@@ -344,8 +346,16 @@ const fetchTodayCourses = async () => {
     const semesterForCustom = String(payload?.meta?.semester || preferredSemester || '').trim()
     customCourses = await fetchCustomCoursesForToday(semesterForCustom)
     if (!payload?.success) {
-      if (customCourses.length > 0) { const week = getCurrentWeek(); todayCourses.value = buildTodayCourses(customCourses, week); todayError.value = '' }
-      else { todayCourses.value = []; todayError.value = payload?.error || '今日课程加载失败' }
+      if (customCourses.length > 0) {
+        const week = getCurrentWeek()
+        todayCourses.value = buildTodayCourses(customCourses, week)
+        homeSearchCourses.value = buildWeeklyCourseSearchEntries({ courses: customCourses, currentWeek: week, periodTimeMap })
+        todayError.value = ''
+      } else {
+        todayCourses.value = []
+        homeSearchCourses.value = []
+        todayError.value = payload?.error || '今日课程加载失败'
+      }
       return
     }
     if (payload?.meta) {
@@ -355,9 +365,11 @@ const fetchTodayCourses = async () => {
     }
     const week = getCurrentWeek(payload?.meta?.current_week)
     const remoteCourses = Array.isArray(payload?.data) ? payload.data : []
-    todayCourses.value = buildTodayCourses([...remoteCourses, ...customCourses], week)
+    const mergedCourses = [...remoteCourses, ...customCourses]
+    todayCourses.value = buildTodayCourses(mergedCourses, week)
+    homeSearchCourses.value = buildWeeklyCourseSearchEntries({ courses: mergedCourses, currentWeek: week, periodTimeMap })
     todayError.value = ''
-  } catch (error) { todayCourses.value = []; todayError.value = '今日课程加载失败' }
+  } catch (error) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = '今日课程加载失败' }
   finally { todayLoading.value = false }
 }
 
@@ -884,6 +896,100 @@ const hasBrokenImage = (notice) => { const key = notice?.id || notice?.title; re
 const handleImageError = (notice) => { const key = notice?.id || notice?.title; if (!key) return; const next = new Set(brokenImages.value); next.add(key); brokenImages.value = next }
 const openNotice = (notice) => { if (Date.now() < tickerSuppressClickUntil.value) return; emit('open-notice', notice) }
 
+// 首页搜索聚合服务、今日课程与公告，点击结果仍复用现有导航事件。
+const showHomeSearch = ref(false)
+const homeSearchQuery = ref('')
+const homeSearchInputRef = ref(null)
+const homeSearchHasQuery = computed(() => homeSearchQuery.value.trim().length > 0)
+const homeSearchSections = computed(() =>
+  buildHomeSearchSections({
+    query: homeSearchQuery.value,
+    modules: modules.value,
+    courses: homeSearchCourses.value,
+    notices: allNotices.value.map((notice) => ({
+      ...notice,
+      summary: noticeSummary(notice)
+    }))
+  })
+)
+const homeSearchSuggestions = computed(() =>
+  quickEntryItems.value.map((item) => ({
+    type: 'service',
+    id: item.id,
+    title: item.name,
+    subtitle: item.id === 'schedule' ? '本周课表与课程安排' : '常用服务',
+    target: item.id,
+    iconClass: item.icon,
+    colorClass: item.color,
+    iconColor: item.iconColor
+  }))
+)
+
+const openHomeSearch = async () => {
+  showHomeSearch.value = true
+  await nextTick()
+  homeSearchInputRef.value?.focus?.()
+}
+
+const closeHomeSearch = () => {
+  showHomeSearch.value = false
+  homeSearchQuery.value = ''
+}
+
+const clearHomeSearchQuery = async () => {
+  homeSearchQuery.value = ''
+  await nextTick()
+  homeSearchInputRef.value?.focus?.()
+}
+
+const getHomeSearchItemIcon = (item) => {
+  if (item?.type === 'course') return 'fa-calendar-day'
+  if (item?.type === 'notice') return 'fa-bullhorn'
+  const id = item?.target || item?.id
+  return item?.iconClass || featureIcons[id] || quickEntryMeta[id]?.icon || 'fa-cube'
+}
+
+const getHomeSearchIconClass = (item) => {
+  if (item?.type === 'course') return 'bg-blue-50 text-blue-500'
+  if (item?.type === 'notice') return 'bg-amber-50 text-amber-500'
+  const id = item?.target || item?.id
+  const meta = quickEntryMeta[id]
+  return [item?.colorClass || meta?.color || 'bg-gray-50', item?.iconColor || meta?.iconColor || 'text-gray-500']
+}
+
+const selectHomeSearchItem = (item) => {
+  if (!item) return
+  const target = item.target || item.id
+  closeHomeSearch()
+  if (item.type === 'notice') {
+    emit('open-notice', item.raw)
+    return
+  }
+  if (target === 'schedule') {
+    emit('navigate', 'schedule')
+    return
+  }
+  navigateTo(target)
+}
+
+const selectFirstHomeSearchItem = () => {
+  const firstResult = homeSearchSections.value[0]?.items?.[0]
+  const firstSuggestion = homeSearchSuggestions.value[0]
+  selectHomeSearchItem(firstResult || firstSuggestion)
+}
+
+const handleHomeSearchKeydown = (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeHomeSearch()
+    return
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    selectFirstHomeSearchItem()
+  }
+}
+
 const currentAnnouncementIndex = ref(0)
 let announcementTimer = null
 const startAnnouncementRotation = () => { stopAnnouncementRotation(); if (marqueeItems.value.length <= 1) return; announcementTimer = setInterval(() => { currentAnnouncementIndex.value = (currentAnnouncementIndex.value + 1) % Math.min(marqueeItems.value.length, 5) }, 3000) }
@@ -945,10 +1051,13 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         <div class="relative flex-1">
           <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
           <input
-            class="w-full bg-white rounded-full py-1.5 pl-8 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-blue-300 border-none shadow-sm text-gray-600"
+            class="w-full bg-white rounded-full py-1.5 pl-8 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-blue-300 border-none shadow-sm text-gray-600 cursor-pointer"
             placeholder="搜索服务/课程/资讯"
             type="text"
             readonly
+            aria-label="搜索服务"
+            @click="openHomeSearch"
+            @focus="openHomeSearch"
           />
         </div>
       </div>
@@ -1175,6 +1284,100 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         </div>
       </div>
     </main>
+
+    <!-- Home Search -->
+    <Teleport to="body">
+      <div
+        v-if="showHomeSearch"
+        class="fixed inset-0 z-[210] bg-black/35 backdrop-blur-sm flex items-start justify-center px-4 pt-6"
+        @click.self="closeHomeSearch"
+      >
+        <div class="w-full max-w-md bg-white rounded-[24px] shadow-2xl overflow-hidden animate-scale-in">
+          <div class="px-4 pt-4 pb-3 border-b border-gray-100">
+            <div class="flex items-center gap-2">
+              <div class="relative flex-1">
+                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                <input
+                  ref="homeSearchInputRef"
+                  v-model="homeSearchQuery"
+                  class="w-full bg-gray-50 rounded-2xl py-3 pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 text-gray-800"
+                  placeholder="搜索服务、课程、资讯"
+                  type="search"
+                  @keydown="handleHomeSearchKeydown"
+                />
+                <button
+                  v-if="homeSearchQuery"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  type="button"
+                  @click="clearHomeSearchQuery"
+                >
+                  <i class="fas fa-times text-xs"></i>
+                </button>
+              </div>
+              <button
+                class="px-3 h-10 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50"
+                type="button"
+                @click="closeHomeSearch"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+
+          <div class="max-h-[68vh] overflow-y-auto px-4 py-4">
+            <div v-if="!homeSearchHasQuery" class="space-y-3">
+              <p class="text-xs font-semibold text-gray-400 px-1">常用</p>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  v-for="item in homeSearchSuggestions"
+                  :key="item.id"
+                  class="flex items-center gap-3 rounded-2xl bg-gray-50 px-3 py-3 text-left hover:bg-blue-50 transition-colors"
+                  type="button"
+                  @click="selectHomeSearchItem(item)"
+                >
+                  <span class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" :class="getHomeSearchIconClass(item)">
+                    <i class="fas" :class="getHomeSearchItemIcon(item)"></i>
+                  </span>
+                  <span class="min-w-0">
+                    <strong class="block text-sm text-gray-800 truncate">{{ item.title }}</strong>
+                    <small class="block text-xs text-gray-400 truncate">{{ item.subtitle }}</small>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div v-else-if="homeSearchSections.length" class="space-y-5">
+              <section v-for="section in homeSearchSections" :key="section.title" class="space-y-2">
+                <p class="text-xs font-semibold text-gray-400 px-1">{{ section.title }}</p>
+                <button
+                  v-for="item in section.items"
+                  :key="`${item.type}:${item.id}`"
+                  class="w-full flex items-center gap-3 rounded-2xl px-3 py-3 text-left hover:bg-gray-50 transition-colors"
+                  type="button"
+                  @click="selectHomeSearchItem(item)"
+                >
+                  <span class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" :class="getHomeSearchIconClass(item)">
+                    <i class="fas" :class="getHomeSearchItemIcon(item)"></i>
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <strong class="block text-sm text-gray-800 truncate">{{ item.title }}</strong>
+                    <small class="block text-xs text-gray-400 truncate">{{ item.subtitle }}</small>
+                  </span>
+                  <i class="fas fa-chevron-right text-[10px] text-gray-300"></i>
+                </button>
+              </section>
+            </div>
+
+            <div v-else class="py-10 text-center">
+              <div class="w-12 h-12 mx-auto rounded-2xl bg-gray-50 flex items-center justify-center text-gray-300">
+                <i class="fas fa-search"></i>
+              </div>
+              <p class="mt-3 text-sm text-gray-400">没有匹配结果</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Weather Detail Modal (iOS 26 Style, Stitch Design) -->
     <Teleport to="body">

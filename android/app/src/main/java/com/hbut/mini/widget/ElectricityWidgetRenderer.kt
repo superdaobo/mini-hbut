@@ -28,7 +28,7 @@ object ElectricityWidgetRenderer {
         val roomId = context.resources.getIdentifier("widget_elec_room", "id", packageName)
         val statusId = context.resources.getIdentifier("widget_elec_status", "id", packageName)
 
-        if (titleId != 0) views.setTextViewText(titleId, "⚡ 电费余量")
+        if (titleId != 0) views.setTextViewText(titleId, "电费余量")
 
         if (data != null) {
             val quantity = data.optDouble("quantity", -1.0)
@@ -44,7 +44,7 @@ object ElectricityWidgetRenderer {
                 views.setViewVisibility(roomId, View.VISIBLE)
             }
             if (statusId != 0) {
-                views.setTextViewText(statusId, if (isLow) "⚠️ 电量不足" else "正常")
+                views.setTextViewText(statusId, if (isLow) "电量不足" else "余量正常")
                 views.setViewVisibility(statusId, View.VISIBLE)
             }
         } else {

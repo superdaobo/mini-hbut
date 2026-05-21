@@ -30,7 +30,7 @@ object ExamWidgetRenderer {
         val locationId = context.resources.getIdentifier("widget_exam_location", "id", packageName)
         val countdownId = context.resources.getIdentifier("widget_exam_countdown", "id", packageName)
 
-        if (titleId != 0) views.setTextViewText(titleId, "📝 即将考试")
+        if (titleId != 0) views.setTextViewText(titleId, "即将考试")
 
         if (data != null) {
             val exams = data.optJSONArray("exams") ?: JSONArray()
@@ -50,10 +50,10 @@ object ExamWidgetRenderer {
                 }
                 if (locationId != 0) {
                     val locationText = buildString {
-                        if (location.isNotEmpty()) append("📍 $location")
+                        if (location.isNotEmpty()) append(location)
                         if (seatNo.isNotEmpty()) {
-                            if (isNotEmpty()) append("  ")
-                            append("💺 座位$seatNo")
+                            if (isNotEmpty()) append(" · ")
+                            append("座位 $seatNo")
                         }
                     }
                     if (locationText.isNotEmpty()) {

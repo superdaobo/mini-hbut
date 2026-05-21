@@ -2,6 +2,7 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
 import { blobToDataUrl, captureElementToBlob } from './capture_service'
 import { getBootMetricsSnapshot } from './boot_metrics'
+import { applyNightModePreference } from './night_mode'
 
 const SCREENSHOT_EVENT_NAME = 'hbu-debug-screenshot-request'
 const OPEN_MODULE_EVENT_NAME = 'hbu-debug-open-module-request'
@@ -60,6 +61,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const waitForNextPaint = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+
+export const resolveDebugScreenshotBackgroundColor = (payload) => {
+  const value = payload?.backgroundColor ?? payload?.background_color ?? null
+  const normalized = String(value ?? '').trim()
+  return normalized || null
+}
 
 const collectDebugScrollAncestors = () => {
   const entries: Array<Record<string, unknown>> = []
@@ -169,6 +176,20 @@ const applyDebugScrollInstruction = async (instruction) => {
   }
 }
 
+const applyDebugNightModeInstruction = async (value) => {
+  if (value === null || value === undefined || value === '') return
+  const normalized = String(value).trim().toLowerCase()
+  if (['1', 'true', 'dark', 'night', 'on', 'yes'].includes(normalized)) {
+    applyNightModePreference(true)
+    await waitForNextPaint()
+    return
+  }
+  if (['0', 'false', 'light', 'day', 'off', 'no'].includes(normalized)) {
+    applyNightModePreference(false)
+    await waitForNextPaint()
+  }
+}
+
 const readElementRect = (element: Element | null) => {
   if (!(element instanceof Element)) return null
   const rect = element.getBoundingClientRect()
@@ -249,7 +270,7 @@ export const initDebugBridgeClient = async () => {
       const captured = await captureElementToBlob({
         selector: payload.selector || null,
         format,
-        backgroundColor: '#f4f7ff',
+        backgroundColor: resolveDebugScreenshotBackgroundColor(payload),
         maxHeight: viewportHeight + 120,
         scale: 1.5
       })
@@ -439,6 +460,16 @@ export const initDebugBridgeClient = async () => {
     }
 
     await waitForNextPaint()
+    await applyDebugNightModeInstruction(
+      payload.nightMode ??
+      payload.night_mode ??
+      payload.darkMode ??
+      payload.dark_mode ??
+      navigatePayload?.nightMode ??
+      navigatePayload?.night_mode ??
+      navigatePayload?.darkMode ??
+      navigatePayload?.dark_mode
+    )
     await applyDebugScrollInstruction(
       payload.scrollTo ?? payload.scroll_to ?? navigatePayload?.scrollTo ?? navigatePayload?.scroll_to
     )

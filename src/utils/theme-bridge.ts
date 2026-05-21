@@ -13,6 +13,7 @@
 
 import type { UiPreset, UiThemeCategory } from '@/config/ui_settings'
 import { UI_PRESETS } from '@/config/ui_settings'
+import { initNightModeClass } from './night_mode'
 
 // localStorage 存储键（与 ui_settings.ts 保持一致）
 const UI_SETTINGS_STORAGE_KEY = 'hbu_ui_settings_v2'
@@ -174,12 +175,7 @@ function applyThemePresetInternal(preset: UiPreset): void {
     root.style.setProperty(key, value)
   }
 
-  // 管理 dark class
-  if (preset.category === 'dark') {
-    root.classList.add('dark')
-  } else {
-    root.classList.remove('dark')
-  }
+  // 夜晚模式由 hbu_dark_mode + html.dark 独立控制，主题预设只负责 CSS 变量。
 }
 
 /**
@@ -268,17 +264,7 @@ export function initThemeBridge(): void {
  * 在首次绘制前根据 localStorage 偏好设置 html.dark class
  */
 function initDarkModeClass(): void {
-  if (typeof document === 'undefined') return
-  try {
-    const stored = localStorage.getItem('hbu_dark_mode')
-    if (stored === '1') {
-      document.documentElement.classList.add('dark')
-    } else if (stored === '0') {
-      document.documentElement.classList.remove('dark')
-    }
-  } catch {
-    // localStorage 不可用时静默忽略
-  }
+  initNightModeClass()
 }
 
 /**

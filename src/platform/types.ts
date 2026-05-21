@@ -7,6 +7,7 @@ export interface NotifyPayload {
   body?: string
   id?: number
   channelId?: string
+  targetView?: string
 }
 
 export interface KeepAliveState {
@@ -30,6 +31,7 @@ export interface PlatformBridge {
   requestNotificationPermission(): Promise<NotificationPermissionState>
   ensureNotificationChannel(channelId: string): Promise<boolean>
   sendLocalNotification(payload: NotifyPayload): Promise<boolean>
+  addNotificationActionListener(listener: (payload: unknown) => void): Promise<(() => void) | null>
   keepScreenOn(enable: boolean): Promise<boolean>
   shareLinkOrFile(target: string, title?: string): Promise<boolean>
   setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState>

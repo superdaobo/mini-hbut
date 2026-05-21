@@ -6,17 +6,25 @@ from pathlib import Path
 
 import jwt
 import requests
+from PIL import Image
 
 MODULES = [
     "home",
     "schedule",
     "qxzkb",
+    "course_selection",
     "me",
     "official",
     "feedback",
     "config",
     "settings",
     "export_center",
+    "more",
+    "more_shuake",
+    "more_module_host",
+    "more_chaoxing_checkin",
+    "online_learning_chaoxing",
+    "online_learning_yuketang",
     "grades",
     "electricity",
     "transactions",
@@ -34,6 +42,9 @@ MODULES = [
     "library",
     "resource_share",
 ]
+
+LIGHT_PIXEL_RATIO_WARN = 0.18
+NEAR_WHITE_PIXEL_RATIO_WARN = 0.04
 
 
 def load_private_key(repo_root: Path) -> str:
@@ -88,13 +99,55 @@ def read_student_id(base_url: str, timeout: int = 8) -> str:
     return str(sid).strip()
 
 
+def analyze_screenshot(path: str) -> dict:
+    if not path:
+        return {"ok": False, "error": "empty path"}
+
+    image_path = Path(path)
+    if not image_path.exists():
+        return {"ok": False, "error": f"file not found: {path}"}
+
+    with Image.open(image_path) as image:
+        rgb = image.convert("RGB")
+        width, height = rgb.size
+        total = max(1, width * height)
+        light_pixels = 0
+        near_white_pixels = 0
+        dark_pixels = 0
+
+        for red, green, blue in rgb.getdata():
+            if red > 220 and green > 220 and blue > 220:
+                light_pixels += 1
+            if red > 245 and green > 245 and blue > 245:
+                near_white_pixels += 1
+            if red < 64 and green < 74 and blue < 96:
+                dark_pixels += 1
+
+    light_ratio = light_pixels / total
+    near_white_ratio = near_white_pixels / total
+    dark_ratio = dark_pixels / total
+    suspect = (
+        light_ratio >= LIGHT_PIXEL_RATIO_WARN
+        or near_white_ratio >= NEAR_WHITE_PIXEL_RATIO_WARN
+    )
+    return {
+        "ok": True,
+        "width": width,
+        "height": height,
+        "light_ratio": round(light_ratio, 4),
+        "near_white_ratio": round(near_white_ratio, 4),
+        "dark_ratio": round(dark_ratio, 4),
+        "suspect": suspect,
+    }
+
+
 def main():
-    parser = argparse.ArgumentParser(description="深海石墨主题截图巡检")
+    parser = argparse.ArgumentParser(description="夜晚模式截图巡检")
     parser.add_argument("--base-url", default="http://127.0.0.1:4399")
     parser.add_argument("--student-id", default="")
     parser.add_argument("--selector", default=".view-transition-root")
     parser.add_argument("--delay", type=float, default=0.8)
-    parser.add_argument("--out", default="debug-captures/theme-audit")
+    parser.add_argument("--out", default="debug-captures/night-mode-audit")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -121,7 +174,7 @@ def main():
     }
 
     for view in MODULES:
-        nav_payload = {"view": view, "student_id": student_id}
+        nav_payload = {"view": view, "student_id": student_id, "payload": {"nightMode": True}}
         nav_code, nav_body = post_json(args.base_url, "/debug/navigate", token, nav_payload, timeout=10)
         if nav_code >= 400 or not nav_body.get("success"):
             report["errors"].append({
@@ -133,7 +186,7 @@ def main():
             continue
 
         time.sleep(max(0.2, args.delay))
-        filename = f"{view}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.png"
+        filename = f"night-{view}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.png"
         shot_payload = {
             "selector": args.selector,
             "format": "png",
@@ -152,13 +205,23 @@ def main():
             continue
 
         data = shot_body.get("data") or {}
+        saved_path = data.get("saved_path", "")
+        pixel_stats = analyze_screenshot(saved_path)
+        if pixel_stats.get("suspect"):
+            report["errors"].append({
+                "view": view,
+                "stage": "pixel-audit",
+                "body": pixel_stats,
+            })
+
         report["modules"].append(
             {
                 "view": view,
-                "path": data.get("saved_path", ""),
+                "path": saved_path,
                 "mime": data.get("mime", ""),
                 "width": data.get("width", 0),
                 "height": data.get("height", 0),
+                "pixel_stats": pixel_stats,
             }
         )
 

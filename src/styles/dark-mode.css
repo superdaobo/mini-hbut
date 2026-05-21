@@ -1303,3 +1303,267 @@ html.dark .ios26-select-text {
 html.dark .ios26-select-overlay {
   background: rgba(2, 6, 23, 0.6) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   夜晚模式专项修复：这些页面原先只依赖浅色预设或 data-theme 规则。
+   夜晚模式只由 html.dark 控制，因此这里直接覆盖页面级背景和表面色。
+   ═══════════════════════════════════════════════════════════════ */
+
+html.dark body :is(
+  .official-view,
+  .feedback-view,
+  .config-editor,
+  .campus-code-view,
+  .calendar-view,
+  .more-module-host-view,
+  .ai-view
+) {
+  background:
+    radial-gradient(120% 90% at 8% 0%, rgba(37, 99, 235, 0.16), transparent 44%),
+    linear-gradient(180deg, #07111f 0%, #0f172a 58%, #111c2f 100%) !important;
+  color: #e2e8f0 !important;
+}
+
+/* 官方发布：内嵌文档加载前不能露出大块白底 */
+html.dark body .official-view .iframe-container {
+  background: #0f172a !important;
+}
+
+html.dark body .official-view iframe {
+  background: #0f172a !important;
+}
+
+/* 反馈页 */
+html.dark body .feedback-card,
+html.dark body .feedback-card .error-item {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .feedback-card :is(h3, strong, .section-head h3, .error-meta strong) {
+  color: #f8fafc !important;
+}
+
+html.dark body .feedback-card :is(p, time, .status-line, .error-meta time) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .feedback-card :is(.ghost-btn, .header-btn, .inline-copy-btn) {
+  background: rgba(30, 41, 59, 0.92) !important;
+  border-color: rgba(96, 165, 250, 0.28) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .feedback-card .error-details {
+  background: rgba(2, 6, 23, 0.72) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark body .feedback-card .section-count {
+  background: rgba(37, 99, 235, 0.24) !important;
+  color: #93c5fd !important;
+}
+
+/* 配置工具 */
+html.dark body .config-editor {
+  background:
+    radial-gradient(120% 90% at 8% 0%, rgba(124, 58, 237, 0.2), transparent 42%),
+    linear-gradient(180deg, #07111f 0%, #0f172a 58%, #111c2f 100%) !important;
+}
+
+html.dark body .config-editor .editor-card,
+html.dark body .config-editor .notice-editor,
+html.dark body .config-editor .markdown-preview {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .config-editor :is(h3, h4, h5, label, .notice-header h4) {
+  color: #e2e8f0 !important;
+}
+
+html.dark body .config-editor :is(input, textarea) {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .config-editor :is(input::placeholder, textarea::placeholder) {
+  color: #64748b !important;
+}
+
+html.dark body .config-editor .tab-btn {
+  background: rgba(30, 41, 59, 0.92) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .config-editor .tab-btn.active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+html.dark body .config-editor .btn-secondary {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+/* 校园码：卡片夜晚化，二维码白底保留以保证可扫 */
+html.dark body .campus-code-view :is(.mode-panel, .status-panel, .qr-panel, .order-panel) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.3) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .campus-code-view :is(.line .value, .meta-item strong, .order-panel h3) {
+  color: #f8fafc !important;
+}
+
+html.dark body .campus-code-view :is(.line .label, .loading-block, .qr-empty, .order-panel p, .meta-item span) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .campus-code-view :is(.mode-chip, .meta-item, .banner.idle) {
+  background: rgba(15, 23, 42, 0.76) !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  color: #dbeafe !important;
+}
+
+html.dark body .campus-code-view .mode-chip.active {
+  background: linear-gradient(135deg, #2563eb 0%, #0891b2 100%) !important;
+  color: #ffffff !important;
+}
+
+html.dark body .campus-code-view .banner.warn {
+  background: rgba(120, 53, 15, 0.34) !important;
+  border-color: rgba(251, 191, 36, 0.36) !important;
+  color: #fde68a !important;
+}
+
+html.dark body .campus-code-view .banner.error {
+  background: rgba(127, 29, 29, 0.36) !important;
+  border-color: rgba(248, 113, 113, 0.36) !important;
+  color: #fecaca !important;
+}
+
+html.dark body .campus-code-view .banner.success {
+  background: rgba(20, 83, 45, 0.36) !important;
+  border-color: rgba(74, 222, 128, 0.36) !important;
+  color: #bbf7d0 !important;
+}
+
+/* 校历 */
+html.dark body .calendar-view :is(.controls, .calendar-table) {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .calendar-view .calendar-table :is(th, td) {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .calendar-view .calendar-table thead th {
+  background: #334155 !important;
+  color: #f8fafc !important;
+}
+
+html.dark body .calendar-view .calendar-table tbody tr.is-current :is(td, .month-cell) {
+  background: rgba(37, 99, 235, 0.24) !important;
+}
+
+html.dark body .calendar-view :is(.month-cell, .meta span) {
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .calendar-view :is(.day-lunar, .remark-cell) {
+  color: #94a3b8 !important;
+}
+
+/* 更多模块宿主 */
+html.dark body .more-module-host-view :is(.module-empty-card, .module-frame-shell, .module-runtime-pill, .icon-btn) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .more-module-host-view .module-loading-overlay {
+  background: rgba(15, 23, 42, 0.86) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .more-module-host-view .module-frame {
+  background: #0f172a !important;
+}
+
+html.dark body .more-module-host-view .module-frame-hint {
+  background: rgba(37, 99, 235, 0.2) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .more-module-host-view .module-frame-error {
+  background: rgba(127, 29, 29, 0.34) !important;
+  color: #fecaca !important;
+}
+
+/* AI 页面：连接态、历史抽屉与消息容器夜晚化 */
+html.dark body .ai-view :is(.ai-header, .stream-debug, .attachment-bar, .input-area, .history-panel, .confirm-dialog, .thinking-window) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #dbeafe !important;
+}
+
+html.dark body .ai-view :is(.back-btn, .history-btn, .new-chat-btn, .history-close, .retry-btn, .confirm-cancel) {
+  background: rgba(30, 41, 59, 0.92) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .ai-view .message-row.assistant .bubble {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .ai-view .message-row.user .bubble {
+  color: #08111f !important;
+}
+
+html.dark body .ai-view :is(.status-msg, .thinking-content, .thinking-placeholder, .progress-hint, .stream-loading, .attachment-preview, .history-meta, .history-preview, .confirm-dialog p) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .ai-view :is(.history-title, .confirm-dialog h4, .thinking-window-title) {
+  color: #f8fafc !important;
+}
+
+html.dark body .ai-view .history-item {
+  background: rgba(15, 23, 42, 0.78) !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark body .ai-view .history-item.active {
+  background: rgba(30, 64, 175, 0.24) !important;
+  border-color: rgba(96, 165, 250, 0.36) !important;
+}
+
+html.dark body .ai-view .input-area input[type='text'] {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .ai-view .input-area input[type='text']::placeholder {
+  color: #64748b !important;
+}
+
+html.dark body .ai-view .rich-text :is(pre, code) {
+  background: rgba(2, 6, 23, 0.72) !important;
+  color: #e2e8f0 !important;
+}

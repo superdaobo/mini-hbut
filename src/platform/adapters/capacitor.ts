@@ -5,10 +5,39 @@ import type {
   PlatformBridge
 } from '../types'
 
-const getCapacitor = () => (window as any)?.Capacitor
+const getWindow = () => (typeof window === 'undefined' ? undefined : (window as any))
+const getCapacitor = () => getWindow()?.Capacitor
 const getPlugin = <T = any>(name: string): T | undefined =>
   getCapacitor()?.Plugins?.[name] as T | undefined
-const getHBUTNativePlugin = () => getPlugin<any>('HBUTNative')
+let hbutNativeProxy: any | null = null
+
+const getRegisteredPlugin = async <T = any>(name: string): Promise<T | undefined> => {
+  const globalPlugin = getPlugin<T>(name)
+  if (globalPlugin) return globalPlugin
+  try {
+    const mod = await import('@capacitor/core')
+    if (typeof mod.registerPlugin !== 'function') return undefined
+    if (name === 'HBUTNative') {
+      hbutNativeProxy ||= mod.registerPlugin('HBUTNative')
+      return hbutNativeProxy as T
+    }
+  } catch {
+    // ignore
+  }
+  return undefined
+}
+
+const getHBUTNativePlugin = () => getRegisteredPlugin<any>('HBUTNative')
+
+const getLocalNotifications = async () => {
+  try {
+    const mod = await import('@capacitor/local-notifications')
+    if (mod?.LocalNotifications) return mod.LocalNotifications as any
+  } catch {
+    // fallback to global plugin proxy
+  }
+  return getPlugin<any>('LocalNotifications')
+}
 
 const normalizePermission = (value: string | undefined): NotificationPermissionState => {
   if (value === 'granted') return 'granted'
@@ -63,7 +92,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async getNotificationPermission() {
-    const localNotifications = getPlugin<any>('LocalNotifications')
+    const localNotifications = await getLocalNotifications()
     if (!localNotifications?.checkPermissions) return 'prompt'
     try {
       const result = await localNotifications.checkPermissions()
@@ -74,7 +103,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async requestNotificationPermission() {
-    const localNotifications = getPlugin<any>('LocalNotifications')
+    const localNotifications = await getLocalNotifications()
     if (!localNotifications?.requestPermissions) return 'prompt'
     try {
       const result = await localNotifications.requestPermissions()
@@ -85,7 +114,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async ensureNotificationChannel(channelId: string) {
-    const localNotifications = getPlugin<any>('LocalNotifications')
+    const localNotifications = await getLocalNotifications()
     if (!localNotifications?.createChannel) return true
     try {
       await localNotifications.createChannel({
@@ -102,7 +131,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async sendLocalNotification(payload: NotifyPayload) {
-    const localNotifications = getPlugin<any>('LocalNotifications')
+    const localNotifications = await getLocalNotifications()
     if (!localNotifications?.schedule) return false
     try {
       const id = payload.id ?? Math.floor(Date.now() % 2147483000)
@@ -111,6 +140,9 @@ export const capacitorBridge: PlatformBridge = {
         id,
         title: payload.title,
         body: payload.body || '',
+        extra: {
+          view: payload.targetView || 'notifications'
+        },
         schedule: {
           at: new Date(Date.now() + 1500),
           allowWhileIdle: !isIOS
@@ -124,6 +156,28 @@ export const capacitorBridge: PlatformBridge = {
       return true
     } catch {
       return false
+    }
+  },
+
+  async addNotificationActionListener(listener: (payload: unknown) => void) {
+    const localNotifications = await getLocalNotifications()
+    if (!localNotifications?.addListener) return null
+    try {
+      const handle = await localNotifications.addListener(
+        'localNotificationActionPerformed',
+        (payload: unknown) => {
+          listener(payload)
+        }
+      )
+      return () => {
+        try {
+          void handle?.remove?.()
+        } catch {
+          // ignore listener cleanup failure
+        }
+      }
+    } catch {
+      return null
     }
   },
 
@@ -166,8 +220,8 @@ export const capacitorBridge: PlatformBridge = {
         reason: 'iOS 不支持前台服务，后台任务由系统调度'
       }
     }
-    const plugin = getHBUTNativePlugin()
-    if (!plugin?.setForegroundService) {
+    const native = await getHBUTNativePlugin()
+    if (!native?.setForegroundService) {
       return {
         supported: false,
         active: false,
@@ -176,7 +230,7 @@ export const capacitorBridge: PlatformBridge = {
       }
     }
     try {
-      const result = await plugin.setForegroundService({ enabled: !!enable })
+      const result = await native.setForegroundService({ enabled: !!enable })
       return {
         supported: true,
         active: !!result?.active,
@@ -202,7 +256,7 @@ export const capacitorBridge: PlatformBridge = {
         reason: 'iOS 不支持前台服务，后台任务由系统调度'
       }
     }
-    const plugin = getHBUTNativePlugin()
+    const plugin = await getHBUTNativePlugin()
     if (!plugin?.getForegroundServiceState) {
       return {
         supported: false,
@@ -230,7 +284,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async openBatteryOptimizationSettings() {
-    const plugin = getHBUTNativePlugin()
+    const plugin = await getHBUTNativePlugin()
     if (plugin?.openBatteryOptimizationSettings) {
       try {
         const result = await plugin.openBatteryOptimizationSettings({})

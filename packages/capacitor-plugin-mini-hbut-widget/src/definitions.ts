@@ -30,6 +30,26 @@ export interface WidgetCapabilities {
   pinned: boolean
 }
 
+export interface ElectricityWidgetSnapshot {
+  quantity: number
+  room?: string
+  acQuantity?: number
+  isLow?: boolean
+}
+
+export interface ExamWidgetItem {
+  course_name: string
+  exam_date: string
+  exam_time: string
+  location: string
+  seat_no?: string
+}
+
+export interface ExamWidgetSnapshot {
+  exams: ExamWidgetItem[]
+  days_left?: number
+}
+
 export type WidgetBridgeErrorCode =
   | 'SNAPSHOT_TOO_LARGE'     // 超过 32 KB
   | 'WRITE_FAILED'           // 底层 I/O 失败
@@ -38,6 +58,9 @@ export type WidgetBridgeErrorCode =
 
 export interface MiniHbutWidgetPlugin {
   writeSnapshot(options: { snapshot: TodayCourseSnapshot }): Promise<void>
+  writeElectricity(options: { data: ElectricityWidgetSnapshot }): Promise<void>
+  writeExam(options: { data: ExamWidgetSnapshot }): Promise<void>
+  writeThemeColor(options: { color: string }): Promise<void>
   clearSnapshot(): Promise<void>
   requestRefresh(): Promise<void>
   getCapabilities(): Promise<WidgetCapabilities>

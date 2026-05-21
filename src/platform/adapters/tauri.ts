@@ -13,10 +13,23 @@ const normalizePermission = (value: string | undefined): NotificationPermissionS
   return 'prompt'
 }
 
-const tryOpenWithRustFallback = async (target: string) => {
+const invokeNative = async <T = unknown>(command: string, args?: Record<string, unknown>) => {
   const core = await import('@tauri-apps/api/core')
+  if (typeof args === 'undefined') return core.invoke<T>(command)
+  return core.invoke<T>(command, args)
+}
+
+const isWindowsRuntime = () => {
+  if (typeof navigator === 'undefined') return false
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+  return /Windows|Win32|Win64|WinCE/i.test(
+    `${navigator.userAgent || ''} ${navigator.platform || ''} ${platform || ''}`
+  )
+}
+
+const tryOpenWithRustFallback = async (target: string) => {
   try {
-    await core.invoke('open_external_url', { url: target })
+    await invokeNative('open_external_url', { url: target })
     return true
   } catch {
     return false
@@ -65,6 +78,12 @@ export const tauriBridge: PlatformBridge = {
 
   async getNotificationPermission() {
     try {
+      const state = await invokeNative<string>('get_notification_permission_native')
+      return normalizePermission(String(state))
+    } catch {
+      // continue with plugin fallback
+    }
+    try {
       const mod = await import('@tauri-apps/plugin-notification')
       const granted = await mod.isPermissionGranted()
       return granted ? 'granted' : 'prompt'
@@ -74,6 +93,12 @@ export const tauriBridge: PlatformBridge = {
   },
 
   async requestNotificationPermission() {
+    try {
+      const state = await invokeNative<string>('request_notification_permission_native')
+      return normalizePermission(String(state))
+    } catch {
+      // continue with plugin fallback
+    }
     try {
       const mod = await import('@tauri-apps/plugin-notification')
       const state = await mod.requestPermission()
@@ -101,16 +126,45 @@ export const tauriBridge: PlatformBridge = {
 
   async sendLocalNotification(payload: NotifyPayload) {
     try {
-      const mod = await import('@tauri-apps/plugin-notification')
-      await mod.sendNotification({
+      await invokeNative('send_local_notification_native', {
         id: payload.id,
         channelId: payload.channelId,
+        title: payload.title,
+        body: payload.body,
+        targetView: payload.targetView || 'notifications'
+      })
+      return true
+    } catch {
+      // Windows 的旧 JS 通知路径可能“返回成功但系统不弹窗”，失败时必须暴露给上层。
+      if (isWindowsRuntime()) return false
+    }
+    try {
+      const mod = await import('@tauri-apps/plugin-notification')
+      await mod.sendNotification({
         title: payload.title,
         body: payload.body
       })
       return true
     } catch {
       return false
+    }
+  },
+
+  async addNotificationActionListener(listener: (payload: unknown) => void) {
+    try {
+      const mod = await import('@tauri-apps/plugin-notification')
+      const unlisten = await mod.onAction((notification) => {
+        listener(notification)
+      })
+      return () => {
+        try {
+          void unlisten.unregister()
+        } catch {
+          // ignore listener cleanup failure
+        }
+      }
+    } catch {
+      return null
     }
   },
 

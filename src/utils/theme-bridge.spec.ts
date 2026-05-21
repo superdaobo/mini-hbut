@@ -188,13 +188,17 @@ describe('transformPresetToAppleDesign', () => {
 describe('applyThemePreset', () => {
   let mockRoot: {
     style: { setProperty: ReturnType<typeof vi.fn> }
-    classList: { add: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> }
+    classList: {
+      add: ReturnType<typeof vi.fn>
+      remove: ReturnType<typeof vi.fn>
+      contains: ReturnType<typeof vi.fn>
+    }
   }
 
   beforeEach(() => {
     mockRoot = {
       style: { setProperty: vi.fn() },
-      classList: { add: vi.fn(), remove: vi.fn() },
+      classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) },
     }
     // @ts-expect-error - 模拟 document.documentElement
     globalThis.document = { documentElement: mockRoot }
@@ -205,19 +209,20 @@ describe('applyThemePreset', () => {
     delete globalThis.document
   })
 
-  it('应为有效的 light 预设设置 CSS 变量并移除 dark class', () => {
+  it('应为有效的 light 预设设置 CSS 变量且不改写夜晚模式 class', () => {
     applyThemePreset('campus_blue')
 
     expect(mockRoot.style.setProperty).toHaveBeenCalled()
-    expect(mockRoot.classList.remove).toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.remove).not.toHaveBeenCalledWith('dark')
     expect(mockRoot.classList.add).not.toHaveBeenCalledWith('dark')
   })
 
-  it('应为有效的 dark 预设设置 CSS 变量并添加 dark class', () => {
+  it('应为有效的 dark 类别预设设置 CSS 变量且不改写夜晚模式 class', () => {
     applyThemePreset('graphite_night')
 
     expect(mockRoot.style.setProperty).toHaveBeenCalled()
-    expect(mockRoot.classList.add).toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.add).not.toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.remove).not.toHaveBeenCalledWith('dark')
   })
 
   it('应为无效预设键回退到 campus_blue 并 console.warn', () => {
@@ -230,7 +235,7 @@ describe('applyThemePreset', () => {
     )
     // 回退后仍应设置 CSS 变量
     expect(mockRoot.style.setProperty).toHaveBeenCalled()
-    expect(mockRoot.classList.remove).toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.remove).not.toHaveBeenCalledWith('dark')
 
     warnSpy.mockRestore()
   })
@@ -249,7 +254,11 @@ describe('applyThemePreset', () => {
 describe('initThemeBridge', () => {
   let mockRoot: {
     style: { setProperty: ReturnType<typeof vi.fn> }
-    classList: { add: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> }
+    classList: {
+      add: ReturnType<typeof vi.fn>
+      remove: ReturnType<typeof vi.fn>
+      contains: ReturnType<typeof vi.fn>
+    }
   }
   let mockLocalStorage: Record<string, string>
   let mockMatchMedia: ReturnType<typeof vi.fn>
@@ -257,7 +266,7 @@ describe('initThemeBridge', () => {
   beforeEach(() => {
     mockRoot = {
       style: { setProperty: vi.fn() },
-      classList: { add: vi.fn(), remove: vi.fn() },
+      classList: { add: vi.fn(), remove: vi.fn(), contains: vi.fn(() => false) },
     }
     mockLocalStorage = {}
     mockMatchMedia = vi.fn().mockReturnValue({
@@ -286,16 +295,15 @@ describe('initThemeBridge', () => {
     delete globalThis.localStorage
   })
 
-  it('应在有持久化偏好时使用该偏好', () => {
+  it('应在有持久化主题偏好时使用该主题但不自动开启夜晚模式', () => {
     mockLocalStorage['hbu_ui_settings_v2'] = JSON.stringify({ preset: 'graphite_night' })
 
     initThemeBridge()
 
-    // dark 预设应添加 dark class
-    expect(mockRoot.classList.add).toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.add).not.toHaveBeenCalledWith('dark')
   })
 
-  it('应在无持久化偏好且 OS 为 dark 时使用 dark 预设', () => {
+  it('应在无持久化主题偏好且 OS 为 dark 时使用 dark 预设但不自动开启夜晚模式', () => {
     mockMatchMedia.mockReturnValue({
       matches: true,
       addEventListener: vi.fn(),
@@ -303,7 +311,7 @@ describe('initThemeBridge', () => {
 
     initThemeBridge()
 
-    expect(mockRoot.classList.add).toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.add).not.toHaveBeenCalledWith('dark')
   })
 
   it('应在无持久化偏好且 OS 为 light 时使用默认 light 预设', () => {
@@ -314,7 +322,15 @@ describe('initThemeBridge', () => {
 
     initThemeBridge()
 
-    expect(mockRoot.classList.remove).toHaveBeenCalledWith('dark')
+    expect(mockRoot.classList.remove).not.toHaveBeenCalledWith('dark')
+  })
+
+  it('应根据独立夜晚模式偏好恢复 html.dark', () => {
+    mockLocalStorage['hbu_dark_mode'] = '1'
+
+    initThemeBridge()
+
+    expect(mockRoot.classList.add).toHaveBeenCalledWith('dark')
   })
 
   it('应在 localStorage 读取失败时不崩溃', () => {

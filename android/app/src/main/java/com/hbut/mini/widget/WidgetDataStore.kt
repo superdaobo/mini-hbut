@@ -26,6 +26,8 @@ class WidgetDataStore(context: Context) {
     fun clear() {
         prefs.edit()
             .putString(KEY_SNAPSHOT_JSON, "")
+            .putString(KEY_ELECTRICITY_JSON, "")
+            .putString(KEY_EXAM_JSON, "")
             .putInt(KEY_SNAPSHOT_VERSION, 1)
             .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
             .commit()
@@ -37,6 +39,13 @@ class WidgetDataStore(context: Context) {
 
     fun readThemeColor(): String {
         return prefs.getString(KEY_THEME_COLOR, DEFAULT_THEME_COLOR) ?: DEFAULT_THEME_COLOR
+    }
+
+    fun writeThemeColor(color: String): Boolean {
+        return prefs.edit()
+            .putString(KEY_THEME_COLOR, color)
+            .putLong(KEY_LAST_WRITE_TS, System.currentTimeMillis())
+            .commit()
     }
 
     fun readElectricity(): String? = prefs.getString(KEY_ELECTRICITY_JSON, null)

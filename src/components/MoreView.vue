@@ -6,7 +6,6 @@ import {
   fetchModuleCatalog,
   fetchModuleManifest,
   getLocalModuleState,
-  getModuleCdnBase,
   isLocalModuleBridgePreviewUrl,
   prepareModuleBundle,
   resolveModuleChannel,
@@ -15,6 +14,10 @@ import {
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { getCloudSyncRuntimeConfig } from '../utils/cloud_sync.js'
 import { fetchRemoteConfig } from '../utils/remote_config.js'
+import {
+  buildModuleCenterCards,
+  normalizeModuleCenterChannel as normalizeChannel
+} from '../utils/module_center.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -23,50 +26,11 @@ const props = defineProps({
 const emit = defineEmits(['back', 'navigate'])
 
 const STUDENT_PROFILE_STORAGE_PREFIX = 'hbu_more_module_student_profile:'
-const DEFAULT_MODULES = Object.freeze([
-  {
-    id: 'hecheng_hugongda',
-    name: '合成湖工大',
-    icon: '🎮',
-    description: '下载最新游戏包并打开',
-    key_required: false,
-    kind: 'remote',
-    order: 1
-  },
-  {
-    id: 'jump_out_hbut',
-    name: '跳出湖工大',
-    icon: '🦘',
-    description: '跳一跳风格校园跳跃小游戏',
-    key_required: false,
-    kind: 'remote',
-    order: 2
-  },
-  {
-    id: 'hbut_2048',
-    name: '2048 湖工大版',
-    icon: '🔢',
-    description: '经典 2048 数字合并游戏',
-    key_required: false,
-    kind: 'remote',
-    order: 3
-  },
-  {
-    id: 'clumsy_bird_hbut',
-    name: '笨鸟先飞',
-    icon: '🐦',
-    description: '点击屏幕控制小鸟飞行',
-    key_required: false,
-    kind: 'remote',
-    order: 4
-  }
-])
 
 const moduleLoading = ref(true)
 const refreshing = ref(false)
 const moduleError = ref('')
 const moduleChannel = ref('main')
-const moduleCatalogMap = ref(new Map())
 const moduleCardsSource = ref([])
 const moduleStates = ref({})
 const moduleBusyKey = ref('')
@@ -82,21 +46,6 @@ const safeParseJson = (raw, fallback = null) => {
 const safeNumber = (value, fallback = 0) => {
   const num = Number(value)
   return Number.isFinite(num) ? num : fallback
-}
-const toBool = (value) => value === true || value === 1 || value === '1'
-const normalizeChannel = (value, fallback = 'main') => {
-  const normalized = safeText(value).toLowerCase()
-  if (normalized === 'latest') return 'latest'
-  if (normalized === 'dev') return 'dev'
-  if (normalized === 'main') return 'main'
-  if (fallback === 'dev') return 'dev'
-  return 'main'
-}
-const buildDefaultManifestUrl = (_channel, moduleId) => {
-  const normalizedChannel = normalizeChannel(_channel, 'main')
-  const id = safeText(moduleId)
-  if (!id) return ''
-  return `${getModuleCdnBase()}/${normalizedChannel}/${id}/manifest.json`
 }
 
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
@@ -376,55 +325,8 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
   })
 }
 
-const buildDefaultModules = (channel = 'main') => {
-  return DEFAULT_MODULES.map((item, index) =>
-    normalizeConfiguredModule(item, index, channel)
-  ).filter(Boolean)
-}
-
-const normalizeConfiguredModule = (item, index = 0, channel = 'main') => {
-  const raw = item && typeof item === 'object' ? item : {}
-  const id = safeText(raw.id || raw.module_id)
-  if (!id) return null
-
-  const kindText = safeText(raw.kind || raw.type).toLowerCase()
-  const kind = kindText === 'internal' ? 'internal' : 'remote'
-  const order = safeNumber(raw.order, index + 1)
-  const view = safeText(raw.view || raw.route || '')
-  const icon = safeText(raw.icon || (kind === 'remote' ? '📦' : '🧩'))
-  return {
-    id,
-    name: safeText(raw.name || raw.module_name || raw.title || id),
-    icon,
-    description: safeText(raw.description || raw.desc || ''),
-    key_required: toBool(raw.key_required || raw.keyRequired),
-    kind,
-    view,
-    order,
-    min_compatible_version: safeText(raw.min_compatible_version || raw.minCompatibleVersion),
-    manifest_url: kind === 'remote' ? buildDefaultManifestUrl(channel, id) : ''
-  }
-}
-
-const mergeWithCatalog = (item, catalogMap = moduleCatalogMap.value) => {
-  if (!item || item.kind !== 'remote') return item
-  const catalogItem = catalogMap.get(item.id)
-  if (!catalogItem) return item
-  return {
-    ...catalogItem,
-    ...item,
-    kind: 'remote',
-    manifest_url: safeText(
-      catalogItem.manifest_url ||
-        item.manifest_url ||
-        buildDefaultManifestUrl(moduleChannel.value || 'main', item.id)
-    )
-  }
-}
-
-const applyModuleCards = (items, channel, catalogModules = []) => {
+const applyModuleCards = (items, channel) => {
   moduleChannel.value = normalizeChannel(channel)
-  moduleCatalogMap.value = new Map((catalogModules || []).map((item) => [item.id, item]))
   moduleCardsSource.value = Array.isArray(items) ? items.filter(Boolean) : []
   bootstrapModuleState()
 }
@@ -683,7 +585,7 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
 
   const preferredChannel = normalizeChannel(await resolveModuleChannel(), 'main')
   if (!moduleCardsSource.value.length) {
-    applyModuleCards(buildDefaultModules(preferredChannel), preferredChannel)
+    applyModuleCards(buildModuleCenterCards({ channel: preferredChannel }), preferredChannel)
   }
   let targetChannel = preferredChannel
   let configuredModules = []
@@ -697,8 +599,6 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
       ? remoteConfig.module_center.modules
       : []
     configuredModules = rawModules
-      .map((item, index) => normalizeConfiguredModule(item, index, targetChannel))
-      .filter(Boolean)
   } catch {
     // 远程配置失败时继续走 catalog 兜底
   }
@@ -712,28 +612,14 @@ const loadModuleCatalog = async ({ silent = false } = {}) => {
     moduleChannel.value = normalizeChannel(targetChannel, preferredChannel)
     catalogModules = []
   }
-  const nextCatalogMap = new Map(catalogModules.map((item) => [item.id, item]))
 
-  let merged = []
-  if (configuredModules.length > 0) {
-    merged = configuredModules.map((item) => mergeWithCatalog(item, nextCatalogMap))
-  } else if (catalogModules.length > 0) {
-    merged = catalogModules
-      .map((item, index) => normalizeConfiguredModule(item, index, moduleChannel.value))
-      .filter(Boolean)
-  }
-
-  if (merged.length === 0) {
-    merged = DEFAULT_MODULES.map((item, index) =>
-      normalizeConfiguredModule(item, index, moduleChannel.value)
-    ).filter(Boolean)
-  }
-
-  applyModuleCards(
-    merged.length > 0 ? merged : buildDefaultModules(targetChannel),
-    moduleChannel.value || targetChannel,
+  const resolvedChannel = normalizeChannel(moduleChannel.value || targetChannel, preferredChannel)
+  const merged = buildModuleCenterCards({
+    channel: resolvedChannel,
+    configuredModules,
     catalogModules
-  )
+  })
+  applyModuleCards(merged, resolvedChannel)
 
   if (!silent) moduleLoading.value = false
 }
@@ -746,7 +632,7 @@ const refreshModules = async () => {
 
 onMounted(async () => {
   const preferredChannel = normalizeChannel(await resolveModuleChannel(), 'main')
-  applyModuleCards(buildDefaultModules(preferredChannel), preferredChannel)
+  applyModuleCards(buildModuleCenterCards({ channel: preferredChannel }), preferredChannel)
   moduleLoading.value = false
   void ensureStudentProfile()
   void loadModuleCatalog({ silent: true })

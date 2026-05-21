@@ -13,7 +13,7 @@
         android:id="@+id/widget_item_period"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#FF2563EB"
+        android:textColor="@color/widget_period_text"
         android:textSize="12sp"
         android:textStyle="bold"
         android:paddingEnd="8dp"
@@ -25,7 +25,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textColor="#FF1A2332"
+        android:textColor="@color/widget_text_primary"
         android:textSize="13sp"
         android:textStyle="bold"
         android:maxLines="1"
@@ -37,7 +37,7 @@
         android:id="@+id/widget_item_time"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#FF5C6B7A"
+        android:textColor="@color/widget_text_secondary"
         android:textSize="11sp"
         android:paddingEnd="6dp" />
 
@@ -46,7 +46,7 @@
         android:id="@+id/widget_item_location"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#FF2563EB"
+        android:textColor="@color/widget_location_text"
         android:textSize="11sp"
         android:maxLines="1"
         android:ellipsize="end" />

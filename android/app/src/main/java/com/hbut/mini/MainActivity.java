@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(HBUTNativePlugin.class);
+        registerPlugin(MiniHbutWidgetPlugin.class);
         super.onCreate(savedInstanceState);
         configureWebViewForEmbeddedModules();
         registerBackgroundFetchHeadless();

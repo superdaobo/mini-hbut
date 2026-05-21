@@ -2,8 +2,13 @@
 // 门面：封装 Widget Bridge 单例 + schema/字节数校验 + 重试
 // 支持 Capacitor 和 Tauri Android 两种运行时
 
-import { MiniHbutWidget } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
-import type { TodayCourseSnapshot, MiniHbutWidgetPlugin } from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
+import type {
+  ElectricityWidgetSnapshot,
+  ExamWidgetSnapshot,
+  TodayCourseSnapshot,
+  MiniHbutWidgetPlugin
+} from '@mini-hbut/capacitor-plugin-mini-hbut-widget'
+import { registerPlugin } from '@capacitor/core'
 import { validateSnapshot } from '@/utils/widget_snapshot_schema'
 import { pushDebugLog } from '@/utils/debug_logger'
 import { isTauriRuntime, isCapacitorRuntime, invokeNative } from '@/platform/native'
@@ -38,6 +43,15 @@ function createTauriAndroidBridge(): MiniHbutWidgetPlugin {
       const json = JSON.stringify(options.snapshot)
       await invokeNative('write_widget_snapshot', { snapshotJson: json })
     },
+    async writeElectricity(options: { data: ElectricityWidgetSnapshot }): Promise<void> {
+      await invokeNative('write_electricity_snapshot', { json: JSON.stringify(options.data) })
+    },
+    async writeExam(options: { data: ExamWidgetSnapshot }): Promise<void> {
+      await invokeNative('write_exam_snapshot', { json: JSON.stringify(options.data) })
+    },
+    async writeThemeColor(options: { color: string }): Promise<void> {
+      await invokeNative('write_widget_theme_color', { color: options.color })
+    },
     async clearSnapshot(): Promise<void> {
       await invokeNative('clear_widget_snapshot')
     },
@@ -56,6 +70,9 @@ function createTauriAndroidBridge(): MiniHbutWidgetPlugin {
 function createNoOpProxy(): MiniHbutWidgetPlugin {
   return {
     writeSnapshot: () => Promise.resolve(),
+    writeElectricity: () => Promise.resolve(),
+    writeExam: () => Promise.resolve(),
+    writeThemeColor: () => Promise.resolve(),
     clearSnapshot: () => Promise.resolve(),
     requestRefresh: () => Promise.resolve(),
     getCapabilities: () => Promise.resolve({ platform: 'unavailable', pinned: false }),
@@ -66,6 +83,19 @@ function createNoOpProxy(): MiniHbutWidgetPlugin {
 
 let _bridge: MiniHbutWidgetPlugin | null = null
 let _debugLogged = false
+let _capacitorWidget: MiniHbutWidgetPlugin | null = null
+
+function getCapacitorWidgetPlugin(): MiniHbutWidgetPlugin {
+  if (_capacitorWidget) return _capacitorWidget
+  const cap = typeof window === 'undefined' ? undefined : (window as any).Capacitor
+  const globalPlugin = cap?.Plugins?.MiniHbutWidget
+  if (globalPlugin) {
+    _capacitorWidget = globalPlugin as MiniHbutWidgetPlugin
+    return _capacitorWidget
+  }
+  _capacitorWidget = registerPlugin<MiniHbutWidgetPlugin>('MiniHbutWidget')
+  return _capacitorWidget
+}
 
 /**
  * 获取 Widget Bridge 单例。
@@ -90,7 +120,7 @@ export function getWidgetBridge(): MiniHbutWidgetPlugin {
       console.debug('[widget] Capacitor detected, using MiniHbutWidget plugin')
       _debugLogged = true
     }
-    _bridge = MiniHbutWidget
+    _bridge = getCapacitorWidgetPlugin()
     return _bridge
   }
 
@@ -138,6 +168,18 @@ export async function writeSnapshot(snapshot: TodayCourseSnapshot): Promise<void
  */
 export async function clearSnapshot(): Promise<void> {
   await getWidgetBridge().clearSnapshot()
+}
+
+export async function writeElectricitySnapshot(data: ElectricityWidgetSnapshot): Promise<void> {
+  await getWidgetBridge().writeElectricity({ data })
+}
+
+export async function writeExamSnapshot(data: ExamWidgetSnapshot): Promise<void> {
+  await getWidgetBridge().writeExam({ data })
+}
+
+export async function writeWidgetThemeColor(color: string): Promise<void> {
+  await getWidgetBridge().writeThemeColor({ color })
 }
 
 /**

@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F0FFFFFF"
+    android:background="@drawable/widget_background"
     android:padding="14dp"
     android:clipToOutline="true">
 
@@ -12,8 +12,8 @@
         android:id="@+id/widget_elec_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="⚡ 电费余量"
-        android:textColor="#FF1A2332"
+        android:text="电费余量"
+        android:textColor="@color/widget_text_primary"
         android:textSize="14sp"
         android:textStyle="bold"
         android:paddingBottom="8dp" />
@@ -23,7 +23,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="--"
-        android:textColor="#FF2563EB"
+        android:textColor="@color/widget_accent"
         android:textSize="22sp"
         android:textStyle="bold"
         android:gravity="center"
@@ -34,7 +34,7 @@
         android:id="@+id/widget_elec_room"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#FF5C6B7A"
+        android:textColor="@color/widget_text_secondary"
         android:textSize="11sp"
         android:gravity="center"
         android:visibility="gone" />
@@ -44,7 +44,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:textColor="#FF2563EB"
+        android:textColor="@color/widget_location_text"
         android:textSize="11sp"
         android:textStyle="bold"
         android:layout_marginTop="6dp"

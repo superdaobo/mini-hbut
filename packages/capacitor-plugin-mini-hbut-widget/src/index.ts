@@ -12,6 +12,9 @@ export { MiniHbutWidget }
 export type {
   WidgetCourse,
   TodayCourseSnapshot,
+  ElectricityWidgetSnapshot,
+  ExamWidgetItem,
+  ExamWidgetSnapshot,
   WidgetCapability,
   WidgetCapabilities,
   WidgetBridgeErrorCode,

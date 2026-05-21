@@ -226,3 +226,72 @@ describe('requestRefresh', () => {
     await expect(requestRefresh()).resolves.toBeUndefined()
   })
 })
+
+describe('widget data writers', () => {
+  beforeEach(() => {
+    resetModule()
+    vi.spyOn(console, 'debug').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any).window
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (globalThis as any).navigator
+  })
+
+  it('delegates electricity, exam and theme writes to the Capacitor widget plugin', async () => {
+    const plugin = {
+      writeSnapshot: vi.fn().mockResolvedValue(undefined),
+      writeElectricity: vi.fn().mockResolvedValue(undefined),
+      writeExam: vi.fn().mockResolvedValue(undefined),
+      writeThemeColor: vi.fn().mockResolvedValue(undefined),
+      clearSnapshot: vi.fn().mockResolvedValue(undefined),
+      requestRefresh: vi.fn().mockResolvedValue(undefined),
+      getCapabilities: vi.fn().mockResolvedValue({ platform: 'android-appwidget', pinned: true }),
+    }
+
+    Object.defineProperty(globalThis, 'navigator', {
+      value: { userAgent: 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Mobile Safari/537.36' },
+      configurable: true,
+    })
+    Object.defineProperty(globalThis, 'window', {
+      value: {
+        location: { protocol: 'https:', host: 'localhost' },
+        Capacitor: {
+          isNativePlatform: () => true,
+          getPlatform: () => 'android',
+          Plugins: {
+            MiniHbutWidget: plugin,
+          },
+        },
+      },
+      configurable: true,
+    })
+
+    const { writeElectricitySnapshot, writeExamSnapshot, writeWidgetThemeColor } = await import('./widget')
+
+    const electricity = { quantity: 8.5, room: '南区 1栋 2层', acQuantity: 18.2, isLow: true }
+    const exam = {
+      exams: [
+        {
+          course_name: '高等数学',
+          exam_date: '2026-06-01',
+          exam_time: '09:00-11:00',
+          location: '教一 101',
+          seat_no: '12',
+        },
+      ],
+      days_left: 3,
+    }
+
+    await writeElectricitySnapshot(electricity)
+    await writeExamSnapshot(exam)
+    await writeWidgetThemeColor('#2563eb')
+
+    expect(plugin.writeElectricity).toHaveBeenCalledWith({ data: electricity })
+    expect(plugin.writeExam).toHaveBeenCalledWith({ data: exam })
+    expect(plugin.writeThemeColor).toHaveBeenCalledWith({ color: '#2563eb' })
+  })
+})

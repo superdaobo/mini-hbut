@@ -16,6 +16,7 @@ object WidgetRefreshScheduler {
      * 注册周期刷新（当前为空实现，依赖系统 updatePeriodMillis）。
      * 在第一个 widget 实例被添加时调用。
      */
+    @Suppress("UNUSED_PARAMETER")
     fun ensurePeriodic(context: Context) {
         // 系统 updatePeriodMillis=1800000 已提供 30 分钟兜底刷新
         // WorkManager 周期任务在 Tauri 构建中不可用，此处为空实现
@@ -25,6 +26,7 @@ object WidgetRefreshScheduler {
      * 取消周期刷新（当前为空实现）。
      * 在最后一个 widget 实例被移除时调用。
      */
+    @Suppress("UNUSED_PARAMETER")
     fun cancelPeriodic(context: Context) {
         // 空实现
     }
@@ -44,11 +46,35 @@ object WidgetRefreshScheduler {
         }
     }
 
+    fun triggerElectricityImmediate(context: Context) {
+        val mgr = AppWidgetManager.getInstance(context)
+        val ids = mgr.getAppWidgetIds(ComponentName(context, ElectricityWidgetProvider::class.java))
+        ids.forEach { id ->
+            ElectricityWidgetRenderer.updateWidget(context, mgr, id)
+        }
+    }
+
+    fun triggerExamImmediate(context: Context) {
+        val mgr = AppWidgetManager.getInstance(context)
+        val ids = mgr.getAppWidgetIds(ComponentName(context, ExamWidgetProvider::class.java))
+        ids.forEach { id ->
+            ExamWidgetRenderer.updateWidget(context, mgr, id)
+        }
+    }
+
+    fun triggerAllImmediate(context: Context) {
+        triggerImmediate(context)
+        triggerElectricityImmediate(context)
+        triggerExamImmediate(context)
+    }
+
     /**
      * 检查是否存在已添加的 widget 实例。
      */
     fun hasPinnedInstance(context: Context): Boolean {
         val mgr = AppWidgetManager.getInstance(context)
-        return mgr.getAppWidgetIds(ComponentName(context, TodayCoursesProvider::class.java)).isNotEmpty()
+        return mgr.getAppWidgetIds(ComponentName(context, TodayCoursesProvider::class.java)).isNotEmpty() ||
+            mgr.getAppWidgetIds(ComponentName(context, ElectricityWidgetProvider::class.java)).isNotEmpty() ||
+            mgr.getAppWidgetIds(ComponentName(context, ExamWidgetProvider::class.java)).isNotEmpty()
     }
 }

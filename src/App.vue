@@ -46,6 +46,8 @@ import {
   isTauriRuntime
 } from './platform/native'
 import { isCapacitorRuntime } from './platform/native'
+import { platformBridge } from './platform'
+import { resolveNotificationActionTarget } from './platform/notification_actions'
 
 const createAsyncPage = (loader) => defineAsyncComponent({
   loader,
@@ -147,6 +149,7 @@ let iosReloadFallbackAt = 0
 let appBootstrapped = false
 let capacitorAppStateListener = null
 let widgetCrossDayTimer = null
+let removeNotificationActionListener = null
 
 // Widget 深链接参数（由 widgetDeeplink 事件或 appUrlOpen 注入）
 const widgetDeeplinkDate = ref('')
@@ -1036,6 +1039,36 @@ const installWidgetDeeplinkListeners = () => {
       })
     }).catch(() => {})
   }
+}
+
+const runAfterAppBootstrapped = (callback) => {
+  if (appBootstrapped) {
+    callback()
+    return
+  }
+  const waitForBoot = setInterval(() => {
+    if (!appBootstrapped) return
+    clearInterval(waitForBoot)
+    callback()
+  }, 100)
+  setTimeout(() => clearInterval(waitForBoot), 5000)
+}
+
+const handleNotificationActionPayload = (payload) => {
+  const { view } = resolveNotificationActionTarget(payload)
+  runAfterAppBootstrapped(() => {
+    goToView(view, { push: true })
+  })
+}
+
+const installNotificationActionListener = () => {
+  platformBridge.addNotificationActionListener(handleNotificationActionPayload)
+    .then((remove) => {
+      removeNotificationActionListener = typeof remove === 'function' ? remove : null
+    })
+    .catch(() => {
+      removeNotificationActionListener = null
+    })
 }
 
 const handleAppResume = (source = 'visibilitychange') => {
@@ -2215,6 +2248,7 @@ onMounted(async () => {
   window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
   scheduleViewportUpdate()
   installWidgetDeeplinkListeners()
+  installNotificationActionListener()
   clearJwxtMaintenance()
   const cachedAnnouncements = restoreAnnouncementSnapshot()
   if (cachedAnnouncements) {
@@ -2418,6 +2452,10 @@ onBeforeUnmount(() => {
   if (typeof unlistenCloseRequested === 'function') {
     unlistenCloseRequested()
     unlistenCloseRequested = null
+  }
+  if (typeof removeNotificationActionListener === 'function') {
+    removeNotificationActionListener()
+    removeNotificationActionListener = null
   }
   void stopNotificationMonitor()
   stopJwxtRecoveryPolling()

@@ -69,6 +69,10 @@ export const webBridge: PlatformBridge = {
     return true
   },
 
+  async addNotificationActionListener() {
+    return null
+  },
+
   async keepScreenOn(enable: boolean) {
     // Web 端仅作为弱能力兜底，iOS Safari 对 WakeLock 支持有限。
     if (!enable) return true

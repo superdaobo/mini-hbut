@@ -1,5 +1,8 @@
 import html2canvas from 'html2canvas'
 
+const DEFAULT_LIGHT_CAPTURE_BACKGROUND = '#f4f7ff'
+const DEFAULT_DARK_CAPTURE_BACKGROUND = '#0f172a'
+
 export const blobToDataUrl = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -59,10 +62,40 @@ export const resolveCaptureTarget = (selector?: string | null): HTMLElement => {
   throw new Error('当前页面尚未准备完成，无法截图')
 }
 
+const isTransparentBackground = (value?: string | null) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  return (
+    !normalized ||
+    normalized === 'transparent' ||
+    normalized === 'rgba(0, 0, 0, 0)' ||
+    normalized === 'rgba(0,0,0,0)'
+  )
+}
+
+export const resolveCaptureBackgroundColor = (
+  target: HTMLElement,
+  explicitBackgroundColor?: string | null
+) => {
+  const explicit = String(explicitBackgroundColor || '').trim()
+  if (explicit) return explicit
+
+  const doc = target.ownerDocument || document
+  const root = doc.documentElement
+  const readComputedStyle = doc.defaultView?.getComputedStyle?.bind(doc.defaultView) || globalThis.getComputedStyle
+  const candidates = [target, doc.body, root].filter(Boolean) as HTMLElement[]
+  for (const candidate of candidates) {
+    const color = readComputedStyle(candidate).backgroundColor
+    if (!isTransparentBackground(color)) return color
+  }
+
+  const isDark = root.classList.contains('dark')
+  return isDark ? DEFAULT_DARK_CAPTURE_BACKGROUND : DEFAULT_LIGHT_CAPTURE_BACKGROUND
+}
+
 export const captureElementToBlob = async ({
   selector,
   format = 'png',
-  backgroundColor = '#f4f7ff',
+  backgroundColor,
   scale,
   maxHeight
 }: {
@@ -91,10 +124,11 @@ export const captureElementToBlob = async ({
   target.classList.add('capture-mode')
   try {
     await waitForCaptureReady(target)
+    const resolvedBackgroundColor = resolveCaptureBackgroundColor(target, backgroundColor)
     const canvas = await renderElementToCanvas(target, {
       exportWidth,
       exportHeight,
-      backgroundColor,
+      backgroundColor: resolvedBackgroundColor,
       scale
     })
     const mime = format === 'webp' ? 'image/webp' : 'image/png'
@@ -124,7 +158,7 @@ export const renderElementToCanvas = async (
   {
     exportWidth,
     exportHeight,
-    backgroundColor = '#f4f7ff',
+    backgroundColor = DEFAULT_LIGHT_CAPTURE_BACKGROUND,
     scale
   }: {
     exportWidth?: number

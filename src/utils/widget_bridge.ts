@@ -6,7 +6,13 @@
 // schedule_prefetch.js 导入了本文件的 afterScheduleRefresh。
 
 import { buildTodayCourseSnapshot } from './widget_snapshot'
-import { writeSnapshotWithRetry, clearSnapshot } from '@/platform/capacitor/widget'
+import {
+  writeSnapshotWithRetry,
+  clearSnapshot,
+  writeElectricitySnapshot,
+  writeExamSnapshot,
+  writeWidgetThemeColor as writeNativeWidgetThemeColor
+} from '@/platform/capacitor/widget'
 import { pushDebugLog } from './debug_logger'
 import { getCacheKey } from './api.js'
 import { isTauriRuntime, invokeNative } from '@/platform/native'
@@ -223,13 +229,10 @@ export async function writeElectricityToWidget(data: {
   isLow?: boolean
 }): Promise<void> {
   try {
-    if (!isTauriRuntime()) return
-    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
-    if (!ua.includes('android')) return
-    const json = JSON.stringify(data)
-    await invokeNative('write_electricity_snapshot', { json })
+    await writeElectricitySnapshot(data)
   } catch (err: unknown) {
     console.warn('[widget] writeElectricityToWidget failed:', err)
+    pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeElectricityToWidget' })
   }
 }
 
@@ -241,13 +244,10 @@ export async function writeExamToWidget(data: {
   days_left?: number
 }): Promise<void> {
   try {
-    if (!isTauriRuntime()) return
-    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
-    if (!ua.includes('android')) return
-    const json = JSON.stringify(data)
-    await invokeNative('write_exam_snapshot', { json })
+    await writeExamSnapshot(data)
   } catch (err: unknown) {
     console.warn('[widget] writeExamToWidget failed:', err)
+    pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeExamToWidget' })
   }
 }
 
@@ -257,11 +257,9 @@ export async function writeExamToWidget(data: {
  */
 export async function writeWidgetThemeColor(color: string): Promise<void> {
   try {
-    if (!isTauriRuntime()) return
-    const ua = String(globalThis?.navigator?.userAgent || '').toLowerCase()
-    if (!ua.includes('android')) return
-    await invokeNative('write_widget_theme_color', { color })
+    await writeNativeWidgetThemeColor(color)
   } catch (err: unknown) {
     console.warn('[widget] writeWidgetThemeColor failed:', err)
+    pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeWidgetThemeColor' })
   }
 }

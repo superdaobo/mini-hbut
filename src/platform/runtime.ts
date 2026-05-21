@@ -46,10 +46,8 @@ const looksLikePackagedCapacitorHost = () => {
   // tauri.localhost 是 Tauri Android 的 origin，不是 Capacitor
   if (host === 'tauri.localhost' || host.startsWith('tauri.localhost:')) return false
   if (!isMobileUserAgent()) return false
-  const ua = String(globalThis?.navigator?.userAgent || '')
-  const hasWebViewMarker = /;\s*wv\)/i.test(ua)
   const hasCapacitorBridge = !!w.Capacitor
-  return hasCapacitorBridge || hasWebViewMarker
+  return hasCapacitorBridge
 }
 
 const isTauriRuntime = () => {

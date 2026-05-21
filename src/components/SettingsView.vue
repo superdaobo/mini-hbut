@@ -37,8 +37,13 @@ import {
   pushDebugLog,
   subscribeDebugLogs
 } from '../utils/debug_logger'
+import {
+  applyNightModePreference,
+  initNightModeClass,
+  isNightModeEnabled
+} from '../utils/night_mode'
 
-const emit = defineEmits(['back'])
+const emit = defineEmits(['back', 'openWorkspaceLayout'])
 
 const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
 const REMOTE_UPLOAD_ENDPOINT_KEY = 'hbu_temp_upload_endpoint'
@@ -62,7 +67,7 @@ const appSettings = useAppSettings()
 const fontSettings = useFontSettings()
 
 // 夜间模式状态
-const isDarkMode = ref(document.documentElement.classList.contains('dark'))
+const isDarkMode = ref(isNightModeEnabled())
 const themeTransitioning = ref(false)
 const themeTransitionType = ref('') // 'to-dark' or 'to-light'
 
@@ -74,13 +79,7 @@ const toggleDarkMode = (event) => {
   // 延迟切换实际主题，让动画先播放
   setTimeout(() => {
     isDarkMode.value = willBeDark
-    if (willBeDark) {
-      document.documentElement.classList.add('dark')
-      localStorage.setItem('hbu_dark_mode', '1')
-    } else {
-      document.documentElement.classList.remove('dark')
-      localStorage.setItem('hbu_dark_mode', '0')
-    }
+    applyNightModePreference(willBeDark)
   }, 400)
 
   // 动画结束后移除遮罩
@@ -92,11 +91,7 @@ const toggleDarkMode = (event) => {
 
 // 初始化时读取暗色模式偏好
 const initDarkMode = () => {
-  const stored = localStorage.getItem('hbu_dark_mode')
-  if (stored === '1') {
-    isDarkMode.value = true
-    document.documentElement.classList.add('dark')
-  }
+  isDarkMode.value = initNightModeClass()
 }
 initDarkMode()
 

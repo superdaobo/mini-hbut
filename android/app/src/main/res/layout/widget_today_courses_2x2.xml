@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FFFFFFFF"
+    android:background="@drawable/widget_background"
     android:padding="12dp"
     android:gravity="center_vertical">
 
@@ -13,7 +13,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="今日课程"
-        android:textColor="#FF1A2332"
+        android:textColor="@color/widget_text_primary"
         android:textSize="14sp"
         android:textStyle="bold"
         android:maxLines="1"
@@ -23,7 +23,7 @@
         android:id="@+id/widget_next_course_name"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#FF1A2332"
+        android:textColor="@color/widget_text_primary"
         android:textSize="14sp"
         android:maxLines="1"
         android:ellipsize="end" />
@@ -32,7 +32,7 @@
         android:id="@+id/widget_next_course_time"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#FF5C6B7A"
+        android:textColor="@color/widget_text_secondary"
         android:textSize="12sp"
         android:maxLines="1"
         android:paddingTop="2dp" />
@@ -41,7 +41,7 @@
         android:id="@+id/widget_next_course_location"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#FF5C6B7A"
+        android:textColor="@color/widget_location_text"
         android:textSize="12sp"
         android:maxLines="1"
         android:paddingTop="2dp" />
