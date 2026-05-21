@@ -315,14 +315,36 @@
 
 ## Task 9：新增至少一个额外湖工特色小游戏
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：新增轻量游戏模块。
 - 目标：补足“多做几个游戏”的范围，玩法与已有游戏差异明显，并具备可玩闭环。
 - 验证：核心逻辑测试 + 模块入口可打开 + 竖屏可玩。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行 Task 9，不进入大型检查 C。
+  - 设计假设：Goal Mode 禁止暂停提问，因此选择自研轻量“湖工记忆牌”，模块 ID 为 `hbut_memory_match`；玩法是翻开两张校园记忆牌，匹配同一湖工地点/物件，和已有跳跃、飞行、大富翁、矿工玩法形成明显差异。
+  - 按 TDD 先新增红灯测试：`src/utils/website_game_modules_contract.spec.ts` 把 `hbut_memory_match` 纳入源码模块发现、默认模块中心、入口、Vite base、iOS viewport、动态视口、安全区和宿主高度上报契约；新增 `src/utils/hbut_memory_match_game.spec.ts` 覆盖湖工主题牌组、成对洗牌、翻牌匹配、翻错隐藏、全部配对胜利、重开恢复和竖屏固定视口样式。
+  - TDD 红灯：首次运行 `npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_memory_match_game.spec.ts --testTimeout 60000` 失败，失败点包括缺少 `hbut_memory_match` 源码模块、入口 HTML、`main.js` 和核心规则文件，符合预期。
+  - 新增 `website/modules-src/hbut_memory_match/module.json`，接入模块构建系统，模块名“湖工记忆牌”，order 为 9。
+  - 新增 `website/modules-src/hbut_memory_match/project` Vite 模块，包含 `index.html`、`package.json`、`package-lock.json`、`vite.config.js`、本地空 `postcss.config.js`、`src/main.js`、`src/style.css`、`src/game/memory.js`。
+  - 新增核心规则 `memory.js`：提供 `CAMPUS_MEMORY_PAIRS`，包含南湖、图书馆、工程楼、西区食堂、运动场、实验室等湖工主题牌组；实现 `createInitialMemoryState()`、`flipMemoryCard()`、`tickMemoryGame()`、`restartMemoryGame()`，覆盖成对牌组、确定性洗牌、计步、匹配锁定、翻错隐藏、胜利和重开。
+  - 新增移动端页面 UI：3×4 竖屏记忆牌桌、步数/配对/用时指标、状态面板、重开按钮和配对记录；牌面按校园/学习/生活分类显示，触控按钮适合 iframe 内竖屏操作。
+  - 新增宿主嵌入桥接：`MODULE_ID = 'hbut_memory_match'`、动态 `--module-vh`、`resize/orientationchange/visualViewport.resize` 同步、`ResizeObserver`、`mini-hbut:module-size` 高度上报。
+  - 更新 `src/utils/module_center.js` 默认模块中心，加入 `hbut_memory_match` 远程模块入口。
 - 验证结果：
+  - 绿灯测试：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_memory_match_game.spec.ts --testTimeout 60000` 通过，3 个测试文件、14 个测试全部通过。
+  - 锁文件生成：`npm.cmd install --package-lock-only --ignore-scripts --no-audit --no-fund`（workdir：`website/modules-src/hbut_memory_match/project`）通过，生成 `package-lock.json`。
+  - 依赖安装验证：`npm.cmd ci --prefer-offline --no-audit --no-fund`（workdir：`website/modules-src/hbut_memory_match/project`）通过，确认发布脚本的 `npm ci` 路径可用；`node_modules/` 和 `dist/` 均被 `.gitignore` 忽略。
+  - 新模块构建：`npm.cmd run build`（workdir：`website/modules-src/hbut_memory_match/project`）通过，Vite 输出 `dist/index.html`、CSS 和 JS bundle，无新增构建 warning。
+  - Playwright 390×844 直开验证：`http://127.0.0.1:5190/` 下 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`appHeight=844`、`overflowX=hidden`、`overflowY=hidden`、`--module-vh=8.44px`、牌桌高度约 500px、共 12 张牌，初始步数 0、配对 0/6。
+  - Playwright 翻牌交互验证：点击前两张牌后，步数变为 1，状态变为“记住位置，继续翻牌”，页面仍保持 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`。
+  - Playwright 模拟 HTTP 宿主 iframe 验证：390×844 iframe 收到 3 条 `mini-hbut:module-size` 消息，`module_id/moduleId` 均为 `hbut_memory_match`，高度均为 844；控制台仅有 Vite debug 连接日志，无 pageerror。
+  - 服务清理：停止本轮实际监听在 5190 的 Vite/Node 进程，复查 `Get-NetTCPConnection -LocalPort 5190 -State Listen -ErrorAction SilentlyContinue` 无监听输出。
 - 剩余风险：
+  - 新模块是自研轻量记忆配对玩法，未引入外部开源代码，因此无新增第三方玩法代码许可证风险；玩法深度集中在单局配对闭环，没有长线关卡或排行榜。
+  - 本轮只提交源码和锁文件，不同步 `website/public/modules` 构建产物；后续发布/最终审计需要统一运行模块发布脚本并处理已有产物改动。
+  - 浏览器验证仍使用 Chromium 移动视口，不等同于真实 iOS WKWebView/Tauri 设备长时间游玩。
 - 下一步：
+  - 执行大型检查 C：完成 Task 7-9 后，对新增游戏数量、玩法差异、catalog/manifest 一致性、许可证风险、构建和移动端可玩性进行全面检查-debug循环。
 
 ## 大型检查 C：完成 Task 7-9 后执行
 

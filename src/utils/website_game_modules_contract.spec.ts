@@ -41,9 +41,16 @@ const gameModuleIds = [
   'hbut_2048',
   'clumsy_bird_hbut',
   'hbut_monopoly',
-  'hbut_miner'
+  'hbut_miner',
+  'hbut_memory_match'
 ]
-const embeddedMobileGameIds = ['jump_out_hbut', 'clumsy_bird_hbut', 'hbut_monopoly', 'hbut_miner']
+const embeddedMobileGameIds = [
+  'jump_out_hbut',
+  'clumsy_bird_hbut',
+  'hbut_monopoly',
+  'hbut_miner',
+  'hbut_memory_match'
+]
 
 const modulePath = (moduleId: string, ...segments: string[]) =>
   path.join(modulesRoot, moduleId, ...segments)

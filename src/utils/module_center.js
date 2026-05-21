@@ -56,6 +56,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 8
+    }),
+    Object.freeze({
+      id: 'hbut_memory_match',
+      name: '湖工记忆牌',
+      icon: '🧠',
+      description: '翻开校园记忆，配对湖工地点',
+      key_required: false,
+      kind: 'remote',
+      order: 9
     })
   ])
 })
