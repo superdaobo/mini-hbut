@@ -1,3 +1,12 @@
+:root {
+  --module-vh: 1vh;
+  --module-vw: 1vw;
+  --module-safe-top: env(safe-area-inset-top, 0px);
+  --module-safe-right: env(safe-area-inset-right, 0px);
+  --module-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --module-safe-left: env(safe-area-inset-left, 0px);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -7,8 +16,10 @@
 html, body {
   width: 100%;
   min-height: 100%;
-  height: 100%;
+  height: calc(var(--module-vh, 1vh) * 100);
   overflow: hidden;
+  overflow-x: hidden;
+  overscroll-behavior: none;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: linear-gradient(180deg, #87CEEB 0%, #B0E0E6 60%, #E0F7FA 100%);
   touch-action: manipulation;
@@ -17,14 +28,26 @@ html, body {
   -webkit-user-select: none;
 }
 
+body {
+  position: fixed;
+  inset: 0;
+}
+
 #app {
   width: 100%;
-  height: 100%;
+  height: calc(var(--module-vh, 1vh) * 100);
+  min-height: calc(var(--module-vh, 1vh) * 100);
   display: flex;
   flex-direction: column;
   max-width: 480px;
   margin: 0 auto;
   position: relative;
+  padding:
+    var(--module-safe-top, 0px)
+    var(--module-safe-right, 0px)
+    var(--module-safe-bottom, 0px)
+    var(--module-safe-left, 0px);
+  overflow: hidden;
 }
 
 /* 顶部栏 */
@@ -85,6 +108,7 @@ html, body {
   overflow: hidden;
   position: relative;
   min-height: 0;
+  touch-action: none;
 }
 
 .game-canvas-wrapper canvas {
@@ -102,7 +126,11 @@ html, body {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.5);
-  padding: 16px;
+  padding:
+    max(16px, var(--module-safe-top, 0px))
+    max(16px, var(--module-safe-right, 0px))
+    max(16px, var(--module-safe-bottom, 0px))
+    max(16px, var(--module-safe-left, 0px));
 }
 
 .leaderboard-overlay.active {
@@ -288,7 +316,7 @@ html, body {
 /* 上传状态提示 */
 .upload-status {
   position: fixed;
-  bottom: 20px;
+  bottom: calc(20px + var(--module-safe-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   padding: 8px 20px;

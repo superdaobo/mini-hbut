@@ -58,14 +58,32 @@
 
 ## Task 3：修复“跳出湖工大”和“笨鸟先飞”的 Tauri 内嵌与竖屏基础布局
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：两个现有游戏页面、manifest 必要字段、模块宿主适配样式。
 - 目标：竖屏下无横向滚动，游戏主区域完整可见，触控按钮/手势可用，Tauri 内嵌尺寸稳定。
 - 验证：测试 + Playwright/浏览器 viewport 检查 + 构建。
 - 执行记录：
+  - 扩展 `src/utils/website_game_modules_contract.spec.ts`，新增两个重点竖屏游戏的页面嵌入契约：必须向宿主发送 `mini-hbut:module-size`，消息包含稳定 `module_id`，入口脚本设置 `--module-vh` 动态视口变量，并监听 `orientationchange` 重新同步尺寸；样式必须声明动态视口、安全区变量、横向溢出隔离和 `overscroll-behavior`。
+  - 按 TDD 执行红灯：新增契约测试后，`npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts` 失败在 `jump_out_hbut` 缺少 `mini-hbut:module-size` 高度上报。
+  - 修复 `website/modules-src/jump_out_hbut/project/src/main.js`：新增动态视口变量同步、宿主高度上报、`resize/orientationchange/visualViewport.resize` 监听和 `ResizeObserver` 尺寸同步；修复 `style.css` 与 `App.vue`：根容器使用动态视口、安全区变量、禁止横向溢出和页面级 overscroll，游戏容器保持触控不被滚动抢占。
+  - 修复 `website/modules-src/clumsy_bird_hbut/project/src/main.js`：把已有宿主高度上报升级为统一 `MODULE_ID`、动态视口变量、方向变化/visualViewport/ResizeObserver 同步；修复 `style.css`：根容器使用动态视口和安全区 padding，canvas 区域隔离触控滚动，排行榜遮罩和上传提示避开安全区。
+  - 浏览器验证中发现以 `about:blank` 作为模拟宿主会导致 iframe 进入 `chrome-error://chromewebdata`，消息通道无法验证；改用本地 HTTP 页面作为模拟宿主后，两个 iframe 均能收到 `mini-hbut:module-size` 消息。
 - 验证结果：
+  - 红灯命令：`npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts`；结果：1 failed / 4 passed，失败点为 `jump_out_hbut 需要向宿主上报 iframe 内容高度`。
+  - 绿灯命令：`npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts`；结果：1 passed，5 tests passed。
+  - 相邻回归命令：`npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts src/utils/module_center.spec.ts`；结果：2 passed，9 tests passed。
+  - 构建命令：在 `website/modules-src/jump_out_hbut/project` 执行 `npm.cmd run build`，构建通过；保留一个既有音频目录 `new URL('../assets/audio/', import.meta.url)` 构建警告。
+  - 构建命令：在 `website/modules-src/clumsy_bird_hbut/project` 执行 `npm.cmd run build`，构建通过。
+  - Playwright 竖屏直开验证：390×844 下 `jump_out_hbut` 页面无横向溢出，开始界面可见；点击“开始游戏”后 HUD 和 canvas 均在 390×844 内，`bodyHeight=844`，`--module-vh=8.44px`。
+  - Playwright 竖屏直开验证：390×844 下 `clumsy_bird_hbut` 页面无横向溢出，header、canvas 均在视口内，canvas 尺寸为 390×585，`bodyHeight=844`，`--module-vh=8.44px`。
+  - Playwright 模拟宿主 iframe 验证：390×844 iframe 中，`jump_out_hbut` 收到 3 条 `mini-hbut:module-size` 消息，`module_id=jump_out_hbut`，`height=844`；`clumsy_bird_hbut` 收到 3 条 `mini-hbut:module-size` 消息，`module_id=clumsy_bird_hbut`，`height=844`。
+  - Playwright 桌面补充验证：1024×768 下两个游戏均无横向溢出；`笨鸟先飞` canvas 非空像素检查通过。`跳出湖工大` WebGL canvas 像素读取为 0，但截图和 DOM 状态确认页面并非空白，开始界面与游戏 HUD 均可见。
 - 剩余风险：
+  - 本轮验证使用 Chromium 模拟移动竖屏和 iframe 宿主，尚未在真实 iOS WKWebView/Tauri WebView 上截图确认。
+  - `jump_out_hbut` 仍有既有音频资源加载警告和 favicon 404，不影响本轮布局目标，但后续大型检查 A 应记录并评估是否修复。
+  - 本轮没有重新生成或提交 `website/public/modules` 构建产物，避免覆盖已有未提交产物改动；后续发布前需要统一构建同步。
 - 下一步：
+  - 执行大型检查 A：完成 Task 1-3 后，对需求偏离、构建、测试、模块宿主、竖屏 UI、触控、资源路径和已有未提交变更进行全面检查-debug循环。
 
 ## 大型检查 A：完成 Task 1-3 后执行
 

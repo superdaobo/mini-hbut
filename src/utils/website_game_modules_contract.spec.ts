@@ -106,6 +106,36 @@ describe('website 游戏模块集成契约', () => {
     }
   })
 
+  it('重点竖屏游戏页面向宿主上报高度，并声明动态视口和安全区样式契约', () => {
+    for (const id of embeddedMobileGameIds) {
+      const mainSource = readText(modulePath(id, 'project', 'src', 'main.js'))
+      const styleSource = readText(modulePath(id, 'project', 'src', 'style.css'))
+
+      expect(mainSource, `${id} 需要向宿主上报 iframe 内容高度`).toContain(
+        'mini-hbut:module-size'
+      )
+      expect(mainSource, `${id} 需要声明稳定模块 ID`).toContain(`MODULE_ID = '${id}'`)
+      expect(mainSource, `${id} 需要携带 module_id 供宿主校验消息来源`).toContain(
+        'module_id: MODULE_ID'
+      )
+      expect(mainSource, `${id} 需要设置动态视口变量以适配 iOS/移动端地址栏变化`).toContain(
+        '--module-vh'
+      )
+      expect(mainSource, `${id} 需要在横竖屏变化后重新同步尺寸`).toContain(
+        'orientationchange'
+      )
+
+      expect(styleSource, `${id} 根样式需要使用动态视口高度`).toContain('--module-vh')
+      expect(styleSource, `${id} 需要声明 iOS 安全区变量`).toMatch(
+        /env\(safe-area-inset-bottom/
+      )
+      expect(styleSource, `${id} 需要禁止页面级横向溢出`).toContain('overflow-x: hidden')
+      expect(styleSource, `${id} 需要隔离触控滚动，保证游戏手势可用`).toContain(
+        'overscroll-behavior'
+      )
+    }
+  })
+
   it('宿主 iframe 使用安全嵌入约束，并能从 manifest 推导远端 open_url', () => {
     const hostSource = readText(path.join(repoRoot, 'src', 'components', 'MoreModuleHostView.vue'))
     expect(hostSource).toContain('<iframe')

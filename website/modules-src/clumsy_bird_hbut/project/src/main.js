@@ -12,10 +12,29 @@ import {
   createRunId
 } from './utils/game_rank.js'
 
+const MODULE_ID = 'clumsy_bird_hbut'
+let syncTimer = null
+let sizeObserver = null
+
+function setModuleViewportVars() {
+  if (typeof window === 'undefined') return
+  const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 0
+  const viewportWidth = window.visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 0
+  if (viewportHeight > 0) {
+    document.documentElement.style.setProperty('--module-vh', `${viewportHeight * 0.01}px`)
+  }
+  if (viewportWidth > 0) {
+    document.documentElement.style.setProperty('--module-vw', `${viewportWidth * 0.01}px`)
+  }
+}
+
 // 模块宿主高度桥接
 function notifyHostHeight() {
   if (typeof window === 'undefined' || window.parent === window) return
   const height = Math.max(
+    window.visualViewport?.height || 0,
+    window.innerHeight || 0,
+    document.documentElement.clientHeight,
     document.documentElement.scrollHeight,
     document.documentElement.offsetHeight,
     document.body.scrollHeight,
@@ -23,10 +42,22 @@ function notifyHostHeight() {
   )
   window.parent.postMessage({
     type: 'mini-hbut:module-size',
-    moduleId: 'clumsy_bird_hbut',
-    module_id: 'clumsy_bird_hbut',
+    moduleId: MODULE_ID,
+    module_id: MODULE_ID,
     height
   }, '*')
+}
+
+function syncModuleFrame() {
+  setModuleViewportVars()
+  notifyHostHeight()
+}
+
+function scheduleModuleFrameSync() {
+  if (typeof window === 'undefined') return
+  if (syncTimer) window.clearTimeout(syncTimer)
+  window.requestAnimationFrame(syncModuleFrame)
+  syncTimer = window.setTimeout(syncModuleFrame, 180)
 }
 
 // ========== 全局状态 ==========
@@ -234,6 +265,8 @@ function bindEvents() {
 
 // ========== 初始化 ==========
 function init() {
+  setModuleViewportVars()
+
   // 读取模块上下文
   moduleContext = readGameModuleContext()
 
@@ -271,16 +304,24 @@ function init() {
   game.start()
 
   // 通知宿主当前页面高度
-  requestAnimationFrame(() => {
-    notifyHostHeight()
-    setTimeout(notifyHostHeight, 300)
-  })
+  scheduleModuleFrameSync()
 }
 
 // 启动
 init()
 
 // 窗口 resize 时也通知高度
-window.addEventListener('resize', () => {
-  requestAnimationFrame(notifyHostHeight)
+window.addEventListener('resize', scheduleModuleFrameSync, { passive: true })
+window.addEventListener('orientationchange', scheduleModuleFrameSync, { passive: true })
+window.visualViewport?.addEventListener('resize', scheduleModuleFrameSync, { passive: true })
+
+if (typeof ResizeObserver !== 'undefined') {
+  sizeObserver = new ResizeObserver(scheduleModuleFrameSync)
+  sizeObserver.observe(document.documentElement)
+  if (document.body) sizeObserver.observe(document.body)
+}
+
+window.addEventListener('beforeunload', () => {
+  if (syncTimer) window.clearTimeout(syncTimer)
+  sizeObserver?.disconnect()
 })

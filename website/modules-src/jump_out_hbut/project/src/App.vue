@@ -262,16 +262,26 @@ function handleToggleMute() {
 <style scoped>
 .game-app {
   width: 100%;
-  height: 100%;
+  height: calc(var(--module-vh, 1vh) * 100);
+  min-height: calc(var(--module-vh, 1vh) * 100);
   position: relative;
   overflow: hidden;
+  padding:
+    var(--module-safe-top, 0px)
+    var(--module-safe-right, 0px)
+    var(--module-safe-bottom, 0px)
+    var(--module-safe-left, 0px);
 }
 
 .game-container {
   width: 100%;
-  height: 100%;
+  height: auto;
   position: absolute;
-  top: 0;
-  left: 0;
+  inset:
+    var(--module-safe-top, 0px)
+    var(--module-safe-right, 0px)
+    var(--module-safe-bottom, 0px)
+    var(--module-safe-left, 0px);
+  touch-action: none;
 }
 </style>
