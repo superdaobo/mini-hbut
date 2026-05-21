@@ -529,10 +529,13 @@ html[data-ui-density='compact'] {
 }
 
 .bottom-tab-bar {
-  transition: all calc(0.2s * var(--ui-motion-scale)) ease;
+  transition: background calc(0.2s * var(--ui-motion-scale)) ease,
+              box-shadow calc(0.2s * var(--ui-motion-scale)) ease,
+              border-radius calc(0.2s * var(--ui-motion-scale)) ease;
   /* 强约束底栏尺寸，避免主题样式叠加后撑满整屏 */
   top: auto !important;
   inset-block-start: auto !important;
+  bottom: 8px !important;
   height: auto !important;
   min-height: 70px !important;
   max-height: 106px !important;
