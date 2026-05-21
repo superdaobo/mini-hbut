@@ -3,8 +3,8 @@
     <div class="leaderboard-content">
       <!-- 头部 -->
       <div class="panel-header">
-        <h2 class="panel-title">🏆 排行榜</h2>
-        <button class="close-btn" @click="$emit('close')">✕</button>
+        <h2 class="panel-title">排行榜</h2>
+        <button class="close-btn" aria-label="关闭排行榜" @click="$emit('close')">&times;</button>
       </div>
 
       <!-- Tab 切换 -->
@@ -95,9 +95,6 @@ const list = ref([])
 const player = ref(null)
 
 function getRankDisplay(index) {
-  if (index === 0) return '🥇'
-  if (index === 1) return '🥈'
-  if (index === 2) return '🥉'
   return `${index + 1}`
 }
 

@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mount } from '@vue/test-utils'
 import GameHUD from './GameHUD.vue'
 import GameOverScreen from './GameOverScreen.vue'
 import StartScreen from './StartScreen.vue'
 
 const EMOJI_ICON_PATTERN = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u
+const componentsDir = path.dirname(fileURLToPath(import.meta.url))
 
 describe('jump_out_hbut UI visual contract', () => {
   it('HUD 使用清晰文本和 CSS 图标，不依赖 emoji 图标', () => {
@@ -49,5 +53,13 @@ describe('jump_out_hbut UI visual contract', () => {
     expect(wrapper.text()).toContain('分数上传失败')
     expect(wrapper.find('.upload-error-status').exists()).toBe(true)
     expect(wrapper.text()).not.toMatch(EMOJI_ICON_PATTERN)
+  })
+
+  it('排行榜面板使用数字排名和文本标题，不依赖 emoji 图标', () => {
+    const source = fs.readFileSync(path.join(componentsDir, 'LeaderboardPanel.vue'), 'utf8')
+
+    expect(source).toContain('排行榜')
+    expect(source).toContain('return `${index + 1}`')
+    expect(source).not.toMatch(EMOJI_ICON_PATTERN)
   })
 })

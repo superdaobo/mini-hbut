@@ -211,11 +211,37 @@
 
 ## 大型检查 B：完成 Task 4-6 后执行
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 检查项：游戏逻辑 bug、穿模复现、视觉质量、移动端触控、构建测试、宿主集成。
 - 执行记录：
+  - 已重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行完成 Task 4-6 后的大型检查 B，不进入 Task 7。
+  - Git 状态检查确认本轮相关未提交源码只涉及 `jump_out_hbut` 的排行榜 UI、音频管理器和对应测试；既有 `website/public/modules/...` 产物改动、`.playwright-mcp` 临时文件和历史截图继续隔离，未纳入本轮提交。
+  - 静态视觉审计发现 `LeaderboardPanel.vue` 仍使用 `🏆/🥇/🥈/🥉` 等 emoji，与 Task 5 的 UI 去 emoji 目标不一致；先在 `GameUIVisual.test.js` 增加排行榜面板契约测试，红灯确认后修复为文本标题、数字排名和可访问关闭按钮。
+  - 构建/运行时审计发现 `AudioManager.js` 在没有 `src/assets/audio` 目录时仍用 `new URL('../assets/audio/', import.meta.url)` 构造缺失资源路径，导致构建 warning 和运行时 6 条音频加载 warning；先新增 `AudioManager.test.js`，红灯确认仍会 fetch 6 个不存在 mp3 后，改为通过 `import.meta.glob('../assets/audio/*.{mp3,wav,ogg}', { eager: true, query: '?url', import: 'default' })` 只加载实际打包资源，当前无资源时静默降级。
+  - Fresh 测试：`npm.cmd test`（workdir：`website/modules-src/jump_out_hbut/project`）通过，14 个测试文件、161 个测试全部通过。
+  - Fresh 根目录契约/体验测试：`npx.cmd vitest run src\utils\clumsy_bird_hbut_experience.spec.ts src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts --testTimeout 60000` 通过，3 个测试文件、15 个测试全部通过。
+  - Fresh 构建：`npm.cmd run build`（workdir：`website/modules-src/jump_out_hbut/project`）通过，原先的音频目录构建 warning 已消失。
+  - Fresh 构建：`npm.cmd run build`（workdir：`website/modules-src/clumsy_bird_hbut/project`）通过。
+  - 竖屏运行时验证：由于 5184/5185 已有占用，本轮 Vite 自动使用 `jump_out_hbut=http://127.0.0.1:5187/`、`clumsy_bird_hbut=http://127.0.0.1:5186/`；Playwright 使用 390×844 viewport 复验两个模块。
+  - `jump_out_hbut` 直开验证：首屏 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`overflowX=hidden`、`--module-vh=8.44px`，canvas 为 390×844，文案显示“跃过南湖与湖工地标”；进入游戏态后仍为 390×844，无横向溢出，HUD 文案为“0 / 跳跃 0 / 音效”。
+  - `jump_out_hbut` 控制台检查：本轮修复后音频加载 warning 为 0，仅保留 favicon 404。
+  - `clumsy_bird_hbut` 直开验证：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`overflowX=hidden`、`--module-vh=8.44px`，header 为 390×46，canvas 为 390×585，canvas 非空像素检查通过；点按 canvas 进入游戏态后尺寸保持稳定。
+  - `clumsy_bird_hbut` 控制台检查：仅保留 favicon 404，无新增 warning。
+  - 模拟宿主 iframe 验证：在 390px 宿主页中同时嵌入两个 390×844 iframe，收到 6 条 `mini-hbut:module-size` 消息；`jump_out_hbut` 和 `clumsy_bird_hbut` 均上报 `module_id/moduleId`，高度均为 844。
+  - 服务清理：停止本轮实际监听在 5186/5187 的 Vite/Node 进程，复查 5186/5187 无 LISTEN 结果；旧的 5184/5185 占用未触碰。
+  - 静态 emoji 扫描：`rg -n "🐦|🏆|👆|🦶|🔊|🔇|🥇|🥈|🥉" ...` 仅剩根目录测试中的断言正则，源码未再命中旧游戏 UI emoji。
+  - 空白检查：`git diff --check -- website/modules-src/jump_out_hbut/project/src/components/GameUIVisual.test.js website/modules-src/jump_out_hbut/project/src/components/LeaderboardPanel.vue website/modules-src/jump_out_hbut/project/src/services/AudioManager.js website/modules-src/jump_out_hbut/project/src/services/AudioManager.test.js` 未发现空白错误，仅有 Windows 换行提示。
 - 结论：
+  - Task 4-6 的物理稳定性、视觉升级、笨鸟玩法体验在本轮检查中未发现高风险回归；两个游戏均能在 390×844 竖屏下直开、进入游戏态，并通过 iframe 向宿主上报稳定高度。
+  - 本轮检查发现并修复了两个真实问题：`jump_out_hbut` 排行榜遗漏 emoji 清理，以及音频资源缺失导致的构建/运行时 warning。
+  - 当前目标整体尚未完成：新增湖工大富翁、矿工和额外小游戏仍在后续 Task 7-9，统一游戏中心和最终审计仍在 Task 10-11。
 - 修复项：
+  - `LeaderboardPanel.vue`：排行榜标题改为纯文本“排行榜”，前三名显示数字排名，关闭按钮增加 `aria-label="关闭排行榜"`。
+  - `GameUIVisual.test.js`：新增排行榜面板去 emoji 视觉契约。
+  - `AudioManager.js`：音效加载改为只加载 Vite 实际发现的音频资产，无资产时不请求缺失文件并静默降级。
+  - `AudioManager.test.js`：新增缺失音频资源时不得 fetch、不得输出加载失败 warning 的回归测试。
+  - 剩余风险：真实 iOS WKWebView/Tauri 设备长时间游玩仍未覆盖；两个游戏仍有 favicon 404；`website/public/modules` 既有产物改动仍未统一发布同步。
+  - 下一步：执行 Task 7，新增湖工大富翁类游戏。
 
 ## Task 7：新增湖工大富翁类游戏
 

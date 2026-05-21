@@ -19,6 +19,21 @@ const SOUND_FILES = {
   combo: 'combo.mp3'
 }
 
+const AUDIO_ASSET_URLS = import.meta.glob('../assets/audio/*.{mp3,wav,ogg}', {
+  eager: true,
+  query: '?url',
+  import: 'default'
+})
+
+const SOUND_URLS = Object.fromEntries(
+  Object.entries(SOUND_FILES)
+    .map(([name, file]) => {
+      const match = Object.entries(AUDIO_ASSET_URLS).find(([assetPath]) => assetPath.endsWith(`/${file}`))
+      return match ? [name, match[1]] : null
+    })
+    .filter(Boolean)
+)
+
 export class AudioManager {
   constructor() {
     this._context = null
@@ -131,11 +146,11 @@ export class AudioManager {
    * 加载所有音效文件
    */
   async _loadAllSounds() {
-    const basePath = new URL('../assets/audio/', import.meta.url).href
+    const availableSounds = Object.entries(SOUND_URLS)
+    if (availableSounds.length === 0) return
 
-    const loadPromises = Object.entries(SOUND_FILES).map(async ([name, file]) => {
+    const loadPromises = availableSounds.map(async ([name, url]) => {
       try {
-        const url = `${basePath}${file}`
         const response = await fetch(url)
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const arrayBuffer = await response.arrayBuffer()
