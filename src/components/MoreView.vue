@@ -49,6 +49,15 @@ const safeNumber = (value, fallback = 0) => {
 }
 
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
+const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
+  'hecheng_hugongda',
+  'jump_out_hbut',
+  'hbut_2048',
+  'clumsy_bird_hbut',
+  'hbut_monopoly',
+  'hbut_miner',
+  'hbut_memory_match'
+])
 
 const buildStudentProfileStorageKey = (studentId) => {
   const sid = safeText(studentId || props.studentId)
@@ -195,7 +204,7 @@ const appendModuleContextQuery = (
   runtimeTag = 'module-host'
 ) => {
   const previewUrl = safeText(rawUrl)
-  if (!previewUrl || (moduleId !== 'hecheng_hugongda' && moduleId !== 'jump_out_hbut' && moduleId !== 'hbut_2048' && moduleId !== 'clumsy_bird_hbut')) return previewUrl
+  if (!previewUrl || !CONTEXT_AWARE_GAME_MODULE_IDS.has(moduleId)) return previewUrl
 
   try {
     const url = new URL(previewUrl, window.location.origin)

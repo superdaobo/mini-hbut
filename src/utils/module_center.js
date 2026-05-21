@@ -10,7 +10,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '下载最新游戏包并打开',
       key_required: false,
       kind: 'remote',
-      order: 2
+      order: 1
     }),
     Object.freeze({
       id: 'jump_out_hbut',
@@ -19,7 +19,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '跳一跳风格校园跳跃小游戏',
       key_required: false,
       kind: 'remote',
-      order: 3
+      order: 2
     }),
     Object.freeze({
       id: 'hbut_2048',
@@ -28,7 +28,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '经典 2048 数字合并游戏',
       key_required: false,
       kind: 'remote',
-      order: 5
+      order: 3
     }),
     Object.freeze({
       id: 'clumsy_bird_hbut',
@@ -37,7 +37,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '点击屏幕控制小鸟飞行',
       key_required: false,
       kind: 'remote',
-      order: 6
+      order: 4
     }),
     Object.freeze({
       id: 'hbut_monopoly',
@@ -46,7 +46,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '投骰走遍校园，经营金币与绩点',
       key_required: false,
       kind: 'remote',
-      order: 7
+      order: 5
     }),
     Object.freeze({
       id: 'hbut_miner',
@@ -55,7 +55,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '摆动吊钩抓取湖工宝物',
       key_required: false,
       kind: 'remote',
-      order: 8
+      order: 6
     }),
     Object.freeze({
       id: 'hbut_memory_match',
@@ -64,7 +64,7 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       description: '翻开校园记忆，配对湖工地点',
       key_required: false,
       kind: 'remote',
-      order: 9
+      order: 7
     })
   ])
 })

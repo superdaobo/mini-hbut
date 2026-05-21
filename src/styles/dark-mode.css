@@ -1493,6 +1493,12 @@ html.dark body .more-module-host-view :is(.module-empty-card, .module-frame-shel
   color: #e2e8f0 !important;
 }
 
+html.dark body .more-module-host-view .module-frame-shell {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
 html.dark body .more-module-host-view .module-loading-overlay {
   background: rgba(15, 23, 42, 0.86) !important;
   color: #e2e8f0 !important;

@@ -2,7 +2,7 @@
   "id": "hbut_memory_match",
   "name": "湖工记忆牌",
   "icon": "🧠",
-  "order": 9,
+  "order": 7,
   "key_required": false,
   "entry_path": "index.html",
   "min_compatible_version": "",

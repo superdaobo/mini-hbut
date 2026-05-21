@@ -83,6 +83,21 @@ describe('website 游戏模块集成契约', () => {
     )
   })
 
+  it('游戏模块入口顺序在源码和内置模块中心保持连续一致', () => {
+    const orderedSourceGames = enabledModules()
+      .filter((item) => gameModuleIds.includes(item.id))
+      .sort((a, b) => (a.order || 999) - (b.order || 999))
+
+    expect(orderedSourceGames.map((item) => item.id)).toEqual(gameModuleIds)
+    expect(orderedSourceGames.map((item) => item.order)).toEqual(
+      gameModuleIds.map((_, index) => index + 1)
+    )
+    expect(DEFAULT_MODULE_CENTER.modules.map((item) => item.id)).toEqual(gameModuleIds)
+    expect(DEFAULT_MODULE_CENTER.modules.map((item) => item.order)).toEqual(
+      gameModuleIds.map((_, index) => index + 1)
+    )
+  })
+
   it('每个启用模块都有可构建入口，并使用相对资源 base 适配 Tauri/离线包', () => {
     for (const mod of enabledModules()) {
       expect(mod.dirName).toBe(mod.id)
@@ -156,7 +171,6 @@ describe('website 游戏模块集成契约', () => {
     expect(hostSource).toContain('referrerpolicy="no-referrer-when-downgrade"')
     expect(hostSource).toContain('loading="eager"')
     expect(hostSource).toContain('mini-hbut:module-size')
-    expect(hostSource).toContain('env(safe-area-inset-bottom)')
 
     const resolved = resolveModuleHostPreviewSource(
       {
@@ -176,5 +190,45 @@ describe('website 游戏模块集成契约', () => {
       'https://hbut.6661111.xyz/modules/main/jump_out_hbut/20260521171353-local/site/index.html'
     )
     expect(resolved.entryPath).toBe('index.html')
+  })
+
+  it('所有游戏入口都会注入 Tauri 宿主上下文参数', () => {
+    const moreViewSource = readText(path.join(repoRoot, 'src', 'components', 'MoreView.vue'))
+
+    expect(moreViewSource).toContain('CONTEXT_AWARE_GAME_MODULE_IDS')
+    expect(moreViewSource).toContain('CONTEXT_AWARE_GAME_MODULE_IDS.has(moduleId)')
+    for (const id of gameModuleIds) {
+      expect(moreViewSource, `${id} 需要携带学生信息、runtime 和 rank_api 上下文`).toContain(
+        `'${id}'`
+      )
+    }
+  })
+
+  it('模块宿主在运行态占满可视区，iframe 不被子页面 100vh 高度撑破', () => {
+    const appSource = readText(path.join(repoRoot, 'src', 'App.vue'))
+    const hostSource = readText(path.join(repoRoot, 'src', 'components', 'MoreModuleHostView.vue'))
+
+    expect(appSource).toContain("'module-host-full': currentView === 'more_module_host'")
+    expect(appSource).toMatch(
+      /\.app-shell\.module-host-full\s*{[\s\S]*?padding-bottom:\s*0/
+    )
+    expect(appSource).toMatch(/\.app-shell\.module-host-full\s*{[\s\S]*?overflow:\s*hidden/)
+    expect(appSource).toMatch(
+      /\.app-shell\.module-host-full\s*>\s*\.view-transition-root\s*{[\s\S]*?height:\s*100%/
+    )
+    expect(appSource).toMatch(
+      /\.app-shell\.module-host-full\s*>\s*\.view-transition-root\s*>\s*\.more-module-host-view\s*{[\s\S]*?height:\s*100% !important/
+    )
+
+    expect(hostSource).not.toContain(':style="frameShellStyle"')
+    expect(hostSource).not.toContain(':style="frameStyle"')
+    expect(hostSource).toMatch(
+      /\.more-module-host-view\s*{[\s\S]*?height:\s*100%/
+    )
+    expect(hostSource).toMatch(
+      /\.more-module-host-view__body\s*{[\s\S]*?padding:\s*8px 0 0/
+    )
+    expect(hostSource).toMatch(/\.module-frame-shell\s*{[\s\S]*?border:\s*0/)
+    expect(hostSource).toMatch(/\.module-frame\s*{[\s\S]*?height:\s*100%/)
   })
 })

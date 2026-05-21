@@ -2,7 +2,7 @@
   "id": "hbut_monopoly",
   "name": "湖工大富翁",
   "icon": "🎲",
-  "order": 7,
+  "order": 5,
   "key_required": false,
   "entry_path": "index.html",
   "min_compatible_version": "",

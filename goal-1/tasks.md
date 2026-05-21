@@ -379,14 +379,41 @@
 
 ## Task 10：统一游戏中心体验与 Tauri 宿主联调
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：模块列表、入口排序、加载状态、返回/退出、宿主 iframe 或 WebView 尺寸。
 - 目标：所有游戏从 Tauri 内入口进入体验一致，竖屏下不遮挡、不溢出。
 - 验证：模块列表检查、宿主页面检查、移动端 viewport 截图。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行 Task 10，不进入 Task 11。
+  - 根因定位：默认模块中心新增游戏后仍使用 `2/3/5/6/7/8/9` 跳号排序，而源码 `module.json` 中三款新游戏为 `7/8/9`，会导致入口顺序和源码顺序不连续，不利于 Tauri 入口稳定展示。
+  - 根因定位：`MoreView.vue` 的 `appendModuleContextQuery()` 仍写死只给四个旧游戏注入 `from/runtime/student_id/rank_api` 等上下文，三款新游戏从宿主打开时无法拿到统一运行时参数。
+  - 根因定位：`MoreModuleHostView.vue` 收到子游戏 `mini-hbut:module-size` 后把 iframe 外壳和 iframe 直接设置为子页面上报高度；当子游戏按 iframe 自身高度上报 `100vh` 时，宿主顶部标题和状态条会额外占用空间，导致整体内容高度超过可视区，底部表现为被安全区或宿主容器遮挡。
+  - 按 TDD 先新增红灯测试：`module_center.spec.ts` 断言内置游戏入口必须按 `hecheng_hugongda -> jump_out_hbut -> hbut_2048 -> clumsy_bird_hbut -> hbut_monopoly -> hbut_miner -> hbut_memory_match` 连续排序；`website_game_modules_contract.spec.ts` 断言源码 `module.json` 与内置模块中心顺序一致、所有游戏都注入宿主上下文、宿主全屏运行态不会用子页面 `100vh` 撑破 iframe。
+  - TDD 红灯命令 `npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts --testTimeout 60000` 失败，失败点为内置顺序 `[2,3,5,6,7,8,9]`、源码顺序 `[1,2,3,4,7,8,9]`、缺少 `CONTEXT_AWARE_GAME_MODULE_IDS`、缺少 `module-host-full` 宿主全屏契约。
+  - 修复 `src/utils/module_center.js` 和三款新增游戏 `module.json`：统一启用游戏顺序为 `1-7`，避免入口排序跳动。
+  - 修复 `src/components/MoreView.vue`：新增 `CONTEXT_AWARE_GAME_MODULE_IDS`，把全部七个游戏统一纳入宿主上下文参数注入。
+  - 修复 `src/App.vue`：进入 `more_module_host` 时给 `.app-shell` 加 `module-host-full`，移除底部导航预留 padding，锁定宿主视图为全高、隐藏外层滚动。
+  - 修复 `src/components/MoreModuleHostView.vue`：宿主继续接收子游戏高度消息用于加载状态，但不再用该高度撑开 iframe；iframe 外壳改为填满剩余空间，去掉卡片边框/圆角/阴影和底部安全区二次 padding，让游戏画面贴到宿主可用底部。
+  - 修复 `src/styles/dark-mode.css`：夜间模式下模块 iframe 外壳也保持透明、无边框、无阴影，避免暗色全局规则把全屏 iframe 重新变成卡片。
 - 验证结果：
+  - 红灯验证：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts --testTimeout 60000`，结果 4 个断言失败，失败原因与 Task 10 目标缺口一致。
+  - 绿灯验证：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts --testTimeout 60000` 通过，2 个测试文件、13 个测试全部通过。
+  - 相关回归：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_monopoly_game.spec.ts src\utils\hbut_miner_game.spec.ts src\utils\hbut_memory_match_game.spec.ts --testTimeout 60000` 通过，5 个测试文件、28 个测试全部通过。
+  - 根构建：`npm.cmd run build` 通过，Vite 完成 550 个模块构建；仍有既有 CSS `@media` 压缩 warning 和 Capacitor/Tauri 动态导入提示，未阻断构建。
+  - Playwright 主应用宿主 390×844 验证：用 `hbut_miner` dev server 注入 `hbu_more_module_host_session` 后进入 `http://127.0.0.1:5195/#/2026000000/more_module_host`；`body.scrollWidth=390`、`clientWidth=390`、`scrollHeight=844`、`clientHeight=844`。
+  - Playwright 宿主几何验证：`.app-shell`、`.more-module-host-view` 均为 `390×844` 且 `paddingBottom=0`、`overflow=hidden`；无 `.bottom-tab-bar`；`.module-frame-shell` 和 `iframe.module-frame` 均为 `390×742`，`bottom=844`，未被底部安全区遮挡。
+  - Playwright 子游戏 iframe 验证：`hbut_miner` iframe 内 `body.scrollWidth=390`、`clientWidth=390`、`scrollHeight=742`、`clientHeight=742`、`#app` 高度 742、`--module-vh=7.42px`、Canvas 存在、主操作按钮可用。
+  - Playwright 控制台复验：同源页写入 localStorage 后再进入宿主，宿主页面无 `pageerror`；仅有 Vite dev server debug 日志。
+  - 截图证据：生成 `task10-module-host-mobile.png` 用于本地查看，本轮不纳入提交。
+  - 清理验证：停止本轮 5194/5195 dev server 后，`Get-NetTCPConnection -LocalPort 5194,5195 -State Listen -ErrorAction SilentlyContinue` 未返回监听结果。
+  - `git diff --check -- ...` 对本轮修改文件通过，仅有 Windows 换行提示，无空白错误。
 - 剩余风险：
+  - 本轮使用 Chromium 移动视口和本地 Web iframe 验证，仍不等同于真实 iOS WKWebView/Tauri 设备截图；最终审计应继续补充真实宿主或打包环境验证。
+  - `npm run build` 仍输出既有 CSS `@media` 压缩 warning 与动态导入提示；本轮未扩大范围处理，因为构建退出码为 0 且 warning 与 Task 10 改动无直接关系。
+  - 工作区仍有历史 `website/public/modules/...` 构建产物改动、`.playwright-mcp` 临时文件和旧截图；本轮继续隔离，未暂存、未回退。
+  - 本轮新增的 `task10-module-host-mobile.png` 只是本地验证截图，未纳入提交。
 - 下一步：
+  - 执行 Task 11：完整构建、测试、视觉和代码审查，集中处理最终发布同步、真实设备/宿主剩余风险、已知 warning 是否需要修复，以及最终完成审计前的高风险问题。
 
 ## Task 11：完整构建、测试、视觉和代码审查
 

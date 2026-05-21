@@ -142,12 +142,6 @@ const moduleRuntimeBadges = computed(() => {
 })
 
 const hasEmbeddedFrameHeight = computed(() => frameContentHeight.value > 0)
-const frameShellStyle = computed(() =>
-  hasEmbeddedFrameHeight.value ? { height: `${frameContentHeight.value}px` } : null
-)
-const frameStyle = computed(() =>
-  hasEmbeddedFrameHeight.value ? { height: `${frameContentHeight.value}px` } : null
-)
 
 const clearLoadingGuardTimer = () => {
   if (loadingGuardTimer) {
@@ -380,7 +374,6 @@ onBeforeUnmount(() => {
         v-else
         class="module-frame-shell"
         :class="{ 'module-frame-shell--content': hasEmbeddedFrameHeight }"
-        :style="frameShellStyle"
       >
         <div v-if="loading" class="module-loading-overlay">
           <TEmptyState type="loading" message="正在加载模块页面..." />
@@ -402,7 +395,6 @@ onBeforeUnmount(() => {
           ref="frameRef"
           class="module-frame"
           :class="{ 'module-frame--content': hasEmbeddedFrameHeight }"
-          :style="frameStyle"
           :src="frameSrc"
           allowfullscreen
           allow="cross-origin-isolated; clipboard-write"
@@ -420,10 +412,11 @@ onBeforeUnmount(() => {
 .more-module-host-view {
   min-height: calc(var(--app-vh, 1vh) * 100);
   min-height: 100dvh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--ui-bg-gradient);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .more-module-host-view__body {
@@ -431,12 +424,12 @@ onBeforeUnmount(() => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  gap: 12px;
-  padding: 14px 14px calc(28px + env(safe-area-inset-bottom));
+  gap: 8px;
+  padding: 8px 0 0;
+  overflow: hidden;
 }
 
-.module-empty-card,
-.module-frame-shell {
+.module-empty-card {
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: calc(18px * var(--ui-radius-scale));
   background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
@@ -448,6 +441,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 0 12px;
+  flex: 0 0 auto;
 }
 
 .module-runtime-pill {
@@ -470,19 +465,23 @@ onBeforeUnmount(() => {
 .module-frame-shell {
   position: relative;
   flex: 1;
-  min-height: max(620px, calc(var(--app-vh, 1vh) * 100 - 188px));
+  min-height: 0;
   display: flex;
   min-width: 0;
   overflow: hidden;
   isolation: isolate;
-  /* iOS 安全区：防止内嵌页面被状态栏/Home指示器遮挡 */
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
   padding: 0;
 }
 
 .module-frame-shell--content {
-  flex: 0 0 auto;
-  min-height: 200px;
-  overflow: visible;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .module-loading-overlay {
@@ -502,13 +501,13 @@ onBeforeUnmount(() => {
   flex: 1;
   width: 100%;
   height: 100%;
-  min-height: 400px;
+  min-height: 0;
   border: 0;
   background: transparent;
 }
 
 .module-frame--content {
-  flex: 0 0 auto;
+  flex: 1;
   min-height: 0;
 }
 
@@ -573,11 +572,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .more-module-host-view__body {
-    padding: 12px 12px calc(24px + env(safe-area-inset-bottom));
-  }
-
-  .module-frame-shell {
-    min-height: max(560px, calc(var(--app-vh, 1vh) * 100 - 172px));
+    padding: 8px 0 0;
   }
 }
 </style>

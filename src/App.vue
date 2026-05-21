@@ -2472,6 +2472,7 @@ onBeforeUnmount(() => {
       'no-scroll': currentView === 'ai',
       'ai-full': currentView === 'ai',
       'schedule-full': currentView === 'schedule',
+      'module-host-full': currentView === 'more_module_host',
       'ios-safe': isIOSLike
     }"
     ref="appShellRef"
@@ -3080,6 +3081,23 @@ onBeforeUnmount(() => {
 .app-shell > .view-transition-root > [class$='-view']:not(.schedule-view):not(.ai-view) {
   min-height: calc(var(--app-vh, 1vh) * 100) !important;
   height: auto !important;
+}
+
+.app-shell.module-host-full {
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.app-shell.module-host-full > .view-transition-root {
+  min-height: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.app-shell.module-host-full > .view-transition-root > .more-module-host-view {
+  width: 100%;
+  min-height: 100%;
+  height: 100% !important;
 }
 
 .bottom-tab-bar {

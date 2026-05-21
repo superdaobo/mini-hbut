@@ -1,13 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_MODULE_CENTER,
   buildModuleCenterCards,
   normalizeModuleCenterChannel
 } from './module_center'
+
+const expectedGameOrder = [
+  'hecheng_hugongda',
+  'jump_out_hbut',
+  'hbut_2048',
+  'clumsy_bird_hbut',
+  'hbut_monopoly',
+  'hbut_miner',
+  'hbut_memory_match'
+]
 
 describe('module center cards', () => {
   it('returns empty modules list when no catalog data', () => {
     const cards = buildModuleCenterCards({ channel: 'main' })
     expect(cards.length).toBeGreaterThanOrEqual(0)
+  })
+
+  it('keeps all built-in games in a contiguous stable order for the Tauri entry', () => {
+    expect(DEFAULT_MODULE_CENTER.modules.map((item) => item.id)).toEqual(expectedGameOrder)
+    expect(DEFAULT_MODULE_CENTER.modules.map((item) => item.order)).toEqual(
+      expectedGameOrder.map((_, index) => index + 1)
+    )
+
+    const cards = buildModuleCenterCards({ channel: 'main' })
+    expect(cards.map((item) => item.id)).toEqual(expectedGameOrder)
+    expect(cards.map((item) => item.order)).toEqual(expectedGameOrder.map((_, index) => index + 1))
   })
 
   it('uses catalog remote modules without injecting legacy internal entries', () => {
