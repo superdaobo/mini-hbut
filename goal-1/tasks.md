@@ -87,11 +87,28 @@
 
 ## 大型检查 A：完成 Task 1-3 后执行
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 检查项：需求偏离、构建、测试、模块宿主、竖屏 UI、触控、资源路径、已有未提交变更是否被误改。
 - 执行记录：
+  - 已重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行完成 Task 1-3 后的大型检查 A，不进入 Task 4。
+  - 静态审计确认 `src/utils/website_game_modules_contract.spec.ts`、`src/components/MoreModuleHostView.vue`、`website/modules-src/jump_out_hbut/project/src`、`website/modules-src/clumsy_bird_hbut/project/src` 中仍保留 Task 2-3 的关键契约：`mini-hbut:module-size`、`module_id` 校验、`--module-vh` 动态视口变量、`orientationchange` 监听、安全区变量、横向溢出隔离和 `overscroll-behavior`。
+  - Git 状态检查确认 Task 3 已提交为 `2c49a2c fix: stabilize game modules in mobile iframe`；当前未提交的 `website/public/modules/...` 6 个产物文件仍保持隔离，未纳入本轮检查提交。
+  - Fresh 测试：执行 `npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts src/utils/module_center.spec.ts --testTimeout 60000`，结果 2 个测试文件通过、9 个测试通过。
+  - Fresh 构建：在 `website/modules-src/jump_out_hbut/project` 执行 `npm.cmd run build`，构建通过；仍有既有 `new URL('../assets/audio/', import.meta.url)` 音频目录运行时解析警告。
+  - Fresh 构建：在 `website/modules-src/clumsy_bird_hbut/project` 执行 `npm.cmd run build`，构建通过，无新增构建警告。
+  - 竖屏运行时检查：启动 `jump_out_hbut` 于 `http://127.0.0.1:5180/`、`clumsy_bird_hbut` 于 `http://127.0.0.1:5181/`，使用 Playwright 390×844 viewport 复验。
+  - `jump_out_hbut` 直开验证：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`--module-vh=8.44px`、`overflowX=hidden`，开始页 canvas 为 390×844；点击“开始游戏”后 canvas 仍为 390×844，HUD 为 390×64，均在视口内。
+  - `clumsy_bird_hbut` 直开验证：`scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`--module-vh=8.44px`、`overflowX=hidden`，canvas 为 390×585，header 为 390×46，均在视口内。
+  - 模拟宿主 iframe 验证：在 HTTP 宿主页内嵌两个 390×844 iframe，收到 `jump_out_hbut` 与 `clumsy_bird_hbut` 的 `mini-hbut:module-size` 消息，两个模块上报高度均为 844。
+  - 控制台检查：`jump_out_hbut` 仍有既有音频加载失败警告和 favicon 404；`clumsy_bird_hbut` 仅有 favicon 404。两类问题不阻断 Task 1-3 的竖屏和宿主嵌入目标，但需后续任务或最终审计时统一清理。
+  - 验证后停止本轮启动的 5180/5181 Vite 进程；后续 `netstat` 输出未见 5180/5181 的 LISTENING 记录。
 - 结论：
+  - Task 1-3 的模块结构审计、集成契约、两个重点游戏的竖屏嵌入基础布局目前没有发现高风险回归。
+  - 当前证据覆盖源码契约、相关 Vitest、两个游戏构建、Chromium 竖屏直开和 HTTP iframe 宿主消息；真实 iOS WKWebView/Tauri 设备截图仍未覆盖。
+  - 当前目标整体尚未完成：`jump_out_hbut` 的穿模和建筑视觉优化，以及新增大富翁类、矿工类等多个游戏仍在后续任务中。
 - 修复项：
+  - 本轮未发现必须在 Task 1-3 范围内立即修复的代码问题，因此没有修改业务源码。
+  - 记录后续风险：发布前需要统一处理 `website/public/modules` 产物同步；后续审计需要评估 `jump_out_hbut` 音频资源警告和两个模块 favicon 404。
 
 ## Task 4：重构“跳出湖工大”碰撞与物理稳定性
 
