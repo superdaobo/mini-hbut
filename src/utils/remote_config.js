@@ -25,16 +25,6 @@ const DEFAULT_MODULE_CENTER = Object.freeze({
   channel: 'main',
   modules: [
     {
-      id: 'shuake',
-      name: '学习记录',
-      icon: '🔐',
-      description: '在线学习入口、数据同步与同步记录',
-      key_required: true,
-      kind: 'internal',
-      view: 'more_shuake',
-      order: 1
-    },
-    {
       id: 'hecheng_hugongda',
       name: '合成湖工大',
       icon: '🎮',

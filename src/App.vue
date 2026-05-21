@@ -76,11 +76,8 @@ const loadConfigEditorView = () => import('./components/ConfigEditor.vue')
 const loadSettingsView = () => import('./components/SettingsView.vue')
 const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
-const loadMoreShuakeView = () => import('./components/MoreShuakeView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
 const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
-const loadOnlineLearningChaoxingView = () => import('./components/OnlineLearningChaoxingView.vue')
-const loadOnlineLearningYuketangView = () => import('./components/OnlineLearningYuketangView.vue')
 const loadTransactionHistoryView = () => import('./components/TransactionHistory.vue')
 const loadCampusCodeView = () => import('./components/CampusCodeView.vue')
 const loadAiChatView = () => import('./components/AiChatView.vue')
@@ -109,11 +106,8 @@ const ConfigEditor = createAsyncPage(loadConfigEditorView)
 const SettingsView = createAsyncPage(loadSettingsView)
 const ExportCenterView = createAsyncPage(loadExportCenterView)
 const MoreView = createAsyncPage(loadMoreView)
-const MoreShuakeView = createAsyncPage(loadMoreShuakeView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
 const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
-const OnlineLearningChaoxingView = createAsyncPage(loadOnlineLearningChaoxingView)
-const OnlineLearningYuketangView = createAsyncPage(loadOnlineLearningYuketangView)
 const TransactionHistory = createAsyncPage(loadTransactionHistoryView)
 const CampusCodeView = createAsyncPage(loadCampusCodeView)
 const AiChatView = createAsyncPage(loadAiChatView)
@@ -163,11 +157,8 @@ const ME_SUB_VIEWS = [
   'settings',
   'export_center',
   'more',
-  'more_shuake',
   'more_module_host',
-  'more_chaoxing_checkin',
-  'online_learning_chaoxing',
-  'online_learning_yuketang'
+  'more_chaoxing_checkin'
 ]
 
 const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
@@ -180,11 +171,8 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   settings: 'me',
   export_center: 'me',
   more: 'me',
-  more_shuake: 'more',
   more_module_host: 'more',
-  more_chaoxing_checkin: 'more',
-  online_learning_chaoxing: 'more_shuake',
-  online_learning_yuketang: 'more_shuake'
+  more_chaoxing_checkin: 'more'
 })
 
 const normalizeViewName = (view) => {
@@ -204,11 +192,8 @@ const VIEW_PREFETCHERS = Object.freeze({
   settings: loadSettingsView,
   export_center: loadExportCenterView,
   more: loadMoreView,
-  more_shuake: loadMoreShuakeView,
   more_module_host: loadMoreModuleHostView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
-  online_learning_chaoxing: loadOnlineLearningChaoxingView,
-  online_learning_yuketang: loadOnlineLearningYuketangView,
   grades: loadGradeView,
   electricity: loadElectricityView,
   transactions: loadTransactionHistoryView,
@@ -1655,10 +1640,6 @@ const handleBackToMoreCenter = () => {
   goToView('more')
 }
 
-const handleBackToMore = () => {
-  goToView('more_shuake')
-}
-
 const handleOpenFeedback = () => {
   goToView('feedback')
 }
@@ -2491,7 +2472,7 @@ onBeforeUnmount(() => {
     }"
     ref="appShellRef"
   >
-    <Transition name="module-fade" :mode="isIOSLike ? undefined : 'out-in'">
+    <Transition name="module-fade" mode="out-in">
       <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
       <!-- 首页 -->
       <Dashboard 
@@ -2593,13 +2574,6 @@ onBeforeUnmount(() => {
         @navigate="handleNavigate"
       />
 
-      <MoreShuakeView
-        v-else-if="currentView === 'more_shuake'"
-        :student-id="studentId"
-        @back="handleBackToMoreCenter"
-        @navigate="handleNavigate"
-      />
-
       <MoreModuleHostView
         v-else-if="currentView === 'more_module_host'"
         :session="moduleHostSession"
@@ -2612,18 +2586,6 @@ onBeforeUnmount(() => {
         @back="handleBackToMoreCenter"
       />
 
-      <OnlineLearningChaoxingView
-        v-else-if="currentView === 'online_learning_chaoxing'"
-        :student-id="studentId"
-        @back="handleBackToMore"
-      />
-
-      <OnlineLearningYuketangView
-        v-else-if="currentView === 'online_learning_yuketang'"
-        :student-id="studentId"
-        @back="handleBackToMore"
-      />
-      
       <!-- 成绩查看 -->
       <GradeView 
         v-else-if="currentView === 'grades'"
@@ -3106,7 +3068,7 @@ onBeforeUnmount(() => {
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 14px;
   height: auto;
   min-height: 62px;
   max-height: 92px;
@@ -3114,11 +3076,10 @@ onBeforeUnmount(() => {
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)
   );
-  border-radius: 20px 20px 0 0;
+  border-radius: 20px;
   backdrop-filter: blur(20px);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78));
   border: 1px solid rgba(148, 163, 184, 0.3);
-  border-bottom: none;
   box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.08), 0 4px 20px rgba(15, 23, 42, 0.16);
   z-index: 60;
   pointer-events: auto;

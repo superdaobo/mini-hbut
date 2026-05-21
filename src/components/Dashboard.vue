@@ -313,15 +313,20 @@ const buildTodayCourses = (courses, currentWeek) => {
 
 const fetchTodayCourses = async () => {
   if (!props.isLoggedIn || !props.studentId) { todayCourses.value = []; homeSearchCourses.value = []; todayError.value = ''; return }
-  todayLoading.value = true
+  const preferredInfo = getPreferredScheduleSemester()
+  const preferredSemester = String(preferredInfo?.semester || '').trim()
+  const sid = String(props.studentId || '').trim()
+  const cacheKey = buildScheduleCacheKey(props.studentId, preferredSemester)
+  // 优先用缓存数据立即渲染，避免空白/loading 闪烁
+  const cached = getCachedData(cacheKey)
+  if (cached?.data?.success && !cached.data.offline) {
+    todayLoading.value = false
+  } else {
+    todayLoading.value = true
+  }
   todayError.value = ''
   try {
-    const preferredInfo = getPreferredScheduleSemester()
-    const preferredSemester = String(preferredInfo?.semester || '').trim()
-    const sid = String(props.studentId || '').trim()
     let customCourses = []
-    const cacheKey = buildScheduleCacheKey(props.studentId, preferredSemester)
-    const cached = getCachedData(cacheKey)
     let payload = cached?.data
     if (!payload?.success) {
       const res = await fetchWithCache(cacheKey, async () => {
@@ -702,17 +707,41 @@ const hourlyForecast = computed(() => {
   return result
 })
 
-// 获取天气数据（调用 Rust 后端）
-const fetchWeather = async () => {
+const WEATHER_CACHE_KEY = 'dashboard:weather'
+const WEATHER_CACHE_TTL = 5 * 60 * 1000
+
+const loadWeatherFromCache = () => {
+  try {
+    const raw = localStorage.getItem(WEATHER_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (Date.now() - (parsed.ts || 0) > WEATHER_CACHE_TTL) return null
+    return parsed.data
+  } catch { return null }
+}
+
+const saveWeatherToCache = (data) => {
+  try { localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ ts: Date.now(), data })) } catch {}
+}
+
+// 获取天气数据（调用 Rust 后端，有 localStorage 缓存）
+const fetchWeather = async (force = false) => {
+  const cached = !force && loadWeatherFromCache()
+  if (cached) {
+    weatherData.value = cached
+    return
+  }
   try {
     const { invokeNative } = await import('../platform/native')
     const data = await invokeNative('fetch_weather')
     if (data) {
       weatherData.value = data
+      saveWeatherToCache(data)
     }
   } catch (e) {
     console.warn('[Weather] 天气获取失败:', e)
-    // 保持默认 mock 数据
+    const cachedFallback = loadWeatherFromCache()
+    if (cachedFallback) { weatherData.value = cachedFallback; return }
     weatherData.value = {
       temp: 26,
       city: '武汉市洪山区',
@@ -1289,7 +1318,8 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
     <Teleport to="body">
       <div
         v-if="showHomeSearch"
-        class="fixed inset-0 z-[210] bg-black/35 backdrop-blur-sm flex items-start justify-center px-4 pt-6"
+        class="fixed inset-0 z-[210] bg-black/35 backdrop-blur-sm flex items-start justify-center px-4"
+        style="padding-top: calc(env(safe-area-inset-top) + 24px)"
         @click.self="closeHomeSearch"
       >
         <div class="w-full max-w-md bg-white rounded-[24px] shadow-2xl overflow-hidden animate-scale-in">

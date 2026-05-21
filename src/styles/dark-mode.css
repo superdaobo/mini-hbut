@@ -1567,3 +1567,285 @@ html.dark body .ai-view .rich-text :is(pre, code) {
   background: rgba(2, 6, 23, 0.72) !important;
   color: #e2e8f0 !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   夜晚模式专项修复 v2：覆盖 scoped 组件里残留的固定浅色表面。
+   二维码、地图图片、PDF/图片正文保留原始亮度，避免影响功能识别。
+   ═══════════════════════════════════════════════════════════════ */
+
+html.dark body :is(
+  .progress-view,
+  .training-plan-view,
+  .more-shuake-view,
+  .resource-share-view,
+  .campus-map-view
+) {
+  background:
+    radial-gradient(120% 90% at 8% 0%, rgba(37, 99, 235, 0.14), transparent 44%),
+    linear-gradient(180deg, #07111f 0%, #0f172a 58%, #111827 100%) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body :is(.progress-view, .training-plan-view) :is(
+  .view-header,
+  .controls,
+  .filters,
+  .summary-item,
+  .category-card,
+  .course-card,
+  .modal-content,
+  .detail-item,
+  .loading,
+  .error,
+  .empty,
+  .pagination button
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.28) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body :is(.progress-view, .training-plan-view) :is(
+  h1,
+  h2,
+  h3,
+  .summary-value,
+  .course-title,
+  .detail-value,
+  .modal-top h2,
+  .modal-header h3
+) {
+  color: #f8fafc !important;
+}
+
+html.dark body :is(.progress-view, .training-plan-view) :is(
+  .summary-label,
+  .category-path,
+  .category-requirement,
+  .course-meta,
+  .course-meta span,
+  .detail-label,
+  .modal-path,
+  .controls label,
+  .course-sub
+) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .progress-view :is(.course-meta span, .modal-tag, .course-count, .back-btn, .modal-close),
+html.dark body .training-plan-view :is(.tag, .back-btn, .logout-btn, .close-btn, .filter-actions .ghost) {
+  background: rgba(30, 64, 175, 0.28) !important;
+  border-color: rgba(96, 165, 250, 0.28) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .progress-view .offline-banner {
+  background: rgba(127, 29, 29, 0.34) !important;
+  border-color: rgba(248, 113, 113, 0.34) !important;
+  color: #fecaca !important;
+}
+
+html.dark body .progress-view .state-done,
+html.dark body .training-plan-view .tag.ghost {
+  background: rgba(20, 83, 45, 0.34) !important;
+  border-color: rgba(74, 222, 128, 0.32) !important;
+  color: #bbf7d0 !important;
+}
+
+html.dark body .progress-view .state-todo {
+  background: rgba(127, 29, 29, 0.34) !important;
+  border-color: rgba(248, 113, 113, 0.32) !important;
+  color: #fecaca !important;
+}
+
+html.dark body .progress-view .state-pending {
+  background: rgba(120, 53, 15, 0.34) !important;
+  border-color: rgba(251, 191, 36, 0.32) !important;
+  color: #fde68a !important;
+}
+
+html.dark body .training-plan-view :is(.filter-grid select, .filter-grid input) {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .more-shuake-view :is(.menu-group, .menu-card, .menu-item, .status-pill, .icon-btn, .run-item) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .more-shuake-view :is(.menu-item__body strong, .status-pill strong, .run-item__main strong) {
+  color: #f8fafc !important;
+}
+
+html.dark body .more-shuake-view :is(.section-title, .menu-item__body p, .menu-arrow, .status-pill span, .run-item__main p, .run-item__side span, .empty-hint) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .more-shuake-view :is(.menu-item__icon, .section-badge) {
+  background: rgba(30, 64, 175, 0.26) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .resource-share-view :is(
+  .module-header,
+  .path-card,
+  .list-card,
+  .item-card,
+  .preview-modal,
+  .preview-body,
+  .action-btn,
+  .path-btn,
+  .crumb-chip,
+  .header-btn
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .resource-share-view :is(.module-title, .item-title, .preview-head h3) {
+  color: #f8fafc !important;
+}
+
+html.dark body .resource-share-view :is(.preview-path, .item-time, .meta-size, .empty) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .resource-share-view :is(.count-chip, .meta-chip, .item-icon) {
+  background: rgba(30, 64, 175, 0.26) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .resource-share-view :is(.type-folder, .type-slide) {
+  background: rgba(120, 53, 15, 0.34) !important;
+  color: #fde68a !important;
+}
+
+html.dark body .resource-share-view :is(.type-video, .type-pdf) {
+  background: rgba(127, 29, 29, 0.34) !important;
+  color: #fecaca !important;
+}
+
+html.dark body .resource-share-view :is(.type-audio, .type-image, .type-word) {
+  background: rgba(30, 64, 175, 0.28) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .resource-share-view .type-sheet {
+  background: rgba(20, 83, 45, 0.34) !important;
+  color: #bbf7d0 !important;
+}
+
+html.dark body .resource-share-view .type-text,
+html.dark body .resource-share-view .type-other {
+  background: rgba(51, 65, 85, 0.78) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark body .resource-share-view :is(.pdf-viewer, .pdf-tool-btn) {
+  background: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.26) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .campus-map-view :is(
+  .view-header,
+  .intro-card,
+  .mini-program-card,
+  .map-card,
+  .mini-program-code
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.28) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .campus-map-view :is(.view-header h1, .mini-program-head h2, .map-meta h3) {
+  color: #f8fafc !important;
+}
+
+html.dark body .campus-map-view :is(.intro-card, .mini-program-desc, .map-meta p) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .campus-map-view :is(.header-btn, .mini-program-head span) {
+  background: rgba(30, 64, 175, 0.28) !important;
+  border-color: rgba(96, 165, 250, 0.28) !important;
+  color: #bfdbfe !important;
+}
+
+html.dark body .campus-map-view .map-cover {
+  background: #0f172a !important;
+}
+
+html.dark body .schedule-view {
+  background: #07111f !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark body .schedule-view :is(.schedule-topbar, .date-header, .grid-body, .courses-grid, .day-column, .time-axis, .month-col) {
+  background: #0f172a !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark body .schedule-view :is(.topbar-title, .day-num, .month-num, .week-picker-title, .semester-badge-popover-value) {
+  color: #f8fafc !important;
+}
+
+html.dark body .schedule-view :is(.topbar-semester, .day-label, .month-label, .time-slot, .time-start, .time-end, .semester-badge-popover-title, .semester-badge-popover-desc) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .schedule-view :is(
+  .schedule-topbar .menu-btn,
+  .week-selector .ios26-select-trigger,
+  .semester-badge-btn,
+  .semester-badge-popover,
+  .modal-content,
+  .add-course-semester,
+  .add-field input,
+  .add-field select,
+  .week-picker-trigger,
+  .week-picker-sheet,
+  .week-picker-ops button,
+  .week-cell,
+  .manage-course-card,
+  .confirm-modal
+) {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.9)) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.28) !important;
+}
+
+html.dark body .schedule-view :is(.menu-bar, .semester-badge-dot) {
+  box-shadow: 0 0 0 2px #0f172a !important;
+}
+
+html.dark body .schedule-view .menu-bar {
+  background: #cbd5e1 !important;
+}
+
+html.dark body .schedule-view :is(.add-field > span, .manage-course-card-meta, .confirm-lines, .week-picker-ops button) {
+  color: #94a3b8 !important;
+}
+
+html.dark body .schedule-view :is(.manage-course-card-name, .confirm-title, .week-picker-title) {
+  color: #f8fafc !important;
+}
+
+html.dark body .schedule-view .drawer-style-switch {
+  background: rgba(15, 23, 42, 0.78) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+}
+
+html.dark body .schedule-view .week-cell.active {
+  background: rgba(37, 99, 235, 0.34) !important;
+  border-color: rgba(96, 165, 250, 0.5) !important;
+  color: #bfdbfe !important;
+}
