@@ -746,6 +746,37 @@ const updateViewportUnit = () => {
   document.documentElement.style.setProperty('--app-vh', `${nextVh}px`)
 }
 
+const readCssSafeAreaBottom = () => {
+  if (typeof document === 'undefined' || !document.body) return 0
+  const probe = document.createElement('div')
+  probe.style.cssText = [
+    'position:fixed',
+    'visibility:hidden',
+    'pointer-events:none',
+    'padding-bottom:env(safe-area-inset-bottom, 0px)'
+  ].join(';')
+  document.body.appendChild(probe)
+  const safeBottom = Number.parseFloat(window.getComputedStyle(probe).paddingBottom) || 0
+  probe.remove()
+  return safeBottom
+}
+
+const updateNativeSafeAreaFallback = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return
+  const root = document.documentElement
+  const shouldUseNativeFallback = isIOSLike && (hasTauri || isCapacitorRuntime())
+  if (!shouldUseNativeFallback || readCssSafeAreaBottom() > 0) {
+    root.style.setProperty('--app-safe-bottom-fallback', '0px')
+    return
+  }
+
+  const screenWidth = Math.min(window.screen?.width || 0, window.screen?.height || 0)
+  const screenHeight = Math.max(window.screen?.width || 0, window.screen?.height || 0)
+  const portraitFallback = screenWidth >= 744 && screenHeight >= 1024 ? 20 : 34
+  const fallback = screenHeight >= 812 ? portraitFallback : 0
+  document.documentElement.style.setProperty('--app-safe-bottom-fallback', `${fallback}px`)
+}
+
 const recoverViewportAfterTransition = ({ scrollToTop = true, blurActive = true } = {}) => {
   const activeEl = document.activeElement
   if (blurActive && activeEl && typeof activeEl.blur === 'function') {
@@ -810,9 +841,11 @@ const scheduleViewportUpdate = () => {
   // 移动端仍保留实时同步（地址栏/刘海安全区会变化）。
   if (!isIOSLike && !isAndroidLike) {
     const hasVh = !!document.documentElement.style.getPropertyValue('--app-vh')
+    updateNativeSafeAreaFallback()
     if (!hasVh) updateViewportUnit()
     return
   }
+  updateNativeSafeAreaFallback()
   updateViewportUnit()
 }
 
@@ -3005,7 +3038,7 @@ onBeforeUnmount(() => {
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: calc(128px + env(safe-area-inset-bottom));
+  padding-bottom: calc(128px + var(--app-safe-bottom));
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -3024,7 +3057,7 @@ onBeforeUnmount(() => {
 .app-shell.no-scroll {
   height: calc(var(--app-vh, 1vh) * 100);
   overflow: hidden;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--app-safe-bottom);
 }
 
 .app-shell.ai-full {
@@ -3050,7 +3083,7 @@ onBeforeUnmount(() => {
 .app-shell.schedule-full {
   --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
   padding-top: var(--schedule-safe-top);
-  padding-bottom: calc(128px + env(safe-area-inset-bottom));
+  padding-bottom: calc(128px + var(--app-safe-bottom));
   overflow: hidden;
 }
 
@@ -3102,6 +3135,8 @@ onBeforeUnmount(() => {
 
 .bottom-tab-bar {
   --bottom-tab-bar-bottom: 4px;
+  --bottom-tab-bar-content-height: 70px;
+  --bottom-tab-bar-safe-bottom: 0px;
   box-sizing: border-box;
   position: fixed;
   top: auto;
@@ -3116,7 +3151,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 10px 14px;
   height: auto;
-  min-height: 62px;
+  min-height: var(--bottom-tab-bar-content-height);
   max-height: 92px;
   width: min(
     540px,
@@ -3133,7 +3168,11 @@ onBeforeUnmount(() => {
 
 .bottom-tab-bar--ios {
   --bottom-tab-bar-bottom: 0px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  --bottom-tab-bar-safe-bottom: var(--app-safe-bottom);
+  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom));
+  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom));
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
   max-height: none;
 }
 

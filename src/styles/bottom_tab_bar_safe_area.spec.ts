@@ -6,6 +6,7 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 
 describe('bottom tab bar safe area contract', () => {
   const appVue = () => readSource('src/App.vue')
+  const indexCss = () => readSource('src/index.css')
   const uxCss = () => readSource('src/styles/ui_ux_pro_max.css')
 
   it('marks the bottom tab bar with an iOS-specific class', () => {
@@ -25,14 +26,21 @@ describe('bottom tab bar safe area contract', () => {
 
   it('reserves iOS home indicator space inside the global bottom tab bar', () => {
     expect(uxCss()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*padding-bottom:\s*calc\(10px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)\s*!important;/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-safe-bottom:\s*var\(--app-safe-bottom\);[^}]*min-height:\s*calc\(var\(--bottom-tab-bar-content-height\)\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;[^}]*padding-bottom:\s*calc\(10px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;/s
     )
   })
 
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
     expect(appVue()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*padding-bottom:\s*calc\(10px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\);/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*--bottom-tab-bar-safe-bottom:\s*var\(--app-safe-bottom\);[^}]*min-height:\s*calc\(var\(--bottom-tab-bar-content-height\)\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);[^}]*padding-bottom:\s*calc\(10px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);/s
     )
+  })
+
+  it('provides a native safe-area fallback when iOS WebView reports zero env inset', () => {
+    expect(indexCss()).toMatch(
+      /--app-safe-bottom:\s*max\(env\(safe-area-inset-bottom,\s*0px\),\s*var\(--app-safe-bottom-fallback,\s*0px\)\);/
+    )
+    expect(appVue()).toContain("document.documentElement.style.setProperty('--app-safe-bottom-fallback'")
   })
 
   it('does not add safe-area-inset-bottom to compact tab bar bottom positioning', () => {
@@ -44,7 +52,7 @@ describe('bottom tab bar safe area contract', () => {
 
   it('restores iOS safe-area padding after compact nav padding overrides', () => {
     expect(uxCss()).toMatch(
-      /html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*padding-bottom:\s*calc\(8px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)\s*!important;/s
+      /html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*min-height:\s*calc\(64px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;[^}]*padding-bottom:\s*calc\(8px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;/s
     )
   })
 
