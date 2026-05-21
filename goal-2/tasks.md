@@ -57,9 +57,13 @@
   - 复查线上只读状态：HF Space `/health` 可用，但 `/api/forum/categories` 仍是 `Not Found`，证明线上仍未部署论坛后端。
   - 复查本地服务清理：停止本轮本地论坛后端 PID `168648`，随后 `curl http://127.0.0.1:7860/health` 返回失败，说明 7860 已关闭。
   - 复查工作区隔离：`ocr-service` 只剩未跟踪 `scripts/utf8.ps1`；`tauri-app` 仍有历史游戏模块改动和临时截图/Playwright 文件，本轮未纳入论坛提交。
+  - 补充执行前端生产构建：`npm.cmd run build`，确认论坛页面能进入生产产物。
+  - 补充执行线上只读验证：`python scripts\verify_forum_deploy.py`，当前失败在 `/api/forum/categories` 404，符合“尚未部署论坛后端”的线上状态。
 - 验证结果：
   - 后端 dry-run：preflight ok，pytest `25 passed`，`local_head=d150098`，`remote_head=03621cf`，`dry_run=ok`，`push_skipped=missing --confirm-hf-write`。
   - 前端论坛回归：3 个测试文件通过，18 个测试通过。
+  - 前端生产构建：`npm.cmd run build` 成功，Vite 构建完成并生成 `ForumView` 对应 CSS/JS chunk；仅保留既有 CSS `@media` minify warning 和动态/静态混合导入 warning。
+  - 线上只读验证：`/health` 为 200，但 `/api/forum/categories` 为 404，因此线上仍未完成论坛部署。
   - `tauri-app` 论坛最新提交：`985f328 fix: refresh stale forum auth token`。
   - `ocr-service` 论坛最新提交：`d150098 fix: tolerate remote head lookup failure in forum dry run`。
 - 剩余风险：
