@@ -298,11 +298,11 @@ onMounted(async () => {
     <section v-if="isLoggedIn" class="forum-profile-card">
       <label>
         <span>昵称</span>
-        <input v-model="profile.nickname" maxlength="80" placeholder="社区昵称" />
+        <input id="forum-profile-nickname" v-model="profile.nickname" name="forum-profile-nickname" maxlength="80" placeholder="社区昵称" />
       </label>
       <label>
         <span>头像 URL</span>
-        <input v-model="profile.avatar_url" maxlength="500" placeholder="可填 HF Bucket 或图床链接" />
+        <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="可填 HF Bucket 或图床链接" />
       </label>
       <button class="save-profile-btn" @click="saveProfile">保存资料</button>
     </section>
@@ -321,12 +321,12 @@ onMounted(async () => {
     </section>
 
     <section v-if="composerOpen" class="composer-card">
-      <input v-model="newThread.title" maxlength="160" placeholder="标题" />
-      <textarea v-model="newThread.content_md" maxlength="20000" rows="4" placeholder="说点什么..." />
+      <input id="forum-thread-title" v-model="newThread.title" name="forum-thread-title" maxlength="160" placeholder="标题" />
+      <textarea id="forum-thread-content" v-model="newThread.content_md" name="forum-thread-content" maxlength="20000" rows="4" placeholder="说点什么..." />
       <div class="composer-footer">
         <label class="score-field">
           <span>评分</span>
-          <input v-model.number="newThread.score" type="number" min="1" max="10" />
+          <input id="forum-thread-score" v-model.number="newThread.score" name="forum-thread-score" type="number" min="1" max="10" />
         </label>
         <button class="primary-btn" :disabled="!canPublishThread" @click="submitThread">发布</button>
       </div>
@@ -391,7 +391,7 @@ onMounted(async () => {
           </div>
 
           <div class="reply-box">
-            <textarea v-model="replyContent" rows="3" placeholder="写回复..." />
+            <textarea id="forum-reply-content" v-model="replyContent" name="forum-reply-content" rows="3" placeholder="写回复..." />
             <button class="primary-btn" @click="submitReply">回复</button>
           </div>
 
