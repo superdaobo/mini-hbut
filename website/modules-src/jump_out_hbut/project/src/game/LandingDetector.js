@@ -1,4 +1,5 @@
 import { PERFECT_LANDING_THRESHOLD, NORMAL_LANDING_THRESHOLD } from '../utils/constants.js'
+import { clamp } from '../utils/math.js'
 
 /**
  * 落点判定器
@@ -32,19 +33,35 @@ export class LandingDetector {
 
       // 在平台范围内（maxOffset <= 1.0）
       if (maxOffset <= NORMAL_LANDING_THRESHOLD) {
+        const safePosition = {
+          x: clamp(
+            position.x,
+            platform.position.x - platform.size.width / 2,
+            platform.position.x + platform.size.width / 2
+          ),
+          y: position.y,
+          z: clamp(
+            position.z,
+            platform.position.z - platform.size.depth / 2,
+            platform.position.z + platform.size.depth / 2
+          )
+        }
+
         if (maxOffset <= PERFECT_LANDING_THRESHOLD) {
           return {
             success: true,
             type: 'perfect',
             platform,
-            offset: maxOffset
+            offset: maxOffset,
+            safePosition
           }
         }
         return {
           success: true,
           type: 'normal',
           platform,
-          offset: maxOffset
+          offset: maxOffset,
+          safePosition
         }
       }
     }

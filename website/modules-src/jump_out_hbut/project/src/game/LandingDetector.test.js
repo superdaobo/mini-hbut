@@ -150,4 +150,26 @@ describe('LandingDetector', () => {
       expect(result.type).toBe('miss')
     })
   })
+
+  describe('安全落点钳制', () => {
+    it('宽容命中但实际落点超过平台几何边界时，返回钳制到边缘的 safePosition', () => {
+      const platform = makePlatform(0, 0, 2.0, 2.0)
+      // NORMAL_LANDING_THRESHOLD 为 1.1，x=1.05 会被判定为 normal，
+      // 但平台实际右边界是 x=1.0，角色应被钳制回几何边界内。
+      const result = detector.detect({ x: 1.05, y: 3, z: 0.25 }, [platform])
+
+      expect(result.success).toBe(true)
+      expect(result.type).toBe('normal')
+      expect(result.safePosition).toEqual({ x: 1, y: 3, z: 0.25 })
+    })
+
+    it('平台范围内命中时 safePosition 保持原始落点，不强制吸附中心', () => {
+      const platform = makePlatform(0, 0, 2.0, 2.0)
+      const position = { x: 0.4, y: 2, z: -0.5 }
+      const result = detector.detect(position, [platform])
+
+      expect(result.success).toBe(true)
+      expect(result.safePosition).toEqual(position)
+    })
+  })
 })

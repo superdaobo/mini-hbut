@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { JumpController } from './JumpController.js'
+import {
+  MIN_JUMP_DISTANCE,
+  MAX_JUMP_DISTANCE,
+  JUMP_DURATION_BASE,
+  JUMP_DURATION_ADDITIONAL
+} from '../utils/constants.js'
 
 describe('JumpController', () => {
   let jumpController
@@ -9,39 +15,58 @@ describe('JumpController', () => {
   })
 
   describe('jump() 跳跃参数计算', () => {
-    it('chargePercent=0.5 → distance=3.75, duration=500ms', () => {
+    it('chargePercent=0.5 → distance=5.0, duration=475ms', () => {
       const trajectory = jumpController.jump(0.5, 'right')
-      // distance = 1.5 + 0.5 * 4.5 = 3.75
-      expect(trajectory.duration).toBe(500)
+      expect(trajectory.duration).toBe(475)
       // 验证终点距离起点的 XZ 平面距离
       const dx = trajectory.endPos.x - trajectory.startPos.x
       const dz = trajectory.endPos.z - trajectory.startPos.z
       const distance = Math.sqrt(dx * dx + dz * dz)
-      expect(distance).toBeCloseTo(3.75)
+      expect(distance).toBeCloseTo(5.0)
     })
 
-    it('chargePercent=0 → distance=1.5, duration=400ms', () => {
+    it('chargePercent=0 → distance=2.0, duration=350ms', () => {
       const trajectory = jumpController.jump(0, 'left')
-      expect(trajectory.duration).toBe(400)
+      expect(trajectory.duration).toBe(350)
       const dx = trajectory.endPos.x - trajectory.startPos.x
       const dz = trajectory.endPos.z - trajectory.startPos.z
       const distance = Math.sqrt(dx * dx + dz * dz)
-      expect(distance).toBeCloseTo(1.5)
+      expect(distance).toBeCloseTo(2.0)
     })
 
-    it('chargePercent=1.0 → distance=6.0, duration=600ms', () => {
+    it('chargePercent=1.0 → distance=8.0, duration=600ms', () => {
       const trajectory = jumpController.jump(1.0, 'right')
       expect(trajectory.duration).toBe(600)
       const dx = trajectory.endPos.x - trajectory.startPos.x
       const dz = trajectory.endPos.z - trajectory.startPos.z
       const distance = Math.sqrt(dx * dx + dz * dz)
-      expect(distance).toBeCloseTo(6.0)
+      expect(distance).toBeCloseTo(8.0)
     })
 
     it('peakHeight = 2.0 + chargePercent * 1.5', () => {
       const trajectory = jumpController.jump(0.5, 'right')
       // 2.0 + 0.5 * 1.5 = 2.75
       expect(trajectory.peakHeight).toBeCloseTo(2.75)
+    })
+
+    it('chargePercent 超过 1 时钳制到最大跳跃距离，避免异常高速穿模', () => {
+      const trajectory = jumpController.jump(2.5, 'right')
+      const dx = trajectory.endPos.x - trajectory.startPos.x
+      const dz = trajectory.endPos.z - trajectory.startPos.z
+      const distance = Math.sqrt(dx * dx + dz * dz)
+
+      expect(distance).toBeCloseTo(MAX_JUMP_DISTANCE)
+      expect(trajectory.duration).toBe(JUMP_DURATION_BASE + JUMP_DURATION_ADDITIONAL)
+    })
+
+    it('chargePercent 小于 0 时钳制到最小跳跃距离，避免反向异常输入', () => {
+      const trajectory = jumpController.jump(-0.75, 'left')
+      const dx = trajectory.endPos.x - trajectory.startPos.x
+      const dz = trajectory.endPos.z - trajectory.startPos.z
+      const distance = Math.sqrt(dx * dx + dz * dz)
+
+      expect(distance).toBeCloseTo(MIN_JUMP_DISTANCE)
+      expect(trajectory.duration).toBe(JUMP_DURATION_BASE)
     })
   })
 
@@ -76,15 +101,15 @@ describe('JumpController', () => {
     })
 
     it('跳跃结束时进度为 1', () => {
-      jumpController.jump(0.5, 'right') // duration = 500ms
+      const trajectory = jumpController.jump(0.5, 'right')
       // 推进整个跳跃时长
-      jumpController.update(500)
+      jumpController.update(trajectory.duration)
       expect(jumpController.getProgress()).toBeCloseTo(1)
     })
 
     it('跳跃中途进度正确', () => {
-      jumpController.jump(0.5, 'right') // duration = 500ms
-      jumpController.update(250) // 推进一半时间
+      const trajectory = jumpController.jump(0.5, 'right')
+      jumpController.update(trajectory.duration / 2) // 推进一半时间
       expect(jumpController.getProgress()).toBeCloseTo(0.5)
     })
 
@@ -104,25 +129,25 @@ describe('JumpController', () => {
     })
 
     it('跳跃完成后不再跳跃', () => {
-      jumpController.jump(0.5, 'right') // duration = 500ms
-      jumpController.update(500)
+      const trajectory = jumpController.jump(0.5, 'right')
+      jumpController.update(trajectory.duration)
       expect(jumpController.isJumping()).toBe(false)
     })
 
     it('跳跃中途仍在跳跃', () => {
-      jumpController.jump(0.5, 'right') // duration = 500ms
-      jumpController.update(250)
+      const trajectory = jumpController.jump(0.5, 'right')
+      jumpController.update(trajectory.duration / 2)
       expect(jumpController.isJumping()).toBe(true)
     })
   })
 
   describe('update(deltaTime) 位置更新', () => {
     it('推进 deltaTime 后位置正确', () => {
-      jumpController.jump(0.5, 'right') // duration=500, distance=3.75
-      const pos = jumpController.update(250) // t=0.5
-      // x(0.5) = 0 + sin(45°) * 3.75 * 0.5
-      const expectedX = Math.sin(Math.PI / 4) * 3.75 * 0.5
-      const expectedZ = Math.cos(Math.PI / 4) * 3.75 * 0.5
+      const trajectory = jumpController.jump(0.5, 'right') // duration=475, distance=5.0
+      const pos = jumpController.update(trajectory.duration / 2) // t=0.5
+      // x(0.5) = 0 + sin(30°) * 5.0 * 0.5
+      const expectedX = Math.sin(Math.PI / 6) * 5.0 * 0.5
+      const expectedZ = Math.cos(Math.PI / 6) * 5.0 * 0.5
       // y(0.5) = 0 + 2.75 * 4 * 0.5 * 0.5 = 2.75（峰值）
       const expectedY = 2.75 * 4 * 0.5 * 0.5
       expect(pos.x).toBeCloseTo(expectedX)
@@ -145,34 +170,55 @@ describe('JumpController', () => {
     })
 
     it('多次 update 累积推进进度', () => {
-      jumpController.jump(0.5, 'right') // duration=500
-      jumpController.update(100) // elapsed=100
-      jumpController.update(100) // elapsed=200
-      expect(jumpController.getProgress()).toBeCloseTo(0.4) // 200/500
+      const trajectory = jumpController.jump(0.5, 'right') // duration=475
+      jumpController.update(trajectory.duration * 0.2)
+      jumpController.update(trajectory.duration * 0.2)
+      expect(jumpController.getProgress()).toBeCloseTo(0.4)
     })
   })
 
   describe('方向计算', () => {
-    it('right 方向为 +45° 相对于 Z 轴', () => {
+    it('right 方向为 +30° 相对于 Z 轴', () => {
       const trajectory = jumpController.jump(0.5, 'right')
       const dx = trajectory.endPos.x - trajectory.startPos.x
       const dz = trajectory.endPos.z - trajectory.startPos.z
-      // right → sin(45°) > 0, cos(45°) > 0
+      // right → sin(30°) > 0, cos(30°) > 0
       expect(dx).toBeGreaterThan(0)
       expect(dz).toBeGreaterThan(0)
-      // 45° 角意味着 dx ≈ dz
-      expect(dx).toBeCloseTo(dz)
+      expect(dx / dz).toBeCloseTo(Math.tan(Math.PI / 6))
     })
 
-    it('left 方向为 -45° 相对于 Z 轴', () => {
+    it('left 方向为 -30° 相对于 Z 轴', () => {
       const trajectory = jumpController.jump(0.5, 'left')
       const dx = trajectory.endPos.x - trajectory.startPos.x
       const dz = trajectory.endPos.z - trajectory.startPos.z
-      // left → sin(-45°) < 0, cos(-45°) > 0
+      // left → sin(-30°) < 0, cos(-30°) > 0
       expect(dx).toBeLessThan(0)
       expect(dz).toBeGreaterThan(0)
-      // |dx| ≈ dz
-      expect(Math.abs(dx)).toBeCloseTo(dz)
+      expect(Math.abs(dx) / dz).toBeCloseTo(Math.tan(Math.PI / 6))
+    })
+  })
+
+  describe('不同高度平台', () => {
+    it('跳跃终点应落在目标平台顶部，避免角色进入更高建筑体', () => {
+      const startPos = { x: 0, y: 0.5, z: 0 }
+      const targetTopY = 2.2
+      const trajectory = jumpController.jump(0.5, 'right', startPos, { endY: targetTopY })
+
+      expect(trajectory.startPos.y).toBeCloseTo(startPos.y)
+      expect(trajectory.endPos.y).toBeCloseTo(targetTopY)
+
+      const finalPos = jumpController.update(trajectory.duration)
+      expect(finalPos.y).toBeCloseTo(targetTopY)
+    })
+
+    it('超大 deltaTime 也应钳制在目标平台顶部', () => {
+      const targetTopY = 1.2
+      const trajectory = jumpController.jump(1, 'right', { x: 0, y: 2, z: 0 }, { endY: targetTopY })
+      const finalPos = jumpController.update(trajectory.duration * 4)
+
+      expect(jumpController.isJumping()).toBe(false)
+      expect(finalPos.y).toBeCloseTo(targetTopY)
     })
   })
 

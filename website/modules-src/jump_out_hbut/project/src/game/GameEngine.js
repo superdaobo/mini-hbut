@@ -335,9 +335,12 @@ export class GameEngine {
       y: this._currentPlatform.position.y + this._currentPlatform.size.height,
       z: playerPos.z
     }
+    const targetTopY = targetPlatform
+      ? targetPlatform.position.y + targetPlatform.size.height
+      : startPos.y
 
     // 执行跳跃
-    this._jumpController.jump(chargePercent, direction, startPos)
+    this._jumpController.jump(chargePercent, direction, startPos, { endY: targetTopY })
     this._jumpCount++
 
     // 恢复角色缩放
@@ -447,7 +450,7 @@ export class GameEngine {
     this._currentPlatform = platform
 
     // 保持角色在实际落点位置（不强制居中），只修正 Y 到平台顶部
-    const playerPos = this._playerRenderer.getPosition()
+    const playerPos = result.safePosition || this._playerRenderer.getPosition()
     this._playerRenderer.setPosition(
       playerPos.x,
       platform.position.y + platform.size.height,

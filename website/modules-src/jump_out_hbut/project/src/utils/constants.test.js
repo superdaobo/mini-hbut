@@ -19,12 +19,12 @@ import {
 
 describe('constants.js', () => {
   it('蓄力常量正确', () => {
-    expect(MAX_CHARGE_MS).toBe(2000)
+    expect(MAX_CHARGE_MS).toBe(1500)
   })
 
   it('跳跃距离常量正确', () => {
-    expect(MIN_JUMP_DISTANCE).toBe(1.5)
-    expect(MAX_JUMP_DISTANCE).toBe(6.0)
+    expect(MIN_JUMP_DISTANCE).toBe(2.0)
+    expect(MAX_JUMP_DISTANCE).toBe(8.0)
   })
 
   it('跳跃高度公式参数正确', () => {
@@ -33,8 +33,8 @@ describe('constants.js', () => {
   })
 
   it('跳跃时长公式参数正确', () => {
-    expect(JUMP_DURATION_BASE).toBe(400)
-    expect(JUMP_DURATION_ADDITIONAL).toBe(200)
+    expect(JUMP_DURATION_BASE).toBe(350)
+    expect(JUMP_DURATION_ADDITIONAL).toBe(250)
   })
 
   it('连击倍率表完整', () => {
@@ -108,8 +108,8 @@ describe('constants.js', () => {
   })
 
   it('落点判定阈值正确', () => {
-    expect(PERFECT_LANDING_THRESHOLD).toBe(0.3)
-    expect(NORMAL_LANDING_THRESHOLD).toBe(1.0)
+    expect(PERFECT_LANDING_THRESHOLD).toBe(0.35)
+    expect(NORMAL_LANDING_THRESHOLD).toBe(1.1)
   })
 
   it('平台概率分布总和为 1', () => {

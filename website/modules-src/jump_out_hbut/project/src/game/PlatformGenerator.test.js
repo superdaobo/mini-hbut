@@ -89,11 +89,11 @@ describe('PlatformGenerator', () => {
   })
 
   describe('距离约束', () => {
-    it('score < 1500 时距离在 [1.2*w, 3.0*w] 范围内', () => {
+    it('score < 1500 时距离在固定基础距离倍率范围内', () => {
       const initial = generator.getInitialPlatform()
-      const w = initial.size.width
-      const minDist = PLATFORM_DISTANCE_MIN_FACTOR * w
-      const maxDist = PLATFORM_DISTANCE_MAX_FACTOR * w
+      const baseDistance = 4.5
+      const minDist = PLATFORM_DISTANCE_MIN_FACTOR * baseDistance
+      const maxDist = PLATFORM_DISTANCE_MAX_FACTOR * baseDistance
 
       for (let i = 0; i < 50; i++) {
         const next = generator.generateNext(initial, 100)
@@ -106,11 +106,11 @@ describe('PlatformGenerator', () => {
       }
     })
 
-    it('score >= 1500 时距离在 [1.2*w, 3.0*w*1.3] 范围内', () => {
+    it('score >= 1500 时距离在固定基础距离倍率和高分缩放范围内', () => {
       const initial = generator.getInitialPlatform()
-      const w = initial.size.width
-      const minDist = PLATFORM_DISTANCE_MIN_FACTOR * w
-      const maxDist = PLATFORM_DISTANCE_MAX_FACTOR * w * HIGH_SCORE_SCALE_MAX
+      const baseDistance = 4.5
+      const minDist = PLATFORM_DISTANCE_MIN_FACTOR * baseDistance
+      const maxDist = PLATFORM_DISTANCE_MAX_FACTOR * baseDistance * HIGH_SCORE_SCALE_MAX
 
       for (let i = 0; i < 50; i++) {
         const next = generator.generateNext(initial, 2000)
@@ -124,8 +124,8 @@ describe('PlatformGenerator', () => {
     })
   })
 
-  describe('方向约束（±45°）', () => {
-    it('生成的平台方向为 ±45°（验证 x 和 z 分量关系）', () => {
+  describe('方向约束（±30°）', () => {
+    it('生成的平台方向为 ±30°（验证 x 和 z 分量关系）', () => {
       const initial = generator.getInitialPlatform()
 
       for (let i = 0; i < 50; i++) {
@@ -133,8 +133,7 @@ describe('PlatformGenerator', () => {
         const dx = next.position.x - initial.position.x
         const dz = next.position.z - initial.position.z
 
-        // ±45° 时 |dx| 应该等于 |dz|（sin(45°) === cos(45°)）
-        expect(Math.abs(dx)).toBeCloseTo(Math.abs(dz), 5)
+        expect(Math.abs(dx) / Math.abs(dz)).toBeCloseTo(Math.tan(Math.PI / 6), 5)
 
         // z 分量始终为正（向前跳）
         expect(dz).toBeGreaterThan(0)
@@ -154,9 +153,9 @@ describe('PlatformGenerator', () => {
         const dz = next.position.z - current.position.z
         const distance = Math.sqrt(dx * dx + dz * dz)
 
-        const w = current.size.width
-        const minDist = PLATFORM_DISTANCE_MIN_FACTOR * w
-        let maxDist = PLATFORM_DISTANCE_MAX_FACTOR * w
+        const baseDistance = 4.5
+        const minDist = PLATFORM_DISTANCE_MIN_FACTOR * baseDistance
+        let maxDist = PLATFORM_DISTANCE_MAX_FACTOR * baseDistance
         if (score >= HIGH_SCORE_THRESHOLD) {
           maxDist *= HIGH_SCORE_SCALE_MAX
         }

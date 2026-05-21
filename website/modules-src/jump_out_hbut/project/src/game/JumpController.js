@@ -1,4 +1,4 @@
-import { computeParabolicY } from '../utils/math.js'
+import { clamp, computeParabolicY, lerp } from '../utils/math.js'
 import {
   MIN_JUMP_DISTANCE,
   MAX_JUMP_DISTANCE,
@@ -26,6 +26,8 @@ export class JumpController {
     this._peakHeight = 0
     /** @type {{ x: number, y: number, z: number }} 起始位置 */
     this._startPos = { x: 0, y: 0, z: 0 }
+    /** @type {number} 跳跃终点 Y 坐标 */
+    this._endY = 0
     /** @type {{ x: number, z: number }} 方向向量（归一化后的 XZ 分量） */
     this._direction = { x: 0, z: 0 }
   }
@@ -35,17 +37,20 @@ export class JumpController {
    * @param {number} chargePercent - 蓄力百分比 [0, 1]
    * @param {'left' | 'right'} direction - 跳跃方向
    * @param {{ x: number, y: number, z: number }} [startPos] - 起始位置，默认 (0,0,0)
+   * @param {{ endY?: number }} [options] - 目标平台顶部高度等跳跃选项
    * @returns {{ startPos: { x: number, y: number, z: number }, endPos: { x: number, y: number, z: number }, peakHeight: number, duration: number }}
    */
-  jump(chargePercent, direction, startPos = { x: 0, y: 0, z: 0 }) {
-    // 计算跳跃距离：1.5 + chargePercent * 4.5
-    this._distance = MIN_JUMP_DISTANCE + chargePercent * (MAX_JUMP_DISTANCE - MIN_JUMP_DISTANCE)
+  jump(chargePercent, direction, startPos = { x: 0, y: 0, z: 0 }, options = {}) {
+    const safeChargePercent = clamp(Number(chargePercent) || 0, 0, 1)
+
+    // 计算跳跃距离：MIN_JUMP_DISTANCE + chargePercent * 距离范围
+    this._distance = MIN_JUMP_DISTANCE + safeChargePercent * (MAX_JUMP_DISTANCE - MIN_JUMP_DISTANCE)
 
     // 计算跳跃峰值高度：2.0 + chargePercent * 1.5
-    this._peakHeight = JUMP_HEIGHT_BASE + chargePercent * JUMP_HEIGHT_ADDITIONAL
+    this._peakHeight = JUMP_HEIGHT_BASE + safeChargePercent * JUMP_HEIGHT_ADDITIONAL
 
-    // 计算跳跃时长：400 + chargePercent * 200 ms
-    this._duration = JUMP_DURATION_BASE + chargePercent * JUMP_DURATION_ADDITIONAL
+    // 计算跳跃时长：JUMP_DURATION_BASE + chargePercent * JUMP_DURATION_ADDITIONAL
+    this._duration = JUMP_DURATION_BASE + safeChargePercent * JUMP_DURATION_ADDITIONAL
 
     // 计算方向向量（±30° 相对于 Z 轴正方向，形成 60° 夹角的 zigzag）
     // left → angle = -30°, right → angle = +30°
@@ -57,11 +62,12 @@ export class JumpController {
 
     // 记录起始位置
     this._startPos = { ...startPos }
+    this._endY = Number.isFinite(options.endY) ? options.endY : this._startPos.y
 
     // 计算终点位置
     const endPos = {
       x: this._startPos.x + this._direction.x * this._distance,
-      y: this._startPos.y,
+      y: this._endY,
       z: this._startPos.z + this._direction.z * this._distance
     }
 
@@ -113,7 +119,9 @@ export class JumpController {
     // 计算当前位置
     const currentPos = {
       x: this._startPos.x + this._direction.x * this._distance * t,
-      y: this._startPos.y + computeParabolicY(t, this._peakHeight),
+      // 平台高度不同的时候，基准高度线性过渡到目标平台顶部，
+      // 抛物线只作为额外高度，避免角色落地前穿进高建筑体。
+      y: lerp(this._startPos.y, this._endY, t) + computeParabolicY(t, this._peakHeight),
       z: this._startPos.z + this._direction.z * this._distance * t
     }
 
@@ -135,6 +143,7 @@ export class JumpController {
     this._distance = 0
     this._peakHeight = 0
     this._startPos = { x: 0, y: 0, z: 0 }
+    this._endY = 0
     this._direction = { x: 0, z: 0 }
   }
 }

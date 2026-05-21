@@ -112,14 +112,31 @@
 
 ## Task 4：重构“跳出湖工大”碰撞与物理稳定性
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：“跳出湖工大”核心游戏逻辑。
 - 目标：修复穿模，建立稳定碰撞边界、速度上限、连续碰撞或分步积分策略。
 - 验证：逻辑测试覆盖高速度、边界、障碍物碰撞、失败判定；手动游玩不出现高频穿模。
 - 执行记录：
+  - 根因定位：跳跃轨迹原先默认终点 Y 等于起跳平台顶部，目标平台更高时，角色在落地阶段可能先进入高平台/建筑体再被落点判定修正，形成视觉穿模。
+  - 根因定位：`NORMAL_LANDING_THRESHOLD=1.1` 允许宽容命中，但成功后保留原始落点坐标；当落点略超出平台真实几何边界时，角色会站在边缘外侧，产生“成功但穿出平台”的视觉问题。
+  - 根因定位：`JumpController.jump()` 没有防御异常 `chargePercent`，外部若传入小于 0 或大于 1 的值，会突破设计距离/速度范围。
+  - 修复 `JumpController.js`：对 `chargePercent` 做 `[0,1]` 钳制；新增 `options.endY`；跳跃 Y 轴基准从起点高度线性过渡到目标平台顶部，再叠加抛物线高度，避免不同高度平台落地前穿入建筑体。
+  - 修复 `GameEngine.js`：执行跳跃前计算目标平台顶部高度并传入 `JumpController`；落地成功后优先使用检测器返回的 `safePosition`，再修正 Y 到平台顶部。
+  - 修复 `LandingDetector.js`：命中平台时返回 `safePosition`，将 X/Z 钳制在平台真实几何边界内，保留宽容命中的手感但消除边缘外站位。
+  - 补充/修正测试：为不同高度平台落地、超大/负数蓄力输入、宽容命中边界钳制增加回归覆盖；同时把已漂移的蓄力时间、跳跃距离、方向角、落点阈值和平台距离断言对齐当前源码常量。
 - 验证结果：
+  - `npm.cmd test`（workdir：`website/modules-src/jump_out_hbut/project`）通过：9 个测试文件、152 个测试全部通过。
+  - `npm.cmd run build`（workdir：`website/modules-src/jump_out_hbut/project`）通过；仍保留既有 `new URL('../assets/audio/', import.meta.url)` 音频目录构建警告。
+  - `npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts src/utils/module_center.spec.ts --testTimeout 60000` 通过：2 个测试文件、9 个测试全部通过。
+  - `git diff --check -- website/modules-src/jump_out_hbut/project/src/game website/modules-src/jump_out_hbut/project/src/utils goal-1/tasks.md` 未发现空白错误，仅出现 Windows 换行提示。
+  - 390×844 Playwright 竖屏运行时验证：首屏开始按钮可见；进入游戏后 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`overflowX=hidden`、`--module-vh=8.44px`，canvas 为 390×844，HUD 为 390×64。
+  - Playwright 控制台检查：1 个 favicon 404 和 6 个既有音效加载 warning；未发现 Task 4 物理修复导致的页面崩溃或运行时异常。
 - 剩余风险：
+  - 本轮修复的是跳跃路径、速度/距离输入边界和平台成功落点边界；当前项目没有实质障碍物碰撞系统，`tasks.md` 中“障碍物碰撞”只能在后续视觉/玩法任务引入障碍物后继续覆盖。
+  - 浏览器验证使用 Chromium 竖屏视口，不等同于真实 iOS WKWebView/Tauri 长时间手动游玩；真实设备上的连续多局穿模仍需后续最终联调补充。
+  - `jump_out_hbut` 的音频资源 warning 和 favicon 404 是既有问题，本轮记录但不在 Task 4 物理范围内修复。
 - 下一步：
+  - 执行 Task 5：优化“跳出湖工大”视觉资产和湖工建筑表现，改善建筑粗糙问题，并在视觉改动中继续观察平台/建筑边缘遮挡和穿插风险。
 
 ## Task 5：优化“跳出湖工大”视觉资产和湖工建筑表现
 

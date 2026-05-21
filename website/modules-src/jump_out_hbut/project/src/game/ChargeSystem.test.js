@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ChargeSystem } from './ChargeSystem.js'
+import { MAX_CHARGE_MS } from '../utils/constants.js'
 
 describe('ChargeSystem', () => {
   let chargeSystem
@@ -20,21 +21,21 @@ describe('ChargeSystem', () => {
       expect(chargeSystem.getChargePercent()).toBe(0)
     })
 
-    it('1000ms 经过 → 50% 蓄力', () => {
+    it('经过一半最大蓄力时间 → 50% 蓄力', () => {
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(MAX_CHARGE_MS / 2)
       expect(chargeSystem.getChargePercent()).toBeCloseTo(0.5)
     })
 
-    it('2000ms 经过 → 100% 蓄力', () => {
+    it('达到最大蓄力时间 → 100% 蓄力', () => {
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(2000)
+      vi.advanceTimersByTime(MAX_CHARGE_MS)
       expect(chargeSystem.getChargePercent()).toBeCloseTo(1.0)
     })
 
-    it('3000ms 经过 → 仍然是 100%（上限锁定）', () => {
+    it('超过最大蓄力时间 → 仍然是 100%（上限锁定）', () => {
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(3000)
+      vi.advanceTimersByTime(MAX_CHARGE_MS * 2)
       expect(chargeSystem.getChargePercent()).toBeCloseTo(1.0)
     })
   })
@@ -59,17 +60,17 @@ describe('ChargeSystem', () => {
   describe('stopCharge() 返回值', () => {
     it('停止蓄力时返回当前百分比', () => {
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(MAX_CHARGE_MS / 2)
       const percent = chargeSystem.stopCharge()
       expect(percent).toBeCloseTo(0.5)
     })
 
     it('停止后 getChargePercent() 返回锁定值', () => {
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(1500)
+      vi.advanceTimersByTime(MAX_CHARGE_MS * 0.75)
       chargeSystem.stopCharge()
       // 再推进时间，百分比不应继续增长
-      vi.advanceTimersByTime(1000)
+      vi.advanceTimersByTime(MAX_CHARGE_MS)
       expect(chargeSystem.getChargePercent()).toBeCloseTo(0.75)
     })
 
@@ -92,12 +93,12 @@ describe('ChargeSystem', () => {
 
     it('重置后可以重新开始蓄力', () => {
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(2000)
+      vi.advanceTimersByTime(MAX_CHARGE_MS)
       chargeSystem.stopCharge()
       chargeSystem.reset()
 
       chargeSystem.startCharge()
-      vi.advanceTimersByTime(500)
+      vi.advanceTimersByTime(MAX_CHARGE_MS * 0.25)
       expect(chargeSystem.getChargePercent()).toBeCloseTo(0.25)
     })
   })
