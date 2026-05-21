@@ -1,0 +1,11 @@
+{
+  "id": "hbut_monopoly",
+  "name": "湖工大富翁",
+  "icon": "🎲",
+  "order": 7,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "",
+  "source_dir": "project",
+  "release_notes": "湖工大富翁模块自动构建包"
+}

@@ -245,14 +245,38 @@
 
 ## Task 7：新增湖工大富翁类游戏
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：新增模块源码、manifest、catalog 接入。
 - 目标：实现投骰、走格、校园地点事件、金币/绩点等湖工主题资源、胜负/重开。
 - 验证：核心逻辑测试 + 模块入口可打开 + 竖屏可玩。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行 Task 7，不进入 Task 8。
+  - 设计假设：Goal Mode 禁止暂停提问，因此采用轻量自研实现，不引入不明来源开源整包；新增模块 ID 为 `hbut_monopoly`，玩法为环形校园棋盘、投骰走格、校园地点事件、金币/绩点资源、胜利/失败/重开闭环。
+  - 新增 `website/modules-src/hbut_monopoly/module.json`，接入模块构建系统，模块名“湖工大富翁”，图标 `🎲`，order 为 7。
+  - 新增 `website/modules-src/hbut_monopoly/project` Vite 模块，包含 `index.html`、`package.json`、`package-lock.json`、`vite.config.js`、本地空 `postcss.config.js`、`src/main.js`、`src/style.css`、`src/game/monopoly.js`。
+  - 新增核心规则 `monopoly.js`：16 格湖工校园棋盘，包含校门起点、南湖、图书馆、食堂、工程楼、计算机学院、创业基地、毕设答辩等地点；实现 `createInitialState()`、`playTurn()`、`restartGame()`、确定性骰子、经过起点奖学金、金币耗尽失败、绩点达标胜利。
+  - 新增页面 UI：移动端优先的 4×4 校园棋盘、金币/绩点/回合指标、骰子显示、投骰前进、重新开始、校园事件记录；触控按钮适合竖屏内嵌。
+  - 新增宿主嵌入桥接：`MODULE_ID = 'hbut_monopoly'`、动态 `--module-vh`、`resize/orientationchange/visualViewport.resize` 同步、`ResizeObserver`、`mini-hbut:module-size` 高度上报。
+  - 更新 `src/utils/module_center.js` 默认模块中心，加入 `hbut_monopoly` 远程模块入口。
+  - 扩展 `src/utils/website_game_modules_contract.spec.ts`，把 `hbut_monopoly` 纳入游戏模块发现、默认模块中心、入口、Vite base、iOS viewport、动态视口、安全区和宿主高度上报契约。
+  - 新增 `src/utils/hbut_monopoly_game.spec.ts`，覆盖棋盘地点/事件类型、投骰走格与事件结算、经过起点奖学金、绩点胜利、金币失败、重开恢复初始资源，以及竖屏 iframe 固定高度样式契约。
+  - TDD 红灯：首次运行 `npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_monopoly_game.spec.ts --testTimeout 60000` 失败，失败点包括缺少 `hbut_monopoly` 源码模块、入口 HTML、`main.js` 和核心规则文件。
+  - 运行时检查发现 390×844 下首版样式 `bodyHeight=870`，内部滚动条把 `clientWidth` 压到 375；随后增强样式契约测试并修复 CSS：根高度固定为 `calc(var(--module-vh, 1vh) * 100)`，`body` 不再用 padding 撑高页面，安全区 padding 移到 `#app`，页面级 `overflow-x/overflow-y: hidden`。
+  - 构建检查发现新模块向上继承根目录 PostCSS/Tailwind 配置会产生 Tailwind content warning；新增模块本地空 `postcss.config.js` 隔离根配置，后续构建输出无该 warning。
 - 验证结果：
+  - 绿灯测试：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_monopoly_game.spec.ts --testTimeout 60000` 通过，3 个测试文件、14 个测试全部通过。
+  - 新模块构建：`npm.cmd run build`（workdir：`website/modules-src/hbut_monopoly/project`）通过，使用锁文件后的 Vite 5.4.21，构建输出无 Tailwind warning。
+  - 依赖安装验证：`npm.cmd ci --prefer-offline --no-audit --no-fund`（workdir：`website/modules-src/hbut_monopoly/project`）通过，确认发布脚本的 `npm ci` 路径可用；`node_modules/` 和 `dist/` 均被 `.gitignore` 忽略。
+  - Playwright 390×844 直开验证：`http://127.0.0.1:5188/` 下 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`appHeight=844`、`overflowX=hidden`、`overflowY=hidden`、`--module-vh=8.44px`、棋盘 16 格、当前位置“校门起点”，控制台 0 errors / 0 warnings。
+  - Playwright 投骰交互验证：点击“投骰前进”后，骰子为 3，当前位置到“西区食堂”，金币从 320 变为 285，回合变为 1，最新事件记录显示“西区食堂: 请小队吃饭，钱包变轻。，金币-35”，页面仍保持 390×844 且无内部滚动。
+  - Playwright 模拟宿主 iframe 验证：390×844 iframe 收到 3 条 `mini-hbut:module-size` 消息，`module_id/moduleId` 均为 `hbut_monopoly`，高度均为 844。
+  - 服务清理：停止本轮实际监听在 5188 的 Vite/Node 进程，复查 5188 无 LISTEN 结果。
 - 剩余风险：
+  - 新模块是自研轻量大富翁玩法，未引入外部开源代码，因此无新增第三方玩法代码许可证风险；但视觉仍是 CSS 方格棋盘，不是复杂动画棋盘。
+  - 本轮只提交源码和锁文件，不同步 `website/public/modules` 构建产物；后续发布/最终审计需要统一运行模块发布脚本并处理已有产物改动。
+  - 浏览器验证仍使用 Chromium 移动视口，不等同于真实 iOS WKWebView/Tauri 设备长时间游玩。
 - 下一步：
+  - 执行 Task 8：新增湖工矿工类游戏。
 
 ## Task 8：新增湖工矿工类游戏
 

@@ -38,6 +38,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 6
+    }),
+    Object.freeze({
+      id: 'hbut_monopoly',
+      name: '湖工大富翁',
+      icon: '🎲',
+      description: '投骰走遍校园，经营金币与绩点',
+      key_required: false,
+      kind: 'remote',
+      order: 7
     })
   ])
 })
