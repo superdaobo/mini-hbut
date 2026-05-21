@@ -297,8 +297,18 @@ jobs:
               print(f"Created {proguard}")
           PY
 
+      - name: Build frontend for Android
+        run: npm run build
+
+      - name: Prune unused assets for mobile
+        run: |
+          set -euo pipefail
+          # 移动端 APK 不需要 favicon，移除可节省 ~437KB
+          rm -f dist/favicon.svg
+          echo "Removed dist/favicon.svg"
+
       - name: Build Android APK (arm64 only)
-        run: npm run tauri android build -- --target aarch64 --apk true
+        run: npx tauri android build -- --target aarch64 --apk true
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
 

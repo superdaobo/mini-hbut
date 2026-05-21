@@ -20,8 +20,10 @@ const mountApp = () => {
 
 const loadLocalIconFonts = () => {
   // 图标字体从本地加载（无 CDN 依赖），延迟到首屏之后
+  // 按需加载：fontawesome 基础 + solid 图标，避免 brands/regular 等未使用字体
   void Promise.all([
-    import('@fortawesome/fontawesome-free/css/all.css'),
+    import('@fortawesome/fontawesome-free/css/fontawesome.css'),
+    import('@fortawesome/fontawesome-free/css/solid.css'),
     new Promise((resolve, reject) => {
       const link = document.createElement('link')
       link.rel = 'stylesheet'
