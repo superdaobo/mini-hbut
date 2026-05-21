@@ -140,14 +140,38 @@
 
 ## Task 5：优化“跳出湖工大”视觉资产和湖工建筑表现
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：建筑绘制、背景、角色、障碍物、UI 状态。
 - 目标：建筑更像湖工校园特色，不再粗糙；保持移动端性能。
 - 验证：截图检查、资源路径检查、移动端帧率/交互基本流畅。
 - 执行记录：
+  - 审计当前建筑实现后确认主要问题：多数建筑只是基础 `BoxGeometry/CylinderGeometry` 拼接，缺少统一湖工语义、门牌/标识、细节层和平台边界提示；部分原有模型还超出平台尺寸预算，容易造成视觉穿插错觉。
+  - 新增 `CampusVisualKit.js`，在 `BuildingFactory.create()` 输出时统一装饰全部 13 类建筑：湖工地标名称、校园标识牌、窗格/功能细节层、顶部安全边界线和低矮基座。
+  - 收敛原有越界模型：调整工程楼侧翼、行政楼门廊、地铁站斜坡入口，使视觉边界保持在平台尺寸预算内。
+  - 新增 `CampusBackdrop.js` 并接入 `SceneManager`，提供低成本校园背景层，包括南湖水面、校园跑道、道路和远景楼群，强化湖工场景识别。
+  - 优化 `PlayerRenderer.js`：角色从纯橙色胶囊升级为“湖工跳跃者”，增加胸前校徽、蓝黄标识条和方向标记，mesh 数量仍保持轻量。
+  - 优化 UI 状态：`GameHUD.vue`、`StartScreen.vue`、`GameOverScreen.vue` 改用文本和 CSS 状态点/标识，移除 HUD、开始页和上传失败提示中的 emoji 图标；开始页文案改为“跃过南湖与湖工地标”。
+  - 新增视觉契约测试：`BuildingFactory.test.js`、`CampusBackdrop.test.js`、`PlayerRenderer.test.js`、`GameUIVisual.test.js`，覆盖建筑湖工语义/细节层/尺寸预算、背景语义、角色识别度、UI 非 emoji 状态标识。
 - 验证结果：
+  - 红灯验证：`npx.cmd vitest run src/renderer/buildings/BuildingFactory.test.js` 初始失败，失败点包括 `library` 缺少 `campusLandmark`，以及 `engineering` 宽度超出平台预算。
+  - 红灯验证：`npx.cmd vitest run src/renderer/PlayerRenderer.test.js` 初始失败，失败点为角色缺少 `displayName=湖工跳跃者`。
+  - 红灯验证：`npx.cmd vitest run src/renderer/CampusBackdrop.test.js` 初始失败，失败点为 `CampusBackdrop.js` 不存在。
+  - 红灯验证：`npx.cmd vitest run src/components/GameUIVisual.test.js` 初始失败，失败点为 HUD 仍显示 `🦶/🔊` 且开始页缺少“跃过南湖与湖工地标”。
+  - 绿灯验证：`npx.cmd vitest run src/components/GameUIVisual.test.js src/renderer/buildings/BuildingFactory.test.js src/renderer/PlayerRenderer.test.js src/renderer/CampusBackdrop.test.js` 通过：4 个测试文件、7 个测试全部通过。
+  - 全量模块测试：`npm.cmd test`（workdir：`website/modules-src/jump_out_hbut/project`）通过：13 个测试文件、159 个测试全部通过。
+  - 模块构建：`npm.cmd run build`（workdir：`website/modules-src/jump_out_hbut/project`）通过；仍保留既有 `new URL('../assets/audio/', import.meta.url)` 音频目录构建 warning。
+  - 根目录契约测试：`npx.cmd vitest run src/utils/website_game_modules_contract.spec.ts src/utils/module_center.spec.ts --testTimeout 60000` 通过：2 个测试文件、9 个测试全部通过。
+  - 资源/文本检查：`rg -n "[🦶🔊🔇🦘💡⚠️]" website/modules-src/jump_out_hbut/project/src` 未再命中旧 UI emoji 图标。
+  - 390×844 Playwright 竖屏运行时验证：首屏显示“跃过南湖与湖工地标，按住蓄力，松开跳跃”；进入游戏后 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`overflowX=hidden`、`--module-vh=8.44px`，canvas 为 390×844，HUD 为 390×65.33，HUD 文案为“跳跃 0 / 音效”，旧 emoji 图标不存在。
+  - Playwright 截图：已保存 `task5-jump-mobile.png` 作为 390×844 游戏态视觉证据。
+  - Playwright 控制台检查：仍只有既有音效资源加载 warning 和 favicon 404，未发现 Task 5 视觉改动导致的运行时崩溃。
+  - `git diff --check -- website/modules-src/jump_out_hbut/project/src/renderer website/modules-src/jump_out_hbut/project/src/components goal-1/tasks.md` 未发现空白错误，仅出现 Windows 换行提示。
 - 剩余风险：
+  - 本轮截图验证使用 Chromium 竖屏视口，尚未覆盖真实 iOS WKWebView/Tauri 设备的视觉截图。
+  - 校园背景和建筑装饰为低多边形程序化模型，不依赖真实照片或贴图；辨识度比原方块模型明显增强，但不是精确复刻湖工建筑。
+  - `jump_out_hbut` 音频资源 warning 和 favicon 404 仍是既有问题，本轮记录但不在 Task 5 视觉资产范围内修复。
 - 下一步：
+  - 执行 Task 6：优化“笨鸟先飞”的页面体验和可玩性，继续覆盖竖屏、输入、难度、计分、失败/重开体验。
 
 ## Task 6：优化“笨鸟先飞”的页面体验和可玩性
 

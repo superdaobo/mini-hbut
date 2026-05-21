@@ -19,9 +19,9 @@ export function create() {
   group.add(body)
 
   // 中央门廊凸出
-  const porchGeo = new THREE.BoxGeometry(0.8, 1.6, 0.4)
+  const porchGeo = new THREE.BoxGeometry(0.8, 1.6, 0.28)
   const porch = new THREE.Mesh(porchGeo, porchMat)
-  porch.position.set(0, 0.8, 1.1)
+  porch.position.set(0, 0.8, 0.96)
   porch.castShadow = true
   porch.receiveShadow = true
   group.add(porch)
@@ -29,7 +29,7 @@ export function create() {
   // 门廊顶部三角装饰
   const topGeo = new THREE.BoxGeometry(1.0, 0.2, 0.5)
   const top = new THREE.Mesh(topGeo, porchMat)
-  top.position.set(0, 1.5, 1.1)
+  top.position.set(0, 1.5, 0.96)
   top.castShadow = true
   top.receiveShadow = true
   group.add(top)

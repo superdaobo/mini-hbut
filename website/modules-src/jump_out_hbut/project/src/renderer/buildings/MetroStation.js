@@ -28,9 +28,9 @@ export function create() {
   group.add(sign)
 
   // 斜坡入口
-  const rampGeo = new THREE.BoxGeometry(0.6, 0.15, 0.8)
+  const rampGeo = new THREE.BoxGeometry(0.55, 0.15, 0.48)
   const ramp = new THREE.Mesh(rampGeo, mainMat)
-  ramp.position.set(0, 0.1, 1.0)
+  ramp.position.set(0, 0.1, 0.82)
   ramp.rotation.x = -0.2
   ramp.castShadow = true
   ramp.receiveShadow = true

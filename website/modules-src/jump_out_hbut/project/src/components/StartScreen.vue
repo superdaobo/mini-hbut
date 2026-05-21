@@ -2,11 +2,12 @@
   <div class="start-screen">
     <div class="start-content">
       <h1 class="game-title">跳出湖工大</h1>
-      <p class="game-subtitle">🦘 按住蓄力，松开跳跃</p>
+      <p class="game-subtitle">跃过南湖与湖工地标，按住蓄力，松开跳跃</p>
 
       <!-- 操作提示（首次进入 3s 后消失） -->
       <div v-if="showTip" class="tip-banner">
-        <span>💡 按住屏幕蓄力，松开跳跃到下一个平台</span>
+        <span class="tip-marker" aria-hidden="true"></span>
+        <span>按住屏幕蓄力，松开跳跃到下一个湖工地标</span>
       </div>
 
       <!-- 最高分 -->
@@ -66,7 +67,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
+  background:
+    radial-gradient(circle at 50% 28%, rgba(56, 189, 248, 0.18), transparent 34%),
+    rgba(15, 23, 42, 0.76);
   z-index: 10;
 }
 
@@ -82,16 +85,21 @@ onBeforeUnmount(() => {
   font-weight: 700;
   color: #fff;
   margin-bottom: 0.5rem;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 3px 14px rgba(15, 23, 42, 0.55);
 }
 
 .game-subtitle {
   font-size: 1rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(241, 245, 249, 0.82);
   margin-bottom: 1.5rem;
+  line-height: 1.55;
 }
 
 .tip-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: left;
   background: rgba(255, 215, 0, 0.15);
   border: 1px solid rgba(255, 215, 0, 0.4);
   border-radius: 8px;
@@ -100,6 +108,15 @@ onBeforeUnmount(() => {
   color: #FFD700;
   font-size: 0.875rem;
   animation: fadeIn 0.3s ease;
+}
+
+.tip-marker {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #facc15;
+  box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.18);
 }
 
 .high-score {

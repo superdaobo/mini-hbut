@@ -1,4 +1,5 @@
 import { BUILDING_DATA } from '../../utils/constants.js'
+import { decorateCampusBuilding } from './CampusVisualKit.js'
 import { create as createLibrary } from './Library.js'
 import { create as createEngineering } from './EngineeringBuilding.js'
 import { create as createGymnasium } from './Gymnasium.js'
@@ -41,7 +42,7 @@ const CREATORS = {
 export function create(type) {
   const creator = CREATORS[type]
   if (!creator) throw new Error(`Unknown building type: ${type}`)
-  return creator()
+  return decorateCampusBuilding(type, creator(), BUILDING_DATA[type].size)
 }
 
 /**

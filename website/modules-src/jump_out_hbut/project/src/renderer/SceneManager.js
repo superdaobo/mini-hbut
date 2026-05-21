@@ -3,6 +3,7 @@
  * 负责初始化渲染器、场景、光照，管理渲染循环和 resize 适配
  */
 import * as THREE from 'three'
+import { createCampusBackdrop } from './CampusBackdrop.js'
 
 class SceneManager {
   constructor() {
@@ -14,6 +15,8 @@ class SceneManager {
     this._ambientLight = null
     /** @type {THREE.DirectionalLight|null} */
     this._directionalLight = null
+    /** @type {THREE.Group|null} */
+    this._campusBackdrop = null
     /** @type {HTMLElement|null} */
     this._container = null
     /** @type {number|null} */
@@ -53,6 +56,7 @@ class SceneManager {
 
     // 设置光照
     this._setupLights()
+    this._setupCampusBackdrop()
 
     // 绑定 resize 事件（debounce 100ms）
     this._boundResize = this._onWindowResize.bind(this)
@@ -83,6 +87,16 @@ class SceneManager {
     this._directionalLight.shadow.camera.bottom = -15
 
     this._scene.add(this._directionalLight)
+  }
+
+  /**
+   * 添加低成本校园背景层：南湖、水岸、跑道和远景楼群。
+   * 背景不参与碰撞，只提供稳定的湖工场景识别。
+   */
+  _setupCampusBackdrop() {
+    if (!this._scene) return
+    this._campusBackdrop = createCampusBackdrop()
+    this._scene.add(this._campusBackdrop)
   }
 
   /**
@@ -249,6 +263,7 @@ class SceneManager {
 
     this._ambientLight = null
     this._directionalLight = null
+    this._campusBackdrop = null
     this._container = null
   }
 }

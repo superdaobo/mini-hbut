@@ -12,9 +12,18 @@
       </div>
 
       <div class="hud-right">
-        <span class="jump-count">🦶 {{ jumpCount }}</span>
-        <button class="mute-btn" @click="$emit('toggleMute')">
-          {{ muted ? '🔇' : '🔊' }}
+        <span class="jump-count">
+          <span class="jump-count-icon" aria-hidden="true"></span>
+          <span>跳跃 {{ jumpCount }}</span>
+        </span>
+        <button
+          class="mute-btn"
+          :class="{ 'is-muted': muted }"
+          :aria-label="muted ? '开启音效' : '关闭音效'"
+          @click="$emit('toggleMute')"
+        >
+          <span class="mute-icon" aria-hidden="true"></span>
+          <span class="mute-label">{{ muted ? '静音' : '音效' }}</span>
         </button>
       </div>
     </div>
@@ -82,9 +91,11 @@ defineEmits(['toggleMute'])
 }
 
 .score-display {
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(125, 211, 252, 0.35);
   border-radius: 8px;
   padding: 4px 12px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
 }
 
 .score-value {
@@ -114,26 +125,56 @@ defineEmits(['toggleMute'])
 }
 
 .jump-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.875rem;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(125, 211, 252, 0.28);
   border-radius: 8px;
   padding: 4px 10px;
 }
 
+.jump-count-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22);
+}
+
 .mute-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   pointer-events: auto;
-  background: rgba(0, 0, 0, 0.5);
-  border: none;
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  color: #fff;
   border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 1.2rem;
+  padding: 6px 9px;
+  font-size: 0.78rem;
+  line-height: 1;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.mute-icon {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 2px solid currentColor;
+  border-right-width: 5px;
+}
+
+.mute-btn.is-muted {
+  color: rgba(255, 255, 255, 0.62);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .mute-btn:active {
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(15, 23, 42, 0.86);
 }
 
 /* 蓄力进度条 */

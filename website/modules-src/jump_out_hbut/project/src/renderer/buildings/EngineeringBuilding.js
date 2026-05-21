@@ -19,16 +19,16 @@ export function create() {
   group.add(mainMesh)
 
   // 侧翼低矮方块
-  const wingGeo = new THREE.BoxGeometry(1.0, 1.2, 1.6)
+  const wingGeo = new THREE.BoxGeometry(0.85, 1.2, 1.6)
   const wingMesh = new THREE.Mesh(wingGeo, mainMat)
-  wingMesh.position.set(1.2, 0.6, 0)
+  wingMesh.position.set(0.95, 0.6, 0)
   wingMesh.castShadow = true
   wingMesh.receiveShadow = true
   group.add(wingMesh)
 
   // 另一侧翼
   const wing2Mesh = new THREE.Mesh(wingGeo, mainMat)
-  wing2Mesh.position.set(-1.2, 0.6, 0)
+  wing2Mesh.position.set(-0.95, 0.6, 0)
   wing2Mesh.castShadow = true
   wing2Mesh.receiveShadow = true
   group.add(wing2Mesh)

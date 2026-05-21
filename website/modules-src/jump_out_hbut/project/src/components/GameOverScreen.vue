@@ -3,7 +3,8 @@
     <div class="gameover-content">
       <!-- 上传失败提示（顶部） -->
       <div v-if="uploadFailed" class="upload-error-banner">
-        <span class="upload-error-text">⚠️ 分数上传失败</span>
+        <span class="upload-error-status" aria-hidden="true"></span>
+        <span class="upload-error-text">分数上传失败</span>
         <button class="upload-retry-btn" :disabled="retrying" @click="$emit('retryUpload')">
           {{ retrying ? '重试中...' : '重试' }}
         </button>
@@ -135,7 +136,8 @@ const formattedDuration = computed(() => {
 .upload-error-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 0.5rem;
   padding: 0.6rem 0.75rem;
   margin-bottom: 1rem;
   background: rgba(255, 69, 0, 0.15);
@@ -144,10 +146,20 @@ const formattedDuration = computed(() => {
   animation: slideDown 0.3s ease;
 }
 
+.upload-error-status {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #FF6B35;
+  box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.18);
+}
+
 .upload-error-text {
   font-size: 0.8rem;
   color: #FF6B35;
   font-weight: 600;
+  margin-right: auto;
 }
 
 .upload-retry-btn {

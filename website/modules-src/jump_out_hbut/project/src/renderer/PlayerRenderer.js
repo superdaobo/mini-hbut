@@ -14,6 +14,12 @@ export function computeScale(chargePercent) {
   return 1.0 - 0.4 * chargePercent
 }
 
+function tag(object, ...tags) {
+  object.userData.hbutTags = [...new Set([...(object.userData.hbutTags || []), ...tags])]
+  if (tags[0]) object.userData.campusRole = tags[0]
+  return object
+}
+
 class PlayerRenderer {
   constructor() {
     /** @type {THREE.Group|null} */
@@ -29,11 +35,15 @@ class PlayerRenderer {
    */
   init() {
     this._group = new THREE.Group()
+    this._group.userData = {
+      displayName: '湖工跳跃者',
+      hbutTags: ['hbut-player']
+    }
 
     // 角色主体：圆柱体（半径 0.2，高度 0.6）
     const bodyGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.6, 16)
     const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xFF6B35 })
-    this._bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial)
+    this._bodyMesh = tag(new THREE.Mesh(bodyGeometry, bodyMaterial), 'hbut-player')
     this._bodyMesh.castShadow = true
 
     // 圆柱体中心在原点，向上偏移半高使底部在 y=0
@@ -42,20 +52,56 @@ class PlayerRenderer {
     // 顶部半球（模拟胶囊体顶部）
     const topCapGeometry = new THREE.SphereGeometry(0.2, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)
     const topCapMaterial = new THREE.MeshLambertMaterial({ color: 0xFF6B35 })
-    const topCap = new THREE.Mesh(topCapGeometry, topCapMaterial)
+    const topCap = tag(new THREE.Mesh(topCapGeometry, topCapMaterial), 'hbut-player')
     topCap.castShadow = true
     topCap.position.y = 0.6 // 圆柱顶部
 
     // 底部半球（模拟胶囊体底部）
     const bottomCapGeometry = new THREE.SphereGeometry(0.2, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2)
     const bottomCapMaterial = new THREE.MeshLambertMaterial({ color: 0xFF6B35 })
-    const bottomCap = new THREE.Mesh(bottomCapGeometry, bottomCapMaterial)
+    const bottomCap = tag(new THREE.Mesh(bottomCapGeometry, bottomCapMaterial), 'hbut-player')
     bottomCap.castShadow = true
     bottomCap.position.y = 0 // 圆柱底部
 
     this._group.add(this._bodyMesh)
     this._group.add(topCap)
     this._group.add(bottomCap)
+
+    // 胸前校徽和方向标记用极少几何体强化湖工主题，同时保持移动端轻量。
+    const emblem = tag(
+      new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.08, 0.025),
+        new THREE.MeshLambertMaterial({ color: 0x1E3A8A })
+      ),
+      'school-emblem',
+      'hbut-player'
+    )
+    emblem.position.set(0, 0.38, 0.205)
+    this._group.add(emblem)
+
+    const emblemStripe = tag(
+      new THREE.Mesh(
+        new THREE.BoxGeometry(0.11, 0.018, 0.03),
+        new THREE.MeshLambertMaterial({ color: 0xFACC15 })
+      ),
+      'school-emblem',
+      'hbut-player'
+    )
+    emblemStripe.position.set(0, 0.38, 0.222)
+    this._group.add(emblemStripe)
+
+    const directionMarker = tag(
+      new THREE.Mesh(
+        new THREE.ConeGeometry(0.09, 0.16, 3),
+        new THREE.MeshLambertMaterial({ color: 0x38BDF8 })
+      ),
+      'direction-marker',
+      'hbut-player'
+    )
+    directionMarker.position.set(0, 0.78, 0.02)
+    directionMarker.rotation.x = Math.PI / 2
+    directionMarker.castShadow = true
+    this._group.add(directionMarker)
 
     return this._group
   }
