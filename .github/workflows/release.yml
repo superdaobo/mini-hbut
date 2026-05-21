@@ -308,7 +308,7 @@ jobs:
           echo "Removed dist/favicon.svg"
 
       - name: Build Android APK (arm64 only)
-        run: npx tauri android build -- --target aarch64
+        run: npx tauri android build --target aarch64
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
 
