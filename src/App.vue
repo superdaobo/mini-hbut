@@ -3090,6 +3090,10 @@ onBeforeUnmount(() => {
   pointer-events: auto;
 }
 
+.bottom-tab-bar--ios {
+  --bottom-tab-bar-bottom: calc(0px - env(safe-area-inset-bottom, 0px));
+}
+
 .bottom-tab-bar:hover,
 .bottom-tab-bar:focus-within {
   transform: translateX(-50%);

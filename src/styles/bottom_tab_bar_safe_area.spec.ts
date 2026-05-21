@@ -12,9 +12,15 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toContain("'bottom-tab-bar--ios': isIOSLike")
   })
 
-  it('anchors the iOS bottom tab bar to the viewport bottom', () => {
+  it('pulls the iOS bottom tab bar into the home indicator safe area', () => {
     expect(uxCss()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(0px\s*-\s*env\(safe-area-inset-bottom,\s*0px\)\);/s
+    )
+  })
+
+  it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
+    expect(appVue()).toMatch(
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(0px\s*-\s*env\(safe-area-inset-bottom,\s*0px\)\);/s
     )
   })
 
