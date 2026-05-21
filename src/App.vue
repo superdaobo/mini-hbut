@@ -3062,13 +3062,13 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  bottom: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 10px 14px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
   height: auto;
   min-height: 62px;
   max-height: 92px;
@@ -3076,7 +3076,8 @@ onBeforeUnmount(() => {
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)
   );
-  border-radius: 20px;
+  border-radius: 20px 20px 0 0;
+  border-bottom: none;
   backdrop-filter: blur(20px);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78));
   border: 1px solid rgba(148, 163, 184, 0.3);

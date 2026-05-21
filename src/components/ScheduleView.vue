@@ -5146,12 +5146,10 @@ onBeforeUnmount(() => {
 @media (max-width: 768px) {
   .drawer-panel {
     top: calc(env(safe-area-inset-top, 0px) + 10px);
-    bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+    bottom: 0;
     height: auto;
-    max-height: calc(
-      100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 124px
-    );
-    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    max-height: none;
+    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px) + 12px);
   }
 
   .schedule-topbar {
