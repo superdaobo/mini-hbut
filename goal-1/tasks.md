@@ -452,7 +452,30 @@
 
 ## 最终完成审计
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 要求：逐条对照 `input.md` 和 `plan.md` 的完成标准，只有证据充分时才能标记 goal complete。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行第一个未完成项“最终完成审计”。
+  - 逐条复核完成标准：`jump_out_hbut` 与 `clumsy_bird_hbut` 已具备竖屏 viewport、安全区、动态视口、宿主高度上报和 Tauri iframe 全屏宿主约束；`jump_out_hbut` 已完成建筑视觉重做、落地安全点钳制、跨高度跳跃终点修正和蓄力输入边界；新增 `hbut_monopoly`、`hbut_miner`、`hbut_memory_match` 三款湖工特色游戏，均具备开始/交互/计分或状态反馈/重开或循环闭环。
+  - 线上状态复核：`https://hbut.6661111.xyz/modules/main/catalog.json` 当前仍返回旧 catalog，且 `hbut_monopoly`、`hbut_miner`、`hbut_memory_match` 三个线上 `manifest.json` 当前均为 HTTP 404；这是发布状态滞后，不是源码构建能力缺失。
+  - 根因定位并补修：`src/utils/module_center.js` 原逻辑会在 catalog 或远程配置存在时让旧列表覆盖内置游戏，导致新增游戏入口消失；已改为内置远程游戏始终作为基线，catalog/远程配置只覆盖同名字段或追加 catalog-only 模块，不能删除内置游戏。
+  - 根因定位并补修：`src/utils/remote_config.js` 内部仍保留旧 4 游戏默认模块中心；已改为复用 `src/utils/module_center.js` 的 `DEFAULT_MODULE_CENTER`，避免默认远程配置与模块中心继续漂移。
+  - 按 TDD 补充回归：`module_center.spec.ts` 新增旧 catalog、旧远程配置 configured list、内部模块与内置游戏并存场景；`remote_config.spec.ts` 新增无 `module_center` 配置时默认返回 7 个内置游戏的场景。
+  - 临时模块发布验证：使用 `.tmp-final-audit-modules-build` 运行 `scripts/build_website_modules.mjs`，`main/dev/latest` 三个 channel 均生成 7 个启用游戏，顺序为 `hecheng_hugongda -> jump_out_hbut -> hbut_2048 -> clumsy_bird_hbut -> hbut_monopoly -> hbut_miner -> hbut_memory_match`，新增三款游戏的 `manifest.json` 与 `bundle.zip` 均生成成功。
+- 验证结果：
+  - 红灯验证：`npx.cmd vitest run src\utils\remote_config.spec.ts --testTimeout 60000` 失败，失败点为默认远程配置只返回旧 4 个游戏。
+  - 红灯验证：`npx.cmd vitest run src\utils\module_center.spec.ts --testTimeout 60000` 失败，失败点为旧 configured list 会过滤掉新增 3 个内置游戏。
+  - 绿灯验证：`npx.cmd vitest run src\utils\module_center.spec.ts src\utils\remote_config.spec.ts src\utils\website_game_modules_contract.spec.ts --testTimeout 60000` 通过，3 个测试文件、15 个测试全部通过。
+  - 全量测试：`npx.cmd vitest run --testTimeout 60000` 通过，27 个测试文件、156 个测试全部通过。
+  - 根项目构建：`npm.cmd run build` 通过，Vite 完成 550 个模块构建；仍有既有 CSS `@media` 压缩 warning 和 Capacitor/Tauri 动态导入提示，退出码为 0。
+  - 临时发布脚本：`node -e "process.env.MODULE_OUTPUT_ROOT='.tmp-final-audit-modules-build'; process.env.MODULE_VERSION='final-audit-local'; process.env.MODULE_SOURCE_CHANNEL='final-audit'; import('./scripts/build_website_modules.mjs')"` 通过；Windows 上仍出现既有 `npm ci` EPERM 后 fallback `npm install`，以及缺少 `zip` 后 fallback Python zipfile，最终退出码为 0。
+  - 临时产物检查：`.tmp-final-audit-modules-build/{main,dev,latest}/catalog.json` 均包含 7 个游戏；`hbut_monopoly`、`hbut_miner`、`hbut_memory_match` 的 `bundle.zip` 均存在，大小分别约 23035、10570、5206 字节。
+  - 空白检查：`git diff --check -- src\utils\module_center.js src\utils\module_center.spec.ts src\utils\remote_config.js src\utils\remote_config.spec.ts goal-1\tasks.md` 通过，仅有 Windows 换行提示。
+- 剩余风险：
+  - 真实 iOS WKWebView/Tauri 设备截图仍未覆盖；当前视觉和宿主证据来自 Chromium 390×844、HTTP iframe 宿主和本地 dev server。
+  - 线上 CDN 当前仍未发布新增三款游戏的 manifest；代码和发布脚本已能生成 7 个模块，提交推送后仍需由 `sync-website` 或 `website-modules` workflow 完成网站模块部署，线上用户首次点击才会拿到新 manifest。
+  - `website/public/modules` 仍有历史构建产物脏改动，本轮未回退、未覆盖、未纳入提交；发布产物应由 workflow 或明确发布流程统一生成。
+  - 根构建 warning、Windows 本地 `npm ci` 文件占用 fallback、缺少 `zip` fallback 均为既有环境/构建提示，当前未阻断测试、构建或临时发布。
 - 结论：
+  - Goal 需求在源码、测试、构建、临时发布产物和本地竖屏/宿主验证层面已完成；最终审计未发现需要继续在本 goal 内修复的高风险代码问题。
+  - 该 goal 可标记完成；线上 CDN 404 属于部署状态滞后，已在代码层防止旧 catalog/旧配置隐藏入口，并在发布脚本层验证新增游戏产物可生成。

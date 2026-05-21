@@ -32,7 +32,7 @@ describe('module center cards', () => {
     expect(cards.map((item) => item.order)).toEqual(expectedGameOrder.map((_, index) => index + 1))
   })
 
-  it('uses catalog remote modules without injecting legacy internal entries', () => {
+  it('keeps built-in game entries when the published catalog is stale', () => {
     const cards = buildModuleCenterCards({
       channel: 'main',
       catalogModules: [
@@ -45,13 +45,41 @@ describe('module center cards', () => {
       ]
     })
 
-    expect(cards.map((item) => item.id)).toEqual(['hecheng_hugongda'])
+    expect(cards.map((item) => item.id)).toEqual(expectedGameOrder)
+    expect(cards[0].manifest_url).toBe(
+      'https://example.com/modules/main/hecheng_hugongda/manifest.json'
+    )
+    expect(cards.find((item) => item.id === 'hbut_monopoly')?.manifest_url).toBe(
+      'https://hbut.6661111.xyz/modules/main/hbut_monopoly/manifest.json'
+    )
+  })
+
+  it('keeps built-in game entries when remote config carries a stale configured list', () => {
+    const cards = buildModuleCenterCards({
+      channel: 'main',
+      configuredModules: [
+        { id: 'hecheng_hugongda', name: '合成湖工大', order: 1 },
+        { id: 'jump_out_hbut', name: '跳出湖工大', order: 2 },
+        { id: 'hbut_2048', name: '2048 湖工大版', order: 3 },
+        { id: 'clumsy_bird_hbut', name: '笨鸟先飞', order: 4 }
+      ],
+      catalogModules: [
+        {
+          id: 'hecheng_hugongda',
+          name: '合成湖工大',
+          manifest_url: 'https://example.com/modules/main/hecheng_hugongda/manifest.json',
+          order: 1
+        }
+      ]
+    })
+
+    expect(cards.map((item) => item.id)).toEqual(expectedGameOrder)
     expect(cards[0].manifest_url).toBe(
       'https://example.com/modules/main/hecheng_hugongda/manifest.json'
     )
   })
 
-  it('preserves configured internal modules alongside catalog remote modules', () => {
+  it('preserves configured internal modules alongside built-in and catalog remote modules', () => {
     const cards = buildModuleCenterCards({
       channel: 'main',
       configuredModules: [
@@ -79,7 +107,7 @@ describe('module center cards', () => {
       ]
     })
 
-    expect(cards.map((item) => item.id)).toEqual(['shuake', 'hecheng_hugongda'])
+    expect(cards.map((item) => item.id)).toEqual(['shuake', ...expectedGameOrder])
     expect(cards[0]).toMatchObject({
       id: 'shuake',
       kind: 'internal',
@@ -87,7 +115,7 @@ describe('module center cards', () => {
       key_required: true,
       manifest_url: ''
     })
-    expect(cards[1].manifest_url).toBe(
+    expect(cards.find((item) => item.id === 'hecheng_hugongda')?.manifest_url).toBe(
       'https://example.com/modules/main/hecheng_hugongda/manifest.json'
     )
   })

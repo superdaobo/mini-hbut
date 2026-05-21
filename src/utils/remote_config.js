@@ -1,6 +1,7 @@
 import { invokeNative as invoke } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
+import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_center'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
@@ -23,47 +24,7 @@ const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
 const LOCAL_FORUM_API_BASE_KEY = 'hbu_forum_api_base'
 const DEFAULT_CLOUD_SYNC_SECRET_REF = 'kv1-main'
 const MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
-const DEFAULT_MODULE_CENTER = Object.freeze({
-  channel: 'main',
-  modules: [
-    {
-      id: 'hecheng_hugongda',
-      name: '合成湖工大',
-      icon: '🎮',
-      description: '下载最新游戏包并打开',
-      key_required: false,
-      kind: 'remote',
-      order: 2
-    },
-    {
-      id: 'jump_out_hbut',
-      name: '跳出湖工大',
-      icon: '🦘',
-      description: '跳一跳风格校园跳跃小游戏',
-      key_required: false,
-      kind: 'remote',
-      order: 3
-    },
-    {
-      id: 'hbut_2048',
-      name: '2048 湖工大版',
-      icon: '🔢',
-      description: '经典 2048 数字合并游戏',
-      key_required: false,
-      kind: 'remote',
-      order: 5
-    },
-    {
-      id: 'clumsy_bird_hbut',
-      name: '笨鸟先飞',
-      icon: '🐦',
-      description: '点击屏幕控制小鸟飞行',
-      key_required: false,
-      kind: 'remote',
-      order: 6
-    }
-  ]
-})
+const DEFAULT_MODULE_CENTER = DEFAULT_GAME_MODULE_CENTER
 
 const DEFAULT_CONFIG = {
   announcements: {

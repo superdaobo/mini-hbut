@@ -184,21 +184,29 @@ export const buildModuleCenterCards = ({
     .map(normalize)
     .filter(Boolean)
 
-  const baseModules =
-    normalizedConfiguredModules.length > 0
-      ? normalizedConfiguredModules
-      : normalizedCatalogModules.length > 0
-        ? normalizedCatalogModules
-        : builtInModules
+  const configuredMap = new Map(normalizedConfiguredModules.map((item) => [item.id, item]))
+  const configuredInternalModules = normalizedConfiguredModules.filter((item) => item.kind === 'internal')
 
-  // 内置模块不依赖网站 catalog，避免首屏先缺失、远程配置返回后再跳出来。
+  // 内置游戏不依赖网站 catalog，避免线上 catalog 滞后时新增游戏入口消失。
   const mergedById = new Map()
   for (const item of builtInInternalModules) {
     mergedById.set(item.id, item)
   }
-  for (const item of baseModules) {
+  for (const item of configuredInternalModules) {
+    mergedById.set(item.id, item)
+  }
+  for (const item of builtInModules.filter((entry) => entry.kind === 'remote')) {
+    const configuredItem = configuredMap.get(item.id)
     const catalogItem = catalogMap.get(item.id)
-    mergedById.set(item.id, mergeRemoteCatalogFields(item, catalogItem, normalizedChannel, moduleCdnBase))
+    const baseItem = configuredItem && configuredItem.kind === 'remote' ? { ...item, ...configuredItem } : item
+    mergedById.set(
+      item.id,
+      mergeRemoteCatalogFields(baseItem, catalogItem, normalizedChannel, moduleCdnBase)
+    )
+  }
+  for (const item of normalizedCatalogModules) {
+    if (mergedById.has(item.id)) continue
+    mergedById.set(item.id, item)
   }
 
   return [...mergedById.values()].sort((a, b) => {
