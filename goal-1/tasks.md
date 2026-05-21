@@ -280,14 +280,38 @@
 
 ## Task 8：新增湖工矿工类游戏
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 范围：新增模块源码、manifest、catalog 接入。
 - 目标：实现抓取、摆动、计分、关卡目标、湖工特色物品。
 - 验证：核心逻辑测试 + 模块入口可打开 + 竖屏可玩。
 - 执行记录：
+  - 已按 Goal Mode 重读 `AGENTS.md`、`goal-1/input.md`、`goal-1/plan.md`、`goal-1/tasks.md`，确认本轮只执行 Task 8，不进入 Task 9。
+  - 设计假设：Goal Mode 禁止暂停提问，因此继续采用轻量自研实现，不引入不明来源开源整包；新增模块 ID 为 `hbut_miner`，玩法为摆动吊钩、发射抓取、回收计分、限时目标、胜负/重开闭环。
+  - 按 TDD 先新增红灯测试：`src/utils/website_game_modules_contract.spec.ts` 把 `hbut_miner` 纳入源码模块发现、默认模块中心、入口、Vite base、iOS viewport、动态视口、安全区和宿主高度上报契约；新增 `src/utils/hbut_miner_game.spec.ts` 覆盖湖工主题抓取物、吊钩摆动边界、发射碰撞、回收计分、达标胜利、超时失败、重开恢复和竖屏固定视口样式。
+  - TDD 红灯：首次运行 `npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_miner_game.spec.ts --testTimeout 60000` 失败，失败点包括缺少 `hbut_miner` 源码模块、入口 HTML、`main.js` 和核心规则文件，符合预期。
+  - 新增 `website/modules-src/hbut_miner/module.json`，接入模块构建系统，模块名“湖工矿工”，order 为 8。
+  - 新增 `website/modules-src/hbut_miner/project` Vite 模块，包含 `index.html`、`package.json`、`package-lock.json`、`vite.config.js`、本地空 `postcss.config.js`、`src/main.js`、`src/style.css`、`src/game/miner.js`。
+  - 新增核心规则 `miner.js`：提供 `CAMPUS_MINER_ITEMS`，包含南湖珍珠、图书馆书卷、工程楼齿轮、北门校石等湖工主题物品；实现 `createInitialMinerState()`、`fireHook()`、`stepMinerGame()`、`restartMinerGame()`，覆盖摆动边界、连续线段碰撞、重物拖拽回收、计分、限时胜负。
+  - 新增移动端页面 UI：Canvas 绘制湖工矿区、吊机、吊钩和可抓取宝物；顶部展示得分/目标/时间；下方展示状态、进度、发射/重开按钮和矿区记录；Canvas 和按钮都可触发发射，适合竖屏触控。
+  - 新增宿主嵌入桥接：`MODULE_ID = 'hbut_miner'`、动态 `--module-vh`、`resize/orientationchange/visualViewport.resize` 同步、`ResizeObserver`、`mini-hbut:module-size` 高度上报。
+  - 运行时复查发现首版 `updateUi()` 每帧都会调用 `notifyHostHeight()`，1.2 秒内 iframe 宿主收到 256 条高度消息；已修复为只在视口/布局同步时上报，复验后 1.2 秒内收到 2 条稳定高度消息。
+  - 新增空 favicon data URL，避免 dev server 运行时产生无意义的 `/favicon.ico` 404。
+  - 更新 `src/utils/module_center.js` 默认模块中心，加入 `hbut_miner` 远程模块入口。
 - 验证结果：
+  - 绿灯测试：`npx.cmd vitest run src\utils\website_game_modules_contract.spec.ts src\utils\module_center.spec.ts src\utils\hbut_miner_game.spec.ts --testTimeout 60000` 通过，3 个测试文件、14 个测试全部通过。
+  - 锁文件生成：`npm.cmd install --package-lock-only --ignore-scripts --no-audit --no-fund`（workdir：`website/modules-src/hbut_miner/project`）通过，生成 `package-lock.json`。
+  - 依赖安装验证：`npm.cmd ci --prefer-offline --no-audit --no-fund`（workdir：`website/modules-src/hbut_miner/project`）通过，确认发布脚本的 `npm ci` 路径可用；`node_modules/` 和 `dist/` 均被 `.gitignore` 忽略。
+  - 新模块构建：`npm.cmd run build`（workdir：`website/modules-src/hbut_miner/project`）通过，Vite 输出 `dist/index.html`、CSS 和 JS bundle，无新增构建 warning。
+  - Playwright 390×844 直开验证：`http://127.0.0.1:5189/` 下 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`、`appHeight=844`、`overflowX=hidden`、`overflowY=hidden`、`--module-vh=8.44px`、Canvas CSS 尺寸约 `368.67×496.84`，Canvas 非空像素 `182528`。
+  - Playwright 交互验证：点击“发射吊钩”后状态变为“吊钩下探”，按钮文案变为“回收中”且禁用，页面仍保持 `scrollWidth=390`、`clientWidth=390`、`bodyHeight=844`。
+  - Playwright 模拟 HTTP 宿主 iframe 验证：390×844 iframe 收到 2 条 `mini-hbut:module-size` 消息，`module_id/moduleId` 均为 `hbut_miner`，高度均为 844；控制台仅有 Vite debug 连接日志，无 pageerror。
+  - 服务清理：停止本轮实际监听在 5189 的 Vite/Node 进程，复查 `Get-NetTCPConnection -LocalPort 5189 -State Listen -ErrorAction SilentlyContinue` 无监听输出。
 - 剩余风险：
+  - 新模块是自研轻量矿工玩法，未引入外部开源代码，因此无新增第三方玩法代码许可证风险；但玩法深度仍是单关限时抓取闭环，不是多关卡长线养成。
+  - 本轮只提交源码和锁文件，不同步 `website/public/modules` 构建产物；后续发布/最终审计需要统一运行模块发布脚本并处理已有产物改动。
+  - 浏览器验证仍使用 Chromium 移动视口，不等同于真实 iOS WKWebView/Tauri 设备长时间游玩。
 - 下一步：
+  - 执行 Task 9：新增至少一个额外湖工特色小游戏。
 
 ## Task 9：新增至少一个额外湖工特色小游戏
 

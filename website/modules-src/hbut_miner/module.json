@@ -1,0 +1,11 @@
+{
+  "id": "hbut_miner",
+  "name": "湖工矿工",
+  "icon": "⛏️",
+  "order": 8,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "",
+  "source_dir": "project",
+  "release_notes": "湖工矿工模块自动构建包"
+}

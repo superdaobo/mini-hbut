@@ -47,6 +47,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 7
+    }),
+    Object.freeze({
+      id: 'hbut_miner',
+      name: '湖工矿工',
+      icon: '⛏️',
+      description: '摆动吊钩抓取湖工宝物',
+      key_required: false,
+      kind: 'remote',
+      order: 8
     })
   ])
 })
