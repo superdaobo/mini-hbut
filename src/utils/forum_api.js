@@ -48,6 +48,15 @@ const writeCachedToken = (studentId, payload) => {
   }
 }
 
+const clearCachedToken = (studentId) => {
+  if (!studentId || typeof localStorage === 'undefined') return
+  try {
+    localStorage.removeItem(`${TOKEN_CACHE_KEY_PREFIX}${studentId}`)
+  } catch {
+    // ignore
+  }
+}
+
 export const readForumProfile = (studentId) => {
   const sid = toText(studentId).trim()
   if (!sid || typeof localStorage === 'undefined') {
@@ -104,24 +113,38 @@ export const createForumApiClient = ({
   let tokenPromise = null
 
   const request = async (path, { method = 'GET', body, auth = false, headers = {} } = {}) => {
-    const reqHeaders = { Accept: 'application/json', ...headers }
-    if (body !== undefined && !(body instanceof FormData)) {
-      reqHeaders['Content-Type'] = 'application/json'
+    const createHeaders = async (forceTokenRefresh = false) => {
+      const reqHeaders = { Accept: 'application/json', ...headers }
+      if (body !== undefined && !(body instanceof FormData)) {
+        reqHeaders['Content-Type'] = 'application/json'
+      }
+      if (auth) {
+        reqHeaders.Authorization = `Bearer ${await getToken(forceTokenRefresh)}`
+      }
+      return reqHeaders
     }
-    if (auth) {
-      reqHeaders.Authorization = `Bearer ${await getToken()}`
-    }
-    const response = await fetcher(`${base}${path}`, {
+    const createBody = () => (body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body))
+    const fetchRequest = async (forceTokenRefresh = false) => fetcher(`${base}${path}`, {
       method,
-      headers: reqHeaders,
-      body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body)
+      headers: await createHeaders(forceTokenRefresh),
+      body: createBody()
     })
+    let response = await fetchRequest()
+    if (auth && response.status === 401) {
+      clearCachedToken(sid)
+      response = await fetchRequest(true)
+    }
     return parseJsonResponse(response)
   }
 
-  const getToken = async () => {
-    const cached = readCachedToken(sid)
-    if (cached) return cached
+  const getToken = async (forceRefresh = false) => {
+    if (!forceRefresh) {
+      const cached = readCachedToken(sid)
+      if (cached) return cached
+    }
+    if (forceRefresh) {
+      clearCachedToken(sid)
+    }
     if (tokenPromise) return tokenPromise
     tokenPromise = request('/auth/token', {
       method: 'POST',

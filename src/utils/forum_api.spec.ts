@@ -125,4 +125,69 @@ describe('forum api config', () => {
     expect(calls[0].url).toBe('https://example.com/api/forum/threads?category_id=1')
     expect(calls[0].init?.headers).not.toHaveProperty('Authorization')
   })
+
+  it('refreshes a stale cached token once when an authorized request is rejected', async () => {
+    const storage = new Map<string, string>()
+    storage.set('hbu_forum_token:2510231106', JSON.stringify({
+      token: 'stale-token',
+      expires_at: Math.floor(Date.now() / 1000) + 3600
+    }))
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key)
+    })
+
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      const auth = String((init?.headers as Record<string, string>)?.Authorization || '')
+      if (url.endsWith('/threads') && auth === 'Bearer stale-token') {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ detail: '令牌签名无效' })
+        }
+      }
+      if (url.endsWith('/auth/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'fresh-token', expires_at: Math.floor(Date.now() / 1000) + 3600 })
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 88, title: '刷新后成功' })
+      }
+    }) as unknown as typeof fetch
+
+    try {
+      const client = createForumApiClient({
+        apiBase: 'https://example.com',
+        studentId: '2510231106',
+        nickname: '管理员',
+        fetcher
+      })
+
+      const thread = await client.createThread({
+        category_id: 1,
+        title: '刷新后成功',
+        content_md: '内容',
+        attachment_ids: []
+      })
+
+      expect(thread.title).toBe('刷新后成功')
+      expect(calls.map((call) => call.url)).toEqual([
+        'https://example.com/api/forum/threads',
+        'https://example.com/api/forum/auth/token',
+        'https://example.com/api/forum/threads'
+      ])
+      expect(calls[0].init?.headers).toMatchObject({ Authorization: 'Bearer stale-token' })
+      expect(calls[2].init?.headers).toMatchObject({ Authorization: 'Bearer fresh-token' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
