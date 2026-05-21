@@ -3062,6 +3062,7 @@ onBeforeUnmount(() => {
 
 .bottom-tab-bar {
   --bottom-tab-bar-bottom: 4px;
+  box-sizing: border-box;
   position: fixed;
   top: auto;
   left: 50%;
@@ -3091,7 +3092,9 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: calc(0px - env(safe-area-inset-bottom, 0px));
+  --bottom-tab-bar-bottom: 0px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  max-height: none;
 }
 
 .bottom-tab-bar:hover,

@@ -83,6 +83,9 @@ keys/
 # Local mirror / secret cleanup workspace
 .repo-sanitize-mirror/
 
+# Local independent forum backend repository
+forum-backend/
+
 # Permanently blocked secret-bearing scripts
 scripts/analyze_turso_grades.py
 scripts/query_turso.py

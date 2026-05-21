@@ -530,6 +530,7 @@ html[data-ui-density='compact'] {
 
 .bottom-tab-bar {
   --bottom-tab-bar-bottom: 4px;
+  box-sizing: border-box;
   transition: background calc(0.2s * var(--ui-motion-scale)) ease,
               box-shadow calc(0.2s * var(--ui-motion-scale)) ease,
               border-radius calc(0.2s * var(--ui-motion-scale)) ease;
@@ -544,7 +545,9 @@ html[data-ui-density='compact'] {
 }
 
 .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: calc(0px - env(safe-area-inset-bottom, 0px));
+  --bottom-tab-bar-bottom: 0px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  max-height: none !important;
 }
 
 html[data-ui-nav='floating'] .bottom-tab-bar {
@@ -565,6 +568,10 @@ html[data-ui-nav='pill'] .tab-item {
 html[data-ui-nav='compact'] .bottom-tab-bar {
   width: min(640px, calc(100% - 26px)) !important;
   padding: 8px 12px !important;
+}
+
+html[data-ui-nav='compact'] .bottom-tab-bar--ios {
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 html[data-ui-nav='compact'] .tab-item {

@@ -12,15 +12,21 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toContain("'bottom-tab-bar--ios': isIOSLike")
   })
 
-  it('pulls the iOS bottom tab bar into the home indicator safe area', () => {
+  it('keeps the iOS bottom tab bar attached to the viewport bottom', () => {
     expect(uxCss()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(0px\s*-\s*env\(safe-area-inset-bottom,\s*0px\)\);/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;/s
+    )
+  })
+
+  it('reserves iOS home indicator space inside the global bottom tab bar', () => {
+    expect(uxCss()).toMatch(
+      /\.bottom-tab-bar--ios\s*\{[^}]*padding-bottom:\s*calc\(10px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)\s*!important;/s
     )
   })
 
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
     expect(appVue()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(0px\s*-\s*env\(safe-area-inset-bottom,\s*0px\)\);/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*padding-bottom:\s*calc\(10px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\);/s
     )
   })
 
@@ -29,5 +35,16 @@ describe('bottom tab bar safe area contract', () => {
 
     expect(compactRule?.groups?.body).toBeTruthy()
     expect(compactRule?.groups?.body).not.toContain('env(safe-area-inset-bottom')
+  })
+
+  it('restores iOS safe-area padding after compact nav padding overrides', () => {
+    expect(uxCss()).toMatch(
+      /html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*padding-bottom:\s*calc\(8px\s*\+\s*env\(safe-area-inset-bottom,\s*0px\)\)\s*!important;/s
+    )
+  })
+
+  it('does not keep the old negative iOS safe-area offset', () => {
+    expect(appVue()).not.toContain('calc(0px - env(safe-area-inset-bottom')
+    expect(uxCss()).not.toContain('calc(0px - env(safe-area-inset-bottom')
   })
 })
