@@ -3062,13 +3062,13 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  bottom: 8px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 8px 14px 8px;
+  padding: 8px 14px calc(env(safe-area-inset-bottom) + 6px);
   height: auto;
   min-height: 62px;
   max-height: 92px;
