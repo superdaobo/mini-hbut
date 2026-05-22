@@ -2,18 +2,18 @@
 
 ## Task 1: 论坛目标恢复与现状审计
 
-- [ ] 状态：未完成
-- [ ] 全量读取 `goal-4/input.md`、`goal-4/plan.md`、`goal-4/tasks.md`
-- [ ] 检查 `tauri-app` 和 `ocr-service` 的 git 状态，标注哪些改动属于已有用户/生成改动，避免误回滚
-- [ ] 读取 `AGENTS.md`、当前 `ForumView.vue`、`forum_api.js`、后端 `forum_backend/main.py` 和论坛 store 文件
-- [ ] 解压或读取 `D:\Download\stitch_1_1_homepage_replication (4).zip` 的目录结构，确认视觉源文件和资源
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 全量读取 `goal-4/input.md`、`goal-4/plan.md`、`goal-4/tasks.md`
+- [x] 检查 `tauri-app` 和 `ocr-service` 的 git 状态，标注哪些改动属于已有用户/生成改动，避免误回滚
+- [x] 读取 `AGENTS.md`、当前 `ForumView.vue`、`forum_api.js`、后端 `forum_backend/main.py` 和论坛 store 文件
+- [x] 解压或读取 `D:\Download\stitch_1_1_homepage_replication (4).zip` 的目录结构，确认视觉源文件和资源
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已重新读取 `goal-4/input.md`、`goal-4/plan.md`、`goal-4/tasks.md` 和 `AGENTS.md`；确认当前目标仍是论坛前后端完整交付，不是小游戏。前端关键文件已审计：`ForumView.vue` 具备 `data-stitch-design="Campus Vitality"` 和 `feed/detail/compose/notice/me/user-profile/admin` 页面标记，`forum_api.js` 默认指向 `https://mini-hbut-testocr1.hf.space/api/forum` 并包含图床上传、评分、收藏、关注、通知、私信、管理等 client 方法。后端关键文件已审计：`forum_backend/main.py` 注册论坛 API、缓存响应和附件路由；`sqlite_store.py` 与 `sqlpub_store.py` 均使用 `forum_` 前缀独立表；`object_storage.py` 封装 HF Private Bucket 上传/下载。Stitch zip 已确认包含 `hbut_1` 至 `hbut_6` 的 `code.html`/`screen.png` 以及 `campus_assistant_design_system/DESIGN.md`。
+- 验证结果：`git status --short` 显示前端仓库当前仍有非本轮未提交改动：`capacitor.config.ts`、iOS 文件、`src/App.vue`、`Dashboard.vue`、底栏/首页/小游戏测试、网站模块 catalog/manifest 和一个未跟踪小游戏测试文件；这些不在 Task 1 中回滚或处理。`ocr-service` 当前论坛后端仍有未提交改动：`forum_backend/main.py`、`object_storage.py`、`storage/sqlite_store.py`、`storage/sqlpub_store.py`、`scripts/configure_hf_forum_runtime_secrets.py`、未跟踪 `tests/test_forum_extended_api.py`，以及未跟踪 `data/`、`scripts/utf8.ps1`。Stitch zip 结构通过 `tar -tf` 成功读取。
+- 剩余风险：后端 pytest 曾出现 Windows 本地超时风险，仍需在后续任务中定位；`data/`、`.pytest_cache` 权限警告和未跟踪文件需要在推送前排除；真实 SQLPub/HF Bucket/OneDrive 链路尚未做线上验证；不能提交任何桌面 secret 或 HF/SQLPub 密钥。
+- 下一步：执行 Task 2，系统提取 Stitch 视觉基线并补齐/确认论坛 UI contract 测试覆盖；后续每三个 task 后按计划做大型全面检查-debug 循环。
 
 ## Task 2: Stitch 视觉基线提取与前端页面契约测试
 
@@ -24,10 +24,10 @@
 - [ ] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：本轮新增“我的资料”头像本地图片上传到论坛图床能力：复用 `client.uploadAttachment(file)`，上传成功后用 `client.getAttachmentUrl(...)` 自动回填 `profile.avatar_url`，并用 `runPending('profile:avatar-upload', ...)` 防止重复选择/重复上传；资料卡头像支持图片预览，保留原 URL 输入作为备用方式。
-- 验证结果：`npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，4 tests passed；`npx.cmd vitest run --testTimeout 60000` 通过，29 files / 170 tests passed；`npm.cmd run build` 退出码 0，仍有既有 CSS minify warning 和动态导入 warning，未出现头像上传相关构建错误。
-- 剩余风险：本轮验证覆盖前端契约与构建，尚未在真实 HF 图床/线上后端执行头像上传实传；需要后续浏览器联调或线上 smoke test 验证真实文件上传链路。
-- 下一步：继续进行论坛前端浏览器验收、后端 pytest 超时定位、HF testocr1 推送前清单整理与线上测试。
+- 完成内容：
+- 验证结果：
+- 剩余风险：
+- 下一步：
 
 ## Task 3: 后端论坛 API 契约测试补全
 
@@ -184,10 +184,10 @@
 - [ ] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已新增“我的资料”头像本地图片上传到论坛图床能力：复用 `client.uploadAttachment(file)`，上传成功后用 `client.getAttachmentUrl(...)` 自动回填 `profile.avatar_url`，并用 `runPending('profile:avatar-upload', ...)` 防止重复选择/重复上传；资料卡头像支持图片预览，保留原 URL 输入作为备用方式。
+- 验证结果：`npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，4 tests passed；`npx.cmd vitest run --testTimeout 60000` 通过，29 files / 170 tests passed；`npm.cmd run build` 退出码 0，仍有既有 CSS minify warning 和动态导入 warning，未出现头像上传相关构建错误。
+- 剩余风险：该记录来自上一轮头像上传增量，本轮仅纠正记录位置；尚未在真实 HF 图床/线上后端执行头像上传实传，需要后续本地联调或线上 smoke test 覆盖。
+- 下一步：继续按 Task 2/后续任务推进论坛 UI 与集成验收。
 
 ## Task 11: 前端管理页、备份页与图床体验
 
