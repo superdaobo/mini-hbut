@@ -25,20 +25,19 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toMatch(/grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\);/)
   })
 
-  it('keeps the rounded iOS bottom tab bar sitting above the safe area', () => {
+  it('keeps the rounded iOS bottom tab bar attached to the viewport bottom', () => {
     expect(uxCss()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(var\(--app-safe-bottom\)\s*\+\s*8px\);/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;/s
     )
   })
 
-  it('keeps iOS safe-area clearance outside the global bottom tab bar shape', () => {
+  it('keeps iOS safe-area clearance inside the global bottom tab bar shape', () => {
     const iosRule = getRuleBody(uxCss(), '.bottom-tab-bar--ios')
 
-    expect(iosRule).toContain('min-height: var(--bottom-tab-bar-content-height) !important')
-    expect(iosRule).toContain('padding-bottom: 10px !important')
+    expect(iosRule).toContain('--bottom-tab-bar-safe-bottom: var(--app-safe-bottom)')
+    expect(iosRule).toContain('min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom)) !important')
+    expect(iosRule).toContain('padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom)) !important')
     expect(iosRule).toContain('border-radius: 20px !important')
-    expect(iosRule).not.toContain('min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom))')
-    expect(iosRule).not.toContain('padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom))')
     expect(iosRule).not.toContain('border-bottom-left-radius: 0')
     expect(iosRule).not.toContain('border-bottom-right-radius: 0')
   })
@@ -57,7 +56,7 @@ describe('bottom tab bar safe area contract', () => {
 
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
     expect(appVue()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(var\(--app-safe-bottom\)\s*\+\s*8px\);[^}]*min-height:\s*var\(--bottom-tab-bar-content-height\);[^}]*padding-bottom:\s*10px;[^}]*border-radius:\s*20px;/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*--bottom-tab-bar-safe-bottom:\s*var\(--app-safe-bottom\);[^}]*min-height:\s*calc\(var\(--bottom-tab-bar-content-height\)\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);[^}]*padding-bottom:\s*calc\(10px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);[^}]*border-radius:\s*20px;/s
     )
     const iosRule = getRuleBody(appVue(), '.bottom-tab-bar--ios')
     expect(iosRule).not.toContain('border-bottom-left-radius: 0')
@@ -71,22 +70,20 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toContain("document.documentElement.style.setProperty('--app-safe-bottom-fallback'")
   })
 
-  it('keeps compact nav safe-area offset on the iOS bar instead of stretching the bar', () => {
+  it('keeps compact nav attached to the bottom while still absorbing iOS safe area', () => {
     const compactRule = getRuleBody(uxCss(), "html[data-ui-nav='compact'] .bottom-tab-bar")
     const compactIosRule = getRuleBody(uxCss(), "html[data-ui-nav='compact'] .bottom-tab-bar--ios")
 
     expect(compactRule).toBeTruthy()
     expect(compactRule).not.toContain('env(safe-area-inset-bottom')
-    expect(compactIosRule).toContain('--bottom-tab-bar-bottom: calc(var(--app-safe-bottom) + 10px)')
-    expect(compactIosRule).toContain('min-height: 64px !important')
-    expect(compactIosRule).toContain('padding-bottom: 8px !important')
-    expect(compactIosRule).not.toContain('+ var(--bottom-tab-bar-safe-bottom)')
+    expect(compactIosRule).toContain('--bottom-tab-bar-bottom: 0px')
+    expect(compactIosRule).toContain('min-height: calc(64px + var(--bottom-tab-bar-safe-bottom)) !important')
+    expect(compactIosRule).toContain('padding-bottom: calc(8px + var(--bottom-tab-bar-safe-bottom)) !important')
   })
 
   it('preserves rounded iOS bottom corners after themed navigation style overrides', () => {
     expect(uxCss()).not.toMatch(/\.bottom-tab-bar--ios\s*\{[^}]*border-bottom-left-radius:\s*0/s)
     expect(uxCss()).not.toMatch(/\.bottom-tab-bar--ios\s*\{[^}]*border-bottom-right-radius:\s*0/s)
-    expect(uxCss()).not.toMatch(/\.bottom-tab-bar--ios\s*\{[^}]*bottom:\s*0\s*!important/s)
 
     expect(uxCss()).toMatch(
       /html\[data-ui-nav='floating'\]\s+\.bottom-tab-bar--ios,\s*html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*border-radius:\s*20px\s*!important;/s

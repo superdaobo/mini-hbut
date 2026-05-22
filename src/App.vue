@@ -3166,10 +3166,12 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: calc(var(--app-safe-bottom) + 8px);
-  min-height: var(--bottom-tab-bar-content-height);
-  padding-bottom: 10px;
+  --bottom-tab-bar-bottom: 0px;
+  --bottom-tab-bar-safe-bottom: var(--app-safe-bottom);
+  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom));
+  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom));
   border-radius: 20px;
+  max-height: none;
 }
 
 .bottom-tab-bar:hover,
