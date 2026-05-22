@@ -110,17 +110,17 @@
 
 ## Task 7: 湖工大富翁玩法重做与竖屏 UI
 
-- [ ] 状态：未完成
-- [ ] 实现回合选择、精力/压力、事件池、卡牌/道具、阶段目标和据点投资
-- [ ] 优化移动端棋盘/路径、事件卡和结果反馈
-- [ ] 运行大富翁测试和构建
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 实现回合选择、精力/压力、事件池、卡牌/道具、阶段目标和据点投资
+- [x] 优化移动端棋盘/路径、事件卡和结果反馈
+- [x] 运行大富翁测试和构建
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：将湖工大富翁重做为 `MONOPOLY_STAGES` 三阶段目标制，新增资金、绩点、影响力、精力、压力、事件选择、行动卡、骰子增益、据点投资和阶段推进/失败判定；补充 `investInCampusSite`、`applyEventChoice`、`applyActionCard`、`resolveStageProgress` 等核心规则接口。页面重做为移动端竖屏结构，展示阶段目标、资源条、棋盘路径、事件选择、行动卡、据点投资和校园记录；事件待处理时会禁用投骰、行动卡和投资，避免绕过事件选择。
+- 验证结果：先补“据点投资”红灯测试，`npm test` 6/6 失败且失败原因符合缺少规则接口；实现后 `hbut_monopoly/project` 运行 `npm.cmd test` 8/8 通过，覆盖阶段初始化、资源边界、事件选择、行动卡、据点投资、事件不可绕过、事件优先结算、阶段推进和失败判定。运行 `npm.cmd run build` 退出码 0，Vite 构建成功。运行 `git diff --check -- goal-3/tasks.md website/modules-src/hbut_monopoly/project/src/game/monopoly.js website/modules-src/hbut_monopoly/project/src/game/monopoly.test.js website/modules-src/hbut_monopoly/project/src/main.js website/modules-src/hbut_monopoly/project/src/style.css` 退出码 0，仅有 Windows 换行提示。使用 Playwright 验收 320x568、360x640、360x740、390x844、430x932：均无横向滚动，页面底部不越界，投骰按钮可见，文本溢出候选为空；事件态探针显示 2 个选择按钮、投骰按钮为“先处理事件”、行动卡和 3 个投资按钮均 disabled。只读复审确认无 Critical/Important 问题，建议提交。停止本地预览服务后，`curl.exe -I http://127.0.0.1:5195/ --max-time 1` 连接失败，确认没有保留本轮预览服务。
+- 剩余风险：当前规则按“事件选择优先”处理，触发事件的同一回合即使资源已经失衡，也会先要求玩家完成事件选择，再进入失败或阶段结算；这是本轮为避免事件被吞掉而采用的玩法取舍。真实 Tauri 宿主内嵌高度同步和 `website/public/modules/*` 发布同步仍留到后续最终 review 或发布同步阶段复测。
+- 下一步：Task 8 修复笨鸟先飞在 Tauri 导入后的双重缩放问题，并完成竖屏页面验收。
 
 ## Task 8: 笨鸟先飞缩放修复与竖屏验收
 

@@ -93,6 +93,94 @@ describe('湖工大富翁进阶规则契约', () => {
     expect(next.activeEffects.some((effect) => effect.type === 'diceBoost')).toBe(true)
   })
 
+  test('据点投资会消耗资金并形成可持续的校园影响力', () => {
+    expect(typeof monopoly.investInCampusSite).toBe('function')
+
+    const state = monopoly.createInitialState({
+      coins: 260,
+      credits: 2,
+      influence: 1,
+      energy: 70,
+      stress: 20,
+      stageIndex: 0
+    })
+
+    const next = monopoly.investInCampusSite(state, 'library')
+
+    expect(next.coins).toBeLessThan(state.coins)
+    expect(next.influence).toBeGreaterThan(state.influence)
+    expect(next.investments.library.level).toBe(1)
+    expect(next.activeEffects.some((effect) => effect.type === 'siteBonus')).toBe(true)
+    expect(next.log[0]).toContain('投资')
+
+    const blocked = monopoly.investInCampusSite({ ...next, coins: 0 }, 'innovation-hub')
+
+    expect(blocked.coins).toBe(0)
+    expect(blocked.investments['innovation-hub']).toBeUndefined()
+    expect(blocked.log[0]).toMatch(/资金不足|无法投资/)
+  })
+
+  test('待处理事件期间不能用行动卡或投资绕过选择', () => {
+    const pendingEvent = {
+      id: 'lab-roadshow',
+      title: '实验室路演',
+      choices: [
+        { id: 'sponsor', label: '拉赞助', effects: { coins: 90 } },
+        { id: 'polish', label: '打磨项目', effects: { credits: 2 } }
+      ]
+    }
+    const state = monopoly.createInitialState({
+      coins: 280,
+      credits: 2,
+      influence: 1,
+      pendingEvent,
+      phase: 'choice',
+      cards: [{ id: 'library-pass', name: '图书馆通宵卡' }]
+    })
+
+    const afterCard = monopoly.applyActionCard(state, 'library-pass')
+    const afterInvestment = monopoly.investInCampusSite(state, 'library')
+
+    expect(afterCard.pendingEvent).toMatchObject({ id: 'lab-roadshow' })
+    expect(afterCard.cards).toHaveLength(1)
+    expect(afterCard.credits).toBe(state.credits)
+    expect(afterCard.activeEffects).toHaveLength(0)
+    expect(afterCard.log[0]).toMatch(/先处理|事件/)
+
+    expect(afterInvestment.pendingEvent).toMatchObject({ id: 'lab-roadshow' })
+    expect(afterInvestment.coins).toBe(state.coins)
+    expect(afterInvestment.investments.library).toBeUndefined()
+    expect(afterInvestment.log[0]).toMatch(/先处理|事件/)
+  })
+
+  test('触发事件后即使阶段目标达成也必须先完成事件选择', () => {
+    const state = monopoly.createInitialState({
+      position: 9,
+      coins: 260,
+      credits: 8,
+      influence: 3,
+      energy: 70,
+      stress: 20,
+      stageIndex: 0,
+      investments: {
+        'innovation-hub': {
+          id: 'innovation-hub',
+          name: '创新创业据点',
+          level: 1,
+          totalSpent: 160
+        }
+      }
+    })
+
+    const next = monopoly.playTurn(state, () => 1)
+
+    expect(next.position).toBe(10)
+    expect(next.pendingEvent).toMatchObject({ id: 'lab-roadshow' })
+    expect(next.phase).toBe('choice')
+    expect(next.stageIndex).toBe(0)
+    expect(next.log[0]).toContain('触发事件')
+  })
+
   test('达成阶段目标进入下一阶段，压力或资金越界会失败', () => {
     expect(typeof monopoly.resolveStageProgress).toBe('function')
 
