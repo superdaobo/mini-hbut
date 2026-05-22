@@ -234,15 +234,81 @@
 
 ## Task 4：设计 website 文档信息架构与导航分类
 
-- 状态：未完成
+- 状态：已完成
 - 目标：基于现有 `DocsLayout` 和 docs 页面设计可扩展文档结构。
 - 输入范围：`website/src/layouts/DocsLayout.tsx`、`website/src/pages/docs/*`、`website/src/App.tsx`。
 - 输出要求：确定新增分类、路由、页面命名、导航顺序。
 - 验证方式：读取现有路由与导航实现。
 - 实际改动：
+- 完成 Task 4 文档信息架构设计，本轮只更新 goal 任务记录，未修改 `website` 代码、业务代码或构建产物。
+- 当前文档站现状判断：
+  - `website/src/App.tsx` 仅接入 `/docs`、`/docs/guide`、`/docs/configuration`、`/docs/faq`、`/docs/technical`、`/docs/more` 六个文档路由。
+  - `website/src/layouts/DocsLayout.tsx` 当前侧栏也是六个扁平入口：文档总览、使用指南、配置、常见问题、技术原理、更多。
+  - `website/src/pages/docs` 实际存在 `DevRules.tsx`、`Implementation.tsx`、`Nonebot.tsx`、`TauriApi.tsx`，但当前没有路由和侧栏入口，属于已存在但不可从文档导航访问的页面。
+  - 当前 IA 按旧页面类型组织，不按读者任务组织；用户找成绩、课表、电费、论坛、通知、更多模块时会集中落到超长 `Guide`，开发者找架构、平台桥接、Tauri command、构建发布、脚本和调试桥时会集中落到 `Technical`/`More`，后续继续堆叠会失控。
+- 确定采用“两条主线 + 参考资料”的文档结构：
+  - 用户文档：面向普通使用者，重点回答“入口在哪、怎么使用、异常状态怎么处理、数据和权限意味着什么”。
+  - 开发者文档：面向维护者和贡献者，重点回答“系统如何工作、代码在哪、如何调试构建、平台边界和安全边界是什么”。
+  - 参考资料：承载 API、Tauri/HTTP bridge、配置字段、文件索引、脚本索引、贡献规范、历史集成和实现札记等低频查阅内容。
+- 确定侧栏分组方案：
+  - `开始`：文档总览、快速开始。
+  - `用户文档`：用户手册、教务服务、校园生活、社区与通知、扩展模块、设置与数据、故障排查。
+  - `开发者文档`：开发者总览、架构与数据流、平台与 Tauri、模块系统、构建发布、安全与隐私。
+  - `参考资料`：参考资料总览、Tauri API/HTTP Bridge、开发规范、Nonebot/外部集成、实现札记。
+- 确定第一阶段路由与页面命名：
+  - `/docs` -> `Overview`：保留为总览页，后续扩展成用户/开发者阅读路径入口。
+  - `/docs/quick-start` -> `QuickStart.tsx`：安装、首次登录、首页、底部导航、搜索、快捷入口、常见首次配置。
+  - `/docs/user-guide` -> `UserGuide.tsx`：用户手册总览和功能地图。
+  - `/docs/academic` -> `AcademicServices.tsx`：成绩、成绩分布 Beta、课表、全校课表、选课、空教室、考试、排名、校历、学业进度、培养方案。
+  - `/docs/campus-life` -> `CampusLife.tsx`：校园码、电费、交易流水、图书馆、校园地图、资料分享、天气。
+  - `/docs/community-notifications` -> `CommunityNotifications.tsx`：论坛、通知中心、课程提醒、电费提醒、后台任务、Widget 差异。
+  - `/docs/extensions` -> `Extensions.tsx`：更多模块、模块宿主、超星签到、在线学习/刷课入口状态、小游戏模块，并记录 `hugongda_escape` 源码存在但 manifest 禁用。
+  - `/docs/settings-data` -> `SettingsData.tsx`：设置、主题、字体、缓存、云同步、导出、远程配置对用户体验的影响。
+  - `/docs/troubleshooting` -> `Troubleshooting.tsx`：由现有 FAQ 升级，覆盖登录、安装、网络、后台通知、数据隐私、平台差异和反馈入口。
+  - `/docs/developer` -> `DeveloperOverview.tsx`：仓库结构、开发环境、阅读顺序、贡献入口。
+  - `/docs/architecture` -> `ArchitectureDataFlow.tsx`：Vue 入口、视图分发、状态恢复、API/缓存/降级、论坛/通知/Widget、数据库关系。
+  - `/docs/platform-tauri` -> `PlatformTauri.tsx`：平台桥接、Tauri commands、Rust modules、HTTP client、Capacitor/Web/Tauri 能力矩阵。
+  - `/docs/module-system` -> `ModuleSystem.tsx`：模块中心、远程 catalog、manifest、iframe 宿主、安全嵌入、`website/modules-src` 构建链。
+  - `/docs/build-release` -> `BuildRelease.tsx`：npm scripts、Tauri build、Capacitor sync、release manifest、hot bundle、website 发布链接和脚本风险。
+  - `/docs/security-privacy` -> `SecurityPrivacy.tsx`：Cookie、密码、token、SQLite、云同步、远程配置、自定义 JS、调试桥、热更新签名边界和外部资源。
+  - `/docs/reference` -> `ReferenceIndex.tsx`：参考资料总览，汇总 API、配置 schema、文件索引、脚本索引、贡献规范和许可。
+  - `/docs/reference/tauri-api` -> 现有 `TauriApi.tsx`：接入参考资料，不放用户主线；后续需对照 `src-tauri/src/lib.rs`、`src/utils/api.js`、`src/utils/axios_adapter.js` 重新核对。
+  - `/docs/reference/dev-rules` -> 现有 `DevRules.tsx`：接入参考资料，作为贡献和工程规范页面。
+  - `/docs/reference/nonebot` -> 现有 `Nonebot.tsx`：接入参考资料或外部集成页；如果当前主应用没有入口，不进入用户主线。
+  - `/docs/reference/implementation-notes` -> 现有 `Implementation.tsx`：短期接入为实现札记，后续内容拆入架构、平台和模块系统页面。
+- 确定现有页面迁移策略：
+  - `Overview.tsx` 保留，后续改造成文档首页和阅读路径分流页。
+  - `Guide.tsx` 作为内容来源保留，后续拆分为快速开始、用户手册、教务服务、校园生活、扩展模块等页面；旧 `/docs/guide` 可短期保留为兼容入口或迁移索引。
+  - `Configuration.tsx` 内容拆成用户侧 `settings-data` 和开发者/参考侧远程配置说明；旧 `/docs/configuration` 可短期保留。
+  - `FAQ.tsx` 升级为 `/docs/troubleshooting` 的主体内容来源；旧 `/docs/faq` 可短期兼容。
+  - `Technical.tsx` 拆成开发者架构、平台与 Tauri、数据流、模块系统、安全隐私等页面；旧 `/docs/technical` 可短期保留为迁移索引。
+  - `More.tsx` 不继续作为主导航分类；其开发指南、Nonebot、贡献、许可、链接和鸣谢内容迁移到开发者总览、参考资料、Nonebot 集成和开发规范页面。
+  - `DevRules.tsx`、`Implementation.tsx`、`Nonebot.tsx`、`TauriApi.tsx` 先接入路由，避免死页面；后续按内容新鲜度再拆分或重写。
+- 确定命名规则：
+  - React 页面文件使用 PascalCase，例如 `QuickStart.tsx`、`AcademicServices.tsx`、`PlatformTauri.tsx`。
+  - 路由使用 kebab-case，例如 `/docs/quick-start`、`/docs/campus-life`、`/docs/platform-tauri`。
+  - 页面标题使用中文任务名，例如“快速开始”“教务服务”“平台与 Tauri”。
+  - 顶层侧栏优先展示高频阅读路径，低频查阅内容放入“参考资料”分组，避免普通用户被开发者页面干扰。
+- Task 5 实施边界：
+  - 先在 `DocsLayout` 中把扁平 `links` 改为分组导航。
+  - 在 `App.tsx` 中接入已有死页面，并新增必要的骨架页，保证所有新分类可访问。
+  - 暂不在 Task 5 大规模重写长文正文，内容拆分留给 Task 6 之后逐类完成。
 - 验证结果：
+- 已重新读取 `goal-5/input.md`、`goal-5/plan.md`、`goal-5/tasks.md`，确认当前 active goal 与第一个未完成任务。
+- 已执行 `Get-Content -Raw website\src\App.tsx`，确认现有 `/docs` 下只注册 6 个文档子路由。
+- 已执行 `Get-Content -Raw website\src\layouts\DocsLayout.tsx`，确认现有侧栏为 6 个扁平链接，没有分组导航。
+- 已执行 `rg --files website\src\pages\docs`，确认 docs 页面实际包含 10 个文件，其中 4 个未接入路由/侧栏。
+- 已执行 `rg -n "const |function |return|<h1|<h2|<h3|export default|href=|path:|docs" website\src\pages\docs`，抽样确认现有页面主题和内容粒度：`Guide`/`Configuration`/`Technical` 已很长，`More` 内容混杂，`TauriApi`/`DevRules`/`Implementation`/`Nonebot` 有独立页面内容。
+- 已合并只读子代理 `019e50fe-b0af-7701-b084-9f6fed2db6a8` 的 IA 审计结论：现有页面类型导向不适合继续扩展，应按用户文档、开发者文档、参考资料重组；该子代理未修改文件、未提交。
+- 已执行 `git status --short`，确认当前工作区存在多项与本 goal 无关的改动和已暂存内容；本任务提交时必须只暂存/提交 `goal-5/tasks.md`。
 - 剩余风险：
+- 本任务只做信息架构设计，没有修改 `website/src/App.tsx`、`DocsLayout` 或页面文件，因此尚未运行 website 构建。
+- 具体页面文件名和旧路由兼容策略在 Task 5 实现时可能因现有 imports、组件命名或链接引用做小幅调整，但不得改变“两条主线 + 参考资料”的总体结构。
+- `TauriApi.tsx`、`Implementation.tsx`、`Nonebot.tsx` 可能已有内容陈旧；当前 Task 4 只决定接入和迁移位置，后续内容任务必须重新对照源码核查。
+- 导航分类明显增多，Task 5 和 Task 17 需要关注移动端侧栏可读性，必要时采用分组折叠或视觉分段。
+- 当前工作区存在无关已暂存改动，提交本任务时必须使用路径限定，避免污染其它 goal 或用户改动。
 - 下一步：
+- 执行 Task 5：在 `website` 中实现文档导航与分类骨架，接入已有死页面并新增必要骨架页；完成后运行 `website` 构建验证。
 
 ## Task 5：实现文档导航与分类骨架
 
