@@ -70,17 +70,17 @@
 
 ## Task 5: 湖工记忆牌玩法重做与竖屏 UI
 
-- [ ] 状态：未完成
-- [ ] 实现关卡推进、倒计时、评分、连击、错配惩罚和中高难度少提示卡面
-- [ ] 优化竖屏牌桌、指标栏、日志/结果展示
-- [ ] 运行记忆牌测试和构建
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 实现关卡推进、倒计时、评分、连击、错配惩罚和中高难度少提示卡面
+- [x] 优化竖屏牌桌、指标栏、日志/结果展示
+- [x] 运行记忆牌测试和构建
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：将湖工记忆牌重做为 `MEMORY_LEVELS` 驱动的 4 关限时挑战，新增预览倒计时、正式倒计时失败、得分、连击奖励、错配惩罚、关卡推进和最终通关奖励；中高难度分别收紧为分类线索和隐藏线索。同步更新页面指标栏、关卡标题、倒计时、得分、连击/错配、日志和竖屏 4 列牌桌，保证 3/4/6/8 组牌都能在竖屏内可玩。
+- 验证结果：先为“完成非最终关进入下一关预览”补红灯测试，`npm test` 6/6 失败且原因符合缺少规则；实现后在 `website/modules-src/hbut_memory_match/project` 运行 `npm test`，退出码 0，`src/game/memory.test.js` 6/6 通过。运行 `npm run build`，退出码 0，Vite 构建成功。运行 `git diff --check -- goal-3/tasks.md website/modules-src/hbut_memory_match/project/src/game/memory.js website/modules-src/hbut_memory_match/project/src/game/memory.test.js website/modules-src/hbut_memory_match/project/src/main.js website/modules-src/hbut_memory_match/project/src/style.css`，退出码 0。使用 Playwright 验收 360x740、390x844、430x932：三档首关均无横向滚动，按钮在可视区，文本溢出候选为空，预览结束后牌面隐藏且卡牌可点击；390x844 下推进到第 4 关 16 张牌时仍无横向滚动，单牌约 83x110，按钮在可视区。停止本地 Vite 服务后，`curl.exe -I http://127.0.0.1:5192/ --max-time 1` 连接超时，确认没有保留本轮开发服务。
+- 剩余风险：本轮已做 DOM 指标级移动端验收，没有把截图文件纳入仓库；真实 Tauri 宿主内嵌高度同步可在后续大型全面检查-debug 循环 B 或最终 review 再复测。记忆牌只改模块源码，尚未同步发布到 `website/public/modules/*`。
+- 下一步：Task 6 编写湖工大富翁核心规则红灯测试，覆盖精力/压力、事件选择、卡牌效果、阶段目标、资源边界和胜负。
 
 ## Task 6: 湖工大富翁核心规则测试
 

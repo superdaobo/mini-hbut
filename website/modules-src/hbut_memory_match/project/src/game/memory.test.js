@@ -130,4 +130,26 @@ describe('湖工记忆牌关卡规则', () => {
     expect(mismatchedCards.every((card) => !card.revealed && !card.matched)).toBe(true)
     expect(state.selectedCardIds).toEqual([gamma.id])
   })
+
+  test('完成非最终关卡会带着得分进入下一关预览', () => {
+    let state = memory.createInitialMemoryState({
+      pairs: TEST_PAIRS,
+      levelIndex: 0,
+      previewLeftMs: 0,
+      status: 'playing',
+      shuffle: false
+    })
+    const firstLevelPairIds = state.pairs.map((pair) => pair.id)
+
+    for (const pairId of firstLevelPairIds) {
+      state = flipPair(state, pairId)
+    }
+
+    expect(state.levelIndex).toBe(1)
+    expect(state.levelNumber).toBe(2)
+    expect(state.status).toBe('preview')
+    expect(state.matchedPairs).toBe(0)
+    expect(state.score).toBeGreaterThan(0)
+    expect(state.log[0]).toContain('进入第 2 关')
+  })
 })
