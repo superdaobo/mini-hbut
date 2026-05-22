@@ -10,6 +10,9 @@ const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8
 const quickStart = read('src/pages/docs/QuickStart.tsx');
 const userGuide = read('src/pages/docs/UserGuide.tsx');
 const academicServices = read('src/pages/docs/AcademicServices.tsx');
+const campusLife = read('src/pages/docs/CampusLife.tsx');
+const communityNotifications = read('src/pages/docs/CommunityNotifications.tsx');
+const settingsData = read('src/pages/docs/SettingsData.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -166,11 +169,142 @@ expectIncludes(academicServices, 'AcademicServices', [
   'src-tauri/src/lib.rs',
 ]);
 
+expectIncludes(campusLife, 'CampusLife', [
+  '校园生活全量指南',
+  '校园码',
+  '在线模式',
+  '高能模式',
+  '二维码状态',
+  '余额不足',
+  '电费查询',
+  '照明用电',
+  '空调用电',
+  '宿舍楼层',
+  'last_dorm_selection',
+  'electricity_cache',
+  '交易记录',
+  '一卡通流水',
+  '首次登录',
+  '近一年',
+  'transaction_cache',
+  '图书查询',
+  '馆藏检索',
+  'ISBN',
+  '分页',
+  '图书详情',
+  'library_public_cache',
+  '校园地图',
+  '缩放',
+  '拖拽',
+  '微信小程序',
+  '静态地图图片',
+  '资料分享',
+  'WebDAV',
+  '目录为空',
+  '图片预览',
+  'PDF 预览',
+  'Office 在线预览',
+  '直链下载',
+  '校园助手',
+  '本地 AI 服务',
+  '流式输出',
+  '文件上传',
+  '20 MB',
+  'ai_session_cache',
+  'src/components/CampusCodeView.vue',
+  'src/components/ElectricityView.vue',
+  'src/components/TransactionHistory.vue',
+  'src/components/LibraryView.vue',
+  'src/components/CampusMapView.vue',
+  'src/components/ResourceShareView.vue',
+  'src/components/AiChatView.vue',
+  'src-tauri/src/modules/electricity.rs',
+  'src-tauri/src/modules/one_code.rs',
+  'src-tauri/src/modules/ai.rs',
+]);
+
+expectIncludes(communityNotifications, 'CommunityNotifications', [
+  '社区与通知全量指南',
+  '论坛',
+  '版块',
+  '发帖',
+  '回复',
+  '评分',
+  '收藏',
+  '举报',
+  '管理员',
+  '用户主页',
+  '社区资料',
+  'hbu_forum_cache',
+  '通知中心',
+  '通知权限',
+  '课程提醒',
+  '电费提醒',
+  '后台白名单',
+  'hbu_notify_snapshot',
+  '测试通知',
+  '前台服务保活',
+  'iOS 后台任务',
+  'Android',
+  'src/components/ForumView.vue',
+  'src/components/NotificationView.vue',
+  'src/utils/forum_api.js',
+  'src/utils/notify_center.js',
+  'src/platform/notification_actions.ts',
+  'src-tauri/src/modules/notification.rs',
+]);
+
+expectIncludes(settingsData, 'SettingsData', [
+  '设置与数据全量指南',
+  '我的',
+  '设置中心',
+  '主题',
+  '字体',
+  '后端设置',
+  '远程配置',
+  '配置工具',
+  'config_admin_ids',
+  'OCR',
+  '云同步',
+  '调试日志',
+  '网络测速',
+  '自定义 CSS/JS',
+  '导出中心',
+  'JSON',
+  '长图片',
+  '缓存导出',
+  '学期列表',
+  '交易记录月份',
+  '空教室缓存',
+  '校园地图缓存',
+  '意见反馈',
+  '复制反馈链接',
+  '最近错误',
+  '官方帖子',
+  '隐私政策',
+  '退出登录',
+  'src/components/SettingsView.vue',
+  'src/components/ExportCenterView.vue',
+  'src/components/FeedbackView.vue',
+  'src/components/MeView.vue',
+  'src/utils/cloud_sync.js',
+  'src/utils/remote_config.js',
+  'src/utils/app_settings.ts',
+  'src/utils/ui_settings.ts',
+  'src/utils/font_settings.ts',
+]);
+
 if (
   quickStart.includes('后续 Task 6') ||
   userGuide.includes('后续扩写来源') ||
   academicServices.includes('后续扩写来源') ||
-  academicServices.includes('本页骨架职责')
+  academicServices.includes('本页骨架职责') ||
+  campusLife.includes('后续扩写来源') ||
+  campusLife.includes('本页骨架职责') ||
+  communityNotifications.includes('后续扩写来源') ||
+  communityNotifications.includes('本页骨架职责') ||
+  settingsData.includes('后续扩写来源') ||
+  settingsData.includes('本页骨架职责')
 ) {
   failures.push('用户文档仍包含任务骨架或占位提示');
 }

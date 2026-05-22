@@ -526,15 +526,56 @@
 
 ## Task 8：编写校园生活与工具类用户文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：覆盖电费、图书馆、校园码、地图、资源共享、通知、论坛、反馈等。
 - 输入范围：对应 Vue 组件、utils、平台接口。
 - 输出要求：校园生活专题文档。
 - 验证方式：源码证据核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/CampusLife.tsx`：
+  - 将校园生活骨架页替换为“校园生活全量指南”。
+  - 覆盖校园码、电费查询、交易记录、图书查询、校园地图、资料分享和校园助手。
+  - 写明校园码在线模式、高能模式、二维码状态、余额不足、配置加载失败和离线码限制。
+  - 写明电费查询的宿舍楼层选择、照明用电、空调用电、`last_dorm_selection`、低余额提示、`electricity_cache` 和通知中心复用房间信息的边界。
+  - 写明交易记录近一年一卡通流水、月份切换、首次登录提示、`transaction_cache` 与浏览器模式导出限制。
+  - 写明图书查询的馆藏检索、ISBN、分页、图书详情、`library_public_cache`，并明确当前不支持借阅/续借承诺。
+  - 写明校园地图是静态地图图片，支持缩放、拖拽、微信小程序跳转和 7 天缓存，不描述为 GPS 导航。
+  - 写明资料分享依赖远程 WebDAV，支持目录、图片预览、PDF 预览、Office 在线预览、直链下载和下载兜底。
+  - 写明校园助手依赖本地 AI 服务、Tauri 兜底、流式输出、文件上传、20 MB 限制和 `ai_session_cache`，不承诺一定可用。
+- 扩写 `website/src/pages/docs/CommunityNotifications.tsx`：
+  - 将社区与通知骨架页替换为“社区与通知全量指南”。
+  - 覆盖论坛版块、发帖、回复、评分、收藏、举报、用户主页、社区资料、管理员边界和 `hbu_forum_cache` 缓存兜底。
+  - 覆盖通知中心、通知权限、课程提醒、电费提醒、考试/成绩检查、后台自动检查、测试通知、前台服务保活、Android 后台白名单和 iOS 后台任务限制。
+  - 写明 `hbu_notify_snapshot`、`src/utils/notify_center.js`、`src/platform/notification_actions.ts` 和 `src-tauri/src/modules/notification.rs` 的证据边界。
+- 扩写 `website/src/pages/docs/SettingsData.tsx`：
+  - 将设置与数据骨架页替换为“设置与数据全量指南”。
+  - 覆盖我的页、退出登录、隐私政策、官方帖子、意见反馈、设置中心、云同步、导出中心和配置工具。
+  - 写明主题、字体、后端设置、OCR、远程配置、云同步、调试日志、网络测速、自定义 CSS/JS 的使用与风险。
+  - 写明导出中心的 JSON、长图片、学期列表、交易记录月份、空教室缓存、校园地图缓存和缓存导出限制。
+  - 写明意见反馈是外链表单加最近错误复制，不是内置工单系统。
+  - 写明配置工具受 `config_admin_ids` 控制，源码只导出/复制 remote config JSON，不直接写回远程仓库。
+- 增强 `website/scripts/test-docs-user-content.mjs`：
+  - 新增 `CampusLife`、`CommunityNotifications`、`SettingsData` 三页内容契约。
+  - 覆盖 Task 8 模块名、用户操作、状态边界、缓存键、权限边界、源码路径和占位文案清理。
+  - 修正设置/导出相关源码证据为当前真实存在的 `src/utils/app_settings.ts`、`src/utils/ui_settings.ts`、`src/utils/font_settings.ts`，避免契约引用不存在路径。
+- 并行只读审计：
+  - 使用两个只读子 agent 分别审计一卡通/校园生活模块与社区通知/设置反馈模块。
+  - 审计结果用于补充电费双计费、校园码高能模式限制、图书无需登录、静态地图边界、WebDAV/Office/PDF 兜底、AI 可用性限制、论坛管理员边界、通知后台限制、配置工具只导出 JSON 等事实。
 - 验证结果：
+- 已执行 `node scripts/test-docs-user-content.mjs`，在新增 Task 8 契约后确认 RED，失败点集中在三页仍为骨架、缺少校园生活/社区通知/设置数据关键词和占位文案残留。
+- 完成正文扩写后执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/campus-life/index.html`、`dist/docs/community-notifications/index.html`、`dist/docs/settings-data/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `git diff --check -- website/src/pages/docs/CampusLife.tsx website/src/pages/docs/CommunityNotifications.tsx website/src/pages/docs/SettingsData.tsx website/scripts/test-docs-user-content.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
+- 已用 `rg` 抽样核对源码证据，覆盖 `ElectricityView.vue`、`CampusCodeView.vue`、`TransactionHistory.vue`、`LibraryView.vue`、`CampusMapView.vue`、`ResourceShareView.vue`、`AiChatView.vue`、`ForumView.vue`、`NotificationView.vue`、`SettingsView.vue`、`ExportCenterView.vue`、`FeedbackView.vue`、`MeView.vue`、`forum_api.js`、`notify_center.js`、`cloud_sync.js`、`remote_config.js`、`app_settings.ts`、`ui_settings.ts`、`font_settings.ts`、`src-tauri/src/modules/electricity.rs`、`one_code.rs`、`ai.rs`、`notification.rs`。
 - 剩余风险：
+- 本任务聚焦用户侧校园生活、社区通知和设置数据，不展开开发者级远程配置 schema、WebDAV 鉴权实现、AI token 细节和数据库表结构；这些留给 Task 11、Task 14 和 Task 16。
+- 当前没有做浏览器截图级视觉验收；三页长文的桌面/移动端阅读体验留给 Task 17/F。
+- 校园助手、资料分享、图书查询、校园码和通知能力依赖远端服务、系统权限或平台后台策略；文档已经标注限制，但无法通过本地构建证明远端服务可用。
+- 工作区仍存在与本 goal 无关的修改，本轮提交必须只包含 Task 8 相关文件。
 - 下一步：
+- 执行 Task 9：编写扩展模块与小游戏用户文档，覆盖更多模块、模块市场、热更新、小游戏与模块资源。
 
 ## Task 9：编写扩展模块与小游戏用户文档
 
