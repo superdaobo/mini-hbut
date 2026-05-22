@@ -104,17 +104,17 @@
 
 ## 大型全面检查-debug 循环 B（完成 Task 4-6 后执行）
 
-- [ ] 状态：未完成
-- [ ] 检查后端 API、数据一致性、缓存、附件、安全、备份设计
-- [ ] 运行后端全量 pytest
-- [ ] 检查危险操作是否仍处于未执行状态
-- [ ] 修复发现的问题并记录证据
+- [x] 状态：已完成
+- [x] 检查后端 API、数据一致性、缓存、附件、安全、备份设计
+- [x] 运行后端全量 pytest
+- [x] 检查危险操作是否仍处于未执行状态
+- [x] 修复发现的问题并记录证据
 
 记录：
-- 检查内容：
-- 修复内容：
-- 验证结果：
-- 剩余风险：
+- 检查内容：已复核 Task 4-6 的后端论坛数据层、业务接口、附件/图床、缓存、权限、分页和备份链路。`forum_backend` 的接口仍使用独立 `forum_` 表与索引，读接口具备 `Cache-Control`、`ETag`、304 和 offset 分页，普通写接口通过 `active_claims`/`ensure_not_banned` 阻止封禁用户继续写入，附件上传具备 MIME/大小限制、sha256 去重、HF 失败安全返回和本地降级。补充核对前端头像诉求：真实路径 `src\components\ForumView.vue` 已支持选择本地头像文件，经 `client.uploadAttachment(file)` 上传到论坛图床，并用 `client.getAttachmentUrl(...)` 回填 `profile.avatar_url`；`src\utils\forum_view_identity_contract.spec.ts` 已锁定该契约，不是只能填写链接。
+- 修复内容：检查中发现 `ocr-service/forum_backend/backup.py` 在 `RCLONE_REMOTE` 有值但 `RCLONE_CONFIG_BASE64` 缺失时，会把未执行的 OneDrive 同步误判为 `uploaded_onedrive=True`。已按 TDD 补充失败用例 `test_upload_archive_does_not_mark_onedrive_uploaded_when_config_incomplete`，确认红灯为 `uploaded_onedrive` 误为 `True`；随后修复未完整配置分支返回 `onedrive-disabled:`，并仅在 OneDrive 配置完整且结果路径落在目标 remote 下时标记上传成功。后端修复已提交为 `e641c29 fix(forum): avoid false onedrive backup success`。
+- 验证结果：`python -m py_compile forum_backend\backup.py tests\test_forum_backup.py` 通过；`git diff --check -- forum_backend\backup.py tests\test_forum_backup.py` 退出码 0，仅有 Windows LF/CRLF 提示；`python -m pytest tests/test_forum_backup.py -q` 通过，3 passed。后端全量 `python -c "import subprocess, sys; cmd=[sys.executable,'-m','pytest','tests','-q']; ... timeout=60"` 通过，60 passed，24 warnings，warning 均为 FastAPI `on_event` deprecation。破坏性 SQL 扫描显示论坛运行路径只命中 `forum_` 表、幂等 upsert 或字段 `ON UPDATE`；非论坛表的 `TRUNCATE/INSERT` 命中来自既有成绩分布脚本，不属于论坛后端运行路径。密钥/远程写入扫描只命中配置脚本、测试伪 token/mock `add_space_secret`、对象存储封装调用；本轮未读取桌面 secret、未写 SQLPub、未写 HF Secret、未推送 HF、未执行真实 OneDrive 上传。
+- 剩余风险：真实 SQLPub、HF Private Bucket、OneDrive rclone 和 HF Space `testocr1` 线上链路仍未执行，保留到后续部署/验收任务；`ocr-service` 仍有未跟踪 `data/`、`scripts/utf8.ps1`，没有提交；`tauri-app` 仍有与论坛 goal 记录无关的既有脏改动和 `.playwright-mcp` 产物，未回滚也未提交；前端全页面 Stitch 浏览器截图验收仍留给 Task 7-12。
 
 ## Task 7: 前端论坛 API、缓存与防重复提交层
 
