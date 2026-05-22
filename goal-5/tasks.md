@@ -962,14 +962,43 @@
 
 ## Checkpoint E：十五项后全面检查/debug
 
-- 状态：未完成
+- 状态：已完成
 - 目标：确认用户文档、开发者文档、运维安全排错文档形成闭环。
 - 检查范围：需求覆盖、类型检查、构建、文档导航、内容重复、事实错误。
 - 验证方式：`cd website && npm run build`，必要时主项目构建。
 - 实际检查：
+- 重新读取 `goal-5/input.md`、`goal-5/plan.md`、`goal-5/tasks.md`，确认本轮第一个未完成项为 Checkpoint E，未提前执行 Task 16。
+- 审计已完成专题页的骨架残留，重点检查 `QuickStart.tsx`、`UserGuide.tsx`、`AcademicServices.tsx`、`CampusLife.tsx`、`CommunityNotifications.tsx`、`Extensions.tsx`、`SettingsData.tsx`、`Troubleshooting.tsx`、`DeveloperOverview.tsx`、`ArchitectureDataFlow.tsx`、`PlatformTauri.tsx`、`ModuleSystem.tsx`、`BuildRelease.tsx`、`SecurityPrivacy.tsx`。
+- 审计文档路由、侧栏和 IA 契约，确认 `/docs/quick-start`、`/docs/user-guide`、`/docs/academic`、`/docs/campus-life`、`/docs/community-notifications`、`/docs/extensions`、`/docs/settings-data`、`/docs/troubleshooting`、`/docs/developer`、`/docs/architecture`、`/docs/platform-tauri`、`/docs/module-system`、`/docs/build-release`、`/docs/security-privacy`、`/docs/reference` 均已接入 `website/src/App.tsx`、`website/src/layouts/DocsLayout.tsx` 和 `website/scripts/test-docs-ia.mjs`。
+- 审计用户内容契约，确认 Task 6-9 和 Task 15 形成用户侧闭环：快速开始、用户手册、教务服务、校园生活、社区与通知、扩展模块、设置与数据、故障排查。
+- 审计开发者内容契约，确认开发者总览、架构与数据流、平台与 Tauri、构建发布、安全与隐私已覆盖；检查时发现 `ModuleSystem.tsx` 仍为 `DocSectionPage` 骨架，属于已接入导航的开发者专题缺口。
+- 审计模块系统源码证据，读取并核对 `src/utils/module_center.js`、`src/utils/more_modules.js`、`src/components/MoreView.vue`、`src/components/MoreModuleHostView.vue`、`src-tauri/src/modules/module_bundle.rs`、`src-tauri/src/http_server.rs`、`src-tauri/src/lib.rs`、`scripts/build_website_modules.mjs`、`scripts/test_more_module_bridge.mjs`、`src/utils/website_game_modules_contract.spec.ts` 和 `website/modules-src/*/module.json`。
 - 修复记录：
+- 先增强 `website/scripts/test-docs-developer-content.mjs`，把 `ModuleSystem.tsx` 纳入开发者内容契约，检查模块中心、远程目录、manifest 字段、运行时宿主、Tauri 本地 bundle、Capacitor 本地缓存、构建发布链、专项测试、安全边界、维护清单和源码证据索引。
+- 执行 `npm run test:docs-developer-content` 确认 RED，失败集中在 `ModuleSystem` 缺少 `DEFAULT_MODULE_CENTER`、`buildModuleCenterCards`、`hbu_more_module_state_v1`、`catalog.json`、`manifest.json`、`package_sha256`、`MoreView.vue`、`MoreModuleHostView.vue`、`prepare_module_bundle`、`ModuleBundlePrepareRequest`、`bundle.zip`、`scripts/build_website_modules.mjs`、`scripts/test_more_module_bridge.mjs` 等关键词，并提示仍包含骨架占位。
+- 将 `website/src/pages/docs/ModuleSystem.tsx` 从 `DocSectionPage` 骨架替换为完整开发者专题：
+  - 写清 `DEFAULT_MODULE_CENTER`、`normalizeModuleCenterEntry`、`buildModuleCenterCards` 和内置模块清单，覆盖 `hbut_2048`、`hbut_gomoku` 等模块。
+  - 写清 `MODULE_CDN_BASE`、`main`、`dev`、`latest`、`catalog.json`、`manifest.json`、`package_url`、`package_urls`、`package_sha256`、`package_size`、`entry_path`、`open_url`、`min_compatible_version`。
+  - 写清 `MoreView.vue`、`prepareAndOpenModule`、`MoreModuleHostView.vue`、`normalizeModuleHostSessionPayload`、`resolveModuleHostPreviewSource`、`preview_url`、`preview_mode`、`tauri-local`、`capacitor-local`、`remote-site`。
+  - 写清 `src-tauri/src/modules/module_bundle.rs` 的 `MODULE_CACHE_ROOT`、`more_modules`、`ModuleBundlePrepareRequest`、`ModuleBundlePrepareResult`、`prepare_module_bundle`、`open_module_bundle_window`、`bundle.zip`、`build_preview_url`、`resolve_module_bundle_file` 和 zip slip 边界。
+  - 写清 `scripts/build_website_modules.mjs`、`website/modules-src`、`module.json`、`source_dir`、`dist_dir`、`PUBLISH_CHANNELS`、`website/public/modules`、`published_channel`、`source_channel`。
+  - 增加模块安全边界、模块维护清单、`scripts/test_more_module_bridge.mjs`、`website_game_modules_contract.spec.ts` 和源码证据索引。
+- 完成修复后复跑 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+- 完成全面回归：
+  - 已执行 `npm run test:docs-user-content`（website），结果为 `docs user content contract passed`。
+  - 已执行 `npm run test:docs-ia`（website），结果为 `docs IA contract passed`。
+  - 已执行 `npm run test:docs-developer-content`（website），结果为 `docs developer content contract passed`。
+  - 已执行 `npm run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/module-system/index.html`、`dist/docs/troubleshooting/index.html`、`dist/docs/build-release/index.html`、`dist/docs/security-privacy/index.html` 等静态页面生成。
+  - 已执行已完成专题页骨架残留检查，`rg -n "DocSectionPage|后续扩写来源|本页骨架职责" ...` 对已完成专题页无命中。
+  - 已执行 `git diff --check -- website/src/pages/docs/ModuleSystem.tsx website/scripts/test-docs-developer-content.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
 - 剩余风险：
+- `ReferenceIndex.tsx` 仍是骨架页，但它是 Task 16“建立源码到文档的引用索引”的目标文件，本轮按 goal 规则不提前执行；已在下一步明确进入 Task 16。
+- 本轮没有运行根项目 `npm run build`，因为本轮实际改动只在 website 文档和 website 契约脚本；根项目构建会触发 `prebuild` / `scripts/prepare_dist.mjs` 对根 `dist` 的写入和清理，不是 Checkpoint E 的必要验证。
+- website 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前文档站单包结构的既有 Vite chunk warning，不阻断本轮闭环检查；后续 Task 17 可结合 UI/UX 和长文性能评估是否拆分。
+- 未进行浏览器视觉抽查和移动端响应式检查；Checkpoint E 侧重内容闭环、契约、导航和构建，浏览器体验留给 Task 17 与 Checkpoint F。
+- 工作区仍存在与 goal-5 无关的修改和未跟踪文件，本轮提交必须只包含 `ModuleSystem.tsx`、`test-docs-developer-content.mjs` 和 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 16：建立源码到文档的引用索引，补齐 `ReferenceIndex.tsx` 的参考索引页面，并做路径存在性检查和文档构建。
 
 ## Task 16：建立源码到文档的引用索引
 

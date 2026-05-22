@@ -10,6 +10,7 @@ const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8
 const developerOverview = read('src/pages/docs/DeveloperOverview.tsx');
 const architectureDataFlow = read('src/pages/docs/ArchitectureDataFlow.tsx');
 const platformTauri = read('src/pages/docs/PlatformTauri.tsx');
+const moduleSystem = read('src/pages/docs/ModuleSystem.tsx');
 const buildRelease = read('src/pages/docs/BuildRelease.tsx');
 const securityPrivacy = read('src/pages/docs/SecurityPrivacy.tsx');
 
@@ -265,6 +266,85 @@ if (
   platformTauri.includes('DocSectionPage')
 ) {
   failures.push('PlatformTauri 仍包含骨架页占位或通用骨架组件');
+}
+
+expectIncludes(moduleSystem, 'ModuleSystem', [
+  '模块系统',
+  '模块中心',
+  'DEFAULT_MODULE_CENTER',
+  'src/utils/module_center.js',
+  'buildModuleCenterCards',
+  'normalizeModuleCenterEntry',
+  'manifest_url',
+  'hbut_2048',
+  'hbut_gomoku',
+  '远程目录',
+  'src/utils/more_modules.js',
+  'hbu_more_module_state_v1',
+  'hbu_more_module_catalog_cache_v1',
+  'hbu_more_module_manifest_cache_v1',
+  'hbu_more_module_remote_source_rotation_v1',
+  'MODULE_CDN_BASE',
+  'main',
+  'dev',
+  'latest',
+  'catalog.json',
+  'manifest.json',
+  'package_url',
+  'package_urls',
+  'package_sha256',
+  'package_size',
+  'entry_path',
+  'open_url',
+  'min_compatible_version',
+  'MoreView.vue',
+  'prepareAndOpenModule',
+  'MoreModuleHostView.vue',
+  'normalizeModuleHostSessionPayload',
+  'resolveModuleHostPreviewSource',
+  'preview_url',
+  'preview_mode',
+  'tauri-local',
+  'capacitor-local',
+  'remote-site',
+  'prepare_module_bundle',
+  'open_module_bundle_window',
+  'src-tauri/src/modules/module_bundle.rs',
+  'MODULE_CACHE_ROOT',
+  'more_modules',
+  'ModuleBundlePrepareRequest',
+  'ModuleBundlePrepareResult',
+  'bundle.zip',
+  'build_preview_url',
+  'resolve_module_bundle_file',
+  'zip slip',
+  'canUseLocalModuleBridgePreview',
+  'Capacitor',
+  'Filesystem',
+  'toNativeFileSrc',
+  'scripts/build_website_modules.mjs',
+  'website/modules-src',
+  'module.json',
+  'source_dir',
+  'dist_dir',
+  'PUBLISH_CHANNELS',
+  'website/public/modules',
+  'published_channel',
+  'source_channel',
+  'scripts/test_more_module_bridge.mjs',
+  'website_game_modules_contract.spec.ts',
+  'debug_reset_more_modules',
+  '模块安全边界',
+  '模块维护清单',
+  '源码证据索引',
+]);
+
+if (
+  moduleSystem.includes('后续扩写来源') ||
+  moduleSystem.includes('本页骨架职责') ||
+  moduleSystem.includes('DocSectionPage')
+) {
+  failures.push('ModuleSystem 仍包含骨架页占位或通用骨架组件');
 }
 
 expectIncludes(buildRelease, 'BuildRelease', [
