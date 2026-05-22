@@ -95,28 +95,75 @@
 
 ## Task 4：HF Space 只读部署验证
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 前置：用户明确回复“是/确认/继续”允许 HF 写入部署。
 - 范围：推送 `ocr-service` 到 `mini-hbut/testocr1` 并等待 Space 重建。
 - 验证：`/health`、`/api/forum/categories`、`/api/forum/threads/hot`、`/api/forum/backups`，且 HF Bucket configured。
 - 执行记录：
+  - 已执行 SQLPub Secrets 写入：`python scripts\configure_hf_sqlpub_secrets.py --secrets-file C:\Users\yangd\Desktop\mini-hbut-ocrupload-secrets.txt --hf-token-from-git-remote hf-test --confirm-hf-secret-write`，输出显示 `SQLPUB_HOST/PORT/DATABASE/USER/PASSWORD=SET`。
+  - 根据用户补充要求，已把论坛运行时 Secrets 同步写入本地 `C:\Users\yangd\Desktop\mini-hbut-ocrupload-secrets.txt`，并写入 HF Space Secrets：`FORUM_AUTH_SECRET`、`FORUM_ADMIN_STUDENT_IDS`、`FORUM_DB_BACKEND`、`HF_BUCKET_ID`、`HF_TOKEN`。
+  - 本地 secrets 文件只补齐缺失键，未覆盖既有 `HF_TOKEN` 和 SQLPub 配置；命令输出未打印任何密钥值。
+  - 新增并提交后端脚本修复：`a101591 chore: persist forum runtime secrets locally`，保证以后重跑运行时 Secret 配置时会复用本地 `FORUM_AUTH_SECRET`。
+  - 执行 `python scripts\deploy_forum_to_hf_test.py --confirm-hf-write`，推送 `ocr-service` 到 HF Space `mini-hbut/testocr1`。
+  - HF push 结果：`1a89a94..a101591 HEAD -> main`。
+  - HF API 当前显示 Space `runtime.stage=RUNNING`，线上 sha 为 `a101591775b0d7621d2293e84135b3b546cf777f`，bucket volume 挂载源为 `mini-hbut/testocr1-storage`，挂载路径为 `/data`。
 - 验证结果：
+  - 部署脚本内置后端全量测试：`python -m pytest tests -q` 通过，`39 passed, 24 warnings`；warnings 为既有 FastAPI `on_event` deprecation。
+  - 部署后只读验证通过：
+    - `/health`：200
+    - `/api/forum/categories`：200，默认版块为 `campus,study,life,help`
+    - `/api/forum/threads/hot?limit=5`：200
+    - `/api/forum/backups?limit=3`：200
+  - `/api/forum/backups` 返回 `storage.hf_bucket.configured=true`，`bucket_id=mini-hbut/testocr1-storage`。
 - 剩余风险：
+  - OneDrive/rclone 灾备当前仍未配置，`storage.onedrive.configured=false`；这不影响论坛主链路，但不应把 OneDrive 灾备误报为已完成。
+  - HF Space 使用 HF Bucket 作为主对象存储仍有平台账号风险；后续应补齐 OneDrive 或其他外部备份。
 - 下一步：
+  - 执行 Task 5：线上写入 E2E，确认 `2510231106` 管理员身份和 SQLPub 独立 `forum_*` 表写入链路。
 
 ## Task 5：线上写入 E2E 与管理员确认
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 前置：用户单独明确确认允许线上写入。
 - 范围：线上签发 token、确认 `2510231106` 管理员、创建验证帖、评分、读详情。
 - 执行记录：
+  - 执行 `python scripts\verify_forum_deploy.py --confirm-write-e2e`。
+  - 线上签发 `2510231106` token，并确认 `forum_admin=true`。
+  - 在线上创建部署验证帖，随后对该帖评分 10 分，再读取帖子详情确认写入链路。
+  - 写入数据进入 SQLPub 中独立的 `forum_*` 表族，不混入给分记录和排行榜表；相关表隔离由后端测试 `tests/test_forum_deploy_contract.py` 锁定。
 - 验证结果：
+  - 只读部分继续通过：
+    - `health_status=200`
+    - `forum_categories_status=200`
+    - `forum_hot_status=200`
+    - `forum_backups_status=200`
+  - 写入部分通过：
+    - `forum_token_status=200`
+    - `forum_admin=true`
+    - `forum_create_thread_status=200`
+    - `forum_score_thread_status=200`
+    - `forum_thread_detail_status=200`
+  - E2E 证据：`thread_id=1`，`score_avg=10.0`，标题为部署后验证帖。
 - 剩余风险：
+  - 线上验证帖是真实测试数据，后续可以在管理后台或数据库中归档/删除。
+  - 当前验证覆盖管理员发帖、评分和读帖；大流量压测、举报审核工作流、私信通知等长链路尚未做线上压力验证。
 - 下一步：
+  - 汇总最终完成审计，确认 `goal-2/plan.md` 的完成标准是否满足。
 
 ## 最终完成审计
 
-- [ ] 状态：未完成
+- [x] 状态：完成
 - 要求：逐条对照 `goal-2/input.md` 和 `goal-2/plan.md` 的完成标准，只有证据充分时才能标记 goal complete。
 - 执行记录：
+  - 完成标准 1：本地后端论坛 API 和 OCR 服务共存，后端全量测试通过；线上 `/health` 也保持 200。
+  - 完成标准 2：`2510231106` 本地和线上均验证为管理员，可发帖、评分、读帖。
+  - 完成标准 3：Tauri 论坛入口、身份绑定、旧 token 自动刷新和本地 API 覆盖已通过前端回归与本地浏览器验证。
+  - 完成标准 4：HF Space 已部署到 `a101591`，`/categories`、`/threads/hot`、`/backups` 只读验证通过，HF Bucket 显示 configured。
+  - 完成标准 5：经用户确认后，线上写入 E2E 已证明管理员发帖和评分成功。
+  - 完成标准 6：已记录生产必需 Secrets；OneDrive/rclone 灾备明确标记为未配置，未误报成功。
+  - 额外补充：论坛运行时 Secrets 已按用户要求写入本地 `mini-hbut-ocrupload-secrets.txt`，便于后续复用同一个 `FORUM_AUTH_SECRET`。
+  - 最终前端复验：`npx.cmd vitest run --testTimeout 60000` 通过，27 个测试文件、158 个测试全部通过。
+  - 最终前端构建：`npm.cmd run build` 成功，生产产物包含 `ForumView` CSS/JS chunk；仍有既有 CSS `@media` minify warning 和动态/静态混合导入 warning。
 - 结论：
+  - Goal 2 第一阶段后端、HF 部署、SQLPub 写入、HF Bucket 配置、Tauri 论坛入口与管理员全链路验证均已完成。
+  - 剩余可作为后续阶段继续增强：OneDrive/rclone 灾备实装、线上压力测试、社区管理后台细化、图床/附件上传前端完整 UI。
