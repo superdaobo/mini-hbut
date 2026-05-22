@@ -89,18 +89,18 @@
 
 ## Task 6: 后端论坛业务接口完善
 
-- [ ] 状态：未完成
-- [ ] 完善发帖、回帖、评分、收藏、关注、举报、通知、私信、个人主页、管理接口
-- [ ] 所有写接口做输入校验、权限/身份边界、幂等或重复提交保护
-- [ ] 所有读接口做分页、缓存头、轻量响应和错误格式统一
-- [ ] 运行后端全量测试并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 完善发帖、回帖、评分、收藏、关注、举报、通知、私信、个人主页、管理接口
+- [x] 所有写接口做输入校验、权限/身份边界、幂等或重复提交保护
+- [x] 所有读接口做分页、缓存头、轻量响应和错误格式统一
+- [x] 运行后端全量测试并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已在 `ocr-service` 提交 `c05a9c4 feat(forum): harden business api contracts`。本轮新增 `tests/test_forum_business_api.py`，先通过红灯确认封禁用户仍可写入、通知读接口缺少 `ETag` 的缺口，再补齐后端业务接口边界：新增 `active_claims`/`ensure_not_banned`，普通写接口发帖、回帖、评分、回复点赞/点踩、收藏、关注、举报、私信、签到、附件上传统一禁止封禁账号继续写入；管理员依赖也检查封禁状态，避免封禁管理员继续走管理写入口。`_cached_json()` 支持 `private` 缓存，个人摘要、我的帖子/回复/收藏、通知、私信、徽章、管理举报、管理用户、公开备份、管理备份均补 `Cache-Control`、`ETag` 和 304 条件请求。SQLite/SQLPub 的通知、消息、举报、用户列表补 `offset` 分页，并在 `ForumStore` 协议测试中锁定签名。
+- 验证结果：已运行并通过 `python -m py_compile forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_business_api.py tests\test_forum_extended_api.py tests\test_forum_store_schema.py tests\test_forum_attachment_policy.py`；已运行并通过 `git diff --check -- forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_business_api.py tests\test_forum_store_schema.py`。直接导入执行 `test_forum_business_api.py` 3 个用例全部 `PASS`，覆盖封禁写入拦截、私有读模型 offset/缓存、备份读模型缓存；直接导入执行 `test_forum_store_schema.py` 4 个契约函数通过；直接导入执行 `test_forum_extended_api.py` 8 个既有扩展 API 用例全部 `PASS`；直接导入执行 `test_forum_attachment_policy.py` 4 个附件策略用例全部 `PASS`。`python -m pytest tests --collect-only -q` 在 60 秒保护内成功收集 59 个测试；`python -m pytest tests/test_forum_business_api.py tests/test_forum_store_schema.py tests/test_forum_extended_api.py -q -s` 在 6.16 秒内通过 15 个测试。
+- 剩余风险：仍未连接真实 SQLPub 验证 SQL 运行时行为，避免了未确认的生产数据库写入；后端全量 pytest 执行仍需在大型检查 B 中继续完成，本轮只执行了论坛相关 15 个 pytest 和直接契约验证；真实 HF Bucket、OneDrive 和 HF Space 线上测试仍未执行；`ocr-service` 仍有未跟踪 `data/` 与 `scripts/utf8.ps1`，Tauri 仓库仍有无关脏改动和 `.playwright-mcp` 产物，本轮未回滚或提交。
+- 下一步：执行“大型全面检查-debug 循环 B”，全面检查 Task 4-6 的后端 API、数据一致性、缓存、附件、安全、备份设计，尝试后端全量 pytest，并确认危险操作仍未执行。
 
 ## 大型全面检查-debug 循环 B（完成 Task 4-6 后执行）
 
