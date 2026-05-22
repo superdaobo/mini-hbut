@@ -8,6 +8,8 @@ body {
   height: calc(var(--module-vh, 1vh) * 100);
   margin: 0;
   overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: hidden;
   overscroll-behavior: none;
   background: #eef4f1;
   color: #17212f;

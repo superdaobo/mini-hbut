@@ -153,17 +153,17 @@
 
 ## 大型全面检查-debug 循环 C（完成 Task 7-9 后执行）
 
-- [ ] 状态：未完成
-- [ ] 检查前三个游戏和笨鸟修复是否与计划一致
-- [ ] 检查在线服务选型是否安全可落地
-- [ ] 检查构建、测试、UI/UX、安全、数据一致性、文档和回滚
-- [ ] 修复发现的问题并记录证据
+- [x] 状态：已完成
+- [x] 检查前三个游戏和笨鸟修复是否与计划一致
+- [x] 检查在线服务选型是否安全可落地
+- [x] 检查构建、测试、UI/UX、安全、数据一致性、文档和回滚
+- [x] 修复发现的问题并记录证据
 
 记录：
-- 检查内容：
-- 修复内容：
-- 验证结果：
-- 剩余风险：
+- 检查内容：复核 Task 7-9 是否仍围绕大富翁玩法重做、笨鸟竖屏缩放修复和多人在线方案选型，没有提前进入 Task 10 的五子棋实现。检查范围包括根目录游戏模块契约、大富翁/矿工/记忆牌/笨鸟测试入口与构建、大富翁移动端 UI 指标、在线服务选型安全边界、工作区边界和回滚策略。
+- 修复内容：复现 Task 8 记录中的根目录契约失败，确认根因是 `website/modules-src/hbut_monopoly/project/src/style.css` 的根样式只有 `overflow: hidden`，缺少契约要求的显式 `overflow-x: hidden`。按矿工和记忆牌的现有模式补充 `overflow-x: hidden` 与 `overflow-y: hidden`，不改玩法逻辑、不改生产配置、不写入任何在线服务密钥。
+- 验证结果：先运行 `npm.cmd test -- src/utils/website_game_modules_contract.spec.ts` 复现失败，8 个测试中 1 个失败，失败点为 `hbut_monopoly 需要禁止页面级横向溢出`。修复后同一命令退出码 0，8/8 通过。`hbut_monopoly/project` 运行 `npm.cmd test` 退出码 0，`src/game/monopoly.test.js` 8/8 通过；运行 `npm.cmd run build` 退出码 0。`hbut_miner/project` 运行 `npm.cmd test` 5/5 通过，`npm.cmd run build` 退出码 0。`hbut_memory_match/project` 运行 `npm.cmd test` 6/6 通过，`npm.cmd run build` 退出码 0。`clumsy_bird_hbut/project` 运行 `npm.cmd test` 退出码 0，保持空测试基线可运行，`npm.cmd run build` 退出码 0；根目录 `npm.cmd test -- src/utils/clumsy_bird_hbut_experience.spec.ts` 10/10 通过。使用 Playwright 验收大富翁构建预览 `http://127.0.0.1:5197/`：320x568、360x640、390x844、430x932 均无横向滚动，页面底部不越界，投骰与重新开始按钮均在可视区，文本溢出候选为 0，棋盘尺寸分别约 300x199、340x245、370x262、410x306。停止预览服务后，`curl.exe -I http://127.0.0.1:5197/ --max-time 1` 连接超时，确认没有保留本轮开发服务。
+- 剩余风险：Task 7-9 的源码模块已经通过循环 C 检查，但仍未同步发布到 `website/public/modules/*`；真实 Tauri 宿主内的发布包和远端 catalog 需要在最终 review 或发布同步阶段复核。Task 9 的默认联机方案 `Trystero Nostr` 仍依赖公共 relay 和 WebRTC 直连，不能保证所有校园/移动网络可达；Task 11 必须保留本地单机/本地双人降级，并明确 P2P 不提供生产级强防作弊。
 
 ## Task 10: 新增湖工五子棋单机模块
 
