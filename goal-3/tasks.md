@@ -167,18 +167,18 @@
 
 ## Task 10: 新增湖工五子棋单机模块
 
-- [ ] 状态：未完成
-- [ ] 新建 `website/modules-src/hbut_gomoku`
-- [ ] 实现移动端优先的五子棋棋盘、落子、胜负判断、重开和本地双人模式
-- [ ] 添加核心规则测试和构建
-- [ ] 注册模块 manifest/catalog 所需源配置
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 新建 `website/modules-src/hbut_gomoku`
+- [x] 实现移动端优先的五子棋棋盘、落子、胜负判断、重开和本地双人模式
+- [x] 添加核心规则测试和构建
+- [x] 注册模块 manifest/catalog 所需源配置
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：新增 `website/modules-src/hbut_gomoku` 五子棋模块，包含 `module.json`、Vite 构建配置、移动端竖屏页面、规则核心和 Vitest 测试。实现 15 路本地双人五子棋，支持黑子先手、合法落子、占用/越界拒绝、四向胜负判断、长连完整高亮、平局、重开和最近落子记录。同步注册 `src/utils/module_center.js` 默认模块中心、`src/components/MoreView.vue` 宿主上下文注入列表，并把 `hbut_gomoku` 加入 `src/utils/website_game_modules_contract.spec.ts` 的游戏模块与重点竖屏游戏契约。根据复审意见提前为 Task 11 保留 `mode/sessionId/players/localPlayer` 状态，并在 `placeStone` 中加入显式玩家与手数顺序校验，避免后续联机消息绕过核心规则。
+- 验证结果：先将 `hbut_gomoku` 加入根目录游戏契约测试，运行 `npm.cmd test -- src/utils/website_game_modules_contract.spec.ts` 得到红灯，5 个失败点分别指向源码模块缺失、顺序缺失、入口文件缺失、宿主上下文缺失。随后新增 `src/game/gomoku.test.js`，运行模块 `npm.cmd test` 得到红灯，失败原因为缺少 `gomoku.js`。实现后在 `website/modules-src/hbut_gomoku/project` 运行 `npm.cmd test`，退出码 0，`src/game/gomoku.test.js` 7/7 通过；根目录运行 `npm.cmd test -- src/utils/website_game_modules_contract.spec.ts`，退出码 0，8/8 通过；运行 `npm.cmd run build`，退出码 0，Vite 构建成功，仅保留项目既有 Tailwind content 为空警告；运行 `git diff --check -- src/utils/website_game_modules_contract.spec.ts src/utils/module_center.js src/components/MoreView.vue website/modules-src/hbut_gomoku`，退出码 0。使用 Playwright 验收构建预览 `http://127.0.0.1:5198/`：320x568、360x640、390x844、430x932 均无横向滚动，棋盘尺寸分别约 304x304、344x344、374x374、410x410，重开按钮可见，控制台记录为空；390x844 下模拟落子形成黑子五连，页面显示“黑子五连成功”，5 个胜利格高亮，空位禁用，重开按钮仍可见。停止预览服务后，`curl.exe -I http://127.0.0.1:5198/ --max-time 1` 连接超时，确认没有保留本轮开发服务。只读复审未发现 Critical 问题；Important 反馈已通过规则测试和实现收口。
+- 剩余风险：Task 10 只交付单机/本地双人五子棋，尚未接入 Task 9 选定的 P2P 联机方案；当前状态模型已预留联机字段和顺序校验，但断线恢复、房间同步、重复消息幂等和玩家席位绑定仍需 Task 11 实现。`website/public/modules/*` 发布目录尚未同步新模块，留到最终 review 或发布同步阶段处理。极端横屏/分屏高度下页面仍以游戏全屏优先，可能裁剪历史区，这是嵌入式游戏布局取舍。
+- 下一步：Task 11 接入 `Trystero Nostr` P2P MVP，完成房间创建/加入、同步落子、断线提示、冲突/重复消息处理，并保留本地双人降级。
 
 ## Task 11: 五子棋多人在线对战
 

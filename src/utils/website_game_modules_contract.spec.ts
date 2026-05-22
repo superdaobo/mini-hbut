@@ -42,14 +42,16 @@ const gameModuleIds = [
   'clumsy_bird_hbut',
   'hbut_monopoly',
   'hbut_miner',
-  'hbut_memory_match'
+  'hbut_memory_match',
+  'hbut_gomoku'
 ]
 const embeddedMobileGameIds = [
   'jump_out_hbut',
   'clumsy_bird_hbut',
   'hbut_monopoly',
   'hbut_miner',
-  'hbut_memory_match'
+  'hbut_memory_match',
+  'hbut_gomoku'
 ]
 
 const modulePath = (moduleId: string, ...segments: string[]) =>

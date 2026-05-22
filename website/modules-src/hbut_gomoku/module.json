@@ -1,0 +1,11 @@
+{
+  "id": "hbut_gomoku",
+  "name": "湖工五子棋",
+  "icon": "◉",
+  "order": 8,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "",
+  "source_dir": "project",
+  "release_notes": "湖工五子棋模块自动构建包"
+}

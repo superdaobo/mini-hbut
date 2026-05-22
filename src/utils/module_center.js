@@ -65,6 +65,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 7
+    }),
+    Object.freeze({
+      id: 'hbut_gomoku',
+      name: '湖工五子棋',
+      icon: '◉',
+      description: '本地双人十五路五子棋',
+      key_required: false,
+      kind: 'remote',
+      order: 8
     })
   ])
 })
