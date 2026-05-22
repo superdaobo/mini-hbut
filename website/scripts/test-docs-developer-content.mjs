@@ -1,9 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(root, '..');
 
 const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8');
 
@@ -13,12 +14,21 @@ const platformTauri = read('src/pages/docs/PlatformTauri.tsx');
 const moduleSystem = read('src/pages/docs/ModuleSystem.tsx');
 const buildRelease = read('src/pages/docs/BuildRelease.tsx');
 const securityPrivacy = read('src/pages/docs/SecurityPrivacy.tsx');
+const referenceIndex = read('src/pages/docs/ReferenceIndex.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
   for (const term of terms) {
     if (!content.includes(term)) {
       failures.push(`${label} 缺少内容关键词: ${term}`);
+    }
+  }
+};
+
+const expectRepoPathsExist = (label, repoPaths) => {
+  for (const repoPath of repoPaths) {
+    if (!existsSync(path.join(repoRoot, repoPath))) {
+      failures.push(`${label} 引用路径不存在: ${repoPath}`);
     }
   }
 };
@@ -478,6 +488,133 @@ if (
 ) {
   failures.push('SecurityPrivacy 仍包含骨架页占位或通用骨架组件');
 }
+
+expectIncludes(referenceIndex, 'ReferenceIndex', [
+  '参考资料',
+  '源码到文档引用索引',
+  '入口与导航',
+  'src/main.ts',
+  'src/App.vue',
+  'website/src/App.tsx',
+  'website/src/layouts/DocsLayout.tsx',
+  '用户文档索引',
+  'QuickStart.tsx',
+  'UserGuide.tsx',
+  'AcademicServices.tsx',
+  'CampusLife.tsx',
+  'CommunityNotifications.tsx',
+  'Extensions.tsx',
+  'SettingsData.tsx',
+  'Troubleshooting.tsx',
+  '开发者文档索引',
+  'DeveloperOverview.tsx',
+  'ArchitectureDataFlow.tsx',
+  'PlatformTauri.tsx',
+  'ModuleSystem.tsx',
+  'BuildRelease.tsx',
+  'SecurityPrivacy.tsx',
+  '参考页索引',
+  'TauriApi.tsx',
+  'DevRules.tsx',
+  'Nonebot.tsx',
+  'Implementation.tsx',
+  '前端组件索引',
+  'Dashboard.vue',
+  'ScheduleView.vue',
+  'GradeView.vue',
+  'MoreView.vue',
+  'MoreModuleHostView.vue',
+  'SettingsView.vue',
+  'FeedbackView.vue',
+  '工具与数据索引',
+  'src/utils/api.js',
+  'src/utils/cloud_sync.js',
+  'src/utils/module_center.js',
+  'src/utils/more_modules.js',
+  'src/utils/notify_center.js',
+  '平台与后端索引',
+  'src/platform/runtime.ts',
+  'src/platform/types.ts',
+  'src-tauri/src/lib.rs',
+  'src-tauri/src/http_client/mod.rs',
+  'src-tauri/src/db.rs',
+  'src-tauri/src/modules/module_bundle.rs',
+  '脚本与契约索引',
+  'scripts/build_website_modules.mjs',
+  'scripts/build_hot_bundle.mjs',
+  'scripts/check_dist_boundary.mjs',
+  'scripts/guard_sensitive_uploads.mjs',
+  'scripts/test_more_module_bridge.mjs',
+  'website/scripts/test-docs-ia.mjs',
+  'website/scripts/test-docs-user-content.mjs',
+  'website/scripts/test-docs-developer-content.mjs',
+  'website/modules-src',
+  'website/public/modules',
+  '路径存在性检查',
+  '阅读顺序',
+  '源码证据索引',
+]);
+
+if (
+  referenceIndex.includes('后续扩写来源') ||
+  referenceIndex.includes('本页骨架职责') ||
+  referenceIndex.includes('DocSectionPage')
+) {
+  failures.push('ReferenceIndex 仍包含骨架页占位或通用骨架组件');
+}
+
+expectRepoPathsExist('ReferenceIndex', [
+  'src/main.ts',
+  'src/App.vue',
+  'website/src/App.tsx',
+  'website/src/layouts/DocsLayout.tsx',
+  'website/src/pages/docs/QuickStart.tsx',
+  'website/src/pages/docs/UserGuide.tsx',
+  'website/src/pages/docs/AcademicServices.tsx',
+  'website/src/pages/docs/CampusLife.tsx',
+  'website/src/pages/docs/CommunityNotifications.tsx',
+  'website/src/pages/docs/Extensions.tsx',
+  'website/src/pages/docs/SettingsData.tsx',
+  'website/src/pages/docs/Troubleshooting.tsx',
+  'website/src/pages/docs/DeveloperOverview.tsx',
+  'website/src/pages/docs/ArchitectureDataFlow.tsx',
+  'website/src/pages/docs/PlatformTauri.tsx',
+  'website/src/pages/docs/ModuleSystem.tsx',
+  'website/src/pages/docs/BuildRelease.tsx',
+  'website/src/pages/docs/SecurityPrivacy.tsx',
+  'website/src/pages/docs/TauriApi.tsx',
+  'website/src/pages/docs/DevRules.tsx',
+  'website/src/pages/docs/Nonebot.tsx',
+  'website/src/pages/docs/Implementation.tsx',
+  'src/components/Dashboard.vue',
+  'src/components/ScheduleView.vue',
+  'src/components/GradeView.vue',
+  'src/components/MoreView.vue',
+  'src/components/MoreModuleHostView.vue',
+  'src/components/SettingsView.vue',
+  'src/components/FeedbackView.vue',
+  'src/utils/api.js',
+  'src/utils/cloud_sync.js',
+  'src/utils/module_center.js',
+  'src/utils/more_modules.js',
+  'src/utils/notify_center.js',
+  'src/platform/runtime.ts',
+  'src/platform/types.ts',
+  'src-tauri/src/lib.rs',
+  'src-tauri/src/http_client/mod.rs',
+  'src-tauri/src/db.rs',
+  'src-tauri/src/modules/module_bundle.rs',
+  'scripts/build_website_modules.mjs',
+  'scripts/build_hot_bundle.mjs',
+  'scripts/check_dist_boundary.mjs',
+  'scripts/guard_sensitive_uploads.mjs',
+  'scripts/test_more_module_bridge.mjs',
+  'website/scripts/test-docs-ia.mjs',
+  'website/scripts/test-docs-user-content.mjs',
+  'website/scripts/test-docs-developer-content.mjs',
+  'website/modules-src',
+  'website/public/modules',
+]);
 
 if (failures.length > 0) {
   console.error('docs developer content contract failed:');

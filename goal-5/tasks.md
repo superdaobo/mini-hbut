@@ -1002,15 +1002,48 @@
 
 ## Task 16：建立源码到文档的引用索引
 
-- 状态：未完成
+- 状态：已完成
 - 目标：创建文件/模块/脚本索引，方便开发者从文档跳到源码职责。
 - 输入范围：前面任务形成的清单与当前源码。
 - 输出要求：参考索引页面或章节。
 - 验证方式：路径存在性检查、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/ReferenceIndex.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“源码到文档引用索引”页面。
+  - 保留并增强已接入参考页面入口：`/docs/reference/tauri-api`、`/docs/reference/dev-rules`、`/docs/reference/nonebot`、`/docs/reference/implementation-notes`。
+  - 增加“入口与导航”索引，覆盖 `src/main.ts`、`src/App.vue`、`website/src/App.tsx`、`website/src/layouts/DocsLayout.tsx`。
+  - 增加“用户文档索引”，覆盖 `QuickStart.tsx`、`UserGuide.tsx`、`AcademicServices.tsx`、`CampusLife.tsx`、`CommunityNotifications.tsx`、`Extensions.tsx`、`SettingsData.tsx`、`Troubleshooting.tsx` 及对应路由。
+  - 增加“开发者文档索引”，覆盖 `DeveloperOverview.tsx`、`ArchitectureDataFlow.tsx`、`PlatformTauri.tsx`、`ModuleSystem.tsx`、`BuildRelease.tsx`、`SecurityPrivacy.tsx` 及对应路由。
+  - 增加“参考页索引”，覆盖 `TauriApi.tsx`、`DevRules.tsx`、`Nonebot.tsx`、`Implementation.tsx`。
+  - 增加“前端组件索引”，覆盖 `Dashboard.vue`、`ScheduleView.vue`、`GradeView.vue`、`MoreView.vue`、`MoreModuleHostView.vue`、`SettingsView.vue`、`FeedbackView.vue`。
+  - 增加“工具与数据索引”，覆盖 `src/utils/api.js`、`src/utils/cloud_sync.js`、`src/utils/module_center.js`、`src/utils/more_modules.js`、`src/utils/notify_center.js`。
+  - 增加“平台与后端索引”，覆盖 `src/platform/runtime.ts`、`src/platform/types.ts`、`src-tauri/src/lib.rs`、`src-tauri/src/http_client/mod.rs`、`src-tauri/src/db.rs`、`src-tauri/src/modules/module_bundle.rs`。
+  - 增加“脚本与契约索引”，覆盖 `scripts/build_website_modules.mjs`、`scripts/build_hot_bundle.mjs`、`scripts/check_dist_boundary.mjs`、`scripts/guard_sensitive_uploads.mjs`、`scripts/test_more_module_bridge.mjs`、`website/scripts/test-docs-ia.mjs`、`website/scripts/test-docs-user-content.mjs`、`website/scripts/test-docs-developer-content.mjs`。
+  - 增加“产物与模块目录”，覆盖 `website/modules-src`、`website/public/modules`。
+  - 增加“路径存在性检查”“阅读顺序”“源码证据索引”章节，说明本页如何作为后续覆盖率审计入口。
+- 增强 `website/scripts/test-docs-developer-content.mjs`：
+  - 将 `ReferenceIndex.tsx` 纳入开发者内容契约。
+  - 新增 `expectRepoPathsExist`，用 `existsSync` 检查本页关键源码、组件、文档页、脚本和模块目录路径确实存在于仓库。
+  - 检查 `ReferenceIndex.tsx` 不得残留 `DocSectionPage`、`后续扩写来源`、`本页骨架职责` 等骨架占位。
+- TDD 过程：
+  - 先新增 `ReferenceIndex` 内容契约和路径存在性检查。
+  - 执行 `npm run test:docs-developer-content` 确认 RED，失败集中在 `ReferenceIndex` 缺少入口与导航、用户文档索引、开发者文档索引、参考页索引、组件/工具/平台/脚本索引、路径存在性检查、阅读顺序、源码证据索引，并提示仍包含骨架占位。
+  - 完成正文扩写后复跑契约，确认 GREEN。
 - 验证结果：
+- 已执行 `npm run test:docs-developer-content`（website），结果为 `docs developer content contract passed`，并通过 `ReferenceIndex` 的路径存在性检查。
+- 已执行 `npm run test:docs-ia`（website），结果为 `docs IA contract passed`，确认参考索引扩写没有破坏文档路由、侧栏和静态入口契约。
+- 已执行 `npm run test:docs-user-content`（website），结果为 `docs user content contract passed`，确认本轮参考索引改动没有破坏用户侧内容契约。
+- 已执行 `rg -n "DocSectionPage|后续扩写来源|本页骨架职责" website\src\pages\docs\ReferenceIndex.tsx website\src\pages\docs\ModuleSystem.tsx website\src\pages\docs\BuildRelease.tsx website\src\pages\docs\SecurityPrivacy.tsx website\src\pages\docs\Troubleshooting.tsx`，无命中；`rg` 退出码 1 表示未找到匹配项。
+- 已执行 `npm run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/reference/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
 - 剩余风险：
+- 本任务建立的是源码到文档的可读索引和关键路径存在性检查，不等价于 Task 19 的最终覆盖率审计；仍需要后续对照完整源码模块清单逐项确认是否有遗漏。
+- 参考索引聚焦当前已文档化的核心入口、组件、工具、平台后端和脚本，不逐个列出全部 Vue 组件、全部 Rust command、全部测试文件和全部网站模块产物版本，避免索引失控；后续 Task 19 可补齐遗漏或记录合理不覆盖原因。
+- `website/public/modules` 是构建产物目录，当前工作区里该目录仍有与本 goal 无关的脏改动；本轮只引用其目录职责，不修改或提交产物。
+- 本轮没有做浏览器视觉验收；引用索引长页的扫描体验、侧栏拥挤和移动端阅读留给 Task 17。
+- 工作区仍存在与 goal-5 无关的修改和未跟踪文件，本轮提交必须只包含 `ReferenceIndex.tsx`、`test-docs-developer-content.mjs` 和 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 17：优化文档页面 UI/UX 与长文可读性，重点处理长文扫描、导航拥挤、移动端阅读和必要的视觉/布局改进。
 
 ## Task 17：优化文档页面 UI/UX 与长文可读性
 
