@@ -3136,7 +3136,6 @@ onBeforeUnmount(() => {
 .bottom-tab-bar {
   --bottom-tab-bar-bottom: 4px;
   --bottom-tab-bar-content-height: 70px;
-  --bottom-tab-bar-safe-bottom: 0px;
   box-sizing: border-box;
   position: fixed;
   top: auto;
@@ -3167,13 +3166,10 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: 0px;
-  --bottom-tab-bar-safe-bottom: var(--app-safe-bottom);
-  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom));
-  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom));
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  max-height: none;
+  --bottom-tab-bar-bottom: calc(var(--app-safe-bottom) + 8px);
+  min-height: var(--bottom-tab-bar-content-height);
+  padding-bottom: 10px;
+  border-radius: 20px;
 }
 
 .bottom-tab-bar:hover,

@@ -4,6 +4,11 @@ import { resolve } from 'node:path'
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
 
+const getRuleBody = (source: string, selector: string) => {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return source.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`, 's'))?.groups?.body || ''
+}
+
 describe('bottom tab bar safe area contract', () => {
   const appVue = () => readSource('src/App.vue')
   const capacitorConfig = () => readSource('capacitor.config.ts')
@@ -20,16 +25,22 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toMatch(/grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\);/)
   })
 
-  it('keeps the iOS bottom tab bar attached to the viewport bottom', () => {
+  it('keeps the rounded iOS bottom tab bar sitting above the safe area', () => {
     expect(uxCss()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(var\(--app-safe-bottom\)\s*\+\s*8px\);/s
     )
   })
 
-  it('reserves iOS home indicator space inside the global bottom tab bar', () => {
-    expect(uxCss()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-safe-bottom:\s*var\(--app-safe-bottom\);[^}]*min-height:\s*calc\(var\(--bottom-tab-bar-content-height\)\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;[^}]*padding-bottom:\s*calc\(10px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;/s
-    )
+  it('keeps iOS safe-area clearance outside the global bottom tab bar shape', () => {
+    const iosRule = getRuleBody(uxCss(), '.bottom-tab-bar--ios')
+
+    expect(iosRule).toContain('min-height: var(--bottom-tab-bar-content-height) !important')
+    expect(iosRule).toContain('padding-bottom: 10px !important')
+    expect(iosRule).toContain('border-radius: 20px !important')
+    expect(iosRule).not.toContain('min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom))')
+    expect(iosRule).not.toContain('padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom))')
+    expect(iosRule).not.toContain('border-bottom-left-radius: 0')
+    expect(iosRule).not.toContain('border-bottom-right-radius: 0')
   })
 
   it('keeps page scroll clearance independent from the iOS home indicator inset', () => {
@@ -46,8 +57,11 @@ describe('bottom tab bar safe area contract', () => {
 
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
     expect(appVue()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*--bottom-tab-bar-safe-bottom:\s*var\(--app-safe-bottom\);[^}]*min-height:\s*calc\(var\(--bottom-tab-bar-content-height\)\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);[^}]*padding-bottom:\s*calc\(10px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(var\(--app-safe-bottom\)\s*\+\s*8px\);[^}]*min-height:\s*var\(--bottom-tab-bar-content-height\);[^}]*padding-bottom:\s*10px;[^}]*border-radius:\s*20px;/s
     )
+    const iosRule = getRuleBody(appVue(), '.bottom-tab-bar--ios')
+    expect(iosRule).not.toContain('border-bottom-left-radius: 0')
+    expect(iosRule).not.toContain('border-bottom-right-radius: 0')
   })
 
   it('provides a native safe-area fallback when iOS WebView reports zero env inset', () => {
@@ -57,23 +71,27 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toContain("document.documentElement.style.setProperty('--app-safe-bottom-fallback'")
   })
 
-  it('does not add safe-area-inset-bottom to compact tab bar bottom positioning', () => {
-    const compactRule = uxCss().match(/html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar\s*\{(?<body>[^}]*)\}/s)
+  it('keeps compact nav safe-area offset on the iOS bar instead of stretching the bar', () => {
+    const compactRule = getRuleBody(uxCss(), "html[data-ui-nav='compact'] .bottom-tab-bar")
+    const compactIosRule = getRuleBody(uxCss(), "html[data-ui-nav='compact'] .bottom-tab-bar--ios")
 
-    expect(compactRule?.groups?.body).toBeTruthy()
-    expect(compactRule?.groups?.body).not.toContain('env(safe-area-inset-bottom')
+    expect(compactRule).toBeTruthy()
+    expect(compactRule).not.toContain('env(safe-area-inset-bottom')
+    expect(compactIosRule).toContain('--bottom-tab-bar-bottom: calc(var(--app-safe-bottom) + 10px)')
+    expect(compactIosRule).toContain('min-height: 64px !important')
+    expect(compactIosRule).toContain('padding-bottom: 8px !important')
+    expect(compactIosRule).not.toContain('+ var(--bottom-tab-bar-safe-bottom)')
   })
 
-  it('keeps iOS bottom corners flush after themed navigation style overrides', () => {
-    expect(uxCss()).toMatch(
-      /html\[data-ui-nav='floating'\]\s+\.bottom-tab-bar--ios,\s*html\[data-ui-nav='pill'\]\s+\.bottom-tab-bar--ios,\s*html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*border-bottom-left-radius:\s*0\s*!important;[^}]*border-bottom-right-radius:\s*0\s*!important;[^}]*bottom:\s*0\s*!important;/s
-    )
-  })
+  it('preserves rounded iOS bottom corners after themed navigation style overrides', () => {
+    expect(uxCss()).not.toMatch(/\.bottom-tab-bar--ios\s*\{[^}]*border-bottom-left-radius:\s*0/s)
+    expect(uxCss()).not.toMatch(/\.bottom-tab-bar--ios\s*\{[^}]*border-bottom-right-radius:\s*0/s)
+    expect(uxCss()).not.toMatch(/\.bottom-tab-bar--ios\s*\{[^}]*bottom:\s*0\s*!important/s)
 
-  it('restores iOS safe-area padding after compact nav padding overrides', () => {
     expect(uxCss()).toMatch(
-      /html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*min-height:\s*calc\(64px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;[^}]*padding-bottom:\s*calc\(8px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\)\s*!important;/s
+      /html\[data-ui-nav='floating'\]\s+\.bottom-tab-bar--ios,\s*html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*border-radius:\s*20px\s*!important;/s
     )
+    expect(uxCss()).toMatch(/html\[data-ui-nav='pill'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*border-radius:\s*999px\s*!important;/s)
   })
 
   it('does not keep the old negative iOS safe-area offset', () => {
