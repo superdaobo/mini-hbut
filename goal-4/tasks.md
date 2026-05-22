@@ -163,17 +163,17 @@
 
 ## 大型全面检查-debug 循环 C（完成 Task 7-9 后执行）
 
-- [ ] 状态：未完成
-- [ ] 检查前端核心论坛页面是否严格贴近 Stitch 视觉
-- [ ] 检查发帖、详情、附件、缓存、防重复提交是否可用
-- [ ] 运行前端测试和 build
-- [ ] 修复发现的问题并记录证据
+- [x] 状态：已完成
+- [x] 检查前端核心论坛页面是否严格贴近 Stitch 视觉
+- [x] 检查发帖、详情、附件、缓存、防重复提交是否可用
+- [x] 运行前端测试和 build
+- [x] 修复发现的问题并记录证据
 
 记录：
-- 检查内容：
-- 修复内容：
-- 验证结果：
-- 剩余风险：
+- 检查内容：已复核 Task 7-9 的前端论坛核心链路：`forum_api.js` 覆盖分页、条件请求、附件 URL 和扩展读写接口；`forum_cache.js` 提供 TTL、ETag、304 stale fallback、scope 清理和 `createForumPendingActions()` 防重复提交；`ForumView.vue` 的广场、详情、发帖页保留 `data-forum-page="feed/detail/compose"`、Stitch token、底栏安全留白、骨架屏、广场统计、热帖横滑、详情操作条、评分 stepper、附件预览/移除、发帖图床提示和 pending 状态。源码检查确认 `showToast()` 覆盖发帖、回复、评分、收藏、关注、举报、头像上传和管理操作的成功/失败提示。
+- 修复内容：本轮未修改论坛业务代码。检查中先用 `#/20230001/forum` 做 headless 路由验收时回到首页，按系统化调试确认根因是 `App.vue` 的 hash 解析只接受 10 位学号；改用 `#/2510231106/forum` 后，headless DOM 中出现 `forum-view`、`data-forum-page="feed"`、`湖工大校园广场`、`feed-meta-strip`、`hot-thread-strip`、`thread-stat-grid` 和底栏论坛 active 状态，说明不是论坛路由缺陷。
+- 验证结果：`npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 24 tests passed。`npm.cmd run build` 退出码 0，仍保留既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning。`git diff --check -- src\components\ForumView.vue src\utils\forum_api.js src\utils\forum_cache.js src\utils\forum_view_identity_contract.spec.ts goal-4\tasks.md` 通过。启动本地 Vite 后 `curl.exe -I http://127.0.0.1:1420/` 返回 HTTP 200；系统 Chrome headless 以 390x844 截图生成 `%TEMP%\forum-check-c-forum-valid-390x844.png`，文件大小 316955 bytes，尺寸 390x844；DOM dump 保存到 `%TEMP%\forum-check-c-forum-dom.html`，包含论坛 feed 页面核心节点。验收后已结束本轮启动的 Vite 进程。
+- 剩余风险：`npx.cmd vitest run --testTimeout 60000` 的全量前端测试仍失败，边界清晰为非论坛既有脏改动：`module_center.spec.ts` / `remote_config.spec.ts` 因内置游戏列表多出 `hbut_gomoku` 失败，`hbut_memory_match_game.spec.ts` 和 `hbut_monopoly_game.spec.ts` 因小游戏状态/样式契约失败；论坛相关 24 个测试全部通过，本轮未扩大范围修复这些无关失败。Headless 论坛页仍显示 App 级“重要公告”遮罩，这是既有全局公告行为，不是论坛页面本身缺陷。真实 HF Bucket、SQLPub、OneDrive 和 HF Space 线上链路仍留给后续集成/部署任务。工作区仍有无关 iOS、Dashboard、小游戏、website、`.playwright-mcp` 和截图等脏改动，本轮未回滚也不提交。
 
 ## Task 10: 前端通知、我的、个人主页页面重构
 
