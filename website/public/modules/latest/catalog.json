@@ -23,6 +23,16 @@
       "icon": "🧭",
       "description": "",
       "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_gomoku",
+      "name": "湖工五子棋",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_gomoku/manifest.json",
+      "key_required": false,
+      "order": 8,
+      "icon": "◉",
+      "description": "",
+      "min_compatible_version": ""
     }
   ]
 }

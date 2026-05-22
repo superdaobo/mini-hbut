@@ -197,15 +197,15 @@
 
 ## Task 12: 全量最终 review、构建与验收
 
-- [ ] 状态：未完成
-- [ ] 从 C 端体验、代码质量、安全、数据一致性、权限、错误处理、测试、构建、文档、回滚全面检查
-- [ ] 运行所有涉及模块构建
-- [ ] 使用移动端视口验收关键页面
-- [ ] 修复已知高风险问题
-- [ ] 标记 goal 完成
+- [x] 状态：已完成
+- [x] 从 C 端体验、代码质量、安全、数据一致性、权限、错误处理、测试、构建、文档、回滚全面检查
+- [x] 运行所有涉及模块构建
+- [x] 使用移动端视口验收关键页面
+- [x] 修复已知高风险问题
+- [x] 标记 goal 完成
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：完成 goal-3 全量最终 review。复核矿工、记忆牌、大富翁、笨鸟先飞、五子棋五个模块的规则测试、构建、移动端页面和发布包状态；确认 `hbut_gomoku` 已按项目实际发布结构写入 `website/public/modules/{main,dev,latest}/hbut_gomoku`，包含根 manifest、版本 manifest、版本 `site/index.html`、当前 `site/index.html` 和 `bundle.zip`。针对 `website/public/modules/*/catalog.json` 中已有无关未提交改动的问题，采用 Git 索引隔离方式：提交中只暂存基于 HEAD catalog 新增 `hbut_gomoku` 条目的版本，不回退也不夹带工作区里其他既有 catalog 改动。只读发布复审未发现 Critical 问题，确认三路发布包 hash/size 与 manifest 一致。
+- 验证结果：重新运行五个模块测试：`hbut_miner/project npm.cmd test` 5/5 通过；`hbut_memory_match/project npm.cmd test` 6/6 通过；`hbut_monopoly/project npm.cmd test` 8/8 通过；`clumsy_bird_hbut/project npm.cmd test` 无测试文件但 `--passWithNoTests` 退出 0；`hbut_gomoku/project npm.cmd test` 20/20 通过。重新运行五个模块构建：矿工、记忆牌、大富翁、笨鸟、五子棋 `npm.cmd run build` 均退出 0，五子棋仅保留 Tailwind content 为空的既有警告。根目录运行 `npm.cmd test -- src/utils/website_game_modules_contract.spec.ts src/utils/clumsy_bird_hbut_experience.spec.ts`，18/18 通过。发布一致性脚本确认 `main/dev/latest` 三个 channel 均包含 `hbut_gomoku`，版本为 `20260523055304-81220ff`，`bundle.zip` 大小 `70506`，SHA256 为 `255bc4456c79797589e2ae54f5c576cb7ff71bcf06b84a17bab7c91d82f76ee6`，与 manifest 完全匹配，当前和版本 `site/index.html` 均存在。Playwright 移动端验收 320x568、360x640、390x844、430x932：矿工、记忆牌、大富翁、笨鸟、五子棋均无横向滚动、无底部越界、文本溢出候选为空；矿工/笨鸟 Canvas 中心像素 alpha 为 255；五子棋在 390x844 下“创建 / 加入 / 本地 / 重新开局”按钮均可见，浏览器控制台 warning/error 为 0。预览端口 5211-5215 验收后已释放，`netstat` 精确过滤无监听输出。
+- 剩余风险：五子棋在线对战仍依赖公共 Nostr relay / BitTorrent tracker 和 WebRTC 直连；真实校园网、移动网络、对称 NAT、公共 relay 限流或 WebSocket 超时仍可能导致连接慢或失败，且没有自有 TURN/权威服务器，不能提供生产级强防作弊。`website/public/modules/*/catalog.json` 工作区仍保留用户/其他任务已有未提交改动，本次提交只隔离纳入五子棋条目；后续若要发布全部 catalog 变更，需要单独审查这些既有改动。五子棋 public 包中保留版本历史目录，当前页面和 manifest 指向已验证版本，旧资源不影响运行但会增加发布目录体积。
+- 下一步：goal-3 已完成；后续若需要生产级联机稳定性，应新增自有房间服务、TURN 或 Cloudflare Durable Objects / PartyKit 权威状态机，并单独处理当前工作区里与 goal-3 无关的未提交改动。
