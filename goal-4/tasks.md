@@ -45,17 +45,17 @@
 
 ## 大型全面检查-debug 循环 A（完成 Task 1-3 后执行）
 
-- [ ] 状态：未完成
-- [ ] 检查需求是否已从小游戏纠偏回论坛目标
-- [ ] 检查视觉基线、前端契约测试、后端契约测试是否覆盖用户要求
-- [ ] 检查是否触碰高风险操作或泄露密钥
-- [ ] 修复发现的问题并记录证据
+- [x] 状态：已完成
+- [x] 检查需求是否已从小游戏纠偏回论坛目标
+- [x] 检查视觉基线、前端契约测试、后端契约测试是否覆盖用户要求
+- [x] 检查是否触碰高风险操作或泄露密钥
+- [x] 修复发现的问题并记录证据
 
 记录：
-- 检查内容：
-- 修复内容：
-- 验证结果：
-- 剩余风险：
+- 检查内容：已复核 `goal-4/input.md`、`plan.md`、`tasks.md`，确认当前目标仍是 Tauri 底部中心论坛模式的完整前后端，不再处理误偏离的小游戏目标。前端检查覆盖 Stitch 视觉基线、论坛各页面契约、发帖/收藏重复提交提示和“我的资料”头像设置：头像现在支持选择本地图片，通过 `client.uploadAttachment(file)` 上传到论坛图床，再由 `client.getAttachmentUrl(...)` 自动回填 `profile.avatar_url`，不是只能手动填写链接。后端检查覆盖论坛 API 契约、附件/图床上传、代理读取、缓存头、ETag、304、个人/管理读模型和独立 `forum_` 表边界。
+- 修复内容：本轮未修改业务代码；修复的是任务记录一致性，把头像图床上传作为 Task 1-3 后检查 A 的验收结论记录，避免后续 Task 10 看起来被提前完成。未读取桌面 secret，未写 SQLPub/HF/OneDrive，未执行 HF 推送。
+- 验证结果：前端 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，1 file / 6 tests passed，契约中包含 `allows profile avatars to be uploaded through the forum image host`；前端 `npm.cmd run build` 退出码 0，仅保留既有 CSS minify `@media` warning 和 Capacitor/Tauri/widget 动态导入 warning。后端 `python -m py_compile tests\test_forum_extended_api.py forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py forum_backend\object_storage.py` 通过，`git diff --check -- forum_backend\main.py forum_backend\object_storage.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_extended_api.py` 通过，直调 runner 执行 `test_forum_extended_api.py` 的 8 个契约函数全部 `PASS` 并输出 `DONE`。`python -m pytest tests\test_forum_extended_api.py --collect-only -vv` 可在 0.52s 收集 8 个用例；但 `python -m pytest tests\test_forum_extended_api.py -q -s`、禁用插件自动加载执行路径、以及 TTY 直接执行路径均在 60s 内无测试输出并超时，已将问题边界收窄到 pytest 执行 runner/本机环境层，而非论坛 API 契约函数本身。
+- 剩余风险：真实 HF Bucket 图床上传、SQLPub 写入、OneDrive 备份和 HF Space 线上测试仍未执行；pytest 执行入口在本机仍有挂起风险，后续 Task 4-6 或检查 B 需要继续定位并让后端全量 pytest 稳定；前端还未做浏览器截图级逐页视觉验收；当前两个仓库都有无关脏改动和未跟踪运行产物，后续提交/推送前必须继续排除 `data/`、`.pytest_cache`、`.playwright-mcp`、secret 配置改动和桌面密钥文件。
 
 ## Task 4: 后端 SQLPub/SQLite 论坛数据层完善
 
@@ -184,10 +184,10 @@
 - [ ] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：已新增“我的资料”头像本地图片上传到论坛图床能力：复用 `client.uploadAttachment(file)`，上传成功后用 `client.getAttachmentUrl(...)` 自动回填 `profile.avatar_url`，并用 `runPending('profile:avatar-upload', ...)` 防止重复选择/重复上传；资料卡头像支持图片预览，保留原 URL 输入作为备用方式。
-- 验证结果：`npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，4 tests passed；`npx.cmd vitest run --testTimeout 60000` 通过，29 files / 170 tests passed；`npm.cmd run build` 退出码 0，仍有既有 CSS minify warning 和动态导入 warning，未出现头像上传相关构建错误。
-- 剩余风险：该记录来自上一轮头像上传增量，本轮仅纠正记录位置；尚未在真实 HF 图床/线上后端执行头像上传实传，需要后续本地联调或线上 smoke test 覆盖。
-- 下一步：继续按 Task 2/后续任务推进论坛 UI 与集成验收。
+- 完成内容：
+- 验证结果：
+- 剩余风险：
+- 下一步：
 
 ## Task 11: 前端管理页、备份页与图床体验
 
