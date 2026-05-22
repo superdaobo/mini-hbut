@@ -9,6 +9,7 @@ const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8
 
 const developerOverview = read('src/pages/docs/DeveloperOverview.tsx');
 const architectureDataFlow = read('src/pages/docs/ArchitectureDataFlow.tsx');
+const platformTauri = read('src/pages/docs/PlatformTauri.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -171,6 +172,97 @@ if (
   architectureDataFlow.includes('DocSectionPage')
 ) {
   failures.push('ArchitectureDataFlow 仍包含骨架页占位或通用骨架组件');
+}
+
+expectIncludes(platformTauri, 'PlatformTauri', [
+  '平台与 Tauri',
+  '运行时识别',
+  'src/platform/runtime.ts',
+  'detectRuntime',
+  'looksLikePackagedCapacitorHost',
+  'PlatformBridge',
+  'src/platform/types.ts',
+  'src/platform/index.ts',
+  'pickBridge',
+  'platformBridge',
+  'src/platform/native.ts',
+  'invokeNative',
+  'getCurrentNativeWindow',
+  'exitNativeApp',
+  'getNativeAppVersion',
+  'toNativeFileSrc',
+  'readNativeBinaryFile',
+  'Tauri adapter',
+  'src/platform/adapters/tauri.ts',
+  'tauriBridge',
+  'open_external_url',
+  'get_notification_permission_native',
+  'request_notification_permission_native',
+  'send_local_notification_native',
+  'tauri-plugin-keep-screen-on-api',
+  'Capacitor adapter',
+  'src/platform/adapters/capacitor.ts',
+  'capacitorBridge',
+  '@capacitor/app-launcher',
+  '@capacitor/local-notifications',
+  '@capacitor/share',
+  'HBUTNative',
+  'Web fallback',
+  'src/platform/adapters/web.ts',
+  'Notification.requestPermission',
+  'navigator.share',
+  'wakeLock',
+  '通知动作边界',
+  'src/platform/notification_actions.ts',
+  'ALLOWED_NOTIFICATION_TARGETS',
+  'normalizeNotificationTargetView',
+  'resolveNotificationActionTarget',
+  'Widget 桥接',
+  'src/platform/capacitor/widget.ts',
+  'getWidgetBridge',
+  'writeSnapshot',
+  'WidgetBridgeError',
+  'SNAPSHOT_TOO_LARGE',
+  'INVALID_SNAPSHOT',
+  'Tauri 配置',
+  'src-tauri/tauri.conf.json',
+  'Mini-HBUT',
+  'com.hbut.mini',
+  'src-tauri/capabilities/main.json',
+  'notification:allow-request-permission',
+  'notification:allow-create-channel',
+  'shell:default',
+  'window-state:default',
+  'Rust command',
+  'src-tauri/src/lib.rs',
+  'tauri_plugin_notification',
+  'tauri_plugin_shell',
+  'tauri_plugin_fs',
+  'tauri_plugin_autostart',
+  'tauri_plugin_window_state',
+  'prepare_module_bundle',
+  'open_module_bundle_window',
+  'resource_share_list_dir_native',
+  'write_widget_snapshot',
+  'write_electricity_snapshot',
+  'write_exam_snapshot',
+  'debug_widget_paths',
+  'Capacitor 配置',
+  'capacitor.config.ts',
+  'webDir',
+  'androidScheme',
+  'iosScheme',
+  '权限边界',
+  '能力矩阵',
+  '源码证据索引',
+]);
+
+if (
+  platformTauri.includes('后续扩写来源') ||
+  platformTauri.includes('本页骨架职责') ||
+  platformTauri.includes('DocSectionPage')
+) {
+  failures.push('PlatformTauri 仍包含骨架页占位或通用骨架组件');
 }
 
 if (failures.length > 0) {

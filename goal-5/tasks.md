@@ -743,15 +743,47 @@
 
 ## Task 12：编写平台适配、原生桥接与权限文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：说明 Tauri/Capacitor/Web 适配层、通知、文件、插件、权限边界。
 - 输入范围：`src/platform`、`src-tauri`、Capacitor/Tauri 相关依赖与配置。
 - 输出要求：平台适配专题。
 - 验证方式：源码和配置核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/PlatformTauri.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“平台与 Tauri”开发者专题页。
+  - 写清运行时识别：`src/platform/runtime.ts` 的 `detectRuntime`、`hasNativeCapacitor`、`looksLikePackagedCapacitorHost`、`isTauriRuntime`、`isCapacitorRuntime`，说明 Capacitor 优先、Tauri 次之、Web fallback 的判断顺序和 dev live reload/WebView 风险。
+  - 写清统一桥接：`src/platform/types.ts` 的 `PlatformBridge`、`RuntimePlatform`、`NotifyPayload`、`KeepAliveState`，以及 `src/platform/index.ts` 的 `pickBridge`、`getRuntime`、`platformBridge`。
+  - 写清原生命令门面：`src/platform/native.ts` 的 `invokeNative`、`getCurrentNativeWindow`、`exitNativeApp`、`getNativeAppVersion`、`toNativeFileSrc`、`readNativeBinaryFile`，强调 `invokeNative` 仅支持 Tauri。
+  - 写清三端 adapter：`src/platform/adapters/tauri.ts` 的 `tauriBridge`、`open_external_url` fallback、原生通知、`tauri-plugin-keep-screen-on-api`；`src/platform/adapters/capacitor.ts` 的 `capacitorBridge`、`@capacitor/app-launcher`、`@capacitor/local-notifications`、`@capacitor/share`、`HBUTNative`；`src/platform/adapters/web.ts` 的 `Notification.requestPermission`、`navigator.share`、`wakeLock` 和弱能力边界。
+  - 写清通知动作和 Widget：`src/platform/notification_actions.ts` 的 `ALLOWED_NOTIFICATION_TARGETS`、`normalizeNotificationTargetView`、`resolveNotificationActionTarget`；`src/platform/capacitor/widget.ts` 的 `getWidgetBridge`、`writeSnapshot`、`WidgetBridgeError`、`SNAPSHOT_TOO_LARGE`、`INVALID_SNAPSHOT`、Tauri Android SharedPreferences 写入、Capacitor 插件和 no-op fallback。
+  - 写清 Tauri 配置与权限：`src-tauri/tauri.conf.json` 的 `Mini-HBUT`、`com.hbut.mini`、窗口尺寸、构建命令、NSIS 和 `csp: null`；`src-tauri/capabilities/main.json` 的 `notification:allow-request-permission`、`notification:allow-create-channel`、`shell:default`、`window-state:default`。
+  - 写清 Rust command 与插件：`src-tauri/src/lib.rs` 的移动入口、`tauri_plugin_notification`、`tauri_plugin_shell`、`tauri_plugin_fs`、`tauri_plugin_autostart`、`tauri_plugin_window_state`，以及 `prepare_module_bundle`、`open_module_bundle_window`、`resource_share_list_dir_native`、`write_widget_snapshot`、`write_electricity_snapshot`、`write_exam_snapshot`、`debug_widget_paths` 等平台相关 command。
+  - 写清 Capacitor 配置：`capacitor.config.ts` 的 `webDir`、`androidScheme`、`iosScheme`，以及 `package.json` 中 Capacitor/Tauri 平台依赖和 `cap:*` 脚本。
+  - 增加“能力矩阵”“权限边界、风险和限制”“源码证据索引”“继续阅读”章节。
+- 增强 `website/scripts/test-docs-developer-content.mjs`：
+  - 将 `PlatformTauri.tsx` 纳入开发者内容契约。
+  - 检查平台专题必须覆盖运行时识别、统一桥接、Tauri/Capacitor/Web adapter、通知动作、Widget、Tauri 配置、capability、Rust command、Capacitor 配置、权限边界、能力矩阵和源码证据。
+  - 检查平台专题不得残留 `DocSectionPage`、`后续扩写来源`、`本页骨架职责` 等骨架占位。
+- 并行只读审计：
+  - 使用平台层子 agent 审计 `src/platform/types.ts`、`runtime.ts`、`index.ts`、`native.ts`、`adapters/tauri.ts`、`adapters/capacitor.ts`、`adapters/web.ts`、`notification_actions.ts`、`capacitor/widget.ts`，确认三端桥接、通知和 Widget 边界。
+  - 使用 Tauri/Capacitor 配置子 agent 审计 `src-tauri/tauri.conf.json`、`src-tauri/capabilities/main.json`、`src-tauri/Cargo.toml`、`src-tauri/src/lib.rs`、`src-tauri/src/modules/notification.rs`、`src-tauri/src/modules/module_bundle.rs`、`capacitor.config.ts`、`package.json`，确认 capability 实际路径、插件接入、Rust command 和移动端配置。
 - 验证结果：
+- 已执行 `npm run test:docs-developer-content`，在新增 Task 12 契约后确认 RED，失败项集中在 `PlatformTauri.tsx` 仍为骨架、缺少运行时识别、adapter、通知、Widget、Tauri 配置、capability、Rust command、Capacitor 配置和源码证据关键词。
+- 完成正文扩写后重新执行 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认平台专题扩写没有破坏文档路由、导航和静态入口契约。
+- 已执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`，确认本轮开发者文档改动没有破坏已完成的用户侧内容契约。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/platform-tauri/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `rg -n "平台与 Tauri|运行时识别|Tauri adapter|Capacitor adapter|Web fallback|通知动作边界|Widget 桥接|Tauri 配置|src-tauri/capabilities/main.json|能力矩阵|源码证据索引" website\src\pages\docs\PlatformTauri.tsx`，确认 Task 12 关键章节和源码证据可检索。
+- 已执行 `git diff --check -- website/src/pages/docs/PlatformTauri.tsx website/scripts/test-docs-developer-content.mjs`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示，没有空白错误。
 - 剩余风险：
+- 本任务聚焦平台适配、原生桥接与权限文档，不逐个展开所有业务 Rust command 的参数/返回结构；更完整的接口索引留给 Task 16。
+- 安全隐私只记录关键边界：`csp = null`、capability 与插件初始化差异、模块包远程内容、本地文件写入、Widget no-op、HBUTNative 依赖等；Cookie、token、云同步、自定义 JS、调试桥和模块热更新签名留给 Task 14。
+- 当前没有完成真实 Tauri/Capacitor 设备上的运行时识别、通知、Widget、强保活和电池优化设置验收；本轮只能基于源码、配置、文档契约和 website 构建证明文档准确性。
+- `src-tauri/capabilities/main.json` 当前没有显式列出 `fs`、`autostart`、`keep-screen-on` 细粒度 capability；文档已写明“插件接入不等于前端窗口已授权”，后续安全检查需继续核对实际调用面。
+- 工作区仍存在与本 goal 无关的修改和未跟踪文件，本轮提交必须只包含 Task 12 相关文件与 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Checkpoint D：十二项后全面检查/debug，重点核对开发者核心架构、数据流、平台权限、安全边界和构建状态是否一致。
 
 ## Checkpoint D：十二项后全面检查/debug
 
