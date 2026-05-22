@@ -11,8 +11,8 @@ export const STATE = {
 }
 
 // 游戏常量
-const LOGICAL_WIDTH = 320
-const LOGICAL_HEIGHT = 480
+export const LOGICAL_WIDTH = 320
+export const LOGICAL_HEIGHT = 480
 // 物理参数（基于 60fps 标准化，使用 delta-time 缩放）
 const TARGET_FPS = 60
 const GRAVITY = 600 // 像素/秒²
@@ -59,6 +59,48 @@ export function getPipeSpawnInterval(score) {
   return Math.max(PIPE_SPAWN_MIN_MS, PIPE_SPAWN_INITIAL_MS - currentScore * 8)
 }
 
+function normalizePositiveNumber(value, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : fallback
+}
+
+export function calculateFlappyCanvasLayout({
+  containerWidth,
+  containerHeight,
+  devicePixelRatio = 1
+} = {}) {
+  const safeContainerW = normalizePositiveNumber(containerWidth, LOGICAL_WIDTH)
+  const safeContainerH = normalizePositiveNumber(containerHeight, LOGICAL_HEIGHT)
+  const safeDpr = Math.min(Math.max(normalizePositiveNumber(devicePixelRatio, 1), 1), 3)
+  const aspect = LOGICAL_WIDTH / LOGICAL_HEIGHT
+
+  let cssWidth
+  let cssHeight
+  if (safeContainerW / safeContainerH < aspect) {
+    cssWidth = safeContainerW
+    cssHeight = safeContainerW / aspect
+  } else {
+    cssHeight = safeContainerH
+    cssWidth = safeContainerH * aspect
+  }
+
+  const displayScale = cssWidth / LOGICAL_WIDTH
+  const preferredRenderScale = displayScale * safeDpr
+  const pixelWidth = Math.max(1, Math.round(LOGICAL_WIDTH * preferredRenderScale))
+  const pixelHeight = Math.max(1, Math.round(LOGICAL_HEIGHT * preferredRenderScale))
+  const renderScale = pixelWidth / LOGICAL_WIDTH
+
+  return {
+    logicalWidth: LOGICAL_WIDTH,
+    logicalHeight: LOGICAL_HEIGHT,
+    cssWidth,
+    cssHeight,
+    pixelWidth,
+    pixelHeight,
+    renderScale
+  }
+}
+
 export default class FlappyGame {
   constructor(canvas) {
     this.canvas = canvas
@@ -97,6 +139,7 @@ export default class FlappyGame {
     this.onStateChange = null
 
     // 设置 canvas 尺寸
+    this.renderScale = 1
     this._resize()
     this._bindEvents()
   }
@@ -106,24 +149,18 @@ export default class FlappyGame {
     const container = this.canvas.parentElement
     if (!container) return
 
-    const containerW = container.clientWidth
-    const containerH = container.clientHeight
-    const aspect = LOGICAL_WIDTH / LOGICAL_HEIGHT
+    const layout = calculateFlappyCanvasLayout({
+      containerWidth: container.clientWidth,
+      containerHeight: container.clientHeight,
+      devicePixelRatio: typeof window !== 'undefined' ? window.devicePixelRatio : 1
+    })
 
-    let w, h
-    if (containerW / containerH < aspect) {
-      w = containerW
-      h = containerW / aspect
-    } else {
-      h = containerH
-      w = containerH * aspect
-    }
-
-    this.canvas.style.width = `${w}px`
-    this.canvas.style.height = `${h}px`
-    this.canvas.width = LOGICAL_WIDTH
-    this.canvas.height = LOGICAL_HEIGHT
-    this.scale = w / LOGICAL_WIDTH
+    this.canvas.style.width = `${layout.cssWidth}px`
+    this.canvas.style.height = `${layout.cssHeight}px`
+    this.canvas.width = layout.pixelWidth
+    this.canvas.height = layout.pixelHeight
+    this.renderScale = layout.renderScale
+    this.scale = layout.cssWidth / LOGICAL_WIDTH
   }
 
   /** 绑定输入事件 */
@@ -611,7 +648,9 @@ export default class FlappyGame {
   /** 主渲染循环 */
   _render() {
     const ctx = this.ctx
-    ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT)
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    ctx.setTransform(this.renderScale, 0, 0, this.renderScale, 0, 0)
 
     this._drawBackground()
     this._drawPipes()
@@ -641,6 +680,11 @@ export default class FlappyGame {
     if (this.animationId) return
     this.lastTimestamp = 0
     this.animationId = requestAnimationFrame((ts) => this._gameLoop(ts))
+  }
+
+  /** 外部视口变化后重新适配画布尺寸 */
+  resize() {
+    this._resize()
   }
 
   /** 停止游戏循环 */

@@ -50,6 +50,7 @@ function notifyHostHeight() {
 
 function syncModuleFrame() {
   setModuleViewportVars()
+  game?.resize()
   notifyHostHeight()
 }
 

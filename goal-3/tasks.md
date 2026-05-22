@@ -124,18 +124,18 @@
 
 ## Task 8: 笨鸟先飞缩放修复与竖屏验收
 
-- [ ] 状态：未完成
-- [ ] 写测试或可验证脚本覆盖 Canvas 尺寸策略
-- [ ] 修复 Tauri 内嵌时页面过小和双重缩放
-- [ ] 优化竖屏画面主体占比
-- [ ] 运行构建并做移动端视口验收
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 写测试或可验证脚本覆盖 Canvas 尺寸策略
+- [x] 修复 Tauri 内嵌时页面过小和双重缩放
+- [x] 优化竖屏画面主体占比
+- [x] 运行构建并做移动端视口验收
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：为笨鸟先飞新增 Canvas 尺寸策略契约测试，覆盖竖屏 CSS 尺寸、DPR 物理位图、渲染坐标变换和嵌入式页面样式。导出 `calculateFlappyCanvasLayout`、`LOGICAL_WIDTH`、`LOGICAL_HEIGHT`，将画布尺寸收敛为“一次 CSS 竖屏适配 + 一次 DPR backing store”，渲染前先清理物理画布再用 `ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0)` 回到 320x480 逻辑坐标。新增公开 `game.resize()` 并在模块视口同步时调用，移除子页面 `body position: fixed` 和 header `clamp()` 字体，改为嵌入式 100% 高度竖屏壳，避免 Tauri iframe 与子页面各自缩放导致页面过小。
+- 验证结果：先运行 `npm.cmd test -- src/utils/clumsy_bird_hbut_experience.spec.ts` 得到红灯，10 个测试中 4 个新增测试失败，失败原因分别是缺少 `calculateFlappyCanvasLayout`、Canvas 位图仍为 320x480、渲染未调用 `setTransform`、样式仍含 `body position: fixed`。实现后同一命令退出码 0，`src/utils/clumsy_bird_hbut_experience.spec.ts` 10/10 通过；在 `website/modules-src/clumsy_bird_hbut/project` 运行 `npm.cmd test` 退出码 0，保持空测试基线可运行；运行 `npm.cmd run build` 退出码 0，Vite 构建成功。使用 Playwright 验收构建预览 `http://127.0.0.1:5196/`：320x568、360x640、360x740、390x844、430x932 均无横向滚动，文本溢出候选为 0，页面底部不越界，Canvas 中心像素 alpha 为 255；Canvas CSS 尺寸分别约为 320x480、360x540、360x540、390x585、430x645。停止预览服务后，`curl.exe -I http://127.0.0.1:5196/ --max-time 1` 连接超时，确认没有保留本轮开发服务。
+- 剩余风险：额外运行根目录 `npm.cmd test -- src/utils/website_game_modules_contract.spec.ts` 时发现 1 个非笨鸟失败：`hbut_monopoly/project/src/style.css` 缺少显式 `overflow-x: hidden`，这是 Task 7 遗留的契约问题，未混入 Task 8 提交；后续大型全面检查-debug 循环 C 应处理。当前只修复模块源码，尚未同步发布到 `website/public/modules/*`；真实 Tauri 桌面壳内还需要在最终 review 或发布同步阶段复测一遍。
+- 下一步：Task 9 调研公开多人在线服务与默认/降级方案。
 
 ## Task 9: 公开多人在线服务调研与选型
 
