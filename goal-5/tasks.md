@@ -699,15 +699,47 @@
 
 ## Task 11：编写数据流、缓存、网络与错误处理文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：说明 API 调用、缓存、离线、维护模式、错误提示、敏感信息处理。
 - 输入范围：`src/utils`、API/缓存/配置相关文件。
 - 输出要求：数据与错误处理专题。
 - 验证方式：源码证据核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/ArchitectureDataFlow.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“架构与数据流”开发者专题页。
+  - 写清请求入口：`src/utils/axios_adapter.js` 的 axios 兼容层、Tauri `invokeNative`、本地 `/bridge` / `127.0.0.1:4399` 兜底，以及 `src/utils/api.ts` 中 `serverOcrRecognize`、`syncDataToServer`、`fetchDataFromServer` 这类辅助直连 HTTP 服务入口。
+  - 写清远程配置和静态资源链路：`src/utils/remote_config.js` 的 `CONFIG_URLS`、`DEFAULT_CONFIG`、`hbu_remote_config_snapshot`、`fetchByInvoke`、`fetchByCapacitor`、`fetchByWeb`、`normalizeRemoteConfig`、`applyOcrRuntimeConfig`，以及 `src/utils/static_resource_cache.js` 的 `static_resource:dormitory_data` 和多源缓存兜底。
+  - 写清前端通用缓存：`src/utils/api.js` 的 `fetchWithCache`、`getCachedData`、`setCachedData`、`getBestCachedEntry`、`withOfflineMeta`、`isQuotaExceededError`、`trimLocalCacheStorage`、`MAX_LOCAL_CACHE_ENTRIES`、`MAX_LOCAL_CACHE_VALUE_BYTES`。
+  - 写清教务维护模式：`hbu_jwxt_maintenance`、`hbu_jwxt_maintenance_time`、`hbu_jwxt_maintenance_hint`、`looksLikeMaintenanceIssue`、`setMaintenanceFlag`、`JWXT_KEY_PREFIXES`，并明确它是本地启发式状态，不是服务端权威熔断。
+  - 写清 SQLite 缓存和会话：`src-tauri/src/db.rs` 中 `init_db`、`save_cache`、`get_cache`、`user_sessions`、`grades_cache`、`schedule_cache`、`electricity_cache`、`ai_session_cache` 等表与敏感会话字段。
+  - 写清远程配置和云同步数据流：`src/utils/cloud_sync.js` 的 `getCloudSyncRuntimeConfig`、`requestCloudSync`、`x-cloud-sync-challenge`、`buildSyncPayload`、`runCloudSyncUpload`、`runCloudSyncDownload`、`runAutoCloudSyncAfterLogin`、`cooldown`，并明确云同步不是实时双向同步。
+  - 写清通知和 Widget 数据流：`src/utils/notify_center.js` 的 `runNotificationCheck`、`sendQueuedNotifications`、`syncBackgroundFetchContext`，`src/utils/background_fetch.js` 后台调度上下文，以及 `src/utils/widget_bridge.ts` / `src/utils/widget_snapshot.ts` 的缓存快照写入边界。
+  - 写清 Rust 会话、网络和数据库：`src-tauri/src/http_client/mod.rs` 的 `HbutClient`、`Cookie Jar`、`academic_base_url`、`encrypt_password_aes`、`login_cooldown_remaining`，`src-tauri/src/http_client/session.rs` 的 `restore_session`、`refresh_session`、`get_cookie_snapshot`、`clear_session`，以及电费/一卡通/AI token 的复用边界。
+  - 增加错误处理、敏感信息边界和离线能力边界：说明错误返回形态不完全统一、离线能力依赖已有缓存、`user_sessions` 和 Cookie 快照属于敏感凭据、`base64 不是强加密`、外部服务可用性不能保证、缓存表名未来若外部化需要额外约束。
+  - 增加源码证据索引和继续阅读入口，链接回 `/docs/developer`、`/docs/platform-tauri`、`/docs/security-privacy`。
+- 增强 `website/scripts/test-docs-developer-content.mjs`：
+  - 将 `ArchitectureDataFlow.tsx` 纳入开发者内容契约。
+  - 覆盖请求入口、前端缓存、维护模式、远程配置、云同步、静态资源、论坛 token、通知中心、后台调度、Widget、Rust HTTP client、会话、SQLite、敏感信息边界、离线能力边界和占位文案清理。
+- 并行只读审计：
+  - 使用前端数据层子 agent 审计 `src/utils/api.js`、`axios_adapter.js`、`api.ts`、`remote_config.js`、`cloud_sync.js`、`static_resource_cache.js`、`forum_api.js`、`notify_center.js`、`background_fetch.js`、`widget_bridge.ts`、`widget_snapshot.ts`，确认缓存层级、fallback、维护模式、云同步、通知/Widget 边界。
+  - 使用 Rust/Tauri 子 agent 审计 `src-tauri/src/db.rs`、`src-tauri/src/http_client/*` 和 `src-tauri/src/lib.rs` 相关片段，确认 `HbutClient`、Cookie Jar、CAS/超星域切换、OCR、冷却、token、SQLite 缓存表、`user_sessions`、`save_cache/get_cache` 和错误返回模式。
 - 验证结果：
+- 已执行 `npm run test:docs-developer-content`，在新增 Task 11 契约后确认 RED，失败项集中在 `ArchitectureDataFlow.tsx` 仍为骨架、缺少请求入口、缓存、维护模式、云同步、Rust 会话、SQLite、敏感信息和源码证据关键词。
+- 完成正文扩写后重新执行 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认数据流页面扩写没有破坏文档路由、导航和静态入口契约。
+- 已执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`，确认本轮开发者文档改动没有破坏已完成的用户侧内容契约。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/architecture/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `rg -n "请求入口|fetchWithCache|hbu_jwxt_maintenance|requestCloudSync|x-cloud-sync-challenge|HbutClient|Cookie Jar|save_cache|get_cache|base64 不是强加密|离线能力边界|源码证据索引" website\src\pages\docs\ArchitectureDataFlow.tsx`，确认 Task 11 关键章节和源码证据可检索。
+- 已执行 `git diff --check -- website/src/pages/docs/ArchitectureDataFlow.tsx website/scripts/test-docs-developer-content.mjs`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示，没有空白错误。
 - 剩余风险：
+- 本任务聚焦开发者侧数据流、缓存、网络和错误处理，不逐个展开所有 Tauri command 的参数/返回结构，也不完整展开平台权限矩阵；这些留给 Task 12 和 Task 16。
+- 安全隐私只在本任务中记录边界，尚未形成用户/开发者双视角的完整安全隐私专题；细化 Cookie、Base64、token、云同步、自定义 JS、调试桥和热更新签名留给 Task 14。
+- 当前没有完成浏览器截图级视觉验收；数据流长文页面的桌面/移动端阅读体验留给 Task 17 和 Checkpoint F。
+- 文档中涉及的 CAS、教务、超星、OPAC、OCR、AI、云同步代理和 WebDAV 均依赖外部服务，本地构建只能证明文档站可构建，不能证明远端服务可用。
+- 工作区仍存在与本 goal 无关的修改和未跟踪文件，本轮提交必须只包含 Task 11 相关文件与 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 12：编写平台适配、原生桥接与权限文档，说明 Tauri/Capacitor/Web 适配层、通知、文件、插件和权限边界。
 
 ## Task 12：编写平台适配、原生桥接与权限文档
 
