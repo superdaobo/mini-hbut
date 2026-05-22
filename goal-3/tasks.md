@@ -84,16 +84,16 @@
 
 ## Task 6: 湖工大富翁核心规则测试
 
-- [ ] 状态：未完成
-- [ ] 写失败测试覆盖精力/压力、事件选择、卡牌效果、阶段目标、资源边界和胜负
-- [ ] 运行测试确认失败原因正确
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 写失败测试覆盖精力/压力、事件选择、卡牌效果、阶段目标、资源边界和胜负
+- [x] 运行测试确认失败原因正确
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：新增 `website/modules-src/hbut_monopoly/project/src/game/monopoly.test.js`，用 Vitest 锁定湖工大富翁下一步需要实现的进阶规则契约：`MONOPOLY_STAGES` 多阶段目标、按阶段初始化精力/压力/影响力目标、骰子回合资源边界、事件选择分支、行动卡牌效果、阶段推进和失败判定。
+- 验证结果：在 `website/modules-src/hbut_monopoly/project` 运行 `npm test`，退出码 1；`src/game/monopoly.test.js` 5/5 失败。失败原因符合预期：当前实现未导出 `MONOPOLY_STAGES`，没有 `energy` / `stress` 资源字段，没有 `applyEventChoice`、`applyActionCard` 和 `resolveStageProgress` 等进阶玩法接口。
+- 剩余风险：测试当前处于红灯状态，这是 Task 6 的预期产物；仓库在 Task 7 前会暂时保留大富翁测试失败。
+- 下一步：执行大型全面检查-debug 循环 B，集中检查 Task 4-6 的记忆牌与大富翁规则测试、构建、UI/UX、安全、文档同步和回滚风险。
 
 ## 大型全面检查-debug 循环 B（完成 Task 4-6 后执行）
 
