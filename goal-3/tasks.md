@@ -30,17 +30,17 @@
 
 ## Task 3: 湖工矿工多关卡与钩长修复
 
-- [ ] 状态：未完成
-- [ ] 实现 `LEVELS`、动态 `hook.maxLength`、新物品类型和过关推进
-- [ ] 更新矿工 UI 显示关卡、目标、时间、道具反馈
-- [ ] 运行矿工测试和构建
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 实现 `LEVELS`、动态 `hook.maxLength`、新物品类型和过关推进
+- [x] 更新矿工 UI 显示关卡、目标、时间、道具反馈
+- [x] 运行矿工测试和构建
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：将湖工矿工规则改为 `LEVELS` 驱动，新增 4 个关卡、多种新物品、负分障碍、加时、倍率和长钩道具；默认钩长按当前关卡最深物品动态计算，修复底部宝物不可达；回收达标后进入下一关，最后一关才通关。同步更新页面显示关卡、目标、时间、剩余宝物、关卡名和道具/障碍颜色，并收紧竖屏布局。
+- 验证结果：先运行矿工测试确认红灯，5 个测试中 4 个失败，失败原因是缺少 `LEVELS`、`applyMinerItemEffect` 和关卡推进；实现后在 `website/modules-src/hbut_miner/project` 运行 `npm test`，退出码 0，`src/game/miner.test.js` 5/5 通过；运行 `npm run build`，退出码 0，Vite 构建成功；运行 `git diff --check -- website/modules-src/hbut_miner/project/src/game/miner.js website/modules-src/hbut_miner/project/src/main.js website/modules-src/hbut_miner/project/src/style.css goal-3/tasks.md`，退出码 0，仅有 Windows 换行提示；只读复核子代理未发现规格或明显质量问题。
+- 剩余风险：浏览器自动化工具当前被已有实例锁定，Task 3 未完成截图级移动端 UI 验收；代码已做竖屏布局和构建验证，后续大型全面检查-debug 循环 A 需要补 360x740、390x844、430x932 视口检查。
+- 下一步：执行大型全面检查-debug 循环 A，集中检查 Task 1-3 的矿工测试、构建、UI/UX、数据一致性、安全性和回滚风险。
 
 ## 大型全面检查-debug 循环 A（完成 Task 1-3 后执行）
 

@@ -2,7 +2,9 @@ export const SWING_LIMIT_DEGREES = 58
 export const DEFAULT_TARGET_SCORE = 820
 export const DEFAULT_TIME_LEFT_MS = 60000
 
-export const CAMPUS_MINER_ITEMS = Object.freeze([
+const freezeItems = (items) => Object.freeze(items.map((item) => Object.freeze({ ...item })))
+
+export const CAMPUS_MINER_ITEMS = freezeItems([
   Object.freeze({
     id: 'south-lake-pearl',
     name: '南湖珍珠',
@@ -95,6 +97,265 @@ export const CAMPUS_MINER_ITEMS = Object.freeze([
   })
 ])
 
+const LAB_MINER_ITEMS = freezeItems([
+  {
+    id: 'freshman-card',
+    name: '新生校园卡',
+    type: 'light',
+    x: -118,
+    y: 154,
+    radius: 14,
+    value: 90,
+    drag: 0.84
+  },
+  {
+    id: 'lab-key',
+    name: '实验室钥匙',
+    type: 'bonus',
+    x: 82,
+    y: 186,
+    radius: 15,
+    value: 130,
+    drag: 0.92
+  },
+  {
+    id: 'time-supply',
+    name: '社团补给卡',
+    type: 'powerup',
+    x: -16,
+    y: 248,
+    radius: 16,
+    value: 60,
+    drag: 0.78,
+    effect: { type: 'time', amountMs: 6000 }
+  },
+  {
+    id: 'robot-arm',
+    name: '机器人手臂',
+    type: 'heavy',
+    x: 128,
+    y: 292,
+    radius: 23,
+    value: 250,
+    drag: 1.78
+  },
+  {
+    id: 'innovation-medal',
+    name: '创新奖章',
+    type: 'bonus',
+    x: -142,
+    y: 350,
+    radius: 18,
+    value: 210,
+    drag: 1.08
+  },
+  {
+    id: 'long-hook-kit',
+    name: '工程楼长钩',
+    type: 'powerup',
+    x: 36,
+    y: 402,
+    radius: 17,
+    value: 80,
+    drag: 0.86,
+    effect: { type: 'hookBoost', amount: 72 }
+  },
+  {
+    id: 'server-core',
+    name: '数据中心核心',
+    type: 'heavy',
+    x: 112,
+    y: 486,
+    radius: 24,
+    value: 300,
+    drag: 1.95
+  }
+])
+
+const EAST_CAMPUS_ITEMS = freezeItems([
+  {
+    id: 'bus-pass',
+    name: '校车通行证',
+    type: 'light',
+    x: -88,
+    y: 142,
+    radius: 13,
+    value: 80,
+    drag: 0.82
+  },
+  {
+    id: 'maker-token',
+    name: '创客币',
+    type: 'bonus',
+    x: 96,
+    y: 174,
+    radius: 16,
+    value: 160,
+    drag: 1
+  },
+  {
+    id: 'rusted-bolt',
+    name: '生锈螺栓',
+    type: 'hazard',
+    x: -28,
+    y: 244,
+    radius: 18,
+    value: -80,
+    drag: 1.1
+  },
+  {
+    id: 'competition-multiplier',
+    name: '竞赛倍率卡',
+    type: 'powerup',
+    x: 134,
+    y: 284,
+    radius: 16,
+    value: 120,
+    drag: 0.9,
+    effect: { type: 'scoreMultiplier', multiplier: 2 }
+  },
+  {
+    id: 'forge-anvil',
+    name: '工训铁砧',
+    type: 'heavy',
+    x: -124,
+    y: 350,
+    radius: 26,
+    value: 330,
+    drag: 2.18
+  },
+  {
+    id: 'map-fragment',
+    name: '矿区地图碎片',
+    type: 'powerup',
+    x: 48,
+    y: 410,
+    radius: 17,
+    value: 90,
+    drag: 0.88,
+    effect: { type: 'time', amountMs: 4500 }
+  },
+  {
+    id: 'east-campus-crystal',
+    name: '东区能量晶体',
+    type: 'bonus',
+    x: 0,
+    y: 526,
+    radius: 20,
+    value: 260,
+    drag: 1.24
+  }
+])
+
+const FINAL_MINER_ITEMS = freezeItems([
+  {
+    id: 'graduation-pin',
+    name: '毕业徽针',
+    type: 'light',
+    x: -136,
+    y: 150,
+    radius: 14,
+    value: 100,
+    drag: 0.8
+  },
+  {
+    id: 'library-gem',
+    name: '馆藏宝石',
+    type: 'bonus',
+    x: 108,
+    y: 202,
+    radius: 18,
+    value: 210,
+    drag: 1.02
+  },
+  {
+    id: 'broken-router',
+    name: '报废路由器',
+    type: 'hazard',
+    x: 12,
+    y: 270,
+    radius: 18,
+    value: -120,
+    drag: 1.2
+  },
+  {
+    id: 'double-score-badge',
+    name: '双创加成章',
+    type: 'powerup',
+    x: -108,
+    y: 322,
+    radius: 17,
+    value: 150,
+    drag: 0.94,
+    effect: { type: 'scoreMultiplier', multiplier: 2.4 }
+  },
+  {
+    id: 'precision-hook',
+    name: '精密长钩组',
+    type: 'powerup',
+    x: 134,
+    y: 370,
+    radius: 16,
+    value: 110,
+    drag: 0.9,
+    effect: { type: 'hookBoost', amount: 96 }
+  },
+  {
+    id: 'thesis-safe',
+    name: '论文保险箱',
+    type: 'heavy',
+    x: -38,
+    y: 456,
+    radius: 28,
+    value: 420,
+    drag: 2.45
+  },
+  {
+    id: 'hbut-core',
+    name: '湖工矿脉核心',
+    type: 'bonus',
+    x: 82,
+    y: 548,
+    radius: 23,
+    value: 360,
+    drag: 1.38
+  }
+])
+
+export const LEVELS = Object.freeze([
+  Object.freeze({
+    id: 'south-lake',
+    name: '南湖浅层',
+    targetScore: DEFAULT_TARGET_SCORE,
+    timeLeftMs: DEFAULT_TIME_LEFT_MS,
+    items: CAMPUS_MINER_ITEMS
+  }),
+  Object.freeze({
+    id: 'lab-depth',
+    name: '实验楼深层',
+    targetScore: 980,
+    timeLeftMs: 58000,
+    items: LAB_MINER_ITEMS,
+    hook: { extendSpeed: 302, returnSpeed: 356 }
+  }),
+  Object.freeze({
+    id: 'east-campus',
+    name: '东区工训矿道',
+    targetScore: 1120,
+    timeLeftMs: 56000,
+    items: EAST_CAMPUS_ITEMS,
+    hook: { extendSpeed: 318, returnSpeed: 372 }
+  }),
+  Object.freeze({
+    id: 'final-core',
+    name: '毕业矿脉核心',
+    targetScore: 1280,
+    timeLeftMs: 54000,
+    items: FINAL_MINER_ITEMS,
+    hook: { extendSpeed: 330, returnSpeed: 388 }
+  })
+])
+
 const BASE_HOOK_LENGTH = 34
 const DEFAULT_HOOK = Object.freeze({
   mode: 'swinging',
@@ -123,22 +384,51 @@ const cloneState = (state) => ({
   log: [...state.log]
 })
 
-export function createInitialMinerState(options = {}) {
-  const items = Array.isArray(options.items) ? options.items.map(cloneItem) : CAMPUS_MINER_ITEMS.map(cloneItem)
-  const hook = {
+const clampLevelIndex = (levelIndex) => clamp(
+  Number.isInteger(levelIndex) ? levelIndex : 0,
+  0,
+  LEVELS.length - 1
+)
+
+const deepestReach = (items) =>
+  items.reduce((max, item) => Math.max(max, Math.hypot(item.x, item.y) + item.radius), BASE_HOOK_LENGTH)
+
+function resolveHook(level, items, optionsHook = {}) {
+  const hasCustomMaxLength = Number.isFinite(optionsHook.maxLength)
+  const minimumReach = deepestReach(items) + 24
+  const levelHook = level.hook || {}
+  const maxLength = hasCustomMaxLength
+    ? optionsHook.maxLength
+    : Math.max(DEFAULT_HOOK.maxLength, levelHook.maxLength || 0, minimumReach)
+
+  return {
     ...DEFAULT_HOOK,
-    ...(options.hook || {}),
-    carrying: options.hook?.carrying ? cloneItem(options.hook.carrying) : null
+    ...levelHook,
+    ...optionsHook,
+    maxLength,
+    length: Number.isFinite(optionsHook.length) ? optionsHook.length : DEFAULT_HOOK.baseLength,
+    carrying: optionsHook.carrying ? cloneItem(optionsHook.carrying) : null
   }
+}
+
+export function createInitialMinerState(options = {}) {
+  const levelIndex = clampLevelIndex(options.levelIndex)
+  const level = LEVELS[levelIndex]
+  const items = Array.isArray(options.items) ? options.items.map(cloneItem) : level.items.map(cloneItem)
+  const hook = resolveHook(level, items, options.hook || {})
 
   return {
     status: options.status || 'aiming',
+    levelIndex,
+    levelNumber: levelIndex + 1,
+    levelId: level.id,
+    levelName: level.name,
     score: Number.isFinite(options.score) ? options.score : 0,
-    targetScore: Number.isFinite(options.targetScore) ? options.targetScore : DEFAULT_TARGET_SCORE,
-    timeLeftMs: Number.isFinite(options.timeLeftMs) ? options.timeLeftMs : DEFAULT_TIME_LEFT_MS,
+    targetScore: Number.isFinite(options.targetScore) ? options.targetScore : level.targetScore,
+    timeLeftMs: Number.isFinite(options.timeLeftMs) ? options.timeLeftMs : level.timeLeftMs,
     items,
     hook,
-    log: Array.isArray(options.log) ? [...options.log] : ['瞄准湖工宝物，等待发射。']
+    log: Array.isArray(options.log) ? [...options.log] : [`第 ${levelIndex + 1} 关：${level.name}，瞄准湖工宝物。`]
   }
 }
 
@@ -202,6 +492,11 @@ function findHookCollision(items, angle, previousLength, nextLength) {
   return reachableItems[0] || null
 }
 
+function scoreText(value) {
+  if (value > 0) return `+${value}`
+  return String(value)
+}
+
 function swingHook(hook, deltaSeconds) {
   let angle = hook.angle + hook.angleVelocity * deltaSeconds
   let angleVelocity = hook.angleVelocity
@@ -221,12 +516,50 @@ function swingHook(hook, deltaSeconds) {
   }
 }
 
+export function applyMinerItemEffect(state, item) {
+  const next = cloneState(state)
+  const effect = item.effect || null
+  let scoreDelta = item.value
+  let message = `带回 ${item.name}，得分 ${scoreText(scoreDelta)}`
+
+  if (effect?.type === 'time') {
+    next.timeLeftMs = Math.max(0, next.timeLeftMs + effect.amountMs)
+    message = `带回 ${item.name}，时间 +${Math.round(effect.amountMs / 1000)}s，得分 ${scoreText(scoreDelta)}`
+  } else if (effect?.type === 'scoreMultiplier') {
+    scoreDelta = Math.round(item.value * effect.multiplier)
+    message = `带回 ${item.name}，倍率得分 ${scoreText(scoreDelta)}`
+  } else if (effect?.type === 'hookBoost') {
+    next.hook.maxLength += effect.amount
+    message = `带回 ${item.name}，吊钩延长 ${effect.amount}，得分 ${scoreText(scoreDelta)}`
+  }
+
+  next.score = Math.max(0, next.score + scoreDelta)
+  next.log.unshift(message)
+  next.log = next.log.slice(0, 5)
+  return next
+}
+
+function advanceToNextLevel(state) {
+  const nextLevelIndex = state.levelIndex + 1
+  if (nextLevelIndex >= LEVELS.length) {
+    state.status = 'won'
+    state.log.unshift('完成全部矿区目标，湖工矿脉满载而归。')
+    state.log = state.log.slice(0, 5)
+    return
+  }
+
+  const nextLevelState = createInitialMinerState({
+    levelIndex: nextLevelIndex,
+    log: [`进入第 ${nextLevelIndex + 1} 关：${LEVELS[nextLevelIndex].name}。`, ...state.log].slice(0, 5)
+  })
+
+  Object.assign(state, nextLevelState)
+}
+
 function finishReturn(state) {
   const carrying = state.hook.carrying
   if (carrying) {
-    state.score += carrying.value
-    state.log.unshift(`带回 ${carrying.name}，得分 +${carrying.value}`)
-    state.log = state.log.slice(0, 5)
+    Object.assign(state, applyMinerItemEffect(state, carrying))
   }
 
   state.hook = {
@@ -235,9 +568,13 @@ function finishReturn(state) {
     length: state.hook.baseLength,
     carrying: null
   }
-  state.status = state.score >= state.targetScore ? 'won' : 'aiming'
-  if (state.status === 'won') {
-    state.log.unshift('达成本轮目标，湖工矿区满载而归。')
+
+  if (state.score >= state.targetScore) {
+    state.log.unshift(`第 ${state.levelNumber} 关目标达成。`)
+    state.log = state.log.slice(0, 5)
+    advanceToNextLevel(state)
+  } else {
+    state.status = 'aiming'
   }
 }
 

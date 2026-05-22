@@ -1,8 +1,6 @@
 import './style.css'
 import {
-  CAMPUS_MINER_ITEMS,
-  DEFAULT_TIME_LEFT_MS,
-  DEFAULT_TARGET_SCORE,
+  LEVELS,
   createInitialMinerState,
   fireHook,
   restartMinerGame,
@@ -51,11 +49,11 @@ function formatTime(ms) {
 }
 
 function statusText() {
-  if (state.status === 'won') return '目标达成'
+  if (state.status === 'won') return '全部通关'
   if (state.status === 'lost') return '时间耗尽'
   if (state.hook.mode === 'extending') return '吊钩下探'
   if (state.hook.mode === 'returning') return state.hook.carrying ? '正在回收' : '空钩返回'
-  return '瞄准摆动'
+  return `${state.levelName} 瞄准中`
 }
 
 function renderShell() {
@@ -63,16 +61,20 @@ function renderShell() {
     <main class="miner-shell">
       <section class="top-strip" aria-label="矿工状态">
         <div>
+          <span>关卡</span>
+          <strong data-level>1/${LEVELS.length}</strong>
+        </div>
+        <div>
           <span>得分</span>
           <strong data-score>0</strong>
         </div>
         <div>
           <span>目标</span>
-          <strong data-target>${DEFAULT_TARGET_SCORE}</strong>
+          <strong data-target>0</strong>
         </div>
         <div>
           <span>时间</span>
-          <strong data-time>${formatTime(DEFAULT_TIME_LEFT_MS)}s</strong>
+          <strong data-time>0s</strong>
         </div>
       </section>
 
@@ -84,6 +86,7 @@ function renderShell() {
         <div>
           <p class="kicker">湖工矿工</p>
           <h1 data-status>${statusText()}</h1>
+          <p class="level-name" data-level-name></p>
         </div>
         <div class="progress-card">
           <span>进度</span>
@@ -99,7 +102,7 @@ function renderShell() {
       <section class="log-panel" aria-label="矿区记录">
         <div class="log-heading">
           <strong>矿区记录</strong>
-          <span data-count>${CAMPUS_MINER_ITEMS.length} 件宝物</span>
+          <span data-count></span>
         </div>
         <ol data-log></ol>
       </section>
@@ -144,13 +147,13 @@ function resizeCanvas() {
 function worldMetrics() {
   const width = canvas.width
   const height = canvas.height
-  const scale = Math.min(width / 430, height / 560)
+  const scale = Math.min(width / 430, height / 620)
   return {
     width,
     height,
     scale,
     originX: width / 2,
-    originY: 34 * scale
+    originY: 38 * scale
   }
 }
 
@@ -199,6 +202,8 @@ function drawBackground(metrics) {
 }
 
 function itemColor(item) {
+  if (item.type === 'powerup') return '#7c5cff'
+  if (item.type === 'hazard') return '#d85b53'
   if (item.type === 'bonus') return '#f2b84b'
   if (item.type === 'heavy') return '#5d6f85'
   return '#4fb18a'
@@ -270,12 +275,14 @@ function drawScene() {
 }
 
 function updateUi() {
+  app.querySelector('[data-level]').textContent = `${state.levelNumber}/${LEVELS.length}`
   app.querySelector('[data-score]').textContent = String(state.score)
   app.querySelector('[data-target]').textContent = String(state.targetScore)
   app.querySelector('[data-time]').textContent = `${formatTime(state.timeLeftMs)}s`
   app.querySelector('[data-status]').textContent = statusText()
+  app.querySelector('[data-level-name]').textContent = `第 ${state.levelNumber} 关 · ${state.levelName}`
   app.querySelector('[data-progress]').textContent = `${Math.min(100, Math.round((state.score / state.targetScore) * 100))}%`
-  app.querySelector('[data-count]').textContent = `${state.items.length} 件宝物`
+  app.querySelector('[data-count]').textContent = `第 ${state.levelNumber} 关剩余 ${state.items.length} 件`
   app.querySelector('[data-log]').innerHTML = state.log.map((item) => `<li>${item}</li>`).join('')
 
   const launchButton = document.getElementById('launch-button')
