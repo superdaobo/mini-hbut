@@ -392,15 +392,50 @@
 
 ## Task 6：编写用户总览与快速开始文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：面向普通用户写清产品定位、安装入口、首页、登录、常用功能路径。
 - 输入范围：用户模块清单、首页源码、登录/设置相关源码。
 - 输出要求：新增或扩展用户指南页面。
 - 验证方式：文档构建、内容核对。
 - 实际改动：
+- 完成用户总览与快速开始正文扩写，本轮只修改 `website` 文档内容、文档内容契约测试和本任务记录，未修改 Tauri 主应用业务代码。
+- 新增 `website/scripts/test-docs-user-content.mjs`，并在 `website/package.json` 增加 `npm run test:docs-user-content`，用于检查 Task 6 需要落地的用户文档关键词：安装平台、登录方式、首页仪表盘、底部主 Tab、搜索、设置中心、导出中心、云同步、离线缓存、功能分类和通用状态。
+- 已按 TDD 流程先运行新增用户内容契约测试并确认 RED：旧 `QuickStart.tsx` 和 `UserGuide.tsx` 仍是 Task 5 骨架页，缺少下载与安装、Windows/macOS/Linux/Android/iOS、统一身份认证、学习通、扫码临时登录、Cookie、自动恢复会话、重新登录、首页仪表盘、搜索服务/课程/资讯、底部主 Tab、设置中心、导出中心、云同步、离线缓存、普通用户阅读路径、功能分类地图、通用状态等内容。
+- 扩写 `website/src/pages/docs/QuickStart.tsx`：
+  - 从骨架组件改为完整页面结构。
+  - 增加“下载与安装”章节，覆盖 Windows、macOS、Linux、Android、iOS 的安装路径和首次启动/侧载注意事项。
+  - 增加“首次登录和会话状态”章节，说明统一身份认证、学习通、扫码临时登录、Cookie、本地会话保存、自动恢复会话、会话过期和重新登录。
+  - 增加“从首页仪表盘开始”章节，说明天气、今日安排、快捷入口、功能分类、搜索框、今日课程状态、登录门禁、底部主 Tab、返回仪表盘、设置中心、导出中心、云同步和离线缓存。
+  - 增加“继续阅读路径”卡片，链接到用户手册、教务服务、设置与数据、故障排查。
+- 扩写 `website/src/pages/docs/UserGuide.tsx`：
+  - 从骨架组件改为普通用户阅读路径和功能地图页面。
+  - 增加“普通用户阅读路径”，把快速开始、教务服务、校园生活、社区与通知、设置与数据串成阅读顺序。
+  - 增加“首页与全局导航”，说明底部主 Tab、首页搜索、二级页面返回父页面和常用入口。
+  - 增加“功能分类地图”，按教务服务、一码通、校园生活、社区与通知、扩展模块、我的与设置组织用户功能，并标注需要登录/无需登录/部分需要登录。
+  - 增加“通用状态说明”，解释加载中、空状态、登录过期、离线四类跨模块状态。
+  - 增加“常用功能速查”，覆盖成绩查询、个人课表、电费查询、校园码、图书查询、资料分享、论坛、通知中心、更多模块的入口和用途。
+- 内容依据来自已完成的 Task 2 用户模块清单，以及本轮源码核对：
+  - `src/App.vue` 中的 `MAIN_TABS`、`HIERARCHICAL_PARENT_VIEW_MAP`、`isLoggedIn`、`goToView`、`handleNavigate`、`handleBackToDashboard`、登录会话 key、自动重登与云同步触发。
+  - `src/components/Dashboard.vue` 中的首页模块元数据、`requiresLogin`、教务服务/一码通/资源分类、快捷入口、今日课程状态、天气缓存和首页搜索。
+  - `src/components/MeView.vue` 中的个人信息、设置中心、导出中心、反馈、开源协议、赞助、更多、免责声明与隐私政策入口。
+  - `src/components/SettingsView.vue` 中的设置中心分区、外观/后端/调试、远程配置、OCR、测速、云同步和日志类设置。
+  - `src/utils/home_search.js` 中的服务、课程、资讯聚合搜索结果。
 - 验证结果：
+- 已执行 `npm run test:docs-user-content` 并确认 RED 阶段失败，失败点覆盖 Task 6 要求的关键用户文档缺口。
+- 正文扩写后重新执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认 Task 6 没有破坏 Task 5 的导航/路由/静态入口契约。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0。
+- 构建输出确认 `dist/docs/quick-start/index.html` 和 `dist/docs/user-guide/index.html` 继续生成。
+- 构建仍存在 Vite chunk size warning：`dist/assets/main-*.js` 大于 500 kB；这是站点当前单包结构警告，不阻断 Task 6 文档内容交付。
+- 已执行源码核对命令，重点包括 `rg -n "MAIN_TABS|HIERARCHICAL_PARENT_VIEW_MAP|currentView|previousView|goToView|handleNavigate|isLoggedIn|requiresLogin|login|Login|Dashboard|SettingsView|MeView" src\App.vue`、`rg -n "search|搜索|quick|快捷|requiresLogin|教务服务|一码通|资源|今日|课程|weather|天气|localStorage" src\components\Dashboard.vue`、`rg -n "login|登录|settings|设置|export|导出|privacy|隐私|more|更多" src\components\MeView.vue src\components\SettingsView.vue`、`rg -n "search|搜索|modules|keywords|category|navigate|view|title|description" src\utils\home_search.js`。
 - 剩余风险：
+- 本任务只覆盖用户总览与快速开始，不展开每个教务/校园生活/扩展模块的详细操作步骤；这些内容留给 Task 7、Task 8、Task 9。
+- 当前 `QuickStart` 和 `UserGuide` 使用源码可验证的通用路径，但没有截图或浏览器视觉验收；Checkpoint B 需要检查长文在桌面/移动端的可读性和侧栏导航体验。
+- 旧 `Guide.tsx` 中仍保留大量用户说明，后续任务需要逐步迁移或重写，避免新旧页面长期内容重复和版本漂移。
+- `website` 构建继续出现大 chunk 警告，后续 Task 17 或最终 review 可考虑代码拆分或延后记录为性能优化项。
+- 当前工作区仍存在多项与本 goal 无关的未提交改动，本轮提交必须只包含 Task 6 相关文件。
 - 下一步：
+- 执行 Checkpoint B：对前六项后的文档骨架、导航、快速开始、构建、错链和移动端基础可读性做全面检查/debug。
 
 ## Checkpoint B：六项后全面检查/debug
 
