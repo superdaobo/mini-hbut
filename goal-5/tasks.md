@@ -119,15 +119,74 @@
 
 ## Task 3：梳理开发者实现模块清单
 
-- 状态：未完成
+- 状态：已完成
 - 目标：提取平台适配、数据层、缓存、通知、调试、构建、发布、模块市场等开发者主题。
 - 输入范围：`src/utils`、`src/platform`、`scripts`、`src-tauri`、`package.json`、`website/scripts`。
 - 输出要求：形成开发者侧主题清单，标注关键文件、设计意图、风险点。
 - 验证方式：源码和脚本检索。
 - 实际改动：
+- 完成开发者侧实现模块审计，本轮只更新 goal 任务记录，未修改业务代码和 website 文档正文。
+- 前端数据访问与兼容 API：
+  - 关键文件：`src/utils/axios_adapter.js`、`src/utils/api.js`、`src/utils/api.ts`。
+  - 设计意图：`axios_adapter.js` 将历史 `/v2/*`、`/v3/*` HTTP 调用伪装为 axios 响应，在 Tauri 下转发到 `invokeNative`，在非 Tauri 下走本地 bridge 或 `/bridge`；`api.js` 提供内存缓存、`localStorage` 缓存、TTL、旧缓存 fallback 与教务维护模式；`api.ts` 承载服务器 OCR、云同步和基础后端 URL。
+  - 风险点：`axios_adapter.js` 存在历史迁移注释和部分编码异常，正式文档必须描述当前行为而非照搬注释；`api.ts` 中存在明文 HTTP 服务地址，后续安全文档需说明用途和生产风险；`classroom:` 等缓存键有特殊规则，不能笼统写成所有数据都落前端缓存。
+- 设置、主题、字体与运行时 UI 配置：
+  - 关键文件：`src/utils/app_settings.ts`、`src/utils/ui_settings.ts`、`src/utils/theme-bridge.ts`、`src/utils/night_mode.ts`、`src/utils/font_settings.ts`。
+  - 设计意图：`app_settings.ts` 统一管理后端目标、超时、重试、资料分享线程数、云同步冷却；`ui_settings.ts` 管理视觉 preset、布局顺序、自定义 CSS/JS 和 CSS 变量；`theme-bridge.ts` 将 UI preset 转成 CSS 变量；`night_mode.ts` 独立维护夜间模式；`font_settings.ts` 处理字体栈、字体下载和 Web 缓存。
+  - 风险点：自定义 JS 注入是高风险能力，后续安全文档需要明确开放范围、使用边界和普通用户是否可触达。
+- 搜索、论坛、通知与 Widget：
+  - 关键文件：`src/utils/home_search.js`、`src/utils/forum_api.js`、`src/utils/forum_cache.js`、`src/utils/notify_center.js`、`src/utils/background_fetch.js`、`src/utils/widget_bridge.ts`、`src/utils/widget_snapshot.ts`、`src/utils/widget_snapshot_schema.ts`。
+  - 设计意图：首页搜索把服务、课程、资讯统一为 section，支持别名和顺序字符匹配；论坛 API 支持 token 缓存、401 刷新、游客只读、授权写操作、附件和管理员接口；通知中心聚合成绩、考试、电费、课程提醒，本地通知与 Widget 同步；Widget 快照拆成纯函数，便于性能、容量和无障碍契约测试。
+  - 风险点：论坛支持本地 loopback endpoint override 但拒绝非 loopback override，文档必须标注这是开发验证入口；后台拉取和 Widget 能力在 Tauri/Capacitor/Web 上差异明显，后续平台文档要做运行时矩阵。
+- 导出、截图、调试桥与日志：
+  - 关键文件：`src/utils/capture_service.ts`、`src/utils/debug_bridge.ts`、`src/utils/debug_bridge_client.js`、`src/utils/debug_logger.ts`、`scripts/test_debug_bridge_contract.mjs`、`scripts/debug_capture_ui.mjs`。
+  - 设计意图：`capture_service.ts` 基于 `html2canvas` 生成 DOM 长图，等待字体/图片加载并处理颜色兼容；调试桥用于 Tauri debug 开发、截图、模块打开、状态采集和本地自动化契约。
+  - 风险点：截图导出依赖真实 DOM、字体和图片加载，后续文档需说明长图导出失败的常见原因；调试桥属于开发/诊断能力，不能描述为普通业务接口。
+- 云同步、远程配置、更新与热更新：
+  - 关键文件：`src/utils/cloud_sync.js`、`src/utils/remote_config.js`、`src/utils/updater.js`、`src/utils/hot_update.js`、`src/utils/hot_update_core.js`、`src/utils/hot_update_bootstrap.js`、`scripts/build_hot_bundle.mjs`、`scripts/test_hot_update_framework.mjs`。
+  - 设计意图：云同步通过远程配置和本地设置共同决定 endpoint、secret ref、设备 ID、challenge、上传/下载冷却；远程配置覆盖公告、强制更新、OCR、临时文件、资料分享、论坛、模块中心、AI、管理员 ID；普通更新走 stable manifest/GitHub/jsDelivr fallback；热更新受 debug 开关保护，构建 zip 与 manifest，运行时做版本兼容、sha256/signature、stage、下次启动激活和回滚标记。
+  - 风险点：热更新 manifest 的 `signature` 当前实质是 `sha256:{sha}`，不能写成非对称强签名；`remote_config.js` 同时兼容 `module_center` 和历史 `more_modules` 字段，后续配置文档必须写清 schema。
+- 模块中心、更多模块与扩展游戏宿主：
+  - 关键文件：`src/utils/module_center.js`、`src/utils/more_modules.js`、`src/components/MoreView.vue`、`src/components/MoreModuleHostView.vue`、`src/utils/website_game_modules_contract.spec.ts`、`website/modules-src/*/module.json`。
+  - 设计意图：`module_center.js` 定义内置远程模块卡片并合并线上 catalog；`more_modules.js` 负责 catalog/manifest 拉取、镜像 URL、Tauri/Capacitor/Web 预览策略、Android bundle 下载解压、iframe preview source 选择和缓存状态；契约测试约束模块 manifest、iframe 安全嵌入、动态视口、模块消息来源和布局。
+  - 风险点：Capacitor 本地 file iframe 兼容性和 Tauri/Android 本地缓存策略不同；`hugongda_escape` 源码存在但 manifest 禁用，后续模块文档要区分源码存在、打包启用、用户可见三种状态。
+- 静态资源、图片、CDN 与学期时间辅助：
+  - 关键文件：`src/utils/static_resource_cache.js`、`src/utils/image_cache.ts`、`src/utils/cdn_loader.js`、`src/utils/semester.js`、`src/utils/time.js`、`src/utils/schedule_prefetch.js`。
+  - 设计意图：宿舍/资源类静态数据使用 Gitcode、manifest CDN、ghfast、GitHub raw 等多源兜底并接入前端缓存；图片缓存区分 Tauri AppCache 与 Web 元数据；学期、时间、课表预取为首页、课表、通知和 Widget 提供统一辅助。
+  - 风险点：外部静态资源源较多，后续运维文档需写清更新流程、可访问性和版权/数据来源边界。
+- 平台适配层与 native bridge：
+  - 关键文件：`src/platform/runtime.ts`、`src/platform/index.ts`、`src/platform/types.ts`、`src/platform/native.ts`、`src/platform/adapters/tauri.ts`、`src/platform/adapters/capacitor.ts`、`src/platform/adapters/web.ts`、`src/platform/notification_actions.ts`、`src/platform/capacitor/widget.ts`。
+  - 设计意图：`PlatformBridge` 把 Tauri、Capacitor、Web 的打开链接、通知、常亮、分享、前台保活、电池优化等能力统一起来；`runtime.ts` 负责运行时识别；`native.ts` 是底层 Tauri invoke 包装；通知点击 payload 统一解析到目标 view。
+  - 风险点：Web 端通知、WakeLock、Share 都是弱能力兜底；Capacitor iOS 不支持前台服务保活；Tauri 通知优先 Rust native command，失败后才走插件，Windows fallback 不应被写成可靠等价能力。
+- Tauri/Rust 后端、HTTP 客户端与数据库：
+  - 关键文件：`src-tauri/src/lib.rs`、`src-tauri/src/main.rs`、`src-tauri/src/db.rs`、`src-tauri/src/http_client/mod.rs`、`src-tauri/src/http_client/auth.rs`、`src-tauri/src/http_client/session.rs`、`src-tauri/src/http_client/academic.rs`、`src-tauri/src/http_client/electricity.rs`、`src-tauri/src/http_client/library.rs`、`src-tauri/src/http_client/qxzkb.rs`、`src-tauri/src/http_client/ai.rs`、`src-tauri/src/modules/mod.rs`、`src-tauri/src/modules/*.rs`、`src-tauri/src/modules/chaoxing_checkin/*`。
+  - 设计意图：后端以 `AppState { client: Arc<Mutex<HbutClient>> }` 共享统一 HTTP 会话；`HbutClient` 管理 `reqwest::Client`、Cookie Jar、OCR client、CAS/教务域名、登录凭据、电费 token、重登冷却和会话恢复；`modules` 按成绩、课表、考试、排名、学籍、空教室、校历、培养方案、选课、电费、流水、通知、AI、一码通、模块包、在线学习、超星签到、天气拆分；`db.rs` 使用 SQLite 存储成绩缓存、通用缓存、用户会话、自定义课表、在线学习、同步记录、KV、超星签到日志。
+  - 风险点：`lib.rs` command 数量大，后续文档应按登录、教务、校园生活、扩展模块、调试桥、文件/通知分组；`HbutClient` 和 `db.rs` 涉及 Cookie、密码、token、会话快照，安全文档必须说明持久化、加密、退出登录清理和敏感数据生命周期；超星签到包含截屏、域名白名单、二维码解析，需按平台权限单独说明。
+- 构建、发布、模块市场与脚本工具：
+  - 关键文件：`package.json`、`website/package.json`、`vite.config.ts`、`website/vite.config.ts`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`capacitor.config.ts`、`scripts/check_dist_boundary.mjs`、`scripts/prepare_dist.mjs`、`scripts/build_website_modules.mjs`、`scripts/build_release_manifests.mjs`、`scripts/guard_sensitive_uploads.mjs`、`scripts/check-frontend-safety.mjs`、`website/scripts/test-release-links.mjs`、`website/scripts/update-release-links.mjs`。
+  - 设计意图：根 `package.json` 提供 Web、Tauri、Capacitor、热更新、调试桥和模块桥接测试入口；Tauri 构建前执行前端 build 与 dist 边界检查；Capacitor 复用 `dist`；Vite 支持 `MINI_HBUT_BUILD_PROFILE` 并手动拆分核心 chunk；模块打包脚本按 `website/modules-src/*/module.json` 生成 bundle、manifest、catalog；release manifest 脚本整理 stable/dev/latest/history；安全脚本阻止敏感上传并检查前端高风险调用。
+  - 风险点：`scripts/build_website_modules.mjs` 会执行 `npm ci` 并可能 fallback 到 `npm install`，不是只读构建；Windows 下脚本内部为了 `npm.cmd` 使用 `cmd.exe /c`，这是仓库脚本实现细节，不等同于 agent shell 调用方式；`website/scripts/update-release-links.mjs` 已偏历史兼容，后续文档应标记其职责变化。
+- 测试与契约覆盖：
+  - 关键文件：`src/utils/*.spec.ts`、`src/platform/*.spec.ts`、`src/platform/adapters/*.spec.ts`、`src/styles/*.spec.ts`、`scripts/test_*`、`website/scripts/test-release-links.mjs`。
+  - 设计意图：用 Vitest 和脚本测试覆盖缓存、论坛、模块中心、热更新、调试桥、通知平台适配、Widget snapshot、游戏模块契约、发布链接和资源分享网络链路。
+  - 风险点：部分契约测试跨越 `src/components`、`website/modules-src`、`website/public/modules`，正式开发者文档要说明它们不是单纯 utils 单测，而是跨模块回归护栏。
 - 验证结果：
+- 已执行 `rg --files src\utils src\platform scripts website\scripts src-tauri\src`，确认开发者侧输入范围与关键文件存在。
+- 已读取 `package.json` 和 `website/package.json`，确认根项目与 website 的 npm 脚本、依赖和构建入口。
+- 已读取 `src-tauri/src/modules/mod.rs`，确认 Rust 业务模块导出清单。
+- 已执行 `rg -n "export |invokeNative|createNativeBridge|getRuntime|isTauri|isCapacitor|notification|Preferences|LocalNotifications|Browser|Filesystem|Share" src\platform src\utils\api.ts src\utils\api.js src\utils\axios_adapter.js`，确认平台能力、native 调用和前端 API/缓存入口。
+- 已执行 `rg -n "tauri::command|generate_handler|Builder|plugin|manage\(|setup\(|invoke_handler|http_server|debug_bridge|AppState|State<|Mutex|Arc" src-tauri\src\lib.rs src-tauri\src\main.rs src-tauri\src\db.rs src-tauri\src\http_client\mod.rs`，确认 Tauri command、插件、AppState、HTTP server 和调试桥注册。
+- 已执行 `rg -n "HbutClient|CAS|BASE|Cookie|cookie|encrypt|session|token|reqwest|Jar|OCR|captcha|cooldown|restore" src-tauri\src\http_client src-tauri\src\modules`，确认 HTTP 客户端、Cookie、会话、token、OCR、重登和模块调用证据。
+- 已执行 `rg -n "localStorage|indexedDB|cache|Cache|offline|notify|Notification|export|screenshot|cloud|remote|debug|hot|module|manifest|semester|theme|font|settings" src\utils`，确认前端缓存、离线、通知、导出、云同步、远程配置、热更新、模块、学期、主题、字体和设置证据。
+- 并行子代理只读审计完成三块：`src/utils` 工具层、`src/platform` + `src-tauri` 平台/Rust 层、`scripts` + `website/scripts` + 模块市场构建链路；三份结果均显示没有修改文件、没有提交。
+- 已执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\utf8.ps1`，为 Windows 中文输出和写入设置 UTF-8 基线。
 - 剩余风险：
+- 本任务是开发者主题清单，不执行构建、测试或运行时验证；后续 Checkpoint A 和正式文档落地阶段需要补充构建/测试证据。
+- `src-tauri/src/lib.rs` command 数量很大，本任务按主题归类，尚未逐个 command 建立参数/返回值索引；该工作留给后续架构、平台和参考索引任务。
+- 远程配置、云同步、AI、热更新、模块市场涉及外部服务和敏感字段，本任务仅做源码侧静态审计，后续安全隐私文档需做更细边界核对。
+- 当前工作区存在其他未提交改动和 `goal-4/` 未跟踪目录，本轮未触碰；后续提交仍需只暂存本 goal 相关文件。
 - 下一步：
+- 执行 Checkpoint A：对前三项索引、用户模块清单、开发者模块清单做全面检查/debug，确认没有核心目录和关键模块遗漏。
 
 ## Checkpoint A：前三项全面检查/debug
 
