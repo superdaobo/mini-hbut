@@ -182,18 +182,18 @@
 
 ## Task 11: 五子棋多人在线对战
 
-- [ ] 状态：未完成
-- [ ] 接入 Task 9 选定的默认在线方案
-- [ ] 实现房间创建、加入、同步落子、断线提示、冲突/重复消息处理
-- [ ] 保留本地单机和本地双人降级模式
-- [ ] 运行规则测试、联机双标签页验收和构建
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 接入 Task 9 选定的默认在线方案
+- [x] 实现房间创建、加入、同步落子、断线提示、冲突/重复消息处理
+- [x] 保留本地单机和本地双人降级模式
+- [x] 运行规则测试、联机双标签页验收和构建
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：为湖工五子棋新增 `online.js` 联机协议层和 `online.test.js` 测试，接入 Trystero Nostr 默认 P2P 房间，并新增 BitTorrent tracker 后备策略。页面新增创建/加入/本地切换联机面板，支持房间号生成与格式化、房主黑子/加入者白子席位、落子同步、重开同步、对手离开提示、连接超时提示和本地双人降级。协议层补充消息幂等、同一逻辑落子去重、冲突落子提示、跨房间消息拒绝、缺失房间号拒绝、目标快照过滤、快照房主校验和双白子席位保护；第三个 peer 只能作为旁观席，不能覆盖白子席位或落子。
+- 验证结果：先补联机后备策略与协议安全红灯测试，失败点覆盖 `nextOnlineStrategy` 缺失、Trystero 配置仍用顶层 `relayUrls`、torrent 适配器缺失、跨房间/缺房间号消息未拒绝、目标快照和伪造房主快照可污染状态、双白子席位覆盖等。实现后在 `website/modules-src/hbut_gomoku/project` 运行 `npm.cmd test`，退出码 0，`src/game/gomoku.test.js` 与 `src/game/online.test.js` 合计 20/20 通过；运行 `npm.cmd run build`，退出码 0，Vite 构建成功，仅保留项目既有 Tailwind content 为空警告；根目录运行 `npm.cmd test -- src/utils/website_game_modules_contract.spec.ts`，退出码 0，8/8 通过；运行 `git diff --check -- website/modules-src/hbut_gomoku goal-3/tasks.md`，退出码 0。使用 Playwright 验收 `http://127.0.0.1:5200/`：320x568、360x640、390x844、430x932 均无横向滚动、无底部越界、无控件越界，棋盘尺寸分别约 288x288、344x344、374x374、410x410。双页面 390x844 联机验收中，房主创建 `HBUT-TVRZ-2FKB`，加入者加入后双方均显示“已连接”，房主落子后加入者同步到 1 枚黑子，本地按钮可回到“本地双人”。第二次双页面尝试 30 秒内未连接，符合公共 relay 可用性波动风险；页面仍保留等待/失败提示与本地降级入口。只读复审未发现 Critical；Important 反馈中的缺失房间号拒绝和伪造房主快照防护已修复并重新验证通过。
+- 剩余风险：当前 P2P 方案依赖公共 Nostr relay / BitTorrent tracker 与 WebRTC 直连，真实校园网、移动网、对称 NAT、公共 relay 限流或 WebSocket 超时仍可能导致连接慢或失败；没有自有 TURN/权威服务器，不能保证所有网络可达，也不能提供生产级强防作弊。浏览器验收日志中曾出现 `relay.damus.io` 限流、`nostr.wine` 写入限制和 `relay.snort.social` 握手超时，但一次完整双页面对局仍能连通并同步。`website/public/modules/*` 发布目录尚未同步新五子棋构建包，留到 Task 12 全量最终 review 处理。
+- 下一步：Task 12 执行全量最终 review、构建与验收，重点同步/复核发布目录、真实 Tauri 宿主内嵌体验、所有已改小游戏移动端 UI、构建测试、安全与回滚风险。
 
 ## Task 12: 全量最终 review、构建与验收
 
