@@ -483,15 +483,46 @@
 
 ## Task 7：编写教务服务全量用户文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：覆盖成绩、课表、考试、培养方案、选课、教务维护/缓存等教务功能。
 - 输入范围：对应 Vue 组件、utils 中教务相关逻辑。
 - 输出要求：教务服务专题文档，包含入口、使用方法、状态说明、异常处理。
 - 验证方式：源码证据核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/AcademicServices.tsx`：
+  - 将原有教务服务骨架页替换为用户侧“教务服务全量指南”。
+  - 覆盖成绩查询、成绩分布 Beta、个人课表、全校课表、选课中心、空教室、考试安排、绩点排名、校历、学业完成情况、培养方案 11 个教务模块。
+  - 每个模块都写入入口、使用方法、状态说明、异常处理和源码证据路径。
+  - 补充成绩页课程搜索、给分记录、挂科标签、学分绩点、离线缓存和缓存更新时间说明。
+  - 补充个人课表的自定义课程、课程冲突、导入 JSON、导出 JSON、云上传、云下载、ICS / iCalendar 导出、Widget 快照、课表预热、学期锁和缓存秒开说明。
+  - 补充全校课表的筛选条件、课程列表、班级课表、离线横幅与 `qxzkb_public_cache` 边界。
+  - 补充选课中心的选课批次、筛选项、课程详情、教师详情、子教学班、确认选课、确认退课、实时操作和无 SQLite 离线选课缓存说明。
+  - 补充空教室的教学楼、节次、查询日期、自动重试、会话过期、连接失败保留上次结果和 `classroom_cache` 说明。
+  - 补充考试安排的倒计时、座位号、本学期暂无考试安排、Widget 快照写入和离线缓存说明。
+  - 补充绩点排名的 GPA、平均分排名、暂无排名数据、自动重试和离线缓存说明。
+  - 补充校历的当前周、学期开始、临时登录会话、离线横幅和周次说明。
+  - 补充学业完成情况的课程性质完成度、培养方案完成度、教学计划完成度、毕业学分完成度、分类树、课程详情、最低学分和最高学分说明。
+  - 补充培养方案的教研室、课程归属、课程编号、筛选项、分页和 `training_plan_cache` 说明。
+  - 增加源码证据索引，明确 `src/components/*`、`src/utils/schedule_prefetch.js`、`src/utils/grade_distribution.js`、`src-tauri/src/http_client/academic.rs`、`src-tauri/src/lib.rs`、`src-tauri/src/db.rs` 的对应关系。
+- 增强 `website/scripts/test-docs-user-content.mjs`：
+  - 新增 `AcademicServices` 用户文档内容契约。
+  - 对 Task 7 教务模块名称、入口/使用/状态/异常、关键用户操作、缓存状态、源码路径和骨架占位残留进行自动检查。
+  - 后续若教务页缺少成绩、课表、选课、空教室、考试、排名、校历、学业进度、培养方案等关键内容，会直接失败。
 - 验证结果：
+- 已执行 `node scripts/test-docs-user-content.mjs`，在新增 Task 7 契约后确认 RED，失败项集中在课程搜索、挂科、缓存更新时间、课表预热、缓存秒开、课程冲突、ICS、Widget 快照、确认选课、确认退课、实时操作、临时登录会话、分页、fetchWithCache、缓存表名和源码边界等缺失关键词。
+- 补全文档后执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认教务页扩写没有破坏文档路由/导航契约。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/academic/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `git diff --check -- website/src/pages/docs/AcademicServices.tsx website/scripts/test-docs-user-content.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
+- 已用 `rg` 抽样核对源码证据，覆盖 `GradeView.vue`、`GradeDistributionView.vue`、`ScheduleView.vue`、`schedule_prefetch.js`、`grade_distribution.js`、`src-tauri/src/lib.rs`、`src-tauri/src/db.rs`、`src-tauri/src/http_client/academic.rs` 中的关键词和缓存表。
 - 剩余风险：
+- 本任务聚焦用户侧教务服务，不展开开发者级缓存表结构、安全隐私和会话存储细节；这些留给 Task 11、Task 14 和参考索引任务。
+- 当前没有完成浏览器截图级视觉验收；长文视觉可读性和移动端体验留给 Task 17 统一处理。
+- 成绩分布 Beta 依赖远程 `/api/grade-distribution` 服务，文档只说明当前源码边界，不保证远程服务可用性。
+- 工作区仍存在与本 goal 无关的修改，本轮提交必须只包含 Task 7 相关文件。
 - 下一步：
+- 执行 Task 8：编写校园生活与工具类用户文档，覆盖电费、图书馆、校园码、地图、资源共享、通知、论坛、反馈等用户功能。
 
 ## Task 8：编写校园生活与工具类用户文档
 
