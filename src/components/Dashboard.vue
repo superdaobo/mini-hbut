@@ -760,6 +760,7 @@ const fetchWeather = async (force = false) => {
 
 // === 快捷入口（可配置） ===
 const QUICK_ENTRY_KEY = 'hbu_quick_entry_modules'
+const HOME_FEATURE_TAB_KEY = 'hbu_home_feature_tab'
 const defaultQuickEntries = ['grades', 'schedule', 'classroom', 'electricity', 'ranking']
 
 const quickEntryIds = ref([...defaultQuickEntries])
@@ -821,14 +822,38 @@ const quickEntryItems = computed(() => {
 })
 
 const handleQuickEntryClick = (id) => {
+  persistHomeFeatureTab()
   if (id === 'schedule') { emit('navigate', 'schedule'); return }
-  navigateTo(id)
+  navigateFromHome(id)
 }
 
 // === 全部功能 Tab ===
-const activeFeatureTab = ref('教务服务')
+const readStoredHomeFeatureTab = () => {
+  try {
+    return localStorage.getItem(HOME_FEATURE_TAB_KEY) || '教务服务'
+  } catch (_e) {
+    return '教务服务'
+  }
+}
+
+const activeFeatureTab = ref(readStoredHomeFeatureTab())
+const persistHomeFeatureTab = () => {
+  try {
+    localStorage.setItem(HOME_FEATURE_TAB_KEY, activeFeatureTab.value)
+  } catch (_e) {
+    // ignore storage failure
+  }
+}
+const setActiveFeatureTab = (title) => {
+  activeFeatureTab.value = title
+  persistHomeFeatureTab()
+}
+const navigateFromHome = (moduleId) => {
+  persistHomeFeatureTab()
+  navigateTo(moduleId)
+}
 const featureTabModules = computed(() => {
-  const cat = moduleCategories.value.find(c => c.title === activeFeatureTab.value)
+  const cat = moduleCategories.value.find(c => c.title === activeFeatureTab.value) || moduleCategories.value[0]
   return cat ? cat.modules : []
 })
 
@@ -1069,7 +1094,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 <template>
   <div class="dashboard-root antialiased max-w-[520px] mx-auto relative min-h-screen bg-[#f0f4f8]">
     <!-- Header -->
-    <header class="flex items-center justify-between px-4 pt-4 pb-4 sticky top-0 bg-[#f0f4f8]/90 backdrop-blur z-50">
+    <header class="home-fixed-header flex items-center justify-between px-4 pt-4 pb-4 bg-[#f0f4f8]/90 backdrop-blur">
       <div class="flex items-center space-x-2">
         <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
           <img src="/splash/app_icon.png" class="w-6 h-6 object-contain" alt="HBUT" />
@@ -1092,7 +1117,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
       </div>
     </header>
 
-    <main class="px-4 space-y-6 pb-6">
+    <main class="home-scroll-content px-4 space-y-6 pb-6">
       <!-- Greeting & Weather -->
       <div class="flex justify-between items-end">
         <div>
@@ -1148,7 +1173,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         <div v-else-if="todayLoading" class="text-center py-8 text-gray-400 text-sm">正在加载今日课程...</div>
         <div v-else-if="todayError" class="text-center py-8 text-red-400 text-sm">{{ todayError }}</div>
         <div v-else-if="todayCourses.length === 0" class="flex flex-col items-center py-8">
-          <img src="/splash/course_done_icon.webp" class="w-20 h-20 mb-3 opacity-80" alt="All done" />
+          <img src="/splash/course_done_icon.webp" class="today-empty-icon mb-3 opacity-80" alt="All done" />
           <span class="text-gray-400 text-sm">今日无课程安排 🎉</span>
         </div>
 
@@ -1292,7 +1317,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
               :key="cat.title"
               class="pb-1 px-1 text-sm font-medium transition-all"
               :class="activeFeatureTab === cat.title ? 'font-bold text-blue-500 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'"
-              @click="activeFeatureTab = cat.title"
+              @click="setActiveFeatureTab(cat.title)"
             >
               {{ cat.title }}
             </button>
@@ -1303,7 +1328,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
             v-for="mod in featureTabModules"
             :key="mod.id"
             class="flex flex-col items-center cursor-pointer"
-            @click="navigateTo(mod.id)"
+            @click="navigateFromHome(mod.id)"
           >
             <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-2 shadow-sm" :class="featureIconColors[mod.id] || 'bg-gray-400'">
               <i class="fas text-xl" :class="featureIcons[mod.id] || 'fa-cube'"></i>
@@ -1519,8 +1544,32 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
 <style scoped>
 .dashboard-root {
+  --home-header-height: 72px;
   padding-bottom: 80px;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.home-fixed-header {
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 100vw);
+  z-index: 55;
+}
+
+.home-scroll-content {
+  padding-top: var(--home-header-height);
+}
+
+.today-empty-icon {
+  display: block;
+  width: 80px;
+  max-width: 80px;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .card-shadow {
