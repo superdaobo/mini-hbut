@@ -829,15 +829,48 @@
 
 ## Task 13：编写构建、测试、发布与运维文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：说明根项目与 website 的脚本、构建产物、发布 manifest、资源边界检查。
 - 输入范围：`package.json`、`scripts`、`website/package.json`、`website/scripts`。
 - 输出要求：运维与发布专题。
 - 验证方式：脚本清单核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/BuildRelease.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“构建发布”开发者专题页。
+  - 写清根项目脚本入口：`package.json` 的 `prebuild`、`prebuild:web`、`dev`、`build`、`build:web`、`build:hot-bundle`、`test`、`tauri`、`tauri:dev:debug-bridge`、`cap:sync`、`cap:run:android`、`cap:open:android`、`cap:open:ios`。
+  - 写清 `prebuild` / `prebuild:web` 会先执行 `scripts/prepare_dist.mjs`，会删除、移动或截断根目录 `dist`，避免把 `npm run build` 误写成无副作用命令。
+  - 写清主应用 `vite.config.ts` 的 `MINI_HBUT_BUILD_PROFILE`、`VITE_APP_VERSION`、`VITE_BUILD_PROFILE`、release profile drop console/debugger、dev-fast profile、`manualChunks`、1420 dev server 和 `/bridge` proxy。
+  - 写清 `scripts/check_dist_boundary.mjs` 的 `allowedEntries` / `allowedTopLevelEntries`、`forbiddenSegments`、`modules` / `website` / `app-resources` 禁止进入桌面包的边界。
+  - 写清 Tauri 发布链：`src-tauri/tauri.conf.json` 的 `beforeDevCommand`、`devUrl`、`beforeBuildCommand`、`frontendDist`、NSIS、WebView2 downloadBootstrapper，以及 `src-tauri/Cargo.toml` release profile 的体积优化配置。
+  - 写清 Capacitor 发布链：`capacitor.config.ts` 的 `appId`、`appName`、`webDir`、`androidScheme`、`iosScheme`，以及 `cap:sync` / `cap:run:android` 先构建 Web 产物再同步或运行原生工程。
+  - 写清 website 构建链：`website/package.json` 的 `test:docs-ia`、`test:docs-developer-content`、`test:docs-user-content`、`test:release-links`、`build`，以及 `website/vite.config.ts` 的多入口静态 docs 页面。
+  - 写清 `scripts/build_release_manifests.mjs` 的 `stable-latest.json`、`dev-latest.json`、`latest.json`、`active.json`、`channels.json`、`history.json`、版本目录 `manifest.json`、`latest/active` 只指向 stable/main 和 release 目录裁剪风险。
+  - 写清 `scripts/build_hot_bundle.mjs` 的 `dist-hot`、`mini-hbut-web-${version}.zip`、`hot-manifest.json`、`sha256`、`signature: sha256:${sha256}`、bootstrap/native 版本范围和非对称签名缺失边界。
+  - 写清 `scripts/build_website_modules.mjs` 的 `website/public/modules`、main/dev/latest channel、`catalog.json`、`manifest.json`、`site`、`bundle.zip`、`package_sha256`、`package_size`、`open_url`、`published_channel`、`source_channel`。
+  - 写清 `scripts/guard_sensitive_uploads.mjs`、`scripts/check-frontend-safety.mjs`、`scripts/check-design-tokens.mjs`、`scripts/report_bundle_sizes.mjs`、`website/scripts/test-release-links.mjs` 和废弃的 `website/scripts/update-release-links.mjs`。
+  - 增加“写入型脚本”“只读检查脚本”“发布前检查清单”“运维风险边界”“源码证据索引”“继续阅读”章节。
+- 增强 `website/scripts/test-docs-developer-content.mjs`：
+  - 将 `BuildRelease.tsx` 纳入开发者内容契约。
+  - 检查构建发布页必须覆盖根构建脚本、dist 清理、热更新包、Tauri/Capacitor 发布链、release manifest、website modules、文档站测试、release link 检查、安全守卫、写入型脚本、只读检查脚本、发布前检查清单和源码证据索引。
+  - 检查构建发布页不得残留 `DocSectionPage`、`后续扩写来源`、`本页骨架职责` 等骨架占位。
+- 并行只读审计：
+  - 根构建链子任务审计 `package.json`、`vite.config.ts`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`scripts/prepare_dist.mjs`、`scripts/check_dist_boundary.mjs`、`scripts/build_hot_bundle.mjs`、`scripts/report_bundle_sizes.mjs`、`scripts/run_tauri_debug_dev.mjs`、`scripts/check-frontend-safety.mjs`、`scripts/check-design-tokens.mjs`、`scripts/guard_sensitive_uploads.mjs`，确认写入型脚本、只读检查脚本和发布风险。
+  - website 发布链子任务审计 `website/package.json`、`website/vite.config.ts`、`website/scripts/test-release-links.mjs`、`website/scripts/update-release-links.mjs`、`scripts/build_release_manifests.mjs`、`scripts/build_website_modules.mjs`、`scripts/test_more_module_bridge.mjs`、`scripts/test_hot_update_framework.mjs`、`website/public/releases` 和 `website/public/modules` 抽样产物，确认 release/modules 产物结构和发布治理风险。
 - 验证结果：
+- 已执行 `npm run test:docs-developer-content`，在新增 Task 13 契约后确认 RED，失败项集中在 `BuildRelease.tsx` 仍为骨架、缺少 `prebuild`、`scripts/prepare_dist.mjs`、`build:web`、`build:hot-bundle`、`scripts/build_hot_bundle.mjs`、`dist-hot`、`hot-manifest.json`、`sha256`、`src-tauri/tauri.conf.json`、`beforeBuildCommand`、`scripts/check_dist_boundary.mjs`、`allowedEntries`、`forbiddenSegments`、`MINI_HBUT_BUILD_PROFILE`、`manualChunks`、`cap:sync`、`capacitor.config.ts`、`webDir`、`scripts/build_release_manifests.mjs`、`stable-latest.json`、`dev-latest.json`、`active.json`、`channels.json`、`history.json`、`latest/active`、`scripts/build_website_modules.mjs`、`website/public/modules`、`catalog.json`、`bundle.zip`、`package_sha256`、安全检查脚本、文档测试脚本、写入/只读检查章节和源码证据关键词。
+- 完成正文扩写后重新执行 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认构建发布专题扩写没有破坏文档路由、导航和静态入口契约。
+- 已执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`，确认本轮开发者文档改动没有破坏已完成的用户侧内容契约。
+- 已执行 `npm run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/build-release/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
 - 剩余风险：
+- 本任务聚焦构建、测试、发布与运维文档，不实际执行 Tauri 桌面打包、Capacitor Android/iOS 同步、热更新包生成、release manifest 生成、website modules 发布或 release links 网络检查，避免在 goal 模式中触发高副作用发布动作。
+- `scripts/build_release_manifests.mjs` 会裁剪旧 release 目录，`scripts/build_website_modules.mjs` 会安装依赖、构建模块并写入 `website/public/modules`，文档已标注为写入型脚本；后续真实发布仍需要人工确认目标目录和环境变量。
+- website 发布链只做只读抽样，发现当前 `website/public/releases` 和 `website/public/modules` 产物存在可能的治理风险：manifest 声明资产与本地文件可能不一致、main/latest 的 `source_channel` 可能来自 dev、旧模块版本缺少自动清理；本轮只记录为运维风险，不修改发布产物。
+- 热更新 manifest 当前使用 `signature: sha256:${sha256}`，文档已写明不是非对称签名；安全隐私专题仍需继续细化热更新、模块包和远程内容的安全边界。
+- 工作区仍存在与 goal-5 无关的修改和未跟踪文件，本轮提交必须只包含 `BuildRelease.tsx`、`test-docs-developer-content.mjs` 和 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 14：编写安全、隐私与合规文档，面向用户和开发者说明账号、Cookie、本地缓存、权限、网络请求、敏感数据、远程内容、调试桥和热更新边界。
 
 ## Task 14：编写安全、隐私与合规文档
 

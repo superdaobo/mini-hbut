@@ -10,6 +10,7 @@ const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8
 const developerOverview = read('src/pages/docs/DeveloperOverview.tsx');
 const architectureDataFlow = read('src/pages/docs/ArchitectureDataFlow.tsx');
 const platformTauri = read('src/pages/docs/PlatformTauri.tsx');
+const buildRelease = read('src/pages/docs/BuildRelease.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -263,6 +264,63 @@ if (
   platformTauri.includes('DocSectionPage')
 ) {
   failures.push('PlatformTauri 仍包含骨架页占位或通用骨架组件');
+}
+
+expectIncludes(buildRelease, 'BuildRelease', [
+  '构建发布',
+  'package.json',
+  'prebuild',
+  'scripts/prepare_dist.mjs',
+  'build:web',
+  'build:hot-bundle',
+  'scripts/build_hot_bundle.mjs',
+  'dist-hot',
+  'hot-manifest.json',
+  'sha256',
+  'src-tauri/tauri.conf.json',
+  'beforeBuildCommand',
+  'scripts/check_dist_boundary.mjs',
+  'allowedEntries',
+  'forbiddenSegments',
+  'MINI_HBUT_BUILD_PROFILE',
+  'manualChunks',
+  'Capacitor',
+  'cap:sync',
+  'capacitor.config.ts',
+  'webDir',
+  'scripts/build_release_manifests.mjs',
+  'stable-latest.json',
+  'dev-latest.json',
+  'active.json',
+  'channels.json',
+  'history.json',
+  'latest/active',
+  'scripts/build_website_modules.mjs',
+  'website/public/modules',
+  'catalog.json',
+  'bundle.zip',
+  'package_sha256',
+  'scripts/guard_sensitive_uploads.mjs',
+  'scripts/check-frontend-safety.mjs',
+  'scripts/check-design-tokens.mjs',
+  'website/package.json',
+  'test:docs-ia',
+  'test:docs-developer-content',
+  'test:docs-user-content',
+  'test:release-links',
+  'website/scripts/test-release-links.mjs',
+  '写入型脚本',
+  '只读检查脚本',
+  '发布前检查清单',
+  '源码证据索引',
+]);
+
+if (
+  buildRelease.includes('后续扩写来源') ||
+  buildRelease.includes('本页骨架职责') ||
+  buildRelease.includes('DocSectionPage')
+) {
+  failures.push('BuildRelease 仍包含骨架页占位或通用骨架组件');
 }
 
 if (failures.length > 0) {
