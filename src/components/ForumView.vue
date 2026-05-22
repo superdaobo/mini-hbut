@@ -1,6 +1,5 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { TPageHeader } from './templates'
 import { fetchRemoteConfig } from '../utils/remote_config'
 import {
   buildForumApiBase,
@@ -51,6 +50,8 @@ const replyFiles = ref([])
 const threadFiles = ref([])
 const profile = ref(readForumProfile(props.studentId))
 const meSummary = ref(null)
+const viewedUserProfile = ref(null)
+const viewedProfileLoading = ref(false)
 const myThreads = ref([])
 const myReplies = ref([])
 const myBookmarks = ref([])
@@ -95,6 +96,9 @@ const composerHint = computed(() => {
   if (!hasRemoteCategories.value) return '版块初始化中，请稍后刷新'
   return ''
 })
+const meStats = computed(() => meSummary.value?.stats || {})
+const viewedProfileInfo = computed(() => viewedUserProfile.value?.profile || {})
+const viewedProfileStats = computed(() => viewedUserProfile.value?.stats || {})
 
 const toText = (value) => (value == null ? '' : String(value))
 
@@ -329,6 +333,30 @@ const setReplyFiles = (event) => {
   replyFiles.value = Array.from(event?.target?.files || []).slice(0, 4)
 }
 
+const uploadAvatarImage = async (event) => {
+  const input = event?.target
+  const file = Array.from(input?.files || [])[0]
+  if (!file) return
+  if (!isLoggedIn.value) {
+    if (input) input.value = ''
+    return requireLogin()
+  }
+  if (!client) await buildClient()
+  try {
+    await runPending('profile:avatar-upload', async () => {
+      const payload = await client.uploadAttachment(file)
+      const attachmentAddress = payload?.url || payload?.attachment_id
+      if (!attachmentAddress) throw new Error('图床未返回头像地址')
+      profile.value.avatar_url = client.getAttachmentUrl(attachmentAddress)
+      showToast('头像已上传到图床，请保存资料', 'success')
+    }, '头像图床上传中，请勿重复选择')
+  } catch (error) {
+    showToast(error?.message || '头像上传失败', 'error')
+  } finally {
+    if (input) input.value = ''
+  }
+}
+
 const submitThread = async () => {
   if (!isLoggedIn.value) return requireLogin()
   if (!client) await buildClient()
@@ -429,8 +457,25 @@ const followAuthor = async (studentId) => {
   })
 }
 
+const openUserProfile = async (studentId) => {
+  const target = toText(studentId).trim()
+  if (!target) return
+  if (!client) await buildClient()
+  activeTab.value = 'user-profile'
+  viewedProfileLoading.value = true
+  viewedUserProfile.value = null
+  try {
+    viewedUserProfile.value = await cached(`user-profile:${target}`, () => client.getUserProfile(target), 30_000)
+  } catch (error) {
+    errorMessage.value = error?.message || '用户主页加载失败'
+  } finally {
+    viewedProfileLoading.value = false
+  }
+}
+
 const reportThread = async (thread) => {
   if (!isLoggedIn.value) return requireLogin()
+  if (!thread?.id) return
   await runPending(`report:${thread.id}`, async () => {
     await client.reportContent({
       target_type: 'thread',
@@ -549,6 +594,8 @@ watch(
     replyFiles.value = []
     threadFiles.value = []
     meSummary.value = null
+    viewedUserProfile.value = null
+    viewedProfileLoading.value = false
     activeTab.value = 'feed'
     await buildClient()
     await loadForumData({ force: true })
@@ -557,520 +604,546 @@ watch(
 </script>
 
 <template>
-  <div class="forum-view">
-    <TPageHeader icon="forum" title="校园论坛" :show-back="false">
-      <template #actions>
-        <button class="forum-icon-btn" :disabled="refreshing" title="刷新" @click="loadForumData({ force: true })">
+  <section class="forum-view" data-stitch-design="Campus Vitality">
+    <div class="forum-phone-shell">
+      <header class="forum-topbar">
+        <button class="avatar-button" type="button" @click="switchTab('me')">
+          <span>{{ initials(profile.nickname || studentId) }}</span>
+        </button>
+        <h1>HBUT Forum</h1>
+        <button class="icon-button" type="button" :disabled="refreshing" title="刷新" @click="loadForumData({ force: true })">
           <span class="material-symbols-outlined">refresh</span>
         </button>
-      </template>
-    </TPageHeader>
+      </header>
 
-    <section class="forum-hero">
-      <div class="hero-avatar" aria-hidden="true">{{ initials(profile.nickname || studentId) }}</div>
-      <div class="hero-copy">
-        <span class="eyebrow">Mini-HBUT Community</span>
-        <h2>湖工大校园广场</h2>
-        <p>{{ isLoggedIn ? `${profile.nickname || studentId}，欢迎回来` : '登录后可发帖、评分、收藏、关注和私信' }}</p>
-      </div>
-      <button class="hero-action" :disabled="!isLoggedIn" @click="switchTab('compose')">
-        <span class="material-symbols-outlined">edit_square</span>
-        发布
-      </button>
-    </section>
-
-    <nav class="forum-tabs" aria-label="论坛导航">
-      <button
-        v-for="tab in visibleTabs"
-        :key="tab.key"
-        :class="{ active: activeTab === tab.key }"
-        @click="switchTab(tab.key)"
-      >
-        <span class="material-symbols-outlined">{{ tab.icon }}</span>
-        <span>{{ tab.label }}</span>
-        <em v-if="tab.key === 'notice' && unreadCount">{{ unreadCount }}</em>
-      </button>
-    </nav>
-
-    <section v-if="errorMessage" class="message-line">
-      <span class="material-symbols-outlined">info</span>
-      {{ errorMessage }}
-    </section>
-
-    <section v-show="activeTab === 'feed'" class="forum-shell">
-      <aside class="forum-sidebar">
-        <div class="section-title">
-          <span>版块</span>
-          <strong>{{ visibleCategories.length }}</strong>
-        </div>
+      <nav class="category-nav" aria-label="论坛版块">
         <button
           v-for="category in visibleCategories"
           :key="category.slug || category.id"
-          class="category-row"
+          type="button"
           :class="{ active: Number(selectedCategoryId) === Number(category.id) }"
           @click="chooseCategory(category)"
         >
-          <span class="material-symbols-outlined">tag</span>
-          <span>
-            <strong>{{ category.name }}</strong>
-            <small>{{ category.description }}</small>
-          </span>
+          {{ category.name }}
         </button>
-      </aside>
+      </nav>
 
-      <main class="feed-panel">
-        <div class="feed-toolbar">
-          <label class="search-box">
-            <span class="material-symbols-outlined">search</span>
-            <input id="forum-search" v-model="searchQuery" name="forum-search" placeholder="搜索帖子、评分、课程、反馈" @keyup.enter="runSearch" />
-          </label>
-          <button class="soft-btn" @click="runSearch">
-            <span class="material-symbols-outlined">travel_explore</span>
-            搜索
-          </button>
-        </div>
+      <main class="forum-canvas">
+        <section v-if="errorMessage" class="system-banner">
+          <span class="material-symbols-outlined">info</span>
+          <span>{{ errorMessage }}</span>
+        </section>
 
-        <div class="category-strip">
+        <section class="quick-tabs" aria-label="论坛页面">
           <button
-            v-for="category in visibleCategories"
-            :key="`chip-${category.slug || category.id}`"
-            class="category-chip"
-            :class="{ active: Number(selectedCategoryId) === Number(category.id) }"
-            @click="chooseCategory(category)"
+            v-for="tab in visibleTabs"
+            :key="tab.key"
+            type="button"
+            :class="{ active: activeTab === tab.key }"
+            @click="switchTab(tab.key)"
           >
-            {{ category.name }}
+            <span class="material-symbols-outlined">{{ tab.icon }}</span>
+            <span>{{ tab.label }}</span>
+            <em v-if="tab.key === 'notice' && unreadCount">{{ unreadCount }}</em>
           </button>
-        </div>
+        </section>
 
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow">{{ searchQuery.trim() ? '搜索结果' : selectedCategory?.name || '热榜' }}</span>
-            <h3>{{ searchQuery.trim() || selectedCategory?.description || '校园实时讨论' }}</h3>
-          </div>
-          <span>{{ displayThreads.length }} 条</span>
-        </div>
-
-        <div v-if="loading" class="loading-block">加载中...</div>
-        <div v-else-if="!displayThreads.length" class="empty-block">还没有帖子，发第一条吧</div>
-        <button
-          v-for="thread in displayThreads"
-          v-else
-          :key="thread.id"
-          class="thread-card"
-          :class="{ active: selectedThread?.id === thread.id }"
-          @click="openThread(thread)"
-        >
-          <div class="thread-card-head">
-            <div class="mini-avatar">{{ initials(authorName(thread.author_student_id)) }}</div>
+        <section v-show="activeTab === 'feed'" class="page-stack" data-forum-page="feed">
+          <div class="forum-hero-card">
             <div>
-              <strong>{{ authorName(thread.author_student_id) }}</strong>
-              <small>{{ categoryName(thread.category_id) }} · {{ formatTime(thread.updated_at || thread.created_at) }}</small>
+              <span class="eyebrow">Mini-HBUT Community</span>
+              <h2>湖工大校园广场</h2>
+              <p>{{ isLoggedIn ? `${profile.nickname || studentId}，欢迎回来` : '登录后可发帖、评分、收藏、关注和私信' }}</p>
             </div>
-            <span class="score-pill">{{ thread.score_avg || 0 }} 分</span>
-          </div>
-          <h3>{{ thread.title }}</h3>
-          <p>{{ thread.content_md }}</p>
-          <div v-if="thread.attachment_ids?.length" class="attachment-strip">
-            <span v-for="attachment in thread.attachment_ids" :key="attachment" class="attachment-pill">
-              <span class="material-symbols-outlined">image</span>
-              附件
-            </span>
-          </div>
-          <div class="thread-actions" @click.stop>
-            <button @click="scoreThread(thread, 8)">
-              <span class="material-symbols-outlined">star</span>
-              评分
-            </button>
-            <button @click="toggleBookmark(thread)">
-              <span class="material-symbols-outlined">{{ bookmarkedIds.has(Number(thread.id)) ? 'bookmark' : 'bookmark_add' }}</span>
-              {{ bookmarkedIds.has(Number(thread.id)) ? '已收藏' : '收藏' }}
-            </button>
-            <button @click="followAuthor(thread.author_student_id)">
-              <span class="material-symbols-outlined">person_add</span>
-              关注
+            <button class="primary-pill" type="button" :disabled="!isLoggedIn" @click="switchTab('compose')">
+              <span class="material-symbols-outlined">edit_square</span>
+              发布
             </button>
           </div>
-        </button>
-      </main>
-    </section>
 
-    <section v-if="activeTab === 'detail'" class="detail-panel">
-      <div class="detail-topbar">
-        <button class="forum-icon-btn" title="返回列表" @click="closeThread">
-          <span class="material-symbols-outlined">arrow_back</span>
-        </button>
-        <strong>帖子详情</strong>
-        <button class="forum-icon-btn" title="举报" @click="reportThread(threadDetail?.thread || selectedThread)">
-          <span class="material-symbols-outlined">flag</span>
-        </button>
-      </div>
-
-      <div v-if="detailLoading" class="loading-block">加载中...</div>
-      <article v-else-if="selectedThread" class="detail-card">
-        <div class="thread-card-head">
-          <div class="mini-avatar large">{{ initials(authorName(selectedThread.author_student_id)) }}</div>
-          <div>
-            <strong>{{ authorName(selectedThread.author_student_id) }}</strong>
-            <small>{{ categoryName(selectedThread.category_id) }} · {{ formatTime(selectedThread.created_at) }}</small>
-          </div>
-          <span class="score-pill">{{ selectedThread.score_avg || 0 }} 分</span>
-        </div>
-        <h2>{{ threadDetail?.thread?.title || selectedThread.title }}</h2>
-        <p class="detail-content">{{ threadDetail?.thread?.content_md || selectedThread.content_md }}</p>
-        <div v-if="(threadDetail?.thread?.attachment_ids || selectedThread.attachment_ids || []).length" class="image-grid">
-          <a
-            v-for="attachment in (threadDetail?.thread?.attachment_ids || selectedThread.attachment_ids || [])"
-            :key="attachment"
-            :href="attachmentUrl(attachment)"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <img :src="attachmentUrl(attachment)" alt="帖子附件" @error="$event.target.classList.add('broken')" />
-            <span>查看附件</span>
-          </a>
-        </div>
-        <div class="score-actions">
-          <button v-for="score in [1, 3, 5, 8, 10]" :key="score" @click="scoreThread(threadDetail?.thread || selectedThread, score)">
-            {{ score }} 分
-          </button>
-          <button @click="toggleBookmark(threadDetail?.thread || selectedThread)">
-            <span class="material-symbols-outlined">bookmark</span>
-            收藏
-          </button>
-        </div>
-
-        <div class="reply-box">
-          <textarea id="forum-reply-content" v-model="replyContent" name="forum-reply-content" rows="3" placeholder="写回复..." />
-          <div class="reply-tools">
-            <label class="file-btn">
-              <span class="material-symbols-outlined">add_photo_alternate</span>
-              <input type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setReplyFiles" />
+          <div class="search-card">
+            <label>
+              <span class="material-symbols-outlined">search</span>
+              <input id="forum-search" v-model="searchQuery" name="forum-search" placeholder="搜索帖子、评分、课程、反馈" @keyup.enter="runSearch" />
             </label>
-            <button class="primary-btn" :disabled="isPending(`reply:${selectedThread.id}:${replyContent.trim().slice(0, 80)}`)" @click="submitReply">回复</button>
+            <button class="icon-button tinted" type="button" @click="runSearch">
+              <span class="material-symbols-outlined">travel_explore</span>
+            </button>
           </div>
-        </div>
-        <div v-if="replyFiles.length" class="file-list">{{ replyFiles.length }} 个附件待上传</div>
 
-        <div class="reply-list">
-          <article v-for="reply in threadDetail?.replies || []" :key="reply.id" class="reply-card">
-            <div class="thread-card-head compact">
-              <div class="mini-avatar">{{ initials(authorName(reply.author_student_id)) }}</div>
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">{{ searchQuery.trim() ? 'Search Results' : selectedCategory?.name || 'Hot' }}</span>
+              <h3>{{ searchQuery.trim() || selectedCategory?.description || '校园实时讨论' }}</h3>
+            </div>
+            <span>{{ displayThreads.length }} 条</span>
+          </div>
+
+          <div v-if="loading" class="empty-card">加载中...</div>
+          <div v-else-if="!displayThreads.length" class="empty-card">
+            <span class="material-symbols-outlined">forum</span>
+            <strong>还没有帖子</strong>
+            <p>发第一条校园讨论，或者刷新看看热帖。</p>
+          </div>
+          <article
+            v-for="thread in displayThreads"
+            v-else
+            :key="thread.id"
+            class="post-card"
+            :class="{ active: selectedThread?.id === thread.id }"
+            @click="openThread(thread)"
+          >
+            <div class="post-author">
+              <button class="mini-avatar" type="button" @click.stop="openUserProfile(thread.author_student_id)">
+                {{ initials(authorName(thread.author_student_id)) }}
+              </button>
               <div>
-                <strong>{{ authorName(reply.author_student_id) }}</strong>
-                <small>{{ formatTime(reply.created_at) }}</small>
+                <strong>{{ authorName(thread.author_student_id) }}</strong>
+                <small>{{ formatTime(thread.updated_at || thread.created_at) }}</small>
+              </div>
+              <span class="category-badge">{{ categoryName(thread.category_id) }}</span>
+            </div>
+            <h3>{{ thread.title }}</h3>
+            <p>{{ thread.content_md }}</p>
+            <div v-if="thread.attachment_ids?.length" class="media-preview">
+              <span class="material-symbols-outlined">image</span>
+              {{ thread.attachment_ids.length }} 个附件
+            </div>
+            <div class="post-actions" @click.stop>
+              <button type="button" @click="scoreThread(thread, 8)">
+                <span class="material-symbols-outlined">favorite</span>
+                {{ thread.score_avg || 0 }} 分
+              </button>
+              <button type="button" @click="openThread(thread)">
+                <span class="material-symbols-outlined">comment</span>
+                {{ thread.reply_count || 0 }}
+              </button>
+              <button type="button" @click="toggleBookmark(thread)">
+                <span class="material-symbols-outlined">{{ bookmarkedIds.has(Number(thread.id)) ? 'bookmark' : 'bookmark_add' }}</span>
+                {{ bookmarkedIds.has(Number(thread.id)) ? '已收藏' : '收藏' }}
+              </button>
+            </div>
+          </article>
+        </section>
+
+        <section v-if="activeTab === 'detail'" class="page-stack" data-forum-page="detail">
+          <div class="detail-topbar">
+            <button class="icon-button" type="button" title="返回列表" @click="closeThread">
+              <span class="material-symbols-outlined">arrow_back</span>
+            </button>
+            <h2>{{ selectedThread?.title || '帖子详情' }}</h2>
+            <button class="icon-button" type="button" title="举报" @click="reportThread(threadDetail?.thread || selectedThread)">
+              <span class="material-symbols-outlined">flag</span>
+            </button>
+          </div>
+
+          <div v-if="detailLoading" class="empty-card">加载中...</div>
+          <article v-else-if="selectedThread" class="detail-card">
+            <div class="post-author large">
+              <button class="mini-avatar large" type="button" @click="openUserProfile(selectedThread.author_student_id)">
+                {{ initials(authorName(selectedThread.author_student_id)) }}
+              </button>
+              <div>
+                <strong>{{ authorName(selectedThread.author_student_id) }}</strong>
+                <small>{{ formatTime(selectedThread.created_at) }} · {{ categoryName(selectedThread.category_id) }}</small>
+              </div>
+              <span class="score-badge">{{ selectedThread.score_avg || 0 }} 分</span>
+            </div>
+            <h2>{{ threadDetail?.thread?.title || selectedThread.title }}</h2>
+            <p class="detail-content">{{ threadDetail?.thread?.content_md || selectedThread.content_md }}</p>
+            <div v-if="(threadDetail?.thread?.attachment_ids || selectedThread.attachment_ids || []).length" class="image-grid">
+              <a
+                v-for="attachment in (threadDetail?.thread?.attachment_ids || selectedThread.attachment_ids || [])"
+                :key="attachment"
+                :href="attachmentUrl(attachment)"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img :src="attachmentUrl(attachment)" alt="帖子附件" @error="$event.target.classList.add('broken')" />
+                <span>查看附件</span>
+              </a>
+            </div>
+            <div class="score-row">
+              <button v-for="score in [1, 3, 5, 8, 10]" :key="score" type="button" @click="scoreThread(threadDetail?.thread || selectedThread, score)">
+                {{ score }} 分
+              </button>
+              <button type="button" @click="toggleBookmark(threadDetail?.thread || selectedThread)">
+                <span class="material-symbols-outlined">bookmark</span>
+                收藏
+              </button>
+            </div>
+          </article>
+
+          <section class="comment-panel">
+            <div class="section-heading compact">
+              <h3>Comments ({{ threadDetail?.replies?.length || 0 }})</h3>
+            </div>
+            <div class="reply-composer">
+              <textarea id="forum-reply-content" v-model="replyContent" name="forum-reply-content" rows="2" placeholder="Add a comment..." />
+              <label class="icon-button tinted file-trigger">
+                <span class="material-symbols-outlined">image</span>
+                <input type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setReplyFiles" />
+              </label>
+              <button class="primary-icon" type="button" :disabled="!selectedThread || isPending(`reply:${selectedThread.id}:${replyContent.trim().slice(0, 80)}`)" @click="submitReply">
+                <span class="material-symbols-outlined">send</span>
+              </button>
+            </div>
+            <p v-if="replyFiles.length" class="form-hint">{{ replyFiles.length }} 个附件待上传</p>
+            <article v-for="reply in threadDetail?.replies || []" :key="reply.id" class="comment-card">
+              <button class="mini-avatar" type="button" @click="openUserProfile(reply.author_student_id)">
+                {{ initials(authorName(reply.author_student_id)) }}
+              </button>
+              <div>
+                <div class="comment-bubble">
+                  <strong>{{ authorName(reply.author_student_id) }}</strong>
+                  <small>{{ formatTime(reply.created_at) }}</small>
+                  <p>{{ reply.content_md }}</p>
+                  <div v-if="reply.attachment_ids?.length" class="inline-links">
+                    <a v-for="attachment in reply.attachment_ids" :key="attachment" :href="attachmentUrl(attachment)" target="_blank" rel="noreferrer">附件</a>
+                  </div>
+                </div>
+                <div class="comment-actions">
+                  <button type="button" @click="reactToReply(reply, 'up')">
+                    <span class="material-symbols-outlined">thumb_up</span>
+                    {{ reply.up_count || 0 }}
+                  </button>
+                  <button type="button" @click="reactToReply(reply, 'down')">
+                    <span class="material-symbols-outlined">thumb_down</span>
+                    {{ reply.down_count || 0 }}
+                  </button>
+                </div>
+              </div>
+            </article>
+            <div v-if="threadDetail && !threadDetail.replies?.length" class="empty-card compact">暂无回复</div>
+          </section>
+        </section>
+
+        <section v-if="activeTab === 'compose'" class="compose-page" data-forum-page="compose">
+          <div class="compose-topbar">
+            <button class="ghost-pill" type="button" @click="switchTab('feed')">Cancel</button>
+            <h2>Create Post</h2>
+            <button class="primary-pill" type="button" :disabled="!canPublishThread || isPending(`thread:${selectedCategoryId}:${newThread.title.trim()}:${newThread.content_md.trim()}`.slice(0, 180))" @click="submitThread">
+              Publish
+            </button>
+          </div>
+          <div class="editor-card">
+            <select v-model.number="selectedCategoryId" class="category-select">
+              <option v-for="category in visibleCategories" :key="category.id" :value="Number(category.id)">{{ category.name }}</option>
+            </select>
+            <input id="forum-thread-title" v-model="newThread.title" name="forum-thread-title" maxlength="160" class="title-input" placeholder="An engaging title..." />
+            <textarea id="forum-thread-content" v-model="newThread.content_md" name="forum-thread-content" maxlength="20000" placeholder="What do you want to share with the campus?"></textarea>
+          </div>
+          <div class="attachment-bar">
+            <label class="tool-button">
+              <span class="material-symbols-outlined">image</span>
+              <input type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setThreadFiles" />
+            </label>
+            <label class="score-input">
+              <span>初始评分</span>
+              <input id="forum-thread-score" v-model.number="newThread.score" name="forum-thread-score" type="number" min="1" max="10" />
+            </label>
+            <span class="char-count">{{ newThread.content_md.length }}/20000</span>
+          </div>
+          <p v-if="threadFiles.length" class="form-hint">{{ threadFiles.length }} 个附件会通过后端图床接口上传</p>
+          <p v-if="composerHint" class="form-hint warning">{{ composerHint }}</p>
+        </section>
+
+        <section v-if="activeTab === 'notice'" class="page-stack" data-forum-page="notice">
+          <div class="section-heading tall">
+            <div>
+              <span class="eyebrow">Forum Activity</span>
+              <h2>Notifications</h2>
+            </div>
+            <span>{{ unreadCount }} 未读</span>
+          </div>
+          <div class="filter-pills">
+            <button type="button" class="active">All Activity</button>
+            <button type="button">Comments</button>
+            <button type="button">Likes</button>
+            <button type="button">System</button>
+          </div>
+          <article v-for="notice in notifications" :key="notice.id" class="notification-card" :class="{ unread: !Number(notice.is_read || 0) }">
+            <span class="material-symbols-outlined">notifications</span>
+            <div>
+              <strong>{{ notice.title }}</strong>
+              <p>{{ notice.content }}</p>
+              <small>{{ formatTime(notice.created_at) }}</small>
+            </div>
+          </article>
+          <div v-if="!notifications.length" class="empty-card">暂无通知</div>
+
+          <div class="section-heading compact">
+            <h3>私信</h3>
+            <span>{{ messages.length }}</span>
+          </div>
+          <div class="message-form">
+            <input v-model="messageDraft.receiver_student_id" placeholder="收件人学号" />
+            <textarea v-model="messageDraft.content" rows="3" placeholder="私信内容" />
+            <button class="primary-pill wide" type="button" @click="sendMessage">发送私信</button>
+          </div>
+          <article v-for="message in messages" :key="message.id" class="notification-card">
+            <span class="material-symbols-outlined">mail</span>
+            <div>
+              <strong>{{ message.sender_student_id }} -> {{ message.receiver_student_id }}</strong>
+              <p>{{ message.content }}</p>
+              <small>{{ formatTime(message.created_at) }}</small>
+            </div>
+          </article>
+        </section>
+
+        <section v-if="activeTab === 'me'" class="page-stack" data-forum-page="me">
+          <div class="profile-card">
+            <div class="cover-gradient"></div>
+            <div class="profile-body">
+              <div class="profile-avatar">
+                <img v-if="profile.avatar_url" :src="profile.avatar_url" alt="社区头像" />
+                <span v-else>{{ initials(profile.nickname || studentId) }}</span>
+              </div>
+              <button class="primary-pill" type="button" @click="checkIn">签到</button>
+              <h2>{{ profile.nickname || studentId || '游客' }}</h2>
+              <p>{{ meSummary?.profile?.bio || profile.bio || '还没有填写社区简介' }}</p>
+              <div class="tag-row">
+                <span>HBUT Student</span>
+                <span>Lv. {{ meStats.checkin_count || 0 }}</span>
+              </div>
+              <div class="stats-grid">
+                <div><strong>{{ meStats.thread_count || 0 }}</strong><span>Posts</span></div>
+                <div><strong>{{ meStats.reply_count || 0 }}</strong><span>Replies</span></div>
+                <div><strong>{{ meStats.bookmark_count || 0 }}</strong><span>Collections</span></div>
               </div>
             </div>
-            <p>{{ reply.content_md }}</p>
-            <div v-if="reply.attachment_ids?.length" class="attachment-strip">
-              <a v-for="attachment in reply.attachment_ids" :key="attachment" :href="attachmentUrl(attachment)" target="_blank" rel="noreferrer">附件</a>
-            </div>
-            <div class="reply-actions">
-              <button @click="reactToReply(reply, 'up')">
-                <span class="material-symbols-outlined">thumb_up</span>
-                {{ reply.up_count || 0 }}
-              </button>
-              <button @click="reactToReply(reply, 'down')">
-                <span class="material-symbols-outlined">thumb_down</span>
-                {{ reply.down_count || 0 }}
-              </button>
-            </div>
-          </article>
-          <div v-if="threadDetail && !threadDetail.replies?.length" class="empty-block">暂无回复</div>
-        </div>
-      </article>
-    </section>
-
-    <section v-if="activeTab === 'compose'" class="compose-panel">
-      <div class="panel-head">
-        <div>
-          <span class="eyebrow">Create Post</span>
-          <h3>发布校园帖子</h3>
-        </div>
-        <span>{{ newThread.content_md.length }}/20000</span>
-      </div>
-      <label class="field">
-        <span>版块</span>
-        <select v-model.number="selectedCategoryId">
-          <option v-for="category in visibleCategories" :key="category.id" :value="Number(category.id)">{{ category.name }}</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>标题</span>
-        <input id="forum-thread-title" v-model="newThread.title" name="forum-thread-title" maxlength="160" placeholder="清晰描述你的问题或观点" />
-      </label>
-      <label class="field">
-        <span>内容</span>
-        <textarea id="forum-thread-content" v-model="newThread.content_md" name="forum-thread-content" rows="8" maxlength="20000" placeholder="分享经验、提问、反馈或发起评分讨论" />
-      </label>
-      <div class="compose-grid">
-        <label class="field score-field">
-          <span>初始评分</span>
-          <input id="forum-thread-score" v-model.number="newThread.score" name="forum-thread-score" type="number" min="1" max="10" />
-        </label>
-        <label class="upload-drop">
-          <span class="material-symbols-outlined">cloud_upload</span>
-          <strong>上传图片/附件</strong>
-          <small>{{ threadFiles.length ? `${threadFiles.length} 个文件待上传` : '图片会走后端图床接口' }}</small>
-          <input type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setThreadFiles" />
-        </label>
-      </div>
-      <p v-if="composerHint" class="composer-hint">{{ composerHint }}</p>
-      <button class="primary-btn wide" :disabled="!canPublishThread || isPending(`thread:${selectedCategoryId}:${newThread.title.trim()}:${newThread.content_md.trim()}`.slice(0, 180))" @click="submitThread">
-        <span class="material-symbols-outlined">send</span>
-        发布帖子
-      </button>
-    </section>
-
-    <section v-if="activeTab === 'notice'" class="two-column-panel">
-      <div class="surface-panel">
-        <div class="panel-head">
-          <h3>通知</h3>
-          <span>{{ notifications.length }}</span>
-        </div>
-        <article v-for="notice in notifications" :key="notice.id" class="list-row">
-          <span class="material-symbols-outlined">notifications</span>
-          <div>
-            <strong>{{ notice.title }}</strong>
-            <p>{{ notice.content }}</p>
-            <small>{{ formatTime(notice.created_at) }}</small>
           </div>
-        </article>
-        <div v-if="!notifications.length" class="empty-block">暂无通知</div>
-      </div>
-      <div class="surface-panel">
-        <div class="panel-head">
-          <h3>私信</h3>
-          <span>{{ messages.length }}</span>
-        </div>
-        <div class="message-form">
-          <input v-model="messageDraft.receiver_student_id" placeholder="收件人学号" />
-          <textarea v-model="messageDraft.content" rows="3" placeholder="私信内容" />
-          <button class="primary-btn" @click="sendMessage">发送私信</button>
-        </div>
-        <article v-for="message in messages" :key="message.id" class="list-row">
-          <span class="material-symbols-outlined">mail</span>
-          <div>
-            <strong>{{ message.sender_student_id }} → {{ message.receiver_student_id }}</strong>
-            <p>{{ message.content }}</p>
-            <small>{{ formatTime(message.created_at) }}</small>
+          <div class="edit-card">
+            <label>
+              <span>昵称</span>
+              <input id="forum-profile-nickname" v-model="profile.nickname" name="forum-profile-nickname" maxlength="80" />
+            </label>
+            <label>
+              <span>头像 URL</span>
+              <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="可填后端图床或外部图片 URL" />
+            </label>
+            <div class="avatar-upload-field">
+              <input id="forum-profile-avatar-file" type="file" accept="image/*" :disabled="isPending('profile:avatar-upload')" @change="uploadAvatarImage" />
+              <label class="ghost-pill avatar-upload-button" for="forum-profile-avatar-file">
+                <span class="material-symbols-outlined">upload</span>
+                <span>{{ isPending('profile:avatar-upload') ? '头像图床上传中' : '上传头像到图床' }}</span>
+              </label>
+              <p class="form-hint">选择本地图片后会上传到后端图床，并自动回填头像 URL。</p>
+            </div>
+            <label>
+              <span>简介</span>
+              <input v-model="profile.bio" maxlength="300" placeholder="社区简介" />
+            </label>
+            <button class="primary-pill wide" type="button" @click="saveProfile">保存资料</button>
           </div>
-        </article>
-      </div>
-    </section>
+          <div class="filter-pills">
+            <button type="button" class="active">Posts</button>
+            <button type="button">Replies</button>
+            <button type="button">Collections</button>
+          </div>
+          <div class="mini-list-card">
+            <h3>我的帖子</h3>
+            <button v-for="thread in myThreads" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
+            <div v-if="!myThreads.length" class="empty-card compact">暂无帖子</div>
+          </div>
+          <div class="mini-list-card">
+            <h3>我的收藏</h3>
+            <button v-for="thread in myBookmarks" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
+            <div v-if="!myBookmarks.length" class="empty-card compact">暂无收藏</div>
+          </div>
+          <div class="tag-row">
+            <span v-for="badge in badges" :key="badge.badge_key">{{ badge.display_name }}</span>
+            <span v-if="!badges.length">暂无徽章</span>
+          </div>
+        </section>
 
-    <section v-if="activeTab === 'me'" class="profile-panel">
-      <div class="profile-header">
-        <div class="hero-avatar">{{ initials(profile.nickname || studentId) }}</div>
-        <div>
-          <span class="eyebrow">Community Profile</span>
-          <h3>{{ profile.nickname || studentId || '游客' }}</h3>
-          <p>{{ meSummary?.profile?.bio || profile.bio || '还没有填写社区简介' }}</p>
-        </div>
-        <button class="soft-btn" @click="checkIn">
-          <span class="material-symbols-outlined">event_available</span>
-          签到
-        </button>
-      </div>
-      <div class="stats-grid">
-        <div><strong>{{ meSummary?.stats?.thread_count || 0 }}</strong><span>发帖</span></div>
-        <div><strong>{{ meSummary?.stats?.reply_count || 0 }}</strong><span>回复</span></div>
-        <div><strong>{{ meSummary?.stats?.bookmark_count || 0 }}</strong><span>收藏</span></div>
-        <div><strong>{{ meSummary?.stats?.checkin_count || 0 }}</strong><span>签到</span></div>
-      </div>
-      <div class="profile-editor">
-        <label class="field">
-          <span>昵称</span>
-          <input id="forum-profile-nickname" v-model="profile.nickname" name="forum-profile-nickname" maxlength="80" />
-        </label>
-        <label class="field">
-          <span>头像 URL</span>
-          <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="可填后端图床或外部图片 URL" />
-        </label>
-        <label class="field">
-          <span>简介</span>
-          <input v-model="profile.bio" maxlength="300" placeholder="社区简介" />
-        </label>
-        <button class="primary-btn" @click="saveProfile">保存资料</button>
-      </div>
-      <div class="badge-row">
-        <span v-for="badge in badges" :key="badge.badge_key" class="badge-pill">{{ badge.display_name }}</span>
-        <span v-if="!badges.length" class="badge-pill muted">暂无徽章</span>
-      </div>
-      <div class="my-content-grid">
-        <div class="surface-panel">
-          <h3>我的帖子</h3>
-          <button v-for="thread in myThreads" :key="thread.id" class="compact-thread" @click="openThread(thread)">{{ thread.title }}</button>
-          <div v-if="!myThreads.length" class="empty-block small">暂无帖子</div>
-        </div>
-        <div class="surface-panel">
-          <h3>我的收藏</h3>
-          <button v-for="thread in myBookmarks" :key="thread.id" class="compact-thread" @click="openThread(thread)">{{ thread.title }}</button>
-          <div v-if="!myBookmarks.length" class="empty-block small">暂无收藏</div>
-        </div>
-      </div>
-    </section>
+        <section v-if="activeTab === 'user-profile'" class="page-stack" data-forum-page="user-profile">
+          <div class="detail-topbar">
+            <button class="icon-button" type="button" @click="switchTab('feed')">
+              <span class="material-symbols-outlined">arrow_back</span>
+            </button>
+            <h2>用户主页</h2>
+          </div>
+          <div v-if="viewedProfileLoading" class="empty-card">加载中...</div>
+          <div v-else class="profile-card">
+            <div class="cover-gradient"></div>
+            <div class="profile-body">
+              <div class="profile-avatar">{{ initials(viewedProfileInfo.nickname || viewedProfileInfo.student_id) }}</div>
+              <button class="primary-pill" type="button" :disabled="!viewedProfileInfo.student_id" @click="followAuthor(viewedProfileInfo.student_id)">关注</button>
+              <h2>{{ viewedProfileInfo.nickname || viewedProfileInfo.student_id || '同学' }}</h2>
+              <p>{{ viewedProfileInfo.bio || '这个同学还没有填写社区简介' }}</p>
+              <div class="stats-grid">
+                <div><strong>{{ viewedProfileStats.thread_count || 0 }}</strong><span>Posts</span></div>
+                <div><strong>{{ viewedProfileStats.reply_count || 0 }}</strong><span>Replies</span></div>
+                <div><strong>{{ viewedProfileStats.follower_count || 0 }}</strong><span>Followers</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-    <section v-if="activeTab === 'admin' && isAdmin" class="admin-panel">
-      <div class="panel-head">
-        <div>
-          <span class="eyebrow">Admin Center</span>
-          <h3>社区管理中心</h3>
-        </div>
-        <button class="soft-btn" @click="runBackup">
-          <span class="material-symbols-outlined">backup</span>
-          备份
-        </button>
-      </div>
-      <div class="admin-grid">
-        <div class="surface-panel">
-          <h3>举报</h3>
-          <article v-for="report in adminReports" :key="report.id" class="list-row">
-            <span class="material-symbols-outlined">flag</span>
+        <section v-if="activeTab === 'admin' && isAdmin" class="page-stack" data-forum-page="admin">
+          <div class="section-heading tall">
             <div>
-              <strong>{{ report.target_type }} #{{ report.target_id }}</strong>
-              <p>{{ report.reason }}</p>
-              <small>{{ report.reporter_student_id }} · {{ formatTime(report.created_at) }}</small>
+              <span class="eyebrow">Admin Center</span>
+              <h2>社区管理中心</h2>
             </div>
-          </article>
-          <div v-if="!adminReports.length" class="empty-block small">暂无举报</div>
-        </div>
-        <div class="surface-panel">
-          <h3>用户</h3>
-          <div class="inline-form">
-            <input v-model="adminSearch" placeholder="搜索学号/昵称" @keyup.enter="searchAdminUsers" />
-            <button class="soft-btn" @click="searchAdminUsers">搜索</button>
+            <button class="primary-pill" type="button" @click="runBackup">
+              <span class="material-symbols-outlined">backup</span>
+              备份
+            </button>
           </div>
-          <article v-for="user in adminUsers" :key="user.student_id" class="list-row">
-            <span class="material-symbols-outlined">person</span>
-            <div>
-              <strong>{{ user.nickname || user.student_id }}</strong>
-              <p>{{ user.student_id }} · {{ Number(user.is_banned || 0) ? '已封禁' : '正常' }}</p>
+          <div class="admin-grid">
+            <div class="admin-card">
+              <h3>举报</h3>
+              <article v-for="report in adminReports" :key="report.id" class="admin-row">
+                <span class="material-symbols-outlined">flag</span>
+                <div>
+                  <strong>{{ report.target_type }} #{{ report.target_id }}</strong>
+                  <p>{{ report.reason }}</p>
+                  <small>{{ report.reporter_student_id }} · {{ formatTime(report.created_at) }}</small>
+                </div>
+              </article>
+              <div v-if="!adminReports.length" class="empty-card compact">暂无举报</div>
             </div>
-          </article>
-        </div>
-        <div class="surface-panel">
-          <h3>封禁</h3>
-          <input v-model="banDraft.student_id" placeholder="目标学号" />
-          <input v-model="banDraft.reason" placeholder="原因，可选" />
-          <div class="button-row">
-            <button class="danger-btn" @click="setUserBan(true)">封禁</button>
-            <button class="soft-btn" @click="setUserBan(false)">解封</button>
+            <div class="admin-card">
+              <h3>用户</h3>
+              <div class="inline-form">
+                <input v-model="adminSearch" placeholder="搜索学号/昵称" @keyup.enter="searchAdminUsers" />
+                <button class="ghost-pill" type="button" @click="searchAdminUsers">搜索</button>
+              </div>
+              <article v-for="user in adminUsers" :key="user.student_id" class="admin-row">
+                <span class="material-symbols-outlined">person</span>
+                <div>
+                  <strong>{{ user.nickname || user.student_id }}</strong>
+                  <p>{{ user.student_id }} · {{ Number(user.is_banned || 0) ? '已封禁' : '正常' }}</p>
+                </div>
+              </article>
+            </div>
+            <div class="admin-card">
+              <h3>封禁</h3>
+              <input v-model="banDraft.student_id" placeholder="目标学号" />
+              <input v-model="banDraft.reason" placeholder="原因，可选" />
+              <div class="button-row">
+                <button class="danger-pill" type="button" @click="setUserBan(true)">封禁</button>
+                <button class="ghost-pill" type="button" @click="setUserBan(false)">解封</button>
+              </div>
+            </div>
+            <div class="admin-card">
+              <h3>徽章</h3>
+              <input v-model="badgeDraft.student_id" placeholder="目标学号" />
+              <input v-model="badgeDraft.badge_key" placeholder="badge_key" />
+              <input v-model="badgeDraft.display_name" placeholder="展示名" />
+              <button class="primary-pill wide" type="button" @click="grantBadge">发放徽章</button>
+            </div>
+            <div class="admin-card span-2">
+              <h3>备份记录</h3>
+              <article v-for="backup in adminBackups" :key="backup.id" class="admin-row">
+                <span class="material-symbols-outlined">database</span>
+                <div>
+                  <strong>{{ backup.kind }} · {{ formatTime(backup.created_at) }}</strong>
+                  <p>{{ backup.hf_path || backup.sqlite_path }}</p>
+                </div>
+              </article>
+              <div v-if="!adminBackups.length" class="empty-card compact">暂无备份</div>
+            </div>
           </div>
-        </div>
-        <div class="surface-panel">
-          <h3>徽章</h3>
-          <input v-model="badgeDraft.student_id" placeholder="目标学号" />
-          <input v-model="badgeDraft.badge_key" placeholder="badge_key" />
-          <input v-model="badgeDraft.display_name" placeholder="展示名" />
-          <button class="primary-btn" @click="grantBadge">发放徽章</button>
-        </div>
-        <div class="surface-panel span-2">
-          <h3>备份记录</h3>
-          <article v-for="backup in adminBackups" :key="backup.id" class="list-row">
-            <span class="material-symbols-outlined">database</span>
-            <div>
-              <strong>{{ backup.kind }} · {{ formatTime(backup.created_at) }}</strong>
-              <p>{{ backup.hf_path || backup.sqlite_path }}</p>
-            </div>
-          </article>
-          <div v-if="!adminBackups.length" class="empty-block small">暂无备份</div>
-        </div>
-      </div>
-    </section>
-  </div>
+        </section>
+      </main>
+    </div>
+  </section>
 </template>
 
 <style scoped>
 .forum-view {
-  --forum-primary: #0058be;
-  --forum-primary-strong: #004395;
-  --forum-surface: #f6fafe;
-  --forum-card: #ffffff;
-  --forum-soft: #f0f4f8;
-  --forum-border: #c2c6d6;
-  --forum-text: #171c1f;
-  --forum-muted: #5e6572;
+  --stitch-primary: #0058be;
+  --stitch-primary-container: #2170e4;
+  --stitch-primary-fixed: #d8e2ff;
+  --stitch-on-primary-fixed: #001a42;
+  --stitch-surface: #f6fafe;
+  --stitch-surface-low: #f0f4f8;
+  --stitch-surface-card: #ffffff;
+  --stitch-surface-container: #eaeef2;
+  --stitch-border: #c2c6d6;
+  --stitch-outline: #727785;
+  --stitch-text: #171c1f;
+  --stitch-muted: #424754;
+  --stitch-secondary: #585f6c;
+  --stitch-warning: #f97316;
+  --stitch-danger: #ba1a1a;
+  --stitch-card-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
   min-height: 100%;
-  padding: 0 14px 124px;
-  color: var(--forum-text);
-  background: var(--forum-surface);
+  padding: 0 0 96px;
+  background: var(--stitch-surface);
+  color: var(--stitch-text);
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
-.forum-icon-btn,
-.soft-btn,
-.hero-action,
-.primary-btn,
-.danger-btn,
-.category-row,
-.category-chip,
-.thread-card,
-.compact-thread {
-  cursor: pointer;
-  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, opacity 180ms ease;
+.forum-view *,
+.forum-view *::before,
+.forum-view *::after {
+  box-sizing: border-box;
 }
 
-.forum-icon-btn {
-  width: 40px;
-  height: 40px;
-  border: 1px solid rgba(114, 119, 133, 0.28);
-  border-radius: 14px;
-  background: var(--forum-card);
-  color: var(--forum-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.forum-phone-shell {
+  width: 100%;
+  max-width: 448px;
+  min-height: calc(100dvh - 96px);
+  margin: 0 auto;
+  background: var(--stitch-surface-low);
+  box-shadow: 0 20px 44px rgba(21, 28, 39, 0.08);
+  overflow: hidden;
 }
 
-.forum-icon-btn:disabled,
-.primary-btn:disabled,
-.hero-action:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.forum-hero,
-.forum-tabs,
-.forum-sidebar,
-.feed-panel,
-.detail-panel,
-.compose-panel,
-.surface-panel,
-.profile-panel,
-.admin-panel,
-.message-line {
-  border: 1px solid rgba(194, 198, 214, 0.76);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 12px 32px rgba(0, 88, 190, 0.08);
-}
-
-.forum-hero {
+.forum-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   align-items: center;
-  gap: 14px;
-  margin-top: 8px;
-  padding: 16px;
-  border-radius: 24px;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(194, 198, 214, 0.35);
+  background: rgba(246, 250, 254, 0.92);
+  backdrop-filter: blur(16px);
 }
 
-.hero-avatar,
+.forum-topbar h1,
+.compose-topbar h2,
+.detail-topbar h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--stitch-primary);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 28px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar-button,
+.mini-avatar,
+.icon-button,
+.primary-icon,
+.tool-button {
+  border: 0;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease, opacity 180ms ease;
+}
+
+.avatar-button,
 .mini-avatar {
-  flex: 0 0 auto;
-  width: 54px;
-  height: 54px;
-  border-radius: 18px;
   display: grid;
   place-items: center;
-  background: #d8e2ff;
-  color: #001a42;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-on-primary-fixed);
+  font-size: 12px;
   font-weight: 800;
-}
-
-.mini-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 14px;
-  font-size: 0.82rem;
 }
 
 .mini-avatar.large {
@@ -1078,431 +1151,510 @@ watch(
   height: 48px;
 }
 
-.hero-copy {
-  min-width: 0;
-}
-
-.eyebrow {
-  color: var(--forum-primary);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-.hero-copy h2,
-.panel-head h3,
-.profile-header h3,
-.detail-card h2,
-.surface-panel h3,
-.admin-panel h3 {
-  margin: 0;
-  line-height: 1.22;
-}
-
-.hero-copy h2 {
-  font-size: 1.34rem;
-}
-
-.hero-copy p,
-.profile-header p,
-.list-row p,
-.thread-card p,
-.detail-content,
-.composer-hint {
-  color: var(--forum-muted);
-  line-height: 1.55;
-}
-
-.hero-copy p {
-  margin: 3px 0 0;
-  font-size: 0.9rem;
-}
-
-.hero-action,
-.primary-btn,
-.danger-btn,
-.soft-btn {
-  min-height: 40px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  padding: 0 14px;
+.icon-button,
+.primary-icon,
+.tool-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-weight: 800;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stitch-muted);
 }
 
-.hero-action,
-.primary-btn {
-  background: var(--forum-primary);
+.icon-button:hover,
+.tool-button:hover {
+  background: var(--stitch-surface-container);
+  color: var(--stitch-primary);
+}
+
+.icon-button.tinted,
+.tool-button,
+.primary-icon {
+  background: rgba(216, 226, 255, 0.72);
+  color: var(--stitch-primary);
+}
+
+.primary-icon {
+  background: var(--stitch-primary);
   color: #ffffff;
 }
 
-.primary-btn.wide {
-  width: 100%;
-  min-height: 48px;
+.icon-button:disabled,
+.primary-pill:disabled,
+.primary-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
 }
 
-.soft-btn {
-  background: #edf3ff;
-  color: var(--forum-primary-strong);
-  border-color: rgba(0, 88, 190, 0.16);
+.category-nav,
+.filter-pills {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(194, 198, 214, 0.2);
+  background: var(--stitch-surface);
+  scrollbar-width: none;
 }
 
-.danger-btn {
+.filter-pills {
+  gap: 8px;
+  padding: 0 0 2px;
+  border: 0;
+  background: transparent;
+}
+
+.category-nav::-webkit-scrollbar,
+.filter-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.category-nav button,
+.filter-pills button {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--stitch-muted);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.category-nav button.active {
+  border-color: var(--stitch-primary);
+  color: var(--stitch-primary);
+}
+
+.filter-pills button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.filter-pills button.active {
+  background: var(--stitch-primary);
+  color: #ffffff;
+}
+
+.forum-canvas,
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.forum-canvas {
+  padding: 16px;
+}
+
+.quick-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+}
+
+.quick-tabs button {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stitch-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quick-tabs button.active {
+  background: var(--stitch-surface-card);
+  color: var(--stitch-primary);
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.quick-tabs .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.quick-tabs em {
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--stitch-warning);
+  color: #ffffff;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+.forum-hero-card,
+.search-card,
+.post-card,
+.detail-card,
+.comment-panel,
+.profile-card,
+.edit-card,
+.mini-list-card,
+.message-form,
+.notification-card,
+.admin-card,
+.empty-card,
+.system-banner {
+  border: 1px solid rgba(194, 198, 214, 0.16);
+  border-radius: 24px;
+  background: var(--stitch-surface-card);
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.forum-hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 18px;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--stitch-primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.forum-hero-card h2,
+.section-heading h2,
+.section-heading h3,
+.post-card h3,
+.detail-card h2,
+.profile-card h2,
+.admin-card h3,
+.mini-list-card h3 {
+  margin: 0;
+  color: var(--stitch-text);
+  font-weight: 700;
+}
+
+.forum-hero-card h2,
+.section-heading h2,
+.profile-card h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.post-card h3,
+.detail-card h2,
+.section-heading h3,
+.admin-card h3,
+.mini-list-card h3 {
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.forum-hero-card p,
+.post-card p,
+.detail-content,
+.notification-card p,
+.profile-card p,
+.admin-row p,
+.comment-bubble p,
+.empty-card p,
+.form-hint {
+  margin: 0;
+  color: var(--stitch-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.primary-pill,
+.ghost-pill,
+.danger-pill {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  transition: background-color 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.primary-pill {
+  background: var(--stitch-primary);
+  color: #ffffff;
+}
+
+.ghost-pill {
+  background: rgba(216, 226, 255, 0.72);
+  color: var(--stitch-primary);
+}
+
+.danger-pill {
   background: #ffdad6;
   color: #93000a;
 }
 
-.forum-tabs {
-  position: sticky;
-  top: 6px;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
-  margin-top: 12px;
-  padding: 6px;
-  border-radius: 22px;
-}
-
-.forum-tabs button {
-  min-width: 0;
-  min-height: 46px;
-  border: none;
-  border-radius: 16px;
-  background: transparent;
-  color: var(--forum-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  font-weight: 800;
-  cursor: pointer;
-  position: relative;
-}
-
-.forum-tabs button.active {
-  background: var(--forum-primary);
-  color: #ffffff;
-}
-
-.forum-tabs em {
-  min-width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: #f97316;
-  color: #ffffff;
-  font-size: 0.68rem;
-  font-style: normal;
-  display: grid;
-  place-items: center;
-}
-
-.message-line {
-  margin-top: 10px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  color: var(--forum-primary-strong);
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.forum-shell {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: minmax(220px, 0.38fr) minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-}
-
-.forum-sidebar,
-.feed-panel,
-.detail-panel,
-.compose-panel,
-.profile-panel,
-.admin-panel,
-.surface-panel {
-  border-radius: 24px;
-  padding: 14px;
-}
-
-.section-title,
-.panel-head,
-.detail-topbar,
-.thread-card-head,
-.thread-actions,
-.score-actions,
-.reply-actions,
-.button-row,
-.inline-form {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.section-title strong,
-.panel-head > span,
-.score-pill,
-.badge-pill {
-  border-radius: 999px;
-  padding: 5px 9px;
-  background: #d8e2ff;
-  color: var(--forum-primary-strong);
-  font-size: 0.76rem;
-  font-weight: 900;
-}
-
-.category-row {
+.primary-pill.wide {
   width: 100%;
-  margin-top: 8px;
-  border: 1px solid transparent;
-  border-radius: 18px;
-  background: transparent;
-  color: var(--forum-text);
-  padding: 10px;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  text-align: left;
 }
 
-.category-row.active,
-.category-row:hover {
-  border-color: rgba(0, 88, 190, 0.22);
-  background: #edf3ff;
-}
-
-.category-row small,
-.thread-card small,
-.list-row small {
-  display: block;
-  margin-top: 2px;
-  color: var(--forum-muted);
-  line-height: 1.35;
-}
-
-.feed-toolbar {
+.search-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 40px;
   gap: 8px;
+  padding: 10px;
 }
 
-.search-box,
-.field,
-.upload-drop,
-.message-form {
+.search-card label {
   display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.search-box {
   min-width: 0;
-  min-height: 44px;
-  border: 1px solid rgba(194, 198, 214, 0.9);
-  border-radius: 16px;
-  background: var(--forum-soft);
-  padding: 0 12px;
-  flex-direction: row;
+  min-height: 40px;
   align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--stitch-surface-low);
+  padding: 0 14px;
+  color: var(--stitch-muted);
 }
 
-.search-box input,
-.field input,
-.field textarea,
-.field select,
-.reply-box textarea,
+.search-card input,
+.editor-card input,
+.editor-card textarea,
+.category-select,
 .message-form input,
 .message-form textarea,
-.surface-panel input,
-.surface-panel textarea,
-.inline-form input {
+.edit-card input,
+.admin-card input,
+.inline-form input,
+.score-input input {
   width: 100%;
-  border: 1px solid rgba(194, 198, 214, 0.9);
-  border-radius: 14px;
-  background: #f8fbff;
-  color: var(--forum-text);
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--stitch-text);
   font: inherit;
-  padding: 11px 12px;
   outline: none;
 }
 
-.search-box input {
-  border: none;
-  background: transparent;
-  padding: 0;
+.search-card input::placeholder,
+.editor-card input::placeholder,
+.editor-card textarea::placeholder,
+.message-form input::placeholder,
+.message-form textarea::placeholder,
+.edit-card input::placeholder,
+.admin-card input::placeholder {
+  color: rgba(66, 71, 84, 0.55);
 }
 
-.field span {
-  color: var(--forum-muted);
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.category-strip {
-  margin-top: 12px;
+.section-heading {
   display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.category-chip {
-  flex: 0 0 auto;
-  min-height: 36px;
-  border: 1px solid rgba(194, 198, 214, 0.9);
-  border-radius: 999px;
-  background: #ffffff;
-  color: var(--forum-muted);
-  padding: 0 13px;
-  font-weight: 800;
-}
-
-.category-chip.active {
-  background: var(--forum-primary);
-  color: #ffffff;
-  border-color: var(--forum-primary);
-}
-
-.panel-head {
-  margin: 14px 0 10px;
-}
-
-.thread-card {
-  width: 100%;
-  margin-top: 10px;
-  border: 1px solid rgba(194, 198, 214, 0.78);
-  border-radius: 22px;
-  background: #ffffff;
-  padding: 13px;
-  text-align: left;
-}
-
-.thread-card.active,
-.thread-card:hover {
-  border-color: rgba(0, 88, 190, 0.42);
-  background: #fbfdff;
-}
-
-.thread-card-head {
-  justify-content: flex-start;
-}
-
-.thread-card h3 {
-  margin: 11px 0 6px;
-  font-size: 1.02rem;
-  line-height: 1.35;
-}
-
-.thread-card p {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  word-break: break-word;
-}
-
-.thread-actions,
-.score-actions,
-.reply-actions {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-
-.thread-actions button,
-.score-actions button,
-.reply-actions button {
-  min-height: 34px;
-  border: 1px solid rgba(194, 198, 214, 0.9);
-  border-radius: 999px;
-  background: #ffffff;
-  color: var(--forum-primary-strong);
-  padding: 0 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.attachment-strip {
-  margin-top: 10px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.attachment-pill,
-.attachment-strip a {
-  min-height: 28px;
-  border-radius: 999px;
-  background: #f0f4f8;
-  color: var(--forum-primary-strong);
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.76rem;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.detail-panel,
-.compose-panel,
-.profile-panel,
-.admin-panel,
-.two-column-panel {
-  margin-top: 12px;
-}
-
-.detail-topbar {
-  margin-bottom: 12px;
-}
-
-.detail-card {
-  display: flex;
-  flex-direction: column;
+  align-items: end;
+  justify-content: space-between;
   gap: 12px;
 }
 
+.section-heading.tall {
+  align-items: center;
+}
+
+.section-heading.compact {
+  align-items: center;
+}
+
+.section-heading > span,
+.score-badge,
+.category-badge,
+.tag-row span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-primary);
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.post-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.post-card.active {
+  border-color: rgba(0, 88, 190, 0.28);
+}
+
+.post-author {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.post-author.large {
+  align-items: flex-start;
+}
+
+.post-author > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.post-author strong,
+.comment-bubble strong,
+.notification-card strong,
+.admin-row strong {
+  display: block;
+  overflow: hidden;
+  color: var(--stitch-text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.post-author small,
+.comment-bubble small,
+.notification-card small,
+.admin-row small {
+  display: block;
+  color: var(--stitch-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.post-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  word-break: break-word;
+}
+
+.media-preview,
+.inline-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--stitch-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.post-actions,
+.score-row,
+.comment-actions,
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid rgba(194, 198, 214, 0.25);
+}
+
+.post-actions button,
+.score-row button,
+.comment-actions button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stitch-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.post-actions button:hover,
+.score-row button:hover,
+.comment-actions button:hover {
+  color: var(--stitch-primary);
+}
+
+.detail-topbar,
+.compose-topbar {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 10px;
+}
+
+.compose-topbar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 2px 0;
+}
+
+.detail-card,
+.comment-panel,
+.admin-card,
+.edit-card,
+.mini-list-card,
+.message-form {
+  padding: 16px;
+}
+
 .detail-content {
-  margin: 0;
-  padding: 13px;
-  border-radius: 18px;
-  background: var(--forum-soft);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .image-grid a {
-  min-height: 118px;
-  border: 1px solid rgba(194, 198, 214, 0.86);
-  border-radius: 18px;
-  overflow: hidden;
-  background: var(--forum-soft);
-  color: var(--forum-primary-strong);
-  display: grid;
-  place-items: center;
-  text-decoration: none;
   position: relative;
+  min-height: 128px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--stitch-surface-container);
+  color: var(--stitch-primary);
+  text-decoration: none;
 }
 
 .image-grid img {
   width: 100%;
-  height: 118px;
+  height: 128px;
   object-fit: cover;
 }
 
@@ -1516,157 +1668,282 @@ watch(
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.9);
   padding: 4px 8px;
-  text-align: center;
-  font-size: 0.76rem;
-  font-weight: 900;
+  font-size: 10px;
+  font-weight: 700;
 }
 
-.reply-box {
+.comment-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reply-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 40px 40px;
+  gap: 8px;
   align-items: end;
 }
 
-.reply-tools {
-  display: flex;
-  gap: 8px;
+.reply-composer textarea {
+  min-height: 44px;
+  resize: vertical;
+  border: 0;
+  border-radius: 22px;
+  background: var(--stitch-surface-container);
+  color: var(--stitch-text);
+  font: inherit;
+  outline: none;
+  padding: 12px 14px;
 }
 
-.file-btn,
-.upload-drop {
-  cursor: pointer;
+.file-trigger {
   position: relative;
+  overflow: hidden;
 }
 
-.file-btn input,
-.upload-drop input {
+.file-trigger input,
+.tool-button input {
   position: absolute;
   inset: 0;
-  opacity: 0;
   cursor: pointer;
+  opacity: 0;
 }
 
-.file-btn {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: #edf3ff;
-  color: var(--forum-primary-strong);
+.comment-card {
   display: grid;
-  place-items: center;
-}
-
-.file-list {
-  color: var(--forum-muted);
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.reply-card,
-.list-row,
-.compact-thread {
-  border: 1px solid rgba(194, 198, 214, 0.78);
-  border-radius: 18px;
-  background: #ffffff;
-}
-
-.reply-card {
-  margin-top: 10px;
-  padding: 12px;
-}
-
-.reply-card p {
-  margin: 10px 0 0;
-  color: var(--forum-text);
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-
-.thread-card-head.compact {
-  justify-content: flex-start;
-}
-
-.compose-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.compose-grid {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 12px;
-  align-items: stretch;
-}
-
-.upload-drop {
-  min-height: 92px;
-  border: 1px dashed rgba(0, 88, 190, 0.44);
-  border-radius: 18px;
-  background: #edf3ff;
-  color: var(--forum-primary-strong);
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 12px;
-}
-
-.upload-drop small {
-  color: var(--forum-muted);
-}
-
-.composer-hint {
-  margin: 0;
-}
-
-.two-column-panel,
-.my-content-grid,
-.admin-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.list-row {
-  margin-top: 9px;
-  padding: 11px;
-  display: flex;
-  align-items: flex-start;
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: 10px;
 }
 
-.list-row > .material-symbols-outlined {
-  color: var(--forum-primary);
+.comment-bubble {
+  border-radius: 16px;
+  border-top-left-radius: 4px;
+  background: var(--stitch-surface-card);
+  box-shadow: var(--stitch-card-shadow);
+  padding: 12px;
 }
 
-.list-row p {
-  margin: 4px 0;
+.comment-bubble p {
+  margin-top: 8px;
+  white-space: pre-wrap;
   word-break: break-word;
 }
 
-.message-form {
-  margin: 8px 0 10px;
+.comment-actions {
+  border: 0;
+  padding: 4px 0 0;
 }
 
-.profile-header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+.compose-page {
+  display: flex;
+  min-height: calc(100dvh - 180px);
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editor-card {
+  display: flex;
+  min-height: 340px;
+  flex: 1 1 auto;
+  flex-direction: column;
   gap: 12px;
+  border-radius: 24px;
+  background: var(--stitch-surface-card);
+  padding: 16px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.category-select {
+  width: max-content;
+  max-width: 100%;
+  min-height: 34px;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  color: var(--stitch-muted);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.title-input {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.editor-card textarea {
+  min-height: 220px;
+  flex: 1 1 auto;
+  resize: vertical;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.attachment-bar {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
+  gap: 10px;
+  border-radius: 24px;
+  background: var(--stitch-surface-card);
+  box-shadow: var(--stitch-card-shadow);
+  padding: 10px;
+}
+
+.score-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 56px);
+  gap: 8px;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  padding: 8px 12px;
+  color: var(--stitch-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.score-input input {
+  text-align: center;
+}
+
+.char-count,
+.form-hint {
+  color: var(--stitch-outline);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.form-hint.warning {
+  color: var(--stitch-warning);
+}
+
+.notification-card,
+.admin-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+}
+
+.notification-card > .material-symbols-outlined,
+.admin-row > .material-symbols-outlined {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  color: var(--stitch-primary);
+}
+
+.notification-card.unread::before {
+  position: absolute;
+  top: 22px;
+  left: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--stitch-primary);
+  box-shadow: 0 0 8px rgba(0, 88, 190, 0.5);
+  content: "";
+}
+
+.message-form,
+.edit-card,
+.admin-card,
+.mini-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.message-form input,
+.message-form textarea,
+.edit-card input,
+.admin-card input,
+.inline-form input {
+  min-height: 42px;
+  border-radius: 16px;
+  background: var(--stitch-surface-container);
+  padding: 10px 12px;
+}
+
+.message-form textarea {
+  resize: vertical;
+}
+
+.profile-card {
+  overflow: hidden;
+}
+
+.cover-gradient {
+  height: 136px;
+  background:
+    radial-gradient(circle at 12% 20%, rgba(54, 209, 220, 0.72), transparent 30%),
+    radial-gradient(circle at 88% 14%, rgba(91, 134, 229, 0.78), transparent 34%),
+    linear-gradient(135deg, #d8e2ff, #f6fafe 70%);
+}
+
+.profile-body {
+  position: relative;
+  padding: 0 16px 18px;
+}
+
+.profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin-top: -46px;
+  border: 4px solid var(--stitch-surface-card);
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-on-primary-fixed);
+  font-size: 22px;
+  font-weight: 800;
+  box-shadow: var(--stitch-card-shadow);
+  overflow: hidden;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-body > .primary-pill {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+}
+
+.profile-body h2 {
+  margin: 14px 0 4px;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .stats-grid {
-  margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .stats-grid div {
-  border-radius: 18px;
-  background: var(--forum-soft);
-  padding: 12px;
+  border: 1px solid rgba(194, 198, 214, 0.22);
+  border-radius: 16px;
+  background: var(--stitch-surface-low);
+  padding: 12px 8px;
   text-align: center;
 }
 
@@ -1676,129 +1953,166 @@ watch(
 }
 
 .stats-grid strong {
-  color: var(--forum-primary-strong);
-  font-size: 1.2rem;
+  color: var(--stitch-primary);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 24px;
 }
 
 .stats-grid span {
-  color: var(--forum-muted);
-  font-size: 0.78rem;
-  font-weight: 800;
+  color: var(--stitch-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
 }
 
-.profile-editor {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
-  gap: 10px;
-  align-items: end;
-}
-
-.badge-row {
-  margin-top: 12px;
+.edit-card label {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--stitch-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.avatar-upload-field {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
-.badge-pill.muted {
-  background: var(--forum-soft);
-  color: var(--forum-muted);
+.avatar-upload-field input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.compact-thread {
-  width: 100%;
-  margin-top: 8px;
-  padding: 10px;
+.avatar-upload-button {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.avatar-upload-button .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.mini-list-card button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--stitch-surface-low);
+  color: var(--stitch-text);
+  cursor: pointer;
+  padding: 0 12px;
+  overflow: hidden;
   text-align: left;
-  color: var(--forum-text);
-  font-weight: 800;
-}
-
-.empty-block,
-.loading-block {
-  min-height: 140px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  color: var(--forum-muted);
-  font-weight: 800;
-}
-
-.empty-block.small {
-  min-height: 72px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
 }
 
-.admin-grid .surface-panel {
+.admin-card {
   min-width: 0;
 }
 
+.admin-row {
+  border: 1px solid rgba(194, 198, 214, 0.18);
+  border-radius: 16px;
+  background: var(--stitch-surface-low);
+  box-shadow: none;
+}
+
+.inline-form,
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.inline-form input {
+  flex: 1 1 auto;
+}
+
 .span-2 {
-  grid-column: span 2;
+  grid-column: auto;
 }
 
-.surface-panel > input,
-.surface-panel > .primary-btn,
-.surface-panel > .button-row {
-  margin-top: 8px;
+.empty-card {
+  display: grid;
+  min-height: 132px;
+  place-items: center;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
 }
 
-.inline-form {
-  align-items: stretch;
+.empty-card.compact {
+  min-height: 72px;
 }
 
-@media (max-width: 900px) {
-  .forum-shell,
-  .two-column-panel,
-  .my-content-grid,
-  .admin-grid,
-  .profile-editor {
-    grid-template-columns: 1fr;
+.empty-card .material-symbols-outlined {
+  color: var(--stitch-primary);
+}
+
+.system-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--stitch-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.inline-links a {
+  color: var(--stitch-primary);
+  text-decoration: none;
+}
+
+@media (min-width: 760px) {
+  .forum-phone-shell {
+    border-radius: 0 0 24px 24px;
   }
 
-  .forum-sidebar {
-    display: none;
+  .admin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .span-2 {
-    grid-column: auto;
+    grid-column: span 2;
   }
 }
 
-@media (max-width: 640px) {
-  .forum-view {
-    padding-left: 10px;
-    padding-right: 10px;
+@media (max-width: 390px) {
+  .forum-canvas {
+    padding: 12px;
   }
 
-  .forum-hero {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .hero-action {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-
-  .forum-tabs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .quick-tabs {
+    grid-template-columns: repeat(3, minmax(76px, 1fr));
     overflow-x: auto;
   }
 
-  .forum-tabs button {
-    min-width: 72px;
+  .forum-hero-card,
+  .attachment-bar,
+  .reply-composer,
+  .inline-form {
+    grid-template-columns: 1fr;
   }
 
-  .feed-toolbar,
-  .reply-box,
-  .compose-grid,
-  .profile-header,
-  .stats-grid {
-    grid-template-columns: 1fr;
+  .primary-pill,
+  .ghost-pill,
+  .danger-pill {
+    width: 100%;
   }
 }
 </style>
