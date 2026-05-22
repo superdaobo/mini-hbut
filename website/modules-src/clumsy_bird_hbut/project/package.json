@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node ../../../../node_modules/vitest/vitest.mjs run --passWithNoTests",
     "build": "vite build",
     "preview": "vite preview"
   },

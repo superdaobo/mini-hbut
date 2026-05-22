@@ -2,17 +2,17 @@
 
 ## Task 1: 建立测试基线与当前状态快照
 
-- [ ] 状态：未完成
-- [ ] 读取 `goal-3/input.md`、`goal-3/plan.md`、`goal-3/tasks.md`
-- [ ] 检查 git 状态，确认不覆盖已有用户改动
-- [ ] 为 `hbut_miner`、`hbut_memory_match`、`hbut_monopoly`、`clumsy_bird_hbut` 确认测试命令或补最小测试配置
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 读取 `goal-3/input.md`、`goal-3/plan.md`、`goal-3/tasks.md`
+- [x] 检查 git 状态，确认不覆盖已有用户改动
+- [x] 为 `hbut_miner`、`hbut_memory_match`、`hbut_monopoly`、`clumsy_bird_hbut` 确认测试命令或补最小测试配置
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：创建 `goal-3` 目标文件；为四个重点小游戏补充 `npm test` 脚本，复用根目录已有 Vitest，不安装依赖、不更新锁文件；确认当前未提交改动中 `src/components/Dashboard.vue` 和 `website/public/modules/*` 属于既有工作，未回退或覆盖。
+- 验证结果：分别在 `hbut_miner`、`hbut_memory_match`、`hbut_monopoly`、`clumsy_bird_hbut` 的 `project` 目录运行 `npm test`，四个命令均以退出码 0 完成；当前没有测试文件，Vitest 输出 `No test files found, exiting with code 0`。
+- 剩余风险：Task 1 只建立测试入口，没有验证业务规则；后续任务必须先写失败测试再改玩法。
+- 下一步：Task 2 编写湖工矿工核心规则失败测试，覆盖关卡、钩长、底部命中、道具和过关推进。
 
 ## Task 2: 湖工矿工核心规则测试
 
