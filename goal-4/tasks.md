@@ -148,18 +148,18 @@
 
 ## Task 9: 前端广场、详情、发帖页面重构
 
-- [ ] 状态：未完成
-- [ ] 按 Stitch 风格实现广场 Feed、分类筛选、搜索、热帖、帖子详情、回复、评分、收藏、关注、举报
-- [ ] 发帖页支持分类、标题、正文、评分、附件上传和成功/失败提示
-- [ ] 所有交互接入缓存失效和防重复提交
-- [ ] 运行前端相关测试、浏览器移动端验收并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 按 Stitch 风格实现广场 Feed、分类筛选、搜索、热帖、帖子详情、回复、评分、收藏、关注、举报
+- [x] 发帖页支持分类、标题、正文、评分、附件上传和成功/失败提示
+- [x] 所有交互接入缓存失效和防重复提交
+- [x] 运行前端相关测试、浏览器移动端验收并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：按用户最新要求补强前端“我的资料”头像设置体验：头像预览本身现在是可点击/键盘可达的上传入口，点击头像或“上传头像到图床”都会调用现有 `client.uploadAttachment(file)` 后端图床接口，成功后通过 `resolveAvatarAttachmentUrl()` 自动回填 `profile.avatar_url`，并显示“已回填图床地址，请保存资料”的页面内状态；手动 URL 保留为备用入口，不再是唯一头像设置方式。上传中会显示“头像图床上传中”，重复点击继续由 `runPending('profile:avatar-upload')` 阻止，未登录会触发登录提示。同步补充了 Stitch 风格的相机遮罩、状态胶囊和焦点样式。
-- 验证结果：先新增契约测试并运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000`，红灯失败点为缺少 `avatarUploadStatus.value =`，证明测试覆盖了新增设置上传状态；实现后同一命令通过，1 file / 7 tests passed。随后运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 23 tests passed；`npm.cmd run build` 退出码 0，仅保留既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning；`git diff --check -- src\components\ForumView.vue src\utils\forum_view_identity_contract.spec.ts goal-4\tasks.md` 通过。启动本地 Vite 后 `curl.exe -I http://127.0.0.1:1420/` 返回 HTTP 200，验证本地页面可服务；验收后已结束本轮启动的 Vite 进程。
-- 剩余风险：本轮只完成用户追加的头像设置上传图床体验，没有完成 Task 9 的广场、详情、发帖整页重构，所以 Task 9 仍保持未完成；MCP 浏览器/Chrome DevTools 均被已有实例占用，未能做截图级移动端 UI 验收；真实头像上传仍未连接 HF Bucket/线上后端实传验证；工作区仍有无关 iOS、Dashboard、小游戏、website、goal-5、`.playwright-mcp` 和截图等脏改动，本轮未回滚也不提交。
-- 下一步：继续执行 Task 9 的广场、详情、发帖页面重构，补齐评分、收藏、关注、举报、附件上传预览和防重复提交的页面级交互验收。
+- 完成内容：延续上一轮头像上传图床体验后，本轮真正完成 Task 9 的广场、详情、发帖页重构。`ForumView.vue` 新增广场概览统计、热帖横滑条、帖子状态格和按钮级 pending 状态；帖子详情统一使用 `currentThread`，补齐关注作者、收藏、举报、评分 stepper、附件预览、回复附件预览和移除；发帖页改为 `threadPendingKey` 防重复发布，新增“上传附件会先进入后端图床”引导、快捷评分按钮、附件预览和移除。新增/补齐 `feed-meta-strip`、`hot-thread-strip`、`thread-stat-grid`、`detail-action-bar`、`score-stepper`、`attachment-preview-list`、`attachment-preview-item`、`compose-guidance`、`compose-score-options` 等 Stitch 风格样式，重点处理移动端横向滚动、长文件名省略、按钮稳定尺寸和回复按钮文字不挤压。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 得到红灯，失败点为缺少 `class="score-stepper"`；补模板后再次红灯，失败点为缺少独立 `class="reply-attachment-list"`；修复后同一命令通过，1 file / 8 tests passed。随后运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 24 tests passed。`git diff --check -- src\components\ForumView.vue src\utils\forum_view_identity_contract.spec.ts` 退出码 0，仅有 Windows LF/CRLF 提示。`npm.cmd run build` 退出码 0，仍保留既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning。启动本地 Vite 后 `curl.exe -I http://127.0.0.1:1420/` 返回 HTTP 200，验证本地页面可服务；验收后已结束本轮启动的 Vite 进程。
+- 剩余风险：MCP Playwright 与 Chrome DevTools 均被已有浏览器实例占用，项目本地也未安装 `playwright`/`@playwright/test`，因此本轮没有生成新的截图级移动端验收证据；已用契约测试、构建、HTTP 200 和源码级布局检查替代。真实 HF Bucket/线上后端的附件实传仍留给后续集成/部署任务；工作区仍有无关 iOS、Dashboard、小游戏、website、`.playwright-mcp` 和截图等脏改动，本轮未回滚也不提交。
+- 下一步：执行“大型全面检查-debug 循环 C”，集中检查 Task 7-9 的前端核心论坛页面、缓存、防重复提交、UI/UX、构建和剩余浏览器验收风险。
 
 ## 大型全面检查-debug 循环 C（完成 Task 7-9 后执行）
 

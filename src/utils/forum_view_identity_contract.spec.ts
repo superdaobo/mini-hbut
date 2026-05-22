@@ -150,6 +150,66 @@ describe('forum view identity contract', () => {
     expect(forumSource).toContain('.post-card p {\n  display: -webkit-box;')
   })
 
+  it('keeps feed, detail, and compose pages feature-complete for Task 9', () => {
+    const forumSource = readSource('src/components/ForumView.vue')
+
+    for (const scriptMarker of [
+      'const currentThread = computed',
+      'const threadAttachments = computed',
+      'const threadPendingKey = computed',
+      'const replyPendingKey = computed',
+      'const threadActionKey = (thread, action)',
+      'const removeThreadFile = (index)',
+      'const removeReplyFile = (index)',
+      'const fileLabel = (file)',
+      'const fileSizeLabel = (file)',
+      'const setThreadScore = (score)'
+    ]) {
+      expect(forumSource).toContain(scriptMarker)
+    }
+
+    for (const feedMarker of [
+      'class="feed-meta-strip"',
+      'class="thread-stat-grid"',
+      'class="hot-thread-strip"',
+      'class="thread-action-button"',
+      'isPending(threadActionKey(thread, \'score\'))',
+      'isPending(threadActionKey(thread, \'bookmark\'))',
+      '评分中',
+      '收藏中'
+    ]) {
+      expect(forumSource).toContain(feedMarker)
+    }
+
+    for (const detailMarker of [
+      'class="detail-action-bar"',
+      'class="score-stepper"',
+      'class="reply-attachment-list"',
+      'class="attachment-preview-list"',
+      'isPending(threadActionKey(currentThread, \'report\'))',
+      'isPending(threadActionKey(currentThread, \'follow\'))',
+      'isPending(replyPendingKey)',
+      '举报中',
+      '关注作者',
+      '回复中'
+    ]) {
+      expect(forumSource).toContain(detailMarker)
+    }
+
+    for (const composeMarker of [
+      'class="compose-score-options"',
+      'class="compose-guidance"',
+      'class="attachment-preview-item"',
+      '@click="removeThreadFile(index)"',
+      '@click="removeReplyFile(index)"',
+      'isPending(threadPendingKey)',
+      '发布中',
+      '上传附件会先进入后端图床'
+    ]) {
+      expect(forumSource).toContain(composeMarker)
+    }
+  })
+
   it('allows profile avatars to be uploaded through the forum image host', () => {
     const forumSource = readSource('src/components/ForumView.vue')
 

@@ -92,6 +92,14 @@ const visibleTabs = computed(() => tabs.filter((tab) => tab.key !== 'admin' || i
 const bookmarkedIds = computed(() => new Set(myBookmarks.value.map((thread) => Number(thread.id))))
 const displayThreads = computed(() => threads.value.length ? threads.value : hotThreads.value)
 const unreadCount = computed(() => notifications.value.filter((item) => !Number(item.is_read || 0)).length)
+const feedReplyCount = computed(() => displayThreads.value.reduce((total, thread) => total + Number(thread.reply_count || 0), 0))
+const feedAttachmentCount = computed(() => displayThreads.value.reduce((total, thread) => total + Number(thread.attachment_ids?.length || 0), 0))
+const feedAverageScore = computed(() => {
+  const scored = displayThreads.value.filter((thread) => Number(thread.score_avg || 0) > 0)
+  if (!scored.length) return '0.0'
+  const total = scored.reduce((sum, thread) => sum + Number(thread.score_avg || 0), 0)
+  return (total / scored.length).toFixed(1)
+})
 const canPublishThread = computed(() => forumEnabled.value && isLoggedIn.value && hasRemoteCategories.value)
 const composerHint = computed(() => {
   if (!forumEnabled.value) return '论坛暂未开放'
@@ -102,6 +110,10 @@ const composerHint = computed(() => {
 const meStats = computed(() => meSummary.value?.stats || {})
 const viewedProfileInfo = computed(() => viewedUserProfile.value?.profile || {})
 const viewedProfileStats = computed(() => viewedUserProfile.value?.stats || {})
+const currentThread = computed(() => threadDetail.value?.thread || selectedThread.value || null)
+const threadAttachments = computed(() => currentThread.value?.attachment_ids || [])
+const threadPendingKey = computed(() => `thread:${selectedCategoryId.value}:${newThread.value.title.trim()}:${newThread.value.content_md.trim()}`.slice(0, 180))
+const replyPendingKey = computed(() => selectedThread.value?.id ? `reply:${selectedThread.value.id}:${replyContent.value.trim().slice(0, 80)}` : 'reply:none')
 
 const toText = (value) => (value == null ? '' : String(value))
 
@@ -128,6 +140,28 @@ const categoryName = (categoryId) =>
   visibleCategories.value.find((item) => Number(item.id) === Number(categoryId))?.name || '社区'
 
 const attachmentUrl = (attachmentId) => client?.getAttachmentUrl?.(attachmentId) || ''
+
+const threadActionKey = (thread, action) => {
+  const normalizedAction = toText(action).trim()
+  if (normalizedAction === 'follow') {
+    return `follow:${toText(thread?.author_student_id).trim() || 'unknown'}`
+  }
+  return `${normalizedAction}:${thread?.id || 'unknown'}`
+}
+
+const fileLabel = (file) => toText(file?.name).trim() || '附件'
+
+const fileSizeLabel = (file) => {
+  const size = Number(file?.size || 0)
+  if (!Number.isFinite(size) || size <= 0) return '待上传'
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+const setThreadScore = (score) => {
+  const nextScore = Math.min(10, Math.max(1, Number(score || 1)))
+  newThread.value.score = nextScore
+}
 
 const resolveAvatarAttachmentUrl = (payload) => {
   const directUrl = toText(payload?.url).trim()
@@ -340,6 +374,14 @@ const setReplyFiles = (event) => {
   replyFiles.value = Array.from(event?.target?.files || []).slice(0, 4)
 }
 
+const removeThreadFile = (index) => {
+  threadFiles.value = threadFiles.value.filter((_, fileIndex) => fileIndex !== index)
+}
+
+const removeReplyFile = (index) => {
+  replyFiles.value = replyFiles.value.filter((_, fileIndex) => fileIndex !== index)
+}
+
 const openAvatarFilePicker = () => {
   if (isPending('profile:avatar-upload')) return
   if (!isLoggedIn.value) return requireLogin()
@@ -386,8 +428,7 @@ const submitThread = async () => {
     showToast(composerHint.value || '暂时无法发布', 'warning')
     return
   }
-  const signature = `${selectedCategoryId.value}:${title}:${content}`.slice(0, 180)
-  await runPending(`thread:${signature}`, async () => {
+  await runPending(threadPendingKey.value, async () => {
     const attachmentIds = await uploadFiles(threadFiles.value)
     const created = await client.createThread({
       category_id: selectedCategoryId.value || selectedCategory.value?.id,
@@ -415,7 +456,7 @@ const submitReply = async () => {
     showToast('回复内容不能为空', 'warning')
     return
   }
-  await runPending(`reply:${selectedThread.value.id}:${content.slice(0, 80)}`, async () => {
+  await runPending(replyPendingKey.value, async () => {
     const attachmentIds = await uploadFiles(replyFiles.value)
     await client.createReply(selectedThread.value.id, {
       content_md: content,
@@ -689,6 +730,37 @@ watch(
             </button>
           </div>
 
+          <div class="feed-meta-strip" aria-label="广场概览">
+            <div>
+              <strong>{{ displayThreads.length }}</strong>
+              <span>讨论</span>
+            </div>
+            <div>
+              <strong>{{ feedAverageScore }}</strong>
+              <span>均分</span>
+            </div>
+            <div>
+              <strong>{{ feedReplyCount }}</strong>
+              <span>回复</span>
+            </div>
+            <div>
+              <strong>{{ feedAttachmentCount }}</strong>
+              <span>附件</span>
+            </div>
+          </div>
+
+          <div v-if="hotThreads.length" class="hot-thread-strip" aria-label="热帖">
+            <button
+              v-for="hotThread in hotThreads.slice(0, 4)"
+              :key="hotThread.id"
+              type="button"
+              @click="openThread(hotThread)"
+            >
+              <span class="material-symbols-outlined">local_fire_department</span>
+              <span>{{ hotThread.title }}</span>
+            </button>
+          </div>
+
           <div class="section-heading">
             <div>
               <span class="eyebrow">{{ searchQuery.trim() ? 'Search Results' : selectedCategory?.name || 'Hot' }}</span>
@@ -734,18 +806,33 @@ watch(
               <span class="material-symbols-outlined">image</span>
               {{ thread.attachment_ids.length }} 个附件
             </div>
+            <div class="thread-stat-grid" aria-label="帖子状态">
+              <span><strong>{{ thread.score_avg || 0 }}</strong>评分</span>
+              <span><strong>{{ thread.reply_count || 0 }}</strong>回复</span>
+              <span><strong>{{ thread.attachment_ids?.length || 0 }}</strong>附件</span>
+            </div>
             <div class="post-actions" @click.stop>
-              <button type="button" @click="scoreThread(thread, 8)">
+              <button
+                class="thread-action-button"
+                type="button"
+                :disabled="isPending(threadActionKey(thread, 'score'))"
+                @click="scoreThread(thread, 8)"
+              >
                 <span class="material-symbols-outlined">favorite</span>
-                {{ thread.score_avg || 0 }} 分
+                {{ isPending(threadActionKey(thread, 'score')) ? '评分中' : `${thread.score_avg || 0} 分` }}
               </button>
-              <button type="button" @click="openThread(thread)">
+              <button class="thread-action-button" type="button" @click="openThread(thread)">
                 <span class="material-symbols-outlined">comment</span>
                 {{ thread.reply_count || 0 }}
               </button>
-              <button type="button" @click="toggleBookmark(thread)">
+              <button
+                class="thread-action-button"
+                type="button"
+                :disabled="isPending(threadActionKey(thread, 'bookmark'))"
+                @click="toggleBookmark(thread)"
+              >
                 <span class="material-symbols-outlined">{{ bookmarkedIds.has(Number(thread.id)) ? 'bookmark' : 'bookmark_add' }}</span>
-                {{ bookmarkedIds.has(Number(thread.id)) ? '已收藏' : '收藏' }}
+                {{ isPending(threadActionKey(thread, 'bookmark')) ? '收藏中' : (bookmarkedIds.has(Number(thread.id)) ? '已收藏' : '收藏') }}
               </button>
             </div>
           </article>
@@ -756,8 +843,14 @@ watch(
             <button class="icon-button" type="button" title="返回列表" @click="closeThread">
               <span class="material-symbols-outlined">arrow_back</span>
             </button>
-            <h2>{{ selectedThread?.title || '帖子详情' }}</h2>
-            <button class="icon-button" type="button" title="举报" @click="reportThread(threadDetail?.thread || selectedThread)">
+            <h2>{{ currentThread?.title || '帖子详情' }}</h2>
+            <button
+              class="icon-button"
+              type="button"
+              title="举报"
+              :disabled="!currentThread || isPending(threadActionKey(currentThread, 'report'))"
+              @click="reportThread(currentThread)"
+            >
               <span class="material-symbols-outlined">flag</span>
             </button>
           </div>
@@ -771,22 +864,51 @@ watch(
               <span class="skeleton-line short"></span>
             </article>
           </div>
-          <article v-else-if="selectedThread" class="detail-card">
+          <article v-else-if="currentThread" class="detail-card">
             <div class="post-author large">
-              <button class="mini-avatar large" type="button" @click="openUserProfile(selectedThread.author_student_id)">
-                {{ initials(authorName(selectedThread.author_student_id)) }}
+              <button class="mini-avatar large" type="button" @click="openUserProfile(currentThread.author_student_id)">
+                {{ initials(authorName(currentThread.author_student_id)) }}
               </button>
               <div>
-                <strong>{{ authorName(selectedThread.author_student_id) }}</strong>
-                <small>{{ formatTime(selectedThread.created_at) }} · {{ categoryName(selectedThread.category_id) }}</small>
+                <strong>{{ authorName(currentThread.author_student_id) }}</strong>
+                <small>{{ formatTime(currentThread.created_at) }} · {{ categoryName(currentThread.category_id) }}</small>
               </div>
-              <span class="score-badge">{{ selectedThread.score_avg || 0 }} 分</span>
+              <span class="score-badge">{{ currentThread.score_avg || 0 }} 分</span>
             </div>
-            <h2>{{ threadDetail?.thread?.title || selectedThread.title }}</h2>
-            <p class="detail-content">{{ threadDetail?.thread?.content_md || selectedThread.content_md }}</p>
-            <div v-if="(threadDetail?.thread?.attachment_ids || selectedThread.attachment_ids || []).length" class="image-grid">
+            <h2>{{ currentThread.title }}</h2>
+            <p class="detail-content">{{ currentThread.content_md }}</p>
+            <div class="detail-action-bar">
+              <button
+                class="ghost-pill"
+                type="button"
+                :disabled="isPending(threadActionKey(currentThread, 'follow'))"
+                @click="followAuthor(currentThread.author_student_id)"
+              >
+                <span class="material-symbols-outlined">person_add</span>
+                {{ isPending(threadActionKey(currentThread, 'follow')) ? '关注中' : '关注作者' }}
+              </button>
+              <button
+                class="ghost-pill"
+                type="button"
+                :disabled="isPending(threadActionKey(currentThread, 'bookmark'))"
+                @click="toggleBookmark(currentThread)"
+              >
+                <span class="material-symbols-outlined">bookmark</span>
+                {{ isPending(threadActionKey(currentThread, 'bookmark')) ? '收藏中' : '收藏' }}
+              </button>
+              <button
+                class="danger-pill"
+                type="button"
+                :disabled="isPending(threadActionKey(currentThread, 'report'))"
+                @click="reportThread(currentThread)"
+              >
+                <span class="material-symbols-outlined">flag</span>
+                {{ isPending(threadActionKey(currentThread, 'report')) ? '举报中' : '举报' }}
+              </button>
+            </div>
+            <div v-if="threadAttachments.length" class="image-grid attachment-preview-list">
               <a
-                v-for="attachment in (threadDetail?.thread?.attachment_ids || selectedThread.attachment_ids || [])"
+                v-for="attachment in threadAttachments"
                 :key="attachment"
                 :href="attachmentUrl(attachment)"
                 target="_blank"
@@ -797,13 +919,17 @@ watch(
               </a>
             </div>
             <div class="score-row">
-              <button v-for="score in [1, 3, 5, 8, 10]" :key="score" type="button" @click="scoreThread(threadDetail?.thread || selectedThread, score)">
-                {{ score }} 分
-              </button>
-              <button type="button" @click="toggleBookmark(threadDetail?.thread || selectedThread)">
-                <span class="material-symbols-outlined">bookmark</span>
-                收藏
-              </button>
+              <div class="score-stepper">
+                <button
+                  v-for="score in [1, 3, 5, 8, 10]"
+                  :key="score"
+                  type="button"
+                  :disabled="isPending(threadActionKey(currentThread, 'score'))"
+                  @click="scoreThread(currentThread, score)"
+                >
+                  {{ isPending(threadActionKey(currentThread, 'score')) ? '评分中' : `${score} 分` }}
+                </button>
+              </div>
             </div>
           </article>
 
@@ -817,11 +943,25 @@ watch(
                 <span class="material-symbols-outlined">image</span>
                 <input type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setReplyFiles" />
               </label>
-              <button class="primary-icon" type="button" :disabled="!selectedThread || isPending(`reply:${selectedThread.id}:${replyContent.trim().slice(0, 80)}`)" @click="submitReply">
+              <button class="primary-icon reply-send-button" type="button" :disabled="!currentThread || isPending(replyPendingKey)" @click="submitReply">
                 <span class="material-symbols-outlined">send</span>
+                <span class="send-label">{{ isPending(replyPendingKey) ? '回复中' : '发送' }}</span>
               </button>
             </div>
-            <p v-if="replyFiles.length" class="form-hint">{{ replyFiles.length }} 个附件待上传</p>
+            <div v-if="replyFiles.length" class="reply-attachment-list">
+              <div class="attachment-preview-list">
+                <article v-for="(file, index) in replyFiles" :key="`${fileLabel(file)}-${index}`" class="attachment-preview-item">
+                  <span class="material-symbols-outlined">attach_file</span>
+                  <div>
+                    <strong>{{ fileLabel(file) }}</strong>
+                    <small>{{ fileSizeLabel(file) }}</small>
+                  </div>
+                  <button type="button" title="移除回复附件" @click="removeReplyFile(index)">
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
+                </article>
+              </div>
+            </div>
             <article v-for="reply in threadDetail?.replies || []" :key="reply.id" class="comment-card">
               <button class="mini-avatar" type="button" @click="openUserProfile(reply.author_student_id)">
                 {{ initials(authorName(reply.author_student_id)) }}
@@ -855,9 +995,16 @@ watch(
           <div class="compose-topbar">
             <button class="ghost-pill" type="button" @click="switchTab('feed')">Cancel</button>
             <h2>Create Post</h2>
-            <button class="primary-pill" type="button" :disabled="!canPublishThread || isPending(`thread:${selectedCategoryId}:${newThread.title.trim()}:${newThread.content_md.trim()}`.slice(0, 180))" @click="submitThread">
-              Publish
+            <button class="primary-pill" type="button" :disabled="!canPublishThread || isPending(threadPendingKey)" @click="submitThread">
+              {{ isPending(threadPendingKey) ? '发布中' : 'Publish' }}
             </button>
+          </div>
+          <div class="compose-guidance">
+            <span class="material-symbols-outlined">cloud_upload</span>
+            <div>
+              <strong>上传附件会先进入后端图床</strong>
+              <p>发布成功后自动刷新广场和个人帖子，重复点击会被拦截并提示。</p>
+            </div>
           </div>
           <div class="editor-card">
             <select v-model.number="selectedCategoryId" class="category-select">
@@ -875,7 +1022,30 @@ watch(
               <span>初始评分</span>
               <input id="forum-thread-score" v-model.number="newThread.score" name="forum-thread-score" type="number" min="1" max="10" />
             </label>
+            <div class="compose-score-options" aria-label="快速选择初始评分">
+              <button
+                v-for="score in [1, 3, 5, 8, 10]"
+                :key="`compose-score-${score}`"
+                type="button"
+                :class="{ active: Number(newThread.score) === score }"
+                @click="setThreadScore(score)"
+              >
+                {{ score }}
+              </button>
+            </div>
             <span class="char-count">{{ newThread.content_md.length }}/20000</span>
+          </div>
+          <div v-if="threadFiles.length" class="attachment-preview-list">
+            <article v-for="(file, index) in threadFiles" :key="`${fileLabel(file)}-${index}`" class="attachment-preview-item">
+              <span class="material-symbols-outlined">attach_file</span>
+              <div>
+                <strong>{{ fileLabel(file) }}</strong>
+                <small>{{ fileSizeLabel(file) }}</small>
+              </div>
+              <button type="button" title="移除发帖附件" @click="removeThreadFile(index)">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </article>
           </div>
           <p v-if="threadFiles.length" class="form-hint">{{ threadFiles.length }} 个附件会通过后端图床接口上传</p>
           <p v-if="composerHint" class="form-hint warning">{{ composerHint }}</p>
@@ -1675,6 +1845,91 @@ watch(
   line-height: 16px;
 }
 
+.feed-meta-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.feed-meta-strip div,
+.thread-stat-grid span {
+  min-width: 0;
+  border: 1px solid rgba(194, 198, 214, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.feed-meta-strip strong,
+.feed-meta-strip span,
+.thread-stat-grid strong {
+  display: block;
+}
+
+.feed-meta-strip strong,
+.thread-stat-grid strong {
+  color: var(--stitch-primary);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.feed-meta-strip span,
+.thread-stat-grid span {
+  color: var(--stitch-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.hot-thread-strip {
+  display: flex;
+  gap: 8px;
+  margin: -2px -2px 0;
+  overflow-x: auto;
+  padding: 2px 2px 4px;
+  scrollbar-width: none;
+}
+
+.hot-thread-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.hot-thread-strip button {
+  display: inline-flex;
+  min-width: min(220px, 74vw);
+  max-width: 260px;
+  min-height: 42px;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--stitch-control-radius);
+  background: #ffffff;
+  color: var(--stitch-text);
+  cursor: pointer;
+  padding: 0 12px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.hot-thread-strip button span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hot-thread-strip .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--stitch-warning);
+  font-size: 18px;
+}
+
+.thread-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .post-actions,
 .score-row,
 .comment-actions,
@@ -1710,6 +1965,12 @@ watch(
   color: var(--stitch-primary);
 }
 
+.thread-action-button:disabled,
+.score-stepper button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .detail-topbar,
 .compose-topbar {
   display: grid;
@@ -1735,6 +1996,19 @@ watch(
 .detail-content {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.detail-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.detail-action-bar .ghost-pill,
+.detail-action-bar .danger-pill {
+  flex: 1 1 104px;
+  min-width: 0;
 }
 
 .image-grid {
@@ -1773,6 +2047,20 @@ watch(
   font-weight: 700;
 }
 
+.score-stepper {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.score-stepper button {
+  justify-content: center;
+  min-width: 0;
+  background: var(--stitch-surface-container);
+  padding: 0 6px;
+}
+
 .comment-panel {
   display: flex;
   flex-direction: column;
@@ -1781,7 +2069,7 @@ watch(
 
 .reply-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px 40px;
+  grid-template-columns: minmax(0, 1fr) 40px auto;
   gap: 8px;
   align-items: end;
 }
@@ -1796,6 +2084,95 @@ watch(
   font: inherit;
   outline: none;
   padding: 12px 14px;
+}
+
+.reply-send-button {
+  width: auto;
+  min-width: 76px;
+  padding: 0 12px;
+}
+
+.reply-send-button .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.send-label {
+  white-space: nowrap;
+}
+
+.reply-attachment-list {
+  margin-top: -4px;
+}
+
+.attachment-preview-list:not(.image-grid) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachment-preview-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(194, 198, 214, 0.2);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 8px;
+}
+
+.attachment-preview-item > .material-symbols-outlined {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-primary);
+  font-size: 18px;
+}
+
+.attachment-preview-item div {
+  min-width: 0;
+}
+
+.attachment-preview-item strong,
+.attachment-preview-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-item strong {
+  color: var(--stitch-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+}
+
+.attachment-preview-item small {
+  color: var(--stitch-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.attachment-preview-item button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  color: var(--stitch-muted);
+  cursor: pointer;
+}
+
+.attachment-preview-item button:hover {
+  color: var(--stitch-primary);
 }
 
 .file-trigger {
@@ -1843,6 +2220,52 @@ watch(
   gap: 14px;
 }
 
+.compose-guidance {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: 22px;
+  background: rgba(216, 226, 255, 0.62);
+  padding: 12px;
+}
+
+.compose-guidance > .material-symbols-outlined {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--stitch-primary);
+  color: #ffffff;
+  font-size: 21px;
+}
+
+.compose-guidance div {
+  min-width: 0;
+}
+
+.compose-guidance strong,
+.compose-guidance p {
+  margin: 0;
+}
+
+.compose-guidance strong {
+  display: block;
+  color: var(--stitch-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+}
+
+.compose-guidance p {
+  color: var(--stitch-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+}
+
 .editor-card {
   display: flex;
   min-height: 340px;
@@ -1883,7 +2306,7 @@ watch(
 
 .attachment-bar {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(118px, 1fr) minmax(132px, 1.2fr) auto;
   align-items: center;
   gap: 10px;
   border-radius: 24px;
@@ -1907,6 +2330,34 @@ watch(
 
 .score-input input {
   text-align: center;
+}
+
+.compose-score-options {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(5, minmax(24px, 1fr));
+  gap: 4px;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  padding: 4px;
+}
+
+.compose-score-options button {
+  min-width: 0;
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stitch-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.compose-score-options button.active,
+.compose-score-options button:hover {
+  background: var(--stitch-primary);
+  color: #ffffff;
 }
 
 .char-count,
