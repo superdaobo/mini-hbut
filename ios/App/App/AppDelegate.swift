@@ -10,6 +10,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // 注册 WKWebView 进程终止恢复，防止后台切回后黑屏
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.configureEdgeToEdgeWebView()
             self?.installWebViewCrashRecovery()
         }
         return true
@@ -25,6 +26,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
+        configureEdgeToEdgeWebView()
         // 回到前台时检测 WebView 是否黑屏，触发恢复
         nudgeWebViewIfNeeded()
     }
@@ -83,6 +85,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     // MARK: - WebView 黑屏恢复
+
+    /// iOS 底部导航栏需要由前端自己处理 safe area，不能让 WKWebView 自动把内容顶到安全区内。
+    private func configureEdgeToEdgeWebView() {
+        guard let webView = findCapacitorWebView() else { return }
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.contentInset = .zero
+        webView.scrollView.scrollIndicatorInsets = .zero
+        webView.scrollView.insetsLayoutMarginsFromSafeArea = false
+    }
 
     /// 获取 Capacitor 管理的 WKWebView
     private func findCapacitorWebView() -> WKWebView? {

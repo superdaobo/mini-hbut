@@ -6,8 +6,10 @@ const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 
 
 describe('bottom tab bar safe area contract', () => {
   const appVue = () => readSource('src/App.vue')
+  const capacitorConfig = () => readSource('capacitor.config.ts')
   const indexCss = () => readSource('src/index.css')
   const uxCss = () => readSource('src/styles/ui_ux_pro_max.css')
+  const appDelegate = () => readSource('ios/App/App/AppDelegate.swift')
 
   it('marks the bottom tab bar with an iOS-specific class', () => {
     expect(appVue()).toContain("'bottom-tab-bar--ios': isIOSLike")
@@ -30,6 +32,18 @@ describe('bottom tab bar safe area contract', () => {
     )
   })
 
+  it('keeps page scroll clearance independent from the iOS home indicator inset', () => {
+    expect(appVue()).not.toMatch(/padding-bottom:\s*calc\(128px\s*\+\s*var\(--app-safe-bottom\)\)/)
+    expect(uxCss()).not.toMatch(/--ux-bottom-safe:\s*calc\(128px\s*\+\s*var\(--app-safe-bottom\)\)/)
+  })
+
+  it('forces the iOS WKWebView to render edge-to-edge instead of inside adjusted safe-area insets', () => {
+    expect(capacitorConfig()).toContain("contentInset: 'never'")
+    expect(appDelegate()).toContain('webView.scrollView.contentInsetAdjustmentBehavior = .never')
+    expect(appDelegate()).toContain('webView.scrollView.contentInset = .zero')
+    expect(appDelegate()).toContain('webView.scrollView.scrollIndicatorInsets = .zero')
+  })
+
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
     expect(appVue()).toMatch(
       /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*--bottom-tab-bar-safe-bottom:\s*var\(--app-safe-bottom\);[^}]*min-height:\s*calc\(var\(--bottom-tab-bar-content-height\)\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);[^}]*padding-bottom:\s*calc\(10px\s*\+\s*var\(--bottom-tab-bar-safe-bottom\)\);/s
@@ -48,6 +62,12 @@ describe('bottom tab bar safe area contract', () => {
 
     expect(compactRule?.groups?.body).toBeTruthy()
     expect(compactRule?.groups?.body).not.toContain('env(safe-area-inset-bottom')
+  })
+
+  it('keeps iOS bottom corners flush after themed navigation style overrides', () => {
+    expect(uxCss()).toMatch(
+      /html\[data-ui-nav='floating'\]\s+\.bottom-tab-bar--ios,\s*html\[data-ui-nav='pill'\]\s+\.bottom-tab-bar--ios,\s*html\[data-ui-nav='compact'\]\s+\.bottom-tab-bar--ios\s*\{[^}]*border-bottom-left-radius:\s*0\s*!important;[^}]*border-bottom-right-radius:\s*0\s*!important;[^}]*bottom:\s*0\s*!important;/s
+    )
   })
 
   it('restores iOS safe-area padding after compact nav padding overrides', () => {

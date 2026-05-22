@@ -3038,7 +3038,7 @@ onBeforeUnmount(() => {
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: calc(128px + var(--app-safe-bottom));
+  padding-bottom: 128px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -3083,7 +3083,7 @@ onBeforeUnmount(() => {
 .app-shell.schedule-full {
   --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
   padding-top: var(--schedule-safe-top);
-  padding-bottom: calc(128px + var(--app-safe-bottom));
+  padding-bottom: 128px;
   overflow: hidden;
 }
 
