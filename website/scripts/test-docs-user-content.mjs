@@ -14,6 +14,7 @@ const campusLife = read('src/pages/docs/CampusLife.tsx');
 const communityNotifications = read('src/pages/docs/CommunityNotifications.tsx');
 const settingsData = read('src/pages/docs/SettingsData.tsx');
 const extensions = read('src/pages/docs/Extensions.tsx');
+const troubleshooting = read('src/pages/docs/Troubleshooting.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -362,6 +363,65 @@ expectIncludes(extensions, 'Extensions', [
   'scripts/build_website_modules.mjs',
 ]);
 
+expectIncludes(troubleshooting, 'Troubleshooting', [
+  '故障排查',
+  '排错、FAQ 与维护手册',
+  '快速定位流程',
+  '安装与启动',
+  'Windows SmartScreen',
+  'macOS 无法验证开发者',
+  'Linux WebKit2GTK',
+  'Android 覆盖安装',
+  'iOS 证书',
+  '登录与验证码',
+  '验证码识别失败',
+  '会话过期',
+  '自动重登',
+  'portal_qr_temp',
+  '学习通关联',
+  '教务系统维护',
+  'hbu_jwxt_maintenance',
+  '离线缓存',
+  'withOfflineMeta',
+  'sync_time',
+  'QuotaExceeded',
+  'trimLocalCacheStorage',
+  '成绩/课表不是最新',
+  '全校课表没有结果',
+  '电费查询失败',
+  '资料分享连接失败',
+  'AI 助手无响应',
+  '导出 ICS',
+  '通知权限',
+  '后台白名单',
+  'hbu_notify_snapshot',
+  'runNotificationCheck',
+  'syncBackgroundFetchContext',
+  '通知重复推送',
+  '云同步失败',
+  'hbu_cloud_sync_status',
+  'cooldown',
+  'x-cloud-sync-challenge',
+  '设置 → 调试日志',
+  '复制最近 error',
+  'hbu_debug_logs_v1',
+  'FeedbackView.vue',
+  'SettingsView.vue',
+  'debug_capture_ui.mjs',
+  'run_tauri_debug_dev.mjs',
+  'test_debug_bridge_contract.mjs',
+  'test_hot_update_framework.mjs',
+  'test_more_module_bridge.mjs',
+  'test_resource_share_network.mjs',
+  'scripts/check_dist_boundary.mjs',
+  'scripts/guard_sensitive_uploads.mjs',
+  'scripts/check-frontend-safety.mjs',
+  'scripts/check-design-tokens.mjs',
+  '维护检查清单',
+  '反馈材料清单',
+  '源码证据索引',
+]);
+
 if (
   quickStart.includes('后续 Task 6') ||
   userGuide.includes('后续扩写来源') ||
@@ -374,7 +434,10 @@ if (
   settingsData.includes('后续扩写来源') ||
   settingsData.includes('本页骨架职责') ||
   extensions.includes('后续扩写来源') ||
-  extensions.includes('本页骨架职责')
+  extensions.includes('本页骨架职责') ||
+  troubleshooting.includes('后续扩写来源') ||
+  troubleshooting.includes('本页骨架职责') ||
+  troubleshooting.includes('DocSectionPage')
 ) {
   failures.push('用户文档仍包含任务骨架或占位提示');
 }

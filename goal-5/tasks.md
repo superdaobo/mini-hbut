@@ -919,15 +919,46 @@
 
 ## Task 15：编写排错、FAQ 与维护手册
 
-- 状态：未完成
+- 状态：已完成
 - 目标：整合用户常见问题、开发者调试路径、日志与恢复策略。
 - 输入范围：现有 FAQ、错误提示、调试脚本、测试文件。
 - 输出要求：排错与 FAQ 专题。
 - 验证方式：文档构建、错链检查。
 - 实际改动：
+- 扩写 `website/src/pages/docs/Troubleshooting.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“故障排查”专题页，定位为排错、FAQ 与维护手册。
+  - 增加“快速定位流程”，按范围判断、状态文案、证据收集三步指导用户和维护者定位问题。
+  - 增加“安装与启动”章节，覆盖 Windows SmartScreen、macOS 无法验证开发者、Linux WebKit2GTK、Android 覆盖安装、iOS 证书。
+  - 增加“登录与验证码”章节，覆盖验证码识别失败、会话过期、自动重登、`portal_qr_temp` 临时登录、学习通关联。
+  - 增加“数据、缓存与教务维护”章节，说明 `hbu_jwxt_maintenance`、`withOfflineMeta`、`sync_time`、`QuotaExceeded`、`trimLocalCacheStorage`、成绩/课表不是最新、全校课表没有结果。
+  - 增加“功能模块常见问题”，覆盖电费查询失败、资料分享连接失败、AI 助手无响应、导出 ICS。
+  - 增加“通知权限与后台白名单”，说明 `runNotificationCheck`、`hbu_notify_snapshot`、`syncBackgroundFetchContext`、通知重复推送和移动端后台限制。
+  - 增加“云同步失败”，说明 `hbu_cloud_sync_status`、`cooldown`、`x-cloud-sync-challenge`、challenge 刷新、学号格式和远程配置阻断。
+  - 增加“设置 → 调试日志”和“复制最近 error”，说明 `hbu_debug_logs_v1`、`SettingsView.vue`、`FeedbackView.vue` 的日志复制、筛选和脱敏边界。
+  - 增加“开发者调试与专项脚本”，覆盖 `debug_capture_ui.mjs`、`run_tauri_debug_dev.mjs`、`test_debug_bridge_contract.mjs`、`test_hot_update_framework.mjs`、`test_more_module_bridge.mjs`、`test_resource_share_network.mjs`、`scripts/check_dist_boundary.mjs`、`scripts/guard_sensitive_uploads.mjs`、`scripts/check-frontend-safety.mjs`、`scripts/check-design-tokens.mjs`。
+  - 增加“维护检查清单”“反馈材料清单”“源码证据索引”“继续阅读”章节，并链接到设置与数据、安全隐私、构建发布专题。
+- 增强 `website/scripts/test-docs-user-content.mjs`：
+  - 将 `Troubleshooting.tsx` 纳入用户文档内容契约。
+  - 检查排错页必须覆盖安装、登录、验证码、缓存、教务维护、功能模块、通知、云同步、调试日志、反馈材料、维护脚本、守卫脚本和源码证据关键词。
+  - 检查排错页不得残留 `DocSectionPage`、`后续扩写来源`、`本页骨架职责` 等骨架占位。
+- TDD 过程：
+  - 已先新增排错页内容契约，并执行 `npm run test:docs-user-content` 确认 RED；失败集中在 `Troubleshooting.tsx` 仍为骨架、缺少排错关键词以及残留占位内容。
+  - 再扩写排错页正文并复跑契约，确认 GREEN。
 - 验证结果：
+- 已执行 `npm run test:docs-user-content`（website），结果为 `docs user content contract passed`。
+- 已执行 `npm run test:docs-ia`（website），结果为 `docs IA contract passed`，确认排错专题扩写没有破坏文档路由、导航和静态入口契约。
+- 已执行 `npm run test:docs-developer-content`（website），结果为 `docs developer content contract passed`，确认本轮用户/排错文档改动没有破坏开发者内容契约。
+- 已执行 `npm run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/troubleshooting/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `git diff --check -- website/src/pages/docs/Troubleshooting.tsx website/scripts/test-docs-user-content.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
 - 剩余风险：
+- 本任务是排错和维护文档，不实际修复 SmartScreen、macOS 签名、Linux 依赖、Android 后台限制、iOS 证书、OCR、WebDAV、AI、云同步或通知发送链路。
+- 调试桥、热更新、模块包和资源分享专项脚本只做文档说明和契约覆盖，没有在本轮启动真实 Tauri 调试桥、真实远程 WebDAV、真实热更新发布或真实模块下载。
+- 文档中的反馈材料要求用户/维护者脱敏日志；本轮没有新增自动脱敏功能，后续如要提升安全性，应在 `FeedbackView.vue` 或 debug logger 层补自动遮蔽。
+- website 构建的大 chunk 警告仍存在，后续 Task 17 或最终审计可评估代码分割或 Vite chunk 策略。
+- 工作区仍存在与 goal-5 无关的修改和未跟踪文件，本轮提交必须只包含 `Troubleshooting.tsx`、`test-docs-user-content.mjs` 和 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Checkpoint E：十五项后全面检查/debug，确认用户文档、开发者文档、运维安全排错文档形成闭环。
 
 ## Checkpoint E：十五项后全面检查/debug
 
