@@ -156,10 +156,10 @@
 - [ ] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：按用户最新要求补强前端“我的资料”头像设置体验：头像预览本身现在是可点击/键盘可达的上传入口，点击头像或“上传头像到图床”都会调用现有 `client.uploadAttachment(file)` 后端图床接口，成功后通过 `resolveAvatarAttachmentUrl()` 自动回填 `profile.avatar_url`，并显示“已回填图床地址，请保存资料”的页面内状态；手动 URL 保留为备用入口，不再是唯一头像设置方式。上传中会显示“头像图床上传中”，重复点击继续由 `runPending('profile:avatar-upload')` 阻止，未登录会触发登录提示。同步补充了 Stitch 风格的相机遮罩、状态胶囊和焦点样式。
+- 验证结果：先新增契约测试并运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000`，红灯失败点为缺少 `avatarUploadStatus.value =`，证明测试覆盖了新增设置上传状态；实现后同一命令通过，1 file / 7 tests passed。随后运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 23 tests passed；`npm.cmd run build` 退出码 0，仅保留既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning；`git diff --check -- src\components\ForumView.vue src\utils\forum_view_identity_contract.spec.ts goal-4\tasks.md` 通过。启动本地 Vite 后 `curl.exe -I http://127.0.0.1:1420/` 返回 HTTP 200，验证本地页面可服务；验收后已结束本轮启动的 Vite 进程。
+- 剩余风险：本轮只完成用户追加的头像设置上传图床体验，没有完成 Task 9 的广场、详情、发帖整页重构，所以 Task 9 仍保持未完成；MCP 浏览器/Chrome DevTools 均被已有实例占用，未能做截图级移动端 UI 验收；真实头像上传仍未连接 HF Bucket/线上后端实传验证；工作区仍有无关 iOS、Dashboard、小游戏、website、goal-5、`.playwright-mcp` 和截图等脏改动，本轮未回滚也不提交。
+- 下一步：继续执行 Task 9 的广场、详情、发帖页面重构，补齐评分、收藏、关注、举报、附件上传预览和防重复提交的页面级交互验收。
 
 ## 大型全面检查-debug 循环 C（完成 Task 7-9 后执行）
 

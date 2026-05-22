@@ -67,6 +67,7 @@ const banDraft = ref({ student_id: '', reason: '' })
 const badgeDraft = ref({ student_id: '', badge_key: 'helper', display_name: '热心同学' })
 const pendingActions = ref(new Set())
 const profileAvatarInput = ref(null)
+const avatarUploadStatus = ref('')
 const newThread = ref({
   title: '',
   content_md: '',
@@ -341,6 +342,7 @@ const setReplyFiles = (event) => {
 
 const openAvatarFilePicker = () => {
   if (isPending('profile:avatar-upload')) return
+  if (!isLoggedIn.value) return requireLogin()
   profileAvatarInput.value?.click?.()
 }
 
@@ -355,13 +357,16 @@ const uploadAvatarImage = async (event) => {
   if (!client) await buildClient()
   try {
     await runPending('profile:avatar-upload', async () => {
+      avatarUploadStatus.value = '正在上传头像到图床'
       const payload = await client.uploadAttachment(file)
       const avatarUrl = resolveAvatarAttachmentUrl(payload)
       if (!avatarUrl) throw new Error('图床未返回头像地址')
       profile.value.avatar_url = avatarUrl
+      avatarUploadStatus.value = '已回填图床地址，请保存资料'
       showToast('头像已上传到图床，请保存资料', 'success')
     }, '头像图床上传中，请勿重复选择')
   } catch (error) {
+    avatarUploadStatus.value = '头像上传失败，可重试或使用手动 URL'
     showToast(error?.message || '头像上传失败', 'error')
   } finally {
     if (input) input.value = ''
@@ -597,6 +602,7 @@ watch(
   async (nextStudentId, previousStudentId) => {
     if (String(nextStudentId || '').trim() === String(previousStudentId || '').trim()) return
     profile.value = readForumProfile(props.studentId)
+    avatarUploadStatus.value = ''
     client = null
     forumCache = null
     selectedThread.value = null
@@ -922,10 +928,22 @@ watch(
           <div class="profile-card">
             <div class="cover-gradient"></div>
             <div class="profile-body">
-              <div class="profile-avatar">
+              <button
+                class="profile-avatar uploadable-avatar"
+                type="button"
+                :disabled="isPending('profile:avatar-upload')"
+                title="更换头像"
+                @click="openAvatarFilePicker"
+                @keydown.enter.prevent="openAvatarFilePicker"
+                @keydown.space.prevent="openAvatarFilePicker"
+              >
                 <img v-if="profile.avatar_url" :src="profile.avatar_url" alt="社区头像" />
                 <span v-else>{{ initials(profile.nickname || studentId) }}</span>
-              </div>
+                <span class="avatar-upload-overlay">
+                  <span class="material-symbols-outlined">photo_camera</span>
+                  更换头像
+                </span>
+              </button>
               <button class="primary-pill" type="button" @click="checkIn">签到</button>
               <h2>{{ profile.nickname || studentId || '游客' }}</h2>
               <p>{{ meSummary?.profile?.bio || profile.bio || '还没有填写社区简介' }}</p>
@@ -958,6 +976,7 @@ watch(
                 <span class="material-symbols-outlined">upload</span>
                 <span>{{ isPending('profile:avatar-upload') ? '头像图床上传中' : '上传头像到图床' }}</span>
               </label>
+              <p v-if="avatarUploadStatus" class="avatar-upload-status">{{ avatarUploadStatus }}</p>
               <p class="form-hint">选择本地图片后会上传到后端图床，并自动回填头像 URL。</p>
             </div>
             <label>
@@ -1208,6 +1227,7 @@ watch(
 .forum-view input:focus-visible,
 .forum-view textarea:focus-visible,
 .forum-view select:focus-visible,
+.uploadable-avatar:focus-visible,
 .avatar-upload-button:focus-visible {
   outline: 2px solid var(--stitch-primary);
   outline-offset: 3px;
@@ -1975,6 +1995,7 @@ watch(
 }
 
 .profile-avatar {
+  position: relative;
   display: grid;
   place-items: center;
   width: 92px;
@@ -1990,10 +2011,53 @@ watch(
   overflow: hidden;
 }
 
+.uploadable-avatar {
+  padding: 0;
+  cursor: pointer;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.uploadable-avatar:hover,
+.uploadable-avatar:focus-visible {
+  transform: translateY(-1px);
+}
+
+.uploadable-avatar:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .profile-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.avatar-upload-overlay {
+  position: absolute;
+  inset: auto 0 0;
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: rgba(0, 88, 190, 0.86);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.avatar-upload-overlay .material-symbols-outlined {
+  font-size: 14px;
+}
+
+.uploadable-avatar:hover .avatar-upload-overlay,
+.uploadable-avatar:focus-visible .avatar-upload-overlay,
+.uploadable-avatar:disabled .avatar-upload-overlay {
+  opacity: 1;
 }
 
 .profile-body > .primary-pill {
@@ -2091,6 +2155,19 @@ watch(
 
 .avatar-upload-button .material-symbols-outlined {
   font-size: 18px;
+}
+
+.avatar-upload-status {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-primary);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
 }
 
 .mini-list-card button {
