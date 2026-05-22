@@ -74,18 +74,18 @@
 
 ## Task 5: 后端图床代理、HF Bucket 与备份接口
 
-- [ ] 状态：未完成
-- [ ] 实现附件上传、MIME/大小校验、sha256 去重、HF Private Bucket 上传、本地降级、代理访问和缓存头
-- [ ] 实现备份记录接口与 OneDrive 同步脚本的可配置入口，不写真实密钥
-- [ ] 更新 secret 配置脚本，只在用户确认后才能写入桌面 secret 文件或 HF secrets
-- [ ] 运行后端相关测试并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 实现附件上传、MIME/大小校验、sha256 去重、HF Private Bucket 上传、本地降级、代理访问和缓存头
+- [x] 实现备份记录接口与 OneDrive 同步脚本的可配置入口，不写真实密钥
+- [x] 更新 secret 配置脚本，只在用户确认后才能写入桌面 secret 文件或 HF secrets
+- [x] 运行后端相关测试并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已在 `ocr-service` 提交 `03ed149 feat(forum): harden attachment storage`。本轮新增 `tests/test_forum_attachment_policy.py`，先通过红灯确认当前配置层缺少 `attachment_max_bytes` 等附件策略入口，再补齐后端图床链路：`ForumSettings` 新增 `FORUM_ATTACHMENT_UPLOAD_DIR`、`FORUM_ATTACHMENT_MAX_BYTES`、`FORUM_ATTACHMENT_ALLOWED_MIME_TYPES` 配置；`/api/forum/attachments` 现在按 MIME 白名单拒绝非法文件、按流式读取限制大小、使用 `.part` 临时文件并在失败时清理、按“同一用户 + sha256”去重复用已有附件、HF 上传异常时返回安全 503，不暴露 token 或远端细节；未强制 HF Bucket 时仍保留本地降级上传和代理访问，支撑前端头像上传到后端图床后回填 URL。SQLite/SQLPub 同步新增 `find_attachment_by_sha256()` 和 `idx_forum_attachments_owner_sha` 索引。`scripts/configure_hf_forum_runtime_secrets.py` 新增 `--confirm-local-secret-write`，没有显式确认时不再写本地 secrets 文件；HF Space secrets 仍需 `--confirm-hf-secret-write`。备份接口沿用现有 HF Bucket/OneDrive rclone 可配置入口，本轮通过测试确认未配置或 rclone 缺失时不会误标上传成功。
+- 验证结果：已运行并通过 `python -m py_compile forum_backend\main.py forum_backend\config.py forum_backend\object_storage.py forum_backend\backup.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py scripts\configure_hf_forum_runtime_secrets.py tests\test_forum_attachment_policy.py tests\test_configure_hf_forum_runtime_secrets.py tests\test_forum_backup.py tests\test_forum_extended_api.py tests\test_forum_store_schema.py`；已运行并通过 `git diff --check -- forum_backend\config.py forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py scripts\configure_hf_forum_runtime_secrets.py tests\test_forum_attachment_policy.py tests\test_configure_hf_forum_runtime_secrets.py`。`python -m pytest tests/test_forum_attachment_policy.py -q -s` 曾输出 `4 passed in 2.43s`；修正临时目录清理断言后，直接导入执行附件策略 4 个用例全部 `PASS` 并输出 `DONE`。直接导入执行 `test_forum_store_schema.py` 4 个契约函数全部通过；直接导入执行 `test_forum_extended_api.py` 8 个契约函数全部 `PASS` 并输出 `DONE`；直接导入执行 `test_forum_backup.py` 的 HF 强制配置缺失和 OneDrive/rclone 缺失两个用例通过。使用临时 secrets 文件直接执行 `scripts/configure_hf_forum_runtime_secrets.py --secrets-file <temp>` 返回 `refusing_local_secret_write=missing --confirm-local-secret-write`，stdout/stderr 未包含 `hf_dataset_token`，临时文件未写入 `FORUM_AUTH_SECRET`。
+- 剩余风险：仍未连接真实 HF Private Bucket、SQLPub 或 OneDrive 进行线上写入验证，避免了未确认的生产/远程/secret 高风险操作；本机标准 `pytest` runner 仍存在间歇性无输出挂起，本轮已精确终止只属于本轮的挂起测试进程并改用直接函数执行作为业务证据，后续大型检查 B 仍需继续处理全量 pytest 稳定性；`ocr-service` 仍有未跟踪 `data/` 和 `scripts/utf8.ps1`，没有提交；Tauri 仓库仍有多项无关脏改动和 `.playwright-mcp` 产物，本轮没有回滚或提交它们。
+- 下一步：执行 Task 6，继续完善后端论坛业务写接口的输入校验、权限/身份边界、幂等/重复提交保护、分页缓存和统一错误格式。
 
 ## Task 6: 后端论坛业务接口完善
 
