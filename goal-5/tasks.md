@@ -312,15 +312,83 @@
 
 ## Task 5：实现文档导航与分类骨架
 
-- 状态：未完成
+- 状态：已完成
 - 目标：在 `website` 中新增或调整文档导航，让用户文档和开发者文档分类可访问。
 - 输入范围：`website/src/layouts/DocsLayout.tsx`、`website/src/App.tsx`、必要的 docs 页面。
 - 输出要求：新增分类入口、页面骨架、路由可访问。
 - 验证方式：`cd website && npm run build`。
 - 实际改动：
+- 完成 website 文档导航与分类骨架实现，开始把 Task 4 的“两条主线 + 参考资料”信息架构落到可访问页面。
+- 新增 `website/scripts/test-docs-ia.mjs`，并在 `website/package.json` 增加 `npm run test:docs-ia`，用于自动检查 docs 分类页文件、React Router 路由、`DocsLayout` 分组导航、参考资料死页面接入和 Vite 静态入口是否齐全。
+- 已按 TDD 流程先运行新增契约测试并确认 RED：旧实现缺少 `QuickStart.tsx`、`UserGuide.tsx`、`AcademicServices.tsx` 等骨架页，缺少 `/docs/quick-start`、`/docs/reference/tauri-api` 等路由，`DocsLayout` 仍是旧扁平 `links` 导航，`vite.config.ts` 也未包含新增 docs 多入口。
+- 新增通用骨架组件 `website/src/pages/docs/DocSectionPage.tsx`，用于统一后续分类页的标题、目标读者、覆盖范围和后续扩写来源。
+- 新增用户侧骨架页：
+  - `QuickStart.tsx` -> `/docs/quick-start`
+  - `UserGuide.tsx` -> `/docs/user-guide`
+  - `AcademicServices.tsx` -> `/docs/academic`
+  - `CampusLife.tsx` -> `/docs/campus-life`
+  - `CommunityNotifications.tsx` -> `/docs/community-notifications`
+  - `Extensions.tsx` -> `/docs/extensions`
+  - `SettingsData.tsx` -> `/docs/settings-data`
+  - `Troubleshooting.tsx` -> `/docs/troubleshooting`
+- 新增开发者侧骨架页：
+  - `DeveloperOverview.tsx` -> `/docs/developer`
+  - `ArchitectureDataFlow.tsx` -> `/docs/architecture`
+  - `PlatformTauri.tsx` -> `/docs/platform-tauri`
+  - `ModuleSystem.tsx` -> `/docs/module-system`
+  - `BuildRelease.tsx` -> `/docs/build-release`
+  - `SecurityPrivacy.tsx` -> `/docs/security-privacy`
+- 新增参考资料骨架页 `ReferenceIndex.tsx` -> `/docs/reference`，并提供到已存在参考页面的入口：`TauriApi`、`DevRules`、`Nonebot`、`Implementation`。
+- 更新 `website/src/App.tsx`：
+  - 接入所有新增骨架页路由。
+  - 保留旧 `/docs/guide`、`/docs/configuration`、`/docs/faq`、`/docs/technical`、`/docs/more` 兼容入口。
+  - 接入现有未挂载页面：`/docs/reference/tauri-api`、`/docs/reference/dev-rules`、`/docs/reference/nonebot`、`/docs/reference/implementation-notes`，避免 `DevRules.tsx`、`Implementation.tsx`、`Nonebot.tsx`、`TauriApi.tsx` 继续成为死页面。
+- 重构 `website/src/layouts/DocsLayout.tsx`：
+  - 从旧的 6 项扁平 `links` 改为 `docsNavSections` 分组导航。
+  - 分组为“开始”“用户文档”“开发者文档”“参考资料”。
+  - 增加移动端按钮 `aria-label`，保留原有侧栏开关行为。
+  - 将侧栏宽度从 `w-64` 调整为 `w-72`，给更长中文分类名留出空间。
+  - 将 active 判断改为当前路径精确匹配，避免 `/docs/reference` 在参考子页和子链接同时高亮。
+- 更新 `website/vite.config.ts`：
+  - 新增 `docsEntries` 多入口清单。
+  - 为所有新 docs 路由和参考子路由补齐静态 HTML 入口，保证构建输出存在 `dist/docs/.../index.html`。
+- 新增 docs 静态入口目录与 `index.html`：
+  - `website/docs/quick-start/index.html`
+  - `website/docs/user-guide/index.html`
+  - `website/docs/academic/index.html`
+  - `website/docs/campus-life/index.html`
+  - `website/docs/community-notifications/index.html`
+  - `website/docs/extensions/index.html`
+  - `website/docs/settings-data/index.html`
+  - `website/docs/troubleshooting/index.html`
+  - `website/docs/developer/index.html`
+  - `website/docs/architecture/index.html`
+  - `website/docs/platform-tauri/index.html`
+  - `website/docs/module-system/index.html`
+  - `website/docs/build-release/index.html`
+  - `website/docs/security-privacy/index.html`
+  - `website/docs/reference/index.html`
+  - `website/docs/reference/tauri-api/index.html`
+  - `website/docs/reference/dev-rules/index.html`
+  - `website/docs/reference/nonebot/index.html`
+  - `website/docs/reference/implementation-notes/index.html`
 - 验证结果：
+- 已执行 `npm run test:docs-ia` 并确认 RED 阶段失败，失败点覆盖缺少页面文件、缺少新路由、缺少分组导航、缺少参考路由和缺少 Vite 静态入口。
+- 实现后重新执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+- 侧栏 active 精确匹配修正后再次执行 `npm run test:docs-ia`，结果仍为 `docs IA contract passed`。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0。
+- 构建输出确认生成新增静态入口，包括 `dist/docs/quick-start/index.html`、`dist/docs/user-guide/index.html`、`dist/docs/academic/index.html`、`dist/docs/platform-tauri/index.html`、`dist/docs/reference/tauri-api/index.html`、`dist/docs/reference/dev-rules/index.html`、`dist/docs/reference/implementation-notes/index.html` 等。
+- 构建存在 Vite chunk size warning：`dist/assets/main-*.js` 大于 500 kB；这是当前站点单包结构的性能警告，不阻断 Task 5 骨架可构建性，后续 Task 17 或最终优化阶段可考虑拆分。
+- 已执行 `git diff --check` 目标文件检查，只有 Windows LF/CRLF 提示，没有空白错误。
 - 剩余风险：
+- 本任务只实现分类导航和页面骨架，未写入各模块的详尽正文；用户总览、快速开始和后续分类内容从 Task 6 开始逐步迁移和扩写。
+- 新增 docs 静态 HTML 入口目前使用通用标题和描述，后续 SEO/元信息可按页面单独细化。
+- 旧 `/docs/guide`、`/docs/configuration`、`/docs/faq`、`/docs/technical`、`/docs/more` 仍保留为兼容入口，但不再放入主侧栏；后续内容迁移完成后需要决定是否改成迁移索引或保留旧入口。
+- `TauriApi.tsx`、`DevRules.tsx`、`Nonebot.tsx`、`Implementation.tsx` 已接入参考资料，但内容是否与当前源码完全一致尚未复核；后续对应内容任务需要重新核对。
+- 本轮没有启动浏览器做桌面/移动端视觉验收；Checkpoint B 和 Task 17 需要重点检查侧栏在移动端的滚动、点击和可读性。
+- 当前工作区仍存在多项与本 goal 无关的未提交改动，本轮提交必须只包含 Task 5 相关文件。
 - 下一步：
+- 执行 Task 6：基于现有 `Guide.tsx`、用户模块清单和首页/登录/设置相关源码，编写用户总览与快速开始文档正文。
 
 ## Task 6：编写用户总览与快速开始文档
 

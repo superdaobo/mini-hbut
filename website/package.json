@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:docs-ia": "node scripts/test-docs-ia.mjs",
     "test:release-links": "node scripts/test-release-links.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

@@ -3,6 +3,34 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import { inspectAttr } from 'kimi-plugin-inspect-react'
 
+const docsEntries = [
+  ['docs', 'docs/index.html'],
+  ['docsGuide', 'docs/guide/index.html'],
+  ['docsConfiguration', 'docs/configuration/index.html'],
+  ['docsFaq', 'docs/faq/index.html'],
+  ['docsTechnical', 'docs/technical/index.html'],
+  ['docsMore', 'docs/more/index.html'],
+  ['docsQuickStart', 'docs/quick-start/index.html'],
+  ['docsUserGuide', 'docs/user-guide/index.html'],
+  ['docsAcademic', 'docs/academic/index.html'],
+  ['docsCampusLife', 'docs/campus-life/index.html'],
+  ['docsCommunityNotifications', 'docs/community-notifications/index.html'],
+  ['docsExtensions', 'docs/extensions/index.html'],
+  ['docsSettingsData', 'docs/settings-data/index.html'],
+  ['docsTroubleshooting', 'docs/troubleshooting/index.html'],
+  ['docsDeveloper', 'docs/developer/index.html'],
+  ['docsArchitecture', 'docs/architecture/index.html'],
+  ['docsPlatformTauri', 'docs/platform-tauri/index.html'],
+  ['docsModuleSystem', 'docs/module-system/index.html'],
+  ['docsBuildRelease', 'docs/build-release/index.html'],
+  ['docsSecurityPrivacy', 'docs/security-privacy/index.html'],
+  ['docsReference', 'docs/reference/index.html'],
+  ['docsReferenceTauriApi', 'docs/reference/tauri-api/index.html'],
+  ['docsReferenceDevRules', 'docs/reference/dev-rules/index.html'],
+  ['docsReferenceNonebot', 'docs/reference/nonebot/index.html'],
+  ['docsReferenceImplementationNotes', 'docs/reference/implementation-notes/index.html'],
+] as const;
+
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
@@ -12,12 +40,9 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         releases: path.resolve(__dirname, 'releases/index.html'),
-        docs: path.resolve(__dirname, 'docs/index.html'),
-        docsGuide: path.resolve(__dirname, 'docs/guide/index.html'),
-        docsConfiguration: path.resolve(__dirname, 'docs/configuration/index.html'),
-        docsFaq: path.resolve(__dirname, 'docs/faq/index.html'),
-        docsTechnical: path.resolve(__dirname, 'docs/technical/index.html'),
-        docsMore: path.resolve(__dirname, 'docs/more/index.html'),
+        ...Object.fromEntries(
+          docsEntries.map(([name, relativePath]) => [name, path.resolve(__dirname, relativePath)])
+        ),
       },
     },
   },
