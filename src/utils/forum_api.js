@@ -92,12 +92,24 @@ export const writeForumProfile = (studentId, profile = {}) => {
 }
 
 const parseJsonResponse = async (response) => {
+  if (response.status === 304) return { notModified: true }
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const message = data?.detail || data?.message || data?.error || `HTTP ${response.status}`
     throw new Error(message)
   }
   return data
+}
+
+const appendQuery = (path, params = {}) => {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value))
+    }
+  }
+  const suffix = query.toString()
+  return suffix ? `${path}?${suffix}` : path
 }
 
 export const createForumApiClient = ({
@@ -111,6 +123,7 @@ export const createForumApiClient = ({
   const base = normalizeForumEndpoint(apiBase || DEFAULT_FORUM_ENDPOINT)
   const sid = toText(studentId).trim()
   let tokenPromise = null
+  let memoryToken = ''
 
   const request = async (path, { method = 'GET', body, auth = false, headers = {} } = {}) => {
     const createHeaders = async (forceTokenRefresh = false) => {
@@ -131,6 +144,7 @@ export const createForumApiClient = ({
     })
     let response = await fetchRequest()
     if (auth && response.status === 401) {
+      memoryToken = ''
       clearCachedToken(sid)
       response = await fetchRequest(true)
     }
@@ -138,11 +152,16 @@ export const createForumApiClient = ({
   }
 
   const getToken = async (forceRefresh = false) => {
+    if (!forceRefresh && memoryToken) return memoryToken
     if (!forceRefresh) {
       const cached = readCachedToken(sid)
-      if (cached) return cached
+      if (cached) {
+        memoryToken = cached
+        return cached
+      }
     }
     if (forceRefresh) {
+      memoryToken = ''
       clearCachedToken(sid)
     }
     if (tokenPromise) return tokenPromise
@@ -155,9 +174,10 @@ export const createForumApiClient = ({
         bio
       },
       auth: false
-    })
+      })
       .then((payload) => {
         writeCachedToken(sid, payload)
+        memoryToken = payload.token
         return payload.token
       })
       .finally(() => {
@@ -172,13 +192,17 @@ export const createForumApiClient = ({
     listCategories: () => request('/categories'),
     createCategory: (payload) => request('/categories', { method: 'POST', body: payload, auth: true }),
     listThreads: (params = {}) => {
-      const query = new URLSearchParams()
-      if (params.categoryId) query.set('category_id', String(params.categoryId))
-      if (params.limit) query.set('limit', String(params.limit))
-      const suffix = query.toString() ? `?${query.toString()}` : ''
-      return request(`/threads${suffix}`)
+      return request(appendQuery('/threads', {
+        category_id: params.categoryId || params.category_id,
+        limit: params.limit
+      }))
     },
     listHotThreads: (limit = 20) => request(`/threads/hot?limit=${encodeURIComponent(String(limit))}`),
+    searchThreads: (params = {}) => request(appendQuery('/search', {
+      q: params.q || params.query,
+      category_id: params.categoryId || params.category_id,
+      limit: params.limit
+    })),
     getThread: (threadId) => request(`/threads/${encodeURIComponent(String(threadId))}`),
     createThread: (payload) => request('/threads', { method: 'POST', body: payload, auth: true }),
     createReply: (threadId, payload) =>
@@ -189,6 +213,11 @@ export const createForumApiClient = ({
       request(`/threads/${encodeURIComponent(String(threadId))}/scores`, { method: 'POST', body: { score }, auth: true }),
     bookmarkThread: (threadId, active = true) =>
       request(`/threads/${encodeURIComponent(String(threadId))}/bookmark`, { method: 'POST', body: { active }, auth: true }),
+    getMeSummary: () => request('/me/summary', { auth: true }),
+    listMyThreads: (limit) => request(appendQuery('/me/threads', { limit }), { auth: true }),
+    listMyReplies: (limit) => request(appendQuery('/me/replies', { limit }), { auth: true }),
+    listMyBookmarks: (limit) => request(appendQuery('/me/bookmarks', { limit }), { auth: true }),
+    getUserProfile: (studentId) => request(`/users/${encodeURIComponent(String(studentId))}`),
     followUser: (targetStudentId, active = true) =>
       request('/follows', { method: 'POST', body: { target_student_id: targetStudentId, active }, auth: true }),
     reportContent: (payload) => request('/reports', { method: 'POST', body: payload, auth: true }),
@@ -197,6 +226,21 @@ export const createForumApiClient = ({
     sendMessage: (payload) => request('/messages', { method: 'POST', body: payload, auth: true }),
     checkIn: () => request('/checkins', { method: 'POST', auth: true }),
     listBadges: () => request('/badges', { auth: true }),
+    listAdminReports: (limit = 50) => request(appendQuery('/admin/reports', { limit }), { auth: true }),
+    listAdminUsers: (query = '', limit) => request(appendQuery('/admin/users', { query, limit }), { auth: true }),
+    listAdminBackups: (limit = 20) => request(appendQuery('/admin/backups', { limit }), { auth: true }),
+    runBackup: () => request('/admin/backups/run', { method: 'POST', auth: true }),
+    setUserBan: (payload) => request('/admin/bans', { method: 'POST', body: payload, auth: true }),
+    grantBadge: (payload) => request('/admin/badges', { method: 'POST', body: payload, auth: true }),
+    getAttachmentUrl: (attachmentIdOrUrl) => {
+      const value = toText(attachmentIdOrUrl).trim()
+      if (!value) return ''
+      if (/^https?:\/\//i.test(value)) return value
+      const normalized = value.startsWith('/api/forum/attachments/')
+        ? value.replace(/^\/api\/forum/i, '')
+        : `/attachments/${encodeURIComponent(value)}`
+      return `${base}${normalized}`
+    },
     uploadAttachment: (file) => {
       const form = new FormData()
       form.append('file', file)

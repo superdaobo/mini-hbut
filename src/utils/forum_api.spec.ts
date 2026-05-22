@@ -190,4 +190,64 @@ describe('forum api config', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('exposes extended forum endpoints used by the full community UI', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      if (url.endsWith('/auth/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'admin-token', expires_at: Math.floor(Date.now() / 1000) + 3600 })
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, items: [] })
+      }
+    }) as unknown as typeof fetch
+
+    const client = createForumApiClient({
+      apiBase: 'https://example.com',
+      studentId: '2510231106',
+      fetcher
+    })
+
+    await client.searchThreads({ q: '绩点查询', categoryId: 2, limit: 10 })
+    await client.getMeSummary()
+    await client.listMyThreads()
+    await client.listMyReplies()
+    await client.listMyBookmarks()
+    await client.getUserProfile('2510231107')
+    await client.listAdminReports(20)
+    await client.listAdminUsers('251023')
+    await client.listAdminBackups(5)
+    await client.runBackup()
+    await client.setUserBan({ student_id: '2510231107', banned: true, reason: 'spam' })
+    await client.grantBadge({ student_id: '2510231107', badge_key: 'helper', display_name: '热心同学' })
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://example.com/api/forum/search?q=%E7%BB%A9%E7%82%B9%E6%9F%A5%E8%AF%A2&category_id=2&limit=10',
+      'https://example.com/api/forum/auth/token',
+      'https://example.com/api/forum/me/summary',
+      'https://example.com/api/forum/me/threads',
+      'https://example.com/api/forum/me/replies',
+      'https://example.com/api/forum/me/bookmarks',
+      'https://example.com/api/forum/users/2510231107',
+      'https://example.com/api/forum/admin/reports?limit=20',
+      'https://example.com/api/forum/admin/users?query=251023',
+      'https://example.com/api/forum/admin/backups?limit=5',
+      'https://example.com/api/forum/admin/backups/run',
+      'https://example.com/api/forum/admin/bans',
+      'https://example.com/api/forum/admin/badges'
+    ])
+    expect(calls.slice(2).filter((call) => /\/(me|admin)\//.test(call.url)).every((call) => {
+      const headers = call.init?.headers as Record<string, string>
+      return headers?.Authorization === 'Bearer admin-token'
+    })).toBe(true)
+    expect(client.getAttachmentUrl('att_2510231106_demo')).toBe('https://example.com/api/forum/attachments/att_2510231106_demo')
+    expect(client.getAttachmentUrl('/api/forum/attachments/att_demo')).toBe('https://example.com/api/forum/attachments/att_demo')
+  })
 })

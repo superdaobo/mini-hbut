@@ -1,11 +1,49 @@
-@layer legacy, tailwind;
-
-@import './style.css' layer(legacy);
-@import './styles/ui_ux_pro_max.css' layer(legacy);
-
 :root {
+  --app-vh: 1vh;
   --app-safe-bottom-fallback: 0px;
   --app-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom-fallback, 0px));
+  --ui-primary: #2563eb;
+  --ui-secondary: #06b6d4;
+  --ui-primary-soft: rgba(37, 99, 235, 0.12);
+  --ui-primary-soft-strong: rgba(37, 99, 235, 0.22);
+  --ui-bg-gradient: radial-gradient(980px at 12% 10%, rgba(37, 99, 235, 0.25), transparent 58%),
+    radial-gradient(900px at 88% 84%, rgba(6, 182, 212, 0.22), transparent 56%),
+    linear-gradient(146deg, #e8f0ff 0%, #e7f7ff 52%, #f2fbff 100%);
+  --ui-text: #0f172a;
+  --ui-muted: #475569;
+  --ui-surface: rgba(255, 255, 255, 0.88);
+  --ui-surface-border: rgba(148, 163, 184, 0.26);
+  --ui-radius-scale: 1.04;
+  --ui-font-scale: 1;
+  --ui-space-scale: 1;
+  --ui-motion-scale: 1;
+  --ui-danger: #ef4444;
+  --ui-success: #10b981;
+  --ui-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.12);
+  --ui-shadow-strong: 0 20px 45px rgba(15, 23, 42, 0.18);
+  --ui-back-btn-bg: rgba(255, 255, 255, 0.95);
+  --ui-back-btn-text: #0f172a;
+  --ui-back-btn-border: rgba(15, 23, 42, 0.16);
+  --ui-back-btn-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  --ui-back-btn-hover-bg: #ffffff;
+  --ui-font-family:
+    'MiSans',
+    'HarmonyOS Sans SC',
+    'Source Han Sans SC',
+    'Noto Sans SC',
+    'DM Sans',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'WenQuanYi Micro Hei',
+    'Inter',
+    sans-serif;
+  --primary-color: var(--ui-primary);
+  --secondary-color: var(--ui-secondary);
+  --bg-gradient: var(--ui-bg-gradient);
+  --glass-bg: var(--ui-surface);
+  --glass-border: var(--ui-surface-border);
+  --text-color: var(--ui-text);
 }
 
 /* Tailwind CSS */

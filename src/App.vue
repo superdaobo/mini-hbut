@@ -3142,9 +3142,9 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: var(--bottom-tab-bar-bottom);
+  bottom: var(--bottom-tab-bar-bottom) !important;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
   align-items: center;
   align-content: center;
   gap: 6px;
@@ -3168,10 +3168,10 @@ onBeforeUnmount(() => {
 .bottom-tab-bar--ios {
   --bottom-tab-bar-bottom: 0px;
   --bottom-tab-bar-safe-bottom: var(--app-safe-bottom);
-  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom));
-  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom));
-  border-radius: 20px;
-  max-height: none;
+  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom)) !important;
+  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom)) !important;
+  border-radius: 20px !important;
+  max-height: none !important;
 }
 
 .bottom-tab-bar:hover,
