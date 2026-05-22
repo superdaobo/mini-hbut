@@ -36,6 +36,7 @@ captured_*.json
 inputs_dump.txt
 ._tmp*
 .tmp*
+vite.config.js.timestamp-*.mjs
 _debug*_cookies*.txt
 opencode.json
 
