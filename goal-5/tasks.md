@@ -874,15 +874,48 @@
 
 ## Task 14：编写安全、隐私与合规文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：面向用户和开发者说明账号、Cookie、本地缓存、权限、网络请求、敏感数据边界。
 - 输入范围：登录、Cookie、存储、网络、平台权限相关源码与配置。
 - 输出要求：安全隐私专题。
 - 验证方式：源码证据核对、敏感词检索、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/SecurityPrivacy.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“安全与隐私”专题页。
+  - 面向用户说明统一身份认证账号、教务 Cookie、学习通 Cookie、课表、成绩、排名、个人信息、电费、校园码、论坛资料、通知快照、设置项、OCR、云同步、远程模块和调试日志的敏感性。
+  - 面向开发者说明 SQLite 不是加密数据库，`user_sessions.encrypted_password` 当前只是 Base64 编码，`base64 不是强加密`，不能把它写成可靠本地密码保护。
+  - 写清账号和会话生命周期：`encrypt_password_aes` 只用于 CAS 表单提交，`last_password` 会留在 Rust 内存用于重登和补票，`Cookie Jar` 维护 CAS/教务/学习通会话，`get_cookies`、`get_cookie_snapshot`、`restore_session`、`clear_session` 的职责和清理边界不同。
+  - 写清学习通与在线学习边界：学习通 Cookie、`online_learning_platform_state.cookie_blob`、`chaoxing_checkin_log` 都属于高敏感数据，删除账号数据时不能只清前端登录态。
+  - 写清本地存储边界：`localStorage` 中的 `hbu_username`、`hbu_remember`、`cache:*`、`hbu_remote_config_snapshot`、`hbu_cloud_sync_device_id`、`hbu_cloud_sync_status:*`、论坛 token、`hbu_ui_settings_v2` 都可能包含身份、设置或学业关联信息。
+  - 写清 `customCss` 与 `customJs`：`src/utils/ui_settings.ts` 会把 `customCss` 写入 style，并把 `customJs` 通过 `scriptEl.textContent` 插入执行，自定义 JS 不是普通主题文本。
+  - 写清云同步和远程配置：`src/utils/cloud_sync.js` 使用 `x-cloud-sync-challenge`，同步 payload 可包含设置、自定义课程、成绩、排名、个人信息和课表；`src/utils/remote_config.js` 的 `config_admin_ids`、OCR、论坛、云同步、模块中心和 AI endpoint 是运行时信任边界。
+  - 写清平台权限边界：`src-tauri/capabilities/main.json` 授权通知、`shell:default`、`window-state:default` 等能力；`src-tauri/tauri.conf.json` 中 `security.csp` 为 `csp: null`，不能依赖 CSP 隔离远程内容、模块 iframe 或 `customJs`。
+  - 写清远程内容、模块包、调试桥和热更新：模块包依赖 `package_sha256`、`sha256`、zip 路径净化和缓存目录约束；调试桥默认关闭但开启后可截图、导航、打开模块和重置模块缓存；热更新 `verifyHotBundleSignature` 当前校验 `sha256`/`signature`，不是非对称签名体系。
+  - 增加“敏感信息生命周期”“安全守卫脚本”“用户操作建议”“开发者检查清单”“源码证据索引”“继续阅读”章节。
+- 增强 `website/scripts/test-docs-developer-content.mjs`：
+  - 将 `SecurityPrivacy.tsx` 纳入开发者内容契约。
+  - 检查安全隐私页必须覆盖账号会话、Cookie、SQLite、Base64、token、云同步、远程配置、自定义 JS、Tauri capability、CSP、模块包、调试桥、热更新、守卫脚本、敏感信息生命周期、权限边界和源码证据。
+  - 检查安全隐私页不得残留 `DocSectionPage`、`后续扩写来源`、`本页骨架职责` 等骨架占位。
+- 并行只读审计：
+  - 账号/Cookie/SQLite/云同步审计确认 `user_sessions.encrypted_password` 为 Base64、Cookie 快照会持久化、云同步默认不上传密码或 Cookie 但会上传学业数据和设置、OCR 存在 HTTP fallback、`danger_accept_invalid_certs(true)` 是 TLS 风险边界。
+  - 权限/远程内容/调试桥/热更新审计确认 `security.csp` 为 null、capability 授权通知和 shell、模块包有 zip slip 防护和可选 `package_sha256`、调试桥和热更新默认关闭、当前热更新签名不是非对称签名。
 - 验证结果：
+- 已执行 `npm run test:docs-developer-content`，在新增 Task 14 契约后确认 RED，失败项集中在 `SecurityPrivacy.tsx` 仍为骨架、缺少用户说明、统一身份认证、学习通、Cookie Jar、会话函数、SQLite 字段、localStorage key、云同步、远程配置、权限、模块包、调试桥、热更新、守卫脚本和源码证据关键词。
+- 完成正文扩写后重新执行 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认安全隐私专题扩写没有破坏文档路由、导航和静态入口契约。
+- 已执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`，确认本轮开发者/安全文档改动没有破坏已完成的用户侧内容契约。
+- 已执行 `npm run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/security-privacy/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `git diff --check -- website/src/pages/docs/SecurityPrivacy.tsx website/scripts/test-docs-developer-content.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
+- 已用 `rg` 抽样核对源码证据，覆盖 `src-tauri/src/http_client/auth.rs`、`src-tauri/src/http_client/session.rs`、`src-tauri/src/http_client/mod.rs`、`src-tauri/src/db.rs`、`src/utils/cloud_sync.js`、`src/utils/remote_config.js`、`src/utils/ui_settings.ts`、`src-tauri/capabilities/main.json`、`src-tauri/tauri.conf.json`、`src-tauri/src/modules/module_bundle.rs`、`src-tauri/src/debug_bridge.rs`、`src/utils/debug_bridge_client.js`、`src/utils/hot_update_core.js` 和安全守卫脚本。
 - 剩余风险：
+- 本任务是源码级安全隐私文档，不是法律合规审计、渗透测试、密钥管理改造或数据库加密改造；`encrypted_password` 的 Base64 风险只被文档化，没有在本轮改变实现。
+- 没有实际调用远程 OCR、云同步、论坛、WebDAV、AI、模块中心或热更新服务；文档基于源码和配置说明数据类别、触发条件和风险边界，不证明远端服务可用或合规。
+- `clear_session` 与前端退出登录的清理边界已写明，但没有新增“一键彻底清除所有本地数据”的产品能力；若后续实现，需要同时处理 SQLite、localStorage、IndexedDB、Cache API、Cookie 快照、模块缓存、字体缓存和云同步状态。
+- `security.csp` 为 null、自定义 JS 可执行、调试桥/热更新/远程模块属于高风险能力；本轮只记录和约束文档表述，未改变运行时默认配置。
+- 工作区仍存在与 goal-5 无关的修改和未跟踪文件，本轮提交必须只包含 `SecurityPrivacy.tsx`、`test-docs-developer-content.mjs` 和 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 15：编写排错、FAQ 与维护手册，整合用户常见问题、开发者调试路径、日志、恢复策略和可验证维护流程。
 
 ## Task 15：编写排错、FAQ 与维护手册
 

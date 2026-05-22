@@ -11,6 +11,7 @@ const developerOverview = read('src/pages/docs/DeveloperOverview.tsx');
 const architectureDataFlow = read('src/pages/docs/ArchitectureDataFlow.tsx');
 const platformTauri = read('src/pages/docs/PlatformTauri.tsx');
 const buildRelease = read('src/pages/docs/BuildRelease.tsx');
+const securityPrivacy = read('src/pages/docs/SecurityPrivacy.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -321,6 +322,81 @@ if (
   buildRelease.includes('DocSectionPage')
 ) {
   failures.push('BuildRelease 仍包含骨架页占位或通用骨架组件');
+}
+
+expectIncludes(securityPrivacy, 'SecurityPrivacy', [
+  '安全与隐私',
+  '用户说明',
+  '开发者边界',
+  '统一身份认证',
+  '学习通',
+  'Cookie',
+  'Cookie Jar',
+  'get_cookies',
+  'get_cookie_snapshot',
+  'restore_session',
+  'clear_session',
+  'src-tauri/src/http_client/session.rs',
+  'src-tauri/src/http_client/auth.rs',
+  'src-tauri/src/http_client/mod.rs',
+  'encrypt_password_aes',
+  'last_password',
+  'electricity_token',
+  'user_sessions',
+  'encrypted_password',
+  'base64 不是强加密',
+  'one_code_token',
+  'electricity_refresh_token',
+  'online_learning_platform_state',
+  'cookie_blob',
+  'chaoxing_checkin_log',
+  'src-tauri/src/db.rs',
+  'localStorage',
+  'hbu_username',
+  'hbu_remember',
+  'hbu_remote_config_snapshot',
+  'hbu_cloud_sync_device_id',
+  'hbu_cloud_sync_status',
+  'x-cloud-sync-challenge',
+  'src/utils/cloud_sync.js',
+  'src/utils/remote_config.js',
+  'config_admin_ids',
+  'customCss',
+  'customJs',
+  'scriptEl.textContent',
+  'src/utils/ui_settings.ts',
+  'src-tauri/capabilities/main.json',
+  'security.csp',
+  'csp: null',
+  'shell:default',
+  'notification:allow-request-permission',
+  '远程内容',
+  '模块包',
+  'package_sha256',
+  'zip 路径',
+  'src-tauri/src/modules/module_bundle.rs',
+  '调试桥',
+  'enableBridgeTools',
+  'debug_bridge',
+  '热更新',
+  'sha256',
+  'signature',
+  'verifyHotBundleSignature',
+  '非对称签名',
+  'scripts/guard_sensitive_uploads.mjs',
+  'scripts/check-frontend-safety.mjs',
+  'scripts/check-design-tokens.mjs',
+  '敏感信息生命周期',
+  '权限边界',
+  '源码证据索引',
+]);
+
+if (
+  securityPrivacy.includes('后续扩写来源') ||
+  securityPrivacy.includes('本页骨架职责') ||
+  securityPrivacy.includes('DocSectionPage')
+) {
+  failures.push('SecurityPrivacy 仍包含骨架页占位或通用骨架组件');
 }
 
 if (failures.length > 0) {
