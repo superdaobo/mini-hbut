@@ -59,18 +59,18 @@
 
 ## Task 4: 后端 SQLPub/SQLite 论坛数据层完善
 
-- [ ] 状态：未完成
-- [ ] 实现或修正论坛独立表：分类、帖子、回复、评分、收藏、关注、举报、附件、用户扩展、通知、备份记录
-- [ ] 保证 SQLPub 建表幂等，不删除或迁移已有成绩/排名表
-- [ ] 补索引与分页查询，支撑约 2000 DAU 的常见列表读写
-- [ ] 运行后端相关测试并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 实现或修正论坛独立表：分类、帖子、回复、评分、收藏、关注、举报、附件、用户扩展、通知、备份记录
+- [x] 保证 SQLPub 建表幂等，不删除或迁移已有成绩/排名表
+- [x] 补索引与分页查询，支撑约 2000 DAU 的常见列表读写
+- [x] 运行后端相关测试并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已在 `ocr-service` 提交 `f2d198e feat(forum): harden store schema and pagination`。本轮新增 `tests/test_forum_store_schema.py`，先通过红灯确认当前实现缺少统一索引/offset 分页契约，再补齐后端数据层：`SQLiteForumStore` 暴露 `FORUM_INDEXES`，`ensure_schema()` 对全部 `forum_` 表执行幂等建表和幂等建索引；`SQLPubForumStore` 复用同一索引清单，通过 `INFORMATION_SCHEMA.STATISTICS` 检查后再 `CREATE INDEX`，避免重复建索引且不触碰成绩/排名表；`forum_backend/main.py` 的帖子列表、搜索、我的帖子、我的回复、我的收藏、备份列表接口均透传 `offset`，让分页能力从 API 到 SQLite/SQLPub store 一致可用。
+- 验证结果：已运行并通过 `python -m py_compile forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_store_schema.py`；已运行并通过 `git diff --check -- forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_store_schema.py`；直接导入执行 `test_forum_store_schema.py` 中 4 个测试全部通过并输出 `DONE`，覆盖 SQLite 幂等 schema、SQLite offset 分页、SQLPub 同表同索引幂等建索引、ForumStore Protocol offset 契约；直接导入执行 `test_forum_deploy_contract.py::test_sqlpub_forum_storage_uses_dedicated_forum_tables_only` 通过；直接导入执行 `test_forum_extended_api.py` 中 8 个论坛 API 契约函数全部 `PASS` 并输出 `DONE`。
+- 剩余风险：仍未连接真实 SQLPub 进行线上建表/索引验证，避免了未确认的生产数据库写入；本机标准 `pytest` runner 仍存在前一轮记录的挂起风险，因此本轮采用直接导入测试函数作为业务契约证据，后续检查 B 仍需继续解决后端全量 pytest 稳定性；`ocr-service` 中仍有既有未提交 `scripts/configure_hf_forum_runtime_secrets.py`、`data/`、`scripts/utf8.ps1`，本轮未提交它们。
+- 下一步：执行 Task 5，完善后端图床代理、HF Bucket 上传策略、MIME/大小校验、sha256 去重、本地降级清理/重试和 OneDrive 备份可配置入口，继续不写真实密钥。
 
 ## Task 5: 后端图床代理、HF Bucket 与备份接口
 
