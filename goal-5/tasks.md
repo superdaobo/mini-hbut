@@ -439,14 +439,47 @@
 
 ## Checkpoint B：六项后全面检查/debug
 
-- 状态：未完成
+- 状态：已完成
 - 目标：确认文档骨架、导航、用户快速开始可构建且无明显错链。
 - 检查范围：路由、导航、构建、UI/UX、移动端基础可读性。
 - 验证方式：`cd website && npm run build`，必要时浏览器检查。
 - 实际检查：
+- 已完成前六项后的全面检查/debug，本轮检查范围覆盖文档路由、侧栏导航、文档总览、站内搜索、快速开始正文、构建产物、基础 UI/UX 和移动端可读性线索。
+- 重新读取 `website/src/App.tsx` 和 `website/src/layouts/DocsLayout.tsx`，确认 `/docs` 下已注册快速开始、用户手册、教务服务、校园生活、社区与通知、扩展模块、设置与数据、故障排查、开发者总览、架构与数据流、平台与 Tauri、模块系统、构建发布、安全与隐私、参考资料，以及参考资料子页。
+- 执行 `npm run test:docs-ia`，初始结果通过，说明 Task 5 的路由、分组导航、参考页接入和静态入口契约仍有效。
+- 执行 `npm run test:docs-user-content`，结果通过，说明 Task 6 的快速开始和用户手册关键词契约仍有效。
+- 执行 `npm run build`，`tsc -b && vite build` 通过，新增 docs 静态入口继续输出到 `dist/docs/*/index.html` 与 `dist/docs/reference/*/index.html`。
+- 执行路由检索 `rg -n "/docs/(quick-start|user-guide|academic|campus-life|community-notifications|extensions|settings-data|troubleshooting|developer|architecture|platform-tauri|module-system|build-release|security-privacy|reference)" website/src website/docs website/vite.config.ts`，确认新路由在侧栏、页面交叉链接和 Vite 静态入口中可检索。
+- 检查 `website/src/pages/docs/Overview.tsx` 与 `website/src/pages/Search.tsx` 时发现导航一致性缺口：文档总览仍优先展示旧 `/docs/guide`、`/docs/configuration`、`/docs/faq`、`/docs/technical`、`/docs/more` 入口，站内搜索也仍索引旧文档入口，且总览页显示 `v1.2.5`，与当前主应用 `1.3.6` 不一致。
+- 已按 TDD 流程扩展 `website/scripts/test-docs-ia.mjs`：先增加对 `Overview.tsx` 当前新分类路由覆盖、`Search.tsx` 新分类搜索入口覆盖、总览页不出现过期版本号的契约，并运行 `npm run test:docs-ia` 确认 RED，失败点正是新路由缺失和 `v1.2.5` 残留。
+- 修复后重新执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+- 修复后重新执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 修复后重新执行 `npm run build`，结果通过；Vite 仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前站点单包结构警告，不阻断本 checkpoint。
+- 执行本地 dev server `npm run dev -- --host 127.0.0.1 --port 5177`，确认 Vite 在 `http://127.0.0.1:5177/` 启动成功，并用 `curl.exe` 抽查 `/docs`、`/docs/quick-start`、`/docs/user-guide`、`/docs/academic`、`/docs/reference/tauri-api` 均返回 HTTP 200。
+- 执行 UI/UX 基线检索，确认 `DocsLayout` 仍具备移动端导航按钮、侧栏 transform 开关、侧栏 `overflow-y-auto`、正文 `overflow-x-hidden`；`Overview`、`QuickStart`、`UserGuide` 继续使用 `grid-cols-1 md:grid-cols-*` 响应式网格，满足移动端基础可读性线索。
+- 使用 `ui-ux-pro-max` 查询教育/校园文档站设计基线，建议为 FAQ/Documentation Landing、清晰分类、搜索入口、响应式、SVG 图标和高对比文本；当前文档页使用 lucide 图标、分类导航、搜索入口和响应式网格，符合本 checkpoint 的基础要求。
+- 尝试使用 Browser/Playwright/Chrome DevTools 做可视化抽样，但当前浏览器实例被既有 profile 锁定，Playwright 与 Chrome DevTools 均返回 “browser already in use / use isolated” 类错误；未强行抢占焦点或关闭用户实例。
+- 执行 `git diff --check -- website/src/pages/docs/Overview.tsx website/src/pages/Search.tsx website/scripts/test-docs-ia.mjs`，只有 Windows LF/CRLF 提示，没有空白错误。
 - 修复记录：
+- 修复 `website/src/pages/docs/Overview.tsx`：
+  - 将文档导航卡片从旧的 5 个兼容入口改为当前 15 个新分类入口。
+  - 覆盖开始、用户文档、开发者文档、参考资料四条主线，确保新 IA 可从 `/docs` 总览直接到达。
+  - 将总览页“最新能力”和“当前版本”从 `v1.2.5` 更新为 `v1.3.6`。
+- 修复 `website/src/pages/Search.tsx`：
+  - 将站内搜索索引从旧 `/docs/guide`、`/docs/configuration`、`/docs/faq`、`/docs/technical`、`/docs/more` 迁移到新文档分类入口。
+  - 增加快速开始、用户手册、教务服务、校园生活、故障排查、开发者总览、参考资料的关键词覆盖。
+- 增强 `website/scripts/test-docs-ia.mjs`：
+  - 新增文档总览必须覆盖当前新路由的契约。
+  - 新增站内搜索必须覆盖关键新分类入口的契约。
+  - 新增总览页不得残留过期版本号 `v1.2.5` 的契约。
 - 剩余风险：
+- Browser 插件要求的 Node REPL 执行工具未暴露，Playwright/Chrome DevTools 又因已有浏览器实例 profile 锁定，无法在本轮完成截图级桌面/移动端视觉验收；本轮用构建、HTTP 200、响应式类名和布局静态检查替代，Task 17/F 仍需做真实截图和交互验收。
+- `website` 构建仍有 Vite 大 chunk warning：`main-*.js` 超过 500 kB；这是现有单包结构性能警告，后续 Task 17 或最终 review 可考虑按路由拆分。
+- 旧 `/docs/guide`、`/docs/configuration`、`/docs/faq`、`/docs/technical`、`/docs/more` 仍作为兼容路由保留，主导航和搜索已不再优先指向它们；后续迁移完成后需要决定是否改成重定向、迁移索引或继续保留。
+- `Overview` 的 SEO/meta 仍复用站点通用 HTML 模板，新增 docs 静态 HTML 入口也仍是通用标题与描述；后续 SEO/发布任务可细化。
+- 当前工作区仍存在多项与本 goal 无关的未提交改动，本轮提交必须只包含 Checkpoint B 相关文件。
 - 下一步：
+- 执行 Task 7：编写教务服务全量用户文档，覆盖成绩、课表、考试、排名、选课、空教室、校历、学业进度和培养方案，并继续以源码证据核对与文档构建验证为准。
 
 ## Task 7：编写教务服务全量用户文档
 

@@ -42,6 +42,8 @@ const expect = (condition, message) => {
 const app = read('src/App.tsx');
 const layout = read('src/layouts/DocsLayout.tsx');
 const vite = read('vite.config.ts');
+const overview = read('src/pages/docs/Overview.tsx');
+const search = read('src/pages/Search.tsx');
 
 for (const [pagePath, route, label] of requiredPages) {
   expect(existsSync(path.join(root, pagePath)), `缺少页面文件: ${pagePath}`);
@@ -63,6 +65,42 @@ for (const section of navSections) {
 
 expect(!layout.includes('const links = ['), 'DocsLayout.tsx 仍使用旧扁平 links 导航');
 expect(layout.includes('docsNavSections'), 'DocsLayout.tsx 未使用 docsNavSections 分组导航');
+
+const currentDocsRoutes = [
+  '/docs/quick-start',
+  '/docs/user-guide',
+  '/docs/academic',
+  '/docs/campus-life',
+  '/docs/community-notifications',
+  '/docs/extensions',
+  '/docs/settings-data',
+  '/docs/troubleshooting',
+  '/docs/developer',
+  '/docs/architecture',
+  '/docs/platform-tauri',
+  '/docs/module-system',
+  '/docs/build-release',
+  '/docs/security-privacy',
+  '/docs/reference',
+];
+
+for (const route of currentDocsRoutes) {
+  expect(overview.includes(route), `Overview.tsx 文档导航未覆盖新路由: ${route}`);
+}
+
+for (const route of [
+  '/docs/quick-start',
+  '/docs/user-guide',
+  '/docs/academic',
+  '/docs/campus-life',
+  '/docs/troubleshooting',
+  '/docs/developer',
+  '/docs/reference',
+]) {
+  expect(search.includes(route), `Search.tsx 站内搜索未覆盖新路由: ${route}`);
+}
+
+expect(!overview.includes('v1.2.5'), 'Overview.tsx 仍包含过期版本号 v1.2.5');
 
 if (failures.length > 0) {
   console.error('docs IA contract failed:');

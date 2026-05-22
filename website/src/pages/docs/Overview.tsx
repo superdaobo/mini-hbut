@@ -4,29 +4,79 @@ import { Link } from 'react-router-dom';
 const Overview = () => {
     const navCards = [
         {
-            title: '使用指南',
-            desc: '安装教程（全平台）、快速上手、功能详解、高级特性与 API 接口说明。',
-            path: '/docs/guide',
+            title: '快速开始',
+            desc: '下载与安装、首次登录、首页仪表盘、搜索、底部主 Tab 和常用入口。',
+            path: '/docs/quick-start',
         },
         {
-            title: '配置',
-            desc: '外观 / 后端 / 调试设置项详解，远程配置结构，OCR、云同步、WebDAV 自部署指南。',
-            path: '/docs/configuration',
+            title: '用户手册',
+            desc: '普通用户阅读路径、全局导航、功能分类地图和通用状态说明。',
+            path: '/docs/user-guide',
         },
         {
-            title: '常见问题',
-            desc: '登录、功能、安装、网络、通知、隐私、跨平台等常见问题解答。',
-            path: '/docs/faq',
+            title: '教务服务',
+            desc: '成绩、课表、考试、排名、选课、空教室、校历、学业进度和培养方案。',
+            path: '/docs/academic',
         },
         {
-            title: '技术原理',
-            desc: '架构设计、跨平台桥接、登录会话、数据流缓存、HTTP Bridge、后台任务与云同步机制。',
-            path: '/docs/technical',
+            title: '校园生活',
+            desc: '校园码、电费、交易流水、图书馆、校园地图、资料分享和天气。',
+            path: '/docs/campus-life',
         },
         {
-            title: '更多',
-            desc: '开发指南、NoneBot 集成、参与贡献、开源协议与相关链接。',
-            path: '/docs/more',
+            title: '社区与通知',
+            desc: '论坛、通知中心、课程提醒、电费提醒、后台任务和 Widget 差异。',
+            path: '/docs/community-notifications',
+        },
+        {
+            title: '扩展模块',
+            desc: '更多模块、模块宿主、超星签到、在线学习入口状态和小游戏模块。',
+            path: '/docs/extensions',
+        },
+        {
+            title: '设置与数据',
+            desc: '设置中心、主题字体、缓存、云同步、导出和远程配置对用户体验的影响。',
+            path: '/docs/settings-data',
+        },
+        {
+            title: '故障排查',
+            desc: '登录、安装、网络、后台通知、数据隐私、平台差异和反馈入口。',
+            path: '/docs/troubleshooting',
+        },
+        {
+            title: '开发者总览',
+            desc: '仓库结构、开发环境、阅读顺序和贡献入口。',
+            path: '/docs/developer',
+        },
+        {
+            title: '架构与数据流',
+            desc: 'Vue 入口、视图分发、状态恢复、API/缓存/降级和数据库关系。',
+            path: '/docs/architecture',
+        },
+        {
+            title: '平台与 Tauri',
+            desc: '平台桥接、Tauri commands、Rust modules、HTTP client 和能力矩阵。',
+            path: '/docs/platform-tauri',
+        },
+        {
+            title: '模块系统',
+            desc: '模块中心、远程 catalog、manifest、iframe 宿主和模块构建链。',
+            path: '/docs/module-system',
+        },
+        {
+            title: '构建发布',
+            desc: 'npm scripts、Tauri build、Capacitor sync、release manifest 和热更新。',
+            path: '/docs/build-release',
+        },
+        {
+            title: '安全与隐私',
+            desc: 'Cookie、密码、token、SQLite、云同步、自定义 JS、调试桥和热更新边界。',
+            path: '/docs/security-privacy',
+        },
+        {
+            title: '参考资料',
+            desc: 'API、Tauri / HTTP Bridge、配置字段、文件索引、脚本索引和工程规范入口。',
+            path: '/docs/reference',
         },
     ];
 
@@ -106,7 +156,7 @@ const Overview = () => {
             <section className="space-y-4">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                     <Sparkles className="text-cyan" size={22} />
-                    最新能力（v1.2.5）
+                    最新能力（v1.3.6）
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
@@ -149,7 +199,7 @@ const Overview = () => {
                     版本信息
                 </h2>
                 <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800 space-y-2 text-gray-300 text-sm">
-                    <div>当前版本：<span className="text-cyan font-semibold">v1.2.5</span></div>
+                    <div>当前版本：<span className="text-cyan font-semibold">v1.3.6</span></div>
                     <div>技术栈：Vue 3 + Tauri 2.x（桌面端）+ Capacitor 6.x（移动端）</div>
                     <div>支持平台：Windows / macOS / Linux / Android / iOS</div>
                     <div>开源协议：GPL v3</div>
@@ -160,4 +210,3 @@ const Overview = () => {
 };
 
 export default Overview;
-
