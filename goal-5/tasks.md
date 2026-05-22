@@ -787,14 +787,45 @@
 
 ## Checkpoint D：十二项后全面检查/debug
 
-- 状态：未完成
+- 状态：已完成
 - 目标：确认开发者核心架构文档准确，不误导后续维护。
 - 检查范围：架构、数据、安全、权限、构建。
 - 验证方式：源码抽样核对、`website` 构建。
 - 实际检查：
+- 工作区状态检查：
+  - 已执行 `git status --short`，确认工作区仍存在多项与 goal-5 无关的修改和未跟踪文件，包括 `capacitor.config.ts`、`ios/App/App/AppDelegate.swift`、`ios/App/App/Base.lproj/Main.storyboard`、`src/App.vue`、`src/components/Dashboard.vue`、`src/components/ForumView.vue`、若干测试文件、`website/public/modules/*` 产物、`.playwright-mcp/*.yml` 和 `hbut-gomoku-online-390x844.png`。
+  - 本轮未回滚、未暂存、未修改这些无关文件。
+- 骨架、错链和占位检查：
+  - 已执行 `rg -n "DocSectionPage|后续扩写来源|本页骨架职责|src-tauri[/\\]Capabilities[/\\]default\.json|src-tauri[/\\]capabilities[/\\]default\.json|src-tauri[/\\]src[/\\]mobile\.rs|Capabilities/default|capabilities/default|mobile\.rs" website\src\pages\docs website\scripts goal-5\tasks.md`。
+  - 结果显示 `BuildRelease.tsx`、`ModuleSystem.tsx`、`ReferenceIndex.tsx`、`SecurityPrivacy.tsx`、`Troubleshooting.tsx` 仍保留 `DocSectionPage` 骨架，这是后续 Task 13-16 的预期输入，不属于 Checkpoint D 要求的已完成开发者核心页。
+  - 已完成开发者核心页 `DeveloperOverview.tsx`、`ArchitectureDataFlow.tsx`、`PlatformTauri.tsx` 未命中骨架占位；`PlatformTauri.tsx` 中出现 `src-tauri/src/mobile.rs` 是明确写“仓库里没有该文件”，不是错链。
+- 架构文档抽样核对：
+  - 已执行 `rg -n "homeScrollSnapshot|moduleHostSession|replaceHistorySnapshot|pushHistorySnapshot|syncFromHash|VIEW_PREFETCHERS|HIERARCHICAL_PARENT_VIEW_MAP|ensureProtectedViewAccess|resolveParentView|goToParentView" src\App.vue`。
+  - 结果确认 `DeveloperOverview.tsx` 中关于首页滚动快照、模块宿主会话、history snapshot、hash 同步、父级返回、受保护页面访问和懒加载预取的说法均能在当前 `src/App.vue` 找到源码证据。
+- 数据流文档抽样核对：
+  - 已执行 `rg -n "fetchWithCache|getCachedData|setCachedData|withOfflineMeta|hbu_jwxt_maintenance|setMaintenanceFlag|looksLikeMaintenanceIssue|MAX_LOCAL_CACHE_ENTRIES|MAX_LOCAL_CACHE_VALUE_BYTES" src\utils\api.js`。
+  - 已执行 `rg -n "HbutClient|Cookie Jar|encrypt_password_aes|login_cooldown_remaining|restore_session|get_cookie_snapshot|clear_session|base64|user_sessions|save_cache|get_cache" src-tauri\src\http_client src-tauri\src\db.rs`。
+  - 结果确认 `ArchitectureDataFlow.tsx` 中关于前端缓存、维护模式、SQLite 缓存、`user_sessions`、`HbutClient`、Cookie 快照、AES-CBC 登录加密、Base64 非强加密和 session restore 的说法均有源码证据。
+- 平台、权限和安全边界抽样核对：
+  - 已执行 `rg -n "detectRuntime|looksLikePackagedCapacitorHost|PlatformBridge|pickBridge|invokeNative|open_external_url|get_notification_permission_native|request_notification_permission_native|send_local_notification_native|ALLOWED_NOTIFICATION_TARGETS|getWidgetBridge|WidgetBridgeError|SNAPSHOT_TOO_LARGE|INVALID_SNAPSHOT" src\platform src-tauri\src\lib.rs`。
+  - 已执行 `rg -n "src-tauri/capabilities/main\.json|csp 当前是 null|base64 不是强加密|PlatformBridge|fetchWithCache|HbutClient|homeScrollSnapshot|moduleHostSession" website\src\pages\docs\DeveloperOverview.tsx website\src\pages\docs\ArchitectureDataFlow.tsx website\src\pages\docs\PlatformTauri.tsx`。
+  - 结果确认 `PlatformTauri.tsx` 中关于 `detectRuntime`、`PlatformBridge`、Tauri native command、通知权限、Widget 校验、capability 实际路径、`csp = null` 和插件/capability 区分的说法与当前源码一致。
+- 验证命令：
+  - 已执行 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+  - 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+  - 已执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+  - 已执行 `npm test -- src/platform/runtime.spec.ts src/platform/adapters/tauri.spec.ts src/platform/capacitor/widget.spec.ts`，结果为 3 个测试文件、17 个测试用例全部通过。
+  - 已执行 `npm run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/developer/index.html`、`dist/docs/architecture/index.html`、`dist/docs/platform-tauri/index.html` 生成。
 - 修复记录：
+- 本轮未发现已完成开发者核心文档存在源码事实错误、错链、构建失败或契约缺口，因此没有修改 website 正文、路由、导航或测试脚本。
+- 本轮仅更新 `goal-5/tasks.md`，把 Checkpoint D 的检查证据、验证结果、剩余风险和下一步写入任务记录。
 - 剩余风险：
+- 本轮只检查 Task 10-12 形成的开发者核心架构、数据流和平台权限文档，不提前扩写 Task 13-16 的构建发布、安全隐私、排错 FAQ 和源码引用索引页面；这些页面仍存在骨架是后续任务范围。
+- website 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前单包结构的既有 Vite chunk warning，不阻断 Checkpoint D，但 Task 17 或最终审计仍可评估代码分割。
+- 平台能力的真实设备行为（Tauri/Capacitor 通知、Widget、强保活、电池优化设置、移动端 background fetch）本轮没有在实体设备上验证；当前结论只基于源码、配置、单元测试和 website 构建。
+- 工作区仍存在与 goal-5 无关的修改和未跟踪文件，本轮提交必须只包含 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 13：编写构建、测试、发布与运维文档，说明根项目与 website 的脚本、构建产物、release manifest、热更新包、资源边界检查和发布注意事项。
 
 ## Task 13：编写构建、测试、发布与运维文档
 
