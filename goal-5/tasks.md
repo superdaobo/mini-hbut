@@ -661,15 +661,41 @@
 
 ## Task 10：编写开发者架构总览
 
-- 状态：未完成
+- 状态：已完成
 - 目标：说明前端入口、视图切换、组件组织、状态恢复、平台边界。
 - 输入范围：`src/App.vue`、`src/components`、`src/platform`。
 - 输出要求：开发者架构页面。
 - 验证方式：源码证据核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/DeveloperOverview.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为完整“开发者架构总览”页面。
+  - 写清入口层：`src/main.ts` 的 `bootstrap`、`mountApp`、`initThemeBridge`、`initUiSettings`、`initAppSettings`、`initFontSettings`、`runDeferredInitializers`、`initBackgroundFetchScheduler`、`runNotificationCheck`、`initDebugBridgeClient`，说明首屏初始化和延迟初始化边界。
+  - 写清视图调度层：`src/App.vue` 的 `createAsyncPage`、`defineAsyncComponent`、`MAIN_TABS`、`ME_SUB_VIEWS`、`HIERARCHICAL_PARENT_VIEW_MAP`、`VIEW_PREFETCHERS`、`goToView`、`goToViewInternal`、`ensureProtectedViewAccess`、`resolveParentView`、`goToParentView`、`handleNavigate`、`handleBackToDashboard`、`homeScrollSnapshot`、`moduleHostSession`、`replaceHistorySnapshot`、`pushHistorySnapshot`、`syncFromHash`。
+  - 写清组件组织层：`src/components` 页面组件、`src/components/templates` 业务模板组件、`src/components/ui` 基础 UI 组件，以及 `src/composables/useChaoxingCheckin.ts`、`useGeolocation.ts`、`useQrScanner.ts` 的组合式能力边界。
+  - 写清设计与样式基座：`src/config/ui_settings.ts`、`src/config/design-tokens.ts`、`src/utils/ui_settings.ts`、`src/utils/theme-bridge.ts`、`src/styles/main.css`、`src/styles/dark-mode.css`、`src/styles/ui_ux_pro_max.css`。
+  - 写清平台边界层：`src/platform/types.ts`、`runtime.ts`、`index.ts`、`native.ts`、Tauri/Capacitor/Web adapter 和 `WidgetBridge` 的分工，强调业务组件应优先依赖 `platformBridge` 或 `invokeNative` 包装层。
+  - 增加开发阅读顺序，链接到 `/docs/architecture`、`/docs/platform-tauri`、`/docs/module-system`、`/docs/build-release`、`/docs/security-privacy`。
+- 新增 `website/scripts/test-docs-developer-content.mjs`：
+  - 建立开发者文档内容契约，检查开发者总览必须覆盖入口层、视图调度层、组件组织层、样式基座、平台边界、阅读顺序和源码证据。
+  - 检查开发者总览不得残留 `DocSectionPage` 骨架中的“后续扩写来源”“本页骨架职责”等占位文案。
+- 更新 `website/package.json`：
+  - 增加 `npm run test:docs-developer-content`，让开发者文档契约可独立执行。
 - 验证结果：
+- 已执行 `npm run test:docs-developer-content`，结果为 `docs developer content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`，确认开发者总览扩写没有破坏文档路由、导航和静态入口契约。
+- 已执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`，确认本轮开发者文档改动没有破坏已完成的用户侧内容契约。
+- 已执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/developer/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `rg -n "开发者架构总览|入口层|视图调度层|组件组织层|平台边界层|src/main.ts|src/App.vue|PlatformBridge|WidgetBridge|开发阅读顺序" website\src\pages\docs\DeveloperOverview.tsx`，确认页面关键章节和平台证据可检索。
+- 已执行 `rg -n "src/main.ts|src/App.vue|src/components/templates|src/components/ui|src/platform/types.ts|src/platform/runtime.ts|src/platform/native.ts|src/config/ui_settings.ts|src/config/design-tokens.ts|src/styles/ui_ux_pro_max.css|src/composables/useChaoxingCheckin.ts|src/composables/useGeolocation.ts|src/composables/useQrScanner.ts" website/src/pages/docs/DeveloperOverview.tsx`，确认 Task 10 要求的源码证据路径已写入页面。
+- 已执行 `git diff --check -- website/src/pages/docs/DeveloperOverview.tsx website/scripts/test-docs-developer-content.mjs website/package.json`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示，没有空白错误。
 - 剩余风险：
+- 本任务聚焦开发者总览，只建立入口、视图、组件、样式和平台边界的总览，不展开 API 缓存、错误处理、SQLite、Tauri command 参数、Rust HTTP client、平台权限矩阵和安全隐私细节；这些留给 Task 11、Task 12、Checkpoint D、Task 14 和 Task 16。
+- 当前没有完成浏览器截图级视觉验收；开发者长文页面的桌面/移动端阅读体验留给 Task 17 和 Checkpoint F。
+- `src/App.vue` 与平台桥接层当前仍处于快速演进状态，后续 Task 11/12 写数据流和平台专题时需要再次核对源码，避免开发者文档因后续业务改动漂移。
+- 工作区仍存在与本 goal 无关的修改和未跟踪文件，本轮提交必须只包含 Task 10 相关文件与 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 11：编写数据流、缓存、网络与错误处理文档，说明 API 调用、缓存、离线、维护模式、错误提示和敏感信息处理。
 
 ## Task 11：编写数据流、缓存、网络与错误处理文档
 

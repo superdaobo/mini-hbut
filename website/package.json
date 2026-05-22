@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "test:docs-ia": "node scripts/test-docs-ia.mjs",
+    "test:docs-developer-content": "node scripts/test-docs-developer-content.mjs",
     "test:docs-user-content": "node scripts/test-docs-user-content.mjs",
     "test:release-links": "node scripts/test-release-links.mjs",
     "build": "tsc -b && vite build",
