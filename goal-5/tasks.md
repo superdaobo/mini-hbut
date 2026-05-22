@@ -190,14 +190,47 @@
 
 ## Checkpoint A：前三项全面检查/debug
 
-- 状态：未完成
+- 状态：已完成
 - 目标：确认索引没有漏掉核心目录、用户模块、开发者模块。
 - 检查范围：需求偏离、模块遗漏、文件证据、分类合理性。
 - 验证方式：对照 `rg --files src website/src website/modules-src scripts` 与任务记录。
 - 实际检查：
+- 已完成前三项后的只读全面检查/debug。本轮只更新 Checkpoint A 记录，没有修改业务代码、website 文档正文或构建产物。
+- 需求偏离检查：
+  - Task 1-3 当前仍围绕原目标“把 Tauri 软件所有内容写入 website 文档模块”推进，尚未开始 website 正文改造是符合计划的，因为前三项目标是建立源码/用户/开发者索引。
+  - 用户侧和开发者侧两条线都已形成待写文档的覆盖表，下一阶段可以进入 website 文档信息架构设计。
+  - “1 亿 token”不可物理落盘的限制已在 `plan.md` 中记录，执行策略仍以可持续扩展、尽可能详尽、覆盖全部可验证内容为准。
+- 核心目录覆盖检查：
+  - 已对照 `rg --files src website/src website/modules-src scripts`，确认 Task 1-3 覆盖了主应用入口、用户页面组件、`src/utils`、`src/platform`、`src-tauri`、根脚本、website 文档站、website 模块源码和 website 脚本。
+  - 补充发现：`src/config`、`src/composables`、`src/types`、`src/assets/module-icons`、`src/styles` 在前三项中没有作为独立目录充分展开；后续开发者文档、引用索引和 UI/UX 文档必须补入。
+  - `src/components/templates` 与 `src/components/ui` 已在 Task 1 概括覆盖，但后续 Task 10/17 应展开其设计系统职责、复用边界和与页面组件的关系。
+  - `src-tauri/target` 出现在 `rg --files src-tauri ...` 的检查输出中，属于生成/构建产物噪声；后续正式源码索引应排除 `src-tauri/target`，只覆盖 `src-tauri/src`、配置和构建脚本。
+- 用户模块覆盖检查：
+  - App 主分支、首页模块元数据、我的页入口、更多模块和模块中心已在 Task 2 覆盖，覆盖了主 Tab、教务服务、一码通、资源工具、社区通知、我的设置、更多扩展。
+  - 补充发现：`src/components/GradeDistributionView.vue` 是 `GradeView.vue` 内“给分记录 Beta”Tab 的用户可见子功能，应在成绩模块文档中单独说明。
+  - 补充发现：`src/components/MoreShuakeView.vue`、`src/components/OnlineLearningChaoxingView.vue`、`src/components/OnlineLearningYuketangView.vue` 与在线学习/刷课能力相关；源码存在并调用在线学习接口，但当前 `src/App.vue` 未检索到直接视图注册，后续 Task 9/10 需要核对入口是否接通、是否为历史遗留或待接入功能。
+  - 补充发现：`src/components/chaoxing_checkin/*` 子组件已在超星签到大类下覆盖，但后续专题文档需要细化二维码、位置、拍照、手势、历史记录、会话状态和截图选区等子流程。
+- 开发者模块覆盖检查：
+  - Task 3 已覆盖前端 API/缓存、设置/主题/字体、搜索、论坛、通知/Widget、导出截图、云同步、远程配置、更新/热更新、调试桥、模块中心、静态资源、平台适配、Tauri/Rust、数据库、构建发布和测试契约。
+  - 补充发现：`src/composables/useChaoxingCheckin.ts`、`useGeolocation.ts`、`useQrScanner.ts` 是超星签到、定位、扫码的关键组合式逻辑，不能只归入组件目录；后续平台/功能文档需要补入。
+  - 补充发现：`src/config/design-tokens.ts`、`src/config/ui_settings.ts`、`src/styles/main.css`、`dark-mode.css`、`overrides.css`、`ui_ux_pro_max.css` 与样式契约测试构成 UI 配置/样式基座，后续 UI/UX 与开发者架构文档需要补入。
+  - 补充发现：`src/assets/module-icons/*.svg` 是首页模块图标资源，应在功能目录或视觉资源索引中记录。
+- website 文档入口检查：
+  - 现有 `/docs` 只接入 `Overview`、`Guide`、`Configuration`、`FAQ`、`Technical`、`More`。
+  - `website/src/pages/docs/DevRules.tsx`、`Implementation.tsx`、`Nonebot.tsx`、`TauriApi.tsx` 源码存在但当前未在 `website/src/App.tsx` 路由和 `DocsLayout.tsx` 侧栏中接入；Task 4 需要判断保留、迁移、合并或重新接入。
+- 检索失败 debug：
+  - 一次 `rg -n "\"id\"|\"name\"|\"disabled\"|\"version\"" website\modules-src -g module.json` 在 PowerShell/正则转义组合下失败，错误为 `regex parse error: unclosed group`。
+  - 根因是命令字符串中的反斜杠/引号组合导致正则被错误解析，不是源码问题；已改用固定字符串和更简单的文件清单检查思路继续完成审计。
 - 修复记录：
+- 未修改业务代码。
+- 未修改 website 文档站。
+- 本轮“修复”仅限任务记录层：把遗漏目录、用户子功能、未接入 docs 页面和后续核对要求写入 Checkpoint A，作为 Task 4 之后的输入约束。
 - 剩余风险：
+- Checkpoint A 是静态只读检查，没有运行主项目构建、website 构建或测试；这些会在后续文档骨架、内容落地和对应 checkpoint 中执行。
+- `MoreShuakeView.vue`、`OnlineLearningChaoxingView.vue`、`OnlineLearningYuketangView.vue` 的入口状态仍需后续源码核对，当前只能记录为“源码存在但 App 直接路由未确认”。
+- 由于当前工作区存在与本 goal 无关的未提交改动，后续所有提交仍需严格只暂存本 goal 相关文件。
 - 下一步：
+- 执行 Task 4：基于现有 docs 路由、侧栏和前三项/Checkpoint A 的覆盖要求，设计 website 文档信息架构与导航分类。
 
 ## Task 4：设计 website 文档信息架构与导航分类
 
