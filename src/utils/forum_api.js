@@ -91,14 +91,25 @@ export const writeForumProfile = (studentId, profile = {}) => {
   return normalized
 }
 
-const parseJsonResponse = async (response) => {
-  if (response.status === 304) return { notModified: true }
+const responseHeader = (response, name) => {
+  try {
+    return response?.headers?.get?.(name) || ''
+  } catch {
+    return ''
+  }
+}
+
+const parseJsonResponse = async (response, { includeMeta = false, requestEtag = '' } = {}) => {
+  const etag = responseHeader(response, 'ETag') || requestEtag || ''
+  if (response.status === 304) {
+    return includeMeta ? { value: undefined, etag, notModified: true } : { notModified: true }
+  }
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const message = data?.detail || data?.message || data?.error || `HTTP ${response.status}`
     throw new Error(message)
   }
-  return data
+  return includeMeta ? { value: data, etag, notModified: false } : data
 }
 
 const appendQuery = (path, params = {}) => {
@@ -125,11 +136,14 @@ export const createForumApiClient = ({
   let tokenPromise = null
   let memoryToken = ''
 
-  const request = async (path, { method = 'GET', body, auth = false, headers = {} } = {}) => {
+  const request = async (path, { method = 'GET', body, auth = false, headers = {}, etag = '', includeMeta = false } = {}) => {
     const createHeaders = async (forceTokenRefresh = false) => {
       const reqHeaders = { Accept: 'application/json', ...headers }
       if (body !== undefined && !(body instanceof FormData)) {
         reqHeaders['Content-Type'] = 'application/json'
+      }
+      if (etag) {
+        reqHeaders['If-None-Match'] = etag
       }
       if (auth) {
         reqHeaders.Authorization = `Bearer ${await getToken(forceTokenRefresh)}`
@@ -148,7 +162,7 @@ export const createForumApiClient = ({
       clearCachedToken(sid)
       response = await fetchRequest(true)
     }
-    return parseJsonResponse(response)
+    return parseJsonResponse(response, { includeMeta, requestEtag: etag })
   }
 
   const getToken = async (forceRefresh = false) => {
@@ -189,21 +203,23 @@ export const createForumApiClient = ({
   return {
     apiBase: base,
     getToken,
-    listCategories: () => request('/categories'),
+    listCategories: (_params = {}, options = {}) => request('/categories', options),
     createCategory: (payload) => request('/categories', { method: 'POST', body: payload, auth: true }),
-    listThreads: (params = {}) => {
+    listThreads: (params = {}, options = {}) => {
       return request(appendQuery('/threads', {
         category_id: params.categoryId || params.category_id,
-        limit: params.limit
-      }))
+        limit: params.limit,
+        offset: params.offset
+      }), options)
     },
-    listHotThreads: (limit = 20) => request(`/threads/hot?limit=${encodeURIComponent(String(limit))}`),
-    searchThreads: (params = {}) => request(appendQuery('/search', {
+    listHotThreads: (limit = 20, options = {}) => request(`/threads/hot?limit=${encodeURIComponent(String(limit))}`, options),
+    searchThreads: (params = {}, options = {}) => request(appendQuery('/search', {
       q: params.q || params.query,
       category_id: params.categoryId || params.category_id,
-      limit: params.limit
-    })),
-    getThread: (threadId) => request(`/threads/${encodeURIComponent(String(threadId))}`),
+      limit: params.limit,
+      offset: params.offset
+    }), options),
+    getThread: (threadId, options = {}) => request(`/threads/${encodeURIComponent(String(threadId))}`, options),
     createThread: (payload) => request('/threads', { method: 'POST', body: payload, auth: true }),
     createReply: (threadId, payload) =>
       request(`/threads/${encodeURIComponent(String(threadId))}/replies`, { method: 'POST', body: payload, auth: true }),
@@ -213,22 +229,46 @@ export const createForumApiClient = ({
       request(`/threads/${encodeURIComponent(String(threadId))}/scores`, { method: 'POST', body: { score }, auth: true }),
     bookmarkThread: (threadId, active = true) =>
       request(`/threads/${encodeURIComponent(String(threadId))}/bookmark`, { method: 'POST', body: { active }, auth: true }),
-    getMeSummary: () => request('/me/summary', { auth: true }),
-    listMyThreads: (limit) => request(appendQuery('/me/threads', { limit }), { auth: true }),
-    listMyReplies: (limit) => request(appendQuery('/me/replies', { limit }), { auth: true }),
-    listMyBookmarks: (limit) => request(appendQuery('/me/bookmarks', { limit }), { auth: true }),
-    getUserProfile: (studentId) => request(`/users/${encodeURIComponent(String(studentId))}`),
+    getMeSummary: (options = {}) => request('/me/summary', { ...options, auth: true }),
+    listMyThreads: (params = {}, options = {}) => {
+      const normalized = typeof params === 'number' ? { limit: params } : params
+      return request(appendQuery('/me/threads', { limit: normalized.limit, offset: normalized.offset }), { ...options, auth: true })
+    },
+    listMyReplies: (params = {}, options = {}) => {
+      const normalized = typeof params === 'number' ? { limit: params } : params
+      return request(appendQuery('/me/replies', { limit: normalized.limit, offset: normalized.offset }), { ...options, auth: true })
+    },
+    listMyBookmarks: (params = {}, options = {}) => {
+      const normalized = typeof params === 'number' ? { limit: params } : params
+      return request(appendQuery('/me/bookmarks', { limit: normalized.limit, offset: normalized.offset }), { ...options, auth: true })
+    },
+    getUserProfile: (studentId, options = {}) => request(`/users/${encodeURIComponent(String(studentId))}`, options),
     followUser: (targetStudentId, active = true) =>
       request('/follows', { method: 'POST', body: { target_student_id: targetStudentId, active }, auth: true }),
     reportContent: (payload) => request('/reports', { method: 'POST', body: payload, auth: true }),
-    listNotifications: () => request('/notifications', { auth: true }),
-    listMessages: () => request('/messages', { auth: true }),
+    listNotifications: (params = {}, options = {}) =>
+      request(appendQuery('/notifications', { limit: params.limit, offset: params.offset }), { ...options, auth: true }),
+    listMessages: (params = {}, options = {}) =>
+      request(appendQuery('/messages', { limit: params.limit, offset: params.offset }), { ...options, auth: true }),
     sendMessage: (payload) => request('/messages', { method: 'POST', body: payload, auth: true }),
     checkIn: () => request('/checkins', { method: 'POST', auth: true }),
-    listBadges: () => request('/badges', { auth: true }),
-    listAdminReports: (limit = 50) => request(appendQuery('/admin/reports', { limit }), { auth: true }),
-    listAdminUsers: (query = '', limit) => request(appendQuery('/admin/users', { query, limit }), { auth: true }),
-    listAdminBackups: (limit = 20) => request(appendQuery('/admin/backups', { limit }), { auth: true }),
+    listBadges: (options = {}) => request('/badges', { ...options, auth: true }),
+    listBackups: (params = {}, options = {}) => request(appendQuery('/backups', { limit: params.limit, offset: params.offset }), options),
+    listAdminReports: (params = 50, options = {}) => {
+      const normalized = typeof params === 'number' ? { limit: params } : params
+      return request(appendQuery('/admin/reports', { limit: normalized.limit, offset: normalized.offset }), { ...options, auth: true })
+    },
+    listAdminUsers: (params = '', optionsOrLimit, maybeOptions = {}) => {
+      const normalized = typeof params === 'object'
+        ? params
+        : { query: params, limit: optionsOrLimit }
+      const options = typeof params === 'object' ? optionsOrLimit || {} : maybeOptions
+      return request(appendQuery('/admin/users', { query: normalized.query, limit: normalized.limit, offset: normalized.offset }), { ...options, auth: true })
+    },
+    listAdminBackups: (params = 20, options = {}) => {
+      const normalized = typeof params === 'number' ? { limit: params } : params
+      return request(appendQuery('/admin/backups', { limit: normalized.limit, offset: normalized.offset }), { ...options, auth: true })
+    },
     runBackup: () => request('/admin/backups/run', { method: 'POST', auth: true }),
     setUserBan: (payload) => request('/admin/bans', { method: 'POST', body: payload, auth: true }),
     grantBadge: (payload) => request('/admin/badges', { method: 'POST', body: payload, auth: true }),

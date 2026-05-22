@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clearForumCache,
   createForumCache,
+  createForumPendingActions,
   makeForumCacheKey,
   withForumCache
 } from './forum_cache'
@@ -78,5 +79,57 @@ describe('forum cache', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('stores ETag metadata, reuses cached values on 304, and falls back to stale cache on failure', async () => {
+    const storage = installStorage()
+    let now = 1000
+    const cache = createForumCache({
+      studentId: '2510231106',
+      apiBase: 'https://example.com/api/forum',
+      now: () => now
+    })
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ value: { items: ['first'] }, etag: '"v1"', notModified: false })
+      .mockResolvedValueOnce({ etag: '"v1"', notModified: true })
+      .mockRejectedValueOnce(new Error('offline'))
+
+    try {
+      await expect(withForumCache(cache, 'feed', ({ etag }) => fetcher({ etag }), { ttlMs: 60_000 })).resolves.toEqual({ items: ['first'] })
+      expect(fetcher).toHaveBeenLastCalledWith({ etag: '' })
+      now += 61_000
+      await expect(withForumCache(cache, 'feed', ({ etag }) => fetcher({ etag }), { ttlMs: 60_000 })).resolves.toEqual({ items: ['first'] })
+      expect(fetcher).toHaveBeenLastCalledWith({ etag: '"v1"' })
+      now += 61_000
+      await expect(withForumCache(cache, 'feed', ({ etag }) => fetcher({ etag }), { ttlMs: 60_000 })).resolves.toEqual({ items: ['first'] })
+
+      const raw = JSON.parse(storage.values().next().value)
+      expect(raw.etag).toBe('"v1"')
+      expect(fetcher).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('prevents duplicate pending forum actions and emits duplicate feedback', async () => {
+    const notices: Array<{ message: string; type?: string }> = []
+    const guard = createForumPendingActions({
+      notify: (message, type) => notices.push({ message, type })
+    })
+    let release: (() => void) | undefined
+    const slowTask = vi.fn(() => new Promise((resolve) => {
+      release = () => resolve('posted')
+    }))
+
+    const first = guard.run('thread:demo', slowTask, { duplicateMessage: '发布中，请勿重复提交' })
+    const duplicate = await guard.run('thread:demo', slowTask, { duplicateMessage: '发布中，请勿重复提交' })
+    expect(duplicate).toBeNull()
+    expect(guard.isPending('thread:demo')).toBe(true)
+    expect(slowTask).toHaveBeenCalledTimes(1)
+    expect(notices).toEqual([{ message: '发布中，请勿重复提交', type: 'info' }])
+
+    release?.()
+    await expect(first).resolves.toBe('posted')
+    expect(guard.isPending('thread:demo')).toBe(false)
   })
 })

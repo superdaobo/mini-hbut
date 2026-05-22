@@ -118,18 +118,18 @@
 
 ## Task 7: 前端论坛 API、缓存与防重复提交层
 
-- [ ] 状态：未完成
-- [ ] 完善 `forum_api.js` 覆盖后端全部论坛接口
-- [ ] 完善前端 TTL 缓存、stale fallback、写操作后缓存失效
-- [ ] 实现统一 pending action 防重复提交和 toast 提示
-- [ ] 运行前端相关测试并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 完善 `forum_api.js` 覆盖后端全部论坛接口
+- [x] 完善前端 TTL 缓存、stale fallback、写操作后缓存失效
+- [x] 实现统一 pending action 防重复提交和 toast 提示
+- [x] 运行前端相关测试并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已完善前端论坛 API、缓存与防重复提交公共层。`src/utils/forum_api.js` 现在支持后端分页契约中的 `offset`，覆盖公开备份 `listBackups()`，并让分类、帖子、搜索、详情、我的帖子/回复/收藏、通知、私信、徽章、管理举报/用户/备份等读接口可传 `If-None-Match` 并返回 `includeMeta` 缓存元数据。`src/utils/forum_cache.js` 现在会保存 ETag，过期刷新时把旧 ETag 交给 fetcher，遇到 304 时复用旧缓存，网络失败时继续 stale fallback；同时新增 `createForumPendingActions()`，统一阻止重复写操作并触发 toast 提示。`src/components/ForumView.vue` 已接入公共 pending guard，按钮禁用状态仍由响应式 `pendingActions` 驱动；页面读缓存也已切换为 `includeMeta + etag`，保持原 payload 形态供模板使用。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts --testTimeout 60000` 观察到红灯，失败点为缺少 `listBackups`、缺少 meta 响应、缓存 fetcher 没拿到 ETag 参数、缺少 `createForumPendingActions`。实现后再次运行同一命令通过，2 files / 16 tests passed。随后运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 22 tests passed。`git diff --check -- src\utils\forum_api.js src\utils\forum_api.spec.ts src\utils\forum_cache.js src\utils\forum_cache.spec.ts src\components\ForumView.vue` 退出码 0，仅有 Windows LF/CRLF 提示。`npm.cmd run build` 退出码 0，仍有既有 CSS minify `@media` warning 和 Capacitor/Tauri/widget 动态导入 warning。
+- 剩余风险：本轮是前端 API/缓存/pending 公共层任务，尚未做 Task 8-11 的逐页面 Stitch 视觉重构和浏览器截图验收；全量 Vitest 仍可能受既有非论坛小游戏/网站改动影响，未在本轮解决；真实 HF Space、SQLPub、HF Bucket 和 OneDrive 线上链路仍留给后续部署任务。`tauri-app` 中仍有无关脏改动、`.playwright-mcp` 产物和未跟踪截图，本轮未回滚也未提交。
+- 下一步：执行 Task 8，基于 Stitch 包重做论坛页面基础组件与布局，继续确保移动端优先、底栏不遮挡、文本不溢出。
 
 ## Task 8: 前端论坛 Stitch 风格基础组件与布局
 

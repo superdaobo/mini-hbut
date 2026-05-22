@@ -7,7 +7,7 @@ import {
   readForumProfile,
   writeForumProfile
 } from '../utils/forum_api'
-import { clearForumCache, createForumCache, withForumCache } from '../utils/forum_cache'
+import { clearForumCache, createForumCache, createForumPendingActions, withForumCache } from '../utils/forum_cache'
 import { showToast } from '../utils/toast'
 
 const props = defineProps({
@@ -74,6 +74,7 @@ const newThread = ref({
 
 let client = null
 let forumCache = null
+let pendingGuard = null
 
 const isLoggedIn = computed(() => !!String(props.studentId || '').trim())
 const hasRemoteCategories = computed(() => categories.value.length > 0)
@@ -126,27 +127,24 @@ const categoryName = (categoryId) =>
 
 const attachmentUrl = (attachmentId) => client?.getAttachmentUrl?.(attachmentId) || ''
 
-const setPending = (key, active) => {
-  const next = new Set(pendingActions.value)
-  if (active) next.add(key)
-  else next.delete(key)
+const syncPendingActions = (next) => {
   pendingActions.value = next
 }
 
-const isPending = (key) => pendingActions.value.has(key)
-
-const runPending = async (key, task, duplicateMessage = '正在处理，请勿重复点击') => {
-  if (isPending(key)) {
-    showToast(duplicateMessage, 'info')
-    return null
+const ensurePendingGuard = () => {
+  if (!pendingGuard) {
+    pendingGuard = createForumPendingActions({
+      notify: showToast,
+      onChange: syncPendingActions
+    })
   }
-  setPending(key, true)
-  try {
-    return await task()
-  } finally {
-    setPending(key, false)
-  }
+  return pendingGuard
 }
+
+const isPending = (key) => ensurePendingGuard().isPending(key)
+
+const runPending = async (key, task, duplicateMessage = '正在处理，请勿重复点击') =>
+  ensurePendingGuard().run(key, task, { duplicateMessage })
 
 const requireLogin = () => {
   showToast('请先登录后再使用社区功能', 'warning')
@@ -199,13 +197,13 @@ const loadMe = async ({ force = false } = {}) => {
   if (!client || !isLoggedIn.value) return
   if (force) invalidateForumCache(['me', 'notice', 'message', 'admin'])
   const settled = await Promise.allSettled([
-    cached('me:summary', () => client.getMeSummary(), 30_000),
-    cached('me:threads', () => client.listMyThreads(30), 30_000),
-    cached('me:replies', () => client.listMyReplies(30), 30_000),
-    cached('me:bookmarks', () => client.listMyBookmarks(50), 30_000),
-    cached('notice:list', () => client.listNotifications(), 20_000),
-    cached('message:list', () => client.listMessages(), 15_000),
-    cached('me:badges', () => client.listBadges(), 60_000)
+    cached('me:summary', ({ etag }) => client.getMeSummary({ includeMeta: true, etag }), 30_000),
+    cached('me:threads', ({ etag }) => client.listMyThreads({ limit: 30 }, { includeMeta: true, etag }), 30_000),
+    cached('me:replies', ({ etag }) => client.listMyReplies({ limit: 30 }, { includeMeta: true, etag }), 30_000),
+    cached('me:bookmarks', ({ etag }) => client.listMyBookmarks({ limit: 50 }, { includeMeta: true, etag }), 30_000),
+    cached('notice:list', ({ etag }) => client.listNotifications({}, { includeMeta: true, etag }), 20_000),
+    cached('message:list', ({ etag }) => client.listMessages({}, { includeMeta: true, etag }), 15_000),
+    cached('me:badges', ({ etag }) => client.listBadges({ includeMeta: true, etag }), 60_000)
   ])
   if (settled[0].status === 'fulfilled') meSummary.value = settled[0].value
   if (settled[1].status === 'fulfilled') myThreads.value = settled[1].value?.items || []
@@ -221,9 +219,9 @@ const loadAdmin = async ({ force = false } = {}) => {
   if (!client || !isLoggedIn.value || !isAdmin.value) return
   if (force) invalidateForumCache(['admin'])
   const settled = await Promise.allSettled([
-    cached('admin:reports', () => client.listAdminReports(50), 20_000),
-    cached(`admin:users:${adminSearch.value}`, () => client.listAdminUsers(adminSearch.value), 20_000),
-    cached('admin:backups', () => client.listAdminBackups(20), 30_000)
+    cached('admin:reports', ({ etag }) => client.listAdminReports({ limit: 50 }, { includeMeta: true, etag }), 20_000),
+    cached(`admin:users:${adminSearch.value}`, ({ etag }) => client.listAdminUsers({ query: adminSearch.value }, { includeMeta: true, etag }), 20_000),
+    cached('admin:backups', ({ etag }) => client.listAdminBackups({ limit: 20 }, { includeMeta: true, etag }), 30_000)
   ])
   if (settled[0].status === 'fulfilled') adminReports.value = settled[0].value?.items || []
   if (settled[1].status === 'fulfilled') adminUsers.value = settled[1].value?.items || []
@@ -237,9 +235,9 @@ const loadThreads = async ({ force = false } = {}) => {
   const query = searchQuery.value.trim()
   const scope = query ? `feed:search:${categoryId}:${query}` : `feed:${categoryId || 'all'}`
   try {
-    const payload = await cached(scope, () => {
-      if (query) return client.searchThreads({ q: query, categoryId, limit: 40 })
-      return client.listThreads({ categoryId, limit: 40 })
+    const payload = await cached(scope, ({ etag }) => {
+      if (query) return client.searchThreads({ q: query, categoryId, limit: 40 }, { includeMeta: true, etag })
+      return client.listThreads({ categoryId, limit: 40 }, { includeMeta: true, etag })
     }, 45_000)
     threads.value = Array.isArray(payload?.items) ? payload.items : []
   } catch (error) {
@@ -256,8 +254,8 @@ const loadForumData = async ({ force = false } = {}) => {
     if (!client) await buildClient()
     if (force) invalidateForumCache()
     const [categoryPayload, hotPayload] = await Promise.all([
-      cached('categories', () => client.listCategories(), 120_000),
-      cached('hot:threads', () => client.listHotThreads(20), 30_000)
+      cached('categories', ({ etag }) => client.listCategories({}, { includeMeta: true, etag }), 120_000),
+      cached('hot:threads', ({ etag }) => client.listHotThreads(20, { includeMeta: true, etag }), 30_000)
     ])
     categories.value = Array.isArray(categoryPayload?.items) ? categoryPayload.items : []
     if (!categories.value.length) {
@@ -298,7 +296,7 @@ const openThread = async (thread) => {
   detailLoading.value = true
   activeTab.value = 'detail'
   try {
-    const detail = await cached(`thread:${thread.id}`, () => client.getThread(thread.id), 20_000)
+    const detail = await cached(`thread:${thread.id}`, ({ etag }) => client.getThread(thread.id, { includeMeta: true, etag }), 20_000)
     threadDetail.value = detail
     selectedThread.value = detail?.thread || thread
   } catch (error) {
@@ -465,7 +463,7 @@ const openUserProfile = async (studentId) => {
   viewedProfileLoading.value = true
   viewedUserProfile.value = null
   try {
-    viewedUserProfile.value = await cached(`user-profile:${target}`, () => client.getUserProfile(target), 30_000)
+    viewedUserProfile.value = await cached(`user-profile:${target}`, ({ etag }) => client.getUserProfile(target, { includeMeta: true, etag }), 30_000)
   } catch (error) {
     errorMessage.value = error?.message || '用户主页加载失败'
   } finally {
