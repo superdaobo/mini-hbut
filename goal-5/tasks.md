@@ -579,15 +579,48 @@
 
 ## Task 9：编写扩展模块与小游戏用户文档
 
-- 状态：未完成
+- 状态：已完成
 - 目标：覆盖更多模块、模块市场、热更新、小游戏与模块资源。
 - 输入范围：`website/modules-src`、`website/public/modules`、模块相关 utils 与组件。
 - 输出要求：扩展模块专题文档。
 - 验证方式：模块 manifest 与源码核对、文档构建。
 - 实际改动：
+- 扩写 `website/src/pages/docs/Extensions.tsx`：
+  - 将原有 `DocSectionPage` 骨架替换为“扩展模块全量指南”。
+  - 覆盖更多模块、模块中心、模块市场、远程 catalog、manifest、`bundle.zip`、`package_url`、`package_sha256`、首次下载、本地缓存、缓存兜底、模块清单未发布、检查线上版本和回退本地缓存。
+  - 写明模块宿主 `MoreModuleHostView` 的 iframe 加载、`mini-hbut:module-size` 尺寸上报、加载超时、iOS 白屏提示、外部打开、运行标签、桌面本地包、安卓本地包、远端页面和独立窗口能力边界。
+  - 写明 Tauri 桌面端通过 `src-tauri/src/modules/module_bundle.rs` 准备本地包，移动端通过 Capacitor 文件缓存或远端页面兜底，Web/受限环境优先走 `open_url` / `remote-site`。
+  - 写明学习通签到活动、学习通签到、位置签到、拍照签到、手势签到、二维码签到、签到记录、会话状态、域名白名单和图片/二维码输入边界。
+  - 写明学习记录、学习通、长江雨课堂、在线学习、自动学习、同步全部平台、清理缓存和同步记录；同时明确 `MoreShuakeView`、`OnlineLearningChaoxingView`、`OnlineLearningYuketangView` 源码存在，但当前普通 App 渲染链路不完整，不能写成所有用户必然可见入口。
+  - 写明当前已发布小游戏：合成湖工大、跳出湖工大、2048 湖工大版、笨鸟先飞、湖工大富翁、湖工矿工、湖工记忆牌。
+  - 写明 `湖工五子棋` 当前工作区存在源码但未必已发布：`website/modules-src/hbut_gomoku/` 未跟踪，且当前 `website/public/modules/main/catalog.json` 未列出。
+  - 写明 `湖工大逃生` 源码存在但 `module.json` 标记 `disabled: true`，`scripts/build_website_modules.mjs` 会跳过，不作为当前普通用户可见模块。
+  - 写明排行榜依赖宿主注入 `student_id`、`player_name`、`class_name`、`major`、`school_name` 和 `rank_api`，上下文或远端排行榜服务缺失时会降级。
+  - 写明模块宿主 iframe 当前没有 `sandbox` 属性，不能夸大为强沙箱隔离；当前安全边界主要来自 manifest/package 校验、zip 路径防穿越、运行时地址选择和用户侧信任来源控制。
+- 增强 `website/scripts/test-docs-user-content.mjs`：
+  - 新增 `Extensions` 用户文档内容契约。
+  - 检查扩展模块、模块宿主、manifest/catalog、缓存兜底、签到、在线学习、小游戏、禁用/未发布模块、源码路径和占位文案清理。
+- 并行只读审计：
+  - 使用两个只读子 agent 审计 app 侧模块中心/宿主/签到/在线学习与 website 模块源码/catalog/构建脚本。
+  - 将审计发现写入文档边界：`hbut_gomoku` 未发布、`hugongda_escape` disabled、`MoreShuakeView` 普通入口链路不完整、iframe 不能写成强沙箱、缓存兜底不能写成永久离线能力。
 - 验证结果：
+- 已执行 `node scripts/test-docs-user-content.mjs`，在新增 Task 9 契约后确认 RED，失败项集中在 `Extensions.tsx` 仍为骨架、缺少模块中心/manifest/bundle/缓存/签到/在线学习/小游戏/源码路径关键词和占位文案残留。
+- 完成正文扩写后执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 已执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+- 首次执行 `npm run build` 时发现 TSX 文本中 `->` 触发 `TS1382 Unexpected token`；已定位为 JSX 文本解析问题，将箭头文案改为中文描述后重新验证。
+- 修复后再次执行 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 修复后再次执行 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+- 修复后再次执行 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认 `dist/docs/extensions/index.html` 生成。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断本任务。
+- 已执行 `git diff --check -- website/src/pages/docs/Extensions.tsx website/scripts/test-docs-user-content.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
+- 已用 `rg` 抽样核对文档和测试契约关键词，覆盖 `扩展模块全量指南`、`模块清单未发布`、`湖工五子棋`、`湖工大逃生`、`disabled`、`普通 App 渲染链路不完整`、`iframe 当前没有 sandbox`、`scripts/build_website_modules.mjs`。
 - 剩余风险：
+- 本任务聚焦用户侧扩展模块说明，不展开开发者级 manifest schema、模块构建脚本细节、Tauri HTTP bridge 路由和热更新框架；这些留给 Task 13、Task 16 和后续模块系统开发者文档。
+- 当前没有完成浏览器截图级视觉验收；扩展模块长文的桌面/移动端阅读体验留给 Task 17 和 Checkpoint F。
+- `website/public/modules/*`、`hecheng_hugongda` manifest 和 `website/modules-src/hbut_gomoku/` 当前存在与本 task 无关或其他工作产生的脏改动/未跟踪文件，本轮只记录事实，不暂存、不回滚。
+- 超星签到、在线学习、自动学习、排行榜和模块市场均依赖外部服务、平台会话、远端 catalog 或运行时能力；文档已标注限制，但本地构建无法证明远端服务可用。
 - 下一步：
+- 执行 Checkpoint C：九项后全面检查/debug，确认用户侧主要功能文档覆盖完整、描述准确、导航可达、构建通过，并集中检查是否仍有用户模块遗漏或事实错误。
 
 ## Checkpoint C：九项后全面检查/debug
 

@@ -13,6 +13,7 @@ const academicServices = read('src/pages/docs/AcademicServices.tsx');
 const campusLife = read('src/pages/docs/CampusLife.tsx');
 const communityNotifications = read('src/pages/docs/CommunityNotifications.tsx');
 const settingsData = read('src/pages/docs/SettingsData.tsx');
+const extensions = read('src/pages/docs/Extensions.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -294,6 +295,73 @@ expectIncludes(settingsData, 'SettingsData', [
   'src/utils/font_settings.ts',
 ]);
 
+expectIncludes(extensions, 'Extensions', [
+  '扩展模块全量指南',
+  '更多模块',
+  '模块中心',
+  '模块市场',
+  '远程 catalog',
+  'manifest',
+  'bundle.zip',
+  'package_url',
+  'package_sha256',
+  '本地缓存',
+  '缓存兜底',
+  '首次使用需下载',
+  '检查线上版本',
+  '回退本地缓存',
+  '模块清单未发布',
+  '模块宿主',
+  'iframe',
+  'mini-hbut:module-size',
+  '桥接',
+  '上下文',
+  '独立窗口',
+  '内嵌运行',
+  '桌面本地包',
+  '安卓本地包',
+  '远端页面',
+  '超星签到',
+  '学习通签到',
+  '位置签到',
+  '拍照签到',
+  '手势签到',
+  '二维码签到',
+  '签到记录',
+  '学习记录',
+  '学习通',
+  '长江雨课堂',
+  '在线学习',
+  '自动学习',
+  '清理缓存',
+  '跳出湖工大',
+  '合成湖工大',
+  '2048 湖工大版',
+  '笨鸟先飞',
+  '湖工大富翁',
+  '湖工矿工',
+  '湖工记忆牌',
+  '湖工五子棋',
+  '湖工大逃生',
+  'disabled',
+  '工作区存在',
+  '未必已发布',
+  'src/components/MoreView.vue',
+  'src/components/MoreModuleHostView.vue',
+  'src/components/MoreChaoxingCheckinView.vue',
+  'src/components/MoreShuakeView.vue',
+  'src/components/OnlineLearningChaoxingView.vue',
+  'src/components/OnlineLearningYuketangView.vue',
+  'src/utils/module_center.js',
+  'src/utils/more_modules.js',
+  'src-tauri/src/modules/module_bundle.rs',
+  'src-tauri/src/modules/chaoxing_checkin',
+  'src-tauri/src/modules/online_learning.rs',
+  'website/modules-src',
+  'website/public/modules/main/catalog.json',
+  'scripts/build_website_modules.mjs',
+]);
+
 if (
   quickStart.includes('后续 Task 6') ||
   userGuide.includes('后续扩写来源') ||
@@ -304,7 +372,9 @@ if (
   communityNotifications.includes('后续扩写来源') ||
   communityNotifications.includes('本页骨架职责') ||
   settingsData.includes('后续扩写来源') ||
-  settingsData.includes('本页骨架职责')
+  settingsData.includes('本页骨架职责') ||
+  extensions.includes('后续扩写来源') ||
+  extensions.includes('本页骨架职责')
 ) {
   failures.push('用户文档仍包含任务骨架或占位提示');
 }
