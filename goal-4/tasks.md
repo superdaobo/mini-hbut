@@ -31,17 +31,17 @@
 
 ## Task 3: 后端论坛 API 契约测试补全
 
-- [ ] 状态：未完成
-- [ ] 写失败测试覆盖分类、帖子列表、热帖、搜索、详情、发帖、回帖、评分、收藏、关注、举报、个人读模型、管理读模型、附件上传/代理、备份记录
-- [ ] 测试同时覆盖缓存头、ETag、304、重复请求安全性和错误响应
-- [ ] 不连接真实 SQLPub/HF，使用 SQLite/local temp 完成契约测试
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 写失败测试覆盖分类、帖子列表、热帖、搜索、详情、发帖、回帖、评分、收藏、关注、举报、个人读模型、管理读模型、附件上传/代理、备份记录
+- [x] 测试同时覆盖缓存头、ETag、304、重复请求安全性和错误响应
+- [x] 不连接真实 SQLPub/HF，使用 SQLite/local temp 完成契约测试
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已在 `ocr-service/tests/test_forum_extended_api.py` 补全论坛后端契约测试，覆盖只读缓存头/ETag/304、分类、帖子列表、热帖、搜索、详情、发帖、回帖、回复点赞、评分更新、收藏、关注幂等、举报、我的摘要/帖子/收藏、管理举报/用户/备份、附件上传/代理/304、私信、签到、徽章、封禁和错误响应。为支撑契约，补齐后端论坛 API 与存储能力：搜索接口、个人读模型、管理读模型、附件元数据表、附件代理下载、HF Bucket 下载降级入口、SQLite/SQLPub 对应方法，并修复 `SQLiteForumStore._connect()` 在 Windows 下只提交不关闭连接导致临时 SQLite 文件被锁的问题。
+- 验证结果：`python -m py_compile tests\test_forum_extended_api.py forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py forum_backend\object_storage.py` 通过；`git diff --check -- forum_backend\main.py forum_backend\object_storage.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_extended_api.py` 通过；使用文件路径加载的直调 runner 逐项执行 `test_forum_extended_api.py` 中 8 个契约函数，全部输出 `PASS` 并最终 `DONE`。额外最小脚本验证 `TestClient.close()` 后可以删除临时 SQLite 目录，证明 Windows 文件锁根因已修复。
+- 剩余风险：本机默认 `python -m pytest tests\test_forum_extended_api.py -q` 在若干次复跑中出现超过 60 秒无输出的启动/收集层挂起；已通过直调 runner 证明契约函数和后端接口本身可运行，但后续大型检查循环 A 需要继续定位 pytest 启动层稳定性。未连接真实 SQLPub、HF Bucket 或 OneDrive，未读取或写入任何真实密钥。
+- 下一步：执行“大型全面检查-debug 循环 A”，检查 Task 1-3 是否覆盖论坛目标、是否仍有测试启动层问题、是否有密钥/高风险操作泄露，并修复发现的问题。
 
 ## 大型全面检查-debug 循环 A（完成 Task 1-3 后执行）
 
