@@ -624,14 +624,40 @@
 
 ## Checkpoint C：九项后全面检查/debug
 
-- 状态：未完成
+- 状态：已完成
 - 目标：确认用户侧主要功能文档覆盖完整。
 - 检查范围：用户模块遗漏、描述准确性、导航可达性、构建。
 - 验证方式：用户模块清单逐项勾稽。
 - 实际检查：
+- 已完成九项后的全面检查/debug。本轮聚焦用户侧文档覆盖、事实边界、导航可达性和 website 构建，不修改 Tauri 主应用业务代码，也未发现需要补正文的用户侧缺口。
+- 已重新读取 `goal-5/input.md`、`goal-5/plan.md`、`goal-5/tasks.md`，确认当前第一个未完成任务为 Checkpoint C，并且 Task 1-9 已覆盖源码索引、用户模块清单、开发者模块清单、文档 IA、导航骨架、快速开始、教务服务、校园生活/社区通知/设置数据、扩展模块。
+- 用户侧覆盖勾稽：
+  - `website/src/pages/docs/QuickStart.tsx` 和 `UserGuide.tsx` 覆盖下载启动、登录、首页仪表盘、底部主 Tab、搜索、设置中心、导出中心、云同步、离线缓存和普通用户阅读路径。
+  - `website/src/pages/docs/AcademicServices.tsx` 覆盖成绩查询、成绩分布 Beta、个人课表、全校课表、选课中心、空教室、考试安排、绩点排名、校历、学业完成情况和培养方案。
+  - `website/src/pages/docs/CampusLife.tsx` 覆盖校园码、电费查询、交易记录、图书查询、校园地图、资料分享和校园助手。
+  - `website/src/pages/docs/CommunityNotifications.tsx` 覆盖论坛、通知中心、课程提醒、电费提醒、后台自动检查、前台服务保活、Android 后台白名单和 iOS 后台限制。
+  - `website/src/pages/docs/SettingsData.tsx` 覆盖我的页、设置中心、云同步、导出中心、意见反馈、官方帖子和配置工具。
+  - `website/src/pages/docs/Extensions.tsx` 覆盖更多模块、模块中心、模块市场、模块宿主、学习通签到、在线学习/学习记录、已发布小游戏、禁用模块和未发布模块边界。
+- 已执行用户文档关键词检索，确认用户模块清单中的核心模块可在当前用户文档中命中：成绩查询、个人课表、全校课表、选课中心、空教室、考试安排、绩点排名、校历、学业情况、培养方案、校园码、电费查询、交易记录、图书查询、校园地图、资料分享、校园助手、论坛、通知中心、我的、设置中心、导出中心、配置工具、更多模块、模块中心、学习通签到、学习记录、扩展模块、合成湖工大、2048、湖工矿工、湖工记忆牌等。
+- 已执行占位残留检查：`rg -n "后续扩写来源|本页骨架职责|后续 Task|TODO|TBD|暂不展开|占位"` 仅针对已扩写的 7 个用户文档页检查，退出码 1 且无命中，说明当前用户侧正文页没有 Task 骨架占位残留。此前把 `website/scripts/test-docs-user-content.mjs` 也纳入同一检索时命中的是测试脚本内用于检测占位残留的断言文本，不是文档正文问题。
+- 已执行路由和导航检查：`website/src/App.tsx` 已注册 `/docs/quick-start`、`/docs/user-guide`、`/docs/academic`、`/docs/campus-life`、`/docs/community-notifications`、`/docs/extensions`、`/docs/settings-data`、`/docs/troubleshooting`、开发者文档和参考资料路由；`website/src/layouts/DocsLayout.tsx` 使用 `docsNavSections` 分组导航，侧栏包含开始、用户文档、开发者文档、参考资料。
+- 已执行 fresh 验证 `npm run test:docs-user-content`，结果为 `docs user content contract passed`。
+- 已执行 fresh 验证 `npm run test:docs-ia`，结果为 `docs IA contract passed`。
+- 已执行 fresh 验证 `npm run build`，`tsc -b && vite build` 通过，exit code 0，并确认生成 `dist/docs/user-guide/index.html`、`dist/docs/quick-start/index.html`、`dist/docs/academic/index.html`、`dist/docs/extensions/index.html`、`dist/docs/campus-life/index.html`、`dist/docs/community-notifications/index.html`、`dist/docs/settings-data/index.html` 等静态入口。
+- 构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning，不阻断 Checkpoint C。
+- 已启动 `npm run preview -- --host 127.0.0.1 --port 4175`，并用 `curl.exe -I` 抽查 `/docs`、`/docs/user-guide`、`/docs/academic`、`/docs/campus-life`、`/docs/extensions`、`/docs/settings-data`，全部返回 `HTTP/1.1 200 OK`。
+- 已读取 Browser 插件技能说明，但本环境未暴露该技能要求的 Node REPL JavaScript 执行工具；本轮没有抢占用户浏览器焦点，使用生产构建、Vite preview 和 HTTP 200 抽样作为可达性证据。
 - 修复记录：
+- 本轮未发现用户侧正文、路由或构建层面的新缺口，因此没有修改 `website` 文档正文、测试脚本、路由或业务代码。
+- 本轮仅更新 `goal-5/tasks.md`，把 Checkpoint C 的检查证据、验证结果和剩余风险写入任务记录。
 - 剩余风险：
+- 本轮覆盖的是用户侧主要功能文档，不展开开发者级架构、数据流、平台桥接、构建发布、安全隐私、FAQ 和参考索引；这些已保留给 Task 10-20。
+- 远端服务、学校系统、模块市场、学习通、长江雨课堂、WebDAV、AI、本地通知和系统后台能力无法通过本地 `website` 构建证明可用；当前用户文档已按源码边界写明限制。
+- 本轮没有完成截图级桌面/移动端视觉验收，因为 Browser 技能的 Node REPL 执行入口未暴露；Task 17 和 Checkpoint F 仍需做长文可读性、移动端导航、实际截图或可视化验收。
+- `website` 构建仍有大 chunk warning；后续 Task 17 或最终审计可评估是否拆分路由 chunk，当前不影响用户文档覆盖正确性。
+- 工作区仍存在与本 goal 无关的修改和未跟踪文件，本轮提交必须只包含 `goal-5/tasks.md`。
 - 下一步：
+- 执行 Task 10：编写开发者架构总览，说明前端入口、视图切换、组件组织、状态恢复和平台边界，并继续基于源码证据与 `website` 构建验证推进。
 
 ## Task 10：编写开发者架构总览
 
