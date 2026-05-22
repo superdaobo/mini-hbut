@@ -105,15 +105,69 @@ describe('forum view identity contract', () => {
     }
   })
 
+  it('locks the Stitch mobile foundation for stable forum components', () => {
+    const forumSource = readSource('src/components/ForumView.vue')
+
+    for (const marker of [
+      'forum-shell-inner',
+      'forum-bottom-safe-spacer',
+      'forum-skeleton-list',
+      'skeleton-card',
+      'skeleton-line',
+      'skeleton-pill'
+    ]) {
+      expect(forumSource).toContain(marker)
+    }
+
+    for (const styleRule of [
+      '--stitch-header-height: 64px',
+      '--stitch-bottom-nav-height: 80px',
+      '--stitch-container-max: 448px',
+      '--stitch-card-radius: 24px',
+      '--stitch-control-radius: 999px',
+      'max-width: var(--stitch-container-max)',
+      'min-height: calc(100dvh - var(--stitch-bottom-nav-clearance))',
+      'padding-bottom: calc(var(--stitch-bottom-nav-clearance) + env(safe-area-inset-bottom, 0px))',
+      'height: calc(var(--stitch-bottom-nav-height) + env(safe-area-inset-bottom, 0px))',
+      'overflow-x: hidden',
+      'scroll-padding-bottom: var(--stitch-bottom-nav-clearance)',
+      'min-width: 0',
+      'overflow-wrap: anywhere',
+      'text-overflow: ellipsis',
+      '@media (prefers-reduced-motion: reduce)',
+      ':focus-visible',
+      'outline: 2px solid var(--stitch-primary)',
+      '@keyframes forum-skeleton-shimmer'
+    ]) {
+      expect(forumSource).toContain(styleRule)
+    }
+
+    expect(forumSource).not.toContain('scale-95')
+    expect(forumSource).not.toContain('letter-spacing: -')
+    expect(forumSource).not.toContain('padding: 0 0 var(--stitch-bottom-nav-clearance)')
+    expect(forumSource).toMatch(/<div class="forum-shell-inner">[\s\S]*<header class="forum-topbar">[\s\S]*<main class="forum-canvas">[\s\S]*<div class="forum-bottom-safe-spacer" aria-hidden="true"><\/div>/)
+    expect(forumSource).toMatch(/<div v-if="loading" class="forum-skeleton-list" aria-label="论坛内容加载中">[\s\S]*class="skeleton-card"[\s\S]*class="skeleton-line wide"/)
+    expect(forumSource).toContain('.post-card p {\n  display: -webkit-box;')
+  })
+
   it('allows profile avatars to be uploaded through the forum image host', () => {
     const forumSource = readSource('src/components/ForumView.vue')
 
     expect(forumSource).toContain('const uploadAvatarImage = async')
+    expect(forumSource).toContain('const resolveAvatarAttachmentUrl = (payload) =>')
+    expect(forumSource).toContain('if (/^https?:\\/\\//i.test(directUrl)) return directUrl')
+    expect(forumSource).toContain('const avatarUrl = resolveAvatarAttachmentUrl(payload)')
     expect(forumSource).toContain("runPending('profile:avatar-upload'")
     expect(forumSource).toContain('client.uploadAttachment(file)')
-    expect(forumSource).toContain('profile.value.avatar_url = client.getAttachmentUrl')
+    expect(forumSource).toContain('profile.value.avatar_url = avatarUrl')
     expect(forumSource).toContain('id="forum-profile-avatar-file"')
     expect(forumSource).toContain('@change="uploadAvatarImage"')
+    expect(forumSource).toContain('tabindex="0"')
+    expect(forumSource).toContain('@keydown.enter.prevent=')
+    expect(forumSource).toContain('.avatar-upload-field:focus-within .avatar-upload-button')
     expect(forumSource).toContain('头像图床上传中')
+    expect(forumSource).toContain('头像上传（推荐）')
+    expect(forumSource).toContain('手动 URL（备用）')
+    expect(forumSource.indexOf('头像上传（推荐）')).toBeLessThan(forumSource.indexOf('手动 URL（备用）'))
   })
 })

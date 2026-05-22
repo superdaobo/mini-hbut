@@ -66,6 +66,7 @@ const messageDraft = ref({ receiver_student_id: '', content: '' })
 const banDraft = ref({ student_id: '', reason: '' })
 const badgeDraft = ref({ student_id: '', badge_key: 'helper', display_name: '热心同学' })
 const pendingActions = ref(new Set())
+const profileAvatarInput = ref(null)
 const newThread = ref({
   title: '',
   content_md: '',
@@ -126,6 +127,13 @@ const categoryName = (categoryId) =>
   visibleCategories.value.find((item) => Number(item.id) === Number(categoryId))?.name || '社区'
 
 const attachmentUrl = (attachmentId) => client?.getAttachmentUrl?.(attachmentId) || ''
+
+const resolveAvatarAttachmentUrl = (payload) => {
+  const directUrl = toText(payload?.url).trim()
+  if (/^https?:\/\//i.test(directUrl)) return directUrl
+  const attachmentAddress = directUrl || toText(payload?.attachment_id).trim()
+  return attachmentAddress ? client?.getAttachmentUrl?.(attachmentAddress) || '' : ''
+}
 
 const syncPendingActions = (next) => {
   pendingActions.value = next
@@ -331,6 +339,11 @@ const setReplyFiles = (event) => {
   replyFiles.value = Array.from(event?.target?.files || []).slice(0, 4)
 }
 
+const openAvatarFilePicker = () => {
+  if (isPending('profile:avatar-upload')) return
+  profileAvatarInput.value?.click?.()
+}
+
 const uploadAvatarImage = async (event) => {
   const input = event?.target
   const file = Array.from(input?.files || [])[0]
@@ -343,9 +356,9 @@ const uploadAvatarImage = async (event) => {
   try {
     await runPending('profile:avatar-upload', async () => {
       const payload = await client.uploadAttachment(file)
-      const attachmentAddress = payload?.url || payload?.attachment_id
-      if (!attachmentAddress) throw new Error('图床未返回头像地址')
-      profile.value.avatar_url = client.getAttachmentUrl(attachmentAddress)
+      const avatarUrl = resolveAvatarAttachmentUrl(payload)
+      if (!avatarUrl) throw new Error('图床未返回头像地址')
+      profile.value.avatar_url = avatarUrl
       showToast('头像已上传到图床，请保存资料', 'success')
     }, '头像图床上传中，请勿重复选择')
   } catch (error) {
@@ -604,29 +617,30 @@ watch(
 <template>
   <section class="forum-view" data-stitch-design="Campus Vitality">
     <div class="forum-phone-shell">
-      <header class="forum-topbar">
-        <button class="avatar-button" type="button" @click="switchTab('me')">
-          <span>{{ initials(profile.nickname || studentId) }}</span>
-        </button>
-        <h1>HBUT Forum</h1>
-        <button class="icon-button" type="button" :disabled="refreshing" title="刷新" @click="loadForumData({ force: true })">
-          <span class="material-symbols-outlined">refresh</span>
-        </button>
-      </header>
+      <div class="forum-shell-inner">
+        <header class="forum-topbar">
+          <button class="avatar-button" type="button" @click="switchTab('me')">
+            <span>{{ initials(profile.nickname || studentId) }}</span>
+          </button>
+          <h1>HBUT Forum</h1>
+          <button class="icon-button" type="button" :disabled="refreshing" title="刷新" @click="loadForumData({ force: true })">
+            <span class="material-symbols-outlined">refresh</span>
+          </button>
+        </header>
 
-      <nav class="category-nav" aria-label="论坛版块">
-        <button
-          v-for="category in visibleCategories"
-          :key="category.slug || category.id"
-          type="button"
-          :class="{ active: Number(selectedCategoryId) === Number(category.id) }"
-          @click="chooseCategory(category)"
-        >
-          {{ category.name }}
-        </button>
-      </nav>
+        <nav class="category-nav" aria-label="论坛版块">
+          <button
+            v-for="category in visibleCategories"
+            :key="category.slug || category.id"
+            type="button"
+            :class="{ active: Number(selectedCategoryId) === Number(category.id) }"
+            @click="chooseCategory(category)"
+          >
+            {{ category.name }}
+          </button>
+        </nav>
 
-      <main class="forum-canvas">
+        <main class="forum-canvas">
         <section v-if="errorMessage" class="system-banner">
           <span class="material-symbols-outlined">info</span>
           <span>{{ errorMessage }}</span>
@@ -677,7 +691,14 @@ watch(
             <span>{{ displayThreads.length }} 条</span>
           </div>
 
-          <div v-if="loading" class="empty-card">加载中...</div>
+          <div v-if="loading" class="forum-skeleton-list" aria-label="论坛内容加载中">
+            <article v-for="item in 3" :key="item" class="skeleton-card" aria-hidden="true">
+              <span class="skeleton-pill"></span>
+              <span class="skeleton-line wide"></span>
+              <span class="skeleton-line"></span>
+              <span class="skeleton-line short"></span>
+            </article>
+          </div>
           <div v-else-if="!displayThreads.length" class="empty-card">
             <span class="material-symbols-outlined">forum</span>
             <strong>还没有帖子</strong>
@@ -735,7 +756,15 @@ watch(
             </button>
           </div>
 
-          <div v-if="detailLoading" class="empty-card">加载中...</div>
+          <div v-if="detailLoading" class="forum-skeleton-list" aria-label="帖子详情加载中">
+            <article class="skeleton-card detail" aria-hidden="true">
+              <span class="skeleton-pill"></span>
+              <span class="skeleton-line wide"></span>
+              <span class="skeleton-line"></span>
+              <span class="skeleton-line"></span>
+              <span class="skeleton-line short"></span>
+            </article>
+          </div>
           <article v-else-if="selectedThread" class="detail-card">
             <div class="post-author large">
               <button class="mini-avatar large" type="button" @click="openUserProfile(selectedThread.author_student_id)">
@@ -916,18 +945,25 @@ watch(
               <span>昵称</span>
               <input id="forum-profile-nickname" v-model="profile.nickname" name="forum-profile-nickname" maxlength="80" />
             </label>
-            <label>
-              <span>头像 URL</span>
-              <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="可填后端图床或外部图片 URL" />
-            </label>
             <div class="avatar-upload-field">
-              <input id="forum-profile-avatar-file" type="file" accept="image/*" :disabled="isPending('profile:avatar-upload')" @change="uploadAvatarImage" />
-              <label class="ghost-pill avatar-upload-button" for="forum-profile-avatar-file">
+              <span class="avatar-upload-title">头像上传（推荐）</span>
+              <input id="forum-profile-avatar-file" ref="profileAvatarInput" type="file" accept="image/*" :disabled="isPending('profile:avatar-upload')" @change="uploadAvatarImage" />
+              <label
+                class="ghost-pill avatar-upload-button"
+                for="forum-profile-avatar-file"
+                tabindex="0"
+                @keydown.enter.prevent="openAvatarFilePicker"
+                @keydown.space.prevent="openAvatarFilePicker"
+              >
                 <span class="material-symbols-outlined">upload</span>
                 <span>{{ isPending('profile:avatar-upload') ? '头像图床上传中' : '上传头像到图床' }}</span>
               </label>
               <p class="form-hint">选择本地图片后会上传到后端图床，并自动回填头像 URL。</p>
             </div>
+            <label>
+              <span>手动 URL（备用）</span>
+              <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="自动上传失败时，可粘贴后端图床或外部图片 URL" />
+            </label>
             <label>
               <span>简介</span>
               <input v-model="profile.bio" maxlength="300" placeholder="社区简介" />
@@ -962,7 +998,13 @@ watch(
             </button>
             <h2>用户主页</h2>
           </div>
-          <div v-if="viewedProfileLoading" class="empty-card">加载中...</div>
+          <div v-if="viewedProfileLoading" class="forum-skeleton-list" aria-label="用户主页加载中">
+            <article class="skeleton-card profile" aria-hidden="true">
+              <span class="skeleton-pill avatar"></span>
+              <span class="skeleton-line wide"></span>
+              <span class="skeleton-line short"></span>
+            </article>
+          </div>
           <div v-else class="profile-card">
             <div class="cover-gradient"></div>
             <div class="profile-body">
@@ -1046,7 +1088,9 @@ watch(
             </div>
           </div>
         </section>
-      </main>
+        </main>
+        <div class="forum-bottom-safe-spacer" aria-hidden="true"></div>
+      </div>
     </div>
   </section>
 </template>
@@ -1073,10 +1117,15 @@ watch(
   --stitch-success: #14b8a6;
   --stitch-warning: #f97316;
   --stitch-danger: #ba1a1a;
+  --stitch-header-height: 64px;
+  --stitch-bottom-nav-height: 80px;
   --stitch-bottom-nav-clearance: 96px;
+  --stitch-container-max: 448px;
+  --stitch-card-radius: 24px;
+  --stitch-control-radius: 999px;
   --stitch-card-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
   min-height: 100%;
-  padding: 0 0 var(--stitch-bottom-nav-clearance);
+  padding: 0;
   background: var(--stitch-surface);
   color: var(--stitch-text);
   font-family: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -1085,17 +1134,34 @@ watch(
 .forum-view *,
 .forum-view *::before,
 .forum-view *::after {
+  min-width: 0;
   box-sizing: border-box;
 }
 
 .forum-phone-shell {
   width: 100%;
   max-width: 448px;
-  min-height: calc(100dvh - 96px);
+  max-width: var(--stitch-container-max);
+  min-height: calc(100dvh - var(--stitch-bottom-nav-clearance));
   margin: 0 auto;
   background: var(--stitch-surface-low);
   box-shadow: 0 20px 44px rgba(21, 28, 39, 0.08);
   overflow: hidden;
+  overflow-x: hidden;
+  scroll-padding-bottom: var(--stitch-bottom-nav-clearance);
+}
+
+.forum-shell-inner {
+  display: flex;
+  min-height: inherit;
+  flex-direction: column;
+  padding-bottom: calc(var(--stitch-bottom-nav-clearance) + env(safe-area-inset-bottom, 0px));
+  overflow-wrap: anywhere;
+}
+
+.forum-bottom-safe-spacer {
+  flex: 0 0 auto;
+  height: calc(var(--stitch-bottom-nav-height) + env(safe-area-inset-bottom, 0px));
 }
 
 .forum-topbar {
@@ -1135,6 +1201,16 @@ watch(
   border: 0;
   cursor: pointer;
   transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease, opacity 180ms ease;
+}
+
+.forum-view button:focus-visible,
+.forum-view a:focus-visible,
+.forum-view input:focus-visible,
+.forum-view textarea:focus-visible,
+.forum-view select:focus-visible,
+.avatar-upload-button:focus-visible {
+  outline: 2px solid var(--stitch-primary);
+  outline-offset: 3px;
 }
 
 .avatar-button,
@@ -1258,6 +1334,7 @@ watch(
 }
 
 .forum-canvas {
+  flex: 1 1 auto;
   padding: 16px;
 }
 
@@ -1322,7 +1399,7 @@ watch(
 .empty-card,
 .system-banner {
   border: 1px solid rgba(194, 198, 214, 0.16);
-  border-radius: 24px;
+  border-radius: var(--stitch-card-radius);
   background: var(--stitch-surface-card);
   box-shadow: var(--stitch-card-shadow);
 }
@@ -1341,7 +1418,7 @@ watch(
   color: var(--stitch-primary);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   line-height: 14px;
   text-transform: uppercase;
 }
@@ -1399,7 +1476,7 @@ watch(
   justify-content: center;
   gap: 6px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--stitch-control-radius);
   cursor: pointer;
   padding: 0 16px;
   font-size: 12px;
@@ -1985,6 +2062,13 @@ watch(
   gap: 8px;
 }
 
+.avatar-upload-title {
+  color: var(--stitch-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
 .avatar-upload-field input[type="file"] {
   position: absolute;
   width: 1px;
@@ -1998,6 +2082,11 @@ watch(
 .avatar-upload-button {
   width: fit-content;
   max-width: 100%;
+}
+
+.avatar-upload-field:focus-within .avatar-upload-button {
+  outline: 2px solid var(--stitch-primary);
+  outline-offset: 3px;
 }
 
 .avatar-upload-button .material-symbols-outlined {
@@ -2066,6 +2155,77 @@ watch(
   color: var(--stitch-primary);
 }
 
+.forum-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-card {
+  display: flex;
+  min-height: 132px;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid rgba(194, 198, 214, 0.16);
+  border-radius: var(--stitch-card-radius);
+  background: var(--stitch-surface-card);
+  padding: 16px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.skeleton-card.detail {
+  min-height: 220px;
+}
+
+.skeleton-card.profile {
+  min-height: 180px;
+  align-items: flex-start;
+}
+
+.skeleton-line,
+.skeleton-pill {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--stitch-control-radius);
+  background: linear-gradient(90deg, var(--stitch-surface-low), var(--stitch-surface-container), var(--stitch-surface-low));
+  background-size: 220% 100%;
+  animation: forum-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-line {
+  width: 78%;
+  height: 14px;
+}
+
+.skeleton-line.wide {
+  width: 100%;
+  height: 20px;
+}
+
+.skeleton-line.short {
+  width: 48%;
+}
+
+.skeleton-pill {
+  width: 96px;
+  height: 28px;
+}
+
+.skeleton-pill.avatar {
+  width: 72px;
+  height: 72px;
+}
+
+@keyframes forum-skeleton-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+
+  100% {
+    background-position: -120% 0;
+  }
+}
+
 .system-banner {
   display: flex;
   align-items: center;
@@ -2080,6 +2240,17 @@ watch(
 .inline-links a {
   color: var(--stitch-primary);
   text-decoration: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forum-view *,
+  .forum-view *::before,
+  .forum-view *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 @media (min-width: 760px) {

@@ -133,18 +133,18 @@
 
 ## Task 8: 前端论坛 Stitch 风格基础组件与布局
 
-- [ ] 状态：未完成
-- [ ] 基于 Stitch 包重做论坛页面设计 token 和基础组件：顶部、分段导航、卡片、列表项、按钮、输入、标签、toast、骨架屏
-- [ ] 移除上一版不符合 Stitch 的视觉风格
-- [ ] 保证移动端优先、文本不溢出、底部导航不遮挡内容
-- [ ] 运行前端 UI contract 测试并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 基于 Stitch 包重做论坛页面设计 token 和基础组件：顶部、分段导航、卡片、列表项、按钮、输入、标签、toast、骨架屏
+- [x] 移除上一版不符合 Stitch 的视觉风格
+- [x] 保证移动端优先、文本不溢出、底部导航不遮挡内容
+- [x] 运行前端 UI contract 测试并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已在 `src/components/ForumView.vue` 补齐 Stitch 移动端基础壳层：新增 `forum-shell-inner`、`forum-bottom-safe-spacer`、`--stitch-header-height`、`--stitch-bottom-nav-height`、`--stitch-container-max`、`--stitch-card-radius`、`--stitch-control-radius` 等 token；主容器使用 `max-width: 448px` fallback 和 `max-width: var(--stitch-container-max)`，并补 `overflow-x: hidden`、`scroll-padding-bottom`、底部安全留白和文本换行保护。加载态从纯文字空卡改为 `forum-skeleton-list` / `skeleton-card` / `skeleton-line` / `skeleton-pill` 骨架屏，补 `forum-skeleton-shimmer`、`:focus-visible` 和 `prefers-reduced-motion`。同时按用户最新要求调整“我的资料”头像设置：上传头像到后端图床作为推荐路径，`client.uploadAttachment(file)` 上传后通过 `resolveAvatarAttachmentUrl()` 自动回填头像 URL；完整远程 URL 不再二次包装，后端 `/api/forum/attachments/...` 相对 URL 仍走 `client.getAttachmentUrl(...)`。手动 URL 改为备用入口，避免用户只能填写链接。代码审查后继续修复了上传入口键盘可达性：上传 label 增加 `tabindex="0"` 和 Enter/Space 触发文件选择，`focus-within` 显示清晰轮廓；同时收敛重复底部留白，由壳层 padding 和 `forum-bottom-safe-spacer` 共同处理底部导航与安全区。
+- 验证结果：已先运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 观察红灯，失败原因为缺少 `forum-shell-inner`；补基础壳层后再次红灯，失败原因为新增头像契约要求缺少 `头像上传（推荐）`；补 UI 后同一命令通过。随后只读代码审查发现契约过弱、头像 URL 二次包装风险、上传入口键盘可访问性不足和底部留白过量；已补更严格契约并再次观察红灯，失败点为缺少 `height: calc(var(--stitch-bottom-nav-height) + env(safe-area-inset-bottom, 0px))` 和 `tabindex="0"`，修复后同一命令通过，1 file / 7 tests passed。最新运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 23 tests passed。`git diff --check -- src\components\ForumView.vue src\utils\forum_view_identity_contract.spec.ts goal-4\tasks.md` 退出码 0，仅有 Windows LF/CRLF 提示。`npm.cmd run build` 退出码 0，仍有既有 CSS minify `@media` warning 和 Capacitor/Tauri/widget 动态导入 warning。
+- 剩余风险：本轮是 Task 8 基础布局与组件契约，没有启动浏览器做截图级逐页视觉验收；真实头像上传仍未连接 HF Bucket/线上后端实传验证；前端工作区仍有无关 iOS、小游戏、website、`.playwright-mcp`、截图等脏改动，本轮未回滚也未提交。
+- 下一步：执行 Task 9，继续按 Stitch 风格重构广场、详情、发帖页面，并把评分、收藏、关注、举报、附件上传和防重复提交在页面级交互中验收。
 
 ## Task 9: 前端广场、详情、发帖页面重构
 
