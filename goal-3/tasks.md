@@ -139,17 +139,17 @@
 
 ## Task 9: 公开多人在线服务调研与选型
 
-- [ ] 状态：未完成
-- [ ] 联网查询公开 P2P/实时服务/开源多人游戏框架
-- [ ] 比较移动端浏览器兼容性、免费额度、密钥需求、隐私风险、服务稳定性
-- [ ] 选定默认方案和降级方案
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 联网查询公开 P2P/实时服务/开源多人游戏框架
+- [x] 比较移动端浏览器兼容性、免费额度、密钥需求、隐私风险、服务稳定性
+- [x] 选定默认方案和降级方案
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：完成 P2P/WebRTC、托管实时服务、开源/自托管多人游戏框架三类方案调研，并为后续五子棋联机确定分层选型。默认实现路径选择 `Trystero Nostr`：无账号、无密钥、无需部署，适合 Task 11 做移动端网页五子棋的 P2P MVP；客户端只同步落子、重开、认输、心跳和房间状态，保留本地单机/本地双人同屏作为稳定降级。生产推荐路径选择 `Cloudflare Durable Objects / PartyKit`：一个房间一个权威状态机，适合后续有部署权限时处理落子合法性、断线恢复、观战和防作弊。规则框架首选 `boardgame.io` 作为回合制棋类参考方案，但本目标下一步先做模块内纯规则核心，避免在无服务端阶段引入不可运行的服务器依赖。
+- 验证结果：联网查询官方资料并交叉核对：PeerJS Cloud 官方说明不配置 host/key 会连接 PeerServer Cloud，但共享服务可能 ID 碰撞，高流量建议自托管（https://peerjs.com/server/cloud）；Trystero 官方 GitHub 说明可通过 BitTorrent、Nostr、MQTT、Supabase、Firebase、IPFS、自托管 WebSocket relay 做 WebRTC 匹配，应用数据不经过信令媒介并通过 P2P 加密传输（https://github.com/dmotz/trystero）；Supabase Realtime 有免费并发/消息/频道限制，适合可配置备选但不作为无密钥默认（https://supabase.com/docs/guides/realtime/limits）；Firebase 免费 Spark 方案对 Realtime Database 有 100 同时连接、1GB 存储、10GB/月下载等限制，适合作为需要可控 BaaS 时的备选（https://firebase.google.com/pricing）；Ably Free 官方提供 500 messages/s、600 万 messages/month、200 concurrent channels、200 concurrent connections，无需信用卡，适合托管消息备选但浏览器端不能暴露服务端密钥（https://ably.com/docs/platform/pricing/free）；Pusher Sandbox 免费为 200k messages/day、100 concurrent connections，消息 fan-out 计数，免费并发较低（https://pusher.com/channels/pricing/）；Cloudflare Durable Objects Free 可用，含 100,000 requests/day、13,000 GB-s/day，并支持 WebSocket 消息计费折算和 hibernation，适合生产权威房间服务（https://developers.cloudflare.com/durable-objects/platform/pricing/）；boardgame.io 官方定位为回合制游戏的状态管理与多人网络框架，适合五子棋但在线模式仍需服务端（https://boardgame.io/documentation/）。子任务只读调研补充确认：Colyseus、Nakama、Socket.IO、PartyKit、Openturn、deepstream、Lance 等方案中，Colyseus/Nakama 对本轮轻量五子棋偏重，Socket.IO 需要自建服务，PartyKit/Cloudflare 更适合作为后续生产路径。
+- 剩余风险：`Trystero Nostr` 依赖公共 relay 与 WebRTC 直连，移动网络、校园网、对称 NAT、后台切换都可能导致连接失败；没有 TURN 时不能保证任意两端都能直连。P2P 客户端无法提供强防作弊，Task 11 只能做消息幂等、回合校验、房主仲裁和冲突恢复，不能宣称生产级强权威。Cloudflare/PartyKit、Firebase、Supabase、Ably、Pusher 都需要账号或项目配置；本目标不得提交真实密钥或生产配置，只能保留可配置接口与清晰错误提示。
+- 下一步：执行大型全面检查-debug 循环 C，处理 Task 7-9 的遗留契约问题，特别是 `hbut_monopoly` 缺少显式 `overflow-x: hidden` 的根目录契约测试失败，并复核在线选型是否安全可落地。
 
 ## 大型全面检查-debug 循环 C（完成 Task 7-9 后执行）
 
