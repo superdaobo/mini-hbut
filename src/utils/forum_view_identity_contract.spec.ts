@@ -41,6 +41,70 @@ describe('forum view identity contract', () => {
     expect(forumSource).not.toContain('<TPageHeader')
   })
 
+  it('locks the extracted Stitch Campus Vitality design tokens', () => {
+    const forumSource = readSource('src/components/ForumView.vue')
+
+    expect(forumSource).toContain('--stitch-surface: #f6fafe')
+    expect(forumSource).toContain('--stitch-surface-dim: #d6dade')
+    expect(forumSource).toContain('--stitch-surface-low: #f0f4f8')
+    expect(forumSource).toContain('--stitch-surface-card: #ffffff')
+    expect(forumSource).toContain('--stitch-surface-container: #eaeef2')
+    expect(forumSource).toContain('--stitch-border: #c2c6d6')
+    expect(forumSource).toContain('--stitch-outline: #727785')
+    expect(forumSource).toContain('--stitch-text: #171c1f')
+    expect(forumSource).toContain('--stitch-muted: #424754')
+    expect(forumSource).toContain('--stitch-primary-container: #2170e4')
+    expect(forumSource).toContain('--stitch-primary-fixed: #d8e2ff')
+    expect(forumSource).toContain('--stitch-accent-start: #5b86e5')
+    expect(forumSource).toContain('--stitch-accent-end: #36d1dc')
+    expect(forumSource).toContain('--stitch-info: #38bdf8')
+    expect(forumSource).toContain('--stitch-success: #14b8a6')
+    expect(forumSource).toContain('--stitch-warning: #f97316')
+    expect(forumSource).toContain('--stitch-danger: #ba1a1a')
+    expect(forumSource).toContain('--stitch-bottom-nav-clearance: 96px')
+    expect(forumSource).toContain('font-family: "Plus Jakarta Sans"')
+    expect(forumSource).toContain('border-radius: 24px')
+    expect(forumSource).toContain('gap: 20px')
+    expect(forumSource).toContain('backdrop-filter: blur(16px)')
+  })
+
+  it('keeps every Stitch forum page wired with layout components, states, and actions', () => {
+    const forumSource = readSource('src/components/ForumView.vue')
+
+    for (const marker of [
+      'forum-topbar',
+      'category-nav',
+      'quick-tabs',
+      'forum-hero-card',
+      'search-card',
+      'post-card',
+      'detail-card',
+      'comment-panel',
+      'compose-page',
+      'editor-card',
+      'attachment-bar',
+      'notification-card',
+      'message-form',
+      'profile-card',
+      'edit-card',
+      'mini-list-card',
+      'admin-card',
+      'admin-row',
+      'empty-card',
+      'system-banner'
+    ]) {
+      expect(forumSource).toContain(marker)
+    }
+
+    for (const stateText of ['加载中', '暂无', '还没有帖子', '论坛暂未开放', '登录后可以发帖', '帖子列表加载失败', '用户主页加载失败']) {
+      expect(forumSource).toContain(stateText)
+    }
+
+    for (const actionText of ['发布成功', '回复已发送', '已评分', '已收藏', '已关注作者', '举报已提交', '签到成功', '私信已发送', '备份任务已触发', '已封禁用户', '发放徽章']) {
+      expect(forumSource).toContain(actionText)
+    }
+  })
+
   it('allows profile avatars to be uploaded through the forum image host', () => {
     const forumSource = readSource('src/components/ForumView.vue')
 

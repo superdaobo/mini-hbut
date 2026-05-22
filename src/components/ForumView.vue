@@ -1060,6 +1060,7 @@ watch(
   --stitch-primary-fixed: #d8e2ff;
   --stitch-on-primary-fixed: #001a42;
   --stitch-surface: #f6fafe;
+  --stitch-surface-dim: #d6dade;
   --stitch-surface-low: #f0f4f8;
   --stitch-surface-card: #ffffff;
   --stitch-surface-container: #eaeef2;
@@ -1068,11 +1069,16 @@ watch(
   --stitch-text: #171c1f;
   --stitch-muted: #424754;
   --stitch-secondary: #585f6c;
+  --stitch-accent-start: #5b86e5;
+  --stitch-accent-end: #36d1dc;
+  --stitch-info: #38bdf8;
+  --stitch-success: #14b8a6;
   --stitch-warning: #f97316;
   --stitch-danger: #ba1a1a;
+  --stitch-bottom-nav-clearance: 96px;
   --stitch-card-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
   min-height: 100%;
-  padding: 0 0 96px;
+  padding: 0 0 var(--stitch-bottom-nav-clearance);
   background: var(--stitch-surface);
   color: var(--stitch-text);
   font-family: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

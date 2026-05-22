@@ -17,17 +17,17 @@
 
 ## Task 2: Stitch 视觉基线提取与前端页面契约测试
 
-- [ ] 状态：未完成
-- [ ] 从 Stitch 包提取颜色、字体、圆角、阴影、间距、导航、卡片、按钮、输入框、列表样式
-- [ ] 新增或更新论坛 UI contract 测试，要求每个论坛页面都有可定位标题、导航、加载态、空态、错误态和核心操作
-- [ ] 写失败测试覆盖论坛入口、广场、详情、发帖、通知、我的、个人主页、管理页
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 从 Stitch 包提取颜色、字体、圆角、阴影、间距、导航、卡片、按钮、输入框、列表样式
+- [x] 新增或更新论坛 UI contract 测试，要求每个论坛页面都有可定位标题、导航、加载态、空态、错误态和核心操作
+- [x] 写失败测试覆盖论坛入口、广场、详情、发帖、通知、我的、个人主页、管理页
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已在 `src/utils/forum_view_identity_contract.spec.ts` 增加 Stitch Campus Vitality 视觉基线契约，锁定 `ForumView.vue` 的颜色 token、字体、24px 圆角、20px 页面间距、16px 背景模糊，以及论坛广场、详情、发帖、通知、我的、个人主页、管理页所需的布局组件、加载态、空态、错误态和核心操作文案。已补齐 `ForumView.vue` 缺失的 Stitch token：`--stitch-surface-dim`、`--stitch-accent-start`、`--stitch-accent-end`、`--stitch-info`、`--stitch-success`、`--stitch-bottom-nav-clearance`，并让页面底部留白使用 `var(--stitch-bottom-nav-clearance)`。同时复核“我的资料”头像上传链路：本地图片可通过 `client.uploadAttachment(file)` 上传到论坛图床，再用 `client.getAttachmentUrl(...)` 自动回填头像 URL，保留手动填写 URL 的备用入口。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 观察到红灯，失败原因为缺少 `--stitch-surface-dim: #d6dade`；补齐 token 后再次运行同一命令通过，1 file / 6 tests passed。`npm.cmd run build` 退出码 0，仍有既有 CSS minify `@media` warning 和 Capacitor/Tauri/widget 动态导入 warning。`npx.cmd vitest run --testTimeout 60000` 中论坛相关测试通过，但全量测试仍有 3 个既有失败，全部来自 `src/utils/hbut_memory_match_game.spec.ts`：状态期望 `playing` 但得到 `preview`、两处 moves 期望 1 但得到 0；该失败属于当前工作区已有小游戏改动，不属于本轮论坛头像或 Stitch 契约改动。
+- 剩余风险：头像上传已通过静态契约和构建验证，但尚未在真实 HF 图床/线上后端进行实传；论坛 UI 当前是代码契约级验证，还未做浏览器截图级逐页视觉验收；全量 Vitest 被无关小游戏用例阻断，后续推送前需要处理或隔离该无关失败。
+- 下一步：执行 Task 3，补全后端论坛 API 契约测试，覆盖附件上传/代理、缓存头、重复请求安全性和错误响应。
 
 ## Task 3: 后端论坛 API 契约测试补全
 
