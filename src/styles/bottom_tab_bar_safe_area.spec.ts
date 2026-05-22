@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
 
@@ -9,12 +9,41 @@ const getRuleBody = (source: string, selector: string) => {
   return source.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`, 's'))?.groups?.body || ''
 }
 
+const normalizeCss = (source: string) => source.replace(/\s+/g, '')
+
+const readIosBundledStyles = () => {
+  const publicIndexPath = resolve(process.cwd(), 'ios/App/App/public/index.html')
+  const publicRoot = dirname(publicIndexPath)
+  const indexHtml = readFileSync(publicIndexPath, 'utf8')
+  const stylesheetHrefs = Array.from(indexHtml.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]+href=["'](?<href>[^"']+\.css)["']/gi))
+    .map((match) => match.groups?.href)
+    .filter((href): href is string => Boolean(href))
+
+  const cssPaths = stylesheetHrefs
+    .map((href) => resolve(publicRoot, href.replace(/^\//, '')))
+    .filter((path) => existsSync(path))
+
+  if (cssPaths.length === 0) {
+    const assetsDir = resolve(publicRoot, 'assets')
+    cssPaths.push(
+      ...readdirSync(assetsDir)
+        .filter((file) => file.endsWith('.css'))
+        .map((file) => resolve(assetsDir, file))
+    )
+  }
+
+  return cssPaths.map((path) => readFileSync(path, 'utf8')).join('\n')
+}
+
 describe('bottom tab bar safe area contract', () => {
   const appVue = () => readSource('src/App.vue')
   const capacitorConfig = () => readSource('capacitor.config.ts')
   const indexCss = () => readSource('src/index.css')
   const uxCss = () => readSource('src/styles/ui_ux_pro_max.css')
   const appDelegate = () => readSource('ios/App/App/AppDelegate.swift')
+  const edgeToEdgeController = () => readSource('ios/App/App/EdgeToEdgeBridgeViewController.swift')
+  const storyboard = () => readSource('ios/App/App/Base.lproj/Main.storyboard')
+  const xcodeProject = () => readSource('ios/App/App.xcodeproj/project.pbxproj')
 
   it('marks the bottom tab bar with an iOS-specific class', () => {
     expect(appVue()).toContain("'bottom-tab-bar--ios': isIOSLike")
@@ -52,6 +81,20 @@ describe('bottom tab bar safe area contract', () => {
     expect(appDelegate()).toContain('webView.scrollView.contentInsetAdjustmentBehavior = .never')
     expect(appDelegate()).toContain('webView.scrollView.contentInset = .zero')
     expect(appDelegate()).toContain('webView.scrollView.scrollIndicatorInsets = .zero')
+  })
+
+  it('uses an edge-to-edge bridge controller before the first web view layout pass', () => {
+    expect(storyboard()).toContain('customClass="EdgeToEdgeBridgeViewController"')
+    expect(storyboard()).toContain('customModule="App"')
+    expect(xcodeProject()).toContain('EdgeToEdgeBridgeViewController.swift')
+    expect(edgeToEdgeController()).toContain('class EdgeToEdgeBridgeViewController: CAPBridgeViewController')
+    expect(edgeToEdgeController()).toContain('edgesForExtendedLayout = [.top, .bottom]')
+    expect(edgeToEdgeController()).toContain('extendedLayoutIncludesOpaqueBars = true')
+    expect(edgeToEdgeController()).toContain('additionalSafeAreaInsets = .zero')
+    expect(edgeToEdgeController()).toContain('webView.scrollView.contentInsetAdjustmentBehavior = .never')
+    expect(edgeToEdgeController()).toContain('webView.scrollView.contentInset = .zero')
+    expect(edgeToEdgeController()).toContain('webView.scrollView.scrollIndicatorInsets = .zero')
+    expect(edgeToEdgeController()).toContain('webView.frame = view.bounds')
   })
 
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
@@ -94,5 +137,20 @@ describe('bottom tab bar safe area contract', () => {
   it('does not keep the old negative iOS safe-area offset', () => {
     expect(appVue()).not.toContain('calc(0px - env(safe-area-inset-bottom')
     expect(uxCss()).not.toContain('calc(0px - env(safe-area-inset-bottom')
+  })
+
+  it('ships the fixed bottom tab bar contract in the bundled iOS web assets', () => {
+    const bundledCss = normalizeCss(readIosBundledStyles())
+
+    expect(bundledCss).not.toContain('@import')
+    expect(bundledCss).toContain('--bottom-tab-bar-bottom:0px')
+    expect(bundledCss).toContain('--bottom-tab-bar-safe-bottom:var(--app-safe-bottom)')
+    expect(bundledCss).toContain('bottom:var(--bottom-tab-bar-bottom)!important')
+    expect(bundledCss).toContain('grid-template-columns:repeat(5,minmax(0,1fr))')
+    expect(bundledCss).toContain('min-height:calc(var(--bottom-tab-bar-content-height)+var(--bottom-tab-bar-safe-bottom))!important')
+    expect(bundledCss).toContain('padding-bottom:calc(10px+var(--bottom-tab-bar-safe-bottom))!important')
+    expect(bundledCss).not.toContain('bottom:calc(env(safe-area-inset-bottom)+8px)')
+    expect(bundledCss).not.toContain('--ux-bottom-safe:calc(128px+env(safe-area-inset-bottom))')
+    expect(bundledCss).not.toContain('grid-template-columns:repeat(4,1fr)')
   })
 })

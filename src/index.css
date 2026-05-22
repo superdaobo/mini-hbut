@@ -1,14 +1,11 @@
 @layer legacy, tailwind;
 
+@import './style.css' layer(legacy);
+@import './styles/ui_ux_pro_max.css' layer(legacy);
+
 :root {
   --app-safe-bottom-fallback: 0px;
   --app-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--app-safe-bottom-fallback, 0px));
-}
-
-/* Legacy CSS (wrapped in layer for isolation) */
-@layer legacy {
-  @import './style.css';
-  @import './styles/ui_ux_pro_max.css';
 }
 
 /* Tailwind CSS */
