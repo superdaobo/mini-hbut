@@ -2818,11 +2818,7 @@ onBeforeUnmount(() => {
     </Transition>
   </main>
 
-  <nav
-    v-if="showTabBar"
-    class="bottom-tab-bar glass-card"
-    :class="{ 'bottom-tab-bar--ios': isIOSLike }"
-  >
+  <nav v-if="showTabBar" class="bottom-tab-bar glass-card">
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'home' }" @click="handleTabChange('home')">
         <span class="tab-icon" aria-hidden="true">
           <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
@@ -3178,23 +3174,20 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar {
-  --bottom-tab-bar-bottom: 4px;
-  --bottom-tab-bar-content-height: 70px;
-  box-sizing: border-box;
   position: fixed;
   top: auto;
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: var(--bottom-tab-bar-bottom) !important;
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 10px 14px;
+  padding: 8px 14px 8px;
   height: auto;
-  min-height: var(--bottom-tab-bar-content-height);
+  min-height: 62px;
   max-height: 92px;
   width: min(
     540px,
@@ -3207,14 +3200,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
   z-index: 60;
   pointer-events: auto;
-}
-
-.bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: 0px;
-  min-height: var(--bottom-tab-bar-content-height) !important;
-  padding-bottom: 10px !important;
-  border-radius: 20px !important;
-  max-height: 92px !important;
 }
 
 .bottom-tab-bar:hover,

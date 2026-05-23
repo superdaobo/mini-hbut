@@ -12,9 +12,6 @@ const config: CapacitorConfig = {
   appId: 'com.hbut.mini',
   appName: 'Mini-HBUT',
   webDir: 'dist',
-  ios: {
-    contentInset: 'never'
-  },
   server: {
     androidScheme: 'https',
     iosScheme: 'https'
