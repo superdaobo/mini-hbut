@@ -100,7 +100,7 @@ describe('forum view identity contract', () => {
       expect(forumSource).toContain(stateText)
     }
 
-    for (const actionText of ['发布成功', '回复已发送', '已评分', '已收藏', '已关注作者', '举报已提交', '签到成功', '私信已发送', '备份任务已触发', '已封禁用户', '发放徽章']) {
+    for (const actionText of ['发布成功', '回复已发送', '已收藏', '已关注作者', '举报已提交', '签到成功', '私信已发送', '备份任务已触发', '已封禁用户', '发放徽章', '投票已记录']) {
       expect(forumSource).toContain(actionText)
     }
   })
@@ -163,7 +163,8 @@ describe('forum view identity contract', () => {
       'const removeReplyFile = (index)',
       'const fileLabel = (file)',
       'const fileSizeLabel = (file)',
-      'const setThreadScore = (score)'
+      'const threadUploadInput = ref(null)',
+      'const openThreadFilePicker = () =>'
     ]) {
       expect(forumSource).toContain(scriptMarker)
     }
@@ -173,9 +174,7 @@ describe('forum view identity contract', () => {
       'class="thread-stat-grid"',
       'class="hot-thread-strip"',
       'class="thread-action-button"',
-      'isPending(threadActionKey(thread, \'score\'))',
       'isPending(threadActionKey(thread, \'bookmark\'))',
-      '评分中',
       '收藏中'
     ]) {
       expect(forumSource).toContain(feedMarker)
@@ -183,7 +182,6 @@ describe('forum view identity contract', () => {
 
     for (const detailMarker of [
       'class="detail-action-bar"',
-      'class="score-stepper"',
       'class="reply-attachment-list"',
       'class="attachment-preview-list"',
       'isPending(threadActionKey(currentThread, \'report\'))',
@@ -197,16 +195,29 @@ describe('forum view identity contract', () => {
     }
 
     for (const composeMarker of [
-      'class="compose-score-options"',
       'class="compose-guidance"',
       'class="attachment-preview-item"',
       '@click="removeThreadFile(index)"',
       '@click="removeReplyFile(index)"',
       'isPending(threadPendingKey)',
       '发布中',
-      '上传附件会先进入后端图床'
+      '上传附件会先进入后端图床',
+      '@click="openThreadFilePicker"',
+      'ref="threadUploadInput"'
     ]) {
       expect(forumSource).toContain(composeMarker)
+    }
+
+    for (const removedPostScoreMarker of [
+      'const scoreThread = async',
+      'const setThreadScore = (score)',
+      'client.scoreThread',
+      'newThread.value.score',
+      'class="score-stepper"',
+      'class="compose-score-options"',
+      '初始评分'
+    ]) {
+      expect(forumSource).not.toContain(removedPostScoreMarker)
     }
   })
 
@@ -220,6 +231,7 @@ describe('forum view identity contract', () => {
       'const messagePendingKey = computed',
       'isPending(messagePendingKey)',
       "isPending('checkin')",
+      'if (!client) await buildClient()',
       'cached(\'notice:list\'',
       'cached(\'message:list\'',
       'cached(\'me:badges\'',
@@ -300,6 +312,9 @@ describe('forum view identity contract', () => {
     expect(forumSource).toContain('const uploadAvatarImage = async')
     expect(forumSource).toContain('const resolveAvatarAttachmentUrl = (payload) =>')
     expect(forumSource).toContain('if (/^https?:\\/\\//i.test(directUrl)) return directUrl')
+    expect(forumSource).toContain('const attachmentId = toText(payloadOrId?.attachment_id).trim()')
+    expect(forumSource).toContain("const rawValue = typeof payloadOrId === 'object' && payloadOrId !== null ? '' : toText(payloadOrId).trim()")
+    expect(forumSource).not.toContain('toText(payloadOrId?.url || payloadOrId).trim()')
     expect(forumSource).toContain('const avatarUrl = resolveAvatarAttachmentUrl(payload)')
     expect(forumSource).toContain("runPending('profile:avatar-upload'")
     expect(forumSource).toContain('client.uploadAttachment(file)')
@@ -345,9 +360,19 @@ describe('forum view identity contract', () => {
       'const retryUploadFile = async',
       'const copyAttachmentUrl = async',
       'const attachmentProxyUrl = (',
+      'const adminPolls = ref',
+      'const selectedPoll = ref',
+      'const pollDraft = ref',
+      'const pollAdminSummary = computed',
+      'const voteInPoll = async',
+      'const createAdminPoll = async',
+      'const closeAdminPoll = async',
       'isPending(\'admin:backup\')',
       'isPending(`admin:ban:${studentId}:${banned}`)',
-      'isPending(`admin:badge:${payload.student_id}:${payload.badge_key}`)'
+      'isPending(`admin:badge:${payload.student_id}:${payload.badge_key}`)',
+      'runPending(`poll:vote:${poll.id}:${option.id}`',
+      'isPending(`poll:vote:${selectedPoll?.id}:${option.id}`)',
+      'isPending(\'poll:create\')'
     ]) {
       expect(forumSource).toContain(scriptMarker)
     }
@@ -355,11 +380,18 @@ describe('forum view identity contract', () => {
     for (const adminMarker of [
       'class="admin-hero-card"',
       'class="admin-summary-strip"',
-      'class="admin-section-card reports"',
-      'class="admin-section-card users"',
-      'class="admin-section-card moderation"',
-      'class="admin-section-card badge-issuer"',
-      'class="admin-section-card backup-panel"',
+      'class="admin-card admin-section-card reports"',
+      'class="admin-card admin-section-card users"',
+      'class="admin-card admin-section-card moderation"',
+      'class="admin-card admin-section-card badge-issuer"',
+      'class="admin-card admin-section-card poll-admin',
+      'class="admin-card admin-section-card backup-panel',
+      'class="poll-score-page"',
+      'class="poll-score-hero"',
+      'class="poll-score-grid"',
+      'class="poll-score-card"',
+      'class="poll-score-option"',
+      'class="poll-admin-form"',
       'class="backup-status-card"',
       'class="backup-record-list"',
       'class="admin-path-chip"',
@@ -368,6 +400,11 @@ describe('forum view identity contract', () => {
       '用户治理',
       '封禁 / 解封',
       '徽章发放',
+      '投票打分',
+      '管理员创建投票',
+      '发布投票',
+      '关闭投票',
+      '投票已记录',
       '备份记录',
       '备份中',
       '触发备份',
@@ -389,7 +426,9 @@ describe('forum view identity contract', () => {
       '复制代理 URL',
       '上传失败，点击重试',
       '@click="retryUploadFile(item)"',
-      '@click="copyAttachmentUrl(item.proxyUrl)"'
+      '@click="copyAttachmentUrl(item.proxyUrl)"',
+      'class="visually-hidden-file"',
+      'class="attachment-copy"'
     ]) {
       expect(forumSource).toContain(uploadMarker)
     }
@@ -398,6 +437,12 @@ describe('forum view identity contract', () => {
       '\n.admin-hero-card {',
       '\n.admin-summary-strip {',
       '\n.admin-section-card {',
+      '\n.poll-score-page {',
+      '\n.poll-score-hero {',
+      '\n.poll-score-grid {',
+      '\n.poll-score-card {',
+      '\n.poll-score-option {',
+      '\n.poll-admin-form {',
       '\n.backup-status-card {',
       '\n.backup-record-list {',
       '\n.admin-path-chip {',
@@ -411,5 +456,24 @@ describe('forum view identity contract', () => {
     ]) {
       expect(forumSource).toContain(styleMarker)
     }
+
+    expect(forumSource).toContain('.tool-button {\n  position: relative;')
+    expect(forumSource).toContain('inline-size: 40px')
+    expect(forumSource).toContain('block-size: 40px')
+
+    for (const removedPostScoreStyle of [
+      '\n.score-input',
+      '\n.score-badge',
+      '\n.score-row',
+      '\n.score-stepper',
+      '\n.compose-score-options',
+      '.tool-button input',
+      'selectedPoll.value?.id'
+    ]) {
+      expect(forumSource).not.toContain(removedPostScoreStyle)
+    }
+
+    expect(forumSource).toContain('\n.visually-hidden-file {')
+    expect(forumSource).toContain('\n.attachment-copy {')
   })
 })

@@ -191,17 +191,17 @@
 
 ## Task 11: 前端管理页、备份页与图床体验
 
-- [ ] 状态：未完成
-- [ ] 按 Stitch 风格实现管理页：举报列表、用户搜索、封禁/解封、徽章发放、备份记录和触发入口
-- [ ] 完善附件/图片上传进度、预览、失败重试、代理 URL 展示
-- [ ] 运行前端相关测试、浏览器移动端验收并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 按 Stitch 风格实现管理页：举报列表、用户搜索、封禁/解封、徽章发放、备份记录和触发入口
+- [x] 完善附件/图片上传进度、预览、失败重试、代理 URL 展示
+- [x] 运行前端相关测试、浏览器移动端验收并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已完成 Task 11 的前端管理页、备份页、图床体验和用户最新 bug 修复。`ForumView.vue` 新增独立 `投票打分` 页与 tab，由管理员在管理页创建/关闭投票，用户在独立投票页参与；帖子级评分 UI 和逻辑已移除，不再在每个帖子、详情页或发帖页要求评分。发帖页上传入口改为显式 `openThreadFilePicker()` 按钮触发隐藏 `threadUploadInput`，删除旧 `.tool-button input` 覆盖式样式，避免点击标题/正文输入框直接弹文件选择。`checkIn()` 已补 `if (!client) await buildClient()`，避免“我的”页在 client 未初始化时签到无反应。`attachmentProxyUrl()` 已修复对象 payload 解析，优先使用 `url`、`attachment_id` 或原始字符串，避免把上传返回对象拼成 `[object Object]`。管理页补齐举报、用户治理、封禁/解封、徽章发放、投票管理、备份状态和备份记录的 Stitch 风格卡片；上传队列补齐进度条、状态 pill、失败重试和复制代理 URL。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --pool forks --testTimeout 60000` 通过，1 file / 10 tests passed。随后运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --pool forks --testTimeout 60000` 通过，3 files / 26 tests passed。`npm.cmd run build` 退出码 0，仍保留既有 CSS minify `@media` warning 和 Capacitor/Tauri/widget 动态导入 warning。`git diff --check -- src\components\ForumView.vue src\utils\forum_view_identity_contract.spec.ts goal-4\tasks.md` 通过。浏览器移动端验收：启动本地 Vite `http://127.0.0.1:1420/#/2510231106/forum`，Playwright 检查发帖页标题 input 和正文 textarea 均可聚焦，命中中心分别为 `INPUT`/`TEXTAREA`；上传按钮为 40x40，隐藏 file input 为 1x1 且 `clip-path: inset(50%)`，证明输入框不再被上传控件覆盖。投票页可见，`投票` tab active，`.poll-score-page`、hero、card、option 均在移动宽度内正常渲染。我的页可见，签到按钮、头像图床上传入口和“头像上传（推荐）”文案均存在。验收截图保存为本地 `forum-task11-me-390.png`，验收后已结束本轮启动的 Vite 进程。
+- 剩余风险：投票功能当前是前端 localStorage 缓存版，满足本轮页面与管理员管理可用性，但后端持久化投票表/API 仍需进入后续任务；本地浏览器 console 中存在远程配置 CORS 和当前线上 `mini-hbut-testocr1` `/api/forum/me/*` 404，这说明线上 Space 尚未部署本轮论坛后端接口，不是本轮前端运行时异常；真实 HF Bucket 图床上传、SQLPub 写入、OneDrive 同步和 HF Space 线上测试仍未执行，留给后续集成/部署任务。全量前端 Vitest 没有在本轮重新跑，避免被既有非论坛小游戏/website 脏改动阻断；论坛相关 26 个测试已通过。工作区仍有无关网站/小游戏脏改动和 Playwright 截图产物，本轮不回滚也不提交。
+- 下一步：执行 Task 12，本地前后端全量集成测试与性能体验优化；重点把本轮发现的线上 404 边界纳入本地/测试后端连通性验证，并规划投票后端持久化接口或明确进入后续任务。
 
 ## Task 12: 本地全量集成测试与性能体验优化
 

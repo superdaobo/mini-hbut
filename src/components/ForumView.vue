@@ -26,6 +26,7 @@ const fallbackCategories = [
 const tabs = [
   { key: 'feed', label: '广场', icon: 'forum' },
   { key: 'compose', label: '发帖', icon: 'edit_square' },
+  { key: 'polls', label: '投票', icon: 'how_to_vote' },
   { key: 'notice', label: '通知', icon: 'notifications' },
   { key: 'me', label: '我的', icon: 'person' },
   { key: 'admin', label: '管理', icon: 'admin_panel_settings' }
@@ -61,18 +62,25 @@ const badges = ref([])
 const adminReports = ref([])
 const adminUsers = ref([])
 const adminBackups = ref([])
+const adminPolls = ref([])
+const selectedPoll = ref(null)
 const adminSearch = ref('')
 const uploadQueue = ref([])
+const threadUploadInput = ref(null)
 const messageDraft = ref({ receiver_student_id: '', content: '' })
 const banDraft = ref({ student_id: '', reason: '' })
 const badgeDraft = ref({ student_id: '', badge_key: 'helper', display_name: '热心同学' })
+const pollDraft = ref({
+  title: '本周学习体验投票',
+  description: '由管理员发起，普通用户只在投票打分页参与，不再要求每个帖子评分。',
+  options: '很有帮助|10\n比较有帮助|8\n一般|5\n需要改进|2'
+})
 const pendingActions = ref(new Set())
 const profileAvatarInput = ref(null)
 const avatarUploadStatus = ref('')
 const newThread = ref({
   title: '',
-  content_md: '',
-  score: 8
+  content_md: ''
 })
 
 let client = null
@@ -95,16 +103,10 @@ const displayThreads = computed(() => threads.value.length ? threads.value : hot
 const unreadCount = computed(() => notifications.value.filter((item) => !Number(item.is_read || 0)).length)
 const feedReplyCount = computed(() => displayThreads.value.reduce((total, thread) => total + Number(thread.reply_count || 0), 0))
 const feedAttachmentCount = computed(() => displayThreads.value.reduce((total, thread) => total + Number(thread.attachment_ids?.length || 0), 0))
-const feedAverageScore = computed(() => {
-  const scored = displayThreads.value.filter((thread) => Number(thread.score_avg || 0) > 0)
-  if (!scored.length) return '0.0'
-  const total = scored.reduce((sum, thread) => sum + Number(thread.score_avg || 0), 0)
-  return (total / scored.length).toFixed(1)
-})
 const canPublishThread = computed(() => forumEnabled.value && isLoggedIn.value && hasRemoteCategories.value)
 const composerHint = computed(() => {
   if (!forumEnabled.value) return '论坛暂未开放'
-  if (!isLoggedIn.value) return '登录后可以发帖、评分、收藏和回复'
+  if (!isLoggedIn.value) return '登录后可以发帖、收藏和回复'
   if (!hasRemoteCategories.value) return '版块初始化中，请稍后刷新'
   return ''
 })
@@ -145,9 +147,20 @@ const adminSummary = computed(() => ({
   reportCount: adminReports.value.length,
   userCount: adminUsers.value.length,
   bannedCount: adminUsers.value.filter((user) => Number(user.is_banned || 0)).length,
-  backupCount: adminBackups.value.length
+  backupCount: adminBackups.value.length,
+  pollCount: adminPolls.value.length
 }))
 const latestBackup = computed(() => adminBackups.value[0] || null)
+const pollAdminSummary = computed(() => {
+  const activeCount = adminPolls.value.filter((poll) => poll.status === 'active').length
+  const voteCount = adminPolls.value.reduce((total, poll) => total + poll.options.reduce((sum, option) => sum + Number(option.votes || 0), 0), 0)
+  return {
+    total: adminPolls.value.length,
+    active: activeCount,
+    closed: Math.max(0, adminPolls.value.length - activeCount),
+    votes: voteCount
+  }
+})
 
 const toText = (value) => (value == null ? '' : String(value))
 
@@ -168,6 +181,169 @@ const formatTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+const pollStorageKey = () => `mini-hbut:forum:polls:${apiBase.value || 'local'}`
+
+const defaultAdminPolls = () => [
+  {
+    id: `poll-${Date.now()}-study`,
+    title: '本周学习体验投票',
+    description: '为学习互助区收集体验反馈，管理员可按周更新。',
+    status: 'active',
+    created_at: new Date().toISOString(),
+    options: [
+      { id: 'helpful-10', label: '很有帮助', score: 10, votes: 0 },
+      { id: 'helpful-8', label: '比较有帮助', score: 8, votes: 0 },
+      { id: 'normal-5', label: '一般', score: 5, votes: 0 },
+      { id: 'improve-2', label: '需要改进', score: 2, votes: 0 }
+    ],
+    votedBy: {}
+  }
+]
+
+const normalizePolls = (items = []) => items
+  .filter((poll) => poll && typeof poll === 'object')
+  .map((poll) => ({
+    id: toText(poll.id).trim() || `poll-${Date.now()}`,
+    title: toText(poll.title).trim() || '未命名投票',
+    description: toText(poll.description).trim(),
+    status: poll.status === 'closed' ? 'closed' : 'active',
+    created_at: toText(poll.created_at).trim() || new Date().toISOString(),
+    options: Array.isArray(poll.options)
+      ? poll.options.map((option, index) => ({
+        id: toText(option.id).trim() || `option-${index}`,
+        label: toText(option.label).trim() || `选项 ${index + 1}`,
+        score: Number(option.score || 0),
+        votes: Number(option.votes || 0)
+      }))
+      : [],
+    votedBy: poll.votedBy && typeof poll.votedBy === 'object' ? poll.votedBy : {}
+  }))
+  .filter((poll) => poll.options.length >= 2)
+
+const persistAdminPolls = () => {
+  try {
+    localStorage.setItem(pollStorageKey(), JSON.stringify(adminPolls.value))
+  } catch {
+    showToast('投票缓存写入失败，本次更改仅在当前页面有效', 'warning')
+  }
+}
+
+const loadAdminPolls = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(pollStorageKey()) || '[]')
+    adminPolls.value = normalizePolls(parsed)
+  } catch {
+    adminPolls.value = []
+  }
+  if (!adminPolls.value.length) {
+    adminPolls.value = defaultAdminPolls()
+    persistAdminPolls()
+  }
+  selectedPoll.value = adminPolls.value.find((poll) => poll.status === 'active') || adminPolls.value[0] || null
+}
+
+const selectPoll = (poll) => {
+  selectedPoll.value = poll || null
+}
+
+const pollOptionTotal = (poll) =>
+  (poll?.options || []).reduce((total, option) => total + Number(option.votes || 0), 0)
+
+const pollOptionPercent = (poll, option) => {
+  const total = pollOptionTotal(poll)
+  return total ? Math.round((Number(option?.votes || 0) / total) * 100) : 0
+}
+
+const hasVotedInPoll = (poll) => {
+  const voter = String(props.studentId || '').trim()
+  return !!voter && !!poll?.votedBy?.[voter]
+}
+
+const parsePollOptions = () => pollDraft.value.options
+  .split(/\n+/)
+  .map((line, index) => {
+    const [label, score] = line.split('|').map((part) => toText(part).trim())
+    return {
+      id: `option-${Date.now()}-${index}`,
+      label: label || `选项 ${index + 1}`,
+      score: Math.min(10, Math.max(0, Number(score || 0))),
+      votes: 0
+    }
+  })
+  .filter((option) => option.label)
+
+const voteInPoll = async (option) => {
+  if (!isLoggedIn.value) return requireLogin()
+  const poll = selectedPoll.value
+  if (!poll || poll.status === 'closed') {
+    showToast('当前投票已关闭', 'warning')
+    return
+  }
+  if (hasVotedInPoll(poll)) {
+    showToast('你已经参与过这个投票', 'info')
+    return
+  }
+  await runPending(`poll:vote:${poll.id}:${option.id}`, async () => {
+    const voter = String(props.studentId || '').trim()
+    const nextPolls = adminPolls.value.map((item) => {
+      if (item.id !== poll.id) return item
+      return {
+        ...item,
+        votedBy: { ...(item.votedBy || {}), [voter]: option.id },
+        options: item.options.map((entry) =>
+          entry.id === option.id ? { ...entry, votes: Number(entry.votes || 0) + 1 } : entry
+        )
+      }
+    })
+    adminPolls.value = nextPolls
+    selectedPoll.value = nextPolls.find((item) => item.id === poll.id) || null
+    persistAdminPolls()
+    showToast('投票已记录', 'success')
+  })
+}
+
+const createAdminPoll = async () => {
+  if (!isAdmin.value) return
+  const title = pollDraft.value.title.trim()
+  const options = parsePollOptions()
+  if (!title || options.length < 2) {
+    showToast('请填写投票标题，并至少提供两个选项', 'warning')
+    return
+  }
+  await runPending('poll:create', async () => {
+    const poll = {
+      id: `poll-${Date.now()}`,
+      title,
+      description: pollDraft.value.description.trim(),
+      status: 'active',
+      created_at: new Date().toISOString(),
+      options,
+      votedBy: {}
+    }
+    adminPolls.value = [poll, ...adminPolls.value].slice(0, 20)
+    selectedPoll.value = poll
+    persistAdminPolls()
+    pollDraft.value = {
+      title: '',
+      description: '',
+      options: '赞成|10\n中立|5\n反对|1'
+    }
+    showToast('发布投票', 'success')
+  })
+}
+
+const closeAdminPoll = async (poll) => {
+  if (!isAdmin.value || !poll?.id) return
+  await runPending(`poll:close:${poll.id}`, async () => {
+    adminPolls.value = adminPolls.value.map((item) =>
+      item.id === poll.id ? { ...item, status: 'closed' } : item
+    )
+    selectedPoll.value = adminPolls.value.find((item) => item.id === poll.id) || selectedPoll.value
+    persistAdminPolls()
+    showToast('关闭投票', 'success')
+  })
 }
 
 const categoryName = (categoryId) =>
@@ -210,9 +386,11 @@ const fileQueueKey = (file, scope = 'thread') =>
   `${scope}:${fileLabel(file)}:${Number(file?.size || 0)}:${Number(file?.lastModified || 0)}`
 
 const attachmentProxyUrl = (payloadOrId) => {
-  const directUrl = toText(payloadOrId?.url || payloadOrId).trim()
+  const directUrl = toText(payloadOrId?.url).trim()
   if (/^https?:\/\//i.test(directUrl)) return directUrl
-  const attachmentAddress = directUrl || toText(payloadOrId?.attachment_id).trim()
+  const attachmentId = toText(payloadOrId?.attachment_id).trim()
+  const rawValue = typeof payloadOrId === 'object' && payloadOrId !== null ? '' : toText(payloadOrId).trim()
+  const attachmentAddress = directUrl || attachmentId || rawValue
   return attachmentAddress ? client?.getAttachmentUrl?.(attachmentAddress) || '' : ''
 }
 
@@ -245,11 +423,6 @@ const syncUploadQueueForScope = (files, scope) => {
   const keys = new Set((files || []).map((file) => fileQueueKey(file, scope)))
   uploadQueue.value = uploadQueue.value.filter((item) => item.scope !== scope || keys.has(item.key))
   for (const file of files || []) rememberUploadResult(file, scope)
-}
-
-const setThreadScore = (score) => {
-  const nextScore = Math.min(10, Math.max(1, Number(score || 1)))
-  newThread.value.score = nextScore
 }
 
 const resolveAvatarAttachmentUrl = (payload) => {
@@ -485,6 +658,11 @@ const setReplyFiles = (event) => {
   syncUploadQueueForScope(files, 'reply')
 }
 
+const openThreadFilePicker = () => {
+  if (!isLoggedIn.value) return requireLogin()
+  threadUploadInput.value?.click?.()
+}
+
 const removeThreadFile = (index) => {
   const files = threadFiles.value.filter((_, fileIndex) => fileIndex !== index)
   threadFiles.value = files
@@ -606,10 +784,7 @@ const submitThread = async () => {
       content_md: content,
       attachment_ids: attachmentIds
     })
-    if (newThread.value.score) {
-      await client.scoreThread(created.id, Number(newThread.value.score))
-    }
-    newThread.value = { title: '', content_md: '', score: 8 }
+    newThread.value = { title: '', content_md: '' }
     threadFiles.value = []
     invalidateForumCache(['feed', 'hot', 'me'])
     showToast('发布成功', 'success')
@@ -647,17 +822,6 @@ const reactToReply = async (reply, reaction) => {
     invalidateForumCache(['thread'])
     showToast('操作成功', 'success')
     await openThread(selectedThread.value)
-  })
-}
-
-const scoreThread = async (thread, score) => {
-  if (!isLoggedIn.value) return requireLogin()
-  await runPending(`score:${thread.id}`, async () => {
-    await client.scoreThread(thread.id, score)
-    invalidateForumCache(['thread', 'feed', 'hot'])
-    showToast(`已评分 ${score} 分`, 'success')
-    await loadThreads({ force: true })
-    if (selectedThread.value?.id === thread.id) await openThread(thread)
   })
 }
 
@@ -724,6 +888,7 @@ const saveProfile = () => {
 
 const checkIn = async () => {
   if (!isLoggedIn.value) return requireLogin()
+  if (!client) await buildClient()
   await runPending('checkin', async () => {
     await client.checkIn()
     invalidateForumCache(['me'])
@@ -802,11 +967,13 @@ const switchTab = async (tab) => {
   if (tab === 'admin' && !isAdmin.value) return
   activeTab.value = tab
   if (tab === 'notice' || tab === 'me') await loadMe()
+  if (tab === 'polls') loadAdminPolls()
   if (tab === 'admin') await loadAdmin()
 }
 
 onMounted(async () => {
   await buildClient()
+  loadAdminPolls()
   await loadForumData()
 })
 
@@ -826,8 +993,11 @@ watch(
     meSummary.value = null
     viewedUserProfile.value = null
     viewedProfileLoading.value = false
+    adminPolls.value = []
+    selectedPoll.value = null
     activeTab.value = 'feed'
     await buildClient()
+    loadAdminPolls()
     await loadForumData({ force: true })
   }
 )
@@ -884,7 +1054,7 @@ watch(
             <div>
               <span class="eyebrow">Mini-HBUT Community</span>
               <h2>湖工大校园广场</h2>
-              <p>{{ isLoggedIn ? `${profile.nickname || studentId}，欢迎回来` : '登录后可发帖、评分、收藏、关注和私信' }}</p>
+              <p>{{ isLoggedIn ? `${profile.nickname || studentId}，欢迎回来` : '登录后可发帖、收藏、关注和私信' }}</p>
             </div>
             <button class="primary-pill" type="button" :disabled="!isLoggedIn" @click="switchTab('compose')">
               <span class="material-symbols-outlined">edit_square</span>
@@ -895,7 +1065,7 @@ watch(
           <div class="search-card">
             <label>
               <span class="material-symbols-outlined">search</span>
-              <input id="forum-search" v-model="searchQuery" name="forum-search" placeholder="搜索帖子、评分、课程、反馈" @keyup.enter="runSearch" />
+              <input id="forum-search" v-model="searchQuery" name="forum-search" placeholder="搜索帖子、课程、反馈" @keyup.enter="runSearch" />
             </label>
             <button class="icon-button tinted" type="button" @click="runSearch">
               <span class="material-symbols-outlined">travel_explore</span>
@@ -908,8 +1078,8 @@ watch(
               <span>讨论</span>
             </div>
             <div>
-              <strong>{{ feedAverageScore }}</strong>
-              <span>均分</span>
+              <strong>{{ pollAdminSummary.active }}</strong>
+              <span>投票</span>
             </div>
             <div>
               <strong>{{ feedReplyCount }}</strong>
@@ -979,20 +1149,11 @@ watch(
               {{ thread.attachment_ids.length }} 个附件
             </div>
             <div class="thread-stat-grid" aria-label="帖子状态">
-              <span><strong>{{ thread.score_avg || 0 }}</strong>评分</span>
+              <span><strong>{{ Number(thread.reply_count || 0) + Number(thread.attachment_ids?.length || 0) }}</strong>热度</span>
               <span><strong>{{ thread.reply_count || 0 }}</strong>回复</span>
               <span><strong>{{ thread.attachment_ids?.length || 0 }}</strong>附件</span>
             </div>
             <div class="post-actions" @click.stop>
-              <button
-                class="thread-action-button"
-                type="button"
-                :disabled="isPending(threadActionKey(thread, 'score'))"
-                @click="scoreThread(thread, 8)"
-              >
-                <span class="material-symbols-outlined">favorite</span>
-                {{ isPending(threadActionKey(thread, 'score')) ? '评分中' : `${thread.score_avg || 0} 分` }}
-              </button>
               <button class="thread-action-button" type="button" @click="openThread(thread)">
                 <span class="material-symbols-outlined">comment</span>
                 {{ thread.reply_count || 0 }}
@@ -1045,7 +1206,7 @@ watch(
                 <strong>{{ authorName(currentThread.author_student_id) }}</strong>
                 <small>{{ formatTime(currentThread.created_at) }} · {{ categoryName(currentThread.category_id) }}</small>
               </div>
-              <span class="score-badge">{{ currentThread.score_avg || 0 }} 分</span>
+              <span class="category-badge">{{ threadAttachments.length || 0 }} 附件</span>
             </div>
             <h2>{{ currentThread.title }}</h2>
             <p class="detail-content">{{ currentThread.content_md }}</p>
@@ -1089,19 +1250,6 @@ watch(
                 <img :src="attachmentUrl(attachment)" alt="帖子附件" @error="$event.target.classList.add('broken')" />
                 <span>查看附件</span>
               </a>
-            </div>
-            <div class="score-row">
-              <div class="score-stepper">
-                <button
-                  v-for="score in [1, 3, 5, 8, 10]"
-                  :key="score"
-                  type="button"
-                  :disabled="isPending(threadActionKey(currentThread, 'score'))"
-                  @click="scoreThread(currentThread, score)"
-                >
-                  {{ isPending(threadActionKey(currentThread, 'score')) ? '评分中' : `${score} 分` }}
-                </button>
-              </div>
             </div>
           </article>
 
@@ -1186,25 +1334,11 @@ watch(
             <textarea id="forum-thread-content" v-model="newThread.content_md" name="forum-thread-content" maxlength="20000" placeholder="What do you want to share with the campus?"></textarea>
           </div>
           <div class="attachment-bar">
-            <label class="tool-button">
+            <button class="tool-button" type="button" title="上传附件" @click="openThreadFilePicker">
               <span class="material-symbols-outlined">image</span>
-              <input type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setThreadFiles" />
-            </label>
-            <label class="score-input">
-              <span>初始评分</span>
-              <input id="forum-thread-score" v-model.number="newThread.score" name="forum-thread-score" type="number" min="1" max="10" />
-            </label>
-            <div class="compose-score-options" aria-label="快速选择初始评分">
-              <button
-                v-for="score in [1, 3, 5, 8, 10]"
-                :key="`compose-score-${score}`"
-                type="button"
-                :class="{ active: Number(newThread.score) === score }"
-                @click="setThreadScore(score)"
-              >
-                {{ score }}
-              </button>
-            </div>
+            </button>
+            <input ref="threadUploadInput" class="visually-hidden-file" type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setThreadFiles" />
+            <span class="attachment-copy">图片、PDF、TXT 和 ZIP 会上传到论坛图床</span>
             <span class="char-count">{{ newThread.content_md.length }}/20000</span>
           </div>
           <div v-if="threadFiles.length" class="attachment-preview-list">
@@ -1221,6 +1355,67 @@ watch(
           </div>
           <p v-if="threadFiles.length" class="form-hint">{{ threadFiles.length }} 个附件会通过后端图床接口上传</p>
           <p v-if="composerHint" class="form-hint warning">{{ composerHint }}</p>
+        </section>
+
+        <section v-if="activeTab === 'polls'" class="poll-score-page" data-forum-page="polls">
+          <div class="poll-score-hero">
+            <div>
+              <span class="eyebrow">Managed Vote</span>
+              <h2>投票打分</h2>
+              <p>投票由管理员创建和关闭，帖子本身不再要求逐条打分。</p>
+            </div>
+            <div class="poll-score-summary">
+              <strong>{{ pollAdminSummary.votes }}</strong>
+              <span>累计投票</span>
+            </div>
+          </div>
+          <div class="poll-score-grid">
+            <aside class="poll-score-card poll-list-card">
+              <div class="section-heading compact">
+                <h3>投票列表</h3>
+                <span>{{ pollAdminSummary.active }} 进行中</span>
+              </div>
+              <button
+                v-for="poll in adminPolls"
+                :key="poll.id"
+                class="poll-list-item"
+                type="button"
+                :class="{ active: selectedPoll?.id === poll.id }"
+                @click="selectPoll(poll)"
+              >
+                <strong>{{ poll.title }}</strong>
+                <span>{{ poll.status === 'closed' ? '已关闭' : '进行中' }} · {{ pollOptionTotal(poll) }} 票</span>
+              </button>
+            </aside>
+            <article v-if="selectedPoll" class="poll-score-card">
+              <div class="section-heading compact">
+                <h3>{{ selectedPoll.title }}</h3>
+                <span>{{ selectedPoll.status === 'closed' ? '已关闭' : '进行中' }}</span>
+              </div>
+              <p>{{ selectedPoll.description || '管理员暂未填写说明' }}</p>
+              <div class="poll-option-list">
+                <button
+                  v-for="option in selectedPoll.options"
+                  :key="option.id"
+                  class="poll-score-option"
+                  type="button"
+                  :disabled="selectedPoll.status === 'closed' || hasVotedInPoll(selectedPoll) || isPending(`poll:vote:${selectedPoll?.id}:${option.id}`)"
+                  @click="voteInPoll(option)"
+                >
+                  <span>
+                    <strong>{{ option.label }}</strong>
+                    <small>{{ option.score }} 分 · {{ option.votes || 0 }} 票</small>
+                  </span>
+                  <em>{{ pollOptionPercent(selectedPoll, option) }}%</em>
+                  <i :style="{ width: `${pollOptionPercent(selectedPoll, option)}%` }"></i>
+                </button>
+              </div>
+              <p class="form-hint">
+                {{ hasVotedInPoll(selectedPoll) ? '你已经参与过这个投票' : '选择一个选项后会立即记录，防重复提交会自动拦截。' }}
+              </p>
+            </article>
+            <div v-else class="empty-card compact">暂无投票</div>
+          </div>
         </section>
 
         <section v-if="activeTab === 'notice'" class="page-stack" data-forum-page="notice">
@@ -1454,6 +1649,7 @@ watch(
             <div><strong>{{ adminSummary.reportCount }}</strong><span>举报队列</span></div>
             <div><strong>{{ adminSummary.userCount }}</strong><span>用户治理</span></div>
             <div><strong>{{ adminSummary.bannedCount }}</strong><span>已封禁</span></div>
+            <div><strong>{{ adminSummary.pollCount }}</strong><span>投票打分</span></div>
             <div><strong>{{ adminSummary.backupCount }}</strong><span>备份记录</span></div>
           </div>
           <div class="admin-grid">
@@ -1516,6 +1712,33 @@ watch(
               <button class="primary-pill wide" type="button" :disabled="isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`)" @click="grantBadge">
                 {{ isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`) ? '发放中' : '发放徽章' }}
               </button>
+            </div>
+            <div class="admin-card admin-section-card poll-admin span-2">
+              <div class="section-heading compact">
+                <h3>管理员创建投票</h3>
+                <span>{{ pollAdminSummary.total }} 个</span>
+              </div>
+              <div class="poll-admin-form">
+                <input v-model="pollDraft.title" placeholder="投票标题" />
+                <input v-model="pollDraft.description" placeholder="说明，可选" />
+                <textarea v-model="pollDraft.options" rows="4" placeholder="每行一个选项，如：很满意|10"></textarea>
+                <button class="primary-pill wide" type="button" :disabled="isPending('poll:create')" @click="createAdminPoll">
+                  {{ isPending('poll:create') ? '发布中' : '发布投票' }}
+                </button>
+              </div>
+              <div class="backup-record-list">
+                <article v-for="poll in adminPolls" :key="poll.id" class="admin-row">
+                  <span class="material-symbols-outlined">how_to_vote</span>
+                  <div>
+                    <strong>{{ poll.title }}</strong>
+                    <p>{{ poll.status === 'closed' ? '已关闭' : '进行中' }} · {{ pollOptionTotal(poll) }} 票</p>
+                    <small>{{ formatTime(poll.created_at) }}</small>
+                  </div>
+                  <button class="ghost-pill" type="button" :disabled="poll.status === 'closed' || isPending(`poll:close:${poll.id}`)" @click="closeAdminPoll(poll)">
+                    {{ poll.status === 'closed' ? '已关闭' : '关闭投票' }}
+                  </button>
+                </article>
+              </div>
             </div>
             <div class="admin-card admin-section-card backup-panel span-2">
               <div class="section-heading compact">
@@ -1724,14 +1947,22 @@ watch(
 .icon-button,
 .primary-icon,
 .tool-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
+  overflow: hidden;
   border-radius: 999px;
   background: transparent;
   color: var(--stitch-muted);
+}
+
+.tool-button {
+  position: relative;
+  inline-size: 40px;
+  block-size: 40px;
 }
 
 .icon-button:hover,
@@ -2025,8 +2256,7 @@ watch(
 .message-form textarea,
 .edit-card input,
 .admin-card input,
-.inline-form input,
-.score-input input {
+.inline-form input {
   width: 100%;
   min-width: 0;
   border: 0;
@@ -2062,7 +2292,6 @@ watch(
 }
 
 .section-heading > span,
-.score-badge,
 .category-badge,
 .tag-row span {
   flex: 0 0 auto;
@@ -2235,7 +2464,6 @@ watch(
 }
 
 .post-actions,
-.score-row,
 .comment-actions,
 .button-row {
   display: flex;
@@ -2247,7 +2475,6 @@ watch(
 }
 
 .post-actions button,
-.score-row button,
 .comment-actions button {
   display: inline-flex;
   min-height: 32px;
@@ -2264,13 +2491,11 @@ watch(
 }
 
 .post-actions button:hover,
-.score-row button:hover,
 .comment-actions button:hover {
   color: var(--stitch-primary);
 }
 
-.thread-action-button:disabled,
-.score-stepper button:disabled {
+.thread-action-button:disabled {
   cursor: wait;
   opacity: 0.62;
 }
@@ -2349,20 +2574,6 @@ watch(
   padding: 4px 8px;
   font-size: 10px;
   font-weight: 700;
-}
-
-.score-stepper {
-  display: grid;
-  width: 100%;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.score-stepper button {
-  justify-content: center;
-  min-width: 0;
-  background: var(--stitch-surface-container);
-  padding: 0 6px;
 }
 
 .comment-panel {
@@ -2484,12 +2695,21 @@ watch(
   overflow: hidden;
 }
 
-.file-trigger input,
-.tool-button input {
+.file-trigger input {
   position: absolute;
   inset: 0;
   cursor: pointer;
   opacity: 0;
+}
+
+.visually-hidden-file {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .comment-card {
@@ -2619,49 +2839,207 @@ watch(
   padding: 10px;
 }
 
-.score-input {
-  display: grid;
-  grid-template-columns: auto minmax(0, 56px);
-  gap: 8px;
-  align-items: center;
-  border-radius: 999px;
-  background: var(--stitch-surface-container);
-  padding: 8px 12px;
+.attachment-copy {
+  min-width: 0;
+  overflow: hidden;
   color: var(--stitch-muted);
   font-size: 12px;
   font-weight: 700;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.score-input input {
+.poll-score-page {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.poll-score-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: var(--stitch-card-radius);
+  background: linear-gradient(135deg, rgba(216, 226, 255, 0.86), rgba(255, 255, 255, 0.96));
+  padding: 18px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.poll-score-hero h2,
+.poll-score-hero p {
+  margin: 0;
+}
+
+.poll-score-hero h2 {
+  color: var(--stitch-text);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 28px;
+}
+
+.poll-score-hero p {
+  margin-top: 6px;
+  color: var(--stitch-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.poll-score-summary {
+  display: grid;
+  min-height: 88px;
+  place-items: center;
+  border-radius: 22px;
+  background: var(--stitch-primary);
+  color: #ffffff;
   text-align: center;
 }
 
-.compose-score-options {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: repeat(5, minmax(24px, 1fr));
-  gap: 4px;
-  border-radius: 999px;
-  background: var(--stitch-surface-container);
-  padding: 4px;
+.poll-score-summary strong,
+.poll-score-summary span {
+  display: block;
 }
 
-.compose-score-options button {
+.poll-score-summary strong {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 28px;
+}
+
+.poll-score-summary span {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.poll-score-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.poll-score-card {
+  display: flex;
   min-width: 0;
-  min-height: 30px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--stitch-muted);
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid rgba(194, 198, 214, 0.18);
+  border-radius: var(--stitch-card-radius);
+  background: var(--stitch-surface-card);
+  padding: 16px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.poll-list-card {
+  gap: 10px;
+}
+
+.poll-list-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  background: var(--stitch-surface-low);
+  color: var(--stitch-text);
   cursor: pointer;
-  font-size: 12px;
+  padding: 12px;
+  text-align: left;
+}
+
+.poll-list-item.active,
+.poll-list-item:hover {
+  border-color: rgba(0, 88, 190, 0.2);
+  background: var(--stitch-primary-fixed);
+}
+
+.poll-list-item strong,
+.poll-list-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poll-list-item span {
+  color: var(--stitch-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.poll-option-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.poll-score-option {
+  position: relative;
+  display: grid;
+  min-height: 64px;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  gap: 12px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: 18px;
+  background: var(--stitch-surface-low);
+  color: var(--stitch-text);
+  cursor: pointer;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.poll-score-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.poll-score-option span,
+.poll-score-option em {
+  position: relative;
+  z-index: 1;
+}
+
+.poll-score-option strong,
+.poll-score-option small {
+  display: block;
+}
+
+.poll-score-option strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poll-score-option small {
+  color: var(--stitch-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.poll-score-option em {
+  justify-self: end;
+  color: var(--stitch-primary);
+  font-style: normal;
   font-weight: 800;
 }
 
-.compose-score-options button.active,
-.compose-score-options button:hover {
-  background: var(--stitch-primary);
-  color: #ffffff;
+.poll-score-option i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: rgba(216, 226, 255, 0.72);
+  transition: width 180ms ease;
 }
 
 .char-count,
@@ -2798,6 +3176,7 @@ watch(
 .message-form textarea,
 .edit-card input,
 .admin-card input,
+.admin-card textarea,
 .inline-form input {
   min-height: 42px;
   border-radius: 16px;
@@ -2805,7 +3184,8 @@ watch(
   padding: 10px 12px;
 }
 
-.message-form textarea {
+.message-form textarea,
+.admin-card textarea {
   resize: vertical;
 }
 
@@ -3172,8 +3552,103 @@ watch(
   gap: 14px;
 }
 
+.admin-hero-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: var(--stitch-card-radius);
+  background: linear-gradient(135deg, rgba(216, 226, 255, 0.9), rgba(255, 255, 255, 0.96));
+  padding: 18px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.admin-hero-card h2,
+.admin-hero-card p {
+  margin: 0;
+}
+
+.admin-hero-card h2 {
+  color: var(--stitch-text);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 28px;
+}
+
+.admin-hero-card p {
+  margin-top: 6px;
+  color: var(--stitch-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.admin-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-summary-strip div {
+  min-width: 0;
+  border: 1px solid rgba(194, 198, 214, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 10px 6px;
+  text-align: center;
+}
+
+.admin-summary-strip strong,
+.admin-summary-strip span {
+  display: block;
+}
+
+.admin-summary-strip strong {
+  color: var(--stitch-primary);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.admin-summary-strip span {
+  overflow: hidden;
+  color: var(--stitch-muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .admin-card {
   min-width: 0;
+}
+
+.admin-section-card {
+  border: 1px solid rgba(194, 198, 214, 0.18);
+  border-radius: var(--stitch-card-radius);
+  background: var(--stitch-surface-card);
+  padding: 16px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.admin-section-card h3 {
+  margin: 0;
+  color: var(--stitch-text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.poll-admin-form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.poll-admin-form textarea {
+  min-height: 112px;
 }
 
 .admin-row {
@@ -3181,6 +3656,272 @@ watch(
   border-radius: 16px;
   background: var(--stitch-surface-low);
   box-shadow: none;
+}
+
+.admin-row div {
+  min-width: 0;
+}
+
+.admin-row strong,
+.admin-row p,
+.admin-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-row p,
+.admin-row small {
+  color: var(--stitch-muted);
+}
+
+.admin-report-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.backup-status-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: 18px;
+  background: var(--stitch-primary-fixed);
+  padding: 12px;
+}
+
+.backup-status-card > .material-symbols-outlined {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--stitch-primary);
+  color: #ffffff;
+}
+
+.backup-status-card div {
+  min-width: 0;
+}
+
+.backup-status-card strong,
+.backup-status-card p {
+  margin: 0;
+}
+
+.backup-status-card strong {
+  display: block;
+  color: var(--stitch-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 19px;
+}
+
+.backup-status-card p {
+  overflow: hidden;
+  color: var(--stitch-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-record-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-path-chip {
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 999px;
+  background: rgba(216, 226, 255, 0.76);
+  color: var(--stitch-primary);
+  padding: 4px 8px;
+}
+
+.upload-experience-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: var(--stitch-card-radius);
+  background: rgba(255, 255, 255, 0.94);
+  padding: 14px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.upload-drop-card {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border-radius: 18px;
+  background: var(--stitch-primary-fixed);
+  padding: 12px;
+}
+
+.upload-drop-card > .material-symbols-outlined {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--stitch-primary);
+  color: #ffffff;
+}
+
+.upload-drop-card div {
+  min-width: 0;
+}
+
+.upload-drop-card strong,
+.upload-drop-card p {
+  margin: 0;
+}
+
+.upload-drop-card strong {
+  display: block;
+  color: var(--stitch-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 19px;
+}
+
+.upload-drop-card p {
+  color: var(--stitch-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.upload-progress-list {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upload-progress-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(194, 198, 214, 0.18);
+  border-radius: 18px;
+  background: var(--stitch-surface-low);
+  padding: 10px;
+}
+
+.upload-progress-item > .material-symbols-outlined {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--stitch-surface-container);
+  color: var(--stitch-primary);
+}
+
+.upload-progress-item.success > .material-symbols-outlined {
+  color: var(--stitch-success);
+}
+
+.upload-progress-item.failed > .material-symbols-outlined {
+  color: var(--stitch-warning);
+}
+
+.upload-progress-item div {
+  min-width: 0;
+}
+
+.upload-progress-item strong,
+.upload-progress-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-progress-item strong {
+  color: var(--stitch-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 18px;
+}
+
+.upload-progress-item small {
+  color: var(--stitch-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.upload-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(194, 198, 214, 0.28);
+  margin-top: 8px;
+}
+
+.upload-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--stitch-primary);
+  transition: width 180ms ease;
+}
+
+.upload-progress-actions {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+.upload-status-pill,
+.attachment-url-chip,
+.upload-retry-button {
+  border: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 15px;
+}
+
+.upload-status-pill {
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-primary);
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.attachment-url-chip,
+.upload-retry-button {
+  cursor: pointer;
+  padding: 7px 10px;
+}
+
+.attachment-url-chip {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 8px;
+  background: var(--stitch-primary);
+  color: #ffffff;
+}
+
+.upload-retry-button {
+  background: rgba(248, 181, 0, 0.14);
+  color: var(--stitch-warning);
 }
 
 .inline-form,
