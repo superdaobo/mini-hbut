@@ -4,7 +4,8 @@ import { normalizeRemoteConfig } from './remote_config'
 import {
   buildForumApiBase,
   createForumApiClient,
-  normalizeForumEndpoint
+  normalizeForumEndpoint,
+  writeForumProfile
 } from './forum_api'
 
 describe('forum api config', () => {
@@ -128,7 +129,7 @@ describe('forum api config', () => {
 
   it('refreshes a stale cached token once when an authorized request is rejected', async () => {
     const storage = new Map<string, string>()
-    storage.set('hbu_forum_token:2510231106', JSON.stringify({
+    storage.set('hbu_forum_token:2510231106:https%3A%2F%2Fexample.com%2Fapi%2Fforum', JSON.stringify({
       token: 'stale-token',
       expires_at: Math.floor(Date.now() / 1000) + 3600
     }))
@@ -191,6 +192,65 @@ describe('forum api config', () => {
     }
   })
 
+  it('scopes cached forum tokens by api endpoint and clears scoped tokens when profile changes', async () => {
+    const storage = new Map<string, string>()
+    storage.set('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum', JSON.stringify({
+      token: 'old-space-token',
+      expires_at: Math.floor(Date.now() / 1000) + 3600
+    }))
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      key: (index: number) => Array.from(storage.keys())[index] || null,
+      get length() {
+        return storage.size
+      }
+    })
+
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      if (url.endsWith('/auth/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'new-space-token', expires_at: Math.floor(Date.now() / 1000) + 3600 })
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true })
+      }
+    }) as unknown as typeof fetch
+
+    try {
+      const client = createForumApiClient({
+        apiBase: 'https://new.example',
+        studentId: '2510231106',
+        fetcher
+      })
+
+      await client.checkIn()
+
+      expect(calls.map((call) => call.url)).toEqual([
+        'https://new.example/api/forum/auth/token',
+        'https://new.example/api/forum/checkins'
+      ])
+      expect(calls[1].init?.headers).toMatchObject({ Authorization: 'Bearer new-space-token' })
+      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum')).toBe(true)
+      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fnew.example%2Fapi%2Fforum')).toBe(true)
+
+      writeForumProfile('2510231106', { nickname: '新昵称' })
+
+      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum')).toBe(false)
+      expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fnew.example%2Fapi%2Fforum')).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('exposes extended forum endpoints used by the full community UI', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
@@ -227,6 +287,14 @@ describe('forum api config', () => {
     await client.runBackup()
     await client.setUserBan({ student_id: '2510231107', banned: true, reason: 'spam' })
     await client.grantBadge({ student_id: '2510231107', badge_key: 'helper', display_name: '热心同学' })
+    await client.listPolls({ limit: 10, offset: 0 })
+    await client.createPoll({
+      title: 'MCP 投票打分',
+      description: '管理员创建',
+      options: [{ label: '满意', score: 10 }, { label: '一般', score: 5 }]
+    })
+    await client.votePoll(3, 7)
+    await client.closePoll(3)
 
     expect(calls.map((call) => call.url)).toEqual([
       'https://example.com/api/forum/search?q=%E7%BB%A9%E7%82%B9%E6%9F%A5%E8%AF%A2&category_id=2&limit=10',
@@ -241,12 +309,17 @@ describe('forum api config', () => {
       'https://example.com/api/forum/admin/backups?limit=5',
       'https://example.com/api/forum/admin/backups/run',
       'https://example.com/api/forum/admin/bans',
-      'https://example.com/api/forum/admin/badges'
+      'https://example.com/api/forum/admin/badges',
+      'https://example.com/api/forum/polls?limit=10&offset=0',
+      'https://example.com/api/forum/admin/polls',
+      'https://example.com/api/forum/polls/3/votes',
+      'https://example.com/api/forum/admin/polls/3/close'
     ])
-    expect(calls.slice(2).filter((call) => /\/(me|admin)\//.test(call.url)).every((call) => {
+    expect(calls.slice(2).filter((call) => /\/(me|admin|polls)\//.test(call.url)).every((call) => {
       const headers = call.init?.headers as Record<string, string>
       return headers?.Authorization === 'Bearer admin-token'
     })).toBe(true)
+    expect(client.scoreThread).toBeUndefined()
     expect(client.getAttachmentUrl('att_2510231106_demo')).toBe('https://example.com/api/forum/attachments/att_2510231106_demo')
     expect(client.getAttachmentUrl('/api/forum/attachments/att_demo')).toBe('https://example.com/api/forum/attachments/att_demo')
   })

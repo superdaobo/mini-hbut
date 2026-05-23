@@ -159,6 +159,7 @@ describe('forum view identity contract', () => {
       'const threadPendingKey = computed',
       'const replyPendingKey = computed',
       'const threadActionKey = (thread, action)',
+      'return pendingActions.value.has(toText(key))',
       'const removeThreadFile = (index)',
       'const removeReplyFile = (index)',
       'const fileLabel = (file)',
@@ -203,7 +204,8 @@ describe('forum view identity contract', () => {
       '发布中',
       '上传附件会先进入后端图床',
       '@click="openThreadFilePicker"',
-      'ref="threadUploadInput"'
+      'ref="threadUploadInput"',
+      'aria-hidden="true" tabindex="-1"'
     ]) {
       expect(forumSource).toContain(composeMarker)
     }
@@ -367,6 +369,11 @@ describe('forum view identity contract', () => {
       'const voteInPoll = async',
       'const createAdminPoll = async',
       'const closeAdminPoll = async',
+      'cached(\'poll:list\'',
+      'client.listPolls',
+      'client.createPoll',
+      'client.votePoll',
+      'client.closePoll',
       'isPending(\'admin:backup\')',
       'isPending(`admin:ban:${studentId}:${banned}`)',
       'isPending(`admin:badge:${payload.student_id}:${payload.badge_key}`)',
@@ -467,10 +474,20 @@ describe('forum view identity contract', () => {
       '\n.score-row',
       '\n.score-stepper',
       '\n.compose-score-options',
-      '.tool-button input',
-      'selectedPoll.value?.id'
+      '.tool-button input'
     ]) {
       expect(forumSource).not.toContain(removedPostScoreStyle)
+    }
+
+    for (const removedLocalPollMarker of [
+      'pollStorageKey',
+      'defaultAdminPolls',
+      'persistAdminPolls',
+      'localStorage.setItem(pollStorageKey()',
+      'localStorage.getItem(pollStorageKey()',
+      'votedBy:'
+    ]) {
+      expect(forumSource).not.toContain(removedLocalPollMarker)
     }
 
     expect(forumSource).toContain('\n.visually-hidden-file {')

@@ -183,65 +183,49 @@ const formatTime = (value) => {
   return date.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-const pollStorageKey = () => `mini-hbut:forum:polls:${apiBase.value || 'local'}`
-
-const defaultAdminPolls = () => [
-  {
-    id: `poll-${Date.now()}-study`,
-    title: '本周学习体验投票',
-    description: '为学习互助区收集体验反馈，管理员可按周更新。',
-    status: 'active',
-    created_at: new Date().toISOString(),
-    options: [
-      { id: 'helpful-10', label: '很有帮助', score: 10, votes: 0 },
-      { id: 'helpful-8', label: '比较有帮助', score: 8, votes: 0 },
-      { id: 'normal-5', label: '一般', score: 5, votes: 0 },
-      { id: 'improve-2', label: '需要改进', score: 2, votes: 0 }
-    ],
-    votedBy: {}
-  }
-]
-
 const normalizePolls = (items = []) => items
   .filter((poll) => poll && typeof poll === 'object')
   .map((poll) => ({
-    id: toText(poll.id).trim() || `poll-${Date.now()}`,
+    id: Number(poll.id || 0),
     title: toText(poll.title).trim() || '未命名投票',
     description: toText(poll.description).trim(),
     status: poll.status === 'closed' ? 'closed' : 'active',
     created_at: toText(poll.created_at).trim() || new Date().toISOString(),
+    my_vote_option_id: poll.my_vote_option_id == null ? null : Number(poll.my_vote_option_id),
     options: Array.isArray(poll.options)
       ? poll.options.map((option, index) => ({
-        id: toText(option.id).trim() || `option-${index}`,
+        id: Number(option.id || 0) || index + 1,
         label: toText(option.label).trim() || `选项 ${index + 1}`,
         score: Number(option.score || 0),
         votes: Number(option.votes || 0)
       }))
-      : [],
-    votedBy: poll.votedBy && typeof poll.votedBy === 'object' ? poll.votedBy : {}
+      : []
   }))
-  .filter((poll) => poll.options.length >= 2)
+  .filter((poll) => poll.id > 0 && poll.options.length >= 2)
 
-const persistAdminPolls = () => {
-  try {
-    localStorage.setItem(pollStorageKey(), JSON.stringify(adminPolls.value))
-  } catch {
-    showToast('投票缓存写入失败，本次更改仅在当前页面有效', 'warning')
-  }
-}
-
-const loadAdminPolls = () => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(pollStorageKey()) || '[]')
-    adminPolls.value = normalizePolls(parsed)
-  } catch {
+const loadAdminPolls = async ({ force = false } = {}) => {
+  if (!isLoggedIn.value) {
     adminPolls.value = []
+    selectedPoll.value = null
+    return
   }
-  if (!adminPolls.value.length) {
-    adminPolls.value = defaultAdminPolls()
-    persistAdminPolls()
+  if (!client) await buildClient()
+  if (force && forumCache) clearForumCache(forumCache, ['poll'])
+  try {
+    const payload = await cached('poll:list', ({ etag }) => client.listPolls({ limit: 30 }, { includeMeta: true, etag }), 15_000)
+    adminPolls.value = normalizePolls(payload?.items || [])
+  } catch (error) {
+    adminPolls.value = []
+    selectedPoll.value = null
+    showToast(error?.message || '投票列表加载失败', 'warning')
+    return
   }
-  selectedPoll.value = adminPolls.value.find((poll) => poll.status === 'active') || adminPolls.value[0] || null
+  const previousId = Number(selectedPoll.value?.id || 0)
+  selectedPoll.value =
+    adminPolls.value.find((poll) => Number(poll.id) === previousId) ||
+    adminPolls.value.find((poll) => poll.status === 'active') ||
+    adminPolls.value[0] ||
+    null
 }
 
 const selectPoll = (poll) => {
@@ -257,8 +241,7 @@ const pollOptionPercent = (poll, option) => {
 }
 
 const hasVotedInPoll = (poll) => {
-  const voter = String(props.studentId || '').trim()
-  return !!voter && !!poll?.votedBy?.[voter]
+  return poll?.my_vote_option_id != null
 }
 
 const parsePollOptions = () => pollDraft.value.options
@@ -266,10 +249,8 @@ const parsePollOptions = () => pollDraft.value.options
   .map((line, index) => {
     const [label, score] = line.split('|').map((part) => toText(part).trim())
     return {
-      id: `option-${Date.now()}-${index}`,
       label: label || `选项 ${index + 1}`,
-      score: Math.min(10, Math.max(0, Number(score || 0))),
-      votes: 0
+      score: Math.min(10, Math.max(0, Number(score || 0)))
     }
   })
   .filter((option) => option.label)
@@ -286,22 +267,15 @@ const voteInPoll = async (option) => {
     return
   }
   await runPending(`poll:vote:${poll.id}:${option.id}`, async () => {
-    const voter = String(props.studentId || '').trim()
-    const nextPolls = adminPolls.value.map((item) => {
-      if (item.id !== poll.id) return item
-      return {
-        ...item,
-        votedBy: { ...(item.votedBy || {}), [voter]: option.id },
-        options: item.options.map((entry) =>
-          entry.id === option.id ? { ...entry, votes: Number(entry.votes || 0) + 1 } : entry
-        )
-      }
-    })
-    adminPolls.value = nextPolls
-    selectedPoll.value = nextPolls.find((item) => item.id === poll.id) || null
-    persistAdminPolls()
+    const updated = await client.votePoll(poll.id, option.id)
+    const normalized = normalizePolls([updated])[0]
+    adminPolls.value = adminPolls.value.map((item) =>
+      Number(item.id) === Number(poll.id) ? normalized : item
+    )
+    selectedPoll.value = adminPolls.value.find((item) => Number(item.id) === Number(poll.id)) || null
+    invalidateForumCache(['poll'])
     showToast('投票已记录', 'success')
-  })
+  }, '投票正在提交，请勿重复点击')
 }
 
 const createAdminPoll = async () => {
@@ -313,18 +287,15 @@ const createAdminPoll = async () => {
     return
   }
   await runPending('poll:create', async () => {
-    const poll = {
-      id: `poll-${Date.now()}`,
+    const created = await client.createPoll({
       title,
       description: pollDraft.value.description.trim(),
-      status: 'active',
-      created_at: new Date().toISOString(),
-      options,
-      votedBy: {}
-    }
+      options
+    })
+    const poll = normalizePolls([created])[0]
     adminPolls.value = [poll, ...adminPolls.value].slice(0, 20)
     selectedPoll.value = poll
-    persistAdminPolls()
+    invalidateForumCache(['poll'])
     pollDraft.value = {
       title: '',
       description: '',
@@ -337,11 +308,13 @@ const createAdminPoll = async () => {
 const closeAdminPoll = async (poll) => {
   if (!isAdmin.value || !poll?.id) return
   await runPending(`poll:close:${poll.id}`, async () => {
+    const closed = await client.closePoll(poll.id)
+    const normalized = normalizePolls([closed])[0]
     adminPolls.value = adminPolls.value.map((item) =>
-      item.id === poll.id ? { ...item, status: 'closed' } : item
+      Number(item.id) === Number(poll.id) ? normalized : item
     )
-    selectedPoll.value = adminPolls.value.find((item) => item.id === poll.id) || selectedPoll.value
-    persistAdminPolls()
+    selectedPoll.value = adminPolls.value.find((item) => Number(item.id) === Number(poll.id)) || selectedPoll.value
+    invalidateForumCache(['poll'])
     showToast('关闭投票', 'success')
   })
 }
@@ -446,7 +419,10 @@ const ensurePendingGuard = () => {
   return pendingGuard
 }
 
-const isPending = (key) => ensurePendingGuard().isPending(key)
+const isPending = (key) => {
+  ensurePendingGuard()
+  return pendingActions.value.has(toText(key))
+}
 
 const runPending = async (key, task, duplicateMessage = '正在处理，请勿重复点击') =>
   ensurePendingGuard().run(key, task, { duplicateMessage })
@@ -462,7 +438,7 @@ const cached = (scope, fetcher, ttlMs = 60_000) => {
   return withForumCache(forumCache, scope, fetcher, { ttlMs })
 }
 
-const invalidateForumCache = (scopes = ['feed', 'hot', 'thread', 'me', 'notice', 'message', 'admin']) => {
+const invalidateForumCache = (scopes = ['feed', 'hot', 'thread', 'me', 'notice', 'message', 'admin', 'poll']) => {
   if (forumCache) clearForumCache(forumCache, scopes)
 }
 
@@ -967,13 +943,13 @@ const switchTab = async (tab) => {
   if (tab === 'admin' && !isAdmin.value) return
   activeTab.value = tab
   if (tab === 'notice' || tab === 'me') await loadMe()
-  if (tab === 'polls') loadAdminPolls()
+  if (tab === 'polls') await loadAdminPolls()
   if (tab === 'admin') await loadAdmin()
 }
 
 onMounted(async () => {
   await buildClient()
-  loadAdminPolls()
+  await loadAdminPolls()
   await loadForumData()
 })
 
@@ -997,7 +973,7 @@ watch(
     selectedPoll.value = null
     activeTab.value = 'feed'
     await buildClient()
-    loadAdminPolls()
+    await loadAdminPolls()
     await loadForumData({ force: true })
   }
 )
@@ -1337,7 +1313,7 @@ watch(
             <button class="tool-button" type="button" title="上传附件" @click="openThreadFilePicker">
               <span class="material-symbols-outlined">image</span>
             </button>
-            <input ref="threadUploadInput" class="visually-hidden-file" type="file" multiple accept="image/*,.pdf,.txt,.zip" @change="setThreadFiles" />
+            <input ref="threadUploadInput" class="visually-hidden-file" type="file" multiple accept="image/*,.pdf,.txt,.zip" aria-hidden="true" tabindex="-1" @change="setThreadFiles" />
             <span class="attachment-copy">图片、PDF、TXT 和 ZIP 会上传到论坛图床</span>
             <span class="char-count">{{ newThread.content_md.length }}/20000</span>
           </div>
@@ -2704,11 +2680,13 @@ watch(
 
 .visually-hidden-file {
   position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
+  inline-size: 0;
+  block-size: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
   white-space: nowrap;
 }
 

@@ -3,6 +3,7 @@ const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
 const PROFILE_CACHE_KEY_PREFIX = 'hbu_forum_profile:'
 
 const toText = (value) => (value == null ? '' : String(value))
+const encodeCachePart = (value) => encodeURIComponent(toText(value).trim())
 
 export const normalizeForumEndpoint = (value) => {
   const text = toText(value).trim()
@@ -25,10 +26,12 @@ export const buildForumApiBase = (forumConfig = {}) => {
   )
 }
 
-const readCachedToken = (studentId) => {
+const tokenCacheKey = (studentId, apiBase = '') => `${TOKEN_CACHE_KEY_PREFIX}${encodeCachePart(studentId)}:${encodeCachePart(apiBase)}`
+
+const readCachedToken = (studentId, apiBase = '') => {
   if (!studentId || typeof localStorage === 'undefined') return ''
   try {
-    const raw = localStorage.getItem(`${TOKEN_CACHE_KEY_PREFIX}${studentId}`)
+    const raw = localStorage.getItem(tokenCacheKey(studentId, apiBase))
     if (!raw) return ''
     const parsed = JSON.parse(raw)
     if (!parsed?.token) return ''
@@ -39,19 +42,19 @@ const readCachedToken = (studentId) => {
   }
 }
 
-const writeCachedToken = (studentId, payload) => {
+const writeCachedToken = (studentId, apiBase, payload) => {
   if (!studentId || typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(`${TOKEN_CACHE_KEY_PREFIX}${studentId}`, JSON.stringify(payload || {}))
+    localStorage.setItem(tokenCacheKey(studentId, apiBase), JSON.stringify(payload || {}))
   } catch {
     // ignore
   }
 }
 
-const clearCachedToken = (studentId) => {
+const clearCachedToken = (studentId, apiBase = '') => {
   if (!studentId || typeof localStorage === 'undefined') return
   try {
-    localStorage.removeItem(`${TOKEN_CACHE_KEY_PREFIX}${studentId}`)
+    localStorage.removeItem(tokenCacheKey(studentId, apiBase))
   } catch {
     // ignore
   }
@@ -84,7 +87,13 @@ export const writeForumProfile = (studentId, profile = {}) => {
   if (!sid || typeof localStorage === 'undefined') return normalized
   try {
     localStorage.setItem(`${PROFILE_CACHE_KEY_PREFIX}${sid}`, JSON.stringify(normalized))
-    localStorage.removeItem(`${TOKEN_CACHE_KEY_PREFIX}${sid}`)
+    const tokenPrefix = `${TOKEN_CACHE_KEY_PREFIX}${encodeCachePart(sid)}:`
+    for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+      const key = localStorage.key(index)
+      if (key?.startsWith(tokenPrefix) || key === `${TOKEN_CACHE_KEY_PREFIX}${sid}`) {
+        localStorage.removeItem(key)
+      }
+    }
   } catch {
     // ignore
   }
@@ -159,7 +168,7 @@ export const createForumApiClient = ({
     let response = await fetchRequest()
     if (auth && response.status === 401) {
       memoryToken = ''
-      clearCachedToken(sid)
+      clearCachedToken(sid, base)
       response = await fetchRequest(true)
     }
     return parseJsonResponse(response, { includeMeta, requestEtag: etag })
@@ -168,7 +177,7 @@ export const createForumApiClient = ({
   const getToken = async (forceRefresh = false) => {
     if (!forceRefresh && memoryToken) return memoryToken
     if (!forceRefresh) {
-      const cached = readCachedToken(sid)
+      const cached = readCachedToken(sid, base)
       if (cached) {
         memoryToken = cached
         return cached
@@ -176,7 +185,7 @@ export const createForumApiClient = ({
     }
     if (forceRefresh) {
       memoryToken = ''
-      clearCachedToken(sid)
+      clearCachedToken(sid, base)
     }
     if (tokenPromise) return tokenPromise
     tokenPromise = request('/auth/token', {
@@ -190,7 +199,7 @@ export const createForumApiClient = ({
       auth: false
       })
       .then((payload) => {
-        writeCachedToken(sid, payload)
+        writeCachedToken(sid, base, payload)
         memoryToken = payload.token
         return payload.token
       })
@@ -225,10 +234,14 @@ export const createForumApiClient = ({
       request(`/threads/${encodeURIComponent(String(threadId))}/replies`, { method: 'POST', body: payload, auth: true }),
     reactToPost: (postId, reaction) =>
       request(`/posts/${encodeURIComponent(String(postId))}/reactions`, { method: 'POST', body: { reaction }, auth: true }),
-    scoreThread: (threadId, score) =>
-      request(`/threads/${encodeURIComponent(String(threadId))}/scores`, { method: 'POST', body: { score }, auth: true }),
     bookmarkThread: (threadId, active = true) =>
       request(`/threads/${encodeURIComponent(String(threadId))}/bookmark`, { method: 'POST', body: { active }, auth: true }),
+    listPolls: (params = {}, options = {}) =>
+      request(appendQuery('/polls', { limit: params.limit, offset: params.offset }), { ...options, auth: true }),
+    createPoll: (payload) => request('/admin/polls', { method: 'POST', body: payload, auth: true }),
+    votePoll: (pollId, optionId) =>
+      request(`/polls/${encodeURIComponent(String(pollId))}/votes`, { method: 'POST', body: { option_id: optionId }, auth: true }),
+    closePoll: (pollId) => request(`/admin/polls/${encodeURIComponent(String(pollId))}/close`, { method: 'POST', auth: true }),
     getMeSummary: (options = {}) => request('/me/summary', { ...options, auth: true }),
     listMyThreads: (params = {}, options = {}) => {
       const normalized = typeof params === 'number' ? { limit: params } : params

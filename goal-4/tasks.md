@@ -205,18 +205,18 @@
 
 ## Task 12: 本地全量集成测试与性能体验优化
 
-- [ ] 状态：未完成
-- [ ] 启动本地后端和前端，完成论坛入口到各页面的端到端验收
-- [ ] 检查网络请求数量、缓存命中、图片代理缓存、列表分页和弱网错误
-- [ ] 修复高风险 UI/性能/状态问题
-- [ ] 运行后端全量 pytest、前端全量 Vitest、前端 build 并提交
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 启动本地后端和前端，完成论坛入口到各页面的端到端验收
+- [x] 检查网络请求数量、缓存命中、图片代理缓存、列表分页和弱网错误
+- [x] 修复高风险 UI/性能/状态问题
+- [x] 运行后端全量 pytest、前端全量 Vitest、前端 build 并提交
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已完成本地前后端全量集成验收和性能体验修复。后端使用临时 SQLite 与本地附件目录启动在 `http://127.0.0.1:7862`，前端 Vite 启动在 `http://127.0.0.1:1421/?forumApiBase=http://127.0.0.1:7862#/2510231106/forum`。HTTP smoke 覆盖 `/health`、分类 ETag/304、附件上传与代理读取、发帖、帖子详情、回复、收藏幂等、签到、投票创建/列表/投票/重复投票 409/关闭、旧帖子评分接口 404、帖子列表分页。浏览器验收覆盖论坛广场、发帖、详情、我的、管理、投票页：发帖标题/正文输入框命中真实 input/textarea，不再弹上传文件；发帖图片通过显式按钮选择，发布时上传到后端图床并在帖子详情生成 `/api/forum/attachments/...` 代理 URL；签到按钮不再卡在“签到中”；管理页可创建投票，投票页可投票并显示已参与；帖子级评分控件已移除，投票打分独立为管理员管理页面。后端补齐持久化投票表/API，前端投票从 localStorage 切到后端 API；前端 token 缓存改为按“学号 + forum API base”隔离，避免本地/线上后端切换时串用旧 token 先触发 401；保存资料时清理该学号所有论坛 token。发帖隐藏文件 input 进一步设置 `aria-hidden="true"`、`tabindex="-1"`、0 尺寸和 `pointer-events: none`，只允许显式上传按钮触发，避免可访问性树或误触路径暴露文件选择。
+- 验证结果：后端 `python.exe -m pytest tests -q` 通过，`62 passed, 24 warnings in 12.96s`；后端 `python.exe -m py_compile forum_backend\main.py forum_backend\storage\sqlite_store.py forum_backend\storage\sqlpub_store.py tests\test_forum_extended_api.py tests\test_forum_business_api.py tests\test_forum_deploy_contract.py tests\test_forum_store_schema.py` 通过；后端论坛相关 `git diff --check` 通过。前端论坛范围 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --pool forks --testTimeout 60000` 通过，3 files / 27 tests passed。前端 `npm.cmd run build` 通过，仍有既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning。前端论坛相关 `git diff --check` 通过。前端全量 `npx.cmd vitest run --pool forks --testTimeout 60000` 仍失败，但失败边界明确为非论坛既有脏改动：`module_center.spec.ts` / `remote_config.spec.ts` 因内置游戏列表多出 `hbut_gomoku`，`hbut_memory_match_game.spec.ts` 和 `hbut_monopoly_game.spec.ts` 因小游戏状态/样式契约失败；论坛相关 27 个测试全部通过。
+- 剩余风险：浏览器控制台仍有本地 Vite 环境下远程配置 CORS、GitHub proxy 403、Tauri `invoke` 不可用等 App 级噪声，不属于论坛本地后端链路；本轮未连接真实 SQLPub、HF Private Bucket、OneDrive 或 HF Space，线上推送与真实 secret 配置仍留给 Task 13/14。`npm run build` 会生成新的 `.dist-trash-*` 构建垃圾，本轮不会提交。Tauri 仓库仍存在无关小游戏/website 脏改动、`.playwright-mcp` 快照和旧截图，后续提交/推送仍需排除。
+- 下一步：执行大型全面检查-debug 循环 D，从 C 端体验、代码质量、安全、数据一致性、权限、错误处理、缓存、测试、构建、文档和回滚角度复核 Task 10-12；之后进入 Task 13 做 HF testocr1 推送前清单和高风险操作确认/授权边界整理。
 
 ## 大型全面检查-debug 循环 D（完成 Task 10-12 后执行）
 
