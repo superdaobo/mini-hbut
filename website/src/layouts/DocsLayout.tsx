@@ -11,8 +11,10 @@ import {
     Cpu,
     Database,
     FileCode2,
+    Gauge,
     GraduationCap,
     HelpCircle,
+    MoveUp,
     Layers,
     LifeBuoy,
     Map,
@@ -73,39 +75,69 @@ const DocsLayout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const location = useLocation();
 
+    const currentSection = docsNavSections.find((section) =>
+        section.links.some((link) => link.path === location.pathname)
+    ) ?? docsNavSections[0];
+    const currentPage = currentSection.links.find((link) => link.path === location.pathname) ?? docsNavSections[0].links[0];
+
     const isActive = (path: string) => {
         return location.pathname === path;
     };
 
     return (
-        <div className="min-h-screen bg-black text-white font-sans flex flex-col">
+        <div id="top" className="documentationShell min-h-screen bg-black text-white font-sans flex flex-col">
+            <a
+                href="#doc-content"
+                className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-lg focus:border focus:border-cyan/40 focus:bg-black focus:px-4 focus:py-2 focus:text-sm focus:text-cyan"
+            >
+                跳到正文
+            </a>
             <Navbar />
 
             <div className="flex flex-1 pt-20 relative">
+                {isSidebarOpen && (
+                    <button
+                        className="lg:hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-30"
+                        type="button"
+                        aria-label="关闭文档导航遮罩"
+                        onClick={() => setIsSidebarOpen(false)}
+                    />
+                )}
+
                 <button
-                    className="lg:hidden fixed bottom-6 right-6 z-50 p-4 bg-cyan/20 backdrop-blur-md border border-cyan/50 rounded-full text-cyan shadow-[0_0_20px_rgba(15,240,252,0.3)]"
+                    className="lg:hidden fixed bottom-5 right-5 z-50 flex h-12 w-12 items-center justify-center rounded-full border border-cyan/50 bg-cyan/20 text-cyan shadow-[0_0_20px_rgba(15,240,252,0.3)] backdrop-blur-md transition-colors hover:bg-cyan/25 focus:outline-none focus:ring-2 focus:ring-cyan/60"
                     onClick={() => setIsSidebarOpen(!isSidebarOpen)}
                     type="button"
                     aria-label={isSidebarOpen ? '关闭文档导航' : '打开文档导航'}
+                    aria-expanded={isSidebarOpen}
+                    aria-controls="docs-sidebar"
                 >
-                    {isSidebarOpen ? <X /> : <Menu />}
+                    {isSidebarOpen ? <X size={22} /> : <Menu size={22} />}
                 </button>
 
                 <aside
+                    id="docs-sidebar"
+                    aria-modal={isSidebarOpen ? 'true' : undefined}
+                    role={isSidebarOpen ? 'dialog' : undefined}
                     className={`
-            fixed lg:sticky top-20 left-0 h-[calc(100vh-5rem)] w-72 bg-black/90 backdrop-blur-lg border-r border-cyan/20
-            transform transition-transform duration-300 z-40 overflow-y-auto
+            fixed lg:sticky top-20 left-0 h-[calc(100vh-5rem)] w-[19rem] max-w-[86vw] bg-black/95 lg:bg-black/88 backdrop-blur-xl border-r border-cyan/20
+            transform transition-transform duration-300 z-40 overflow-y-auto overscroll-contain
             ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           `}
                 >
-                    <div className="p-6">
-                        <h2 className="text-xl font-bold mb-6 font-pixel text-transparent bg-clip-text bg-gradient-to-r from-cyan to-purple">
-                            文档中心
-                        </h2>
-                        <nav className="space-y-6" aria-label="文档导航">
+                    <div className="p-5 pb-24 lg:p-6">
+                        <div className="mb-5 rounded-lg border border-cyan/15 bg-white/[0.03] p-4">
+                            <h2 className="font-pixel text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan to-purple">
+                                文档中心
+                            </h2>
+                            <p className="mt-2 text-xs leading-5 text-gray-500">
+                                当前：{currentSection.title} / {currentPage.label}
+                            </p>
+                        </div>
+                        <nav className="space-y-5" aria-label="文档导航">
                             {docsNavSections.map((section) => (
                                 <div key={section.title} className="space-y-2">
-                                    <div className="px-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">
+                                    <div className="px-3 text-xs font-semibold uppercase tracking-[0.16em] text-gray-500">
                                         {section.title}
                                     </div>
                                     {section.links.map((link) => (
@@ -113,15 +145,18 @@ const DocsLayout = () => {
                                             key={link.path}
                                             to={link.path}
                                             onClick={() => setIsSidebarOpen(false)}
+                                            aria-current={isActive(link.path) ? 'page' : undefined}
                                             className={`
-                    flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300
+                    flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-all duration-200
                     ${isActive(link.path)
-                                                    ? 'bg-cyan/10 text-cyan border border-cyan/30 shadow-[0_0_10px_rgba(15,240,252,0.1)]'
-                                                    : 'text-gray-400 hover:text-white hover:bg-white/5'}
+                                                    ? 'border-cyan/35 bg-cyan/10 text-cyan shadow-[0_0_10px_rgba(15,240,252,0.1)]'
+                                                    : 'border-transparent text-gray-400 hover:border-white/10 hover:bg-white/[0.04] hover:text-white'}
                   `}
                                         >
-                                            {link.icon}
-                                            <span>{link.label}</span>
+                                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/[0.04] text-current">
+                                                {link.icon}
+                                            </span>
+                                            <span className="truncate">{link.label}</span>
                                         </Link>
                                     ))}
                                 </div>
@@ -136,9 +171,44 @@ const DocsLayout = () => {
                     </div>
                 </aside>
 
-                <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 lg:px-12 overflow-x-hidden">
-                    <div className="prose prose-invert prose-cyan max-w-none">
-                        <Outlet />
+                <main id="doc-content" className="flex-1 w-full overflow-x-hidden px-4 py-8 sm:px-6 lg:px-10">
+                    <div className="mx-auto grid w-full max-w-7xl gap-8 xl:grid-cols-[minmax(0,1fr)_16rem]">
+                        <article className="min-w-0 max-w-4xl">
+                            <div className="mb-8 rounded-xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
+                                <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-cyan/80">
+                                    <span>{currentSection.title}</span>
+                                    <span className="text-gray-600">/</span>
+                                    <span>{currentPage.label}</span>
+                                </div>
+                                <p className="mt-3 text-sm leading-6 text-gray-400">
+                                    长文档建议按当前分组逐页阅读；右侧辅助栏会保留当前位置和快速操作。
+                                </p>
+                            </div>
+                            <div className="prose prose-invert prose-cyan max-w-none prose-p:leading-8 prose-li:leading-7 prose-headings:scroll-mt-28 prose-pre:max-w-full prose-pre:overflow-x-auto">
+                                <Outlet />
+                            </div>
+                        </article>
+
+                        <aside className="hidden xl:block">
+                            <div className="sticky top-24 space-y-4">
+                                <div className="rounded-xl border border-white/10 bg-white/[0.035] p-4">
+                                    <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                                        <Gauge size={16} className="text-cyan" />
+                                        阅读进度
+                                    </div>
+                                    <p className="mt-3 text-xs leading-5 text-gray-500">
+                                        当前位于 {currentSection.title} 分组，页面为 {currentPage.label}。长文内容已限制行宽，便于逐段扫描。
+                                    </p>
+                                </div>
+                                <a
+                                    href="#top"
+                                    className="flex items-center justify-between rounded-xl border border-cyan/20 bg-cyan/10 px-4 py-3 text-sm text-cyan transition-colors hover:border-cyan/40 hover:bg-cyan/15 focus:outline-none focus:ring-2 focus:ring-cyan/60"
+                                >
+                                    <span>返回顶部</span>
+                                    <MoveUp size={16} />
+                                </a>
+                            </div>
+                        </aside>
                     </div>
                 </main>
             </div>

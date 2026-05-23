@@ -1047,15 +1047,46 @@
 
 ## Task 17：优化文档页面 UI/UX 与长文可读性
 
-- 状态：未完成
+- 状态：已完成
 - 目标：让超长文档可读、可扫描、分类清晰，避免导航拥挤。
 - 输入范围：`website/src/layouts/DocsLayout.tsx`、docs 页面样式、全局 CSS。
 - 输出要求：必要的布局、目录、卡片或分组优化。
 - 验证方式：浏览器检查桌面/移动端，`website` 构建。
 - 实际改动：
+- 增强 `website/scripts/test-docs-ia.mjs`：
+  - 在现有文档 IA 契约基础上新增 Task 17 的 UI/UX 验收条件，检查 `DocsLayout.tsx` 必须包含 `currentPage`、`currentSection`、`documentationShell`、`#doc-content` 跳转锚点、条件 `aria-current`、阅读进度、返回顶部、`max-w-4xl` 阅读宽度、移动端遮罩、条件 `aria-modal` 和桌面端 `sticky top-24` 辅助栏。
+  - 先运行 `npm.cmd run test:docs-ia` 确认 RED，失败集中在当前页面上下文、正文锚点、可访问跳转、阅读辅助栏、阅读宽度和移动端遮罩缺失，证明契约能捕获 Task 17 的现有缺口。
+- 优化 `website/src/layouts/DocsLayout.tsx`：
+  - 从 `docsNavSections` 派生 `currentSection` 与 `currentPage`，在侧栏和正文顶部显示当前位置，解决长文页面跳转后读者不易确认所属分类的问题。
+  - 增加 `documentationShell` 根容器、`#top`、`#doc-content` 和“跳到正文”可访问链接，改善键盘用户与长页跳转体验。
+  - 将当前导航项改为条件 `aria-current={isActive(link.path) ? 'page' : undefined}`，避免非当前链接错误暴露当前页语义。
+  - 压缩侧栏导航密度，统一图标容器、文字截断、边框反馈、分组间距和当前页卡片，使“用户文档 / 开发者文档 / 参考资料”在长侧栏里更易扫描。
+  - 增加移动端全屏遮罩、`aria-expanded`、`aria-controls`、打开时 `role="dialog"` 和条件 `aria-modal`，并保持点击链接后自动关闭导航。
+  - 将正文区域改为 `max-w-4xl` 阅读宽度，增加正文顶部当前位置提示、段落/列表行高、标题滚动偏移和代码块横向滚动限制。
+  - 增加桌面端右侧 `阅读进度` 辅助栏和 `返回顶部` 操作，帮助超长文档页面保持当前位置感。
+- 浏览器工具处理：
+  - 已按 Browser 技能优先尝试工具链；Browser 插件要求的 Node REPL 执行工具未暴露，Playwright 与 Chrome DevTools MCP 均因本机已有 profile/实例被占用无法直接接管。
+  - 使用本轮本地 `vite preview` + 独立 headless Chrome DevTools Protocol 完成替代验收，未新增依赖、未写入仓库脚本。
 - 验证结果：
+- TDD RED：
+  - 已执行 `npm.cmd run test:docs-ia`，退出码 1，失败项为当前页面上下文、文档 shell、正文锚点、条件当前页语义、阅读进度、返回顶部、阅读宽度、移动端遮罩、条件模态语义和桌面辅助栏缺失。
+- GREEN 与回归：
+  - 已执行 `npm.cmd run test:docs-ia`（website），结果为 `docs IA contract passed`。
+  - 已执行 `npm.cmd run test:docs-user-content`（website），结果为 `docs user content contract passed`。
+  - 已执行 `npm.cmd run test:docs-developer-content`（website），结果为 `docs developer content contract passed`。
+  - 已执行 `npm.cmd run build`（website），`tsc -b && vite build` 通过，exit code 0，并确认文档静态入口继续生成；构建仍提示 `dist/assets/main-*.js` 大于 500 kB，这是当前 website 单包结构的既有 Vite chunk warning。
+- 浏览器/布局验收：
+  - 已启动 `npm.cmd run preview -- --host 127.0.0.1 --port 4173` 并用 headless Chrome CDP 抽查 `/docs/reference`、`/docs/troubleshooting`、`/docs/module-system`。
+  - 桌面 1440x1000：`documentationShell`、跳到正文链接、`#doc-content`、右侧 `阅读进度`、`返回顶部` 均存在；`articleWidth` 为 760；无横向溢出。
+  - 移动端 390x844：菜单打开前侧栏 `left=-304`，打开后 `aria-expanded=true`、`aria-modal=true`、`role=dialog`、遮罩存在、侧栏 `left=0`；点击 `/docs/reference` 链接后路径切换成功、`aria-expanded=false`、遮罩移除、侧栏回到 `left=-304`；无横向溢出。
+- 已执行 `git diff --check -- website/src/layouts/DocsLayout.tsx website/scripts/test-docs-ia.mjs goal-5/tasks.md`，退出码 0；仅有 Windows 工作区 LF/CRLF 提示。
 - 剩余风险：
+- 本轮优化的是文档站布局与长文可读性，不补充跨页面正文链接；交叉阅读路径仍按计划留给 Task 18。
+- 右侧 `阅读进度` 当前是当前位置辅助栏，不是基于滚动百分比或标题目录的动态进度条；如果后续要做真正目录/滚动进度，应在 Task 18 或最终体验审计中单独设计。
+- Browser 插件首选通道受当前环境工具暴露与浏览器 profile 占用限制，本轮用 headless Chrome CDP 完成可量化验收，没有产出人工截图。
+- website 构建的大 chunk warning 仍存在，后续最终审计可评估是否按路由做动态导入或拆分 chunk；本轮不扩大到性能重构。
 - 下一步：
+- 执行 Task 18：补充用户文档、开发者文档、FAQ、参考索引之间的交叉链接与推荐阅读路径。
 
 ## Task 18：补充文档内交叉链接与阅读路径
 

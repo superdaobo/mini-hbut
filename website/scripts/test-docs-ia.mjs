@@ -65,6 +65,18 @@ for (const section of navSections) {
 
 expect(!layout.includes('const links = ['), 'DocsLayout.tsx 仍使用旧扁平 links 导航');
 expect(layout.includes('docsNavSections'), 'DocsLayout.tsx 未使用 docsNavSections 分组导航');
+expect(layout.includes('currentPage'), 'DocsLayout.tsx 未提供当前页面上下文');
+expect(layout.includes('currentSection'), 'DocsLayout.tsx 未提供当前分组上下文');
+expect(layout.includes('documentationShell'), 'DocsLayout.tsx 未提供文档 shell 容器标识');
+expect(layout.includes('href="#doc-content"'), 'DocsLayout.tsx 未提供跳到正文的可访问链接');
+expect(layout.includes('id="doc-content"'), 'DocsLayout.tsx 未给正文区域提供稳定锚点');
+expect(layout.includes("aria-current={isActive(link.path) ? 'page' : undefined}"), 'DocsLayout.tsx 未给当前导航项提供条件 aria-current');
+expect(layout.includes('阅读进度'), 'DocsLayout.tsx 未提供长文阅读进度提示');
+expect(layout.includes('返回顶部'), 'DocsLayout.tsx 未提供返回顶部操作');
+expect(layout.includes('max-w-4xl'), 'DocsLayout.tsx 未限制长文阅读宽度');
+expect(layout.includes('inset-0 bg-black/70'), 'DocsLayout.tsx 未提供移动端导航遮罩');
+expect(layout.includes("aria-modal={isSidebarOpen ? 'true' : undefined}"), 'DocsLayout.tsx 未给移动端导航提供条件模态语义');
+expect(layout.includes('sticky top-24'), 'DocsLayout.tsx 未提供桌面端当前页辅助栏');
 
 const currentDocsRoutes = [
   '/docs/quick-start',
