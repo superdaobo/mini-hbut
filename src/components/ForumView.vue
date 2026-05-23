@@ -114,6 +114,32 @@ const currentThread = computed(() => threadDetail.value?.thread || selectedThrea
 const threadAttachments = computed(() => currentThread.value?.attachment_ids || [])
 const threadPendingKey = computed(() => `thread:${selectedCategoryId.value}:${newThread.value.title.trim()}:${newThread.value.content_md.trim()}`.slice(0, 180))
 const replyPendingKey = computed(() => selectedThread.value?.id ? `reply:${selectedThread.value.id}:${replyContent.value.trim().slice(0, 80)}` : 'reply:none')
+const messagePendingKey = computed(() => {
+  const receiver = messageDraft.value.receiver_student_id.trim()
+  const content = messageDraft.value.content.trim()
+  return `message:${receiver}:${content.slice(0, 40)}`
+})
+const profileCompletion = computed(() => {
+  const checks = [
+    profile.value.nickname?.trim(),
+    profile.value.avatar_url?.trim(),
+    profile.value.bio?.trim(),
+    Number(meStats.value.checkin_count || 0) > 0
+  ]
+  const completed = checks.filter(Boolean).length
+  return Math.round((completed / checks.length) * 100)
+})
+const userProfileThreads = computed(() => {
+  const target = toText(viewedProfileInfo.value.student_id).trim()
+  if (!target) return []
+  return displayThreads.value
+    .filter((thread) => toText(thread.author_student_id).trim() === target)
+    .slice(0, 3)
+})
+const userProfileBadges = computed(() => {
+  const items = viewedUserProfile.value?.badges || viewedUserProfile.value?.profile?.badges || []
+  return Array.isArray(items) ? items : []
+})
 
 const toText = (value) => (value == null ? '' : String(value))
 
@@ -570,7 +596,7 @@ const sendMessage = async () => {
     showToast('请填写收件人和内容', 'warning')
     return
   }
-  await runPending(`message:${receiver}:${content.slice(0, 40)}`, async () => {
+  await runPending(messagePendingKey.value, async () => {
     await client.sendMessage({ receiver_student_id: receiver, content })
     messageDraft.value = { receiver_student_id: '', content: '' }
     invalidateForumCache(['message'])
@@ -1055,9 +1081,14 @@ watch(
           <div class="section-heading tall">
             <div>
               <span class="eyebrow">Forum Activity</span>
-              <h2>Notifications</h2>
+              <h2>通知中心</h2>
             </div>
             <span>{{ unreadCount }} 未读</span>
+          </div>
+          <div class="notice-summary-strip">
+            <div><strong>{{ unreadCount }}</strong><span>未读</span></div>
+            <div><strong>{{ notifications.length }}</strong><span>通知</span></div>
+            <div><strong>{{ messages.length }}</strong><span>私信</span></div>
           </div>
           <div class="filter-pills">
             <button type="button" class="active">All Activity</button>
@@ -1065,37 +1096,47 @@ watch(
             <button type="button">Likes</button>
             <button type="button">System</button>
           </div>
-          <article v-for="notice in notifications" :key="notice.id" class="notification-card" :class="{ unread: !Number(notice.is_read || 0) }">
-            <span class="material-symbols-outlined">notifications</span>
-            <div>
-              <strong>{{ notice.title }}</strong>
-              <p>{{ notice.content }}</p>
-              <small>{{ formatTime(notice.created_at) }}</small>
-            </div>
-          </article>
-          <div v-if="!notifications.length" class="empty-card">暂无通知</div>
+          <div class="notification-list">
+            <article v-for="notice in notifications" :key="notice.id" class="notification-card" :class="{ unread: !Number(notice.is_read || 0) }">
+              <span class="material-symbols-outlined">notifications</span>
+              <div>
+                <strong>{{ notice.title }}</strong>
+                <p>{{ notice.content }}</p>
+                <small>{{ formatTime(notice.created_at) }}</small>
+              </div>
+            </article>
+            <div v-if="!notifications.length" class="empty-card compact">暂无通知</div>
+          </div>
 
           <div class="section-heading compact">
             <h3>私信</h3>
             <span>{{ messages.length }}</span>
           </div>
-          <div class="message-form">
-            <input v-model="messageDraft.receiver_student_id" placeholder="收件人学号" />
-            <textarea v-model="messageDraft.content" rows="3" placeholder="私信内容" />
-            <button class="primary-pill wide" type="button" @click="sendMessage">发送私信</button>
-          </div>
-          <article v-for="message in messages" :key="message.id" class="notification-card">
-            <span class="material-symbols-outlined">mail</span>
-            <div>
-              <strong>{{ message.sender_student_id }} -> {{ message.receiver_student_id }}</strong>
-              <p>{{ message.content }}</p>
-              <small>{{ formatTime(message.created_at) }}</small>
+          <div class="message-composer-card">
+            <div class="message-form">
+              <input v-model="messageDraft.receiver_student_id" placeholder="收件人学号" />
+              <textarea v-model="messageDraft.content" rows="3" placeholder="私信内容" />
+              <button class="primary-pill wide" type="button" :disabled="isPending(messagePendingKey)" @click="sendMessage">
+                <span class="material-symbols-outlined">send</span>
+                {{ isPending(messagePendingKey) ? '发送中' : '发送私信' }}
+              </button>
             </div>
-          </article>
+          </div>
+          <div class="message-thread-list">
+            <article v-for="message in messages" :key="message.id" class="notification-card">
+              <span class="material-symbols-outlined">mail</span>
+              <div>
+                <strong>{{ message.sender_student_id }} -> {{ message.receiver_student_id }}</strong>
+                <p>{{ message.content }}</p>
+                <small>{{ formatTime(message.created_at) }}</small>
+              </div>
+            </article>
+            <div v-if="!messages.length" class="empty-card compact">暂无私信</div>
+          </div>
         </section>
 
         <section v-if="activeTab === 'me'" class="page-stack" data-forum-page="me">
-          <div class="profile-card">
+          <div class="profile-dashboard-card">
             <div class="cover-gradient"></div>
             <div class="profile-body">
               <button
@@ -1114,17 +1155,21 @@ watch(
                   更换头像
                 </span>
               </button>
-              <button class="primary-pill" type="button" @click="checkIn">签到</button>
+              <button class="primary-pill" type="button" :disabled="isPending('checkin')" @click="checkIn">
+                {{ isPending('checkin') ? '签到中' : '签到' }}
+              </button>
               <h2>{{ profile.nickname || studentId || '游客' }}</h2>
               <p>{{ meSummary?.profile?.bio || profile.bio || '还没有填写社区简介' }}</p>
               <div class="tag-row">
                 <span>HBUT Student</span>
                 <span>Lv. {{ meStats.checkin_count || 0 }}</span>
+                <span>资料完整度 {{ profileCompletion }}%</span>
               </div>
-              <div class="stats-grid">
+              <div class="profile-stat-strip">
                 <div><strong>{{ meStats.thread_count || 0 }}</strong><span>Posts</span></div>
                 <div><strong>{{ meStats.reply_count || 0 }}</strong><span>Replies</span></div>
                 <div><strong>{{ meStats.bookmark_count || 0 }}</strong><span>Collections</span></div>
+                <div><strong>{{ meStats.checkin_count || 0 }}</strong><span>Check-ins</span></div>
               </div>
             </div>
           </div>
@@ -1169,22 +1214,31 @@ watch(
             </label>
             <button class="primary-pill wide" type="button" @click="saveProfile">保存资料</button>
           </div>
-          <div class="filter-pills">
+          <div class="profile-content-tabs">
             <button type="button" class="active">Posts</button>
             <button type="button">Replies</button>
             <button type="button">Collections</button>
           </div>
-          <div class="mini-list-card">
-            <h3>我的帖子</h3>
-            <button v-for="thread in myThreads" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
-            <div v-if="!myThreads.length" class="empty-card compact">暂无帖子</div>
+          <div class="profile-list-grid">
+            <div class="profile-list-card">
+              <h3>我的帖子</h3>
+              <button v-for="thread in myThreads" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
+              <div v-if="!myThreads.length" class="empty-card compact">暂无帖子</div>
+            </div>
+            <div class="profile-list-card">
+              <h3>我的回复</h3>
+              <button v-for="reply in myReplies" :key="reply.id" type="button" @click="openThread({ id: reply.thread_id, title: reply.thread_title })">
+                {{ reply.thread_title || reply.content_md || `回复 #${reply.id}` }}
+              </button>
+              <div v-if="!myReplies.length" class="empty-card compact">暂无回复</div>
+            </div>
+            <div class="profile-list-card">
+              <h3>我的收藏</h3>
+              <button v-for="thread in myBookmarks" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
+              <div v-if="!myBookmarks.length" class="empty-card compact">暂无收藏</div>
+            </div>
           </div>
-          <div class="mini-list-card">
-            <h3>我的收藏</h3>
-            <button v-for="thread in myBookmarks" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
-            <div v-if="!myBookmarks.length" class="empty-card compact">暂无收藏</div>
-          </div>
-          <div class="tag-row">
+          <div class="badge-cloud">
             <span v-for="badge in badges" :key="badge.badge_key">{{ badge.display_name }}</span>
             <span v-if="!badges.length">暂无徽章</span>
           </div>
@@ -1204,18 +1258,36 @@ watch(
               <span class="skeleton-line short"></span>
             </article>
           </div>
-          <div v-else class="profile-card">
+          <div v-else class="user-profile-hero">
             <div class="cover-gradient"></div>
             <div class="profile-body">
-              <div class="profile-avatar">{{ initials(viewedProfileInfo.nickname || viewedProfileInfo.student_id) }}</div>
-              <button class="primary-pill" type="button" :disabled="!viewedProfileInfo.student_id" @click="followAuthor(viewedProfileInfo.student_id)">关注</button>
+              <div class="profile-avatar">
+                <img v-if="viewedProfileInfo.avatar_url" :src="viewedProfileInfo.avatar_url" alt="用户头像" />
+                <span v-else>{{ initials(viewedProfileInfo.nickname || viewedProfileInfo.student_id) }}</span>
+              </div>
+              <div class="user-profile-actions">
+                <button class="primary-pill" type="button" :disabled="!viewedProfileInfo.student_id || isPending(`follow:${viewedProfileInfo.student_id}`)" @click="followAuthor(viewedProfileInfo.student_id)">
+                  {{ isPending(`follow:${viewedProfileInfo.student_id}`) ? '关注中' : '关注' }}
+                </button>
+              </div>
               <h2>{{ viewedProfileInfo.nickname || viewedProfileInfo.student_id || '同学' }}</h2>
               <p>{{ viewedProfileInfo.bio || '这个同学还没有填写社区简介' }}</p>
-              <div class="stats-grid">
+              <div class="user-profile-stat-strip">
                 <div><strong>{{ viewedProfileStats.thread_count || 0 }}</strong><span>Posts</span></div>
                 <div><strong>{{ viewedProfileStats.reply_count || 0 }}</strong><span>Replies</span></div>
                 <div><strong>{{ viewedProfileStats.follower_count || 0 }}</strong><span>Followers</span></div>
               </div>
+              <div class="user-profile-badges">
+                <span v-for="badge in userProfileBadges" :key="badge.badge_key">{{ badge.display_name }}</span>
+                <span v-if="!userProfileBadges.length">暂无公开徽章</span>
+              </div>
+            </div>
+          </div>
+          <div class="user-profile-content-grid">
+            <div class="profile-list-card">
+              <h3>公开动态</h3>
+              <button v-for="thread in userProfileThreads" :key="thread.id" type="button" @click="openThread(thread)">{{ thread.title }}</button>
+              <div v-if="!userProfileThreads.length" class="empty-card compact">这个同学还没有发帖</div>
             </div>
           </div>
         </section>
@@ -1591,8 +1663,12 @@ watch(
 .detail-card,
 .comment-panel,
 .profile-card,
+.profile-dashboard-card,
+.user-profile-hero,
 .edit-card,
 .mini-list-card,
+.profile-list-card,
+.message-composer-card,
 .message-form,
 .notification-card,
 .admin-card,
@@ -2382,6 +2458,83 @@ watch(
   color: var(--stitch-warning);
 }
 
+.notice-summary-strip,
+.profile-stat-strip,
+.user-profile-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-stat-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.notice-summary-strip {
+  margin-top: -4px;
+}
+
+.user-profile-stat-strip {
+  margin-top: 16px;
+}
+
+.notice-summary-strip div,
+.profile-stat-strip div,
+.user-profile-stat-strip div {
+  min-width: 0;
+  border: 1px solid rgba(194, 198, 214, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.notice-summary-strip strong,
+.notice-summary-strip span,
+.profile-stat-strip strong,
+.profile-stat-strip span,
+.user-profile-stat-strip strong,
+.user-profile-stat-strip span {
+  display: block;
+}
+
+.notice-summary-strip strong,
+.profile-stat-strip strong,
+.user-profile-stat-strip strong {
+  color: var(--stitch-primary);
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 22px;
+}
+
+.notice-summary-strip span,
+.profile-stat-strip span,
+.user-profile-stat-strip span {
+  color: var(--stitch-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.notification-list,
+.message-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notification-list {
+  min-width: 0;
+}
+
+.message-composer-card {
+  padding: 12px;
+}
+
+.message-thread-list {
+  min-width: 0;
+}
+
 .notification-card,
 .admin-row {
   position: relative;
@@ -2438,8 +2591,18 @@ watch(
   resize: vertical;
 }
 
-.profile-card {
+.profile-card,
+.profile-dashboard-card,
+.user-profile-hero {
   overflow: hidden;
+}
+
+.profile-dashboard-card {
+  position: relative;
+}
+
+.user-profile-hero {
+  position: relative;
 }
 
 .cover-gradient {
@@ -2572,6 +2735,95 @@ watch(
   line-height: 16px;
 }
 
+.profile-content-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  border-radius: 22px;
+  background: var(--stitch-surface-card);
+  padding: 6px;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.profile-content-tabs button {
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--stitch-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.profile-content-tabs button.active,
+.profile-content-tabs button:hover {
+  background: var(--stitch-primary);
+  color: #ffffff;
+}
+
+.profile-list-grid,
+.user-profile-content-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.profile-list-grid {
+  min-width: 0;
+}
+
+.user-profile-content-grid {
+  min-width: 0;
+}
+
+.profile-list-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.badge-cloud,
+.user-profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 12px;
+}
+
+.badge-cloud {
+  min-width: 0;
+}
+
+.user-profile-badges {
+  min-width: 0;
+}
+
+.badge-cloud span,
+.user-profile-badges span {
+  min-width: 0;
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-primary);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 15px;
+}
+
+.user-profile-actions {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+}
+
 .edit-card label {
   display: flex;
   flex-direction: column;
@@ -2681,7 +2933,8 @@ watch(
   line-height: 16px;
 }
 
-.mini-list-card button {
+.mini-list-card button,
+.profile-list-card button {
   min-height: 42px;
   border: 0;
   border-radius: 14px;

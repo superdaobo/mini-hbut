@@ -210,6 +210,90 @@ describe('forum view identity contract', () => {
     }
   })
 
+  it('keeps notice, me, and user profile pages feature-complete for Task 10', () => {
+    const forumSource = readSource('src/components/ForumView.vue')
+
+    for (const scriptMarker of [
+      'const profileCompletion = computed',
+      'const userProfileThreads = computed',
+      'const userProfileBadges = computed',
+      'const messagePendingKey = computed',
+      'isPending(messagePendingKey)',
+      "isPending('checkin')",
+      'cached(\'notice:list\'',
+      'cached(\'message:list\'',
+      'cached(\'me:badges\'',
+      'cached(`user-profile:${target}`'
+    ]) {
+      expect(forumSource).toContain(scriptMarker)
+    }
+
+    for (const noticeMarker of [
+      'class="notice-summary-strip"',
+      'class="notification-list"',
+      'class="message-composer-card"',
+      'class="message-thread-list"',
+      '发送私信',
+      '私信已发送',
+      '通知中心',
+      '未读',
+      '暂无私信'
+    ]) {
+      expect(forumSource).toContain(noticeMarker)
+    }
+
+    for (const meMarker of [
+      'class="profile-dashboard-card"',
+      'class="profile-stat-strip"',
+      'class="profile-content-tabs"',
+      'class="profile-list-grid"',
+      'class="profile-list-card"',
+      'class="badge-cloud"',
+      '我的帖子',
+      '我的回复',
+      '我的收藏',
+      '资料完整度',
+      '签到中',
+      '头像上传（推荐）'
+    ]) {
+      expect(forumSource).toContain(meMarker)
+    }
+
+    for (const profileMarker of [
+      'class="user-profile-hero"',
+      'class="user-profile-stat-strip"',
+      'class="user-profile-actions"',
+      'class="user-profile-badges"',
+      'class="user-profile-content-grid"',
+      '用户主页加载中',
+      '关注',
+      '这个同学还没有发帖',
+      '暂无公开徽章'
+    ]) {
+      expect(forumSource).toContain(profileMarker)
+    }
+
+    for (const styleMarker of [
+      '\n.notice-summary-strip {',
+      '\n.notification-list {',
+      '\n.message-composer-card {',
+      '\n.message-thread-list {',
+      '\n.profile-dashboard-card {',
+      '\n.profile-stat-strip {',
+      '\n.profile-content-tabs {',
+      '\n.profile-list-grid {',
+      '\n.profile-list-card {',
+      '\n.badge-cloud {',
+      '\n.user-profile-hero {',
+      '\n.user-profile-stat-strip {',
+      '\n.user-profile-actions {',
+      '\n.user-profile-badges {',
+      '\n.user-profile-content-grid {'
+    ]) {
+      expect(forumSource).toContain(styleMarker)
+    }
+  })
+
   it('allows profile avatars to be uploaded through the forum image host', () => {
     const forumSource = readSource('src/components/ForumView.vue')
 
