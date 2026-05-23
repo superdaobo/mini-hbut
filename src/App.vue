@@ -3210,7 +3210,7 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  --bottom-tab-bar-bottom: 0px;
   min-height: var(--bottom-tab-bar-content-height) !important;
   padding-bottom: 10px !important;
   border-radius: 20px !important;

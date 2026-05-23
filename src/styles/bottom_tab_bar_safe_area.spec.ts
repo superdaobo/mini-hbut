@@ -63,7 +63,8 @@ describe('bottom tab bar safe area contract', () => {
     const iosRule = getRuleBody(appVue(), '.bottom-tab-bar--ios')
 
     expect(baseRule).toContain('bottom: var(--bottom-tab-bar-bottom) !important')
-    expect(iosRule).toContain('--bottom-tab-bar-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px)')
+    expect(iosRule).toContain('--bottom-tab-bar-bottom: 0px')
+    expect(iosRule).not.toContain('safe-area-inset-bottom, 0px) + 8px')
   })
 
   it('keeps the iOS tab bar visual height fixed instead of stretching it with safe-area padding', () => {
@@ -85,22 +86,22 @@ describe('bottom tab bar safe area contract', () => {
     expect(indexCss()).not.toMatch(/--ux-bottom-safe:\s*calc\(128px\s*\+\s*var\(--app-safe-bottom\)\)/)
   })
 
-  it('keeps the iOS native WebView safe-area ownership aligned with v1.3.6', () => {
-    expect(capacitorConfig()).not.toContain('contentInset')
-    expect(appDelegate()).not.toContain('configureEdgeToEdgeWebView')
-    expect(appDelegate()).not.toContain('contentInsetAdjustmentBehavior')
-    expect(appDelegate()).not.toContain('scrollIndicatorInsets')
+  it('lets the iOS WebView draw edge-to-edge while CSS keeps the tab bar height fixed', () => {
+    expect(capacitorConfig()).toContain("contentInset: 'never'")
+    expect(appDelegate()).toContain('configureEdgeToEdgeWebView')
+    expect(appDelegate()).toContain('contentInsetAdjustmentBehavior = .never')
+    expect(appDelegate()).toContain('contentInset = .zero')
+    expect(appDelegate()).toContain('scrollIndicatorInsets = .zero')
   })
 
-  it('uses the default Capacitor bridge controller instead of the custom edge-to-edge controller', () => {
-    expect(storyboard()).toContain('customClass="CAPBridgeViewController"')
-    expect(storyboard()).toContain('customModule="Capacitor"')
-    expect(storyboard()).not.toContain('EdgeToEdgeBridgeViewController')
+  it('uses the edge-to-edge bridge controller before the first WebView layout pass', () => {
+    expect(storyboard()).toContain('customClass="EdgeToEdgeBridgeViewController"')
+    expect(storyboard()).toContain('customModule="App"')
   })
 
   it('keeps the component-scoped iOS fallback aligned with the global rule', () => {
     expect(appVue()).toMatch(
-      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*calc\(env\(safe-area-inset-bottom,\s*0px\)\s*\+\s*8px\);[^}]*min-height:\s*var\(--bottom-tab-bar-content-height\)\s*!important;[^}]*padding-bottom:\s*10px\s*!important;[^}]*border-radius:\s*20px\s*!important;[^}]*max-height:\s*92px\s*!important;/s
+      /\.bottom-tab-bar--ios\s*\{[^}]*--bottom-tab-bar-bottom:\s*0px;[^}]*min-height:\s*var\(--bottom-tab-bar-content-height\)\s*!important;[^}]*padding-bottom:\s*10px\s*!important;[^}]*border-radius:\s*20px\s*!important;[^}]*max-height:\s*92px\s*!important;/s
     )
     const iosRule = getRuleBody(appVue(), '.bottom-tab-bar--ios')
     expect(iosRule).not.toContain('border-bottom-left-radius: 0')
@@ -130,7 +131,7 @@ describe('bottom tab bar safe area contract', () => {
     const bundledCss = normalizeCss(readIosBundledStyles())
 
     expect(bundledCss).not.toContain('@import')
-    expect(bundledCss).toContain('--bottom-tab-bar-bottom:calc(env(safe-area-inset-bottom,0px)+8px)')
+    expect(bundledCss).toContain('--bottom-tab-bar-bottom:0px')
     expect(bundledCss).toContain('bottom:var(--bottom-tab-bar-bottom)!important')
     expect(bundledCss).toContain('grid-template-columns:repeat(5,minmax(0,1fr))!important')
     expect(bundledCss).toContain('min-height:var(--bottom-tab-bar-content-height)!important')
@@ -138,6 +139,7 @@ describe('bottom tab bar safe area contract', () => {
     expect(bundledCss).toContain('border-radius:20px!important')
     expect(bundledCss).toContain('max-height:92px!important')
     expect(bundledCss).not.toContain('--bottom-tab-bar-safe-bottom')
+    expect(bundledCss).not.toContain('--bottom-tab-bar-bottom:calc(env(safe-area-inset-bottom,0px)+8px)')
     expect(bundledCss).not.toContain('min-height:calc(var(--bottom-tab-bar-content-height)+')
     expect(bundledCss).not.toContain('padding-bottom:calc(10px+')
     expect(bundledCss).not.toContain('--ux-bottom-safe:calc(128px+env(safe-area-inset-bottom))')
