@@ -184,10 +184,10 @@
 - [ ] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：按用户追加要求补强“我的/个人资料”头像设置体验：`ForumView.vue` 的头像设置不再以手动链接为主，而是新增 `avatar-setting-card` 上传主卡片，展示当前头像预览、`设置头像` 标题、`上传头像到图床` 主按钮和自动回填说明；选择本地图片后继续复用 `client.uploadAttachment(file)` 上传到论坛图床，再通过 `resolveAvatarAttachmentUrl()` 回填 `profile.avatar_url`，手动 URL 被降级为 `avatar-manual-fallback` 备用入口。同步加强 `forum_view_identity_contract.spec.ts`，锁定头像设置卡片、预览、上传主入口、自动回填文案和“上传入口必须排在备用 URL 前”的契约。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 得到红灯，唯一失败点为缺少 `class="avatar-setting-card"`；实现后同一命令通过，8 tests passed。随后运行 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --testTimeout 60000` 通过，3 files / 24 tests passed。`git diff --check -- src\components\ForumView.vue src\utils\forum_view_identity_contract.spec.ts` 通过，仅有既有 LF/CRLF 提示。`npm.cmd run build` 退出码 0，仍有既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning。启动本地 Vite 后 `curl.exe -I http://127.0.0.1:1420/` 返回 HTTP 200；已结束本轮启动的 dev server。
+- 剩余风险：本轮只处理用户追加的头像设置上传图床问题，Task 10 的通知/私信/我的内容列表/个人主页完整 Stitch 重构仍未完成，因此 Task 10 保持未完成。真实 HF Bucket/线上后端头像实传尚未执行，仍留给后续集成和 HF 测试阶段。Playwright MCP 与 Chrome DevTools MCP 均被已有浏览器实例占用，本轮没有抢占或清理浏览器状态。
+- 下一步：继续 Task 10 剩余部分，按 Stitch 风格重构通知、私信、我的列表、徽章和用户主页，并补页面级契约与移动端验收。
 
 ## Task 11: 前端管理页、备份页与图床体验
 

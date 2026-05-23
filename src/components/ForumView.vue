@@ -1133,23 +1133,33 @@ watch(
               <span>昵称</span>
               <input id="forum-profile-nickname" v-model="profile.nickname" name="forum-profile-nickname" maxlength="80" />
             </label>
-            <div class="avatar-upload-field">
-              <span class="avatar-upload-title">头像上传（推荐）</span>
-              <input id="forum-profile-avatar-file" ref="profileAvatarInput" type="file" accept="image/*" :disabled="isPending('profile:avatar-upload')" @change="uploadAvatarImage" />
-              <label
-                class="ghost-pill avatar-upload-button"
-                for="forum-profile-avatar-file"
-                tabindex="0"
-                @keydown.enter.prevent="openAvatarFilePicker"
-                @keydown.space.prevent="openAvatarFilePicker"
-              >
-                <span class="material-symbols-outlined">upload</span>
-                <span>{{ isPending('profile:avatar-upload') ? '头像图床上传中' : '上传头像到图床' }}</span>
-              </label>
-              <p v-if="avatarUploadStatus" class="avatar-upload-status">{{ avatarUploadStatus }}</p>
-              <p class="form-hint">选择本地图片后会上传到后端图床，并自动回填头像 URL。</p>
+            <div class="avatar-setting-card">
+              <div class="avatar-setting-preview" aria-label="当前社区头像预览">
+                <img v-if="profile.avatar_url" :src="profile.avatar_url" alt="当前社区头像" />
+                <span v-else>{{ initials(profile.nickname || studentId) }}</span>
+              </div>
+              <div class="avatar-setting-actions">
+                <strong>设置头像</strong>
+                <span class="avatar-upload-title">头像上传（推荐）</span>
+                <p class="form-hint">从本地选择图片上传到论坛图床，成功后会自动回填到头像地址。</p>
+                <div class="avatar-upload-field">
+                  <input id="forum-profile-avatar-file" ref="profileAvatarInput" type="file" accept="image/*" :disabled="isPending('profile:avatar-upload')" @change="uploadAvatarImage" />
+                  <label
+                    class="ghost-pill avatar-upload-button"
+                    for="forum-profile-avatar-file"
+                    tabindex="0"
+                    @keydown.enter.prevent="openAvatarFilePicker"
+                    @keydown.space.prevent="openAvatarFilePicker"
+                  >
+                    <span class="material-symbols-outlined">upload</span>
+                    <span>{{ isPending('profile:avatar-upload') ? '头像图床上传中' : '上传头像到图床' }}</span>
+                  </label>
+                </div>
+                <p v-if="avatarUploadStatus" class="avatar-upload-status">{{ avatarUploadStatus }}</p>
+                <p class="form-hint">自动上传失败时，仍可使用下方备用 URL。</p>
+              </div>
             </div>
-            <label>
+            <label class="avatar-manual-fallback">
               <span>手动 URL（备用）</span>
               <input id="forum-profile-avatar" v-model="profile.avatar_url" name="forum-profile-avatar" maxlength="500" placeholder="自动上传失败时，可粘贴后端图床或外部图片 URL" />
             </label>
@@ -2569,6 +2579,56 @@ watch(
   color: var(--stitch-muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.avatar-setting-card {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(0, 88, 190, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(216, 226, 255, 0.76), rgba(255, 255, 255, 0.92));
+  padding: 12px;
+}
+
+.avatar-setting-preview {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  place-items: center;
+  overflow: hidden;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: var(--stitch-primary-fixed);
+  color: var(--stitch-on-primary-fixed);
+  font-size: 20px;
+  font-weight: 800;
+  box-shadow: var(--stitch-card-shadow);
+}
+
+.avatar-setting-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-setting-actions {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.avatar-setting-actions strong {
+  color: var(--stitch-text);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 20px;
+}
+
+.avatar-manual-fallback {
+  opacity: 0.86;
 }
 
 .avatar-upload-field {
