@@ -63,17 +63,18 @@ const clearCachedToken = (studentId, apiBase = '') => {
 export const readForumProfile = (studentId) => {
   const sid = toText(studentId).trim()
   if (!sid || typeof localStorage === 'undefined') {
-    return { nickname: sid, avatar_url: '', bio: '' }
+    return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
   }
   try {
     const parsed = JSON.parse(localStorage.getItem(`${PROFILE_CACHE_KEY_PREFIX}${sid}`) || '{}')
     return {
       nickname: toText(parsed.nickname || sid).trim() || sid,
       avatar_url: toText(parsed.avatar_url || parsed.avatarUrl || '').trim(),
-      bio: toText(parsed.bio || '').trim()
+      bio: toText(parsed.bio || '').trim(),
+      admin_secret: toText(parsed.admin_secret || parsed.adminSecret || '').trim()
     }
   } catch {
-    return { nickname: sid, avatar_url: '', bio: '' }
+    return { nickname: sid, avatar_url: '', bio: '', admin_secret: '' }
   }
 }
 
@@ -82,7 +83,8 @@ export const writeForumProfile = (studentId, profile = {}) => {
   const normalized = {
     nickname: toText(profile.nickname || sid).trim() || sid,
     avatar_url: toText(profile.avatar_url || profile.avatarUrl || '').trim(),
-    bio: toText(profile.bio || '').trim()
+    bio: toText(profile.bio || '').trim(),
+    admin_secret: toText(profile.admin_secret || profile.adminSecret || '').trim()
   }
   if (!sid || typeof localStorage === 'undefined') return normalized
   try {
@@ -138,6 +140,7 @@ export const createForumApiClient = ({
   nickname = '',
   avatarUrl = '',
   bio = '',
+  adminSecret = '',
   fetcher = fetch
 } = {}) => {
   const base = normalizeForumEndpoint(apiBase || DEFAULT_FORUM_ENDPOINT)
@@ -194,7 +197,8 @@ export const createForumApiClient = ({
         student_id: sid,
         nickname: nickname || sid,
         avatar_url: avatarUrl,
-        bio
+        bio,
+        admin_secret: adminSecret
       },
       auth: false
       })

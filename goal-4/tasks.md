@@ -220,16 +220,16 @@
 
 ## 大型全面检查-debug 循环 D（完成 Task 10-12 后执行）
 
-- [ ] 状态：未完成
-- [ ] 从 C 端体验、视觉一致性、代码质量、安全、数据一致性、权限、错误处理、缓存、测试、构建、文档、回滚全面检查
-- [ ] 修复所有已知高风险问题
-- [ ] 明确哪些线上操作仍需用户危险确认
+- [x] 状态：已完成
+- [x] 从 C 端体验、视觉一致性、代码质量、安全、数据一致性、权限、错误处理、缓存、测试、构建、文档、回滚全面检查
+- [x] 修复所有已知高风险问题
+- [x] 明确哪些线上操作仍需用户危险确认
 
 记录：
-- 检查内容：
-- 修复内容：
-- 验证结果：
-- 剩余风险：
+- 检查内容：已复核 Task 10-12 的通知、我的、个人主页、管理、投票、图床、发帖上传、签到、缓存和防重复提交链路。前端源码与契约确认：发帖标题/正文不被 file input 覆盖，发帖上传只由显式按钮触发；头像支持上传到论坛图床后自动回填；签到在 client 未初始化时会先 `buildClient()`；帖子级评分 UI/API 已移除，投票打分独立为 `polls` 页面并由管理员创建/关闭。后端源码与测试确认：帖子评分旧接口返回 404；投票数据持久化在 `forum_polls`、`forum_poll_options`、`forum_poll_votes`；附件上传有 MIME/大小限制、sha256 去重、HF Bucket 强制配置开关、本地降级和代理缓存；`forum_` 表独立于成绩/排名业务。安全审计发现一个高风险缺口：线上如果只按管理员学号签发管理员 token，公开 API 场景下知道管理员学号的人可能获得管理权限。
+- 修复内容：后端新增管理员口令门禁：`ForumSettings` 增加 `admin_secret` 与 `require_admin_secret`，HF Space 默认开启 `FORUM_REQUIRE_ADMIN_SECRET=true`；`ForumAuth.issue_token()` 只有在管理员学号和管理员口令同时匹配时才签发管理员身份，并让开启门禁后的旧管理员 token 降级为普通身份；`/api/forum/auth/token` 接收 `admin_secret`。部署 secret 脚本新增 `FORUM_ADMIN_SECRET` 和 `FORUM_REQUIRE_ADMIN_SECRET`，继续只打印 `SET`，不输出真实值。前端“我的资料”新增本地“管理员口令”输入，`forum_api` 只把它发给 `/auth/token`，不随普通论坛写接口发送；保存资料后会清理旧 token、重建 client、强制刷新 `me` 和投票列表，让管理员入口立即生效。同步新增后端和前端契约测试。
+- 验证结果：后端红灯先复现：`python.exe -m pytest tests\test_forum_business_api.py -q` 因 `ForumSettings` 缺少 `admin_secret` 失败；前端红灯先复现：`npx.cmd vitest run src\utils\forum_api.spec.ts --pool forks --testTimeout 60000` 因 `readForumProfile()` 不保留 `admin_secret` 失败；保存资料重载身份的契约也先红灯。修复后，后端 `python.exe -m pytest tests -q` 通过，`63 passed, 24 warnings in 13.72s`；后端 `python.exe -m py_compile forum_backend\auth.py forum_backend\config.py forum_backend\main.py scripts\configure_hf_forum_runtime_secrets.py tests\test_forum_business_api.py tests\test_forum_config.py tests\test_configure_hf_forum_runtime_secrets.py` 通过；后端 `git diff --check` 通过。前端论坛范围 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --pool forks --testTimeout 60000` 通过，3 files / 28 tests passed；`npm.cmd run build` 通过，仍保留既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning；前端论坛相关 `git diff --check` 通过。静态搜索确认 `scoreThread`、`score-stepper`、`compose-score-options` 只存在于“不得包含”的测试断言中，前端实际 UI/API 无帖子评分；后端 `/scores` 只存在于 404 断言测试中。`npx.cmd vitest run --pool forks --testTimeout 60000` 仍失败，失败边界仍是非论坛既有小游戏/模块中心脏改动：`hbut_memory_match_game.spec.ts`、`hbut_monopoly_game.spec.ts`、`module_center.spec.ts`、`remote_config.spec.ts`。
+- 剩余风险：本轮未执行 HF testocr1 推送、真实 SQLPub 写入、HF Space Secrets 写入、桌面 secrets 文件写入、HF Private Bucket 真实上传或 OneDrive 同步，避免在 D 循环提前执行远程/敏感操作。尽管用户此前已授权最终推送和测试，按本 goal 的任务顺序，Task 13 仍需整理待提交清单并明确执行边界；Task 14 才执行 HF testocr1 部署与线上 smoke。前端全量 Vitest 仍被无关小游戏/website 脏改动阻断；Tauri 仓库仍有 `.playwright-mcp`、旧截图和大量 `website/modules-*` 无关脏改动，`ocr-service` 仍有未跟踪 `data/`、`scripts/utf8.ps1`，均未提交。线上部署时必须配置 `FORUM_ADMIN_SECRET`，否则管理员学号会降级为普通用户，管理页不会出现。
 
 ## Task 13: HF testocr1 推送前准备与危险操作确认
 

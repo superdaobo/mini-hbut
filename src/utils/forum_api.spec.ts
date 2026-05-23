@@ -5,6 +5,7 @@ import {
   buildForumApiBase,
   createForumApiClient,
   normalizeForumEndpoint,
+  readForumProfile,
   writeForumProfile
 } from './forum_api'
 
@@ -246,6 +247,71 @@ describe('forum api config', () => {
 
       expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fold.example%2Fapi%2Fforum')).toBe(false)
       expect(storage.has('hbu_forum_token:2510231106:https%3A%2F%2Fnew.example%2Fapi%2Fforum')).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps admin secrets local and sends them only to the token endpoint', async () => {
+    const storage = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) || null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      key: (index: number) => Array.from(storage.keys())[index] || null,
+      get length() {
+        return storage.size
+      }
+    })
+
+    const calls: Array<{ url: string; init?: RequestInit; body?: any }> = []
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init, body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body })
+      if (url.endsWith('/auth/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'admin-token', expires_at: Math.floor(Date.now() / 1000) + 3600, is_admin: true })
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [] })
+      }
+    }) as unknown as typeof fetch
+
+    try {
+      const profile = writeForumProfile('2510231106', {
+        nickname: '管理员',
+        avatar_url: 'https://avatar.example/a.png',
+        bio: '论坛管理员',
+        admin_secret: 'local-admin-pass'
+      })
+      const reloaded = readForumProfile('2510231106')
+      const client = createForumApiClient({
+        apiBase: 'https://example.com',
+        studentId: '2510231106',
+        nickname: profile.nickname,
+        avatarUrl: profile.avatar_url,
+        bio: profile.bio,
+        adminSecret: reloaded.admin_secret,
+        fetcher
+      })
+
+      await client.listAdminReports({ limit: 1 })
+
+      expect(reloaded.admin_secret).toBe('local-admin-pass')
+      expect(calls[0].url).toBe('https://example.com/api/forum/auth/token')
+      expect(calls[0].body).toMatchObject({
+        student_id: '2510231106',
+        nickname: '管理员',
+        avatar_url: 'https://avatar.example/a.png',
+        bio: '论坛管理员',
+        admin_secret: 'local-admin-pass'
+      })
+      expect(calls[1].url).toBe('https://example.com/api/forum/admin/reports?limit=1')
+      expect(calls[1].body).toBeUndefined()
     } finally {
       vi.unstubAllGlobals()
     }

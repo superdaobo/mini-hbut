@@ -234,6 +234,9 @@ describe('forum view identity contract', () => {
       'isPending(messagePendingKey)',
       "isPending('checkin')",
       'if (!client) await buildClient()',
+      'const saveProfile = async () =>',
+      'await buildClient()',
+      'await loadMe({ force: true })',
       'cached(\'notice:list\'',
       'cached(\'message:list\'',
       'cached(\'me:badges\'',
@@ -268,7 +271,8 @@ describe('forum view identity contract', () => {
       '我的收藏',
       '资料完整度',
       '签到中',
-      '头像上传（推荐）'
+      '头像上传（推荐）',
+      '管理员口令'
     ]) {
       expect(forumSource).toContain(meMarker)
     }
@@ -321,6 +325,11 @@ describe('forum view identity contract', () => {
     expect(forumSource).toContain("runPending('profile:avatar-upload'")
     expect(forumSource).toContain('client.uploadAttachment(file)')
     expect(forumSource).toContain('profile.value.avatar_url = avatarUrl')
+    expect(forumSource).toContain('adminSecret: profile.value.admin_secret')
+    expect(forumSource).toContain('id="forum-profile-admin-secret"')
+    expect(forumSource).toContain('v-model="profile.admin_secret"')
+    expect(forumSource).toContain('type="password"')
+    expect(forumSource).toContain('仅管理员填写')
     expect(forumSource).toContain('avatarUploadStatus.value =')
     expect(forumSource).toContain('class="profile-avatar uploadable-avatar"')
     expect(forumSource).toContain('class="avatar-setting-card"')

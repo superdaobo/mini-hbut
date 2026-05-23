@@ -451,7 +451,8 @@ const buildClient = async () => {
     studentId: props.studentId,
     nickname: profile.value.nickname,
     avatarUrl: profile.value.avatar_url,
-    bio: profile.value.bio
+    bio: profile.value.bio,
+    adminSecret: profile.value.admin_secret
   })
   forumCache = createForumCache({
     studentId: props.studentId || 'guest',
@@ -854,12 +855,14 @@ const reportThread = async (thread) => {
   })
 }
 
-const saveProfile = () => {
+const saveProfile = async () => {
   profile.value = writeForumProfile(props.studentId, profile.value)
   client = null
   forumCache = null
   showToast('社区资料已保存', 'success')
-  buildClient()
+  await buildClient()
+  await loadMe({ force: true })
+  await loadAdminPolls({ force: true })
 }
 
 const checkIn = async () => {
@@ -1528,6 +1531,18 @@ watch(
             <label>
               <span>简介</span>
               <input v-model="profile.bio" maxlength="300" placeholder="社区简介" />
+            </label>
+            <label class="admin-secret-field">
+              <span>管理员口令</span>
+              <input
+                id="forum-profile-admin-secret"
+                v-model="profile.admin_secret"
+                name="forum-profile-admin-secret"
+                type="password"
+                maxlength="300"
+                autocomplete="current-password"
+                placeholder="仅管理员填写"
+              />
             </label>
             <button class="primary-pill wide" type="button" @click="saveProfile">保存资料</button>
           </div>
