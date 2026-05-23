@@ -41,6 +41,24 @@ const referenceDocsIndex = [
     ['Implementation.tsx', '/docs/reference/implementation-notes', '实现札记和历史说明。'],
 ];
 
+const legacyDocsIndex = [
+    ['Guide.tsx', '/docs/guide', '旧版安装指南，保留历史平台安装、下载和侧载说明。新版首次使用路径优先读 QuickStart.tsx。'],
+    ['Configuration.tsx', '/docs/configuration', '旧版配置说明，保留 OCR、远程配置、云同步和高级配置细节。新版用户路径优先读 SettingsData.tsx。'],
+    ['FAQ.tsx', '/docs/faq', '旧版 FAQ，保留历史问答。新版排错闭环优先读 Troubleshooting.tsx。'],
+    ['Technical.tsx', '/docs/technical', '旧版技术原理，保留历史架构解释。新版实现路径优先读 DeveloperOverview.tsx 和 ArchitectureDataFlow.tsx。'],
+    ['More.tsx', '/docs/more', '旧版更多资料入口，保留外部链接、贡献入口和相关资料。新版源码索引优先读 ReferenceIndex.tsx。'],
+];
+
+const crossReadingMatrix = [
+    ['用户首次上手', '/docs/quick-start', '/docs/user-guide', '先完成安装、登录、首页和搜索，再进入完整用户功能地图。'],
+    ['学习与校园服务', '/docs/academic', '/docs/campus-life', '教务服务和校园生活互相补充，覆盖学习、身份、资源和一卡通数据。'],
+    ['消息与反馈', '/docs/community-notifications', '/docs/settings-data', '论坛、通知、反馈材料、日志和设置通常需要一起阅读。'],
+    ['扩展与模块实现', '/docs/extensions', '/docs/module-system', '用户看到的更多模块，对应开发者的 manifest、catalog、bundle 和宿主实现。'],
+    ['排错与风险', '/docs/troubleshooting', '/docs/security-privacy', '排查登录、网络、通知和缓存问题前，需要确认敏感信息和权限边界。'],
+    ['源码与发布', '/docs/developer', '/docs/build-release', '开发者总览给出阅读顺序，构建发布给出脚本、产物和门禁。'],
+    ['索引与历史资料', '/docs/reference', '/docs/faq', '参考索引负责当前源码定位，旧版 FAQ 保留历史问答和迁移线索。'],
+];
+
 const componentIndex = [
     ['Dashboard.vue', '首页和搜索、今日课程、天气、快捷入口、功能分类、首页布局状态。'],
     ['ScheduleView.vue', '个人课表、自定义课程、学期/周次、导入导出、ICS 和云同步入口。'],
@@ -164,6 +182,41 @@ const ReferenceIndex = () => (
                         <h3 className="text-sm font-semibold text-cyan">{file}</h3>
                         <p className="mt-3 text-sm leading-7 text-gray-300">{description}</p>
                     </Link>
+                ))}
+            </div>
+        </section>
+
+        <section className="space-y-4">
+            <h2 className="text-2xl font-bold text-white">旧版文档索引</h2>
+            <p className="text-sm leading-7 text-gray-300">
+                这些页面仍在路由和静态入口中保留，适合查历史说明；新版用户文档、开发者文档、故障排查和参考索引是当前主线。
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+                {legacyDocsIndex.map(([file, to, description]) => (
+                    <Link key={file} to={to} className="rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:border-cyan/50">
+                        <h3 className="text-sm font-semibold text-gray-200">{file}</h3>
+                        <p className="mt-3 text-sm leading-7 text-gray-300">{description}</p>
+                    </Link>
+                ))}
+            </div>
+        </section>
+
+        <section className="space-y-4">
+            <h2 className="text-2xl font-bold text-white">交叉阅读矩阵</h2>
+            <div className="space-y-3">
+                {crossReadingMatrix.map(([scene, primary, secondary, description]) => (
+                    <article key={scene} className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+                        <h3 className="text-lg font-bold text-cyan">{scene}</h3>
+                        <div className="mt-3 flex flex-wrap gap-2 text-sm">
+                            <Link className="rounded-lg border border-cyan/25 px-3 py-1.5 text-cyan transition-colors hover:bg-cyan/10" to={primary}>
+                                {primary}
+                            </Link>
+                            <Link className="rounded-lg border border-purple/25 px-3 py-1.5 text-purple-200 transition-colors hover:bg-purple/10" to={secondary}>
+                                {secondary}
+                            </Link>
+                        </div>
+                        <p className="mt-3 text-sm leading-7 text-gray-300">{description}</p>
+                    </article>
                 ))}
             </div>
         </section>

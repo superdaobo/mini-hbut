@@ -57,7 +57,7 @@ describe('hbut_miner core gameplay', () => {
   })
 
   it('达到目标分数胜利，时间耗尽失败，重开恢复初始状态', () => {
-    const almostWon = createInitialMinerState({
+    const levelCleared = createInitialMinerState({
       targetScore: 180,
       items: [
         {
@@ -72,8 +72,33 @@ describe('hbut_miner core gameplay', () => {
         }
       ]
     })
+    const advanced = stepMinerGame(
+      stepMinerGame(fireHook({ ...levelCleared, hook: { ...levelCleared.hook, angle: 0 } }), 450),
+      1600
+    )
+
+    expect(advanced.status).toBe('aiming')
+    expect(advanced.levelNumber).toBe(2)
+    expect(advanced.log[0]).toContain('进入第 2 关')
+
+    const finalAlmostWon = createInitialMinerState({
+      levelIndex: 3,
+      targetScore: 180,
+      items: [
+        {
+          id: 'hbut-core',
+          name: '湖工矿脉核心',
+          type: 'bonus',
+          x: 0,
+          y: 110,
+          radius: 18,
+          value: 200,
+          drag: 1
+        }
+      ]
+    })
     const won = stepMinerGame(
-      stepMinerGame(fireHook({ ...almostWon, hook: { ...almostWon.hook, angle: 0 } }), 450),
+      stepMinerGame(fireHook({ ...finalAlmostWon, hook: { ...finalAlmostWon.hook, angle: 0 } }), 450),
       1600
     )
 

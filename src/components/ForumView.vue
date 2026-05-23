@@ -62,6 +62,7 @@ const adminReports = ref([])
 const adminUsers = ref([])
 const adminBackups = ref([])
 const adminSearch = ref('')
+const uploadQueue = ref([])
 const messageDraft = ref({ receiver_student_id: '', content: '' })
 const banDraft = ref({ student_id: '', reason: '' })
 const badgeDraft = ref({ student_id: '', badge_key: 'helper', display_name: '热心同学' })
@@ -140,6 +141,13 @@ const userProfileBadges = computed(() => {
   const items = viewedUserProfile.value?.badges || viewedUserProfile.value?.profile?.badges || []
   return Array.isArray(items) ? items : []
 })
+const adminSummary = computed(() => ({
+  reportCount: adminReports.value.length,
+  userCount: adminUsers.value.length,
+  bannedCount: adminUsers.value.filter((user) => Number(user.is_banned || 0)).length,
+  backupCount: adminBackups.value.length
+}))
+const latestBackup = computed(() => adminBackups.value[0] || null)
 
 const toText = (value) => (value == null ? '' : String(value))
 
@@ -184,6 +192,61 @@ const fileSizeLabel = (file) => {
   return `${(size / 1024 / 1024).toFixed(1)} MB`
 }
 
+const uploadStatusText = (status) => ({
+  queued: '等待上传',
+  uploading: '上传中',
+  success: '已上传',
+  failed: '上传失败'
+})[status] || '等待上传'
+
+const uploadScopeLabel = (scope) => ({
+  thread: '发帖附件',
+  reply: '回复附件',
+  avatar: '头像图片',
+  retry: '重试上传'
+})[scope] || '图床文件'
+
+const fileQueueKey = (file, scope = 'thread') =>
+  `${scope}:${fileLabel(file)}:${Number(file?.size || 0)}:${Number(file?.lastModified || 0)}`
+
+const attachmentProxyUrl = (payloadOrId) => {
+  const directUrl = toText(payloadOrId?.url || payloadOrId).trim()
+  if (/^https?:\/\//i.test(directUrl)) return directUrl
+  const attachmentAddress = directUrl || toText(payloadOrId?.attachment_id).trim()
+  return attachmentAddress ? client?.getAttachmentUrl?.(attachmentAddress) || '' : ''
+}
+
+const rememberUploadResult = (file, scope = 'thread', patch = {}) => {
+  const key = patch.key || fileQueueKey(file, scope)
+  const current = uploadQueue.value.find((item) => item.key === key)
+  const nextItem = {
+    key,
+    scope,
+    file,
+    name: fileLabel(file),
+    sizeLabel: fileSizeLabel(file),
+    status: 'queued',
+    progress: 0,
+    attachmentId: '',
+    proxyUrl: '',
+    error: '',
+    updatedAt: Date.now(),
+    ...(current || {}),
+    ...patch
+  }
+  uploadQueue.value = [
+    ...uploadQueue.value.filter((item) => item.key !== key),
+    nextItem
+  ].slice(-12)
+  return nextItem
+}
+
+const syncUploadQueueForScope = (files, scope) => {
+  const keys = new Set((files || []).map((file) => fileQueueKey(file, scope)))
+  uploadQueue.value = uploadQueue.value.filter((item) => item.scope !== scope || keys.has(item.key))
+  for (const file of files || []) rememberUploadResult(file, scope)
+}
+
 const setThreadScore = (score) => {
   const nextScore = Math.min(10, Math.max(1, Number(score || 1)))
   newThread.value.score = nextScore
@@ -193,7 +256,7 @@ const resolveAvatarAttachmentUrl = (payload) => {
   const directUrl = toText(payload?.url).trim()
   if (/^https?:\/\//i.test(directUrl)) return directUrl
   const attachmentAddress = directUrl || toText(payload?.attachment_id).trim()
-  return attachmentAddress ? client?.getAttachmentUrl?.(attachmentAddress) || '' : ''
+  return attachmentAddress ? attachmentProxyUrl(attachmentAddress) : ''
 }
 
 const syncPendingActions = (next) => {
@@ -383,29 +446,101 @@ const closeThread = () => {
   activeTab.value = 'feed'
 }
 
-const uploadFiles = async (files) => {
+const uploadFiles = async (files, scope = 'thread') => {
   const uploaded = []
   for (const file of files || []) {
-    const payload = await client.uploadAttachment(file)
-    if (payload?.attachment_id) uploaded.push(payload.attachment_id)
+    try {
+      rememberUploadResult(file, scope, { status: 'uploading', progress: 45, error: '' })
+      const payload = await client.uploadAttachment(file)
+      const proxyUrl = attachmentProxyUrl(payload)
+      rememberUploadResult(file, scope, {
+        status: 'success',
+        progress: 100,
+        attachmentId: toText(payload?.attachment_id).trim(),
+        proxyUrl,
+        error: ''
+      })
+      if (payload?.attachment_id) uploaded.push(payload.attachment_id)
+    } catch (error) {
+      rememberUploadResult(file, scope, {
+        status: 'failed',
+        progress: 100,
+        error: error?.message || '上传失败，点击重试'
+      })
+      throw error
+    }
   }
   return uploaded
 }
 
 const setThreadFiles = (event) => {
-  threadFiles.value = Array.from(event?.target?.files || []).slice(0, 6)
+  const files = Array.from(event?.target?.files || []).slice(0, 6)
+  threadFiles.value = files
+  syncUploadQueueForScope(files, 'thread')
 }
 
 const setReplyFiles = (event) => {
-  replyFiles.value = Array.from(event?.target?.files || []).slice(0, 4)
+  const files = Array.from(event?.target?.files || []).slice(0, 4)
+  replyFiles.value = files
+  syncUploadQueueForScope(files, 'reply')
 }
 
 const removeThreadFile = (index) => {
-  threadFiles.value = threadFiles.value.filter((_, fileIndex) => fileIndex !== index)
+  const files = threadFiles.value.filter((_, fileIndex) => fileIndex !== index)
+  threadFiles.value = files
+  syncUploadQueueForScope(files, 'thread')
 }
 
 const removeReplyFile = (index) => {
-  replyFiles.value = replyFiles.value.filter((_, fileIndex) => fileIndex !== index)
+  const files = replyFiles.value.filter((_, fileIndex) => fileIndex !== index)
+  replyFiles.value = files
+  syncUploadQueueForScope(files, 'reply')
+}
+
+const retryUploadFile = async (item) => {
+  if (!item?.file) return
+  if (!isLoggedIn.value) return requireLogin()
+  if (!client) await buildClient()
+  await runPending(`upload:retry:${item.key}`, async () => {
+    rememberUploadResult(item.file, item.scope || 'retry', { key: item.key, status: 'uploading', progress: 45, error: '' })
+    try {
+      const payload = await client.uploadAttachment(item.file)
+      rememberUploadResult(item.file, item.scope || 'retry', {
+        key: item.key,
+        status: 'success',
+        progress: 100,
+        attachmentId: toText(payload?.attachment_id).trim(),
+        proxyUrl: attachmentProxyUrl(payload),
+        error: ''
+      })
+      showToast('附件已重新上传到图床', 'success')
+    } catch (error) {
+      rememberUploadResult(item.file, item.scope || 'retry', {
+        key: item.key,
+        status: 'failed',
+        progress: 100,
+        error: error?.message || '上传失败，点击重试'
+      })
+      throw error
+    }
+  }, '附件正在重试上传，请勿重复点击')
+}
+
+const copyAttachmentUrl = async (value) => {
+  const url = toText(value).trim()
+  if (!url) {
+    showToast('暂无可复制的代理 URL', 'warning')
+    return
+  }
+  try {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      throw new Error('clipboard unavailable')
+    }
+    await navigator.clipboard.writeText(url)
+    showToast('代理 URL 已复制', 'success')
+  } catch {
+    showToast('当前环境不支持自动复制，请手动复制代理 URL', 'warning')
+  }
 }
 
 const openAvatarFilePicker = () => {
@@ -426,14 +561,23 @@ const uploadAvatarImage = async (event) => {
   try {
     await runPending('profile:avatar-upload', async () => {
       avatarUploadStatus.value = '正在上传头像到图床'
+      rememberUploadResult(file, 'avatar', { status: 'uploading', progress: 45, error: '' })
       const payload = await client.uploadAttachment(file)
       const avatarUrl = resolveAvatarAttachmentUrl(payload)
       if (!avatarUrl) throw new Error('图床未返回头像地址')
       profile.value.avatar_url = avatarUrl
+      rememberUploadResult(file, 'avatar', {
+        status: 'success',
+        progress: 100,
+        attachmentId: toText(payload?.attachment_id).trim(),
+        proxyUrl: avatarUrl,
+        error: ''
+      })
       avatarUploadStatus.value = '已回填图床地址，请保存资料'
       showToast('头像已上传到图床，请保存资料', 'success')
     }, '头像图床上传中，请勿重复选择')
   } catch (error) {
+    rememberUploadResult(file, 'avatar', { status: 'failed', progress: 100, error: error?.message || '头像上传失败' })
     avatarUploadStatus.value = '头像上传失败，可重试或使用手动 URL'
     showToast(error?.message || '头像上传失败', 'error')
   } finally {
@@ -455,7 +599,7 @@ const submitThread = async () => {
     return
   }
   await runPending(threadPendingKey.value, async () => {
-    const attachmentIds = await uploadFiles(threadFiles.value)
+    const attachmentIds = await uploadFiles(threadFiles.value, 'thread')
     const created = await client.createThread({
       category_id: selectedCategoryId.value || selectedCategory.value?.id,
       title,
@@ -483,7 +627,7 @@ const submitReply = async () => {
     return
   }
   await runPending(replyPendingKey.value, async () => {
-    const attachmentIds = await uploadFiles(replyFiles.value)
+    const attachmentIds = await uploadFiles(replyFiles.value, 'reply')
     await client.createReply(selectedThread.value.id, {
       content_md: content,
       attachment_ids: attachmentIds
@@ -625,6 +769,7 @@ const setUserBan = async (banned) => {
     showToast('请填写学号', 'warning')
     return
   }
+  if (isPending(`admin:ban:${studentId}:${banned}`)) return
   await runPending(`admin:ban:${studentId}:${banned}`, async () => {
     await client.setUserBan({ student_id: studentId, banned, reason: banDraft.value.reason.trim() })
     invalidateForumCache(['admin'])
@@ -643,6 +788,7 @@ const grantBadge = async () => {
     showToast('请填写完整徽章信息', 'warning')
     return
   }
+  if (isPending(`admin:badge:${payload.student_id}:${payload.badge_key}`)) return
   await runPending(`admin:badge:${payload.student_id}:${payload.badge_key}`, async () => {
     await client.grantBadge(payload)
     invalidateForumCache(['admin'])
@@ -1293,19 +1439,29 @@ watch(
         </section>
 
         <section v-if="activeTab === 'admin' && isAdmin" class="page-stack" data-forum-page="admin">
-          <div class="section-heading tall">
+          <div class="admin-hero-card">
             <div>
               <span class="eyebrow">Admin Center</span>
               <h2>社区管理中心</h2>
+              <p>面向举报、用户、徽章和备份的轻量运营台，所有操作都会走后端权限校验。</p>
             </div>
-            <button class="primary-pill" type="button" @click="runBackup">
+            <button class="primary-pill" type="button" :disabled="isPending('admin:backup')" @click="runBackup">
               <span class="material-symbols-outlined">backup</span>
-              备份
+              {{ isPending('admin:backup') ? '备份中' : '触发备份' }}
             </button>
           </div>
+          <div class="admin-summary-strip">
+            <div><strong>{{ adminSummary.reportCount }}</strong><span>举报队列</span></div>
+            <div><strong>{{ adminSummary.userCount }}</strong><span>用户治理</span></div>
+            <div><strong>{{ adminSummary.bannedCount }}</strong><span>已封禁</span></div>
+            <div><strong>{{ adminSummary.backupCount }}</strong><span>备份记录</span></div>
+          </div>
           <div class="admin-grid">
-            <div class="admin-card">
-              <h3>举报</h3>
+            <div class="admin-card admin-section-card reports">
+              <div class="section-heading compact">
+                <h3>举报队列</h3>
+                <span>{{ adminReports.length }}</span>
+              </div>
               <article v-for="report in adminReports" :key="report.id" class="admin-row">
                 <span class="material-symbols-outlined">flag</span>
                 <div>
@@ -1313,11 +1469,17 @@ watch(
                   <p>{{ report.reason }}</p>
                   <small>{{ report.reporter_student_id }} · {{ formatTime(report.created_at) }}</small>
                 </div>
+                <div class="admin-report-actions">
+                  <button class="ghost-pill" type="button">查看目标</button>
+                </div>
               </article>
               <div v-if="!adminReports.length" class="empty-card compact">暂无举报</div>
             </div>
-            <div class="admin-card">
-              <h3>用户</h3>
+            <div class="admin-card admin-section-card users">
+              <div class="section-heading compact">
+                <h3>用户治理</h3>
+                <span>{{ adminUsers.length }}</span>
+              </div>
               <div class="inline-form">
                 <input v-model="adminSearch" placeholder="搜索学号/昵称" @keyup.enter="searchAdminUsers" />
                 <button class="ghost-pill" type="button" @click="searchAdminUsers">搜索</button>
@@ -1328,35 +1490,91 @@ watch(
                   <strong>{{ user.nickname || user.student_id }}</strong>
                   <p>{{ user.student_id }} · {{ Number(user.is_banned || 0) ? '已封禁' : '正常' }}</p>
                 </div>
+                <div class="admin-user-actions">
+                  <button class="ghost-pill" type="button" @click="banDraft.student_id = user.student_id">填入</button>
+                </div>
               </article>
             </div>
-            <div class="admin-card">
-              <h3>封禁</h3>
+            <div class="admin-card admin-section-card moderation">
+              <h3>封禁 / 解封</h3>
               <input v-model="banDraft.student_id" placeholder="目标学号" />
               <input v-model="banDraft.reason" placeholder="原因，可选" />
               <div class="button-row">
-                <button class="danger-pill" type="button" @click="setUserBan(true)">封禁</button>
-                <button class="ghost-pill" type="button" @click="setUserBan(false)">解封</button>
+                <button class="danger-pill" type="button" :disabled="isPending(`admin:ban:${banDraft.student_id.trim()}:true`)" @click="setUserBan(true)">
+                  {{ isPending(`admin:ban:${banDraft.student_id.trim()}:true`) ? '封禁中' : '封禁' }}
+                </button>
+                <button class="ghost-pill" type="button" :disabled="isPending(`admin:ban:${banDraft.student_id.trim()}:false`)" @click="setUserBan(false)">
+                  {{ isPending(`admin:ban:${banDraft.student_id.trim()}:false`) ? '解封中' : '解封' }}
+                </button>
               </div>
             </div>
-            <div class="admin-card">
-              <h3>徽章</h3>
+            <div class="admin-card admin-section-card badge-issuer">
+              <h3>徽章发放</h3>
               <input v-model="badgeDraft.student_id" placeholder="目标学号" />
               <input v-model="badgeDraft.badge_key" placeholder="badge_key" />
               <input v-model="badgeDraft.display_name" placeholder="展示名" />
-              <button class="primary-pill wide" type="button" @click="grantBadge">发放徽章</button>
+              <button class="primary-pill wide" type="button" :disabled="isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`)" @click="grantBadge">
+                {{ isPending(`admin:badge:${badgeDraft.student_id.trim()}:${badgeDraft.badge_key.trim()}`) ? '发放中' : '发放徽章' }}
+              </button>
             </div>
-            <div class="admin-card span-2">
-              <h3>备份记录</h3>
-              <article v-for="backup in adminBackups" :key="backup.id" class="admin-row">
-                <span class="material-symbols-outlined">database</span>
+            <div class="admin-card admin-section-card backup-panel span-2">
+              <div class="section-heading compact">
+                <h3>备份记录</h3>
+                <span>{{ adminBackups.length }}</span>
+              </div>
+              <div class="backup-status-card">
+                <span class="material-symbols-outlined">cloud_sync</span>
                 <div>
-                  <strong>{{ backup.kind }} · {{ formatTime(backup.created_at) }}</strong>
-                  <p>{{ backup.hf_path || backup.sqlite_path }}</p>
+                  <strong>{{ latestBackup ? `最近备份 ${formatTime(latestBackup.created_at)}` : '等待首次备份' }}</strong>
+                  <p>HF Bucket：{{ latestBackup?.hf_path || '未返回路径' }}</p>
+                  <p>OneDrive：{{ latestBackup?.onedrive_path || latestBackup?.onedrive_status || '未同步' }}</p>
                 </div>
-              </article>
+              </div>
+              <div class="backup-record-list">
+                <article v-for="backup in adminBackups" :key="backup.id" class="admin-row">
+                  <span class="material-symbols-outlined">database</span>
+                  <div>
+                    <strong>{{ backup.kind }} · {{ formatTime(backup.created_at) }}</strong>
+                    <p class="admin-path-chip">HF Bucket {{ backup.hf_path || '未返回路径' }}</p>
+                    <p class="admin-path-chip">OneDrive {{ backup.onedrive_path || backup.onedrive_status || '未同步' }}</p>
+                    <small>{{ backup.sqlite_path || '本地归档路径待返回' }}</small>
+                  </div>
+                </article>
+              </div>
               <div v-if="!adminBackups.length" class="empty-card compact">暂无备份</div>
             </div>
+          </div>
+        </section>
+
+        <section v-if="uploadQueue.length" class="upload-experience-panel" aria-label="图床上传队列">
+          <div class="upload-drop-card">
+            <span class="material-symbols-outlined">cloud_upload</span>
+            <div>
+              <strong>上传到后端图床</strong>
+              <p>发帖、回复和头像上传都会在这里显示状态，成功后可复制代理 URL。</p>
+            </div>
+          </div>
+          <div class="upload-progress-list">
+            <article v-for="item in uploadQueue" :key="item.key" class="upload-progress-item" :class="item.status">
+              <span class="material-symbols-outlined">upload_file</span>
+              <div>
+                <strong>{{ item.name }}</strong>
+                <small>{{ uploadScopeLabel(item.scope) }} · {{ item.sizeLabel }}</small>
+                <div class="upload-progress-bar" aria-hidden="true">
+                  <span :style="{ width: `${item.progress || 0}%` }"></span>
+                </div>
+                <button v-if="item.proxyUrl" class="attachment-url-chip" type="button" @click="copyAttachmentUrl(item.proxyUrl)">
+                  复制代理 URL
+                </button>
+                <p v-if="item.status === 'failed'" class="form-hint warning">{{ item.error || '上传失败，点击重试' }}</p>
+              </div>
+              <div class="upload-progress-actions">
+                <span class="upload-status-pill">{{ uploadStatusText(item.status) }}</span>
+                <button v-if="item.status === 'failed'" class="upload-retry-button" type="button" :disabled="isPending(`upload:retry:${item.key}`)" @click="retryUploadFile(item)">
+                  {{ isPending(`upload:retry:${item.key}`) ? '重试中' : '上传失败，点击重试' }}
+                </button>
+              </div>
+            </article>
           </div>
         </section>
         </main>

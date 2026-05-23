@@ -13,20 +13,16 @@ describe('home dashboard interaction contract', () => {
   const dashboardVue = () => readSource('src/components/Dashboard.vue')
   const appVue = () => readSource('src/App.vue')
 
-  it('keeps the HBUT header and search fixed while the home content scrolls', () => {
+  it('keeps the HBUT header and search as normal top-of-home content', () => {
     const source = dashboardVue()
     const rootRule = getRuleBody(source, '.dashboard-root')
-    const headerRule = getRuleBody(source, '.home-fixed-header')
-    const contentRule = getRuleBody(source, '.home-scroll-content')
 
-    expect(source).toContain('class="home-fixed-header')
-    expect(rootRule).toContain('--home-header-height')
-    expect(headerRule).toContain('position: fixed')
-    expect(headerRule).toContain('top: env(safe-area-inset-top, 0px)')
-    expect(headerRule).toContain('left: 50%')
-    expect(headerRule).toContain('transform: translateX(-50%)')
-    expect(headerRule).toContain('z-index: 55')
-    expect(contentRule).toContain('padding-top: var(--home-header-height)')
+    expect(source).not.toContain('class="home-fixed-header')
+    expect(source).not.toContain('class="home-scroll-content')
+    expect(rootRule).not.toContain('--home-header-height')
+    expect(source).not.toContain('position: fixed')
+    expect(source).not.toContain('position: sticky')
+    expect(source).not.toContain('sticky top-0')
   })
 
   it('renders the empty schedule icon at a stable aspect ratio', () => {

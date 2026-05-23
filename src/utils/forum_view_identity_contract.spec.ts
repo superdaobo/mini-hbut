@@ -333,4 +333,83 @@ describe('forum view identity contract', () => {
     expect(forumSource.indexOf('头像上传（推荐）')).toBeLessThan(forumSource.indexOf('手动 URL（备用）'))
     expect(forumSource.indexOf('上传头像到图床')).toBeLessThan(forumSource.indexOf('手动 URL（备用）'))
   })
+
+  it('keeps admin, backup, and image-host experiences feature-complete for Task 11', () => {
+    const forumSource = readSource('src/components/ForumView.vue')
+
+    for (const scriptMarker of [
+      'const adminSummary = computed',
+      'const latestBackup = computed',
+      'const uploadQueue = ref([])',
+      'const rememberUploadResult = (',
+      'const retryUploadFile = async',
+      'const copyAttachmentUrl = async',
+      'const attachmentProxyUrl = (',
+      'isPending(\'admin:backup\')',
+      'isPending(`admin:ban:${studentId}:${banned}`)',
+      'isPending(`admin:badge:${payload.student_id}:${payload.badge_key}`)'
+    ]) {
+      expect(forumSource).toContain(scriptMarker)
+    }
+
+    for (const adminMarker of [
+      'class="admin-hero-card"',
+      'class="admin-summary-strip"',
+      'class="admin-section-card reports"',
+      'class="admin-section-card users"',
+      'class="admin-section-card moderation"',
+      'class="admin-section-card badge-issuer"',
+      'class="admin-section-card backup-panel"',
+      'class="backup-status-card"',
+      'class="backup-record-list"',
+      'class="admin-path-chip"',
+      '社区管理中心',
+      '举报队列',
+      '用户治理',
+      '封禁 / 解封',
+      '徽章发放',
+      '备份记录',
+      '备份中',
+      '触发备份',
+      'HF Bucket',
+      'OneDrive'
+    ]) {
+      expect(forumSource).toContain(adminMarker)
+    }
+
+    for (const uploadMarker of [
+      'class="upload-experience-panel"',
+      'class="upload-drop-card"',
+      'class="upload-progress-list"',
+      'class="upload-progress-item"',
+      'class="upload-status-pill"',
+      'class="attachment-url-chip"',
+      'class="upload-retry-button"',
+      '上传到后端图床',
+      '复制代理 URL',
+      '上传失败，点击重试',
+      '@click="retryUploadFile(item)"',
+      '@click="copyAttachmentUrl(item.proxyUrl)"'
+    ]) {
+      expect(forumSource).toContain(uploadMarker)
+    }
+
+    for (const styleMarker of [
+      '\n.admin-hero-card {',
+      '\n.admin-summary-strip {',
+      '\n.admin-section-card {',
+      '\n.backup-status-card {',
+      '\n.backup-record-list {',
+      '\n.admin-path-chip {',
+      '\n.upload-experience-panel {',
+      '\n.upload-drop-card {',
+      '\n.upload-progress-list {',
+      '\n.upload-progress-item {',
+      '\n.upload-status-pill {',
+      '\n.attachment-url-chip {',
+      '\n.upload-retry-button {'
+    ]) {
+      expect(forumSource).toContain(styleMarker)
+    }
+  })
 })

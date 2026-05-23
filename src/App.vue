@@ -414,6 +414,7 @@ const pendingProtectedView = ref(null)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
 const appShellRef = ref(null)
+const homeScrollSnapshot = ref(0)
 const jwxtMaintenanceMode = ref(false)
 const jwxtMaintenanceHint = ref('')
 const jwxtLastCheckTime = ref('')
@@ -796,8 +797,41 @@ const recoverViewportAfterTransition = ({ scrollToTop = true, blurActive = true 
   })
 }
 
+const getAppShellScrollTop = () => {
+  const shell = appShellRef.value
+  const shellTop = Number(shell?.scrollTop || 0)
+  if (Number.isFinite(shellTop) && shellTop > 0) return shellTop
+  const windowTop = Number(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0)
+  return Number.isFinite(windowTop) && windowTop > 0 ? windowTop : 0
+}
+
+const rememberHomeScrollPosition = () => {
+  if (currentView.value !== 'home') return
+  homeScrollSnapshot.value = getAppShellScrollTop()
+}
+
+const restoreHomeScrollPosition = () => {
+  const targetTop = Math.max(0, Number(homeScrollSnapshot.value || 0))
+  const applyScroll = () => {
+    try {
+      if (appShellRef.value) {
+        appShellRef.value.scrollTop = targetTop
+      }
+      window.scrollTo(0, targetTop)
+      document.documentElement.scrollTop = targetTop
+      document.body.scrollTop = targetTop
+    } catch {
+      // ignore scroll restoration failures
+    }
+  }
+  nextTick(() => {
+    applyScroll()
+    requestAnimationFrame(applyScroll)
+  })
+}
+
 const VIEW_HEALTH_SELECTOR_MAP = Object.freeze({
-  home: '.dashboard',
+  home: '.dashboard-root',
   schedule: '.schedule-view',
   classroom: '.classroom-view',
   more_module_host: '.more-module-host-view'
@@ -1221,23 +1255,33 @@ const ensureProtectedViewAccess = (
   return false
 }
 
-const goToViewInternal = (view, { push = true } = {}) => {
-  pendingScrollToTopOnViewChange = true
-  applyViewState(view)
-  if (push) {
-    pushHistorySnapshot(view)
-  } else {
-    replaceHistorySnapshot(view)
+const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => {
+  const normalized = normalizeViewName(view)
+  if (currentView.value === 'home' && normalized !== 'home') {
+    rememberHomeScrollPosition()
   }
-  recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+  const shouldRestoreHomeScroll = normalized === 'home' && restoreScroll
+  pendingScrollToTopOnViewChange = !shouldRestoreHomeScroll
+  applyViewState(normalized)
+  if (push) {
+    pushHistorySnapshot(normalized)
+  } else {
+    replaceHistorySnapshot(normalized)
+  }
+  if (shouldRestoreHomeScroll) {
+    recoverViewportAfterTransition({ scrollToTop: false, blurActive: true })
+    restoreHomeScrollPosition()
+  } else {
+    recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+  }
 }
 
-const goToView = (view, { push = true } = {}) => {
+const goToView = (view, { push = true, restoreScroll = false } = {}) => {
   const normalized = normalizeViewName(view)
   if (!ensureProtectedViewAccess(normalized, { push, fallbackView: currentView.value })) {
     return false
   }
-  goToViewInternal(normalized, { push })
+  goToViewInternal(normalized, { push, restoreScroll })
   return true
 }
 
@@ -1256,7 +1300,7 @@ const resolveParentView = (view) => {
 const goToParentView = () => {
   const parentView = resolveParentView(currentView.value)
   if (!parentView) return false
-  goToViewInternal(parentView, { push: false })
+  goToViewInternal(parentView, { push: false, restoreScroll: parentView === 'home' })
   return true
 }
 
@@ -1404,7 +1448,7 @@ const handleNavigate = async (target) => {
 
 // 处理返回仪表盘
 const handleBackToDashboard = () => {
-  goToView('home')
+  goToView('home', { restoreScroll: true })
 }
 
 const isTemporaryLoginSession = () => {
@@ -3038,7 +3082,7 @@ onBeforeUnmount(() => {
   height: calc(var(--app-vh, 1vh) * 100);
   position: relative;
   padding-top: env(safe-area-inset-top);
-  padding-bottom: 128px;
+  padding-bottom: calc(128px + var(--app-safe-bottom));
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -3083,7 +3127,7 @@ onBeforeUnmount(() => {
 .app-shell.schedule-full {
   --schedule-safe-top: max(env(safe-area-inset-top), var(--safe-top-fallback, 0px));
   padding-top: var(--schedule-safe-top);
-  padding-bottom: 128px;
+  padding-bottom: calc(128px + var(--app-safe-bottom));
   overflow: hidden;
 }
 
@@ -3166,12 +3210,11 @@ onBeforeUnmount(() => {
 }
 
 .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: 0px;
-  --bottom-tab-bar-safe-bottom: var(--app-safe-bottom);
-  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom)) !important;
-  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom)) !important;
+  --bottom-tab-bar-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+  min-height: var(--bottom-tab-bar-content-height) !important;
+  padding-bottom: 10px !important;
   border-radius: 20px !important;
-  max-height: none !important;
+  max-height: 92px !important;
 }
 
 .bottom-tab-bar:hover,

@@ -1094,7 +1094,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 <template>
   <div class="dashboard-root antialiased max-w-[520px] mx-auto relative min-h-screen bg-[#f0f4f8]">
     <!-- Header -->
-    <header class="home-fixed-header flex items-center justify-between px-4 pt-4 pb-4 bg-[#f0f4f8]/90 backdrop-blur">
+    <header class="flex items-center justify-between px-4 pt-4 pb-4">
       <div class="flex items-center space-x-2">
         <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
           <img src="/splash/app_icon.png" class="w-6 h-6 object-contain" alt="HBUT" />
@@ -1117,7 +1117,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
       </div>
     </header>
 
-    <main class="home-scroll-content px-4 space-y-6 pb-6">
+    <main class="px-4 space-y-6 pb-6">
       <!-- Greeting & Weather -->
       <div class="flex justify-between items-end">
         <div>
@@ -1173,7 +1173,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         <div v-else-if="todayLoading" class="text-center py-8 text-gray-400 text-sm">正在加载今日课程...</div>
         <div v-else-if="todayError" class="text-center py-8 text-red-400 text-sm">{{ todayError }}</div>
         <div v-else-if="todayCourses.length === 0" class="flex flex-col items-center py-8">
-          <img src="/splash/course_done_icon.webp" class="today-empty-icon mb-3 opacity-80" alt="All done" />
+          <img src="/splash/course_done_icon.webp" class="today-empty-icon" alt="All done" />
           <span class="text-gray-400 text-sm">今日无课程安排 🎉</span>
         </div>
 
@@ -1544,22 +1544,8 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
 <style scoped>
 .dashboard-root {
-  --home-header-height: 72px;
   padding-bottom: 80px;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-}
-
-.home-fixed-header {
-  position: fixed;
-  top: env(safe-area-inset-top, 0px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(520px, 100vw);
-  z-index: 55;
-}
-
-.home-scroll-content {
-  padding-top: var(--home-header-height);
 }
 
 .today-empty-icon {
@@ -1567,8 +1553,10 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   width: 80px;
   max-width: 80px;
   height: auto;
+  margin-bottom: 12px;
   aspect-ratio: 1 / 1;
   object-fit: contain;
+  opacity: 0.8;
   flex: 0 0 auto;
 }
 
