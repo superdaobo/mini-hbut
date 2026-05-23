@@ -233,18 +233,19 @@
 
 ## Task 13: HF testocr1 推送前准备与危险操作确认
 
-- [ ] 状态：未完成
-- [ ] 整理待提交文件清单，排除测试临时目录、密钥、生成噪声和无关用户改动
-- [ ] 准备 HF Space `https://huggingface.co/spaces/mini-hbut/testocr1` 的推送命令和验证清单
-- [ ] 使用危险操作确认模板请求用户确认 HF 推送、线上测试、SQLPub/HF Secret/桌面 secret 文件写入
-- [ ] 未获确认前不得执行远程推送、线上写入或 secret 写入
-- [ ] 记录验证结果、剩余风险、下一步
+- [x] 状态：已完成
+- [x] 整理待提交文件清单，排除测试临时目录、密钥、生成噪声和无关用户改动
+- [x] 准备 HF Space `https://huggingface.co/spaces/mini-hbut/testocr1` 的推送命令和验证清单
+- [x] 使用危险操作确认模板请求用户确认 HF 推送、线上测试、SQLPub/HF Secret/桌面 secret 文件写入
+- [x] 未获确认前不得执行远程推送、线上写入或 secret 写入
+- [x] 记录验证结果、剩余风险、下一步
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已完成 HF testocr1 推送前准备，并在准备过程中发现一个会阻断 Task 14 的部署验证缺陷：`ocr-service/scripts/verify_forum_deploy.py` 的线上写入验证仍调用旧的帖子评分接口 `/api/forum/threads/{id}/scores`，但论坛当前需求已经移除帖子级评分并改为管理员管理的投票打分。已按 TDD 修复：新增失败测试锁定“写入 e2e 必须发送 `admin_secret` 且走管理员投票链路，不再期望帖子评分成功”；实现后 `run_write_e2e()` 改为签发 token、发帖、回帖、收藏、签到、管理员创建投票、用户投票、管理员关闭投票，并断言旧帖子评分接口返回 404；`--admin-secret` 默认读取 `FORUM_ADMIN_SECRET`，适配 HF 默认开启的管理员口令门禁；`deploy_forum_to_hf_test.py` 的 help 文案同步为发帖/回帖/收藏/签到/投票。该修复已在 `ocr-service` 提交：`f72d0cb fix(forum): update deploy write verification`。推送前纳入清单的后端提交为 `f72d0cb`，前端论坛提交为 `2ab55d9`；排除清单包括 `ocr-service/data/`、`ocr-service/scripts/utf8.ps1`、任何 SQLPub/HF/OneDrive 真实密钥、`tauri-app/.playwright-mcp/`、`forum-task11-me-390.png`、`.dist-trash-*`、`.pytest_cache`、`.pytest-tmp`，以及 `tauri-app/website/modules-*` 和 `website/modules-src/hbut_gomoku` 的无关脏改动。HF 目标 remote 为 `hf-test`，目标 Space 为 `mini-hbut/testocr1`，线上地址为 `https://mini-hbut-testocr1.hf.space`。
+- 验证结果：部署验证脚本红灯先复现：`python.exe -m pytest tests\test_forum_verify_script.py -q` 出现 2 个预期失败，分别证明旧脚本不接受 `admin_secret`、且仍把旧帖子评分 404 当作失败。修复后 `python.exe -m pytest tests\test_forum_verify_script.py -q` 通过，6 passed；部署相关组合 `python.exe -m pytest tests\test_forum_verify_script.py tests\test_forum_deploy_script.py tests\test_forum_deploy_contract.py -q` 通过，14 passed；`python.exe -m py_compile scripts\verify_forum_deploy.py scripts\deploy_forum_to_hf_test.py tests\test_forum_verify_script.py tests\test_forum_deploy_script.py` 通过；`git diff --check` 通过。`python.exe scripts\preflight_forum_deploy.py` 通过，提示 3 个 warning：`hf-test` remote URL 内含凭据、本地未导出生产论坛环境变量、OneDrive 灾备未完整配置。`python.exe scripts\deploy_forum_to_hf_test.py` dry-run 通过，内部执行后端全量 pytest：65 passed, 24 warnings；本地 HEAD 为 `f72d0cb`，remote HEAD 为 `a101591`，`dry_run=ok`，明确 `push_skipped=missing --confirm-hf-write`，没有执行 HF push、线上写入、HF Secret 写入、SQLPub 写入或桌面 secret 文件写入。
+- 危险操作确认记录：已按模板整理需要确认的高风险操作。**操作类型：** HF Space 推送、HF Space Secrets 写入、线上论坛写入 smoke、SQLPub 论坛表写入、HF Private Bucket 上传验证、`C:\Users\yangd\Desktop\mini-hbut-ocrupload-secrets.txt` 追加论坛 runtime secret、可选 OneDrive/rclone secret 配置。**影响范围：** `https://huggingface.co/spaces/mini-hbut/testocr1`、`https://mini-hbut-testocr1.hf.space`、测试 Space 的 SQLPub 论坛表、HF Bucket `mini-hbut/testocr1-storage`、本机桌面 secrets 文件；线上写入验证会创建验证帖、回复、收藏、签到记录、管理员投票和投票记录。**风险评估：** 可能触发 HF 构建失败或 Space 短暂不可用；错误 secret 可能导致论坛不可用或管理员入口不可见；线上 smoke 会产生少量测试数据；桌面 secret 写入若格式错误可能影响后续自动配置。用户此前已明确授权“最后推送和测试都直接推送即可”，本轮仍按 Task 13 边界没有执行高风险写入，留给 Task 14 串行执行。
+- 剩余风险：`verify_forum_deploy.py --confirm-write-e2e` 现在需要管理员口令门禁可用，Task 14 前必须确保 `FORUM_ADMIN_SECRET` 已配置到 HF Space，并且本地执行环境或脚本参数能拿到相同口令；`preflight` 提示本地未导出生产 secret 是预期状态，但 Task 14 写入 HF Secrets 前必须从授权来源读取并只在内存/本地 secrets 文件中处理，不提交到 Git。OneDrive 灾备只完成脚本和环境变量检查，真实同步仍取决于 `RCLONE_CONFIG_BASE64` 与 `RCLONE_REMOTE`。前端仓库仍存在无关小游戏/website 脏改动和 Playwright 产物，不能纳入论坛/HF 推送提交；后端仓库仍有未跟踪 `data/` 与 `scripts/utf8.ps1`，不能上传到 HF。
+- 下一步：执行 Task 14。建议串行命令为：先在 `ocr-service` 执行 `python.exe scripts\configure_hf_forum_runtime_secrets.py --confirm-local-secret-write --confirm-hf-secret-write --hf-token-from-git-remote hf-test` 配置/补齐 `FORUM_AUTH_SECRET`、`FORUM_ADMIN_SECRET`、`FORUM_REQUIRE_ADMIN_SECRET=true`、`FORUM_ADMIN_STUDENT_IDS`、`FORUM_DB_BACKEND=sqlpub`、`SQLPUB_*`、`HF_BUCKET_ID`、`HF_TOKEN` 等运行项；再执行 `python.exe scripts\deploy_forum_to_hf_test.py --confirm-hf-write` 推送并做只读线上验证；Space 就绪后执行 `python.exe scripts\verify_forum_deploy.py --confirm-write-e2e --admin-secret <FORUM_ADMIN_SECRET>` 做线上写入 smoke；最后用前端连 `https://mini-hbut-testocr1.hf.space/api/forum` 验证发帖、回帖、收藏、签到、图床上传、投票页、管理页和旧 `/scores` 404。
 
 ## Task 14: 用户确认后的 HF 测试部署与最终验收
 
