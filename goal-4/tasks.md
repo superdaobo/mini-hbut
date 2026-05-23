@@ -249,15 +249,16 @@
 
 ## Task 14: 用户确认后的 HF 测试部署与最终验收
 
-- [ ] 状态：未完成
-- [ ] 在用户明确确认后推送到 HF testocr1
-- [ ] 配置或验证测试环境 secrets，不提交真实密钥
-- [ ] 执行线上健康检查、论坛 API smoke test、前端连通性测试
-- [ ] 若线上异常，按回滚方案处理并记录证据
-- [ ] 标记 goal 完成
+- [x] 状态：已完成
+- [x] 在用户明确确认后推送到 HF testocr1
+- [x] 配置或验证测试环境 secrets，不提交真实密钥
+- [x] 执行线上健康检查、论坛 API smoke test、前端连通性测试
+- [x] 若线上异常，按回滚方案处理并记录证据
+- [x] 标记 goal 完成
 
 记录：
-- 完成内容：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 完成内容：已按用户授权完成 HF testocr1 最终部署与验收。先通过 `configure_hf_sqlpub_secrets.py` 与 `configure_hf_forum_runtime_secrets.py` 配置/补齐 HF Space secrets，并将论坛运行所需的缺失项追加到 `C:\Users\yangd\Desktop\mini-hbut-ocrupload-secrets.txt`；全程未提交真实密钥。HF Bucket/Dataset `mini-hbut/testocr1-storage` 已确认可用。后端先推送 `f72d0cb` 到 HF testocr1，随后在线上验收中发现 `/me/summary` 会沿用数据库旧 `profile.is_admin=1`，导致普通 token 可能显示管理入口但管理 API 返回 403；已新增回归测试并修复为 `/me/summary` 以当前 token claim 覆盖 `profile.is_admin`，提交 `00f1c23 fix(forum): align admin summary with token claim`，并再次推送到 HF testocr1。`git ls-remote hf-test HEAD` 与本地 `ocr-service` HEAD 均为 `00f1c23e04dbf8c786335a9d70a4f6f981007383`。
+- 验证结果：线上只读验收 `python.exe scripts\verify_forum_deploy.py --timeout 30` 通过，`health/categories/hot/backups` 均返回 200，分类为 `campus,study,life,help`，HF Bucket 显示已配置。线上写入验收 `python.exe scripts\verify_forum_deploy.py --confirm-write-e2e --timeout 60` 通过，覆盖 token、发帖、回帖、收藏、签到、管理员创建投票、用户投票、管理员关闭投票、帖子详情读取，并确认已移除的旧帖子评分接口 `/scores` 返回 404。线上图床实传使用明确 `image/png` multipart 请求通过：附件上传 200，代理读取 200，`Content-Type=image/png`，`Cache-Control=public, max-age=86400`。权限一致性验收通过：普通 token 的 `/me/summary.profile.is_admin=false` 且管理 API 403；管理员 token 的 summary/admin reports/admin users/admin backups/admin polls 均可访问。后端本地全量 `python.exe -m pytest tests -q` 通过，`66 passed, 24 warnings`。前端论坛范围 `npx.cmd vitest run src\utils\forum_api.spec.ts src\utils\forum_cache.spec.ts src\utils\forum_view_identity_contract.spec.ts --pool forks --testTimeout 60000` 通过，`28 passed`。前端 `npm.cmd run build` 通过，仍只有既有 CSS `@media` minify warning 与 Capacitor/Tauri/widget 动态导入 warning。浏览器联调使用本地 Vite 连接线上 `https://mini-hbut-testocr1.hf.space`：论坛首页渲染线上帖子；发帖页标题中心命中 `INPUT`、正文中心命中 `TEXTAREA`，隐藏上传 input 为 `0x0`、`aria-hidden=true`、`tabIndex=-1`、`pointer-events:none`，不会再误弹上传；独立“投票打分”页可见并加载线上投票，页面明确提示帖子本身不再逐条打分；“我的”页可见签到按钮、头像上传到图床入口、备用 URL 和管理员口令输入。
+- 最终审计：C 端体验、帖子输入、签到、头像/附件上传、投票打分、管理权限、缓存头、SQLPub 新建 `forum_` 表边界、HF Bucket 对象存储、旧评分接口移除、错误处理和回滚边界均完成复核。线上 smoke 创建了少量验证帖、回复、收藏、签到和投票记录，属于本次授权测试数据；未触发回滚。远程推送目标为 HF testocr1，未向 GitHub 同步后端私有部署内容。
+- 剩余风险：OneDrive/rclone 灾备入口已实现并在线上备份状态中暴露，但当前 HF secrets 未配置 `RCLONE_CONFIG_BASE64` 与 `RCLONE_REMOTE`，所以线上状态显示 OneDrive 未启用；需要后续提供 rclone 配置后才能验证真实 OneDrive 同步。前端全量 Vitest 仍可能被无关小游戏/website 脏改动阻断，但论坛相关 28 个测试、构建、浏览器联调和线上 API 已通过。工作区仍有无关 `website/modules-*`、`website/modules-src/hbut_gomoku`、`.playwright-mcp`、`forum-task11-me-390.png`、`ocr-service/data/`、`ocr-service/scripts/utf8.ps1` 等未纳入本任务提交。
+- 下一步：goal-4 已完成；如要开启 OneDrive 灾备实测，需要另起任务配置 rclone secret 并执行备份恢复演练。
