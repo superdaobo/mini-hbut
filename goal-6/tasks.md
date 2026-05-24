@@ -87,13 +87,13 @@
 
 ## Task 6 - 编写天气图标色调失败测试或视觉断言
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：补充测试或可执行断言，约束雨、阴、晴图标使用柔和语义色，不出现过大反差。
 - 验证：测试或断言先失败，能体现现有色值问题。
-- 实际变更：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 实际变更：在 `src/styles/home_dashboard_contract.spec.ts` 新增首页天气图标色调契约测试，要求 `Dashboard.vue` 复用 `getWeatherIconTone`，并禁止继续保留阴天 `#4b5563`、小/中雨 `#3b82f6`、大雨/雷阵雨 `#1e40af` 这类明暗与饱和差异过大的硬编码色值。
+- 验证结果：已运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "uses unified soft weather icon tones instead of high-contrast hardcoded colors" --testTimeout 60000`，结果为预期红灯：1 failed / 6 skipped。失败原因是当前 `Dashboard.vue` 仍包含 `if (c === '阴') return '#4b5563'`，证明现有图标颜色仍是高反差硬编码映射，尚未迁移到柔和语义色调。
+- 剩余风险：本轮只建立红灯契约，没有实现 `getWeatherIconTone`，也没有修改 `Dashboard.vue` 的当前天气与逐时天气图标颜色绑定。该测试属于源码契约级红灯，后续 Task 9 实现时仍需结合视觉检查确认晴、阴、雨在浅色背景下有足够辨识度且过渡自然。
+- 下一步：执行大型全面检查 2，复核 Task 4-6 的红灯测试是否覆盖温度条缩放、温度驱动配色和天气图标柔和色调，并确认失败原因都指向真实缺陷。
 
 ## 大型全面检查 2（Task 4-6 后）
 

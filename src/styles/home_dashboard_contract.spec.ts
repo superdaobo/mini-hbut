@@ -55,6 +55,19 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain("getTemperatureColor(f.temp_high, 'text')")
   })
 
+  it('uses unified soft weather icon tones instead of high-contrast hardcoded colors', () => {
+    const source = dashboardVue()
+
+    expect(source).not.toContain("if (c === '阴') return '#4b5563'")
+    expect(source).not.toContain("if (c === '小雨' || c === '中雨') return '#3b82f6'")
+    expect(source).not.toContain("if (c === '大雨' || c === '雷阵雨') return '#1e40af'")
+    expect(source).not.toContain("if (condition === '阴') return '#4b5563'")
+    expect(source).not.toContain("if (condition === '小雨' || condition === '中雨') return '#3b82f6'")
+    expect(source).not.toContain("if (condition === '大雨' || condition === '雷阵雨') return '#1e40af'")
+    expect(source).toContain('getWeatherIconTone')
+    expect(source).toContain('getWeatherIconTone(condition).color')
+  })
+
   it('persists the selected home category before navigating away', () => {
     const source = dashboardVue()
 
