@@ -158,13 +158,22 @@
 
 ## Task 10 - 运行项目级验证
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：运行可用的测试、类型检查、构建或 lint 命令，单个命令不超过 60s。
 - 验证：记录命令、结果摘要、失败时的根因与处理。
 - 实际变更：
+- 本轮只运行项目级验证并记录结果；未修改天气业务代码、测试代码或构建配置。
 - 验证结果：
+- 完整测试：运行 `npx.cmd vitest run --testTimeout 60000`，结果为失败，32 个测试文件中 28 passed / 4 failed，203 个测试中 192 passed / 11 failed。失败集中在 `src/utils/hbut_memory_match_game.spec.ts`、`src/utils/hbut_monopoly_game.spec.ts`、`src/utils/module_center.spec.ts`、`src/utils/remote_config.spec.ts`，涉及小游戏状态、小游戏样式契约和模块中心内置游戏顺序，不涉及本次天气温度条或天气图标改动。天气相关的 `src/utils/weather_visuals.spec.ts` 和 `src/styles/home_dashboard_contract.spec.ts` 在完整测试中通过。
+- 类型检查：运行 `npx.cmd vue-tsc --noEmit --skipLibCheck`，结果为失败，`vue-tsc` 在启动阶段抛出 `Search string not found: "/supportedTSExtensions = .*(?=;)/"`。环境确认 `node.exe -v` 为 `v24.12.0`，`npx.cmd tsc --version` 为 `Version 5.9.3`；该失败发生在 `vue-tsc` 自身启动逻辑，未产出项目类型诊断。
+- 构建：运行 `npm.cmd run build`，结果为通过，`vite build` 完成并输出 `built in 7.83s`。构建期间存在 CSS minify 的 `Unexpected "@media"` 警告，以及 Capacitor/Tauri/widget_bridge 动静态混合导入 chunk 警告；这些警告没有阻止构建产物生成。
+- 工作区状态：验证后运行 `git status --short` 和 `git diff --name-only`，仍显示 `website/public/modules/...`、`website/public/modules/latest/...`、`website/public/modules/main/...` 等无关脏改动；本轮未触碰或回滚这些文件。
 - 剩余风险：
+- 项目级完整 Vitest 当前不是绿灯，失败项位于非天气模块；本 goal 不应在未验证清楚前声称整个项目测试全通过。
+- `vue-tsc` 在当前 Node 24 + TypeScript 5.9.3 环境下无法启动，类型检查证据缺失；后续最终 review 需要决定是记录环境兼容风险，还是在不扩大本次天气修复范围的前提下做替代验证。
+- 构建虽然通过，但 CSS/chunk 警告仍存在；本次天气改动没有处理这些既有构建警告。
 - 下一步：
+- Task 11 浏览器视觉验证首页天气，确认真实页面中温度条缩放、温度驱动配色和天气图标柔和色调没有明显重叠、溢出或反差过强问题。
 
 ## Task 11 - 浏览器视觉验证首页天气
 
