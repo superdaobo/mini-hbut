@@ -87,19 +87,24 @@ describe('bottom tab bar safe area contract', () => {
     expect(indexCss()).not.toMatch(/--ux-bottom-safe:\s*calc\(128px\s*\+\s*var\(--app-safe-bottom\)\)/)
   })
 
-  it('does not force Capacitor iOS into an edge-to-edge container that double-handles safe area', () => {
+  it('keeps edge-to-edge behavior in the iOS bridge controller instead of the app delegate', () => {
     expect(capacitorConfig()).not.toContain("contentInset: 'never'")
-    expect(appDelegate()).not.toContain('configureEdgeToEdgeWebView')
     expect(appDelegate()).not.toContain('contentInsetAdjustmentBehavior = .never')
     expect(appDelegate()).not.toContain('contentInset = .zero')
     expect(appDelegate()).not.toContain('scrollIndicatorInsets = .zero')
   })
 
-  it('uses the stock Capacitor bridge controller so LiveContainer owns the native safe area once', () => {
-    expect(storyboard()).toContain('customClass="CAPBridgeViewController"')
-    expect(storyboard()).toContain('customModule="Capacitor"')
-    expect(storyboard()).not.toContain('EdgeToEdgeBridgeViewController')
-    expect(xcodeProject()).not.toContain('EdgeToEdgeBridgeViewController.swift in Sources')
+  it('uses the edge-to-edge bridge controller so the WebView can draw into the bottom safe area', () => {
+    const bridgeController = readSource('ios/App/App/EdgeToEdgeBridgeViewController.swift')
+
+    expect(storyboard()).toContain('customClass="EdgeToEdgeBridgeViewController"')
+    expect(storyboard()).toContain('customModule="App"')
+    expect(xcodeProject()).toContain('EdgeToEdgeBridgeViewController.swift')
+    expect(xcodeProject()).toContain('EdgeToEdgeBridgeViewController.swift in Sources')
+    expect(bridgeController).toContain('override func capacitorDidLoad()')
+    expect(bridgeController).toContain('edgesForExtendedLayout = [.top, .bottom]')
+    expect(bridgeController).toContain('contentInsetAdjustmentBehavior = .never')
+    expect(bridgeController).toContain('webView.frame = view.bounds')
   })
 
   it('provides a native safe-area fallback when iOS WebView reports zero env inset', () => {

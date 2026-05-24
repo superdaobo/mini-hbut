@@ -12,7 +12,7 @@ class EdgeToEdgeBridgeViewController: CAPBridgeViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         configureEdgeToEdgeContainer()
-        if let webView {
+        if let webView = webView {
             configureEdgeToEdgeWebView(webView)
             webView.frame = view.bounds
         }
@@ -22,6 +22,11 @@ class EdgeToEdgeBridgeViewController: CAPBridgeViewController {
         let webView = super.webView(with: frame, configuration: configuration)
         configureEdgeToEdgeWebView(webView)
         return webView
+    }
+
+    override func capacitorDidLoad() {
+        super.capacitorDidLoad()
+        configureEdgeToEdgeWebView(webView)
     }
 
     /// iOS 底部导航栏由前端吸收 safe area，原生层必须让 WKWebView 从首帧铺满整屏。
