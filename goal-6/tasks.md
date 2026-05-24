@@ -140,11 +140,21 @@
 
 ## 大型全面检查 3（Task 7-9 后）
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：需求是否完整实现、缩放是否正确、颜色是否可读、图标是否自然、是否引入视觉或性能问题。
 - 检查结果：
+- 需求实现复核：Task 7-9 已覆盖用户要求的三项核心问题：未来天气温度条基于展示预报的全局最低/最高温缩放，温度条与低/高温文本颜色由实际气温映射，晴/阴/雨等天气图标改为统一柔和语义色。
+- 缩放验证：运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "scales forecast temperature bars from displayed daily forecast bounds" --testTimeout 60000`，结果为 1 passed / 6 skipped；运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000`，结果为 10 passed，覆盖全局范围、无效值、等温和小温差兜底。
+- 温度配色验证：运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "derives forecast low and high temperature text colors from actual temperatures" --testTimeout 60000`，结果为 1 passed / 6 skipped；源码确认未来天气低温和高温文本分别绑定 `getTemperatureColor(f.temp_low, 'text')` 与 `getTemperatureColor(f.temp_high, 'text')`，不再固定最低温蓝色。
+- 图标色调验证：运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "uses unified soft weather icon tones instead of high-contrast hardcoded colors" --testTimeout 60000`，结果为 1 passed / 6 skipped；源码确认当前天气、逐时天气和未来天气图标均通过 `getWeatherIconTone(...).color` 取色。
+- 源码回归检查：运行 `rg -n "getTempBarStyle|const minRange|const maxRange|from-blue-400 via-green-400 to-red-400|text-xs text-blue-500 font-medium w-8 text-right|text-xs text-red-500 font-medium w-8|if \(c === '阴'\).*#4b5563|if \(condition === '阴'\).*#4b5563|getWeatherIconTone|getTemperatureColor|getTemperatureRangeStyle|forecastTemperatureBounds" src\components\Dashboard.vue src\utils\weather_visuals.ts src\utils\weather_visuals.spec.ts src\styles\home_dashboard_contract.spec.ts`，只命中新工具函数、测试断言和新绑定；旧固定范围、固定蓝/红文本类、固定蓝绿红条形渐变和旧高反差阴/雨图标色映射未命中为生产实现。
+- 性能与安全评估：新增逻辑是纯前端数值计算和常量色阶映射，作用范围限于首页天气展示；没有新增网络请求、权限、文件 IO、系统配置或后端数据写入。
 - 修复动作：
+- 本轮为大型全面检查，仅补充检查记录；未修改天气业务代码。
 - 剩余风险：
+- 尚未执行项目级完整验证、类型检查或构建；按任务拆分留给 Task 10。
+- 尚未启动本地前端进行浏览器视觉验证，浅色背景下的最终观感、真实数据布局和图标过渡效果仍需 Task 11 通过页面检查确认。
+- 当前存在 `website/public/modules/...`、`website/public/modules/latest/...`、`website/public/modules/main/...` 等无关脏改动，本轮未触碰也未回滚。
 
 ## Task 10 - 运行项目级验证
 
