@@ -3281,16 +3281,16 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom) + 8px);
+  bottom: 0;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 8px 14px 8px;
+  padding: 8px 14px calc(8px + var(--app-safe-bottom));
   height: auto;
-  min-height: 62px;
-  max-height: 92px;
+  min-height: calc(62px + var(--app-safe-bottom));
+  max-height: calc(92px + var(--app-safe-bottom));
   width: min(
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)

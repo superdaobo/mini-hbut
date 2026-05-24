@@ -55,23 +55,25 @@ describe('bottom tab bar safe area contract', () => {
     expect(appVue()).toMatch(/grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)\s*!important;/)
   })
 
-  it('keeps the rounded iOS bottom tab bar on the safe-area baseline used by v1.3.6', () => {
+  it('keeps the rounded iOS bottom tab bar anchored to the viewport bottom', () => {
     const baseRule = getRuleBody(appVue(), '.bottom-tab-bar')
 
-    expect(baseRule).toContain('bottom: calc(env(safe-area-inset-bottom) + 8px)')
-    expect(baseRule).toContain('padding: 8px 14px 8px')
-    expect(baseRule).toContain('min-height: 62px')
+    expect(baseRule).toContain('bottom: 0')
+    expect(baseRule).toContain('padding: 8px 14px calc(8px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('min-height: calc(62px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('max-height: calc(92px + var(--app-safe-bottom))')
     expect(baseRule).toContain('border-radius: 20px')
+    expect(baseRule).not.toContain('bottom: calc(env(safe-area-inset-bottom) + 8px)')
     expect(appVue()).not.toContain('bottom-tab-bar--ios')
     expect(appVue()).not.toContain('--bottom-tab-bar-bottom: 0px')
     expect(appVue()).not.toContain('bottom: var(--bottom-tab-bar-bottom) !important')
   })
 
-  it('keeps the tab bar visual height compact instead of stretching it with safe-area padding', () => {
+  it('keeps safe-area padding inside the tab bar without theme overrides stretching it', () => {
     const baseRule = getRuleBody(appVue(), '.bottom-tab-bar')
 
-    expect(baseRule).toContain('min-height: 62px')
-    expect(baseRule).toContain('max-height: 92px')
+    expect(baseRule).toContain('min-height: calc(62px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('max-height: calc(92px + var(--app-safe-bottom))')
     expect(baseRule).not.toContain('--bottom-tab-bar-content-height')
     expect(baseRule).not.toContain('--bottom-tab-bar-safe-bottom')
     expect(baseRule).not.toContain('10px + var(--bottom-tab-bar-safe-bottom)')
@@ -122,12 +124,13 @@ describe('bottom tab bar safe area contract', () => {
     const bundledCss = normalizeCss(readIosBundledStyles())
 
     expect(bundledCss).not.toContain('@import')
-    expect(bundledCss).toContain('bottom:calc(env(safe-area-inset-bottom)+8px)')
+    expect(bundledCss).toContain('bottom:0')
     expect(bundledCss).toContain('grid-template-columns:repeat(5,minmax(0,1fr))!important')
-    expect(bundledCss).toContain('padding:8px14px')
-    expect(bundledCss).toContain('min-height:62px')
+    expect(bundledCss).toContain('padding:8px14pxcalc(8px+var(--app-safe-bottom))')
+    expect(bundledCss).toContain('min-height:calc(62px+var(--app-safe-bottom))')
     expect(bundledCss).toContain('border-radius:20px')
-    expect(bundledCss).toContain('max-height:92px')
+    expect(bundledCss).toContain('max-height:calc(92px+var(--app-safe-bottom))')
+    expect(bundledCss).not.toContain('bottom:calc(env(safe-area-inset-bottom)+8px)')
     expect(bundledCss).not.toContain('--bottom-tab-bar-safe-bottom')
     expect(bundledCss).not.toContain('--bottom-tab-bar-bottom:0px')
     expect(bundledCss).not.toContain('bottom:var(--bottom-tab-bar-bottom)!important')
