@@ -177,13 +177,27 @@
 
 ## Task 11 - 浏览器视觉验证首页天气
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：启动本地前端或可访问页面，用浏览器验证首页天气温度条和图标效果。
 - 验证：截图或 DOM/样式检查显示修复生效，无明显重叠、溢出、对比过强问题。
 - 实际变更：
+- 启动 `npm.cmd run dev -- --host 127.0.0.1` 并通过浏览器打开 `http://127.0.0.1:1420/#/`，关闭首页公告后打开天气详情弹窗进行桌面与移动视口验证。
+- 浏览器初次验证发现实际未来天气条仍为兜底样式 `left: 46%; width: 8%`。根因是 Vue 模板会自动解包 `computed`，模板中传入 `forecastTemperatureBounds.value` 会在运行时变成对已解包对象继续取 `.value`，导致 `getTemperatureRangeStyle(...)` 收到 `undefined` bounds 并走兜底。
+- 修复 `src/components/Dashboard.vue`：未来天气温度条调用从 `getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)` 改为 `getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds)`。
+- 更新 `src/styles/home_dashboard_contract.spec.ts`：契约测试要求模板使用自动解包后的 `forecastTemperatureBounds`，并禁止再次出现 `forecastTemperatureBounds.value`。
 - 验证结果：
+- 相关自动化测试：运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000`，结果为 1 passed / 10 tests passed；运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts --testTimeout 60000`，结果为 1 passed / 7 tests passed。
+- 桌面浏览器验证：在 `1036x854` 视口打开天气详情，未来天气实际数据为 `明天 多云 18°/28°`、`后天 小雨 16°/25°`。DOM 样式显示温度条分别为 `left: 16.67%; width: 83.33%` 与 `left: 0%; width: 75%`，符合展示预报全局范围 `16°~28°` 的缩放结果，不再走兜底 `46%/8%`。
+- 移动浏览器验证：在 `390x844` 视口复验同一弹窗，温度条仍分别为 `left: 16.67%; width: 83.33%` 与 `left: 0%; width: 75%`。每行子元素重叠检测结果为空，未发现温度文本、条形轨道、天气图标互相覆盖。
+- 颜色验证：低温文本 `18°/16°` 为 `rgb(15, 118, 110)`，高温文本 `28°/25°` 为 `rgb(194, 65, 12)`；条形渐变为 `rgb(45, 212, 191)` 到 `rgb(251, 146, 60)`，由实际温度驱动，不固定最低温为蓝色。多云图标为 `rgb(123, 135, 152)`，小雨图标为 `rgb(79, 143, 191)`，色调低饱和且过渡自然。
+- 截图证据：已保存 `weather-modal-desktop-task11.png` 和 `weather-modal-mobile-task11.png` 作为本轮视觉检查截图；未纳入提交。
+- 控制台风险复核：浏览器控制台存在本地 Web 运行时不支持 Tauri `invoke: fetch_weather`、远程配置 CORS 和更新检查 403 等错误/警告；天气弹窗仍使用默认/兜底天气数据正常渲染，这些控制台问题未阻断本轮天气视觉验证。
+- 服务收尾：已通过 `taskkill.exe /PID 95444 /PID 93300 /T /F` 停止本轮启动的 1420 dev server；端口复查只剩 `TimeWait`，没有监听进程。
 - 剩余风险：
+- 浏览器验证基于本地 Web/Vite 运行时和默认天气数据，未在 Tauri 原生运行时中验证真实 `fetch_weather` 返回数据；但本次修复的温度条缩放、颜色映射和图标色调均作用于前端渲染逻辑，已通过 DOM 样式和单元/契约测试覆盖。
+- 项目级完整 Vitest 与 `vue-tsc` 仍存在 Task 10 记录的非天气相关失败/环境问题，最终 review 需要保留这些风险说明。
 - 下一步：
+- Task 12 最终 review、提交与 goal 完成前检查，复核代码、安全性、测试、构建、文档和回滚方案，并决定是否可标记 goal 完成。
 
 ## Task 12 - 最终 review、提交与 goal 完成
 

@@ -1462,7 +1462,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
                 <span class="text-xs text-gray-400 w-10 ml-1">{{ f.condition }}</span>
                 <span class="text-xs font-medium w-8 text-right" :style="{ color: getTemperatureColor(f.temp_low, 'text') }">{{ f.temp_low }}°</span>
                 <div class="flex-1 mx-2 h-[6px] rounded-full bg-gray-100 relative overflow-hidden">
-                  <div class="absolute inset-y-0 rounded-full" :style="getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)"></div>
+                  <div class="absolute inset-y-0 rounded-full" :style="getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds)"></div>
                 </div>
                 <span class="text-xs font-medium w-8" :style="{ color: getTemperatureColor(f.temp_high, 'text') }">{{ f.temp_high }}°</span>
               </div>
