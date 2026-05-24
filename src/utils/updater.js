@@ -4,7 +4,6 @@ import { getNativeAppVersion, invokeNative, isTauriRuntime } from '../platform/n
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 const GH_PROXY_PREFIX = 'https://gh-proxy.com/'
-const HK_DOWNLOAD_PROXY_PREFIX = 'https://hk.gh-proxy.org/'
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
@@ -16,10 +15,9 @@ const API_PROXIES = [
 ]
 
 const DOWNLOAD_PROXIES = [
+  (tag, filename) => `https://ghfast.top/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://hk.gh-proxy.org/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
-  (tag, filename) => `https://ghfast.top/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
-  (tag, filename) => `https://ghproxy.net/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
 ]
 
@@ -31,17 +29,17 @@ export const isOfficialDownloadUrl = (url) => {
 
 export const describeUpdateDownloadSource = (url, index = 0) => {
   const value = String(url || '').trim()
-  if (value.includes('hk.gh-proxy.org')) {
+  if (value.includes('ghfast.top')) {
     return { label: '代理下载 1', tag: 'proxy1' }
   }
-  if (value.includes('gh-proxy.com')) {
+  if (value.includes('hk.gh-proxy.org')) {
     return { label: '代理下载 2', tag: 'proxy2' }
   }
-  if (value.includes('ghfast.top')) {
+  if (value.includes('gh-proxy.com')) {
     return { label: '代理下载 3', tag: 'proxy3' }
   }
   if (value.includes('ghproxy.net') || value.includes('mirror.ghproxy.com')) {
-    return { label: '代理下载 4', tag: 'proxy4' }
+    return { label: `代理下载 ${index + 1}`, tag: `proxy${index + 1}` }
   }
   if (value.startsWith('https://github.com/')) {
     return { label: 'GitHub 源站', tag: 'github' }
@@ -57,30 +55,8 @@ export const buildUpdateDownloadUrls = (tag, filename, primaryUrl = '') => {
   return uniqueUrls(candidates).filter((url) => !isOfficialDownloadUrl(url))
 }
 
-const unwrapKnownProxyUrl = (url) => {
-  const value = String(url || '').trim()
-  if (!value) return ''
-  const prefixes = [
-    'https://hk.gh-proxy.org/',
-    'https://gh-proxy.com/',
-    'https://mirror.ghproxy.com/',
-    'https://ghproxy.net/'
-  ]
-  for (const prefix of prefixes) {
-    if (value.startsWith(prefix)) {
-      return value.slice(prefix.length)
-    }
-  }
-  return value
-}
-
-const toHkDownloadUrl = (url) => {
-  const raw = unwrapKnownProxyUrl(url)
-  if (!raw) return ''
-  if (raw.startsWith(HK_DOWNLOAD_PROXY_PREFIX)) return raw
-  if (raw.startsWith('https://github.com/')) return `${HK_DOWNLOAD_PROXY_PREFIX}${raw}`
-  return raw
-}
+export const buildDownloadOpenUrls = (downloadUrls) =>
+  uniqueUrls(downloadUrls).filter((url) => !isOfficialDownloadUrl(url))
 
 export function toGhProxyUrl(url) {
   const value = String(url || '').trim()
@@ -482,8 +458,7 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
     throw new Error('没有可用的下载链接')
   }
 
-  // 下载跳转优先统一到 hk 代理拼接后的 GitHub 资产链接。
-  const preferred = uniqueUrls(downloadUrls.map((url) => toHkDownloadUrl(url)))
+  const preferred = buildDownloadOpenUrls(downloadUrls)
   if (typeof onProgress === 'function') onProgress(20)
   const opened = await openFirstUrl(preferred)
   if (opened.success) {
