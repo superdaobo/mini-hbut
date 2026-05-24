@@ -77,13 +77,13 @@
 
 ## Task 5 - 编写温度颜色失败测试
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：补充测试证明最低温颜色由温度决定，而不是固定蓝色。
 - 验证：测试先失败，至少覆盖偏热最低温应映射为暖色。
-- 实际变更：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 实际变更：在 `src/styles/home_dashboard_contract.spec.ts` 新增未来天气温度文本颜色契约测试，要求低温/高温文本不再固定使用 `text-blue-500` 和 `text-red-500`，而是分别绑定 `getTemperatureColor(f.temp_low, 'text')` 与 `getTemperatureColor(f.temp_high, 'text')`。
+- 验证结果：已运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "derives forecast low and high temperature text colors from actual temperatures" --testTimeout 60000`，结果为预期红灯：1 failed / 5 skipped。失败信息是当前 `Dashboard.vue` 仍包含 `text-xs text-blue-500 font-medium w-8 text-right`，证明最低温文本颜色仍固定为蓝色，而不是由实际气温决定。
+- 剩余风险：本轮只建立红灯契约，没有实现 `getTemperatureColor`，也没有修改 `Dashboard.vue` 的未来天气文本绑定。该测试是源码契约级红灯，后续实现仍需用纯函数测试覆盖偏热最低温映射为暖色的具体色值。
+- 下一步：Task 6 编写天气图标色调失败测试或视觉断言，约束雨、阴、晴图标使用柔和语义色，不出现过大反差。
 
 ## Task 6 - 编写天气图标色调失败测试或视觉断言
 

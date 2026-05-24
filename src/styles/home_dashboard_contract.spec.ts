@@ -46,6 +46,15 @@ describe('home dashboard interaction contract', () => {
     expect(source).not.toContain('100 - ((high - minRange) / totalRange) * 100')
   })
 
+  it('derives forecast low and high temperature text colors from actual temperatures', () => {
+    const source = dashboardVue()
+
+    expect(source).not.toContain('text-xs text-blue-500 font-medium w-8 text-right')
+    expect(source).not.toContain('text-xs text-red-500 font-medium w-8')
+    expect(source).toContain("getTemperatureColor(f.temp_low, 'text')")
+    expect(source).toContain("getTemperatureColor(f.temp_high, 'text')")
+  })
+
   it('persists the selected home category before navigating away', () => {
     const source = dashboardVue()
 
