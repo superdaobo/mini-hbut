@@ -16,15 +16,46 @@ const API_PROXIES = [
 ]
 
 const DOWNLOAD_PROXIES = [
-  ...(EDGEONE_CDN_BASE
-    ? [(tag, filename) => `${EDGEONE_CDN_BASE}/releases/${tag}/${filename}`]
-    : []),
   (tag, filename) => `https://hk.gh-proxy.org/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://ghfast.top/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://ghproxy.net/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
 ]
+
+export const isOfficialDownloadUrl = (url) => {
+  const value = String(url || '').trim()
+  if (!value) return false
+  return Boolean(EDGEONE_CDN_BASE && value.startsWith(`${EDGEONE_CDN_BASE}/releases/`))
+}
+
+export const describeUpdateDownloadSource = (url, index = 0) => {
+  const value = String(url || '').trim()
+  if (value.includes('hk.gh-proxy.org')) {
+    return { label: '代理下载 1', tag: 'proxy1' }
+  }
+  if (value.includes('gh-proxy.com')) {
+    return { label: '代理下载 2', tag: 'proxy2' }
+  }
+  if (value.includes('ghfast.top')) {
+    return { label: '代理下载 3', tag: 'proxy3' }
+  }
+  if (value.includes('ghproxy.net') || value.includes('mirror.ghproxy.com')) {
+    return { label: '代理下载 4', tag: 'proxy4' }
+  }
+  if (value.startsWith('https://github.com/')) {
+    return { label: 'GitHub 源站', tag: 'github' }
+  }
+  return { label: `线路 ${index + 1}`, tag: `line${index}` }
+}
+
+export const buildUpdateDownloadUrls = (tag, filename, primaryUrl = '') => {
+  const candidates = [
+    ...DOWNLOAD_PROXIES.map((fn) => fn(tag, filename)),
+    primaryUrl
+  ]
+  return uniqueUrls(candidates).filter((url) => !isOfficialDownloadUrl(url))
+}
 
 const unwrapKnownProxyUrl = (url) => {
   const value = String(url || '').trim()
@@ -386,9 +417,7 @@ export async function checkForUpdates(currentVersion) {
       // 当 API 未返回资产列表时（如仅 jsdelivr 可用），根据命名规则构造下载链接
       const expectedName = buildExpectedAssetName(platform, tagName)
       if (expectedName) {
-        const downloadUrls = uniqueUrls(
-          DOWNLOAD_PROXIES.map((fn) => toGhProxyUrl(fn(tagName, expectedName)))
-        )
+        const downloadUrls = buildUpdateDownloadUrls(tagName, expectedName)
         return {
           hasUpdate: true,
           currentVersion,
@@ -416,10 +445,7 @@ export async function checkForUpdates(currentVersion) {
       }
     }
 
-    const downloadUrls = uniqueUrls([
-      toGhProxyUrl(asset.browser_download_url),
-      ...DOWNLOAD_PROXIES.map((fn) => toGhProxyUrl(fn(tagName, asset.name)))
-    ])
+    const downloadUrls = buildUpdateDownloadUrls(tagName, asset.name, asset.browser_download_url)
 
     return {
       hasUpdate: true,

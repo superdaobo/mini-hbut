@@ -1,7 +1,12 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { checkForUpdates, downloadUpdate, getCurrentVersion, toGhProxyUrl } from '../utils/updater.js'
-import { openExternal } from '../utils/external_link'
+import {
+  checkForUpdates,
+  describeUpdateDownloadSource,
+  downloadUpdate,
+  getCurrentVersion,
+  isOfficialDownloadUrl
+} from '../utils/updater.js'
 
 const emit = defineEmits(['close'])
 
@@ -36,34 +41,12 @@ const checkUpdate = async () => {
 // 构建带标签的下载源列表
 const downloadSources = computed(() => {
   if (!updateInfo.value?.downloadUrls) return []
-  const urls = updateInfo.value.downloadUrls
-  return urls.map((url, idx) => {
-    let label = ''
-    let tag = ''
-    if (url.includes('hbut.6661111.xyz')) {
-      label = '本站下载'
-      tag = 'cdn'
-    } else if (url.includes('hk.gh-proxy.org')) {
-      label = '代理下载 1'
-      tag = 'proxy1'
-    } else if (url.includes('gh-proxy.com')) {
-      label = '代理下载 2'
-      tag = 'proxy2'
-    } else if (url.includes('ghfast.top')) {
-      label = '代理下载 3'
-      tag = 'proxy3'
-    } else if (url.includes('mirror.ghproxy.com')) {
-      label = '代理下载 4'
-      tag = 'proxy4'
-    } else if (url.includes('github.com')) {
-      label = 'GitHub 源站'
-      tag = 'github'
-    } else {
-      label = `线路 ${idx + 1}`
-      tag = `line${idx}`
-    }
-    return { url, label, tag }
-  })
+  return updateInfo.value.downloadUrls
+    .filter((url) => !isOfficialDownloadUrl(url))
+    .map((url, idx) => ({
+      url,
+      ...describeUpdateDownloadSource(url, idx)
+    }))
 })
 
 // 测试单个下载源的响应速度
@@ -214,7 +197,7 @@ onMounted(() => {
                 @click="handleDownloadFromSource(source.url)"
               >
                 <div class="source-label">
-                  <span class="source-icon">{{ source.tag === 'cdn' ? '⚡' : source.tag === 'github' ? '🐙' : '🔗' }}</span>
+                  <span class="source-icon">{{ source.tag === 'github' ? '🐙' : '🔗' }}</span>
                   <span>{{ source.label }}</span>
                 </div>
                 <div class="source-speed">
