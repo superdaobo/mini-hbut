@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   getForecastTemperatureBounds,
+  getTemperatureColor,
   getTemperatureRangeScale,
   getTemperatureRangeStyle
 } from './weather_visuals'
@@ -57,5 +58,23 @@ describe('weather visual helpers', () => {
 
     expect(style.left).toBe('15.38%')
     expect(style.width).toBe('46.15%')
+  })
+
+  it('maps temperatures to readable text colors instead of fixed low-blue and high-red classes', () => {
+    expect(getTemperatureColor(-2, 'text')).toBe('#2563eb')
+    expect(getTemperatureColor(18, 'text')).toBe('#0f766e')
+    expect(getTemperatureColor(27, 'text')).toBe('#c2410c')
+    expect(getTemperatureColor(34, 'text')).toBe('#dc2626')
+    expect(getTemperatureColor(29, 'text')).not.toBe('#2563eb')
+  })
+
+  it('uses actual low and high temperatures for range gradient colors', () => {
+    const warmRange = getTemperatureRangeStyle(27, 34, { min: 24, max: 36, span: 12 })
+
+    expect(warmRange.background).toBe('linear-gradient(90deg, #fb923c 0%, #f87171 100%)')
+    expect(warmRange.background).not.toContain('#60a5fa')
+
+    const coldRange = getTemperatureRangeStyle(2, 8, { min: -2, max: 12, span: 14 })
+    expect(coldRange.background).toBe('linear-gradient(90deg, #60a5fa 0%, #2dd4bf 100%)')
   })
 })

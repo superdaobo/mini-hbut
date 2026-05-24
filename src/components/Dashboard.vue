@@ -19,7 +19,7 @@ import {
   resolveRelativeCollisionPoint
 } from '../utils/layout_collision_fx.js'
 import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../utils/home_search.js'
-import { getForecastTemperatureBounds, getTemperatureRangeStyle } from '../utils/weather_visuals'
+import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle } from '../utils/weather_visuals'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -1479,11 +1479,11 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
                 <span class="text-sm text-gray-600 w-10 font-medium">{{ f.day }}</span>
                 <i class="fas w-6 text-center" :class="f.icon" :style="{ color: getWeatherIconColor(f.condition) }"></i>
                 <span class="text-xs text-gray-400 w-10 ml-1">{{ f.condition }}</span>
-                <span class="text-xs text-blue-500 font-medium w-8 text-right">{{ f.temp_low }}°</span>
+                <span class="text-xs font-medium w-8 text-right" :style="{ color: getTemperatureColor(f.temp_low, 'text') }">{{ f.temp_low }}°</span>
                 <div class="flex-1 mx-2 h-[6px] rounded-full bg-gray-100 relative overflow-hidden">
-                  <div class="absolute inset-y-0 rounded-full bg-gradient-to-r from-blue-400 via-green-400 to-red-400" :style="getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)"></div>
+                  <div class="absolute inset-y-0 rounded-full" :style="getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)"></div>
                 </div>
-                <span class="text-xs text-red-500 font-medium w-8">{{ f.temp_high }}°</span>
+                <span class="text-xs font-medium w-8" :style="{ color: getTemperatureColor(f.temp_high, 'text') }">{{ f.temp_high }}°</span>
               </div>
             </div>
           </div>

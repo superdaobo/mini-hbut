@@ -120,13 +120,13 @@
 
 ## Task 8 - 实现温度驱动配色
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：让温度条起止颜色和必要文本颜色由实际温度映射得到，不固定最低温为蓝色。
 - 验证：Task 5 相关测试通过，并检查浅色背景可读性。
-- 实际变更：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 实际变更：在 `src/utils/weather_visuals.ts` 新增 `getTemperatureColor`，为文本和条形分别提供柔和温度色阶；`getTemperatureRangeStyle` 现在返回由低温/高温实际温度生成的 `linear-gradient(...)` 背景。`Dashboard.vue` 已导入 `getTemperatureColor`，未来天气低/高温文本改为内联温度色，温度条移除固定 `from-blue-400 via-green-400 to-red-400` 渐变类，改用 `getTemperatureRangeStyle(...)` 返回的背景。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000` 得到预期红灯：`getTemperatureColor is not a function`，且条形样式缺少 `background`。实现后重新运行同一命令，结果为 1 passed / 8 tests passed；运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "derives forecast low and high temperature text colors from actual temperatures" --testTimeout 60000`，结果为 1 passed / 6 skipped。复核 `rg -n "text-xs text-blue-500 font-medium w-8 text-right|text-xs text-red-500 font-medium w-8|from-blue-400 via-green-400 to-red-400|getTemperatureColor\(f\.temp_low, 'text'\)|getTemperatureColor\(f\.temp_high, 'text'\)|linear-gradient\(90deg" src\components\Dashboard.vue src\utils\weather_visuals.ts src\utils\weather_visuals.spec.ts`，确认固定低温蓝色、高温红色和固定蓝绿红条形渐变不再用于未来天气温度显示。
+- 剩余风险：温度颜色已由实际气温驱动，但天气图标色调仍未改，属于 Task 9；最终 UI 视觉仍需后续浏览器验证确认浅色背景下的整体观感。
+- 下一步：Task 9 调整天气图标柔和过渡色，统一晴、阴、雨等图标的饱和度、明度和语义色。
 
 ## Task 9 - 调整天气图标柔和过渡色
 

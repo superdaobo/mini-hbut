@@ -14,8 +14,12 @@ type TemperatureRangeScale = {
   widthPct: number
 }
 
+type TemperatureColorUsage = 'bar' | 'text'
+
 const FALLBACK_SCALE: TemperatureRangeScale = { leftPct: 46, widthPct: 8 }
 const MIN_VISIBLE_WIDTH_PCT = 8
+const FALLBACK_TEXT_COLOR = '#64748b'
+const FALLBACK_BAR_COLOR = '#94a3b8'
 
 const toFiniteTemperature = (value: unknown): number | null => {
   if (value === null || value === undefined) return null
@@ -28,6 +32,26 @@ const toFiniteTemperature = (value: unknown): number | null => {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 const roundPct = (value: number) => Math.round(value * 100) / 100
+
+export const getTemperatureColor = (
+  temperatureValue: unknown,
+  usage: TemperatureColorUsage = 'bar'
+) => {
+  const temperature = toFiniteTemperature(temperatureValue)
+  if (temperature === null) return usage === 'text' ? FALLBACK_TEXT_COLOR : FALLBACK_BAR_COLOR
+
+  if (usage === 'text') {
+    if (temperature < 8) return '#2563eb'
+    if (temperature < 24) return '#0f766e'
+    if (temperature < 32) return '#c2410c'
+    return '#dc2626'
+  }
+
+  if (temperature < 8) return '#60a5fa'
+  if (temperature < 24) return '#2dd4bf'
+  if (temperature < 32) return '#fb923c'
+  return '#f87171'
+}
 
 export const getForecastTemperatureBounds = (forecast: ForecastTemperature[] = []): TemperatureBounds => {
   const lows: number[] = []
@@ -89,6 +113,7 @@ export const getTemperatureRangeStyle = (
 
   return {
     left: `${scale.leftPct}%`,
-    width: `${scale.widthPct}%`
+    width: `${scale.widthPct}%`,
+    background: `linear-gradient(90deg, ${getTemperatureColor(low, 'bar')} 0%, ${getTemperatureColor(high, 'bar')} 100%)`
   }
 }
