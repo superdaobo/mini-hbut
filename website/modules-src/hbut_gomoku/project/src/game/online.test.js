@@ -3,21 +3,31 @@ import { getCell } from './gomoku.js'
 import {
   DEFAULT_NOSTR_RELAY_URLS,
   DEFAULT_TORRENT_TRACKER_URLS,
+  MATCHMAKING_ROOM_CODE,
   ONLINE_APP_ID,
   TRYSTERO_TORRENT_URL,
   applyLocalMove,
+  applyLobbyMessage,
   applyPeerJoined,
   applyRemoteMove,
   applyRemoteRestart,
   applySnapshotMessage,
+  buildCancelMessage,
+  buildLobbyPresenceMessage,
+  buildMatchStartMessage,
+  buildQueueMessage,
   buildRestartMessage,
   buildSnapshotMessage,
+  createMatchmakingState,
   createOnlineState,
   createRoomCode,
   createTrysteroGomokuRoom,
+  getMatchmakingOnlineCount,
+  getMatchmakingQueueCount,
   markOnlineTimeout,
   nextOnlineStrategy,
-  normalizeRoomCode
+  normalizeRoomCode,
+  resolveMatchPair
 } from './online.js'
 
 describe('湖工五子棋联机协议', () => {
@@ -419,6 +429,144 @@ describe('湖工五子棋联机协议', () => {
     expect(calls.at(-1)).toEqual(['leave'])
   })
 
+  it('兼容新版 Trystero makeAction 对象返回值', async () => {
+    const calls = []
+    const handlers = {}
+    const room = {
+      makeAction(actionId) {
+        calls.push(['makeAction', actionId])
+        return {
+          send(payload, targetPeer) {
+            calls.push(['send', payload, targetPeer])
+            return Promise.resolve()
+          },
+          get onMessage() {
+            return handlers.message || null
+          },
+          set onMessage(handler) {
+            handlers.message = handler
+          }
+        }
+      },
+      get onPeerJoin() {
+        return handlers.join || null
+      },
+      set onPeerJoin(handler) {
+        handlers.join = handler
+      },
+      get onPeerLeave() {
+        return handlers.leave || null
+      },
+      set onPeerLeave(handler) {
+        handlers.leave = handler
+      },
+      leave() {
+        calls.push(['leave'])
+      }
+    }
+    const events = []
+
+    const client = await createTrysteroGomokuRoom({
+      roomCode: 'object-api',
+      importTrystero: () =>
+        Promise.resolve({
+          selfId: 'object-peer',
+          joinRoom() {
+            return room
+          }
+        }),
+      onEvent: (event) => events.push(event)
+    })
+
+    handlers.message({ type: 'hello', messageId: 'object-hello' }, { peerId: 'peer-b' })
+    handlers.join({ peerId: 'peer-c' })
+    handlers.leave({ peerId: 'peer-c' })
+    await client.send({ type: 'hello', messageId: 'object-self' }, 'peer-b')
+    client.close()
+
+    expect(client.selfPeerId).toBe('object-peer')
+    expect(calls[0]).toEqual(['makeAction', 'gomoku'])
+    expect(events).toEqual([
+      { type: 'message', message: { type: 'hello', messageId: 'object-hello' }, peerId: 'peer-b' },
+      { type: 'peer_join', peerId: 'peer-c' },
+      { type: 'peer_leave', peerId: 'peer-c' }
+    ])
+    expect(calls.at(-2)).toEqual([
+      'send',
+      { type: 'hello', messageId: 'object-self' },
+      { target: 'peer-b' }
+    ])
+    expect(calls.at(-1)).toEqual(['leave'])
+  })
+
+  it('新版 Trystero 对象 API 缺少 send 时创建阶段直接失败', async () => {
+    const room = {
+      makeAction() {
+        return {
+          set onMessage(handler) {
+            this.messageHandler = handler
+          }
+        }
+      },
+      onPeerJoin() {},
+      onPeerLeave() {},
+      leave() {}
+    }
+
+    await expect(createTrysteroGomokuRoom({
+      roomCode: 'bad-object-api',
+      importTrystero: () =>
+        Promise.resolve({
+          selfId: 'object-peer',
+          joinRoom() {
+            return room
+          }
+        })
+    })).rejects.toThrow('Trystero 消息通道不可用')
+  })
+
+  it('兼容新版 Trystero 对象 API 的函数式 onMessage 注册', async () => {
+    const handlers = {}
+    const room = {
+      makeAction() {
+        return {
+          send() {
+            return Promise.resolve()
+          },
+          onMessage(handler) {
+            handlers.message = handler
+          }
+        }
+      },
+      onPeerJoin(handler) {
+        handlers.join = handler
+      },
+      onPeerLeave(handler) {
+        handlers.leave = handler
+      },
+      leave() {}
+    }
+    const events = []
+
+    await createTrysteroGomokuRoom({
+      roomCode: 'function-message-api',
+      importTrystero: () =>
+        Promise.resolve({
+          selfId: 'object-peer',
+          joinRoom() {
+            return room
+          }
+        }),
+      onEvent: (event) => events.push(event)
+    })
+
+    handlers.message({ type: 'hello' }, { peerId: 'peer-fn' })
+
+    expect(events).toEqual([
+      { type: 'message', message: { type: 'hello' }, peerId: 'peer-fn' }
+    ])
+  })
+
   it('使用 Trystero torrent 适配器加入 tracker 后备房间', async () => {
     const calls = []
     const room = {
@@ -468,6 +616,13 @@ describe('湖工五子棋联机协议', () => {
     expect(state.onlineStrategy).toBe('nostr')
   })
 
+  it('默认 Nostr relay 排除当前会稳定拒绝或关闭连接的节点', () => {
+    expect(DEFAULT_NOSTR_RELAY_URLS).not.toContain('wss://relay.damus.io')
+    expect(DEFAULT_NOSTR_RELAY_URLS).not.toContain('wss://nostr.wine')
+    expect(DEFAULT_NOSTR_RELAY_URLS).not.toContain('wss://relay.nostr.band')
+    expect(DEFAULT_NOSTR_RELAY_URLS.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('连接等待超时后兼容无策略旧状态的本地降级入口', () => {
     const host = createOnlineState({
       roomCode: 'OLD',
@@ -483,5 +638,159 @@ describe('湖工五子棋联机协议', () => {
     expect(timedOut.connectionMessage).toContain('公共信令连接超时')
     expect(timedOut.sessionId).toBe('OLD')
     expect(timedOut.moves).toEqual([])
+  })
+
+  it('维护匹配大厅在线人数和排队人数', () => {
+    let lobby = createMatchmakingState({
+      selfPeerId: 'self-peer'
+    })
+
+    lobby = applyLobbyMessage(lobby, buildLobbyPresenceMessage({
+      selfPeerId: 'peer-a',
+      queued: false
+    }), 'peer-a')
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-b'
+    }), 'peer-b')
+
+    expect(MATCHMAKING_ROOM_CODE).toBe('HBUTGOMOKUMATCH')
+    expect(getMatchmakingOnlineCount(lobby)).toBe(3)
+    expect(getMatchmakingQueueCount(lobby)).toBe(1)
+
+    lobby = applyLobbyMessage(lobby, {
+      type: 'lobby_cancel',
+      messageId: 'cancel-peer-b',
+      senderId: 'peer-b'
+    }, 'peer-b')
+
+    expect(getMatchmakingOnlineCount(lobby)).toBe(3)
+    expect(getMatchmakingQueueCount(lobby)).toBe(0)
+  })
+
+  it('使用统一取消消息退出匹配队列，避免大厅保留脏排队状态', () => {
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-a'
+    })
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-a'
+    }), 'peer-a')
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-z'
+    }), 'peer-z')
+
+    const canceled = applyLobbyMessage(lobby, buildCancelMessage({
+      selfPeerId: 'peer-a'
+    }), 'peer-a')
+
+    expect(canceled.match).toBe(null)
+    expect(canceled.selfQueued).toBe(false)
+    expect(canceled.peers['peer-a'].queued).toBe(false)
+    expect(getMatchmakingQueueCount(canceled)).toBe(0)
+  })
+
+  it('本机进入匹配队列时会和已有排队玩家生成同一个 PK 房间', () => {
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-z'
+    })
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-a'
+    }), 'peer-a')
+
+    const queued = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-z'
+    }), 'peer-z')
+    const localPair = resolveMatchPair('peer-z', 'peer-a')
+    const remotePair = resolveMatchPair('peer-a', 'peer-z')
+
+    expect(queued.selfQueued).toBe(false)
+    expect(queued.match).toMatchObject({
+      roomCode: localPair.roomCode,
+      role: 'guest',
+      opponentPeerId: 'peer-a'
+    })
+    expect(localPair.roomCode).toBe(remotePair.roomCode)
+    expect(localPair.role).toBe('guest')
+    expect(remotePair.role).toBe('host')
+  })
+
+  it('收到对手排队消息时如果自己已在队列中会直接生成 PK 对局', () => {
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-a'
+    })
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-a'
+    }), 'peer-a')
+
+    const matched = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-z'
+    }), 'peer-z')
+
+    expect(matched.match).toMatchObject({
+      role: 'host',
+      opponentPeerId: 'peer-z'
+    })
+    expect(matched.match.roomCode).toMatch(/^PK[A-Z0-9]{10}$/)
+  })
+
+  it('取消匹配或匹配对手离开时清理旧 PK 对局', () => {
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-a'
+    })
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-a'
+    }), 'peer-a')
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-z'
+    }), 'peer-z')
+    expect(lobby.match).toMatchObject({
+      opponentPeerId: 'peer-z'
+    })
+
+    const canceled = applyLobbyMessage(lobby, {
+      type: 'lobby_cancel',
+      messageId: 'cancel-self-after-match',
+      senderId: 'peer-a'
+    }, 'peer-a')
+    expect(canceled.match).toBe(null)
+
+    const opponentLeft = applyLobbyMessage(lobby, {
+      type: 'lobby_leave',
+      messageId: 'leave-opponent-after-match',
+      senderId: 'peer-z'
+    }, 'peer-z')
+    expect(opponentLeft.match).toBe(null)
+  })
+
+  it('只接受匹配双方发出的开始对局消息', () => {
+    const pair = resolveMatchPair('peer-a', 'peer-z')
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-z'
+    })
+
+    const accepted = applyLobbyMessage(
+      lobby,
+      buildMatchStartMessage(pair, 'peer-a'),
+      'peer-a'
+    )
+    expect(accepted.match).toMatchObject({
+      roomCode: pair.roomCode,
+      role: 'guest',
+      opponentPeerId: 'peer-a'
+    })
+
+    lobby = createMatchmakingState({
+      selfPeerId: 'peer-z'
+    })
+    const rejected = applyLobbyMessage(
+      lobby,
+      {
+        ...buildMatchStartMessage(pair, 'peer-x'),
+        senderId: 'peer-x',
+        hostPeerId: 'peer-x'
+      },
+      'peer-x'
+    )
+    expect(rejected.match).toBe(null)
+    expect(rejected.lastError).toBe('匹配发起者不在对局双方中')
   })
 })

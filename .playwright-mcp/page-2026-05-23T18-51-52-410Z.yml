@@ -1,0 +1,105 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - button "25" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: "25"
+        - heading "HBUT Forum" [level=1] [ref=e11]
+        - button "refresh" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: refresh
+      - navigation "论坛版块" [ref=e14]:
+        - button "校园广场" [ref=e15] [cursor=pointer]
+        - button "学习互助" [ref=e16] [cursor=pointer]
+        - button "生活服务" [ref=e17] [cursor=pointer]
+        - button "软件反馈" [ref=e18] [cursor=pointer]
+      - main [ref=e19]:
+        - region "论坛页面" [ref=e20]:
+          - button "forum 广场" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: forum
+            - generic [ref=e23]: 广场
+          - button "edit_square 发帖" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: edit_square
+            - generic [ref=e26]: 发帖
+          - button "how_to_vote 投票" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: how_to_vote
+            - generic [ref=e29]: 投票
+          - button "notifications 通知" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: notifications
+            - generic [ref=e32]: 通知
+          - button "person 我的" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: person
+            - generic [ref=e35]: 我的
+          - button "admin_panel_settings 管理" [ref=e36] [cursor=pointer]:
+            - generic [ref=e37]: admin_panel_settings
+            - generic [ref=e38]: 管理
+        - generic [ref=e174]:
+          - generic [ref=e175]:
+            - button "arrow_back" [ref=e176] [cursor=pointer]:
+              - generic [ref=e177]: arrow_back
+            - heading "Task12 前端上传回归" [level=2] [ref=e178]
+            - button "flag" [ref=e179] [cursor=pointer]:
+              - generic [ref=e180]: flag
+          - article [ref=e181]:
+            - generic [ref=e182]:
+              - button "25" [ref=e183] [cursor=pointer]
+              - generic [ref=e184]:
+                - strong [ref=e185]: "2510231106"
+                - generic [ref=e186]: 05/23 18:51 · 校园广场
+              - generic [ref=e187]: 1 附件
+            - heading "Task12 前端上传回归" [level=2] [ref=e188]
+            - paragraph [ref=e189]: 验证标题和正文输入不会弹出文件选择，图片上传走后端图床后再发布。
+            - generic [ref=e190]:
+              - button "person_add 关注作者" [ref=e191] [cursor=pointer]:
+                - generic [ref=e192]: person_add
+                - text: 关注作者
+              - button "bookmark 收藏" [ref=e193] [cursor=pointer]:
+                - generic [ref=e194]: bookmark
+                - text: 收藏
+              - button "flag 举报" [ref=e195] [cursor=pointer]:
+                - generic [ref=e196]: flag
+                - text: 举报
+            - link "帖子附件 查看附件" [ref=e198] [cursor=pointer]:
+              - /url: http://127.0.0.1:7862/api/forum/attachments/att_2510231106_b64ba07470e21506
+              - img "帖子附件" [ref=e199]
+              - generic [ref=e200]: 查看附件
+          - generic [ref=e201]:
+            - heading "Comments (0)" [level=3] [ref=e203]
+            - generic [ref=e204]:
+              - textbox "Add a comment..." [ref=e205]
+              - generic [ref=e206] [cursor=pointer]:
+                - generic [ref=e207]: image
+                - button "image" [ref=e208]
+              - button "send 发送" [ref=e209] [cursor=pointer]:
+                - generic [ref=e210]: send
+                - generic [ref=e211]: 发送
+            - generic [ref=e212]: 暂无回复
+        - region "图床上传队列" [ref=e159]:
+          - generic [ref=e160]:
+            - generic [ref=e161]: cloud_upload
+            - generic [ref=e162]:
+              - strong [ref=e163]: 上传到后端图床
+              - paragraph [ref=e164]: 发帖、回复和头像上传都会在这里显示状态，成功后可复制代理 URL。
+          - article [ref=e166]:
+            - generic [ref=e167]: upload_file
+            - generic [ref=e168]:
+              - strong [ref=e169]: app_icon.png
+              - generic [ref=e170]: 发帖附件 · 52 KB
+              - button "复制代理 URL" [ref=e214] [cursor=pointer]
+            - generic [ref=e173]: 已上传
+  - navigation [ref=e99]:
+    - button "首页" [ref=e100] [cursor=pointer]:
+      - img [ref=e102]
+      - generic [ref=e104]: 首页
+    - button "课表" [ref=e105] [cursor=pointer]:
+      - img [ref=e107]
+      - generic [ref=e110]: 课表
+    - button "论坛" [ref=e111] [cursor=pointer]:
+      - img [ref=e113]
+      - generic [ref=e117]: 论坛
+    - button "通知" [ref=e118] [cursor=pointer]:
+      - img [ref=e120]
+      - generic [ref=e123]: 通知
+    - button "我的" [ref=e124] [cursor=pointer]:
+      - img [ref=e126]
+      - generic [ref=e129]: 我的
+  - generic [ref=e216]: 发布成功

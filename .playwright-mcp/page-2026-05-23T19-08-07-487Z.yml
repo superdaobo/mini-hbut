@@ -1,0 +1,119 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - button "25" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: "25"
+        - heading "HBUT Forum" [level=1] [ref=e11]
+        - button "refresh" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: refresh
+      - navigation "论坛版块" [ref=e14]:
+        - button "校园广场" [ref=e15] [cursor=pointer]
+        - button "学习互助" [ref=e16] [cursor=pointer]
+        - button "生活服务" [ref=e17] [cursor=pointer]
+        - button "软件反馈" [ref=e18] [cursor=pointer]
+      - main [ref=e19]:
+        - region "论坛页面" [ref=e20]:
+          - button "forum 广场" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: forum
+            - generic [ref=e23]: 广场
+          - button "edit_square 发帖" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: edit_square
+            - generic [ref=e26]: 发帖
+          - button "how_to_vote 投票" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: how_to_vote
+            - generic [ref=e29]: 投票
+          - button "notifications 通知" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: notifications
+            - generic [ref=e32]: 通知
+          - button "person 我的" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: person
+            - generic [ref=e35]: 我的
+          - button "admin_panel_settings 管理" [ref=e36] [cursor=pointer]:
+            - generic [ref=e37]: admin_panel_settings
+            - generic [ref=e38]: 管理
+        - generic [ref=e156]:
+          - generic [ref=e159]:
+            - button "25 photo_camera 更换头像" [ref=e160] [cursor=pointer]:
+              - generic [ref=e161]: "25"
+              - generic [ref=e162]:
+                - generic [ref=e163]: photo_camera
+                - text: 更换头像
+            - button "签到" [ref=e164] [cursor=pointer]
+            - heading "2510231106" [level=2] [ref=e165]
+            - paragraph [ref=e166]: 还没有填写社区简介
+            - generic [ref=e167]:
+              - generic [ref=e168]: HBUT Student
+              - generic [ref=e169]: Lv. 1
+              - generic [ref=e170]: 资料完整度 50%
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - strong [ref=e173]: "2"
+                - generic [ref=e174]: Posts
+              - generic [ref=e175]:
+                - strong [ref=e176]: "1"
+                - generic [ref=e177]: Replies
+              - generic [ref=e178]:
+                - strong [ref=e179]: "1"
+                - generic [ref=e180]: Collections
+              - generic [ref=e181]:
+                - strong [ref=e182]: "1"
+                - generic [ref=e183]: Check-ins
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - generic [ref=e186]: 昵称
+              - textbox "昵称" [ref=e187]: "2510231106"
+            - generic [ref=e188]:
+              - generic "当前社区头像预览" [ref=e189]:
+                - generic [ref=e190]: "25"
+              - generic [ref=e191]:
+                - strong [ref=e192]: 设置头像
+                - generic [ref=e193]: 头像上传（推荐）
+                - paragraph [ref=e194]: 从本地选择图片上传到论坛图床，成功后会自动回填到头像地址。
+                - generic [ref=e195]:
+                  - button "upload 上传头像到图床" [ref=e196]
+                  - generic [ref=e197] [cursor=pointer]:
+                    - generic [ref=e198]: upload
+                    - generic [ref=e199]: 上传头像到图床
+                - paragraph [ref=e200]: 自动上传失败时，仍可使用下方备用 URL。
+            - generic [ref=e201]:
+              - generic [ref=e202]: 手动 URL（备用）
+              - textbox "手动 URL（备用）" [ref=e203]:
+                - /placeholder: 自动上传失败时，可粘贴后端图床或外部图片 URL
+            - generic [ref=e204]:
+              - generic [ref=e205]: 简介
+              - textbox "简介" [ref=e206]:
+                - /placeholder: 社区简介
+            - button "保存资料" [ref=e207] [cursor=pointer]
+          - generic [ref=e208]:
+            - button "Posts" [ref=e209] [cursor=pointer]
+            - button "Replies" [ref=e210] [cursor=pointer]
+            - button "Collections" [ref=e211] [cursor=pointer]
+          - generic [ref=e212]:
+            - generic [ref=e213]:
+              - heading "我的帖子" [level=3] [ref=e214]
+              - button "Task12 前端上传回归" [ref=e215] [cursor=pointer]
+              - button "Task12 本地集成测试" [ref=e216] [cursor=pointer]
+            - generic [ref=e217]:
+              - heading "我的回复" [level=3] [ref=e218]
+              - button "本地回复 smoke" [ref=e219] [cursor=pointer]
+            - generic [ref=e220]:
+              - heading "我的收藏" [level=3] [ref=e221]
+              - button "Task12 本地集成测试" [ref=e222] [cursor=pointer]
+          - generic [ref=e224]: 暂无徽章
+  - navigation [ref=e125]:
+    - button "首页" [ref=e126] [cursor=pointer]:
+      - img [ref=e128]
+      - generic [ref=e130]: 首页
+    - button "课表" [ref=e131] [cursor=pointer]:
+      - img [ref=e133]
+      - generic [ref=e136]: 课表
+    - button "论坛" [ref=e137] [cursor=pointer]:
+      - img [ref=e139]
+      - generic [ref=e143]: 论坛
+    - button "通知" [ref=e144] [cursor=pointer]:
+      - img [ref=e146]
+      - generic [ref=e149]: 通知
+    - button "我的" [ref=e150] [cursor=pointer]:
+      - img [ref=e152]
+      - generic [ref=e155]: 我的

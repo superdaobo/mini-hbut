@@ -57,7 +57,7 @@ button:disabled {
 
 .online-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -106,7 +106,7 @@ button:disabled {
 .room-controls {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 54px 54px 54px;
+  grid-template-columns: minmax(88px, 1fr) repeat(4, minmax(44px, 54px));
   gap: 6px;
 }
 
@@ -137,6 +137,10 @@ button:disabled {
   background: #0e7490;
   color: #ffffff;
   font-weight: 900;
+}
+
+.room-button.match {
+  background: #16a34a;
 }
 
 .room-button:disabled {
@@ -413,7 +417,7 @@ button:disabled {
   }
 
   .room-controls {
-    grid-template-columns: minmax(0, 1fr) 48px 48px 48px;
+    grid-template-columns: minmax(86px, 1fr) repeat(4, minmax(42px, 48px));
   }
 
   .status-panel {
@@ -450,6 +454,19 @@ button:disabled {
 }
 
 @media (max-width: 340px) {
+  .room-controls {
+    grid-template-columns: minmax(68px, 1fr) repeat(4, minmax(36px, 40px));
+    gap: 3px;
+  }
+
+  #room-input {
+    padding: 0 6px;
+  }
+
+  .room-button {
+    font-size: 0.62rem;
+  }
+
   .control-panel {
     grid-template-columns: 104px minmax(0, 1fr);
   }

@@ -1,0 +1,149 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - button "25" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: "25"
+        - heading "HBUT Forum" [level=1] [ref=e11]
+        - button "refresh" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: refresh
+      - navigation "论坛版块" [ref=e14]:
+        - button "校园广场" [ref=e15] [cursor=pointer]
+        - button "学习互助" [ref=e16] [cursor=pointer]
+        - button "生活服务" [ref=e17] [cursor=pointer]
+        - button "软件反馈" [ref=e18] [cursor=pointer]
+      - main [ref=e19]:
+        - region "论坛页面" [ref=e20]:
+          - button "forum 广场" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: forum
+            - generic [ref=e23]: 广场
+          - button "edit_square 发帖" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: edit_square
+            - generic [ref=e26]: 发帖
+          - button "how_to_vote 投票" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: how_to_vote
+            - generic [ref=e29]: 投票
+          - button "notifications 通知" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: notifications
+            - generic [ref=e32]: 通知
+          - button "person 我的" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: person
+            - generic [ref=e35]: 我的
+          - button "admin_panel_settings 管理" [ref=e36] [cursor=pointer]:
+            - generic [ref=e37]: admin_panel_settings
+            - generic [ref=e38]: 管理
+        - generic [ref=e39]:
+          - generic [ref=e40]:
+            - generic [ref=e41]:
+              - generic [ref=e42]: Mini-HBUT Community
+              - heading "湖工大校园广场" [level=2] [ref=e43]
+              - paragraph [ref=e44]: 2510231106，欢迎回来
+            - button "edit_square 发布" [ref=e45] [cursor=pointer]:
+              - generic [ref=e46]: edit_square
+              - text: 发布
+          - generic [ref=e47]:
+            - generic [ref=e48]:
+              - generic [ref=e49]: search
+              - textbox "search" [ref=e50]:
+                - /placeholder: 搜索帖子、课程、反馈
+            - button "travel_explore" [ref=e51] [cursor=pointer]:
+              - generic [ref=e52]: travel_explore
+          - generic "广场概览" [ref=e53]:
+            - generic [ref=e54]:
+              - strong [ref=e55]: "2"
+              - generic [ref=e56]: 讨论
+            - generic [ref=e57]:
+              - strong [ref=e58]: "0"
+              - generic [ref=e59]: 投票
+            - generic [ref=e60]:
+              - strong [ref=e61]: "0"
+              - generic [ref=e62]: 回复
+            - generic [ref=e63]:
+              - strong [ref=e64]: "2"
+              - generic [ref=e65]: 附件
+          - generic "热帖" [ref=e66]:
+            - button "local_fire_department Task12 本地集成测试" [ref=e67] [cursor=pointer]:
+              - generic [ref=e68]: local_fire_department
+              - generic [ref=e69]: Task12 本地集成测试
+            - button "local_fire_department Task12 前端上传回归" [ref=e70] [cursor=pointer]:
+              - generic [ref=e71]: local_fire_department
+              - generic [ref=e72]: Task12 前端上传回归
+          - generic [ref=e73]:
+            - generic [ref=e74]:
+              - generic [ref=e75]: 校园广场
+              - heading "校园日常、资讯和闲聊" [level=3] [ref=e76]
+            - generic [ref=e77]: 2 条
+          - article [ref=e78] [cursor=pointer]:
+            - generic [ref=e79]:
+              - button "25" [ref=e80]
+              - generic [ref=e81]:
+                - strong [ref=e82]: "2510231106"
+                - generic [ref=e83]: 05/23 18:51
+              - generic [ref=e84]: 校园广场
+            - heading "Task12 前端上传回归" [level=3] [ref=e85]
+            - paragraph [ref=e86]: 验证标题和正文输入不会弹出文件选择，图片上传走后端图床后再发布。
+            - generic [ref=e87]:
+              - generic [ref=e88]: image
+              - text: 1 个附件
+            - generic "帖子状态" [ref=e89]:
+              - generic [ref=e90]:
+                - strong [ref=e91]: "1"
+                - text: 热度
+              - generic [ref=e92]:
+                - strong [ref=e93]: "0"
+                - text: 回复
+              - generic [ref=e94]:
+                - strong [ref=e95]: "1"
+                - text: 附件
+            - generic [ref=e96]:
+              - button "comment 0" [ref=e97]:
+                - generic [ref=e98]: comment
+                - text: "0"
+              - button "bookmark_add 收藏" [ref=e99]:
+                - generic [ref=e100]: bookmark_add
+                - text: 收藏
+          - article [ref=e101] [cursor=pointer]:
+            - generic [ref=e102]:
+              - button "25" [ref=e103]
+              - generic [ref=e104]:
+                - strong [ref=e105]: "2510231106"
+                - generic [ref=e106]: 05/23 18:27
+              - generic [ref=e107]: 校园广场
+            - heading "Task12 本地集成测试" [level=3] [ref=e108]
+            - paragraph [ref=e109]: 验证发帖、附件、缓存和投票。
+            - generic [ref=e110]:
+              - generic [ref=e111]: image
+              - text: 1 个附件
+            - generic "帖子状态" [ref=e112]:
+              - generic [ref=e113]:
+                - strong [ref=e114]: "1"
+                - text: 热度
+              - generic [ref=e115]:
+                - strong [ref=e116]: "0"
+                - text: 回复
+              - generic [ref=e117]:
+                - strong [ref=e118]: "1"
+                - text: 附件
+            - generic [ref=e119]:
+              - button "comment 0" [ref=e120]:
+                - generic [ref=e121]: comment
+                - text: "0"
+              - button "bookmark 已收藏" [ref=e122]:
+                - generic [ref=e123]: bookmark
+                - text: 已收藏
+  - navigation [ref=e125]:
+    - button "首页" [ref=e126] [cursor=pointer]:
+      - img [ref=e128]
+      - generic [ref=e130]: 首页
+    - button "课表" [ref=e131] [cursor=pointer]:
+      - img [ref=e133]
+      - generic [ref=e136]: 课表
+    - button "论坛" [ref=e137] [cursor=pointer]:
+      - img [ref=e139]
+      - generic [ref=e143]: 论坛
+    - button "通知" [ref=e144] [cursor=pointer]:
+      - img [ref=e146]
+      - generic [ref=e149]: 通知
+    - button "我的" [ref=e150] [cursor=pointer]:
+      - img [ref=e152]
+      - generic [ref=e155]: 我的

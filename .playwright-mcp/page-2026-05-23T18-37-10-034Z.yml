@@ -1,0 +1,74 @@
+- generic [ref=e2]:
+  - main [ref=e21]:
+    - generic [ref=e56]:
+      - generic [ref=e57]:
+        - button "25" [ref=e58] [cursor=pointer]:
+          - generic [ref=e59]: "25"
+        - heading "HBUT Forum" [level=1] [ref=e60]
+        - button "refresh" [ref=e61] [cursor=pointer]:
+          - generic [ref=e62]: refresh
+      - navigation "论坛版块" [ref=e63]:
+        - button "校园广场" [ref=e64] [cursor=pointer]
+        - button "学习互助" [ref=e65] [cursor=pointer]
+        - button "生活服务" [ref=e66] [cursor=pointer]
+        - button "软件反馈" [ref=e67] [cursor=pointer]
+      - main [ref=e68]:
+        - region "论坛页面" [ref=e69]:
+          - button "forum 广场" [ref=e70] [cursor=pointer]:
+            - generic [ref=e71]: forum
+            - generic [ref=e72]: 广场
+          - button "edit_square 发帖" [active] [ref=e73] [cursor=pointer]:
+            - generic [ref=e74]: edit_square
+            - generic [ref=e75]: 发帖
+          - button "how_to_vote 投票" [ref=e76] [cursor=pointer]:
+            - generic [ref=e77]: how_to_vote
+            - generic [ref=e78]: 投票
+          - button "notifications 通知" [ref=e79] [cursor=pointer]:
+            - generic [ref=e80]: notifications
+            - generic [ref=e81]: 通知
+          - button "person 我的" [ref=e82] [cursor=pointer]:
+            - generic [ref=e83]: person
+            - generic [ref=e84]: 我的
+          - button "admin_panel_settings 管理" [ref=e85] [cursor=pointer]:
+            - generic [ref=e86]: admin_panel_settings
+            - generic [ref=e87]: 管理
+        - generic [ref=e164]:
+          - generic [ref=e165]:
+            - button "Cancel" [ref=e166] [cursor=pointer]
+            - heading "Create Post" [level=2] [ref=e167]
+            - button "Publish" [ref=e168] [cursor=pointer]
+          - generic [ref=e169]:
+            - generic [ref=e170]: cloud_upload
+            - generic [ref=e171]:
+              - strong [ref=e172]: 上传附件会先进入后端图床
+              - paragraph [ref=e173]: 发布成功后自动刷新广场和个人帖子，重复点击会被拦截并提示。
+          - generic [ref=e174]:
+            - combobox [ref=e175]:
+              - option "校园广场" [selected]
+              - option "学习互助"
+              - option "生活服务"
+              - option "软件反馈"
+            - textbox "An engaging title..." [ref=e176]
+            - textbox "What do you want to share with the campus?" [ref=e177]
+          - generic [ref=e178]:
+            - button "image" [ref=e179] [cursor=pointer]:
+              - generic [ref=e180]: image
+            - button "Choose File" [ref=e181]
+            - generic [ref=e182]: 图片、PDF、TXT 和 ZIP 会上传到论坛图床
+            - generic [ref=e183]: 0/20000
+  - navigation [ref=e23]:
+    - button "首页" [ref=e24] [cursor=pointer]:
+      - img [ref=e26]
+      - generic [ref=e28]: 首页
+    - button "课表" [ref=e29] [cursor=pointer]:
+      - img [ref=e31]
+      - generic [ref=e34]: 课表
+    - button "论坛" [ref=e35] [cursor=pointer]:
+      - img [ref=e37]
+      - generic [ref=e41]: 论坛
+    - button "通知" [ref=e42] [cursor=pointer]:
+      - img [ref=e44]
+      - generic [ref=e47]: 通知
+    - button "我的" [ref=e48] [cursor=pointer]:
+      - img [ref=e50]
+      - generic [ref=e53]: 我的

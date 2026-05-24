@@ -8,6 +8,8 @@ import {
   restartGame
 } from './game/gomoku.js'
 import {
+  MATCHMAKING_ROOM_CODE,
+  applyLobbyMessage,
   applyLocalMove,
   applyLocalRestart,
   applyPeerJoined,
@@ -15,11 +17,18 @@ import {
   applyRemoteMove,
   applyRemoteRestart,
   applySnapshotMessage,
+  buildCancelMessage,
+  buildLobbyPresenceMessage,
+  buildMatchStartMessage,
+  buildQueueMessage,
   buildSnapshotMessage,
+  createMatchmakingState,
   createOnlineState,
   createRoomCode,
   createTrysteroGomokuRoom,
   formatRoomCode,
+  getMatchmakingOnlineCount,
+  getMatchmakingQueueCount,
   markOnlineTimeout,
   normalizeRoomCode
 } from './game/online.js'
@@ -29,10 +38,16 @@ const ONLINE_CONNECT_TIMEOUT_MS = 18000
 const DEFAULT_ONLINE_STRATEGY = 'nostr'
 let state = createInitialState()
 let onlineClient = null
+let lobbyClient = null
+let matchmakingState = createMatchmakingState()
 let roomInputValue = ''
 let onlineBusy = false
 let onlineError = ''
 let onlineTimeoutId = 0
+let lobbyBusy = false
+let lobbyStatus = 'offline'
+let lobbyError = ''
+let activeMatchRoomCode = ''
 
 const app = document.getElementById('app')
 
@@ -77,6 +92,10 @@ function isOnlineMode() {
   return state.mode === 'online_room'
 }
 
+function isQueuedForMatch() {
+  return Boolean(matchmakingState.selfQueued)
+}
+
 function isLocalSeatActive() {
   if (!isOnlineMode()) return true
   return Boolean(state.localPlayer && state.players?.[state.localPlayer] === state.localPeerId)
@@ -108,6 +127,14 @@ function onlineStatusText() {
   return '连接中'
 }
 
+function lobbyStatusText() {
+  if (isQueuedForMatch()) return '匹配中'
+  if (lobbyBusy) return '连接中'
+  if (lobbyStatus === 'online') return '大厅在线'
+  if (lobbyStatus === 'failed') return '大厅不可用'
+  return '大厅离线'
+}
+
 function statusTitle() {
   if (state.status === 'won') return `${getPlayerName(state.winner)}五连成功`
   if (state.status === 'draw') return '棋盘已满，平局'
@@ -121,6 +148,8 @@ function statusDetail() {
   if (state.status === 'won') return isOnlineMode() ? '联机对局结束，可发起同步重开。' : '本地双人对局结束，可重新开局再战。'
   if (state.status === 'draw') return '没有形成五连，双方平分秋色。'
   if (onlineError) return onlineError
+  if (lobbyError && lobbyStatus === 'failed') return lobbyError
+  if (isQueuedForMatch()) return '已进入匹配队列，匹配到同学后会自动进入 PK 对局。'
   if (state.lastError) return state.lastError
   if (isOnlineMode() && state.connectionMessage) return state.connectionMessage
   if (isOnlineMode() && !isLocalSeatActive()) return '本房间已有黑白双方，可返回本地双人或重新加入其他房间。'
@@ -172,12 +201,19 @@ function renderMoveList() {
 function renderOnlinePanel() {
   const roomCode = isOnlineMode() ? formatRoomCode(state.sessionId) : ''
   const seatText = isOnlineMode() ? (isLocalSeatActive() ? getPlayerName(state.localPlayer) : '旁观') : '本地'
+  const onlineCount = lobbyStatus === 'online' ? getMatchmakingOnlineCount(matchmakingState) : 0
+  const queueCount = lobbyStatus === 'online' ? getMatchmakingQueueCount(matchmakingState) : 0
+  const matchButtonText = isQueuedForMatch() ? '取消' : '匹配'
   return `
     <section class="online-panel" aria-label="联机对战">
       <div class="online-summary">
         <div>
-          <span>联机</span>
-          <strong>${onlineStatusText()}</strong>
+          <span>大厅</span>
+          <strong>${lobbyStatus === 'online' ? `${onlineCount} 人` : lobbyStatusText()}</strong>
+        </div>
+        <div>
+          <span>队列</span>
+          <strong>${lobbyStatus === 'online' ? `${queueCount} 人` : '-'}</strong>
         </div>
         <div>
           <span>房间</span>
@@ -201,6 +237,7 @@ function renderOnlinePanel() {
         >
         <button id="create-room-button" class="room-button" type="button" ${onlineBusy ? 'disabled' : ''}>创建</button>
         <button id="join-room-button" class="room-button" type="button" ${onlineBusy ? 'disabled' : ''}>加入</button>
+        <button id="match-button" class="room-button match" type="button" ${onlineBusy || lobbyBusy ? 'disabled' : ''}>${matchButtonText}</button>
         <button id="local-mode-button" class="room-button muted" type="button">本地</button>
       </div>
     </section>
@@ -278,11 +315,135 @@ function bindEvents() {
   document.getElementById('restart-button')?.addEventListener('click', handleRestart)
   document.getElementById('create-room-button')?.addEventListener('click', handleCreateRoom)
   document.getElementById('join-room-button')?.addEventListener('click', handleJoinRoom)
+  document.getElementById('match-button')?.addEventListener('click', handleMatchToggle)
   document.getElementById('local-mode-button')?.addEventListener('click', switchToLocalMode)
   document.getElementById('room-input')?.addEventListener('input', (event) => {
     roomInputValue = formatRoomCode(event.target.value)
     event.target.value = roomInputValue
   })
+}
+
+function createLocalLobbyMessage(type, extra = {}) {
+  const senderId = lobbyClient?.selfPeerId || matchmakingState.selfPeerId
+  return {
+    type,
+    messageId: `${senderId || 'peer'}:${type}:${Date.now().toString(36)}:${Math.random()
+      .toString(36)
+      .slice(2, 8)}`,
+    senderId,
+    ...extra
+  }
+}
+
+async function sendLobbyMessage(message, targetPeerId = '') {
+  if (!lobbyClient || !message) return false
+  try {
+    await lobbyClient.send(message, targetPeerId || undefined)
+    return true
+  } catch (error) {
+    lobbyStatus = 'failed'
+    lobbyError = `大厅消息发送失败：${error?.message || '网络不可用'}`
+    render()
+    return false
+  }
+}
+
+async function publishLobbyPresence(targetPeerId = '') {
+  if (!lobbyClient?.selfPeerId) return
+  await sendLobbyMessage(
+    buildLobbyPresenceMessage({
+      selfPeerId: lobbyClient.selfPeerId,
+      queued: matchmakingState.selfQueued
+    }),
+    targetPeerId
+  )
+}
+
+async function connectMatchmakingLobby(strategy = DEFAULT_ONLINE_STRATEGY) {
+  if (lobbyBusy || lobbyClient) return
+  lobbyBusy = true
+  lobbyStatus = 'connecting'
+  lobbyError = ''
+  render()
+
+  try {
+    lobbyClient = await createTrysteroGomokuRoom({
+      roomCode: MATCHMAKING_ROOM_CODE,
+      strategy,
+      onEvent: handleLobbyEvent
+    })
+    matchmakingState = createMatchmakingState({
+      selfPeerId: lobbyClient.selfPeerId
+    })
+    lobbyStatus = 'online'
+    await publishLobbyPresence()
+  } catch (error) {
+    lobbyClient = null
+    matchmakingState = createMatchmakingState()
+    lobbyStatus = 'failed'
+    lobbyError = `匹配大厅暂时不可用：${error?.message || '请稍后重试'}`
+  } finally {
+    lobbyBusy = false
+    render()
+  }
+}
+
+async function resetMatchmakingQueue() {
+  if (!matchmakingState.selfQueued) {
+    clearLobbyMatch()
+    return
+  }
+  const message = buildCancelMessage({
+    selfPeerId: lobbyClient?.selfPeerId || matchmakingState.selfPeerId
+  })
+  matchmakingState = applyLobbyMessage(matchmakingState, message, matchmakingState.selfPeerId)
+  clearLobbyMatch()
+  render()
+  await sendLobbyMessage(message)
+}
+
+async function startMatchedGame(match, source = '') {
+  if (!match?.roomCode || activeMatchRoomCode === match.roomCode) return
+  activeMatchRoomCode = match.roomCode
+  onlineError = source === 'match_start' ? '匹配成功，正在进入 PK 对局。' : '匹配到同学，正在进入 PK 对局。'
+  roomInputValue = formatRoomCode(match.roomCode)
+  matchmakingState = {
+    ...matchmakingState,
+    selfQueued: false,
+    match: null
+  }
+  render()
+
+  if (lobbyClient && match.role === 'host') {
+    await sendLobbyMessage(
+      buildMatchStartMessage(match, lobbyClient.selfPeerId),
+      match.opponentPeerId
+    )
+  }
+  if (lobbyClient?.selfPeerId) {
+    await sendLobbyMessage(buildCancelMessage({
+      selfPeerId: lobbyClient.selfPeerId
+    }))
+  }
+
+  await connectOnlineRoom(match.role, match.roomCode, {
+    fromMatch: true,
+    statusMessage: '匹配成功，正在等待 PK 对局连接。'
+  })
+}
+
+function resolveLobbyMatch(source = '') {
+  const match = matchmakingState.match
+  if (!match) return
+  void startMatchedGame(match, source)
+}
+
+function clearLobbyMatch() {
+  if (!matchmakingState.match) return
+  matchmakingState = {
+    ...matchmakingState,
+    match: null
+  }
 }
 
 async function sendOnlineMessage(message, targetPeerId = state.remotePeerId) {
@@ -375,11 +536,13 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
   }
 
   const strategy = options.strategy || DEFAULT_ONLINE_STRATEGY
+  if (!options.fromMatch) activeMatchRoomCode = ''
   onlineBusy = true
   onlineError = options.statusMessage || ''
   render()
 
   try {
+    await resetMatchmakingQueue()
     await resetOnlineClient()
     onlineClient = await createTrysteroGomokuRoom({
       roomCode,
@@ -414,6 +577,9 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
       lastError: ''
     }
     onlineError = state.connectionMessage
+    if (options.fromMatch && activeMatchRoomCode === roomCode) {
+      activeMatchRoomCode = ''
+    }
   } finally {
     onlineBusy = false
     render()
@@ -430,13 +596,87 @@ function handleJoinRoom() {
   void connectOnlineRoom('guest', roomInputValue)
 }
 
+async function handleMatchToggle() {
+  if (isQueuedForMatch()) {
+    await resetMatchmakingQueue()
+    return
+  }
+
+  if (!lobbyClient) {
+    await connectMatchmakingLobby()
+  }
+  if (!lobbyClient?.selfPeerId) return
+
+  onlineError = ''
+  lobbyError = ''
+  const queueMessage = buildQueueMessage({
+    selfPeerId: lobbyClient.selfPeerId
+  })
+  matchmakingState = applyLobbyMessage(matchmakingState, queueMessage, lobbyClient.selfPeerId)
+  render()
+  const sent = await sendLobbyMessage(queueMessage)
+  if (!sent) {
+    matchmakingState = applyLobbyMessage(
+      matchmakingState,
+      buildCancelMessage({
+        selfPeerId: matchmakingState.selfPeerId
+      }),
+      matchmakingState.selfPeerId
+    )
+    clearLobbyMatch()
+    render()
+    return
+  }
+  resolveLobbyMatch('queue')
+}
+
 async function switchToLocalMode() {
+  await resetMatchmakingQueue()
   await resetOnlineClient()
   onlineBusy = false
   onlineError = ''
   roomInputValue = ''
+  activeMatchRoomCode = ''
+  clearLobbyMatch()
   state = createInitialState()
   render()
+}
+
+function handleLobbyEvent(event) {
+  if (!event) return
+
+  if (event.type === 'peer_join') {
+    matchmakingState = applyLobbyMessage(
+      matchmakingState,
+      buildLobbyPresenceMessage({
+        selfPeerId: event.peerId,
+        queued: false
+      }),
+      event.peerId
+    )
+    render()
+    void publishLobbyPresence(event.peerId)
+    return
+  }
+
+  if (event.type === 'peer_leave') {
+    matchmakingState = applyLobbyMessage(
+      matchmakingState,
+      createLocalLobbyMessage('lobby_leave', {
+        senderId: event.peerId
+      }),
+      event.peerId
+    )
+    render()
+    return
+  }
+
+  if (event.type !== 'message') return
+  matchmakingState = applyLobbyMessage(matchmakingState, event.message || {}, event.peerId)
+  render()
+  if (matchmakingState.match) {
+    resolveLobbyMatch(event.message?.type === 'lobby_match_start' ? 'match_start' : 'message')
+  }
 }
 
 function handleOnlineEvent(event) {
@@ -479,6 +719,17 @@ function handleOnlineEvent(event) {
 window.addEventListener('resize', syncViewport)
 window.addEventListener('orientationchange', syncViewport)
 window.visualViewport?.addEventListener('resize', syncViewport)
+window.addEventListener('beforeunload', () => {
+  if (lobbyClient?.selfPeerId) {
+    void sendLobbyMessage(createLocalLobbyMessage('lobby_leave'))
+  }
+  try {
+    lobbyClient?.close()
+    onlineClient?.close()
+  } catch {
+    // 页面卸载时忽略连接关闭异常。
+  }
+})
 
 if ('ResizeObserver' in window) {
   new ResizeObserver(notifyHostHeight).observe(document.documentElement)
@@ -486,3 +737,4 @@ if ('ResizeObserver' in window) {
 
 syncViewport()
 render()
+void connectMatchmakingLobby()

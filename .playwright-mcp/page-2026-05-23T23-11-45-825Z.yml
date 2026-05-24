@@ -1,0 +1,90 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - button "25" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: "25"
+        - heading "HBUT Forum" [level=1] [ref=e11]
+        - button "refresh" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: refresh
+      - navigation "论坛版块" [ref=e14]:
+        - button "校园广场" [ref=e15] [cursor=pointer]
+        - button "学习互助" [ref=e16] [cursor=pointer]
+        - button "生活服务" [ref=e17] [cursor=pointer]
+        - button "软件反馈" [ref=e18] [cursor=pointer]
+      - main [ref=e19]:
+        - region "论坛页面" [ref=e20]:
+          - button "forum 广场" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: forum
+            - generic [ref=e23]: 广场
+          - button "edit_square 发帖" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: edit_square
+            - generic [ref=e26]: 发帖
+          - button "how_to_vote 投票" [active] [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: how_to_vote
+            - generic [ref=e29]: 投票
+          - button "notifications 通知" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: notifications
+            - generic [ref=e32]: 通知
+          - button "person 我的" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: person
+            - generic [ref=e35]: 我的
+          - button "admin_panel_settings 管理" [ref=e36] [cursor=pointer]:
+            - generic [ref=e37]: admin_panel_settings
+            - generic [ref=e38]: 管理
+        - generic [ref=e324]:
+          - generic [ref=e325]:
+            - generic [ref=e326]:
+              - generic [ref=e327]: Managed Vote
+              - heading "投票打分" [level=2] [ref=e328]
+              - paragraph [ref=e329]: 投票由管理员创建和关闭，帖子本身不再要求逐条打分。
+            - generic [ref=e330]:
+              - strong [ref=e331]: "3"
+              - generic [ref=e332]: 累计投票
+          - generic [ref=e333]:
+            - complementary [ref=e334]:
+              - generic [ref=e335]:
+                - heading "投票列表" [level=3] [ref=e336]
+                - generic [ref=e337]: 0 进行中
+              - button "HF 部署投票验证 20260523-230626 已关闭 · 1 票" [ref=e338] [cursor=pointer]:
+                - strong [ref=e339]: HF 部署投票验证 20260523-230626
+                - generic [ref=e340]: 已关闭 · 1 票
+              - button "HF 部署投票验证 20260523-225630 已关闭 · 1 票" [ref=e341] [cursor=pointer]:
+                - strong [ref=e342]: HF 部署投票验证 20260523-225630
+                - generic [ref=e343]: 已关闭 · 1 票
+              - button "HF 部署投票验证 20260523-223447 已关闭 · 1 票" [ref=e344] [cursor=pointer]:
+                - strong [ref=e345]: HF 部署投票验证 20260523-223447
+                - generic [ref=e346]: 已关闭 · 1 票
+            - article [ref=e347]:
+              - generic [ref=e348]:
+                - heading "HF 部署投票验证 20260523-230626" [level=3] [ref=e349]
+                - generic [ref=e350]: 已关闭
+              - paragraph [ref=e351]: 这条投票由部署后验证脚本创建，用于确认管理员投票打分链路。
+              - generic [ref=e352]:
+                - button "满意 10 分 · 1 票 100%" [disabled] [ref=e353]:
+                  - generic [ref=e354]:
+                    - strong [ref=e355]: 满意
+                    - generic [ref=e356]: 10 分 · 1 票
+                  - emphasis [ref=e357]: 100%
+                - button "需要改进 3 分 · 0 票 0%" [disabled] [ref=e359]:
+                  - generic [ref=e360]:
+                    - strong [ref=e361]: 需要改进
+                    - generic [ref=e362]: 3 分 · 0 票
+                  - emphasis [ref=e363]: 0%
+              - paragraph [ref=e364]: 你已经参与过这个投票
+  - navigation [ref=e274]:
+    - button "首页" [ref=e275] [cursor=pointer]:
+      - img [ref=e277]
+      - generic [ref=e279]: 首页
+    - button "课表" [ref=e280] [cursor=pointer]:
+      - img [ref=e282]
+      - generic [ref=e285]: 课表
+    - button "论坛" [ref=e286] [cursor=pointer]:
+      - img [ref=e288]
+      - generic [ref=e292]: 论坛
+    - button "通知" [ref=e293] [cursor=pointer]:
+      - img [ref=e295]
+      - generic [ref=e298]: 通知
+    - button "我的" [ref=e299] [cursor=pointer]:
+      - img [ref=e301]
+      - generic [ref=e304]: 我的

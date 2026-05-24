@@ -1,15 +1,13 @@
 import { PLAYERS, createInitialState, placeStone, restartGame } from './gomoku.js'
 
 export const ONLINE_APP_ID = 'mini-hbut-gomoku'
+export const MATCHMAKING_ROOM_CODE = 'HBUTGOMOKUMATCH'
 export const TRYSTERO_NOSTR_URL = 'https://esm.sh/trystero/nostr?bundle'
 export const TRYSTERO_TORRENT_URL = 'https://esm.sh/@trystero-p2p/torrent?bundle'
 export const DEFAULT_NOSTR_RELAY_URLS = Object.freeze([
-  'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.primal.net',
-  'wss://relay.snort.social',
-  'wss://nostr.wine',
-  'wss://relay.nostr.band'
+  'wss://relay.snort.social'
 ])
 export const DEFAULT_TORRENT_TRACKER_URLS = Object.freeze([
   'wss://tracker.openwebtorrent.com',
@@ -22,6 +20,7 @@ const ONLINE_STRATEGIES = Object.freeze({
 })
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const MATCH_ROOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
 export const normalizeRoomCode = (value) =>
   String(value || '')
@@ -56,6 +55,236 @@ const addAppliedMessageId = (state, messageId) => {
     ...state,
     appliedMessageIds: [...current, messageId].slice(-120)
   }
+}
+
+const addAppliedLobbyMessageId = (state, messageId) => {
+  if (!messageId) return state
+  const current = Array.isArray(state.appliedLobbyMessageIds) ? state.appliedLobbyMessageIds : []
+  if (current.includes(messageId)) return state
+  return {
+    ...state,
+    appliedLobbyMessageIds: [...current, messageId].slice(-160)
+  }
+}
+
+const hashToToken = (value) => {
+  let hash = 2166136261
+  const text = String(value || '')
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  let token = ''
+  let current = hash || 1
+  for (let index = 0; index < 10; index += 1) {
+    current = Math.imul(current ^ (index + 97), 16777619) >>> 0
+    token += MATCH_ROOM_ALPHABET[current % MATCH_ROOM_ALPHABET.length]
+  }
+  return token
+}
+
+const normalizePeerId = (peerId) => String(peerId || '').trim()
+
+export const createMatchmakingState = ({ selfPeerId = '' } = {}) => {
+  const normalizedSelf = normalizePeerId(selfPeerId)
+  return {
+    selfPeerId: normalizedSelf,
+    peers: normalizedSelf
+      ? {
+          [normalizedSelf]: {
+            peerId: normalizedSelf,
+            queued: false
+          }
+        }
+      : {},
+    selfQueued: false,
+    match: null,
+    lastError: '',
+    appliedLobbyMessageIds: []
+  }
+}
+
+export const getMatchmakingOnlineCount = (state) => Object.keys(state?.peers || {}).length
+
+export const getMatchmakingQueueCount = (state) =>
+  Object.values(state?.peers || {}).filter((peer) => peer?.queued).length
+
+export const resolveMatchPair = (selfPeerId, opponentPeerId) => {
+  const self = normalizePeerId(selfPeerId)
+  const opponent = normalizePeerId(opponentPeerId)
+  const [hostPeerId, guestPeerId] = [self, opponent].sort((left, right) =>
+    left.localeCompare(right)
+  )
+  const roomCode = `PK${hashToToken(`${hostPeerId}:${guestPeerId}`)}`
+  const localPlayer = self === hostPeerId ? PLAYERS.black : PLAYERS.white
+  return {
+    roomCode,
+    role: self === hostPeerId ? 'host' : 'guest',
+    localPlayer,
+    hostPeerId,
+    guestPeerId,
+    opponentPeerId: self === hostPeerId ? guestPeerId : hostPeerId
+  }
+}
+
+export const buildLobbyPresenceMessage = ({ selfPeerId = '', queued = false } = {}) => ({
+  type: 'lobby_presence',
+  messageId: createMessageId(selfPeerId, 'lobby_presence', queued ? 1 : 0),
+  senderId: normalizePeerId(selfPeerId),
+  queued: Boolean(queued)
+})
+
+export const buildQueueMessage = ({ selfPeerId = '' } = {}) => ({
+  type: 'lobby_queue',
+  messageId: createMessageId(selfPeerId, 'lobby_queue', 1),
+  senderId: normalizePeerId(selfPeerId),
+  queued: true
+})
+
+export const buildCancelMessage = ({ selfPeerId = '' } = {}) => ({
+  type: 'lobby_cancel',
+  messageId: createMessageId(selfPeerId, 'lobby_cancel', 0),
+  senderId: normalizePeerId(selfPeerId),
+  queued: false
+})
+
+export const buildMatchStartMessage = (pair, senderId = '') => ({
+  type: 'lobby_match_start',
+  messageId: createMessageId(senderId, 'lobby_match_start', 1),
+  senderId: normalizePeerId(senderId),
+  roomCode: pair?.roomCode || '',
+  hostPeerId: pair?.hostPeerId || '',
+  guestPeerId: pair?.guestPeerId || ''
+})
+
+const upsertLobbyPeer = (state, peerId, queued) => {
+  const normalizedPeer = normalizePeerId(peerId)
+  if (!normalizedPeer) return state
+  const peers = {
+    ...state.peers,
+    [normalizedPeer]: {
+      ...(state.peers?.[normalizedPeer] || {}),
+      peerId: normalizedPeer,
+      queued: Boolean(queued)
+    }
+  }
+  return {
+    ...state,
+    peers,
+    selfQueued: normalizedPeer === state.selfPeerId ? Boolean(queued) : state.selfQueued
+  }
+}
+
+const resolveQueuedOpponent = (state) =>
+  Object.values(state.peers || {})
+    .filter((peer) => peer?.peerId && peer.peerId !== state.selfPeerId && peer.queued)
+    .map((peer) => peer.peerId)
+    .sort((left, right) => left.localeCompare(right))[0] || ''
+
+const withResolvedMatch = (state, peerId) => {
+  if (!state.selfPeerId || !peerId || peerId === state.selfPeerId) return state
+  const pair = resolveMatchPair(state.selfPeerId, peerId)
+  return {
+    ...state,
+    selfQueued: false,
+    match: pair,
+    lastError: '',
+    peers: {
+      ...state.peers,
+      [state.selfPeerId]: {
+        ...(state.peers?.[state.selfPeerId] || {}),
+        peerId: state.selfPeerId,
+        queued: false
+      },
+      [peerId]: {
+        ...(state.peers?.[peerId] || {}),
+        peerId,
+        queued: false
+      }
+    }
+  }
+}
+
+const clearMatchIfPeerInvolved = (state, peerId) => {
+  const normalizedPeer = normalizePeerId(peerId)
+  const match = state.match
+  if (
+    !normalizedPeer ||
+    !match ||
+    ![state.selfPeerId, match.opponentPeerId, match.hostPeerId, match.guestPeerId].includes(
+      normalizedPeer
+    )
+  ) {
+    return state
+  }
+  return {
+    ...state,
+    match: null
+  }
+}
+
+const applyMatchStartMessage = (state, message = {}, senderId = '') => {
+  const hostPeerId = normalizePeerId(message.hostPeerId)
+  const guestPeerId = normalizePeerId(message.guestPeerId)
+  const sender = normalizePeerId(message.senderId || senderId)
+  if (!hostPeerId || !guestPeerId || !sender || (sender !== hostPeerId && sender !== guestPeerId)) {
+    return {
+      ...state,
+      lastError: '匹配发起者不在对局双方中'
+    }
+  }
+  const expectedRoom = resolveMatchPair(hostPeerId, guestPeerId).roomCode
+  if (expectedRoom !== normalizeRoomCode(message.roomCode)) {
+    return {
+      ...state,
+      lastError: '匹配发起者不在对局双方中'
+    }
+  }
+  if (state.selfPeerId !== hostPeerId && state.selfPeerId !== guestPeerId) return state
+  return withResolvedMatch(state, state.selfPeerId === hostPeerId ? guestPeerId : hostPeerId)
+}
+
+export const applyLobbyMessage = (state, message = {}, peerId = '') => {
+  if (!state) return state
+  const senderId = normalizePeerId(message.senderId || peerId)
+  if (message.messageId && state.appliedLobbyMessageIds?.includes(message.messageId)) return state
+  if (peerId && senderId && senderId !== peerId) {
+    return {
+      ...state,
+      lastError: '大厅身份不匹配'
+    }
+  }
+
+  let next = state
+  if (message.type === 'lobby_presence') {
+    next = upsertLobbyPeer(state, senderId, Boolean(message.queued))
+  } else if (message.type === 'lobby_queue') {
+    next = upsertLobbyPeer(state, senderId, true)
+    if (senderId === state.selfPeerId) {
+      const opponentPeerId = resolveQueuedOpponent(next)
+      if (opponentPeerId) next = withResolvedMatch(next, opponentPeerId)
+    } else if (next.selfQueued) {
+      next = withResolvedMatch(next, senderId)
+    }
+  } else if (message.type === 'lobby_cancel') {
+    next = clearMatchIfPeerInvolved(upsertLobbyPeer(state, senderId, false), senderId)
+  } else if (message.type === 'lobby_leave') {
+    const peers = { ...(state.peers || {}) }
+    delete peers[senderId]
+    next = clearMatchIfPeerInvolved(
+      {
+        ...state,
+        peers,
+        selfQueued: senderId === state.selfPeerId ? false : state.selfQueued
+      },
+      senderId
+    )
+  } else if (message.type === 'lobby_match_start') {
+    next = applyMatchStartMessage(state, message, peerId)
+  } else {
+    return state
+  }
+  return addAppliedLobbyMessageId(next, message.messageId)
 }
 
 const normalizeOnlineStrategy = (strategy) =>
@@ -428,6 +657,63 @@ export const loadTrysteroStrategy = (strategy) =>
     ? loadTrysteroTorrent()
     : loadTrysteroNostr()
 
+const resolveTrysteroAction = (action) => {
+  // 兼容 Trystero 旧版数组 API 和新版对象 API，避免大厅连接在运行时失败。
+  if (Array.isArray(action)) {
+    const [send, receive] = action
+    if (typeof send !== 'function' || typeof receive !== 'function') {
+      return { send: null, receive: null }
+    }
+    return {
+      send(message, targetPeerId) {
+        return send(message, targetPeerId)
+      },
+      receive
+    }
+  }
+  if (action && typeof action === 'object') {
+    if (typeof action.send !== 'function') {
+      return { send: null, receive: null }
+    }
+    return {
+      send(message, targetPeerId) {
+        return action.send(message, targetPeerId ? { target: targetPeerId } : undefined)
+      },
+      receive(handler) {
+        const wrappedHandler = (message, peer) => {
+          handler(message, peer?.peerId || peer)
+        }
+        if (typeof action.onMessage === 'function') {
+          action.onMessage(wrappedHandler)
+          return
+        }
+        try {
+          action.onMessage = wrappedHandler
+        } catch {
+          throw new Error('Trystero 消息通道不可用')
+        }
+      }
+    }
+  }
+  return { send: null, receive: null }
+}
+
+const resolvePeerEventId = (peer) => normalizePeerId(peer?.peerId || peer)
+
+const registerTrysteroPeerEvent = (room, eventName, handler) => {
+  const wrappedHandler = (peer) => handler(resolvePeerEventId(peer))
+  if (typeof room?.[eventName] === 'function') {
+    room[eventName](wrappedHandler)
+    return
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(room || {}, eventName)
+  if (descriptor?.set || eventName in (room || {})) {
+    room[eventName] = wrappedHandler
+    return
+  }
+  throw new Error('Trystero 房间事件不可用')
+}
+
 export const createTrysteroGomokuRoom = async ({
   roomCode = '',
   strategy = ONLINE_STRATEGIES.nostr,
@@ -450,15 +736,18 @@ export const createTrysteroGomokuRoom = async ({
     },
     normalizedRoom
   )
-  const [sendRawMessage, receiveRawMessage] = room.makeAction('gomoku')
+  const action = resolveTrysteroAction(room.makeAction('gomoku'))
+  if (typeof action.send !== 'function' || typeof action.receive !== 'function') {
+    throw new Error('Trystero 消息通道不可用')
+  }
 
-  receiveRawMessage((message, peerId) => {
+  action.receive((message, peerId) => {
     onEvent({ type: 'message', message, peerId })
   })
-  room.onPeerJoin((peerId) => {
+  registerTrysteroPeerEvent(room, 'onPeerJoin', (peerId) => {
     onEvent({ type: 'peer_join', peerId })
   })
-  room.onPeerLeave((peerId) => {
+  registerTrysteroPeerEvent(room, 'onPeerLeave', (peerId) => {
     onEvent({ type: 'peer_leave', peerId })
   })
 
@@ -467,7 +756,7 @@ export const createTrysteroGomokuRoom = async ({
     selfPeerId: trystero.selfId || '',
     strategy: onlineStrategy,
     send(message, targetPeerId) {
-      return sendRawMessage(message, targetPeerId)
+      return action.send(message, targetPeerId)
     },
     close() {
       room.leave()

@@ -1,0 +1,128 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - button "25" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: "25"
+        - heading "HBUT Forum" [level=1] [ref=e11]
+        - button "refresh" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: refresh
+      - navigation "论坛版块" [ref=e14]:
+        - button "校园广场" [ref=e15] [cursor=pointer]
+        - button "学习互助" [ref=e16] [cursor=pointer]
+        - button "生活服务" [ref=e17] [cursor=pointer]
+        - button "软件反馈" [ref=e18] [cursor=pointer]
+      - main [ref=e19]:
+        - region "论坛页面" [ref=e20]:
+          - button "forum 广场" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: forum
+            - generic [ref=e23]: 广场
+          - button "edit_square 发帖" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: edit_square
+            - generic [ref=e26]: 发帖
+          - button "how_to_vote 投票" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: how_to_vote
+            - generic [ref=e29]: 投票
+          - button "notifications 通知" [ref=e30] [cursor=pointer]:
+            - generic [ref=e31]: notifications
+            - generic [ref=e32]: 通知
+          - button "person 我的" [ref=e33] [cursor=pointer]:
+            - generic [ref=e34]: person
+            - generic [ref=e35]: 我的
+          - button "admin_panel_settings 管理" [active] [ref=e36] [cursor=pointer]:
+            - generic [ref=e37]: admin_panel_settings
+            - generic [ref=e38]: 管理
+        - generic [ref=e263]:
+          - generic [ref=e264]:
+            - generic [ref=e265]:
+              - generic [ref=e266]: Admin Center
+              - heading "社区管理中心" [level=2] [ref=e267]
+              - paragraph [ref=e268]: 面向举报、用户、徽章和备份的轻量运营台，所有操作都会走后端权限校验。
+            - button "backup 触发备份" [ref=e269] [cursor=pointer]:
+              - generic [ref=e270]: backup
+              - text: 触发备份
+          - generic [ref=e271]:
+            - generic [ref=e272]:
+              - strong [ref=e273]: "0"
+              - generic [ref=e274]: 举报队列
+            - generic [ref=e275]:
+              - strong [ref=e276]: "0"
+              - generic [ref=e277]: 用户治理
+            - generic [ref=e278]:
+              - strong [ref=e279]: "0"
+              - generic [ref=e280]: 已封禁
+            - generic [ref=e281]:
+              - strong [ref=e282]: "1"
+              - generic [ref=e283]: 投票打分
+            - generic [ref=e284]:
+              - strong [ref=e285]: "0"
+              - generic [ref=e286]: 备份记录
+          - generic [ref=e287]:
+            - generic [ref=e288]:
+              - generic [ref=e289]:
+                - heading "举报队列" [level=3] [ref=e290]
+                - generic [ref=e291]: "0"
+              - generic [ref=e292]: 暂无举报
+            - generic [ref=e293]:
+              - generic [ref=e294]:
+                - heading "用户治理" [level=3] [ref=e295]
+                - generic [ref=e296]: "0"
+              - generic [ref=e297]:
+                - textbox "搜索学号/昵称" [ref=e298]
+                - button "搜索" [ref=e299] [cursor=pointer]
+            - generic [ref=e300]:
+              - heading "封禁 / 解封" [level=3] [ref=e301]
+              - textbox "目标学号" [ref=e302]
+              - textbox "原因，可选" [ref=e303]
+              - generic [ref=e304]:
+                - button "封禁" [ref=e305] [cursor=pointer]
+                - button "解封" [ref=e306] [cursor=pointer]
+            - generic [ref=e307]:
+              - heading "徽章发放" [level=3] [ref=e308]
+              - textbox "目标学号" [ref=e309]
+              - textbox "badge_key" [ref=e310]: helper
+              - textbox "展示名" [ref=e311]: 热心同学
+              - button "发放徽章" [ref=e312] [cursor=pointer]
+            - generic [ref=e313]:
+              - generic [ref=e314]:
+                - heading "管理员创建投票" [level=3] [ref=e315]
+                - generic [ref=e316]: 1 个
+              - generic [ref=e317]:
+                - textbox "投票标题" [ref=e318]: 本周学习体验投票
+                - textbox "说明，可选" [ref=e319]: 由管理员发起，普通用户只在投票打分页参与，不再要求每个帖子评分。
+                - textbox "每行一个选项，如：很满意|10" [ref=e320]: 很有帮助|10 比较有帮助|8 一般|5 需要改进|2
+                - button "发布投票" [ref=e321] [cursor=pointer]
+              - article [ref=e323]:
+                - generic [ref=e324]: how_to_vote
+                - generic [ref=e325]:
+                  - strong [ref=e326]: HF 部署投票验证 20260523-223447
+                  - paragraph [ref=e327]: 已关闭 · 1 票
+                  - generic [ref=e328]: 05/24 06:34
+                - button "已关闭" [disabled] [ref=e329] [cursor=pointer]
+            - generic [ref=e330]:
+              - generic [ref=e331]:
+                - heading "备份记录" [level=3] [ref=e332]
+                - generic [ref=e333]: "0"
+              - generic [ref=e334]:
+                - generic [ref=e335]: cloud_sync
+                - generic [ref=e336]:
+                  - strong [ref=e337]: 等待首次备份
+                  - paragraph [ref=e338]: HF Bucket：未返回路径
+                  - paragraph [ref=e339]: OneDrive：未同步
+              - generic [ref=e340]: 暂无备份
+  - navigation [ref=e232]:
+    - button "首页" [ref=e233] [cursor=pointer]:
+      - img [ref=e235]
+      - generic [ref=e237]: 首页
+    - button "课表" [ref=e238] [cursor=pointer]:
+      - img [ref=e240]
+      - generic [ref=e243]: 课表
+    - button "论坛" [ref=e244] [cursor=pointer]:
+      - img [ref=e246]
+      - generic [ref=e250]: 论坛
+    - button "通知" [ref=e251] [cursor=pointer]:
+      - img [ref=e253]
+      - generic [ref=e256]: 通知
+    - button "我的" [ref=e257] [cursor=pointer]:
+      - img [ref=e259]
+      - generic [ref=e262]: 我的
