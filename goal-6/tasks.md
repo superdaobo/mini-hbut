@@ -97,11 +97,16 @@
 
 ## 大型全面检查 2（Task 4-6 后）
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：测试是否真的失败、失败原因是否正确、是否覆盖主要边界、是否误测实现细节。
 - 检查结果：
-- 修复动作：
-- 剩余风险：
+  - 温度条缩放红灯有效：重新运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "scales forecast temperature bars from displayed daily forecast bounds" --testTimeout 60000`，结果为 1 failed / 6 skipped；失败原因是 `Dashboard.vue` 仍不包含 `getForecastTemperatureBounds`，对应当前 `getTempBarStyle` 仍使用固定范围而非未来天气全局最低/最高温。
+  - 温度驱动配色红灯有效：重新运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "derives forecast low and high temperature text colors from actual temperatures" --testTimeout 60000`，结果为 1 failed / 6 skipped；失败原因是未来天气最低温仍包含 `text-xs text-blue-500 font-medium w-8 text-right`，证明最低温仍固定蓝色。
+  - 天气图标色调红灯有效：重新运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "uses unified soft weather icon tones instead of high-contrast hardcoded colors" --testTimeout 60000`，结果为 1 failed / 6 skipped；失败原因是当前天气图标颜色仍包含 `if (c === '阴') return '#4b5563'`。
+  - 源码证据一致：运行 `rg -n "scales forecast|derives forecast|uses unified|getTempBarStyle|weatherIconColor|getWeatherIconColor|text-blue-500|text-red-500|#4b5563|#3b82f6|#1e40af" src\styles\home_dashboard_contract.spec.ts src\components\Dashboard.vue`，确认契约测试与 `Dashboard.vue` 当前问题点一一对应。
+  - 测试边界评估：Task 4-6 目前是源码契约红灯，能防止继续使用固定范围、固定蓝/红文本和高反差硬编码图标色；但还缺纯函数数值测试覆盖等温、无效温度、小温差、偏热低温等边界，后续实现任务需要补上。
+- 修复动作：本轮只做大型全面检查并记录结果，没有修改 `Dashboard.vue` 或新增生产代码；未发现 Task 4-6 红灯测试偏离用户需求。
+- 剩余风险：红灯测试仍偏契约层，尚未验证最终视觉效果；后续 Task 7 应先实现并测试温度条全局范围缩放，且补足纯函数边界测试，再逐步推进温度配色和图标柔和色调实现。
 
 ## Task 7 - 实现温度条全局范围缩放
 
