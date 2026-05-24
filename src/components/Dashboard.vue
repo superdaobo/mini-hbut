@@ -19,7 +19,7 @@ import {
   resolveRelativeCollisionPoint
 } from '../utils/layout_collision_fx.js'
 import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../utils/home_search.js'
-import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle } from '../utils/weather_visuals'
+import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -586,28 +586,9 @@ const weatherData = ref({
 const showWeatherDetail = ref(false)
 const forecastTemperatureBounds = computed(() => getForecastTemperatureBounds(weatherData.value.forecast))
 
-// 天气图标颜色映射
-const weatherIconColor = computed(() => {
-  const c = weatherData.value.condition
-  if (c === '晴') return '#f59e0b'
-  if (c === '多云') return '#6b7280'
-  if (c === '阴') return '#4b5563'
-  if (c === '小雨' || c === '中雨') return '#3b82f6'
-  if (c === '大雨' || c === '雷阵雨') return '#1e40af'
-  if (c === '雪') return '#7c3aed'
-  if (c === '雾') return '#6b7280'
-  return '#60a5fa'
-})
+const weatherIconColor = computed(() => getWeatherIconTone(weatherData.value.condition).color)
 
-const getWeatherIconColor = (condition) => {
-  if (condition === '晴') return '#f59e0b'
-  if (condition === '多云') return '#6b7280'
-  if (condition === '阴') return '#4b5563'
-  if (condition === '小雨' || condition === '中雨') return '#3b82f6'
-  if (condition === '大雨' || condition === '雷阵雨') return '#1e40af'
-  if (condition === '雪') return '#7c3aed'
-  return '#60a5fa'
-}
+const getWeatherIconColor = (condition) => getWeatherIconTone(condition).color
 
 // 天气卡片动态样式（严格按照 Stitch 设计规范）
 const weatherGradientClass = computed(() => {

@@ -3,7 +3,8 @@ import {
   getForecastTemperatureBounds,
   getTemperatureColor,
   getTemperatureRangeScale,
-  getTemperatureRangeStyle
+  getTemperatureRangeStyle,
+  getWeatherIconTone
 } from './weather_visuals'
 
 describe('weather visual helpers', () => {
@@ -76,5 +77,25 @@ describe('weather visual helpers', () => {
 
     const coldRange = getTemperatureRangeStyle(2, 8, { min: -2, max: 12, span: 14 })
     expect(coldRange.background).toBe('linear-gradient(90deg, #60a5fa 0%, #2dd4bf 100%)')
+  })
+
+  it('maps weather conditions to soft icon tones with consistent visual weight', () => {
+    expect(getWeatherIconTone('晴')).toEqual({ category: 'sunny', color: '#d99a2b' })
+    expect(getWeatherIconTone('阴')).toEqual({ category: 'overcast', color: '#6f7f91' })
+    expect(getWeatherIconTone('小雨')).toEqual({ category: 'rain', color: '#4f8fbf' })
+    expect(getWeatherIconTone('中雨')).toEqual({ category: 'rain', color: '#4f8fbf' })
+    expect(getWeatherIconTone('大雨')).toEqual({ category: 'heavyRain', color: '#3f6f95' })
+    expect(getWeatherIconTone('雷阵雨')).toEqual({ category: 'heavyRain', color: '#3f6f95' })
+    expect(getWeatherIconTone('未知')).toEqual({ category: 'default', color: '#6f95b8' })
+  })
+
+  it('does not use previous high-contrast weather icon colors', () => {
+    const colors = ['晴', '阴', '小雨', '中雨', '大雨', '雷阵雨'].map((condition) => {
+      return getWeatherIconTone(condition).color
+    })
+
+    expect(colors).not.toContain('#4b5563')
+    expect(colors).not.toContain('#3b82f6')
+    expect(colors).not.toContain('#1e40af')
   })
 })

@@ -130,13 +130,13 @@
 
 ## Task 9 - 调整天气图标柔和过渡色
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：统一晴、阴、雨等图标的饱和度、明度和语义色，使视觉过渡更自然。
 - 验证：Task 6 相关测试或断言通过。
-- 实际变更：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 实际变更：在 `src/utils/weather_visuals.ts` 新增 `getWeatherIconTone`，把晴、多云、阴、雨、大雨/雷阵雨、雪、雾霾和默认天气映射到低饱和、明度接近的语义色；`Dashboard.vue` 已导入并复用该函数，当前天气图标、逐时天气图标和未来天气图标都改为通过 `getWeatherIconTone(...).color` 取色，移除天气图标专用的高反差硬编码色映射。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000` 得到预期红灯：`getWeatherIconTone is not a function`。实现后重新运行同一命令，结果为 1 passed / 10 tests passed；运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "uses unified soft weather icon tones instead of high-contrast hardcoded colors" --testTimeout 60000`，结果为 1 passed / 6 skipped。复核 `rg -n "getWeatherIconTone|weatherIconColor|getWeatherIconColor|if \(c === '阴'\)|if \(condition === '阴'\)|#4b5563|#3b82f6|#1e40af" src\components\Dashboard.vue src\utils\weather_visuals.ts src\utils\weather_visuals.spec.ts src\styles\home_dashboard_contract.spec.ts`，确认天气图标逻辑已迁移到 `getWeatherIconTone`，旧的阴天/雨天高反差硬编码色不再用于天气图标映射。
+- 剩余风险：图标色调已统一为柔和语义色，但尚未进行浏览器视觉验证；后续大型全面检查 3 需要整体复核温度条缩放、温度配色和图标色调是否一起满足用户视觉要求。
+- 下一步：执行大型全面检查 3，复核 Task 7-9 的实现是否完整、测试是否通过、视觉风险是否可控。
 
 ## 大型全面检查 3（Task 7-9 后）
 

@@ -16,6 +16,11 @@ type TemperatureRangeScale = {
 
 type TemperatureColorUsage = 'bar' | 'text'
 
+type WeatherIconTone = {
+  category: 'sunny' | 'cloudy' | 'overcast' | 'rain' | 'heavyRain' | 'snow' | 'fog' | 'default'
+  color: string
+}
+
 const FALLBACK_SCALE: TemperatureRangeScale = { leftPct: 46, widthPct: 8 }
 const MIN_VISIBLE_WIDTH_PCT = 8
 const FALLBACK_TEXT_COLOR = '#64748b'
@@ -51,6 +56,40 @@ export const getTemperatureColor = (
   if (temperature < 24) return '#2dd4bf'
   if (temperature < 32) return '#fb923c'
   return '#f87171'
+}
+
+export const getWeatherIconTone = (conditionValue: unknown): WeatherIconTone => {
+  const condition = String(conditionValue || '').trim()
+
+  if (condition.includes('雷') || condition.includes('暴雨') || condition.includes('大雨')) {
+    return { category: 'heavyRain', color: '#3f6f95' }
+  }
+
+  if (condition.includes('雨')) {
+    return { category: 'rain', color: '#4f8fbf' }
+  }
+
+  if (condition.includes('雪')) {
+    return { category: 'snow', color: '#7b8fc5' }
+  }
+
+  if (condition.includes('雾') || condition.includes('霾')) {
+    return { category: 'fog', color: '#8491a0' }
+  }
+
+  if (condition.includes('阴')) {
+    return { category: 'overcast', color: '#6f7f91' }
+  }
+
+  if (condition.includes('云')) {
+    return { category: 'cloudy', color: '#7b8798' }
+  }
+
+  if (condition.includes('晴')) {
+    return { category: 'sunny', color: '#d99a2b' }
+  }
+
+  return { category: 'default', color: '#6f95b8' }
 }
 
 export const getForecastTemperatureBounds = (forecast: ForecastTemperature[] = []): TemperatureBounds => {
