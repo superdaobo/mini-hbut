@@ -110,13 +110,13 @@
 
 ## Task 7 - 实现温度条全局范围缩放
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：修复未来天气温度条偏移和宽度计算，覆盖等温、缺失值、小温差等边界。
 - 验证：Task 4 相关测试通过。
-- 实际变更：
-- 验证结果：
-- 剩余风险：
-- 下一步：
+- 实际变更：新增 `src/utils/weather_visuals.ts` 和 `src/utils/weather_visuals.spec.ts`，实现并测试 `getForecastTemperatureBounds`、`getTemperatureRangeScale`、`getTemperatureRangeStyle`；`Dashboard.vue` 已导入这些函数，新增 `forecastTemperatureBounds`，并将未来天气温度条从固定 `-5 ~ 42` 范围的 `getTempBarStyle` 改为 `getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)`。
+- 验证结果：先运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000` 得到预期红灯：缺少 `./weather_visuals` 实现。实现后重新运行同一命令，结果为 1 passed / 6 tests passed；运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts -t "scales forecast temperature bars from displayed daily forecast bounds" --testTimeout 60000`，结果为 1 passed / 6 skipped。复核 `rg -n "getTempBarStyle|const minRange|const maxRange|forecastTemperatureBounds|getForecastTemperatureBounds|getTemperatureRangeStyle|100 - \(\(high - minRange\)" src\components\Dashboard.vue src\utils\weather_visuals.ts src\utils\weather_visuals.spec.ts`，确认旧固定范围函数和 `right` 计算不再存在，新的全局范围缩放绑定存在。
+- 剩余风险：本轮只完成温度条缩放，条形渐变仍暂时沿用固定蓝绿红，最低/最高温文本也仍是固定蓝/红；这些属于 Task 8。天气图标柔和色调仍未实现，属于 Task 9。最终视觉效果仍需后续浏览器验证。
+- 下一步：Task 8 实现温度驱动配色，让温度条起止颜色和温度文本颜色由实际气温映射得到。
 
 ## Task 8 - 实现温度驱动配色
 

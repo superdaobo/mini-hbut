@@ -19,6 +19,7 @@ import {
   resolveRelativeCollisionPoint
 } from '../utils/layout_collision_fx.js'
 import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../utils/home_search.js'
+import { getForecastTemperatureBounds, getTemperatureRangeStyle } from '../utils/weather_visuals'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -583,6 +584,7 @@ const weatherData = ref({
   forecast: []
 })
 const showWeatherDetail = ref(false)
+const forecastTemperatureBounds = computed(() => getForecastTemperatureBounds(weatherData.value.forecast))
 
 // 天气图标颜色映射
 const weatherIconColor = computed(() => {
@@ -605,17 +607,6 @@ const getWeatherIconColor = (condition) => {
   if (condition === '大雨' || condition === '雷阵雨') return '#1e40af'
   if (condition === '雪') return '#7c3aed'
   return '#60a5fa'
-}
-
-// 温度条样式计算（蓝红渐变，位置根据温度范围动态计算）
-const getTempBarStyle = (low, high) => {
-  // 假设温度范围 -5 ~ 42 度
-  const minRange = -5
-  const maxRange = 42
-  const totalRange = maxRange - minRange
-  const leftPct = Math.max(0, Math.min(100, ((low - minRange) / totalRange) * 100))
-  const rightPct = Math.max(0, Math.min(100, 100 - ((high - minRange) / totalRange) * 100))
-  return { left: `${leftPct}%`, right: `${rightPct}%` }
 }
 
 // 天气卡片动态样式（严格按照 Stitch 设计规范）
@@ -1490,7 +1481,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
                 <span class="text-xs text-gray-400 w-10 ml-1">{{ f.condition }}</span>
                 <span class="text-xs text-blue-500 font-medium w-8 text-right">{{ f.temp_low }}°</span>
                 <div class="flex-1 mx-2 h-[6px] rounded-full bg-gray-100 relative overflow-hidden">
-                  <div class="absolute inset-y-0 rounded-full bg-gradient-to-r from-blue-400 via-green-400 to-red-400" :style="getTempBarStyle(f.temp_low, f.temp_high)"></div>
+                  <div class="absolute inset-y-0 rounded-full bg-gradient-to-r from-blue-400 via-green-400 to-red-400" :style="getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)"></div>
                 </div>
                 <span class="text-xs text-red-500 font-medium w-8">{{ f.temp_high }}°</span>
               </div>
