@@ -228,8 +228,26 @@
 
 ## 最终最大 review
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：C 端体验、代码质量、安全性、数据一致性、权限、错误处理、测试、构建、文档、回滚。
 - 检查结果：
+- C 端体验：Task 11 已在桌面 `1036x854` 与移动 `390x844` 视口验证首页天气详情弹窗。未来天气实际数据 `18°/28°` 与 `16°/25°` 渲染为 `left: 16.67%; width: 83.33%` 和 `left: 0%; width: 75%`，符合展示预报全局范围 `16°~28°` 的缩放逻辑；移动端子元素重叠检测为空。
+- 温度条缩放：最终源码回归命令确认生产代码不再出现 `forecastTemperatureBounds.value`、`getTempBarStyle`、固定 `const minRange`/`const maxRange`，未来天气条绑定为 `getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds)`。
+- 温度配色：最终源码回归命令确认未来天气低/高温文本分别绑定 `getTemperatureColor(f.temp_low, 'text')` 与 `getTemperatureColor(f.temp_high, 'text')`，旧固定 `text-blue-500`/`text-red-500` 未来天气温度类未命中；条形渐变由 `getTemperatureRangeStyle` 通过实际低/高温生成。
+- 天气图标色调：最终源码回归命令确认图标颜色统一走 `getWeatherIconTone(condition).color`，旧阴天 `#4b5563`、雨天 `#3b82f6`/`#1e40af` 的天气图标生产映射未命中。
+- 测试证据：运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000`，结果为 1 passed / 10 tests passed；运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts --testTimeout 60000`，结果为 1 passed / 7 tests passed。
+- 完整测试门禁：运行 `npx.cmd vitest run --testTimeout 60000`，结果仍为失败，32 个测试文件中 28 passed / 4 failed，203 个测试中 192 passed / 11 failed。失败集中在 `hbut_memory_match_game`、`hbut_monopoly_game`、`module_center`、`remote_config`，天气相关测试在完整测试中通过；这些失败不属于本次首页天气目标范围。
+- 构建证据：运行 `npm.cmd run build`，结果为通过，`vite build` 输出 `built in 8.40s`。仍有既有 CSS minify `Unexpected "@media"` 警告和 Capacitor/Tauri/widget_bridge 动静态混合导入 chunk 警告；未阻止构建。
+- 类型检查证据：运行 `npx.cmd vue-tsc --noEmit --skipLibCheck`，仍因当前 Node `v24.12.0`/TypeScript 组合导致 `vue-tsc` 启动失败，错误为 `Search string not found: "/supportedTSExtensions = .*(?=;)/"`，未产出项目类型诊断。该风险已记录为工具链环境兼容问题。
+- 安全性与权限：天气修复只涉及前端纯函数、单元/契约测试和 Vue 模板样式绑定；没有新增网络请求、敏感数据传输、认证/支付/权限逻辑、系统配置、数据库结构或后端写入。
+- 数据一致性：后端天气数据字段 `temp_low`、`temp_high`、`condition`、`icon` 未变；前端只在展示层基于已展示 forecast 计算全局范围，不改变缓存、接口或持久化数据。
+- 错误处理：`getForecastTemperatureBounds` 与 `getTemperatureRangeScale` 覆盖无效温度、缺失值、等温和小温差兜底，避免除零和不可见条形。
+- 文档与追踪：`goal-6/input.md`、`goal-6/plan.md`、`goal-6/tasks.md` 已完整记录需求、方案、测试、浏览器验证、风险、回滚方案与每轮提交。
+- 工作区状态：最终复核 `git status --short` 显示天气相关源码和测试文件无未提交改动；仍存在无关 `website/public/modules/...` 脏改动，以及 `.playwright-mcp/*.yml`、`weather-modal-desktop-task11.png`、`weather-modal-mobile-task11.png` 未跟踪文件。本次最终 review 未删除、未暂存、未回滚这些文件。
 - 修复动作：
+- 本轮最终最大 review 未再修改天气业务代码；仅记录最终审计结论。
+- 此前 Task 11 已修复运行时发现的 Vue 模板自动解包问题：未来天气温度条从传入 `forecastTemperatureBounds.value` 改为传入 `forecastTemperatureBounds`。
 - 最终结论：
+- 首页天气目标已满足并有当前证据支撑：温度条按展示预报的真实最高/最低气温范围缩放，温度条与温度文本颜色由实际气温决定，天气图标色调统一为柔和语义色，桌面和移动浏览器验证未发现重叠或溢出。
+- 剩余失败均为本目标之外的既有项目级测试/工具链风险：完整 Vitest 中小游戏与模块中心测试失败，以及当前环境下 `vue-tsc` 启动失败。它们不改变本次天气修复的完成状态，但应在后续独立任务中处理。
+- 本 goal 可以标记完成。
