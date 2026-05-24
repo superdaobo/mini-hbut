@@ -201,13 +201,30 @@
 
 ## Task 12 - 最终 review、提交与 goal 完成
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：全面 review C 端体验、代码、安全性、数据一致性、权限、错误处理、测试、构建、文档和回滚方案；若有代码修改则提交。
 - 验证：无已知高风险问题，goal 标记完成。
 - 实际变更：
+- 本轮执行最终 review 前检查和验证记录；未修改天气业务代码、测试代码或构建配置。
+- 按 goal 规则，本轮只完成 Task 12，不执行下方“最终最大 review”，因此本轮不调用 `update_goal` 标记完成。
 - 验证结果：
+- 需求覆盖复核：当前实现已覆盖原始目标的三项要求：未来天气温度条按展示预报全局最低/最高温缩放；温度条渐变和低/高温文本颜色由实际气温决定，最低温不固定为蓝色；晴、阴、多云、雨等天气图标使用 `getWeatherIconTone` 的低饱和语义色，避免旧高反差硬编码色。
+- 源码回归检查：运行 `rg -n "forecastTemperatureBounds\.value|getTempBarStyle|const minRange|const maxRange|from-blue-400 via-green-400 to-red-400|text-xs text-blue-500 font-medium w-8 text-right|text-xs text-red-500 font-medium w-8|if \(c === '阴'\).*#4b5563|if \(condition === '阴'\).*#4b5563|getTemperatureRangeStyle\(f\.temp_low, f\.temp_high, forecastTemperatureBounds\)|getTemperatureColor\(f\.temp_low, 'text'\)|getTemperatureColor\(f\.temp_high, 'text'\)|getWeatherIconTone\(condition\)\.color" src\components\Dashboard.vue src\utils\weather_visuals.ts src\utils\weather_visuals.spec.ts src\styles\home_dashboard_contract.spec.ts`，结果只命中新绑定和测试断言；没有命中旧 `forecastTemperatureBounds.value`、固定范围函数、固定蓝/红温度类、固定蓝绿红渐变或旧阴/雨高反差图标生产映射。
+- 天气纯函数测试：运行 `npx.cmd vitest run src\utils\weather_visuals.spec.ts --testTimeout 60000`，结果为 1 passed / 10 tests passed。
+- 首页契约测试：运行 `npx.cmd vitest run src\styles\home_dashboard_contract.spec.ts --testTimeout 60000`，结果为 1 passed / 7 tests passed。
+- 构建验证：运行 `npm.cmd run build`，结果为通过，`vite build` 输出 `built in 7.74s`。构建仍有 CSS minify 的 `Unexpected "@media"` 警告，以及 Capacitor/Tauri/widget_bridge 动静态混合导入 chunk 警告；这些警告未阻止构建。
+- 类型检查验证：运行 `npx.cmd vue-tsc --noEmit --skipLibCheck`，仍在当前 Node `v24.12.0` 环境下启动失败，错误为 `Search string not found: "/supportedTSExtensions = .*(?=;)/"`，未产出项目类型诊断。
+- 工作区复核：运行 `git status --short` 与 `git diff --name-only`，天气相关源码和测试文件在上一轮提交后保持干净；当前仍有 `website/public/modules/...` 无关脏改动，以及浏览器验证生成的 `.playwright-mcp/*.yml`、`weather-modal-desktop-task11.png`、`weather-modal-mobile-task11.png` 未跟踪文件。本轮未删除、未暂存、未回滚这些文件。
+- C 端体验复核：Task 11 已用桌面 `1036x854` 和移动 `390x844` 浏览器视口验证天气弹窗，温度条分别渲染为 `16.67%/83.33%` 与 `0%/75%`，温度文本和条形颜色由实际气温驱动，图标色调柔和，且移动端无元素重叠。
+- 安全与数据一致性复核：本次天气修复只调整前端展示纯函数与 Vue 样式绑定，没有新增网络请求、权限、认证、生产配置、数据库写入或后端数据结构变更；后端 `temp_low`/`temp_high` 字段仍作为原数据来源，前端只做展示归一化。
+- 回滚方案复核：如需回滚，可回退天气相关提交，重点是 `src/utils/weather_visuals.ts`、`src/utils/weather_visuals.spec.ts`、`src/styles/home_dashboard_contract.spec.ts` 和 `src/components/Dashboard.vue` 的天气视觉绑定；若只需调整观感，可单独修改 `weather_visuals.ts` 中温度色阶或图标色阶。
 - 剩余风险：
+- 项目级完整 Vitest 在 Task 10 中仍有非天气相关失败，涉及 `hbut_memory_match_game`、`hbut_monopoly_game`、`module_center`、`remote_config`，不能声称整个项目测试全绿。
+- `vue-tsc` 在当前环境无法启动，类型检查证据缺失；这属于工具链环境兼容风险，最终最大 review 仍需明确记录。
+- 本地浏览器验证基于 Web/Vite 运行时和默认天气数据，未在 Tauri 原生运行时中验证真实 `fetch_weather` 数据；不过前端缩放、颜色和图标逻辑已通过纯函数、契约测试和浏览器 DOM 样式验证。
+- 无关 `website/public/modules/...` 脏改动和本轮浏览器截图/临时文件仍留在工作区，未纳入本次提交，最终最大 review 前仍需说明或处理策略。
 - 下一步：
+- 执行“最终最大 review”，从 C 端体验、代码质量、安全性、数据一致性、权限、错误处理、测试、构建、文档和回滚角度做最后审计。只有最终最大 review 完成且证据足够时，才能调用 `update_goal(status="complete")`。
 
 ## 最终最大 review
 
