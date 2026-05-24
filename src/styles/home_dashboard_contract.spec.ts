@@ -35,6 +35,17 @@ describe('home dashboard interaction contract', () => {
     expect(emptyIconRule).toContain('flex: 0 0 auto')
   })
 
+  it('scales forecast temperature bars from displayed daily forecast bounds', () => {
+    const source = dashboardVue()
+
+    expect(source).toContain('getForecastTemperatureBounds')
+    expect(source).toContain('forecastTemperatureBounds')
+    expect(source).toContain('getTemperatureRangeStyle(f.temp_low, f.temp_high, forecastTemperatureBounds.value)')
+    expect(source).not.toContain('const minRange = -5')
+    expect(source).not.toContain('const maxRange = 42')
+    expect(source).not.toContain('100 - ((high - minRange) / totalRange) * 100')
+  })
+
   it('persists the selected home category before navigating away', () => {
     const source = dashboardVue()
 
