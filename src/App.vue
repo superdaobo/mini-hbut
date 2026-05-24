@@ -24,6 +24,11 @@ import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
 import { hasBootMetric, markBootMetric, resetBootMetrics } from './utils/boot_metrics.js'
 import { tryWriteSnapshotFromCache, clearWidgetForLogout } from './utils/widget_bridge'
+import { showToast } from './utils/toast'
+import {
+  collectHomeLayoutDiagnostics,
+  installHomeLayoutDiagnosticsErrorCapture
+} from './utils/home_layout_diagnostics'
 import {
   clearDailyAccessGrant,
   getProtectedViewLabel,
@@ -146,6 +151,7 @@ let appBootstrapped = false
 let capacitorAppStateListener = null
 let widgetCrossDayTimer = null
 let removeNotificationActionListener = null
+let removeHomeLayoutDiagnosticsErrorCapture = null
 
 // Widget 深链接参数（由 widgetDeeplink 事件或 appUrlOpen 注入）
 const widgetDeeplinkDate = ref('')
@@ -391,6 +397,23 @@ const workspaceLayoutEditorTab = ref('home')
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
 const showSplash = ref(useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot)
+const HOME_LAYOUT_DEBUG_HIDDEN_KEY = 'hbu_home_layout_debug_hidden'
+const HOME_LAYOUT_DEBUG_FORCE_KEY = 'hbu_home_layout_debug_enabled'
+const homeLayoutDebugForced = (() => {
+  if (typeof window === 'undefined') return false
+  const search = window.location.search || ''
+  const hash = window.location.hash || ''
+  return (
+    localStorage.getItem(HOME_LAYOUT_DEBUG_FORCE_KEY) === '1' ||
+    /(?:[?&])debugLayout=1(?:&|$)/.test(search) ||
+    /(?:[?&])debugLayout=1(?:&|$)/.test(hash)
+  )
+})()
+const homeLayoutDebugHidden = ref(
+  typeof window !== 'undefined' && localStorage.getItem(HOME_LAYOUT_DEBUG_HIDDEN_KEY) === '1'
+)
+const homeLayoutDebugExpanded = ref(false)
+const homeLayoutDebugReport = ref('')
 prefetchViewComponent(initialView)
 watch(currentView, (view) => {
   prefetchViewComponent(view)
@@ -2184,6 +2207,57 @@ const stopElectricityKeepAlive = () => {
 }
 
 const showTabBar = computed(() => MAIN_TABS.includes(currentView.value))
+const showHomeLayoutDebug = computed(() => (
+  currentView.value === 'home' &&
+  !homeLayoutDebugHidden.value &&
+  (isIOSLike || homeLayoutDebugForced)
+))
+
+const refreshHomeLayoutDebugReport = () => {
+  homeLayoutDebugReport.value = collectHomeLayoutDiagnostics({
+    currentView: currentView.value,
+    activeTab: activeTab.value,
+    isIOSLike,
+    isAndroidLike,
+    hasTauri,
+    isCapacitorRuntime: isCapacitorRuntime(),
+    studentIdPresent: !!String(studentId.value || '').trim(),
+    showTabBar: showTabBar.value,
+    appShellScrollTop: Number(appShellRef.value?.scrollTop || 0)
+  })
+}
+
+const copyHomeLayoutDebugReport = async () => {
+  refreshHomeLayoutDebugReport()
+  const text = homeLayoutDebugReport.value
+  try {
+    await navigator.clipboard.writeText(text)
+    homeLayoutDebugExpanded.value = true
+    showToast('首页布局调试信息已复制', 'success', 2600)
+  } catch (error) {
+    homeLayoutDebugExpanded.value = true
+    showToast('自动复制失败，请手动复制文本框内容', 'warning', 3600)
+    console.warn('[LayoutDebug] copy failed:', error)
+  }
+}
+
+const toggleHomeLayoutDebugReport = () => {
+  homeLayoutDebugExpanded.value = !homeLayoutDebugExpanded.value
+  if (homeLayoutDebugExpanded.value) {
+    refreshHomeLayoutDebugReport()
+  }
+}
+
+const hideHomeLayoutDebug = () => {
+  homeLayoutDebugHidden.value = true
+  homeLayoutDebugExpanded.value = false
+  try {
+    localStorage.setItem(HOME_LAYOUT_DEBUG_HIDDEN_KEY, '1')
+  } catch {
+    // ignore storage failure
+  }
+  showToast('已隐藏首页布局调试入口', 'info', 2200)
+}
 
 const handlePopState = async () => {
   if (!isDesktopLike) {
@@ -2308,6 +2382,7 @@ onMounted(async () => {
   window.addEventListener('orientationchange', handleViewportResize)
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
+  removeHomeLayoutDiagnosticsErrorCapture = installHomeLayoutDiagnosticsErrorCapture()
   scheduleViewportUpdate()
   installWidgetDeeplinkListeners()
   installNotificationActionListener()
@@ -2529,6 +2604,10 @@ onBeforeUnmount(() => {
   if (capacitorAppStateListener) {
     capacitorAppStateListener.remove().catch(() => {})
     capacitorAppStateListener = null
+  }
+  if (typeof removeHomeLayoutDiagnosticsErrorCapture === 'function') {
+    removeHomeLayoutDiagnosticsErrorCapture()
+    removeHomeLayoutDiagnosticsErrorCapture = null
   }
 })
 </script>
@@ -2865,6 +2944,29 @@ onBeforeUnmount(() => {
         <span class="tab-label">我的</span>
       </button>
   </nav>
+
+  <section v-if="showHomeLayoutDebug" class="home-layout-debug-panel" aria-label="当前首页布局调试">
+    <div class="home-layout-debug-head">
+      <div>
+        <p class="home-layout-debug-kicker">当前首页布局调试</p>
+        <p class="home-layout-debug-copy">复制后发回，用于定位 iOS 安全区和底栏位置。</p>
+      </div>
+      <button class="home-layout-debug-close" type="button" @click="hideHomeLayoutDebug">隐藏</button>
+    </div>
+    <div class="home-layout-debug-actions">
+      <button class="home-layout-debug-primary" type="button" @click="copyHomeLayoutDebugReport">复制调试信息</button>
+      <button class="home-layout-debug-secondary" type="button" @click="toggleHomeLayoutDebugReport">
+        {{ homeLayoutDebugExpanded ? '收起' : '显示' }}
+      </button>
+    </div>
+    <textarea
+      v-if="homeLayoutDebugExpanded"
+      class="home-layout-debug-output"
+      :value="homeLayoutDebugReport"
+      readonly
+      rows="12"
+    />
+  </section>
 
   <div v-if="showLoginPrompt" class="login-mask">
     <div class="login-mask-card">请先在个人中心登录</div>
@@ -3272,6 +3374,103 @@ onBeforeUnmount(() => {
 .tab-label {
   font-size: 12px;
   letter-spacing: 0.2px;
+}
+
+.home-layout-debug-panel {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  right: max(12px, env(safe-area-inset-right, 0px));
+  z-index: 9990;
+  width: min(360px, calc(100vw - 24px));
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: rgba(248, 250, 252, 0.96);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.2);
+  color: #0f172a;
+  backdrop-filter: blur(16px);
+}
+
+.home-layout-debug-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.home-layout-debug-kicker,
+.home-layout-debug-copy {
+  margin: 0;
+}
+
+.home-layout-debug-kicker {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.home-layout-debug-copy {
+  margin-top: 3px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.home-layout-debug-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.home-layout-debug-primary,
+.home-layout-debug-secondary,
+.home-layout-debug-close {
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.home-layout-debug-primary,
+.home-layout-debug-secondary {
+  height: 34px;
+  padding: 0 12px;
+}
+
+.home-layout-debug-primary {
+  flex: 1;
+  color: #fff;
+  background: #2563eb;
+}
+
+.home-layout-debug-secondary,
+.home-layout-debug-close {
+  color: #334155;
+  background: #e2e8f0;
+}
+
+.home-layout-debug-close {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 9px;
+}
+
+.home-layout-debug-output {
+  display: block;
+  width: 100%;
+  max-height: min(420px, 52vh);
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(100, 116, 139, 0.35);
+  border-radius: 10px;
+  background: #020617;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .login-mask {
