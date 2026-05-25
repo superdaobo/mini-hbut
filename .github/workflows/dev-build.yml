@@ -551,6 +551,8 @@ jobs:
           NODE
 
           npm run tauri ios init
+          cargo fetch --manifest-path src-tauri/Cargo.toml
+          node scripts/patch_tauri_ios_edge_to_edge.mjs
           node scripts/sync_tauri_platform_icons.mjs ios
           npm run build
           node scripts/check_dist_boundary.mjs
