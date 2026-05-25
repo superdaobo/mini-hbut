@@ -89,33 +89,39 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
     expect(indexCss()).not.toContain('.bottom-tab-bar')
   })
 
-  it('keeps forum as the center primary tab', () => {
-    expect(appVue()).toContain("const MAIN_TABS = ['home', 'schedule', 'forum', 'notifications', 'me']")
-    expect(appVue()).toMatch(/grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)\s*!important;/)
+  it('keeps forum out of the bottom tab bar while preserving the main four tabs', () => {
+    expect(appVue()).toContain("const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']")
+    expect(appVue()).not.toContain("const MAIN_TABS = ['home', 'schedule', 'forum', 'notifications', 'me']")
+    expect(appVue()).toMatch(/grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)\s*!important;/)
+    expect(appVue()).not.toContain('tab-item--forum')
   })
 
-  it('keeps the rounded iOS bottom tab bar anchored to the viewport bottom', () => {
+  it('keeps the rounded iOS bottom tab bar floating above the viewport bottom', () => {
     const baseRule = getRuleBody(appVue(), '.bottom-tab-bar')
 
-    expect(baseRule).toContain('bottom: 0')
-    expect(baseRule).toContain('padding: 8px 14px calc(8px + var(--app-safe-bottom))')
-    expect(baseRule).toContain('min-height: calc(62px + var(--app-safe-bottom))')
-    expect(baseRule).toContain('max-height: calc(92px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('bottom: calc(10px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('padding: 8px 14px')
+    expect(baseRule).toContain('min-height: 62px')
+    expect(baseRule).toContain('max-height: 92px')
     expect(baseRule).toContain('border-radius: 20px')
-    expect(baseRule).not.toContain('bottom: calc(env(safe-area-inset-bottom) + 8px)')
+    expect(baseRule).not.toContain('bottom: 0')
+    expect(baseRule).not.toContain('padding: 8px 14px calc(8px + var(--app-safe-bottom))')
     expect(appVue()).not.toContain('bottom-tab-bar--ios')
     expect(appVue()).not.toContain('--bottom-tab-bar-bottom: 0px')
     expect(appVue()).not.toContain('bottom: var(--bottom-tab-bar-bottom) !important')
   })
 
-  it('keeps safe-area padding inside the tab bar without theme overrides stretching it', () => {
+  it('keeps safe-area offset outside the tab bar without theme overrides stretching it', () => {
     const baseRule = getRuleBody(appVue(), '.bottom-tab-bar')
 
-    expect(baseRule).toContain('min-height: calc(62px + var(--app-safe-bottom))')
-    expect(baseRule).toContain('max-height: calc(92px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('bottom: calc(10px + var(--app-safe-bottom))')
+    expect(baseRule).toContain('min-height: 62px')
+    expect(baseRule).toContain('max-height: 92px')
     expect(baseRule).not.toContain('--bottom-tab-bar-content-height')
     expect(baseRule).not.toContain('--bottom-tab-bar-safe-bottom')
     expect(baseRule).not.toContain('10px + var(--bottom-tab-bar-safe-bottom)')
+    expect(baseRule).not.toContain('calc(62px + var(--app-safe-bottom))')
+    expect(baseRule).not.toContain('calc(92px + var(--app-safe-bottom))')
     expect(appVue()).not.toMatch(/\.bottom-tab-bar--ios\s*\{/)
     expect(appVue()).not.toContain('border-bottom-left-radius: 0')
     expect(appVue()).not.toContain('border-bottom-right-radius: 0')
@@ -220,6 +226,15 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
     expect(appVue()).not.toMatch(/\.bottom-tab-bar\s*\{[^}]*border-bottom-right-radius:\s*0/s)
   })
 
+  it('keeps the home layout debug panel hidden unless explicitly forced', () => {
+    expect(appVue()).toContain("const HOME_LAYOUT_DEBUG_FORCE_KEY = 'hbu_home_layout_debug_enabled'")
+    expect(appVue()).toContain("const HOME_LAYOUT_DEBUG_HIDDEN_KEY = 'hbu_home_layout_debug_hidden'")
+    expect(appVue()).toContain('homeLayoutDebugForced')
+    expect(appVue()).toContain('currentView.value === \'home\'')
+    expect(appVue()).not.toContain('(isIOSLike || homeLayoutDebugForced)')
+    expect(appVue()).toContain('!homeLayoutDebugHidden.value')
+  })
+
   it('does not keep the old negative iOS safe-area offset', () => {
     expect(appVue()).not.toContain('calc(0px - env(safe-area-inset-bottom')
     expect(indexCss()).not.toContain('calc(0px - env(safe-area-inset-bottom')
@@ -229,20 +244,20 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
     const bundledCss = normalizeCss(readIosBundledStyles())
 
     expect(bundledCss).not.toContain('@import')
-    expect(bundledCss).toContain('bottom:0')
-    expect(bundledCss).toContain('grid-template-columns:repeat(5,minmax(0,1fr))!important')
-    expect(bundledCss).toContain('padding:8px14pxcalc(8px+var(--app-safe-bottom))')
-    expect(bundledCss).toContain('min-height:calc(62px+var(--app-safe-bottom))')
+    expect(bundledCss).toContain('bottom:calc(10px+var(--app-safe-bottom))')
+    expect(bundledCss).toContain('grid-template-columns:repeat(4,minmax(0,1fr))!important')
+    expect(bundledCss).toContain('padding:8px14px')
+    expect(bundledCss).toContain('min-height:62px')
     expect(bundledCss).toContain('border-radius:20px')
-    expect(bundledCss).toContain('max-height:calc(92px+var(--app-safe-bottom))')
-    expect(bundledCss).not.toContain('bottom:calc(env(safe-area-inset-bottom)+8px)')
+    expect(bundledCss).toContain('max-height:92px')
+    expect(bundledCss).not.toMatch(/\.bottom-tab-bar\[data-v-[^]+\]\{[^}]*bottom:0/)
     expect(bundledCss).not.toContain('--bottom-tab-bar-safe-bottom')
     expect(bundledCss).not.toContain('--bottom-tab-bar-bottom:0px')
     expect(bundledCss).not.toContain('bottom:var(--bottom-tab-bar-bottom)!important')
     expect(bundledCss).not.toContain('min-height:calc(var(--bottom-tab-bar-content-height)+')
     expect(bundledCss).not.toContain('padding-bottom:calc(10px+')
     expect(bundledCss).not.toContain('--ux-bottom-safe:calc(128px+env(safe-area-inset-bottom))')
-    expect(bundledCss).not.toContain('grid-template-columns:repeat(4,1fr)')
+    expect(bundledCss).not.toContain('grid-template-columns:repeat(5,minmax(0,1fr))!important')
     expect(bundledCss).not.toContain('body{width:100%;height:100%;overflow:hidden;overscroll-behavior:none}')
   })
 })

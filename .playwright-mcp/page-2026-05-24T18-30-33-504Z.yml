@@ -1,0 +1,169 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - main [ref=e21]:
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - img "HBUT" [ref=e58]
+            - generic [ref=e59]: HBUT 校园助手
+          - textbox "搜索服务" [ref=e63] [cursor=pointer]:
+            - /placeholder: 搜索服务/课程/资讯
+        - main [ref=e64]:
+          - generic [ref=e65]:
+            - generic [ref=e66]:
+              - heading "夜深了" [level=1] [ref=e67]
+              - paragraph [ref=e68]: 新的一天，元气满满！
+            - generic [ref=e70] [cursor=pointer]:
+              - generic [ref=e73]: 26°C
+              - generic [ref=e74]: 晴
+          - generic [ref=e79]:
+            - generic [ref=e80]:
+              - heading "未登录" [level=2] [ref=e81]
+              - generic [ref=e82]: 本科生
+            - paragraph [ref=e83]: 湖北工业大学
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - heading "今日安排" [level=3] [ref=e86]
+              - generic [ref=e87] [cursor=pointer]: 查看全部
+            - generic [ref=e89]: 登录后可查看今日课程
+          - generic [ref=e90]:
+            - heading "快捷入口" [level=3] [ref=e92]
+            - generic [ref=e94]:
+              - generic [ref=e98] [cursor=pointer]: 成绩查询
+              - generic [ref=e102] [cursor=pointer]: 课表
+              - generic [ref=e106] [cursor=pointer]: 空教室
+              - generic [ref=e110] [cursor=pointer]: 电费查询
+              - generic [ref=e114] [cursor=pointer]: 绩点排名
+          - generic [ref=e115]:
+            - generic [ref=e116]:
+              - heading "所有功能" [level=3] [ref=e117]
+              - generic [ref=e118]:
+                - button "教务服务" [ref=e119] [cursor=pointer]
+                - button "一码通" [ref=e120] [cursor=pointer]
+                - button "资源" [ref=e121] [cursor=pointer]
+            - generic [ref=e122]:
+              - generic [ref=e126] [cursor=pointer]: 成绩查询
+              - generic [ref=e130] [cursor=pointer]: 空教室
+              - generic [ref=e134] [cursor=pointer]: 考试安排
+              - generic [ref=e138] [cursor=pointer]: 绩点排名
+              - generic [ref=e142] [cursor=pointer]: 校历
+              - generic [ref=e146] [cursor=pointer]: 学业情况
+              - generic [ref=e150] [cursor=pointer]: 全校课表
+              - generic [ref=e154] [cursor=pointer]: 选课中心
+              - generic [ref=e158] [cursor=pointer]: 培养方案
+    - navigation [ref=e23]:
+      - button "首页" [ref=e24] [cursor=pointer]:
+        - img [ref=e26]
+        - generic [ref=e28]: 首页
+      - button "课表" [ref=e29] [cursor=pointer]:
+        - img [ref=e31]
+        - generic [ref=e34]: 课表
+      - button "论坛" [ref=e35] [cursor=pointer]:
+        - img [ref=e37]
+        - generic [ref=e41]: 论坛
+      - button "通知" [ref=e42] [cursor=pointer]:
+        - img [ref=e44]
+        - generic [ref=e47]: 通知
+      - button "我的" [ref=e48] [cursor=pointer]:
+        - img [ref=e50]
+        - generic [ref=e53]: 我的
+  - generic [ref=e176]:
+    - generic [ref=e177]:
+      - generic [ref=e178]:
+        - generic [ref=e179]:
+          - paragraph [ref=e180]: 洪山区
+          - heading "晴" [level=3] [ref=e181]
+        - button [ref=e182] [cursor=pointer]
+      - generic [ref=e184]: 26°
+      - generic [ref=e185]:
+        - generic [ref=e188]: 65%
+        - generic [ref=e191]: 东南风 3级
+        - generic [ref=e194]: AQI 72
+    - generic [ref=e195]:
+      - heading "逐时预报" [level=4] [ref=e196]
+      - generic [ref=e197]:
+        - generic [ref=e198]:
+          - generic [ref=e199]: 现在
+          - generic [ref=e201]: 26°
+        - generic [ref=e202]:
+          - generic [ref=e203]: 03:00
+          - generic [ref=e205]: 25°
+        - generic [ref=e206]:
+          - generic [ref=e207]: 04:00
+          - generic [ref=e209]: 24°
+        - generic [ref=e210]:
+          - generic [ref=e211]: 05:00
+          - generic [ref=e213]: 22°
+        - generic [ref=e214]:
+          - generic [ref=e215]: 06:00
+          - generic [ref=e217]: 22°
+        - generic [ref=e218]:
+          - generic [ref=e219]: 07:00
+          - generic [ref=e221]: 21°
+        - generic [ref=e222]:
+          - generic [ref=e223]: 08:00
+          - generic [ref=e225]: 21°
+        - generic [ref=e226]:
+          - generic [ref=e227]: 09:00
+          - generic [ref=e229]: 21°
+        - generic [ref=e230]:
+          - generic [ref=e231]: 10:00
+          - generic [ref=e233]: 22°
+        - generic [ref=e234]:
+          - generic [ref=e235]: 11:00
+          - generic [ref=e237]: 22°
+        - generic [ref=e238]:
+          - generic [ref=e239]: 12:00
+          - generic [ref=e241]: 24°
+        - generic [ref=e242]:
+          - generic [ref=e243]: 13:00
+          - generic [ref=e245]: 25°
+        - generic [ref=e246]:
+          - generic [ref=e247]: 14:00
+          - generic [ref=e249]: 26°
+        - generic [ref=e250]:
+          - generic [ref=e251]: 15:00
+          - generic [ref=e253]: 27°
+        - generic [ref=e254]:
+          - generic [ref=e255]: 16:00
+          - generic [ref=e257]: 28°
+        - generic [ref=e258]:
+          - generic [ref=e259]: 17:00
+          - generic [ref=e261]: 30°
+        - generic [ref=e262]:
+          - generic [ref=e263]: 18:00
+          - generic [ref=e265]: 30°
+        - generic [ref=e266]:
+          - generic [ref=e267]: 19:00
+          - generic [ref=e269]: 31°
+        - generic [ref=e270]:
+          - generic [ref=e271]: 20:00
+          - generic [ref=e273]: 31°
+        - generic [ref=e274]:
+          - generic [ref=e275]: 21:00
+          - generic [ref=e277]: 31°
+        - generic [ref=e278]:
+          - generic [ref=e279]: 22:00
+          - generic [ref=e281]: 30°
+        - generic [ref=e282]:
+          - generic [ref=e283]: 23:00
+          - generic [ref=e285]: 30°
+        - generic [ref=e286]:
+          - generic [ref=e287]: 00:00
+          - generic [ref=e289]: 28°
+        - generic [ref=e290]:
+          - generic [ref=e291]: 01:00
+          - generic [ref=e293]: 27°
+    - generic [ref=e294]:
+      - heading "未来天气" [level=4] [ref=e295]
+      - generic [ref=e296]:
+        - generic [ref=e297]:
+          - generic [ref=e298]: 明天
+          - generic [ref=e300]: 多云
+          - generic [ref=e301]: 18°
+          - generic [ref=e304]: 28°
+        - generic [ref=e305]:
+          - generic [ref=e306]: 后天
+          - generic [ref=e308]: 小雨
+          - generic [ref=e309]: 16°
+          - generic [ref=e312]: 25°

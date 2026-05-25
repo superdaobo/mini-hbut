@@ -529,30 +529,17 @@ html[data-ui-density='compact'] {
 }
 
 .bottom-tab-bar {
-  --bottom-tab-bar-bottom: 4px;
-  --bottom-tab-bar-content-height: 70px;
-  --bottom-tab-bar-safe-bottom: 0px;
   box-sizing: border-box;
   transition: background calc(0.2s * var(--ui-motion-scale)) ease,
               box-shadow calc(0.2s * var(--ui-motion-scale)) ease,
               border-radius calc(0.2s * var(--ui-motion-scale)) ease;
-  /* 强约束底栏尺寸，避免主题样式叠加后撑满整屏 */
   top: auto !important;
   inset-block-start: auto !important;
-  bottom: var(--bottom-tab-bar-bottom) !important;
+  bottom: calc(10px + var(--app-safe-bottom)) !important;
   height: auto !important;
-  min-height: var(--bottom-tab-bar-content-height) !important;
-  max-height: 106px !important;
+  min-height: 62px !important;
+  max-height: 92px !important;
   overflow: hidden;
-}
-
-.bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: 0px;
-  --bottom-tab-bar-safe-bottom: var(--app-safe-bottom);
-  min-height: calc(var(--bottom-tab-bar-content-height) + var(--bottom-tab-bar-safe-bottom)) !important;
-  padding-bottom: calc(10px + var(--bottom-tab-bar-safe-bottom)) !important;
-  border-radius: 20px !important;
-  max-height: none !important;
 }
 
 html[data-ui-nav='floating'] .bottom-tab-bar {
@@ -562,8 +549,7 @@ html[data-ui-nav='floating'] .bottom-tab-bar {
 }
 
 html[data-ui-nav='pill'] .bottom-tab-bar {
-  border-radius: 999px !important;
-  padding-inline: 14px !important;
+  border-radius: 20px !important;
 }
 
 html[data-ui-nav='pill'] .tab-item {
@@ -572,22 +558,7 @@ html[data-ui-nav='pill'] .tab-item {
 
 html[data-ui-nav='compact'] .bottom-tab-bar {
   width: min(640px, calc(100% - 26px)) !important;
-  padding: 8px 12px !important;
-}
-
-html[data-ui-nav='compact'] .bottom-tab-bar--ios {
-  --bottom-tab-bar-bottom: 0px;
-  min-height: calc(64px + var(--bottom-tab-bar-safe-bottom)) !important;
-  padding-bottom: calc(8px + var(--bottom-tab-bar-safe-bottom)) !important;
-}
-
-html[data-ui-nav='floating'] .bottom-tab-bar--ios,
-html[data-ui-nav='compact'] .bottom-tab-bar--ios {
-  border-radius: 20px !important;
-}
-
-html[data-ui-nav='pill'] .bottom-tab-bar--ios {
-  border-radius: 999px !important;
+  padding: 8px 14px !important;
 }
 
 html[data-ui-nav='compact'] .tab-item {

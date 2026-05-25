@@ -157,7 +157,7 @@ let removeHomeLayoutDiagnosticsErrorCapture = null
 const widgetDeeplinkDate = ref('')
 const widgetDeeplinkPeriod = ref(0)
 
-const MAIN_TABS = ['home', 'schedule', 'forum', 'notifications', 'me']
+const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
 const ME_SUB_VIEWS = [
   'official',
   'feedback',
@@ -2210,7 +2210,7 @@ const showTabBar = computed(() => MAIN_TABS.includes(currentView.value))
 const showHomeLayoutDebug = computed(() => (
   currentView.value === 'home' &&
   !homeLayoutDebugHidden.value &&
-  (isIOSLike || homeLayoutDebugForced)
+  homeLayoutDebugForced
 ))
 
 const refreshHomeLayoutDebugReport = () => {
@@ -2915,16 +2915,6 @@ onBeforeUnmount(() => {
         </span>
         <span class="tab-label">课表</span>
       </button>
-      <button class="tab-item tab-item--forum btn-ripple" :class="{ active: activeTab === 'forum' }" @click="handleTabChange('forum')">
-        <span class="tab-icon" aria-hidden="true">
-          <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
-            <path d="M5.3 5.1h9.2a3.1 3.1 0 0 1 3.1 3.1v4.2a3.1 3.1 0 0 1-3.1 3.1H9.2L5 18.7v-3.2a3 3 0 0 1-2.8-3V8.2a3.1 3.1 0 0 1 3.1-3.1z" />
-            <path d="M14.2 16.2h1.1l3.7 2.7v-3a2.8 2.8 0 0 0 2.1-2.7V9.3a2.9 2.9 0 0 0-2.1-2.8" />
-            <path d="M6.8 9h6.2M6.8 12h4.2" />
-          </svg>
-        </span>
-        <span class="tab-label">论坛</span>
-      </button>
       <button class="tab-item btn-ripple" :class="{ active: activeTab === 'notifications' }" @click="handleTabChange('notifications')">
         <span class="tab-icon" aria-hidden="true">
           <svg class="tab-icon-svg" viewBox="0 0 24 24" fill="none">
@@ -3281,16 +3271,16 @@ onBeforeUnmount(() => {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
-  bottom: 0;
+  bottom: calc(10px + var(--app-safe-bottom));
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   align-items: center;
   align-content: center;
   gap: 6px;
-  padding: 8px 14px calc(8px + var(--app-safe-bottom));
+  padding: 8px 14px;
   height: auto;
-  min-height: calc(62px + var(--app-safe-bottom));
-  max-height: calc(92px + var(--app-safe-bottom));
+  min-height: 62px;
+  max-height: 92px;
   width: min(
     540px,
     calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 20px)
@@ -3334,10 +3324,6 @@ onBeforeUnmount(() => {
 
 .tab-item.active .tab-icon {
   transform: translateY(-1px);
-}
-
-.tab-item--forum {
-  background: color-mix(in oklab, var(--ui-primary) 9%, transparent);
 }
 
 .tab-icon {
