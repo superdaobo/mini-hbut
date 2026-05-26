@@ -158,7 +158,7 @@ onMounted(async () => {
               <span class="text-[10px] font-semibold text-on-primary/70 mb-1">平均学分绩点 (GPA)</span>
               <div class="flex items-baseline gap-2">
                 <span class="text-3xl font-bold leading-tight">{{ ranking.gpa || '-' }}</span>
-                <span class="text-sm text-on-primary/80">/ 4.0</span>
+                <span class="text-sm text-on-primary/80">/ 5.0</span>
               </div>
             </div>
             <div class="flex flex-col pl-4 border-l border-on-primary/20">

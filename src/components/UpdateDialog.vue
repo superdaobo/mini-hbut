@@ -165,9 +165,9 @@ onMounted(() => {
         <!-- 有更新 -->
         <template v-else-if="updateInfo?.hasUpdate">
           <div class="version-info">
-            <div class="version-badge new">v{{ updateInfo.latestVersion }}</div>
-            <span class="arrow">→</span>
             <div class="version-badge current">当前 v{{ currentVersion }}</div>
+            <span class="arrow">→</span>
+            <div class="version-badge new">新版本 v{{ updateInfo.latestVersion }}</div>
           </div>
           
           <div class="release-notes">

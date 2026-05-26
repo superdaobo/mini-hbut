@@ -29,6 +29,7 @@ use sha2::{Digest, Sha256};
 use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
 use tauri_plugin_shell::ShellExt;
+#[cfg(not(target_os = "windows"))]
 use tauri_plugin_notification::NotificationExt;
 use chrono::{Datelike, Utc};
 use rand::Rng;
@@ -3359,6 +3360,7 @@ fn send_windows_native_notification(
         .map_err(|e| format!("send windows notification failed: {}", e))
 }
 
+#[cfg(not(target_os = "windows"))]
 fn map_notification_permission_state(state: tauri_plugin_notification::PermissionState) -> String {
     match state {
         tauri_plugin_notification::PermissionState::Granted => "granted".to_string(),
@@ -3370,6 +3372,13 @@ fn map_notification_permission_state(state: tauri_plugin_notification::Permissio
 
 #[tauri::command]
 fn get_notification_permission_native(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        return Ok("granted".to_string());
+    }
+
+    #[cfg(not(target_os = "windows"))]
     app.notification()
         .permission_state()
         .map(map_notification_permission_state)
@@ -3378,6 +3387,13 @@ fn get_notification_permission_native(app: tauri::AppHandle) -> Result<String, S
 
 #[tauri::command]
 fn request_notification_permission_native(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = app;
+        return Ok("granted".to_string());
+    }
+
+    #[cfg(not(target_os = "windows"))]
     app.notification()
         .request_permission()
         .map(map_notification_permission_state)

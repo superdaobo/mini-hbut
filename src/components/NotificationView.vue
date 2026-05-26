@@ -592,11 +592,16 @@ const runManualCheck = async () => {
       studentId: props.studentId,
       reason: 'manual',
       launchCheck: false,
-      allowPermissionPrompt: false
+      allowPermissionPrompt: true
     })
     updateSnapshot(result)
     await refreshRuntimeStates()
-    statusMessage.value = '已完成一次实时检查。'
+    const queuedCount = Number(result?.notifications?.queued || 0)
+    const sentCount = Number(result?.notifications?.sent || 0)
+    statusMessage.value =
+      queuedCount > 0 && sentCount === 0
+        ? '已完成检查，但系统通知未发送。请确认通知权限已授权。'
+        : `已完成一次实时检查。通知队列 ${queuedCount} 条，已发送 ${sentCount} 条。`
   } catch (error) {
     lastError.value = String(error)
     statusMessage.value = `检查失败：${lastError.value}`

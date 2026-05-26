@@ -69,4 +69,13 @@ describe('update download sources', () => {
     expect(source).toContain('describeUpdateDownloadSource')
     expect(source).toContain('isOfficialDownloadUrl')
   })
+
+  it('renders the current version on the left and the target version on the right', () => {
+    const source = readSource('src/components/UpdateDialog.vue')
+
+    expect(source).toContain('<div class="version-badge current">当前 v{{ currentVersion }}</div>')
+    expect(source).toContain('<span class="arrow">→</span>')
+    expect(source).toContain('<div class="version-badge new">新版本 v{{ updateInfo.latestVersion }}</div>')
+    expect(source).not.toContain('<div class="version-badge new">v{{ updateInfo.latestVersion }}</div>')
+  })
 })

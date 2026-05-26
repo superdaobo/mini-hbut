@@ -77,7 +77,7 @@ public class KeepAliveForegroundService extends Service {
         }
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_mini_hbut)
             .setContentTitle("Mini-HBUT 后台运行中")
             .setContentText("正在执行后台检查，保障上课/成绩/考试/电费通知")
             .setOngoing(true)

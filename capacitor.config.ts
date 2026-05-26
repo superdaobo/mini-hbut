@@ -15,6 +15,11 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
     iosScheme: 'https'
+  },
+  plugins: {
+    LocalNotifications: {
+      presentationOptions: ['badge', 'sound', 'alert']
+    }
   }
 }
 

@@ -1,6 +1,0 @@
-- generic [ref=e3]:
-  - generic [ref=e4]: 笨鸟先飞 · 湖工飞行训练
-  - generic [ref=e5]:
-    - generic [ref=e6]: "分数: 0"
-    - generic [ref=e7]: "最高: 0"
-  - button "排行榜" [ref=e8] [cursor=pointer]
