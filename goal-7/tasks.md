@@ -310,11 +310,26 @@
 
 ## 大型全面检查 4（Task 10-12 后）
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：上传数据隐私、secret 泄露、自动重传并发、兼容旧客户端。
 - 检查结果：
+- 隐私检查发现 `normalizePersonalInfoPayload()` 原本会把直接身份/联系方式字段纳入云同步个人信息快照，包括 `id_number`、`idNumber`、`id_card`、`phone`、`email`。这些字段不属于本轮“统计/同步触发/课程标识”必要数据，继续上传会扩大隐私面。
+- 已新增前端契约测试 `does not upload direct personal identity or contact fields`，锁定云同步个人信息快照不得包含身份证号、手机号和邮箱字段，同时保留 `student_id` 用于按学号范围恢复。
+- secret 扫描未发现真实 HF token、Turso token、SQLPub 密码或明文 `password/token` 被写入仓库 diff 或源码；本机 secrets 文件仍位于仓库外。
+- 自动重传并发复核通过：`runAutoCloudSyncAfterLogin()` 仍按同一学号复用 `autoCloudSyncInFlight.promise`；通知快照监听触发 `reason: 'auto-signature-change'` 时使用 `skipDownload: true`，避免本地通知变化被旧云端数据覆盖后再上传。
+- 旧客户端兼容复核通过：后端 `CloudSyncUploadRequest.client_version` 为可选字段，`cloud_sync_storage.upload()` 对缺失 `client_version` 和 `payload_schema_version` 使用默认值/回退提取，不会因旧客户端缺少新字段而拒绝上传。
+- 聚焦验证通过：`npx vitest run src/utils/cloud_sync_payload_contract.spec.ts src/utils/service_stats_view_contract.spec.ts src/platform/runtime.spec.ts`，结果 `3 passed` test files，`10 passed` tests。
+- 后端回归验证通过：`python -m pytest tests/test_forum_integration.py tests/test_service_stats_persistence.py tests/test_service_health_contract.py tests/test_cloud_sync_archive_contract.py tests/test_service_archive_export.py -q`，结果 `19 passed, 56 warnings in 2.85s`；warnings 为既有 FastAPI `on_event` deprecation。
+- 空白检查通过：`git diff --check -- src/utils/cloud_sync.js src/utils/cloud_sync_payload_contract.spec.ts goal-7/tasks.md` 退出码 0。
 - 修复动作：
+- 修改 `src/utils/cloud_sync.js`，从 `normalizePersonalInfoPayload()` 中移除直接身份/联系方式字段：`id_number`、`phone`、`email`，同时也不再读取 camelCase/legacy 身份证字段。
+- 修改 `src/utils/cloud_sync_payload_contract.spec.ts`，新增隐私契约测试，防止后续把身份证号、手机号、邮箱重新放回云同步 payload。
 - 剩余风险：
+- `normalizePersonalInfoPayload()` 仍保留 `birth_date`、学院、专业、班级、入学日期等学籍字段；这些不是直接联系方式或证件号，但仍属于个人数据，后续若要进一步最小化云同步范围，需要单独做产品决策和兼容迁移。
+- `HF_ARCHIVE_ADMIN_SECRET` 在本机 secrets 提示文件中仍是占位值，真实部署前必须替换为强随机值并配置到 HF Space secrets。
+- 本轮没有执行生产 HF 私有桶写入、Turso/SQLPub 生产导出或线上部署；后续项目级验证仍需确认代码路径和部署环境。
+- FastAPI `on_event` deprecation warning 仍存在，属于既有框架迁移风险，本 goal 不处理。
+- 下一步：Task 13 执行后端项目级验证，继续记录 pytest/静态检查结果与任何剩余问题。
 
 ## Task 13 - 后端项目级验证
 

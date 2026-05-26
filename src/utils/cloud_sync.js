@@ -716,16 +716,13 @@ const normalizePersonalInfoPayload = (payload, fallbackStudentId = '') => {
     name: toSafeText(source?.name || source?.student_name || source?.studentName),
     gender: toSafeText(source?.gender),
     birth_date: toSafeText(source?.birth_date || source?.birthDate),
-    id_number: toSafeText(source?.id_number || source?.idNumber || source?.id_card),
     ethnicity: toSafeText(source?.ethnicity),
     college: toSafeText(source?.college),
     major: toSafeText(source?.major),
     class_name: toSafeText(source?.class_name || source?.className),
     grade: toSafeText(source?.grade || source?.grade_year || source?.gradeYear),
     duration: toSafeText(source?.duration),
-    enrollment_date: toSafeText(source?.enrollment_date || source?.enrollmentDate),
-    phone: toSafeText(source?.phone),
-    email: toSafeText(source?.email)
+    enrollment_date: toSafeText(source?.enrollment_date || source?.enrollmentDate)
   })
   if (!normalized || typeof normalized !== 'object') return null
   if (!normalized.student_id && !normalized.name) return null

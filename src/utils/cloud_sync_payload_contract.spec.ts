@@ -64,6 +64,17 @@ describe('cloud sync auto upload contract', () => {
     expectSourceMatches(scheduleBlock, /course_id|source_id|raw_course_id/, 'schedule payload should preserve course identifiers')
   })
 
+  it('does not upload direct personal identity or contact fields', () => {
+    const personalInfoBlock = extractFunction(source, 'normalizePersonalInfoPayload')
+
+    expectSourceMatches(personalInfoBlock, /student_id:\s*toSafeText\(/, 'student id should remain available for scoped restore')
+    expect(personalInfoBlock.includes('id_number'), 'identity card number should not be uploaded').toBe(false)
+    expect(personalInfoBlock.includes('idNumber'), 'camel-case identity card number should not be uploaded').toBe(false)
+    expect(personalInfoBlock.includes('id_card'), 'legacy identity card number should not be uploaded').toBe(false)
+    expect(personalInfoBlock.includes('phone'), 'phone number should not be uploaded').toBe(false)
+    expect(personalInfoBlock.includes('email'), 'email address should not be uploaded').toBe(false)
+  })
+
   it('detects local signature or version changes and reuses in-flight auto upload tasks', () => {
     expectSourceContains(source, 'CLOUD_SYNC_AUTO_UPLOAD_META_PREFIX', 'auto upload metadata key prefix should exist')
     expectSourceContains(source, 'buildAutoUploadSignature', 'auto upload signature builder should exist')
