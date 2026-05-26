@@ -199,13 +199,23 @@
 
 ## Task 9 - 前端实现：服务统计入口与独立统计页
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：新增 `ServiceStatsView.vue`，接入 `MeView.vue` 与 `App.vue`，实现总览和 7 天趋势。
 - 验证：Task 8 测试通过；页面加载/刷新/错误态逻辑可测。
 - 实际变更：
+- 修改 `src/components/MeView.vue`：新增登录后可见的“服务统计”功能宫格入口，点击后通过 `emit('navigate', 'service_stats')` 进入统计页。
+- 修改 `src/App.vue`：新增 `loadServiceStatsView` / `ServiceStatsView` 异步页面注册，把 `service_stats` 纳入 `ME_SUB_VIEWS`、`HIERARCHICAL_PARENT_VIEW_MAP`、`VIEW_PREFETCHERS`，并在模板中接入 `ServiceStatsView` 与 `@back="handleBackToMe"`。
+- 新增 `src/components/ServiceStatsView.vue`：固定读取 `https://mini-hbut-ocr-service.hf.space/health`，进入页面立即加载、每 60 秒自动刷新并支持手动刷新；展示服务状态、运行时长、OCR 今日次数、课表上传、给分查询、云同步总记录、最新版本人数、HF 桶/归档状态和近 7 天轻量 SVG 趋势图。
+- `ServiceStatsView.vue` 内部实现 `normalizeServiceHealth()`，兼容旧 `/health` 缺少 `trend.last_7_days`、`latest_version_user_count`、`hf_bucket` 或 `archive_status` 的情况；请求失败时显示“读取服务状态失败”，缺少趋势时显示“趋势数据暂不可用”。
 - 验证结果：
+- 已运行 `npx vitest run src/utils/service_stats_view_contract.spec.ts`，结果 `1 passed` test file，`3 passed` tests。
+- 已运行 `git diff --check -- src/components/MeView.vue src/App.vue src/components/ServiceStatsView.vue src/utils/service_stats_view_contract.spec.ts`，退出码 0；仅出现 `App.vue` / `MeView.vue` 的 CRLF 换行提示，无空白错误。
+- 已运行 `node -e "import('node:fs').then(fs=>import('@vue/compiler-sfc').then(({parse})=>{const file='src/components/ServiceStatsView.vue';const result=parse(fs.readFileSync(file,'utf8'),{filename:file});if(result.errors.length){console.error(result.errors);process.exit(1)}console.log('ServiceStatsView.vue SFC parse ok')}))"`，输出 `ServiceStatsView.vue SFC parse ok`。
 - 剩余风险：
-- 下一步：
+- 本轮只做源码契约测试和 SFC 解析验证，没有启动完整 Vite 页面做真机视觉验证；后续 Task 14 项目级前端验证需要覆盖构建或更大范围测试。
+- 统计页直接读取线上 `/health`，若部署端 CORS 或网络访问异常，页面会进入错误态但不会影响“我的”页其它功能。
+- 当前工作区仍存在大量与本 goal 无关的脏改/删除项，本轮提交需继续只暂存 Task 9 相关文件。
+- 下一步：执行“大型全面检查 3”，复核 Task 7-9 的前后端接口契约、UI/UX、错误态和旧 `/health` 兼容性，然后再进入 Task 10 前端红灯测试。
 
 ## 大型全面检查 3（Task 7-9 后）
 

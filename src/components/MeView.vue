@@ -62,6 +62,7 @@ const handleOpenOfficial = () => emit('openOfficial')
 const handleOpenConfig = () => emit('openConfig')
 const handleOpenSettings = () => emit('openSettings')
 const handleOpenExport = () => emit('navigate', 'export_center')
+const handleOpenServiceStats = () => emit('navigate', 'service_stats')
 const handleOpenMore = () => emit('navigate', 'more')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
@@ -150,6 +151,12 @@ const handleShowLegal = async (tab) => {
           <span class="material-symbols-outlined" style="color: #1E8E3E;">download</span>
         </div>
         <span class="grid-label">导出中心</span>
+      </button>
+      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenServiceStats">
+        <div class="grid-icon-box" style="background: #E0F2F1;">
+          <span class="material-symbols-outlined" style="color: #00796B;">monitoring</span>
+        </div>
+        <span class="grid-label">服务统计</span>
       </button>
       <button v-if="isConfigAdmin()" class="grid-item" @click="handleOpenConfig">
         <div class="grid-icon-box" style="background: #FEF7E0;">

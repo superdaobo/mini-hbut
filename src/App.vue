@@ -81,6 +81,7 @@ const loadNotificationView = () => import('./components/NotificationView.vue')
 const loadConfigEditorView = () => import('./components/ConfigEditor.vue')
 const loadSettingsView = () => import('./components/SettingsView.vue')
 const loadExportCenterView = () => import('./components/ExportCenterView.vue')
+const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
 const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
@@ -112,6 +113,7 @@ const NotificationView = createAsyncPage(loadNotificationView)
 const ConfigEditor = createAsyncPage(loadConfigEditorView)
 const SettingsView = createAsyncPage(loadSettingsView)
 const ExportCenterView = createAsyncPage(loadExportCenterView)
+const ServiceStatsView = createAsyncPage(loadServiceStatsView)
 const MoreView = createAsyncPage(loadMoreView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
 const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
@@ -164,6 +166,7 @@ const ME_SUB_VIEWS = [
   'config',
   'settings',
   'export_center',
+  'service_stats',
   'more',
   'more_module_host',
   'more_chaoxing_checkin'
@@ -179,6 +182,7 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   config: 'me',
   settings: 'me',
   export_center: 'me',
+  service_stats: 'me',
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more'
@@ -200,6 +204,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   config: loadConfigEditorView,
   settings: loadSettingsView,
   export_center: loadExportCenterView,
+  service_stats: loadServiceStatsView,
   more: loadMoreView,
   more_module_host: loadMoreModuleHostView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
@@ -2734,6 +2739,11 @@ onBeforeUnmount(() => {
         :student-id="studentId"
         @back="handleBackToMe"
         @logout="handleLogout"
+      />
+
+      <ServiceStatsView
+        v-else-if="currentView === 'service_stats'"
+        @back="handleBackToMe"
       />
 
       <MoreView
