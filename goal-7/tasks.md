@@ -287,13 +287,26 @@
 
 ## Task 12 - secrets 文件与配置文档更新
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：如新增环境变量，更新本机 secrets 提示文件，不写入真实敏感值到仓库。
 - 验证：本机文件包含新增 env key 说明；仓库 diff 不含 secret。
 - 实际变更：
+- 更新本机文件 `C:\Users\yangd\Desktop\mini-hbut-ocrupload-secrets.txt`，只追加缺失的 HF 归档配置键名与非敏感占位值/说明：
+  - `HF_ARCHIVE_ENABLED=true`
+  - `HF_ARCHIVE_REQUIRE_BEFORE_DB=true`
+  - `HF_ARCHIVE_PENDING_REPLAY_LIMIT=200`
+  - `HF_ARCHIVE_ADMIN_SECRET=TODO_GENERATE_STRONG_RANDOM_SECRET`
+  - `HF_ARCHIVE_EXPORT_DIR=data/service-archive-exports`
+  - `HF_ARCHIVE_EXPORT_INTERVAL_SECONDS=86400`
+- 没有输出、提交或写入真实 HF token、数据库密码、SQLPub 密码；本机文件已有 `HF_TOKEN`、`HF_BUCKET_ID`、SQLPub 连接键时只做键名存在性确认。
 - 验证结果：
+- 脱敏键名检查确认以下键存在：`HF_TOKEN`、`HF_BUCKET_ID`、`SQLPUB_HOST`、`SQLPUB_PORT`、`SQLPUB_DATABASE`、`SQLPUB_USER`、`SQLPUB_PASSWORD`、`HF_ARCHIVE_ENABLED`、`HF_ARCHIVE_REQUIRE_BEFORE_DB`、`HF_ARCHIVE_PENDING_REPLAY_LIMIT`、`HF_ARCHIVE_ADMIN_SECRET`、`HF_ARCHIVE_EXPORT_DIR`、`HF_ARCHIVE_EXPORT_INTERVAL_SECONDS`。
+- `git diff --name-only` 未出现 `C:\Users\yangd\Desktop\mini-hbut-ocrupload-secrets.txt` 或任何 secrets 文件路径；本机 secrets 文件位于仓库外。
+- 后端代码只读检索确认当前新增归档配置入口来自 `ocr-service/runtime/entrypoint.py` 的 `HF_ARCHIVE_ENABLED`、`HF_ARCHIVE_REQUIRE_BEFORE_DB`、`HF_ARCHIVE_PENDING_REPLAY_LIMIT`、`HF_ARCHIVE_ADMIN_SECRET`、`HF_ARCHIVE_EXPORT_DIR`，计划中的 `HF_ARCHIVE_EXPORT_INTERVAL_SECONDS` 作为部署提示键保留。
 - 剩余风险：
-- 下一步：
+- `HF_ARCHIVE_ADMIN_SECRET` 仍是本机占位值，真实部署前必须替换为强随机值并配置到 HF Space secrets；本轮不生成、不上传真实 secret。
+- 本轮未执行生产 HF 写入、Turso/SQLPub 导出或线上部署；后续 Task 13-15 仍需做后端/前端项目级验证和最终审查。
+- 下一步：执行“大型全面检查 4”，重点复核上传数据隐私、secret 泄露、自动重传并发和旧客户端兼容。
 
 ## 大型全面检查 4（Task 10-12 后）
 
