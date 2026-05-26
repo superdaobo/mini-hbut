@@ -97,13 +97,22 @@
 
 ## Task 5 - 后端实现：service_stats 与 /health 扩展
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：实现统计表补列、趋势查询、运行时长、最新版本人数在 `/health` 中兼容返回。
 - 验证：Task 4 测试通过；现有健康字段不回归。
 - 实际变更：
+  - 修改 `D:\Documents\C_learn\成绩查询\ocr-service\modules\service_stats.py`：`service_daily_stats` 新增 `latest_version`、`latest_version_user_count` 字段；`ensure_table()` 启动时自动补列并兼容重复列；`save_snapshot()` 保存最新版本摘要；新增 `get_health_trend()` 聚合 `service_daily_usage` 与每日最新快照；`get_recent_stats()` 返回新增字段。
+  - 修改 `D:\Documents\C_learn\成绩查询\ocr-service\runtime\entrypoint.py`：`/health` 保留原有 `status`、`ocr_maintenance`、`daily_usage`、`cloud_sync`、`grade_distribution`、并发与临时存储字段，并新增 `service`、`daily_usage.grade_dist_query_count`、`cloud_sync.latest_version`、`cloud_sync.latest_version_user_count`、`trend.last_7_days`、`hf_bucket`、`archive_status`。
+  - `runtime/entrypoint.py` 新增最新版本摘要查询入口、HF 桶只读状态占位、归档状态占位、趋势行规范化和今日内存统计补齐；`_stats_save_loop()` 保存快照时同步写入最新版本摘要。
 - 验证结果：
+  - 已运行 `python -m pytest tests/test_service_stats_persistence.py tests/test_service_health_contract.py -q`，结果 `11 passed, 32 warnings in 1.56s`。
+  - 已运行 `python -m pytest tests/test_forum_integration.py tests/test_service_stats_persistence.py tests/test_service_health_contract.py -q`，结果 `14 passed, 44 warnings in 2.57s`。
+  - 已运行 `git diff --check -- modules\service_stats.py runtime\entrypoint.py`，退出码 0；仅有 Windows 换行提示，无空白错误。
 - 剩余风险：
-- 下一步：
+  - `_get_latest_version_summary()` 当前只支持从环境变量读取最新稳定版本并按 `client_version` 查询；`cloud_sync_records.client_version` 补列和正式更新源解析将在 Task 6/7 继续实现。
+  - `hf_bucket` 与 `archive_status` 当前是只读/占位状态，未执行 HF 上传或生产数据库导出，真正双保险链路留给后续任务。
+  - 测试仍有 FastAPI `on_event` deprecation warning，属于既有框架迁移提醒，本任务不处理。
+- 下一步：Task 6 新增后端红灯测试，覆盖 `cloud_sync_records` 版本列、payload schema 列以及“HF 归档成功后才写数据库”的顺序契约。
 
 ## Task 6 - 后端红灯测试：cloud_sync 版本列与 HF 先写
 
