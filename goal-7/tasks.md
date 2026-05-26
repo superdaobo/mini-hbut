@@ -352,13 +352,28 @@
 
 ## Task 14 - 前端项目级验证
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：运行前端相关 Vitest、构建或类型检查，单命令不超过 60 秒。
 - 验证：记录通过/失败与根因。
 - 实际变更：
+- 本轮未修改前端业务代码，只执行项目级验证并记录结果。
+- 检查 `package.json`：当前可复用脚本包含 `npm test` 和 `npm run build`；仓库没有独立 lint/typecheck 脚本，但 devDependencies 中包含 `vue-tsc`，因此额外尝试了 `npx vue-tsc --noEmit -p tsconfig.json`。
 - 验证结果：
+- 完整前端测试未通过：运行 `npm test` 后，Vitest 结果为 `4 failed | 31 passed` test files，`11 failed | 207 passed` tests。
+- 完整 Vitest 失败集中在既有游戏/模块中心测试：
+  - `src/utils/module_center.spec.ts` 与 `src/utils/remote_config.spec.ts`：当前默认模块列表包含 `hbut_gomoku`，测试期望列表仍少一项。
+  - `src/utils/hbut_memory_match_game.spec.ts`：当前记忆牌初始状态为 `preview`，测试期望 `playing`，且翻牌步数断言与当前实现不一致。
+  - `src/utils/hbut_monopoly_game.spec.ts`：大富翁胜负/重开状态断言与当前实现不一致，且样式测试期望 `body { padding: 0; }`，当前样式把安全区 padding 放在 `#app`。
+- 失败相关文件本轮没有未提交 diff：检查 `module_center`、`remote_config`、`hbut_memory_match`、`hbut_monopoly` 相关源码和测试，未发现本 goal 本轮改动；这些失败不指向服务统计页或云同步 payload 变更。
+- Goal 相关聚焦测试通过：运行 `npx vitest run src/utils/cloud_sync_payload_contract.spec.ts src/utils/service_stats_view_contract.spec.ts src/platform/runtime.spec.ts`，结果 `3 passed` test files，`10 passed` tests。
+- 前端生产构建通过：运行 `npm run build`，`vite build` 完成 `549 modules transformed`，输出包含 `ServiceStatsView` chunk；构建退出码 0。
+- 构建 warnings：CSS 压缩阶段出现多个 `Unexpected "@media"` warning，Vite reporter 还提示 Capacitor/Tauri/widget bridge 动静态 import 混用不会拆分到独立 chunk；这些是 warning，未阻断构建。
+- 类型检查未完成：运行 `npx vue-tsc --noEmit -p tsconfig.json` 失败于工具链内部错误 `Search string not found: "/supportedTSExtensions = .*(?=;)/"`，环境为 Node `v24.12.0`、npm `11.6.2`、TypeScript `5.9.3`、vue-tsc `1.8.27`。该错误发生在 `node_modules/vue-tsc/bin/vue-tsc.js`，未输出业务类型错误。
 - 剩余风险：
-- 下一步：
+- 前端完整 Vitest 当前仍有 11 个失败，虽然不属于服务统计/云同步本 goal 直接改动，但在最终 review 前必须决定修复这些既有测试期望，或明确把它们作为非本 goal 阻断项处理。
+- `vue-tsc@1.8.27` 与当前 TypeScript `5.9.3` / Node `24.12.0` 组合存在兼容问题；需要升级 vue-tsc 或锁定兼容 TypeScript/Node 后才能得到有效类型检查结果。
+- 构建存在 CSS `@media` minify warning，当前不阻断构建，但最终 review 仍应确认是否来自既有 CSS 嵌套/语法问题。
+- 下一步：Task 15 执行最终 review，按完整目标逐项审计 C 端体验、代码、安全性、数据一致性、权限、错误处理、测试、构建、文档和回滚；不得在完整 Vitest/vue-tsc 问题未处理或明确结论前把 goal 标记完成。
 
 ## Task 15 - 最终 review、提交与 goal 完成
 
