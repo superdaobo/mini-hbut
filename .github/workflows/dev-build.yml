@@ -196,6 +196,7 @@ jobs:
         run: npx cap sync
 
   build-android:
+    name: Android beta APK
     needs: [source, meta]
     runs-on: ubuntu-latest
     continue-on-error: true
@@ -246,11 +247,12 @@ jobs:
       - name: Initialize Android project
         run: npm run tauri android init
 
-      - name: Sync Android icons and fix adaptive padding
+      - name: Generate, sync, and verify Android launcher icons
         run: |
-          node scripts/sync_tauri_platform_icons.mjs android
           python -m pip install --quiet Pillow
           python scripts/fix_android_adaptive_icons.py
+          node scripts/sync_tauri_platform_icons.mjs android
+          npx vitest run src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Patch Android widget support
         run: python scripts/patch_android_widget.py

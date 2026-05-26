@@ -7,6 +7,15 @@ type PngMetrics = {
   width: number
   height: number
   bbox: [number, number, number, number] | null
+  fullyOpaque: boolean
+  whiteCornerCount: number
+}
+
+type PngColor = {
+  red: number
+  green: number
+  blue: number
+  alpha: number
 }
 
 const readPngMetrics = (relativePath: string): PngMetrics => {
@@ -16,6 +25,8 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
   let offset = 8
   let width = 0
   let height = 0
+  let bitDepth = 0
+  let colorType = 0
   const idatChunks: Buffer[] = []
 
   while (offset < buffer.length) {
@@ -25,6 +36,8 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
     if (type === 'IHDR') {
       width = data.readUInt32BE(0)
       height = data.readUInt32BE(4)
+      bitDepth = data[8]
+      colorType = data[9]
     } else if (type === 'IDAT') {
       idatChunks.push(Buffer.from(data))
     } else if (type === 'IEND') {
@@ -34,7 +47,13 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
   }
 
   const raw = zlib.inflateSync(Buffer.concat(idatChunks))
-  const bytesPerPixel = 4
+  expect(bitDepth, `${relativePath} bit depth`).toBe(8)
+  const bytesPerPixelByColorType: Record<number, number> = {
+    2: 3,
+    6: 4
+  }
+  const bytesPerPixel = bytesPerPixelByColorType[colorType]
+  expect(bytesPerPixel, `${relativePath} color type`).toBeDefined()
   const stride = width * bytesPerPixel
   let cursor = 0
   let previous = Buffer.alloc(stride)
@@ -42,6 +61,26 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
   let minY = height
   let maxX = -1
   let maxY = -1
+  let fullyOpaque = true
+  let whiteCornerCount = 0
+
+  const readColor = (row: Buffer, x: number): PngColor => {
+    const index = x * bytesPerPixel
+    if (colorType === 2) {
+      return {
+        red: row[index],
+        green: row[index + 1],
+        blue: row[index + 2],
+        alpha: 255
+      }
+    }
+    return {
+      red: row[index],
+      green: row[index + 1],
+      blue: row[index + 2],
+      alpha: row[index + 3]
+    }
+  }
 
   for (let y = 0; y < height; y += 1) {
     const filter = raw[cursor]
@@ -69,12 +108,23 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
     }
 
     for (let x = 0; x < width; x += 1) {
-      const alpha = row[x * bytesPerPixel + 3]
+      const { red, green, blue, alpha } = readColor(row, x)
+      if (alpha < 255) {
+        fullyOpaque = false
+      }
       if (alpha > 0) {
         minX = Math.min(minX, x)
         minY = Math.min(minY, y)
         maxX = Math.max(maxX, x)
         maxY = Math.max(maxY, y)
+      }
+      const isCorner =
+        (x === 0 && y === 0) ||
+        (x === width - 1 && y === 0) ||
+        (x === 0 && y === height - 1) ||
+        (x === width - 1 && y === height - 1)
+      if (isCorner && alpha === 255 && red >= 245 && green >= 245 && blue >= 245) {
+        whiteCornerCount += 1
       }
     }
 
@@ -84,25 +134,58 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
   return {
     width,
     height,
-    bbox: maxX >= 0 ? [minX, minY, maxX, maxY] : null
+    bbox: maxX >= 0 ? [minX, minY, maxX, maxY] : null,
+    fullyOpaque,
+    whiteCornerCount
   }
 }
 
 describe('Android launcher icon resources', () => {
-  it('keeps the adaptive foreground large enough to avoid double shrinking', () => {
+  const iconRoots = [
+    'src-tauri/icons/android',
+    'android/app/src/main/res',
+    'src-tauri/gen/android/app/src/main/res'
+  ].filter((root) => fs.existsSync(path.join(process.cwd(), root)))
+
+  const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']
+
+  it('keeps legacy launcher icons on an opaque white canvas for APK installer previews', () => {
+    for (const root of iconRoots) {
+      for (const density of densities) {
+        for (const iconName of ['ic_launcher.png', 'ic_launcher_round.png']) {
+          const metrics = readPngMetrics(`${root}/mipmap-${density}/${iconName}`)
+          expect(metrics.fullyOpaque, `${root} ${density} ${iconName}`).toBe(true)
+          expect(metrics.whiteCornerCount, `${root} ${density} ${iconName}`).toBe(4)
+        }
+      }
+    }
+  })
+
+  it('keeps adaptive foreground artwork centered inside the safe zone', () => {
     const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']
 
-    for (const density of densities) {
-      const metrics = readPngMetrics(
-        `android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png`
-      )
-      expect(metrics.bbox, density).not.toBeNull()
-      const [minX, minY, maxX, maxY] = metrics.bbox!
-      const contentWidthRatio = (maxX - minX + 1) / metrics.width
-      const contentHeightRatio = (maxY - minY + 1) / metrics.height
+    for (const root of iconRoots) {
+      for (const density of densities) {
+        const metrics = readPngMetrics(`${root}/mipmap-${density}/ic_launcher_foreground.png`)
+        expect(metrics.bbox, `${root} ${density}`).not.toBeNull()
+        const [minX, minY, maxX, maxY] = metrics.bbox!
+        const contentWidthRatio = (maxX - minX + 1) / metrics.width
+        const contentHeightRatio = (maxY - minY + 1) / metrics.height
+        const safeZonePadding = Math.floor(metrics.width * (18 / 108))
 
-      expect(contentWidthRatio, density).toBeGreaterThanOrEqual(0.62)
-      expect(contentHeightRatio, density).toBeGreaterThanOrEqual(0.62)
+        expect(minX, `${root} ${density}`).toBeGreaterThanOrEqual(safeZonePadding - 1)
+        expect(minY, `${root} ${density}`).toBeGreaterThanOrEqual(safeZonePadding - 1)
+        expect(metrics.width - 1 - maxX, `${root} ${density}`).toBeGreaterThanOrEqual(
+          safeZonePadding - 1
+        )
+        expect(metrics.height - 1 - maxY, `${root} ${density}`).toBeGreaterThanOrEqual(
+          safeZonePadding - 1
+        )
+        expect(contentWidthRatio, `${root} ${density}`).toBeGreaterThanOrEqual(0.58)
+        expect(contentWidthRatio, `${root} ${density}`).toBeLessThanOrEqual(0.7)
+        expect(contentHeightRatio, `${root} ${density}`).toBeGreaterThanOrEqual(0.58)
+        expect(contentHeightRatio, `${root} ${density}`).toBeLessThanOrEqual(0.7)
+      }
     }
   })
 })
