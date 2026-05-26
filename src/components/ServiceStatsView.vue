@@ -23,18 +23,6 @@ const formatDuration = (seconds) => {
   return `${minutes}分钟`
 }
 
-const formatDateTime = (value) => {
-  if (!value) return '暂无'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
 const normalizeTrendRows = (rows) => {
   if (!Array.isArray(rows)) return []
   return rows.map((row) => ({
@@ -143,27 +131,6 @@ const overviewItems = computed(() => [
   }
 ])
 
-const archiveItems = computed(() => [
-  {
-    label: 'HF 私有桶',
-    value: health.value.hf_bucket.enabled
-      ? health.value.hf_bucket.configured ? '已启用' : '待配置'
-      : '未启用'
-  },
-  {
-    label: '写入策略',
-    value: health.value.archive_status.require_before_db ? '先归档再入库' : '数据库优先兼容'
-  },
-  {
-    label: '待重放',
-    value: `${formatNumber(health.value.archive_status.pending_replay_count)} 条`
-  },
-  {
-    label: '最近归档',
-    value: formatDateTime(health.value.archive_status.last_archive_at)
-  }
-])
-
 const trendRows = computed(() => health.value.trend?.last_7_days || [])
 const hasTrend = computed(() => trendRows.value.length > 0)
 
@@ -200,19 +167,79 @@ const trendMetrics = computed(() => [
   }
 ])
 
-const buildTrendPath = (values) => {
-  if (!Array.isArray(values) || values.length === 0) return ''
-  const width = 180
-  const height = 56
-  const max = Math.max(...values, 1)
-  const step = values.length > 1 ? width / (values.length - 1) : width
-  return values
-    .map((value, index) => {
-      const x = index * step
-      const y = height - (toNumber(value) / max) * height
-      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${Math.max(0, y).toFixed(2)}`
-    })
+const CHART_WIDTH = 220
+const CHART_HEIGHT = 92
+const CHART_PADDING = {
+  top: 10,
+  right: 10,
+  bottom: 20,
+  left: 38
+}
+
+const formatAxisValue = (value) => {
+  const number = toNumber(value)
+  if (Math.abs(number) >= 10000) return `${(number / 10000).toFixed(1).replace(/\.0$/, '')}万`
+  return formatNumber(Math.round(number))
+}
+
+const formatAxisDate = (value) => {
+  const text = String(value || '')
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text.slice(5).replace('-', '/')
+  return text || '-'
+}
+
+const buildTrendChart = (values) => {
+  const safeValues = Array.isArray(values) ? values.map((value) => toNumber(value)) : []
+  const plotWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
+  const plotHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
+  if (!safeValues.length) {
+    return {
+      path: '',
+      points: [],
+      axisTicks: [],
+      dateTicks: [],
+      min: 0,
+      max: 0
+    }
+  }
+
+  const rawMin = Math.min(...safeValues)
+  const rawMax = Math.max(...safeValues)
+  const range = rawMax - rawMin
+  const padding = range > 0 ? range * 0.12 : Math.max(rawMax * 0.18, 1)
+  const min = Math.max(0, rawMin - padding)
+  const max = rawMax + padding
+  const span = Math.max(max - min, 1)
+  const step = safeValues.length > 1 ? plotWidth / (safeValues.length - 1) : plotWidth
+  const points = safeValues.map((value, index) => {
+    const x = CHART_PADDING.left + (safeValues.length > 1 ? index * step : plotWidth / 2)
+    const y = CHART_PADDING.top + ((max - value) / span) * plotHeight
+    return { x, y, value }
+  })
+  const path = points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
     .join(' ')
+  const axisTicks = [max, min + span / 2, min].map((value) => ({
+    value,
+    label: formatAxisValue(value),
+    y: CHART_PADDING.top + ((max - value) / span) * plotHeight
+  }))
+  const dateSource = trendRows.value
+  const dateTicks = points
+    .map((point, index) => ({
+      x: point.x,
+      label: formatAxisDate(dateSource[index]?.date)
+    }))
+    .filter((_, index) => index === 0 || index === points.length - 1)
+
+  return {
+    path,
+    points,
+    axisTicks,
+    dateTicks,
+    min,
+    max
+  }
 }
 
 const loadHealth = async ({ silent = false } = {}) => {
@@ -298,25 +325,6 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
-    <section class="archive-card">
-      <div class="section-title">
-        <span class="material-symbols-outlined">inventory_2</span>
-        <h2>归档状态</h2>
-      </div>
-      <div class="archive-grid">
-        <div v-for="item in archiveItems" :key="item.label" class="archive-item">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
-      </div>
-      <p v-if="health.archive_status.last_archive_path" class="archive-path">
-        {{ health.archive_status.last_archive_path }}
-      </p>
-      <p v-if="health.archive_status.last_error || health.hf_bucket.last_error" class="archive-error">
-        {{ health.archive_status.last_error || health.hf_bucket.last_error }}
-      </p>
-    </section>
-
     <section class="trend-card">
       <div class="section-title">
         <span class="material-symbols-outlined">stacked_line_chart</span>
@@ -329,14 +337,52 @@ onBeforeUnmount(() => {
             <span>{{ metric.label }}</span>
             <strong>{{ formatNumber(metric.values[metric.values.length - 1] || 0) }}</strong>
           </div>
-          <svg class="trend-chart" viewBox="0 0 180 56" role="img" :aria-label="`${metric.label}趋势`">
+          <svg
+            class="trend-chart"
+            :viewBox="`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`"
+            role="img"
+            :aria-label="`${metric.label}趋势`"
+          >
+            <template v-for="tick in buildTrendChart(metric.values).axisTicks" :key="`${metric.key}-${tick.label}`">
+              <line
+                class="trend-grid-line"
+                :x1="CHART_PADDING.left"
+                :x2="CHART_WIDTH - CHART_PADDING.right"
+                :y1="tick.y"
+                :y2="tick.y"
+              />
+              <text class="trend-axis-label" x="4" :y="tick.y + 4">{{ tick.label }}</text>
+            </template>
+            <text
+              v-for="tick in buildTrendChart(metric.values).dateTicks"
+              :key="`${metric.key}-${tick.label}`"
+              class="trend-date-label"
+              :x="tick.x"
+              :y="CHART_HEIGHT - 4"
+              text-anchor="middle"
+            >
+              {{ tick.label }}
+            </text>
             <path
-              :d="buildTrendPath(metric.values)"
+              :d="buildTrendChart(metric.values).path"
+              class="trend-line drawTrendLine"
               fill="none"
               :stroke="metric.color"
-              stroke-width="4"
+              stroke-width="3.5"
               stroke-linecap="round"
               stroke-linejoin="round"
+              pathLength="1"
+              stroke-dasharray="1"
+              stroke-dashoffset="1"
+            />
+            <circle
+              v-for="point in buildTrendChart(metric.values).points"
+              :key="`${metric.key}-${point.x}`"
+              class="trend-point"
+              :cx="point.x"
+              :cy="point.y"
+              r="2.8"
+              :fill="metric.color"
             />
           </svg>
         </article>
@@ -404,7 +450,6 @@ onBeforeUnmount(() => {
 }
 
 .status-card,
-.archive-card,
 .trend-card,
 .metric-card {
   background: #ffffff;
@@ -506,7 +551,6 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.archive-card,
 .trend-card {
   padding: 16px;
   border-radius: 22px;
@@ -524,44 +568,6 @@ onBeforeUnmount(() => {
 .section-title h2 {
   margin: 0;
   font-size: 16px;
-}
-
-.archive-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.archive-item {
-  padding: 12px;
-  border-radius: 16px;
-  background: #f8fafc;
-}
-
-.archive-item strong {
-  display: block;
-  margin-top: 6px;
-  color: #0f172a;
-  font-size: 14px;
-}
-
-.archive-path,
-.archive-error {
-  margin: 12px 0 0;
-  padding: 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.archive-path {
-  background: #f1f5f9;
-  color: #475569;
-}
-
-.archive-error {
-  background: #fef2f2;
-  color: #b91c1c;
 }
 
 .trend-list {
@@ -590,9 +596,43 @@ onBeforeUnmount(() => {
 
 .trend-chart {
   width: 100%;
-  height: 56px;
+  height: 92px;
   display: block;
   overflow: visible;
+}
+
+.trend-grid-line {
+  stroke: rgba(148, 163, 184, 0.32);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.trend-axis-label,
+.trend-date-label {
+  fill: #94a3b8;
+  font-size: 10px;
+}
+
+.trend-line {
+  animation: drawTrendLine 0.9s ease-out forwards;
+}
+
+.trend-point {
+  opacity: 0;
+  animation: fadeTrendPoint 0.35s ease-out forwards;
+  animation-delay: 0.65s;
+}
+
+@keyframes drawTrendLine {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes fadeTrendPoint {
+  to {
+    opacity: 1;
+  }
 }
 
 .empty-state {

@@ -47,4 +47,23 @@ describe('service stats frontend contract', () => {
     expect(source).toContain('setInterval')
     expect(source).toMatch(/60\s*\*\s*1000|60000|60_000/)
   })
+
+  it('hides archive status from the user-facing service stats page', () => {
+    const source = readSource('src/components/ServiceStatsView.vue')
+
+    expect(source).not.toContain('归档状态')
+    expect(source).not.toContain('archive-card')
+    expect(source).not.toContain('archiveItems')
+  })
+
+  it('renders scaled trend axes with animated lines', () => {
+    const source = readSource('src/components/ServiceStatsView.vue')
+
+    expect(source).toContain('buildTrendChart')
+    expect(source).toContain('axisTicks')
+    expect(source).toContain('trend-axis-label')
+    expect(source).toContain('trend-grid-line')
+    expect(source).toContain('stroke-dasharray')
+    expect(source).toContain('drawTrendLine')
+  })
 })
