@@ -38,13 +38,29 @@
 
 ## Task 3 - 前端统计入口与自动上传现状定位
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：定位 `MeView.vue`、`App.vue`、`cloud_sync.js`、通知/考试/成绩/课表缓存来源。
 - 验证：记录关键文件、函数、缓存 key 和当前缺口；不修改业务代码。
-- 实际变更：
+- 实际变更：只读检查 Tauri 前端代码，定位“我的”页功能宫格、应用视图注册、云同步 payload 构造、自动登录上传、通知快照、考试/成绩/课表缓存来源；本轮未修改 `src/`、`src-tauri/` 或 OCR 后端业务代码。
 - 验证结果：
-- 剩余风险：
-- 下一步：
+  - “我的”页入口位于 `src/components/MeView.vue`。`defineEmits` 当前包含 `navigate`，已有 `goStudentInfo()` 发出 `studentinfo`、`handleOpenExport()` 发出 `export_center`、`handleOpenMore()` 发出 `more`；功能宫格在 `MeView.vue:134` 起，当前已有官方帖子、设置中心、导出中心、配置工具、检查更新、意见反馈、开源协议、赞助、更多，尚无“服务统计”入口。后续应新增登录后可见的按钮，点击 `emit('navigate', 'service_stats')`。
+  - `src/App.vue` 的异步页面注册在 `App.vue:63` 到 `App.vue:123`，当前没有 `loadServiceStatsView` / `ServiceStatsView`；`ME_SUB_VIEWS` 位于 `App.vue:161` 到 `App.vue:170`，当前没有 `service_stats`；`HIERARCHICAL_PARENT_VIEW_MAP` 位于 `App.vue:172` 到 `App.vue:185`，当前没有 `service_stats: 'me'`；`VIEW_PREFETCHERS` 位于 `App.vue:192` 到 `App.vue:223`，当前没有 `service_stats`；模板分支在 `App.vue:2691` 到 `App.vue:2756` 附近，当前只有 `MeView`、`OfficialView`、`FeedbackView`、`ConfigEditor`、`SettingsView`、`ExportCenterView`、`MoreView` 等，没有统计页分支。
+  - `App.vue` 导航机制已支持普通子视图：`handleNavigate()` 位于 `App.vue:1446` 起，最终走 `goToView()` / `goToViewInternal()`；`applyViewState()` 在 `App.vue:1228` 到 `App.vue:1242` 中通过 `ME_SUB_VIEWS` 把子页面归属到 `me` tab；`resolveParentView()` 依赖 `HIERARCHICAL_PARENT_VIEW_MAP`。因此 `service_stats` 只需按现有子页面接入，不应成为底部 tab。
+  - 视图门禁当前为空：`src/utils/daily_access_key.js:10` 到 `daily_access_key.js:12` 的 `PROTECTED_VIEWS` 是空数组；因此“服务统计”入口的登录限制应放在 `MeView.vue` 的按钮 `v-if="isLoggedIn"` 或统计页自身空态，不需要接每日秘钥门禁。
+  - 当前版本号入口已存在：`src/utils/updater.js:477` 到 `updater.js:485` 的 `getCurrentVersion()` 优先读 `import.meta.env.VITE_APP_VERSION`，再通过 `src/platform/native.ts:80` 到 `native.ts:94` 的 `getNativeAppVersion()` 兼容 Tauri `@tauri-apps/api/app.getVersion` 和 Capacitor `App.getInfo().version`，Web 回退 `1.0.0`。后续云同步 `client.version` 可复用该函数。
+  - 本地缓存格式由 `src/utils/api.js` 统一维护：`getCacheKey(key)` 返回 `cache:${key}`，`getCachedData()` 读取 `{ data, timestamp }`，`setCachedData()` 写入同结构。后续云同步读考试、成绩、课表缓存时应沿用 `cache:` 前缀和该结构，避免直接假设裸数据。
+  - `src/utils/cloud_sync.js` 当前 `SYNC_SCHEMA_VERSION = 3`；`buildSyncPayload()` 位于 `cloud_sync.js:729` 到 `cloud_sync.js:762`，当前只写 `v`、`sid`、`ts`、`did`，可选 `settings`、`courses`、`academic`，尚无 `client`、`notify`、`academic.exams`。后续应升级 schema 到 4，并兼容旧 payload。
+  - 当前设置快照在 `buildSyncPayload()` 内直接读取 `hbu_app_settings_v1`、`hbu_ui_settings_v2`、`hbu_font_settings_v1`、`hbu_login_entry_mode`、`hbu_login_method`、`hbu_remember`；可作为综合签名的一部分。
+  - 成绩快照由 `normalizeGradeItem()`、`buildGradeSnapshot()` 生成。`normalizeGradeItem()` 当前保留原始 item，显式规范 `grade_id` 和 `course_code`，但没有显式规范 `course_id`；后续应补充 `course_id: item.course_id || item.courseId || item.kcid || item.kch_id` 等稳定标识，同时继续保留原始字段。
+  - 课表快照由 `buildScheduleSnapshot()` 读取 `schedule:${sid}:${semester}` 缓存并通过 `normalizeSchedulePayload()` 基本原样保存；缓存来源可见于 `src/utils/schedule_prefetch.js:514` 到 `schedule_prefetch.js:518`，同时维护 `schedule:${sid}:${semester}` 和 `schedule:${sid}`。自定义课程上传走 `fetchAllCustomCourses()` 和 `normalizeCloudCourse()`，但 `normalizeCloudCourse()` 当前只保留 `name/teacher/room/weekday/period/djs/weeks`，丢失 `course_id/source_id/id`，后续必须补齐课程标识。
+  - 考试缓存来源有两条：`src/components/ExamView.vue:130` 使用 `exams:${studentId}:${selectedSemester || 'current'}`；`src/utils/notify_center.js:590` 使用 `exams:${studentId}:current`。`cloud_sync.js` 当前 `primeAcademicCaches()` 只拉取 `/v2/quick_fetch`、`/v2/student_info`、`/v2/schedule/query`、`/v2/ranking`，没有拉取 `/v2/exams`，`buildAcademicSnapshot()` 也没有 `exams` 字段；后续需要新增考试缓存预热和 `buildExamSnapshot()`。
+  - 通知快照入口已存在：`src/utils/notify_center.js:28` 导出 `NOTIFY_SNAPSHOT_EVENT`，`snapshotKeyFor()` 使用 `hbu_notify_snapshot:${studentId}`，`gradeSigKeyFor()` 使用 `hbu_notify_grade_signature:${studentId}`，`examSigKeyFor()` 使用 `hbu_notify_exam_tomorrow:${studentId}`；`getLastNotifySnapshot(studentId)` 和 `getNotificationMonitorSettings()` 在 `notify_center.js:1252` 到 `notify_center.js:1254` 导出，可供云同步 payload 和签名使用。
+  - 自动上传链路在 `src/utils/cloud_sync.js:1481` 到 `cloud_sync.js:1548` 的 `runAutoCloudSyncAfterLogin()`。现有同学号在飞任务复用逻辑已存在：`autoCloudSyncInFlight.studentId/promise`；登录后触发点在 `src/App.vue:1379` 到 `App.vue:1420`，恢复/重登录触发点在 `App.vue:1663` 到 `App.vue:1670`、`App.vue:2165` 到 `App.vue:2172`。当前没有监听 `NOTIFY_SNAPSHOT_EVENT` 或本地综合签名变化，也没有持久化“上次成功上传版本号 / 综合签名 / 最近重传原因”。
+  - `runCloudSyncUpload()` 位于 `cloud_sync.js:1195` 到 `cloud_sync.js:1306`，当前请求 body 包含 `student_id`、`device_id`、`reason`、`payload`、`client_time`、`secret_ref`、`sections`、`custom_courses_mode`，没有顶层 `client_version`。后续应在 payload 内写 `client.version`，同时在 body 顶层写 `client_version` 供后端直接入列统计。
+  - 现有前端测试没有覆盖 `cloud_sync.js`：`rg` 只找到 `updater_download_sources.spec.ts`、`SettingsView.spec.ts`、若干 widget/forum 测试；没有 `cloud_sync`、`MeView`、`App.vue service_stats` 相关契约测试。Task 8/10 需要新增文本契约或轻量单测作为红灯测试。
+  - 当前工作区有大量用户/历史脏改和删除项，包括 `.playwright-mcp/*.yml`、`debug-captures/*`、`tmp-live-home.js`、`src-tauri/Cargo.toml`、`src/components/RankingView.vue`、`src/components/UpdateDialog.vue`、`src/utils/updater_download_sources.spec.ts`、未跟踪 `RELEASE_v1.4.0.md` 与 `src/utils/ranking_view_contract.spec.ts`；本轮没有修改这些文件，后续提交必须继续只暂存本任务相关文件。
+- 剩余风险：当前仍是现状定位，尚未新增统计页、payload 字段、考试预热、通知签名监听或本地重传记录；`cloud_sync.js` 里的多个构造函数未导出，后续写单测可能需要谨慎选择“文本契约测试”或最小导出辅助函数，避免大范围重构。自动重传若监听过多本地事件，可能引发登录后短时间多次上传，后续实现必须复用现有在飞任务并做签名去重。
+- 下一步：执行“大型全面检查 1”，核对 Task 1-3 的需求边界、前后端数据流、风险和测试拆分是否完整，然后再进入后端红灯测试 Task 4。
 
 ## 大型全面检查 1（Task 1-3 后）
 
