@@ -377,18 +377,44 @@
 
 ## Task 15 - 最终 review、提交与 goal 完成
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：全面 review C 端体验、代码、安全性、数据一致性、权限、错误处理、测试、构建、文档和回滚；若有代码修改则提交。
 - 验证：无已知高风险问题；goal 标记完成。
 - 实际变更：
+- 在 `ocr-service` 收口 HF 私有桶全量归档导出代码路径，新增真实导出实现、Turso/SQLPub 白名单表源、HF 上传 manifest、受保护管理接口真实导出分支、每日定时导出任务入口和默认 dry-run CLI 脚本 `scripts/export_service_archive_to_hf.py`。
+- 修复 Turso 导出行列映射，确保 libsql 返回 tuple row 时使用 `result.columns` 生成稳定 JSON 字段名。
+- 提交并推送 HF Space：`ocr-service` commit `c23b6dfa4fc1ef07eb0465d6b9ff2a31c713ed8e` 已推送到 `mini-hbut/ocr-service` 的 `main`。
+- 没有修改或提交游戏/模块中心相关文件；没有暂存 `ocr-service/data/`、`ocr-service/scripts/utf8.ps1` 或 Tauri 工作区里的无关调试删除项。
 - 验证结果：
+- 后端归档导出聚焦测试通过：`python -m pytest tests/test_service_archive_export.py -q`，结果 `6 passed, 12 warnings`。
+- 后端目标相关测试通过：`python -m pytest tests/test_forum_integration.py tests/test_service_stats_persistence.py tests/test_service_health_contract.py tests/test_cloud_sync_archive_contract.py tests/test_service_archive_export.py -q`，结果 `23 passed, 60 warnings`。
+- 后端完整测试通过：`python -m pytest -q`，结果 `88 passed, 1 skipped, 68 warnings`。
+- Python 编译检查通过：`python -m compileall -q runtime modules forum_backend scripts`，退出码 0。
+- HF 线上只读 `/health` 验证通过，返回新结构：`service`、`daily_usage.grade_dist_query_count`、`cloud_sync`、`trend.last_7_days`、`hf_bucket`、`archive_status` 均存在；线上当前 `hf_bucket.configured=true`，`archive_status.enabled=false`。
+- Tauri 本地目标相关前端测试通过：`npx vitest run src/utils/service_stats_view_contract.spec.ts src/utils/cloud_sync_payload_contract.spec.ts src/platform/runtime.spec.ts`，结果 `3 passed` test files，`10 passed` tests。
+- Tauri 前端生产构建通过：`npm run build`，`vite build` 成功，输出包含 `ServiceStatsView` chunk；仍有既有 CSS `Unexpected "@media"` 和动静态 import 混用 warning，但未阻断构建。
+- `git ls-remote origin refs/heads/main` 确认 HF 远端 `main` 指向 `c23b6dfa4fc1ef07eb0465d6b9ff2a31c713ed8e`。
 - 剩余风险：
-- 下一步：
+- 线上 `HF_ARCHIVE_ENABLED=false`，所以当前线上已经能展示统计模块读取的 `/health` 新结构，但“上传前强制先写 HF 私有桶”和每日真实全量归档尚未启用；启用需要在 HF Space 配置 `HF_ARCHIVE_ENABLED=true`、`HF_ARCHIVE_ADMIN_SECRET` 等生产 secrets，属于生产配置/数据写入高风险操作，本轮没有擅自执行。
+- 本轮没有执行生产 Turso/SQLPub 全量导出到 HF 私有桶；真实导出必须通过受保护接口或 CLI 显式确认后执行。
+- Tauri 完整 `npm test` 仍有既有游戏/模块中心测试失败，已确认不属于本 goal 改动，本轮按用户要求不再触碰游戏相关文件。
+- `vue-tsc@1.8.27` 与当前 TypeScript/Node 组合仍存在工具链内部兼容错误，未得到有效业务类型检查。
+- FastAPI `on_event` deprecation warning 仍存在，属于既有框架迁移事项。
+- 下一步：如需真正启用线上双保险写入，需要用户明确确认后再改 HF Space secrets 并执行受保护 dry-run/真实导出。
 
 ## 最终最大 review
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：C 端体验、代码质量、安全性、数据一致性、权限、错误处理、测试、构建、文档、回滚。
 - 检查结果：
+- C 端体验：统计页目标相关测试与生产构建通过，线上 `/health` 已返回统计页需要的新结构，本地可构建可使用。
+- 代码质量：后端导出表名使用白名单，CLI 默认 dry-run，真实导出通过受保护接口和显式确认参数，避免误触发生产导出。
+- 安全性：本轮未提交真实 HF token、Turso token、SQLPub 密码；归档管理接口要求 `X-Archive-Admin-Secret`。
+- 数据一致性：云同步上传的 HF 事件归档路径、全量导出 manifest 和 JSONL zip 路径均有测试覆盖；Turso tuple row 已按列名导出。
+- 权限与错误处理：管理接口未配置密钥返回 503，密钥错误返回 403，stamp 非法返回 400，真实导出异常会写入 `archive_status.last_error`。
+- 测试与构建：后端完整 pytest、编译检查、前端目标 Vitest、前端生产构建均通过；完整前端 Vitest 的游戏/模块中心失败保持为非本 goal 风险。
+- 回滚：可通过回退 `ocr-service` commit `c23b6dfa4fc1ef07eb0465d6b9ff2a31c713ed8e` 关闭新真实导出代码路径；线上未启用 `HF_ARCHIVE_ENABLED` 时不会强制改变云同步写入顺序。
 - 修复动作：
+- 修复并提交 `ocr-service` 的全量归档导出收尾缺口，推送 HF 后验证线上 `/health` 已生效。
 - 最终结论：
+- 本轮用户要求的“推送 HF 并反馈本地能否使用”已完成：HF 线上新 `/health` 已可读，本地目标测试和生产构建通过。完整 goal 中“生产启用 HF 双保险和真实全量导出”仍需用户明确确认生产 secrets/数据写入后才能执行。
