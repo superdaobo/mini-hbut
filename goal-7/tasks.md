@@ -333,13 +333,22 @@
 
 ## Task 13 - 后端项目级验证
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：运行后端相关 pytest/静态检查，单命令不超过 60 秒。
 - 验证：记录通过/失败与根因。
 - 实际变更：
+- 本轮未修改 OCR 后端业务代码，只执行项目级验证并记录结果。
+- 检查 OCR 后端仓库状态：当前只有 `data/` 和 `scripts/utf8.ps1` 未跟踪，未发现后端业务文件脏改；这些本地文件不纳入本轮提交。
 - 验证结果：
+- 完整后端测试通过：在 `D:\Documents\C_learn\成绩查询\ocr-service` 运行 `python -m pytest -q`，结果 `84 passed, 1 skipped, 64 warnings in 16.03s`。
+- Python 语法编译检查通过：运行 `python -m compileall -q runtime modules forum_backend scripts`，退出码 0。
+- 静态检查入口确认：仓库仅发现 `requirements.txt`、`requirements-gpu.txt`，未发现 `pyproject.toml`、`pytest.ini`、`tox.ini`、`setup.cfg`、`ruff.toml` 等 lint/type-check 配置；检索 `ruff|flake8|mypy|pyright|pylint` 无匹配，因此本轮没有额外可复用 lint 命令。
+- pytest warnings 仍为既有 FastAPI `on_event` deprecation 警告，未出现测试失败。
 - 剩余风险：
-- 下一步：
+- 生产 HF 私有桶写入、Turso/SQLPub 真实导出和线上部署仍未执行；本轮只验证本地后端代码与 dry-run/contract 测试。
+- 后端缺少统一 lint/type-check 配置，当前项目级静态验证只能覆盖 Python 语法编译，不能替代 ruff/mypy 等更强检查。
+- FastAPI `on_event` deprecation warning 后续仍建议迁移到 lifespan，但不是本 goal 的必要变更。
+- 下一步：Task 14 执行前端项目级验证，覆盖 Vitest、构建或类型检查，并记录任何失败根因。
 
 ## Task 14 - 前端项目级验证
 
