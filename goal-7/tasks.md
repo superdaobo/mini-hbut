@@ -133,11 +133,20 @@
 
 ## 大型全面检查 2（Task 4-6 后）
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：后端测试红绿完整性、向后兼容、是否触碰生产数据。
 - 检查结果：
+  - Task 4/5 的后端健康统计实现仍保持绿灯：已复跑 `python -m pytest tests/test_forum_integration.py tests/test_service_stats_persistence.py tests/test_service_health_contract.py -q`，结果 `14 passed, 44 warnings in 2.17s`。
+  - Task 6 的后端红灯测试仍准确失败：已复跑 `python -m pytest tests/test_cloud_sync_archive_contract.py -q`，结果 `3 failed, 12 warnings in 1.13s`。
+  - 红灯失败原因与需求缺口一致：Turso `cloud_sync_records` 尚未包含 `client_version` / `payload_schema_version`；cloud-sync 上传尚未先执行 HF 归档；HF 归档失败时当前仍会继续写 Turso。
+  - 向后兼容检查：`/health`、`service_daily_stats`、论坛集成相关测试未回归；新增 Task 6 测试使用 fake storage 和 monkeypatch，没有访问真实 HF Bucket、Turso 或 SQLPub。
+  - 生产数据边界检查：本阶段没有执行生产数据库导出、生产写入、HF 上传或 secrets 修改；`ocr-service` 当前仅有未跟踪 `data/`、`scripts/utf8.ps1`，未纳入本 goal 提交。
 - 修复动作：
+  - 本轮不修改业务代码，只做检查记录；确认 Task 7 需要按“schema 补列 -> client_version 写入 -> HF 归档前置 -> pending replay/health 状态 -> dry-run 导出”顺序小步实现。
 - 剩余风险：
+  - Task 7 范围较大，必须继续避免真实生产写入；HF 归档实现需要 fake storage 测试先行，并保证 `HF_ARCHIVE_ENABLED=false` 时旧上传链路可用。
+  - 当前 `archive_status.pending_replay_count` 仍是占位，尚未与 Turso 失败后的 HF 对象保留状态联动。
+  - FastAPI `on_event` deprecation warning 仍存在，属于既有框架迁移提醒，本阶段不处理。
 
 ## Task 7 - 后端实现：HF 归档模块、云同步双写、全量导出能力
 
