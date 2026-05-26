@@ -150,13 +150,30 @@
 
 ## Task 7 - 后端实现：HF 归档模块、云同步双写、全量导出能力
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：新增 HF archive 模块，接入上传链路，提供导出脚本/受保护接口和 health 状态。
 - 验证：Task 6 测试通过；导出 dry-run 本地可测。
 - 实际变更：
+  - 新增 `D:\Documents\C_learn\成绩查询\ocr-service\modules\service_archive.py`，定义 Turso/SQLPub 服务表导出清单、cloud-sync 事件远端路径、HF 私有桶事件归档封装，以及 `create_service_export_dry_run()` 本地 dry-run 导出能力；dry-run 只生成本地 zip 与 manifest，不读取真实数据库、不上传 HF。
+  - 修改 `D:\Documents\C_learn\成绩查询\ocr-service\modules\cloud_sync_storage.py`：`cloud_sync_records` 建表和启动补列新增 `client_version`、`payload_schema_version`；`upload()` 支持写入顶层版本号和 payload schema 版本，旧客户端缺字段时从 payload 或默认值兼容。
+  - 修改 `D:\Documents\C_learn\成绩查询\ocr-service\runtime\entrypoint.py`：`CloudSyncUploadRequest` 新增 `client_version`；上传合并逻辑保留顶层 `client` 元数据；Turso 上传链路改为先执行 `_archive_cloud_sync_upload()`，成功后才写 Turso；HF 归档失败且 `HF_ARCHIVE_REQUIRE_BEFORE_DB=true` 时直接返回 503，不写数据库。
+  - `runtime/entrypoint.py` 新增归档运行状态：`pending_replay_count`、`last_archive_at`、`last_archive_path`、`last_error`；当 HF 已归档但 Turso 后续失败时增加待重放计数，供 `/health.archive_status` 展示。
+  - 新增受保护管理接口 `POST /api/admin/service-archive/export`，必须配置并传入 `HF_ARCHIVE_ADMIN_SECRET`，当前只允许 `dry_run=true`；导出目录由 `HF_ARCHIVE_EXPORT_DIR` 控制；`stamp` 限定为 `YYYYMMDD-HHMMSS`，避免路径穿越。
+  - 新增/扩展 `D:\Documents\C_learn\成绩查询\ocr-service\tests\test_service_archive_export.py`，覆盖 dry-run manifest/zip 产物、管理接口 secret 保护、非法 stamp 返回 400。
 - 验证结果：
+  - 红灯确认：`python -m pytest tests/test_service_archive_export.py -q` 初始失败于 `ModuleNotFoundError: No module named 'modules.service_archive'`；`python -m pytest tests/test_cloud_sync_archive_contract.py -q` 初始 3 项失败，分别指向 schema 缺列、未先 HF 归档、HF 失败仍写库。
+  - 聚焦验证：`python -m pytest tests/test_cloud_sync_archive_contract.py tests/test_service_archive_export.py -q` 通过，`4 passed, 13 warnings`。
+  - 管理接口安全红灯：新增 `stamp="../escape"` 用例后先失败为 500；补白名单校验后 `python -m pytest tests/test_service_archive_export.py -q` 通过，`2 passed, 8 warnings`。
+  - cloud-sync 聚焦验证：`python -m pytest tests/test_cloud_sync_archive_contract.py -q` 通过，`3 passed, 12 warnings`。
+  - 后端回归：`python -m pytest tests/test_forum_integration.py tests/test_service_stats_persistence.py tests/test_service_health_contract.py tests/test_cloud_sync_archive_contract.py tests/test_service_archive_export.py -q` 通过，`19 passed, 56 warnings in 2.81s`。
+  - 空白检查：`git diff --check -- modules/cloud_sync_storage.py runtime/entrypoint.py modules/service_archive.py tests/test_service_archive_export.py` 退出码 0。
+  - secret 检查：只发现环境变量名、原有脱敏日志字段和配置读取代码，没有新增真实 token、数据库密码或 HF token。
 - 剩余风险：
-- 下一步：
+  - 当前只实现并验证 dry-run 导出和 cloud-sync 单事件 HF 前置归档；真实 Turso/SQLPub 全量读取并上传 HF 私有桶、定时导出任务仍未执行，生产导出仍需后续显式确认或后续任务补充。
+  - `pending_replay_count` 目前是进程内状态，服务重启后不持久化；后续若要真实补偿重放，需要落本地或表内队列。
+  - `HF_ARCHIVE_ENABLED=false` 时保持旧上传链路；线上启用 `HF_ARCHIVE_REQUIRE_BEFORE_DB=true` 后，如果 HF token/bucket 配置不完整，cloud-sync Turso 上传会被 503 阻断，需要部署前确认环境变量。
+  - FastAPI `on_event` deprecation warning 仍为既有框架迁移提醒，本任务不处理。
+- 下一步：Task 8 新增前端红灯测试，覆盖“我的”页服务统计入口、`App.vue` 的 `service_stats` 路由映射，以及统计页对旧 `/health` 返回的兼容解析。
 
 ## Task 8 - 前端红灯测试：服务统计页路由与 health 兼容解析
 
