@@ -177,13 +177,25 @@
 
 ## Task 8 - 前端红灯测试：服务统计页路由与 health 兼容解析
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：新增/扩展 Vitest，要求 `MeView` 有服务统计入口、`App.vue` 支持 `service_stats`、统计页兼容旧 `/health`。
 - 验证：测试先失败，失败原因指向缺少页面/路由/解析。
 - 实际变更：
+  - 新增 `src/utils/service_stats_view_contract.spec.ts`，采用项目现有源码契约测试风格，覆盖三条前端契约：
+    - `MeView.vue` 登录后应显示“服务统计”入口，并通过 `emit('navigate', 'service_stats')` 进入统计页。
+    - `App.vue` 应注册 `loadServiceStatsView` / `ServiceStatsView`，把 `service_stats` 纳入 `ME_SUB_VIEWS`、`HIERARCHICAL_PARENT_VIEW_MAP`、`VIEW_PREFETCHERS` 和模板渲染分支。
+    - `ServiceStatsView.vue` 应固定读取 `https://mini-hbut-ocr-service.hf.space/health`，提供 `normalizeServiceHealth`，兼容缺少 `trend.last_7_days`、`latest_version_user_count` 等旧 `/health` 字段，并具备加载失败、趋势空态和 60 秒刷新契约。
 - 验证结果：
+  - 已运行 `npx vitest run src/utils/service_stats_view_contract.spec.ts`。
+  - 结果：`1 failed` test file，`3 failed` tests，符合 Task 8 红灯预期。
+  - 失败 1：`adds a logged-in Me page entry that navigates to service_stats`，当前 `MeView.vue` 缺少 `handleOpenServiceStats`、`@click="handleOpenServiceStats"` 和“服务统计”入口。
+  - 失败 2：`registers service_stats as a Me sub view in App.vue`，当前 `App.vue` 缺少 `loadServiceStatsView`、`ServiceStatsView`、`service_stats` 子视图映射和模板分支。
+  - 失败 3：`provides a service stats page that tolerates old /health responses`，当前 `src/components/ServiceStatsView.vue` 文件不存在。
 - 剩余风险：
-- 下一步：
+  - 当前只新增红灯测试，没有实现统计入口、页面、请求、刷新、错误态或兼容解析；Task 9 必须让这些契约转绿。
+  - 源码契约测试对字符串比较较敏感，Task 9 实现时要么按契约命名，要么同步调整测试到同等明确的可验证契约。
+  - 工作区仍有大量与本 goal 无关的删除/修改项，本轮提交只应包含 `src/utils/service_stats_view_contract.spec.ts` 和 `goal-7/tasks.md`。
+- 下一步：Task 9 实现 `ServiceStatsView.vue`，在 `MeView.vue` 和 `App.vue` 接入 `service_stats`，并运行新增 Vitest 让红灯测试转绿。
 
 ## Task 9 - 前端实现：服务统计入口与独立统计页
 
