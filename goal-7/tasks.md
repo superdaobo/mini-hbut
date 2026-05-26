@@ -79,13 +79,21 @@
 
 ## Task 4 - 后端红灯测试：health 趋势与统计 schema
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：新增/扩展 pytest，要求 `/health` 支持新增字段、`service_daily_stats` 自动补列并返回 7 天趋势。
 - 验证：测试先失败，失败原因指向缺少字段/函数。
 - 实际变更：
+  - 在 `D:\Documents\C_learn\成绩查询\ocr-service\tests\test_service_stats_persistence.py` 新增 `test_ensure_table_backfills_latest_version_snapshot_columns`，要求 `ensure_table()` 除建表外还对既有 `service_daily_stats` 自动补列 `latest_version` 和 `latest_version_user_count`。
+  - 在同一文件新增 `test_get_health_trend_returns_usage_and_snapshot_totals`，要求 `modules.service_stats.get_health_trend(days, end_day)` 返回近 7 天 health 趋势所需字段：`ocr_count`、`upload_count`、`grade_dist_query_count`、`cloud_sync_total`、`latest_version`、`latest_version_user_count`。
+  - 新增 `D:\Documents\C_learn\成绩查询\ocr-service\tests\test_service_health_contract.py`，用 `TestClient` 请求 OCR 主 `/health`，断言保留 `status`、`ocr_concurrency`、`upload_concurrency`、`temp_storage`，并新增 `service`、`daily_usage.grade_dist_query_count`、`cloud_sync.latest_version`、`cloud_sync.latest_version_user_count`、`trend.last_7_days`、`hf_bucket`、`archive_status` 契约。
 - 验证结果：
-- 剩余风险：
-- 下一步：
+  - 已运行：`python -m pytest tests/test_service_stats_persistence.py tests/test_service_health_contract.py -q`
+  - 结果：`3 failed, 8 passed, 32 warnings in 5.14s`，符合红灯预期。
+  - 失败 1：`test_ensure_table_backfills_latest_version_snapshot_columns` 断言失败，当前 `ensure_table()` 只执行 `CREATE TABLE`，没有 `ADD COLUMN latest_version` / `ADD COLUMN latest_version_user_count`。
+  - 失败 2：`test_get_health_trend_returns_usage_and_snapshot_totals` 抛出 `AttributeError: module 'modules.service_stats' has no attribute 'get_health_trend'`，说明 health 趋势查询函数尚未实现。
+  - 失败 3：`test_health_exposes_service_stats_and_trend_contract` 抛出 `KeyError: 'service'`，说明 `/health` 尚未返回新增 `service` 块和后续统计/归档字段。
+- 剩余风险：当前仅新增红灯测试，没有实现任何生产代码；测试中对 `_get_latest_version_summary` 使用 `raising=False` 做未来接口契约占位，Task 5 实现时需要决定该函数的真实名称/职责，并保持测试表达的外部契约不变。测试运行日志有 Windows 控制台编码乱码和 FastAPI `on_event` deprecation warning，但不影响红灯判断。
+- 下一步：Task 5 实现 `service_stats` 补列、`get_health_trend()`、`/health` 新增字段、运行时长、最新版本人数占位/查询入口，并让 Task 4 新增测试通过且现有健康字段不回归。
 
 ## Task 5 - 后端实现：service_stats 与 /health 扩展
 
