@@ -219,11 +219,25 @@
 
 ## 大型全面检查 3（Task 7-9 后）
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：前后端接口契约、UI/UX、错误态、兼容旧 health 返回。
 - 检查结果：
+- Task 7-9 的本地后端/前端契约仍保持一致：`runtime/entrypoint.py` 返回 `service`、`daily_usage.grade_dist_query_count`、`cloud_sync.latest_version_user_count`、`trend.last_7_days`、`hf_bucket`、`archive_status`；`ServiceStatsView.vue` 读取同一批字段并对缺失字段做默认值兼容。
+- 已复跑后端相关测试：`python -m pytest tests/test_forum_integration.py tests/test_service_stats_persistence.py tests/test_service_health_contract.py tests/test_cloud_sync_archive_contract.py tests/test_service_archive_export.py -q`，结果 `19 passed, 56 warnings in 3.07s`。warnings 仍为既有 FastAPI `on_event` deprecation 提醒，不影响本轮检查结论。
+- 已复跑前端统计页契约：`npx vitest run src/utils/service_stats_view_contract.spec.ts`，结果 `1 passed` test file，`3 passed` tests。
+- 已复跑新统计页 SFC 解析：`ServiceStatsView.vue SFC parse ok`，未发现模板或 `<script setup>` 语法错误。
+- 源码检查确认“我的”页入口只在登录后显示：`MeView.vue` 使用 `v-if="isLoggedIn"` 和 `handleOpenServiceStats`；`App.vue` 将 `service_stats` 注册为 `me` 子视图，不会成为底部 tab。
+- UI/UX 检查：统计页为紧凑卡片式移动端仪表盘，使用 Material Symbols 图标和轻量 SVG 折线图，没有新增图表依赖；保留错误横幅、空趋势态和手动刷新按钮。未做真机视觉截图，因此完整视觉验证留到 Task 14。
+- 线上只读检查 `https://mini-hbut-ocr-service.hf.space/health` 当前 HTTP 200，但返回仍是旧结构，只包含 `cloud_sync,daily_usage,grade_distribution,ocr_concurrency,ocr_maintenance,status,temp_storage,upload_concurrency`，缺少 `service,trend,hf_bucket,archive_status`。这说明线上 HF Space 尚未部署后端新代码；前端兼容旧结构，不会因此崩溃，但统计数据会显示默认值和“趋势数据暂不可用”。
+- 生产数据边界：本轮没有执行生产 HF 写入、Turso/SQLPub 导出、数据库迁移或 secrets 修改；线上检查仅为 `/health` GET 只读请求。
 - 修复动作：
+- 本轮未修改业务代码；只执行检查、记录证据和部署态风险。
+- 将线上 `/health` 仍为旧结构记录为后续部署/项目级验证风险，不能据此把整个 goal 标记完成。
 - 剩余风险：
+- 线上后端尚未体现 Task 5/7 的 `/health` 新字段和归档状态，最终完成前必须部署或通过等效环境验证。
+- Task 10/11 尚未实现前端 cloud_sync payload 扩展和本地重传签名，因此“客户端版本号、通知、考试、成绩/课表课程标识上传”和“版本/数据变化立即重传”仍未完成。
+- Task 14 还需要跑更大范围前端验证或构建，当前统计页 UI 只完成源码与契约级检查。
+- 下一步：Task 10 新增前端红灯测试，锁定 `cloud_sync.js` 的 client/notify/exams/课程标识 payload、版本/本地签名重传和在飞任务复用契约。
 
 ## Task 10 - 前端红灯测试：cloud_sync payload 与本地重传签名
 
