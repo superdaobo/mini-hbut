@@ -5,6 +5,13 @@ import { applyFontSettingsSnapshot } from './font_settings'
 import { normalizeSemesterList } from './semester'
 import { pushDebugLog } from './debug_logger'
 import { setCachedData } from './api.js'
+import { getCurrentVersion } from './updater'
+import { detectRuntime } from '../platform/runtime'
+import {
+  NOTIFY_SNAPSHOT_EVENT,
+  getLastNotifySnapshot,
+  getNotificationMonitorSettings
+} from './notify_center'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
@@ -14,12 +21,13 @@ const CLOUD_SYNC_LAST_UPLOAD_SUCCESS_PREFIX = 'hbu_cloud_sync_last_upload_succes
 const CLOUD_SYNC_LAST_DOWNLOAD_SUCCESS_PREFIX = 'hbu_cloud_sync_last_download_success:'
 const CLOUD_SYNC_BOOTSTRAP_PREFIX = 'hbu_cloud_sync_bootstrap_done:'
 const CLOUD_SYNC_STATUS_PREFIX = 'hbu_cloud_sync_status:'
+const CLOUD_SYNC_AUTO_UPLOAD_META_PREFIX = 'hbu_cloud_sync_auto_upload_meta:'
 const DEFAULT_TIMEOUT_MS = 12000
 const DEFAULT_COOLDOWN_SEC = 180
 const DEFAULT_UPLOAD_COOLDOWN_SEC = 120
 const DEFAULT_DOWNLOAD_COOLDOWN_SEC = 10
 const DEFAULT_SECRET_REF = 'kv1-main'
-const SYNC_SCHEMA_VERSION = 3
+const SYNC_SCHEMA_VERSION = 4
 const STUDENT_ID_RE = /^\d{10}$/
 const CHALLENGE_SKEW_MS = 3000
 const CHALLENGE_FALLBACK_TTL_MS = 60 * 1000
@@ -73,6 +81,32 @@ const readCloudSyncStatusInternal = (studentId) => {
   const key = makeStudentKey(CLOUD_SYNC_STATUS_PREFIX, studentId)
   if (!key) return null
   return safeParseJson(localStorage.getItem(key), null)
+}
+
+const readAutoUploadMeta = (studentId) => {
+  const key = makeStudentKey(CLOUD_SYNC_AUTO_UPLOAD_META_PREFIX, studentId)
+  if (!key) return {}
+  const parsed = safeParseJson(localStorage.getItem(key), {})
+  return parsed && typeof parsed === 'object' ? parsed : {}
+}
+
+const writeAutoUploadMeta = (studentId, patch = {}) => {
+  const sid = toSafeText(studentId)
+  const key = makeStudentKey(CLOUD_SYNC_AUTO_UPLOAD_META_PREFIX, sid)
+  if (!key) return {}
+  const prev = readAutoUploadMeta(sid)
+  const next = {
+    studentId: sid,
+    updatedAt: Date.now(),
+    ...prev,
+    ...(patch && typeof patch === 'object' ? patch : {})
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(next))
+  } catch {
+    // ignore write errors
+  }
+  return next
 }
 
 const writeCloudSyncStatus = (studentId, patch = {}) => {
@@ -171,6 +205,88 @@ const pruneValue = (value) => {
   return value
 }
 
+const stableStringify = (value) => {
+  const normalized = pruneValue(value)
+  if (normalized === undefined) return ''
+  const seen = new WeakSet()
+  const sortValue = (input) => {
+    if (!input || typeof input !== 'object') return input
+    if (seen.has(input)) return '[Circular]'
+    seen.add(input)
+    if (Array.isArray(input)) {
+      return input.map(sortValue)
+    }
+    const output = {}
+    Object.keys(input).sort().forEach((key) => {
+      const item = sortValue(input[key])
+      if (item !== undefined) output[key] = item
+    })
+    return output
+  }
+  return JSON.stringify(sortValue(normalized))
+}
+
+const hashText = (value) => {
+  const text = String(value || '')
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+const buildClientSnapshot = async () => {
+  const runtime = detectRuntime()
+  let currentVersion = ''
+  try {
+    currentVersion = toSafeText(await getCurrentVersion())
+  } catch {
+    currentVersion = ''
+  }
+  const clientPlatform =
+    typeof navigator !== 'undefined'
+      ? toSafeText(navigator.platform || navigator.userAgent || '')
+      : ''
+  return pruneValue({
+    version: currentVersion,
+    platform: clientPlatform || runtime,
+    runtime
+  }) || {}
+}
+
+const buildNotifySnapshot = (studentId) => {
+  const sid = toSafeText(studentId)
+  const snapshot = sid ? (getLastNotifySnapshot(sid) || {}) : {}
+  const settings = getNotificationMonitorSettings() || {}
+  return pruneValue({
+    snapshot,
+    settings
+  }) || {}
+}
+
+const pickCourseId = (item) => toSafeText(
+  item?.course_id ||
+  item?.courseId ||
+  item?.kcid ||
+  item?.kch_id ||
+  item?.kch ||
+  item?.course_code ||
+  item?.courseCode ||
+  item?.source_id ||
+  item?.sourceId ||
+  item?.id
+)
+
+const pickCourseCode = (item) => toSafeText(
+  item?.course_code ||
+  item?.courseCode ||
+  item?.kcbh ||
+  item?.kch ||
+  item?.course_no ||
+  item?.courseNo
+)
+
 const normalizeCloudCourse = (raw) => {
   const weeks = Array.isArray(raw?.weeks)
     ? raw.weeks
@@ -183,6 +299,8 @@ const normalizeCloudCourse = (raw) => {
   const name = toSafeText(raw?.name)
   if (!name || !weekday || !period || !djs || !weeks.length) return null
   return {
+    course_id: toSafeText(raw?.course_id || raw?.courseId || raw?.id || raw?.source_id || raw?.sourceId),
+    source_id: toSafeText(raw?.source_id || raw?.sourceId || raw?.id || raw?.course_id || raw?.courseId),
     name,
     teacher: toSafeText(raw?.teacher),
     room: toSafeText(raw?.room || raw?.room_code),
@@ -522,6 +640,7 @@ const normalizeGradeItem = (item, fallbackSemester = '') => {
     term,
     course_name: courseName,
     grade_id: toSafeText(item?.grade_id || item?.gradeId || item?.id),
+    course_id: toSafeText(item?.course_id || item?.courseId || item?.kcid || item?.kch_id || item?.kch),
     course_code: toSafeText(item?.course_code || item?.courseCode || item?.kcbh || item?.kch),
     course_nature: toSafeText(item?.course_nature || item?.courseNature || item?.kcxzmc || item?.kcxz),
     course_nature_code: toSafeText(item?.course_nature_code || item?.courseNatureCode || item?.kcxz),
@@ -671,9 +790,36 @@ const readLatestCacheObject = (prefix) => {
   return latest
 }
 
+const normalizeScheduleCourseItem = (item) => {
+  if (!item || typeof item !== 'object') return null
+  return pruneValue({
+    ...item,
+    course_id: toSafeText(item?.course_id || item?.courseId || item?.id || item?.source_id || item?.sourceId),
+    source_id: toSafeText(item?.source_id || item?.sourceId || item?.id || item?.course_id || item?.courseId),
+    raw_course_id: toSafeText(
+      item?.raw_course_id ||
+      item?.rawCourseId ||
+      item?.course_id ||
+      item?.courseId ||
+      item?.source_id ||
+      item?.sourceId ||
+      item?.id
+    )
+  })
+}
+
 const normalizeSchedulePayload = (rawPayload, semester = '') => {
   if (!rawPayload || typeof rawPayload !== 'object') return null
-  const data = Array.isArray(rawPayload?.data) ? rawPayload.data : []
+  const data = Array.isArray(rawPayload?.data)
+    ? rawPayload.data
+      .map((item) => normalizeScheduleCourseItem({
+        ...item,
+        course_id: item?.course_id || item?.courseId || item?.id,
+        source_id: item?.source_id || item?.sourceId || item?.id,
+        raw_course_id: item?.raw_course_id || item?.rawCourseId || item?.course_id || item?.source_id || item?.id
+      }))
+      .filter(Boolean)
+    : []
   const rawMeta = rawPayload?.meta && typeof rawPayload.meta === 'object' ? rawPayload.meta : {}
   const sem = toSafeText(rawMeta?.semester || semester)
   const meta = pruneValue({
@@ -705,16 +851,92 @@ const buildScheduleSnapshot = (studentId) => {
   }
 }
 
+const normalizeExamItem = (item, fallbackSemester = '') => {
+  if (!item || typeof item !== 'object') return null
+  const courseName = toSafeText(item?.course_name || item?.courseName || item?.name || item?.kcmc)
+  const examDate = toSafeText(item?.exam_date || item?.examDate || item?.date || item?.kssj)
+  const examTime = toSafeText(item?.exam_time || item?.examTime || item?.time || item?.kssjd)
+  const location = toSafeText(item?.location || item?.room || item?.exam_room || item?.ksdd)
+  const courseId = pickCourseId(item)
+  const courseCode = pickCourseCode(item)
+  if (!courseName && !examDate && !location) return null
+  return pruneValue({
+    ...item,
+    semester: normalizeSemesterFromText(item?.semester || item?.xnxq || fallbackSemester) || toSafeText(fallbackSemester),
+    course_id: courseId,
+    course_code: courseCode,
+    course_name: courseName,
+    exam_type: toSafeText(item?.exam_type || item?.examType || item?.ksxz),
+    exam_date: examDate,
+    exam_time: examTime,
+    location,
+    seat_no: toSafeText(item?.seat_no || item?.seatNo || item?.zwh),
+    missing_course_id: !courseId
+  })
+}
+
+const buildExamSnapshot = (studentId) => {
+  const sid = toSafeText(studentId)
+  const prefix = `exams:${sid}`
+  const entries = []
+  const current = readCacheEntry(`exams:${sid}:current`)
+  if (current) {
+    entries.push({
+      key: `exams:${sid}:current`,
+      semester: 'current',
+      data: current.data,
+      timestamp: current.timestamp
+    })
+  }
+  readCachedEntriesByPrefix(prefix).forEach((entry) => {
+    if (entry.key === `exams:${sid}:current`) return
+    entries.push({
+      ...entry,
+      semester: normalizeSemesterFromText(extractSuffixFromKey(entry.key, prefix)) || extractSuffixFromKey(entry.key, prefix)
+    })
+  })
+  const bySemester = {}
+  const all = []
+  const seen = new Set()
+  entries.forEach((entry) => {
+    const sem = toSafeText(entry.semester) || 'current'
+    const list = toArrayOfObjects(extractDataArray(entry.data))
+    const normalized = list.map((item) => normalizeExamItem(item, sem)).filter(Boolean)
+    if (!normalized.length) return
+    bySemester[sem] = normalized
+    normalized.forEach((item) => {
+      const fp = stableStringify({
+        semester: sem,
+        course_id: item.course_id,
+        course_code: item.course_code,
+        course_name: item.course_name,
+        exam_date: item.exam_date,
+        exam_time: item.exam_time,
+        location: item.location
+      })
+      if (seen.has(fp)) return
+      seen.add(fp)
+      all.push(item)
+    })
+  })
+  return pruneValue({
+    all,
+    by_semester: bySemester
+  }) || { all: [], by_semester: {} }
+}
+
 const buildAcademicSnapshot = (studentId, latestGrades = []) => {
   const sid = toSafeText(studentId)
   const gradesSnapshot = buildGradeSnapshot(sid, latestGrades)
   const rankingSnapshot = buildRankingSnapshot(sid)
+  const examSnapshot = buildExamSnapshot(sid)
   const scheduleMeta = safeParseJson(localStorage.getItem('hbu_schedule_meta'), {})
   return {
     grades: gradesSnapshot.all,
     grades_by_semester: gradesSnapshot.bySemester,
     ranking: rankingSnapshot.current || {},
     ranking_by_semester: rankingSnapshot.bySemester,
+    exams: examSnapshot,
     personal_info: buildPersonalInfoSnapshot(sid),
     schedule_meta: scheduleMeta && typeof scheduleMeta === 'object' ? scheduleMeta : {},
     schedule: buildScheduleSnapshot(sid)
@@ -726,21 +948,61 @@ const hasNonEmptyCourseMap = (value) => {
   return Object.values(value).some((list) => Array.isArray(list) && list.length > 0)
 }
 
+const buildSettingsSnapshot = () => pruneValue({
+  app: safeParseJson(localStorage.getItem('hbu_app_settings_v1'), {}),
+  ui: safeParseJson(localStorage.getItem('hbu_ui_settings_v2'), {}),
+  font: safeParseJson(localStorage.getItem('hbu_font_settings_v1'), {}),
+  login: {
+    mode: toSafeText(localStorage.getItem('hbu_login_entry_mode')),
+    method: toSafeText(localStorage.getItem('hbu_login_method')),
+    remember: toSafeText(localStorage.getItem('hbu_remember'))
+  }
+}) || {}
+
+const buildAutoUploadSignature = async (studentId, latestGrades = []) => {
+  const sid = toSafeText(studentId)
+  const clientSnapshot = await buildClientSnapshot()
+  const signaturePayload = {
+    schema: SYNC_SCHEMA_VERSION,
+    sid,
+    client: clientSnapshot,
+    settings: buildSettingsSnapshot(),
+    notify: buildNotifySnapshot(sid),
+    academic: buildAcademicSnapshot(sid, latestGrades)
+  }
+  const stable = stableStringify(signaturePayload)
+  return {
+    version: toSafeText(clientSnapshot?.version),
+    signature: `${stable.length}:${hashText(stable)}`,
+    payload: signaturePayload
+  }
+}
+
+const resolveAutoUploadReason = (meta = {}, signature = {}, preferredReason = 'auto-login') => {
+  const currentVersion = toSafeText(signature?.version)
+  const currentSignature = toSafeText(signature?.signature)
+  const lastUploadVersion = toSafeText(meta?.lastUploadVersion)
+  const lastUploadSignature = toSafeText(meta?.lastUploadSignature)
+  if (currentVersion && lastUploadVersion && currentVersion !== lastUploadVersion) {
+    return { reason: 'auto-version-change', recentReason: 'version-change' }
+  }
+  if (currentSignature && lastUploadSignature && currentSignature !== lastUploadSignature) {
+    return { reason: 'auto-signature-change', recentReason: 'signature-change' }
+  }
+  return {
+    reason: toSafeText(preferredReason) || 'auto-login',
+    recentReason: toSafeText(preferredReason) || 'auto-login'
+  }
+}
+
 const buildSyncPayload = async (studentId, options = {}) => {
   const sid = toSafeText(studentId)
   const includeCustomCourses = options?.includeCustomCourses !== false
   const includeAcademic = options?.includeAcademic !== false
   const includeSettings = options?.includeSettings !== false
-  const settingsSnapshot = pruneValue({
-    app: safeParseJson(localStorage.getItem('hbu_app_settings_v1'), {}),
-    ui: safeParseJson(localStorage.getItem('hbu_ui_settings_v2'), {}),
-    font: safeParseJson(localStorage.getItem('hbu_font_settings_v1'), {}),
-    login: {
-      mode: toSafeText(localStorage.getItem('hbu_login_entry_mode')),
-      method: toSafeText(localStorage.getItem('hbu_login_method')),
-      remember: toSafeText(localStorage.getItem('hbu_remember'))
-    }
-  }) || {}
+  const clientSnapshot = await buildClientSnapshot()
+  const notifySnapshot = buildNotifySnapshot(sid)
+  const settingsSnapshot = buildSettingsSnapshot()
   const bySemester = includeCustomCourses ? await fetchAllCustomCourses(sid) : {}
   const hasCustomCourseData = includeCustomCourses && hasNonEmptyCourseMap(bySemester)
   const courses = hasCustomCourseData ? (pruneValue({ by_semester: bySemester }) || undefined) : undefined
@@ -754,6 +1016,8 @@ const buildSyncPayload = async (studentId, options = {}) => {
   }
   if (includeSettings) payload.settings = settingsSnapshot
   if (courses) payload.courses = courses
+  payload.client = clientSnapshot
+  payload.notify = notifySnapshot
   if (includeAcademic) payload.academic = academic || {}
   return {
     payload,
@@ -798,6 +1062,14 @@ const primeAcademicCaches = async (studentId, seedGrades = []) => {
       if (sem) {
         setCachedData(`schedule:${sid}:${sem}`, scheduleRes.data)
       }
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const examRes = await axios.post(`${API_BASE}/v2/exams`, { student_id: sid, semester: '' })
+    if (examRes?.data?.success) {
+      setCachedData(`exams:${sid}:current`, examRes.data)
     }
   } catch {
     // ignore
@@ -1261,6 +1533,7 @@ export const runCloudSyncUpload = async ({
       device_id: ensureDeviceId(),
       reason: safeReason,
       payload,
+      client_version: toSafeText(payload?.client?.version),
       client_time: Date.now(),
       secret_ref: cfg.secretRef,
       sections: {
@@ -1478,7 +1751,12 @@ const autoCloudSyncInFlight = {
   promise: null
 }
 
-export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] } = {}) => {
+export const runAutoCloudSyncAfterLogin = async ({
+  studentId,
+  latestGrades = [],
+  reason = 'auto-login',
+  skipDownload = false
+} = {}) => {
   const sid = toSafeText(studentId)
   if (!sid) return { success: false, reason: 'missing-student' }
   if (!isValidStudentId(sid)) {
@@ -1497,26 +1775,35 @@ export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] 
       upload: null
     }
 
-    try {
-      summary.download = await runCloudSyncDownload({
-        studentId: sid,
-        reason: hasBootstrapDone(sid) ? 'auto-login-settings' : 'auto-new-device-settings',
-        force: true,
-        applySettings: true,
-        applyCustomCourses: false,
-        applyAcademic: true,
-        skipCooldownRecord: true
-      })
-    } catch (error) {
-      summary.download = { success: false, error: String(error?.message || error) }
-      pushDebugLog('CloudSync', `自动下载失败 student=${sid}`, 'warn', error)
+    if (!skipDownload) {
+      try {
+        summary.download = await runCloudSyncDownload({
+          studentId: sid,
+          reason: hasBootstrapDone(sid) ? 'auto-login-settings' : 'auto-new-device-settings',
+          force: true,
+          applySettings: true,
+          applyCustomCourses: false,
+          applyAcademic: true,
+          skipCooldownRecord: true
+        })
+      } catch (error) {
+        summary.download = { success: false, error: String(error?.message || error) }
+        pushDebugLog('CloudSync', `自动下载失败 student=${sid}`, 'warn', error)
+      }
     }
 
     try {
       const syncedGrades = await primeAcademicCaches(sid, latestGrades)
+      const uploadSignature = await buildAutoUploadSignature(sid, syncedGrades)
+      const uploadReason = resolveAutoUploadReason(readAutoUploadMeta(sid), uploadSignature, reason)
+      writeAutoUploadMeta(sid, {
+        lastAutoResyncReason: uploadReason.recentReason,
+        pendingUploadVersion: uploadSignature.version,
+        pendingUploadSignature: uploadSignature.signature
+      })
       summary.upload = await runCloudSyncUpload({
         studentId: sid,
-        reason: 'auto-login',
+        reason: uploadReason.reason,
         force: true,
         latestGrades: syncedGrades,
         includeCustomCourses: false,
@@ -1524,6 +1811,14 @@ export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] 
         includeSettings: true,
         skipCooldownRecord: true
       })
+      if (summary.upload?.success) {
+        writeAutoUploadMeta(sid, {
+          lastUploadVersion: uploadSignature.version,
+          lastUploadSignature: uploadSignature.signature,
+          lastAutoResyncReason: uploadReason.recentReason,
+          lastAutoUploadAt: summary.upload.uploadedAt || Date.now()
+        })
+      }
     } catch (error) {
       summary.upload = { success: false, error: String(error?.message || error) }
       pushDebugLog('CloudSync', `自动上传失败 student=${sid}`, 'warn', error)
@@ -1546,3 +1841,28 @@ export const runAutoCloudSyncAfterLogin = async ({ studentId, latestGrades = [] 
     }
   }
 }
+
+let notifyAutoUploadListenerInstalled = false
+
+const installNotifyAutoUploadListener = () => {
+  if (notifyAutoUploadListenerInstalled || typeof window === 'undefined') return
+  window.addEventListener(NOTIFY_SNAPSHOT_EVENT, (event) => {
+    const sid = toSafeText(
+      event?.detail?.studentId ||
+      event?.detail?.student_id ||
+      localStorage.getItem('hbu_username') ||
+      localStorage.getItem('hbu_student_id')
+    )
+    if (!sid || !isValidStudentId(sid)) return
+    runAutoCloudSyncAfterLogin({
+      studentId: sid,
+      reason: 'auto-signature-change',
+      skipDownload: true
+    }).catch((error) => {
+      pushDebugLog('CloudSync', `通知快照触发自动上传失败 student=${sid}`, 'warn', error)
+    })
+  })
+  notifyAutoUploadListenerInstalled = true
+}
+
+installNotifyAutoUploadListener()

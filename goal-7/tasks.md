@@ -265,13 +265,25 @@
 
 ## Task 11 - 前端实现：自动上传 payload 扩展与本地变化检测
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：扩展 `cloud_sync.js`，采集版本、通知、考试、成绩/课表课程标识，并持久化上传签名/版本/原因。
 - 验证：Task 10 测试通过；旧数据缺失不崩溃。
 - 实际变更：
+- 修改 `src/utils/cloud_sync.js`：云同步 schema 升级到 v4，上传 payload 新增 `client.version/platform/runtime` 与 `notify.snapshot/settings`，上传 body 顶层新增 `client_version`，便于后端直接统计版本人数。
+- 扩展学业快照：成绩规范化保留 `course_id`、`grade_id`、`course_code`；课表快照规范保留 `course_id`、`source_id`、`raw_course_id`；自动缓存预热新增 `/v2/exams` 并把考试安排写入 `academic.exams`。
+- 新增本地自动上传元数据：`lastUploadVersion`、`lastUploadSignature`、`lastAutoResyncReason`、待上传版本/签名和最近上传时间；综合签名覆盖版本、设置、通知、考试、成绩、课表等关键快照。
+- 自动同步逻辑保留登录后原有“先下载再上传”，并在版本变化或本地签名变化时把上传 reason 标记为 `auto-version-change` / `auto-signature-change`；同学号在飞任务复用逻辑保留。
+- 监听 `NOTIFY_SNAPSHOT_EVENT`：通知快照变化时触发一次只上传、不先下载的自动同步，避免云端旧数据覆盖本地刚变化的通知快照。
 - 验证结果：
+- 红灯验证已在 Task 10 完成：`npx vitest run src/utils/cloud_sync_payload_contract.spec.ts` 初始 4 项失败，指向 schema v4、client/notify/exams、课程标识和自动上传元数据缺失。
+- 聚焦验证：`npx vitest run src/utils/cloud_sync_payload_contract.spec.ts` 通过，`1 passed` test file，`4 passed` tests。
+- 回归验证：`npx vitest run src/platform/runtime.spec.ts src/utils/cloud_sync_payload_contract.spec.ts src/utils/service_stats_view_contract.spec.ts` 通过，`3 passed` test files，`9 passed` tests。
+- 空白检查：`git diff --check -- src/utils/cloud_sync.js src/utils/cloud_sync_payload_contract.spec.ts goal-7/tasks.md` 退出码 0；仅提示 `cloud_sync.js` 将被 Git 触碰时转换为 CRLF，无空白错误。
 - 剩余风险：
-- 下一步：
+- 目前新增的是前端本地签名与上传链路，尚未跑完整前端构建；Task 14 需要做更大范围前端验证。
+- 通知快照变化会立即触发自动上传，并通过同学号在飞任务复用降低并发风险；如果通知模块短时间连续多次派发事件，仍可能在前一轮结束后再次上传，后续全面检查需要关注频率。
+- 上传 payload 包含更完整的学业/通知快照，属于用户已有云同步数据范围扩展；Task 12/大型检查 4 仍需继续检查 secrets、隐私与部署配置。
+- 下一步：Task 12 更新本机 secrets 提示文件和配置说明，确保新增 HF 归档环境变量只写本机提示、不把真实敏感值提交到仓库。
 
 ## Task 12 - secrets 文件与配置文档更新
 
