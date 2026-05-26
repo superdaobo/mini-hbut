@@ -241,13 +241,27 @@
 
 ## Task 10 - 前端红灯测试：cloud_sync payload 与本地重传签名
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：测试上传 payload 包含 client/notify/exams/课程标识，关键签名或版本变化触发重传，在飞任务复用。
 - 验证：测试先失败，失败原因指向缺少 payload 字段/签名逻辑。
 - 实际变更：
+- 新增 `src/utils/cloud_sync_payload_contract.spec.ts`，采用源码契约测试锁定 Task 11 需要实现的 cloud sync 上传行为。
+- 测试覆盖 schema v4 和客户端元数据：要求 `SYNC_SCHEMA_VERSION = 4`，从 `getCurrentVersion()` 读取当前版本，通过 `detectRuntime()` 采集运行环境，并在上传 body 顶层传递 `client_version`。
+- 测试覆盖通知与考试 payload：要求接入 `NOTIFY_SNAPSHOT_EVENT`、`getLastNotifySnapshot()`、`getNotificationMonitorSettings()`，新增 `buildNotifySnapshot()` 和 `buildExamSnapshot()`，并把 `notify` 与 `academic.exams` 写入上传 payload。
+- 测试覆盖课程稳定标识：要求成绩规范化保留 `grade_id`、`course_id`、`course_code`；自定义课程保留 `course_id`、`source_id`；课表快照保留课程原始标识。
+- 测试覆盖本地变化触发：要求新增自动上传元数据前缀、综合签名构建、上次上传版本/签名/原因持久化，监听通知快照变更并复用同学号在飞任务。
 - 验证结果：
+- 已运行 `npx vitest run src/utils/cloud_sync_payload_contract.spec.ts`。
+- 结果：`1 failed` test file，`4 failed` tests，符合 Task 10 红灯预期。
+- 失败 1：`builds schema v4 payloads with explicit client version and runtime metadata`，当前仍是 `SYNC_SCHEMA_VERSION = 3`，没有 client snapshot、版本/运行时采集和顶层 `client_version`。
+- 失败 2：`uploads notification snapshots and exam arrangements as first-class payload sections`，当前 `cloud_sync.js` 未接入通知快照事件/读取器，也没有 `notify` 或 `academic.exams`。
+- 失败 3：`keeps stable course identifiers for grades, custom courses, and schedule courses`，当前成绩未规范 `course_id`，自定义课程未保留 `course_id/source_id`，课表课程标识契约未锁定。
+- 失败 4：`detects local signature or version changes and reuses in-flight auto upload tasks`，当前没有自动上传元数据、综合签名、上次版本/签名/原因持久化或通知变化监听；已有同学号在飞任务复用逻辑存在，Task 11 实现时需要保留。
 - 剩余风险：
-- 下一步：
+- 当前只新增红灯测试，没有修改 `cloud_sync.js` 生产逻辑；Task 11 必须让该测试转绿并尽量补充可执行行为验证。
+- 源码契约测试会对命名有一定约束，Task 11 如采用不同命名，需要同步调整测试到同等明确的行为契约。
+- 本轮未访问网络、后端或任何生产数据。
+- 下一步：Task 11 实现 `cloud_sync.js`：采集版本、通知、考试、课程标识，扩展上传 body 顶层 `client_version`，新增本地综合签名/版本变化立即重传和元数据持久化。
 
 ## Task 11 - 前端实现：自动上传 payload 扩展与本地变化检测
 
