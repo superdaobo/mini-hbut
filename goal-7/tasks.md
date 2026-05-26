@@ -116,13 +116,20 @@
 
 ## Task 6 - 后端红灯测试：cloud_sync 版本列与 HF 先写
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 目标：测试 `cloud_sync_records` 自动补列 `client_version`/`payload_schema_version`，以及 HF 归档成功后才写数据库。
 - 验证：测试先失败，失败原因指向缺少 schema/归档顺序。
 - 实际变更：
+  - 新增 `D:\Documents\C_learn\成绩查询\ocr-service\tests\test_cloud_sync_archive_contract.py`，覆盖 Turso `cloud_sync_records` schema 自动补列 `client_version` 和 `payload_schema_version`。
+  - 同一测试文件新增 cloud-sync 上传顺序契约：HF 归档必须先于 Turso 写入；如果 HF 归档失败且 `HF_ARCHIVE_REQUIRE_BEFORE_DB=true`，接口应返回错误且不能写 Turso。
+  - 测试使用 monkeypatch/fake storage，不访问真实 HF Bucket、Turso 或 SQLPub。
 - 验证结果：
-- 剩余风险：
-- 下一步：
+  - 已运行 `python -m pytest tests/test_cloud_sync_archive_contract.py -q`，结果 `3 failed, 12 warnings in 1.25s`，符合红灯预期。
+  - 失败 1：`test_turso_cloud_sync_schema_backfills_client_version_columns` 断言 `client_version` 不在建表/补列 SQL 中，说明 schema 尚未扩展。
+  - 失败 2：`test_cloud_sync_upload_archives_to_hf_before_turso` 事件顺序实际只有 `db`，没有先执行 `hf`，说明上传链路还未接入 HF 归档前置。
+  - 失败 3：`test_cloud_sync_upload_rejects_when_hf_archive_fails` 实际返回 200，说明 HF 归档失败时当前仍会继续写库。
+- 剩余风险：当前只是红灯测试，没有实现 HF 归档模块、pending replay 状态、cloud_sync_records 补列、client_version 写入或导出 dry-run；后续 Task 7 必须让这些测试转绿，并继续避免真实生产写入。
+- 下一步：执行“大型全面检查 2”，复核 Task 4-6 的红绿闭环、后端兼容性和是否触碰生产数据；之后进入 Task 7 实现。
 
 ## 大型全面检查 2（Task 4-6 后）
 
