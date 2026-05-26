@@ -64,11 +64,18 @@
 
 ## 大型全面检查 1（Task 1-3 后）
 
-- [ ] 状态：未完成
+- [x] 状态：已完成
 - 检查范围：需求边界、数据流、风险、测试入口和是否需要拆分任务。
 - 检查结果：
-- 修复动作：
-- 剩余风险：
+  - 需求边界未偏离：Task 1-3 只完成 goal 建立和前后端现状定位，尚未把“服务统计页、/health 扩展、HF 私有桶双保险、云同步 payload 扩展、本地重传检测、secrets 文件更新、最终验证”错误缩小为较小目标。
+  - 后端数据流已足够支撑 Task 4 红灯测试：`runtime/entrypoint.py` 的 `/health`、`modules/service_stats.py` 的 `service_daily_stats/service_daily_usage`、`modules/cloud_sync_storage.py` 的 `cloud_sync_records`、现有 `HFPrivateBucketStorage` 和论坛/服务表来源均已定位；缺口与后续测试目标一致。
+  - 前端数据流已足够支撑 Task 8/10 红灯测试：`MeView.vue` 入口、`App.vue` 子视图机制、`cloud_sync.js` payload/自动上传链路、`notify_center.js` 通知快照、考试/成绩/课表缓存 key、版本号获取入口均已定位；缺口与后续测试目标一致。
+  - 风险边界明确：真实 HF 私有桶写入、生产 Turso/SQLPub 导出、数据库结构变更和 secret 变更都属于高风险操作；实现阶段必须先走测试、dry-run、本地 fake 或受保护接口，不能在未确认前执行生产写入或导出。
+  - 当前工作区存在大量与本 goal 无关的脏改/删除项，`tauri-app` 包括 `.playwright-mcp/*` 删除、`debug-captures/*` 删除、`src-tauri/Cargo.toml`、`RankingView.vue`、`UpdateDialog.vue`、`updater_download_sources.spec.ts` 等；`ocr-service` 有未跟踪 `data/` 和 `scripts/utf8.ps1`。后续每轮提交必须只暂存本任务相关文件。
+  - 测试拆分总体可执行：Task 4/5 覆盖 `/health` 与统计 schema；Task 6/7 覆盖 cloud sync 版本列、HF 先写、导出能力；Task 8/9 覆盖统计页；Task 10/11 覆盖前端自动上传和重传签名；Task 12-15 覆盖 secrets 与项目级验证。
+  - 需要特别关注的拆分风险：Task 7 同时包含 HF archive 模块、云同步双写、导出脚本/管理接口和 health 状态，实际执行时应在同一任务内按“归档基础 -> 上传链路 -> 导出 dry-run -> health 状态”小步落地，并避免一次性大改无测试支撑。
+- 修复动作：本轮不修改业务代码；只把前三个任务后的全面检查结果写入任务清单，保留后续红灯测试先行顺序，并明确 Task 7 的内部小步执行约束。
+- 剩余风险：尚未运行后端/前端测试，因为本轮是计划检查任务；后续 Task 4 开始必须先新增失败测试。生产 HF 桶与数据库仍未触碰，最终实现前必须继续确认仓库 diff 不含 secret，且 secrets 文件更新只能写本机提示键名或占位说明。
 
 ## Task 4 - 后端红灯测试：health 趋势与统计 schema
 
