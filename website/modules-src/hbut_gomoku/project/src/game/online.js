@@ -14,7 +14,9 @@ export const DEFAULT_NOSTR_RELAY_URLS = Object.freeze([
 ])
 export const DEFAULT_TORRENT_TRACKER_URLS = Object.freeze([
   'wss://tracker.openwebtorrent.com',
-  'wss://tracker.webtorrent.dev'
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.btorrent.xyz',
+  'wss://tracker.files.fm:7073/announce'
 ])
 
 const ONLINE_STRATEGIES = Object.freeze({
@@ -26,6 +28,9 @@ const ONLINE_STRATEGIES = Object.freeze({
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MATCH_ROOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 const MATCHMAKING_PEER_ACTIVE_MS = 30_000
+const ONLINE_MAX_TIMEOUT_RETRIES = 5
+const RELAY_REQUEST_RETRY_ATTEMPTS = 3
+const RELAY_REQUEST_RETRY_DELAY_MS = 80
 
 export const normalizeRoomCode = (value) =>
   String(value || '')
@@ -351,7 +356,7 @@ export const nextOnlineStrategy = (strategy) =>
     ? ONLINE_STRATEGIES.nostr
     : normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.nostr
       ? ONLINE_STRATEGIES.torrent
-      : ''
+      : ONLINE_STRATEGIES.hfRelay
 
 const getStrategyRelayUrls = (strategy) =>
   normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.torrent
@@ -383,33 +388,55 @@ const resolveSeatByPeer = (state, peerId) => {
   return ''
 }
 
-const createPlayers = (role, selfPeerId) => ({
-  [PLAYERS.black]: role === 'host' ? selfPeerId : '',
-  [PLAYERS.white]: role === 'guest' ? selfPeerId : ''
-})
+const createPlayers = (role, selfPeerId, match = null) => {
+  if (match?.hostPeerId && match?.guestPeerId) {
+    return {
+      [PLAYERS.black]: match.hostPeerId,
+      [PLAYERS.white]: match.guestPeerId
+    }
+  }
+  return {
+    [PLAYERS.black]: role === 'host' ? selfPeerId : '',
+    [PLAYERS.white]: role === 'guest' ? selfPeerId : ''
+  }
+}
 
 export const createOnlineState = ({
   roomCode = '',
   role = 'host',
   selfPeerId = '',
-  strategy = ONLINE_STRATEGIES.nostr
+  strategy = ONLINE_STRATEGIES.nostr,
+  transportPeerId = '',
+  match = null,
+  onlineRetryAttempts = 0
 } = {}) => {
   const normalizedRoom = normalizeRoomCode(roomCode)
-  const localPlayer = role === 'guest' ? PLAYERS.white : PLAYERS.black
+  const normalizedSelfPeerId = normalizePeerId(selfPeerId)
+  const normalizedTransportPeerId = normalizePeerId(transportPeerId) || normalizedSelfPeerId
+  const matchedLocalPlayer =
+    match?.localPlayer === PLAYERS.white || match?.localPlayer === PLAYERS.black
+      ? match.localPlayer
+      : ''
+  const localPlayer = matchedLocalPlayer || (role === 'guest' ? PLAYERS.white : PLAYERS.black)
   const onlineStrategy = normalizeOnlineStrategy(strategy)
   const strategyLabel = getStrategyLabel(onlineStrategy)
+  const matchedOpponentPeerId = normalizePeerId(match?.opponentPeerId)
+  const matchedHostPeerId = normalizePeerId(match?.hostPeerId)
   return {
     ...createInitialState({
       mode: 'online_room',
       sessionId: normalizedRoom,
-      players: createPlayers(role, selfPeerId),
+      players: createPlayers(role, normalizedSelfPeerId, match),
       localPlayer
     }),
     role,
-    localPeerId: selfPeerId,
-    hostPeerId: role === 'host' ? selfPeerId : '',
-    remotePeerId: '',
+    localPeerId: normalizedSelfPeerId,
+    transportPeerId: normalizedTransportPeerId,
+    hostPeerId: matchedHostPeerId || (role === 'host' ? normalizedSelfPeerId : ''),
+    remotePeerId: matchedOpponentPeerId,
+    matchPair: match?.hostPeerId && match?.guestPeerId ? { ...match } : null,
     onlineStrategy,
+    onlineRetryAttempts: Math.max(0, Number(onlineRetryAttempts || 0)),
     onlineStatus: role === 'host' ? 'waiting_peer' : 'connecting',
     appliedMessageIds: [],
     connectionMessage:
@@ -421,6 +448,21 @@ export const createOnlineState = ({
 
 export const applyPeerJoined = (state, peerId) => {
   if (!peerId || peerId === state.localPeerId) return state
+  const matchedOpponentPeerId = normalizePeerId(state.matchPair?.opponentPeerId)
+  if (matchedOpponentPeerId && state.players?.[PLAYERS.black] && state.players?.[PLAYERS.white]) {
+    const currentRemotePeerId = normalizePeerId(state.remotePeerId)
+    const remotePeerId =
+      currentRemotePeerId && currentRemotePeerId !== matchedOpponentPeerId
+        ? currentRemotePeerId
+        : peerId
+    return {
+      ...state,
+      remotePeerId,
+      onlineStatus: 'connected',
+      connectionMessage:
+        state.role === 'guest' ? '已连接房主，等待同步棋盘。' : '对手已加入，可以开始对局。'
+    }
+  }
   if (state.role === 'guest') {
     return {
       ...state,
@@ -455,7 +497,13 @@ export const applyPeerJoined = (state, peerId) => {
 }
 
 export const applyPeerLeft = (state, peerId) => {
-  if (!peerId || (peerId !== state.remotePeerId && peerId !== state.hostPeerId)) return state
+  const matchedOpponentPeerId = normalizePeerId(state.matchPair?.opponentPeerId)
+  if (
+    !peerId ||
+    (peerId !== state.remotePeerId && peerId !== state.hostPeerId && peerId !== matchedOpponentPeerId)
+  ) {
+    return state
+  }
   return {
     ...state,
     onlineStatus: 'peer_left',
@@ -463,24 +511,33 @@ export const applyPeerLeft = (state, peerId) => {
   }
 }
 
-export const markOnlineTimeout = (state) => ({
-  ...state,
-  ...(state.onlineStrategy && nextOnlineStrategy(state.onlineStrategy)
-    ? {
-        onlineStatus: 'retrying',
-        onlineStrategy: nextOnlineStrategy(state.onlineStrategy),
-        connectionMessage:
-          normalizeOnlineStrategy(state.onlineStrategy) === ONLINE_STRATEGIES.hfRelay
-            ? 'HF 中转连接超时，正在切换公共 relay 后备。'
-            : 'Nostr relay 连接超时，正在切换 tracker 后备。',
-        lastError: ''
-      }
-    : {
-        onlineStatus: 'failed',
-        connectionMessage: '公共信令连接超时，可重试联机或切回本地双人。',
-        lastError: ''
-      })
-})
+export const markOnlineTimeout = (state) => {
+  const retryAttempts = Number(state.onlineRetryAttempts || 0)
+  const nextRetryAttempts = retryAttempts + 1
+  if (!state.onlineStrategy || nextRetryAttempts > ONLINE_MAX_TIMEOUT_RETRIES) {
+    return {
+      ...state,
+      onlineStatus: 'failed',
+      connectionMessage: '公共信令连接超时，可重试联机或切回本地双人。',
+      lastError: ''
+    }
+  }
+  const currentStrategy = normalizeOnlineStrategy(state.onlineStrategy)
+  const nextStrategy = nextOnlineStrategy(currentStrategy)
+  return {
+    ...state,
+    onlineStatus: 'retrying',
+    onlineStrategy: nextStrategy,
+    onlineRetryAttempts: nextRetryAttempts,
+    connectionMessage:
+      currentStrategy === ONLINE_STRATEGIES.hfRelay
+        ? 'HF 中转连接超时，正在切换公共 relay 后备。'
+        : currentStrategy === ONLINE_STRATEGIES.nostr
+          ? 'Nostr relay 连接超时，正在切换 tracker 后备。'
+          : 'tracker 后备连接超时，正在重新尝试 HF 中转。',
+    lastError: ''
+  }
+}
 
 const buildMoveMessage = (state, move, senderId, messageId = '') => ({
   type: 'move',
@@ -646,7 +703,13 @@ export const buildSnapshotMessage = (state, senderId = state.localPeerId, target
 })
 
 export const applySnapshotMessage = (state, message = {}, peerId = '') => {
-  if (message.targetPeerId && message.targetPeerId !== state.localPeerId) return state
+  if (
+    message.targetPeerId &&
+    message.targetPeerId !== state.localPeerId &&
+    message.targetPeerId !== state.transportPeerId
+  ) {
+    return state
+  }
   if (!sameRoom(state, message)) return rejectRoomMismatch(state)
   const senderId = message.senderId || peerId
   if (state.hostPeerId && senderId && state.hostPeerId !== senderId) {
@@ -669,7 +732,7 @@ export const applySnapshotMessage = (state, message = {}, peerId = '') => {
     players: snapshot.players || state.players,
     sessionId: normalizeRoomCode(snapshot.sessionId || message.roomCode || state.sessionId),
     hostPeerId: snapshot.hostPeerId || senderId || state.hostPeerId,
-    remotePeerId: senderId || state.remotePeerId,
+    remotePeerId: peerId || senderId || state.remotePeerId,
     onlineStatus: 'connected',
     connectionMessage: '棋盘已同步，可以继续对局。',
     lastError: ''
@@ -740,14 +803,24 @@ const createRelayPeerId = () => {
   return `web-${Date.now().toString(36)}-${random}`.slice(0, 80)
 }
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 const fetchRelayJson = async (fetchImpl, url, options = {}) => {
-  const response = await fetchImpl(url, {
-    ...options,
-    headers: {
-      'content-type': 'application/json',
-      ...(options.headers || {})
-    }
-  })
+  let response = null
+  try {
+    response = await fetchImpl(url, {
+      ...options,
+      headers: {
+        'content-type': 'application/json',
+        ...(options.headers || {})
+      }
+    })
+  } catch (error) {
+    const relayError = new Error(error?.message || 'HF 中转网络请求失败')
+    relayError.status = 0
+    relayError.cause = error
+    throw relayError
+  }
   let body = null
   try {
     body = await response.json()
@@ -755,9 +828,41 @@ const fetchRelayJson = async (fetchImpl, url, options = {}) => {
     body = null
   }
   if (!response.ok || body?.success === false) {
-    throw new Error(body?.error || `HF 中转请求失败 ${response.status || ''}`.trim())
+    const relayError = new Error(body?.error || `HF 中转请求失败 ${response.status || ''}`.trim())
+    relayError.status = Number(response.status || 0)
+    relayError.body = body
+    throw relayError
   }
   return body || {}
+}
+
+const isRetryableRelayError = (error) => {
+  const status = Number(error?.status || 0)
+  return !status || status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+const isMissingRelayPeerError = (error) => {
+  const status = Number(error?.status || 0)
+  return status === 404 && String(error?.message || '').includes('不存在')
+}
+
+const fetchRelayJsonWithRetry = async (
+  fetchImpl,
+  url,
+  options = {},
+  { attempts = RELAY_REQUEST_RETRY_ATTEMPTS, delayMs = RELAY_REQUEST_RETRY_DELAY_MS } = {}
+) => {
+  let lastError = null
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchRelayJson(fetchImpl, url, options)
+    } catch (error) {
+      lastError = error
+      if (attempt >= attempts || !isRetryableRelayError(error)) throw error
+      await wait(delayMs * attempt)
+    }
+  }
+  throw lastError
 }
 
 export const createHfRelayGomokuRoom = async ({
@@ -808,30 +913,51 @@ export const createHfRelayGomokuRoom = async ({
     }
   }
 
-  const joinBody = await fetchRelayJson(fetchImpl, `${relayBase}/join`, {
-    method: 'POST',
-    body: JSON.stringify({
-      room_code: normalizedRoom,
-      peer_id: selfPeerId
+  const joinRelayRoom = async ({ preserveCursor = false } = {}) => {
+    const previousCursor = cursor
+    const joinBody = await fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/join`, {
+      method: 'POST',
+      body: JSON.stringify({
+        room_code: normalizedRoom,
+        peer_id: selfPeerId
+      })
     })
-  })
-  cursor = Number(joinBody.cursor || 0) || 0
-  emitPeerList(joinBody.peers || [])
+    const joinedCursor = Number(joinBody.cursor || 0) || 0
+    cursor =
+      preserveCursor && joinedCursor >= previousCursor ? previousCursor : joinedCursor
+    emitPeerList(joinBody.peers || [])
+    return joinBody
+  }
+
+  await joinRelayRoom()
+
+  const fetchPollBody = async () => {
+    const params = new URLSearchParams({
+      room_code: normalizedRoom,
+      peer_id: selfPeerId,
+      cursor: String(cursor)
+    })
+    return fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/poll?${params.toString()}`)
+  }
+
+  const applyPollBody = (body = {}) => {
+    cursor = Number(body.cursor || cursor) || cursor
+    emitPeerList(body.peers || [])
+    for (const event of body.events || []) {
+      emitRelayEvent(event)
+    }
+  }
 
   const pollOnce = async () => {
     if (closed || polling) return
     polling = true
     try {
-      const params = new URLSearchParams({
-        room_code: normalizedRoom,
-        peer_id: selfPeerId,
-        cursor: String(cursor)
-      })
-      const body = await fetchRelayJson(fetchImpl, `${relayBase}/poll?${params.toString()}`)
-      cursor = Number(body.cursor || cursor) || cursor
-      emitPeerList(body.peers || [])
-      for (const event of body.events || []) {
-        emitRelayEvent(event)
+      try {
+        applyPollBody(await fetchPollBody())
+      } catch (error) {
+        if (!isMissingRelayPeerError(error)) throw error
+        await joinRelayRoom({ preserveCursor: true })
+        applyPollBody(await fetchPollBody())
       }
     } finally {
       polling = false
@@ -852,7 +978,7 @@ export const createHfRelayGomokuRoom = async ({
     strategy: ONLINE_STRATEGIES.hfRelay,
     pollOnce,
     async send(message, targetPeerId = '') {
-      await fetchRelayJson(fetchImpl, `${relayBase}/send`, {
+      const sendOnce = () => fetchRelayJsonWithRetry(fetchImpl, `${relayBase}/send`, {
         method: 'POST',
         body: JSON.stringify({
           room_code: normalizedRoom,
@@ -861,6 +987,13 @@ export const createHfRelayGomokuRoom = async ({
           message
         })
       })
+      try {
+        await sendOnce()
+      } catch (error) {
+        if (!isMissingRelayPeerError(error)) throw error
+        await joinRelayRoom({ preserveCursor: true })
+        await sendOnce()
+      }
     },
     async close() {
       if (closed) return

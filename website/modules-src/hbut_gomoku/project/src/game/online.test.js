@@ -76,6 +76,58 @@ describe('湖工五子棋联机协议', () => {
     })
   })
 
+  it('匹配对局按大厅 peerId 固定黑白席位，避免进入 PK 房间后双方都等待', () => {
+    const pair = resolveMatchPair('peer-z', 'peer-a')
+    const guest = createOnlineState({
+      roomCode: pair.roomCode,
+      role: pair.role,
+      selfPeerId: 'peer-z',
+      strategy: 'hf-relay',
+      match: pair
+    })
+
+    expect(pair.role).toBe('guest')
+    expect(guest).toMatchObject({
+      localPeerId: 'peer-z',
+      localPlayer: 'white',
+      hostPeerId: 'peer-a',
+      remotePeerId: 'peer-a',
+      players: {
+        black: 'peer-a',
+        white: 'peer-z'
+      }
+    })
+
+    const connectedGuest = applyPeerJoined(guest, 'peer-a')
+    expect(connectedGuest.onlineStatus).toBe('connected')
+    expect(connectedGuest.players).toEqual({
+      black: 'peer-a',
+      white: 'peer-z'
+    })
+  })
+
+  it('匹配对局绑定首个真实对手连接后不被后续 peer_join 覆盖', () => {
+    const pair = resolveMatchPair('peer-a', 'peer-z')
+    const host = createOnlineState({
+      roomCode: pair.roomCode,
+      role: pair.role,
+      selfPeerId: 'peer-a',
+      transportPeerId: 'transport-a',
+      strategy: 'nostr',
+      match: pair
+    })
+
+    const connected = applyPeerJoined(host, 'transport-z')
+    const afterSpectator = applyPeerJoined(connected, 'transport-spectator')
+
+    expect(connected.remotePeerId).toBe('transport-z')
+    expect(afterSpectator.remotePeerId).toBe('transport-z')
+    expect(afterSpectator.players).toEqual({
+      black: 'peer-a',
+      white: 'peer-z'
+    })
+  })
+
   it('同步落子时校验座位、手数和消息幂等', () => {
     let host = createOnlineState({
       roomCode: 'A100',
@@ -336,7 +388,7 @@ describe('湖工五子棋联机协议', () => {
     expect(secondSnapshot.snapshot.remotePeerId).toBe('guest-one')
   })
 
-  it('连接等待超时后先切换 tracker 后备，后备仍失败才提示本地降级', () => {
+  it('连接等待超时后会在 HF、Nostr 和 tracker 之间多轮重试，最后才提示本地降级', () => {
     const host = createOnlineState({
       roomCode: 'TIME',
       role: 'host',
@@ -354,9 +406,17 @@ describe('湖工五子棋联机协议', () => {
     expect(timedOut.sessionId).toBe('TIME')
     expect(timedOut.moves).toEqual([])
 
-    const fallbackFailed = markOnlineTimeout(timedOut)
+    const secondRetry = markOnlineTimeout(timedOut)
+    expect(secondRetry.onlineStatus).toBe('retrying')
+    expect(secondRetry.onlineStrategy).toBe('hf-relay')
+    expect(secondRetry.connectionMessage).toContain('HF 中转')
+
+    const fallbackFailed = markOnlineTimeout({
+      ...secondRetry,
+      onlineRetryAttempts: 5
+    })
     expect(fallbackFailed.onlineStatus).toBe('failed')
-    expect(fallbackFailed.onlineStrategy).toBe('torrent')
+    expect(fallbackFailed.onlineStrategy).toBe('hf-relay')
     expect(fallbackFailed.connectionMessage).toContain('公共信令连接超时')
     expect(fallbackFailed.moves).toEqual([])
   })
@@ -584,6 +644,133 @@ describe('湖工五子棋联机协议', () => {
       message: { type: 'move', messageId: 'move-b' },
       peerId: 'peer-b'
     })
+  })
+
+  it('HF 中转轮询发现移动端 peer 过期后会用同一 peerId 自动重入房间并继续拉取事件', async () => {
+    let joinAttempts = 0
+    let pollAttempts = 0
+    const events = []
+    const fetchImpl = async (url, options = {}) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith('/join')) {
+        joinAttempts += 1
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            room_code: 'ROOM1',
+            peer_id: 'peer-a',
+            cursor: joinAttempts === 1 ? 1 : 2,
+            peers: joinAttempts === 1 ? ['peer-a'] : ['peer-a', 'peer-b']
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/poll')) {
+        pollAttempts += 1
+        if (pollAttempts === 1) {
+          return {
+            ok: false,
+            status: 404,
+            json: async () => ({ success: false, error: '房间或 peer 不存在' })
+          }
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            cursor: 3,
+            peers: ['peer-a', 'peer-b'],
+            events: [
+              {
+                id: 3,
+                type: 'message',
+                peer_id: 'peer-b',
+                message: { type: 'move', messageId: 'move-after-rejoin' }
+              }
+            ]
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/leave')) {
+        return {
+          ok: true,
+          json: async () => ({ success: true })
+        }
+      }
+      throw new Error(`unexpected ${parsed.pathname}`)
+    }
+
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'room-1',
+      peerId: 'peer-a',
+      fetchImpl,
+      pollIntervalMs: 0,
+      onEvent: (event) => events.push(event)
+    })
+
+    await client.pollOnce()
+    await client.close()
+
+    expect(joinAttempts).toBe(2)
+    expect(pollAttempts).toBe(2)
+    expect(events).toContainEqual({ type: 'peer_join', peerId: 'peer-b' })
+    expect(events).toContainEqual({
+      type: 'message',
+      message: { type: 'move', messageId: 'move-after-rejoin' },
+      peerId: 'peer-b'
+    })
+  })
+
+  it('HF 中转发送遇到短暂失败会重试，避免移动网络抖动直接断开对局', async () => {
+    let sendAttempts = 0
+    const fetchImpl = async (url) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith('/join')) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            room_code: 'ROOM1',
+            peer_id: 'peer-a',
+            cursor: 1,
+            peers: ['peer-a', 'peer-b']
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/send')) {
+        sendAttempts += 1
+        if (sendAttempts === 1) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({ success: false, error: '服务临时不可用' })
+          }
+        }
+        return {
+          ok: true,
+          json: async () => ({ success: true, event_id: 2, cursor: 2 })
+        }
+      }
+      if (parsed.pathname.endsWith('/leave')) {
+        return {
+          ok: true,
+          json: async () => ({ success: true })
+        }
+      }
+      throw new Error(`unexpected ${parsed.pathname}`)
+    }
+
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'room-1',
+      peerId: 'peer-a',
+      fetchImpl,
+      pollIntervalMs: 0
+    })
+
+    await client.send({ type: 'move', messageId: 'retry-send' }, 'peer-b')
+    await client.close()
+
+    expect(sendAttempts).toBe(2)
   })
 
   it('兼容新版 Trystero makeAction 对象返回值', async () => {

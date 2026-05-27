@@ -470,6 +470,9 @@ async function startMatchedGame(match, source = '') {
 
   await connectOnlineRoom(match.role, match.roomCode, {
     fromMatch: true,
+    match,
+    peerId: lobbyClient?.selfPeerId || matchmakingState.selfPeerId,
+    selfPeerId: matchmakingState.selfPeerId || lobbyClient?.selfPeerId || '',
     statusMessage: '匹配成功，正在等待 PK 对局连接。'
   })
 }
@@ -520,7 +523,11 @@ function armOnlineTimeout(role = state.role, roomCode = state.sessionId) {
     if (nextState.onlineStatus === 'retrying') {
       void connectOnlineRoom(role, roomCode, {
         strategy: nextState.onlineStrategy,
-        statusMessage: nextState.connectionMessage
+        statusMessage: nextState.connectionMessage,
+        match: state.matchPair || null,
+        selfPeerId: state.localPeerId,
+        peerId: state.localPeerId,
+        onlineRetryAttempts: nextState.onlineRetryAttempts
       })
     }
   }, ONLINE_CONNECT_TIMEOUT_MS)
@@ -570,10 +577,11 @@ function strategyLabel(strategy) {
   return strategy === 'torrent' ? 'tracker 后备' : 'Nostr relay'
 }
 
-function createNetworkRoom({ roomCode, strategy, onEvent }) {
+function createNetworkRoom({ roomCode, strategy, onEvent, peerId }) {
   if (strategy === HF_RELAY_STRATEGY) {
     return createHfRelayGomokuRoom({
       roomCode,
+      peerId,
       baseUrl: GOMOKU_RELAY_BASE_URL,
       onEvent
     })
@@ -605,13 +613,17 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
     onlineClient = await createNetworkRoom({
       roomCode,
       strategy,
+      peerId: options.peerId,
       onEvent: handleOnlineEvent
     })
     state = createOnlineState({
       roomCode,
       role,
-      selfPeerId: onlineClient.selfPeerId,
-      strategy: onlineClient.strategy || strategy
+      selfPeerId: options.selfPeerId || onlineClient.selfPeerId,
+      transportPeerId: onlineClient.selfPeerId,
+      strategy: onlineClient.strategy || strategy,
+      match: options.match || null,
+      onlineRetryAttempts: options.onlineRetryAttempts || 0
     })
     if (options.statusMessage) {
       state = {
@@ -623,20 +635,40 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
     armOnlineTimeout(role, roomCode)
   } catch (error) {
     onlineClient = null
-    state = {
-      ...createOnlineState({
-        roomCode,
-        role,
-        selfPeerId: '',
-        strategy
-      }),
-      onlineStatus: 'failed',
-      connectionMessage: `${strategyLabel(strategy)} 联机服务不可用：${error?.message || '请稍后重试'}`,
-      lastError: ''
-    }
+    const failedState = createOnlineState({
+      roomCode,
+      role,
+      selfPeerId: options.selfPeerId || state.localPeerId || '',
+      strategy,
+      match: options.match || state.matchPair || null,
+      onlineRetryAttempts: options.onlineRetryAttempts || state.onlineRetryAttempts || 0
+    })
+    const retryState = markOnlineTimeout(failedState)
+    state =
+      retryState.onlineStatus === 'retrying'
+        ? {
+            ...retryState,
+            connectionMessage: `${strategyLabel(strategy)} 联机服务不可用，${retryState.connectionMessage}`
+          }
+        : {
+            ...failedState,
+            onlineStatus: 'failed',
+            connectionMessage: `${strategyLabel(strategy)} 联机服务不可用：${error?.message || '请稍后重试'}`,
+            lastError: ''
+          }
     onlineError = state.connectionMessage
     if (options.fromMatch && activeMatchRoomCode === roomCode) {
       activeMatchRoomCode = ''
+    }
+    if (state.onlineStatus === 'retrying') {
+      void connectOnlineRoom(role, roomCode, {
+        ...options,
+        strategy: state.onlineStrategy,
+        statusMessage: state.connectionMessage,
+        selfPeerId: state.localPeerId,
+        peerId: state.localPeerId,
+        onlineRetryAttempts: state.onlineRetryAttempts
+      })
     }
   } finally {
     onlineBusy = false
