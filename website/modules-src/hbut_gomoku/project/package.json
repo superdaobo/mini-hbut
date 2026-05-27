@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "test": "node ../../../../node_modules/vitest/vitest.mjs run --passWithNoTests",
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

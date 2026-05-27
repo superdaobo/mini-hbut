@@ -998,6 +998,9 @@ export default {
 
     buildLeaderboardErrorMessage(error, scope) {
       const message = error?.message || '排行榜加载失败'
+      if (/abort|timeout|signal is aborted/i.test(message)) {
+        return '排行榜请求超时，请稍后重试'
+      }
       if (!this.hasClassContext && (scope === 'class' || scope === 'class_total' || /class_name/i.test(message))) {
         return '当前未注入班级信息，班级榜暂不可用，已自动切换为全校榜。'
       }

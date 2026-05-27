@@ -2,6 +2,9 @@ import { PLAYERS, createInitialState, placeStone, restartGame } from './gomoku.j
 
 export const ONLINE_APP_ID = 'mini-hbut-gomoku'
 export const MATCHMAKING_ROOM_CODE = 'HBUTGOMOKUMATCH'
+export const HF_RELAY_STRATEGY = 'hf-relay'
+export const DEFAULT_HF_RELAY_BASE_URL =
+  'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay'
 export const TRYSTERO_NOSTR_URL = 'https://esm.sh/trystero/nostr?bundle'
 export const TRYSTERO_TORRENT_URL = 'https://esm.sh/@trystero-p2p/torrent?bundle'
 export const DEFAULT_NOSTR_RELAY_URLS = Object.freeze([
@@ -15,12 +18,14 @@ export const DEFAULT_TORRENT_TRACKER_URLS = Object.freeze([
 ])
 
 const ONLINE_STRATEGIES = Object.freeze({
+  hfRelay: HF_RELAY_STRATEGY,
   nostr: 'nostr',
   torrent: 'torrent'
 })
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const MATCH_ROOM_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+const MATCHMAKING_PEER_ACTIVE_MS = 30_000
 
 export const normalizeRoomCode = (value) =>
   String(value || '')
@@ -84,16 +89,26 @@ const hashToToken = (value) => {
 }
 
 const normalizePeerId = (peerId) => String(peerId || '').trim()
+const normalizeSentAt = (value, fallback = Date.now()) => {
+  const time = Number(value)
+  return Number.isFinite(time) && time > 0 ? time : fallback
+}
+
+const isLobbyPeerActive = (peer, now = Date.now()) =>
+  Boolean(peer?.peerId) &&
+  now - normalizeSentAt(peer.lastSeenAt, now) <= MATCHMAKING_PEER_ACTIVE_MS
 
 export const createMatchmakingState = ({ selfPeerId = '' } = {}) => {
   const normalizedSelf = normalizePeerId(selfPeerId)
+  const now = Date.now()
   return {
     selfPeerId: normalizedSelf,
     peers: normalizedSelf
       ? {
           [normalizedSelf]: {
             peerId: normalizedSelf,
-            queued: false
+            queued: false,
+            lastSeenAt: now
           }
         }
       : {},
@@ -104,10 +119,12 @@ export const createMatchmakingState = ({ selfPeerId = '' } = {}) => {
   }
 }
 
-export const getMatchmakingOnlineCount = (state) => Object.keys(state?.peers || {}).length
+export const getMatchmakingOnlineCount = (state) =>
+  Object.values(state?.peers || {}).filter((peer) => isLobbyPeerActive(peer)).length
 
 export const getMatchmakingQueueCount = (state) =>
-  Object.values(state?.peers || {}).filter((peer) => peer?.queued).length
+  Object.values(state?.peers || {}).filter((peer) => peer?.queued && isLobbyPeerActive(peer))
+    .length
 
 export const resolveMatchPair = (selfPeerId, opponentPeerId) => {
   const self = normalizePeerId(selfPeerId)
@@ -127,45 +144,73 @@ export const resolveMatchPair = (selfPeerId, opponentPeerId) => {
   }
 }
 
-export const buildLobbyPresenceMessage = ({ selfPeerId = '', queued = false } = {}) => ({
+export const buildLobbyPresenceMessage = ({ selfPeerId = '', queued = false, sentAt = Date.now() } = {}) => ({
   type: 'lobby_presence',
   messageId: createMessageId(selfPeerId, 'lobby_presence', queued ? 1 : 0),
   senderId: normalizePeerId(selfPeerId),
-  queued: Boolean(queued)
+  queued: Boolean(queued),
+  sentAt: normalizeSentAt(sentAt)
 })
 
-export const buildQueueMessage = ({ selfPeerId = '' } = {}) => ({
+export const buildQueueMessage = ({ selfPeerId = '', sentAt = Date.now() } = {}) => ({
   type: 'lobby_queue',
   messageId: createMessageId(selfPeerId, 'lobby_queue', 1),
   senderId: normalizePeerId(selfPeerId),
-  queued: true
+  queued: true,
+  sentAt: normalizeSentAt(sentAt)
 })
 
-export const buildCancelMessage = ({ selfPeerId = '' } = {}) => ({
+export const buildCancelMessage = ({ selfPeerId = '', sentAt = Date.now() } = {}) => ({
   type: 'lobby_cancel',
   messageId: createMessageId(selfPeerId, 'lobby_cancel', 0),
   senderId: normalizePeerId(selfPeerId),
-  queued: false
+  queued: false,
+  sentAt: normalizeSentAt(sentAt)
 })
 
-export const buildMatchStartMessage = (pair, senderId = '') => ({
+export const buildMatchStartMessage = (pair, senderId = '', sentAt = Date.now()) => ({
   type: 'lobby_match_start',
   messageId: createMessageId(senderId, 'lobby_match_start', 1),
   senderId: normalizePeerId(senderId),
   roomCode: pair?.roomCode || '',
   hostPeerId: pair?.hostPeerId || '',
-  guestPeerId: pair?.guestPeerId || ''
+  guestPeerId: pair?.guestPeerId || '',
+  sentAt: normalizeSentAt(sentAt)
 })
 
-const upsertLobbyPeer = (state, peerId, queued) => {
+const pruneInactiveQueuedPeers = (state, now = Date.now()) => {
+  const peers = Object.fromEntries(
+    Object.entries(state.peers || {}).map(([peerId, peer]) => [
+      peerId,
+      peer?.queued && !isLobbyPeerActive(peer, now)
+        ? {
+            ...peer,
+            queued: false
+          }
+        : peer
+    ])
+  )
+  return {
+    ...state,
+    peers,
+    selfQueued:
+      Boolean(state.selfQueued) && isLobbyPeerActive(peers[state.selfPeerId], now)
+        ? Boolean(peers[state.selfPeerId]?.queued)
+        : false
+  }
+}
+
+const upsertLobbyPeer = (state, peerId, queued, lastSeenAt = Date.now()) => {
   const normalizedPeer = normalizePeerId(peerId)
   if (!normalizedPeer) return state
+  const seenAt = normalizeSentAt(lastSeenAt)
   const peers = {
     ...state.peers,
     [normalizedPeer]: {
       ...(state.peers?.[normalizedPeer] || {}),
       peerId: normalizedPeer,
-      queued: Boolean(queued)
+      queued: Boolean(queued),
+      lastSeenAt: seenAt
     }
   }
   return {
@@ -175,9 +220,15 @@ const upsertLobbyPeer = (state, peerId, queued) => {
   }
 }
 
-const resolveQueuedOpponent = (state) =>
+const resolveQueuedOpponent = (state, now = Date.now()) =>
   Object.values(state.peers || {})
-    .filter((peer) => peer?.peerId && peer.peerId !== state.selfPeerId && peer.queued)
+    .filter(
+      (peer) =>
+        peer?.peerId &&
+        peer.peerId !== state.selfPeerId &&
+        peer.queued &&
+        isLobbyPeerActive(peer, now)
+    )
     .map((peer) => peer.peerId)
     .sort((left, right) => left.localeCompare(right))[0] || ''
 
@@ -247,6 +298,7 @@ const applyMatchStartMessage = (state, message = {}, senderId = '') => {
 export const applyLobbyMessage = (state, message = {}, peerId = '') => {
   if (!state) return state
   const senderId = normalizePeerId(message.senderId || peerId)
+  const sentAt = normalizeSentAt(message.sentAt)
   if (message.messageId && state.appliedLobbyMessageIds?.includes(message.messageId)) return state
   if (peerId && senderId && senderId !== peerId) {
     return {
@@ -255,21 +307,21 @@ export const applyLobbyMessage = (state, message = {}, peerId = '') => {
     }
   }
 
-  let next = state
+  let next = pruneInactiveQueuedPeers(state, sentAt)
   if (message.type === 'lobby_presence') {
-    next = upsertLobbyPeer(state, senderId, Boolean(message.queued))
+    next = upsertLobbyPeer(next, senderId, Boolean(message.queued), sentAt)
   } else if (message.type === 'lobby_queue') {
-    next = upsertLobbyPeer(state, senderId, true)
+    next = upsertLobbyPeer(next, senderId, true, sentAt)
     if (senderId === state.selfPeerId) {
-      const opponentPeerId = resolveQueuedOpponent(next)
+      const opponentPeerId = resolveQueuedOpponent(next, sentAt)
       if (opponentPeerId) next = withResolvedMatch(next, opponentPeerId)
-    } else if (next.selfQueued) {
+    } else if (next.selfQueued && isLobbyPeerActive(next.peers?.[state.selfPeerId], sentAt)) {
       next = withResolvedMatch(next, senderId)
     }
   } else if (message.type === 'lobby_cancel') {
-    next = clearMatchIfPeerInvolved(upsertLobbyPeer(state, senderId, false), senderId)
+    next = clearMatchIfPeerInvolved(upsertLobbyPeer(next, senderId, false, sentAt), senderId)
   } else if (message.type === 'lobby_leave') {
-    const peers = { ...(state.peers || {}) }
+    const peers = { ...(next.peers || {}) }
     delete peers[senderId]
     next = clearMatchIfPeerInvolved(
       {
@@ -288,10 +340,18 @@ export const applyLobbyMessage = (state, message = {}, peerId = '') => {
 }
 
 const normalizeOnlineStrategy = (strategy) =>
-  strategy === ONLINE_STRATEGIES.torrent ? ONLINE_STRATEGIES.torrent : ONLINE_STRATEGIES.nostr
+  strategy === ONLINE_STRATEGIES.hfRelay
+    ? ONLINE_STRATEGIES.hfRelay
+    : strategy === ONLINE_STRATEGIES.torrent
+      ? ONLINE_STRATEGIES.torrent
+      : ONLINE_STRATEGIES.nostr
 
 export const nextOnlineStrategy = (strategy) =>
-  normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.nostr ? ONLINE_STRATEGIES.torrent : ''
+  normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.hfRelay
+    ? ONLINE_STRATEGIES.nostr
+    : normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.nostr
+      ? ONLINE_STRATEGIES.torrent
+      : ''
 
 const getStrategyRelayUrls = (strategy) =>
   normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.torrent
@@ -299,7 +359,11 @@ const getStrategyRelayUrls = (strategy) =>
     : DEFAULT_NOSTR_RELAY_URLS
 
 const getStrategyLabel = (strategy) =>
-  normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.torrent ? 'tracker 后备' : 'Nostr relay'
+  normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.hfRelay
+    ? 'HF 中转'
+    : normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.torrent
+      ? 'tracker 后备'
+      : 'Nostr relay'
 
 const sameRoom = (state, message = {}) => {
   const stateRoom = normalizeRoomCode(state?.sessionId)
@@ -405,7 +469,10 @@ export const markOnlineTimeout = (state) => ({
     ? {
         onlineStatus: 'retrying',
         onlineStrategy: nextOnlineStrategy(state.onlineStrategy),
-        connectionMessage: 'Nostr relay 连接超时，正在切换 tracker 后备。',
+        connectionMessage:
+          normalizeOnlineStrategy(state.onlineStrategy) === ONLINE_STRATEGIES.hfRelay
+            ? 'HF 中转连接超时，正在切换公共 relay 后备。'
+            : 'Nostr relay 连接超时，正在切换 tracker 后备。',
         lastError: ''
       }
     : {
@@ -656,6 +723,164 @@ export const loadTrysteroStrategy = (strategy) =>
   normalizeOnlineStrategy(strategy) === ONLINE_STRATEGIES.torrent
     ? loadTrysteroTorrent()
     : loadTrysteroNostr()
+
+const resolveRelayBaseUrl = (baseUrl = DEFAULT_HF_RELAY_BASE_URL) => {
+  const url = String(baseUrl || DEFAULT_HF_RELAY_BASE_URL).trim().replace(/\/+$/, '')
+  if (!url) throw new Error('HF 中转地址不能为空')
+  return url
+}
+
+const createRelayPeerId = () => {
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+      ? Array.from(crypto.getRandomValues(new Uint8Array(8)))
+          .map((value) => value.toString(16).padStart(2, '0'))
+          .join('')
+      : Math.random().toString(36).slice(2, 14)
+  return `web-${Date.now().toString(36)}-${random}`.slice(0, 80)
+}
+
+const fetchRelayJson = async (fetchImpl, url, options = {}) => {
+  const response = await fetchImpl(url, {
+    ...options,
+    headers: {
+      'content-type': 'application/json',
+      ...(options.headers || {})
+    }
+  })
+  let body = null
+  try {
+    body = await response.json()
+  } catch {
+    body = null
+  }
+  if (!response.ok || body?.success === false) {
+    throw new Error(body?.error || `HF 中转请求失败 ${response.status || ''}`.trim())
+  }
+  return body || {}
+}
+
+export const createHfRelayGomokuRoom = async ({
+  roomCode = '',
+  peerId = '',
+  baseUrl = DEFAULT_HF_RELAY_BASE_URL,
+  fetchImpl = globalThis.fetch?.bind(globalThis),
+  pollIntervalMs = 1200,
+  onEvent = () => {}
+} = {}) => {
+  const normalizedRoom = normalizeRoomCode(roomCode)
+  if (!normalizedRoom) throw new Error('房间号不能为空')
+  if (typeof fetchImpl !== 'function') throw new Error('当前环境不支持 fetch')
+
+  const relayBase = resolveRelayBaseUrl(baseUrl)
+  let closed = false
+  let polling = false
+  let cursor = 0
+  let knownPeers = new Set()
+  let pollTimer = 0
+
+  const selfPeerId = normalizePeerId(peerId) || createRelayPeerId()
+  const emitPeerList = (peers = []) => {
+    for (const peer of peers) {
+      const normalizedPeer = normalizePeerId(peer)
+      if (!normalizedPeer || normalizedPeer === selfPeerId || knownPeers.has(normalizedPeer)) continue
+      knownPeers.add(normalizedPeer)
+      onEvent({ type: 'peer_join', peerId: normalizedPeer })
+    }
+  }
+  const emitRelayEvent = (event = {}) => {
+    const peer = normalizePeerId(event.peer_id || event.peerId)
+    if (!peer || peer === selfPeerId) return
+    if (event.type === 'peer_join') {
+      if (!knownPeers.has(peer)) {
+        knownPeers.add(peer)
+        onEvent({ type: 'peer_join', peerId: peer })
+      }
+      return
+    }
+    if (event.type === 'peer_leave') {
+      knownPeers.delete(peer)
+      onEvent({ type: 'peer_leave', peerId: peer })
+      return
+    }
+    if (event.type === 'message') {
+      onEvent({ type: 'message', message: event.message || {}, peerId: peer })
+    }
+  }
+
+  const joinBody = await fetchRelayJson(fetchImpl, `${relayBase}/join`, {
+    method: 'POST',
+    body: JSON.stringify({
+      room_code: normalizedRoom,
+      peer_id: selfPeerId
+    })
+  })
+  cursor = Number(joinBody.cursor || 0) || 0
+  emitPeerList(joinBody.peers || [])
+
+  const pollOnce = async () => {
+    if (closed || polling) return
+    polling = true
+    try {
+      const params = new URLSearchParams({
+        room_code: normalizedRoom,
+        peer_id: selfPeerId,
+        cursor: String(cursor)
+      })
+      const body = await fetchRelayJson(fetchImpl, `${relayBase}/poll?${params.toString()}`)
+      cursor = Number(body.cursor || cursor) || cursor
+      emitPeerList(body.peers || [])
+      for (const event of body.events || []) {
+        emitRelayEvent(event)
+      }
+    } finally {
+      polling = false
+    }
+  }
+
+  if (pollIntervalMs > 0) {
+    pollTimer = setInterval(() => {
+      void pollOnce().catch(() => {
+        // 下一轮轮询会继续重试，短暂网络抖动不直接断开对局。
+      })
+    }, pollIntervalMs)
+  }
+
+  return {
+    roomCode: normalizedRoom,
+    selfPeerId,
+    strategy: ONLINE_STRATEGIES.hfRelay,
+    pollOnce,
+    async send(message, targetPeerId = '') {
+      await fetchRelayJson(fetchImpl, `${relayBase}/send`, {
+        method: 'POST',
+        body: JSON.stringify({
+          room_code: normalizedRoom,
+          peer_id: selfPeerId,
+          target_peer_id: normalizePeerId(targetPeerId),
+          message
+        })
+      })
+    },
+    async close() {
+      if (closed) return
+      closed = true
+      if (pollTimer) clearInterval(pollTimer)
+      pollTimer = 0
+      try {
+        await fetchRelayJson(fetchImpl, `${relayBase}/leave`, {
+          method: 'POST',
+          body: JSON.stringify({
+            room_code: normalizedRoom,
+            peer_id: selfPeerId
+          })
+        })
+      } catch {
+        // 页面关闭或切换模式时忽略离线失败。
+      }
+    }
+  }
+}
 
 const resolveTrysteroAction = (action) => {
   // 兼容 Trystero 旧版数组 API 和新版对象 API，避免大厅连接在运行时失败。

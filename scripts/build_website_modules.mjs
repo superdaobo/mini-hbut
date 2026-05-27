@@ -8,6 +8,23 @@ const SOURCE_ROOT = path.resolve(process.env.MODULE_SOURCE_ROOT || 'website/modu
 const OUTPUT_ROOT = path.resolve(process.env.MODULE_OUTPUT_ROOT || 'website/public/modules')
 const PUBLISH_CHANNELS = Object.freeze(['main', 'dev', 'latest'])
 const SHARED_CHANNEL = 'latest'
+const cliArgs = process.argv.slice(2)
+const readCliValue = (name) => {
+  const prefix = `--${name}=`
+  const inline = cliArgs.find((item) => item.startsWith(prefix))
+  if (inline) return inline.slice(prefix.length)
+  const index = cliArgs.indexOf(`--${name}`)
+  if (index >= 0) return cliArgs[index + 1] || ''
+  return ''
+}
+const MODULE_FILTER = new Set(
+  String(readCliValue('modules') || process.env.MODULE_FILTER || process.env.MODULE_IDS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+)
+const SHOULD_MERGE_EXISTING_CATALOG =
+  MODULE_FILTER.size > 0 || cliArgs.includes('--merge-catalog') || process.env.MODULE_MERGE_CATALOG === '1'
 const SOURCE_CHANNEL = String(
   process.env.MODULE_SOURCE_CHANNEL || process.env.MODULE_CHANNEL || process.env.GITHUB_REF_NAME || 'local'
 )
@@ -94,6 +111,15 @@ const listModuleDirs = () => {
     .filter((item) => item.isDirectory())
     .map((item) => path.join(SOURCE_ROOT, item.name))
     .filter((dir) => fs.existsSync(path.join(dir, 'module.json')))
+}
+
+const readJsonIfExists = (filePath) => {
+  try {
+    if (!fs.existsSync(filePath)) return null
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  } catch {
+    return null
+  }
 }
 
 const installModuleDeps = (sourceDir) => {
@@ -228,6 +254,14 @@ for (const moduleDir of listModuleDirs()) {
     continue
   }
   const moduleId = sanitizeToken(meta.id, 'module.id')
+  if (
+    MODULE_FILTER.size > 0 &&
+    !MODULE_FILTER.has(moduleId) &&
+    !MODULE_FILTER.has(path.basename(moduleDir))
+  ) {
+    console.log(`[modules] skipping filtered module: ${moduleId}`)
+    continue
+  }
   const moduleName = String(meta.name || moduleId).trim() || moduleId
   const entryPath = String(meta.entry_path || 'index.html').trim() || 'index.html'
   const minCompatibleVersion = resolveVersionField(meta.min_compatible_version, 'module.min_compatible_version')
@@ -264,9 +298,21 @@ for (const moduleDir of listModuleDirs()) {
 
 ensureDir(OUTPUT_ROOT)
 for (const publishChannel of PUBLISH_CHANNELS) {
-  const channelModules = catalogModulesByChannel.get(publishChannel) || []
-  channelModules.sort((a, b) => a.order - b.order)
   const channelOutputRoot = resolveChannelOutputRoot(publishChannel)
+  const builtModules = catalogModulesByChannel.get(publishChannel) || []
+  let channelModules = builtModules
+  if (SHOULD_MERGE_EXISTING_CATALOG) {
+    const existingCatalog = readJsonIfExists(path.join(channelOutputRoot, 'catalog.json'))
+    const mergedById = new Map()
+    for (const item of existingCatalog?.modules || []) {
+      if (item?.id) mergedById.set(item.id, item)
+    }
+    for (const item of builtModules) {
+      if (item?.id) mergedById.set(item.id, item)
+    }
+    channelModules = Array.from(mergedById.values())
+  }
+  channelModules.sort((a, b) => a.order - b.order)
   ensureDir(channelOutputRoot)
   const catalog = {
     schema_version: 1,

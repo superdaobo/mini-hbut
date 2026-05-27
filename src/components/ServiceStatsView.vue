@@ -98,6 +98,8 @@ const statusClass = computed(() => ({
   'is-warn': health.value.status && health.value.status !== 'ok'
 }))
 
+const displayClientVersion = computed(() => health.value.cloud_sync.latest_version || '')
+
 const overviewItems = computed(() => [
   {
     label: 'OCR 今日',
@@ -310,7 +312,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="status-meta">
-        <span>版本 {{ health.service.version || '未知' }}</span>
+        <span>版本 {{ displayClientVersion || '未知' }}</span>
         <span>更新 {{ lastUpdatedAt || '等待中' }}</span>
       </div>
     </section>

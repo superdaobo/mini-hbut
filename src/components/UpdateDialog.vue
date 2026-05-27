@@ -245,8 +245,8 @@ onMounted(() => {
 
       <div class="dialog-actions">
         <template v-if="updateInfo?.hasUpdate">
-          <button class="btn-secondary" @click="handleSkip">跳过此版本</button>
-          <button class="btn-primary" @click="handleDownload" :disabled="downloading || showSourceTable">
+          <button class="btn-secondary update-action-secondary" @click="handleSkip">跳过此版本</button>
+          <button class="btn-primary update-action-primary" @click="handleDownload" :disabled="downloading || showSourceTable">
             {{ downloading ? '下载中...' : showSourceTable ? '请选择线路' : '立即更新' }}
           </button>
         </template>
@@ -515,6 +515,8 @@ onMounted(() => {
 
 .dialog-actions button:active { transform: scale(0.98); }
 .dialog-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+.dialog-actions .update-action-secondary { flex: 0 0 34%; }
+.dialog-actions .update-action-primary { flex: 1.35; }
 .btn-primary { background: var(--ui-primary, #6366f1); color: white; }
 .btn-secondary { background: #e5e7eb; color: #374151; }
 

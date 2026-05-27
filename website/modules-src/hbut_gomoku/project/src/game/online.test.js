@@ -19,6 +19,7 @@ import {
   buildRestartMessage,
   buildSnapshotMessage,
   createMatchmakingState,
+  createHfRelayGomokuRoom,
   createOnlineState,
   createRoomCode,
   createTrysteroGomokuRoom,
@@ -429,6 +430,162 @@ describe('湖工五子棋联机协议', () => {
     expect(calls.at(-1)).toEqual(['leave'])
   })
 
+  it('使用 HF 中转适配器加入房间、收发消息、轮询事件并关闭连接', async () => {
+    const calls = []
+    const events = []
+    const fetchImpl = async (url, options = {}) => {
+      const parsed = new URL(url)
+      calls.push([parsed.pathname, options.method || 'GET', options.body || ''])
+      if (parsed.pathname.endsWith('/join')) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            room_code: 'ROOM1',
+            peer_id: 'peer-a',
+            cursor: 3,
+            peers: ['peer-b', 'peer-a']
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/send')) {
+        return {
+          ok: true,
+          json: async () => ({ success: true, event_id: 4, cursor: 4 })
+        }
+      }
+      if (parsed.pathname.endsWith('/poll')) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            cursor: 5,
+            peers: ['peer-a', 'peer-b'],
+            events: [
+              {
+                id: 5,
+                type: 'message',
+                peer_id: 'peer-b',
+                message: { type: 'move', messageId: 'move-b' }
+              }
+            ]
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/leave')) {
+        return {
+          ok: true,
+          json: async () => ({ success: true })
+        }
+      }
+      throw new Error(`unexpected ${parsed.pathname}`)
+    }
+
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'room-1',
+      peerId: 'peer-a',
+      baseUrl: 'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay',
+      fetchImpl,
+      pollIntervalMs: 0,
+      onEvent: (event) => events.push(event)
+    })
+
+    expect(client.selfPeerId).toBe('peer-a')
+    expect(client.roomCode).toBe('ROOM1')
+    expect(client.strategy).toBe('hf-relay')
+    expect(events).toEqual([{ type: 'peer_join', peerId: 'peer-b' }])
+
+    await client.send({ type: 'hello', messageId: 'hello-a' }, 'peer-b')
+    await client.pollOnce()
+    await client.close()
+
+    const sendBody = JSON.parse(calls.find((item) => item[0].endsWith('/send'))[2])
+    expect(sendBody).toEqual({
+      room_code: 'ROOM1',
+      peer_id: 'peer-a',
+      target_peer_id: 'peer-b',
+      message: { type: 'hello', messageId: 'hello-a' }
+    })
+    expect(calls.some((item) => item[0].endsWith('/poll'))).toBe(true)
+    expect(calls.at(-1)[0]).toMatch(/\/leave$/)
+    expect(events.at(-1)).toEqual({
+      type: 'message',
+      message: { type: 'move', messageId: 'move-b' },
+      peerId: 'peer-b'
+    })
+  })
+
+  it('HF 中转发送本端消息后不推进轮询游标，避免跳过未拉取的对手事件', async () => {
+    const pollUrls = []
+    const events = []
+    const fetchImpl = async (url, options = {}) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith('/join')) {
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            room_code: 'ROOM1',
+            peer_id: 'peer-a',
+            cursor: 1,
+            peers: ['peer-a']
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/send')) {
+        return {
+          ok: true,
+          json: async () => ({ success: true, event_id: 3, cursor: 3 })
+        }
+      }
+      if (parsed.pathname.endsWith('/poll')) {
+        pollUrls.push(parsed)
+        return {
+          ok: true,
+          json: async () => ({
+            success: true,
+            cursor: 3,
+            peers: ['peer-a', 'peer-b'],
+            events: [
+              {
+                id: 2,
+                type: 'message',
+                peer_id: 'peer-b',
+                message: { type: 'move', messageId: 'move-b' }
+              }
+            ]
+          })
+        }
+      }
+      if (parsed.pathname.endsWith('/leave')) {
+        return {
+          ok: true,
+          json: async () => ({ success: true })
+        }
+      }
+      throw new Error(`unexpected ${parsed.pathname}`)
+    }
+
+    const client = await createHfRelayGomokuRoom({
+      roomCode: 'room-1',
+      peerId: 'peer-a',
+      fetchImpl,
+      pollIntervalMs: 0,
+      onEvent: (event) => events.push(event)
+    })
+
+    await client.send({ type: 'hello', messageId: 'hello-a' })
+    await client.pollOnce()
+    await client.close()
+
+    expect(pollUrls[0].searchParams.get('cursor')).toBe('1')
+    expect(events).toContainEqual({
+      type: 'message',
+      message: { type: 'move', messageId: 'move-b' },
+      peerId: 'peer-b'
+    })
+  })
+
   it('兼容新版 Trystero makeAction 对象返回值', async () => {
     const calls = []
     const handlers = {}
@@ -711,6 +868,54 @@ describe('湖工五子棋联机协议', () => {
     expect(localPair.roomCode).toBe(remotePair.roomCode)
     expect(localPair.role).toBe('guest')
     expect(remotePair.role).toBe('host')
+  })
+
+  it('匹配大厅忽略超过活跃窗口的旧排队 peer，避免配到已经离开的对手', () => {
+    const now = Date.now()
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-z'
+    })
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-old',
+      sentAt: now - 60_000
+    }), 'peer-old')
+
+    const queued = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-z',
+      sentAt: now
+    }), 'peer-z')
+
+    expect(queued.selfQueued).toBe(true)
+    expect(queued.match).toBe(null)
+    expect(getMatchmakingQueueCount(queued)).toBe(1)
+  })
+
+  it('匹配大厅收到活跃排队心跳后可以正常生成 PK 对局', () => {
+    const now = Date.now()
+    let lobby = createMatchmakingState({
+      selfPeerId: 'peer-z'
+    })
+    lobby = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-a',
+      sentAt: now - 60_000
+    }), 'peer-a')
+    lobby = applyLobbyMessage(lobby, buildLobbyPresenceMessage({
+      selfPeerId: 'peer-a',
+      queued: true,
+      sentAt: now
+    }), 'peer-a')
+
+    const queued = applyLobbyMessage(lobby, buildQueueMessage({
+      selfPeerId: 'peer-z',
+      sentAt: now
+    }), 'peer-z')
+    const pair = resolveMatchPair('peer-z', 'peer-a')
+
+    expect(queued.selfQueued).toBe(false)
+    expect(queued.match).toMatchObject({
+      roomCode: pair.roomCode,
+      opponentPeerId: 'peer-a'
+    })
   })
 
   it('收到对手排队消息时如果自己已在队列中会直接生成 PK 对局', () => {

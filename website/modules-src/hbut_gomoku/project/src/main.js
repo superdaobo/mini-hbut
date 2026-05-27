@@ -8,6 +8,8 @@ import {
   restartGame
 } from './game/gomoku.js'
 import {
+  DEFAULT_HF_RELAY_BASE_URL,
+  HF_RELAY_STRATEGY,
   MATCHMAKING_ROOM_CODE,
   applyLobbyMessage,
   applyLocalMove,
@@ -23,6 +25,7 @@ import {
   buildQueueMessage,
   buildSnapshotMessage,
   createMatchmakingState,
+  createHfRelayGomokuRoom,
   createOnlineState,
   createRoomCode,
   createTrysteroGomokuRoom,
@@ -35,7 +38,9 @@ import {
 
 const MODULE_ID = 'hbut_gomoku'
 const ONLINE_CONNECT_TIMEOUT_MS = 18000
-const DEFAULT_ONLINE_STRATEGY = 'nostr'
+const LOBBY_PRESENCE_INTERVAL_MS = 10_000
+const DEFAULT_ONLINE_STRATEGY = HF_RELAY_STRATEGY
+const DEFAULT_FALLBACK_STRATEGY = 'nostr'
 let state = createInitialState()
 let onlineClient = null
 let lobbyClient = null
@@ -48,8 +53,22 @@ let lobbyBusy = false
 let lobbyStatus = 'offline'
 let lobbyError = ''
 let activeMatchRoomCode = ''
+let lobbyPresenceTimer = 0
 
 const app = document.getElementById('app')
+
+function safeUrlParam(name) {
+  try {
+    return String(new URLSearchParams(window.location.search || '').get(name) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+const GOMOKU_RELAY_BASE_URL =
+  safeUrlParam('gomoku_api') ||
+  safeUrlParam('relay_api') ||
+  DEFAULT_HF_RELAY_BASE_URL
 
 function notifyHostHeight() {
   if (typeof window === 'undefined' || window.parent === window) return
@@ -331,6 +350,7 @@ function createLocalLobbyMessage(type, extra = {}) {
       .toString(36)
       .slice(2, 8)}`,
     senderId,
+    sentAt: Date.now(),
     ...extra
   }
 }
@@ -359,6 +379,20 @@ async function publishLobbyPresence(targetPeerId = '') {
   )
 }
 
+function clearLobbyPresenceHeartbeat() {
+  if (!lobbyPresenceTimer) return
+  window.clearInterval(lobbyPresenceTimer)
+  lobbyPresenceTimer = 0
+}
+
+function startLobbyPresenceHeartbeat() {
+  clearLobbyPresenceHeartbeat()
+  lobbyPresenceTimer = window.setInterval(() => {
+    if (lobbyStatus !== 'online' || !lobbyClient?.selfPeerId) return
+    void publishLobbyPresence()
+  }, LOBBY_PRESENCE_INTERVAL_MS)
+}
+
 async function connectMatchmakingLobby(strategy = DEFAULT_ONLINE_STRATEGY) {
   if (lobbyBusy || lobbyClient) return
   lobbyBusy = true
@@ -367,7 +401,7 @@ async function connectMatchmakingLobby(strategy = DEFAULT_ONLINE_STRATEGY) {
   render()
 
   try {
-    lobbyClient = await createTrysteroGomokuRoom({
+    lobbyClient = await createNetworkRoom({
       roomCode: MATCHMAKING_ROOM_CODE,
       strategy,
       onEvent: handleLobbyEvent
@@ -377,11 +411,19 @@ async function connectMatchmakingLobby(strategy = DEFAULT_ONLINE_STRATEGY) {
     })
     lobbyStatus = 'online'
     await publishLobbyPresence()
+    startLobbyPresenceHeartbeat()
   } catch (error) {
+    if (strategy === HF_RELAY_STRATEGY) {
+      lobbyBusy = false
+      lobbyClient = null
+      await connectMatchmakingLobby(DEFAULT_FALLBACK_STRATEGY)
+      return
+    }
     lobbyClient = null
     matchmakingState = createMatchmakingState()
     lobbyStatus = 'failed'
     lobbyError = `匹配大厅暂时不可用：${error?.message || '请稍后重试'}`
+    clearLobbyPresenceHeartbeat()
   } finally {
     lobbyBusy = false
     render()
@@ -524,7 +566,23 @@ async function resetOnlineClient() {
 }
 
 function strategyLabel(strategy) {
+  if (strategy === HF_RELAY_STRATEGY) return 'HF 中转'
   return strategy === 'torrent' ? 'tracker 后备' : 'Nostr relay'
+}
+
+function createNetworkRoom({ roomCode, strategy, onEvent }) {
+  if (strategy === HF_RELAY_STRATEGY) {
+    return createHfRelayGomokuRoom({
+      roomCode,
+      baseUrl: GOMOKU_RELAY_BASE_URL,
+      onEvent
+    })
+  }
+  return createTrysteroGomokuRoom({
+    roomCode,
+    strategy,
+    onEvent
+  })
 }
 
 async function connectOnlineRoom(role, rawRoomCode, options = {}) {
@@ -544,7 +602,7 @@ async function connectOnlineRoom(role, rawRoomCode, options = {}) {
   try {
     await resetMatchmakingQueue()
     await resetOnlineClient()
-    onlineClient = await createTrysteroGomokuRoom({
+    onlineClient = await createNetworkRoom({
       roomCode,
       strategy,
       onEvent: handleOnlineEvent
@@ -720,6 +778,7 @@ window.addEventListener('resize', syncViewport)
 window.addEventListener('orientationchange', syncViewport)
 window.visualViewport?.addEventListener('resize', syncViewport)
 window.addEventListener('beforeunload', () => {
+  clearLobbyPresenceHeartbeat()
   if (lobbyClient?.selfPeerId) {
     void sendLobbyMessage(createLocalLobbyMessage('lobby_leave'))
   }

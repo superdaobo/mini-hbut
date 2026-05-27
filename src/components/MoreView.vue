@@ -49,6 +49,7 @@ const safeNumber = (value, fallback = 0) => {
 }
 
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
+const DEFAULT_GOMOKU_RELAY_API = 'https://mini-hbut-ocr-service.hf.space/api/gomoku-relay'
 const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hecheng_hugongda',
   'jump_out_hbut',
@@ -176,6 +177,8 @@ const resolveGameRankApi = () => {
   return DEFAULT_GAME_RANK_API
 }
 
+const resolveGomokuRelayApi = () => DEFAULT_GOMOKU_RELAY_API
+
 const compareModuleVersion = (left, right) => {
   const a = safeText(left)
   const b = safeText(right)
@@ -217,6 +220,9 @@ const appendModuleContextQuery = (
     url.searchParams.set('major', safeText(profile.major))
     url.searchParams.set('school_name', safeText(profile.school_name))
     url.searchParams.set('rank_api', resolveGameRankApi())
+    if (moduleId === 'hbut_gomoku') {
+      url.searchParams.set('gomoku_api', resolveGomokuRelayApi())
+    }
     return url.toString()
   } catch {
     return previewUrl

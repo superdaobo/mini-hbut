@@ -6,7 +6,9 @@ import {
   buildDownloadOpenUrls,
   buildUpdateDownloadUrls,
   describeUpdateDownloadSource,
-  isOfficialDownloadUrl
+  isOfficialDownloadUrl,
+  mergeCdnReleaseWithApiNotes,
+  normalizeCdnManifestAsRelease
 } from './updater.js'
 
 const readSource = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8')
@@ -15,7 +17,7 @@ describe('update download sources', () => {
   const tag = 'v1.3.7'
   const filename = 'Mini-HBUT_1.3.7_x64-setup.exe'
 
-  it('orders download lines as ghfast, hk proxy, gh-proxy, then GitHub source', () => {
+  it('orders download lines as ghfast, v4 gh-proxy, gh-proxy, cdn gh-proxy, then GitHub source', () => {
     const urls = buildUpdateDownloadUrls(
       tag,
       filename,
@@ -25,8 +27,9 @@ describe('update download sources', () => {
     expect(urls.some((url) => isOfficialDownloadUrl(url))).toBe(false)
     expect(urls).toEqual([
       `https://ghfast.top/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
-      `https://hk.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
-      `https://gh-proxy.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://v4.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://cdn.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
       `https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`
     ])
   })
@@ -36,22 +39,27 @@ describe('update download sources', () => {
       `https://ghfast.top/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
       0
     )
-    const hk = describeUpdateDownloadSource(
-      `https://hk.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+    const v4 = describeUpdateDownloadSource(
+      `https://v4.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
       1
     )
     const ghProxy = describeUpdateDownloadSource(
-      `https://gh-proxy.com/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      `https://gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
       2
+    )
+    const cdnGhProxy = describeUpdateDownloadSource(
+      `https://cdn.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
+      3
     )
     const github = describeUpdateDownloadSource(
       `https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
-      3
+      4
     )
 
     expect(ghfast).toEqual({ label: '代理下载 1', tag: 'proxy1' })
-    expect(hk).toEqual({ label: '代理下载 2', tag: 'proxy2' })
+    expect(v4).toEqual({ label: '代理下载 2', tag: 'proxy2' })
     expect(ghProxy).toEqual({ label: '代理下载 3', tag: 'proxy3' })
+    expect(cdnGhProxy).toEqual({ label: '代理下载 4', tag: 'proxy4' })
     expect(github).toEqual({ label: 'GitHub 源站', tag: 'github' })
   })
 
@@ -77,5 +85,60 @@ describe('update download sources', () => {
     expect(source).toContain('<span class="arrow">→</span>')
     expect(source).toContain('<div class="version-badge new">新版本 v{{ updateInfo.latestVersion }}</div>')
     expect(source).not.toContain('<div class="version-badge new">v{{ updateInfo.latestVersion }}</div>')
+  })
+
+  it('makes the immediate update action visually larger than skipping the version', () => {
+    const source = readSource('src/components/UpdateDialog.vue')
+
+    expect(source).toContain('update-action-secondary')
+    expect(source).toContain('update-action-primary')
+    expect(source).toMatch(/\.dialog-actions\s+\.update-action-secondary\s*{[\s\S]*?flex:\s*0\s+0\s+34%/)
+    expect(source).toMatch(/\.dialog-actions\s+\.update-action-primary\s*{[\s\S]*?flex:\s*1\.35/)
+  })
+
+  it('rejects stale CDN release notes that belong to an older version', () => {
+    const release = normalizeCdnManifestAsRelease({
+      version: '1.4.0',
+      tag: 'v1.4.0',
+      channel: 'main',
+      assets: {
+        windows_exe: 'Mini-HBUT_1.4.0_x64-setup.exe'
+      },
+      release_notes: '# Mini-HBUT v1.3.6 更新说明\n\n旧版本日志'
+    })
+
+    expect(release?.body).toBe('')
+  })
+
+  it('keeps CDN assets while replacing stale release notes with same-version API notes', () => {
+    const cdnRelease = normalizeCdnManifestAsRelease({
+      version: '1.4.0',
+      tag: 'v1.4.0',
+      channel: 'main',
+      assets: {
+        windows_exe: 'Mini-HBUT_1.4.0_x64-setup.exe'
+      },
+      release_notes: '# Mini-HBUT v1.3.6 更新说明\n\n旧版本日志'
+    })
+    const merged = mergeCdnReleaseWithApiNotes(cdnRelease, {
+      tag_name: 'v1.4.0',
+      name: 'v1.4.0',
+      body: '# Mini-HBUT v1.4.0 更新说明\n\n新版本日志',
+      html_url: 'https://github.com/superdaobo/mini-hbut/releases/tag/v1.4.0',
+      published_at: '2026-05-25T00:00:00Z',
+      assets: []
+    })
+
+    expect(merged.assets[0].browser_download_url).toContain('hbut.6661111.xyz/releases/v1.4.0/')
+    expect(merged.body).toContain('v1.4.0')
+    expect(merged.body).not.toContain('v1.3.6')
+  })
+
+  it('builds version-specific release notes before falling back to release.md', () => {
+    const source = readSource('scripts/build_release_manifests.mjs')
+
+    expect(source).toContain('readReleaseNotes(version, tag)')
+    expect(source).toContain('RELEASE_v${normalizedVersion}.md')
+    expect(source).toContain('release.md')
   })
 })

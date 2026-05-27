@@ -377,15 +377,23 @@ function buildManifest({
     sourceRef,
     sourceSha,
     assets,
-    release_notes: readReleaseNotes()
+    release_notes: readReleaseNotes(version, tag)
   }
 }
 
-function readReleaseNotes() {
+function readReleaseNotes(version = '', tag = '') {
   try {
-    const releaseFile = path.resolve(process.cwd(), 'release.md')
-    if (fs.existsSync(releaseFile)) {
-      return fs.readFileSync(releaseFile, 'utf8').trim()
+    const normalizedVersion = safeText(version || tag).replace(/^v/i, '')
+    const candidates = [
+      normalizedVersion ? `RELEASE_v${normalizedVersion}.md` : '',
+      safeText(tag) ? `RELEASE_${safeText(tag)}.md` : '',
+      'release.md'
+    ].filter(Boolean)
+    for (const fileName of candidates) {
+      const releaseFile = path.resolve(process.cwd(), fileName)
+      if (fs.existsSync(releaseFile)) {
+        return fs.readFileSync(releaseFile, 'utf8').trim()
+      }
     }
   } catch { /* ignore */ }
   return ''

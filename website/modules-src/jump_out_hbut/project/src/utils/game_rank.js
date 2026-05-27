@@ -11,6 +11,19 @@
  */
 
 const GAME_ID = 'jump_out_hbut'
+const LEADERBOARD_TIMEOUT_MESSAGE = '排行榜请求超时，请稍后重试'
+
+const _safeText = (value) => String(value ?? '').trim()
+
+const isAbortError = (error) => {
+  const text = `${_safeText(error?.name)} ${_safeText(error?.message || error)}`.toLowerCase()
+  return text.includes('abort') || text.includes('timeout') || text.includes('signal is aborted')
+}
+
+const _rankErrorMessage = (error) => {
+  if (isAbortError(error)) return LEADERBOARD_TIMEOUT_MESSAGE
+  return _safeText(error?.message || error) || '排行榜请求失败'
+}
 
 /**
  * 读取游戏模块上下文
@@ -67,7 +80,7 @@ export async function submitGameRank(payload) {
     })
     return await response.json()
   } catch (e) {
-    return { success: false, error: e.message }
+    return { success: false, error: _rankErrorMessage(e) }
   }
 }
 
@@ -105,10 +118,7 @@ export async function fetchGameLeaderboard({ scope = 'class', limit = 20 } = {})
     return await response.json()
   } catch (e) {
     clearTimeout(timeout)
-    if (e.name === 'AbortError') {
-      return { success: false, error: 'timeout', data: [] }
-    }
-    return { success: false, error: e.message, data: [] }
+    return { success: false, error: _rankErrorMessage(e), data: [] }
   }
 }
 

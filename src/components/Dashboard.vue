@@ -733,7 +733,7 @@ const fetchWeather = async (force = false) => {
 // === 快捷入口（可配置） ===
 const QUICK_ENTRY_KEY = 'hbu_quick_entry_modules'
 const HOME_FEATURE_TAB_KEY = 'hbu_home_feature_tab'
-const defaultQuickEntries = ['grades', 'schedule', 'classroom', 'electricity', 'ranking']
+const defaultQuickEntries = ['grades', 'exams', 'classroom', 'electricity', 'ranking']
 
 const quickEntryIds = ref([...defaultQuickEntries])
 const showQuickEntryEditor = ref(false)

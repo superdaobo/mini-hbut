@@ -66,4 +66,13 @@ describe('service stats frontend contract', () => {
     expect(source).toContain('stroke-dasharray')
     expect(source).toContain('drawTrendLine')
   })
+
+  it('shows the latest client version instead of the OCR service implementation version', () => {
+    const source = readSource('src/components/ServiceStatsView.vue')
+
+    expect(source).toContain('displayClientVersion')
+    expect(source).toContain("health.value.cloud_sync.latest_version || ''")
+    expect(source).toContain("版本 {{ displayClientVersion || '未知' }}")
+    expect(source).not.toContain("版本 {{ health.service.version || '未知' }}")
+  })
 })

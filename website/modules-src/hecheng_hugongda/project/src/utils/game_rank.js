@@ -4,6 +4,7 @@ const REQUEST_TIMEOUT_MS = 12000
 const MODULE_CONTEXT_STORAGE_KEY = 'hbut_game_rank_context_v1'
 
 const safeText = (value) => String(value ?? '').trim()
+const LEADERBOARD_TIMEOUT_MESSAGE = '排行榜请求超时，请稍后重试'
 
 const safeParseJson = (raw, fallback = null) => {
   try {
@@ -36,18 +37,34 @@ const withTimeout = async (executor, timeoutMs = REQUEST_TIMEOUT_MS) => {
   }
 }
 
+const isAbortError = (error) => {
+  const text = `${safeText(error?.name)} ${safeText(error?.message || error)}`.toLowerCase()
+  return text.includes('abort') || text.includes('timeout') || text.includes('signal is aborted')
+}
+
+const normalizeRequestError = (error) => {
+  if (isAbortError(error)) return new Error(LEADERBOARD_TIMEOUT_MESSAGE)
+  if (error instanceof Error) return error
+  return new Error(safeText(error) || '排行榜请求失败')
+}
+
 const requestJson = async (url, init = {}) => {
-  const response = await withTimeout((signal) =>
-    fetch(url, {
-      ...init,
-      signal,
-      headers: {
-        Accept: 'application/json',
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(init?.headers || {})
-      }
-    })
-  )
+  let response = null
+  try {
+    response = await withTimeout((signal) =>
+      fetch(url, {
+        ...init,
+        signal,
+        headers: {
+          Accept: 'application/json',
+          ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(init?.headers || {})
+        }
+      })
+    )
+  } catch (error) {
+    throw normalizeRequestError(error)
+  }
   const text = await response.text()
   let parsed = null
   try {

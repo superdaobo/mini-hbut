@@ -167,6 +167,26 @@ describe('website 游戏模块集成契约', () => {
     }
   })
 
+  it('湖工五子棋页面允许纵向滚动，避免大厅和历史区域被小屏裁掉', () => {
+    const styleSource = readText(modulePath('hbut_gomoku', 'project', 'src', 'style.css'))
+
+    expect(styleSource).toMatch(/overflow-y:\s*auto/)
+    expect(styleSource).not.toMatch(/overflow-y:\s*hidden/)
+    expect(styleSource).toMatch(/-webkit-overflow-scrolling:\s*touch/)
+  })
+
+  it('湖工五子棋构建会清空旧 dist 资产，避免远程模块包混入历史 JS/CSS', () => {
+    const packageJson = JSON.parse(
+      readText(modulePath('hbut_gomoku', 'project', 'package.json'))
+    )
+    const viteConfig = readText(modulePath('hbut_gomoku', 'project', 'vite.config.js'))
+    const cleanScript = readText(modulePath('hbut_gomoku', 'project', 'scripts', 'clean-dist.mjs'))
+
+    expect(viteConfig).toMatch(/emptyOutDir:\s*true/)
+    expect(packageJson.scripts.prebuild).toBe('node scripts/clean-dist.mjs')
+    expect(cleanScript).toContain("fs.rm(distDir, { recursive: true, force: true })")
+  })
+
   it('宿主 iframe 使用安全嵌入约束，并能从 manifest 推导远端 open_url', () => {
     const hostSource = readText(path.join(repoRoot, 'src', 'components', 'MoreModuleHostView.vue'))
     expect(hostSource).toContain('<iframe')
@@ -199,11 +219,34 @@ describe('website 游戏模块集成契约', () => {
 
     expect(moreViewSource).toContain('CONTEXT_AWARE_GAME_MODULE_IDS')
     expect(moreViewSource).toContain('CONTEXT_AWARE_GAME_MODULE_IDS.has(moduleId)')
+    expect(moreViewSource).toContain('resolveGomokuRelayApi')
+    expect(moreViewSource).toContain("moduleId === 'hbut_gomoku'")
+    expect(moreViewSource).toContain("url.searchParams.set('gomoku_api', resolveGomokuRelayApi())")
     for (const id of gameModuleIds) {
       expect(moreViewSource, `${id} 需要携带学生信息、runtime 和 rank_api 上下文`).toContain(
         `'${id}'`
       )
     }
+  })
+
+  it('小游戏排行榜请求会把底层 AbortController 错误转换为可读错误', () => {
+    const rankUtils = [
+      modulePath('hbut_2048', 'project', 'src', 'utils', 'game_rank.js'),
+      modulePath('clumsy_bird_hbut', 'project', 'src', 'utils', 'game_rank.js'),
+      modulePath('hecheng_hugongda', 'project', 'src', 'utils', 'game_rank.js'),
+      modulePath('jump_out_hbut', 'project', 'src', 'utils', 'game_rank.js')
+    ]
+
+    for (const filePath of rankUtils) {
+      const source = readText(filePath)
+      expect(source, `${filePath} 需要识别 abort/timeout 错误`).toContain('isAbortError')
+      expect(source, `${filePath} 不能把 signal is aborted 原文展示给用户`).toContain('排行榜请求超时，请稍后重试')
+      expect(source, `${filePath} 需要覆盖 Safari/WebView 的 abort 文案`).toContain('signal is aborted')
+    }
+
+    const hechengApp = readText(modulePath('hecheng_hugongda', 'project', 'src', 'App.vue'))
+    expect(hechengApp).toContain('排行榜请求超时，请稍后重试')
+    expect(hechengApp).not.toContain('return message\n    },')
   })
 
   it('模块宿主在运行态占满可视区，iframe 不被子页面 100vh 高度撑破', () => {

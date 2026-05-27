@@ -13,6 +13,7 @@ export default defineConfig({
   plugins: [stripCrossOrigin()],
   build: {
     outDir: 'dist',
+    emptyOutDir: true,
     assetsInlineLimit: 4096
   }
 })

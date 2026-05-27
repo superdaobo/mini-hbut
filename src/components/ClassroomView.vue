@@ -81,6 +81,61 @@ const clearAutoRefreshTimer = () => {
 
 const safeArray = (value) => (Array.isArray(value) ? value : [])
 
+const toPositiveInt = (value, fallback = 0) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const readStoredScheduleMeta = () => {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem('hbu_schedule_meta')
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+const calculateWeekFromStartDate = (startDateText) => {
+  const text = String(startDateText || '').trim()
+  if (!text) return 0
+  const start = new Date(text)
+  if (Number.isNaN(start.getTime())) return 0
+  const now = new Date()
+  const current = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const begin = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  const diffMs = current.getTime() - begin.getTime()
+  if (diffMs < 0) return 1
+  return Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1
+}
+
+const getPreferredCurrentWeek = () => {
+  const meta = readStoredScheduleMeta()
+  const storedWeek = toPositiveInt(meta?.current_week, 0)
+  if (storedWeek > 0) return storedWeek
+  return toPositiveInt(calculateWeekFromStartDate(meta?.start_date), 0)
+}
+
+const resolveClassroomMeta = (meta = {}) => {
+  const preferredWeek = getPreferredCurrentWeek()
+  return {
+    date_str: String(meta?.date_str || '').trim(),
+    week: preferredWeek || String(meta?.week || '').trim(),
+    weekday_name: String(meta?.weekday_name || '').trim(),
+    semester: String(meta?.semester || '').trim()
+  }
+}
+
+const selectCurrentWeek = () => {
+  const preferredWeek = getPreferredCurrentWeek()
+  if (preferredWeek > 0) {
+    filters.value.week = ''
+    currentMeta.value = resolveClassroomMeta(currentMeta.value)
+  } else {
+    filters.value.week = ''
+  }
+}
+
 const createAbortSignal = (type = 'query') => {
   if (typeof AbortController === 'undefined') return null
   if (type === 'query' && activeQueryController) {
@@ -169,20 +224,16 @@ const writeClassroomSnapshot = (reason = 'unknown') => {
 
 const applyClassroomSnapshot = (snapshot, options = {}) => {
   if (!snapshot) return false
+  const preferredWeek = getPreferredCurrentWeek()
   filters.value = {
-    week: String(snapshot.filters?.week || '').trim(),
+    week: preferredWeek ? '' : String(snapshot.filters?.week || '').trim(),
     weekday: String(snapshot.filters?.weekday || '').trim(),
     periods: safeArray(snapshot.filters?.periods).map((item) => Number(item)).filter((item) => Number.isFinite(item)),
     building: String(snapshot.filters?.building || '').trim(),
     minSeats: String(snapshot.filters?.minSeats || '').trim(),
     maxSeats: String(snapshot.filters?.maxSeats || '').trim()
   }
-  currentMeta.value = {
-    date_str: String(snapshot.current_meta?.date_str || '').trim(),
-    week: String(snapshot.current_meta?.week || '').trim(),
-    weekday_name: String(snapshot.current_meta?.weekday_name || '').trim(),
-    semester: String(snapshot.current_meta?.semester || '').trim()
-  }
+  currentMeta.value = resolveClassroomMeta(snapshot.current_meta)
   classrooms.value = safeArray(snapshot.classrooms)
   syncTime.value = String(snapshot.sync_time || snapshot.updated_at || '').trim()
   offline.value = options?.markOffline !== false
@@ -258,6 +309,11 @@ const periodOptions = [
   { value: 10, label: '第10节 (19:55-20:40)' },
   { value: 11, label: '第11节 (20:50-21:35)' }
 ]
+const periodGroups = [
+  { key: 'morning', label: '上午', periods: periodOptions.slice(0, 4) },
+  { key: 'afternoon', label: '下午', periods: periodOptions.slice(4, 8) },
+  { key: 'evening', label: '晚上', periods: periodOptions.slice(8, 11) }
+]
 
 // 获取教学楼列表
 const fetchBuildings = async () => {
@@ -315,9 +371,13 @@ const buildPeriodRange = (start, end) => {
 
 const buildQueryPayload = (studentId = resolveStudentId()) => {
   const sid = String(studentId || '').trim()
+  const preferredWeek = getPreferredCurrentWeek()
+  const selectedWeek = filters.value.week
+    ? parseInt(filters.value.week, 10)
+    : preferredWeek || null
   const payload = {
     student_id: sid,
-    week: filters.value.week ? parseInt(filters.value.week, 10) : null,
+    week: selectedWeek,
     weekday: filters.value.weekday ? parseInt(filters.value.weekday, 10) : null,
     periods: filters.value.periods.map((p) => parseInt(p, 10)).filter((p) => Number.isFinite(p)),
     building: filters.value.building,
@@ -449,17 +509,16 @@ const initLocalMeta = () => {
   const now = new Date()
   const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
   const dayIndex = now.getDay()
+  const preferredWeek = getPreferredCurrentWeek()
   
-  // 简单估算开学时间 (仅作为占位符，避免UI空白)
-  // 假设 9月1日 或 2月20日 开学
-  // 这里其实只需要显示日期和星期几即可
+  // 课表页维护的 hbu_schedule_meta 才是本机当前校历周次来源，避免空教室旧快照覆盖成历史周次。
   currentMeta.value = {
     date_str: now.toLocaleDateString(),
-    week: '?', // 无法本地准确计算校历周次
+    week: preferredWeek || '?',
     weekday_name: days[dayIndex],
     semester: '加载中...'
   }
-  
+
   // 默认选中今天
   if (!filters.value.weekday) {
     // 转换为 API 格式 (1-7, 7是周日)
@@ -522,10 +581,10 @@ const queryClassrooms = async (retryCount = 0, options = {}) => {
       hasSuccessfulQuery.value = true
       // 更新元数据
       if (data.meta) {
-        currentMeta.value = data.meta
+        currentMeta.value = resolveClassroomMeta(data.meta)
         
         // 同步筛选器
-        if (!filters.value.week) filters.value.week = data.meta.week
+        if (!filters.value.week && !getPreferredCurrentWeek()) filters.value.week = data.meta.week
         if (!filters.value.weekday) filters.value.weekday = data.meta.weekday
         if (filters.value.periods.length === 0 && data.meta.periods) {
           filters.value.periods = data.meta.periods
@@ -761,14 +820,14 @@ onBeforeUnmount(() => {
             <span class="classroom-filter-label text-xs font-medium w-12 shrink-0">周次</span>
             <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
               <button
-                @click="filters.week = ''"
+                @click="selectCurrentWeek"
                 :class="[
                   'px-3 py-1.5 rounded-full text-xs font-medium shrink-0',
                   !filters.week ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
                 ]"
               >本周{{ currentMeta.week ? `(第${currentMeta.week}周)` : '' }}</button>
               <button
-                v-for="w in weekOptions.slice(0, 8)"
+                v-for="w in weekOptions"
                 :key="w"
                 @click="filters.week = w"
                 :class="[
@@ -798,23 +857,32 @@ onBeforeUnmount(() => {
           <!-- Periods (multi-select) -->
           <div class="flex items-start">
             <span class="classroom-filter-label text-xs font-medium w-12 shrink-0 pt-2">节次</span>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="p in periodOptions"
-                :key="p.value"
-                @click="togglePeriod(p.value)"
-                :aria-label="`第${p.value}节`"
-                :title="p.label"
-                :class="[
-                  'classroom-period-button px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1',
-                  filters.periods.includes(p.value)
-                    ? 'bg-primary/10 text-primary border border-primary/20'
-                    : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
-                ]"
+            <div class="classroom-period-groups">
+              <div
+                v-for="group in periodGroups"
+                :key="group.key"
+                class="classroom-period-row"
               >
-                <span v-if="filters.periods.includes(p.value)" class="material-symbols-outlined text-[14px]">check</span>
-                {{ p.value }}
-              </button>
+                <span class="classroom-period-row-label">{{ group.label }}</span>
+                <div class="classroom-period-row-buttons">
+                  <button
+                    v-for="p in group.periods"
+                    :key="p.value"
+                    @click="togglePeriod(p.value)"
+                    :aria-label="`第${p.value}节`"
+                    :title="p.label"
+                    :class="[
+                      'classroom-period-button px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1',
+                      filters.periods.includes(p.value)
+                        ? 'bg-primary/10 text-primary border border-primary/20'
+                        : 'bg-surface-container-lowest border border-outline-variant/50 text-on-surface-variant'
+                    ]"
+                  >
+                    <span v-if="filters.periods.includes(p.value)" class="material-symbols-outlined text-[14px]">check</span>
+                    {{ p.value }}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -913,8 +981,43 @@ onBeforeUnmount(() => {
 }
 
 .classroom-period-button {
-  min-width: 34px;
+  width: 42px;
+  min-width: 42px;
+  height: 32px;
   justify-content: center;
+}
+
+.classroom-period-groups {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.classroom-period-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.classroom-period-row-label {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+}
+
+.classroom-period-row-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, 42px);
+  gap: 8px;
+}
+
+.classroom-period-row:last-child .classroom-period-row-buttons {
+  grid-template-columns: repeat(3, 42px);
 }
 
 .classroom-result-meta {
@@ -936,6 +1039,10 @@ onBeforeUnmount(() => {
 
 :global(html.dark) .classroom-filter-label {
   color: #cbd5e1;
+}
+
+:global(html.dark) .classroom-period-row-label {
+  color: #94a3b8;
 }
 
 :global(html.dark) .classroom-result-meta {

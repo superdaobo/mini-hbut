@@ -3,21 +3,23 @@ import { getNativeAppVersion, invokeNative, isTauriRuntime } from '../platform/n
 
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
-const GH_PROXY_PREFIX = 'https://gh-proxy.com/'
+const GH_API_PROXY_PREFIX = 'https://gh-proxy.com/'
+const GH_DOWNLOAD_PROXY_PREFIX = 'https://gh-proxy.org/'
 
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
 const STABLE_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/stable-latest.json` : ''
 const API_PROXIES = [
-  `${GH_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+  `${GH_API_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
 ]
 
 const DOWNLOAD_PROXIES = [
   (tag, filename) => `https://ghfast.top/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
-  (tag, filename) => `https://hk.gh-proxy.org/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
-  (tag, filename) => `${GH_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://v4.gh-proxy.org/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `${GH_DOWNLOAD_PROXY_PREFIX}https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
+  (tag, filename) => `https://cdn.gh-proxy.org/https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`,
   (tag, filename) => `https://github.com/${GITHUB_REPO}/releases/download/${tag}/${filename}`
 ]
 
@@ -32,11 +34,14 @@ export const describeUpdateDownloadSource = (url, index = 0) => {
   if (value.includes('ghfast.top')) {
     return { label: '代理下载 1', tag: 'proxy1' }
   }
-  if (value.includes('hk.gh-proxy.org')) {
+  if (value.includes('v4.gh-proxy.org')) {
     return { label: '代理下载 2', tag: 'proxy2' }
   }
-  if (value.includes('gh-proxy.com')) {
+  if (value.includes('gh-proxy.org') && !value.includes('cdn.gh-proxy.org')) {
     return { label: '代理下载 3', tag: 'proxy3' }
+  }
+  if (value.includes('cdn.gh-proxy.org')) {
+    return { label: '代理下载 4', tag: 'proxy4' }
   }
   if (value.includes('ghproxy.net') || value.includes('mirror.ghproxy.com')) {
     return { label: `代理下载 ${index + 1}`, tag: `proxy${index + 1}` }
@@ -61,9 +66,10 @@ export const buildDownloadOpenUrls = (downloadUrls) =>
 export function toGhProxyUrl(url) {
   const value = String(url || '').trim()
   if (!value) return ''
+  if (value.startsWith('https://gh-proxy.org/')) return value
   if (value.startsWith('https://gh-proxy.com/')) return value
   if (value.startsWith('https://mirror.ghproxy.com/')) return value
-  if (value.startsWith('https://github.com/')) return `${GH_PROXY_PREFIX}${value}`
+  if (value.startsWith('https://github.com/')) return `${GH_DOWNLOAD_PROXY_PREFIX}${value}`
   return value
 }
 
@@ -293,11 +299,33 @@ function buildExpectedAssetName(platform, version) {
   }
 }
 
-const normalizeCdnManifestAsRelease = (manifest) => {
+const extractReleaseNoteVersion = (notes) => {
+  const text = String(notes || '').trim()
+  if (!text) return ''
+  const headingMatch = text.match(/Mini-HBUT\s+v?(\d+\.\d+\.\d+(?:[-.\w]+)?)\s+更新说明/i)
+  if (headingMatch?.[1]) return headingMatch[1].replace(/^v/i, '')
+  const genericMatch = text.slice(0, 160).match(/\bv?(\d+\.\d+\.\d+(?:[-.\w]+)?)\b/i)
+  return genericMatch?.[1] ? genericMatch[1].replace(/^v/i, '') : ''
+}
+
+const normalizeReleaseNotesForVersion = (notes, version) => {
+  const body = String(notes || '').trim()
+  if (!body) return ''
+  const expectedVersion = String(version || '').trim().replace(/^v/i, '')
+  const noteVersion = extractReleaseNoteVersion(body)
+  if (expectedVersion && noteVersion && compareVersions(noteVersion, expectedVersion) !== 0) {
+    return ''
+  }
+  return body
+}
+
+export const normalizeCdnManifestAsRelease = (manifest) => {
   if (!manifest?.tag || !manifest?.assets) return null
   const tag = String(manifest.tag || '').trim()
   const downloadDir = String(manifest.downloadDir || tag).trim() || tag
   const version = String(manifest.version || tag).replace(/^v/, '')
+  const rawBody = String(manifest.release_notes || manifest.body || '').trim()
+  const body = normalizeReleaseNotesForVersion(rawBody, version || tag)
   const assets = Object.values(manifest.assets || {})
     .filter(Boolean)
     .map((filename) => ({
@@ -308,25 +336,48 @@ const normalizeCdnManifestAsRelease = (manifest) => {
   return {
     tag_name: tag,
     name: `v${version}`,
-    body: String(manifest.release_notes || manifest.body || ''),
+    body,
     html_url: `${GITHUB_RELEASES_URL}/tag/${tag}`,
     assets,
     published_at: manifest.generatedAt,
     version,
     prerelease: !!manifest.prerelease,
     channel: String(manifest.channel || '').trim(),
-    __fromCdnManifest: true
+    __fromCdnManifest: true,
+    __staleReleaseNotes: Boolean(rawBody && !body)
+  }
+}
+
+export const mergeCdnReleaseWithApiNotes = (cdnRelease, apiRelease) => {
+  if (!cdnRelease || !apiRelease) return apiRelease || cdnRelease
+  const cdnVersion = String(cdnRelease.version || cdnRelease.tag_name || '').replace(/^v/i, '')
+  const apiVersion = String(apiRelease.version || apiRelease.tag_name || '').replace(/^v/i, '')
+  if (!cdnVersion || !apiVersion || compareVersions(cdnVersion, apiVersion) !== 0) {
+    return apiRelease
+  }
+  return {
+    ...cdnRelease,
+    body: apiRelease.body || cdnRelease.body || '',
+    html_url: apiRelease.html_url || cdnRelease.html_url,
+    published_at: apiRelease.published_at || cdnRelease.published_at,
+    name: apiRelease.name || cdnRelease.name,
+    __releaseNotesFromApi: Boolean(apiRelease.body)
   }
 }
 
 async function fetchReleaseInfo(currentVersion) {
+  let cdnCandidate = null
   if (STABLE_MANIFEST_URL) {
     try {
       // 自动更新只允许读取稳定版 manifest，避免 dev alias 触发错误下载。
       const manifest = await fetchJson(STABLE_MANIFEST_URL, 6000)
       const release = normalizeCdnManifestAsRelease(manifest)
       if (release && shouldOfferRelease(release, currentVersion)) {
-        return release
+        if (release.__staleReleaseNotes) {
+          cdnCandidate = release
+        } else {
+          return release
+        }
       }
     } catch (_) {
       // stable manifest 不可用，继续 fallback
@@ -344,13 +395,13 @@ async function fetchReleaseInfo(currentVersion) {
         fallback = release
       }
       if (shouldOfferRelease(release, currentVersion)) {
-        return release
+        return mergeCdnReleaseWithApiNotes(cdnCandidate, release)
       }
     } catch (_) {
       // try next proxy
     }
   }
-  return fallback
+  return cdnCandidate || fallback
 }
 
 export async function checkForUpdates(currentVersion) {
@@ -400,7 +451,7 @@ export async function checkForUpdates(currentVersion) {
           latestVersion,
           tagName,
           releaseNotes: release.body || '暂无更新说明',
-          releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
+          releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
           downloadUrls,
           preferredDownloadUrl: downloadUrls[0] || '',
           assetName: expectedName,
@@ -415,7 +466,7 @@ export async function checkForUpdates(currentVersion) {
         latestVersion,
         tagName,
         releaseNotes: release.body || '暂无更新说明',
-        releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
+        releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
         platform,
         publishedAt: release.published_at
       }
@@ -429,7 +480,7 @@ export async function checkForUpdates(currentVersion) {
       latestVersion,
       tagName,
       releaseNotes: release.body || '暂无更新说明',
-      releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
+      releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
       downloadUrls,
       preferredDownloadUrl: downloadUrls[0] || '',
       assetName: asset.name,
