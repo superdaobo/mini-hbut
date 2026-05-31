@@ -3,7 +3,12 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
-import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import {
+  getPreferredSemesterFast,
+  mergeSemesterOptions,
+  normalizeSemesterList,
+  resolveCurrentSemester
+} from '../utils/semester.js'
 import { writeExamToWidget } from '../utils/widget_bridge'
 import { TPageHeader, TEmptyState } from './templates'
 
@@ -23,6 +28,15 @@ const selectedSemester = ref('')
 const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
+let examRequestSeq = 0
+
+const initializeFastSemester = () => {
+  const preferred = getPreferredSemesterFast()
+  if (preferred && !selectedSemester.value) {
+    selectedSemester.value = preferred
+  }
+  semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
+}
 
 // 判断考试是否已结束
 const isPassed = (examDate) => {
@@ -110,10 +124,11 @@ const fetchSemesters = async () => {
     })
     if (data?.success) {
       const sorted = normalizeSemesterList(data.semesters || [])
-      semesters.value = sorted
+      semesters.value = mergeSemesterOptions(sorted, selectedSemester.value)
       currentSemester.value = resolveCurrentSemester(sorted, data.current || '')
       if (!selectedSemester.value) {
         selectedSemester.value = currentSemester.value || sorted[0] || ''
+        semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
       }
     }
   } catch (e) {
@@ -123,6 +138,7 @@ const fetchSemesters = async () => {
 
 // 获取考试安排
 const fetchExams = async () => {
+  const requestSeq = ++examRequestSeq
   loading.value = true
   error.value = ''
   
@@ -136,6 +152,7 @@ const fetchExams = async () => {
       return res.data
     })
     
+    if (requestSeq !== examRequestSeq) return
     if (data?.success) {
       exams.value = data.data || []
       offline.value = !!data.offline
@@ -158,9 +175,12 @@ const fetchExams = async () => {
       error.value = data?.error || '获取考试安排失败'
     }
   } catch (e) {
+    if (requestSeq !== examRequestSeq) return
     error.value = e.response?.data?.error || '网络错误'
   } finally {
-    loading.value = false
+    if (requestSeq === examRequestSeq) {
+      loading.value = false
+    }
   }
 }
 
@@ -168,9 +188,10 @@ const handleSemesterChange = () => {
   fetchExams()
 }
 
-onMounted(async () => {
-  await fetchSemesters()
-  await fetchExams()
+onMounted(() => {
+  initializeFastSemester()
+  fetchExams()
+  fetchSemesters()
 })
 </script>
 

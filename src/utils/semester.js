@@ -41,7 +41,7 @@ export const normalizeSemesterList = (list) => {
   return out
 }
 
-const readStoredSemester = () => {
+export const readStoredScheduleSemester = () => {
   try {
     const raw = localStorage.getItem('hbu_schedule_meta')
     if (!raw) return ''
@@ -52,12 +52,47 @@ const readStoredSemester = () => {
   }
 }
 
+export const deriveSemesterByDate = (date = new Date()) => {
+  const today = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(today.getTime())) return ''
+  const year = today.getFullYear()
+  const month = today.getMonth() + 1
+  const day = today.getDate()
+
+  let academicYearStart = year - 1
+  let term = 1
+  if (month >= 9) {
+    academicYearStart = year
+    term = 1
+  } else if (month >= 3 || (month === 2 && day >= 15)) {
+    academicYearStart = year - 1
+    term = 2
+  }
+
+  return `${academicYearStart}-${academicYearStart + 1}-${term}`
+}
+
+export const getPreferredSemesterFast = (date = new Date()) => {
+  const stored = readStoredScheduleSemester()
+  if (parseSemester(stored)) return stored
+  return deriveSemesterByDate(date)
+}
+
+export const mergeSemesterOptions = (list, selectedSemester = '') => {
+  const merged = normalizeSemesterList(list)
+  const selected = String(selectedSemester || '').trim()
+  if (selected && !merged.includes(selected)) {
+    merged.push(selected)
+  }
+  return normalizeSemesterList(merged)
+}
+
 export const resolveCurrentSemester = (semesterList, hintedCurrent = '') => {
   const list = normalizeSemesterList(semesterList)
   if (!list.length) return ''
   const hinted = String(hintedCurrent || '').trim()
   if (hinted && list.includes(hinted)) return hinted
-  const stored = readStoredSemester()
+  const stored = readStoredScheduleSemester()
   if (stored && list.includes(stored)) return stored
   return list[0]
 }

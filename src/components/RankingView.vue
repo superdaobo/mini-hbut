@@ -99,8 +99,8 @@ const handleSemesterChange = () => {
 }
 
 onMounted(async () => {
-  await fetchSemesters()
-  await fetchRanking()
+  fetchRanking()
+  fetchSemesters()
 })
 </script>
 

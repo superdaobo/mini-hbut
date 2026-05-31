@@ -3,7 +3,12 @@ import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
-import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
+import {
+  getPreferredSemesterFast,
+  mergeSemesterOptions,
+  normalizeSemesterList,
+  resolveCurrentSemester
+} from '../utils/semester.js'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -30,6 +35,15 @@ const meta = ref({
   total_weeks: '',
   today: ''
 })
+let calendarRequestSeq = 0
+
+const initializeFastSemester = () => {
+  const preferred = getPreferredSemesterFast()
+  if (preferred && !selectedSemester.value) {
+    selectedSemester.value = preferred
+  }
+  semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
+}
 
 const normalizeRemark = (text) => {
   if (!text) return ''
@@ -229,10 +243,11 @@ const fetchSemesters = async () => {
     }, EXTRA_LONG_TTL)
     if (data?.success) {
       const sorted = normalizeSemesterList(data.semesters || [])
-      semesters.value = sorted
+      semesters.value = mergeSemesterOptions(sorted, selectedSemester.value)
       currentSemester.value = resolveCurrentSemester(sorted, data.current || '')
       if (!selectedSemester.value) {
         selectedSemester.value = currentSemester.value || sorted[0] || ''
+        semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
       }
     }
   } catch (e) {
@@ -241,6 +256,7 @@ const fetchSemesters = async () => {
 }
 
 const fetchCalendar = async () => {
+  const requestSeq = ++calendarRequestSeq
   loading.value = true
   error.value = ''
   try {
@@ -253,11 +269,13 @@ const fetchCalendar = async () => {
       return res.data
     }, EXTRA_LONG_TTL)
 
+    if (requestSeq !== calendarRequestSeq) return
     if (data?.success) {
       calendarData.value = data.data || []
       meta.value = data.meta || meta.value
       if (data.meta?.semester && !selectedSemester.value) {
         selectedSemester.value = data.meta.semester
+        semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
       }
       offline.value = !!data.offline
       syncTime.value = data.sync_time || ''
@@ -275,9 +293,12 @@ const fetchCalendar = async () => {
       error.value = data?.error || '获取校历失败'
     }
   } catch (e) {
+    if (requestSeq !== calendarRequestSeq) return
     error.value = e.response?.data?.error || '网络错误'
   } finally {
-    loading.value = false
+    if (requestSeq === calendarRequestSeq) {
+      loading.value = false
+    }
   }
 }
 
@@ -285,9 +306,10 @@ const handleSemesterChange = () => {
   fetchCalendar()
 }
 
-onMounted(async () => {
-  await fetchSemesters()
-  await fetchCalendar()
+onMounted(() => {
+  initializeFastSemester()
+  fetchCalendar()
+  fetchSemesters()
 })
 </script>
 
