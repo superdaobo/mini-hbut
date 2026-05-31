@@ -216,5 +216,9 @@ export const tauriBridge: PlatformBridge = {
 
   async openBatteryOptimizationSettings() {
     return tryOpenDesktopPowerSettings()
+  },
+
+  async openNotificationSettings() {
+    return tryOpenDesktopPowerSettings()
   }
 }

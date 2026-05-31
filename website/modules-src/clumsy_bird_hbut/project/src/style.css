@@ -287,6 +287,15 @@ body {
   border-bottom: none;
 }
 
+.rank-item.rank-self {
+  margin: 4px 0;
+  padding: 10px 8px;
+  border-radius: 10px;
+  border-bottom-color: transparent;
+  background: #FFF3E0;
+  box-shadow: inset 3px 0 0 #FF8F00;
+}
+
 .rank-item .rank-num {
   width: 28px;
   height: 28px;
@@ -341,6 +350,18 @@ body {
   font-weight: 700;
   color: #FF6F00;
   flex-shrink: 0;
+}
+
+.my-rank {
+  margin: 12px 0 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #FFF8E1;
+  color: #6D4C41;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
 }
 
 /* 上传状态提示 */

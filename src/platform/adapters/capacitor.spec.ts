@@ -5,6 +5,7 @@ const requestPermissionsMock = vi.fn()
 const checkPermissionsMock = vi.fn()
 const createChannelMock = vi.fn()
 const addListenerMock = vi.fn()
+const thenTrapMock = vi.fn()
 
 vi.mock('@capacitor/local-notifications', () => ({
   LocalNotifications: {
@@ -12,7 +13,8 @@ vi.mock('@capacitor/local-notifications', () => ({
     requestPermissions: requestPermissionsMock,
     checkPermissions: checkPermissionsMock,
     createChannel: createChannelMock,
-    addListener: addListenerMock
+    addListener: addListenerMock,
+    then: thenTrapMock
   }
 }))
 
@@ -31,6 +33,21 @@ describe('capacitorBridge notifications', () => {
     vi.clearAllMocks()
     vi.resetModules()
     Reflect.deleteProperty(globalThis, 'navigator')
+  })
+
+  it('does not assimilate Capacitor plugin proxies as thenables', async () => {
+    thenTrapMock.mockImplementation((resolve: unknown, reject: unknown) => {
+      if (typeof reject === 'function') {
+        reject(new Error('LocalNotifications.then should not be called'))
+      }
+    })
+    checkPermissionsMock.mockResolvedValue({ display: 'granted' })
+
+    const { capacitorBridge } = await import('./capacitor')
+
+    await expect(capacitorBridge.getNotificationPermission()).resolves.toBe('granted')
+    expect(checkPermissionsMock).toHaveBeenCalledTimes(1)
+    expect(thenTrapMock).not.toHaveBeenCalled()
   })
 
   it('requests the native notification permission prompt through LocalNotifications', async () => {

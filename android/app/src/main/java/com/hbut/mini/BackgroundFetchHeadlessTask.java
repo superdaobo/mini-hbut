@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat;
 
 import com.transistorsoft.tsbackgroundfetch.BGTask;
 import com.transistorsoft.tsbackgroundfetch.BackgroundFetch;
+import com.hbut.mini.widget.WidgetDataStore;
+import com.hbut.mini.widget.WidgetRefreshScheduler;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -48,6 +50,9 @@ public class BackgroundFetchHeadlessTask {
     private static final String KEY_ENABLE_CLASS = "hbu_bg_enable_class";
     private static final String KEY_CLASS_LEAD_MINUTES = "hbu_bg_class_lead_min";
     private static final String KEY_DORM_SELECTION = "hbu_bg_dorm_selection";
+    private static final String KEY_WIDGET_LAST_SCHEDULE_HASH = "hbu_bg_widget_schedule_hash";
+    private static final String KEY_WIDGET_LAST_EXAM_HASH = "hbu_bg_widget_exam_hash";
+    private static final String KEY_WIDGET_LAST_POWER_HASH = "hbu_bg_widget_power_hash";
 
     private static final String KEY_GRADE_SIGNATURE = "hbu_bg_headless_grade_signature";
     private static final String KEY_EXAM_DAY = "hbu_bg_headless_exam_day";
@@ -75,6 +80,7 @@ public class BackgroundFetchHeadlessTask {
         BackgroundFetch backgroundFetch = BackgroundFetch.getInstance(context);
         String taskId = task.getTaskId();
         boolean isTimeout = task.getTimedOut();
+        Log.i(TAG, "Headless fetch event received: " + taskId + ", timeout=" + isTimeout);
         if (isTimeout) {
             backgroundFetch.finish(taskId);
             return;
@@ -115,6 +121,7 @@ public class BackgroundFetchHeadlessTask {
         if (enableClass) {
             checkClassReminder(context, prefs, apiBase, studentId);
         }
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(context);
     }
 
     private void checkGrade(Context context, SharedPreferences prefs, String apiBase, String studentId) {
@@ -147,6 +154,7 @@ public class BackgroundFetchHeadlessTask {
 
             JSONArray exams = resp.optJSONArray("data");
             if (exams == null) exams = new JSONArray();
+            updateExamWidget(context, prefs, exams);
             String tomorrow = getTomorrowKey();
 
             List<String> tomorrowRows = new ArrayList<>();
@@ -201,6 +209,7 @@ public class BackgroundFetchHeadlessTask {
             if (!resp.optBoolean("success", false)) return;
 
             double quantity = parseDouble(resp.optString("quantity", ""));
+            updateElectricityWidget(context, prefs, quantity, rawSelection);
             boolean isLow = quantity >= 0 && quantity < POWER_ALERT_THRESHOLD;
             boolean wasLow = prefs.getBoolean(KEY_POWER_WAS_LOW, false);
 
@@ -230,6 +239,7 @@ public class BackgroundFetchHeadlessTask {
 
             JSONObject meta = resp.optJSONObject("meta");
             int currentWeek = parseIntSafe(meta == null ? "" : meta.optString("current_week", "1"), 1);
+            updateTodayCoursesWidget(context, prefs, studentId, courses, currentWeek);
             int weekday = getTodayWeekday();
             double nowMinute = getCurrentMinutePrecise();
             String todayKey = getTodayKey();
@@ -384,6 +394,176 @@ public class BackgroundFetchHeadlessTask {
 
         NotificationManagerCompat manager = NotificationManagerCompat.from(context);
         manager.notify((int) (System.currentTimeMillis() / 1000), builder.build());
+    }
+
+    private void updateTodayCoursesWidget(
+            Context context,
+            SharedPreferences prefs,
+            String studentId,
+            JSONArray courses,
+            int currentWeek
+    ) {
+        try {
+            JSONObject snapshot = new JSONObject();
+            snapshot.put("version", 1);
+            snapshot.put("generated_at", isoNow());
+            snapshot.put("date", getTodayKey());
+            snapshot.put("student_id", studentId);
+            snapshot.put("week_index", currentWeek);
+            snapshot.put("weekday", getTodayWeekday());
+            snapshot.put("courses", buildTodayCourseRows(courses, currentWeek, getTodayWeekday()));
+
+            String json = snapshot.toString();
+            String hash = Integer.toHexString(json.hashCode());
+            String prev = safe(prefs.getString(KEY_WIDGET_LAST_SCHEDULE_HASH, ""));
+            if (hash.equals(prev)) {
+                return;
+            }
+            if (new WidgetDataStore(context).writeSnapshot(json)) {
+                prefs.edit().putString(KEY_WIDGET_LAST_SCHEDULE_HASH, hash).apply();
+                WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(context);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "updateTodayCoursesWidget failed: " + e.getMessage());
+        }
+    }
+
+    private JSONArray buildTodayCourseRows(JSONArray courses, int currentWeek, int weekday) throws Exception {
+        JSONArray rows = new JSONArray();
+        if (courses == null) return rows;
+        for (int i = 0; i < courses.length(); i++) {
+            JSONObject course = courses.optJSONObject(i);
+            if (course == null) continue;
+            int courseWeekday = parseIntSafe(course.opt("weekday"), parseIntSafe(course.opt("day"), 0));
+            if (courseWeekday != weekday) continue;
+            if (!isCourseInWeek(course.optJSONArray("weeks"), currentWeek)) continue;
+
+            String name = safe(course.optString("name", course.optString("course_name", "")));
+            if (name.isEmpty()) continue;
+            int periodStart = parseIntSafe(
+                    firstNonEmpty(course.opt("period_start"), course.opt("period"), course.opt("start_period")),
+                    0
+            );
+            if (periodStart <= 0 || periodStart >= PERIOD_START_MINUTES.length) continue;
+            int periodEnd = parseIntSafe(firstNonEmpty(course.opt("period_end"), course.opt("end_period")), periodStart);
+            if (periodEnd < periodStart) periodEnd = periodStart;
+            if (periodEnd >= PERIOD_START_MINUTES.length) periodEnd = periodStart;
+
+            JSONObject row = new JSONObject();
+            row.put("period_start", periodStart);
+            row.put("period_end", periodEnd);
+            row.put("time_start", safe(course.optString("time_start", toClock(PERIOD_START_MINUTES[periodStart]))));
+            row.put("time_end", safe(course.optString("time_end", toClock(PERIOD_START_MINUTES[periodEnd] + 45))));
+            row.put("name", name);
+            row.put("location", safe(course.optString("location", course.optString("room_code", course.optString("room", "")))));
+            row.put("teacher", safe(course.optString("teacher", "")));
+            rows.put(row);
+        }
+        return rows;
+    }
+
+    private void updateExamWidget(Context context, SharedPreferences prefs, JSONArray exams) {
+        try {
+            JSONArray futureExams = new JSONArray();
+            String today = getTodayKey();
+            int bestDaysLeft = -1;
+            if (exams != null) {
+                for (int i = 0; i < exams.length(); i++) {
+                    JSONObject item = exams.optJSONObject(i);
+                    if (item == null) continue;
+                    String examDate = safe(item.optString("exam_date", item.optString("date", "")));
+                    if (!examDate.isEmpty() && examDate.compareTo(today) < 0) continue;
+                    JSONObject row = new JSONObject();
+                    row.put("course_name", safe(item.optString("course_name", item.optString("name", ""))));
+                    row.put("exam_date", examDate);
+                    row.put("exam_time", safe(item.optString("exam_time", item.optString("start_time", ""))));
+                    row.put("location", safe(item.optString("location", item.optString("room", ""))));
+                    row.put("seat_no", safe(item.optString("seat_no", item.optString("seat", ""))));
+                    futureExams.put(row);
+                    if (bestDaysLeft < 0 && !examDate.isEmpty()) {
+                        bestDaysLeft = daysBetween(today, examDate);
+                    }
+                    if (futureExams.length() >= 3) break;
+                }
+            }
+            JSONObject data = new JSONObject();
+            data.put("exams", futureExams);
+            data.put("days_left", bestDaysLeft);
+            String json = data.toString();
+            String hash = Integer.toHexString(json.hashCode());
+            if (hash.equals(safe(prefs.getString(KEY_WIDGET_LAST_EXAM_HASH, "")))) return;
+            if (new WidgetDataStore(context).writeExam(json)) {
+                prefs.edit().putString(KEY_WIDGET_LAST_EXAM_HASH, hash).apply();
+                WidgetRefreshScheduler.INSTANCE.triggerExamImmediate(context);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "updateExamWidget failed: " + e.getMessage());
+        }
+    }
+
+    private void updateElectricityWidget(
+            Context context,
+            SharedPreferences prefs,
+            double quantity,
+            String rawSelection
+    ) {
+        try {
+            JSONObject data = new JSONObject();
+            data.put("quantity", quantity);
+            data.put("room", buildRoomLabel(rawSelection));
+            data.put("isLow", quantity >= 0 && quantity < POWER_ALERT_THRESHOLD);
+            String json = data.toString();
+            String hash = Integer.toHexString(json.hashCode());
+            if (hash.equals(safe(prefs.getString(KEY_WIDGET_LAST_POWER_HASH, "")))) return;
+            if (new WidgetDataStore(context).writeElectricity(json)) {
+                prefs.edit().putString(KEY_WIDGET_LAST_POWER_HASH, hash).apply();
+                WidgetRefreshScheduler.INSTANCE.triggerElectricityImmediate(context);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "updateElectricityWidget failed: " + e.getMessage());
+        }
+    }
+
+    private Object firstNonEmpty(Object first, Object second, Object third) {
+        String a = first == null ? "" : String.valueOf(first).trim();
+        if (!a.isEmpty() && !"null".equalsIgnoreCase(a)) return first;
+        String b = second == null ? "" : String.valueOf(second).trim();
+        if (!b.isEmpty() && !"null".equalsIgnoreCase(b)) return second;
+        return third;
+    }
+
+    private Object firstNonEmpty(Object first, Object second) {
+        String a = first == null ? "" : String.valueOf(first).trim();
+        if (!a.isEmpty() && !"null".equalsIgnoreCase(a)) return first;
+        return second;
+    }
+
+    private String buildRoomLabel(String rawSelection) {
+        try {
+            JSONArray room = new JSONArray(rawSelection);
+            if (room.length() == 4) {
+                return "宿舍 " + safe(room.optString(3));
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return "";
+    }
+
+    private int daysBetween(String startDay, String endDay) {
+        try {
+            SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+            long start = format.parse(startDay).getTime();
+            long end = format.parse(endDay).getTime();
+            return (int) Math.max(0, (end - start) / (24L * 60L * 60L * 1000L));
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private String isoNow() {
+        return new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US)
+                .format(Calendar.getInstance().getTime());
     }
 
     private String safe(String value) {

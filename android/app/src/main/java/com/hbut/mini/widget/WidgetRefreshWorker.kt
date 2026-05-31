@@ -1,8 +1,22 @@
 package com.hbut.mini.widget
 
-/**
- * 占位文件 — WorkManager Worker 在 Tauri 构建中不可用。
- * 
- * 刷新逻辑由 WidgetRefreshScheduler.triggerImmediate() 直接触发，
- * 系统 updatePeriodMillis (30min) 作为兜底周期刷新。
- */
+import android.content.Context
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+
+class WidgetRefreshWorker(
+    appContext: Context,
+    params: WorkerParameters
+) : CoroutineWorker(appContext, params) {
+
+    override suspend fun doWork(): Result {
+        return try {
+            if (WidgetRefreshScheduler.hasPinnedInstance(applicationContext)) {
+                WidgetRefreshScheduler.triggerAllImmediate(applicationContext)
+            }
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
+}

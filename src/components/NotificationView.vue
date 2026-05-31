@@ -560,7 +560,13 @@ const ensureAndroidChannel = async () => {
 const handleRequestPermission = async () => {
   statusMessage.value = ''
   lastError.value = ''
-  await updatePermissionState(true)
+  const granted = await updatePermissionState(true)
+  if (!granted && currentRuntime.value === 'capacitor' && isAndroid()) {
+    const opened = await platformBridge.openNotificationSettings().catch(() => false)
+    statusMessage.value = opened
+      ? '已打开系统通知设置，请允许 Mini-HBUT 发送通知。'
+      : '通知权限未授权，请在系统设置中允许 Mini-HBUT 发送通知。'
+  }
 }
 
 const updateSnapshot = (nextSnapshot) => {
@@ -592,7 +598,7 @@ const runManualCheck = async () => {
       studentId: props.studentId,
       reason: 'manual',
       launchCheck: false,
-      allowPermissionPrompt: true
+      allowPermissionPrompt: false
     })
     updateSnapshot(result)
     await refreshRuntimeStates()
@@ -708,9 +714,9 @@ const handleTestNotification = async () => {
   lastError.value = ''
 
   try {
-    const granted = await updatePermissionState(true)
+    const granted = await updatePermissionState(false)
     if (!granted) {
-      statusMessage.value = '通知权限未授权，测试通知未发送。'
+      statusMessage.value = '通知权限未授权，测试通知未发送。请点击上方“管理”开启通知权限。'
       return
     }
 

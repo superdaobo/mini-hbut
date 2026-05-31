@@ -671,13 +671,14 @@ async fn import_cookies(State(state): State<HttpState>, Json(req): Json<CookieSn
 
 async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let client = state.client.lock().await;
-    match client.fetch_grades_with_teachers().await {
+    match client.fetch_grades().await {
         Ok(grades) => {
             let payload = serde_json::json!({
                 "success": true,
                 "data": grades,
                 "sync_time": chrono::Local::now().to_rfc3339(),
-                "offline": false
+                "offline": false,
+                "teacher_enrichment_pending": true
             });
             Ok(ok(payload))
         }

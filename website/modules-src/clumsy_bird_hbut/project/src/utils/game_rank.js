@@ -2,6 +2,7 @@ const DEFAULT_GAME_ID = 'clumsy_bird_hbut'
 const DEFAULT_GAME_RANK_API = 'https://mini-hbut-testocr1.hf.space/api/game-rank'
 const REQUEST_TIMEOUT_MS = 12000
 const MODULE_CONTEXT_STORAGE_KEY = 'clumsy_bird_hbut_rank_context_v1'
+const DEFAULT_RETRY_DELAYS_MS = [1200, 2600, 5200]
 
 const safeText = (value) => String(value ?? '').trim()
 const LEADERBOARD_TIMEOUT_MESSAGE = '排行榜请求超时，请稍后重试'
@@ -48,6 +49,15 @@ const normalizeRequestError = (error) => {
   return new Error(safeText(error) || '排行榜请求失败')
 }
 
+const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms || 0))))
+
+const shouldRetryRequest = (error) => {
+  const status = Number(error?.status || 0)
+  if (status === 429) return true
+  if (status >= 500 && status <= 599) return true
+  return isAbortError(error) || /network|fetch|failed|timeout/i.test(safeText(error?.message || error))
+}
+
 const requestJson = async (url, init = {}) => {
   let response = null
   try {
@@ -73,21 +83,44 @@ const requestJson = async (url, init = {}) => {
     parsed = null
   }
   if (!response.ok) {
-    throw new Error(safeText(parsed?.error || parsed?.message || text) || `HTTP ${response.status}`)
+    const error = new Error(safeText(parsed?.error || parsed?.message || text) || `HTTP ${response.status}`)
+    error.status = response.status
+    throw error
   }
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('排行榜服务返回了无效响应')
   }
   if (parsed.success === false) {
-    throw new Error(safeText(parsed.error || parsed.message) || '排行榜服务返回失败')
+    const error = new Error(safeText(parsed.error || parsed.message) || '排行榜服务返回失败')
+    error.status = Number(parsed.status || 0)
+    throw error
   }
   return parsed
+}
+
+const requestJsonWithRetry = async (url, init = {}, options = {}) => {
+  const retryDelays = Array.isArray(options.retryDelaysMs) ? options.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS
+  let lastError = null
+  for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+    if (attempt > 0) await wait(retryDelays[attempt - 1])
+    try {
+      return await requestJson(url, init)
+    } catch (error) {
+      lastError = error
+      if (attempt >= retryDelays.length || !shouldRetryRequest(error)) {
+        throw error
+      }
+    }
+  }
+  throw lastError || new Error('排行榜请求失败')
 }
 
 const readStoredContext = () => {
   const stored = safeParseJson(localStorage.getItem(MODULE_CONTEXT_STORAGE_KEY), null)
   return stored && typeof stored === 'object' ? stored : {}
 }
+
+const pickStoredText = (stored, camelKey, snakeKey) => pickText(stored?.[camelKey], stored?.[snakeKey])
 
 const writeStoredContext = (context) => {
   const next = context && typeof context === 'object' ? context : {}
@@ -129,15 +162,15 @@ export const readGameModuleContext = () => {
   const stored = readStoredContext()
   const context = {
     gameId: DEFAULT_GAME_ID,
-    studentId: pickText(params.get('student_id'), stored.studentId),
-    playerName: pickText(params.get('player_name'), stored.playerName),
-    className: pickText(params.get('class_name'), stored.className),
-    schoolName: pickText(params.get('school_name'), stored.schoolName) || '湖北工业大学',
+    studentId: pickText(params.get('student_id'), pickStoredText(stored, 'studentId', 'student_id')),
+    playerName: pickText(params.get('player_name'), pickStoredText(stored, 'playerName', 'player_name')),
+    className: pickText(params.get('class_name'), pickStoredText(stored, 'className', 'class_name')),
+    schoolName: pickText(params.get('school_name'), pickStoredText(stored, 'schoolName', 'school_name')) || '湖北工业大学',
     major: pickText(params.get('major'), stored.major),
     runtime: pickText(params.get('runtime'), stored.runtime) || 'module-web',
-    appVersion: pickText(params.get('app_version'), stored.appVersion),
+    appVersion: pickText(params.get('app_version'), pickStoredText(stored, 'appVersion', 'app_version')),
     from: pickText(params.get('from'), stored.from),
-    rankApiBase: normalizeApiBase(pickText(params.get('rank_api'), stored.rankApiBase))
+    rankApiBase: normalizeApiBase(pickText(params.get('rank_api'), pickStoredText(stored, 'rankApiBase', 'rank_api')))
   }
   writeStoredContext(context)
   return context
@@ -148,7 +181,7 @@ export const canUseGameRank = (context) => {
   return !!safeText(profile.studentId) && !!normalizeApiBase(profile.rankApiBase)
 }
 
-export const submitGameRank = async (context, payload = {}) => {
+export const submitGameRank = async (context, payload = {}, options = {}) => {
   const profile = context && typeof context === 'object' ? context : readGameModuleContext()
   const body = {
     game_id: safeText(payload.gameId || profile.gameId || DEFAULT_GAME_ID),
@@ -168,10 +201,10 @@ export const submitGameRank = async (context, payload = {}) => {
     runtime: safeText(payload.runtime || profile.runtime),
     payload: payload.extra && typeof payload.extra === 'object' ? payload.extra : {}
   }
-  return requestJson(`${normalizeApiBase(profile.rankApiBase)}/submit`, {
+  return requestJsonWithRetry(`${normalizeApiBase(profile.rankApiBase)}/submit`, {
     method: 'POST',
     body: JSON.stringify(body)
-  })
+  }, options)
 }
 
 export const fetchGameLeaderboard = async (context, options = {}) => {

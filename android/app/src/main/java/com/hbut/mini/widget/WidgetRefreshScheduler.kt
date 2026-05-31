@@ -3,32 +3,62 @@ package com.hbut.mini.widget
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 
 /**
- * Widget 刷新调度器 — 不依赖 WorkManager，仅使用系统 updatePeriodMillis 兜底。
- *
- * 主动刷新通过 triggerImmediate() 实现（主 App 写入快照后立即调用）。
- * 系统周期刷新由 appwidget-provider.xml 的 updatePeriodMillis=1800000 (30min) 保证。
+ * Widget 刷新调度器。
+ * 主 App 写入快照后立即刷新；后台使用 WorkManager 15 分钟兜底重绘，避开
+ * AppWidgetProvider updatePeriodMillis 至少 30 分钟的系统限制。
  */
 object WidgetRefreshScheduler {
+    private const val PERIODIC_WORK_NAME = "mini_hbut_widget_periodic_refresh"
+    private const val ONESHOT_WORK_NAME = "mini_hbut_widget_immediate_refresh"
 
     /**
-     * 注册周期刷新（当前为空实现，依赖系统 updatePeriodMillis）。
-     * 在第一个 widget 实例被添加时调用。
+     * 注册周期刷新。在第一个 widget 实例被添加、App 启动或系统重启后调用。
      */
-    @Suppress("UNUSED_PARAMETER")
     fun ensurePeriodic(context: Context) {
-        // 系统 updatePeriodMillis=1800000 已提供 30 分钟兜底刷新
-        // WorkManager 周期任务在 Tauri 构建中不可用，此处为空实现
+        if (!hasPinnedInstance(context)) return
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+            .build()
+        val request = PeriodicWorkRequestBuilder<WidgetRefreshWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
+            PERIODIC_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
     }
 
     /**
-     * 取消周期刷新（当前为空实现）。
+     * 取消周期刷新。
      * 在最后一个 widget 实例被移除时调用。
      */
-    @Suppress("UNUSED_PARAMETER")
     fun cancelPeriodic(context: Context) {
-        // 空实现
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(PERIODIC_WORK_NAME)
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(ONESHOT_WORK_NAME)
+    }
+
+    /**
+     * 请求 WorkManager 尽快补一次刷新，防止部分桌面启动器忽略直接 updateAppWidget。
+     */
+    fun enqueueImmediate(context: Context) {
+        if (!hasPinnedInstance(context)) return
+        val request = OneTimeWorkRequestBuilder<WidgetRefreshWorker>().build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            ONESHOT_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     /**

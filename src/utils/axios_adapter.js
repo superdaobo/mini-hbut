@@ -267,14 +267,44 @@ const adapter = {
 
             if (url.includes('/v2/quick_fetch')) {
                 if (!hasTauri) {
-                    const res = await bridgePost('/sync_grades');
+                    const res = await bridgePost('/sync_grades', {
+                        current_only: !!data?.teacher_current_only
+                    });
                     if (res?.success) {
                         return mockResponse(unwrapBridge(res));
                     }
                     return mockResponse({ success: false, error: res?.error?.message || res?.error || '获取成绩失败' });
                 }
-                const grades = await invoke('sync_grades');
+                const grades = await invoke('sync_grades', {
+                    currentOnly: !!data?.teacher_current_only
+                });
                 return mockResponse(grades);
+            }
+
+            if (url.includes('/v2/grade_teacher_cache')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('get_grade_teacher_cache', {
+                            studentId: data?.student_id || data?.studentId || null
+                        });
+                        return mockResponse(payload);
+                    }
+                    return mockResponse({ success: true, by_kcbh: {}, semesters: {} });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/grade_teachers/current')) {
+                try {
+                    if (hasTauri) {
+                        const payload = await invoke('sync_grade_teachers_current_semester');
+                        return mockResponse(payload);
+                    }
+                    return mockResponse({ success: false, error: '浏览器模式不支持任课教师补齐' });
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
             }
 
             // 课表

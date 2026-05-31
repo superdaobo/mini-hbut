@@ -5,7 +5,7 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache } from './utils/api.js'
+import { fetchWithCache, setCachedData } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
   SCHEDULE_POPUP_PENDING_KEY,
@@ -126,6 +126,7 @@ const ResourceShareView = createAsyncPage(loadResourceShareView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const hasTauri = isTauriRuntime()
+const invoke = invokeNative
 const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
 const IOS_RESUME_RELOAD_MS = 3 * 60 * 1000
 const isIOSLike = (() => {
@@ -154,6 +155,8 @@ let capacitorAppStateListener = null
 let widgetCrossDayTimer = null
 let removeNotificationActionListener = null
 let removeHomeLayoutDiagnosticsErrorCapture = null
+let gradeTeacherRefreshTimer = null
+let gradeNavigationToken = 0
 
 // Widget 深链接参数（由 widgetDeeplink 事件或 appUrlOpen 注入）
 const widgetDeeplinkDate = ref('')
@@ -441,6 +444,8 @@ const dailyAccessError = ref('')
 const pendingProtectedView = ref(null)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
+const gradeTeacherCache = ref(null)
+const gradeTeacherCacheSid = ref('')
 const appShellRef = ref(null)
 const homeScrollSnapshot = ref(0)
 const jwxtMaintenanceMode = ref(false)
@@ -1364,11 +1369,7 @@ const syncFromHash = async ({ scrollToTop = false } = {}) => {
   applyViewState(route.view)
 
   if (route.view === 'grades' && gradeData.value.length === 0) {
-    const ok = await fetchGradesFromAPI(route.sid)
-    if (!ok) {
-      applyViewState('me')
-      replaceHistorySnapshot('me')
-    }
+    void loadGradesForCurrentView()
   }
 }
 
@@ -1384,6 +1385,8 @@ const markLoginSessionToken = () => {
 const handleLoginSuccess = (data) => {
   gradeData.value = data
   studentId.value = localStorage.getItem('hbu_username') || ''
+  gradeTeacherCache.value = null
+  gradeTeacherCacheSid.value = studentId.value
   // 跳转到 Dashboard 显示所有模块
   applyViewState('home')
   replaceHistorySnapshot('home')
@@ -1447,6 +1450,21 @@ const normalizeNavigateTarget = (target) => {
   }
 }
 
+const loadGradesForCurrentView = async (options = {}) => {
+  const token = ++gradeNavigationToken
+  const sid = String(studentId.value || '').trim()
+  if (!sid || currentView.value !== 'grades') return false
+
+  const ok = await fetchGradesFromAPI(sid, options)
+  if (token !== gradeNavigationToken || currentView.value !== 'grades') {
+    return ok
+  }
+  if (!ok) {
+    showToast('成绩加载失败，请稍后重试', 'error')
+  }
+  return ok
+}
+
 // 处理导航
 const handleNavigate = async (target) => {
   const normalized = normalizeNavigateTarget(target)
@@ -1461,17 +1479,12 @@ const handleNavigate = async (target) => {
     }
   }
 
-  // 如果是成绩页面且数据为空，先获取数据
-  if (normalized.view === 'grades' && gradeData.value.length === 0) {
-    const success = await fetchGradesFromAPI(studentId.value)
-    if (!success) {
-      // 获取失败，跳转到个人中心
-      goToView('me')
-      return
-    }
-  }
+  const navigated = goToView(normalized.view)
+  if (!navigated) return
 
-  goToView(normalized.view)
+  if (normalized.view === 'grades' && gradeData.value.length === 0) {
+    void loadGradesForCurrentView()
+  }
 }
 
 // 处理返回仪表盘
@@ -1493,6 +1506,8 @@ const handleLogout = (options = {}) => {
   const notice = String(payload.notice || '').trim()
   applyViewState('home')
   gradeData.value = []
+  gradeTeacherCache.value = null
+  gradeTeacherCacheSid.value = ''
   studentId.value = ''
   userUuid.value = ''
   replaceHistorySnapshot('home')
@@ -1702,21 +1717,128 @@ const ensureConfigAccess = () => {
   }
 }
 
+const fetchGradesRemote = async (sid, { teacherCurrentOnly = false } = {}) => {
+  const res = await axios.post(`${API_BASE}/v2/quick_fetch`, {
+    student_id: sid,
+    teacher_current_only: teacherCurrentOnly
+  })
+  return res.data
+}
+
+const normalizeGradeTeacherKey = (value) => {
+  const key = String(value ?? '').trim()
+  return key || ''
+}
+
+const gradeTeacherKeys = (grade = {}) => {
+  const keys = [
+    normalizeGradeTeacherKey(grade.kcbh),
+    normalizeGradeTeacherKey(grade.course_code),
+    normalizeGradeTeacherKey(grade.courseCode),
+    normalizeGradeTeacherKey(grade.grade_id),
+    normalizeGradeTeacherKey(grade.gradeId)
+  ].filter(Boolean)
+  return [...new Set(keys)]
+}
+
+const mergeGradeTeacherCache = (grades = [], cachePayload = gradeTeacherCache.value) => {
+  if (!Array.isArray(grades) || !cachePayload || typeof cachePayload !== 'object') {
+    return Array.isArray(grades) ? grades : []
+  }
+  const byKcbh = cachePayload.by_kcbh && typeof cachePayload.by_kcbh === 'object'
+    ? cachePayload.by_kcbh
+    : {}
+  if (!Object.keys(byKcbh).length) return grades
+  let changed = false
+  const merged = grades.map((grade) => {
+    if (!grade || typeof grade !== 'object') return grade
+    const currentTeacher = String(grade.course_teacher ?? grade.courseTeacher ?? '').trim()
+    if (currentTeacher) return grade
+    for (const key of gradeTeacherKeys(grade)) {
+      const teacher = String(byKcbh[key] ?? '').trim()
+      if (teacher) {
+        changed = true
+        return { ...grade, course_teacher: teacher }
+      }
+    }
+    return grade
+  })
+  return changed ? merged : grades
+}
+
+const refreshGradeTeacherCache = async ({ currentOnly = false } = {}) => {
+  const sid = String(studentId.value || '').trim()
+  if (!sid || !hasTauri) return null
+  try {
+    const payload = currentOnly
+      ? await invoke('sync_grade_teachers_current_semester')
+      : await invoke('get_grade_teacher_cache')
+    if (payload?.success !== false) {
+      gradeTeacherCache.value = payload
+      gradeTeacherCacheSid.value = sid
+      if (Array.isArray(gradeData.value) && gradeData.value.length > 0) {
+        gradeData.value = mergeGradeTeacherCache(gradeData.value, payload)
+      }
+    }
+    return payload
+  } catch (error) {
+    console.warn('[Grades] 任课教师缓存刷新失败:', error)
+    return null
+  }
+}
+
+const scheduleGradeTeacherCacheRefresh = () => {
+  if (gradeTeacherRefreshTimer) {
+    clearTimeout(gradeTeacherRefreshTimer)
+    gradeTeacherRefreshTimer = null
+  }
+  const delays = [1800, 4200, 8000]
+  let index = 0
+  const run = () => {
+    gradeTeacherRefreshTimer = null
+    if (!studentId.value || currentView.value !== 'grades') return
+    void refreshGradeTeacherCache({ currentOnly: false }).finally(() => {
+      index += 1
+      if (index < delays.length && currentView.value === 'grades') {
+        gradeTeacherRefreshTimer = setTimeout(run, delays[index])
+      }
+    })
+  }
+  gradeTeacherRefreshTimer = setTimeout(run, delays[index])
+}
+
+const applyGradesPayload = (data) => {
+  if (data?.success && data?.data) {
+    if (gradeTeacherCacheSid.value !== String(studentId.value || '').trim()) {
+      gradeTeacherCache.value = null
+    }
+    gradeData.value = mergeGradeTeacherCache(data.data)
+    gradesOffline.value = !!data.offline
+    gradesSyncTime.value = data.sync_time || ''
+    void refreshGradeTeacherCache({ currentOnly: false })
+    if (data.teacher_enrichment_pending) {
+      scheduleGradeTeacherCacheRefresh()
+    }
+    return true
+  }
+  return false
+}
+
 // 从API获取成绩数据
-const fetchGradesFromAPI = async (sid) => {
+const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = false } = {}) => {
+  if (!sid) return false
   isLoading.value = true
   try {
-    const { data } = await fetchWithCache(`grades:${sid}`, async () => {
-      const res = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
-      return res.data
-    })
-
-    if (data?.success && data?.data) {
-      gradeData.value = data.data
-      gradesOffline.value = !!data.offline
-      gradesSyncTime.value = data.sync_time || ''
-      return true
+    if (force) {
+      const data = await fetchGradesRemote(sid, { teacherCurrentOnly })
+      if (data?.success && !data.offline) {
+        setCachedData(`grades:${sid}`, data)
+      }
+      return applyGradesPayload(data)
     }
+
+    const { data } = await fetchWithCache(`grades:${sid}`, () => fetchGradesRemote(sid))
+    return applyGradesPayload(data)
   } catch (e) {
     console.error('获取成绩失败:', e)
   } finally {
@@ -1747,6 +1869,14 @@ const handleBackToMe = () => {
 
 const handleBackToMoreCenter = () => {
   goToView('more')
+}
+
+const handleRefreshGrades = async () => {
+  const ok = await fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true })
+  if (ok) {
+    void refreshGradeTeacherCache({ currentOnly: true })
+  }
+  showToast(ok ? '成绩已刷新' : '成绩刷新失败', ok ? 'success' : 'error')
 }
 
 const handleOpenFeedback = () => {
@@ -2606,6 +2736,10 @@ onBeforeUnmount(() => {
     clearTimeout(widgetCrossDayTimer)
     widgetCrossDayTimer = null
   }
+  if (gradeTeacherRefreshTimer) {
+    clearTimeout(gradeTeacherRefreshTimer)
+    gradeTeacherRefreshTimer = null
+  }
   if (capacitorAppStateListener) {
     capacitorAppStateListener.remove().catch(() => {})
     capacitorAppStateListener = null
@@ -2772,8 +2906,10 @@ onBeforeUnmount(() => {
         :student-id="studentId"
         :offline="gradesOffline"
         :sync-time="gradesSyncTime"
+        :refreshing="isLoading"
         @back="handleBackToDashboard"
         @logout="handleLogout"
+        @refresh="handleRefreshGrades"
       />
 
       <!-- 电费查询 -->

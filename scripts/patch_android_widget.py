@@ -7,7 +7,7 @@
 将 android/app/src/main/ 下的 widget 相关文件复制到 src-tauri/gen/android/app/src/main/，
 并 patch AndroidManifest.xml 注册 receiver + service。
 
-注意：widget 代码仅使用 Android SDK 标准 API，不依赖 WorkManager 等额外库。
+注意：widget 周期刷新依赖 AndroidX WorkManager，脚本会同步补齐依赖。
 """
 
 from __future__ import annotations
@@ -38,6 +38,30 @@ def copy_widget_sources():
         print(f"  [COPY] {kt_file.name}")
 
     print(f"[OK] Copied {count} Kotlin widget files")
+    return count > 0
+
+
+def copy_native_sources():
+    """复制 Android 原生桥接与后台保活源码。"""
+    source_files = [
+        "java/com/hbut/mini/HBUTNativePlugin.java",
+        "java/com/hbut/mini/MiniHbutWidgetPlugin.java",
+        "java/com/hbut/mini/KeepAliveForegroundService.java",
+        "java/com/hbut/mini/BootCompletedReceiver.java",
+        "java/com/hbut/mini/BackgroundFetchHeadlessTask.java",
+    ]
+    count = 0
+    for rel_path in source_files:
+        src = CAPACITOR_ANDROID / rel_path
+        dst = TAURI_ANDROID / rel_path
+        if not src.exists():
+            print(f"  [SKIP] {rel_path} (not found)")
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        count += 1
+        print(f"  [COPY] {rel_path}")
+    print(f"[OK] Copied {count} native Android files")
     return count > 0
 
 
@@ -88,12 +112,50 @@ def patch_manifest():
         return False
 
     text = manifest_path.read_text(encoding="utf-8")
+    before_application = '    <uses-permission android:name="android.permission.INTERNET" />\n\n    <application'
+    if before_application in text:
+        required_permissions = [
+            "android.permission.POST_NOTIFICATIONS",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            "android.permission.WAKE_LOCK",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+            "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        ]
+        inserts = ""
+        for perm in required_permissions:
+            if f'android:name="{perm}"' not in text:
+                inserts += f'    <uses-permission android:name="{perm}" />\n'
+        if inserts:
+            text = text.replace(
+                before_application,
+                '    <uses-permission android:name="android.permission.INTERNET" />\n' + inserts + "\n    <application",
+                1,
+            )
 
-    if "TodayCoursesProvider" in text:
-        print("[OK] Widget already registered in AndroidManifest.xml")
-        return True
+    application_entries = []
+    if "KeepAliveForegroundService" not in text:
+        application_entries.append('''
+        <service
+            android:name=".KeepAliveForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />''')
 
-    widget_xml = '''
+    if "BootCompletedReceiver" not in text:
+        application_entries.append('''
+        <receiver
+            android:name=".BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>''')
+
+    if "TodayCoursesProvider" not in text:
+        application_entries.append('''
         <!-- 今日课程小组件 Provider -->
         <receiver
             android:name="com.hbut.mini.widget.TodayCoursesProvider"
@@ -106,8 +168,10 @@ def patch_manifest():
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appwidget_today_courses" />
-        </receiver>
+        </receiver>''')
 
+    if "ElectricityWidgetProvider" not in text:
+        application_entries.append('''
         <!-- 电费小组件 Provider -->
         <receiver
             android:name="com.hbut.mini.widget.ElectricityWidgetProvider"
@@ -120,8 +184,10 @@ def patch_manifest():
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appwidget_electricity" />
-        </receiver>
+        </receiver>''')
 
+    if "ExamWidgetProvider" not in text:
+        application_entries.append('''
         <!-- 考试安排小组件 Provider -->
         <receiver
             android:name="com.hbut.mini.widget.ExamWidgetProvider"
@@ -134,18 +200,20 @@ def patch_manifest():
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appwidget_exam" />
-        </receiver>
+        </receiver>''')
 
+    if "TodayCoursesRemoteViewsService" not in text:
+        application_entries.append('''
         <!-- 今日课程小组件 RemoteViewsService -->
         <service
             android:name="com.hbut.mini.widget.TodayCoursesRemoteViewsService"
             android:permission="android.permission.BIND_REMOTEVIEWS"
-            android:exported="false" />
-'''
+            android:exported="false" />''')
 
-    if "</application>" in text:
+    if application_entries and "</application>" in text:
+        widget_xml = "\n".join(application_entries) + "\n"
         text = text.replace("</application>", widget_xml + "\n    </application>")
-    else:
+    elif application_entries:
         print("[WARN] Could not find </application> tag in manifest")
         return False
 
@@ -162,8 +230,38 @@ def patch_manifest():
         text = text.replace("</activity>", deep_link_filter + "        </activity>", 1)
 
     manifest_path.write_text(text, encoding="utf-8")
-    print("[OK] Patched AndroidManifest.xml with widget receiver + deep link")
+    print("[OK] Patched AndroidManifest.xml with widget/background entries + deep link")
     return True
+
+
+def patch_gradle_dependencies():
+    """补齐 Tauri Android 工程中的 WorkManager 依赖。"""
+    candidates = [
+        TAURI_ANDROID.parent / "build.gradle.kts",
+        TAURI_ANDROID.parent / "build.gradle",
+    ]
+    patched = False
+    for gradle_path in candidates:
+        if not gradle_path.exists():
+            continue
+        text = gradle_path.read_text(encoding="utf-8")
+        if "androidx.work:work-runtime-ktx" in text:
+            print(f"[OK] WorkManager dependency already exists in {gradle_path.name}")
+            return True
+        if "dependencies {" not in text:
+            continue
+        if gradle_path.suffix == ".kts":
+            dep = '    implementation("androidx.work:work-runtime-ktx:2.9.0")\n'
+        else:
+            dep = "    implementation 'androidx.work:work-runtime-ktx:2.9.0'\n"
+        text = text.replace("dependencies {", "dependencies {\n" + dep, 1)
+        gradle_path.write_text(text, encoding="utf-8")
+        print(f"[OK] Added WorkManager dependency to {gradle_path.name}")
+        patched = True
+        break
+    if not patched:
+        print("[WARN] Could not patch WorkManager dependency; Gradle file not found or unsupported")
+    return patched
 
 
 def main() -> int:
@@ -181,9 +279,11 @@ def main() -> int:
         return 1
 
     ok = True
+    ok = copy_native_sources() and ok
     ok = copy_widget_sources() and ok
     ok = copy_widget_resources() and ok
     ok = patch_manifest() and ok
+    ok = patch_gradle_dependencies() and ok
 
     if ok:
         print("\n[OK] All widget patches applied successfully.")

@@ -46,7 +46,9 @@ class MiniHbutWidgetPlugin : Plugin() {
         }
 
         // 写入成功，触发小组件立即刷新
+        WidgetRefreshScheduler.ensurePeriodic(context)
         WidgetRefreshScheduler.triggerImmediate(context)
+        WidgetRefreshScheduler.enqueueImmediate(context)
         call.resolve()
     }
 
@@ -66,7 +68,9 @@ class MiniHbutWidgetPlugin : Plugin() {
      */
     @PluginMethod
     fun requestRefresh(call: PluginCall) {
+        WidgetRefreshScheduler.ensurePeriodic(context)
         WidgetRefreshScheduler.triggerImmediate(context)
+        WidgetRefreshScheduler.enqueueImmediate(context)
         call.resolve()
     }
 
@@ -80,6 +84,9 @@ class MiniHbutWidgetPlugin : Plugin() {
         val ret = JSObject()
         ret.put("platform", "android-appwidget")
         ret.put("pinned", WidgetRefreshScheduler.hasPinnedInstance(context))
+        ret.put("hasPinnedInstance", WidgetRefreshScheduler.hasPinnedInstance(context))
+        ret.put("periodicEnabled", WidgetRefreshScheduler.hasPinnedInstance(context))
+        ret.put("refreshMode", "workmanager+immediate")
         call.resolve(ret)
     }
 

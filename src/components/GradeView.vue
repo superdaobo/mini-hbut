@@ -9,10 +9,11 @@ const props = defineProps({
   grades: { type: Array, default: () => [] },
   studentId: { type: String, default: '' },
   offline: { type: Boolean, default: false },
-  syncTime: { type: String, default: '' }
+  syncTime: { type: String, default: '' },
+  refreshing: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['back', 'logout'])
+const emit = defineEmits(['back', 'logout', 'refresh'])
 
 // 筛选条件
 const searchName = ref('')
@@ -306,6 +307,7 @@ const resetFilters = () => {
 
 const handleBack = () => emit('back')
 const handleLogout = () => emit('logout')
+const handleRefresh = () => emit('refresh')
 
 const readPreferredSemester = () => {
   try {
@@ -337,7 +339,20 @@ watch(
 <template>
   <div class="grade-view">
     <!-- 头部 -->
-    <TPageHeader icon="assessment" title="成绩查询" @back="handleBack" />
+    <TPageHeader icon="assessment" title="成绩查询" @back="handleBack">
+      <template #actions>
+        <button
+          class="grade-refresh-btn"
+          type="button"
+          :disabled="refreshing"
+          aria-label="刷新成绩"
+          title="刷新成绩"
+          @click="handleRefresh"
+        >
+          <span class="material-symbols-outlined" :class="{ spinning: refreshing }">refresh</span>
+        </button>
+      </template>
+    </TPageHeader>
 
     <!-- Tab 切换栏 -->
     <div class="grade-tab-bar">
@@ -540,7 +555,8 @@ watch(
         </div>
       </template>
       
-      <TEmptyState v-if="sortedGrades.length === 0" message="没有找到符合条件的成绩">
+      <TEmptyState v-if="refreshing && props.grades.length === 0" type="loading" message="正在获取成绩数据..." />
+      <TEmptyState v-else-if="sortedGrades.length === 0" message="没有找到符合条件的成绩">
         <button @click="resetFilters">清除筛选</button>
       </TEmptyState>
     </div>
@@ -647,7 +663,7 @@ watch(
 .grade-tab-bar {
   display: flex;
   gap: 0;
-  margin-bottom: 14px;
+  margin: 14px 0 14px;
   border-radius: 12px;
   overflow: hidden;
   background: var(--color-bg-card, #fff);
@@ -655,6 +671,45 @@ watch(
   position: relative;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
+
+.grade-refresh-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, transform 0.15s, opacity 0.2s;
+}
+
+.grade-refresh-btn:active {
+  transform: scale(0.95);
+}
+
+.grade-refresh-btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.grade-refresh-btn .material-symbols-outlined {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.grade-refresh-btn .spinning {
+  animation: gradeRefreshSpin 0.8s linear infinite;
+}
+
+@keyframes gradeRefreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .grade-tab-btn {
   flex: 1;
   padding: 10px 0;

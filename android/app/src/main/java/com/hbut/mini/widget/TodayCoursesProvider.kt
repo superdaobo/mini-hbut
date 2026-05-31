@@ -19,6 +19,7 @@ import android.content.Intent
 class TodayCoursesProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        WidgetRefreshScheduler.ensurePeriodic(context)
         appWidgetIds.forEach { id ->
             WidgetRenderer.updateWidget(context, appWidgetManager, id)
         }
@@ -31,12 +32,15 @@ class TodayCoursesProvider : AppWidgetProvider() {
 
     override fun onDisabled(context: Context) {
         // 最后一个小组件实例被移除，取消周期任务
-        WidgetRefreshScheduler.cancelPeriodic(context)
+        if (!WidgetRefreshScheduler.hasPinnedInstance(context)) {
+            WidgetRefreshScheduler.cancelPeriodic(context)
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH) {
+            WidgetRefreshScheduler.ensurePeriodic(context)
             val mgr = AppWidgetManager.getInstance(context)
             val ids = mgr.getAppWidgetIds(ComponentName(context, TodayCoursesProvider::class.java))
             onUpdate(context, mgr, ids)

@@ -12,6 +12,7 @@
 
 const GAME_ID = 'jump_out_hbut'
 const LEADERBOARD_TIMEOUT_MESSAGE = '排行榜请求超时，请稍后重试'
+const DEFAULT_RETRY_DELAYS_MS = [1200, 2600, 5200]
 
 const _safeText = (value) => String(value ?? '').trim()
 
@@ -23,6 +24,57 @@ const isAbortError = (error) => {
 const _rankErrorMessage = (error) => {
   if (isAbortError(error)) return LEADERBOARD_TIMEOUT_MESSAGE
   return _safeText(error?.message || error) || '排行榜请求失败'
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))))
+
+const shouldRetrySubmitError = (error) => {
+  const status = Number(error?.status || 0)
+  if (status === 429) return true
+  if (status >= 500 && status <= 599) return true
+  return isAbortError(error) || /network|fetch|failed|timeout/i.test(_safeText(error?.message || error))
+}
+
+const readJsonResponse = async (response) => {
+  const text = await response.text()
+  let parsed = null
+  try {
+    parsed = JSON.parse(text || '{}')
+  } catch {
+    parsed = null
+  }
+  if (!response.ok) {
+    const error = new Error(_safeText(parsed?.error || parsed?.message || text) || `HTTP ${response.status}`)
+    error.status = response.status
+    throw error
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('排行榜服务返回了无效响应')
+  }
+  if (parsed.success === false) {
+    const error = new Error(_safeText(parsed.error || parsed.message) || '排行榜服务返回失败')
+    error.status = Number(parsed.status || 0)
+    throw error
+  }
+  return parsed
+}
+
+const requestJsonWithRetry = async (url, init, options = {}) => {
+  const retryDelays = Array.isArray(options.retryDelaysMs) ? options.retryDelaysMs : DEFAULT_RETRY_DELAYS_MS
+  let lastError = null
+  for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
+    if (attempt > 0) await wait(retryDelays[attempt - 1])
+    try {
+      const response = await fetch(url, init)
+      return await readJsonResponse(response)
+    } catch (error) {
+      lastError = error
+      if (attempt >= retryDelays.length || !shouldRetrySubmitError(error)) {
+        throw error
+      }
+    }
+  }
+  throw lastError || new Error('排行榜请求失败')
 }
 
 /**
@@ -60,14 +112,14 @@ export function createRunId() {
  * @param {string} [payload.ended_reason] - 结束原因
  * @returns {Promise<{ success: boolean, error?: string, [key: string]: any }>}
  */
-export async function submitGameRank(payload) {
+export async function submitGameRank(payload, options = {}) {
   const ctx = readGameModuleContext()
   if (!ctx.rank_api) {
     return { success: false, error: 'no_api' }
   }
 
   try {
-    const response = await fetch(`${ctx.rank_api}/submit`, {
+    return await requestJsonWithRetry(`${ctx.rank_api}/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -77,8 +129,7 @@ export async function submitGameRank(payload) {
         player_name: ctx.player_name,
         class_name: ctx.class_name
       })
-    })
-    return await response.json()
+    }, options)
   } catch (e) {
     return { success: false, error: _rankErrorMessage(e) }
   }

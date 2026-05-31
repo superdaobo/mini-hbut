@@ -54,5 +54,8 @@ export const platformBridge = {
   },
   async openBatteryOptimizationSettings() {
     return pickBridge().openBatteryOptimizationSettings()
+  },
+  async openNotificationSettings() {
+    return pickBridge().openNotificationSettings()
   }
 }

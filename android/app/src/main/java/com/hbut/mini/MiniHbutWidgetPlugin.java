@@ -39,21 +39,27 @@ public class MiniHbutWidgetPlugin extends Plugin {
             call.reject("SharedPreferences commit failed", "WRITE_FAILED");
             return;
         }
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(getContext());
         WidgetRefreshScheduler.INSTANCE.triggerImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
         call.resolve();
     }
 
     @PluginMethod
     public void writeElectricity(PluginCall call) {
         if (!writeJsonPayload(call, "data", "electricity")) return;
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(getContext());
         WidgetRefreshScheduler.INSTANCE.triggerElectricityImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
         call.resolve();
     }
 
     @PluginMethod
     public void writeExam(PluginCall call) {
         if (!writeJsonPayload(call, "data", "exam")) return;
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(getContext());
         WidgetRefreshScheduler.INSTANCE.triggerExamImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
         call.resolve();
     }
 
@@ -68,7 +74,9 @@ public class MiniHbutWidgetPlugin extends Plugin {
             call.reject("SharedPreferences commit failed", "WRITE_FAILED");
             return;
         }
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(getContext());
         WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
         call.resolve();
     }
 
@@ -76,12 +84,15 @@ public class MiniHbutWidgetPlugin extends Plugin {
     public void clearSnapshot(PluginCall call) {
         store().clear();
         WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
         call.resolve();
     }
 
     @PluginMethod
     public void requestRefresh(PluginCall call) {
+        WidgetRefreshScheduler.INSTANCE.ensurePeriodic(getContext());
         WidgetRefreshScheduler.INSTANCE.triggerAllImmediate(getContext());
+        WidgetRefreshScheduler.INSTANCE.enqueueImmediate(getContext());
         call.resolve();
     }
 
@@ -91,6 +102,9 @@ public class MiniHbutWidgetPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("platform", "android-appwidget");
         result.put("pinned", WidgetRefreshScheduler.INSTANCE.hasPinnedInstance(context));
+        result.put("hasPinnedInstance", WidgetRefreshScheduler.INSTANCE.hasPinnedInstance(context));
+        result.put("periodicEnabled", WidgetRefreshScheduler.INSTANCE.hasPinnedInstance(context));
+        result.put("refreshMode", "workmanager+immediate");
         call.resolve(result);
     }
 

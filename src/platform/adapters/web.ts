@@ -117,5 +117,9 @@ export const webBridge: PlatformBridge = {
 
   async openBatteryOptimizationSettings() {
     return false
+  },
+
+  async openNotificationSettings() {
+    return false
   }
 }

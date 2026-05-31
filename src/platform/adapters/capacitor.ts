@@ -11,32 +11,32 @@ const getPlugin = <T = any>(name: string): T | undefined =>
   getCapacitor()?.Plugins?.[name] as T | undefined
 let hbutNativeProxy: any | null = null
 
-const getRegisteredPlugin = async <T = any>(name: string): Promise<T | undefined> => {
+const getRegisteredPlugin = async <T = any>(name: string): Promise<{ plugin?: T }> => {
   const globalPlugin = getPlugin<T>(name)
-  if (globalPlugin) return globalPlugin
+  if (globalPlugin) return { plugin: globalPlugin }
   try {
     const mod = await import('@capacitor/core')
-    if (typeof mod.registerPlugin !== 'function') return undefined
+    if (typeof mod.registerPlugin !== 'function') return {}
     if (name === 'HBUTNative') {
       hbutNativeProxy ||= mod.registerPlugin('HBUTNative')
-      return hbutNativeProxy as T
+      return { plugin: hbutNativeProxy as T }
     }
   } catch {
     // ignore
   }
-  return undefined
+  return {}
 }
 
-const getHBUTNativePlugin = () => getRegisteredPlugin<any>('HBUTNative')
+const getHBUTNativePlugin = async () => (await getRegisteredPlugin<any>('HBUTNative')).plugin
 
 const getLocalNotifications = async () => {
   try {
     const mod = await import('@capacitor/local-notifications')
-    if (mod?.LocalNotifications) return mod.LocalNotifications as any
+    if (mod?.LocalNotifications) return { plugin: mod.LocalNotifications as any }
   } catch {
     // fallback to global plugin proxy
   }
-  return getPlugin<any>('LocalNotifications')
+  return { plugin: getPlugin<any>('LocalNotifications') }
 }
 
 const normalizePermission = (value: string | undefined): NotificationPermissionState => {
@@ -92,7 +92,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async getNotificationPermission() {
-    const localNotifications = await getLocalNotifications()
+    const { plugin: localNotifications } = await getLocalNotifications()
     if (!localNotifications?.checkPermissions) return 'prompt'
     try {
       const result = await localNotifications.checkPermissions()
@@ -103,7 +103,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async requestNotificationPermission() {
-    const localNotifications = await getLocalNotifications()
+    const { plugin: localNotifications } = await getLocalNotifications()
     if (!localNotifications?.requestPermissions) return 'prompt'
     try {
       const result = await localNotifications.requestPermissions()
@@ -114,7 +114,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async ensureNotificationChannel(channelId: string) {
-    const localNotifications = await getLocalNotifications()
+    const { plugin: localNotifications } = await getLocalNotifications()
     if (!localNotifications?.createChannel) return true
     try {
       await localNotifications.createChannel({
@@ -131,7 +131,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async sendLocalNotification(payload: NotifyPayload) {
-    const localNotifications = await getLocalNotifications()
+    const { plugin: localNotifications } = await getLocalNotifications()
     if (!localNotifications?.schedule) return false
     try {
       const id = payload.id ?? Math.floor(Date.now() % 2147483000)
@@ -160,7 +160,7 @@ export const capacitorBridge: PlatformBridge = {
   },
 
   async addNotificationActionListener(listener: (payload: unknown) => void) {
-    const localNotifications = await getLocalNotifications()
+    const { plugin: localNotifications } = await getLocalNotifications()
     if (!localNotifications?.addListener) return null
     try {
       const handle = await localNotifications.addListener(
@@ -288,6 +288,25 @@ export const capacitorBridge: PlatformBridge = {
     if (plugin?.openBatteryOptimizationSettings) {
       try {
         const result = await plugin.openBatteryOptimizationSettings({})
+        return !!result?.ok
+      } catch {
+        // fallback to app settings
+      }
+    }
+    try {
+      const app = await import('@capacitor/app')
+      await app.App.openSettings()
+      return true
+    } catch {
+      return false
+    }
+  },
+
+  async openNotificationSettings() {
+    const plugin = await getHBUTNativePlugin()
+    if (plugin?.openNotificationSettings) {
+      try {
+        const result = await plugin.openNotificationSettings({})
         return !!result?.ok
       } catch {
         // fallback to app settings

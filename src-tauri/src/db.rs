@@ -147,6 +147,7 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     // 2. 创建缓存表
     let cache_tables = vec![
         "grades_cache",
+        "grade_teacher_cache",
         "schedule_cache",
         "exams_cache",
         "studentinfo_cache",

@@ -46,7 +46,7 @@ const getPreferences = async () => {
   if (getRuntime() !== 'capacitor') return null
   try {
     const mod = await import('@capacitor/preferences')
-    return mod.Preferences
+    return { plugin: mod.Preferences }
   } catch {
     return null
   }
@@ -60,7 +60,7 @@ export const syncBackgroundFetchContext = async ({
   dormSelection
 } = {}) => {
   if (getRuntime() !== 'capacitor') return
-  const Preferences = await getPreferences()
+  const Preferences = (await getPreferences())?.plugin
   if (!Preferences) return
 
   const sid = toSafeText(studentId || localStorage.getItem('hbu_username') || '')
@@ -92,7 +92,7 @@ export const syncBackgroundFetchContext = async ({
 
 export const clearBackgroundFetchContext = async () => {
   if (getRuntime() !== 'capacitor') return
-  const Preferences = await getPreferences()
+  const Preferences = (await getPreferences())?.plugin
   if (!Preferences) return
   await Promise.all([
     Preferences.remove({ key: PREF_KEYS.studentId }),
@@ -109,7 +109,7 @@ export const clearBackgroundFetchContext = async () => {
 }
 
 const readStudentIdFromNative = async () => {
-  const Preferences = await getPreferences()
+  const Preferences = (await getPreferences())?.plugin
   if (!Preferences) return ''
   try {
     const result = await Preferences.get({ key: PREF_KEYS.studentId })
@@ -207,7 +207,7 @@ export const initBackgroundFetchScheduler = async (onEvent) => {
     backgroundFetchLastError = String(error || 'background fetch init failed')
     pushDebugLog('BackgroundFetch', '后台调度初始化失败', 'error', error)
     throw error
-  })()
+  })
 
   try {
     return await backgroundFetchSetupPromise

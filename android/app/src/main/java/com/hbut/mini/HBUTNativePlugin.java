@@ -77,6 +77,29 @@ public class HBUTNativePlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        Context context = getContext();
+        try {
+            Intent intent;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                intent.putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());
+            } else {
+                intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.parse("package:" + context.getPackageName()));
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            JSObject result = new JSObject();
+            result.put("ok", true);
+            result.put("source", "android-notification-settings");
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("openNotificationSettings failed: " + e.getMessage());
+        }
+    }
+
     private boolean isForegroundServiceActive(Context context) {
         if (KeepAliveForegroundService.isRunning()) return true;
         try {

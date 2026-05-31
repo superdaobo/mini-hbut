@@ -37,4 +37,5 @@ export interface PlatformBridge {
   setAggressiveKeepAlive(enable: boolean): Promise<KeepAliveState>
   getAggressiveKeepAliveState(): Promise<KeepAliveState>
   openBatteryOptimizationSettings(): Promise<boolean>
+  openNotificationSettings(): Promise<boolean>
 }

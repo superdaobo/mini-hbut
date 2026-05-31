@@ -200,18 +200,35 @@ async function loadLeaderboard(scope) {
       return
     }
 
-    const html = list.map((item, index) => `
-      <li class="rank-item">
-        <span class="rank-num">${index + 1}</span>
-        <div class="rank-info">
-          <div class="rank-name">${escapeHtml(item.player_name || item.student_id || '匿名')}</div>
-          <div class="rank-class">${escapeHtml(item.class_name || '')}</div>
-        </div>
-        <span class="rank-score">${item.score ?? 0}</span>
-      </li>
-    `).join('')
+    const isClassTotal = scope === 'class_total'
+    const html = list.map((item, index) => {
+      const rank = item.rank || index + 1
+      const name = isClassTotal
+        ? (item.class_name || item.className || '未知班级')
+        : (item.player_name || item.playerName || item.student_id || '匿名')
+      const meta = isClassTotal
+        ? `${Number(item.player_count || item.playerCount || 0)}人`
+        : (item.class_name || item.className || '')
+      const score = isClassTotal
+        ? (item.total_score ?? item.totalScore ?? 0)
+        : (item.score ?? 0)
+      return `
+        <li class="rank-item ${item.is_self ? 'rank-self' : ''}">
+          <span class="rank-num">${rank}</span>
+          <div class="rank-info">
+            <div class="rank-name">${escapeHtml(name)}</div>
+            <div class="rank-class">${escapeHtml(meta)}</div>
+          </div>
+          <span class="rank-score">${score}</span>
+        </li>
+      `
+    }).join('')
 
-    content.innerHTML = `<ul class="rank-list">${html}</ul>`
+    const player = result.player || result.my_rank || result.myRank || null
+    const myRankHtml = player
+      ? `<div class="my-rank">我的最高分 ${player.score ?? 0}${player.class_rank ? ` · 班级第 ${player.class_rank} 名` : ''}${player.school_rank ? ` · 全校第 ${player.school_rank} 名` : ''}${player.class_total_rank ? ` · 班级总分第 ${player.class_total_rank} 名` : ''}</div>`
+      : ''
+    content.innerHTML = `<ul class="rank-list">${html}</ul>${myRankHtml}`
   } catch (err) {
     console.warn('排行榜加载失败:', err)
     content.innerHTML = `<div class="leaderboard-error">加载失败，点击重试</div>`
