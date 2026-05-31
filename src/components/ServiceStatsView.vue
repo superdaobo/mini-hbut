@@ -4,6 +4,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 const emit = defineEmits(['back'])
 
 const HEALTH_URL = 'https://mini-hbut-ocr-service.hf.space/health'
+const HEALTH_CACHE_KEY = 'hbu_service_health_cache_v1'
+const HEALTH_TIMEOUT_MS = 5000
 const REFRESH_INTERVAL_MS = 60 * 1000
 
 const toNumber = (value, fallback = 0) => {
@@ -86,6 +88,46 @@ const error = ref('')
 const lastUpdatedAt = ref('')
 const health = ref(normalizeServiceHealth())
 let refreshTimer = null
+
+const readCachedHealth = () => {
+  try {
+    const raw = localStorage.getItem(HEALTH_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed?.data) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+const writeCachedHealth = (data) => {
+  try {
+    localStorage.setItem(HEALTH_CACHE_KEY, JSON.stringify({
+      data,
+      cachedAt: Date.now()
+    }))
+  } catch {
+    // ignore
+  }
+}
+
+const buildHealthSignal = () => {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(HEALTH_TIMEOUT_MS)
+  }
+  const controller = new AbortController()
+  window.setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS)
+  return controller.signal
+}
+
+const applyHealthData = (data, updatedAt = Date.now()) => {
+  health.value = normalizeServiceHealth(data)
+  lastUpdatedAt.value = new Date(updatedAt).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
 
 const statusText = computed(() => {
   if (health.value.status === 'ok') return '运行正常'
@@ -250,19 +292,23 @@ const loadHealth = async ({ silent = false } = {}) => {
   try {
     const response = await fetch(HEALTH_URL, {
       headers: { accept: 'application/json' },
-      cache: 'no-store'
+      cache: 'no-store',
+      signal: buildHealthSignal()
     })
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
     const data = await response.json()
-    health.value = normalizeServiceHealth(data)
-    lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    writeCachedHealth(data)
+    applyHealthData(data)
   } catch (err) {
-    error.value = '读取服务状态失败'
+    const cached = readCachedHealth()
+    if (cached?.data) {
+      applyHealthData(cached.data, cached.cachedAt)
+      error.value = '读取服务状态失败，显示上次数据'
+    } else {
+      error.value = '读取服务状态失败'
+    }
     console.warn('[ServiceStatsView] health request failed', err)
   } finally {
     loading.value = false

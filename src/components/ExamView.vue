@@ -121,7 +121,7 @@ const fetchSemesters = async () => {
     const { data } = await fetchWithCache('semesters', async () => {
       const res = await axios.get(`${API_BASE}/v2/semesters`)
       return res.data
-    })
+    }, undefined, { staleWhileRevalidate: true, priority: 'foreground' })
     if (data?.success) {
       const sorted = normalizeSemesterList(data.semesters || [])
       semesters.value = mergeSemesterOptions(sorted, selectedSemester.value)
@@ -150,7 +150,7 @@ const fetchExams = async () => {
         semester: selectedSemester.value
       })
       return res.data
-    })
+    }, undefined, { staleWhileRevalidate: true, priority: 'foreground' })
     
     if (requestSeq !== examRequestSeq) return
     if (data?.success) {

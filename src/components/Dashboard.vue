@@ -1193,7 +1193,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
                 </div>
                 <!-- Right side: illustration + countdown + button -->
                 <div class="absolute right-0 top-0 bottom-0 flex flex-col justify-center items-end w-36">
-                  <img src="/splash/campus_illustration.webp" class="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay pointer-events-none" alt="" />
+                  <img src="/splash/campus_illustration.webp" class="today-course-illustration" alt="" />
                   <div class="relative z-10 text-right mb-2 text-white text-xs pr-3">
                     {{ getCourseCountdown(course) }}
                   </div>
@@ -1530,6 +1530,21 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   object-fit: contain;
   opacity: 0.8;
   flex: 0 0 auto;
+}
+
+.today-course-illustration {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  object-fit: contain;
+  object-position: right center;
+  opacity: 0.3;
+  mix-blend-mode: overlay;
+  pointer-events: none;
 }
 
 .card-shadow {

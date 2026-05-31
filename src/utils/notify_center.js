@@ -22,6 +22,7 @@ const DEFAULT_CHANNEL_ID = 'hbut-default'
 const DEFAULT_INTERVAL_MINUTES = 30
 const MIN_INTERVAL_MINUTES = 15
 const POWER_ALERT_THRESHOLD = 10
+const NOTIFY_LAUNCH_CHECK_DELAY_MS = 7000
 
 const APP_BOOT_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
@@ -1040,6 +1041,7 @@ export const runNotificationCheck = async ({
   studentId,
   launchCheck = false,
   reason = 'manual',
+  priority = 'foreground',
   allowPermissionPrompt = false
 } = {}) => {
   const sid = toSafeText(studentId)
@@ -1089,7 +1091,7 @@ export const runNotificationCheck = async ({
   }
 
   const queue = []
-  pushDebugLog('Notify', `开始通知检查 reason=${reason} launch=${launchCheck ? '1' : '0'}`, 'info', {
+  pushDebugLog('Notify', `开始通知检查 reason=${reason} priority=${priority} launch=${launchCheck ? '1' : '0'}`, 'info', {
     studentId: sid,
     settings
   })
@@ -1120,6 +1122,7 @@ export const runNotificationCheck = async ({
     checkedAt,
     runtime: getRuntime(),
     reason,
+    priority,
     launchCheck,
     settings,
     schedule,
@@ -1144,6 +1147,7 @@ export const runNotificationCheck = async ({
 }
 
 let monitorTimer = null
+let monitorLaunchTimer = null
 let monitorStudentId = ''
 let monitorChecking = false
 let monitorResumeListener = null
@@ -1159,7 +1163,7 @@ const clearResumeListener = async () => {
   monitorResumeListener = null
 }
 
-const monitorCheck = async ({ launchCheck = false, reason = 'interval' } = {}) => {
+const monitorCheck = async ({ launchCheck = false, reason = 'interval', priority = 'foreground' } = {}) => {
   if (!monitorStudentId || monitorChecking) return null
   monitorChecking = true
   try {
@@ -1167,6 +1171,7 @@ const monitorCheck = async ({ launchCheck = false, reason = 'interval' } = {}) =
       studentId: monitorStudentId,
       launchCheck,
       reason,
+      priority,
       allowPermissionPrompt: false
     })
     if (typeof monitorOnUpdate === 'function' && snapshot) {
@@ -1205,20 +1210,23 @@ export const startNotificationMonitor = async ({ studentId, onUpdate } = {}) => 
     Number(settings.intervalMinutes || DEFAULT_INTERVAL_MINUTES)
   )
 
-  // 定时轮询：间隔来自通知设置页；启动时会立即做一次 launch 检查。
+  // 定时轮询：间隔来自通知设置页；启动检查延迟执行，避免和首页首屏请求抢占。
   monitorTimer = window.setInterval(() => {
-    monitorCheck({ launchCheck: false, reason: 'interval' }).catch(() => {})
+    monitorCheck({ launchCheck: false, reason: 'interval', priority: 'background' }).catch(() => {})
   }, intervalMinutes * 60 * 1000)
   pushDebugLog('Notify', `通知轮询已启动 interval=${intervalMinutes}min`, 'info', { studentId: sid })
 
-  await monitorCheck({ launchCheck: true, reason: 'app-launch' })
+  monitorLaunchTimer = window.setTimeout(() => {
+    monitorLaunchTimer = null
+    monitorCheck({ launchCheck: true, reason: 'app-launch', priority: 'background' }).catch(() => {})
+  }, NOTIFY_LAUNCH_CHECK_DELAY_MS)
 
   if (isCapacitorRuntime()) {
     try {
       const mod = await import('@capacitor/app')
       monitorResumeListener = await mod.App.addListener('appStateChange', (state) => {
         if (state?.isActive) {
-          monitorCheck({ launchCheck: false, reason: 'resume' }).catch(() => {})
+          monitorCheck({ launchCheck: false, reason: 'resume', priority: 'background' }).catch(() => {})
         }
       })
     } catch {
@@ -1233,6 +1241,10 @@ export const stopNotificationMonitor = async () => {
   if (monitorTimer) {
     window.clearInterval(monitorTimer)
     monitorTimer = null
+  }
+  if (monitorLaunchTimer) {
+    window.clearTimeout(monitorLaunchTimer)
+    monitorLaunchTimer = null
   }
   await clearResumeListener()
   monitorStudentId = ''

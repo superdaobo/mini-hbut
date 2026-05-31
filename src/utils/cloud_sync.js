@@ -1022,11 +1022,12 @@ const buildSyncPayload = async (studentId, options = {}) => {
   }
 }
 
-const primeAcademicCaches = async (studentId, seedGrades = []) => {
+const primeAcademicCaches = async (studentId, seedGrades = [], options = {}) => {
   const sid = toSafeText(studentId)
   let grades = Array.isArray(seedGrades) ? seedGrades : []
   if (!sid) return grades
-  const semesters = await fetchSemestersForSync(sid)
+  const skipSemesterRankingWarmup = options?.skipSemesterRankingWarmup !== false
+  const semesters = skipSemesterRankingWarmup ? [] : await fetchSemestersForSync(sid)
   try {
     if (!grades.length) {
       const gradeRes = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
@@ -1077,20 +1078,8 @@ const primeAcademicCaches = async (studentId, seedGrades = []) => {
       setCachedData(`ranking:${sid}`, allRankingRes.data)
       setCachedData(`ranking:${sid}:all`, allRankingRes.data)
     }
-    for (const semester of semesters) {
-      const sem = toSafeText(semester)
-      if (!sem) continue
-      try {
-        const semRankingRes = await axios.post(`${API_BASE}/v2/ranking`, {
-          student_id: sid,
-          semester: sem
-        })
-        if (semRankingRes?.data?.success) {
-          setCachedData(`ranking:${sid}:${sem}`, semRankingRes.data)
-        }
-      } catch {
-        // ignore single-semester ranking error
-      }
+    if (skipSemesterRankingWarmup) {
+      pushDebugLog('CloudSync', `跳过分学期排名预热 student=${sid} semesters=${semesters.length}`, 'debug')
     }
   } catch {
     // ignore
@@ -1790,7 +1779,9 @@ export const runAutoCloudSyncAfterLogin = async ({
     }
 
     try {
-      const syncedGrades = await primeAcademicCaches(sid, latestGrades)
+      const syncedGrades = await primeAcademicCaches(sid, latestGrades, {
+        skipSemesterRankingWarmup: true
+      })
       const uploadSignature = await buildAutoUploadSignature(sid, syncedGrades)
       const uploadReason = resolveAutoUploadReason(readAutoUploadMeta(sid), uploadSignature, reason)
       writeAutoUploadMeta(sid, {

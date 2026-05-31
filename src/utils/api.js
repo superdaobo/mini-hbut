@@ -1,3 +1,5 @@
+import { pushDebugLog } from './debug_logger'
+
 const DEFAULT_TTL = 5 * 60 * 1000
 const LONG_TTL = 3 * 24 * 60 * 60 * 1000
 const EXTRA_LONG_TTL = 7 * 24 * 60 * 60 * 1000
@@ -239,6 +241,17 @@ const getBestCachedEntry = (key) => {
   return null
 }
 
+export function getStaleCachedData(key) {
+  const stale = getBestCachedEntry(key)
+  if (!stale) return null
+  return {
+    data: withOfflineMeta(stale.data, stale.timestamp),
+    fromCache: true,
+    timestamp: stale.timestamp,
+    stale: true
+  }
+}
+
 const withOfflineMeta = (data, timestamp) => {
   if (!data || typeof data !== 'object') {
     return {
@@ -348,8 +361,55 @@ const setMaintenanceFlag = (hint = '') => {
 
 export { DEFAULT_TTL, LONG_TTL, EXTRA_LONG_TTL, SHORT_TTL }
 
-export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
+const recordRequestMetric = (key, { source, start, stale = false, priority = 'foreground', error = '' } = {}) => {
+  try {
+    pushDebugLog('Cache', `请求缓存指标 key=${key} source=${source}`, 'debug', {
+      key: String(key || ''),
+      source,
+      duration_ms: Math.max(0, Date.now() - (Number(start) || Date.now())),
+      stale: !!stale,
+      priority: String(priority || 'foreground'),
+      error: error ? String(error).slice(0, 160) : ''
+    })
+  } catch {
+    // 调试日志不可影响业务请求。
+  }
+}
+
+const refreshCacheInBackground = async (key, fetcher, priority) => {
+  const start = Date.now()
+  try {
+    const data = await fetcher()
+    if (data && data.success && !data.offline) {
+      setCachedData(key, data)
+      recordRequestMetric(key, { source: 'remote', start, priority })
+    } else {
+      recordRequestMetric(key, {
+        source: 'remote',
+        start,
+        priority,
+        error: data?.error || data?.msg || data?.message || 'unsuccessful-response'
+      })
+    }
+  } catch (error) {
+    recordRequestMetric(key, {
+      source: 'remote',
+      start,
+      priority,
+      error: error?.message || error
+    })
+  }
+}
+
+export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = {}) {
   console.log('[Cache] Checking cache for key:', key)
+  if (ttl && typeof ttl === 'object') {
+    options = ttl
+    ttl = DEFAULT_TTL
+  }
+  const requestOptions = options || {}
+  const priority = requestOptions.priority || 'foreground'
+  const staleWhileRevalidate = !!requestOptions.staleWhileRevalidate
   const maintenanceMode = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
   const cached = getCachedData(key, ttl)
 
@@ -358,6 +418,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
     const data = maintenanceMode
       ? withOfflineMeta(cached.data, cached.timestamp)
       : cached.data
+    recordRequestMetric(key, { source: 'memory-cache', start: Date.now(), priority })
     return { ...cached, data, fromCache: true }
   }
 
@@ -365,6 +426,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
     const stale = getBestCachedEntry(key)
     if (stale) {
       console.log('[Cache] Maintenance mode stale HIT for key:', key)
+      recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
       return {
         data: withOfflineMeta(stale.data, stale.timestamp),
         fromCache: true,
@@ -374,13 +436,25 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
     }
   }
 
+  if (staleWhileRevalidate) {
+    const stale = getStaleCachedData(key)
+    if (stale) {
+      console.log('[Cache] Stale HIT for key:', key, '- refreshing in background')
+      recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
+      refreshCacheInBackground(key, fetcher, 'background').catch(() => {})
+      return stale
+    }
+  }
+
   console.log('[Cache] Cache MISS for key:', key, '- fetching...')
+  const remoteStart = Date.now()
   try {
     const data = await fetcher()
     console.log('[Cache] Fetched data for key:', key, '- success:', data?.success)
 
     if (data && data.success && !data.offline) {
       setCachedData(key, data)
+      recordRequestMetric(key, { source: 'remote', start: remoteStart, priority })
       return { data, fromCache: false, timestamp: Date.now() }
     }
 
@@ -400,6 +474,13 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
       if (isJwxtCacheKey(key)) {
         setMaintenanceFlag(message)
       }
+      recordRequestMetric(key, {
+        source: 'stale-cache',
+        start: remoteStart,
+        stale: true,
+        priority,
+        error: message
+      })
       return {
         data: withOfflineMeta(stale.data, stale.timestamp),
         fromCache: true,
@@ -408,6 +489,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
       }
     }
 
+    recordRequestMetric(key, { source: 'remote', start: remoteStart, priority, error: message })
     return { data, fromCache: false, timestamp: Date.now() }
   } catch (error) {
     const stale = getBestCachedEntry(key)
@@ -416,6 +498,13 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
       if (isJwxtCacheKey(key)) {
         setMaintenanceFlag(String(error?.message || error || ''))
       }
+      recordRequestMetric(key, {
+        source: 'stale-cache',
+        start: remoteStart,
+        stale: true,
+        priority,
+        error: error?.message || error
+      })
       return {
         data: withOfflineMeta(stale.data, stale.timestamp),
         fromCache: true,
@@ -426,6 +515,12 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL) {
     if (isJwxtCacheKey(key) && looksLikeMaintenanceIssue(error?.message || error)) {
       setMaintenanceFlag(String(error?.message || error || ''))
     }
+    recordRequestMetric(key, {
+      source: 'remote',
+      start: remoteStart,
+      priority,
+      error: error?.message || error
+    })
     throw error
   }
 }

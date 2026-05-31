@@ -35,6 +35,21 @@ describe('home dashboard interaction contract', () => {
     expect(emptyIconRule).toContain('flex: 0 0 auto')
   })
 
+  it('lets the active course illustration fill the card height and clip only at the card edge', () => {
+    const source = dashboardVue()
+    const illustrationRule = getRuleBody(source, '.today-course-illustration')
+
+    expect(source).toContain('class="today-course-illustration"')
+    expect(illustrationRule).toContain('object-fit: contain')
+    expect(illustrationRule).toContain('object-position: right center')
+    expect(illustrationRule).toContain('height: 100%')
+    expect(illustrationRule).toContain('width: auto')
+    expect(illustrationRule).toContain('max-width: none')
+    expect(illustrationRule).toContain('top: 0')
+    expect(illustrationRule).toContain('bottom: 0')
+    expect(source).not.toContain('campus_illustration.webp" class="absolute inset-0 w-full h-full object-cover')
+  })
+
   it('scales forecast temperature bars from displayed daily forecast bounds', () => {
     const source = dashboardVue()
 
