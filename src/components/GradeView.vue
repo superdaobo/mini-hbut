@@ -680,7 +680,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px) 20px 16px;
+  padding: 12px 20px 16px;
   border-bottom: 1px solid rgba(226, 232, 240, 0.86);
   background: rgba(246, 250, 254, 0.86);
   backdrop-filter: blur(14px);
