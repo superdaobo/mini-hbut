@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import { execFileSync } from 'node:child_process'
 
 const repoRoot = process.cwd()
 const readText = (relativePath: string) =>
@@ -77,13 +79,71 @@ describe('notification delivery contract', () => {
 
     expect(source).toContain('androidx.work:work-runtime-ktx:2.9.0')
     expect(source).toContain('copy_native_sources')
-    expect(source).toContain('BackgroundFetchHeadlessTask.java')
+    expect(source).toContain('KeepAliveForegroundService.java')
+    expect(source).toContain('BootCompletedReceiver.java')
+    expect(source).toContain('stale_capacitor_sources')
+    expect(source).toContain('stale.unlink()')
+    expect(source).toContain('res/drawable/ic_stat_mini_hbut.xml')
     expect(source).toContain('if "KeepAliveForegroundService" not in text:')
     expect(source).toContain('if "BootCompletedReceiver" not in text:')
     expect(widgetRegisteredCheck).toBeGreaterThan(0)
     expect(source.slice(Math.max(0, widgetRegisteredCheck - 160), widgetRegisteredCheck)).not.toContain('return True')
     expect(source).toContain('android:exported="true"')
     expect(source).toContain('FOREGROUND_SERVICE_DATA_SYNC')
+  })
+
+  it('does not inject Capacitor-only Java sources into generated Tauri Android projects', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mini-hbut-tauri-native-'))
+    const projectRoot = path.join(tempRoot, 'project')
+    const capacitorMain = path.join(projectRoot, 'android', 'app', 'src', 'main')
+    const tauriMain = path.join(projectRoot, 'src-tauri', 'gen', 'android', 'app', 'src', 'main')
+    const nativeDir = path.join(capacitorMain, 'java', 'com', 'hbut', 'mini')
+    const generatedNativeDir = path.join(tauriMain, 'java', 'com', 'hbut', 'mini')
+
+    const nativeFiles = [
+      'HBUTNativePlugin.java',
+      'MiniHbutWidgetPlugin.java',
+      'KeepAliveForegroundService.java',
+      'BootCompletedReceiver.java',
+      'BackgroundFetchHeadlessTask.java'
+    ]
+
+    fs.mkdirSync(nativeDir, { recursive: true })
+    fs.mkdirSync(generatedNativeDir, { recursive: true })
+    for (const file of nativeFiles) {
+      fs.writeFileSync(path.join(nativeDir, file), `// source ${file}\n`, 'utf8')
+      fs.writeFileSync(path.join(generatedNativeDir, file), `// stale ${file}\n`, 'utf8')
+    }
+
+    const pythonExecutable = process.platform === 'win32' ? 'python' : 'python3'
+    const python = [
+      'from pathlib import Path',
+      'import importlib.util',
+      `spec = importlib.util.spec_from_file_location("patch_android_widget", ${JSON.stringify(
+        path.resolve(process.cwd(), 'scripts/patch_android_widget.py')
+      )})`,
+      'mod = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(mod)',
+      `mod.PROJECT_DIR = Path(${JSON.stringify(projectRoot)})`,
+      `mod.TAURI_ANDROID = Path(${JSON.stringify(tauriMain)})`,
+      `mod.CAPACITOR_ANDROID = Path(${JSON.stringify(capacitorMain)})`,
+      'print(mod.copy_native_sources())'
+    ].join('\n')
+
+    try {
+      const output = execFileSync(pythonExecutable, ['-c', python], {
+        encoding: 'utf8'
+      })
+
+      expect(output).toContain('True')
+      expect(fs.existsSync(path.join(generatedNativeDir, 'KeepAliveForegroundService.java'))).toBe(true)
+      expect(fs.existsSync(path.join(generatedNativeDir, 'BootCompletedReceiver.java'))).toBe(true)
+      expect(fs.existsSync(path.join(generatedNativeDir, 'HBUTNativePlugin.java'))).toBe(false)
+      expect(fs.existsSync(path.join(generatedNativeDir, 'MiniHbutWidgetPlugin.java'))).toBe(false)
+      expect(fs.existsSync(path.join(generatedNativeDir, 'BackgroundFetchHeadlessTask.java'))).toBe(false)
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
   })
 
   it('configures Capacitor local notifications to show while iOS is foregrounded', () => {

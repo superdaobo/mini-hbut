@@ -42,14 +42,22 @@ def copy_widget_sources():
 
 
 def copy_native_sources():
-    """复制 Android 原生桥接与后台保活源码。"""
+    """复制 Tauri Android 可直接编译的原生后台源码。"""
     source_files = [
-        "java/com/hbut/mini/HBUTNativePlugin.java",
-        "java/com/hbut/mini/MiniHbutWidgetPlugin.java",
         "java/com/hbut/mini/KeepAliveForegroundService.java",
         "java/com/hbut/mini/BootCompletedReceiver.java",
+    ]
+    stale_capacitor_sources = [
+        "java/com/hbut/mini/HBUTNativePlugin.java",
+        "java/com/hbut/mini/MiniHbutWidgetPlugin.java",
         "java/com/hbut/mini/BackgroundFetchHeadlessTask.java",
     ]
+    for rel_path in stale_capacitor_sources:
+        stale = TAURI_ANDROID / rel_path
+        if stale.exists():
+            stale.unlink()
+            print(f"  [REMOVE] stale Capacitor-only source {rel_path}")
+
     count = 0
     for rel_path in source_files:
         src = CAPACITOR_ANDROID / rel_path
@@ -87,6 +95,7 @@ def copy_widget_resources():
         "res/drawable/widget_capsule_accent.xml",
         "res/drawable/widget_capsule_period.xml",
         "res/drawable/widget_capsule_location.xml",
+        "res/drawable/ic_stat_mini_hbut.xml",
     ]
 
     count = 0
