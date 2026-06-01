@@ -236,7 +236,10 @@ def patch_manifest():
 
 def patch_gradle_dependencies():
     """补齐 Tauri Android 工程中的 WorkManager 依赖。"""
+    generated_app_dir = TAURI_ANDROID.parents[1]
     candidates = [
+        generated_app_dir / "build.gradle.kts",
+        generated_app_dir / "build.gradle",
         TAURI_ANDROID.parent / "build.gradle.kts",
         TAURI_ANDROID.parent / "build.gradle",
     ]

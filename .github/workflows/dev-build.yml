@@ -199,7 +199,6 @@ jobs:
     name: Android beta APK
     needs: [source, meta]
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - name: Download source artifact
         uses: actions/download-artifact@v4
@@ -503,7 +502,6 @@ jobs:
   build-ios:
     needs: [source, meta]
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - name: Download source artifact
         uses: actions/download-artifact@v4
@@ -755,7 +753,7 @@ jobs:
           compression-level: 0
 
   deploy-dev-release:
-    if: ${{ always() }}
+    if: ${{ success() }}
     needs: [meta, build-android, build-windows, build-macos, build-ios, build-linux]
     runs-on: ubuntu-latest
     concurrency:

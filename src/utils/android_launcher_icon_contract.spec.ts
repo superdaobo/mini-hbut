@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
+import os from 'node:os'
 import zlib from 'node:zlib'
 
 type PngMetrics = {
@@ -187,5 +189,74 @@ describe('Android launcher icon resources', () => {
         expect(contentHeightRatio, `${root} ${density}`).toBeLessThanOrEqual(0.7)
       }
     }
+  })
+
+  it('patches WorkManager into the generated Tauri Android app build.gradle file', () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mini-hbut-widget-'))
+    const projectRoot = path.join(tempRoot, 'project')
+    const generatedMain = path.join(
+      projectRoot,
+      'src-tauri',
+      'gen',
+      'android',
+      'app',
+      'src',
+      'main'
+    )
+    const generatedApp = path.dirname(path.dirname(generatedMain))
+    const gradlePath = path.join(generatedApp, 'build.gradle')
+
+    fs.mkdirSync(path.dirname(gradlePath), { recursive: true })
+    fs.writeFileSync(
+      gradlePath,
+      `apply plugin: 'com.android.application'\n\ndependencies {\n}\n`,
+      'utf8'
+    )
+
+    const pythonExecutable = process.platform === 'win32' ? 'python' : 'python3'
+    const python = [
+      'from pathlib import Path',
+      'import importlib.util',
+      'import sys',
+      `spec = importlib.util.spec_from_file_location("patch_android_widget", ${JSON.stringify(
+        path.resolve(process.cwd(), 'scripts/patch_android_widget.py')
+      )})`,
+      'mod = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(mod)',
+      `mod.PROJECT_DIR = Path(${JSON.stringify(projectRoot)})`,
+      `mod.TAURI_ANDROID = Path(${JSON.stringify(generatedMain)})`,
+      `mod.CAPACITOR_ANDROID = Path(${JSON.stringify(path.join(projectRoot, 'android', 'app', 'src', 'main'))})`,
+      'result = mod.patch_gradle_dependencies()',
+      'print(result)',
+      `print(Path(${JSON.stringify(gradlePath)}).read_text(encoding="utf-8"))`
+    ].join('\n')
+
+    try {
+      const output = execFileSync(pythonExecutable, ['-c', python], {
+        encoding: 'utf8'
+      })
+
+      expect(output).toContain('True')
+      expect(output).toContain('androidx.work:work-runtime-ktx:2.9.0')
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps dev and release Android workflows strict about platform build failures', () => {
+    const devWorkflow = fs.readFileSync(
+      path.join(process.cwd(), '.github/workflows/dev-build.yml'),
+      'utf8'
+    )
+    const releaseWorkflow = fs.readFileSync(
+      path.join(process.cwd(), '.github/workflows/release.yml'),
+      'utf8'
+    )
+
+    expect(devWorkflow).not.toContain('continue-on-error: true')
+    expect(devWorkflow).toContain('run: python scripts/patch_android_widget.py')
+    expect(devWorkflow).toContain('if: ${{ success() }}')
+    expect(releaseWorkflow).toContain('run: python scripts/patch_android_widget.py')
+    expect(releaseWorkflow).not.toMatch(/build-android:[\s\S]*?continue-on-error: true/)
   })
 })
