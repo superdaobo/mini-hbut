@@ -24,6 +24,15 @@ describe('request performance and cache contract', () => {
     expect(apiSource).toContain('source: \'stale-cache\'')
   })
 
+  it('clears the global academic maintenance flag after a successful foreground remote fetch', () => {
+    const apiSource = readSource('src/utils/api.js')
+
+    expect(apiSource).toContain('const clearMaintenanceFlag = () =>')
+    expect(apiSource).toContain('localStorage.removeItem(JWXT_MAINTENANCE_KEY)')
+    expect(apiSource).toContain('emitMaintenanceEvent(false)')
+    expect(apiSource).toMatch(/if \(data && data\.success && !data\.offline\) \{[\s\S]{0,240}clearMaintenanceFlag\(\)/)
+  })
+
   it('does not let cloud sync auto warmup query every semester ranking', () => {
     const cloudSource = readSource('src/utils/cloud_sync.js')
 

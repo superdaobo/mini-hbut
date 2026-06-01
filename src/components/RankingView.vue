@@ -1,12 +1,13 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
-import { fetchWithCache } from '../utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const RANKING_CACHE_REFRESH_RETRY_MS = 8000
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -15,6 +16,7 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const loading = ref(false)
+const refreshing = ref(false)
 const error = ref('')
 const ranking = ref(null)
 const semesters = ref([])
@@ -22,9 +24,57 @@ const selectedSemester = ref('')
 const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
+const displayedRankingCacheKey = ref('')
 const retryCount = ref(0)
 
 const MAX_RETRIES = 2
+let rankingRealtimeRetryTimer = null
+let rankingRequestSeq = 0
+
+const resolveRankingSyncTime = (data) => {
+  const explicit = String(data?.sync_time || data?.updated_at || data?.timestamp || '').trim()
+  if (explicit) return explicit
+  if (data?.offline) return syncTime.value || ''
+  return new Date().toISOString()
+}
+
+const lastUpdatedAt = computed(() => syncTime.value ? formatRelativeTime(syncTime.value) : '暂未更新')
+const isInitialLoading = computed(() => loading.value && !ranking.value)
+
+const applyRankingPayload = (data, cacheKey = '') => {
+  if (!data?.success) return false
+  ranking.value = data.data || {}
+  offline.value = !!data.offline
+  syncTime.value = resolveRankingSyncTime(data)
+  displayedRankingCacheKey.value = cacheKey || displayedRankingCacheKey.value
+  return true
+}
+
+const applyStaleRankingSnapshot = (cacheKey) => {
+  const stale = getStaleCachedData(cacheKey)
+  const data = stale?.data
+  if (!data?.success || !data.data || typeof data.data !== 'object') {
+    return false
+  }
+  return applyRankingPayload(data, cacheKey)
+}
+
+const clearRankingRealtimeRetry = () => {
+  if (rankingRealtimeRetryTimer) {
+    clearTimeout(rankingRealtimeRetryTimer)
+    rankingRealtimeRetryTimer = null
+  }
+}
+
+const scheduleRankingRealtimeRetry = () => {
+  clearRankingRealtimeRetry()
+  rankingRealtimeRetryTimer = setTimeout(() => {
+    rankingRealtimeRetryTimer = null
+    if (offline.value) {
+      fetchRanking({ keepOfflineBanner: true }).catch(() => {})
+    }
+  }, RANKING_CACHE_REFRESH_RETRY_MS)
+}
 
 // 获取学期列表
 const fetchSemesters = async () => {
@@ -46,27 +96,44 @@ const fetchSemesters = async () => {
   }
 }
 
-// 获取排名（带自动重试）
-const fetchRanking = async (forceRetry = false) => {
-  if (!forceRetry) retryCount.value = 0
-  loading.value = true
+// 获取排名（缓存只做占位，前台请求负责替换为实时数据）
+const fetchRanking = async (options = {}) => {
+  const requestSeq = ++rankingRequestSeq
+  if (!options.forceRetry) retryCount.value = 0
+  const cacheKey = `ranking:${props.studentId}:${selectedSemester.value || 'all'}`
+  const staleApplied = applyStaleRankingSnapshot(cacheKey)
+  if (!staleApplied && displayedRankingCacheKey.value && displayedRankingCacheKey.value !== cacheKey) {
+    ranking.value = null
+    displayedRankingCacheKey.value = ''
+  }
+  loading.value = !ranking.value
+  refreshing.value = true
   error.value = ''
+  clearRankingRealtimeRetry()
+  if (!staleApplied || !options.keepOfflineBanner) {
+    offline.value = false
+    syncTime.value = ''
+  }
 
   const doFetch = async (attempt) => {
     try {
-      const cacheKey = `ranking:${props.studentId}:${selectedSemester.value || 'all'}`
       const { data } = await fetchWithCache(cacheKey, async () => {
         const res = await axios.post(`${API_BASE}/v2/ranking`, {
           student_id: props.studentId,
           semester: selectedSemester.value
         })
         return res.data
-      }, undefined, { staleWhileRevalidate: true, priority: 'foreground' })
+      }, undefined, { forceRemote: true, priority: 'foreground' })
 
+      if (requestSeq !== rankingRequestSeq) return
       if (data?.success) {
-        ranking.value = data.data || {}
-        offline.value = !!data.offline
-        syncTime.value = data.sync_time || ''
+        applyRankingPayload(data, cacheKey)
+        if (!data.offline) {
+          setCachedData(cacheKey, data)
+          clearRankingRealtimeRetry()
+        } else {
+          scheduleRankingRealtimeRetry()
+        }
         return
       }
 
@@ -79,6 +146,7 @@ const fetchRanking = async (forceRetry = false) => {
       }
       error.value = errMsg || '获取排名失败'
     } catch (e) {
+      if (requestSeq !== rankingRequestSeq) return
       if (attempt < MAX_RETRIES) {
         console.warn(`[Ranking] 网络错误，第${attempt + 1}次重试:`, e)
         await new Promise(r => setTimeout(r, 1000))
@@ -89,7 +157,10 @@ const fetchRanking = async (forceRetry = false) => {
   }
 
   await doFetch(0)
-  loading.value = false
+  if (requestSeq === rankingRequestSeq) {
+    loading.value = false
+    refreshing.value = false
+  }
 }
 
 // 切换学期（清空重试计数）
@@ -102,12 +173,22 @@ onMounted(async () => {
   fetchRanking()
   fetchSemesters()
 })
+
+onBeforeUnmount(() => {
+  clearRankingRealtimeRetry()
+})
 </script>
 
 <template>
   <div class="ranking-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative pb-20">
     <!-- Header -->
-    <TPageHeader title="绩点排名" icon="emoji_events" @back="emit('back')" />
+    <TPageHeader title="绩点排名" icon="emoji_events" @back="emit('back')">
+      <template #actions>
+        <button class="ranking-refresh-btn" type="button" :aria-busy="refreshing || loading" aria-label="刷新绩点排名" @click="fetchRanking">
+          <span class="material-symbols-outlined" :class="{ spinning: refreshing || loading || offline }">refresh</span>
+        </button>
+      </template>
+    </TPageHeader>
 
     <!-- Offline Banner -->
     <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
@@ -131,7 +212,7 @@ onMounted(async () => {
       </section>
 
       <!-- Loading / Error / Empty -->
-      <TEmptyState v-if="loading" type="loading" message="正在获取排名数据..." />
+      <TEmptyState v-if="isInitialLoading" type="loading" message="正在获取排名数据..." />
       <TEmptyState v-else-if="error" type="error" :message="error">
         <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchRanking">重试</button>
       </TEmptyState>
@@ -240,7 +321,7 @@ onMounted(async () => {
 
           <!-- Update Time -->
           <div v-if="syncTime" class="mt-4 text-center">
-            <p class="text-xs font-medium text-on-surface-variant">数据更新时间: {{ syncTime }}</p>
+            <p class="text-xs font-medium text-on-surface-variant">最新更新时间: {{ lastUpdatedAt }}</p>
           </div>
         </section>
       </template>
@@ -249,5 +330,29 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Minimal scoped styles - layout handled by Tailwind */
+.ranking-refresh-btn {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ranking-refresh-btn .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.spinning {
+  animation: rankingRefreshSpin 0.8s linear infinite;
+}
+
+@keyframes rankingRefreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 </style>

@@ -270,8 +270,10 @@ const stats = computed(() => {
   const total = filteredGrades.value.length
   const credits = filteredGrades.value.reduce((sum, g) => sum + (parseFloat(g.course_credit) || 0), 0)
   const failed = filteredGrades.value.filter(g => g.isFailed).length
-  return { total, credits: credits.toFixed(1), failed }
+  return { total, credits: credits.toFixed(2), failed }
 })
+
+const lastUpdatedAt = computed(() => props.syncTime ? formatRelativeTime(props.syncTime) : '暂未更新')
 
 // 获取分数等级样式
 const getScoreClass = (score) => {
@@ -338,228 +340,232 @@ watch(
 
 <template>
   <div class="grade-view">
-    <!-- 头部 -->
-    <TPageHeader icon="assessment" title="成绩查询" @back="handleBack">
-      <template #actions>
+    <header class="grade-stitch-header">
+      <button class="grade-stitch-back" type="button" aria-label="返回" @click="handleBack">
+        <span class="material-symbols-outlined">chevron_left</span>
+      </button>
+      <h1>成绩查询</h1>
+      <button
+        class="grade-stitch-refresh grade-refresh-btn"
+        type="button"
+        :disabled="refreshing"
+        aria-label="刷新成绩"
+        title="刷新成绩"
+        @click="handleRefresh"
+      >
+        <span class="material-symbols-outlined" :class="{ spinning: refreshing || offline }">refresh</span>
+      </button>
+    </header>
+
+    <main class="grade-stitch-main">
+      <div class="grade-tab-bar rounded-2xl">
         <button
-          class="grade-refresh-btn"
-          type="button"
-          :disabled="refreshing"
-          aria-label="刷新成绩"
-          title="刷新成绩"
-          @click="handleRefresh"
+          class="grade-tab-btn"
+          :class="{ active: activeGradeTab === 'grades' }"
+          @click="activeGradeTab = 'grades'"
         >
-          <span class="material-symbols-outlined" :class="{ spinning: refreshing }">refresh</span>
+          成绩查询
         </button>
-      </template>
-    </TPageHeader>
-
-    <!-- Tab 切换栏 -->
-    <div class="grade-tab-bar">
-      <button
-        class="grade-tab-btn"
-        :class="{ active: activeGradeTab === 'grades' }"
-        @click="activeGradeTab = 'grades'"
-      >成绩查询</button>
-      <button
-        class="grade-tab-btn"
-        :class="{ active: activeGradeTab === 'distribution' }"
-        @click="activeGradeTab = 'distribution'"
-      >给分记录<span class="beta-tag">Beta</span></button>
-    </div>
-
-    <!-- 给分记录 Tab -->
-    <GradeDistributionView v-if="activeGradeTab === 'distribution'" />
-
-    <!-- 成绩查询 Tab（原有内容） -->
-    <template v-if="activeGradeTab === 'grades'">
-
-    <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
-    </div>
-
-    <!-- 筛选栏 -->
-    <div class="filter-bar">
-      <div class="filter-row">
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
-          <input 
-            v-model="searchName" 
-            type="text" 
-            placeholder="搜索课程名称..."
-            class="search-input"
-          />
-        </div>
-        
-        <IOSSelect v-model="filterTerm" class="filter-select">
-          <option value="">全部学期</option>
-          <option v-for="term in terms" :key="term" :value="term">{{ term }}</option>
-        </IOSSelect>
-      </div>
-      
-      <div class="filter-row filter-actions-row">
-        <button class="ghost-btn" @click="showAdvancedFilters = !showAdvancedFilters">
-          {{ showAdvancedFilters ? '收起筛选' : '展开筛选' }}
+        <button
+          class="grade-tab-btn"
+          :class="{ active: activeGradeTab === 'distribution' }"
+          @click="activeGradeTab = 'distribution'"
+        >
+          给分记录<span class="beta-tag">Beta</span>
         </button>
-        <button class="reset-btn" @click="resetFilters">重置</button>
       </div>
 
-      <div v-if="showAdvancedFilters" class="filter-advanced">
-        <div class="filter-row">
-          <div class="filter-group">
-            <label>成绩状态:</label>
-            <div class="radio-group">
-              <label class="radio-label" :class="{ active: filterPass === 'all' }">
-                <input type="radio" v-model="filterPass" value="all" />
-                <span>全部</span>
-              </label>
-              <label class="radio-label" :class="{ active: filterPass === 'pass' }">
-                <input type="radio" v-model="filterPass" value="pass" />
-                <span>合格</span>
-              </label>
-              <label class="radio-label" :class="{ active: filterPass === 'fail' }">
-                <input type="radio" v-model="filterPass" value="fail" />
-                <span>不合格</span>
-              </label>
-            </div>
-          </div>
-          
-          <div class="filter-group">
-            <label>补考:</label>
-            <div class="radio-group">
-              <label class="radio-label" :class="{ active: filterMakeup === 'all' }">
-                <input type="radio" v-model="filterMakeup" value="all" />
-                <span>全部</span>
-              </label>
-              <label class="radio-label" :class="{ active: filterMakeup === 'no' }">
-                <input type="radio" v-model="filterMakeup" value="no" />
-                <span>正常</span>
-              </label>
-              <label class="radio-label" :class="{ active: filterMakeup === 'yes' }">
-                <input type="radio" v-model="filterMakeup" value="yes" />
-                <span>补考</span>
-              </label>
-            </div>
-          </div>
+      <GradeDistributionView v-if="activeGradeTab === 'distribution'" />
+
+      <template v-if="activeGradeTab === 'grades'">
+        <div v-if="offline" class="offline-banner">
+          当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
         </div>
 
-        <div class="filter-row">
-          <div class="filter-group">
-            <label>展示方式:</label>
-            <div class="radio-group">
-              <label class="radio-label" :class="{ active: viewMode === 'grouped' }">
-                <input type="radio" v-model="viewMode" value="grouped" />
-                <span>分组视图</span>
-              </label>
-              <label class="radio-label" :class="{ active: viewMode === 'all' }">
-                <input type="radio" v-model="viewMode" value="all" />
-                <span>全部视图</span>
-              </label>
-            </div>
+        <div class="grade-filter-card">
+          <div class="search-box">
+            <span class="material-symbols-outlined search-icon">search</span>
+            <input
+              v-model="searchName"
+              type="text"
+              placeholder="搜索课程名称..."
+              class="search-input"
+            />
           </div>
-          <div class="filter-group">
-            <label>排序:</label>
-            <IOSSelect v-model="sortMode" class="filter-select sort-select">
-              <option value="score_desc">成绩高到低</option>
-              <option value="score_asc">成绩低到高</option>
-              <option value="origin">成绩公布先后</option>
+
+          <div class="select-wrap">
+            <IOSSelect v-model="filterTerm" class="filter-select">
+              <option value="">全部学期</option>
+              <option v-for="term in terms" :key="term" :value="term">{{ term }}</option>
             </IOSSelect>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- 统计卡片 -->
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-value">{{ stats.total }}</div>
-        <div class="stat-label">筛选结果</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ stats.credits }}</div>
-        <div class="stat-label">总学分</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ stats.failed }}</div>
-        <div class="stat-label">挂科数</div>
-      </div>
-    </div>
+          <div class="filter-divider">
+            <button class="ghost-btn" type="button" @click="showAdvancedFilters = !showAdvancedFilters">
+              {{ showAdvancedFilters ? '收起筛选' : '展开筛选' }}
+              <span class="material-symbols-outlined">expand_more</span>
+            </button>
+          </div>
 
-    <!-- 成绩卡片网格 -->
-    <div class="grade-list">
-      <template v-if="viewMode === 'grouped'">
-        <div v-for="group in groupedGrades" :key="group.term" class="term-group">
-          <div class="term-header">📅 {{ group.term }} ({{ group.items.length }}门)</div>
-          <div class="grade-grid">
-            <div 
-              v-for="grade in group.items" 
-              :key="`${group.term}-${grade.course_name}-${grade.originIndex}`"
-              class="grade-card"
-              :class="getScoreClass(grade.final_score)"
-              @click="openDetail(grade)"
-            >
-              <div class="card-score">{{ grade.final_score }}</div>
-              <div class="card-name">{{ grade.course_name }}</div>
-              <div class="card-meta">
-                <span class="credit">{{ grade.course_credit }}分</span>
-                <span class="nature">{{ grade.course_nature }}</span>
+          <div v-if="showAdvancedFilters" class="filter-advanced">
+            <div class="filter-group">
+              <label>成绩状态</label>
+              <div class="radio-group">
+                <label class="radio-label" :class="{ active: filterPass === 'all' }">
+                  <input type="radio" v-model="filterPass" value="all" />
+                  <span>全部</span>
+                </label>
+                <label class="radio-label" :class="{ active: filterPass === 'pass' }">
+                  <input type="radio" v-model="filterPass" value="pass" />
+                  <span>合格</span>
+                </label>
+                <label class="radio-label" :class="{ active: filterPass === 'fail' }">
+                  <input type="radio" v-model="filterPass" value="fail" />
+                  <span>不合格</span>
+                </label>
               </div>
-              <div v-if="grade.statusTags?.length" class="card-status">
-                <span
-                  v-for="tag in grade.statusTags"
-                  :key="`${grade.course_name}-${tag.key}`"
-                  class="status-chip"
-                  :class="`status-${tag.key}`"
+            </div>
+
+            <div class="filter-group">
+              <label>补考</label>
+              <div class="radio-group">
+                <label class="radio-label" :class="{ active: filterMakeup === 'all' }">
+                  <input type="radio" v-model="filterMakeup" value="all" />
+                  <span>全部</span>
+                </label>
+                <label class="radio-label" :class="{ active: filterMakeup === 'no' }">
+                  <input type="radio" v-model="filterMakeup" value="no" />
+                  <span>正常</span>
+                </label>
+                <label class="radio-label" :class="{ active: filterMakeup === 'yes' }">
+                  <input type="radio" v-model="filterMakeup" value="yes" />
+                  <span>补考</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="filter-group">
+              <label>展示方式</label>
+              <div class="radio-group">
+                <label class="radio-label" :class="{ active: viewMode === 'grouped' }">
+                  <input type="radio" v-model="viewMode" value="grouped" />
+                  <span>分组</span>
+                </label>
+                <label class="radio-label" :class="{ active: viewMode === 'all' }">
+                  <input type="radio" v-model="viewMode" value="all" />
+                  <span>全部</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="filter-group filter-sort-row">
+              <label>排序</label>
+              <IOSSelect v-model="sortMode" class="filter-select sort-select">
+                <option value="origin">成绩公布先后</option>
+                <option value="score_desc">成绩高到低</option>
+                <option value="score_asc">成绩低到高</option>
+              </IOSSelect>
+              <button class="reset-btn" type="button" @click="resetFilters">重置</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grade-stats-grid">
+          <div class="stat-card">
+            <span class="stat-value">{{ stats.total }}</span>
+            <span class="stat-label">筛选结果</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value">{{ stats.credits }}</span>
+            <span class="stat-label">总学分</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value stat-value-dark">{{ stats.failed }}</span>
+            <span class="stat-label">挂科数</span>
+          </div>
+        </div>
+
+        <div class="grade-list">
+          <template v-if="viewMode === 'grouped'">
+            <div v-for="group in groupedGrades" :key="group.term" class="term-group">
+              <div class="term-header">
+                <span class="term-icon"><i class="fa-regular fa-calendar"></i></span>
+                <h2>{{ group.term }} ({{ group.items.length }}门)</h2>
+              </div>
+              <div class="grade-grid">
+                <div
+                  v-for="grade in group.items"
+                  :key="`${group.term}-${grade.course_name}-${grade.originIndex}`"
+                  class="grade-card"
+                  :class="getScoreClass(grade.final_score)"
+                  @click="openDetail(grade)"
                 >
-                  {{ tag.label }}
-                </span>
-              </div>
-              <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
-                👨‍🏫 {{ resolveCardTeacherName(grade) }}
+                  <div class="card-score">{{ grade.final_score }}</div>
+                  <h3 class="card-name">{{ grade.course_name }}</h3>
+                  <div class="card-meta">
+                    <span class="credit">{{ grade.course_credit }}分</span>
+                    <span class="nature">{{ grade.course_nature }}</span>
+                  </div>
+                  <div v-if="grade.statusTags?.length" class="card-status">
+                    <span
+                      v-for="tag in grade.statusTags"
+                      :key="`${grade.course_name}-${tag.key}`"
+                      class="status-chip"
+                      :class="`status-${tag.key}`"
+                    >
+                      {{ tag.label }}
+                    </span>
+                  </div>
+                  <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
+                    <span class="material-symbols-outlined">person</span>
+                    {{ resolveCardTeacherName(grade) }}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </template>
+          </template>
 
-      <template v-else>
-        <div class="grade-grid">
-          <div
-            v-for="grade in sortedGrades"
-            :key="`all-${grade.term}-${grade.course_name}-${grade.originIndex}`"
-            class="grade-card"
-            :class="getScoreClass(grade.final_score)"
-            @click="openDetail(grade)"
-          >
-            <div class="card-score">{{ grade.final_score }}</div>
-            <div class="card-name">{{ grade.course_name }}</div>
-            <div class="card-meta">
-              <span class="credit">{{ grade.course_credit }}分</span>
-              <span class="nature">{{ grade.course_nature }}</span>
-              <span class="nature">{{ grade.term }}</span>
-            </div>
-            <div v-if="grade.statusTags?.length" class="card-status">
-              <span
-                v-for="tag in grade.statusTags"
-                :key="`${grade.course_name}-${tag.key}`"
-                class="status-chip"
-                :class="`status-${tag.key}`"
+          <template v-else>
+            <div class="grade-grid">
+              <div
+                v-for="grade in sortedGrades"
+                :key="`all-${grade.term}-${grade.course_name}-${grade.originIndex}`"
+                class="grade-card"
+                :class="getScoreClass(grade.final_score)"
+                @click="openDetail(grade)"
               >
-                {{ tag.label }}
-              </span>
+                <div class="card-score">{{ grade.final_score }}</div>
+                <h3 class="card-name">{{ grade.course_name }}</h3>
+                <div class="card-meta">
+                  <span class="credit">{{ grade.course_credit }}分</span>
+                  <span class="nature">{{ grade.course_nature }}</span>
+                  <span class="nature">{{ grade.term }}</span>
+                </div>
+                <div v-if="grade.statusTags?.length" class="card-status">
+                  <span
+                    v-for="tag in grade.statusTags"
+                    :key="`${grade.course_name}-${tag.key}`"
+                    class="status-chip"
+                    :class="`status-${tag.key}`"
+                  >
+                    {{ tag.label }}
+                  </span>
+                </div>
+                <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
+                  <span class="material-symbols-outlined">person</span>
+                  {{ resolveCardTeacherName(grade) }}
+                </div>
+              </div>
             </div>
-            <div class="card-teacher" v-if="resolveCardTeacherName(grade)">
-              👨‍🏫 {{ resolveCardTeacherName(grade) }}
-            </div>
-          </div>
+          </template>
+
+          <TEmptyState v-if="refreshing && props.grades.length === 0" type="loading" message="正在获取成绩数据..." />
+          <TEmptyState v-else-if="sortedGrades.length === 0" message="没有找到符合条件的成绩">
+            <button @click="resetFilters">清除筛选</button>
+          </TEmptyState>
         </div>
-      </template>
-      
-      <TEmptyState v-if="refreshing && props.grades.length === 0" type="loading" message="正在获取成绩数据..." />
-      <TEmptyState v-else-if="sortedGrades.length === 0" message="没有找到符合条件的成绩">
-        <button @click="resetFilters">清除筛选</button>
-      </TEmptyState>
-    </div>
+
+        <p class="grade-updated-at">最新更新时间：{{ lastUpdatedAt }}</p>
 
     <!-- 详情弹窗 -->
     <Teleport to="body">
@@ -647,47 +653,57 @@ watch(
         </div>
       </div>
     </Teleport>
-    </template>
+      </template>
+    </main>
   </div>
 </template>
 
 <style scoped>
 .grade-view {
   min-height: 100%;
-  background: var(--ui-bg-gradient);
-  padding: 16px 14px 120px;
-  color: var(--ui-text);
+  background: #f6fafe;
+  color: #1e293b;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding-bottom: 104px;
 }
 
-/* ── Tab 切换栏 ── */
-.grade-tab-bar {
+.grade-stitch-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
-  gap: 0;
-  margin: 14px 0 14px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--color-bg-card, #fff);
-  padding: 3px;
-  position: relative;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 20px 16px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.86);
+  background: rgba(246, 250, 254, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
-.grade-refresh-btn {
+.grade-stitch-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: #1e293b;
+}
+
+.grade-stitch-back,
+.grade-stitch-refresh {
   width: 40px;
   height: 40px;
-  border: none;
+  border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--ui-primary);
+  color: #1e293b;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s, transform 0.15s, opacity 0.2s;
 }
 
-.grade-refresh-btn:active {
-  transform: scale(0.95);
+.grade-stitch-refresh {
+  color: #3b82f6;
 }
 
 .grade-refresh-btn:disabled {
@@ -704,190 +720,156 @@ watch(
   animation: gradeRefreshSpin 0.8s linear infinite;
 }
 
-@keyframes gradeRefreshSpin {
-  to {
-    transform: rotate(360deg);
-  }
+.grade-stitch-main {
+  padding: 16px 20px 0;
+  display: grid;
+  gap: 24px;
+}
+
+.grade-tab-bar {
+  display: flex;
+  margin: 0;
+  padding: 4px;
+  gap: 0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
 }
 
 .grade-tab-btn {
   flex: 1;
-  padding: 10px 0;
-  border: none;
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
   background: transparent;
+  color: #64748b;
   font-size: 14px;
-  font-weight: 600;
-  color: var(--color-text-muted, #94a3b8);
-  cursor: pointer;
-  transition: color 0.3s, background 0.3s, transform 0.15s;
-  border-radius: 10px;
-  position: relative;
-  z-index: 1;
-}
-.grade-tab-btn:active {
-  transform: scale(0.97);
-}
-.grade-tab-btn.active {
-  color: #fff;
-  background: var(--color-primary, #6366f1);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
-}
-.beta-tag {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 5px;
-  font-size: 10px;
   font-weight: 700;
-  border-radius: 4px;
-  background: #f59e0b;
-  color: #fff;
-  vertical-align: super;
-  line-height: 1;
-}
-
-.grade-header {
-  margin-bottom: 12px;
-}
-
-.grade-header .title {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: clamp(19px, 2.2vw, 24px);
+  justify-content: center;
+  gap: 6px;
+}
+
+.grade-tab-btn.active {
+  color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.08);
+}
+
+.beta-tag {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #d97706;
+  font-size: 10px;
   font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
-.grade-header .icon {
-  font-size: 24px;
+.grade-filter-card {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
 }
 
-.back-btn, .logout-btn {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.back-btn {
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-}
-
-.back-btn:hover {
-  background: var(--ui-primary);
-  color: #ffffff;
-}
-
-.logout-btn {
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--ui-danger);
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-/* 筛选栏 */
-.filter-bar {
-  background: var(--ui-surface);
-  padding: 16px;
-  margin: 16px 0;
-  border-radius: 16px;
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-}
-
-.filter-row + .filter-row {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed color-mix(in oklab, var(--ui-primary) 24%, var(--ui-surface-border));
-}
-
-.filter-actions-row {
-  justify-content: flex-end;
-}
-
-.filter-advanced {
-  margin-top: 10px;
+.search-box,
+.select-wrap {
+  min-height: 48px;
+  border-radius: 14px;
+  background: #f0f4f8;
 }
 
 .search-box {
-  flex: 1;
-  min-width: 200px;
   display: flex;
   align-items: center;
-  background: var(--ui-surface);
-  border-radius: 10px;
-  padding: 0 12px;
-  border: 1px solid var(--ui-surface-border);
+  gap: 10px;
+  padding: 0 14px;
 }
 
 .search-icon {
-  margin-right: 8px;
+  color: #94a3b8;
+  font-size: 20px;
 }
 
 .search-input {
-  flex: 1;
-  border: none !important;
+  width: 100%;
+  border: 0 !important;
   box-shadow: none !important;
-  min-height: 0 !important;
-  height: auto !important;
   background: transparent;
-  padding: 12px 0 !important;
+  color: #1e293b;
   font-size: 14px;
   outline: none;
+  padding: 13px 0 !important;
 }
 
 .filter-select {
-  min-width: 146px;
-}
-
-.sort-select {
-  min-width: 170px;
+  width: 100%;
 }
 
 .filter-select :deep(.ios26-select-trigger) {
-  min-height: 42px;
-  border-radius: 12px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: #f0f4f8;
+  color: #1e293b;
+  box-shadow: none;
+}
+
+.filter-divider {
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.ghost-btn {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #3b82f6;
+  font-size: 14px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.filter-advanced {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
 }
 
 .filter-group {
-  display: flex;
-  align-items: center;
+  display: grid;
   gap: 8px;
 }
 
-.filter-group label:first-child {
-  font-size: 13px;
-  color: var(--ui-muted);
-  white-space: nowrap;
+.filter-group > label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .radio-group {
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .radio-label {
-  padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
+  background: #f0f4f8;
+  color: #64748b;
+  padding: 7px 11px;
   font-size: 13px;
-  cursor: pointer;
-  background: var(--ui-primary-soft);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  transition: all 0.2s;
+  font-weight: 700;
 }
 
 .radio-label input {
@@ -895,248 +877,235 @@ watch(
 }
 
 .radio-label.active {
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #ffffff;
-  border-color: transparent;
+  color: #3b82f6;
+  background: #eff6ff;
 }
 
-.ghost-btn {
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
+.filter-sort-row {
+  grid-template-columns: 1fr auto;
+  align-items: end;
 }
 
-.ghost-btn:hover {
-  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #ffffff 28%);
+.filter-sort-row > label {
+  grid-column: 1 / -1;
+}
+
+.sort-select {
+  min-width: 170px;
 }
 
 .reset-btn {
-  padding: 8px 16px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
-  color: var(--ui-danger);
-  border: none;
-  border-radius: 8px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 14px;
+  background: #fee2e2;
+  color: #ef4444;
   font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 30%, transparent);
+  font-weight: 700;
 }
 
-.reset-btn:hover {
-  background: var(--ui-danger);
-  color: white;
-}
-
-/* 统计卡片 */
-.stats-row {
-  display: flex;
+.grade-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  padding: 0;
-  margin-bottom: 16px;
 }
 
 .stat-card {
-  flex: 1;
-  background: var(--ui-surface);
-  border-radius: 16px;
-  padding: 16px;
-  text-align: center;
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
+  min-height: 104px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 8px;
 }
 
 .stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--ui-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 72px;
-  min-height: 38px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
+  color: #3b82f6;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.stat-value-dark {
+  color: #1e293b;
 }
 
 .stat-label {
+  margin-top: 6px;
+  color: #64748b;
   font-size: 12px;
-  color: var(--ui-muted);
-  margin-top: 4px;
+  font-weight: 700;
 }
 
-/* 成绩卡片网格 */
 .grade-list {
-  padding: 0;
+  display: grid;
+  gap: 24px;
 }
 
 .term-group {
-  margin-bottom: 24px;
+  display: grid;
+  gap: 12px;
 }
 
 .term-header {
-  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.term-header h2 {
+  margin: 0;
+  color: #1e293b;
+  font-size: 14px;
   font-weight: 800;
-  color: var(--ui-text);
-  margin-bottom: 12px;
+}
+
+.term-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: #dbeafe;
+  color: #3b82f6;
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  background: color-mix(in oklab, var(--ui-primary-soft) 72%, #fff 28%);
+  justify-content: center;
 }
 
 .grade-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .grade-card {
-  background: var(--ui-surface);
-  border-radius: 14px;
-  padding: 16px;
-  cursor: pointer;
-  transition: all 0.3s;
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
-  position: relative;
+  min-height: 166px;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  border: 0;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
   overflow: hidden;
-}
-
-.grade-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-}
-
-.grade-card.excellent::before { background: #10b981; }
-.grade-card.good::before { background: #3b82f6; }
-.grade-card.pass::before { background: #f59e0b; }
-.grade-card.fail::before { background: #ef4444; }
-
-.grade-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--ui-shadow-strong);
+  cursor: pointer;
 }
 
 .card-score {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 8px;
+  color: #10b981;
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+  margin-bottom: 14px;
 }
 
-.grade-card.excellent .card-score { color: #10b981; }
-.grade-card.good .card-score { color: #3b82f6; }
-.grade-card.pass .card-score { color: #f59e0b; }
-.grade-card.fail .card-score { color: #ef4444; }
+.grade-card.good .card-score,
+.grade-card.pass .card-score {
+  color: #10b981;
+}
+
+.grade-card.fail .card-score {
+  color: #ef4444;
+}
 
 .card-name {
+  min-height: 38px;
+  margin: 0 0 10px;
+  color: #1e293b;
   font-size: 14px;
-  font-weight: 500;
-  color: var(--ui-text);
-  margin-bottom: 6px;
+  font-weight: 800;
+  line-height: 1.35;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.card-meta {
-  font-size: 11px;
-  color: var(--ui-muted);
-  display: flex;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
+.card-meta,
 .card-status {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+}
+
+.card-meta {
+  margin-top: auto;
+}
+
+.credit,
+.nature,
+.status-chip {
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.credit {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.nature {
+  background: #eff6ff;
+  color: #3b82f6;
 }
 
 .status-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  border: 1px solid transparent;
-}
-
-.status-failed {
-  background: color-mix(in oklab, #ef4444 14%, #ffffff 86%);
+  background: #fee2e2;
   color: #ef4444;
-  border-color: color-mix(in oklab, #ef4444 36%, transparent);
 }
 
 .status-makeup {
-  background: color-mix(in oklab, #f59e0b 16%, #ffffff 84%);
-  color: #c26c00;
-  border-color: color-mix(in oklab, #f59e0b 36%, transparent);
+  background: #fef3c7;
+  color: #d97706;
 }
 
 .status-deferred {
-  background: color-mix(in oklab, #3b82f6 16%, #ffffff 84%);
-  color: #2563eb;
-  border-color: color-mix(in oklab, #3b82f6 36%, transparent);
+  background: #eff6ff;
+  color: #3b82f6;
 }
 
 .status-exempt {
-  background: color-mix(in oklab, #10b981 16%, #ffffff 84%);
-  color: #0f9f6e;
-  border-color: color-mix(in oklab, #10b981 36%, transparent);
+  background: #d1fae5;
+  color: #059669;
 }
 
 .card-teacher {
-  font-size: 11px;
-  color: var(--ui-muted);
-  background: var(--ui-primary-soft);
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 20%, transparent);
-  padding: 4px 8px;
-  border-radius: 999px;
   margin-top: 8px;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
-.no-results {
+.card-teacher .material-symbols-outlined {
+  font-size: 15px;
+}
+
+.grade-updated-at {
+  margin: -4px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
   text-align: center;
-  padding: 60px 20px;
-  color: var(--ui-muted);
 }
 
-.empty-icon {
-  font-size: 64px;
-  margin-bottom: 16px;
-}
-
-.no-results button {
-  margin-top: 16px;
-  padding: 12px 24px;
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: white;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
+.offline-banner {
+  margin: -8px 0 -4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -1268,37 +1237,4 @@ watch(
   line-height: 1.45;
 }
 
-@media (max-width: 640px) {
-  .filter-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .filter-group {
-    width: 100%;
-    justify-content: space-between;
-  }
-  
-  .grade-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .stats-row {
-    flex-wrap: wrap;
-  }
-  
-  .stat-card {
-    min-width: calc(33% - 8px);
-  }
-}
-
-.offline-banner {
-  margin: 12px 0 0;
-  padding: 10px 14px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
-  color: var(--ui-danger);
-  border-radius: 12px;
-  font-weight: 600;
-}
 </style>

@@ -11,4 +11,19 @@ describe('ranking view contract', () => {
     expect(source).toContain('<span class="text-sm text-on-primary/80">/ 5.0</span>')
     expect(source).not.toContain('<span class="text-sm text-on-primary/80">/ 4.0</span>')
   })
+
+  it('uses stale cache only as a temporary placeholder and always foreground refreshes ranking', () => {
+    const source = readSource('src/components/RankingView.vue')
+    const fetchBlock = source.match(/const fetchRanking = async \(options = \{\}\) => \{[\s\S]*?const handleSemesterChange/s)?.[0] || ''
+
+    expect(source).toContain("import { fetchWithCache, getStaleCachedData, setCachedData } from '../utils/api.js'")
+    expect(source).toContain('const refreshing = ref(false)')
+    expect(source).toContain('const applyStaleRankingSnapshot = (cacheKey) =>')
+    expect(source).toContain('getStaleCachedData(cacheKey)')
+    expect(fetchBlock).toContain('const staleApplied = applyStaleRankingSnapshot(cacheKey)')
+    expect(fetchBlock).toContain('forceRemote: true')
+    expect(fetchBlock).not.toContain('staleWhileRevalidate: true')
+    expect(source).toContain('setCachedData(cacheKey, data)')
+    expect(source).toContain(':class="{ spinning: refreshing || loading || offline }"')
+  })
 })

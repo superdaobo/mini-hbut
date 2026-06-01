@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
-import { fetchWithCache } from '../utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import {
   getPreferredSemesterFast,
@@ -13,6 +13,7 @@ import { writeExamToWidget } from '../utils/widget_bridge'
 import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const EXAM_CACHE_REFRESH_RETRY_MS = 8000
 
 const props = defineProps({
   studentId: { type: String, required: true }
@@ -21,14 +22,55 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const loading = ref(false)
+const refreshing = ref(false)
 const error = ref('')
 const exams = ref([])
+const displayedExamCacheKey = ref('')
 const semesters = ref([])
 const selectedSemester = ref('')
 const currentSemester = ref('')
 const offline = ref(false)
 const syncTime = ref('')
+const resolveExamSyncTime = (data) => {
+  const explicit = String(data?.sync_time || data?.updated_at || data?.timestamp || '').trim()
+  if (explicit) return explicit
+  if (data?.offline) return syncTime.value || ''
+  return new Date().toISOString()
+}
+const lastUpdatedAt = computed(() => syncTime.value ? formatRelativeTime(syncTime.value) : '暂未更新')
+const isInitialLoading = computed(() => loading.value && exams.value.length === 0)
 let examRequestSeq = 0
+let examRealtimeRetryTimer = null
+
+const applyStaleExamSnapshot = (cacheKey) => {
+  const stale = getStaleCachedData(cacheKey)
+  const data = stale?.data
+  if (!data?.success || !Array.isArray(data.data)) {
+    return false
+  }
+  exams.value = data.data || []
+  offline.value = true
+  syncTime.value = resolveExamSyncTime(data)
+  displayedExamCacheKey.value = cacheKey
+  return true
+}
+
+const clearExamRealtimeRetry = () => {
+  if (examRealtimeRetryTimer) {
+    clearTimeout(examRealtimeRetryTimer)
+    examRealtimeRetryTimer = null
+  }
+}
+
+const scheduleExamRealtimeRetry = () => {
+  clearExamRealtimeRetry()
+  examRealtimeRetryTimer = setTimeout(() => {
+    examRealtimeRetryTimer = null
+    if (offline.value) {
+      fetchExams({ keepOfflineBanner: true }).catch(() => {})
+    }
+  }, EXAM_CACHE_REFRESH_RETRY_MS)
+}
 
 const initializeFastSemester = () => {
   const preferred = getPreferredSemesterFast()
@@ -117,6 +159,7 @@ const passedCount = computed(() => processedExams.value.filter(e => isPassed(e.e
 
 // 获取学期列表
 const fetchSemesters = async () => {
+  const previousSemester = selectedSemester.value
   try {
     const { data } = await fetchWithCache('semesters', async () => {
       const res = await axios.get(`${API_BASE}/v2/semesters`)
@@ -130,6 +173,10 @@ const fetchSemesters = async () => {
         selectedSemester.value = currentSemester.value || sorted[0] || ''
         semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
       }
+      const shouldRefetchResolvedSemester = !previousSemester && selectedSemester.value
+      if (shouldRefetchResolvedSemester) {
+        fetchExams({ keepOfflineBanner: true }).catch(() => {})
+      }
     }
   } catch (e) {
     console.error('获取学期列表失败:', e)
@@ -137,26 +184,43 @@ const fetchSemesters = async () => {
 }
 
 // 获取考试安排
-const fetchExams = async () => {
+const fetchExams = async (options = {}) => {
   const requestSeq = ++examRequestSeq
-  loading.value = true
+  const cacheKey = `exams:${props.studentId}:${selectedSemester.value || 'current'}`
+  const staleApplied = applyStaleExamSnapshot(cacheKey)
+  if (!staleApplied && displayedExamCacheKey.value && displayedExamCacheKey.value !== cacheKey) {
+    exams.value = []
+    displayedExamCacheKey.value = ''
+  }
+  loading.value = exams.value.length === 0
+  refreshing.value = true
   error.value = ''
+  clearExamRealtimeRetry()
+  if (!staleApplied || !options.keepOfflineBanner) {
+    offline.value = false
+    syncTime.value = ''
+  }
   
   try {
-    const cacheKey = `exams:${props.studentId}:${selectedSemester.value || 'current'}`
     const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/exams`, {
         student_id: props.studentId,
         semester: selectedSemester.value
       })
       return res.data
-    }, undefined, { staleWhileRevalidate: true, priority: 'foreground' })
+    }, undefined, { forceRemote: true, priority: 'foreground' })
     
     if (requestSeq !== examRequestSeq) return
     if (data?.success) {
       exams.value = data.data || []
       offline.value = !!data.offline
-      syncTime.value = data.sync_time || ''
+      syncTime.value = resolveExamSyncTime(data)
+      displayedExamCacheKey.value = cacheKey
+      if (!data.offline) {
+        setCachedData(cacheKey, data)
+      } else {
+        scheduleExamRealtimeRetry()
+      }
       // 写入小组件（只写未来的考试）
       const futureExams = (data.data || []).filter(e => !isPassed(e.exam_date))
       if (futureExams.length > 0) {
@@ -180,6 +244,7 @@ const fetchExams = async () => {
   } finally {
     if (requestSeq === examRequestSeq) {
       loading.value = false
+      refreshing.value = false
     }
   }
 }
@@ -193,12 +258,22 @@ onMounted(() => {
   fetchExams()
   fetchSemesters()
 })
+
+onBeforeUnmount(() => {
+  clearExamRealtimeRetry()
+})
 </script>
 
 <template>
   <div class="exam-page min-h-screen bg-surface text-on-surface flex flex-col mx-auto max-w-[448px] relative pb-24">
     <!-- Header -->
-    <TPageHeader title="考试安排" icon="edit_document" @back="emit('back')" />
+    <TPageHeader title="考试安排" icon="edit_document" @back="emit('back')">
+      <template #actions>
+        <button class="exam-refresh-btn" type="button" :aria-busy="refreshing || loading" aria-label="刷新考试安排" @click="fetchExams">
+          <span class="material-symbols-outlined" :class="{ spinning: refreshing || loading || offline }">refresh</span>
+        </button>
+      </template>
+    </TPageHeader>
 
     <!-- Offline Banner -->
     <div v-if="offline" class="mx-4 mt-2 px-3 py-2 rounded-xl bg-error-container/60 text-on-error-container text-xs font-medium">
@@ -219,7 +294,7 @@ onMounted(() => {
         </div>
 
         <!-- Stats Bento Grid -->
-        <div v-if="!loading && exams.length > 0" class="grid grid-cols-2 gap-3">
+        <div v-if="!isInitialLoading && exams.length > 0" class="grid grid-cols-2 gap-3">
           <div class="bg-primary-container rounded-2xl p-4 flex flex-col justify-center items-start shadow-sm">
             <span class="text-xs font-medium text-on-primary-container/80 mb-1">待考</span>
             <div class="flex items-baseline gap-1">
@@ -239,7 +314,7 @@ onMounted(() => {
 
       <!-- Content Area -->
       <section class="flex flex-col gap-4">
-        <TEmptyState v-if="loading" type="loading" message="正在获取考试安排..." />
+        <TEmptyState v-if="isInitialLoading" type="loading" message="正在获取考试安排..." />
         <TEmptyState v-else-if="error" type="error" :message="error">
           <button class="mt-3 px-5 py-2 bg-primary text-on-primary rounded-lg font-semibold text-sm" @click="fetchExams">重试</button>
         </TEmptyState>
@@ -307,10 +382,48 @@ onMounted(() => {
           </article>
         </template>
       </section>
+
+      <p class="exam-updated-at">最新更新时间：{{ lastUpdatedAt }}</p>
     </main>
   </div>
 </template>
 
 <style scoped>
-/* Minimal scoped styles - layout handled by Tailwind */
+.exam-refresh-btn {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exam-refresh-btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.exam-refresh-btn .material-symbols-outlined {
+  font-size: 22px;
+}
+
+.spinning {
+  animation: examRefreshSpin 0.8s linear infinite;
+}
+
+.exam-updated-at {
+  margin: 4px 0 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+@keyframes examRefreshSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 </style>

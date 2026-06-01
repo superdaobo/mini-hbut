@@ -359,6 +359,17 @@ const setMaintenanceFlag = (hint = '') => {
   emitMaintenanceEvent(true, hint || '教务系统正在维护或暂不可用，当前展示缓存数据。')
 }
 
+const clearMaintenanceFlag = () => {
+  try {
+    localStorage.removeItem(JWXT_MAINTENANCE_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_TIME_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_HINT_KEY)
+  } catch {
+    // ignore
+  }
+  emitMaintenanceEvent(false)
+}
+
 export { DEFAULT_TTL, LONG_TTL, EXTRA_LONG_TTL, SHORT_TTL }
 
 const recordRequestMetric = (key, { source, start, stale = false, priority = 'foreground', error = '' } = {}) => {
@@ -382,6 +393,9 @@ const refreshCacheInBackground = async (key, fetcher, priority) => {
     const data = await fetcher()
     if (data && data.success && !data.offline) {
       setCachedData(key, data)
+      if (isJwxtCacheKey(key)) {
+        clearMaintenanceFlag()
+      }
       recordRequestMetric(key, { source: 'remote', start, priority })
     } else {
       recordRequestMetric(key, {
@@ -410,8 +424,9 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   const requestOptions = options || {}
   const priority = requestOptions.priority || 'foreground'
   const staleWhileRevalidate = !!requestOptions.staleWhileRevalidate
+  const forceRemote = !!requestOptions.forceRemote
   const maintenanceMode = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
-  const cached = getCachedData(key, ttl)
+  const cached = forceRemote ? null : getCachedData(key, ttl)
 
   if (cached) {
     console.log('[Cache] Cache HIT for key:', key)
@@ -422,7 +437,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
     return { ...cached, data, fromCache: true }
   }
 
-  if (maintenanceMode) {
+  if (!forceRemote && maintenanceMode) {
     const stale = getBestCachedEntry(key)
     if (stale) {
       console.log('[Cache] Maintenance mode stale HIT for key:', key)
@@ -454,6 +469,9 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
 
     if (data && data.success && !data.offline) {
       setCachedData(key, data)
+      if (isJwxtCacheKey(key)) {
+        clearMaintenanceFlag()
+      }
       recordRequestMetric(key, { source: 'remote', start: remoteStart, priority })
       return { data, fromCache: false, timestamp: Date.now() }
     }

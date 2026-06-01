@@ -5,7 +5,7 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache, setCachedData } from './utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
   SCHEDULE_POPUP_PENDING_KEY,
@@ -125,6 +125,7 @@ const LibraryView = createAsyncPage(loadLibraryView)
 const ResourceShareView = createAsyncPage(loadResourceShareView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const GRADE_CACHE_REFRESH_RETRY_MS = 8000
 const hasTauri = isTauriRuntime()
 const invoke = invokeNative
 const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
@@ -156,6 +157,7 @@ let widgetCrossDayTimer = null
 let removeNotificationActionListener = null
 let removeHomeLayoutDiagnosticsErrorCapture = null
 let gradeTeacherRefreshTimer = null
+let gradeRealtimeRetryTimer = null
 let gradeNavigationToken = 0
 
 // Widget 深链接参数（由 widgetDeeplink 事件或 appUrlOpen 注入）
@@ -444,6 +446,7 @@ const dailyAccessError = ref('')
 const pendingProtectedView = ref(null)
 const gradesOffline = ref(false)
 const gradesSyncTime = ref('')
+const lastGradeRefreshUsedOffline = ref(false)
 const gradeTeacherCache = ref(null)
 const gradeTeacherCacheSid = ref('')
 const appShellRef = ref(null)
@@ -1482,7 +1485,7 @@ const handleNavigate = async (target) => {
   const navigated = goToView(normalized.view)
   if (!navigated) return
 
-  if (normalized.view === 'grades' && gradeData.value.length === 0) {
+  if (normalized.view === 'grades') {
     void loadGradesForCurrentView()
   }
 }
@@ -1807,6 +1810,39 @@ const scheduleGradeTeacherCacheRefresh = () => {
   gradeTeacherRefreshTimer = setTimeout(run, delays[index])
 }
 
+const clearGradeRealtimeRetry = () => {
+  if (gradeRealtimeRetryTimer) {
+    clearTimeout(gradeRealtimeRetryTimer)
+    gradeRealtimeRetryTimer = null
+  }
+}
+
+const scheduleGradeRealtimeRetry = () => {
+  clearGradeRealtimeRetry()
+  gradeRealtimeRetryTimer = setTimeout(() => {
+    gradeRealtimeRetryTimer = null
+    if (currentView.value === 'grades' && gradesOffline.value && studentId.value) {
+      void fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true, silent: true })
+    }
+  }, GRADE_CACHE_REFRESH_RETRY_MS)
+}
+
+const resolveGradeSyncTime = (data) => {
+  const explicit = String(data?.sync_time || data?.updated_at || data?.timestamp || '').trim()
+  if (explicit) return explicit
+  if (data?.offline) return gradesSyncTime.value || ''
+  return new Date().toISOString()
+}
+
+const applyStaleGradesSnapshot = (sid) => {
+  const stale = getStaleCachedData(`grades:${sid}`)
+  const data = stale?.data
+  if (!data?.success || !Array.isArray(data.data) || data.data.length === 0) {
+    return false
+  }
+  return applyGradesPayload(data)
+}
+
 const applyGradesPayload = (data) => {
   if (data?.success && data?.data) {
     if (gradeTeacherCacheSid.value !== String(studentId.value || '').trim()) {
@@ -1814,10 +1850,15 @@ const applyGradesPayload = (data) => {
     }
     gradeData.value = mergeGradeTeacherCache(data.data)
     gradesOffline.value = !!data.offline
-    gradesSyncTime.value = data.sync_time || ''
-    void refreshGradeTeacherCache({ currentOnly: false })
-    if (data.teacher_enrichment_pending) {
-      scheduleGradeTeacherCacheRefresh()
+    gradesSyncTime.value = resolveGradeSyncTime(data)
+    if (!data.offline) {
+      clearGradeRealtimeRetry()
+      void refreshGradeTeacherCache({ currentOnly: false })
+      if (data.teacher_enrichment_pending) {
+        scheduleGradeTeacherCacheRefresh()
+      }
+    } else if (currentView.value === 'grades') {
+      scheduleGradeRealtimeRetry()
     }
     return true
   }
@@ -1825,24 +1866,32 @@ const applyGradesPayload = (data) => {
 }
 
 // 从API获取成绩数据
-const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = false } = {}) => {
+const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = false, silent = false } = {}) => {
   if (!sid) return false
-  isLoading.value = true
+  lastGradeRefreshUsedOffline.value = false
+  clearGradeRealtimeRetry()
+  const showedStaleSnapshot = !force ? applyStaleGradesSnapshot(sid) : false
+  if (!silent || showedStaleSnapshot) {
+    isLoading.value = true
+  }
   try {
-    if (force) {
-      const data = await fetchGradesRemote(sid, { teacherCurrentOnly })
-      if (data?.success && !data.offline) {
-        setCachedData(`grades:${sid}`, data)
-      }
-      return applyGradesPayload(data)
+    const { data } = await fetchWithCache(
+      `grades:${sid}`,
+      () => fetchGradesRemote(sid, { teacherCurrentOnly }),
+      undefined,
+      { forceRemote: true, priority: 'foreground' }
+    )
+    lastGradeRefreshUsedOffline.value = !!data?.offline
+    if (data?.success && !data.offline) {
+      setCachedData(`grades:${sid}`, data)
     }
-
-    const { data } = await fetchWithCache(`grades:${sid}`, () => fetchGradesRemote(sid))
     return applyGradesPayload(data)
   } catch (e) {
     console.error('获取成绩失败:', e)
   } finally {
-    isLoading.value = false
+    if (!silent || showedStaleSnapshot) {
+      isLoading.value = false
+    }
   }
   return false
 }
@@ -1873,10 +1922,16 @@ const handleBackToMoreCenter = () => {
 
 const handleRefreshGrades = async () => {
   const ok = await fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true })
-  if (ok) {
+  if (ok && !lastGradeRefreshUsedOffline.value) {
     void refreshGradeTeacherCache({ currentOnly: true })
   }
-  showToast(ok ? '成绩已刷新' : '成绩刷新失败', ok ? 'success' : 'error')
+  if (ok && lastGradeRefreshUsedOffline.value) {
+    showToast('教务系统暂不可用，已显示缓存', 'warning')
+  } else if (ok) {
+    showToast('成绩已刷新', 'success')
+  } else {
+    showToast('成绩刷新失败', 'error')
+  }
 }
 
 const handleOpenFeedback = () => {
@@ -2740,6 +2795,7 @@ onBeforeUnmount(() => {
     clearTimeout(gradeTeacherRefreshTimer)
     gradeTeacherRefreshTimer = null
   }
+  clearGradeRealtimeRetry()
   if (capacitorAppStateListener) {
     capacitorAppStateListener.remove().catch(() => {})
     capacitorAppStateListener = null
