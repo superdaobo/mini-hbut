@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_memory_match",
+  "module_name": "湖工记忆牌",
+  "version": "20260531162815-4517f9b",
+  "package_url": "https://hbut.6661111.xyz/modules/latest/hbut_memory_match/20260531162815-4517f9b/bundle.zip",
+  "package_sha256": "c7bef68f4fa1bfc8bf3046717840de17a69db36533af9f12ac8010084fcc0657",
+  "package_size": 7148,
+  "entry_path": "index.html",
+  "published_at": "2026-05-31T16:28:20.299Z",
+  "release_notes": "湖工记忆牌模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/latest/hbut_memory_match/20260531162815-4517f9b/site/index.html",
+  "published_channel": "latest",
+  "source_channel": "dev"
+}

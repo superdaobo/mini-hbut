@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "module_id": "hecheng_hugongda",
+  "module_name": "合成湖工大",
+  "version": "1.3.4-beta.24834220159",
+  "package_url": "https://hbut.6661111.xyz/modules/dev/hecheng_hugongda/1.3.4-beta.24834220159/bundle.zip",
+  "package_sha256": "2260c05c9d90ec1659fa4ce53f36283f7b62234159b5f8cbbbe29ac85bc17212",
+  "package_size": 490496,
+  "entry_path": "index.html",
+  "published_at": "2026-04-23T12:14:44.548Z",
+  "release_notes": "合成湖工大模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/dev/hecheng_hugongda/1.3.4-beta.24834220159/site/index.html"
+}

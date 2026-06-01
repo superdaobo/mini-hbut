@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "module_id": "hecheng_hugongda",
+  "module_name": "合成湖工大",
+  "version": "ci-log-check",
+  "package_url": "https://hbut.6661111.xyz/modules/main/hecheng_hugongda/ci-log-check/bundle.zip",
+  "package_sha256": "5a3c789025c9d03924d2d2c6ad1a750bad0ff4ca7024266d8f91c6e74acf2d48",
+  "package_size": 489493,
+  "entry_path": "index.html",
+  "published_at": "2026-04-21T02:50:19.110Z",
+  "release_notes": "合成湖工大模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/main/hecheng_hugongda/ci-log-check/site/index.html"
+}

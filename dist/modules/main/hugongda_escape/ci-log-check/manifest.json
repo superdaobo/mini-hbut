@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "module_id": "hugongda_escape",
+  "module_name": "湖工大逃生",
+  "version": "ci-log-check",
+  "package_url": "https://hbut.6661111.xyz/modules/main/hugongda_escape/ci-log-check/bundle.zip",
+  "package_sha256": "c60ba5879f3348ceff98090a484cd7ac4020e865974bc5c7a49dc9a2e3027e9c",
+  "package_size": 41544,
+  "entry_path": "index.html",
+  "published_at": "2026-04-21T02:50:23.605Z",
+  "release_notes": "湖工大逃生模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/main/hugongda_escape/ci-log-check/site/index.html"
+}

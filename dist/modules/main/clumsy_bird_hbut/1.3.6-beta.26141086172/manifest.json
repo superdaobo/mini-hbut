@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "clumsy_bird_hbut",
+  "module_name": "笨鸟先飞",
+  "version": "1.3.6-beta.26141086172",
+  "package_url": "https://hbut.6661111.xyz/modules/main/clumsy_bird_hbut/1.3.6-beta.26141086172/bundle.zip",
+  "package_sha256": "e3b630d57c6420526ceb0f9839946231a47f19754281631604f68de113381f85",
+  "package_size": 8276,
+  "entry_path": "index.html",
+  "published_at": "2026-05-20T04:35:19.985Z",
+  "release_notes": "笨鸟先飞模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/main/clumsy_bird_hbut/1.3.6-beta.26141086172/site/index.html",
+  "published_channel": "main",
+  "source_channel": "dev"
+}

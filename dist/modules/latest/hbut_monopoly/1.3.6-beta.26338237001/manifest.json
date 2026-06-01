@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_monopoly",
+  "module_name": "湖工大富翁",
+  "version": "1.3.6-beta.26338237001",
+  "package_url": "https://hbut.6661111.xyz/modules/latest/hbut_monopoly/1.3.6-beta.26338237001/bundle.zip",
+  "package_sha256": "4237472f964a99dea8c93327e8503e91d0055e93ede0aeb33655ae7ee8ade8de",
+  "package_size": 10379,
+  "entry_path": "index.html",
+  "published_at": "2026-05-23T17:01:08.289Z",
+  "release_notes": "湖工大富翁模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/latest/hbut_monopoly/1.3.6-beta.26338237001/site/index.html",
+  "published_channel": "latest",
+  "source_channel": "dev"
+}
