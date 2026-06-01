@@ -267,6 +267,23 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.ios26-select,
+.ios26-select-overlay {
+  position: relative;
+  --ios-select-accent: var(--ui-primary, #2563eb);
+  --ios-select-accent-2: var(--ui-secondary, #06b6d4);
+  --ios-select-text: var(--ui-text, #0f172a);
+  --ios-select-muted: var(--ui-muted, #475569);
+  --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 22%, rgba(148, 163, 184, 0.42));
+  --ios-select-trigger-bg: #ffffff;
+  --ios-select-panel: #ffffff;
+  --ios-select-item: #f8fafc;
+  --ios-select-active: var(--ios-select-accent);
+  --ios-select-active-text: #ffffff;
+  --ios-select-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ios-select-shadow: 0 9px 21px rgba(15, 23, 42, 0.08);
+}
+
 .ios26-select {
   position: relative;
   width: 100%;
@@ -287,17 +304,11 @@ onBeforeUnmount(() => {
   min-height: 42px;
   padding: 0 14px;
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(248, 250, 252, 0.92);
-  border: 1px solid color-mix(in oklab, var(--ui-primary, #2563eb) 24%, rgba(148, 163, 184, 0.45));
-  background: linear-gradient(
-    160deg,
-    color-mix(in oklab, #ffffff 88%, var(--ui-primary, #2563eb) 12%),
-    color-mix(in oklab, #f8fafc 84%, var(--ui-secondary, #06b6d4) 16%)
-  );
+  border: 1px solid var(--ios-select-border);
+  background: var(--ios-select-trigger-bg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 8px 20px color-mix(in oklab, var(--ui-primary, #2563eb) 12%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 4px 9px rgba(15, 23, 42, 0.04);
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -314,7 +325,7 @@ onBeforeUnmount(() => {
   transform: translateY(1px) scale(0.997);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 4px 12px color-mix(in oklab, var(--ui-primary, #2563eb) 14%, transparent);
+    0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
 .ios26-select-text {
@@ -323,15 +334,15 @@ onBeforeUnmount(() => {
   text-align: left;
   font-size: 15px;
   font-weight: 700;
-  color: color-mix(in oklab, var(--ui-text, #0f172a) 94%, #ffffff 6%);
+  color: var(--ios-select-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: 0.15px;
+  letter-spacing: 0;
 }
 
 .ios26-select-text.placeholder {
-  color: color-mix(in oklab, var(--ui-muted, #475569) 84%, #ffffff 16%);
+  color: color-mix(in oklab, var(--ios-select-muted) 82%, #ffffff 18%);
 }
 
 .ios26-select-arrow {
@@ -340,7 +351,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: color-mix(in oklab, var(--ui-primary, #2563eb) 60%, var(--ui-text, #0f172a) 40%);
+  color: color-mix(in oklab, var(--ios-select-accent) 72%, var(--ios-select-text) 28%);
   flex-shrink: 0;
 }
 
@@ -367,32 +378,26 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgba(8, 15, 28, 0.34);
+  background: rgba(15, 23, 42, 0.32);
   display: flex;
   align-items: flex-end;
   justify-content: center;
   padding: 12px;
   box-sizing: border-box;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(14px) saturate(1.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.12);
 }
 
 .ios26-select-sheet {
   width: min(540px, 100%);
   max-height: min(78vh, 560px);
   margin: 0 auto;
-  border-radius: 22px 22px 16px 16px;
-  border: 1px solid rgba(148, 163, 184, 0.34);
-  background: rgba(248, 250, 252, 0.96);
-  border: 1px solid color-mix(in oklab, var(--ui-primary, #2563eb) 16%, rgba(148, 163, 184, 0.38));
-  background: linear-gradient(
-    165deg,
-    color-mix(in oklab, #ffffff 92%, var(--ui-primary, #2563eb) 8%),
-    color-mix(in oklab, #f8fafc 86%, var(--ui-secondary, #06b6d4) 14%)
-  );
+  border-radius: 24px;
+  border: 1px solid color-mix(in oklab, var(--ios-select-accent) 18%, rgba(148, 163, 184, 0.36));
+  background: var(--ios-select-panel);
   box-shadow:
-    0 22px 52px rgba(8, 15, 28, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    var(--ios-select-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -405,15 +410,15 @@ onBeforeUnmount(() => {
   height: 4px;
   border-radius: 999px;
   margin: 10px auto 4px;
-  background: color-mix(in oklab, var(--ui-muted, #64748b) 36%, #ffffff 64%);
+  background: color-mix(in oklab, var(--ios-select-muted) 30%, #ffffff 70%);
 }
 
 .ios26-select-title {
   text-align: center;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.25px;
-  color: color-mix(in oklab, var(--ui-muted, #475569) 86%, #ffffff 14%);
+  letter-spacing: 0;
+  color: color-mix(in oklab, var(--ios-select-muted) 86%, #ffffff 14%);
   padding: 6px 18px 10px;
   flex-shrink: 0;
 }
@@ -421,24 +426,24 @@ onBeforeUnmount(() => {
 .ios26-select-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0 10px 10px;
-  background: transparent;
+  padding: 2px 10px 10px;
+  background: var(--ios-select-panel);
 }
 
 .ios26-select-item {
   width: 100%;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.92);
-  background: color-mix(in oklab, #ffffff 92%, var(--ui-primary, #2563eb) 8%);
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--ios-select-accent) 12%, rgba(148, 163, 184, 0.22));
+  background: var(--ios-select-item);
+  min-height: 48px;
+  padding: 0 14px 0 16px;
+  border-radius: 14px;
   margin-bottom: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: var(--ui-text, #0f172a);
+  color: var(--ios-select-text);
   cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease,
@@ -447,19 +452,13 @@ onBeforeUnmount(() => {
 
 .ios26-select-item:not(.is-disabled):active {
   transform: scale(0.995);
-  background: color-mix(in oklab, #ffffff 78%, var(--ui-primary, #2563eb) 22%);
+  background: #f1f5f9;
 }
 
 .ios26-select-item.is-active {
-  border-color: rgba(59, 130, 246, 0.35);
-  background: rgba(237, 248, 255, 0.94);
-  border-color: color-mix(in oklab, var(--ui-primary, #2563eb) 34%, rgba(148, 163, 184, 0.4));
-  background: linear-gradient(
-    160deg,
-    color-mix(in oklab, #ffffff 80%, var(--ui-primary, #2563eb) 20%),
-    color-mix(in oklab, #f1f5f9 68%, var(--ui-secondary, #06b6d4) 32%)
-  );
-  box-shadow: 0 8px 16px color-mix(in oklab, var(--ui-primary, #2563eb) 16%, transparent);
+  border-color: color-mix(in oklab, var(--ios-select-accent) 42%, rgba(148, 163, 184, 0.28));
+  background: var(--ios-select-active);
+  box-shadow: 0 5px 10px color-mix(in oklab, var(--ios-select-accent) 10%, transparent);
 }
 
 .ios26-select-item.is-disabled {
@@ -472,14 +471,14 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.4;
-  color: var(--ui-text, #0f172a);
+  color: var(--ios-select-text);
 }
 
 .ios26-select-item-check {
   opacity: 0;
   font-size: 16px;
   font-weight: 700;
-  color: var(--ui-primary, #2563eb);
+  color: var(--ios-select-active-text);
   margin-left: 10px;
 }
 
@@ -487,15 +486,17 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 
+.ios26-select-item.is-active .ios26-select-item-label {
+  color: var(--ios-select-active-text);
+}
+
 .ios26-select-cancel {
   width: 100%;
   border: none;
-  border-top: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(255, 255, 255, 0.92);
-  border-top: 1px solid color-mix(in oklab, var(--ui-primary, #2563eb) 20%, rgba(148, 163, 184, 0.34));
+  border-top: 1px solid color-mix(in oklab, var(--ios-select-accent) 18%, rgba(148, 163, 184, 0.28));
   min-height: 52px;
-  background: color-mix(in oklab, #ffffff 88%, var(--ui-primary, #2563eb) 12%);
-  color: var(--ui-primary, #2563eb);
+  background: var(--ios-select-panel);
+  color: var(--ios-select-accent);
   font-size: 15px;
   font-weight: 800;
   cursor: pointer;
@@ -504,7 +505,7 @@ onBeforeUnmount(() => {
 }
 
 .ios26-select-cancel:active {
-  background-color: color-mix(in oklab, #ffffff 76%, var(--ui-primary, #2563eb) 24%);
+  background-color: color-mix(in oklab, #ffffff 78%, var(--ios-select-accent) 22%);
   transform: scale(0.996);
 }
 
@@ -518,111 +519,57 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
+:global(html[data-theme='graphite_night']) .ios26-select,
 :global(html[data-theme='graphite_night']) .ios26-select-overlay,
-:global(html.dark) .ios26-select-overlay,
+:global(html.dark) .ios26-select,
+:global(html.dark) .ios26-select-overlay {
+  --ios-select-accent: #60a5fa;
+  --ios-select-accent-2: #22d3ee;
+  --ios-select-text: #e2e8f0;
+  --ios-select-muted: #94a3b8;
+  --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 28%, rgba(148, 163, 184, 0.34));
+  --ios-select-trigger-bg: #111827;
+  --ios-select-panel: #0f172a;
+  --ios-select-item: #1e293b;
+  --ios-select-active: #2563eb;
+  --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
+}
+
 @media (prefers-color-scheme: dark) {
+  :global(.ios26-select),
   :global(.ios26-select-overlay) {
-    background: rgba(2, 6, 23, 0.58) !important;
+    --ios-select-accent: #60a5fa;
+    --ios-select-accent-2: #22d3ee;
+    --ios-select-text: #e2e8f0;
+    --ios-select-muted: #94a3b8;
+    --ios-select-border: color-mix(in oklab, var(--ios-select-accent) 28%, rgba(148, 163, 184, 0.34));
+    --ios-select-trigger-bg: #111827;
+    --ios-select-panel: #0f172a;
+    --ios-select-item: #1e293b;
+    --ios-select-active: #2563eb;
+    --ios-select-shadow: 0 13px 29px rgba(2, 6, 23, 0.29);
   }
 }
 
-:global(html[data-theme='graphite_night']) .ios26-select-sheet,
+:global(html.dark) .ios26-select-trigger,
+:global(html[data-theme='graphite_night']) .ios26-select-trigger {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 5px 12px rgba(2, 6, 23, 0.14) !important;
+}
+
+:global(html.dark) .ios26-select-overlay,
+:global(html[data-theme='graphite_night']) .ios26-select-overlay {
+  background: rgba(2, 6, 23, 0.58) !important;
+}
+
 :global(html.dark) .ios26-select-sheet,
-@media (prefers-color-scheme: dark) {
-  :global(.ios26-select-sheet) {
-    border: 1px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 24%, rgba(148, 163, 184, 0.34)) !important;
-    background: linear-gradient(165deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.94)) !important;
-    box-shadow:
-      0 24px 56px rgba(2, 6, 23, 0.56),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-  }
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-handle,
-:global(html.dark) .ios26-select-handle {
-  background: rgba(148, 163, 184, 0.5) !important;
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-title,
-:global(html.dark) .ios26-select-title,
-@media (prefers-color-scheme: dark) {
-  :global(.ios26-select-title) {
-    color: #cbd5e1 !important;
-  }
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-list,
-:global(html.dark) .ios26-select-list {
-  background: transparent !important;
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-item,
+:global(html[data-theme='graphite_night']) .ios26-select-sheet,
 :global(html.dark) .ios26-select-item,
-@media (prefers-color-scheme: dark) {
-  :global(.ios26-select-item) {
-    border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 18%, rgba(148, 163, 184, 0.26)) !important;
-    background: linear-gradient(160deg, rgba(15, 23, 42, 0.88), rgba(30, 41, 59, 0.84)) !important;
-    color: #e2e8f0 !important;
-  }
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-item-label,
-:global(html.dark) .ios26-select-item-label,
-@media (prefers-color-scheme: dark) {
-  :global(.ios26-select-item-label) {
-    color: #e2e8f0 !important;
-  }
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-item:not(.is-disabled):active,
-:global(html.dark) .ios26-select-item:not(.is-disabled):active {
-  background: linear-gradient(160deg, rgba(37, 99, 235, 0.42), rgba(14, 165, 233, 0.36)) !important;
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-item.is-active,
-:global(html.dark) .ios26-select-item.is-active {
-  border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 44%, rgba(148, 163, 184, 0.24)) !important;
-  background: linear-gradient(160deg, rgba(37, 99, 235, 0.44), rgba(14, 165, 233, 0.36)) !important;
-  box-shadow: 0 10px 20px rgba(30, 64, 175, 0.28) !important;
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-item-check,
-:global(html.dark) .ios26-select-item-check {
-  color: #93c5fd !important;
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-cancel,
-:global(html.dark) .ios26-select-cancel,
-@media (prefers-color-scheme: dark) {
-  :global(.ios26-select-cancel) {
-    border-top: 1px solid color-mix(in oklab, var(--ui-primary, #3b82f6) 22%, rgba(148, 163, 184, 0.28)) !important;
-    background: linear-gradient(165deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94)) !important;
-    color: #93c5fd !important;
-  }
-}
-
-:global(html[data-theme='graphite_night']) .ios26-select-cancel:active,
-:global(html.dark) .ios26-select-cancel:active {
-  background: linear-gradient(165deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.96)) !important;
-}
-
-/* Dark mode trigger button */
-:global(html.dark) .ios26-select-trigger {
-  border-color: rgba(148, 163, 184, 0.25) !important;
-  background: linear-gradient(160deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.85)) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-}
-
-:global(html.dark) .ios26-select-text {
-  color: #e2e8f0 !important;
-}
-
-:global(html.dark) .ios26-select-text.placeholder {
-  color: #64748b !important;
-}
-
-:global(html.dark) .ios26-select-arrow {
-  color: #60a5fa !important;
+:global(html[data-theme='graphite_night']) .ios26-select-item {
+  box-shadow:
+    var(--ios-select-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
 
 @media (min-width: 769px) {
@@ -632,7 +579,7 @@ onBeforeUnmount(() => {
   }
 
   .ios26-select-sheet {
-    border-radius: 18px;
+    border-radius: 20px;
     width: min(460px, 90%);
     max-height: min(72vh, 560px);
   }
@@ -654,7 +601,7 @@ onBeforeUnmount(() => {
 
   .ios26-select-sheet {
     width: min(100%, 520px);
-    border-radius: 22px 22px 14px 14px;
+    border-radius: 24px 24px 18px 18px;
     max-height: min(74vh, 580px);
   }
 
@@ -663,7 +610,17 @@ onBeforeUnmount(() => {
   }
 
   .ios26-select-overlay {
-    padding: 10px 10px calc(12px + env(safe-area-inset-bottom));
+    padding: 10px 10px calc(12px + var(--ios-select-safe-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios26-select-trigger,
+  .ios26-select-item,
+  .ios26-select-cancel,
+  .ios26-select-fade-enter-active,
+  .ios26-select-fade-leave-active {
+    transition: none !important;
   }
 }
 

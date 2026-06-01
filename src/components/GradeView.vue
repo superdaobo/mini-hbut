@@ -277,12 +277,18 @@ const lastUpdatedAt = computed(() => props.syncTime ? formatRelativeTime(props.s
 
 // 获取分数等级样式
 const getScoreClass = (score) => {
-  const num = parseFloat(score)
+  const text = toSafeText(score)
+  const num = parseFloat(text)
   if (isNaN(num)) {
-    return score === '合格' ? 'pass' : score === '不合格' ? 'fail' : ''
+    if (/优秀/.test(text)) return 'excellent'
+    if (/(良好|中等)/.test(text)) return 'good'
+    if (/(及格|合格|通过)/.test(text)) return 'pass'
+    if (/(不及格|不合格|未通过)/.test(text)) return 'fail'
+    return ''
   }
   if (num >= 90) return 'excellent'
   if (num >= 80) return 'good'
+  if (num >= 70) return 'average'
   if (num >= 60) return 'pass'
   return 'fail'
 }
@@ -1004,9 +1010,20 @@ watch(
   margin-bottom: 14px;
 }
 
-.grade-card.good .card-score,
-.grade-card.pass .card-score {
+.grade-card.excellent .card-score {
   color: #10b981;
+}
+
+.grade-card.good .card-score {
+  color: #22c55e;
+}
+
+.grade-card.average .card-score {
+  color: #eab308;
+}
+
+.grade-card.pass .card-score {
+  color: #f97316;
 }
 
 .grade-card.fail .card-score {
@@ -1179,8 +1196,9 @@ watch(
 }
 
 .detail-score.excellent { color: #10b981; }
-.detail-score.good { color: #3b82f6; }
-.detail-score.pass { color: #f59e0b; }
+.detail-score.good { color: #22c55e; }
+.detail-score.average { color: #eab308; }
+.detail-score.pass { color: #f97316; }
 .detail-score.fail { color: #ef4444; }
 
 .detail-header h2 {

@@ -80,4 +80,40 @@ describe('grade view header contract', () => {
     expect(source).toContain('credits: credits.toFixed(2)')
     expect(source).not.toContain('credits: credits.toFixed(1)')
   })
+
+  it('uses five semantic score color bands from green to red', () => {
+    const source = readText('src/components/GradeView.vue')
+
+    const scoreClassBlock = source.match(/const getScoreClass = \(score\) => \{[\s\S]*?\n\}/)?.[0] || ''
+    expect(scoreClassBlock).toContain("if (num >= 90) return 'excellent'")
+    expect(scoreClassBlock).toContain("if (num >= 80) return 'good'")
+    expect(scoreClassBlock).toContain("if (num >= 70) return 'average'")
+    expect(scoreClassBlock).toContain("if (num >= 60) return 'pass'")
+    expect(scoreClassBlock).toContain("return 'fail'")
+
+    expect(source).toContain('.grade-card.excellent .card-score')
+    expect(source).toContain('.grade-card.good .card-score')
+    expect(source).toContain('.grade-card.average .card-score')
+    expect(source).toContain('.grade-card.pass .card-score')
+    expect(source).toContain('.grade-card.fail .card-score')
+    expect(source).toContain('.detail-score.average')
+  })
+
+  it('renders the grade page header and semester labels with dark-mode-safe colors', () => {
+    const source = readText('src/components/GradeView.vue')
+    const darkModeSource = readText('src/styles/dark-mode.css')
+
+    expect(source).toContain('class="grade-stitch-header"')
+    expect(source).toContain('class="term-header"')
+    expect(source).toContain('.term-header h2')
+    expect(darkModeSource).toContain('html.dark .grade-view .grade-stitch-header')
+    expect(darkModeSource).toContain('html.dark .grade-view .grade-stitch-header h1')
+    expect(darkModeSource).toContain('html.dark .grade-view .term-header h2')
+    expect(darkModeSource).toContain('html.dark .grade-view .term-icon')
+    expect(darkModeSource).toContain('html.dark .grade-view .grade-filter-card')
+    expect(darkModeSource).toContain('html.dark .grade-view .search-input')
+    expect(darkModeSource).toContain('html.dark .grade-view .filter-select .ios26-select-trigger')
+    expect(darkModeSource).toContain('html.dark .grade-view .detail-score.excellent')
+    expect(darkModeSource).toContain('html.dark .grade-view .detail-score.fail')
+  })
 })

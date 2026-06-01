@@ -1271,7 +1271,11 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
             class="flex flex-col items-center cursor-pointer group"
             @click="handleQuickEntryClick(item.id)"
           >
-            <div class="w-12 h-12 rounded-[14px] flex items-center justify-center mb-1 group-hover:scale-105 transition-transform" :class="item.color">
+            <div
+              class="quick-entry-icon w-12 h-12 rounded-[14px] flex items-center justify-center mb-1 group-hover:scale-105 transition-transform"
+              :class="item.color"
+              :data-module="item.id"
+            >
               <i class="fas text-xl" :class="[item.icon, item.iconColor]"></i>
             </div>
             <span class="text-[11px] text-gray-600">{{ item.name }}</span>

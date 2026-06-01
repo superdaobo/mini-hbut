@@ -1,0 +1,65 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - img "HBUT" [ref=e9]
+          - generic [ref=e10]: HBUT 校园助手
+        - textbox "搜索服务" [ref=e13] [cursor=pointer]:
+          - /placeholder: 搜索服务/课程/资讯
+      - main [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - heading "中午好" [level=1] [ref=e17]
+            - paragraph [ref=e18]: 新的一天，元气满满！
+          - generic [ref=e20] [cursor=pointer]:
+            - generic [ref=e22]: 26°C
+            - generic [ref=e23]: 晴
+        - generic [ref=e27]:
+          - generic [ref=e28]:
+            - heading "2021123456" [level=2] [ref=e29]
+            - generic [ref=e30]: 本科生
+          - paragraph [ref=e31]: 湖北工业大学
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - heading "今日安排" [level=3] [ref=e34]
+            - generic [ref=e35] [cursor=pointer]: 查看全部
+          - generic [ref=e36]: 正在加载今日课程...
+        - generic [ref=e37]:
+          - heading "快捷入口" [level=3] [ref=e39]
+          - generic [ref=e40]:
+            - generic [ref=e43] [cursor=pointer]: 成绩查询
+            - generic [ref=e46] [cursor=pointer]: 考试安排
+            - generic [ref=e49] [cursor=pointer]: 空教室
+            - generic [ref=e52] [cursor=pointer]: 电费查询
+            - generic [ref=e55] [cursor=pointer]: 绩点排名
+        - generic [ref=e56]:
+          - generic [ref=e57]:
+            - heading "所有功能" [level=3] [ref=e58]
+            - generic [ref=e59]:
+              - button "教务服务" [ref=e60] [cursor=pointer]
+              - button "一码通" [ref=e61] [cursor=pointer]
+              - button "资源" [ref=e62] [cursor=pointer]
+          - generic [ref=e63]:
+            - generic [ref=e66] [cursor=pointer]: 成绩查询
+            - generic [ref=e69] [cursor=pointer]: 空教室
+            - generic [ref=e72] [cursor=pointer]: 考试安排
+            - generic [ref=e75] [cursor=pointer]: 绩点排名
+            - generic [ref=e78] [cursor=pointer]: 校历
+            - generic [ref=e81] [cursor=pointer]: 学业情况
+            - generic [ref=e84] [cursor=pointer]: 全校课表
+            - generic [ref=e87] [cursor=pointer]: 选课中心
+            - generic [ref=e90] [cursor=pointer]: 培养方案
+  - navigation [ref=e91]:
+    - button "首页" [ref=e92] [cursor=pointer]:
+      - img [ref=e94]
+      - generic [ref=e96]: 首页
+    - button "课表" [ref=e97] [cursor=pointer]:
+      - img [ref=e99]
+      - generic [ref=e102]: 课表
+    - button "通知" [ref=e103] [cursor=pointer]:
+      - img [ref=e105]
+      - generic [ref=e108]: 通知
+    - button "我的" [ref=e109] [cursor=pointer]:
+      - img [ref=e111]
+      - generic [ref=e114]: 我的
