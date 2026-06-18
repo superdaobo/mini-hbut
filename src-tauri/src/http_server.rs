@@ -2307,6 +2307,18 @@ const TOWERGO_MINIPROGRAM_REFERER: &str = "https://servicewechat.com/wx278283883
 const TOWERGO_USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43 MiniProgramEnv/android NetType/WIFI Language/zh_CN ABI/arm64";
 
 static TOWERGO_WAF_COOKIES: OnceLock<Mutex<String>> = OnceLock::new();
+static TOWERGO_LOG_REDACT_RE: OnceLock<regex::Regex> = OnceLock::new();
+
+// 小塔出行代理日志脱敏：屏蔽 Bearer token / JWT / 手机号，避免鉴权信息落盘
+fn towergo_redact_log(text: &str) -> String {
+    let re = TOWERGO_LOG_REDACT_RE.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)(Bearer\s+)[A-Za-z0-9._-]{8,}|eyJ[A-Za-z0-9._-]{20,}|\+86-?1[3-9]\d{9}|\b1[3-9]\d{9}\b",
+        )
+        .expect("towergo redact regex 编译失败")
+    });
+    re.replace_all(text, "[redacted]").to_string()
+}
 
 fn towergo_cookie_store() -> &'static Mutex<String> {
     TOWERGO_WAF_COOKIES.get_or_init(|| Mutex::new(String::new()))
@@ -2436,12 +2448,30 @@ async fn towergo_proxy(
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
     towergo_update_waf_cookies(&upstream_headers).await;
-    let stream = upstream
-        .bytes_stream()
-        .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
 
-    let mut response = Response::new(Body::from_stream(stream));
-    *response.status_mut() = status;
+    // 2xx 流式透传（高效）；非 2xx 收集响应体后打印诊断摘要（脱敏）再回放
+    let mut response = if status.is_success() {
+        let stream = upstream
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
+        let mut resp = Response::new(Body::from_stream(stream));
+        *resp.status_mut() = status;
+        resp
+    } else {
+        let body_bytes = upstream.bytes().await.unwrap_or_default();
+        let snippet: String = String::from_utf8_lossy(&body_bytes).trim().chars().take(500).collect();
+        eprintln!(
+            "[towergo] 代理上游非 2xx：path=/{} status={} body_len={} body_snippet={}",
+            clean_path,
+            status,
+            body_bytes.len(),
+            towergo_redact_log(&snippet)
+        );
+        let mut resp = Response::new(Body::from(body_bytes));
+        *resp.status_mut() = status;
+        resp
+    };
+
     for (name, value) in upstream_headers.iter() {
         let lower = name.as_str().to_ascii_lowercase();
         if towergo_copy_response_header(&lower) {

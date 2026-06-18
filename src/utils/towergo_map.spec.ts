@@ -36,6 +36,39 @@ describe('towergo map utilities', () => {
     expect(fallback).toEqual({ ...HBUT_LOCATION, source: 'fallback' })
   })
 
+  it('falls back when system location drifts beyond the campus threshold', async () => {
+    const drifted = await resolveTowerGoLocation({
+      geolocation: {
+        getCurrentPosition: (success: PositionCallback) =>
+          success({
+            coords: { latitude: 30.7, longitude: 114.5, accuracy: 10 } as GeolocationCoordinates,
+            timestamp: Date.now()
+          } as GeolocationPosition)
+      } as unknown as Geolocation,
+      fallback: HBUT_LOCATION,
+      maxDriftMeters: 2000
+    })
+
+    expect(drifted).toEqual({ ...HBUT_LOCATION, source: 'fallback' })
+  })
+
+  it('keeps system location when within the campus threshold', async () => {
+    const near = await resolveTowerGoLocation({
+      geolocation: {
+        getCurrentPosition: (success: PositionCallback) =>
+          success({
+            coords: { latitude: 30.483, longitude: 114.315, accuracy: 10 } as GeolocationCoordinates,
+            timestamp: Date.now()
+          } as GeolocationPosition)
+      } as unknown as Geolocation,
+      fallback: HBUT_LOCATION,
+      maxDriftMeters: 2000
+    })
+
+    expect(near.source).toBe('system')
+    expect(near.latitude).toBe(30.483)
+  })
+
   it('detects points inside service polygons and generates bounded scan points', () => {
     const polygon = [
       { latitude: 30.48, longitude: 114.31 },
@@ -74,5 +107,27 @@ describe('towergo map utilities', () => {
     expect(deduped.map((item) => item.id)).toEqual(['A', 'B'])
     expect(deduped[0].battery).toBe(80)
     expect(deduped[0].distance).toBeLessThan(deduped[1].distance)
+  })
+
+  it('reduces scan point count as spacing increases without dropping below minimum coverage', () => {
+    const polygon = [
+      { latitude: 30.48, longitude: 114.31 },
+      { latitude: 30.48, longitude: 114.316 },
+      { latitude: 30.486, longitude: 114.316 },
+      { latitude: 30.486, longitude: 114.31 }
+    ]
+    const dense = createServiceAreaScanPoints({
+      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
+      origin: HBUT_LOCATION,
+      spacingMeters: 80
+    })
+    const sparse = createServiceAreaScanPoints({
+      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
+      origin: HBUT_LOCATION,
+      spacingMeters: 160
+    })
+    expect(dense.length).toBeGreaterThan(4)
+    expect(sparse.length).toBeGreaterThan(4)
+    expect(sparse.length).toBeLessThan(dense.length)
   })
 })
