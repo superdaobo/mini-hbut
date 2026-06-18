@@ -97,6 +97,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/bridge/, '')
       },
+      '/towergo': {
+        target: 'http://127.0.0.1:4399',
+        changeOrigin: true
+      },
       '/font/deyihei.ttf': {
         target: 'https://raw.gitcode.com',
         changeOrigin: true,

@@ -1,0 +1,121 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - button "arrow_back_ios_new" [ref=e7] [cursor=pointer]:
+          - generic [ref=e8]: arrow_back_ios_new
+        - heading "electric_bike 小塔出行" [level=1] [ref=e9]:
+          - generic [ref=e10]: electric_bike
+          - generic [ref=e11]: 小塔出行
+        - button "刷新" [ref=e13] [cursor=pointer]
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e16]: TowerGo · HBUT
+          - heading "校园电单车实时用车" [level=2] [ref=e17]
+          - paragraph [ref=e18]: 请求失败
+        - generic [ref=e19]:
+          - generic [ref=e20]:
+            - strong [ref=e21]: "0"
+            - generic [ref=e22]: 车辆
+          - generic [ref=e23]:
+            - strong [ref=e24]: "0"
+            - generic [ref=e25]: 停车点
+          - generic [ref=e26]:
+            - strong [ref=e27]: "--"
+            - generic [ref=e28]: 扫描点
+      - generic [ref=e73]:
+        - button "my_location 系统定位" [ref=e74] [cursor=pointer]:
+          - generic [ref=e75]: my_location
+          - text: 系统定位
+        - button "radar 全区扫描" [ref=e76] [cursor=pointer]:
+          - generic [ref=e77]: radar
+          - text: 全区扫描
+        - button "qr_code_scanner 扫码用车" [ref=e78] [cursor=pointer]:
+          - generic [ref=e79]: qr_code_scanner
+          - text: 扫码用车
+      - generic [ref=e80]:
+        - article [ref=e81]:
+          - generic [ref=e82]: 当前位置
+          - strong [ref=e83]: 湖北工业大学
+          - paragraph [ref=e84]: 30.48190, 114.31300
+        - article [ref=e85]:
+          - generic [ref=e86]: 服务区
+          - strong [ref=e87]: "--"
+          - paragraph [ref=e88]: 最近刷新 01:12:57
+        - article [ref=e89]:
+          - generic [ref=e90]: 钱包余额
+          - strong [ref=e91]: ¥--
+          - paragraph [ref=e92]: 累计订单 ¥0.00
+      - generic [ref=e93]:
+        - article [ref=e94]:
+          - generic [ref=e96]:
+            - heading "附近车辆" [level=3] [ref=e97]
+            - paragraph [ref=e98]: 共 0 辆，按距离排序
+          - generic [ref=e99]: 请求失败
+        - article [ref=e100]:
+          - generic [ref=e102]:
+            - heading "账户与行程" [level=3] [ref=e103]
+            - paragraph [ref=e104]: 真实接口需要手机号验证码登录
+          - generic [ref=e105]:
+            - generic [ref=e106]:
+              - text: 手机号
+              - textbox "手机号" [ref=e107]:
+                - /placeholder: 请输入手机号
+            - generic [ref=e108]:
+              - text: 验证码
+              - generic [ref=e109]:
+                - textbox "验证码 获取" [ref=e110]:
+                  - /placeholder: 短信验证码
+                - button "获取" [ref=e111] [cursor=pointer]
+            - button "登录小塔出行" [ref=e112] [cursor=pointer]
+      - generic [ref=e113]:
+        - article [ref=e114]:
+          - generic [ref=e115]:
+            - generic [ref=e116]:
+              - heading "骑行控制" [level=3] [ref=e117]
+              - paragraph [ref=e118]: 未检测到骑行中订单
+            - button "刷新" [ref=e119] [cursor=pointer]
+          - generic [ref=e120]:
+            - generic [ref=e121]:
+              - strong [ref=e122]: "--"
+              - generic [ref=e123]: 骑行时间
+            - generic [ref=e124]:
+              - strong [ref=e125]: "--"
+              - generic [ref=e126]: 公里
+            - generic [ref=e127]:
+              - strong [ref=e128]: ¥--
+              - generic [ref=e129]: 当前费用
+          - generic [ref=e130]:
+            - button "临时停车" [ref=e131] [cursor=pointer]
+            - button "继续骑行" [ref=e132] [cursor=pointer]
+            - button "临时解锁" [ref=e133] [cursor=pointer]
+            - button "结束骑行" [ref=e134] [cursor=pointer]
+        - article [ref=e135]:
+          - generic [ref=e136]:
+            - generic [ref=e137]:
+              - heading "订单处理" [level=3] [ref=e138]
+              - paragraph [ref=e139]: 可读取最近订单并处理冻结/扣款/关单
+            - button "最近订单" [ref=e140] [cursor=pointer]
+          - generic [ref=e141]: 还车后或打开历史订单可在这里处理费用。
+          - generic [ref=e142]:
+            - button "刷新冻结" [ref=e143] [cursor=pointer]
+            - button "冻结订单" [ref=e144] [cursor=pointer]
+            - button "扣款/关单" [ref=e145] [cursor=pointer]
+      - generic [ref=e146]:
+        - generic [ref=e148]:
+          - heading "最近行程" [level=3] [ref=e149]
+          - paragraph [ref=e150]: 点击订单可读取详情
+        - generic [ref=e151]: 暂无行程数据。
+  - navigation [ref=e152]:
+    - button "首页" [ref=e153] [cursor=pointer]:
+      - img [ref=e155]
+      - generic [ref=e157]: 首页
+    - button "课表" [ref=e158] [cursor=pointer]:
+      - img [ref=e160]
+      - generic [ref=e163]: 课表
+    - button "通知" [ref=e164] [cursor=pointer]:
+      - img [ref=e166]
+      - generic [ref=e169]: 通知
+    - button "我的" [ref=e170] [cursor=pointer]:
+      - img [ref=e172]
+      - generic [ref=e175]: 我的

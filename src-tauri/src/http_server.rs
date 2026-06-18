@@ -9,10 +9,10 @@
 //! - 这是测试桥接，不应暴露到公网
 //! - 返回体固定为 { success, data, error, time }
 
-use axum::{routing::{get, post}, Json, Router, extract::State, extract::Query, extract::Path};
+use axum::{routing::{any, get, post}, Json, Router, extract::State, extract::Query, extract::Path, extract::RawQuery};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use serde::Deserialize;
 use serde::Serialize;
@@ -164,9 +164,9 @@ fn err(status: StatusCode, kind: &str, message: String) -> (StatusCode, Json<Api
 use std::net::{SocketAddr, IpAddr};
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
-use axum::http::StatusCode;
+use axum::http::{Method, StatusCode};
 use chrono::{Datelike, Utc};
 use base64::{engine::general_purpose, Engine as _};
 use futures::Stream;
@@ -174,7 +174,7 @@ use futures::StreamExt;
 use futures::FutureExt;
 use std::time::{Duration, Instant};
 use std::convert::Infallible;
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tower_http::cors::{Any, CorsLayer};
 use rand::Rng;
 use crate::{
@@ -587,6 +587,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
+        .route("/towergo/*path", any(towergo_proxy))
         .route("/resource_share/direct_url", get(resource_share_direct_url))
         .route("/resource_share/proxy", get(resource_share_proxy))
         .route("/electricity_query_location", post(electricity_query_location))
@@ -2297,6 +2298,157 @@ fn encode_resource_share_path(path: &str) -> String {
         .map(urlencoding::encode)
         .collect::<Vec<_>>()
         .join("/")
+}
+
+const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";
+const TOWERGO_TARGET_HOST: &str = "ebike-oper.chinatowercom.cn";
+const TOWERGO_APP_ID: &str = "wx278283883c249e3e";
+const TOWERGO_MINIPROGRAM_REFERER: &str = "https://servicewechat.com/wx278283883c249e3e/47/page-frame.html";
+const TOWERGO_USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43 MiniProgramEnv/android NetType/WIFI Language/zh_CN ABI/arm64";
+
+static TOWERGO_WAF_COOKIES: OnceLock<Mutex<String>> = OnceLock::new();
+
+fn towergo_cookie_store() -> &'static Mutex<String> {
+    TOWERGO_WAF_COOKIES.get_or_init(|| Mutex::new(String::new()))
+}
+
+fn towergo_is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name,
+        "accept-encoding"
+            | "connection"
+            | "content-length"
+            | "host"
+            | "origin"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "referer"
+            | "sec-fetch-dest"
+            | "sec-fetch-mode"
+            | "sec-fetch-site"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+            | "user-agent"
+    )
+}
+
+fn towergo_sanitize_request_headers(headers: &HeaderMap, waf_cookies: &str) -> HeaderMap {
+    let mut out = HeaderMap::new();
+    for (name, value) in headers.iter() {
+        let lower = name.as_str().to_ascii_lowercase();
+        if towergo_is_hop_by_hop_header(&lower) {
+            continue;
+        }
+        out.insert(name.clone(), value.clone());
+    }
+    out.insert(HeaderName::from_static("host"), HeaderValue::from_static(TOWERGO_TARGET_HOST));
+    out.insert(HeaderName::from_static("user-agent"), HeaderValue::from_static(TOWERGO_USER_AGENT));
+    out.insert(HeaderName::from_static("referer"), HeaderValue::from_static(TOWERGO_MINIPROGRAM_REFERER));
+    out.insert(HeaderName::from_static("origin"), HeaderValue::from_static("https://servicewechat.com"));
+    out.insert(HeaderName::from_static("x-miniprogram-appid"), HeaderValue::from_static(TOWERGO_APP_ID));
+    out.insert(HeaderName::from_static("x-requested-with"), HeaderValue::from_static("com.tencent.mm"));
+    if !out.contains_key("accept") {
+        out.insert(HeaderName::from_static("accept"), HeaderValue::from_static("application/json, text/plain, */*"));
+    }
+    if !waf_cookies.trim().is_empty() {
+        if let Ok(value) = HeaderValue::from_str(waf_cookies) {
+            out.insert(HeaderName::from_static("cookie"), value);
+        }
+    }
+    out
+}
+
+async fn towergo_update_waf_cookies(headers: &HeaderMap) {
+    let mut guard = towergo_cookie_store().lock().await;
+    for value in headers.get_all("set-cookie").iter() {
+        if let Ok(raw) = value.to_str() {
+            if let Some(cookie_part) = raw.split(';').next() {
+                let cookie = cookie_part.trim();
+                if !cookie.is_empty() && !guard.contains(cookie) {
+                    if !guard.is_empty() {
+                        guard.push_str("; ");
+                    }
+                    guard.push_str(cookie);
+                }
+            }
+        }
+    }
+}
+
+fn towergo_copy_response_header(name: &str) -> bool {
+    matches!(
+        name,
+        "content-type"
+            | "content-length"
+            | "cache-control"
+            | "etag"
+            | "last-modified"
+            | "set-cookie"
+    )
+}
+
+async fn towergo_proxy(
+    method: Method,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if method == Method::OPTIONS {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NO_CONTENT;
+        return Ok(response);
+    }
+
+    let clean_path = path.trim_start_matches('/');
+    if clean_path.is_empty() || clean_path.contains("..") {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "小塔出行代理路径非法".to_string(),
+        ));
+    }
+    let remote_url = match query {
+        Some(q) if !q.trim().is_empty() => format!("{}/{}?{}", TOWERGO_TARGET_BASE, clean_path, q),
+        _ => format!("{}/{}", TOWERGO_TARGET_BASE, clean_path),
+    };
+
+    let waf_cookies = towergo_cookie_store().lock().await.clone();
+    let request_headers = towergo_sanitize_request_headers(&headers, &waf_cookies);
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建小塔代理客户端失败: {}", e)))?;
+
+    let mut request_builder = client.request(method, remote_url).headers(request_headers);
+    if !body.is_empty() {
+        request_builder = request_builder.body(body);
+    }
+
+    let upstream = request_builder
+        .send()
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("小塔出行代理请求失败: {}", e)))?;
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    towergo_update_waf_cookies(&upstream_headers).await;
+    let stream = upstream
+        .bytes_stream()
+        .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
+
+    let mut response = Response::new(Body::from_stream(stream));
+    *response.status_mut() = status;
+    for (name, value) in upstream_headers.iter() {
+        let lower = name.as_str().to_ascii_lowercase();
+        if towergo_copy_response_header(&lower) {
+            response.headers_mut().insert(name.clone(), value.clone());
+        }
+    }
+    Ok(response)
 }
 
 async fn resource_share_proxy(

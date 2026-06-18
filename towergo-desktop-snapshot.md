@@ -1,0 +1,41 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - img "HBUT" [ref=e33]
+          - generic [ref=e34]: HBUT 校园助手
+        - textbox "搜索服务" [ref=e38] [cursor=pointer]:
+          - /placeholder: 搜索服务/课程/资讯
+      - main [ref=e39]:
+        - generic [ref=e40]:
+          - generic [ref=e41]
+          - generic [ref=e45] [cursor=pointer]
+        - generic [ref=e54]:
+          - generic [ref=e55]
+          - paragraph [ref=e58]: 湖北工业大学
+        - generic [ref=e59]:
+          - generic [ref=e60]: 教务系统正在维护
+          - generic [ref=e61]: 教务系统正在维护或暂时不可用，当前为缓存数据。
+        - generic [ref=e62]:
+          - generic [ref=e63]
+          - generic [ref=e67]: "非JSON响应:"
+        - generic [ref=e68]:
+          - heading "快捷入口" [level=3] [ref=e70]
+          - generic [ref=e72]
+        - generic [ref=e93]:
+          - generic [ref=e94]
+          - generic [ref=e100]
+  - navigation [ref=e5]:
+    - button "首页" [ref=e6] [cursor=pointer]:
+      - img [ref=e8]
+      - generic [ref=e10]: 首页
+    - button "课表" [ref=e11] [cursor=pointer]:
+      - img [ref=e13]
+      - generic [ref=e16]: 课表
+    - button "通知" [ref=e17] [cursor=pointer]:
+      - img [ref=e19]
+      - generic [ref=e22]: 通知
+    - button "我的" [ref=e23] [cursor=pointer]:
+      - img [ref=e25]
+      - generic [ref=e28]: 我的

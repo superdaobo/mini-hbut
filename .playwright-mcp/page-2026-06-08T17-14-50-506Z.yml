@@ -1,0 +1,136 @@
+- main [ref=e3]:
+  - generic [ref=e306]:
+    - generic [ref=e307]:
+      - button "arrow_back_ios_new" [ref=e308] [cursor=pointer]:
+        - generic [ref=e309]: arrow_back_ios_new
+      - heading "electric_bike 小塔出行" [level=1] [ref=e310]:
+        - generic [ref=e311]: electric_bike
+        - generic [ref=e312]: 小塔出行
+      - button "刷新" [ref=e314] [cursor=pointer]
+    - generic [ref=e315]:
+      - generic [ref=e316]:
+        - generic [ref=e317]: TowerGo · HBUT
+        - heading "校园电单车实时用车" [level=2] [ref=e318]
+        - paragraph [ref=e319]: 正在连接小塔出行真实接口
+      - generic [ref=e320]:
+        - generic [ref=e321]:
+          - strong [ref=e322]: "0"
+          - generic [ref=e323]: 车辆
+        - generic [ref=e324]:
+          - strong [ref=e325]: "0"
+          - generic [ref=e326]: 停车点
+        - generic [ref=e327]:
+          - strong [ref=e328]: "--"
+          - generic [ref=e329]: 扫描点
+    - generic [ref=e330]:
+      - generic [ref=e331]:
+        - generic [ref=e332]:
+          - generic [ref=e333]: electric_bike
+          - strong [ref=e334]: 湖北工业大学
+          - paragraph [ref=e335]: 地图加载中，车辆数据会继续刷新。
+        - generic [ref=e337]:
+          - generic:
+            - generic [ref=e338]:
+              - generic [ref=e340]:
+                - generic:
+                  - generic [ref=e343]: 100 米
+                  - generic [ref=e348]: 500 英尺
+              - generic [ref=e352]:
+                - link [ref=e353] [cursor=pointer]:
+                  - /url: http://map.qq.com?ref=jsapi_v3
+                  - img [ref=e354]
+                - generic [ref=e355]: ©2026 Tencent - GS(2026)1190号
+            - generic [ref=e356]:
+              - generic [ref=e358]:
+                - img [ref=e361]
+                - generic:
+                  - img [ref=e363]
+                  - img [ref=e365]
+                  - img [ref=e367]
+                  - img [ref=e369]
+              - generic [ref=e372]:
+                - img [ref=e374]
+                - img [ref=e377]
+      - generic [ref=e378]:
+        - button "my_location 定位中" [disabled] [ref=e379]:
+          - generic [ref=e380]: my_location
+          - text: 定位中
+        - button "radar 全区扫描" [ref=e381] [cursor=pointer]:
+          - generic [ref=e382]: radar
+          - text: 全区扫描
+        - button "qr_code_scanner 扫码用车" [ref=e383] [cursor=pointer]:
+          - generic [ref=e384]: qr_code_scanner
+          - text: 扫码用车
+    - generic [ref=e385]:
+      - article [ref=e386]:
+        - generic [ref=e387]: 当前位置
+        - strong [ref=e388]: 湖北工业大学
+        - paragraph [ref=e389]: 30.48190, 114.31300
+      - article [ref=e390]:
+        - generic [ref=e391]: 服务区
+        - strong [ref=e392]: "--"
+        - paragraph [ref=e393]: 最近刷新 --
+      - article [ref=e394]:
+        - generic [ref=e395]: 钱包余额
+        - strong [ref=e396]: ¥--
+        - paragraph [ref=e397]: 累计订单 ¥0.00
+    - generic [ref=e398]:
+      - article [ref=e399]:
+        - generic [ref=e401]:
+          - heading "附近车辆" [level=3] [ref=e402]
+          - paragraph [ref=e403]: 共 0 辆，按距离排序
+        - generic [ref=e404]: 暂无可展示车辆，可能需要真实登录或当前服务区暂无车辆。
+      - article [ref=e405]:
+        - generic [ref=e407]:
+          - heading "账户与行程" [level=3] [ref=e408]
+          - paragraph [ref=e409]: 真实接口需要手机号验证码登录
+        - generic [ref=e410]:
+          - generic [ref=e411]:
+            - text: 手机号
+            - textbox "手机号" [ref=e412]:
+              - /placeholder: 请输入手机号
+          - generic [ref=e413]:
+            - text: 验证码
+            - generic [ref=e414]:
+              - textbox "验证码 获取" [ref=e415]:
+                - /placeholder: 短信验证码
+              - button "获取" [ref=e416] [cursor=pointer]
+          - button "登录小塔出行" [ref=e417] [cursor=pointer]
+    - generic [ref=e418]:
+      - article [ref=e419]:
+        - generic [ref=e420]:
+          - generic [ref=e421]:
+            - heading "骑行控制" [level=3] [ref=e422]
+            - paragraph [ref=e423]: 未检测到骑行中订单
+          - button "刷新" [ref=e424] [cursor=pointer]
+        - generic [ref=e425]:
+          - generic [ref=e426]:
+            - strong [ref=e427]: "--"
+            - generic [ref=e428]: 骑行时间
+          - generic [ref=e429]:
+            - strong [ref=e430]: "--"
+            - generic [ref=e431]: 公里
+          - generic [ref=e432]:
+            - strong [ref=e433]: ¥--
+            - generic [ref=e434]: 当前费用
+        - generic [ref=e435]:
+          - button "临时停车" [ref=e436] [cursor=pointer]
+          - button "继续骑行" [ref=e437] [cursor=pointer]
+          - button "临时解锁" [ref=e438] [cursor=pointer]
+          - button "结束骑行" [ref=e439] [cursor=pointer]
+      - article [ref=e440]:
+        - generic [ref=e441]:
+          - generic [ref=e442]:
+            - heading "订单处理" [level=3] [ref=e443]
+            - paragraph [ref=e444]: 可读取最近订单并处理冻结/扣款/关单
+          - button "最近订单" [ref=e445] [cursor=pointer]
+        - generic [ref=e446]: 还车后或打开历史订单可在这里处理费用。
+        - generic [ref=e447]:
+          - button "刷新冻结" [ref=e448] [cursor=pointer]
+          - button "冻结订单" [ref=e449] [cursor=pointer]
+          - button "扣款/关单" [ref=e450] [cursor=pointer]
+    - generic [ref=e451]:
+      - generic [ref=e453]:
+        - heading "最近行程" [level=3] [ref=e454]
+        - paragraph [ref=e455]: 点击订单可读取详情
+      - generic [ref=e456]: 暂无行程数据。

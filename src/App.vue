@@ -91,6 +91,7 @@ const loadAiChatView = () => import('./components/AiChatView.vue')
 const loadCampusMapView = () => import('./components/CampusMapView.vue')
 const loadLibraryView = () => import('./components/LibraryView.vue')
 const loadResourceShareView = () => import('./components/ResourceShareView.vue')
+const loadTowerGoView = () => import('./components/TowerGoView.vue')
 
 const Dashboard = createAsyncPage(loadDashboardView)
 const GradeView = createAsyncPage(loadGradeView)
@@ -123,6 +124,7 @@ const AiChatView = createAsyncPage(loadAiChatView)
 const CampusMapView = createAsyncPage(loadCampusMapView)
 const LibraryView = createAsyncPage(loadLibraryView)
 const ResourceShareView = createAsyncPage(loadResourceShareView)
+const TowerGoView = createAsyncPage(loadTowerGoView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const GRADE_CACHE_REFRESH_RETRY_MS = 8000
@@ -229,7 +231,8 @@ const VIEW_PREFETCHERS = Object.freeze({
   ai: loadAiChatView,
   campus_map: loadCampusMapView,
   library: loadLibraryView,
-  resource_share: loadResourceShareView
+  resource_share: loadResourceShareView,
+  towergo: loadTowerGoView
 })
 
 const prefetchViewComponent = (view) => {
@@ -3082,6 +3085,13 @@ onBeforeUnmount(() => {
       <!-- 资料分享 -->
       <ResourceShareView
         v-else-if="currentView === 'resource_share'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 小塔出行 -->
+      <TowerGoView
+        v-else-if="currentView === 'towergo'"
         :student-id="studentId"
         @back="handleBackToDashboard"
       />
