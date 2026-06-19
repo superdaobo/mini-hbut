@@ -33,7 +33,7 @@ const loadData = async () => {
       page: page.value,
       page_size: pageSize,
     })
-    items.value = result.items
+    items.value = [...result.items].sort((a, b) => (b.sample_count || 0) - (a.sample_count || 0))
     total.value = result.total
   } catch (e) {
     error.value = `查询失败：${e.message}`
@@ -222,6 +222,8 @@ watch(page, () => {
                 <span>{{ item.teacher_name }}</span>
                 <span class="gd-dot">·</span>
                 <span>{{ item.semester }}</span>
+                <span class="gd-dot">·</span>
+                <span>样本 {{ item.sample_count ?? 0 }}</span>
               </div>
             </div>
             <div class="gd-item-right">

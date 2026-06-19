@@ -415,7 +415,7 @@ onMounted(async () => {
 <style scoped>
 .training-plan-view {
   min-height: 100vh;
-  background: var(--ui-bg-gradient);
+  background: var(--ui-bg-gradient, #f5f7fa);
   color: var(--ui-text);
 }
 
@@ -569,7 +569,7 @@ onMounted(async () => {
 }
 
 .tag.ghost {
-  background: rgba(16, 185, 129, 0.12);
+  background: color-mix(in oklab, var(--ui-success, #10b981) 14%, transparent);
   color: var(--ui-success);
 }
 
@@ -679,9 +679,9 @@ onMounted(async () => {
 .offline-banner {
   margin: 12px 16px 0;
   padding: 10px 14px;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #b91c1c;
+  background: color-mix(in oklab, var(--ui-danger, #ef4444) 14%, var(--ui-surface, #fff) 86%);
+  border: 1px solid color-mix(in oklab, var(--ui-danger, #ef4444) 36%, transparent);
+  color: var(--ui-danger, #b91c1c);
   border-radius: 12px;
   font-weight: 600;
 }
