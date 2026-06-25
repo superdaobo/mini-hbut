@@ -4732,6 +4732,35 @@ async fn school_inbox_fetch(
 }
 
 #[tauri::command]
+async fn school_inbox_detail_fetch(
+    state: State<'_, AppState>,
+    login_mode: Option<String>,
+    item_id: String,
+    fallback: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let mode = login_mode.unwrap_or_default();
+    let fallback_item = fallback
+        .and_then(|value| serde_json::from_value::<modules::school_inbox::SchoolInboxItem>(value).ok());
+    let response =
+        modules::school_inbox::fetch_school_inbox_detail(&mut client, &mode, &item_id, fallback_item)
+            .await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+async fn school_inbox_mark_read(
+    state: State<'_, AppState>,
+    login_mode: Option<String>,
+    item_id: String,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let mode = login_mode.unwrap_or_default();
+    let response = modules::school_inbox::mark_school_inbox_read(&mut client, &mode, &item_id).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let uid = client
@@ -6152,6 +6181,8 @@ pub fn run() {
             fetch_ranking,
             fetch_student_info,
             school_inbox_fetch,
+            school_inbox_detail_fetch,
+            school_inbox_mark_read,
             fetch_personal_login_access_info,
             fetch_semesters,
             fetch_classroom_buildings,

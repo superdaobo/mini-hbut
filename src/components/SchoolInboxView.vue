@@ -1,7 +1,9 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
+import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { TPageHeader, TEmptyState } from './templates'
 
 const LOGIN_METHOD_KEY = 'hbu_login_method'
@@ -14,6 +16,9 @@ const emit = defineEmits(['back', 'logout'])
 
 const loading = ref(false)
 const refreshing = ref(false)
+const detailLoading = ref(false)
+const markingRead = ref(false)
+const markReadHint = ref('')
 const error = ref('')
 const items = ref([])
 const fetchedAt = ref('')
@@ -28,27 +33,48 @@ const sourceLabel = computed(() => {
   return '学校消息'
 })
 
-const stripHtml = (value) => {
-  const raw = String(value || '').trim()
-  if (!raw) return ''
-  if (typeof document === 'undefined') {
-    return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-  }
-  const node = document.createElement('div')
-  node.innerHTML = raw
-  return (node.textContent || node.innerText || '').replace(/\s+/g, ' ').trim()
+const selectedDetailHtml = computed(() =>
+  selectedItem.value ? buildSchoolInboxDetailHtml(selectedItem.value.body) : ''
+)
+
+let listScrollTop = 0
+
+const scrollSchoolInboxToTop = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const root = document.querySelector('.school-inbox-page')
+      const shell = root?.closest?.('.app-shell')
+      if (shell) {
+        shell.scrollTop = 0
+        return
+      }
+      window.scrollTo(0, 0)
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+    })
+  })
 }
 
-const looksLikeHtml = (value) => /<[a-z][\s\S]*>/i.test(String(value || ''))
-
-const resolveBodyText = (item) => {
-  const raw = String(item?.body || item?.summary || '').trim()
-  if (!raw) return '暂无正文内容'
-  return looksLikeHtml(raw) ? stripHtml(raw) : raw
+const restoreListScroll = () => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const root = document.querySelector('.school-inbox-page')
+      const shell = root?.closest?.('.app-shell')
+      const targetTop = Math.max(0, listScrollTop)
+      if (shell) {
+        shell.scrollTop = targetTop
+        return
+      }
+      window.scrollTo(0, targetTop)
+    })
+  })
 }
 
-const selectedBody = computed(() => (selectedItem.value ? resolveBodyText(selectedItem.value) : ''))
-const selectedBodyIsMultiline = computed(() => selectedBody.value.includes('\n'))
+const rememberListScroll = () => {
+  const root = document.querySelector('.school-inbox-page')
+  const shell = root?.closest?.('.app-shell')
+  listScrollTop = shell ? shell.scrollTop : window.scrollY
+}
 
 const formatItemTime = (value) => {
   const text = String(value || '').trim()
@@ -65,8 +91,18 @@ const normalizeItem = (item) => ({
   body: String(item?.body || item?.summary || ''),
   createdAt: String(item?.createdAt || item?.created_at || ''),
   isRead: !!(item?.isRead ?? item?.is_read),
-  source: String(item?.source || '')
+  source: String(item?.source || ''),
+  uuid: String(item?.uuid || '')
 })
+
+const syncItemReadState = (itemId, isRead = true) => {
+  items.value = items.value.map((item) =>
+    item.id === itemId ? { ...item, isRead } : item
+  )
+  if (selectedItem.value?.id === itemId) {
+    selectedItem.value = { ...selectedItem.value, isRead }
+  }
+}
 
 const fetchMessages = async ({ force = false } = {}) => {
   if (!isTauriRuntime()) {
@@ -104,12 +140,62 @@ const fetchMessages = async ({ force = false } = {}) => {
   }
 }
 
-const openItem = (item) => {
+const loadDetail = async (item) => {
+  if (!isTauriRuntime() || !item?.id) return
+
+  const loginMode = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
+  if (!loginMode) return
+
+  detailLoading.value = true
+  markReadHint.value = ''
+
+  try {
+    const response = await invokeNative('school_inbox_detail_fetch', {
+      loginMode,
+      itemId: item.id,
+      fallback: {
+        id: item.id,
+        title: item.title,
+        summary: item.summary,
+        body: item.body,
+        createdAt: item.createdAt,
+        isRead: item.isRead,
+        source: item.source,
+        uuid: item.uuid || undefined
+      }
+    })
+    if (response?.body) {
+      const next = {
+        ...item,
+        title: String(response.title || item.title),
+        body: String(response.body || item.body),
+        createdAt: String(response.createdAt || response.created_at || item.createdAt),
+        isRead: !!(response.isRead ?? response.is_read ?? item.isRead),
+        source: String(response.source || item.source)
+      }
+      selectedItem.value = next
+      items.value = items.value.map((entry) => (entry.id === next.id ? next : entry))
+    }
+  } catch (err) {
+    markReadHint.value = err?.message || String(err) || '详情加载失败，已显示列表摘要'
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const openItem = async (item) => {
+  rememberListScroll()
   selectedItem.value = item
+  scrollSchoolInboxToTop()
+  await loadDetail(item)
 }
 
 const closeDetail = () => {
   selectedItem.value = null
+  detailLoading.value = false
+  markingRead.value = false
+  markReadHint.value = ''
+  restoreListScroll()
 }
 
 const handleBack = () => {
@@ -118,6 +204,43 @@ const handleBack = () => {
     return
   }
   emit('back')
+}
+
+const handleDetailClick = async (event) => {
+  const target = event.target?.closest?.('a')
+  if (!target?.href) return
+  event.preventDefault()
+  await openExternal(target.href)
+}
+
+const markSelectedAsRead = async () => {
+  if (!selectedItem.value || selectedItem.value.isRead || markingRead.value) return
+  if (!isTauriRuntime()) return
+
+  const loginMode = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
+  if (!loginMode) {
+    markReadHint.value = '缺少登录方式，请重新登录'
+    return
+  }
+
+  const itemId = selectedItem.value.id
+  markingRead.value = true
+  markReadHint.value = ''
+  syncItemReadState(itemId, true)
+
+  try {
+    const response = await invokeNative('school_inbox_mark_read', {
+      loginMode,
+      itemId
+    })
+    if (response?.success === false) {
+      markReadHint.value = String(response?.message || '服务端标记已读失败，已在本地更新')
+    }
+  } catch (err) {
+    markReadHint.value = err?.message || String(err) || '标记已读失败，已在本地更新'
+  } finally {
+    markingRead.value = false
+  }
 }
 
 onMounted(() => {
@@ -132,7 +255,21 @@ onMounted(() => {
       icon="mail"
       @back="handleBack"
     >
-      <template v-if="!selectedItem" #actions>
+      <template v-if="selectedItem" #actions>
+        <button
+          v-if="!selectedItem.isRead"
+          class="inbox-mark-read-btn"
+          type="button"
+          :disabled="markingRead"
+          :aria-busy="markingRead"
+          @click="markSelectedAsRead"
+        >
+          <span class="material-symbols-outlined text-base">done_all</span>
+          <span>{{ markingRead ? '标记中' : '标为已读' }}</span>
+        </button>
+        <div v-else class="w-10 h-10" aria-hidden="true" />
+      </template>
+      <template v-else #actions>
         <button
           class="inbox-refresh-btn"
           type="button"
@@ -151,7 +288,7 @@ onMounted(() => {
 
     <template v-else-if="selectedItem">
       <main class="flex-1 flex flex-col gap-4 p-4">
-        <article class="inbox-detail-card">
+        <article class="inbox-detail-card bg-surface-container-lowest border border-outline-variant">
           <div class="flex items-start justify-between gap-3">
             <h2 class="text-lg font-bold text-on-surface leading-snug">{{ selectedItem.title }}</h2>
             <span
@@ -165,12 +302,17 @@ onMounted(() => {
             <span class="inbox-source-badge">{{ selectedItem.source === 'chaoxing' ? '学习通' : '教务系统' }}</span>
             <span>{{ selectedItem.createdAt || '未知时间' }}</span>
           </div>
+
+          <TEmptyState v-if="detailLoading" type="loading" message="正在加载详情..." />
+
           <div
-            class="inbox-detail-body"
-            :class="{ 'inbox-detail-body--multiline': selectedBodyIsMultiline }"
-          >
-            {{ selectedBody }}
-          </div>
+            v-else
+            class="inbox-detail-body inbox-detail-body--rich"
+            @click="handleDetailClick"
+            v-html="selectedDetailHtml"
+          />
+
+          <p v-if="markReadHint" class="mt-3 text-xs text-on-surface-variant">{{ markReadHint }}</p>
         </article>
       </main>
     </template>
@@ -207,7 +349,7 @@ onMounted(() => {
           <li v-for="item in items" :key="item.id">
             <button
               type="button"
-              class="inbox-item w-full text-left"
+              class="inbox-item w-full text-left bg-surface-container-lowest border border-outline-variant"
               :class="{ 'inbox-item--unread': !item.isRead }"
               @click="openItem(item)"
             >
@@ -241,19 +383,37 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.inbox-refresh-btn {
-  width: 2.5rem;
-  height: 2.5rem;
+.inbox-refresh-btn,
+.inbox-mark-read-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  color: var(--color-on-surface, inherit);
+  color: var(--md-sys-color-on-surface, var(--color-on-surface, inherit));
   transition: background-color 0.2s ease;
 }
 
-.inbox-refresh-btn:active {
-  background: color-mix(in srgb, var(--color-on-surface, #111) 8%, transparent);
+.inbox-refresh-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.inbox-mark-read-btn {
+  gap: 0.25rem;
+  min-height: 2.5rem;
+  padding: 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--md-sys-color-primary, var(--color-primary, #6366f1));
+}
+
+.inbox-mark-read-btn:disabled {
+  opacity: 0.6;
+}
+
+.inbox-refresh-btn:active,
+.inbox-mark-read-btn:active {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface, #111) 8%, transparent);
 }
 
 .spinning {
@@ -267,8 +427,6 @@ onMounted(() => {
 .inbox-item {
   border-radius: 1rem;
   padding: 0.875rem 1rem;
-  background: var(--color-surface-container-lowest, rgba(255, 255, 255, 0.72));
-  border: 1px solid color-mix(in srgb, var(--color-outline-variant, #cbd5e1) 65%, transparent);
   transition: transform 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -277,8 +435,12 @@ onMounted(() => {
 }
 
 .inbox-item--unread {
-  border-color: color-mix(in srgb, var(--color-primary, #6366f1) 35%, transparent);
-  background: color-mix(in srgb, var(--color-primary-container, #e0e7ff) 28%, var(--color-surface-container-lowest, #fff));
+  border-color: color-mix(in srgb, var(--md-sys-color-primary, var(--color-primary, #6366f1)) 35%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-primary-container, var(--color-primary-container, #e0e7ff)) 24%,
+    var(--md-sys-color-surface-container-lowest, #1e293b)
+  ) !important;
 }
 
 .inbox-item-dot {
@@ -290,19 +452,17 @@ onMounted(() => {
 }
 
 .inbox-item-dot--unread {
-  background: var(--color-primary, #6366f1);
+  background: var(--md-sys-color-primary, var(--color-primary, #6366f1));
 }
 
 .inbox-item-dot--read {
-  background: color-mix(in srgb, var(--color-outline, #94a3b8) 70%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-outline, var(--color-outline, #94a3b8)) 70%, transparent);
 }
 
 .inbox-detail-card {
   border-radius: 1.25rem;
   padding: 1.25rem;
-  background: var(--color-surface-container-lowest, rgba(255, 255, 255, 0.72));
-  border: 1px solid color-mix(in srgb, var(--color-outline-variant, #cbd5e1) 65%, transparent);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--color-on-surface, #111) 6%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--md-sys-color-on-surface, #111) 6%, transparent);
 }
 
 .inbox-source-badge {
@@ -310,8 +470,8 @@ onMounted(() => {
   align-items: center;
   padding: 0.125rem 0.5rem;
   border-radius: 9999px;
-  background: color-mix(in srgb, var(--color-primary-container, #e0e7ff) 70%, transparent);
-  color: var(--color-on-primary-container, #312e81);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container, var(--color-primary-container, #e0e7ff)) 70%, transparent);
+  color: var(--md-sys-color-on-primary-container, var(--color-on-primary-container, #312e81));
   font-weight: 600;
 }
 
@@ -319,12 +479,28 @@ onMounted(() => {
   margin-top: 1rem;
   font-size: 0.95rem;
   line-height: 1.7;
-  color: var(--color-on-surface, #111827);
-  white-space: pre-wrap;
+  color: var(--md-sys-color-on-surface, var(--color-on-surface, #111827));
   word-break: break-word;
 }
 
-.inbox-detail-body--multiline {
-  white-space: pre-wrap;
+.inbox-detail-body--rich :deep(a) {
+  color: var(--md-sys-color-primary, var(--color-primary, #6366f1));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.inbox-detail-body--rich :deep(p),
+.inbox-detail-body--rich :deep(ul),
+.inbox-detail-body--rich :deep(li) {
+  margin: 0.5rem 0;
+}
+
+.inbox-detail-body--rich :deep(ul) {
+  padding-left: 1.25rem;
+}
+
+.inbox-detail-body--rich :deep([style*='background']) {
+  background: transparent !important;
 }
 </style>
