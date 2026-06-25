@@ -61,7 +61,7 @@ let lastNoticeViewportWidth = 0
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
-  'grades', 'classroom', 'exams', 'ranking', 'calendar', 'academic',
+  'grades', 'classroom', 'exams', 'ranking', 'calendar', 'school_inbox', 'academic',
   'qxzkb', 'course_selection', 'training', 'library', 'campus_map', 'resource_share', 'towergo'
 ])
 const loginMethod = ref('')
@@ -389,6 +389,7 @@ const baseModules = [
   { id: 'ranking', name: '绩点排名', iconKey: 'ranking', color: '#f6ad55', desc: '专业班级排名', available: true, requiresLogin: true },
   { id: 'campus_code', name: '校园码', iconKey: 'campus_code', color: '#0f766e', desc: '在线/高能模式二维码', available: true, requiresLogin: true },
   { id: 'calendar', name: '校历', iconKey: 'calendar', color: '#3b82f6', desc: '查看学期校历', available: true, requiresLogin: true },
+  { id: 'school_inbox', name: '学校消息', iconKey: 'school_inbox', color: '#6366f1', desc: '教务与学习通消息', available: true, requiresLogin: true },
   { id: 'academic', name: '学业情况', iconKey: 'academic', color: '#10b981', desc: '学业完成度与课程进度', available: true, requiresLogin: true },
   { id: 'qxzkb', name: '全校课表', iconKey: 'qxzkb', color: '#6366f1', desc: '查询全校课程与排课', available: true, requiresLogin: true },
   { id: 'course_selection', name: '选课中心', iconKey: 'course_selection', color: '#f59e0b', desc: '通识选课与退课', available: true, requiresLogin: true },
@@ -429,7 +430,7 @@ const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 const homeCollisionFx = ref([])
 
 const moduleCategories = computed(() => [
-  { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar'].includes(m.id)) },
+  { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar', 'school_inbox'].includes(m.id)) },
   { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions'].includes(m.id)) },
   { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)) }
 ])
@@ -778,6 +779,7 @@ const quickEntryMeta = {
   ranking: { name: '绩点排名', icon: 'fa-chart-bar', color: 'bg-yellow-50', iconColor: 'text-yellow-500' },
   exams: { name: '考试安排', icon: 'fa-file-alt', color: 'bg-teal-50', iconColor: 'text-teal-500' },
   calendar: { name: '校历', icon: 'fa-calendar-alt', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
+  school_inbox: { name: '学校消息', icon: 'fa-envelope', color: 'bg-indigo-50', iconColor: 'text-indigo-600' },
   academic: { name: '学业情况', icon: 'fa-chart-line', color: 'bg-emerald-50', iconColor: 'text-emerald-500' },
   campus_code: { name: '校园码', icon: 'fa-qrcode', color: 'bg-cyan-50', iconColor: 'text-cyan-500' },
   transactions: { name: '交易记录', icon: 'fa-wallet', color: 'bg-pink-50', iconColor: 'text-pink-500' },
@@ -834,7 +836,7 @@ const featureTabModules = computed(() => {
 // 全部功能图标颜色映射
 const featureIconColors = {
   grades: 'bg-blue-500', classroom: 'bg-orange-400', exams: 'bg-teal-500',
-  ranking: 'bg-yellow-500', calendar: 'bg-blue-500', academic: 'bg-green-500',
+  ranking: 'bg-yellow-500', calendar: 'bg-blue-500', school_inbox: 'bg-indigo-500', academic: 'bg-green-500',
   qxzkb: 'bg-indigo-500', course_selection: 'bg-orange-500', training: 'bg-sky-400',
   campus_code: 'bg-teal-600', electricity: 'bg-red-500', transactions: 'bg-pink-500',
   library: 'bg-emerald-600', campus_map: 'bg-teal-500', resource_share: 'bg-blue-500',
@@ -844,7 +846,7 @@ const featureIconColors = {
 
 const featureIcons = {
   grades: 'fa-graduation-cap', classroom: 'fa-door-open', exams: 'fa-calendar-check',
-  ranking: 'fa-chart-bar', calendar: 'fa-calendar-alt', academic: 'fa-chart-line',
+  ranking: 'fa-chart-bar', calendar: 'fa-calendar-alt', school_inbox: 'fa-envelope', academic: 'fa-chart-line',
   qxzkb: 'fa-table', course_selection: 'fa-tasks', training: 'fa-sitemap',
   campus_code: 'fa-qrcode', electricity: 'fa-bolt', transactions: 'fa-wallet',
   library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-folder-open',

@@ -9,10 +9,15 @@ const PREF_KEYS = {
   enableExam: 'hbu_bg_enable_exam',
   enablePower: 'hbu_bg_enable_power',
   enableClass: 'hbu_bg_enable_class',
+  enableSchoolInbox: 'hbu_bg_enable_school_inbox',
+  loginMethod: 'hbu_bg_login_method',
   classLeadMinutes: 'hbu_bg_class_lead_min',
   interval: 'hbu_bg_interval_min',
-  dormSelection: 'hbu_bg_dorm_selection'
+  dormSelection: 'hbu_bg_dorm_selection',
+  chaoxingNoticeCookie: 'hbu_bg_chaoxing_notice_cookie'
 }
+
+const schoolInboxStatePrefKey = (studentId) => `hbu_bg_school_inbox_state:${studentId}`
 
 const DEFAULT_API_BASE = 'https://hbut.6661111.xyz/api'
 const LOCAL_API_BASE_KEY = 'hbu_bg_api_base'
@@ -57,7 +62,9 @@ const toSafeText = (value) => String(value ?? '').trim()
 export const syncBackgroundFetchContext = async ({
   studentId,
   settings,
-  dormSelection
+  dormSelection,
+  schoolInboxState,
+  loginMethod
 } = {}) => {
   if (getRuntime() !== 'capacitor') return
   const Preferences = (await getPreferences())?.plugin
@@ -67,6 +74,22 @@ export const syncBackgroundFetchContext = async ({
   const room = Array.isArray(dormSelection) ? dormSelection : []
   const config = settings || {}
   const apiBase = resolveApiBaseForNative()
+  const inboxIds = Array.isArray(schoolInboxState)
+    ? schoolInboxState
+    : (() => {
+        try {
+          const raw = localStorage.getItem(`hbu_notify_school_inbox_state:${sid}`)
+          if (!raw) return []
+          const parsed = JSON.parse(raw)
+          return Array.isArray(parsed?.ids) ? parsed.ids : []
+        } catch {
+          return []
+        }
+      })()
+  const resolvedLoginMethod = toSafeText(
+    loginMethod || localStorage.getItem('hbu_login_method') || ''
+  )
+  const chaoxingCookie = toSafeText(localStorage.getItem('hbu_chaoxing_notice_cookie') || '')
 
   await Preferences.set({ key: PREF_KEYS.studentId, value: sid })
   await Preferences.set({ key: PREF_KEYS.apiBase, value: apiBase })
@@ -75,6 +98,11 @@ export const syncBackgroundFetchContext = async ({
   await Preferences.set({ key: PREF_KEYS.enableExam, value: config.enableExamReminder ? '1' : '0' })
   await Preferences.set({ key: PREF_KEYS.enablePower, value: config.enablePowerNotice ? '1' : '0' })
   await Preferences.set({ key: PREF_KEYS.enableClass, value: config.enableClassReminder ? '1' : '0' })
+  await Preferences.set({
+    key: PREF_KEYS.enableSchoolInbox,
+    value: config.enableSchoolInbox === false ? '0' : '1'
+  })
+  await Preferences.set({ key: PREF_KEYS.loginMethod, value: resolvedLoginMethod })
   await Preferences.set({
     key: PREF_KEYS.classLeadMinutes,
     value: String(Math.max(5, Number(config.classLeadMinutes || 30)))
@@ -87,6 +115,13 @@ export const syncBackgroundFetchContext = async ({
     key: PREF_KEYS.dormSelection,
     value: JSON.stringify(room)
   })
+  await Preferences.set({
+    key: schoolInboxStatePrefKey(sid),
+    value: JSON.stringify(inboxIds.slice(0, 500))
+  })
+  if (chaoxingCookie) {
+    await Preferences.set({ key: PREF_KEYS.chaoxingNoticeCookie, value: chaoxingCookie })
+  }
   localStorage.setItem(LOCAL_API_BASE_KEY, apiBase)
 }
 
@@ -101,6 +136,9 @@ export const clearBackgroundFetchContext = async () => {
     Preferences.remove({ key: PREF_KEYS.enableExam }),
     Preferences.remove({ key: PREF_KEYS.enablePower }),
     Preferences.remove({ key: PREF_KEYS.enableClass }),
+    Preferences.remove({ key: PREF_KEYS.enableSchoolInbox }),
+    Preferences.remove({ key: PREF_KEYS.loginMethod }),
+    Preferences.remove({ key: PREF_KEYS.chaoxingNoticeCookie }),
     Preferences.remove({ key: PREF_KEYS.classLeadMinutes }),
     Preferences.remove({ key: PREF_KEYS.interval }),
     Preferences.remove({ key: PREF_KEYS.dormSelection })

@@ -71,6 +71,7 @@ const loadStudentInfoView = () => import('./components/StudentInfoView.vue')
 const loadExamView = () => import('./components/ExamView.vue')
 const loadRankingView = () => import('./components/RankingView.vue')
 const loadCalendarView = () => import('./components/CalendarView.vue')
+const loadSchoolInboxView = () => import('./components/SchoolInboxView.vue')
 const loadAcademicProgressView = () => import('./components/AcademicProgressView.vue')
 const loadTrainingPlanView = () => import('./components/TrainingPlanView.vue')
 const loadForumView = () => import('./components/ForumView.vue')
@@ -82,6 +83,8 @@ const loadConfigEditorView = () => import('./components/ConfigEditor.vue')
 const loadSettingsView = () => import('./components/SettingsView.vue')
 const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')
+const loadSchoolWebsiteView = () => import('./components/SchoolWebsiteView.vue')
+const loadQuickLinksView = () => import('./components/QuickLinksView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
 const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
@@ -104,6 +107,7 @@ const StudentInfoView = createAsyncPage(loadStudentInfoView)
 const ExamView = createAsyncPage(loadExamView)
 const RankingView = createAsyncPage(loadRankingView)
 const CalendarView = createAsyncPage(loadCalendarView)
+const SchoolInboxView = createAsyncPage(loadSchoolInboxView)
 const AcademicProgressView = createAsyncPage(loadAcademicProgressView)
 const TrainingPlanView = createAsyncPage(loadTrainingPlanView)
 const ForumView = createAsyncPage(loadForumView)
@@ -115,6 +119,8 @@ const ConfigEditor = createAsyncPage(loadConfigEditorView)
 const SettingsView = createAsyncPage(loadSettingsView)
 const ExportCenterView = createAsyncPage(loadExportCenterView)
 const ServiceStatsView = createAsyncPage(loadServiceStatsView)
+const SchoolWebsiteView = createAsyncPage(loadSchoolWebsiteView)
+const QuickLinksView = createAsyncPage(loadQuickLinksView)
 const MoreView = createAsyncPage(loadMoreView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
 const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
@@ -174,6 +180,8 @@ const ME_SUB_VIEWS = [
   'settings',
   'export_center',
   'service_stats',
+  'school_website',
+  'quick_links',
   'more',
   'more_module_host',
   'more_chaoxing_checkin'
@@ -190,6 +198,8 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   settings: 'me',
   export_center: 'me',
   service_stats: 'me',
+  school_website: 'me',
+  quick_links: 'me',
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more'
@@ -212,6 +222,8 @@ const VIEW_PREFETCHERS = Object.freeze({
   settings: loadSettingsView,
   export_center: loadExportCenterView,
   service_stats: loadServiceStatsView,
+  school_website: loadSchoolWebsiteView,
+  quick_links: loadQuickLinksView,
   more: loadMoreView,
   more_module_host: loadMoreModuleHostView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
@@ -225,6 +237,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   exams: loadExamView,
   ranking: loadRankingView,
   calendar: loadCalendarView,
+  school_inbox: loadSchoolInboxView,
   academic: loadAcademicProgressView,
   training: loadTrainingPlanView,
   forum: loadForumView,
@@ -2939,6 +2952,16 @@ onBeforeUnmount(() => {
         @back="handleBackToMe"
       />
 
+      <SchoolWebsiteView
+        v-else-if="currentView === 'school_website'"
+        @back="handleBackToMe"
+      />
+
+      <QuickLinksView
+        v-else-if="currentView === 'quick_links'"
+        @back="handleBackToMe"
+      />
+
       <MoreView
         v-else-if="currentView === 'more'"
         :student-id="studentId"
@@ -3037,6 +3060,14 @@ onBeforeUnmount(() => {
       <!-- 校历 -->
       <CalendarView 
         v-else-if="currentView === 'calendar'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
+      />
+
+      <!-- 学校消息 -->
+      <SchoolInboxView
+        v-else-if="currentView === 'school_inbox'"
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"

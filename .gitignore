@@ -84,6 +84,12 @@ keys/
 # Local mirror / secret cleanup workspace
 .repo-sanitize-mirror/
 
+# Agent / IDE workflow artifacts (should not be versioned)
+goal-*/
+.kiro/
+.playwright-mcp/
+.stitch-ref/
+
 # Local independent forum backend repository
 forum-backend/
 

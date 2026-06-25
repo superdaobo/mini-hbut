@@ -588,6 +588,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
         .route("/towergo/*path", any(towergo_proxy))
+        .route("/school-website", any(school_website_proxy_root))
+        .route("/school-website/", any(school_website_proxy_root))
+        .route("/school-website/*path", any(school_website_proxy))
         .route("/resource_share/direct_url", get(resource_share_direct_url))
         .route("/resource_share/proxy", get(resource_share_proxy))
         .route("/electricity_query_location", post(electricity_query_location))
@@ -2301,6 +2304,7 @@ fn encode_resource_share_path(path: &str) -> String {
 }
 
 const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";
+const HBUT_WEBSITE_TARGET_BASE: &str = "https://www.hbut.edu.cn";
 const TOWERGO_TARGET_HOST: &str = "ebike-oper.chinatowercom.cn";
 const TOWERGO_APP_ID: &str = "wx278283883c249e3e";
 const TOWERGO_MINIPROGRAM_REFERER: &str = "https://servicewechat.com/wx278283883c249e3e/47/page-frame.html";
@@ -2399,6 +2403,145 @@ fn towergo_copy_response_header(name: &str) -> bool {
             | "last-modified"
             | "set-cookie"
     )
+}
+
+fn school_website_copy_response_header(name: &str) -> bool {
+    matches!(
+        name,
+        "content-type"
+            | "content-length"
+            | "cache-control"
+            | "etag"
+            | "last-modified"
+            | "set-cookie"
+            | "content-encoding"
+            | "accept-ranges"
+            | "content-language"
+    )
+}
+
+fn school_website_sanitize_request_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut out = HeaderMap::new();
+    for key in [
+        "accept",
+        "accept-language",
+        "cache-control",
+        "if-modified-since",
+        "if-none-match",
+        "range",
+        "user-agent",
+        "referer",
+    ] {
+        if let Some(value) = headers.get(key) {
+            out.insert(key, value.clone());
+        }
+    }
+    if !out.contains_key("accept") {
+        out.insert(
+            HeaderName::from_static("accept"),
+            HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+        );
+    }
+    if !out.contains_key("user-agent") {
+        out.insert(
+            HeaderName::from_static("user-agent"),
+            HeaderValue::from_static(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            ),
+        );
+    }
+    out
+}
+
+async fn school_website_proxy_root(
+    method: Method,
+    raw_query: RawQuery,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    school_website_proxy(method, Path(String::new()), raw_query, headers, body).await
+}
+
+async fn school_website_proxy(
+    method: Method,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if method == Method::OPTIONS {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NO_CONTENT;
+        return Ok(response);
+    }
+
+    let clean_path = path.trim_start_matches('/');
+    if clean_path.contains("..") {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "学校官网代理路径非法".to_string(),
+        ));
+    }
+
+    let remote_url = match query {
+        Some(q) if !q.trim().is_empty() => {
+            if clean_path.is_empty() {
+                format!("{}/?{}", HBUT_WEBSITE_TARGET_BASE, q)
+            } else {
+                format!("{}/{}?{}", HBUT_WEBSITE_TARGET_BASE, clean_path, q)
+            }
+        }
+        _ => {
+            if clean_path.is_empty() {
+                format!("{}/", HBUT_WEBSITE_TARGET_BASE)
+            } else {
+                format!("{}/{}", HBUT_WEBSITE_TARGET_BASE, clean_path)
+            }
+        }
+    };
+
+    let request_headers = school_website_sanitize_request_headers(&headers);
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(8))
+        .build()
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建学校官网代理客户端失败: {}", e)))?;
+
+    let mut request_builder = client.request(method, remote_url).headers(request_headers);
+    if !body.is_empty() {
+        request_builder = request_builder.body(body);
+    }
+
+    let upstream = request_builder
+        .send()
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("学校官网代理请求失败: {}", e)))?;
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let mut response = if status.is_success() {
+        let stream = upstream
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
+        let mut resp = Response::new(Body::from_stream(stream));
+        *resp.status_mut() = status;
+        resp
+    } else {
+        let body_bytes = upstream.bytes().await.unwrap_or_default();
+        let mut resp = Response::new(Body::from(body_bytes));
+        *resp.status_mut() = status;
+        resp
+    };
+
+    for (name, value) in upstream_headers.iter() {
+        let lower = name.as_str().to_ascii_lowercase();
+        if school_website_copy_response_header(&lower) {
+            response.headers_mut().insert(name.clone(), value.clone());
+        }
+    }
+    Ok(response)
 }
 
 async fn towergo_proxy(

@@ -200,4 +200,63 @@ describe('notification delivery contract', () => {
     expect(debugHeadlessSource).toContain('new com.hbut.mini.BackgroundFetchHeadlessTask()')
     expect(debugHeadlessSource).toContain('onFetch(Context context, BGTask task)')
   })
+
+  it('wires school inbox checks through notify_center and Tauri command', () => {
+    const notifySource = readText('src/utils/notify_center.js')
+    const libSource = readText('src-tauri/src/lib.rs')
+
+    expect(notifySource).toContain("schoolInbox: 'hbu_notify_school_inbox'")
+    expect(notifySource).toContain('checkSchoolInbox')
+    expect(notifySource).toContain("invokeNative('school_inbox_fetch'")
+    expect(notifySource).toContain('schoolInboxStateKeyFor')
+    expect(libSource).toContain('school_inbox_fetch')
+  })
+
+  it('syncs school inbox background prefs for Android headless', () => {
+    const bgSource = readText('src/utils/background_fetch.js')
+    const headlessSource = readText(
+      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
+    )
+
+    expect(bgSource).toContain('hbu_bg_enable_school_inbox')
+    expect(bgSource).toContain('hbu_bg_login_method')
+    expect(bgSource).toContain('hbu_bg_school_inbox_state:')
+    expect(headlessSource).toContain('checkSchoolInbox')
+    expect(headlessSource).toContain('notice.chaoxing.com/apis/other/getNoticeList')
+  })
+
+  it('exposes school inbox toggle in notification settings UI', () => {
+    const source = readText('src/components/NotificationView.vue')
+    const uiSettings = readText('src/config/ui_settings.ts')
+
+    expect(source).toContain('enableSchoolInboxNotices')
+    expect(source).toContain("card.key === 'school_inbox'")
+    expect(source).toContain('schoolInboxSummary')
+    expect(uiSettings).toContain("'school_inbox'")
+  })
+
+  it('registers school inbox browse module on home dashboard and app routing', () => {
+    const dashboard = readText('src/components/Dashboard.vue')
+    const appSource = readText('src/App.vue')
+    const uiSettings = readText('src/config/ui_settings.ts')
+    const inboxView = readText('src/components/SchoolInboxView.vue')
+    const homeSearch = readText('src/utils/home_search.js')
+    const libSource = readText('src-tauri/src/lib.rs')
+
+    expect(dashboard).toContain("id: 'school_inbox'")
+    expect(dashboard).toContain("'school_inbox'")
+    expect(appSource).toContain("currentView === 'school_inbox'")
+    expect(appSource).toContain('loadSchoolInboxView')
+    expect(uiSettings).toContain('HomeModuleKey')
+    expect(inboxView).toContain("invokeNative('school_inbox_fetch'")
+    expect(inboxView).toContain("invokeNative('school_inbox_detail_fetch'")
+    expect(inboxView).toContain("invokeNative('school_inbox_mark_read'")
+    expect(inboxView).toContain('openExternal')
+    expect(inboxView).toContain('scrollSchoolInboxToTop')
+    expect(inboxView).toContain('restoreListScroll')
+    expect(libSource).toContain('school_inbox_detail_fetch')
+    expect(libSource).toContain('school_inbox_mark_read')
+    expect(homeSearch).toContain('school_inbox:')
+    expect(readText('src/styles/dark-mode.css')).toContain('.school-inbox-page')
+  })
 })

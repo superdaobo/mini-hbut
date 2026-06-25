@@ -171,6 +171,16 @@ impl HbutClient {
         self.prefer_chaoxing_jwxt = enabled;
     }
 
+    /// 供业务模块发起教务域 HTTP 请求（如学校消息抓取）。
+    pub(crate) fn http_client(&self) -> &Client {
+        &self.client
+    }
+
+    /// 当前应使用的教务系统根地址。
+    pub(crate) fn jwxt_base_url(&self) -> &'static str {
+        self.academic_base_url()
+    }
+
     fn build_http_client(jar: Arc<Jar>) -> Client {
         Client::builder()
             .cookie_store(true)

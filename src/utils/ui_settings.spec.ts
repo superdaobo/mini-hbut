@@ -77,4 +77,19 @@ describe('applyUiSettings night mode isolation', () => {
     expect(mockRoot.classList.remove).not.toHaveBeenCalledWith('dark')
     expect(stored.hbu_dark_mode).toBeUndefined()
   })
+
+  it('夜晚模式开启时应注入暗色语义 token，即使用户选择的是亮色预设', () => {
+    stored.hbu_dark_mode = '1'
+    mockRoot.classList.contains = vi.fn((className: string) => className === 'dark')
+
+    applyUiSettings(normalizeSettings({ preset: 'campus_blue' }))
+
+    const setProperty = mockRoot.style.setProperty
+    expect(setProperty).toHaveBeenCalledWith('--ui-text', '#e2e8f0')
+    expect(setProperty).toHaveBeenCalledWith('--ui-muted', '#94a3b8')
+    expect(setProperty).toHaveBeenCalledWith(
+      '--ui-surface',
+      expect.stringContaining('15, 23, 42')
+    )
+  })
 })

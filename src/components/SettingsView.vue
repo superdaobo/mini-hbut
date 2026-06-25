@@ -80,6 +80,7 @@ const toggleDarkMode = (event) => {
   setTimeout(() => {
     isDarkMode.value = willBeDark
     applyNightModePreference(willBeDark)
+    flushUiSettings()
   }, 400)
 
   // 动画结束后移除遮罩

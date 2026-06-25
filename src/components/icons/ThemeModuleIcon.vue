@@ -18,6 +18,7 @@ const iconMap = {
   ranking: 'leaderboard',
   campus_code: 'qr_code_2',
   calendar: 'calendar_month',
+  school_inbox: 'mail',
   academic: 'trending_up',
   qxzkb: 'table_chart',
   course_selection: 'playlist_add_check',
