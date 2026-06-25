@@ -82,6 +82,8 @@ const loadConfigEditorView = () => import('./components/ConfigEditor.vue')
 const loadSettingsView = () => import('./components/SettingsView.vue')
 const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')
+const loadSchoolWebsiteView = () => import('./components/SchoolWebsiteView.vue')
+const loadQuickLinksView = () => import('./components/QuickLinksView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
 const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
@@ -115,6 +117,8 @@ const ConfigEditor = createAsyncPage(loadConfigEditorView)
 const SettingsView = createAsyncPage(loadSettingsView)
 const ExportCenterView = createAsyncPage(loadExportCenterView)
 const ServiceStatsView = createAsyncPage(loadServiceStatsView)
+const SchoolWebsiteView = createAsyncPage(loadSchoolWebsiteView)
+const QuickLinksView = createAsyncPage(loadQuickLinksView)
 const MoreView = createAsyncPage(loadMoreView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
 const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
@@ -174,6 +178,8 @@ const ME_SUB_VIEWS = [
   'settings',
   'export_center',
   'service_stats',
+  'school_website',
+  'quick_links',
   'more',
   'more_module_host',
   'more_chaoxing_checkin'
@@ -190,6 +196,8 @@ const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
   settings: 'me',
   export_center: 'me',
   service_stats: 'me',
+  school_website: 'me',
+  quick_links: 'me',
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more'
@@ -212,6 +220,8 @@ const VIEW_PREFETCHERS = Object.freeze({
   settings: loadSettingsView,
   export_center: loadExportCenterView,
   service_stats: loadServiceStatsView,
+  school_website: loadSchoolWebsiteView,
+  quick_links: loadQuickLinksView,
   more: loadMoreView,
   more_module_host: loadMoreModuleHostView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
@@ -2936,6 +2946,16 @@ onBeforeUnmount(() => {
 
       <ServiceStatsView
         v-else-if="currentView === 'service_stats'"
+        @back="handleBackToMe"
+      />
+
+      <SchoolWebsiteView
+        v-else-if="currentView === 'school_website'"
+        @back="handleBackToMe"
+      />
+
+      <QuickLinksView
+        v-else-if="currentView === 'quick_links'"
         @back="handleBackToMe"
       />
 
