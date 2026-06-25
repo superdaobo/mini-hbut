@@ -3071,6 +3071,10 @@ async fn cache_remote_image(
 
 #[tauri::command]
 fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    open_external_url_impl(&app, &url)
+}
+
+pub(crate) fn open_external_url_impl(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
     let mut target = url.trim().to_string();
     if target.is_empty() {
         return Err("url is empty".to_string());
@@ -4717,6 +4721,17 @@ async fn fetch_ranking(
 }
 
 #[tauri::command]
+async fn school_inbox_fetch(
+    state: State<'_, AppState>,
+    login_mode: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let mode = login_mode.unwrap_or_default();
+    let response = modules::school_inbox::fetch_school_inbox(&mut client, &mode).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let uid = client
@@ -6093,6 +6108,9 @@ pub fn run() {
             debug_bridge::complete_debug_state,
             debug_bridge::save_debug_capture_file,
             open_external_url,
+            modules::school_website_embed::school_website_embed_open,
+            modules::school_website_embed::school_website_embed_resize,
+            modules::school_website_embed::school_website_embed_close,
             prepare_module_bundle,
             open_file_with_system,
             open_module_bundle_window,
@@ -6133,6 +6151,7 @@ pub fn run() {
             fetch_exams,
             fetch_ranking,
             fetch_student_info,
+            school_inbox_fetch,
             fetch_personal_login_access_info,
             fetch_semesters,
             fetch_classroom_buildings,

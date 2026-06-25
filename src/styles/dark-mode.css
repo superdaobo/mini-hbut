@@ -1180,6 +1180,58 @@ html.dark .me-view .status-icon-box {
   background: rgba(96, 165, 250, 0.15) !important;
 }
 
+/* ─── 学校官网 / 快捷链接子页 ─── */
+html.dark .school-website-view,
+html.dark .quick-links-view {
+  background-color: #0f172a !important;
+}
+
+html.dark .school-website-view .header-copy h1,
+html.dark .quick-links-view .header-copy h1,
+html.dark .quick-links-view .link-copy strong {
+  color: #e2e8f0 !important;
+}
+
+html.dark .school-website-view .header-kicker,
+html.dark .quick-links-view .header-kicker,
+html.dark .quick-links-view .intro,
+html.dark .quick-links-view .link-copy span {
+  color: #94a3b8 !important;
+}
+
+html.dark .school-website-view .back-button,
+html.dark .school-website-view .external-button,
+html.dark .quick-links-view .back-button {
+  background: rgba(96, 165, 250, 0.15) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .school-website-view .frame-shell,
+html.dark .quick-links-view .link-card {
+  background-color: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .school-website-view .frame-overlay {
+  background: rgba(15, 23, 42, 0.72) !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .school-website-view .frame-message--error {
+  background: rgba(30, 41, 59, 0.96) !important;
+  color: #fecaca !important;
+}
+
+html.dark .school-website-view .frame-message--hint {
+  background: rgba(30, 41, 59, 0.96) !important;
+  color: #cbd5e1 !important;
+  border-top-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .quick-links-view .link-arrow {
+  color: #64748b !important;
+}
+
 /* ─── 课表页面 scoped 样式强制覆盖 ─── */
 html.dark .schedule-view .schedule-grid-wrapper,
 html.dark .schedule-view .schedule-grid-container,

@@ -43,6 +43,7 @@ const enableExamReminders = ref(true)
 const enableGradeNotices = ref(true)
 const enablePowerNotices = ref(true)
 const enableClassReminders = ref(true)
+const enableSchoolInboxNotices = ref(true)
 const classLeadMinutes = ref(30)
 const checkInterval = ref(30)
 const showBatteryPrompt = ref(false)
@@ -118,6 +119,7 @@ const saveSettings = () => {
   localStorage.setItem('hbu_notify_grade', enableGradeNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_power', enablePowerNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_class', enableClassReminders.value ? 'true' : 'false')
+  localStorage.setItem('hbu_notify_school_inbox', enableSchoolInboxNotices.value ? 'true' : 'false')
   localStorage.setItem('hbu_notify_class_lead_min', String(classLeadMinutes.value))
   localStorage.setItem('hbu_notify_interval', String(checkInterval.value))
   syncBackgroundFetchContext({
@@ -128,6 +130,7 @@ const saveSettings = () => {
       enableGradeNotice: enableGradeNotices.value,
       enablePowerNotice: enablePowerNotices.value,
       enableClassReminder: enableClassReminders.value,
+      enableSchoolInbox: enableSchoolInboxNotices.value,
       classLeadMinutes: classLeadMinutes.value,
       intervalMinutes: checkInterval.value
     },
@@ -142,6 +145,7 @@ const updateSettingsFromStorage = () => {
   enableGradeNotices.value = !!settings.enableGradeNotice
   enablePowerNotices.value = !!settings.enablePowerNotice
   enableClassReminders.value = !!settings.enableClassReminder
+  enableSchoolInboxNotices.value = settings.enableSchoolInbox !== false
   classLeadMinutes.value = [5, 10, 15, 20, 30, 45, 60].includes(Number(settings.classLeadMinutes))
     ? Number(settings.classLeadMinutes)
     : 30
@@ -197,6 +201,7 @@ const formatNotifyExamTime = (timeStr) => {
 }
 
 const classSummary = computed(() => snapshot.value?.classReminder || {})
+const schoolInboxSummary = computed(() => snapshot.value?.schoolInbox || {})
 const powerSummary = computed(() => snapshot.value?.electricity || {})
 
 const powerQuantityText = computed(() => {
@@ -279,7 +284,8 @@ const orderedInfoCards = computed(() => {
     class_reminder: { key: 'class_reminder' },
     electricity: { key: 'electricity' },
     grades: { key: 'grades' },
-    exams: { key: 'exams' }
+    exams: { key: 'exams' },
+    school_inbox: { key: 'school_inbox' }
   }
   return notificationCardsOrder.value
     .map((key) => cardMap[key])
@@ -303,7 +309,8 @@ const getNotificationCollisionPalette = (activeKey, targetKey = '') => {
     class_reminder: ['#5b8cff', '#8fd6ff', '#c4b5fd'],
     electricity: ['#22c55e', '#86efac', '#bef264'],
     grades: ['#f59e0b', '#fcd34d', '#fdba74'],
-    exams: ['#ef4444', '#fda4af', '#fbbf24']
+    exams: ['#ef4444', '#fda4af', '#fbbf24'],
+    school_inbox: ['#6366f1', '#a5b4fc', '#c4b5fd']
   }
   return resolveCollisionPalette(paletteMap[activeKey], paletteMap[targetKey], '#8fd6ff')
 }
@@ -923,6 +930,23 @@ watch(
                 <p class="notify-type-desc">课前 {{ classLeadMinutes }} 分钟提醒</p>
               </div>
             </div>
+
+            <!-- School Inbox Alerts -->
+            <div v-if="card.key === 'school_inbox'" class="notify-type-card">
+              <div class="notify-type-top">
+                <div class="notify-type-icon icon-indigo">
+                  <span class="material-symbols-outlined fill">mail</span>
+                </div>
+                <label class="toggle-switch" @click.stop>
+                  <input type="checkbox" v-model="enableSchoolInboxNotices" @change="handleOtherSettingChange">
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
+              <div class="notify-type-body">
+                <h4 class="notify-type-name">学校消息</h4>
+                <p class="notify-type-desc">教务/学习通消息中心新通知</p>
+              </div>
+            </div>
           </SortableSurface>
           <LayoutCollisionFxLayer :particles="notificationCollisionFx" />
         </div>
@@ -1044,6 +1068,29 @@ watch(
                   </span>
                 </li>
               </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- School Inbox Card -->
+        <div v-if="schoolInboxSummary?.enabled" class="notify-message-card">
+          <div class="notify-msg-left">
+            <div class="notify-msg-icon icon-indigo">
+              <span class="material-symbols-outlined fill">mail</span>
+            </div>
+            <div class="notify-msg-body">
+              <div class="notify-msg-head">
+                <h4 class="notify-msg-title" :class="{ bold: schoolInboxSummary?.triggered > 0 }">
+                  {{ schoolInboxSummary?.triggered > 0 ? '新学校消息' : '学校消息' }}
+                </h4>
+                <span class="notify-msg-time">{{ lastCheckText }}</span>
+              </div>
+              <p class="notify-msg-text">
+                共 {{ schoolInboxSummary?.total || 0 }} 条
+                <template v-if="schoolInboxSummary?.source">（{{ schoolInboxSummary.source === 'chaoxing' ? '学习通' : '教务' }}）</template>
+                · 本次新增 {{ schoolInboxSummary?.triggered || 0 }} 条
+              </p>
+              <p v-if="schoolInboxSummary?.error" class="notify-msg-text warn">{{ schoolInboxSummary.error }}</p>
             </div>
           </div>
         </div>
@@ -1236,6 +1283,11 @@ watch(
 .icon-sky {
   background: rgba(56, 189, 248, 0.1);
   color: #38bdf8;
+}
+
+.icon-indigo {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
 }
 
 .notify-type-body h4 {
