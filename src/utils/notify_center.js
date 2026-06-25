@@ -9,6 +9,7 @@ import {
 import { useAppSettings } from './app_settings'
 import { isCapacitorRuntime } from '../platform/native'
 import { getRuntime, platformBridge } from '../platform'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
 import {
   clearBackgroundFetchContext,
@@ -36,7 +37,8 @@ const STORAGE_KEYS = {
   class: 'hbu_notify_class',
   classLeadMinutes: 'hbu_notify_class_lead_min',
   interval: 'hbu_notify_interval',
-  dormSelection: 'last_dorm_selection'
+  dormSelection: 'last_dorm_selection',
+  schoolInbox: 'hbu_notify_school_inbox'
 }
 
 const CLASS_PERIOD_TIME_MAP = {
@@ -153,6 +155,7 @@ const getNotifySettings = () => {
     enableGradeNotice: readBool(STORAGE_KEYS.grade, true),
     enablePowerNotice: readBool(STORAGE_KEYS.power, true),
     enableClassReminder: readBool(STORAGE_KEYS.class, true),
+    enableSchoolInbox: readBool(STORAGE_KEYS.schoolInbox, true),
     classLeadMinutes,
     intervalMinutes: interval
   }
@@ -286,6 +289,36 @@ const gradeSigKeyFor = (studentId) => `hbu_notify_grade_signature:${studentId}`
 const examSigKeyFor = (studentId) => `hbu_notify_exam_tomorrow:${studentId}`
 const powerStateKeyFor = (studentId, roomKey) => `hbu_notify_power_state:${studentId}:${roomKey}`
 const classReminderStateKeyFor = (studentId) => `hbu_notify_class_state:${studentId}`
+const schoolInboxStateKeyFor = (studentId) => `hbu_notify_school_inbox_state:${studentId}`
+
+const resolveLoginMode = () => toSafeText(localStorage.getItem('hbu_login_method'))
+
+const syncSchoolInboxBackgroundPrefs = (studentId, settings, knownIds = []) => {
+  if (getRuntime() !== 'capacitor') return
+  try {
+    localStorage.setItem('hbu_bg_enable_school_inbox', settings?.enableSchoolInbox ? '1' : '0')
+    localStorage.setItem('hbu_bg_login_method', resolveLoginMode())
+    localStorage.setItem(
+      `hbu_bg_school_inbox_state:${studentId}`,
+      JSON.stringify(Array.isArray(knownIds) ? knownIds : [])
+    )
+  } catch {
+    // ignore
+  }
+}
+
+const snapshotChaoxingNoticeCookie = async (loginMode) => {
+  const mode = toSafeText(loginMode).toLowerCase()
+  if (!mode.startsWith('chaoxing') || !isTauriRuntime()) return
+  try {
+    const cookies = await invokeNative('get_cookies')
+    if (cookies) {
+      localStorage.setItem('hbu_chaoxing_notice_cookie', String(cookies))
+    }
+  } catch {
+    // ignore
+  }
+}
 
 const getRequestTimeoutMs = () => {
   try {
@@ -1037,6 +1070,86 @@ const checkClassReminder = async (studentId, settings, queue, scheduleResult) =>
   }
 }
 
+const checkSchoolInbox = async (studentId, settings, queue) => {
+  const sid = toSafeText(studentId)
+  if (!sid) {
+    return { success: false, enabled: false, total: 0, triggered: 0, reason: 'missing-student-id' }
+  }
+  if (!settings.enableSchoolInbox) {
+    return { success: true, enabled: false, total: 0, triggered: 0 }
+  }
+  if (!isTauriRuntime()) {
+    syncSchoolInboxBackgroundPrefs(sid, settings, readJSON(schoolInboxStateKeyFor(sid), {})?.ids || [])
+    return {
+      success: false,
+      enabled: true,
+      total: 0,
+      triggered: 0,
+      error: '学校消息抓取需在 Tauri 桌面端前台运行'
+    }
+  }
+
+  try {
+    const loginMode = resolveLoginMode()
+    const response = await invokeNative('school_inbox_fetch', { loginMode })
+    const items = Array.isArray(response?.items) ? response.items : []
+    const stateKey = schoolInboxStateKeyFor(sid)
+    const state = readJSON(stateKey, null)
+    const knownIds = Array.isArray(state?.ids)
+      ? state.ids.map((item) => toSafeText(item)).filter(Boolean)
+      : []
+    const isFirstSync = !state || state.initialized !== true
+    const knownSet = new Set(knownIds)
+    const allIds = items.map((item) => toSafeText(item?.id)).filter(Boolean)
+    const toNotify = isFirstSync
+      ? []
+      : items.filter((item) => !knownSet.has(toSafeText(item?.id)))
+
+    toNotify.forEach((item) => {
+      queue.push({
+        title: toSafeText(item?.title) || '学校通知',
+        body: toSafeText(item?.summary) || '你有新的学校消息',
+        targetView: 'notifications'
+      })
+    })
+
+    writeJSON(stateKey, {
+      initialized: true,
+      ids: allIds.slice(0, 500),
+      updated_at: nowIso()
+    })
+    await snapshotChaoxingNoticeCookie(loginMode)
+    syncSchoolInboxBackgroundPrefs(sid, settings, allIds)
+
+    pushDebugLog(
+      'Notify',
+      `学校消息检查完成 total=${items.length} trigger=${toNotify.length} first=${isFirstSync ? '1' : '0'}`,
+      'info',
+      { source: toSafeText(response?.source), loginMode }
+    )
+
+    return {
+      success: true,
+      enabled: true,
+      total: items.length,
+      triggered: toNotify.length,
+      source: toSafeText(response?.source),
+      checkedAt: toSafeText(response?.fetchedAt),
+      baseline: isFirstSync
+    }
+  } catch (error) {
+    const message = toSafeText(error?.message || error)
+    pushDebugLog('Notify', `学校消息检查失败: ${message}`, 'warn')
+    return {
+      success: false,
+      enabled: true,
+      total: 0,
+      triggered: 0,
+      error: message || '学校消息检查失败'
+    }
+  }
+}
+
 export const runNotificationCheck = async ({
   studentId,
   launchCheck = false,
@@ -1086,6 +1199,12 @@ export const runNotificationCheck = async ({
         selectedPath: dormSelection,
         error: '后台检查未启用'
       },
+      schoolInbox: {
+        success: false,
+        enabled: !!settings.enableSchoolInbox,
+        total: 0,
+        triggered: 0
+      },
       notifications: { queued: 0, sent: 0, items: [] }
     }
   }
@@ -1103,7 +1222,10 @@ export const runNotificationCheck = async ({
     checkExams(sid, settings, queue),
     checkElectricity(sid, settings, queue, launchCheck)
   ])
-  const classReminder = await checkClassReminder(sid, settings, queue, schedule)
+  const [classReminder, schoolInbox] = await Promise.all([
+    checkClassReminder(sid, settings, queue, schedule),
+    checkSchoolInbox(sid, settings, queue)
+  ])
 
   const sent = await sendQueuedNotifications(queue, allowPermissionPrompt)
   pushDebugLog(
@@ -1129,6 +1251,7 @@ export const runNotificationCheck = async ({
     grades,
     exams,
     classReminder,
+    schoolInbox,
     electricity,
     notifications: {
       queued: queue.length,
@@ -1142,6 +1265,16 @@ export const runNotificationCheck = async ({
 
   // 同步数据到 Android 小组件
   syncWidgetData(snapshot).catch(() => {})
+
+  if (isCapacitorRuntime()) {
+    await syncBackgroundFetchContext({
+      studentId: sid,
+      settings,
+      dormSelection,
+      schoolInboxState: readJSON(schoolInboxStateKeyFor(sid), {})?.ids || [],
+      loginMethod: resolveLoginMode()
+    })
+  }
 
   return snapshot
 }

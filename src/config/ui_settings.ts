@@ -25,7 +25,7 @@ export type HomeModuleKey =
   | 'resource_share'
   | 'towergo'
   | 'ai'
-export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams'
+export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams' | 'school_inbox'
 
 export interface WorkspaceLayoutHome {
   widgetsOrder: HomeWidgetKey[]
@@ -91,7 +91,8 @@ export const NOTIFICATION_CARD_ORDER_DEFAULT = [
   'class_reminder',
   'electricity',
   'grades',
-  'exams'
+  'exams',
+  'school_inbox'
 ] as const satisfies readonly NotificationCardKey[]
 
 export const buildDefaultWorkspaceLayout = (): WorkspaceLayout => ({

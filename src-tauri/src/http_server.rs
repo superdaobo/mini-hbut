@@ -588,6 +588,8 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
         .route("/towergo/*path", any(towergo_proxy))
+        .route("/school-website", any(school_website_proxy_root))
+        .route("/school-website/", any(school_website_proxy_root))
         .route("/school-website/*path", any(school_website_proxy))
         .route("/resource_share/direct_url", get(resource_share_direct_url))
         .route("/resource_share/proxy", get(resource_share_proxy))
@@ -2449,6 +2451,15 @@ fn school_website_sanitize_request_headers(headers: &HeaderMap) -> HeaderMap {
         );
     }
     out
+}
+
+async fn school_website_proxy_root(
+    method: Method,
+    raw_query: RawQuery,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    school_website_proxy(method, Path(String::new()), raw_query, headers, body).await
 }
 
 async fn school_website_proxy(

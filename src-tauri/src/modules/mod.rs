@@ -21,3 +21,4 @@ pub mod module_bundle;
 pub mod online_learning;
 pub mod chaoxing_checkin;
 pub mod weather;
+pub mod school_inbox;

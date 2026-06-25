@@ -48,6 +48,9 @@ public class BackgroundFetchHeadlessTask {
     private static final String KEY_ENABLE_EXAM = "hbu_bg_enable_exam";
     private static final String KEY_ENABLE_POWER = "hbu_bg_enable_power";
     private static final String KEY_ENABLE_CLASS = "hbu_bg_enable_class";
+    private static final String KEY_ENABLE_SCHOOL_INBOX = "hbu_bg_enable_school_inbox";
+    private static final String KEY_LOGIN_METHOD = "hbu_bg_login_method";
+    private static final String KEY_CHAOXING_NOTICE_COOKIE = "hbu_bg_chaoxing_notice_cookie";
     private static final String KEY_CLASS_LEAD_MINUTES = "hbu_bg_class_lead_min";
     private static final String KEY_DORM_SELECTION = "hbu_bg_dorm_selection";
     private static final String KEY_WIDGET_LAST_SCHEDULE_HASH = "hbu_bg_widget_schedule_hash";
@@ -108,6 +111,7 @@ public class BackgroundFetchHeadlessTask {
         boolean enableExam = "1".equals(safe(prefs.getString(KEY_ENABLE_EXAM, "1")));
         boolean enablePower = "1".equals(safe(prefs.getString(KEY_ENABLE_POWER, "1")));
         boolean enableClass = "1".equals(safe(prefs.getString(KEY_ENABLE_CLASS, "1")));
+        boolean enableSchoolInbox = "1".equals(safe(prefs.getString(KEY_ENABLE_SCHOOL_INBOX, "1")));
 
         if (enableGrade) {
             checkGrade(context, prefs, apiBase, studentId);
@@ -121,7 +125,106 @@ public class BackgroundFetchHeadlessTask {
         if (enableClass) {
             checkClassReminder(context, prefs, apiBase, studentId);
         }
+        if (enableSchoolInbox) {
+            checkSchoolInbox(context, prefs, studentId);
+        }
         WidgetRefreshScheduler.INSTANCE.ensurePeriodic(context);
+    }
+
+    private String schoolInboxStateKey(String studentId) {
+        return "hbu_bg_school_inbox_state:" + studentId;
+    }
+
+    private void checkSchoolInbox(Context context, SharedPreferences prefs, String studentId) {
+        try {
+            String loginMethod = safe(prefs.getString(KEY_LOGIN_METHOD, "")).toLowerCase(Locale.US);
+            if (!loginMethod.startsWith("chaoxing")) {
+                Log.i(TAG, "school inbox headless skipped: portal mode needs in-app session");
+                return;
+            }
+            String cookie = safe(prefs.getString(KEY_CHAOXING_NOTICE_COOKIE, ""));
+            if (cookie.isEmpty()) {
+                Log.i(TAG, "school inbox headless skipped: missing chaoxing cookie snapshot");
+                return;
+            }
+
+            JSONObject resp = getJsonWithCookie(
+                    "https://notice.chaoxing.com/apis/other/getNoticeList?type=2&crossOrigin=true&pageSize=50",
+                    cookie
+            );
+            if (resp.optInt("result", 0) != 1) {
+                Log.w(TAG, "school inbox headless failed: " + resp.optString("msg", "unknown"));
+                return;
+            }
+
+            JSONArray list = resp.optJSONObject("data") != null
+                    && resp.optJSONObject("data").optJSONObject("notices") != null
+                    ? resp.optJSONObject("data").optJSONObject("notices").optJSONArray("list")
+                    : null;
+            if (list == null) list = new JSONArray();
+
+            String stateKey = schoolInboxStateKey(studentId);
+            JSONArray known = new JSONArray(safe(prefs.getString(stateKey, "[]")));
+            List<String> knownIds = new ArrayList<>();
+            for (int i = 0; i < known.length(); i++) {
+                String id = safe(known.optString(i, ""));
+                if (!id.isEmpty()) knownIds.add(id);
+            }
+            boolean isFirstSync = knownIds.isEmpty();
+
+            List<String> allIds = new ArrayList<>();
+            List<JSONObject> freshItems = new ArrayList<>();
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject item = list.optJSONObject(i);
+                if (item == null) continue;
+                String rawId = safe(item.optString("id", ""));
+                if (rawId.isEmpty()) continue;
+                String normalizedId = "chaoxing:notice:" + rawId;
+                allIds.add(normalizedId);
+                if (!isFirstSync && !knownIds.contains(normalizedId)) {
+                    freshItems.add(item);
+                }
+            }
+
+            for (JSONObject item : freshItems) {
+                String title = safe(item.optString("title", "学校通知"));
+                String body = safe(item.optString("content", "你有新的学习通消息"));
+                if (body.length() > 160) body = body.substring(0, 159) + "…";
+                sendNotification(context, title, body);
+            }
+
+            JSONArray nextKnown = new JSONArray();
+            int limit = Math.min(allIds.size(), 500);
+            for (int i = 0; i < limit; i++) {
+                nextKnown.put(allIds.get(i));
+            }
+            prefs.edit().putString(stateKey, nextKnown.toString()).apply();
+            Log.i(TAG, "school inbox headless checked total=" + allIds.size() + " fresh=" + freshItems.size());
+        } catch (Exception e) {
+            Log.w(TAG, "checkSchoolInbox failed: " + e.getMessage());
+        }
+    }
+
+    private JSONObject getJsonWithCookie(String url, String cookie) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            URL endpoint = new URL(url);
+            conn = (HttpURLConnection) endpoint.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(15000);
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
+            conn.setRequestProperty("Cookie", cookie);
+            conn.setRequestProperty("Referer", "https://i.chaoxing.com/");
+
+            int status = conn.getResponseCode();
+            InputStream stream = status >= 200 && status < 300 ? conn.getInputStream() : conn.getErrorStream();
+            String text = readText(stream);
+            if (text.isEmpty()) return new JSONObject();
+            return new JSONObject(text);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     private void checkGrade(Context context, SharedPreferences prefs, String apiBase, String studentId) {

@@ -4717,6 +4717,17 @@ async fn fetch_ranking(
 }
 
 #[tauri::command]
+async fn school_inbox_fetch(
+    state: State<'_, AppState>,
+    login_mode: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.lock().await;
+    let mode = login_mode.unwrap_or_default();
+    let response = modules::school_inbox::fetch_school_inbox(&mut client, &mode).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.lock().await;
     let uid = client
@@ -6133,6 +6144,7 @@ pub fn run() {
             fetch_exams,
             fetch_ranking,
             fetch_student_info,
+            school_inbox_fetch,
             fetch_personal_login_access_info,
             fetch_semesters,
             fetch_classroom_buildings,
