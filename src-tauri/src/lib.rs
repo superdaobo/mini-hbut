@@ -4725,13 +4725,8 @@ async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Va
         .map(|u| u.student_id.clone())
         .or_else(|| client.last_username.clone());
 
-    // 基础个人信息优先走本地缓存，避免重复请求教务页面。
-    if let Some(uid) = &uid {
-        if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "studentinfo_cache", uid) {
-            return Ok(attach_sync_time(cached_data, &sync_time, true));
-        }
-    }
-
+    // 网络优先：先尝试拉取最新数据，成功则更新缓存并返回 offline=false；
+    // 失败时回退到本地缓存并标记 offline=true。
     match client.fetch_student_info().await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -4742,6 +4737,12 @@ async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Va
             Ok(payload)
         }
         Err(e) => {
+            // 网络失败时回退到缓存
+            if let Some(uid) = &uid {
+                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "studentinfo_cache", uid) {
+                    return Ok(attach_sync_time(cached_data, &sync_time, true));
+                }
+            }
             Err(e.to_string())
         }
     }

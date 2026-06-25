@@ -5,8 +5,10 @@ const emit = defineEmits(['back'])
 
 const HEALTH_URL = 'https://mini-hbut-ocr-service.hf.space/health'
 const HEALTH_CACHE_KEY = 'hbu_service_health_cache_v1'
-const HEALTH_TIMEOUT_MS = 5000
+const HEALTH_TIMEOUT_MS = 10000
 const REFRESH_INTERVAL_MS = 60 * 1000
+const HEALTH_MAX_RETRIES = 2
+const HEALTH_RETRY_DELAYS = [800, 1500]
 
 const toNumber = (value, fallback = 0) => {
   const number = Number(value)
@@ -88,6 +90,7 @@ const error = ref('')
 const lastUpdatedAt = ref('')
 const health = ref(normalizeServiceHealth())
 let refreshTimer = null
+let healthRequestSeq = 0
 
 const readCachedHealth = () => {
   try {
@@ -289,30 +292,47 @@ const buildTrendChart = (values) => {
 const loadHealth = async ({ silent = false } = {}) => {
   if (!silent) loading.value = true
   error.value = ''
-  try {
-    const response = await fetch(HEALTH_URL, {
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-      signal: buildHealthSignal()
-    })
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+  // 竞态保护：只接受最新一次请求的结果
+  const seq = ++healthRequestSeq
+  let lastErr = null
+  for (let attempt = 0; attempt <= HEALTH_MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(HEALTH_URL, {
+        headers: { accept: 'application/json' },
+        cache: 'no-store',
+        signal: buildHealthSignal()
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      const data = await response.json()
+      // 竞态保护：过期请求的结果丢弃
+      if (seq !== healthRequestSeq) return
+      writeCachedHealth(data)
+      applyHealthData(data)
+      if (!silent) loading.value = false
+      return
+    } catch (err) {
+      lastErr = err
+      // 最后一次尝试不再等待
+      if (attempt < HEALTH_MAX_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, HEALTH_RETRY_DELAYS[attempt] || 1500))
+        // 等待期间若已有更新请求发起，则放弃当前重试
+        if (seq !== healthRequestSeq) return
+      }
     }
-    const data = await response.json()
-    writeCachedHealth(data)
-    applyHealthData(data)
-  } catch (err) {
-    const cached = readCachedHealth()
-    if (cached?.data) {
-      applyHealthData(cached.data, cached.cachedAt)
-      error.value = '读取服务状态失败，显示上次数据'
-    } else {
-      error.value = '读取服务状态失败'
-    }
-    console.warn('[ServiceStatsView] health request failed', err)
-  } finally {
-    loading.value = false
   }
+  // 全部重试失败
+  if (seq !== healthRequestSeq) return
+  const cached = readCachedHealth()
+  if (cached?.data) {
+    applyHealthData(cached.data, cached.cachedAt)
+    error.value = '读取服务状态失败，显示上次数据'
+  } else {
+    error.value = '读取服务状态失败'
+  }
+  console.warn('[ServiceStatsView] health request failed after retries', lastErr)
+  if (!silent) loading.value = false
 }
 
 const refreshNow = () => {

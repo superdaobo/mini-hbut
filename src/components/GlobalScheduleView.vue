@@ -515,7 +515,7 @@ const getClassCourseStyle = (course) => {
   const span = Math.max(1, Number(course.djs) || 1)
   const theme = courseThemes[course.colorIndex || 0]
   return {
-    '--course-bg': 'rgba(255, 255, 255, 0.92)',
+    '--course-bg': 'var(--ui-surface, rgba(255, 255, 255, 0.92))',
     '--course-text': theme.text,
     '--course-border': theme.border,
     '--course-shadow': '0 6px 14px rgba(71, 85, 105, 0.16)',
@@ -1341,7 +1341,7 @@ onMounted(async () => {
   margin: 12px 16px 0;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  background: color-mix(in oklab, var(--ui-danger) 14%, var(--ui-surface, #fff) 86%);
   border: 1px solid color-mix(in oklab, var(--ui-danger) 36%, transparent);
   color: var(--ui-danger);
   font-weight: 600;
@@ -1511,7 +1511,7 @@ onMounted(async () => {
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in oklab, var(--ui-danger) 12%, #ffffff 88%);
+  background: color-mix(in oklab, var(--ui-danger) 12%, var(--ui-surface, #fff) 88%);
   border: 1px solid color-mix(in oklab, var(--ui-danger) 30%, transparent);
   color: var(--ui-danger);
 }
@@ -1663,7 +1663,7 @@ onMounted(async () => {
   border: 1px solid var(--ui-surface-border);
   border-radius: 10px;
   padding: 8px 10px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, var(--ui-surface, #fff) 38%);
   display: flex;
   flex-direction: column;
   gap: 4px;

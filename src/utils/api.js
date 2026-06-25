@@ -434,6 +434,12 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
       ? withOfflineMeta(cached.data, cached.timestamp)
       : cached.data
     recordRequestMetric(key, { source: 'memory-cache', start: Date.now(), priority })
+    // maintenanceMode 粘滞修复：缓存命中且标志为 true 时，后台静默尝试请求后端，
+    // 成功则 refreshCacheInBackground 内部会清除 maintenanceFlag 并更新缓存，
+    // 避免标志永久粘滞导致每次都显示离线
+    if (maintenanceMode && !forceRemote && isJwxtCacheKey(key)) {
+      refreshCacheInBackground(key, fetcher, 'background').catch(() => {})
+    }
     return { ...cached, data, fromCache: true }
   }
 

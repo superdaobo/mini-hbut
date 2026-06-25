@@ -2,7 +2,7 @@
 // Requires: pip install fonttools brotli
 
 import { execSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join, extname } from 'node:path'
 
 const WALK_EXTS = ['.vue', '.ts', '.js', '.css', '.rs']
@@ -35,6 +35,10 @@ function collectIcons() {
     for (const m of content.matchAll(/icon\s*:\s*'([a-z_]+)'/g)) {
       if (m[1] && !m[1].startsWith('fa-') && m[1].length > 2) icons.add(m[1])
     }
+    // Icon map values: '任意key': 'ICON_NAME'（如 StudentInfoView 的 iconMap）
+    for (const m of content.matchAll(/'[^']*'\s*:\s*'([a-z][a-z0-9_]*)'/g)) {
+      if (m[1] && !m[1].startsWith('fa-') && m[1].length > 2) icons.add(m[1])
+    }
   }
 
   // Weather icons from Rust backend
@@ -54,14 +58,16 @@ function run() {
   const icons = collectIcons()
   console.log(`[font-subset] Found ${icons.length} unique icons`)
 
-  execSync(`mkdir -p "${OUTPUT_DIR}"`, { stdio: 'pipe' })
+  mkdirSync(OUTPUT_DIR, { recursive: true })
 
+  // 写临时 .py 文件执行，避免 -c 单行换行/引号转义问题
+  const tmpScript = join(OUTPUT_DIR, '_subset_tmp.py')
   const script = `
 from fontTools.ttLib import TTFont
 from fontTools.subset import Subsetter, Options
 
-font = TTFont('${FONT_SRC}')
-text = '${icons.join('')}'
+font = TTFont(r"""${FONT_SRC}""")
+text = r"""${icons.join('')}"""
 
 options = Options()
 options.layout_features = ['rclt', 'rlig']
@@ -77,10 +83,14 @@ subsetter.populate(text=text)
 subsetter.subset(font)
 
 font.flavor = 'woff2'
-font.save('${OUTPUT_FILE}')
+font.save(r"""${OUTPUT_FILE}""")
 `
-
-  execSync(`python -c "${script.replace(/\n/g, ' ').replace(/"/g, '\\"')}"`, { stdio: 'inherit' })
+  writeFileSync(tmpScript, script, 'utf8')
+  try {
+    execSync(`python "${tmpScript}"`, { stdio: 'inherit' })
+  } finally {
+    try { unlinkSync(tmpScript) } catch {}
+  }
 
   const size = statSync(OUTPUT_FILE).size
   const origSize = statSync(FONT_SRC).size
