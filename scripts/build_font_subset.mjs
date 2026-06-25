@@ -3,7 +3,8 @@
 
 import { execSync } from 'node:child_process'
 import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs'
-import { join, extname } from 'node:path'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 const WALK_EXTS = ['.vue', '.ts', '.js', '.css', '.rs']
 const SRC_DIR = join(process.cwd(), 'src')
@@ -39,6 +40,12 @@ function collectIcons() {
     for (const m of content.matchAll(/'[^']*'\s*:\s*'([a-z][a-z0-9_]*)'/g)) {
       if (m[1] && !m[1].startsWith('fa-') && m[1].length > 2) icons.add(m[1])
     }
+    // 动态 iconMap 块（ThemeModuleIcon 等）
+    for (const m of content.matchAll(/iconMap\s*=\s*\{([\s\S]*?)\}/g)) {
+      for (const icon of m[1].matchAll(/:\s*'([a-z][a-z0-9_]*)'/g)) {
+        if (icon[1]) icons.add(icon[1])
+      }
+    }
   }
 
   // Weather icons from Rust backend
@@ -60,14 +67,13 @@ function run() {
 
   mkdirSync(OUTPUT_DIR, { recursive: true })
 
-  // 写临时 .py 文件执行，避免 -c 单行换行/引号转义问题
-  const tmpScript = join(OUTPUT_DIR, '_subset_tmp.py')
-  const script = `
+  const pyScript = join(tmpdir(), `mini-hbut-font-subset-${process.pid}.py`)
+  const pySource = `
 from fontTools.ttLib import TTFont
 from fontTools.subset import Subsetter, Options
 
-font = TTFont(r"""${FONT_SRC}""")
-text = r"""${icons.join('')}"""
+font = TTFont(r'''${FONT_SRC.replace(/\\/g, '/')}''')
+text = ${JSON.stringify(icons.join(''))}
 
 options = Options()
 options.layout_features = ['rclt', 'rlig']
@@ -83,13 +89,18 @@ subsetter.populate(text=text)
 subsetter.subset(font)
 
 font.flavor = 'woff2'
-font.save(r"""${OUTPUT_FILE}""")
+font.save(r'''${OUTPUT_FILE.replace(/\\/g, '/')}''')
 `
-  writeFileSync(tmpScript, script, 'utf8')
+
+  writeFileSync(pyScript, pySource, 'utf8')
   try {
-    execSync(`python "${tmpScript}"`, { stdio: 'inherit' })
+    execSync(`python "${pyScript}"`, { stdio: 'inherit' })
   } finally {
-    try { unlinkSync(tmpScript) } catch {}
+    try {
+      unlinkSync(pyScript)
+    } catch {
+      // 临时脚本清理失败不影响子集产物。
+    }
   }
 
   const size = statSync(OUTPUT_FILE).size
@@ -103,3 +114,5 @@ try {
   console.warn('[font-subset] Failed:', e.message)
   console.warn('[font-subset] The full Material Symbols font from npm will be used as fallback.')
 }
+
+export { collectIcons }
