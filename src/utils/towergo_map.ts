@@ -25,9 +25,9 @@ export const HBUT_LOCATION: TowerGoPoint = {
   longitude: 114.313
 }
 
-export const SCAN_GRID_SPACING_METERS = 80
-export const SCAN_CONCURRENCY = 6
-export const SCAN_REQUEST_DELAY_MS = 60
+export const SCAN_GRID_SPACING_METERS = 120
+export const SCAN_CONCURRENCY = 8
+export const SCAN_REQUEST_DELAY_MS = 30
 
 const toNumber = (value: unknown) => {
   const num = Number(value)
@@ -214,8 +214,8 @@ export const createServiceAreaScanPoints = ({
     maxLat = Math.max(...lats)
     minLng = Math.min(...lngs)
     maxLng = Math.max(...lngs)
-    const latPad = Math.max((maxLat - minLat) * 0.3, 0.003)
-    const lngPad = Math.max((maxLng - minLng) * 0.3, 0.003)
+    const latPad = Math.max((maxLat - minLat) * 0.2, 0.003)
+    const lngPad = Math.max((maxLng - minLng) * 0.2, 0.003)
     minLat -= latPad
     maxLat += latPad
     minLng -= lngPad
@@ -296,11 +296,13 @@ export const dedupeVehicles = (vehicles: TowerGoVehicle[], origin: TowerGoPoint 
 export const resolveTowerGoLocation = async ({
   geolocation = typeof navigator === 'undefined' ? undefined : navigator.geolocation,
   fallback = HBUT_LOCATION,
-  timeoutMs = 5000
+  timeoutMs = 5000,
+  maxDriftMeters = 2000
 }: {
   geolocation?: Geolocation
   fallback?: TowerGoPoint
   timeoutMs?: number
+  maxDriftMeters?: number
 } = {}): Promise<TowerGoPoint> => {
   if (!geolocation?.getCurrentPosition) {
     return { ...fallback, source: 'fallback' }
@@ -309,10 +311,19 @@ export const resolveTowerGoLocation = async ({
     try {
       geolocation.getCurrentPosition(
         (position) => {
+          const lat = position.coords.latitude
+          const lng = position.coords.longitude
+          // 系统定位可能偏移到校外几公里（桌面端/室内/VPN），超阈值则回退到校区坐标，
+          // 避免用偏移坐标查服务区识别成别的校区
+          const drift = distanceMeters(fallback.latitude, fallback.longitude, lat, lng)
+          if (Number.isFinite(drift) && drift > maxDriftMeters) {
+            resolve({ ...fallback, source: 'fallback' })
+            return
+          }
           resolve({
             name: '当前位置',
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
+            latitude: lat,
+            longitude: lng,
             accuracy: position.coords.accuracy || 0,
             source: 'system'
           })
