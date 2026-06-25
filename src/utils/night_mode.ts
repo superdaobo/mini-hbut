@@ -1,5 +1,13 @@
 const NIGHT_MODE_STORAGE_KEY = 'hbu_dark_mode'
 
+/** 夜晚模式切换事件：供 ui_settings 等模块重新注入语义色 token */
+export const NIGHT_MODE_CHANGED_EVENT = 'hbu-night-mode-changed'
+
+const dispatchNightModeChanged = (enabled: boolean) => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(NIGHT_MODE_CHANGED_EVENT, { detail: { enabled } }))
+}
+
 export const applyNightModePreference = (enabled: boolean): boolean => {
   if (typeof document === 'undefined') return enabled
 
@@ -15,6 +23,7 @@ export const applyNightModePreference = (enabled: boolean): boolean => {
     // localStorage 不可用时仅同步当前 DOM 状态。
   }
 
+  dispatchNightModeChanged(enabled)
   return enabled
 }
 

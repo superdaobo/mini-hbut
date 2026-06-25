@@ -7,6 +7,11 @@ import {
   SYSTEM_UI_SETTINGS,
   UI_PRESETS
 } from '../config/ui_settings'
+import { isNightModeEnabled, NIGHT_MODE_CHANGED_EVENT } from './night_mode'
+
+const DARK_UI_TEXT = '#e2e8f0'
+const DARK_UI_MUTED = '#94a3b8'
+const DARK_UI_BG_GRADIENT = 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)'
 
 const STORAGE_KEY = 'hbu_ui_settings_v2'
 
@@ -195,7 +200,11 @@ const applyUiSettings = (settings) => {
   if (typeof document === 'undefined') return
   const root = document.documentElement
   const currentPreset = UI_PRESETS[settings.preset] || UI_PRESETS[SYSTEM_UI_SETTINGS.preset]
-  const isDark = currentPreset?.category === 'dark'
+  // 夜晚模式开关与暗色分类预设都应注入暗色语义 token（内联变量优先级高于 dark-mode.css）
+  const isDark = currentPreset?.category === 'dark' || isNightModeEnabled()
+  const textColor = isDark ? DARK_UI_TEXT : settings.text
+  const mutedColor = isDark ? DARK_UI_MUTED : settings.muted
+  const bgGradient = isDark ? DARK_UI_BG_GRADIENT : settings.background
 
   const surface = isDark
     ? `rgba(15, 23, 42, ${settings.surfaceOpacity})`
@@ -215,9 +224,9 @@ const applyUiSettings = (settings) => {
   root.style.setProperty('--ui-secondary', settings.secondary)
   root.style.setProperty('--ui-primary-soft', makeRgba(settings.primary, 0.12))
   root.style.setProperty('--ui-primary-soft-strong', makeRgba(settings.primary, 0.22))
-  root.style.setProperty('--ui-bg-gradient', settings.background)
-  root.style.setProperty('--ui-text', settings.text)
-  root.style.setProperty('--ui-muted', settings.muted)
+  root.style.setProperty('--ui-bg-gradient', bgGradient)
+  root.style.setProperty('--ui-text', textColor)
+  root.style.setProperty('--ui-muted', mutedColor)
   root.style.setProperty('--ui-surface', surface)
   root.style.setProperty('--ui-surface-border', border)
   root.style.setProperty('--ui-radius-scale', String(settings.radiusScale))
@@ -237,10 +246,10 @@ const applyUiSettings = (settings) => {
 
   root.style.setProperty('--primary-color', settings.primary)
   root.style.setProperty('--secondary-color', settings.secondary)
-  root.style.setProperty('--bg-gradient', settings.background)
+  root.style.setProperty('--bg-gradient', bgGradient)
   root.style.setProperty('--glass-bg', surface)
   root.style.setProperty('--glass-border', border)
-  root.style.setProperty('--text-color', settings.text)
+  root.style.setProperty('--text-color', textColor)
 
   root.setAttribute('data-theme', settings.preset)
   root.setAttribute('data-ui-card', settings.profile.cardStyle)
@@ -289,6 +298,13 @@ let scope = null
 const initUiSettings = () => {
   if (initialized) return
   initialized = true
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener(NIGHT_MODE_CHANGED_EVENT, () => {
+      applyUiSettings(normalizeSettings(state))
+    })
+  }
+
   scope = effectScope()
   scope.run(() => {
     const sync = () => {

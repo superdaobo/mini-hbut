@@ -1968,3 +1968,177 @@ html.dark body .schedule-view .week-cell.active {
   border-color: rgba(96, 165, 250, 0.5) !important;
   color: #bfdbfe !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   夜晚模式专项修复 v3：Forum / ServiceStats / 公告弹窗 / 局部标签
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 全局阻断公告弹窗 ─── */
+html.dark .notice-confirm-overlay {
+  background: rgba(2, 6, 23, 0.72) !important;
+}
+
+html.dark .notice-confirm-card,
+html.dark .notice-modal {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92)) !important;
+  border: 1px solid rgba(148, 163, 184, 0.22) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.45) !important;
+}
+
+html.dark .notice-confirm-title,
+html.dark .notice-modal-header h3 {
+  color: #f8fafc !important;
+}
+
+html.dark .notice-confirm-content,
+html.dark .notice-modal-content,
+html.dark .notice-modal-meta {
+  color: #94a3b8 !important;
+}
+
+html.dark .notice-link {
+  color: #60a5fa !important;
+}
+
+/* ─── 校园广场 Forum：覆盖组件内 --stitch-* 浅色预设 ─── */
+html.dark .forum-view {
+  --stitch-primary: #60a5fa;
+  --stitch-primary-container: #2563eb;
+  --stitch-primary-fixed: rgba(37, 99, 235, 0.28);
+  --stitch-on-primary-fixed: #bfdbfe;
+  --stitch-surface: #0f172a;
+  --stitch-surface-dim: #1e293b;
+  --stitch-surface-low: #111827;
+  --stitch-surface-card: #1e293b;
+  --stitch-surface-container: #334155;
+  --stitch-border: rgba(148, 163, 184, 0.24);
+  --stitch-outline: #94a3b8;
+  --stitch-text: #e2e8f0;
+  --stitch-muted: #94a3b8;
+  --stitch-secondary: #cbd5e1;
+  --stitch-card-shadow: 0 8px 24px rgba(2, 6, 23, 0.35);
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .forum-phone-shell {
+  background: #111827 !important;
+}
+
+html.dark .forum-view .forum-hero-card,
+html.dark .forum-view .empty-card,
+html.dark .forum-view .thread-card,
+html.dark .forum-view .composer-card {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .forum-view .quick-tabs {
+  background: rgba(30, 41, 59, 0.72) !important;
+}
+
+html.dark .forum-view .forum-topbar {
+  background: rgba(15, 23, 42, 0.92) !important;
+}
+
+html.dark .forum-view .feed-meta-strip div,
+html.dark .forum-view .thread-stat-grid span {
+  background: rgba(30, 41, 59, 0.92) !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .forum-view .feed-meta-strip span,
+html.dark .forum-view .thread-stat-grid span {
+  color: #94a3b8 !important;
+}
+
+html.dark .forum-view .search-card {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .forum-view .search-card input {
+  color: #e2e8f0 !important;
+}
+
+html.dark .forum-view .search-card input::placeholder {
+  color: #64748b !important;
+}
+
+html.dark .forum-view .empty-card p,
+html.dark .forum-view .section-copy,
+html.dark .forum-view .feed-section-head span {
+  color: #94a3b8 !important;
+}
+
+/* ─── 服务统计 ServiceStatsView：scoped 硬编码浅色 ─── */
+html.dark .service-stats-view {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .service-stats-view .back-button,
+html.dark .service-stats-view .refresh-button {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.28) !important;
+}
+
+html.dark .service-stats-view .header-copy h1,
+html.dark .service-stats-view .status-row,
+html.dark .service-stats-view .metric-value,
+html.dark .service-stats-view .trend-title {
+  color: #f8fafc !important;
+}
+
+html.dark .service-stats-view .header-kicker,
+html.dark .service-stats-view .status-label,
+html.dark .service-stats-view .metric-label,
+html.dark .service-stats-view .status-meta span {
+  color: #94a3b8 !important;
+}
+
+html.dark .service-stats-view .status-card,
+html.dark .service-stats-view .metric-card,
+html.dark .service-stats-view .trend-card,
+html.dark .service-stats-view .archive-item {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+  color: #e2e8f0 !important;
+}
+
+/* ─── 空教室筛选标签（scoped 固定色优先级问题） ─── */
+html.dark .classroom-filter-label {
+  color: #cbd5e1 !important;
+}
+
+/* ─── 考试安排次要文字 ─── */
+html.dark .exam-updated-at {
+  color: #94a3b8 !important;
+}
+
+/* ─── 超星签到刷新按钮 ─── */
+html.dark .more-chaoxing-checkin-view .icon-btn {
+  color: #e2e8f0 !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+  background: rgba(30, 41, 59, 0.88) !important;
+}
+
+/* ─── 首页维护横幅暗色化 ─── */
+html.dark .bg-orange-50 {
+  background-color: rgba(120, 53, 15, 0.28) !important;
+}
+
+html.dark .border-orange-200 {
+  border-color: rgba(251, 146, 60, 0.28) !important;
+}
+
+html.dark .text-orange-700 {
+  color: #fdba74 !important;
+}
+
+html.dark .text-orange-600 {
+  color: #fb923c !important;
+}
