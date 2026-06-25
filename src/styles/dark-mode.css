@@ -648,6 +648,7 @@ html.dark [class*="min-h-screen"] {
 html.dark .exam-page,
 html.dark .classroom-page,
 html.dark .ranking-page,
+html.dark .school-inbox-page,
 html.dark .elec-view,
 html.dark .trans-view,
 html.dark .export-view,
@@ -658,6 +659,29 @@ html.dark .library-view,
 html.dark .resource-share-view,
 html.dark .ai-view {
   background-color: #0f172a !important;
+}
+
+html.dark .school-inbox-page {
+  background-color: #0f172a !important;
+}
+
+html.dark .school-inbox-page .inbox-item,
+html.dark .school-inbox-page .inbox-detail-card {
+  background-color: var(--md-sys-color-surface-container-lowest, #1e293b) !important;
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+html.dark .school-inbox-page .inbox-item--unread {
+  background: color-mix(in srgb, rgba(96, 165, 250, 0.18) 100%, #1e293b) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+}
+
+html.dark .school-inbox-page .inbox-detail-body--rich :is(p, div, span, li) {
+  color: #e2e8f0 !important;
+}
+
+html.dark .school-inbox-page .inbox-detail-body--rich :is([style*="background"], [bgcolor]) {
+  background: transparent !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════
