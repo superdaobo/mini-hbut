@@ -372,7 +372,7 @@ onMounted(() => {
 .campus-map-view {
   min-height: 100vh;
   padding: 20px 20px 110px;
-  background: var(--ui-bg-gradient);
+  background: var(--ui-bg-gradient, #f5f7fa);
 }
 
 .view-header {
@@ -464,8 +464,8 @@ onMounted(() => {
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 700;
-  color: #0f766e;
-  background: rgba(15, 118, 110, 0.12);
+  color: var(--ui-success, #0f766e);
+  background: color-mix(in oklab, var(--ui-success, #10b981) 14%, transparent);
 }
 
 .mini-program-desc {
@@ -495,9 +495,9 @@ onMounted(() => {
 .mini-program-code {
   margin-top: 10px;
   border-radius: 10px;
-  border: 1px dashed rgba(30, 41, 59, 0.18);
-  background: rgba(148, 163, 184, 0.12);
-  color: #334155;
+  border: 1px dashed var(--ui-surface-border, rgba(30, 41, 59, 0.18));
+  background: color-mix(in oklab, var(--ui-muted, #94a3b8) 12%, transparent);
+  color: var(--ui-text, #334155);
   font-size: 13px;
   line-height: 1.45;
   word-break: break-all;
@@ -557,7 +557,7 @@ onMounted(() => {
   width: calc(100% - 28px);
   border: none;
   border-radius: 12px;
-  background: linear-gradient(120deg, #2563eb, #0891b2);
+  background: linear-gradient(120deg, var(--ui-primary, #2563eb), var(--ui-secondary, #0891b2));
   color: #fff;
   font-weight: 700;
   padding: 10px 12px;

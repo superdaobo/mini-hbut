@@ -403,7 +403,7 @@ onMounted(() => {
   margin: 12px 16px 0;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  background: color-mix(in oklab, var(--ui-danger) 14%, var(--ui-surface, #fff) 86%);
   border: 1px solid color-mix(in oklab, var(--ui-danger) 36%, transparent);
   color: var(--ui-danger);
   font-weight: 600;
@@ -535,7 +535,7 @@ onMounted(() => {
 .course-card {
   border: 1px solid var(--ui-surface-border);
   border-radius: 10px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, var(--ui-surface, #fff) 38%);
   padding: 8px 10px;
   text-align: left;
   cursor: pointer;
@@ -586,25 +586,25 @@ onMounted(() => {
 }
 
 .state-done {
-  background: color-mix(in oklab, #10b981 18%, #ffffff 82%);
-  color: #0f9f6e;
-  border-color: color-mix(in oklab, #10b981 40%, transparent);
+  background: color-mix(in oklab, var(--ui-success, #10b981) 18%, var(--ui-surface, #fff) 82%);
+  color: var(--ui-success, #0f9f6e);
+  border-color: color-mix(in oklab, var(--ui-success, #10b981) 40%, transparent);
 }
 
 .state-todo {
-  background: color-mix(in oklab, #ef4444 16%, #ffffff 84%);
-  color: #dc2626;
-  border-color: color-mix(in oklab, #ef4444 40%, transparent);
+  background: color-mix(in oklab, var(--ui-danger, #ef4444) 16%, var(--ui-surface, #fff) 84%);
+  color: var(--ui-danger, #dc2626);
+  border-color: color-mix(in oklab, var(--ui-danger, #ef4444) 40%, transparent);
 }
 
 .state-pending {
-  background: color-mix(in oklab, #f59e0b 18%, #ffffff 82%);
-  color: #c26c00;
-  border-color: color-mix(in oklab, #f59e0b 40%, transparent);
+  background: color-mix(in oklab, var(--ui-warning, #f59e0b) 18%, var(--ui-surface, #fff) 82%);
+  color: var(--ui-warning, #c26c00);
+  border-color: color-mix(in oklab, var(--ui-warning, #f59e0b) 40%, transparent);
 }
 
 .state-unknown {
-  background: color-mix(in oklab, var(--ui-primary-soft) 55%, #fff 45%);
+  background: color-mix(in oklab, var(--ui-primary-soft) 55%, var(--ui-surface, #fff) 45%);
   color: var(--ui-primary);
   border-color: color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
@@ -686,7 +686,7 @@ onMounted(() => {
   border: 1px solid var(--ui-surface-border);
   border-radius: 10px;
   padding: 8px 10px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 62%, #fff 38%);
+  background: color-mix(in oklab, var(--ui-primary-soft) 62%, var(--ui-surface, #fff) 38%);
   display: flex;
   flex-direction: column;
   gap: 3px;
