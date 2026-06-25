@@ -4,7 +4,10 @@ use std::fs;
 use std::io::{Cursor, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager};
+
+#[cfg(desktop)]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 const DEFAULT_BRIDGE_PORT: u16 = 4399;
 const MODULE_CACHE_ROOT: &str = "more_modules";

@@ -1,7 +1,10 @@
 //! 学校官网内嵌子 WebView：全高度展示 + 站外链接外部打开。
 
+use tauri::{AppHandle, Manager};
+
+#[cfg(desktop)]
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl,
+    LogicalPosition, LogicalSize, WebviewUrl,
     webview::{NewWindowResponse, WebviewBuilder},
 };
 use url::Url;
@@ -32,6 +35,7 @@ fn open_external(app: &AppHandle, target: &str) {
     let _ = crate::open_external_url_impl(app, target);
 }
 
+#[cfg(desktop)]
 fn close_embed_if_exists(app: &AppHandle) {
     if let Some(webview) = app.get_webview(EMBED_LABEL) {
         let _ = webview.close();
