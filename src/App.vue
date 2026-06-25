@@ -71,6 +71,7 @@ const loadStudentInfoView = () => import('./components/StudentInfoView.vue')
 const loadExamView = () => import('./components/ExamView.vue')
 const loadRankingView = () => import('./components/RankingView.vue')
 const loadCalendarView = () => import('./components/CalendarView.vue')
+const loadSchoolInboxView = () => import('./components/SchoolInboxView.vue')
 const loadAcademicProgressView = () => import('./components/AcademicProgressView.vue')
 const loadTrainingPlanView = () => import('./components/TrainingPlanView.vue')
 const loadForumView = () => import('./components/ForumView.vue')
@@ -106,6 +107,7 @@ const StudentInfoView = createAsyncPage(loadStudentInfoView)
 const ExamView = createAsyncPage(loadExamView)
 const RankingView = createAsyncPage(loadRankingView)
 const CalendarView = createAsyncPage(loadCalendarView)
+const SchoolInboxView = createAsyncPage(loadSchoolInboxView)
 const AcademicProgressView = createAsyncPage(loadAcademicProgressView)
 const TrainingPlanView = createAsyncPage(loadTrainingPlanView)
 const ForumView = createAsyncPage(loadForumView)
@@ -235,6 +237,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   exams: loadExamView,
   ranking: loadRankingView,
   calendar: loadCalendarView,
+  school_inbox: loadSchoolInboxView,
   academic: loadAcademicProgressView,
   training: loadTrainingPlanView,
   forum: loadForumView,
@@ -3057,6 +3060,14 @@ onBeforeUnmount(() => {
       <!-- 校历 -->
       <CalendarView 
         v-else-if="currentView === 'calendar'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
+      />
+
+      <!-- 学校消息 -->
+      <SchoolInboxView
+        v-else-if="currentView === 'school_inbox'"
         :student-id="studentId"
         @back="handleBackToDashboard"
         @logout="handleLogout"

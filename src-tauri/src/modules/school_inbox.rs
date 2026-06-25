@@ -15,6 +15,7 @@ pub struct SchoolInboxItem {
     pub id: String,
     pub title: String,
     pub summary: String,
+    pub body: String,
     pub created_at: String,
     pub is_read: bool,
     pub source: String,
@@ -95,6 +96,7 @@ pub fn parse_portal_tzsjx_payload(payload: &Value) -> Vec<SchoolInboxItem> {
                     title
                 },
                 summary: trim_summary(&content, 160),
+                body: content.trim().to_string(),
                 created_at: release_date,
                 is_read,
                 source: "portal".to_string(),
@@ -129,6 +131,7 @@ pub fn parse_chaoxing_notice_payload(payload: &Value) -> Vec<SchoolInboxItem> {
                     title
                 },
                 summary: trim_summary(&content, 160),
+                body: content.trim().to_string(),
                 created_at: send_time,
                 is_read,
                 source: "chaoxing".to_string(),
@@ -267,6 +270,7 @@ mod tests {
         assert_eq!(items[0].id, "portal:tzsjx:abc123");
         assert!(!items[0].is_read);
         assert_eq!(items[0].source, "portal");
+        assert_eq!(items[0].body, "请同学们注意考试时间");
     }
 
     #[test]
