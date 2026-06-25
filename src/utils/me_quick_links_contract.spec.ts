@@ -43,12 +43,17 @@ describe('me quick links frontend contract', () => {
   it('provides a school website page with iframe embed and external fallback', () => {
     const viewPath = 'src/components/SchoolWebsiteView.vue'
     const source = readSource(viewPath)
+    const embedUtil = readSource('src/utils/school_website_embed.ts')
 
     expect(existsSync(sourcePath(viewPath))).toBe(true)
-    expect(source).toContain("const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'")
+    expect(existsSync(sourcePath('src/utils/school_website_embed.ts'))).toBe(true)
+    expect(embedUtil).toContain("export const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'")
+    expect(embedUtil).toContain('mountSchoolWebsiteEmbed')
+    expect(embedUtil).toContain('tauri-webview')
+    expect(embedUtil).toContain('/school-website/')
+    expect(source).toContain('mountSchoolWebsiteEmbed')
     expect(source).toContain('<iframe')
     expect(source).toContain('在浏览器中打开')
-    expect(source).toContain('4500')
     expect(source).toContain('openExternal')
   })
 

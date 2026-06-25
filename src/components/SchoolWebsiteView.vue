@@ -1,17 +1,27 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
+import {
+  SCHOOL_WEBSITE_URL,
+  mountSchoolWebsiteEmbed,
+  resolveSchoolWebsiteEmbedMode,
+  resolveSchoolWebsiteIframeUrl
+} from '../utils/school_website_embed'
 
 const emit = defineEmits(['back'])
 
-const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'
-
-const frameRef = ref(null)
+const frameShellRef = ref(null)
+const embedMode = ref('direct-iframe')
 const loading = ref(true)
 const loadError = ref('')
 const loadHint = ref('')
+const useNativeEmbed = computed(() => embedMode.value === 'tauri-webview')
+const iframeSrc = computed(() =>
+  resolveSchoolWebsiteIframeUrl(embedMode.value === 'proxy-iframe' ? 'proxy-iframe' : 'direct-iframe')
+)
 
 let loadingGuardTimer = null
+let embedCleanup = null
 
 const clearLoadingGuardTimer = () => {
   if (loadingGuardTimer) {
@@ -20,20 +30,21 @@ const clearLoadingGuardTimer = () => {
   }
 }
 
-const resetFrameState = () => {
+const resetIframeState = () => {
   clearLoadingGuardTimer()
   loading.value = true
   loadError.value = ''
   loadHint.value = ''
 
   loadingGuardTimer = window.setTimeout(() => {
-    if (!loading.value) return
+    if (!loading.value || useNativeEmbed.value) return
     loading.value = false
     loadHint.value = '页面加载较慢，若长时间空白可尝试在浏览器中打开。'
   }, 4500)
 }
 
 const handleLoad = () => {
+  if (useNativeEmbed.value) return
   clearLoadingGuardTimer()
   loading.value = false
   loadError.value = ''
@@ -41,6 +52,7 @@ const handleLoad = () => {
 }
 
 const handleError = () => {
+  if (useNativeEmbed.value) return
   clearLoadingGuardTimer()
   loading.value = false
   loadError.value = '官网页面无法在应用内嵌入显示，请点击下方按钮在浏览器中打开。'
@@ -51,12 +63,50 @@ const handleOpenExternal = async () => {
   await openExternal(SCHOOL_WEBSITE_URL)
 }
 
+const cleanupEmbed = async () => {
+  clearLoadingGuardTimer()
+  if (embedCleanup) {
+    const cleanup = embedCleanup
+    embedCleanup = null
+    await cleanup()
+  }
+}
+
+const mountEmbed = async () => {
+  const container = frameShellRef.value
+  if (!container) return
+
+  embedMode.value = await resolveSchoolWebsiteEmbedMode()
+
+  if (embedMode.value === 'tauri-webview') {
+    try {
+      const mounted = await mountSchoolWebsiteEmbed({
+        container,
+        onReady: () => {
+          loading.value = false
+          loadError.value = ''
+          loadHint.value = ''
+        },
+        onError: (message) => {
+          loadError.value = message
+        }
+      })
+      embedCleanup = mounted.cleanup
+      return
+    } catch {
+      embedMode.value = 'proxy-iframe'
+    }
+  }
+
+  resetIframeState()
+}
+
 onMounted(() => {
-  resetFrameState()
+  void mountEmbed()
 })
 
 onBeforeUnmount(() => {
-  clearLoadingGuardTimer()
+  void cleanupEmbed()
 })
 </script>
 
@@ -75,7 +125,7 @@ onBeforeUnmount(() => {
       </button>
     </header>
 
-    <div class="frame-shell">
+    <div ref="frameShellRef" class="frame-shell">
       <div v-if="loading" class="frame-overlay">
         <span class="material-symbols-outlined spinning">progress_activity</span>
         <p>正在加载学校官网…</p>
@@ -92,9 +142,9 @@ onBeforeUnmount(() => {
       </div>
 
       <iframe
-        ref="frameRef"
+        v-if="!useNativeEmbed"
         class="website-frame"
-        :src="SCHOOL_WEBSITE_URL"
+        :src="iframeSrc"
         title="湖北工业大学官网"
         allowfullscreen
         referrerpolicy="no-referrer-when-downgrade"
