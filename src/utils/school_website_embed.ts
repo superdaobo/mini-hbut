@@ -1,12 +1,18 @@
 import { detectRuntime } from '../platform/runtime'
 
 export const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'
-const SCHOOL_WEBSITE_EMBED_LABEL = 'school-website-embed'
 const LOCAL_BRIDGE_BASE = 'http://127.0.0.1:4399'
 
 export const SCHOOL_WEBSITE_PROXY_URL = `${LOCAL_BRIDGE_BASE}/school-website/`
 
 export type SchoolWebsiteEmbedMode = 'tauri-webview' | 'proxy-iframe' | 'direct-iframe'
+
+export type EmbedBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 export const resolveSchoolWebsiteIframeUrl = (mode: Exclude<SchoolWebsiteEmbedMode, 'tauri-webview'>) =>
   mode === 'proxy-iframe' ? SCHOOL_WEBSITE_PROXY_URL : SCHOOL_WEBSITE_URL
@@ -34,6 +40,49 @@ export const resolveSchoolWebsiteEmbedMode = async (): Promise<SchoolWebsiteEmbe
   return 'direct-iframe'
 }
 
+const waitForLayout = async () => {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+}
+
+export const measureSchoolWebsiteEmbedBounds = async (
+  container: HTMLElement
+): Promise<EmbedBounds> => {
+  await waitForLayout()
+
+  const rect = container.getBoundingClientRect()
+  let top = Math.max(0, Math.round(rect.top))
+  let left = Math.max(0, Math.round(rect.left))
+  let width = Math.max(1, Math.round(rect.width))
+  let height = Math.max(1, Math.round(rect.height))
+
+  if (canUseTauriEmbeddedWebview()) {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window')
+      const window = getCurrentWindow()
+      const scaleFactor = await window.scaleFactor()
+      const innerSize = await window.innerSize()
+      const innerLogical = innerSize.toLogical(scaleFactor)
+      const bottomPadding = 12
+
+      if (top <= 0 && container.parentElement) {
+        const parentRect = container.parentElement.getBoundingClientRect()
+        top = Math.max(0, Math.round(parentRect.top + (rect.top - parentRect.top)))
+      }
+
+      width = Math.max(1, Math.round(rect.width || innerLogical.width - left * 2))
+      const heightFromWindow = Math.max(1, Math.round(innerLogical.height - top - bottomPadding))
+      const minExpected = Math.round(innerLogical.height * 0.45)
+      height = heightFromRect >= minExpected ? heightFromRect : heightFromWindow
+    } catch {
+      // 保留 DOM 测量结果
+    }
+  }
+
+  return { x: left, y: top, width, height }
+}
+
 type MountOptions = {
   container: HTMLElement
   onReady?: () => void
@@ -45,16 +94,15 @@ type MountedEmbed = {
   cleanup: () => Promise<void>
 }
 
-const syncWebviewBounds = async (
-  webview: import('@tauri-apps/api/webview').Webview,
-  container: HTMLElement
-) => {
-  const { LogicalPosition, LogicalSize } = await import('@tauri-apps/api/dpi')
-  const rect = container.getBoundingClientRect()
-  const width = Math.max(1, Math.round(rect.width))
-  const height = Math.max(1, Math.round(rect.height))
-  await webview.setPosition(new LogicalPosition(Math.round(rect.left), Math.round(rect.top)))
-  await webview.setSize(new LogicalSize(width, height))
+const invokeNative = async <T = unknown>(command: string, args?: Record<string, unknown>) => {
+  const core = await import('@tauri-apps/api/core')
+  if (typeof args === 'undefined') return core.invoke<T>(command)
+  return core.invoke<T>(command, args)
+}
+
+const syncNativeEmbedBounds = async (container: HTMLElement) => {
+  const bounds = await measureSchoolWebsiteEmbedBounds(container)
+  await invokeNative('school_website_embed_resize', { bounds })
 }
 
 export const mountSchoolWebsiteEmbed = async ({
@@ -73,58 +121,31 @@ export const mountSchoolWebsiteEmbed = async ({
   }
 
   try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window')
-    const { Webview } = await import('@tauri-apps/api/webview')
-
-    const appWindow = getCurrentWindow()
-    const existing = await Webview.getByLabel(SCHOOL_WEBSITE_EMBED_LABEL)
-    if (existing) {
-      try {
-        await existing.close()
-      } catch {
-        // ignore stale embed cleanup failure
-      }
-    }
-
-    const rect = container.getBoundingClientRect()
-    const webview = new Webview(appWindow, SCHOOL_WEBSITE_EMBED_LABEL, {
-      url: SCHOOL_WEBSITE_URL,
-      x: Math.round(rect.left),
-      y: Math.round(rect.top),
-      width: Math.max(1, Math.round(rect.width)),
-      height: Math.max(1, Math.round(rect.height)),
-      focus: true
-    })
-
-    await new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        reject(new Error('创建学校官网内嵌视图超时'))
-      }, 8000)
-
-      webview.once('tauri://created', () => {
-        window.clearTimeout(timer)
-        resolve()
-      })
-      webview.once('tauri://error', (event) => {
-        window.clearTimeout(timer)
-        reject(new Error(String(event?.payload || '创建学校官网内嵌视图失败')))
-      })
-    })
-
-    await webview.setAutoResize(false)
-    await syncWebviewBounds(webview, container)
+    const bounds = await measureSchoolWebsiteEmbedBounds(container)
+    await invokeNative('school_website_embed_open', { bounds })
 
     const resizeObserver = new ResizeObserver(() => {
-      void syncWebviewBounds(webview, container).catch(() => {})
+      void syncNativeEmbedBounds(container).catch(() => {})
     })
     resizeObserver.observe(container)
+    if (container.parentElement) {
+      resizeObserver.observe(container.parentElement)
+    }
 
     let closed = false
     const handleWindowResize = () => {
       if (closed) return
-      void syncWebviewBounds(webview, container).catch(() => {})
+      void syncNativeEmbedBounds(container).catch(() => {})
     }
     window.addEventListener('resize', handleWindowResize)
+
+    const layoutTimer = window.setInterval(() => {
+      if (closed) return
+      void syncNativeEmbedBounds(container).catch(() => {})
+    }, 300)
+    window.setTimeout(() => {
+      window.clearInterval(layoutTimer)
+    }, 1800)
 
     onReady?.()
 
@@ -133,16 +154,13 @@ export const mountSchoolWebsiteEmbed = async ({
       cleanup: async () => {
         if (closed) return
         closed = true
+        window.clearInterval(layoutTimer)
         resizeObserver.disconnect()
         window.removeEventListener('resize', handleWindowResize)
         try {
-          await webview.close()
+          await invokeNative('school_website_embed_close')
         } catch {
-          try {
-            await webview.hide()
-          } catch {
-            // ignore cleanup failure
-          }
+          // ignore cleanup failure
         }
       }
     }

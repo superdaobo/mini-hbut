@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
 import {
   SCHOOL_WEBSITE_URL,
@@ -102,7 +102,7 @@ const mountEmbed = async () => {
 }
 
 onMounted(() => {
-  void mountEmbed()
+  void nextTick().then(() => mountEmbed())
 })
 
 onBeforeUnmount(() => {
@@ -158,8 +158,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .school-website-view {
-  min-height: calc(var(--app-vh, 1vh) * 100);
-  min-height: 100dvh;
+  height: calc(var(--app-vh, 1vh) * 100);
+  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--ui-bg-gradient, #f9f9ff);

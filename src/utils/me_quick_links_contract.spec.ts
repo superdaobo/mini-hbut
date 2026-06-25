@@ -49,8 +49,10 @@ describe('me quick links frontend contract', () => {
     expect(existsSync(sourcePath('src/utils/school_website_embed.ts'))).toBe(true)
     expect(embedUtil).toContain("export const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'")
     expect(embedUtil).toContain('mountSchoolWebsiteEmbed')
-    expect(embedUtil).toContain('tauri-webview')
-    expect(embedUtil).toContain('/school-website/')
+    expect(embedUtil).toContain('measureSchoolWebsiteEmbedBounds')
+    expect(embedUtil).toContain('school_website_embed_open')
+    expect(embedUtil).toContain('school_website_embed_resize')
+    expect(embedUtil).toContain('school_website_embed_close')
     expect(source).toContain('mountSchoolWebsiteEmbed')
     expect(source).toContain('<iframe')
     expect(source).toContain('在浏览器中打开')
@@ -68,6 +70,18 @@ describe('me quick links frontend contract', () => {
     expect(source).toContain('学习通')
     expect(source).toContain('openExternal')
     expect(source).toContain('showToast')
+  })
+
+  it('registers school website embed commands in Rust', () => {
+    const source = readSource('src-tauri/src/lib.rs')
+    const moduleSource = readSource('src-tauri/src/modules/school_website_embed.rs')
+
+    expect(source).toContain('modules::school_website_embed::school_website_embed_open')
+    expect(source).toContain('modules::school_website_embed::school_website_embed_resize')
+    expect(source).toContain('modules::school_website_embed::school_website_embed_close')
+    expect(moduleSource).toContain('on_navigation')
+    expect(moduleSource).toContain('on_new_window')
+    expect(moduleSource).toContain('.hbut.edu.cn')
   })
 
   it('adds dark mode overrides for the new Me sub pages', () => {
