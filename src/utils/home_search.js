@@ -7,6 +7,7 @@ const SERVICE_ALIASES = Object.freeze({
   ranking: ['排名', '绩点排名', '专业排名'],
   campus_code: ['校园码', '二维码', '一码通'],
   calendar: ['校历', '日历', '学期'],
+  school_inbox: ['消息', '通知', '公告', '收件箱', '学习通消息', '教务消息'],
   academic: ['学业', '学分', '完成度'],
   qxzkb: ['全校课表', '课程', '排课'],
   course_selection: ['选课', '退课', '通识课'],

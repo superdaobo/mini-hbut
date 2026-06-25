@@ -16,6 +16,7 @@ export type HomeModuleKey =
   | 'ranking'
   | 'campus_code'
   | 'calendar'
+  | 'school_inbox'
   | 'academic'
   | 'qxzkb'
   | 'course_selection'
@@ -77,6 +78,7 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'ranking',
   'campus_code',
   'calendar',
+  'school_inbox',
   'academic',
   'qxzkb',
   'course_selection',

@@ -234,4 +234,20 @@ describe('notification delivery contract', () => {
     expect(source).toContain('schoolInboxSummary')
     expect(uiSettings).toContain("'school_inbox'")
   })
+
+  it('registers school inbox browse module on home dashboard and app routing', () => {
+    const dashboard = readText('src/components/Dashboard.vue')
+    const appSource = readText('src/App.vue')
+    const uiSettings = readText('src/config/ui_settings.ts')
+    const inboxView = readText('src/components/SchoolInboxView.vue')
+    const homeSearch = readText('src/utils/home_search.js')
+
+    expect(dashboard).toContain("id: 'school_inbox'")
+    expect(dashboard).toContain("'school_inbox'")
+    expect(appSource).toContain("currentView === 'school_inbox'")
+    expect(appSource).toContain('loadSchoolInboxView')
+    expect(uiSettings).toContain('HomeModuleKey')
+    expect(inboxView).toContain("invokeNative('school_inbox_fetch'")
+    expect(homeSearch).toContain('school_inbox:')
+  })
 })
