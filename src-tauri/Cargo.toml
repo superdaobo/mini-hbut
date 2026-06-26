@@ -75,7 +75,7 @@ rfd = "0.15"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage", "Win32_Storage_Xps", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 ndk-context = "0.1"
 
 [features]
