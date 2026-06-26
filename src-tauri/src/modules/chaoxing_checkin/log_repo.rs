@@ -150,11 +150,10 @@ mod tests {
     use crate::db::init_db;
     use rusqlite::Connection;
 
-    /// 创建内存数据库并初始化 schema
+    /// 创建临时数据库并初始化 schema（keep 文件避免 Linux 上句柄未关闭即删文件）
     fn setup_db() -> Connection {
-        // 使用临时文件让 init_db 创建 schema，然后打开内存连接
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_path_buf();
+        let (_file, path) = tmp.keep().unwrap();
         init_db(&path).unwrap();
         Connection::open(&path).unwrap()
     }
