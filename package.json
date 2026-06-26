@@ -62,7 +62,7 @@
     "tailwind-merge": "^3.6.0",
     "tauri-plugin-keep-screen-on-api": "^0.1.4",
     "vue": "^3.4.0",
-    "vue-router": "^4.2.5",
+    "vue-router": "^5.1.0",
     "vue-sonner": "^2.0.9"
   },
   "devDependencies": {
