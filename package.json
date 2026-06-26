@@ -36,7 +36,7 @@
     "@capacitor/app-launcher": "^6.0.4",
     "@capacitor/browser": "^6.0.2",
     "@capacitor/core": "^6.1.2",
-    "@capacitor/filesystem": "^6.0.2",
+    "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^6.1.2",
     "@capacitor/local-notifications": "^6.1.0",
     "@capacitor/preferences": "^6.0.4",
