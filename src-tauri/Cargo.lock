@@ -2308,7 +2308,7 @@ dependencies = [
  "md5",
  "ndk-context",
  "notify-rust",
- "png 0.17.16",
+ "png 0.18.1",
  "proptest",
  "proptest-derive",
  "qrcode",
