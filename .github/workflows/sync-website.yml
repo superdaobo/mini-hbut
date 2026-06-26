@@ -162,5 +162,5 @@ jobs:
       - name: Deploy to website-pages branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOY_MESSAGE: deploy: sync website from ${{ github.sha }}
+          DEPLOY_MESSAGE: "deploy: sync website from ${{ github.sha }}"
         run: bash scripts/ci/deploy_website_pages.sh

@@ -137,5 +137,5 @@ jobs:
       - name: Deploy to website-pages branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOY_MESSAGE: deploy: website modules ${{ github.ref_name }} ${{ github.sha }}
+          DEPLOY_MESSAGE: "deploy: website modules ${{ github.ref_name }} ${{ github.sha }}"
         run: bash scripts/ci/deploy_website_pages.sh
