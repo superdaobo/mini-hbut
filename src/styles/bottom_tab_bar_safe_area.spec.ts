@@ -90,8 +90,9 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
   })
 
   it('keeps forum out of the bottom tab bar while preserving the main four tabs', () => {
-    expect(appVue()).toContain("const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']")
-    expect(appVue()).not.toContain("const MAIN_TABS = ['home', 'schedule', 'forum', 'notifications', 'me']")
+    const navSource = readSource('src/navigation/app_navigation.ts')
+    expect(navSource).toContain("export const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']")
+    expect(navSource).not.toContain("export const MAIN_TABS = ['home', 'schedule', 'forum', 'notifications', 'me']")
     expect(appVue()).toMatch(/grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)\s*!important;/)
     expect(appVue()).not.toContain('tab-item--forum')
   })

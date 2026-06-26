@@ -2,18 +2,18 @@
 //!
 //! 将 http_client 的 AI 能力封装为统一接口，供前端调用。
 
-use crate::AppState;
 use crate::db;
+use crate::AppState;
 
 const DB_FILENAME: &str = "grades.db";
-use tauri::State;
-use serde::{Deserialize, Serialize};
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use base64::Engine as _;
 use chrono::Utc;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::OnceLock;
-use base64::Engine as _;
+use tauri::State;
 
 const AI_UPLOAD_MAX_BYTES: usize = 20 * 1024 * 1024;
 const AI_UPLOAD_ALLOWED_EXTENSIONS: [&str; 4] = ["docx", "pdf", "txt", "md"];
@@ -96,11 +96,15 @@ fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
             if label.is_empty() {
                 None
             } else {
-                Some(AiModelOption { label: label.to_string(), value: label.to_string() })
+                Some(AiModelOption {
+                    label: label.to_string(),
+                    value: label.to_string(),
+                })
             }
         }
         Value::Object(map) => {
-            let label = map.get("label")
+            let label = map
+                .get("label")
                 .or_else(|| map.get("text"))
                 .or_else(|| map.get("name"))
                 .or_else(|| map.get("modeName"))
@@ -109,7 +113,8 @@ fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
                 .or_else(|| map.get("display"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let value = map.get("value")
+            let value = map
+                .get("value")
                 .or_else(|| map.get("model"))
                 .or_else(|| map.get("modelId"))
                 .or_else(|| map.get("code"))
@@ -119,8 +124,14 @@ fn normalize_model_item(item: &Value) -> Option<AiModelOption> {
                 .map(|s| s.to_string());
             match (label, value) {
                 (Some(l), Some(v)) => Some(AiModelOption { label: l, value: v }),
-                (Some(l), None) => Some(AiModelOption { label: l.clone(), value: l }),
-                (None, Some(v)) => Some(AiModelOption { label: v.clone(), value: v }),
+                (Some(l), None) => Some(AiModelOption {
+                    label: l.clone(),
+                    value: l,
+                }),
+                (None, Some(v)) => Some(AiModelOption {
+                    label: v.clone(),
+                    value: v,
+                }),
                 _ => None,
             }
         }
@@ -133,7 +144,13 @@ fn extract_models_from_value(value: &Value) -> Vec<AiModelOption> {
     let mut candidates: Vec<Value> = Vec::new();
 
     if let Value::Object(map) = value {
-        for key in ["modelList", "models", "model_list", "aiModels", "modelOptions"] {
+        for key in [
+            "modelList",
+            "models",
+            "model_list",
+            "aiModels",
+            "modelOptions",
+        ] {
             if let Some(Value::Array(list)) = map.get(key) {
                 candidates.extend(list.clone());
                 break;
@@ -181,21 +198,37 @@ async fn fetch_ai_models(token: &str, blade_auth: &str) -> Result<Vec<AiModelOpt
 }
 
 fn build_ai_headers(token: &str, blade_auth: &str) -> Result<HeaderMap, String> {
-    let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
+    let referer = format!(
+        "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+        token
+    );
     let mut headers = HeaderMap::new();
     if !blade_auth.trim().is_empty() {
-        headers.insert("blade-auth", HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?);
+        headers.insert(
+            "blade-auth",
+            HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?,
+        );
     }
-    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| e.to_string())?);
-    headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"));
+    headers.insert(
+        "Referer",
+        HeaderValue::from_str(&referer).map_err(|e| e.to_string())?,
+    );
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+    );
     Ok(headers)
 }
 
-pub(crate) async fn fetch_ai_init_param_json(token: &str, blade_auth: &str) -> Result<Value, String> {
+pub(crate) async fn fetch_ai_init_param_json(
+    token: &str,
+    blade_auth: &str,
+) -> Result<Value, String> {
     let client = reqwest::Client::new();
     let headers = build_ai_headers(token, blade_auth)?;
     let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/config/initParam";
-    let response = client.post(url)
+    let response = client
+        .post(url)
         .headers(headers)
         .send()
         .await
@@ -223,10 +256,7 @@ fn extract_session_id_from_init(value: &Value) -> Option<String> {
     None
 }
 
-pub async fn create_ai_remote_session(
-    token: &str,
-    blade_auth: &str,
-) -> Result<String, String> {
+pub async fn create_ai_remote_session(token: &str, blade_auth: &str) -> Result<String, String> {
     let json = fetch_ai_init_param_json(token, blade_auth).await?;
     extract_session_id_from_init(&json).ok_or_else(|| "initParam 未返回 sessionId".to_string())
 }
@@ -262,10 +292,17 @@ pub async fn fetch_ai_session_history(
         .await
         .map_err(|e| e.to_string())?;
     let text = response.text().await.map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
+    let json: Value =
+        serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
     let data = json.get("data").cloned().unwrap_or(Value::Null);
-    let current_val = data.get("current").and_then(|v| v.as_i64()).unwrap_or(current.max(1));
-    let size_val = data.get("size").and_then(|v| v.as_i64()).unwrap_or(size.clamp(1, 100));
+    let current_val = data
+        .get("current")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(current.max(1));
+    let size_val = data
+        .get("size")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(size.clamp(1, 100));
     let total_val = data.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
     let pages_val = data.get("pages").and_then(|v| v.as_i64()).unwrap_or(0);
 
@@ -273,17 +310,23 @@ pub async fn fetch_ai_session_history(
     let mut seen: HashSet<String> = HashSet::new();
     if let Some(records) = data.get("records").and_then(|v| v.as_array()) {
         for rec in records {
-            let sid = rec.get("sessionId").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let sid = rec
+                .get("sessionId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
             if sid.is_empty() || !seen.insert(sid.to_string()) {
                 continue;
             }
-            let title = rec.get("ask")
+            let title = rec
+                .get("ask")
                 .and_then(|v| v.as_str())
                 .or_else(|| rec.get("content").and_then(|v| v.as_str()))
                 .unwrap_or("新对话")
                 .trim()
                 .to_string();
-            let preview = rec.get("content")
+            let preview = rec
+                .get("content")
                 .and_then(|v| v.as_str())
                 .or_else(|| rec.get("ask").and_then(|v| v.as_str()))
                 .unwrap_or("")
@@ -291,7 +334,11 @@ pub async fn fetch_ai_session_history(
             let updated_at = rec.get("createTime").and_then(|v| v.as_i64()).unwrap_or(0);
             sessions.push(AiSessionInfo {
                 session_id: sid.to_string(),
-                title: if title.is_empty() { "新对话".to_string() } else { title },
+                title: if title.is_empty() {
+                    "新对话".to_string()
+                } else {
+                    title
+                },
                 preview,
                 updated_at,
             });
@@ -330,7 +377,8 @@ pub async fn fetch_ai_session_messages(
         .await
         .map_err(|e| e.to_string())?;
     let text = response.text().await.map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
+    let json: Value =
+        serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
     let data = json.get("data").cloned().unwrap_or(Value::Null);
     let mut messages: Vec<AiSessionMessage> = Vec::new();
     if let Some(records) = data.get("records").and_then(|v| v.as_array()) {
@@ -343,12 +391,19 @@ pub async fn fetch_ai_session_messages(
                         2 => "assistant",
                         _ => "system",
                     };
-                    let content = qa.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let content = qa
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if content.trim().is_empty() {
                         continue;
                     }
                     let timestamp = qa.get("createTime").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let model = qa.get("modeName").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    let model = qa
+                        .get("modeName")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
                     messages.push(AiSessionMessage {
                         role: role.to_string(),
                         content,
@@ -385,7 +440,10 @@ pub async fn delete_ai_session(
     let response = client
         .post(url)
         .headers(headers)
-        .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded;charset=UTF-8",
+        )
         .form(&payload)
         .send()
         .await
@@ -396,7 +454,10 @@ pub async fn delete_ai_session(
     if !status.is_success() {
         return Err(format!("删除失败({}): {}", status, text));
     }
-    let ok_flag = json.get("success").and_then(|v| v.as_bool()).unwrap_or(true);
+    let ok_flag = json
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let code_ok = json
         .get("code")
         .or_else(|| json.get("ret"))
@@ -430,9 +491,12 @@ fn guess_mime_by_extension(ext: &str) -> &'static str {
     }
 }
 
-fn validate_upload_file(file_name: &str, bytes_len: usize, allow_empty: bool) -> Result<String, String> {
-    let ext = extract_file_extension(file_name)
-        .ok_or_else(|| "文件名缺少有效后缀".to_string())?;
+fn validate_upload_file(
+    file_name: &str,
+    bytes_len: usize,
+    allow_empty: bool,
+) -> Result<String, String> {
+    let ext = extract_file_extension(file_name).ok_or_else(|| "文件名缺少有效后缀".to_string())?;
     if !AI_UPLOAD_ALLOWED_EXTENSIONS.contains(&ext.as_str()) {
         return Err("仅支持上传 .docx/.pdf/.txt/.md 文件".to_string());
     }
@@ -459,22 +523,37 @@ async fn upload_binary_file(
         .map(|m| m.trim())
         .filter(|m| !m.is_empty())
         .unwrap_or(guessed_mime);
-    let form = reqwest::multipart::Form::new()
-        .part("file", reqwest::multipart::Part::bytes(file_bytes)
+    let form = reqwest::multipart::Form::new().part(
+        "file",
+        reqwest::multipart::Part::bytes(file_bytes)
             .file_name(file_name.to_string())
             .mime_str(final_mime)
-            .map_err(|e| e.to_string())?);
+            .map_err(|e| e.to_string())?,
+    );
 
     let mut headers = HeaderMap::new();
     if !blade_auth.is_empty() {
-        headers.insert("blade-auth", HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?);
+        headers.insert(
+            "blade-auth",
+            HeaderValue::from_str(blade_auth).map_err(|e| e.to_string())?,
+        );
     }
-    let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
-    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| e.to_string())?);
-    headers.insert(USER_AGENT, HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"));
+    let referer = format!(
+        "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+        token
+    );
+    headers.insert(
+        "Referer",
+        HeaderValue::from_str(&referer).map_err(|e| e.to_string())?,
+    );
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+    );
 
     let url = "https://virtualhuman2h5.59wanmei.com/apis/blade-resource/oss/endpoint/put-file-attach-limit?code=ali";
-    let response = client.post(url)
+    let response = client
+        .post(url)
         .headers(headers)
         .multipart(form)
         .send()
@@ -482,7 +561,8 @@ async fn upload_binary_file(
         .map_err(|e| e.to_string())?;
 
     let text = response.text().await.map_err(|e| e.to_string())?;
-    let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("JSON Parse Error: {}", e))?;
 
     if let Some(data) = json.get("data") {
         if let Some(link) = data.get("link").and_then(|v| v.as_str()) {
@@ -502,7 +582,7 @@ async fn upload_binary_file(
 #[tauri::command]
 /// 初始化 AI 会话入口
 pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     if let Some(info) = client.user_info.clone() {
         let student_id = info.student_id.clone();
         if let Ok(Some(session)) = db::get_user_session(DB_FILENAME, &student_id) {
@@ -530,7 +610,10 @@ pub async fn hbut_ai_init(state: State<'_, AppState>) -> Result<AiInitResponse, 
                 .map(extract_models_from_value)
                 .filter(|list| !list.is_empty());
             if models.is_none() {
-                models = fetch_ai_models(&token, &blade_auth).await.ok().filter(|list| !list.is_empty());
+                models = fetch_ai_models(&token, &blade_auth)
+                    .await
+                    .ok()
+                    .filter(|list| !list.is_empty());
             }
             let session_id = init_json.as_ref().and_then(extract_session_id_from_init);
             Ok(AiInitResponse {
@@ -594,27 +677,34 @@ pub async fn hbut_ai_chat(
     token: String,
     blade_auth: String,
     question: String,
-    upload_url: String, 
+    upload_url: String,
     model: String,
     session_id: Option<String>,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
-    
+
     let mut headers = HeaderMap::new();
     if !blade_auth.is_empty() {
-        headers.insert("blade-auth", HeaderValue::from_str(&blade_auth).map_err(|e| e.to_string())?);
+        headers.insert(
+            "blade-auth",
+            HeaderValue::from_str(&blade_auth).map_err(|e| e.to_string())?,
+        );
     }
-    let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
-    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| e.to_string())?);
-    
-    let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
+    let referer = format!(
+        "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+        token
+    );
+    headers.insert(
+        "Referer",
+        HeaderValue::from_str(&referer).map_err(|e| e.to_string())?,
+    );
+
+    let url =
+        "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
 
     let final_upload_url = ensure_stream_upload_url(&token, &blade_auth, upload_url.trim()).await;
 
-    let remote_session_id = session_id
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+    let remote_session_id = session_id.unwrap_or_default().trim().to_string();
     let final_session_id = if remote_session_id.is_empty() {
         create_ai_remote_session(&token, &blade_auth)
             .await
@@ -624,7 +714,11 @@ pub async fn hbut_ai_chat(
     };
     let timestamp = Utc::now().timestamp_millis().to_string();
 
-    let selected_model = if model.trim().is_empty() { "qwen-max" } else { model.as_str() };
+    let selected_model = if model.trim().is_empty() {
+        "qwen-max"
+    } else {
+        model.as_str()
+    };
     let effective_question = build_effective_ask(&question);
     let network_flag = "1";
 
@@ -641,14 +735,15 @@ pub async fn hbut_ai_chat(
     if !final_upload_url.trim().is_empty() {
         params.push(("uploadUrl", final_upload_url));
     }
-    
-    let response = client.post(url)
+
+    let response = client
+        .post(url)
         .headers(headers)
         .form(&params)
         .send()
         .await
         .map_err(|e| e.to_string())?;
-        
+
     let text = response.text().await.map_err(|e| e.to_string())?;
     Ok(parse_ai_stream_text(&text))
 }
@@ -764,7 +859,15 @@ pub(crate) async fn ensure_stream_upload_url(
         return trimmed.to_string();
     }
     let file_name = format!("empty_{}.txt", Utc::now().timestamp_millis());
-    match upload_binary_file(token, blade_auth, Vec::new(), &file_name, Some("text/plain")).await {
+    match upload_binary_file(
+        token,
+        blade_auth,
+        Vec::new(),
+        &file_name,
+        Some("text/plain"),
+    )
+    .await
+    {
         Ok(resp) => resp.link.trim().to_string(),
         Err(_) => String::new(),
     }
@@ -774,7 +877,9 @@ pub(crate) fn extract_text_from_value(value: &Value) -> Option<String> {
     match value {
         Value::String(s) => {
             let trimmed = s.trim();
-            if (trimmed.starts_with('{') && trimmed.ends_with('}')) || (trimmed.starts_with('[') && trimmed.ends_with(']')) {
+            if (trimmed.starts_with('{') && trimmed.ends_with('}'))
+                || (trimmed.starts_with('[') && trimmed.ends_with(']'))
+            {
                 if let Ok(nested) = serde_json::from_str::<Value>(trimmed) {
                     if let Some(found) = extract_text_from_value(&nested) {
                         return Some(found);
@@ -912,7 +1017,9 @@ fn extract_string_field(map: &serde_json::Map<String, Value>, key: &str) -> Opti
     map.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-pub(crate) fn extract_stream_fields(value: &Value) -> Option<(Option<i64>, Option<String>, Option<String>)> {
+pub(crate) fn extract_stream_fields(
+    value: &Value,
+) -> Option<(Option<i64>, Option<String>, Option<String>)> {
     match value {
         Value::Object(map) => {
             if let Some(data) = map.get("data") {
@@ -1120,7 +1227,8 @@ fn strip_citation_markers(text: &str) -> String {
     static ONLY_CITATION_RE: OnceLock<regex::Regex> = OnceLock::new();
     static INLINE_CITATION_RE: OnceLock<regex::Regex> = OnceLock::new();
     let only_re = ONLY_CITATION_RE.get_or_init(|| {
-        regex::Regex::new(r"^\s*!!\s*\d+\s*!!\s*$").expect("standalone citation regex should be valid")
+        regex::Regex::new(r"^\s*!!\s*\d+\s*!!\s*$")
+            .expect("standalone citation regex should be valid")
     });
     // 若回复只有 `!!2!!` 这类内容，视为用户显式要求输出，保留原样。
     if only_re.is_match(text) {
@@ -1152,7 +1260,8 @@ pub(crate) fn clean_stream_chunk(raw: &str) -> Option<String> {
     }
     let decoded = decode_hex_fragments(&cleaned);
     let stripped = strip_hex_noise_runs(&decoded);
-    let final_text = strip_citation_markers(&trim_trailing_hex_noise(&strip_noise_prefix(&stripped)));
+    let final_text =
+        strip_citation_markers(&trim_trailing_hex_noise(&strip_noise_prefix(&stripped)));
     if final_text.trim().is_empty() || is_noise_message(&final_text) {
         None
     } else {

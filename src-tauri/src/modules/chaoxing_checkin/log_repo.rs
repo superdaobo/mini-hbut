@@ -4,8 +4,8 @@
 
 //! 签到日志持久化读写 + 位置历史 kv_store 封装。
 
-use rusqlite::{params, Connection, Result};
 use super::types::{CheckinLogEntry, LocationHistoryItem};
+use rusqlite::{params, Connection, Result};
 
 /// 追加一条签到日志，写入后触发惰性 90 天清理。
 pub fn append(conn: &Connection, entry: &CheckinLogEntry) -> Result<()> {
@@ -39,7 +39,11 @@ pub fn append(conn: &Connection, entry: &CheckinLogEntry) -> Result<()> {
 }
 
 /// 查询签到历史，按 submitted_at 降序，限制条数。
-pub fn query_history(conn: &Connection, student_id: &str, limit: u32) -> Result<Vec<CheckinLogEntry>> {
+pub fn query_history(
+    conn: &Connection,
+    student_id: &str,
+    limit: u32,
+) -> Result<Vec<CheckinLogEntry>> {
     let mut stmt = conn.prepare(
         "SELECT student_id, active_id, activity_type, course_name, result,
                 error_code, error_message, submitted_at, payload_hash
@@ -113,7 +117,10 @@ pub fn push_location_history(
 }
 
 /// 获取位置历史列表。
-pub fn get_location_history(conn: &Connection, student_id: &str) -> Result<Vec<LocationHistoryItem>> {
+pub fn get_location_history(
+    conn: &Connection,
+    student_id: &str,
+) -> Result<Vec<LocationHistoryItem>> {
     let key = location_history_key(student_id);
     get_location_history_inner(conn, &key)
 }
@@ -130,8 +137,7 @@ fn get_location_history_inner(conn: &Connection, key: &str) -> Result<Vec<Locati
 
     match value {
         Some(json) => {
-            let items: Vec<LocationHistoryItem> =
-                serde_json::from_str(&json).unwrap_or_default();
+            let items: Vec<LocationHistoryItem> = serde_json::from_str(&json).unwrap_or_default();
             Ok(items)
         }
         None => Ok(Vec::new()),
@@ -228,7 +234,8 @@ mod tests {
                 old_entry.submitted_at,
                 old_entry.payload_hash,
             ],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 现在 append 一条新记录，触发清理
         let new_ts = chrono::Utc::now().timestamp_millis();

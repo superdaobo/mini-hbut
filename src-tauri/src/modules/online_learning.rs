@@ -6,10 +6,12 @@ use std::time::Duration;
 
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::engine::general_purpose;
+use base64::Engine;
 use chrono::{Local, Utc};
 use futures::{SinkExt, StreamExt};
-use reqwest::cookie::Jar;
+use qrcode::QrCode;
 use reqwest::cookie::CookieStore;
+use reqwest::cookie::Jar;
 use reqwest::Url;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -18,12 +20,8 @@ use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message},
 };
-use qrcode::QrCode;
-use base64::Engine;
 
-use crate::db::{
-    self, OnlineLearningPlatformStateRecord, OnlineLearningSyncRunRecord,
-};
+use crate::db::{self, OnlineLearningPlatformStateRecord, OnlineLearningSyncRunRecord};
 use crate::http_client::HbutClient;
 
 type DynError = Box<dyn Error + Send + Sync>;
@@ -47,9 +45,10 @@ const YUKETANG_AUTHORIZE_URL: &str = "https://changjiang.yuketang.cn/authorize/w
 
 /// 将登录 URL 转换为 base64 编码的 SVG 二维码 data URI
 fn generate_qr_data_uri(url: &str) -> Result<String, DynError> {
-    let code = QrCode::new(url.as_bytes())
-        .map_err(|e| err_box(format!("生成二维码失败: {}", e)))?;
-    let svg = code.render::<qrcode::render::svg::Color>()
+    let code =
+        QrCode::new(url.as_bytes()).map_err(|e| err_box(format!("生成二维码失败: {}", e)))?;
+    let svg = code
+        .render::<qrcode::render::svg::Color>()
         .min_dimensions(280, 280)
         .quiet_zone(true)
         .build();
@@ -151,8 +150,17 @@ fn propagate_chaoxing_key_cookies(client: &HbutClient) {
         Err(_) => return,
     };
     let key_names: &[&str] = &[
-        "UID", "_uid", "fid", "cx_p_token", "p_auth_token", "xxtenc",
-        "_d", "uf", "spaceFid", "spaceRoleId", "uname",
+        "UID",
+        "_uid",
+        "fid",
+        "cx_p_token",
+        "p_auth_token",
+        "xxtenc",
+        "_d",
+        "uf",
+        "spaceFid",
+        "spaceRoleId",
+        "uname",
     ];
 
     let mut collected: HashMap<String, String> = HashMap::new();
@@ -165,7 +173,9 @@ fn propagate_chaoxing_key_cookies(client: &HbutClient) {
                         if let Some((name, value)) = pair.split_once('=') {
                             let name = name.trim();
                             if key_names.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-                                collected.entry(name.to_string()).or_insert_with(|| value.trim().to_string());
+                                collected
+                                    .entry(name.to_string())
+                                    .or_insert_with(|| value.trim().to_string());
                             }
                         }
                     }
@@ -289,13 +299,17 @@ fn restore_chaoxing_cookie_blob(client: &HbutClient, cookie_blob: &str) {
     let segments: Vec<&str> = cookie_blob.split(" | ").collect();
     for (idx, segment) in segments.iter().enumerate() {
         let domain_url = domains.get(idx).unwrap_or(&domains[0]);
-        let Ok(url) = Url::parse(domain_url) else { continue };
+        let Ok(url) = Url::parse(domain_url) else {
+            continue;
+        };
         for pair in segment.split(';') {
             let item = pair.trim();
             if item.is_empty() || !item.contains('=') {
                 continue;
             }
-            let Some((name_raw, value_raw)) = item.split_once('=') else { continue };
+            let Some((name_raw, value_raw)) = item.split_once('=') else {
+                continue;
+            };
             let name = name_raw.trim();
             let value = value_raw.trim();
             if name.is_empty() || value.is_empty() {
@@ -313,7 +327,9 @@ fn try_restore_chaoxing_session(client: &HbutClient, student_id: &str) {
     if has_chaoxing_session(client) {
         return;
     }
-    if let Ok(Some(state)) = db::get_online_learning_platform_state(crate::DB_FILENAME, student_id, PLATFORM_CHAOXING) {
+    if let Ok(Some(state)) =
+        db::get_online_learning_platform_state(crate::DB_FILENAME, student_id, PLATFORM_CHAOXING)
+    {
         if state.connected && !state.cookie_blob.trim().is_empty() {
             restore_chaoxing_cookie_blob(client, &state.cookie_blob);
         }
@@ -342,7 +358,9 @@ fn seed_chaoxing_cookie_from_jwxt(client: &mut HbutClient) -> bool {
             continue;
         }
         let cookie_line = format!("{}={}; Domain=.chaoxing.com; Path=/", name, value);
-        client.cookie_jar.add_cookie_str(&cookie_line, &chaoxing_url);
+        client
+            .cookie_jar
+            .add_cookie_str(&cookie_line, &chaoxing_url);
     }
     client.set_chaoxing_login_mode(true);
     true
@@ -383,25 +401,22 @@ fn resolve_student_password(client: &HbutClient, student_id: &str) -> Option<Str
         })
 }
 
-async fn ensure_portal_cas_session_ready(
-    client: &mut HbutClient,
-    student_id: &str,
-) -> bool {
+async fn ensure_portal_cas_session_ready(client: &mut HbutClient, student_id: &str) -> bool {
     let code_service = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
     let code_sso_url = format!(
         "{}/login?service={}",
         crate::http_client::AUTH_BASE_URL,
         urlencoding::encode(code_service)
     );
-    println!("[调试] 学习通会话重建：检查融合门户 CAS 会话 {}", code_sso_url);
+    println!(
+        "[调试] 学习通会话重建：检查融合门户 CAS 会话 {}",
+        code_sso_url
+    );
 
     match client.client.get(&code_sso_url).send().await {
         Ok(resp) => {
             let final_url = resp.url().to_string();
-            println!(
-                "[调试] 学习通会话重建：融合门户 CAS 检查跳转 {}",
-                final_url
-            );
+            println!("[调试] 学习通会话重建：融合门户 CAS 检查跳转 {}", final_url);
             if !final_url.contains("authserver/login") {
                 client.is_logged_in = true;
                 return true;
@@ -545,7 +560,10 @@ async fn try_chaoxing_password_login(
     let response = client
         .client
         .get(CHAOXING_LOGIN_PAGE_URL)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .send()
         .await
         .map_err(|e| err_box(format!("学习通登录页请求失败: {}", e)))?;
@@ -577,7 +595,10 @@ async fn try_chaoxing_password_login(
         password.to_string()
     };
     let form = vec![
-        ("fid".to_string(), pick_hidden_value(&hidden, &["fid"], "-1")),
+        (
+            "fid".to_string(),
+            pick_hidden_value(&hidden, &["fid"], "-1"),
+        ),
         ("uname".to_string(), encoded_account),
         ("password".to_string(), encoded_password),
         (
@@ -589,7 +610,10 @@ async fn try_chaoxing_password_login(
             "forbidotherlogin".to_string(),
             pick_hidden_value(&hidden, &["forbidotherlogin"], "0"),
         ),
-        ("validate".to_string(), pick_hidden_value(&hidden, &["validate"], "")),
+        (
+            "validate".to_string(),
+            pick_hidden_value(&hidden, &["validate"], ""),
+        ),
         (
             "doubleFactorLogin".to_string(),
             pick_hidden_value(&hidden, &["doubleFactorLogin"], "0"),
@@ -733,8 +757,14 @@ async fn ensure_chaoxing_session_ready(client: &mut HbutClient, student_id: &str
 /// 公开接口：为签到模块确保学习通会话就绪。
 /// 复用 ensure_chaoxing_session_ready 的逻辑，但不要求课程 API 可用（签到只需要 UID cookie）。
 /// 同时将关键 cookie 传播到 mobilelearn.chaoxing.com 域（签到 API 所在域）。
-pub async fn ensure_chaoxing_session_for_checkin(client: &mut HbutClient, student_id: &str) -> bool {
-    eprintln!("[签到调试] ensure_chaoxing_session_for_checkin: student_id={}", student_id);
+pub async fn ensure_chaoxing_session_for_checkin(
+    client: &mut HbutClient,
+    student_id: &str,
+) -> bool {
+    eprintln!(
+        "[签到调试] ensure_chaoxing_session_for_checkin: student_id={}",
+        student_id
+    );
     try_restore_chaoxing_session(client, student_id);
     if has_chaoxing_full_session(client) {
         eprintln!("[签到调试] 学习通会话已就绪（从 DB 恢复或内存中已有）");
@@ -749,7 +779,10 @@ pub async fn ensure_chaoxing_session_for_checkin(client: &mut HbutClient, studen
         return true;
     }
     // 尝试 CAS→学习通桥接
-    eprintln!("[签到调试] 尝试 CAS→学习通桥接, is_logged_in={}", client.is_logged_in);
+    eprintln!(
+        "[签到调试] 尝试 CAS→学习通桥接, is_logged_in={}",
+        client.is_logged_in
+    );
     if client.is_logged_in && client.try_bridge_cas_to_chaoxing().await {
         if has_chaoxing_full_session(client) {
             eprintln!("[签到调试] CAS 桥接后会话就绪");
@@ -774,9 +807,21 @@ fn propagate_chaoxing_cookies_for_checkin(client: &HbutClient) {
         "https://pan-yz.chaoxing.com",
     ];
     let key_names: &[&str] = &[
-        "UID", "_uid", "fid", "cx_p_token", "p_auth_token", "xxtenc",
-        "_d", "uf", "spaceFid", "spaceRoleId", "uname", "sso_puid",
-        "KI4SO_SERVER_EC", "_tid", "DSSTASH_LOG",
+        "UID",
+        "_uid",
+        "fid",
+        "cx_p_token",
+        "p_auth_token",
+        "xxtenc",
+        "_d",
+        "uf",
+        "spaceFid",
+        "spaceRoleId",
+        "uname",
+        "sso_puid",
+        "KI4SO_SERVER_EC",
+        "_tid",
+        "DSSTASH_LOG",
     ];
 
     let mut collected: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -789,7 +834,9 @@ fn propagate_chaoxing_cookies_for_checkin(client: &HbutClient) {
                         if let Some((name, value)) = pair.split_once('=') {
                             let name = name.trim();
                             if key_names.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-                                collected.entry(name.to_string()).or_insert_with(|| value.trim().to_string());
+                                collected
+                                    .entry(name.to_string())
+                                    .or_insert_with(|| value.trim().to_string());
                             }
                         }
                     }
@@ -803,7 +850,10 @@ fn propagate_chaoxing_cookies_for_checkin(client: &HbutClient) {
         return;
     }
 
-    eprintln!("[签到调试] propagate_chaoxing_cookies_for_checkin: 传播 {} 个 cookie 到签到域", collected.len());
+    eprintln!(
+        "[签到调试] propagate_chaoxing_cookies_for_checkin: 传播 {} 个 cookie 到签到域",
+        collected.len()
+    );
 
     for target in &target_urls {
         if let Ok(target_url) = Url::parse(target) {
@@ -933,7 +983,12 @@ fn summarize_course_count(payload: &Value) -> usize {
         .get("courses")
         .and_then(|v| v.as_array())
         .map(|v| v.len())
-        .or_else(|| payload.get("data").and_then(|v| v.as_array()).map(|v| v.len()))
+        .or_else(|| {
+            payload
+                .get("data")
+                .and_then(|v| v.as_array())
+                .map(|v| v.len())
+        })
         .unwrap_or(0)
 }
 
@@ -1048,7 +1103,8 @@ pub async fn fetch_online_learning_overview(
     student_id: Option<&str>,
 ) -> Result<Value, DynError> {
     let sid = resolve_student_id(client, student_id)?;
-    let states = db::list_online_learning_platform_states(crate::DB_FILENAME, &sid).unwrap_or_default();
+    let states =
+        db::list_online_learning_platform_states(crate::DB_FILENAME, &sid).unwrap_or_default();
     let mut state_map: HashMap<String, OnlineLearningPlatformStateRecord> = HashMap::new();
     for item in states {
         state_map.insert(item.platform.clone(), item);
@@ -1058,7 +1114,8 @@ pub async fn fetch_online_learning_overview(
     let yuketang_state = state_map.get(PLATFORM_YUKETANG);
     let chaoxing_course_cache = read_cache(CACHE_CHAOXING_COURSES, &cache_key(&sid, "courses"));
     let yuketang_course_cache = read_cache(CACHE_YUKETANG_COURSES, &cache_key(&sid, "courses"));
-    let recent_runs = db::list_online_learning_sync_runs(crate::DB_FILENAME, &sid, None, 10).unwrap_or_default();
+    let recent_runs =
+        db::list_online_learning_sync_runs(crate::DB_FILENAME, &sid, None, 10).unwrap_or_default();
 
     let chaoxing_full_ready = has_chaoxing_full_session(client);
     let chaoxing_bridge_ready = has_chaoxing_bridge_cookie(client);
@@ -1172,7 +1229,9 @@ pub async fn online_learning_sync_now(
                         &format!("同步失败: {}", error),
                         json!({ "error": error.to_string() }),
                     );
-                    outputs.push(json!({ "platform": key, "success": false, "error": error.to_string() }));
+                    outputs.push(
+                        json!({ "platform": key, "success": false, "error": error.to_string() }),
+                    );
                 }
             }
         }
@@ -1230,7 +1289,10 @@ pub fn list_online_learning_sync_runs(
     }))
 }
 
-pub fn clear_online_learning_cache(student_id: &str, platform: Option<&str>) -> Result<Value, DynError> {
+pub fn clear_online_learning_cache(
+    student_id: &str,
+    platform: Option<&str>,
+) -> Result<Value, DynError> {
     let sid = student_id.trim();
     if sid.is_empty() {
         return Err(err_box("student_id 不能为空"));
@@ -1258,7 +1320,11 @@ pub fn clear_online_learning_cache(student_id: &str, platform: Option<&str>) -> 
             clear_cache_prefix(CACHE_YUKETANG_PROGRESS, &cache_key(sid, "progress:"));
         }
     }
-    let _ = db::clear_online_learning_platform_state(crate::DB_FILENAME, sid, clear_platform.as_deref());
+    let _ = db::clear_online_learning_platform_state(
+        crate::DB_FILENAME,
+        sid,
+        clear_platform.as_deref(),
+    );
     let _ = db::clear_online_learning_sync_runs(crate::DB_FILENAME, sid, clear_platform.as_deref());
 
     Ok(json!({
@@ -1276,8 +1342,9 @@ pub async fn chaoxing_get_session_status(
     let sid = resolve_student_id(client, student_id)?;
     let connected = ensure_chaoxing_session_ready(client, &sid).await;
     let current_cookie = chaoxing_cookie_blob(client);
-    let persisted = db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_CHAOXING)
-        .unwrap_or(None);
+    let persisted =
+        db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_CHAOXING)
+            .unwrap_or(None);
     let bridge_only = has_chaoxing_bridge_cookie(client) && !connected;
     let uid = parse_cookie_value(&current_cookie, "UID")
         .or_else(|| parse_cookie_value(&current_cookie, "_uid"))
@@ -1355,9 +1422,21 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                 .get("channelList")
                 .and_then(|v| v.as_array())
                 .cloned()
-                .or_else(|| value.get("data").and_then(|data| data.get("channelList")).and_then(|v| v.as_array()).cloned())
+                .or_else(|| {
+                    value
+                        .get("data")
+                        .and_then(|data| data.get("channelList"))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                })
                 .or_else(|| value.get("courseList").and_then(|v| v.as_array()).cloned())
-                .or_else(|| value.get("data").and_then(|data| data.get("courseList")).and_then(|v| v.as_array()).cloned())
+                .or_else(|| {
+                    value
+                        .get("data")
+                        .and_then(|data| data.get("courseList"))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                })
                 .or_else(|| value.get("result").and_then(|v| v.as_array()).cloned())
                 .unwrap_or_default();
 
@@ -1369,49 +1448,87 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                     Some(c) => c,
                     None => &item, // 兼容已扁平化的格式
                 };
-                let roletype = content.get("roletype").and_then(|v| v.as_u64()).unwrap_or(3);
+                let roletype = content
+                    .get("roletype")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(3);
                 // 获取课程核心数据（区分创建者 roletype=1 和学生 roletype=3）
-                let course_data = content.get("course")
+                let course_data = content
+                    .get("course")
                     .and_then(|c| c.get("data"))
                     .and_then(|d| d.as_array())
                     .and_then(|arr| arr.first());
                 let (name, course_id, teacher, image_url) = if let Some(cd) = course_data {
                     // 学生视角：从 course.data[0] 提取
                     let n = sanitize_text(cd.get("name").and_then(|v| v.as_str()).unwrap_or(""));
-                    let cid = cd.get("id").map(|v| v.to_string().trim_matches('"').to_string()).unwrap_or_default();
-                    let t = sanitize_text(cd.get("teacherfactor").and_then(|v| v.as_str()).unwrap_or(""));
-                    let img = cd.get("imageurl").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let cid = cd
+                        .get("id")
+                        .map(|v| v.to_string().trim_matches('"').to_string())
+                        .unwrap_or_default();
+                    let t = sanitize_text(
+                        cd.get("teacherfactor")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(""),
+                    );
+                    let img = cd
+                        .get("imageurl")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     (n, cid, t, img)
                 } else {
                     // 创建者视角或扁平格式
-                    let n = sanitize_text(content.get("name").and_then(|v| v.as_str())
-                        .or_else(|| item.get("name").and_then(|v| v.as_str()))
-                        .unwrap_or(""));
-                    let cid = content.get("id").map(|v| v.to_string().trim_matches('"').to_string())
-                        .or_else(|| item.get("courseid").map(|v| v.to_string().trim_matches('"').to_string()))
+                    let n = sanitize_text(
+                        content
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| item.get("name").and_then(|v| v.as_str()))
+                            .unwrap_or(""),
+                    );
+                    let cid = content
+                        .get("id")
+                        .map(|v| v.to_string().trim_matches('"').to_string())
+                        .or_else(|| {
+                            item.get("courseid")
+                                .map(|v| v.to_string().trim_matches('"').to_string())
+                        })
                         .unwrap_or_default();
-                    let t = sanitize_text(content.get("teacherfactor").and_then(|v| v.as_str())
-                        .or_else(|| item.get("teacherfactor").and_then(|v| v.as_str()))
-                        .unwrap_or(""));
-                    let img = content.get("imageurl").and_then(|v| v.as_str())
+                    let t = sanitize_text(
+                        content
+                            .get("teacherfactor")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| item.get("teacherfactor").and_then(|v| v.as_str()))
+                            .unwrap_or(""),
+                    );
+                    let img = content
+                        .get("imageurl")
+                        .and_then(|v| v.as_str())
                         .or_else(|| item.get("imageurl").and_then(|v| v.as_str()))
-                        .unwrap_or("").to_string();
+                        .unwrap_or("")
+                        .to_string();
                     (n, cid, t, img)
                 };
                 // clazzId：学生视角从 content.id，创建者视角从 content.clazz[0].clazzId
                 let clazz_id = if roletype == 1 {
-                    content.get("clazz")
+                    content
+                        .get("clazz")
                         .and_then(|c| c.as_array())
                         .and_then(|arr| arr.first())
                         .and_then(|c| c.get("clazzId"))
                         .map(|v| v.to_string().trim_matches('"').to_string())
                         .unwrap_or_default()
                 } else {
-                    content.get("id").map(|v| v.to_string().trim_matches('"').to_string())
-                        .or_else(|| item.get("clazzid").map(|v| v.to_string().trim_matches('"').to_string()))
+                    content
+                        .get("id")
+                        .map(|v| v.to_string().trim_matches('"').to_string())
+                        .or_else(|| {
+                            item.get("clazzid")
+                                .map(|v| v.to_string().trim_matches('"').to_string())
+                        })
                         .unwrap_or_default()
                 };
-                let cpi = item.get("cpi")
+                let cpi = item
+                    .get("cpi")
                     .or_else(|| content.get("cpi"))
                     .map(|v| v.to_string().trim_matches('"').to_string())
                     .unwrap_or_default();
@@ -1420,8 +1537,16 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                     continue;
                 }
                 // 显示名称：优先使用班级名（含段号信息），其次课程名
-                let display_name = content.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let final_name = if !name.is_empty() { name.clone() } else { sanitize_text(&display_name) };
+                let display_name = content
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let final_name = if !name.is_empty() {
+                    name.clone()
+                } else {
+                    sanitize_text(&display_name)
+                };
                 let course_url = format!(
                     "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudycourselist?courseId={}&chapterId=0&clazzid={}&cpi={}&mooc2=1&isMicroCourse=false",
                     course_id, clazz_id, cpi
@@ -1440,9 +1565,16 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                     "auto_supported": roletype != 1,
                 }));
             }
-            println!("[调试] backclazzdata channelList={}, parsed courses={}", list_len, courses.len());
+            println!(
+                "[调试] backclazzdata channelList={}, parsed courses={}",
+                list_len,
+                courses.len()
+            );
             for (i, c) in courses.iter().enumerate() {
-                println!("[调试] course[{}]: id={} name={}", i, c["course_id"], c["name"]);
+                println!(
+                    "[调试] course[{}]: id={} name={}",
+                    i, c["course_id"], c["name"]
+                );
             }
             let pending_count = value
                 .get("pending_count")
@@ -1529,7 +1661,8 @@ async fn fetch_chaoxing_course_progress_remote(
     cpi: &str,
     course_url: Option<&str>,
 ) -> Result<Value, DynError> {
-    let outline = fetch_chaoxing_outline_remote(client, course_id, clazz_id, cpi, course_url).await?;
+    let outline =
+        fetch_chaoxing_outline_remote(client, course_id, clazz_id, cpi, course_url).await?;
     let nodes = outline
         .get("nodes")
         .and_then(|v| v.as_array())
@@ -1538,7 +1671,11 @@ async fn fetch_chaoxing_course_progress_remote(
     let total_count = nodes.len();
     let completed_count = nodes
         .iter()
-        .filter(|item| item.get("completed").and_then(|v| v.as_bool()).unwrap_or(false))
+        .filter(|item| {
+            item.get("completed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
         .count();
     Ok(json!({
         "success": true,
@@ -1565,7 +1702,10 @@ async fn enrich_chaoxing_courses_with_progress(
     let mut total_pending = 0usize;
 
     for mut course in courses {
-        let role_type = course.get("role_type").and_then(|v| v.as_u64()).unwrap_or(3);
+        let role_type = course
+            .get("role_type")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(3);
         let course_id = course
             .get("course_id")
             .and_then(|v| v.as_str())
@@ -1591,7 +1731,11 @@ async fn enrich_chaoxing_courses_with_progress(
             .filter(|value| !value.is_empty());
 
         if course_id.is_empty() || clazz_id.is_empty() {
-            total_pending += write_chaoxing_course_progress_fallback(&mut course, role_type, Some("课程标识缺失"));
+            total_pending += write_chaoxing_course_progress_fallback(
+                &mut course,
+                role_type,
+                Some("课程标识缺失"),
+            );
             enriched_courses.push(course);
             continue;
         }
@@ -1713,14 +1857,8 @@ pub async fn chaoxing_fetch_courses(
                 .and_then(|v| v.as_array())
                 .cloned()
                 .unwrap_or_default();
-            let (courses, pending_count) = enrich_chaoxing_courses_with_progress(
-                client,
-                &sid,
-                raw_courses,
-                force,
-                true,
-            )
-            .await;
+            let (courses, pending_count) =
+                enrich_chaoxing_courses_with_progress(client, &sid, raw_courses, force, true).await;
             let enriched = json!({
                 "success": true,
                 "courses": courses,
@@ -1786,7 +1924,10 @@ async fn fetch_chaoxing_outline_remote(
     let resp = client
         .client
         .get(&target)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .header("Referer", "https://mooc1.chaoxing.com/visit/interaction")
         .send()
         .await?;
@@ -1846,7 +1987,10 @@ async fn fetch_chaoxing_outline_remote(
         }));
     }
 
-    println!("[调试] 章节解析: mooc-ans 格式匹配 {} 个知识点", nodes.len());
+    println!(
+        "[调试] 章节解析: mooc-ans 格式匹配 {} 个知识点",
+        nodes.len()
+    );
 
     // 兜底：旧格式 a[href*="studentstudy"]
     if nodes.is_empty() {
@@ -1870,8 +2014,8 @@ async fn fetch_chaoxing_outline_remote(
                 continue;
             }
             let link_html = link.html().to_lowercase();
-            let completed = link_html.contains("icon_completed")
-                || link_html.contains("icon_yiwanc");
+            let completed =
+                link_html.contains("icon_completed") || link_html.contains("icon_yiwanc");
             let has_unfinished = link_html.contains("jobunfinishcount");
             nodes.push(json!({
                 "id": if !chapter_id.is_empty() { chapter_id.clone() } else if !knowledge_id.is_empty() { knowledge_id.clone() } else { launch_url.clone() },
@@ -1896,7 +2040,11 @@ async fn fetch_chaoxing_outline_remote(
     let total_count = nodes.len();
     let completed_count = nodes
         .iter()
-        .filter(|item| item.get("completed").and_then(|v| v.as_bool()).unwrap_or(false))
+        .filter(|item| {
+            item.get("completed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
         .count();
     Ok(json!({
         "success": true,
@@ -1930,7 +2078,9 @@ pub async fn chaoxing_fetch_course_outline(
             return Ok(crate::attach_sync_time(cached, &sync_time, true));
         }
     }
-    match fetch_chaoxing_outline_remote(client, course_id, clazz_id, cpi, req.course_url.as_deref()).await {
+    match fetch_chaoxing_outline_remote(client, course_id, clazz_id, cpi, req.course_url.as_deref())
+        .await
+    {
         Ok(payload) => {
             save_cache(CACHE_CHAOXING_OUTLINE, &cache_id, &payload);
             Ok(crate::attach_sync_time(payload, &now_sync_time(), false))
@@ -1976,7 +2126,12 @@ pub async fn chaoxing_fetch_course_progress(
 }
 
 pub fn chaoxing_get_launch_url(req: &crate::ChaoxingLaunchUrlRequest) -> Result<Value, DynError> {
-    if let Some(raw) = req.launch_url.as_ref().map(|item| item.trim()).filter(|item| !item.is_empty()) {
+    if let Some(raw) = req
+        .launch_url
+        .as_ref()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+    {
         return Ok(json!({ "success": true, "launch_url": raw }));
     }
     let course_id = req.course_id.trim();
@@ -2015,17 +2170,19 @@ pub async fn yuketang_create_qr_login(
     let mut ws_request = "wss://changjiang.yuketang.cn/wsapp/"
         .into_client_request()
         .map_err(|e| err_box(format!("构建雨课堂登录请求失败: {}", e)))?;
-    ws_request
-        .headers_mut()
-        .insert("Origin", HeaderValue::from_static("https://changjiang.yuketang.cn"));
+    ws_request.headers_mut().insert(
+        "Origin",
+        HeaderValue::from_static("https://changjiang.yuketang.cn"),
+    );
     ws_request.headers_mut().insert(
         "User-Agent",
         HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
     );
-    let (mut ws_stream, _) = tokio::time::timeout(Duration::from_secs(20), connect_async(ws_request))
-        .await
-        .map_err(|_| err_box("连接雨课堂登录服务超时"))?
-        .map_err(|e| err_box(format!("连接雨课堂登录服务失败: {}", e)))?;
+    let (mut ws_stream, _) =
+        tokio::time::timeout(Duration::from_secs(20), connect_async(ws_request))
+            .await
+            .map_err(|_| err_box("连接雨课堂登录服务超时"))?
+            .map_err(|e| err_box(format!("连接雨课堂登录服务失败: {}", e)))?;
     ws_stream
         .send(Message::Text(
             json!({
@@ -2069,7 +2226,10 @@ pub async fn yuketang_create_qr_login(
                 return Ok::<(), DynError>(());
             }
             if op == "error" {
-                let msg = payload.get("message").and_then(|v| v.as_str()).unwrap_or("雨课堂登录服务返回错误");
+                let msg = payload
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("雨课堂登录服务返回错误");
                 return Err(err_box(msg));
             }
         }
@@ -2119,7 +2279,8 @@ pub async fn yuketang_create_qr_login(
             if !message.is_text() {
                 continue;
             }
-            let Ok(payload) = serde_json::from_str::<Value>(message.to_text().unwrap_or("{}")) else {
+            let Ok(payload) = serde_json::from_str::<Value>(message.to_text().unwrap_or("{}"))
+            else {
                 continue;
             };
             let op = payload.get("op").and_then(|v| v.as_str()).unwrap_or("");
@@ -2147,8 +2308,16 @@ pub async fn yuketang_create_qr_login(
                     });
                 }
                 "loginsuccess" => {
-                    let auth = payload.get("Auth").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let user_id = payload.get("UserID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let auth = payload
+                        .get("Auth")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let user_id = payload
+                        .get("UserID")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if auth.is_empty() || user_id.is_empty() {
                         finish_with("failed", "雨课堂登录回调缺少授权信息".to_string(), None);
                         return;
@@ -2163,9 +2332,13 @@ pub async fn yuketang_create_qr_login(
                         .send()
                         .await;
                     match login_resp {
-                        Ok(resp) => match read_json_response(resp, "完成雨课堂登录失败").await {
+                        Ok(resp) => match read_json_response(resp, "完成雨课堂登录失败").await
+                        {
                             Ok(login_value) => {
-                                let success = login_value.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                                let success = login_value
+                                    .get("success")
+                                    .and_then(|v| v.as_bool())
+                                    .unwrap_or(false);
                                 if !success {
                                     let message = login_value
                                         .get("msg")
@@ -2190,11 +2363,17 @@ pub async fn yuketang_create_qr_login(
                                     cookie_blob,
                                     json!({ "source": "qr_login" }),
                                 );
-                                finish_with("confirmed", "雨课堂登录成功".to_string(), Some(account_id));
+                                finish_with(
+                                    "confirmed",
+                                    "雨课堂登录成功".to_string(),
+                                    Some(account_id),
+                                );
                             }
                             Err(error) => finish_with("failed", error.to_string(), None),
                         },
-                        Err(error) => finish_with("failed", format!("完成雨课堂登录失败: {}", error), None),
+                        Err(error) => {
+                            finish_with("failed", format!("完成雨课堂登录失败: {}", error), None)
+                        }
                     }
                     return;
                 }
@@ -2243,12 +2422,16 @@ pub async fn yuketang_poll_qr_login(
         store.get(&session_id).cloned()
     };
     if pending.is_none() {
-        return Ok(crate::attach_sync_time(json!({
-            "success": true,
-            "session_id": session_id,
-            "status": "expired",
-            "message": "登录会话不存在或已过期"
-        }), &now_sync_time(), false));
+        return Ok(crate::attach_sync_time(
+            json!({
+                "success": true,
+                "session_id": session_id,
+                "status": "expired",
+                "message": "登录会话不存在或已过期"
+            }),
+            &now_sync_time(),
+            false,
+        ));
     }
     let mut output = pending.unwrap();
     if output.student_id != sid {
@@ -2264,7 +2447,52 @@ pub async fn yuketang_poll_qr_login(
         }
         output.status = "expired".to_string();
         output.message = "登录会话已过期，请重新发起扫码".to_string();
-        return Ok(crate::attach_sync_time(json!({
+        return Ok(crate::attach_sync_time(
+            json!({
+                "success": true,
+                "session_id": output.session_id,
+                "status": output.status,
+                "message": output.message,
+                "login_url": output.login_url,
+                "authorize_url": output.authorize_url,
+                "qr_code_url": output.qr_code_url,
+                "qr_image_base64": generate_qr_data_uri(&output.qr_code_url).unwrap_or_default(),
+                "ticket_url": output.ticket_url,
+                "account_id": output.account_id,
+                "created_at": output.created_at,
+                "expires_at": output.expires_at,
+            }),
+            &now_sync_time(),
+            false,
+        ));
+    }
+    if let Ok(Some(state)) =
+        db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG)
+    {
+        restore_yuketang_cookie_blob(client, &state.cookie_blob);
+    }
+    if output.status != "confirmed" && has_yuketang_session(client) {
+        let cookie_blob = yuketang_cookie_blob(client);
+        if !cookie_blob.trim().is_empty() {
+            save_platform_state(
+                &sid,
+                PLATFORM_YUKETANG,
+                true,
+                parse_cookie_value(&cookie_blob, "university_id")
+                    .unwrap_or_else(|| output.account_id.clone()),
+                "".to_string(),
+                cookie_blob,
+                json!({ "source": "poll" }),
+            );
+            output.status = "confirmed".to_string();
+            output.message = "雨课堂登录已生效".to_string();
+        }
+    }
+    if let Ok(mut store) = yuketang_pending_store().lock() {
+        store.insert(output.session_id.clone(), output.clone());
+    }
+    Ok(crate::attach_sync_time(
+        json!({
             "success": true,
             "session_id": output.session_id,
             "status": output.status,
@@ -2277,44 +2505,10 @@ pub async fn yuketang_poll_qr_login(
             "account_id": output.account_id,
             "created_at": output.created_at,
             "expires_at": output.expires_at,
-        }), &now_sync_time(), false));
-    }
-    if let Ok(Some(state)) = db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG) {
-        restore_yuketang_cookie_blob(client, &state.cookie_blob);
-    }
-    if output.status != "confirmed" && has_yuketang_session(client) {
-        let cookie_blob = yuketang_cookie_blob(client);
-        if !cookie_blob.trim().is_empty() {
-            save_platform_state(
-                &sid,
-                PLATFORM_YUKETANG,
-                true,
-                parse_cookie_value(&cookie_blob, "university_id").unwrap_or_else(|| output.account_id.clone()),
-                "".to_string(),
-                cookie_blob,
-                json!({ "source": "poll" }),
-            );
-            output.status = "confirmed".to_string();
-            output.message = "雨课堂登录已生效".to_string();
-        }
-    }
-    if let Ok(mut store) = yuketang_pending_store().lock() {
-        store.insert(output.session_id.clone(), output.clone());
-    }
-    Ok(crate::attach_sync_time(json!({
-        "success": true,
-        "session_id": output.session_id,
-        "status": output.status,
-        "message": output.message,
-        "login_url": output.login_url,
-        "authorize_url": output.authorize_url,
-        "qr_code_url": output.qr_code_url,
-        "qr_image_base64": generate_qr_data_uri(&output.qr_code_url).unwrap_or_default(),
-        "ticket_url": output.ticket_url,
-        "account_id": output.account_id,
-        "created_at": output.created_at,
-        "expires_at": output.expires_at,
-    }), &now_sync_time(), false))
+        }),
+        &now_sync_time(),
+        false,
+    ))
 }
 
 async fn fetch_yuketang_courses_remote(client: &HbutClient) -> Result<Value, DynError> {
@@ -2331,7 +2525,10 @@ async fn fetch_yuketang_courses_remote(client: &HbutClient) -> Result<Value, Dyn
     let errcode = value.get("errcode").and_then(|v| v.as_i64()).unwrap_or(-1);
     if errcode != 0 {
         return Err(err_box(
-            value.get("errmsg").and_then(|v| v.as_str()).unwrap_or("获取雨课堂课程列表失败"),
+            value
+                .get("errmsg")
+                .and_then(|v| v.as_str())
+                .unwrap_or("获取雨课堂课程列表失败"),
         ));
     }
     let list = value
@@ -2374,7 +2571,9 @@ pub async fn yuketang_fetch_courses(
     force: bool,
 ) -> Result<Value, DynError> {
     let sid = resolve_student_id(client, student_id)?;
-    if let Ok(Some(state)) = db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG) {
+    if let Ok(Some(state)) =
+        db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG)
+    {
         restore_yuketang_cookie_blob(client, &state.cookie_blob);
     }
     let cache_id = cache_key(&sid, "courses");
@@ -2402,7 +2601,8 @@ pub async fn yuketang_fetch_courses(
                 &sid,
                 PLATFORM_YUKETANG,
                 true,
-                parse_cookie_value(&yuketang_cookie_blob(client), "university_id").unwrap_or_default(),
+                parse_cookie_value(&yuketang_cookie_blob(client), "university_id")
+                    .unwrap_or_default(),
                 "".to_string(),
                 yuketang_cookie_blob(client),
                 json!({
@@ -2417,7 +2617,11 @@ pub async fn yuketang_fetch_courses(
             }
             // 401等认证错误时返回未连接状态而非抛错
             let err_msg = error.to_string();
-            if err_msg.contains("401") || err_msg.contains("Unauthorized") || err_msg.contains("认证") || err_msg.contains("登录") {
+            if err_msg.contains("401")
+                || err_msg.contains("Unauthorized")
+                || err_msg.contains("认证")
+                || err_msg.contains("登录")
+            {
                 return Ok(json!({
                     "success": true,
                     "courses": [],
@@ -2441,7 +2645,9 @@ pub async fn yuketang_fetch_course_outline(
     req: &crate::YuketangCourseOutlineRequest,
 ) -> Result<Value, DynError> {
     let sid = resolve_student_id(client, req.student_id.as_deref())?;
-    if let Ok(Some(state)) = db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG) {
+    if let Ok(Some(state)) =
+        db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG)
+    {
         restore_yuketang_cookie_blob(client, &state.cookie_blob);
     }
     let classroom_id = req.classroom_id.trim();
@@ -2474,10 +2680,19 @@ pub async fn yuketang_fetch_course_outline(
     let mut nodes = Vec::new();
     if let Some(chapters) = data.get("course_chapter").and_then(|v| v.as_array()) {
         for chapter in chapters {
-            let chapter_name = chapter.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            if let Some(section_list) = chapter.get("section_leaf_list").and_then(|v| v.as_array()) {
+            let chapter_name = chapter
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if let Some(section_list) = chapter.get("section_leaf_list").and_then(|v| v.as_array())
+            {
                 for section in section_list {
-                    let section_name = section.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let section_name = section
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let mut children = Vec::new();
                     if section.get("leaf_type").and_then(|v| v.as_i64()) == Some(0) {
                         children.push(json!({
@@ -2533,7 +2748,9 @@ pub async fn yuketang_fetch_course_progress(
     req: &crate::YuketangCourseProgressRequest,
 ) -> Result<Value, DynError> {
     let sid = resolve_student_id(client, req.student_id.as_deref())?;
-    if let Ok(Some(state)) = db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG) {
+    if let Ok(Some(state)) =
+        db::get_online_learning_platform_state(crate::DB_FILENAME, &sid, PLATFORM_YUKETANG)
+    {
         restore_yuketang_cookie_blob(client, &state.cookie_blob);
     }
     let classroom_id = req.classroom_id.trim();
@@ -2548,21 +2765,37 @@ pub async fn yuketang_fetch_course_progress(
     }
     let classroom_resp = client
         .client
-        .get(format!("https://changjiang.yuketang.cn/v2/api/web/classrooms/{}", classroom_id))
+        .get(format!(
+            "https://changjiang.yuketang.cn/v2/api/web/classrooms/{}",
+            classroom_id
+        ))
         .query(&[("role", "5")])
         .header("classroom-id", classroom_id)
         .send()
         .await?;
     let classroom_value = read_json_response(classroom_resp, "获取雨课堂课堂详情失败").await?;
-    let classroom_data = classroom_value.get("data").cloned().unwrap_or_else(|| json!({}));
+    let classroom_data = classroom_value
+        .get("data")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let sku_id = req
         .sku_id
         .as_deref()
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(|item| item.to_string())
-        .or_else(|| classroom_data.get("course_sku_id").and_then(|v| v.as_i64()).map(|v| v.to_string()))
-        .or_else(|| classroom_data.get("sku_id").and_then(|v| v.as_i64()).map(|v| v.to_string()))
+        .or_else(|| {
+            classroom_data
+                .get("course_sku_id")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string())
+        })
+        .or_else(|| {
+            classroom_data
+                .get("sku_id")
+                .and_then(|v| v.as_i64())
+                .map(|v| v.to_string())
+        })
         .unwrap_or_default();
 
     let detail = if sku_id.is_empty() {
@@ -2578,7 +2811,10 @@ pub async fn yuketang_fetch_course_progress(
             .send()
             .await?;
         let detail_value = read_json_response(detail_resp, "获取雨课堂课程进度失败").await?;
-        detail_value.get("data").cloned().unwrap_or_else(|| json!({}))
+        detail_value
+            .get("data")
+            .cloned()
+            .unwrap_or_else(|| json!({}))
     };
 
     let payload = json!({
@@ -2611,7 +2847,14 @@ fn make_chaoxing_enc(
 ) -> String {
     let raw = format!(
         "[{}][{}][{}][{}][{}][{}][{}][{}]",
-        clazz_id, userid, jobid, object_id, playing_time_ms, CHAOXING_ENC_SALT, duration_ms, clip_time
+        clazz_id,
+        userid,
+        jobid,
+        object_id,
+        playing_time_ms,
+        CHAOXING_ENC_SALT,
+        duration_ms,
+        clip_time
     );
     format!("{:x}", md5::compute(raw.as_bytes()))
 }
@@ -2642,7 +2885,10 @@ pub async fn chaoxing_get_knowledge_cards(
             ("isMicroCourse", "false"),
             ("editorPreview", "0"),
         ])
-        .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
+        .header(
+            "Referer",
+            "https://mooc1.chaoxing.com/ananas/modules/video/index.html",
+        )
         .timeout(Duration::from_secs(15))
         .send()
         .await?;
@@ -2680,17 +2926,37 @@ pub async fn chaoxing_get_knowledge_cards(
         if jobid.is_empty() {
             continue;
         }
-        let object_id = att.get("objectId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let object_id = att
+            .get("objectId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let name = att
             .get("property")
             .and_then(|p| p.get("name"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let other_info = att.get("otherInfo").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let att_duration = att.get("attDuration").and_then(|v| v.as_str()).unwrap_or("0").to_string();
-        let att_duration_enc = att.get("attDurationEnc").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let video_face_capture_enc = att.get("videoFaceCaptureEnc").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let other_info = att
+            .get("otherInfo")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let att_duration = att
+            .get("attDuration")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0")
+            .to_string();
+        let att_duration_enc = att
+            .get("attDurationEnc")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let video_face_capture_enc = att
+            .get("videoFaceCaptureEnc")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let is_passed = att
             .get("isPassed")
             .and_then(|v| v.as_bool())
@@ -2737,10 +3003,16 @@ pub async fn chaoxing_get_video_status(
     let ts = chrono::Utc::now().timestamp_millis();
     let resp = client
         .client
-        .get(&format!("https://mooc1.chaoxing.com/ananas/status/{}", object_id))
+        .get(&format!(
+            "https://mooc1.chaoxing.com/ananas/status/{}",
+            object_id
+        ))
         .query(&[("k", fid), ("flag", "normal")])
         .query(&[("_dc", &ts.to_string())])
-        .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html")
+        .header(
+            "Referer",
+            "https://mooc1.chaoxing.com/ananas/modules/video/index.html",
+        )
         .timeout(Duration::from_secs(15))
         .send()
         .await?;
@@ -2791,7 +3063,10 @@ pub async fn chaoxing_report_progress(
     let resp = client
         .client
         .get(&url)
-        .header("Referer", "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2026-0327-1642")
+        .header(
+            "Referer",
+            "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2026-0327-1642",
+        )
         .timeout(Duration::from_secs(15))
         .send()
         .await?;
@@ -2836,15 +3111,29 @@ pub async fn yuketang_get_course_chapters(
 
     // 提取视频叶节点
     let mut video_leaves = Vec::new();
-    if let Some(chapters) = chapter_data.get("course_chapter").and_then(|v| v.as_array()) {
+    if let Some(chapters) = chapter_data
+        .get("course_chapter")
+        .and_then(|v| v.as_array())
+    {
         for chapter in chapters {
-            let chapter_name = chapter.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let chapter_name = chapter
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             if let Some(sections) = chapter.get("section_leaf_list").and_then(|v| v.as_array()) {
                 for section in sections {
-                    let leaf_type = section.get("leaf_type").and_then(|v| v.as_i64()).unwrap_or(-1);
+                    let leaf_type = section
+                        .get("leaf_type")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(-1);
                     if leaf_type == 0 {
                         let leaf_id = section.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let leaf_name = section.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let leaf_name = section
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         if leaf_id > 0 {
                             video_leaves.push(json!({
                                 "id": leaf_id,
@@ -2859,7 +3148,11 @@ pub async fn yuketang_get_course_chapters(
                             let lt = leaf.get("leaf_type").and_then(|v| v.as_i64()).unwrap_or(-1);
                             if lt == 0 {
                                 let lid = leaf.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
-                                let lname = leaf.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                let lname = leaf
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
                                 if lid > 0 {
                                     video_leaves.push(json!({
                                         "id": lid,
@@ -2909,10 +3202,23 @@ pub async fn yuketang_get_leaf_info(
     let leaf_data = data.get("data").cloned().unwrap_or_else(|| json!({}));
 
     // 提取关键字段
-    let content_info = leaf_data.get("content_info").cloned().unwrap_or_else(|| json!({}));
-    let media = content_info.get("media").cloned().unwrap_or_else(|| json!({}));
-    let ccid = media.get("ccid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let duration = media.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let content_info = leaf_data
+        .get("content_info")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let media = content_info
+        .get("media")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let ccid = media
+        .get("ccid")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let duration = media
+        .get("duration")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
 
     Ok(json!({
         "success": true,

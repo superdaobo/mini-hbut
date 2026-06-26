@@ -90,7 +90,9 @@ fn get_cache() -> &'static Mutex<Option<(Instant, WeatherData)>> {
 pub async fn fetch_weather() -> Result<WeatherData, String> {
     // 检查缓存
     {
-        let cache = get_cache().lock().map_err(|e| format!("缓存锁异常: {}", e))?;
+        let cache = get_cache()
+            .lock()
+            .map_err(|e| format!("缓存锁异常: {}", e))?;
         if let Some((ts, data)) = cache.as_ref() {
             if ts.elapsed().as_secs() < CACHE_TTL_SECS {
                 return Ok(data.clone());
@@ -103,7 +105,9 @@ pub async fn fetch_weather() -> Result<WeatherData, String> {
 
     // 写入缓存
     {
-        let mut cache = get_cache().lock().map_err(|e| format!("缓存锁异常: {}", e))?;
+        let mut cache = get_cache()
+            .lock()
+            .map_err(|e| format!("缓存锁异常: {}", e))?;
         *cache = Some((Instant::now(), data.clone()));
     }
 
@@ -147,9 +151,7 @@ async fn request_weather() -> Result<WeatherData, String> {
 /// 解析 Open-Meteo JSON 响应
 fn parse_weather_response(json: &serde_json::Value) -> Result<WeatherData, String> {
     // 解析当前天气
-    let current = json
-        .get("current")
-        .ok_or("无法解析 current 数据")?;
+    let current = json.get("current").ok_or("无法解析 current 数据")?;
 
     let temp = current
         .get("temperature_2m")
@@ -209,8 +211,16 @@ fn parse_weather_response(json: &serde_json::Value) -> Result<WeatherData, Strin
 
     for i in 0..7.min(daily_codes.len()) {
         let code = daily_codes.get(i).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let t_max = daily_max.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i32;
-        let t_min = daily_min.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i32;
+        let t_max = daily_max
+            .get(i)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+            .round() as i32;
+        let t_min = daily_min
+            .get(i)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+            .round() as i32;
         let day_condition = wmo_code_to_condition(code);
         let day_icon = condition_to_icon(&day_condition);
 
@@ -223,7 +233,12 @@ fn parse_weather_response(json: &serde_json::Value) -> Result<WeatherData, Strin
         } else {
             // 计算星期几
             let future_day = today + chrono::Duration::days(i as i64);
-            let weekday_idx = future_day.format("%u").to_string().parse::<usize>().unwrap_or(1) - 1;
+            let weekday_idx = future_day
+                .format("%u")
+                .to_string()
+                .parse::<usize>()
+                .unwrap_or(1)
+                - 1;
             weekday_names.get(weekday_idx).unwrap_or(&"").to_string()
         };
 
@@ -263,7 +278,11 @@ fn parse_weather_response(json: &serde_json::Value) -> Result<WeatherData, Strin
         if idx >= hourly_temps.len() {
             break;
         }
-        let h_temp = hourly_temps.get(idx).and_then(|v| v.as_f64()).unwrap_or(0.0).round() as i32;
+        let h_temp = hourly_temps
+            .get(idx)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0)
+            .round() as i32;
         let h_code = hourly_codes.get(idx).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let h_condition = wmo_code_to_condition(h_code);
         let h_icon = condition_to_icon(&h_condition);
@@ -347,7 +366,9 @@ fn condition_to_icon(condition: &str) -> String {
         "雾" => "fa-smog".to_string(),
         "毛毛雨" | "小雨" | "小阵雨" => "fa-cloud-rain".to_string(),
         "中雨" | "中阵雨" => "fa-cloud-rain".to_string(),
-        "大雨" | "大阵雨" | "雷阵雨" | "雷暴冰雹" => "fa-cloud-showers-heavy".to_string(),
+        "大雨" | "大阵雨" | "雷阵雨" | "雷暴冰雹" => {
+            "fa-cloud-showers-heavy".to_string()
+        }
         "冻雨" => "fa-cloud-rain".to_string(),
         "小雪" | "中雪" | "大雪" | "雪粒" | "阵雪" => "fa-snowflake".to_string(),
         _ => "fa-cloud".to_string(),
@@ -387,13 +408,13 @@ fn kmph_to_level(kmph: i32) -> i32 {
 /// 根据天气代码估算 AQI（Open-Meteo 免费版不提供 AQI）
 fn estimate_aqi_from_weather(code: i32) -> i32 {
     match code {
-        0 | 1 => 35,       // 晴天通常空气较好
-        2 | 3 => 55,       // 多云/阴天
-        45 | 48 => 120,    // 雾天 AQI 通常较高
-        51..=67 => 45,     // 雨天空气较好
-        71..=77 => 40,     // 雪天
-        80..=82 => 40,     // 阵雨
-        95..=99 => 50,     // 雷暴
+        0 | 1 => 35,    // 晴天通常空气较好
+        2 | 3 => 55,    // 多云/阴天
+        45 | 48 => 120, // 雾天 AQI 通常较高
+        51..=67 => 45,  // 雨天空气较好
+        71..=77 => 40,  // 雪天
+        80..=82 => 40,  // 阵雨
+        95..=99 => 50,  // 雷暴
         _ => 60,
     }
 }

@@ -46,13 +46,37 @@ jobs:
       - name: Run Vitest
         run: npm run test:ci
 
+      - name: Frontend safety guards
+        run: |
+          node scripts/check-frontend-safety.mjs
+          node scripts/check-design-tokens.mjs
+
+      - name: Sensitive upload guard (tracked files)
+        run: node scripts/guard_sensitive_uploads.mjs pre-commit
+
       - name: Check dist boundary script
         run: node scripts/check_dist_boundary.mjs
+
+      - name: Production build smoke
+        run: npm run build
+
+      - name: Vue typecheck (CI subset)
+        run: npx vue-tsc --noEmit -p tsconfig.ci.json
 
   test-rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install frontend deps and build dist
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund
+          npm run build
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -63,3 +87,9 @@ jobs:
 
       - name: Cargo test
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Cargo fmt check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+
+      - name: Cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib

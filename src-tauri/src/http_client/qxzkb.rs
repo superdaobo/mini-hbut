@@ -1,10 +1,11 @@
-﻿use super::*;
-use std::collections::HashMap;
+use super::*;
 use regex::Regex;
+use std::collections::HashMap;
 
 fn strip_html_tags(input: &str, re: &Regex) -> String {
     let mut text = re.replace_all(input, "").to_string();
-    text = text.replace("&nbsp;", " ")
+    text = text
+        .replace("&nbsp;", " ")
         .replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
@@ -35,10 +36,14 @@ fn sanitize_json_value(value: &mut serde_json::Value, re: &Regex) {
 }
 impl HbutClient {
     /// 获取全校课表节次信息
-    pub async fn fetch_qxzkb_jcinfo(&self, xnxq: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_qxzkb_jcinfo(
+        &self,
+        xnxq: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let base = self.academic_base_url();
         let url = format!("{}/admin/pkgl/pkglqxzkb/getJcinfo", base);
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .query(&[("xnxq", xnxq)])
             .header("X-Requested-With", "XMLHttpRequest")
@@ -49,18 +54,23 @@ impl HbutClient {
         if text.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
-        let mut json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("节次信息解析失败: {}", e))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("节次信息解析失败: {}", e))?;
         let re = Regex::new(r"<[^>]+>").unwrap();
         sanitize_json_value(&mut json, &re);
         Ok(json)
     }
 
     /// 获取专业信息
-    pub async fn fetch_qxzkb_zyxx(&self, yxid: &str, njdm: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_qxzkb_zyxx(
+        &self,
+        yxid: &str,
+        njdm: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let base = self.academic_base_url();
         let url = format!("{}/admin/system/jcsj/zysj/getZyxxList", base);
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .query(&[("yxid", yxid), ("njdm", njdm)])
             .header("X-Requested-With", "XMLHttpRequest")
@@ -71,18 +81,22 @@ impl HbutClient {
         if text.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
-        let mut json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("专业信息解析失败: {}", e))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("专业信息解析失败: {}", e))?;
         let re = Regex::new(r"<[^>]+>").unwrap();
         sanitize_json_value(&mut json, &re);
         Ok(json)
     }
 
     /// 获取开课教研室信息（公开接口）
-    pub async fn fetch_qxzkb_kkjys(&self, kkyxid: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_qxzkb_kkjys(
+        &self,
+        kkyxid: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let base = self.academic_base_url();
         let url = format!("{}/admin/system/jcsj/bmsj/getKkjysListNoAuth", base);
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .query(&[("kkyxid", kkyxid)])
             .header("X-Requested-With", "XMLHttpRequest")
@@ -93,21 +107,25 @@ impl HbutClient {
         if text.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
-        let mut json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("教研室信息解析失败: {}", e))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("教研室信息解析失败: {}", e))?;
         let re = Regex::new(r"<[^>]+>").unwrap();
         sanitize_json_value(&mut json, &re);
         Ok(json)
     }
 
     /// 查询全校课表
-    pub async fn fetch_qxzkb_list(&self, params: &HashMap<String, String>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_qxzkb_list(
+        &self,
+        params: &HashMap<String, String>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let base = self.academic_base_url();
         // 先访问页面建立会话（避免登录超时）
         let page_url = format!("{}/admin/jsd/qxzkb", base);
         let _ = self.client.get(&page_url).send().await;
         let url = format!("{}/admin/jsd/qxzkb/querylist?gridtype=jqgrid", base);
-        let resp = self.client
+        let resp = self
+            .client
             .get(&url)
             .query(&params)
             .header("X-Requested-With", "XMLHttpRequest")
@@ -126,11 +144,10 @@ impl HbutClient {
             return Err(format!("全校课表请求失败: {}", status).into());
         }
 
-        let mut json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| format!("全校课表响应解析失败: {}", e))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("全校课表响应解析失败: {}", e))?;
         let re = Regex::new(r"<[^>]+>").unwrap();
         sanitize_json_value(&mut json, &re);
         Ok(json)
     }
 }
-

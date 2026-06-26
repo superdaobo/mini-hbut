@@ -8,10 +8,10 @@
 //! - 依赖登录?Cookie；未登录会返回错误或空数?
 //! - 閮ㄥ垎鎺ュ字段名较为混乱，解析逻辑集中?parser 妯″潡
 
+use super::utils::chrono_timestamp;
 use super::*;
 use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Timelike, Weekday};
 use reqwest::{cookie::CookieStore, Url};
-use super::utils::chrono_timestamp;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashSet};
 
@@ -64,7 +64,11 @@ impl HbutClient {
         }
     }
 
-    fn estimate_current_week_by_semester(semester: &str, today: NaiveDate, total_weeks: i32) -> Option<i32> {
+    fn estimate_current_week_by_semester(
+        semester: &str,
+        today: NaiveDate,
+        total_weeks: i32,
+    ) -> Option<i32> {
         let safe_total = total_weeks.max(1);
         let start = Self::semester_start_date(semester)?;
         let end = start + Duration::days((safe_total as i64) * 7 - 1);
@@ -77,7 +81,9 @@ impl HbutClient {
 
     /// ???????????????
     #[allow(unreachable_code)]
-    pub async fn get_current_semester(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_current_semester(
+        &self,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let today = Local::now().date_naive();
         let semester = Self::semester_by_date(today);
         println!(
@@ -102,7 +108,12 @@ impl HbutClient {
             (year - 1, 1)
         };
 
-        format!("{}-{}-{}", academic_year_start, academic_year_start + 1, term)
+        format!(
+            "{}-{}-{}",
+            academic_year_start,
+            academic_year_start + 1,
+            term
+        )
     }
 
     fn semester_index(semester: &str) -> Option<i32> {
@@ -143,7 +154,10 @@ impl HbutClient {
 
     fn parse_calendar_week_no(item: &serde_json::Value) -> Option<i32> {
         item.get("zc")
-            .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+            .and_then(|v| {
+                v.as_i64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+            })
             .map(|v| v as i32)
             .filter(|v| *v > 0)
     }
@@ -303,7 +317,10 @@ impl HbutClient {
             let status = response.status();
             let final_url = response.url().to_string();
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 校历请求命中登录页，已补票后重试");
                     continue;
@@ -363,7 +380,9 @@ impl HbutClient {
             .clamp(1, total_weeks);
         let mut is_in_semester = summary.map(|s| s.is_in_semester).unwrap_or(false);
 
-        if let Some(estimated_week) = Self::estimate_current_week_by_semester(semester, today, total_weeks) {
+        if let Some(estimated_week) =
+            Self::estimate_current_week_by_semester(semester, today, total_weeks)
+        {
             // 仅在无校历数据或校历标记不在学期内时使用估算周次；
             // 有校历且标记在学期内时信任校历精确值，避免硬编码开学日期偏移覆盖真实周次。
             if summary.is_none() || !is_in_semester {
@@ -549,29 +568,27 @@ impl HbutClient {
         let (target, strategy, notice) = if let Some(next_summary) = next.clone() {
             let days = next_summary.days_to_start(today);
             if (0..=PRESTART_SWITCH_DAYS).contains(&days) {
-                (
-                    next_summary.clone(),
-                    "vacation_next",
-                    String::new(),
-                )
+                (next_summary.clone(), "vacation_next", String::new())
             } else if let Some(previous_summary) = previous.clone() {
                 (
                     previous_summary.clone(),
                     "vacation_previous",
-                    format!("当前为假期，当前显示上学期（{}）课表", previous_summary.semester),
+                    format!(
+                        "当前为假期，当前显示上学期（{}）课表",
+                        previous_summary.semester
+                    ),
                 )
             } else {
-                (
-                    next_summary.clone(),
-                    "vacation_next",
-                    String::new(),
-                )
+                (next_summary.clone(), "vacation_next", String::new())
             }
         } else if let Some(previous_summary) = previous.clone() {
             (
                 previous_summary.clone(),
                 "vacation_previous",
-                format!("当前为假期，当前显示上学期（{}）课表", previous_summary.semester),
+                format!(
+                    "当前为假期，当前显示上学期（{}）课表",
+                    previous_summary.semester
+                ),
             )
         } else {
             let fallback = summaries
@@ -596,10 +613,15 @@ impl HbutClient {
         )
     }
 
-    pub async fn resolve_schedule_context(&self, requested_semester: Option<&str>) -> serde_json::Value {
+    pub async fn resolve_schedule_context(
+        &self,
+        requested_semester: Option<&str>,
+    ) -> serde_json::Value {
         let today = Local::now().date_naive();
         if let Some(semester) = requested_semester.map(str::trim).filter(|s| !s.is_empty()) {
-            let summary = self.fetch_calendar_summary_for_semester(semester, today).await;
+            let summary = self
+                .fetch_calendar_summary_for_semester(semester, today)
+                .await;
             return Self::build_schedule_context_json(
                 semester,
                 summary.as_ref(),
@@ -656,16 +678,24 @@ impl HbutClient {
     fn extract_semester_from_json(json: &serde_json::Value) -> Option<String> {
         // 尝试多种ʽ
         if let Some(s) = json.get("xnxqh").and_then(|v| v.as_str()) {
-            if !s.is_empty() { return Some(s.to_string()); }
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
         }
         if let Some(s) = json.get("xnxq").and_then(|v| v.as_str()) {
-            if !s.is_empty() { return Some(s.to_string()); }
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
         }
         if let Some(s) = json.get("dataXnxq").and_then(|v| v.as_str()) {
-            if !s.is_empty() { return Some(s.to_string()); }
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
         }
         if let Some(s) = json.get("xqhjc").and_then(|v| v.as_str()) {
-            if !s.is_empty() { return Some(s.to_string()); }
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
         }
         // 嵌套 data 字段
         if let Some(data) = json.get("data") {
@@ -678,7 +708,11 @@ impl HbutClient {
         match value {
             Some(serde_json::Value::String(v)) => {
                 let trimmed = v.trim();
-                if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
             }
             Some(serde_json::Value::Number(v)) => Some(v.to_string()),
             Some(serde_json::Value::Bool(v)) => Some(v.to_string()),
@@ -699,7 +733,11 @@ impl HbutClient {
             .all(|ch| ch.is_ascii_hexdigit() || ch == '.' || ch == ':');
         if is_ip_like {
             let location = parts.collect::<Vec<_>>().join(" ").trim().to_string();
-            let location = if location.is_empty() { None } else { Some(location) };
+            let location = if location.is_empty() {
+                None
+            } else {
+                Some(location)
+            };
             return (Some(first.to_string()), location);
         }
 
@@ -1048,8 +1086,10 @@ impl HbutClient {
         }
 
         // Skip personal profile objects.
-        if Self::pick_json_string_ci(object, &["stuNumber", "organizationName", "userAvatar"]).is_some()
-            && Self::pick_json_string_ci(object, &["accessTime", "visitTime", "authResult"]).is_none()
+        if Self::pick_json_string_ci(object, &["stuNumber", "organizationName", "userAvatar"])
+            .is_some()
+            && Self::pick_json_string_ci(object, &["accessTime", "visitTime", "authResult"])
+                .is_none()
         {
             return None;
         }
@@ -1091,10 +1131,19 @@ impl HbutClient {
 
         let mut auth_result = Self::pick_json_string_ci(
             object,
-            &["auth_result", "authResult", "authStatus", "verifyResult", "result", "status"],
+            &[
+                "auth_result",
+                "authResult",
+                "authStatus",
+                "verifyResult",
+                "result",
+                "status",
+            ],
         );
         if auth_result.is_none() {
-            if let Some(text) = Self::pick_json_string_ci(object, &["subInfo", "mainInfo", "extraInfo"]) {
+            if let Some(text) =
+                Self::pick_json_string_ci(object, &["subInfo", "mainInfo", "extraInfo"])
+            {
                 auth_result = Some(text);
             }
         }
@@ -1181,7 +1230,8 @@ impl HbutClient {
             _ => return Err("融合门户会话已过期，请重新登录".into()),
         };
 
-        self.login_for_service(&username, &password, service_url).await?;
+        self.login_for_service(&username, &password, service_url)
+            .await?;
 
         let verify = self.client.get(service_url).send().await?;
         if verify.url().to_string().contains("authserver/login") {
@@ -1191,7 +1241,12 @@ impl HbutClient {
     }
 
     async fn fetch_portal_client_ip(&self) -> Option<String> {
-        let response = self.client.get("https://e.hbut.edu.cn/common/clientIp").send().await.ok()?;
+        let response = self
+            .client
+            .get("https://e.hbut.edu.cn/common/clientIp")
+            .send()
+            .await
+            .ok()?;
         let payload = response.json::<serde_json::Value>().await.ok()?;
         Self::to_json_string(payload.get("data"))
     }
@@ -1203,7 +1258,10 @@ impl HbutClient {
         method: &str,
         param: serde_json::Value,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("https://e.hbut.edu.cn/execCardMethod/{}/{}", card_wid, card_id);
+        let url = format!(
+            "https://e.hbut.edu.cn/execCardMethod/{}/{}",
+            card_wid, card_id
+        );
         let payload = serde_json::json!({
             "cardId": card_id,
             "cardWid": card_wid,
@@ -1219,22 +1277,28 @@ impl HbutClient {
             || errcode.and_then(|v| v.as_i64()) == Some(0)
             || errcode.and_then(|v| v.as_str()) == Some("0");
         if !ok {
-            let err_msg = Self::to_json_string(json.get("errmsg")).unwrap_or_else(|| "未知错误".to_string());
+            let err_msg =
+                Self::to_json_string(json.get("errmsg")).unwrap_or_else(|| "未知错误".to_string());
             return Err(format!("{} 调用失败: {}", method, err_msg).into());
         }
 
-        Ok(json.get("data").cloned().unwrap_or_else(|| serde_json::json!(null)))
+        Ok(json
+            .get("data")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!(null)))
     }
 
     /// 拉取成绩列表
-    pub async fn fetch_grades(&self) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_grades(
+        &self,
+    ) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
         let grades_url = format!(
             "{}/admin/xsd/xsdcjcx/xsdQueryXscjList",
             self.academic_base_url()
         );
-        
+
         println!("[调试] 获取成绩: {}", grades_url);
-        
+
         // 使用正‘的成╂煡璇㈠弬鏁?
         let params = [
             ("fxbz", "0"),
@@ -1248,7 +1312,7 @@ impl HbutClient {
             ("startXnxq", "001"),
             ("endXnxq", "001"),
         ];
-        
+
         let mut repaired = false;
         let text = loop {
             let response = self
@@ -1264,7 +1328,10 @@ impl HbutClient {
             println!("[调试] 成绩响应状态: {}, 地址: {}", status, final_url);
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 成绩请求命中登录页，已补票后重试");
                     continue;
@@ -1275,40 +1342,51 @@ impl HbutClient {
             break response.text().await?;
         };
         println!("[调试] 成绩响应长度: {}", text.len());
-        
+
         // 尝试解析 JSON
         let json: serde_json::Value = match serde_json::from_str(&text) {
             Ok(v) => v,
             Err(e) => {
                 println!("[调试] 成绩 JSON 解析失败: {}", e);
-                println!("[调试] 响应预览: {}", &text.chars().take(200).collect::<String>());
+                println!(
+                    "[调试] 响应预览: {}",
+                    &text.chars().take(200).collect::<String>()
+                );
                 return Err(format!("成绩数据解析失败: {}", e).into());
             }
         };
-        
+
         parser::parse_grades(&json)
     }
 
     /// 获取成绩（带任课教师）。
     /// 在原有成绩查询基础上，额外调用已选课程接口获取每门课的任课教师，通过 kcbh 匹配后注入。
-    pub async fn fetch_grades_with_teachers(&self) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_grades_with_teachers(
+        &self,
+    ) -> Result<Vec<Grade>, Box<dyn std::error::Error + Send + Sync>> {
         let mut grades = self.fetch_grades().await?;
         if grades.is_empty() {
             return Ok(grades);
         }
 
         // 收集所有唯一学期
-        let mut semesters: Vec<String> = grades.iter()
+        let mut semesters: Vec<String> = grades
+            .iter()
             .filter_map(|g| {
                 let t = g.term.trim();
-                if t.is_empty() { None } else { Some(t.to_string()) }
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t.to_string())
+                }
             })
             .collect();
         semesters.sort();
         semesters.dedup();
 
         // 对每个学期获取课程教师数据
-        let mut teacher_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut teacher_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for sem in &semesters {
             if let Ok(courses) = self.fetch_course_teachers(sem).await {
                 for (kcbh, rkjs) in courses {
@@ -1332,15 +1410,16 @@ impl HbutClient {
     }
 
     /// 获取指定学期的已选课程，返回 (kcbh, rkjs) 映射
-    pub async fn fetch_course_teachers(&self, semester: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!(
-            "{}/admin/xsd/yxkccx/listYxkc",
-            self.academic_base_url()
-        );
+    pub async fn fetch_course_teachers(
+        &self,
+        semester: &str,
+    ) -> Result<Vec<(String, String)>, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}/admin/xsd/yxkccx/listYxkc", self.academic_base_url());
 
         let mut repaired = false;
         let text = loop {
-            let response = self.client
+            let response = self
+                .client
                 .get(&url)
                 .query(&[
                     ("gridtype", "jqgrid"),
@@ -1351,7 +1430,10 @@ impl HbutClient {
                 ])
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Accept", "application/json, text/javascript, */*; q=0.01")
-                .header("Referer", format!("{}/admin/indexMain/M1406", self.academic_base_url()))
+                .header(
+                    "Referer",
+                    format!("{}/admin/indexMain/M1406", self.academic_base_url()),
+                )
                 .send()
                 .await?;
 
@@ -1359,7 +1441,10 @@ impl HbutClient {
             let final_url = response.url().to_string();
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 课程教师请求命中登录页，已补票后重试");
                     continue;
@@ -1375,12 +1460,14 @@ impl HbutClient {
 
         if let Some(results) = json.get("results").and_then(|v| v.as_array()) {
             for item in results {
-                let kcbh = item.get("kcbh")
+                let kcbh = item
+                    .get("kcbh")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim()
                     .to_string();
-                let rkjs = item.get("rkjs")
+                let rkjs = item
+                    .get("rkjs")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .trim()
@@ -1391,12 +1478,19 @@ impl HbutClient {
             }
         }
 
-        println!("[调试] 学期 {} 获取到 {} 个课程教师", semester, result.len());
+        println!(
+            "[调试] 学期 {} 获取到 {} 个课程教师",
+            semester,
+            result.len()
+        );
         Ok(result)
     }
 
     /// ???????????
-    pub async fn fetch_schedule(&self, semester: Option<&str>) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_schedule(
+        &self,
+        semester: Option<&str>,
+    ) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
         // 1. ????????
         let semester = match semester.map(str::trim).filter(|s| !s.is_empty()) {
             Some(s) => s.to_string(),
@@ -1411,13 +1505,19 @@ impl HbutClient {
             }
         };
         println!("[调试] 课表学期: {}", semester);
-        
+
         // 2. 自动探测课表入口并提取 xhid（兼容 jwxt / 学习通两种路径）
         let base = self.academic_base_url();
         let referer_index = format!("{}/admin/index.html", base);
         let xhid_candidates = vec![
-            format!("{}/admin/xsd/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester),
-            format!("{}/admin//xsd/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester),
+            format!(
+                "{}/admin/xsd/pkgl/xskb/queryKbForXsd?xnxq={}",
+                base, semester
+            ),
+            format!(
+                "{}/admin//xsd/pkgl/xskb/queryKbForXsd?xnxq={}",
+                base, semester
+            ),
             format!("{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester),
             format!("{}/admin/xsd/pkgl/xskb/queryKbForXsd", base),
             format!("{}/admin/pkgl/xskb/queryKbForXsd", base),
@@ -1462,7 +1562,10 @@ impl HbutClient {
             );
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !chaoxing_repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !chaoxing_repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     chaoxing_repaired = true;
                     println!("[调试] 课表 xhid 请求命中登录页，已补票后重试");
                     continue;
@@ -1500,14 +1603,17 @@ impl HbutClient {
         }
 
         if xhid_referer.is_empty() {
-            xhid_referer = format!("{}/admin/xsd/pkgl/xskb/queryKbForXsd?xnxq={}", base, semester);
+            xhid_referer = format!(
+                "{}/admin/xsd/pkgl/xskb/queryKbForXsd?xnxq={}",
+                base, semester
+            );
         }
         if schedule_path_hint.is_empty() {
             schedule_path_hint = "/admin/xsd/pkgl/xskb/sdpkkbList".to_string();
         }
 
         println!("[调试] 已获取 xhid: {}", xhid);
-        
+
         // 3. 获取课表 API（多路径兜底）
         let mut schedule_url_candidates = vec![
             format!("{}{}", base, schedule_path_hint),
@@ -1516,7 +1622,7 @@ impl HbutClient {
             format!("{}/admin//xsd/pkgl/xskb/sdpkkbList", base),
         ];
         schedule_url_candidates.dedup();
-        
+
         let params = [
             ("xnxq", semester.as_str()),
             ("xhid", &xhid),
@@ -1525,7 +1631,7 @@ impl HbutClient {
             ("zxzc", ""),
             ("xskbxslx", "0"),
         ];
-        
+
         let mut last_schedule_error = String::new();
         for schedule_url in schedule_url_candidates {
             println!("[调试] 获取课表：{}", schedule_url);
@@ -1551,7 +1657,10 @@ impl HbutClient {
             println!("[调试] 课表响应状态: {}, 地址: {}", status, final_url);
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !chaoxing_repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !chaoxing_repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     chaoxing_repaired = true;
                     println!("[调试] 课表接口命中登录页，已补票后重试");
                     continue;
@@ -1607,7 +1716,10 @@ impl HbutClient {
     }
 
     /// ?????????????
-    pub async fn fetch_exams(&self, semester: Option<&str>) -> Result<Vec<Exam>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_exams(
+        &self,
+        semester: Option<&str>,
+    ) -> Result<Vec<Exam>, Box<dyn std::error::Error + Send + Sync>> {
         // 1. ???????????????
         let semester = match semester {
             Some(s) if !s.trim().is_empty() => s.to_string(),
@@ -1622,16 +1734,19 @@ impl HbutClient {
             }
         };
         println!("[调试] 考试学期: {}", semester);
-        
+
         // ??????? API?? Python ?????
         let exams_url = format!(
             "{}/admin/xsd/kwglXsdKscx/ajaxXsksList",
             self.academic_base_url()
         );
-        
+
         let params = [
             ("gridtype", "jqgrid"),
-            ("queryFields", "id,kcmc,ksrq,kssj,xnxq,jsmc,ksdd,zwh,sddz,ksrs,kslx,kslxmc,kscddz,kcxxdz"),
+            (
+                "queryFields",
+                "id,kcmc,ksrq,kssj,xnxq,jsmc,ksdd,zwh,sddz,ksrs,kslx,kslxmc,kscddz,kcxxdz",
+            ),
             ("_search", "false"),
             ("page.size", "100"),
             ("page.pn", "1"),
@@ -1639,9 +1754,9 @@ impl HbutClient {
             ("order", "desc"),
             ("xnxq", semester.as_str()),
         ];
-        
+
         println!("[调试] 获取考试：{}", exams_url);
-        
+
         let mut repaired = false;
         let json: serde_json::Value = loop {
             let response = self
@@ -1661,7 +1776,10 @@ impl HbutClient {
             println!("[调试] 考试响应状态: {}, 地址: {}", status, final_url);
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 考试请求命中登录页，已补票后重试");
                     continue;
@@ -1671,29 +1789,46 @@ impl HbutClient {
 
             break response.json().await?;
         };
-        println!("[调试] 考试响应: ret={}, results count={}", 
+        println!(
+            "[调试] 考试响应: ret={}, results count={}",
             json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1),
-            json.get("results").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0)
+            json.get("results")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0)
         );
-        
+
         parser::parse_exams(&json)
     }
 
     /// ????/??????????/???
-    pub async fn fetch_ranking(&self, student_id: Option<&str>, semester: Option<&str>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_ranking(
+        &self,
+        student_id: Option<&str>,
+        semester: Option<&str>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 获取﹀彿
-        let mut xh = student_id.map(|s| s.to_string())
+        let mut xh = student_id
+            .map(|s| s.to_string())
             .or_else(|| self.user_info.as_ref().map(|u| u.student_id.clone()))
             .unwrap_or_default();
-        
+
         if xh.is_empty() {
             return Err("未提供学号".into());
         }
 
         // 学习通账号登录时，前端 student_id 可能是手机号；优先回落到教务域 cookie 的 username。
-        if self.prefer_chaoxing_jwxt && xh.starts_with('1') && xh.len() == 11 && xh.chars().all(|c| c.is_ascii_digit()) {
+        if self.prefer_chaoxing_jwxt
+            && xh.starts_with('1')
+            && xh.len() == 11
+            && xh.chars().all(|c| c.is_ascii_digit())
+        {
             let chaoxing_jwxt_url = Url::parse("https://hbut.jw.chaoxing.com")?;
-            if let Some(raw_cookie) = self.cookie_jar.cookies(&chaoxing_jwxt_url).and_then(|v| v.to_str().ok().map(|s| s.to_string())) {
+            if let Some(raw_cookie) = self
+                .cookie_jar
+                .cookies(&chaoxing_jwxt_url)
+                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            {
                 if let Some(cookie_xh) = raw_cookie
                     .split(';')
                     .map(|v| v.trim())
@@ -1705,7 +1840,7 @@ impl HbutClient {
                 }
             }
         }
-        
+
         // 从学号推断年?
         let grade = if xh.len() >= 2 {
             let prefix = &xh[..2];
@@ -1717,9 +1852,9 @@ impl HbutClient {
         } else {
             String::new()
         };
-        
+
         let semester_value = semester.unwrap_or("").to_string();
-        
+
         let params = [
             ("xh", xh.as_str()),
             ("sznj", grade.as_str()),
@@ -1763,8 +1898,14 @@ impl HbutClient {
             .client
             .get(&ranking_url)
             .query(&params)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Referer", format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base))
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .header(
+                "Referer",
+                format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base),
+            )
             .send()
             .await?;
         let mut status = response.status();
@@ -1777,13 +1918,22 @@ impl HbutClient {
                 println!("[调试] 排名请求命中 auth 登录页，尝试补票后重试");
                 let _ = self.ensure_chaoxing_academic_session().await;
                 let retry_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", base);
-                println!("[调试] 重新获取排名：{} with params: {:?}", retry_url, params);
+                println!(
+                    "[调试] 重新获取排名：{} with params: {:?}",
+                    retry_url, params
+                );
                 let retry_resp = self
                     .client
                     .get(&retry_url)
                     .query(&params)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Referer", format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base))
+                    .header(
+                        "Accept",
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    )
+                    .header(
+                        "Referer",
+                        format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base),
+                    )
                     .send()
                     .await?;
                 status = retry_resp.status();
@@ -1807,26 +1957,28 @@ impl HbutClient {
         if !status.is_success() {
             return Err(format!("排名接口请求失败: {}", status).into());
         }
-        
+
         // 解析 HTML
         parser::parse_ranking_html(&html, &xh, &semester_value, &grade)
     }
 
     /// ????????
-    pub async fn fetch_student_info(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let info_url = format!(
-            "{}/admin/xsd/xsjbxx/xskp",
-            self.academic_base_url()
-        );
-        
+    pub async fn fetch_student_info(
+        &self,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+        let info_url = format!("{}/admin/xsd/xsjbxx/xskp", self.academic_base_url());
+
         println!("[调试] 获取学生信息：{}", info_url);
-        
+
         let mut repaired = false;
         let html = loop {
             let response = self
                 .client
                 .get(&info_url)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
                 .send()
                 .await?;
             let status = response.status();
@@ -1834,7 +1986,10 @@ impl HbutClient {
             println!("[调试] 学生信息响应状态: {}, 地址: {}", status, final_url);
 
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 学生信息请求命中登录页，已补票后重试");
                     continue;
@@ -1861,10 +2016,14 @@ impl HbutClient {
         let requested_page_size = page_size.unwrap_or(10).clamp(1, 100) as i64;
 
         // 新策略：直接使用 auth.hbut.edu.cn/personalInfo 三个接口（仅依赖现有 Cookie）
-        const PERSON_CENTER_URL: &str = "https://auth.hbut.edu.cn/personalInfo/personCenter/index.html";
-        const USER_ONLINE_URL: &str = "https://auth.hbut.edu.cn/personalInfo/UserOnline/user/queryUserOnline";
-        const USER_LOGS_URL: &str = "https://auth.hbut.edu.cn/personalInfo/UserLogs/user/queryUserLogs";
-        const ACCOUNT_SETTING_URL: &str = "https://auth.hbut.edu.cn/personalInfo/accountSecurity/accountSetting";
+        const PERSON_CENTER_URL: &str =
+            "https://auth.hbut.edu.cn/personalInfo/personCenter/index.html";
+        const USER_ONLINE_URL: &str =
+            "https://auth.hbut.edu.cn/personalInfo/UserOnline/user/queryUserOnline";
+        const USER_LOGS_URL: &str =
+            "https://auth.hbut.edu.cn/personalInfo/UserLogs/user/queryUserLogs";
+        const ACCOUNT_SETTING_URL: &str =
+            "https://auth.hbut.edu.cn/personalInfo/accountSecurity/accountSetting";
 
         self.ensure_portal_session(PERSON_CENTER_URL).await?;
         let _ = self.client.get(PERSON_CENTER_URL).send().await;
@@ -1911,33 +2070,38 @@ impl HbutClient {
                 .to_string()
         };
 
-        let format_time = |item: &serde_json::Value, text_keys: &[&str], ts_keys: &[&str]| -> String {
-            for key in text_keys {
-                if let Some(raw) = item.get(*key).and_then(|v| v.as_str()) {
-                    let trimmed = raw.trim();
-                    if !trimmed.is_empty() {
-                        return trimmed.to_string();
+        let format_time =
+            |item: &serde_json::Value, text_keys: &[&str], ts_keys: &[&str]| -> String {
+                for key in text_keys {
+                    if let Some(raw) = item.get(*key).and_then(|v| v.as_str()) {
+                        let trimmed = raw.trim();
+                        if !trimmed.is_empty() {
+                            return trimmed.to_string();
+                        }
                     }
                 }
-            }
-            for key in ts_keys {
-                if let Some(ts) = Self::json_to_i64(item.get(*key)) {
-                    if let Some(dt) = Local.timestamp_millis_opt(ts).single() {
-                        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+                for key in ts_keys {
+                    if let Some(ts) = Self::json_to_i64(item.get(*key)) {
+                        if let Some(dt) = Local.timestamp_millis_opt(ts).single() {
+                            return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+                        }
                     }
                 }
-            }
-            "-".to_string()
-        };
+                "-".to_string()
+            };
 
         let build_location = |item: &serde_json::Value| -> String {
-            if let Some(v) = Self::pick_json_string_ci(item, &["loginLocation", "ipLocation", "location"]) {
+            if let Some(v) =
+                Self::pick_json_string_ci(item, &["loginLocation", "ipLocation", "location"])
+            {
                 if !v.trim().is_empty() {
                     return v;
                 }
             }
             let mut parts: Vec<String> = Vec::new();
-            if let Some(v) = Self::pick_json_string_ci(item, &["provincesName", "provinceName", "province"]) {
+            if let Some(v) =
+                Self::pick_json_string_ci(item, &["provincesName", "provinceName", "province"])
+            {
                 if !v.trim().is_empty() {
                     parts.push(v);
                 }
@@ -1961,10 +2125,11 @@ impl HbutClient {
 
         let mut errors: Vec<String> = Vec::new();
 
-        let online_json = match with_common_headers(
-            self.client
-                .get(format!("{}?t={}", USER_ONLINE_URL, Local::now().timestamp())),
-        )
+        let online_json = match with_common_headers(self.client.get(format!(
+            "{}?t={}",
+            USER_ONLINE_URL,
+            Local::now().timestamp()
+        )))
         .send()
         .await
         {
@@ -1988,101 +2153,112 @@ impl HbutClient {
             }
         };
 
-        let login_logs_json = match with_common_headers(self.client.post(USER_LOGS_URL).json(&serde_json::json!({
-            "operType": 0,
-            "startTime": serde_json::Value::Null,
-            "endTime": serde_json::Value::Null,
-            "pageIndex": 1,
-            "pageSize": requested_page_size,
-            "result": "",
-            "loginLocation": "",
-            "typeCode": "",
-            "appName": "",
-            "n": format!("{:.16}", rand::random::<f64>())
-        })))
-        .send()
-        .await
-        {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(json) => {
-                    if is_ok_response(&json) {
-                        Some(json)
-                    } else {
-                        errors.push(format!("queryUserLogs(operType=0): {}", response_msg(&json)));
+        let login_logs_json =
+            match with_common_headers(self.client.post(USER_LOGS_URL).json(&serde_json::json!({
+                "operType": 0,
+                "startTime": serde_json::Value::Null,
+                "endTime": serde_json::Value::Null,
+                "pageIndex": 1,
+                "pageSize": requested_page_size,
+                "result": "",
+                "loginLocation": "",
+                "typeCode": "",
+                "appName": "",
+                "n": format!("{:.16}", rand::random::<f64>())
+            })))
+            .send()
+            .await
+            {
+                Ok(resp) => match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        if is_ok_response(&json) {
+                            Some(json)
+                        } else {
+                            errors.push(format!(
+                                "queryUserLogs(operType=0): {}",
+                                response_msg(&json)
+                            ));
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("queryUserLogs(operType=0) JSON 解析失败: {}", e));
                         None
                     }
-                }
+                },
                 Err(e) => {
-                    errors.push(format!("queryUserLogs(operType=0) JSON 解析失败: {}", e));
+                    errors.push(format!("queryUserLogs(operType=0) 请求失败: {}", e));
                     None
                 }
-            },
-            Err(e) => {
-                errors.push(format!("queryUserLogs(operType=0) 请求失败: {}", e));
-                None
-            }
-        };
+            };
 
-        let app_logs_json = match with_common_headers(self.client.post(USER_LOGS_URL).json(&serde_json::json!({
-            "operType": 3,
-            "startTime": serde_json::Value::Null,
-            "endTime": serde_json::Value::Null,
-            "pageIndex": requested_page,
-            "pageSize": requested_page_size,
-            "result": "",
-            "typeCode": "",
-            "appName": "",
-            "appId": "",
-            "n": format!("{:.16}", rand::random::<f64>())
-        })))
-        .send()
-        .await
-        {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(json) => {
-                    if is_ok_response(&json) {
-                        Some(json)
-                    } else {
-                        errors.push(format!("queryUserLogs(operType=3): {}", response_msg(&json)));
+        let app_logs_json =
+            match with_common_headers(self.client.post(USER_LOGS_URL).json(&serde_json::json!({
+                "operType": 3,
+                "startTime": serde_json::Value::Null,
+                "endTime": serde_json::Value::Null,
+                "pageIndex": requested_page,
+                "pageSize": requested_page_size,
+                "result": "",
+                "typeCode": "",
+                "appName": "",
+                "appId": "",
+                "n": format!("{:.16}", rand::random::<f64>())
+            })))
+            .send()
+            .await
+            {
+                Ok(resp) => match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        if is_ok_response(&json) {
+                            Some(json)
+                        } else {
+                            errors.push(format!(
+                                "queryUserLogs(operType=3): {}",
+                                response_msg(&json)
+                            ));
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("queryUserLogs(operType=3) JSON 解析失败: {}", e));
                         None
                     }
-                }
+                },
                 Err(e) => {
-                    errors.push(format!("queryUserLogs(operType=3) JSON 解析失败: {}", e));
+                    errors.push(format!("queryUserLogs(operType=3) 请求失败: {}", e));
                     None
                 }
-            },
-            Err(e) => {
-                errors.push(format!("queryUserLogs(operType=3) 请求失败: {}", e));
-                None
-            }
-        };
+            };
 
-        let account_setting_json = match with_common_headers(self.client.post(ACCOUNT_SETTING_URL).json(&serde_json::json!({
-            "n": format!("{:.16}", rand::random::<f64>())
-        })))
-        .send()
-        .await
-        {
-            Ok(resp) => match resp.json::<serde_json::Value>().await {
-                Ok(json) => {
-                    if is_ok_response(&json) {
-                        Some(json)
-                    } else {
-                        errors.push(format!("accountSetting: {}", response_msg(&json)));
+        let account_setting_json =
+            match with_common_headers(self.client.post(ACCOUNT_SETTING_URL).json(
+                &serde_json::json!({
+                    "n": format!("{:.16}", rand::random::<f64>())
+                }),
+            ))
+            .send()
+            .await
+            {
+                Ok(resp) => match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        if is_ok_response(&json) {
+                            Some(json)
+                        } else {
+                            errors.push(format!("accountSetting: {}", response_msg(&json)));
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        errors.push(format!("accountSetting JSON 解析失败: {}", e));
                         None
                     }
-                }
+                },
                 Err(e) => {
-                    errors.push(format!("accountSetting JSON 解析失败: {}", e));
+                    errors.push(format!("accountSetting 请求失败: {}", e));
                     None
                 }
-            },
-            Err(e) => {
-                errors.push(format!("accountSetting 请求失败: {}", e));
-                None
-            }
-        };
+            };
 
         if online_json.is_none()
             && login_logs_json.is_none()
@@ -2101,7 +2277,10 @@ impl HbutClient {
         let mut login_seen: HashSet<String> = HashSet::new();
 
         if let Some(payload) = &online_json {
-            if let Some(items) = payload.pointer("/datas/userOnline").and_then(|v| v.as_array()) {
+            if let Some(items) = payload
+                .pointer("/datas/userOnline")
+                .and_then(|v| v.as_array())
+            {
                 for item in items {
                     let session = serde_json::json!({
                         "client_ip": Self::pick_json_string_ci(item, &["ip", "clientIp", "client_ip"]).unwrap_or_else(|| "-".to_string()),
@@ -2111,9 +2290,18 @@ impl HbutClient {
                     });
                     let key = format!(
                         "{}|{}|{}",
-                        session.get("client_ip").and_then(|v| v.as_str()).unwrap_or("-"),
-                        session.get("login_time").and_then(|v| v.as_str()).unwrap_or("-"),
-                        session.get("browser").and_then(|v| v.as_str()).unwrap_or("-"),
+                        session
+                            .get("client_ip")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
+                        session
+                            .get("login_time")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
+                        session
+                            .get("browser")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
                     );
                     if login_seen.insert(key) {
                         login_sessions.push(session);
@@ -2133,9 +2321,18 @@ impl HbutClient {
                     });
                     let key = format!(
                         "{}|{}|{}",
-                        session.get("client_ip").and_then(|v| v.as_str()).unwrap_or("-"),
-                        session.get("login_time").and_then(|v| v.as_str()).unwrap_or("-"),
-                        session.get("browser").and_then(|v| v.as_str()).unwrap_or("-"),
+                        session
+                            .get("client_ip")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
+                        session
+                            .get("login_time")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
+                        session
+                            .get("browser")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("-"),
                     );
                     if login_seen.insert(key) {
                         login_sessions.push(session);
@@ -2158,12 +2355,14 @@ impl HbutClient {
             let b_time = b.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
             Self::compare_time_desc(a_time, b_time)
         });
-        let current_login = login_sessions.first().cloned().unwrap_or_else(|| serde_json::json!({
-            "client_ip": "-",
-            "ip_location": "未知",
-            "login_time": "-",
-            "browser": "-"
-        }));
+        let current_login = login_sessions.first().cloned().unwrap_or_else(|| {
+            serde_json::json!({
+                "client_ip": "-",
+                "ip_location": "未知",
+                "login_time": "-",
+                "browser": "-"
+            })
+        });
 
         let mut app_access_records: Vec<serde_json::Value> = Vec::new();
         let mut total: i64 = 0;
@@ -2178,7 +2377,10 @@ impl HbutClient {
                         } else if numeric_result == 0 {
                             "fail".to_string()
                         } else {
-                            Self::normalize_auth_result(Self::pick_json_string_ci(item, &["authResult", "resultText"]))
+                            Self::normalize_auth_result(Self::pick_json_string_ci(
+                                item,
+                                &["authResult", "resultText"],
+                            ))
                         };
                         app_access_records.push(serde_json::json!({
                             "id": Self::pick_json_string_ci(item, &["id"]).unwrap_or_else(|| format!("access-{}", idx)),
@@ -2217,7 +2419,10 @@ impl HbutClient {
         }
 
         let auth_info = if let Some(payload) = &account_setting_json {
-            let data = payload.get("datas").cloned().unwrap_or_else(|| serde_json::json!({}));
+            let data = payload
+                .get("datas")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
             let phone_verified = Self::pick_json_string_ci(&data, &["isPhoneValidated"])
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
@@ -2274,7 +2479,10 @@ impl HbutClient {
         let page_params = vec![
             ("_t", chrono_timestamp().to_string()),
             ("pageCode", "".to_string()),
-            ("originalUrl", urlencoding::encode(PORTAL_HOME_URL).to_string()),
+            (
+                "originalUrl",
+                urlencoding::encode(PORTAL_HOME_URL).to_string(),
+            ),
             ("lang", "zh_CN".to_string()),
         ];
         if let Ok(response) = self
@@ -2299,16 +2507,36 @@ impl HbutClient {
         }
 
         let render_result = self
-            .exec_portal_card_method(&card_wid, CARD_ID, "renderData", serde_json::json!({ "lang": "zh_CN" }))
+            .exec_portal_card_method(
+                &card_wid,
+                CARD_ID,
+                "renderData",
+                serde_json::json!({ "lang": "zh_CN" }),
+            )
             .await;
         let configured_result = self
-            .exec_portal_card_method(&card_wid, CARD_ID, "configuredData", serde_json::json!({ "lang": "zh_CN" }))
+            .exec_portal_card_method(
+                &card_wid,
+                CARD_ID,
+                "configuredData",
+                serde_json::json!({ "lang": "zh_CN" }),
+            )
             .await;
         let unsubscribe_result = self
-            .exec_portal_card_method(&card_wid, CARD_ID, "getUnsubscribeList", serde_json::json!({ "lang": "zh_CN" }))
+            .exec_portal_card_method(
+                &card_wid,
+                CARD_ID,
+                "getUnsubscribeList",
+                serde_json::json!({ "lang": "zh_CN" }),
+            )
             .await;
         let list_result = self
-            .exec_portal_card_method(&card_wid, CARD_ID, "getPersonalDataList", serde_json::json!({ "lang": "zh_CN" }))
+            .exec_portal_card_method(
+                &card_wid,
+                CARD_ID,
+                "getPersonalDataList",
+                serde_json::json!({ "lang": "zh_CN" }),
+            )
             .await;
 
         if render_result.is_err()
@@ -2329,7 +2557,9 @@ impl HbutClient {
             if let Err(e) = list_result {
                 reasons.push(format!("getPersonalDataList: {}", e));
             }
-            return Err(format!("failed to load personal card data: {}", reasons.join(" | ")).into());
+            return Err(
+                format!("failed to load personal card data: {}", reasons.join(" | ")).into(),
+            );
         }
 
         let render_data = render_result.unwrap_or_else(|_| serde_json::json!({}));
@@ -2360,8 +2590,9 @@ impl HbutClient {
 
         if let Some(items) = list_data.as_array() {
             for item in items {
-                let wid = Self::pick_json_string_ci(item, &["wid", "id", "dataWid", "personalDataId"])
-                    .unwrap_or_default();
+                let wid =
+                    Self::pick_json_string_ci(item, &["wid", "id", "dataWid", "personalDataId"])
+                        .unwrap_or_default();
                 let extra = Self::pick_json_string_ci(item, &["extraInfo"]).unwrap_or_default();
                 push_detail_target(wid, extra);
             }
@@ -2431,30 +2662,102 @@ impl HbutClient {
         }
 
         let candidate_extra_methods: [(&str, serde_json::Value); 24] = [
-            ("getCurrentLoginList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getCurrentLogin", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getCurrentLoginInfo", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getCurrentLoginRecord", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getLoginRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getLoginRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getLoginLog", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getLoginHistory", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getLoginList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getAppAccessList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("getAppAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getAppAccessRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getAccessRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getVisitRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getVisitRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getAuthRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("getAuthRecordList", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("queryCurrentLoginList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("queryLoginRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("queryAppAccessList", serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size})),
-            ("queryAppAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("queryAccessRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
-            ("queryVisitRecords", serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size})),
+            (
+                "getCurrentLoginList",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getCurrentLogin",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getCurrentLoginInfo",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getCurrentLoginRecord",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getLoginRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getLoginRecordList",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getLoginLog",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getLoginHistory",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getLoginList",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAppAccessList",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAppAccessRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAppAccessRecordList",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAccessRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAccessRecordList",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getVisitRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getVisitRecordList",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAuthRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "getAuthRecordList",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "queryCurrentLoginList",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "queryLoginRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "queryAppAccessList",
+                serde_json::json!({"lang":"zh_CN","page":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "queryAppAccessRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "queryAccessRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
+            (
+                "queryVisitRecords",
+                serde_json::json!({"lang":"zh_CN","pageNum":requested_page,"pageSize":requested_page_size}),
+            ),
         ];
         for (method, param) in candidate_extra_methods {
             if let Ok(extra_value) = self
@@ -2470,9 +2773,18 @@ impl HbutClient {
         for source in &source_values {
             Self::walk_json_objects(source, &mut |object| {
                 if let Some(session) = Self::extract_login_session(object, client_ip.as_deref()) {
-                    let ip = session.get("client_ip").and_then(|v| v.as_str()).unwrap_or("-");
-                    let login_time = session.get("login_time").and_then(|v| v.as_str()).unwrap_or("-");
-                    let browser = session.get("browser").and_then(|v| v.as_str()).unwrap_or("-");
+                    let ip = session
+                        .get("client_ip")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    let login_time = session
+                        .get("login_time")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    let browser = session
+                        .get("browser")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
                     let key = format!("{}|{}|{}", ip.trim(), login_time.trim(), browser.trim());
                     if login_seen.insert(key) {
                         login_sessions.push(session);
@@ -2510,10 +2822,22 @@ impl HbutClient {
         for source in &source_values {
             Self::walk_json_objects(source, &mut |object| {
                 if let Some(record) = Self::extract_access_record(object) {
-                    let app_name = record.get("app_name").and_then(|v| v.as_str()).unwrap_or("-");
-                    let access_time = record.get("access_time").and_then(|v| v.as_str()).unwrap_or("-");
-                    let auth_result = record.get("auth_result").and_then(|v| v.as_str()).unwrap_or("-");
-                    let browser = record.get("browser").and_then(|v| v.as_str()).unwrap_or("-");
+                    let app_name = record
+                        .get("app_name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    let access_time = record
+                        .get("access_time")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    let auth_result = record
+                        .get("auth_result")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
+                    let browser = record
+                        .get("browser")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("-");
                     let key = format!(
                         "{}|{}|{}|{}",
                         app_name.trim(),
@@ -2638,7 +2962,9 @@ impl HbutClient {
     }
 
     /// 获取学期列表（current 按校历 + 假期策略自动解析）
-    pub async fn fetch_semesters(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_semesters(
+        &self,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let context = self.resolve_schedule_context(None).await;
         let current_semester = context
             .get("semester")
@@ -2682,7 +3008,9 @@ impl HbutClient {
     }
 
     /// 拉取空教ゆゼ栋信?
-    pub async fn fetch_classroom_buildings(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_classroom_buildings(
+        &self,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 静态兜底：解析失败时仍保证空教室功能可用。
         let fallback_buildings = vec![
             serde_json::json!({"code": "", "name": "全部教学楼"}),
@@ -2696,7 +3024,10 @@ impl HbutClient {
             serde_json::json!({"code": "电气学院楼", "name": "电气学院楼"}),
         ];
 
-        let url = format!("{}/admin/system/jxzy/jsxx/queryForXsd", self.academic_base_url());
+        let url = format!(
+            "{}/admin/system/jxzy/jsxx/queryForXsd",
+            self.academic_base_url()
+        );
         println!("[调试] 获取空教室教学楼列表: {}", url);
 
         let mut repaired = false;
@@ -2704,12 +3035,18 @@ impl HbutClient {
             let response = self
                 .client
                 .get(&url)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
                 .send()
                 .await?;
             let final_url = response.url().to_string();
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 空教室教学楼请求命中登录页，已补票后重试");
                     continue;
@@ -2726,7 +3063,10 @@ impl HbutClient {
         };
 
         if !response.status().is_success() {
-            println!("[调试] 空教室教学楼页面请求失败: {}，回退内置列表", response.status());
+            println!(
+                "[调试] 空教室教学楼页面请求失败: {}，回退内置列表",
+                response.status()
+            );
             return Ok(serde_json::json!({
                 "success": true,
                 "data": fallback_buildings,
@@ -2752,7 +3092,8 @@ impl HbutClient {
                 .unwrap_or("")
                 .trim()
                 .to_string();
-            if name.is_empty() || name == "请选择" || name == "全部" || name == "全部教学楼" {
+            if name.is_empty() || name == "请选择" || name == "全部" || name == "全部教学楼"
+            {
                 continue;
             }
             if !seen_names.insert(name.clone()) {
@@ -2790,11 +3131,8 @@ impl HbutClient {
         periods: Option<Vec<i32>>,
         building: Option<String>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let classrooms_url = format!(
-            "{}/admin/pkgl/jyjs/mobile/jsxx",
-            self.academic_base_url()
-        );
-        
+        let classrooms_url = format!("{}/admin/pkgl/jyjs/mobile/jsxx", self.academic_base_url());
+
         // 统一使用“自动学期上下文”（支持假期沿用上学期/临开学切下学期）。
         let now = chrono::Local::now();
         let context = self.resolve_schedule_context(None).await;
@@ -2816,7 +3154,7 @@ impl HbutClient {
             .map(|v| v as i32)
             .filter(|v| (1..=7).contains(v))
             .unwrap_or_else(|| now.weekday().num_days_from_monday() as i32 + 1);
-        
+
         // 构建节次：
         // - 若前端传入 periods：严格按用户选择
         // - 若未传入：按当前时段自动选择“本时段剩余节次”，避免一口气勾选下午+晚上
@@ -2862,17 +3200,17 @@ impl HbutClient {
             .map(|x| x.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        
+
         let week_val = week.unwrap_or(default_week).max(1);
         let weekday_val = weekday.unwrap_or(default_weekday).clamp(1, 7);
         let building_str = building.clone().unwrap_or_default();
-        
+
         // 使用 form 琛ㄥ格式 (涓?Python 涓€鑷?
         let params = [
             ("zcStr", week_val.to_string()),
             ("xqStr", weekday_val.to_string()),
             ("jcStr", jc_str.clone()),
-            ("xqdm", "1".to_string()), // ??: 1=??
+            ("xqdm", "1".to_string()),  // ??: 1=??
             ("xnxq", semester.clone()), // ??????
             ("type", "1".to_string()),
             ("jsrlMin", "".to_string()),
@@ -2882,15 +3220,21 @@ impl HbutClient {
             ("zylx", "".to_string()),
             ("pxfs", "5".to_string()), // 按座位数排序
         ];
-        
-        println!("[调试] 获取教室：{} with params: {:?}", classrooms_url, params);
-        
+
+        println!(
+            "[调试] 获取教室：{} with params: {:?}",
+            classrooms_url, params
+        );
+
         let mut repaired = false;
         let response = loop {
             let response = self
                 .client
                 .post(&classrooms_url)
-                .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .header(
+                    "Content-Type",
+                    "application/x-www-form-urlencoded; charset=UTF-8",
+                )
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header("Origin", self.academic_base_url())
                 .header(
@@ -2905,7 +3249,10 @@ impl HbutClient {
                 .await?;
             let final_url = response.url().to_string();
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 空教室请求命中登录页，已补票后重试");
                     continue;
@@ -2919,16 +3266,16 @@ impl HbutClient {
             break response;
         };
         let status = response.status();
-        
+
         if !status.is_success() {
             return Ok(serde_json::json!({
                 "success": false,
                 "error": format!("请求失败: {}", status)
             }));
         }
-        
+
         let data: serde_json::Value = response.json().await?;
-        
+
         // 解析并格式化返回数据
         let mut classrooms = vec![];
         if let Some(arr) = data.as_array() {
@@ -2940,7 +3287,7 @@ impl HbutClient {
                         continue;
                     }
                 }
-                
+
                 classrooms.push(serde_json::json!({
                     "id": room.get("id").and_then(|v| v.as_str()).unwrap_or(""),
                     "name": room.get("jsmc").and_then(|v| v.as_str()).unwrap_or(""),
@@ -2955,7 +3302,7 @@ impl HbutClient {
                 }));
             }
         }
-        
+
         // 计算星期名和对应日期
         let weekday_names = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
         let weekday_name = weekday_names.get(weekday_val as usize).unwrap_or(&"");
@@ -2964,11 +3311,10 @@ impl HbutClient {
             .and_then(|v| v.as_str())
             .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
             .map(|start| {
-                start
-                    + Duration::days(((week_val - 1) as i64) * 7 + (weekday_val - 1) as i64)
+                start + Duration::days(((week_val - 1) as i64) * 7 + (weekday_val - 1) as i64)
             })
             .unwrap_or_else(|| now.date_naive());
-        
+
         Ok(serde_json::json!({
             "success": true,
             "data": classrooms,
@@ -2992,23 +3338,31 @@ impl HbutClient {
     }
 
     /// 拉取培养方案筛€夐」
-    pub async fn fetch_training_plan_options(&self) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_training_plan_options(
+        &self,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 从培养方案页面获取真正的筛选选项 (与 Python training_plan.py 一致)
         let url = format!("{}/admin/xsd/studentpyfa", self.academic_base_url());
-        
+
         println!("[DEBUG] Fetching training plan options from: {}", url);
-        
+
         let mut repaired = false;
         let response = loop {
             let response = self
                 .client
                 .get(&url)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
                 .send()
                 .await?;
             let final_url = response.url().to_string();
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 培养方案选项请求命中登录页，已补票后重试");
                     continue;
@@ -3028,21 +3382,23 @@ impl HbutClient {
                 "error": format!("请求失败: {}", response.status())
             }));
         }
-        
+
         let html = response.text().await?;
-        
+
         // 解析各个 select 选项
         let grade_options = self.extract_select_options(&html, "grade");
         let kkxq_options = self.extract_select_options(&html, "kkxq");
         let kkyx_options = self.extract_select_options(&html, "kkyx");
         let kcxz_options = self.extract_select_options(&html, "kcxz");
         let kcgs_options = self.extract_select_options(&html, "kcgs");
-        
+
         // 根据学号推断默认年级
-        let default_grade = self.user_info.as_ref()
+        let default_grade = self
+            .user_info
+            .as_ref()
             .and_then(|u| Self::infer_year_of_study(&u.student_id))
             .unwrap_or_default();
-        
+
         // 推断默认学期（走自动学期策略）
         let semester = {
             let context = self.resolve_schedule_context(None).await;
@@ -3054,10 +3410,16 @@ impl HbutClient {
                 .unwrap_or_default()
         };
         let default_kkxq = Self::infer_term_from_semester(&semester);
-        
-        println!("[DEBUG] Training plan options: grade={} kkxq={} kkyx={} kcxz={} kcgs={}", 
-            grade_options.len(), kkxq_options.len(), kkyx_options.len(), kcxz_options.len(), kcgs_options.len());
-        
+
+        println!(
+            "[DEBUG] Training plan options: grade={} kkxq={} kkyx={} kcxz={} kcgs={}",
+            grade_options.len(),
+            kkxq_options.len(),
+            kkyx_options.len(),
+            kcxz_options.len(),
+            kcgs_options.len()
+        );
+
         Ok(serde_json::json!({
             "success": true,
             "options": {
@@ -3077,15 +3439,25 @@ impl HbutClient {
 
     /// 从 HTML 中提取 select 选项 (与 Python training_plan.py 一致)
     fn extract_select_options(&self, html: &str, name: &str) -> Vec<serde_json::Value> {
-        self
-            .extract_select_options_by_name_or_id(html, name)
+        self.extract_select_options_by_name_or_id(html, name)
             .into_iter()
-            .filter(|item| item.get("value").and_then(|v| v.as_str()).unwrap_or("").trim().len() > 0)
+            .filter(|item| {
+                item.get("value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .len()
+                    > 0
+            })
             .collect()
     }
 
     /// 从 HTML 中提取 select 选项，支持按 name 或 id 匹配。
-    fn extract_select_options_by_name_or_id(&self, html: &str, key: &str) -> Vec<serde_json::Value> {
+    fn extract_select_options_by_name_or_id(
+        &self,
+        html: &str,
+        key: &str,
+    ) -> Vec<serde_json::Value> {
         let pattern = format!(
             r#"(?is)<select[^>]*(?:name|id)\s*=\s*["']{}["'][^>]*>(.*?)</select>"#,
             regex::escape(key)
@@ -3094,7 +3466,9 @@ impl HbutClient {
             Ok(re) => re,
             Err(_) => return vec![],
         };
-        let option_re = match regex::Regex::new(r#"(?is)<option[^>]*value\s*=\s*["']([^"']*)["'][^>]*>(.*?)</option>"#) {
+        let option_re = match regex::Regex::new(
+            r#"(?is)<option[^>]*value\s*=\s*["']([^"']*)["'][^>]*>(.*?)</option>"#,
+        ) {
             Ok(re) => re,
             Err(_) => return vec![],
         };
@@ -3134,20 +3508,28 @@ impl HbutClient {
         if student_id.len() < 2 {
             return None;
         }
-        
+
         let prefix = &student_id[..2];
         if !prefix.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
-        
+
         let entry_year = 2000 + prefix.parse::<i32>().ok()?;
         let now = chrono::Local::now();
-        let academic_year = if now.month() >= 9 { now.year() } else { now.year() - 1 };
+        let academic_year = if now.month() >= 9 {
+            now.year()
+        } else {
+            now.year() - 1
+        };
         let mut year_of_study = academic_year - entry_year + 1;
-        
-        if year_of_study < 1 { year_of_study = 1; }
-        if year_of_study > 4 { year_of_study = 4; }
-        
+
+        if year_of_study < 1 {
+            year_of_study = 1;
+        }
+        if year_of_study > 4 {
+            year_of_study = 4;
+        }
+
         Some(year_of_study.to_string())
     }
 
@@ -3165,29 +3547,37 @@ impl HbutClient {
         String::new()
     }
 
-    pub async fn fetch_training_plan_jys(&self, yxid: &str) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_training_plan_jys(
+        &self,
+        yxid: &str,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         // 获取教研室列表 (与 Python training_plan.py 一致)
         let url = format!(
             "{}/admin/pygcgl/kckgl/queryJYSNoAuth",
             self.academic_base_url()
         );
-        
+
         println!("[DEBUG] Fetching JYS from: {} with yxid={}", url, yxid);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&url)
             .query(&[("yxid", yxid)])
             .header("X-Requested-With", "XMLHttpRequest")
             .send()
             .await?;
-        
+
         let json: serde_json::Value = response.json().await?;
-        
+
         // 转换格式
         let mut jys_list = vec![];
         if let Some(arr) = json.as_array() {
             for item in arr {
-                let id = item.get("id").and_then(|v| v.as_str()).or_else(|| item.get("id").and_then(|v| v.as_i64()).map(|_| "")).unwrap_or("");
+                let id = item
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| item.get("id").and_then(|v| v.as_i64()).map(|_| ""))
+                    .unwrap_or("");
                 let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 if !id.is_empty() {
                     jys_list.push(serde_json::json!({
@@ -3197,7 +3587,7 @@ impl HbutClient {
                 }
             }
         }
-        
+
         Ok(serde_json::json!({
             "success": true,
             "data": jys_list
@@ -3221,10 +3611,10 @@ impl HbutClient {
             "{}/admin/xsd/studentpyfa/ajaxList2",
             self.academic_base_url()
         );
-        
+
         let page_num = page.unwrap_or(1);
         let size = page_size.unwrap_or(50);
-        
+
         let grade_str = grade.unwrap_or_default();
         let mut kkxq_str = kkxq.unwrap_or_default();
         let kkyx_str = kkyx.unwrap_or_default();
@@ -3244,7 +3634,7 @@ impl HbutClient {
             kkxq_str = Self::infer_term_from_semester(&semester);
         }
         let nd = chrono_timestamp().to_string();
-        
+
         // 与 Python training_plan.py 完全一致的参数
         let params = [
             ("gridtype", "jqgrid"),
@@ -3272,9 +3662,9 @@ impl HbutClient {
             ("query.kcbh||", &kcbh_str),
             ("query.kcmc||", &kcmc_str),
         ];
-        
+
         println!("[DEBUG] Fetching training plan courses from: {}", url);
-        
+
         let mut repaired = false;
         let response = loop {
             let response = self
@@ -3291,7 +3681,10 @@ impl HbutClient {
                 .await?;
             let final_url = response.url().to_string();
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 培养方案课程请求命中登录页，已补票后重试");
                     continue;
@@ -3305,24 +3698,36 @@ impl HbutClient {
             break response;
         };
         let status = response.status();
-        
+
         if !status.is_success() {
             return Ok(serde_json::json!({
                 "success": false,
                 "error": format!("请求失败: {}", status)
             }));
         }
-        
+
         let json: serde_json::Value = response.json().await?;
-        
+
         // 解析 jqgrid 格式响应
-        let results = json.get("results").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let results = json
+            .get("results")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         let total = json.get("total").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let total_pages = json.get("totalPages").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let current_page = json.get("page").and_then(|v| v.as_i64()).unwrap_or(page_num as i64) as i32;
-        
-        println!("[DEBUG] Training plan courses: {} results, page {}/{}", results.len(), current_page, total_pages);
-        
+        let current_page = json
+            .get("page")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(page_num as i64) as i32;
+
+        println!(
+            "[DEBUG] Training plan courses: {} results, page {}/{}",
+            results.len(),
+            current_page,
+            total_pages
+        );
+
         Ok(serde_json::json!({
             "success": true,
             "data": results,
@@ -3332,25 +3737,30 @@ impl HbutClient {
         }))
     }
 
-    pub async fn fetch_classrooms(&self) -> Result<Vec<crate::Classroom>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_classrooms(
+        &self,
+    ) -> Result<Vec<crate::Classroom>, Box<dyn std::error::Error + Send + Sync>> {
         let classrooms_url = format!(
             "{}/cdjy/cdjy_cxKxcdlb.html?doType=query&gnmkdm=N2155",
             self.academic_base_url()
         );
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&classrooms_url)
             .form(&[("xnm", "2024"), ("xqm", "12")])
             .send()
             .await?;
-        
+
         let json: serde_json::Value = response.json().await?;
         parser::parse_classrooms(&json)
     }
 
     // ... existing methods ...
 
-    pub async fn fetch_calendar(&self) -> Result<Vec<CalendarEvent>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_calendar(
+        &self,
+    ) -> Result<Vec<CalendarEvent>, Box<dyn std::error::Error + Send + Sync>> {
         // 校历数据通常是静态的，这里返回示例数据
         Ok(vec![
             CalendarEvent {
@@ -3373,10 +3783,14 @@ impl HbutClient {
 
     /// 获取校历数据 (与 Python calendar.py 一致)
     #[allow(unreachable_code)]
-    pub async fn fetch_calendar_data(&self, semester: Option<String>) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_calendar_data(
+        &self,
+        semester: Option<String>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let sem = match semester
             .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty()) {
+            .filter(|s| !s.is_empty())
+        {
             Some(s) => s,
             None => {
                 let context = self.resolve_schedule_context(None).await;
@@ -3394,7 +3808,8 @@ impl HbutClient {
             Ok(data) => {
                 let normalized_data = Self::normalize_calendar_week_numbers(&data);
                 let summary = self.build_calendar_summary(&sem, &normalized_data, today);
-                let current_weekday = if summary.as_ref().map(|s| s.is_in_semester).unwrap_or(false) {
+                let current_weekday = if summary.as_ref().map(|s| s.is_in_semester).unwrap_or(false)
+                {
                     Local::now().weekday().num_days_from_monday() as i32 + 1
                 } else {
                     0
@@ -3439,7 +3854,9 @@ impl HbutClient {
             s
         } else {
             // 使用基于日期的学期计算（更可靠）
-            self.get_current_semester().await.unwrap_or_else(|_| "2024-2025-1".to_string())
+            self.get_current_semester()
+                .await
+                .unwrap_or_else(|_| "2024-2025-1".to_string())
         };
 
         println!("[DEBUG] Fetching calendar for semester: {}", sem);
@@ -3451,10 +3868,10 @@ impl HbutClient {
             sem
         );
         let response = self.client.get(&calendar_url).send().await?;
-        
+
         let status = response.status();
         let final_url = response.url().to_string();
-        
+
         if final_url.contains("authserver/login") {
             return Ok(serde_json::json!({
                 "success": false,
@@ -3471,17 +3888,17 @@ impl HbutClient {
         }
 
         let data: serde_json::Value = response.json().await?;
-        
+
         // 计算当前周次
         let current_week = self.calculate_current_week(&data);
-        
+
         // 构建元数据
         let meta = serde_json::json!({
             "semester": sem,
             "current_week": current_week,
             "total_weeks": data.as_array().map(|a| a.len()).unwrap_or(0)
         });
-        
+
         Ok(serde_json::json!({
             "success": true,
             "data": data,
@@ -3501,14 +3918,18 @@ impl HbutClient {
         if let Some(arr) = calendar_data.as_array() {
             let today = chrono::Local::now().date_naive();
             println!("[DEBUG] Calculating current week for date: {}", today);
-            
+
             // 首先找到学期第一周的开始日期
             let mut semester_start: Option<chrono::NaiveDate> = None;
             for item in arr.iter() {
-                let zc_num = item.get("zc")
-                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                let zc_num = item
+                    .get("zc")
+                    .and_then(|v| {
+                        v.as_i64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0);
-                
+
                 if zc_num == 1 {
                     // 第一周的周一日期
                     if let Some(start) = self.parse_calendar_date(item, "monday") {
@@ -3518,7 +3939,7 @@ impl HbutClient {
                     }
                 }
             }
-            
+
             // 如果找到了学期开始日期，直接计算周次
             if let Some(start) = semester_start {
                 let days = (today - start).num_days();
@@ -3527,22 +3948,32 @@ impl HbutClient {
                     return 1;
                 }
                 let week = (days / 7 + 1) as i32;
-                println!("[DEBUG] Calculated week {} (days from start: {})", week, days);
+                println!(
+                    "[DEBUG] Calculated week {} (days from start: {})",
+                    week, days
+                );
                 return week.max(1).min(25);
             }
-            
+
             // 备用方案：遍历每周，查找当前日期所在周
             for item in arr {
-                let zc_num: i32 = item.get("zc")
-                    .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                let zc_num: i32 = item
+                    .get("zc")
+                    .and_then(|v| {
+                        v.as_i64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                    })
                     .unwrap_or(0) as i32;
-                
+
                 if let (Some(start), Some(end)) = (
                     self.parse_calendar_date(item, "monday"),
-                    self.parse_calendar_date(item, "sunday")
+                    self.parse_calendar_date(item, "sunday"),
                 ) {
                     if today >= start && today <= end {
-                        println!("[DEBUG] Found current week {} ({} to {})", zc_num, start, end);
+                        println!(
+                            "[DEBUG] Found current week {} ({} to {})",
+                            zc_num, start, end
+                        );
                         return zc_num;
                     }
                 }
@@ -3551,9 +3982,13 @@ impl HbutClient {
         println!("[DEBUG] Could not determine week from calendar, defaulting to 1");
         1 // 默认第1周
     }
-    
+
     /// 解析校历中的日期（处理跨月情况）
-    fn parse_calendar_date(&self, item: &serde_json::Value, day_field: &str) -> Option<chrono::NaiveDate> {
+    fn parse_calendar_date(
+        &self,
+        item: &serde_json::Value,
+        day_field: &str,
+    ) -> Option<chrono::NaiveDate> {
         let raw_day = item.get(day_field).and_then(|v| v.as_str())?;
         if raw_day.trim().is_empty() {
             return None;
@@ -3669,21 +4104,23 @@ impl HbutClient {
     }
 
     /// 获取学业完成情况 (与 Python academic_progress.py 一致)
-    pub async fn fetch_academic_progress(&self, fasz: i32) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_academic_progress(
+        &self,
+        fasz: i32,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         println!("[DEBUG] Fetching academic progress with fasz={}", fasz);
-        
+
         // 1. 获取 xhid
-        let base_url = format!(
-            "{}/admin/xsd/xskp?fasz={}",
-            self.academic_base_url(),
-            fasz
-        );
+        let base_url = format!("{}/admin/xsd/xskp?fasz={}", self.academic_base_url(), fasz);
         let mut repaired = false;
         let html = loop {
             let response = self.client.get(&base_url).send().await?;
             let final_url = response.url().to_string();
             if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt && !repaired && self.ensure_chaoxing_academic_session().await {
+                if self.prefer_chaoxing_jwxt
+                    && !repaired
+                    && self.ensure_chaoxing_academic_session().await
+                {
                     repaired = true;
                     println!("[调试] 学业进度请求命中登录页，已补票后重试");
                     continue;
@@ -3696,19 +4133,20 @@ impl HbutClient {
             }
             break response.text().await?;
         };
-        
+
         // 提取 xhid
         let xhid = regex::Regex::new(r#"id="xhid"\s+value="([^"]+)""#)?
             .captures(&html)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
             .or_else(|| {
-                regex::Regex::new(r#"xhid\s*[:=]\s*["']([^"']+)["']"#).ok()?
+                regex::Regex::new(r#"xhid\s*[:=]\s*["']([^"']+)["']"#)
+                    .ok()?
                     .captures(&html)?
                     .get(1)
                     .map(|m| m.as_str().to_string())
             });
-        
+
         let xhid = match xhid {
             Some(id) => id,
             None => {
@@ -3719,56 +4157,62 @@ impl HbutClient {
                 }));
             }
         };
-        
+
         println!("[DEBUG] Got xhid: {}", xhid);
-        
+
         // 2. 获取基本信息
         let info_url = format!("{}/admin/xsd/xskp/xskp", self.academic_base_url());
-        let info_resp = self.client.get(&info_url)
+        let info_resp = self
+            .client
+            .get(&info_url)
             .query(&[("fasz", fasz.to_string()), ("xhid", xhid.clone())])
             .send()
             .await?;
         let info_data: serde_json::Value = info_resp.json().await.unwrap_or_default();
-        
+
         // 3. 获取统计信息
         let summary_url = format!("{}/admin/xsd/xskp/xyqk", self.academic_base_url());
-        let summary_resp = self.client.get(&summary_url)
+        let summary_resp = self
+            .client
+            .get(&summary_url)
             .query(&[("fasz", fasz.to_string()), ("xhid", xhid.clone())])
             .send()
             .await?;
         let summary_data: serde_json::Value = summary_resp.json().await.unwrap_or_default();
-        
+
         // 4. 获取树形数据
         let tree_url = format!("{}/admin/xsd/xskp/xyjc", self.academic_base_url());
-        let tree_resp = self.client.get(&tree_url)
+        let tree_resp = self
+            .client
+            .get(&tree_url)
             .query(&[
-                ("fasz", fasz.to_string()), 
+                ("fasz", fasz.to_string()),
                 ("xhid", xhid.clone()),
                 ("flag", "1".to_string()),
             ])
             .send()
             .await?;
         let tree_data: serde_json::Value = tree_resp.json().await.unwrap_or_default();
-        
+
         // 提取实际数据
         let basic = if info_data.get("ret").and_then(|v| v.as_i64()) == Some(0) {
             info_data.get("data").cloned()
         } else {
             None
         };
-        
+
         let summary = if summary_data.get("ret").and_then(|v| v.as_i64()) == Some(0) {
             summary_data.get("data").cloned()
         } else {
             None
         };
-        
+
         let tree = if tree_data.get("ret").and_then(|v| v.as_i64()) == Some(0) {
             tree_data.get("data").cloned()
         } else {
             None
         };
-        
+
         Ok(serde_json::json!({
             "success": true,
             "data": {
@@ -3781,5 +4225,4 @@ impl HbutClient {
         }))
     }
     // ========== 电费部分 ==========
-
 }

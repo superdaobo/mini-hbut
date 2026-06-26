@@ -21,16 +21,17 @@ describe('service stats frontend contract', () => {
   })
 
   it('registers service_stats as a Me sub view in App.vue', () => {
-    const source = readSource('src/App.vue')
+    const appSource = readSource('src/App.vue')
+    const navSource = readSource('src/navigation/app_navigation.ts')
 
-    expect(source).toContain("const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')")
-    expect(source).toContain('const ServiceStatsView = createAsyncPage(loadServiceStatsView)')
-    expect(source).toMatch(/ME_SUB_VIEWS\s*=\s*\[[\s\S]*'service_stats'/)
-    expect(source).toMatch(/HIERARCHICAL_PARENT_VIEW_MAP[\s\S]*service_stats:\s*'me'/)
-    expect(source).toMatch(/VIEW_PREFETCHERS[\s\S]*service_stats:\s*loadServiceStatsView/)
-    expect(source).toContain('v-else-if="currentView === \'service_stats\'"')
-    expect(source).toContain('<ServiceStatsView')
-    expect(source).toContain('@back="handleBackToMe"')
+    expect(appSource).toContain("const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')")
+    expect(appSource).toContain('const ServiceStatsView = createAsyncPage(loadServiceStatsView)')
+    expect(navSource).toMatch(/ME_SUB_VIEWS\s*=\s*\[[\s\S]*'service_stats'/)
+    expect(navSource).toMatch(/HIERARCHICAL_PARENT_VIEW_MAP[\s\S]*service_stats:\s*'me'/)
+    expect(appSource).toMatch(/VIEW_PREFETCHERS[\s\S]*service_stats:\s*loadServiceStatsView/)
+    expect(appSource).toContain('v-else-if="currentView === \'service_stats\'"')
+    expect(appSource).toContain('<ServiceStatsView')
+    expect(appSource).toContain('@back="handleBackToMe"')
   })
 
   it('provides a service stats page that tolerates old /health responses', () => {

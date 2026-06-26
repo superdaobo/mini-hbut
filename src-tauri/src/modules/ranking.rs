@@ -1,8 +1,8 @@
-﻿//! 🏆 绩点排名查询模块 - 与 Python modules/ranking.py 对应
+//! 🏆 绩点排名查询模块 - 与 Python modules/ranking.py 对应
 
+use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use regex::Regex;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
@@ -30,13 +30,13 @@ impl RankingModule {
     }
 
     pub async fn fetch_ranking(
-        &self, 
-        student_id: &str, 
+        &self,
+        student_id: &str,
         semester: Option<&str>,
-        grade: Option<&str>
+        grade: Option<&str>,
     ) -> Result<Ranking, Box<dyn std::error::Error + Send + Sync>> {
         let ranking_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", JWXT_BASE_URL);
-        
+
         // 如果未指定年级，从学号推断
         let grade_value = grade.map(|s| s.to_string()).unwrap_or_else(|| {
             if student_id.len() >= 2 {
@@ -50,41 +50,58 @@ impl RankingModule {
                 String::new()
             }
         });
-        
+
         let semester_value = semester.unwrap_or("");
-        
+
         let params = [
             ("xh", student_id),
             ("sznj", &grade_value),
             ("xnxq", semester_value),
         ];
-        
-        println!("[调试] 获取 ranking 来自: {} with params: xh={}, sznj={}, xnxq={}", 
-            ranking_url, student_id, grade_value, semester_value);
-        
-        let response = self.client
+
+        println!(
+            "[调试] 获取 ranking 来自: {} with params: xh={}, sznj={}, xnxq={}",
+            ranking_url, student_id, grade_value, semester_value
+        );
+
+        let response = self
+            .client
             .get(&ranking_url)
             .query(&params)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Referer", format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", JWXT_BASE_URL))
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .header(
+                "Referer",
+                format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", JWXT_BASE_URL),
+            )
             .send()
             .await?;
-        
+
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[调试] Ranking 响应 status: {}, 地址: {}", status, final_url);
-        
+        println!(
+            "[调试] Ranking 响应 status: {}, 地址: {}",
+            status, final_url
+        );
+
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
-        
+
         let html = response.text().await?;
         println!("[调试] Ranking HTML length: {}", html.len());
-        
+
         self.parse_html(&html, student_id, semester_value)
     }
 
-    fn parse_html(&self, html: &str, student_id: &str, semester: &str) -> Result<Ranking, Box<dyn std::error::Error + Send + Sync>> {
+    fn parse_html(
+        &self,
+        html: &str,
+        student_id: &str,
+        semester: &str,
+    ) -> Result<Ranking, Box<dyn std::error::Error + Send + Sync>> {
         let mut ranking = Ranking {
             student_id: student_id.to_string(),
             name: String::new(),
@@ -101,7 +118,10 @@ impl RankingModule {
         // 姓名
         if let Ok(re) = Regex::new(r"姓名[：:]\s*([^\s<]+)") {
             if let Some(cap) = re.captures(html) {
-                ranking.name = cap.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                ranking.name = cap
+                    .get(1)
+                    .map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_default();
             }
         }
 
@@ -172,9 +192,14 @@ impl RankingModule {
             }
         }
 
-        println!("[调试] 已解析 ranking: GPA={:?}, Major={:?}/{:?}, Class={:?}/{:?}", 
-            ranking.gpa, ranking.major_rank, ranking.major_total, 
-            ranking.class_rank, ranking.class_total);
+        println!(
+            "[调试] 已解析 ranking: GPA={:?}, Major={:?}/{:?}, Class={:?}/{:?}",
+            ranking.gpa,
+            ranking.major_rank,
+            ranking.major_total,
+            ranking.class_rank,
+            ranking.class_total
+        );
 
         Ok(ranking)
     }

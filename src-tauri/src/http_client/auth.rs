@@ -48,7 +48,9 @@ fn selector_pwd_encrypt_salt() -> &'static Selector {
 
 fn selector_pwd_default_encrypt_salt() -> &'static Selector {
     static SELECTOR: OnceLock<Selector> = OnceLock::new();
-    SELECTOR.get_or_init(|| Selector::parse("#pwdDefaultEncryptSalt").expect("selector #pwdDefaultEncryptSalt"))
+    SELECTOR.get_or_init(|| {
+        Selector::parse("#pwdDefaultEncryptSalt").expect("selector #pwdDefaultEncryptSalt")
+    })
 }
 
 fn selector_captcha_response() -> &'static Selector {
@@ -63,7 +65,8 @@ fn selector_c_response() -> &'static Selector {
 
 fn selector_show_error_tip_span() -> &'static Selector {
     static SELECTOR: OnceLock<Selector> = OnceLock::new();
-    SELECTOR.get_or_init(|| Selector::parse("span#showErrorTip").expect("selector span#showErrorTip"))
+    SELECTOR
+        .get_or_init(|| Selector::parse("span#showErrorTip").expect("selector span#showErrorTip"))
 }
 
 fn selector_show_error_tip() -> &'static Selector {
@@ -103,12 +106,16 @@ fn re_lt_double() -> &'static regex::Regex {
 
 fn re_execution_double() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"name="execution"\s+value="([^"]*)""#).expect("regex execution double"))
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"name="execution"\s+value="([^"]*)""#).expect("regex execution double")
+    })
 }
 
 fn re_salt_double() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"id="pwdEncryptSalt"\s+value="([^"]*)""#).expect("regex salt double"))
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"id="pwdEncryptSalt"\s+value="([^"]*)""#).expect("regex salt double")
+    })
 }
 
 fn re_lt_single() -> &'static regex::Regex {
@@ -118,22 +125,31 @@ fn re_lt_single() -> &'static regex::Regex {
 
 fn re_execution_single() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"name='execution'\s+value='([^']*)'"#).expect("regex execution single"))
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"name='execution'\s+value='([^']*)'"#).expect("regex execution single")
+    })
 }
 
 fn re_execution_js() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"execution\s*[:=]\s*\"([^\"]+)\""#).expect("regex execution js"))
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"execution\s*[:=]\s*\"([^\"]+)\""#).expect("regex execution js")
+    })
 }
 
 fn re_salt_single() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"id='pwdEncryptSalt'\s+value='([^']*)'"#).expect("regex salt single"))
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"id='pwdEncryptSalt'\s+value='([^']*)'"#).expect("regex salt single")
+    })
 }
 
 fn re_salt_js() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r#"pwd(Default)?EncryptSalt\s*[:=]\s*\"([^\"]+)\""#).expect("regex salt js"))
+    RE.get_or_init(|| {
+        regex::Regex::new(r#"pwd(Default)?EncryptSalt\s*[:=]\s*\"([^\"]+)\""#)
+            .expect("regex salt js")
+    })
 }
 
 fn response_indicates_service_success(response_url: &str, service_url: &str) -> bool {
@@ -184,9 +200,15 @@ fn classify_login_error_text(raw_text: &str) -> Option<(String, bool)> {
         .iter()
         .any(|k| text.contains(k));
 
-    let has_captcha_error = ["验证码错误", "验证码无效", "验证码不正确", "验证码有误", "请输入验证码"]
-        .iter()
-        .any(|k| text.contains(k));
+    let has_captcha_error = [
+        "验证码错误",
+        "验证码无效",
+        "验证码不正确",
+        "验证码有误",
+        "请输入验证码",
+    ]
+    .iter()
+    .any(|k| text.contains(k));
 
     let has_rate_limit = ["操作过于频繁", "请稍后再试", "请求过于频繁", "访问过于频繁"]
         .iter()
@@ -239,12 +261,17 @@ fn detect_login_error_from_html(html: &str) -> Option<(String, bool)> {
 
 impl HbutClient {
     /// 获取默认登录页并解析参数
-    pub async fn get_login_page(&mut self) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_login_page(
+        &mut self,
+    ) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
         self.get_login_page_with_service(TARGET_SERVICE).await
     }
 
     /// 获取指定 service 的登录页并解析参数
-    pub async fn get_login_page_with_service(&mut self, service_url: &str) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_login_page_with_service(
+        &mut self,
+        service_url: &str,
+    ) -> Result<LoginPageInfo, Box<dyn std::error::Error + Send + Sync>> {
         let encoded_service = urlencoding::encode(service_url);
         let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
         println!("[调试] 获取登录页: {}", login_url);
@@ -255,12 +282,13 @@ impl HbutClient {
                 println!("[警告] 获取登录页失败，尝试清理会话后重试: {}", first_err);
                 self.clear_session();
                 tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                self.client.get(&login_url).send().await.map_err(|retry_err| {
-                    format!(
-                        "获取登录页失败: {}; 重试仍失败: {}",
-                        first_err, retry_err
-                    )
-                })?
+                self.client
+                    .get(&login_url)
+                    .send()
+                    .await
+                    .map_err(|retry_err| {
+                        format!("获取登录页失败: {}; 重试仍失败: {}", first_err, retry_err)
+                    })?
             }
         };
         let status = response.status();
@@ -269,8 +297,7 @@ impl HbutClient {
         if html.contains("IP冻结") || html.contains("ip-freeze") || html.contains("ip冻结") {
             return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
         }
-        if html.contains("应用未注册")
-            || html.contains("不允许使用认证服务来认证您访问的目标应用")
+        if html.contains("应用未注册") || html.contains("不允许使用认证服务来认证您访问的目标应用")
         {
             return Err(format!(
                 "CAS 服务未注册（service={}），请改用融合门户默认登录链路",
@@ -281,7 +308,9 @@ impl HbutClient {
         println!("[调试] 登录页状态: {}, final_url: {}", status, final_url);
 
         // 检测是否已经登录（根据 URL 跳转或页面内容）
-        let is_already_logged_in = !final_url.contains("authserver/login") || final_url.contains("ticket=") || final_url.contains("code.hbut.edu.cn/server/auth/host/open");
+        let is_already_logged_in = !final_url.contains("authserver/login")
+            || final_url.contains("ticket=")
+            || final_url.contains("code.hbut.edu.cn/server/auth/host/open");
         if is_already_logged_in {
             println!("[调试] 检测到已登录状态（已跳转到服务或拿到票据）");
         }
@@ -290,7 +319,7 @@ impl HbutClient {
         let mut inputs = HashMap::new();
         let input_selector = selector_input();
         let document = Html::parse_document(&html);
-        
+
         // DEBUG: Dump form inputs
         println!("[调试] 解析登录页表单...");
         for el in document.select(input_selector) {
@@ -301,35 +330,47 @@ impl HbutClient {
         }
         // 使用正则提取参数（更稳健）
         // 优先从 inputs 中获取参数
-        let lt = inputs.get("lt").cloned().or_else(|| {
-            re_lt_double()
-            .captures(&html)
-            .and_then(|cap| cap.get(1))
-            .map(|m| m.as_str().to_string())
-        }).unwrap_or_default();
+        let lt = inputs
+            .get("lt")
+            .cloned()
+            .or_else(|| {
+                re_lt_double()
+                    .captures(&html)
+                    .and_then(|cap| cap.get(1))
+                    .map(|m| m.as_str().to_string())
+            })
+            .unwrap_or_default();
 
-        let execution = inputs.get("execution").cloned().or_else(|| {
-            re_execution_double()
-            .captures(&html)
-            .and_then(|cap| cap.get(1))
-            .map(|m| m.as_str().to_string())
-        }).unwrap_or_default();
-            
-        let salt = inputs.get("pwdEncryptSalt").cloned()
+        let execution = inputs
+            .get("execution")
+            .cloned()
+            .or_else(|| {
+                re_execution_double()
+                    .captures(&html)
+                    .and_then(|cap| cap.get(1))
+                    .map(|m| m.as_str().to_string())
+            })
+            .unwrap_or_default();
+
+        let salt = inputs
+            .get("pwdEncryptSalt")
+            .cloned()
             .or_else(|| inputs.get("pwdDefaultEncryptSalt").cloned())
             .or_else(|| {
                 // 尝试使用 Selector 查找 ID (比正则更稳健)
                 let salt_selector = selector_pwd_encrypt_salt();
-                document.select(salt_selector).next()
+                document
+                    .select(salt_selector)
+                    .next()
                     .and_then(|el| el.value().attr("value"))
                     .map(|s| s.to_string())
             })
             .or_else(|| {
                 // 最后尝试正则
                 re_salt_double()
-                .captures(&html)
-                .and_then(|cap| cap.get(1))
-                .map(|m| m.as_str().to_string())
+                    .captures(&html)
+                    .and_then(|cap| cap.get(1))
+                    .map(|m| m.as_str().to_string())
             })
             .unwrap_or_default();
 
@@ -360,7 +401,9 @@ impl HbutClient {
         };
 
         let salt = if salt.is_empty() {
-            let salt_from_selector = document.select(selector_pwd_default_encrypt_salt()).next()
+            let salt_from_selector = document
+                .select(selector_pwd_default_encrypt_salt())
+                .next()
                 .and_then(|el| el.value().attr("value"))
                 .map(|s| s.to_string())
                 .unwrap_or_default();
@@ -383,7 +426,6 @@ impl HbutClient {
         } else {
             salt
         };
-        
 
         println!(
             "[调试] 登录页参数: lt={}, execution长度={}, salt={}",
@@ -403,17 +445,20 @@ impl HbutClient {
                 html.len()
             );
         }
-        
+
         // 检查是否需要验证码
-        let captcha_required = html.contains("captchaResponse") 
-            || html.contains("getCaptcha") 
+        let captcha_required = html.contains("captchaResponse")
+            || html.contains("getCaptcha")
             || inputs.contains_key("captchaResponse")
             || inputs.contains_key("captcha")
-            || document.select(selector_captcha_response()).next().is_some()
+            || document
+                .select(selector_captcha_response())
+                .next()
+                .is_some()
             || document.select(selector_c_response()).next().is_some();
-            
+
         println!("[调试] 需要验证码: {}", captcha_required);
-        
+
         if !inputs.is_empty() {
             println!(
                 "[调试] 登录页输入字段: {:?}",
@@ -421,7 +466,7 @@ impl HbutClient {
             );
             self.last_login_inputs = Some(inputs);
         }
-        
+
         Ok(LoginPageInfo {
             lt,
             execution,
@@ -432,7 +477,12 @@ impl HbutClient {
     }
 
     /// 使用指定 service 发起 CAS 登录，返回用户信息
-    pub async fn login_for_service(&mut self, username: &str, password: &str, service_url: &str) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn login_for_service(
+        &mut self,
+        username: &str,
+        password: &str,
+        service_url: &str,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let encoded_service = urlencoding::encode(service_url);
         let login_url = format!("{}/login?service={}", AUTH_BASE_URL, encoded_service);
         println!("[调试] 登录地址（服务）: {}", login_url);
@@ -457,8 +507,8 @@ impl HbutClient {
 
             // 如果已经登录，直接跳过 POST 步骤
             if page_info.is_already_logged_in {
-                 println!("[调试] 已登录（获取登录页时检测到），跳过登录 POST");
-                 break;
+                println!("[调试] 已登录（获取登录页时检测到），跳过登录 POST");
+                break;
             }
 
             if current_salt.is_empty() {
@@ -470,7 +520,10 @@ impl HbutClient {
 
             let mut form_data = self.last_login_inputs.clone().unwrap_or_default();
 
-            let set_key = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: String| {
+            let set_key = |map: &mut HashMap<String, String>,
+                           keys: &[&str],
+                           default_key: &str,
+                           value: String| {
                 for key in keys {
                     if map.contains_key(*key) {
                         map.insert((*key).to_string(), value.clone());
@@ -479,7 +532,10 @@ impl HbutClient {
                 }
                 map.insert(default_key.to_string(), value);
             };
-            let set_all_keys = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: &str| {
+            let set_all_keys = |map: &mut HashMap<String, String>,
+                                keys: &[&str],
+                                default_key: &str,
+                                value: &str| {
                 let mut set_any = false;
                 for key in keys {
                     if map.contains_key(*key) {
@@ -492,30 +548,66 @@ impl HbutClient {
                 }
             };
 
-            set_key(&mut form_data, &["username", "username", "loginname"], "username", username.to_string());
-            set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
+            set_key(
+                &mut form_data,
+                &["username", "username", "loginname"],
+                "username",
+                username.to_string(),
+            );
+            set_key(
+                &mut form_data,
+                &["password", "passwd"],
+                "password",
+                encrypted_password,
+            );
             // v3: 浏览器在提交前会 disable passwordText 字段（不随表单发送），这里同步移除
             form_data.remove("passwordText");
-            set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
-            set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
+            set_key(
+                &mut form_data,
+                &["cllt"],
+                "cllt",
+                "userNameLogin".to_string(),
+            );
+            set_key(
+                &mut form_data,
+                &["dllt"],
+                "dllt",
+                "generalLogin".to_string(),
+            );
             if !current_execution.is_empty() {
-                set_key(&mut form_data, &["execution"], "execution", current_execution);
+                set_key(
+                    &mut form_data,
+                    &["execution"],
+                    "execution",
+                    current_execution,
+                );
             }
             if !current_lt.is_empty() {
                 set_key(&mut form_data, &["lt"], "lt", current_lt);
             }
-            set_key(&mut form_data, &["_eventId"], "_eventId", "submit".to_string());
+            set_key(
+                &mut form_data,
+                &["_eventId"],
+                "_eventId",
+                "submit".to_string(),
+            );
             set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
 
             if page_info.captcha_required {
                 let captcha_code = self.fetch_and_recognize_captcha().await.unwrap_or_default();
                 let captcha_code = captcha_code.trim().to_string();
                 if !captcha_code.is_empty() {
-                    set_all_keys(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", &captcha_code);
+                    set_all_keys(
+                        &mut form_data,
+                        &["captcha", "captchaResponse", "c_response"],
+                        "captcha",
+                        &captcha_code,
+                    );
                 }
             }
 
-            let response = self.client
+            let response = self
+                .client
                 .post(&login_url)
                 .header("Referer", &login_url)
                 .form(&form_data)
@@ -527,7 +619,11 @@ impl HbutClient {
             let html = response.text().await?;
             if let Some((login_err, retryable_captcha)) = detect_login_error_from_html(&html) {
                 if retryable_captcha && attempt + 1 < max_attempts {
-                    println!("[调试] 验证码错误，重试... ({}/{})", attempt + 1, max_attempts);
+                    println!(
+                        "[调试] 验证码错误，重试... ({}/{})",
+                        attempt + 1,
+                        max_attempts
+                    );
                     continue;
                 }
                 return Err(login_err.into());
@@ -535,7 +631,6 @@ impl HbutClient {
             if status.as_u16() == 401 {
                 return Err("登录失败，请检查账号或密码".into());
             }
-
 
             let is_on_auth_page = response_url.contains("authserver/login")
                 || response_url.contains("auth.hbut.edu.cn")
@@ -550,7 +645,11 @@ impl HbutClient {
                     }
                 }
                 if attempt + 1 < max_attempts {
-                    println!("[调试] 仍在登录页，重试... ({}/{})", attempt + 1, max_attempts);
+                    println!(
+                        "[调试] 仍在登录页，重试... ({}/{})",
+                        attempt + 1,
+                        max_attempts
+                    );
                     continue;
                 }
                 return Err("登录失败，请检查账号密码或验证码".into());
@@ -559,7 +658,11 @@ impl HbutClient {
             // 快路径：已回到目标服务域名，直接认为服务登录成功，避免额外一次 CAS 校验请求。
             if !response_indicates_service_success(&response_url, service_url) {
                 // 回退路径：做一次 CAS 会话校验，避免 OCR 误识导致“看似成功”。
-                let verify_url = format!("{}/login?service={}", AUTH_BASE_URL, urlencoding::encode(service_url));
+                let verify_url = format!(
+                    "{}/login?service={}",
+                    AUTH_BASE_URL,
+                    urlencoding::encode(service_url)
+                );
                 let verify_resp = self.client.get(&verify_url).send().await?;
                 let verify_final = verify_resp.url().to_string();
                 if verify_final.contains("authserver/login") {
@@ -568,7 +671,11 @@ impl HbutClient {
                         break;
                     }
                     if attempt + 1 < max_attempts {
-                        println!("[警告] CAS 会话未建立，重试... ({}/{})", attempt + 1, max_attempts);
+                        println!(
+                            "[警告] CAS 会话未建立，重试... ({}/{})",
+                            attempt + 1,
+                            max_attempts
+                        );
                         continue;
                     }
                     return Err("登录未生效，请重试或稍后再试".into());
@@ -589,7 +696,8 @@ impl HbutClient {
                 Ok(info) => info,
                 Err(err) => {
                     let err_msg = err.to_string();
-                    if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
+                    if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期")
+                    {
                         println!("[调试] 用户信息获取失败，再次补偿 CAS 入口");
                         let _ = self.client.get(&caslogin_url).send().await?;
                         self.fetch_user_info().await?
@@ -604,12 +712,12 @@ impl HbutClient {
             self.save_cookie_snapshot_to_file();
             return Ok(user_info);
         } else {
-             println!("[调试] 服务登录成功: {}", service_url);
-             self.is_logged_in = true;
-             self.set_chaoxing_login_mode(false);
-             self.save_cookie_snapshot_to_file();
-             // 尝试从缓存返回用户信息 (若无则返回仅包含学号的默认信息)
-             return Ok(self.user_info.clone().unwrap_or(UserInfo {
+            println!("[调试] 服务登录成功: {}", service_url);
+            self.is_logged_in = true;
+            self.set_chaoxing_login_mode(false);
+            self.save_cookie_snapshot_to_file();
+            // 尝试从缓存返回用户信息 (若无则返回仅包含学号的默认信息)
+            return Ok(self.user_info.clone().unwrap_or(UserInfo {
                 student_id: username.to_string(),
                 student_name: String::new(),
                 college: None,
@@ -619,35 +727,35 @@ impl HbutClient {
             }));
         }
     }
-    
-
 
     /// 获取验证码图片并返回 Base64 字符串
     pub async fn get_captcha(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let captcha_url = format!("{}/getCaptcha.htl?{}", AUTH_BASE_URL, chrono_timestamp());
         println!("[调试] 获取 captcha： {}", captcha_url);
-        
+
         let response = self.client.get(&captcha_url).send().await?;
         let status = response.status();
         println!("[调试] 验证码响应状态: {}", status);
-        
+
         let bytes = response.bytes().await?;
         println!("[调试] 验证码字节长度: {}", bytes.len());
-        
+
         if bytes.is_empty() || bytes.len() < 100 {
             return Err(format!("Captcha image is too small: {} bytes", bytes.len()).into());
         }
-        
+
         let base64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
         println!("[调试] 验证码 Base64 长度: {}", base64_str.len());
-        
+
         Ok(format!("data:image/png;base64,{}", base64_str))
     }
 
     /// 检查是否已具备 code 服务登录会话
     async fn check_code_login(&self) -> bool {
         let url = "https://code.hbut.edu.cn/server/auth/getLoginUser";
-        let resp = self.client.get(url)
+        let resp = self
+            .client
+            .get(url)
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Origin", "https://code.hbut.edu.cn")
             .header("Referer", "https://code.hbut.edu.cn/")
@@ -656,7 +764,10 @@ impl HbutClient {
         if let Ok(resp) = resp {
             if let Ok(text) = resp.text().await {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                    return json.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+                    return json
+                        .get("success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                 }
             }
         }
@@ -754,7 +865,11 @@ impl HbutClient {
                 }
             };
 
-            if ocr_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if ocr_result
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 if let Some(result) = ocr_result.get("result").and_then(|v| v.as_str()) {
                     let captcha_code = result.trim().to_string();
                     if !captcha_code.is_empty() {
@@ -777,7 +892,9 @@ impl HbutClient {
     }
 
     /// 获取验证码并调用 OCR 识别
-    async fn fetch_and_recognize_captcha(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_and_recognize_captcha(
+        &mut self,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let captcha_url = format!("{}/getCaptcha.htl?{}", AUTH_BASE_URL, chrono_timestamp());
         println!("[调试] 获取验证码用于 OCR: {}", captcha_url);
 
@@ -797,7 +914,7 @@ impl HbutClient {
     pub async fn login(
         &mut self,
         username: &str,
-        password: &str,  // 原始明文密码！加密在此函数内完成
+        password: &str, // 原始明文密码！加密在此函数内完成
         captcha_input: &str,
         _lt: &str,        // 忽略前端传入的值
         _execution: &str, // 忽略前端传入的值
@@ -815,7 +932,7 @@ impl HbutClient {
         // 缓存最近一次登录凭据（仅内存）
         self.last_username = Some(username.to_string());
         self.last_password = Some(password.to_string());
-        
+
         // 1. 获取登录页面获取最新的 salt, execution, lt
         println!("[调试] 获取登录页参数...");
 
@@ -823,9 +940,7 @@ impl HbutClient {
         for attempt in 0..max_retries {
             let mut page_info = self.get_login_page().await?;
             if !page_info.is_already_logged_in && !has_login_page_params(&page_info) {
-                println!(
-                    "[调试] 默认登录页参数不完整（salt/execution），尝试 service 回退链路"
-                );
+                println!("[调试] 默认登录页参数不完整（salt/execution），尝试 service 回退链路");
                 for service in LOGIN_PAGE_FALLBACK_SERVICES {
                     if service.eq_ignore_ascii_case(TARGET_SERVICE) {
                         continue;
@@ -855,23 +970,27 @@ impl HbutClient {
                 self.save_cookie_snapshot_to_file();
                 return Ok(user_info);
             }
-            
+
             let current_salt = page_info.salt;
             let current_execution = page_info.execution;
             let current_lt = page_info.lt;
             let captcha_required = page_info.captcha_required;
-            
+
             if current_salt.is_empty() || current_execution.trim().is_empty() {
                 return Err("无法获取登录参数（加密盐值或 execution）".into());
             }
-            
-            println!("[调试] 获取到新参数 - salt: {}, execution长度: {}, lt: {}", 
-                current_salt, current_execution.len(), current_lt);
-            
+
+            println!(
+                "[调试] 获取到新参数 - salt: {}, execution长度: {}, lt: {}",
+                current_salt,
+                current_execution.len(),
+                current_lt
+            );
+
             // 2. 在后端加密密码
             let encrypted_password = encrypt_password_aes(password, &current_salt)?;
             println!("[调试] 密码已加密, length: {}", encrypted_password.len());
-            
+
             // 3. 获取并识别验证码（始终后端 OCR）
             let captcha_code = if captcha_required {
                 if !captcha_input.trim().is_empty() {
@@ -903,142 +1022,207 @@ impl HbutClient {
                     }
                 }
             }
-            
+
             // 4. 构建表单数据（复用登录页隐藏字段）
             let mut form_data = self.last_login_inputs.clone().unwrap_or_default();
 
-        let set_key = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: String| {
-            for key in keys {
-                if map.contains_key(*key) {
-                    map.insert((*key).to_string(), value.clone());
-                    return;
+            let set_key = |map: &mut HashMap<String, String>,
+                           keys: &[&str],
+                           default_key: &str,
+                           value: String| {
+                for key in keys {
+                    if map.contains_key(*key) {
+                        map.insert((*key).to_string(), value.clone());
+                        return;
+                    }
+                }
+                map.insert(default_key.to_string(), value);
+            };
+            let set_all_keys = |map: &mut HashMap<String, String>,
+                                keys: &[&str],
+                                default_key: &str,
+                                value: &str| {
+                let mut set_any = false;
+                for key in keys {
+                    if map.contains_key(*key) {
+                        map.insert((*key).to_string(), value.to_string());
+                        set_any = true;
+                    }
+                }
+                if !set_any {
+                    map.insert(default_key.to_string(), value.to_string());
+                }
+            };
+
+            set_key(
+                &mut form_data,
+                &["username", "username", "loginname"],
+                "username",
+                username.to_string(),
+            );
+            set_key(
+                &mut form_data,
+                &["password", "passwd"],
+                "password",
+                encrypted_password,
+            );
+            // v3: 浏览器在提交前会 disable passwordText 字段（不随表单发送），这里同步移除
+            form_data.remove("passwordText");
+            // 强制使用username登录模式，避免落入 dynamic/fido/qr 登录流程
+            set_key(
+                &mut form_data,
+                &["cllt"],
+                "cllt",
+                "userNameLogin".to_string(),
+            );
+            set_key(
+                &mut form_data,
+                &["dllt"],
+                "dllt",
+                "generalLogin".to_string(),
+            );
+            set_key(
+                &mut form_data,
+                &["_eventId"],
+                "_eventId",
+                "submit".to_string(),
+            );
+            set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
+
+            // 保留登录页原始 cllt 值（与 fast_auth.py 对齐）
+
+            // 与 fast_auth.py 对齐：仅在有值时覆盖 execution/lt
+            if !current_execution.is_empty() {
+                set_key(
+                    &mut form_data,
+                    &["execution"],
+                    "execution",
+                    current_execution,
+                );
+            }
+            if !current_lt.is_empty() {
+                set_key(&mut form_data, &["lt"], "lt", current_lt);
+            }
+
+            if !captcha_code.is_empty() {
+                let captcha_clean = captcha_code.trim();
+                set_all_keys(
+                    &mut form_data,
+                    &["captcha", "captchaResponse", "c_response"],
+                    "captcha",
+                    captcha_clean,
+                );
+                println!("[调试] 使用验证码: {}", captcha_clean);
+            }
+
+            // 保留登录页隐藏字段（即使为空），某些学校 CAS 会校验字段存在性
+
+            // 若页面默认是扫码登录(qrLogin)，改为username登录，避免 CAS 在 realSubmit 处 NPE
+            if let Some(v) = form_data.get("cllt") {
+                if v == "qrLogin" {
+                    form_data.insert("cllt".to_string(), "userNameLogin".to_string());
                 }
             }
-            map.insert(default_key.to_string(), value);
-        };
-        let set_all_keys = |map: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: &str| {
-            let mut set_any = false;
-            for key in keys {
-                if map.contains_key(*key) {
-                    map.insert((*key).to_string(), value.to_string());
-                    set_any = true;
+
+            let debug_keys = [
+                "cllt",
+                "dllt",
+                "uuid",
+                "responseJson",
+                "dynamicCode",
+                "lt",
+                "execution",
+            ];
+            let mut debug_fields: Vec<String> = Vec::new();
+            for k in debug_keys {
+                if let Some(v) = form_data.get(k) {
+                    let display = if k == "execution" {
+                        format!("{}(len={})", k, v.len())
+                    } else {
+                        format!("{}={}", k, v)
+                    };
+                    debug_fields.push(display);
                 }
             }
-            if !set_any {
-                map.insert(default_key.to_string(), value.to_string());
-            }
-        };
-
-        set_key(&mut form_data, &["username", "username", "loginname"], "username", username.to_string());
-        set_key(&mut form_data, &["password", "passwd"], "password", encrypted_password);
-        // v3: 浏览器在提交前会 disable passwordText 字段（不随表单发送），这里同步移除
-        form_data.remove("passwordText");
-        // 强制使用username登录模式，避免落入 dynamic/fido/qr 登录流程
-        set_key(&mut form_data, &["cllt"], "cllt", "userNameLogin".to_string());
-        set_key(&mut form_data, &["dllt"], "dllt", "generalLogin".to_string());
-        set_key(&mut form_data, &["_eventId"], "_eventId", "submit".to_string());
-        set_key(&mut form_data, &["rmShown"], "rmShown", "1".to_string());
-
-        // 保留登录页原始 cllt 值（与 fast_auth.py 对齐）
-
-        // 与 fast_auth.py 对齐：仅在有值时覆盖 execution/lt
-        if !current_execution.is_empty() {
-            set_key(&mut form_data, &["execution"], "execution", current_execution);
-        }
-        if !current_lt.is_empty() {
-            set_key(&mut form_data, &["lt"], "lt", current_lt);
-        }
-
-        if !captcha_code.is_empty() {
-            let captcha_clean = captcha_code.trim();
-            set_all_keys(&mut form_data, &["captcha", "captchaResponse", "c_response"], "captcha", captcha_clean);
-            println!("[调试] 使用验证码: {}", captcha_clean);
-        }
-
-        // 保留登录页隐藏字段（即使为空），某些学校 CAS 会校验字段存在性
-
-        // 若页面默认是扫码登录(qrLogin)，改为username登录，避免 CAS 在 realSubmit 处 NPE
-        if let Some(v) = form_data.get("cllt") {
-            if v == "qrLogin" {
-                form_data.insert("cllt".to_string(), "userNameLogin".to_string());
-            }
-        }
-        
-        let debug_keys = ["cllt", "dllt", "uuid", "responseJson", "dynamicCode", "lt", "execution"];
-        let mut debug_fields: Vec<String> = Vec::new();
-        for k in debug_keys {
-            if let Some(v) = form_data.get(k) {
-                let display = if k == "execution" { format!("{}(len={})", k, v.len()) } else { format!("{}={}", k, v) };
-                debug_fields.push(display);
-            }
-        }
-            println!("[调试] 表单字段名: {:?}", form_data.keys().collect::<Vec<_>>());
+            println!(
+                "[调试] 表单字段名: {:?}",
+                form_data.keys().collect::<Vec<_>>()
+            );
             if !debug_fields.is_empty() {
                 println!("[调试] 表单字段值: {}", debug_fields.join(", "));
             }
-            
+
             // 5. 提交登录请求
             println!("[调试] 发送登录 POST 请求...");
             // 只有真正发起 CAS 登录提交时才计入频率限制，避免参数解析异常触发误限频。
             self.last_login_attempt = Some(std::time::Instant::now());
-            let response = self.client
+            let response = self
+                .client
                 .post(&login_url)
                 .header("Referer", &login_url)
                 .form(&form_data)
                 .send()
                 .await?;
-            
+
             println!("[调试] 登录请求已发送，处理响应...");
             let response_url = response.url().to_string();
             let status = response.status();
             let html = response.text().await?;
-        
-            println!("[调试] 登录响应状态: {}, 最终地址: {}", status, response_url);
+
+            println!(
+                "[调试] 登录响应状态: {}, 最终地址: {}",
+                status, response_url
+            );
             println!("[调试] 响应 HTML 长度: {}", html.len());
             // 如果长度较短(<1000)，打印出来看看
             if html.len() < 1000 {
                 println!("[调试] 响应 HTML 片段: {}", html);
             }
 
-        if status.as_u16() >= 400 {
-            let debug_path = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join("debug_login_error_response_tauri.html");
-            let _ = std::fs::write(&debug_path, &html);
-            println!(
-                "[调试] 登录响应状态 >=400, wrote {} (len={})",
-                debug_path.display(),
-                html.len()
-            );
-        }
-
-        if html.contains("IP冻结") || html.contains("ip-freeze") || html.contains("ip冻结") {
-            return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
-        }
-
-        if status.as_u16() >= 500 {
-            let debug_path = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .join("debug_login_response_tauri.html");
-            let _ = std::fs::write(&debug_path, &html);
-            println!(
-                "[调试] 登录响应状态 >=500, wrote {} (len={})",
-                debug_path.display(),
-                html.len()
-            );
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&html) {
-                if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
-                    return Err(format!("登录失败: {}", message).into());
-                }
-                if let Some(error) = json.get("error").and_then(|v| v.as_str()) {
-                    return Err(format!("登录失败: {}", error).into());
-                }
+            if status.as_u16() >= 400 {
+                let debug_path = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join("debug_login_error_response_tauri.html");
+                let _ = std::fs::write(&debug_path, &html);
+                println!(
+                    "[调试] 登录响应状态 >=400, wrote {} (len={})",
+                    debug_path.display(),
+                    html.len()
+                );
             }
-            return Err("登录失败，认证服务返回 5xx".into());
-        }
+
+            if html.contains("IP冻结") || html.contains("ip-freeze") || html.contains("ip冻结")
+            {
+                return Err("服务器 IP 被学校冻结，请稍后再试或联系管理员".into());
+            }
+
+            if status.as_u16() >= 500 {
+                let debug_path = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    .join("debug_login_response_tauri.html");
+                let _ = std::fs::write(&debug_path, &html);
+                println!(
+                    "[调试] 登录响应状态 >=500, wrote {} (len={})",
+                    debug_path.display(),
+                    html.len()
+                );
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&html) {
+                    if let Some(message) = json.get("message").and_then(|v| v.as_str()) {
+                        return Err(format!("登录失败: {}", message).into());
+                    }
+                    if let Some(error) = json.get("error").and_then(|v| v.as_str()) {
+                        return Err(format!("登录失败: {}", error).into());
+                    }
+                }
+                return Err("登录失败，认证服务返回 5xx".into());
+            }
             if let Some((login_err, retryable_captcha)) = detect_login_error_from_html(&html) {
                 if retryable_captcha && attempt + 1 < max_retries {
-                    println!("[调试] 验证码错误，重试... ({}/{})", attempt + 1, max_retries);
+                    println!(
+                        "[调试] 验证码错误，重试... ({}/{})",
+                        attempt + 1,
+                        max_retries
+                    );
                     continue;
                 }
                 return Err(login_err.into());
@@ -1056,7 +1240,11 @@ impl HbutClient {
                     html.len()
                 );
                 if attempt + 1 < max_retries {
-                    println!("[调试] 401 未授权，重试... ({}/{})", attempt + 1, max_retries);
+                    println!(
+                        "[调试] 401 未授权，重试... ({}/{})",
+                        attempt + 1,
+                        max_retries
+                    );
                     continue;
                 }
                 return Err("登录失败，请检查账号或密码".into());
@@ -1069,7 +1257,11 @@ impl HbutClient {
 
             if is_on_auth_page {
                 if attempt + 1 < max_retries {
-                    println!("[调试] 仍在登录页，重试... ({}/{})", attempt + 1, max_retries);
+                    println!(
+                        "[调试] 仍在登录页，重试... ({}/{})",
+                        attempt + 1,
+                        max_retries
+                    );
                     continue;
                 }
                 return Err("登录失败，请检查账号或密码".into());
@@ -1080,14 +1272,20 @@ impl HbutClient {
             let is_on_jwxt_login = looks_like_academic_login_url(&response_url);
             if status.is_success()
                 && !is_on_jwxt_login
-                && (response_url.contains("ticket=") || response_url.contains("jwxt") || !response_url.contains("login"))
+                && (response_url.contains("ticket=")
+                    || response_url.contains("jwxt")
+                    || !response_url.contains("login"))
             {
                 println!("[调试] 登录成功（基于重定向）");
             } else if is_on_jwxt_login {
                 // CAS 成功但教务会话未建立，通过 /admin/caslogin 补偿
                 println!("[调试] 落入教务登录页，尝试 /admin/caslogin 补偿");
             } else if attempt + 1 < max_retries {
-                println!("[调试] 登录状态不明确，重试... ({}/{})", attempt + 1, max_retries);
+                println!(
+                    "[调试] 登录状态不明确，重试... ({}/{})",
+                    attempt + 1,
+                    max_retries
+                );
                 continue;
             } else {
                 return Err("登录失败，请稍后重试".into());
@@ -1101,7 +1299,8 @@ impl HbutClient {
                 Ok(info) => info,
                 Err(err) => {
                     let err_msg = err.to_string();
-                    if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
+                    if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期")
+                    {
                         println!("[调试] 用户信息获取失败，再次补偿 CAS 入口");
                         let _ = self.client.get(&caslogin_url).send().await?;
                         self.fetch_user_info().await?
@@ -1110,21 +1309,20 @@ impl HbutClient {
                     }
                 }
             };
-        // 成功登录
-        self.last_login_time = Some(std::time::Instant::now());
-        self.is_logged_in = true;
-        self.set_chaoxing_login_mode(false);
-        self.user_info = Some(user_info.clone());
-        self.save_cookie_snapshot_to_file();
+            // 成功登录
+            self.last_login_time = Some(std::time::Instant::now());
+            self.is_logged_in = true;
+            self.set_chaoxing_login_mode(false);
+            self.user_info = Some(user_info.clone());
+            self.save_cookie_snapshot_to_file();
 
-        // 避免启动时触发频繁登录/验证码，SSO Token 改为按需获取
-        
-        return Ok(user_info);
+            // 避免启动时触发频繁登录/验证码，SSO Token 改为按需获取
+
+            return Ok(user_info);
         }
 
         Err("登录失败，请稍后重试".into())
     }
-
 }
 
 #[cfg(test)]

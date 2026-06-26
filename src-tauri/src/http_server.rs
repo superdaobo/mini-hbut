@@ -9,11 +9,18 @@
 //! - 这是测试桥接，不应暴露到公网
 //! - 返回体固定为 { success, data, error, time }
 
-use axum::{routing::{any, get, post}, Json, Router, extract::State, extract::Query, extract::Path, extract::RawQuery};
-use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{IntoResponse, Response};
 use axum::body::{Body, Bytes};
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
+use axum::{
+    extract::Path,
+    extract::Query,
+    extract::RawQuery,
+    extract::State,
+    routing::{any, get, post},
+    Json, Router,
+};
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -78,37 +85,103 @@ fn extract_bearer(headers: &HeaderMap) -> Option<String> {
             }
         }
     }
-    headers.get("x-local-token").and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    headers
+        .get("x-local-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
-fn ensure_local_cache_auth(headers: &HeaderMap, state: &HttpState) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+fn ensure_local_cache_auth(
+    headers: &HeaderMap,
+    state: &HttpState,
+) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let key = state.local_api_key.as_ref().ok_or_else(|| {
-        err(StatusCode::UNAUTHORIZED, "权限不足", "本地缓存 API 未配置公钥".to_string())
+        err(
+            StatusCode::UNAUTHORIZED,
+            "权限不足",
+            "本地缓存 API 未配置公钥".to_string(),
+        )
     })?;
     let token = extract_bearer(headers).ok_or_else(|| {
-        err(StatusCode::UNAUTHORIZED, "权限不足", "缺少本地缓存 API 令牌".to_string())
+        err(
+            StatusCode::UNAUTHORIZED,
+            "权限不足",
+            "缺少本地缓存 API 令牌".to_string(),
+        )
     })?;
 
     let mut validation = Validation::new(Algorithm::RS256);
     validation.validate_exp = true;
-    let data = decode::<LocalClaims>(&token, key, &validation)
-        .map_err(|e| err(StatusCode::UNAUTHORIZED, "权限不足", format!("令牌无效: {}", e)))?;
+    let data = decode::<LocalClaims>(&token, key, &validation).map_err(|e| {
+        err(
+            StatusCode::UNAUTHORIZED,
+            "权限不足",
+            format!("令牌无效: {}", e),
+        )
+    })?;
 
     if let Some(scope) = data.claims.scope.as_ref() {
         let scopes: Vec<&str> = scope.split(|c| c == ' ' || c == ',').collect();
         if !scopes.iter().any(|s| s.trim() == LOCAL_API_SCOPE) {
-            return Err(err(StatusCode::FORBIDDEN, "权限不足", "令牌无缓存读取权限".to_string()));
+            return Err(err(
+                StatusCode::FORBIDDEN,
+                "权限不足",
+                "令牌无缓存读取权限".to_string(),
+            ));
         }
     }
     Ok(())
 }
 
-fn ensure_debug_bridge_enabled(state: &HttpState) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+fn ensure_debug_bridge_enabled(
+    state: &HttpState,
+) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     if !debug_bridge::is_bridge_tools_enabled(&state.app) {
         return Err(err(
             StatusCode::FORBIDDEN,
             "调试接口已禁用",
             "debug.enable_bridge_tools 未开启".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// 登录、cookie 导出等敏感 Bridge 路由鉴权。
+fn ensure_sensitive_bridge_auth(
+    headers: &HeaderMap,
+    state: &HttpState,
+) -> Result<(), (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if cfg!(debug_assertions) && debug_bridge::is_bridge_tools_enabled(&state.app) {
+        return Ok(());
+    }
+
+    let expected = std::env::var("HBUT_BRIDGE_TOKEN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let Some(expected) = expected else {
+        return Err(err(
+            StatusCode::FORBIDDEN,
+            "权限不足",
+            "敏感桥接 API 已禁用：请设置 HBUT_BRIDGE_TOKEN".to_string(),
+        ));
+    };
+
+    let token = extract_bearer(headers).ok_or_else(|| {
+        err(
+            StatusCode::UNAUTHORIZED,
+            "权限不足",
+            "缺少桥接令牌（Authorization: Bearer … 或 X-Local-Token）".to_string(),
+        )
+    })?;
+
+    if token != expected {
+        return Err(err(
+            StatusCode::UNAUTHORIZED,
+            "权限不足",
+            "桥接令牌无效".to_string(),
         ));
     }
     Ok(())
@@ -147,7 +220,11 @@ fn ok<T: Serialize>(data: T) -> Json<ApiResponse<T>> {
 }
 
 /// 失败响应包装
-fn err(status: StatusCode, kind: &str, message: String) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+fn err(
+    status: StatusCode,
+    kind: &str,
+    message: String,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     (
         status,
         Json(ApiResponse {
@@ -161,73 +238,52 @@ fn err(status: StatusCode, kind: &str, message: String) -> (StatusCode, Json<Api
         }),
     )
 }
-use std::net::{SocketAddr, IpAddr};
-use std::collections::HashMap;
-use std::io::ErrorKind;
-use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex;
-use axum::http::{Method, StatusCode};
-use chrono::{Datelike, Utc};
-use base64::{engine::general_purpose, Engine as _};
-use futures::Stream;
-use futures::StreamExt;
-use futures::FutureExt;
-use std::time::{Duration, Instant};
-use std::convert::Infallible;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use tower_http::cors::{Any, CorsLayer};
-use rand::Rng;
-use crate::{
-    UserInfo,
-    QxzkbQuery,
-    AddCustomScheduleCourseRequest,
-    DeleteCustomScheduleCourseRequest,
-    UpdateCustomScheduleCourseRequest,
-    CourseSelectionListRequest,
-    CourseSelectionEndTimeRequest,
-    CourseSelectionChildClassesRequest,
-    CourseSelectionSelectRequest,
-    CourseSelectionWithdrawRequest,
-    CourseSelectionDetailRequest,
-    CourseSelectionSelectedCoursesRequest,
-    OnlineLearningOverviewRequest,
-    OnlineLearningSyncRequest,
-    OnlineLearningSyncRunsRequest,
-    OnlineLearningClearCacheRequest,
-    ChaoxingSessionStatusRequest,
-    ChaoxingCoursesRequest,
-    ChaoxingCourseOutlineRequest,
-    ChaoxingCourseProgressRequest,
-    ChaoxingLaunchUrlRequest,
-    YuketangQrCreateRequest,
-    YuketangPollQrLoginRequest,
-    YuketangCoursesRequest,
-    YuketangCourseOutlineRequest,
-    YuketangCourseProgressRequest,
-    ChaoxingKnowledgeCardsRequest,
-    ChaoxingVideoStatusRequest,
-    ChaoxingReportProgressRequest,
-    YuketangCourseChaptersRequest,
-    YuketangLeafInfoRequest,
-    YuketangHeartbeatRequest,
-};
 use crate::db;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use crate::http_client::HbutClient;
-use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 use crate::debug_bridge::{
-    self, DebugOpenModuleBridgeError, DebugOpenModuleRequest,
-    DebugResetMoreModulesBridgeError, DebugResetMoreModulesRequest,
-    DebugScreenshotBridgeError, DebugScreenshotRequest, DebugStateBridgeError,
-    DebugStateRequest,
+    self, DebugOpenModuleBridgeError, DebugOpenModuleRequest, DebugResetMoreModulesBridgeError,
+    DebugResetMoreModulesRequest, DebugScreenshotBridgeError, DebugScreenshotRequest,
+    DebugStateBridgeError, DebugStateRequest,
 };
+use crate::http_client::HbutClient;
 use crate::modules::module_bundle::{
     self, ModuleBundlePrepareRequest, OpenModuleBundleWindowRequest,
 };
+use crate::{
+    AddCustomScheduleCourseRequest, ChaoxingCourseOutlineRequest, ChaoxingCourseProgressRequest,
+    ChaoxingCoursesRequest, ChaoxingKnowledgeCardsRequest, ChaoxingLaunchUrlRequest,
+    ChaoxingReportProgressRequest, ChaoxingSessionStatusRequest, ChaoxingVideoStatusRequest,
+    CourseSelectionChildClassesRequest, CourseSelectionDetailRequest,
+    CourseSelectionEndTimeRequest, CourseSelectionListRequest, CourseSelectionSelectRequest,
+    CourseSelectionSelectedCoursesRequest, CourseSelectionWithdrawRequest,
+    DeleteCustomScheduleCourseRequest, OnlineLearningClearCacheRequest,
+    OnlineLearningOverviewRequest, OnlineLearningSyncRequest, OnlineLearningSyncRunsRequest,
+    QxzkbQuery, UpdateCustomScheduleCourseRequest, UserInfo, YuketangCourseChaptersRequest,
+    YuketangCourseOutlineRequest, YuketangCourseProgressRequest, YuketangCoursesRequest,
+    YuketangHeartbeatRequest, YuketangLeafInfoRequest, YuketangPollQrLoginRequest,
+    YuketangQrCreateRequest,
+};
+use axum::http::{Method, StatusCode};
+use base64::{engine::general_purpose, Engine as _};
+use chrono::{Datelike, Utc};
+use futures::FutureExt;
+use futures::Stream;
+use futures::StreamExt;
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use rand::Rng;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::io::ErrorKind;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
+use tokio::sync::{Mutex, RwLock};
+use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 struct HttpState {
-    client: Arc<Mutex<HbutClient>>,
+    client: Arc<RwLock<HbutClient>>,
     local_api_key: Option<DecodingKey>,
     app: AppHandle,
 }
@@ -481,8 +537,16 @@ struct AiSessionDeleteRequest {
 }
 
 /// 启动本地 Bridge 服务
-pub fn spawn_http_server(client: Arc<Mutex<HbutClient>>, app: AppHandle) {
-    let state = HttpState { 
+pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
+    let bridge_enabled = cfg!(debug_assertions)
+        || std::env::var("HBUT_HTTP_BRIDGE_ENABLED")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+    if !bridge_enabled {
+        return;
+    }
+
+    let state = HttpState {
         client,
         local_api_key: load_local_api_public_key(),
         app,
@@ -500,7 +564,9 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(4399);
     let host = std::env::var("HBUT_HTTP_BRIDGE_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let ip: IpAddr = host.parse().unwrap_or_else(|_| IpAddr::from([127, 0, 0, 1]));
+    let ip: IpAddr = host
+        .parse()
+        .unwrap_or_else(|_| IpAddr::from([127, 0, 0, 1]));
     let addr = SocketAddr::from((ip, port));
 
     let app = Router::new()
@@ -516,7 +582,10 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/schedule/custom/add", post(schedule_custom_add))
         .route("/schedule/custom/delete", post(schedule_custom_delete))
         .route("/schedule/custom/update", post(schedule_custom_update))
-        .route("/debug/custom_schedule/upsert", post(debug_custom_schedule_upsert))
+        .route(
+            "/debug/custom_schedule/upsert",
+            post(debug_custom_schedule_upsert),
+        )
         .route("/debug/navigate", post(debug_navigate))
         .route("/debug/open_module", post(debug_open_module))
         .route("/debug/reset_more_modules", post(debug_reset_more_modules))
@@ -526,18 +595,36 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/debug/save_export_file", post(debug_save_export_file))
         .route("/module_bundle/prepare", post(module_bundle_prepare))
         .route("/module_bundle/open", post(module_bundle_open))
-        .route("/module_bundle/content/:channel/:module_id/:version", get(module_bundle_content_index))
-        .route("/module_bundle/content/:channel/:module_id/:version/*path", get(module_bundle_content))
+        .route(
+            "/module_bundle/content/:channel/:module_id/:version",
+            get(module_bundle_content_index),
+        )
+        .route(
+            "/module_bundle/content/:channel/:module_id/:version/*path",
+            get(module_bundle_content),
+        )
         .route("/fetch_exams", post(fetch_exams))
         .route("/fetch_ranking", post(fetch_ranking))
         .route("/fetch_student_info", post(fetch_student_info))
-        .route("/fetch_personal_login_access_info", post(fetch_personal_login_access_info))
+        .route(
+            "/fetch_personal_login_access_info",
+            post(fetch_personal_login_access_info),
+        )
         .route("/fetch_semesters", post(fetch_semesters))
-        .route("/fetch_classroom_buildings", post(fetch_classroom_buildings))
+        .route(
+            "/fetch_classroom_buildings",
+            post(fetch_classroom_buildings),
+        )
         .route("/fetch_classrooms", post(fetch_classrooms))
-        .route("/fetch_training_plan_options", post(fetch_training_plan_options))
+        .route(
+            "/fetch_training_plan_options",
+            post(fetch_training_plan_options),
+        )
         .route("/fetch_training_plan_jys", post(fetch_training_plan_jys))
-        .route("/fetch_training_plan_courses", post(fetch_training_plan_courses))
+        .route(
+            "/fetch_training_plan_courses",
+            post(fetch_training_plan_courses),
+        )
         .route("/fetch_calendar_data", post(fetch_calendar_data))
         .route("/fetch_academic_progress", post(fetch_academic_progress))
         .route("/export_schedule_calendar", post(export_schedule_calendar))
@@ -548,42 +635,144 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/qxzkb/zyxx", post(fetch_qxzkb_zyxx))
         .route("/qxzkb/kkjys", post(fetch_qxzkb_kkjys))
         .route("/qxzkb/query", post(fetch_qxzkb_list))
-        .route("/course_selection/overview", post(fetch_course_selection_overview))
+        .route(
+            "/course_selection/overview",
+            post(fetch_course_selection_overview),
+        )
         .route("/course_selection/list", post(fetch_course_selection_list))
-        .route("/course_selection/end_time", post(fetch_course_selection_end_time))
-        .route("/course_selection/child_classes", post(fetch_course_selection_child_classes))
-        .route("/course_selection/select", post(select_course_selection_course))
-        .route("/course_selection/withdraw", post(withdraw_course_selection_course))
-        .route("/course_selection/selected_courses", post(fetch_course_selection_selected_courses))
-        .route("/course_selection/detail_intro", post(fetch_course_selection_detail_intro))
-        .route("/course_selection/detail_teacher", post(fetch_course_selection_detail_teacher))
-        .route("/online_learning/overview", post(fetch_online_learning_overview))
+        .route(
+            "/course_selection/end_time",
+            post(fetch_course_selection_end_time),
+        )
+        .route(
+            "/course_selection/child_classes",
+            post(fetch_course_selection_child_classes),
+        )
+        .route(
+            "/course_selection/select",
+            post(select_course_selection_course),
+        )
+        .route(
+            "/course_selection/withdraw",
+            post(withdraw_course_selection_course),
+        )
+        .route(
+            "/course_selection/selected_courses",
+            post(fetch_course_selection_selected_courses),
+        )
+        .route(
+            "/course_selection/detail_intro",
+            post(fetch_course_selection_detail_intro),
+        )
+        .route(
+            "/course_selection/detail_teacher",
+            post(fetch_course_selection_detail_teacher),
+        )
+        .route(
+            "/online_learning/overview",
+            post(fetch_online_learning_overview),
+        )
         .route("/online_learning/sync_now", post(online_learning_sync_now))
-        .route("/online_learning/sync_runs", post(online_learning_list_sync_runs))
-        .route("/online_learning/list_sync_runs", post(online_learning_list_sync_runs))
-        .route("/online_learning/clear_cache", post(online_learning_clear_cache))
-        .route("/online_learning/chaoxing/session_status", post(chaoxing_get_session_status))
-        .route("/online_learning/chaoxing/courses", post(chaoxing_fetch_courses))
-        .route("/online_learning/chaoxing/outline", post(chaoxing_fetch_course_outline))
-        .route("/online_learning/chaoxing/course_outline", post(chaoxing_fetch_course_outline))
-        .route("/online_learning/chaoxing/progress", post(chaoxing_fetch_course_progress))
-        .route("/online_learning/chaoxing/course_progress", post(chaoxing_fetch_course_progress))
-        .route("/online_learning/chaoxing/launch_url", post(chaoxing_get_launch_url))
-        .route("/online_learning/yuketang/create_qr_login", post(yuketang_create_qr_login))
-        .route("/online_learning/yuketang/qr_login/create", post(yuketang_create_qr_login))
-        .route("/online_learning/yuketang/poll_qr_login", post(yuketang_poll_qr_login))
-        .route("/online_learning/yuketang/qr_login/poll", post(yuketang_poll_qr_login))
-        .route("/online_learning/yuketang/courses", post(yuketang_fetch_courses))
-        .route("/online_learning/yuketang/outline", post(yuketang_fetch_course_outline))
-        .route("/online_learning/yuketang/course_outline", post(yuketang_fetch_course_outline))
-        .route("/online_learning/yuketang/progress", post(yuketang_fetch_course_progress))
-        .route("/online_learning/yuketang/course_progress", post(yuketang_fetch_course_progress))
-        .route("/online_learning/chaoxing/knowledge_cards", post(chaoxing_get_knowledge_cards))
-        .route("/online_learning/chaoxing/video_status", post(chaoxing_get_video_status))
-        .route("/online_learning/chaoxing/report_progress", post(chaoxing_report_progress))
-        .route("/online_learning/yuketang/course_chapters", post(yuketang_get_course_chapters))
-        .route("/online_learning/yuketang/leaf_info", post(yuketang_get_leaf_info))
-        .route("/online_learning/yuketang/heartbeat", post(yuketang_send_heartbeat))
+        .route(
+            "/online_learning/sync_runs",
+            post(online_learning_list_sync_runs),
+        )
+        .route(
+            "/online_learning/list_sync_runs",
+            post(online_learning_list_sync_runs),
+        )
+        .route(
+            "/online_learning/clear_cache",
+            post(online_learning_clear_cache),
+        )
+        .route(
+            "/online_learning/chaoxing/session_status",
+            post(chaoxing_get_session_status),
+        )
+        .route(
+            "/online_learning/chaoxing/courses",
+            post(chaoxing_fetch_courses),
+        )
+        .route(
+            "/online_learning/chaoxing/outline",
+            post(chaoxing_fetch_course_outline),
+        )
+        .route(
+            "/online_learning/chaoxing/course_outline",
+            post(chaoxing_fetch_course_outline),
+        )
+        .route(
+            "/online_learning/chaoxing/progress",
+            post(chaoxing_fetch_course_progress),
+        )
+        .route(
+            "/online_learning/chaoxing/course_progress",
+            post(chaoxing_fetch_course_progress),
+        )
+        .route(
+            "/online_learning/chaoxing/launch_url",
+            post(chaoxing_get_launch_url),
+        )
+        .route(
+            "/online_learning/yuketang/create_qr_login",
+            post(yuketang_create_qr_login),
+        )
+        .route(
+            "/online_learning/yuketang/qr_login/create",
+            post(yuketang_create_qr_login),
+        )
+        .route(
+            "/online_learning/yuketang/poll_qr_login",
+            post(yuketang_poll_qr_login),
+        )
+        .route(
+            "/online_learning/yuketang/qr_login/poll",
+            post(yuketang_poll_qr_login),
+        )
+        .route(
+            "/online_learning/yuketang/courses",
+            post(yuketang_fetch_courses),
+        )
+        .route(
+            "/online_learning/yuketang/outline",
+            post(yuketang_fetch_course_outline),
+        )
+        .route(
+            "/online_learning/yuketang/course_outline",
+            post(yuketang_fetch_course_outline),
+        )
+        .route(
+            "/online_learning/yuketang/progress",
+            post(yuketang_fetch_course_progress),
+        )
+        .route(
+            "/online_learning/yuketang/course_progress",
+            post(yuketang_fetch_course_progress),
+        )
+        .route(
+            "/online_learning/chaoxing/knowledge_cards",
+            post(chaoxing_get_knowledge_cards),
+        )
+        .route(
+            "/online_learning/chaoxing/video_status",
+            post(chaoxing_get_video_status),
+        )
+        .route(
+            "/online_learning/chaoxing/report_progress",
+            post(chaoxing_report_progress),
+        )
+        .route(
+            "/online_learning/yuketang/course_chapters",
+            post(yuketang_get_course_chapters),
+        )
+        .route(
+            "/online_learning/yuketang/leaf_info",
+            post(yuketang_get_leaf_info),
+        )
+        .route(
+            "/online_learning/yuketang/heartbeat",
+            post(yuketang_send_heartbeat),
+        )
         .route("/library/dict", post(fetch_library_dict))
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
@@ -593,9 +782,18 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/school-website/*path", any(school_website_proxy))
         .route("/resource_share/direct_url", get(resource_share_direct_url))
         .route("/resource_share/proxy", get(resource_share_proxy))
-        .route("/electricity_query_location", post(electricity_query_location))
-        .route("/electricity_query_account", post(electricity_query_account))
-        .route("/fetch_transaction_history", post(fetch_transaction_history))
+        .route(
+            "/electricity_query_location",
+            post(electricity_query_location),
+        )
+        .route(
+            "/electricity_query_account",
+            post(electricity_query_account),
+        )
+        .route(
+            "/fetch_transaction_history",
+            post(fetch_transaction_history),
+        )
         .route("/one_code_token", post(one_code_token))
         .route("/campus_code/config", post(campus_code_config))
         .route("/campus_code/qrcode", post(campus_code_qrcode))
@@ -609,7 +807,12 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/ai_chat_session/messages", post(ai_chat_session_messages))
         .route("/ai_chat_session/delete", post(ai_chat_session_delete))
         .with_state(state)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any));
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        );
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
@@ -625,56 +828,85 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
 }
 
 async fn health(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     ok(serde_json::json!({
         "success": true,
         "logged_in": client.user_info.is_some()
     }))
 }
 
-async fn login(State(state): State<HttpState>, Json(req): Json<LoginRequest>) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.login(
-        &req.username,
-        &req.password,
-        &req.captcha.unwrap_or_default(),
-        &req.lt.unwrap_or_default(),
-        &req.execution.unwrap_or_default(),
-    )
-    .await
-    .map(ok)
-    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
-}
-
-async fn restore_session(State(state): State<HttpState>, Json(req): Json<RestoreRequest>) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.restore_session(&req.cookies)
+async fn login(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<LoginRequest>,
+) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    let mut client = state.client.write().await;
+    client
+        .login(
+            &req.username,
+            &req.password,
+            &req.captcha.unwrap_or_default(),
+            &req.lt.unwrap_or_default(),
+            &req.execution.unwrap_or_default(),
+        )
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn export_cookies(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
-    let client = state.client.lock().await;
-    ok(serde_json::json!({
-        "success": true,
-        "data": client.get_cookie_snapshot()
-    }))
+async fn restore_session(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<RestoreRequest>,
+) -> Result<Json<ApiResponse<UserInfo>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    let mut client = state.client.write().await;
+    client
+        .restore_session(&req.cookies)
+        .await
+        .map(ok)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn import_cookies(State(state): State<HttpState>, Json(req): Json<CookieSnapshotRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.restore_cookie_snapshot(req.code, req.auth, req.jwxt)
+async fn export_cookies(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    let client = state.client.write().await;
+    Ok(ok(serde_json::json!({
+        "success": true,
+        "data": client.get_cookie_snapshot()
+    })))
+}
+
+async fn import_cookies(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    Json(req): Json<CookieSnapshotRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    let mut client = state.client.write().await;
+    client
+        .restore_cookie_snapshot(req.code, req.auth, req.jwxt)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
 
     match client.fetch_user_info().await {
         Ok(info) => Ok(ok(serde_json::json!({"success": true, "user": info}))),
-        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
     }
 }
 
-async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+async fn sync_grades(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    let client = state.client.write().await;
     match client.fetch_grades().await {
         Ok(grades) => {
             let payload = serde_json::json!({
@@ -686,20 +918,28 @@ async fn sync_grades(State(state): State<HttpState>) -> Result<Json<ApiResponse<
             });
             Ok(ok(payload))
         }
-        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
     }
 }
 
 #[allow(unreachable_code)]
-async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<ScheduleQueryRequest>>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+async fn sync_schedule(
+    State(state): State<HttpState>,
+    headers: HeaderMap,
+    payload: Option<Json<ScheduleQueryRequest>>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_sensitive_bridge_auth(&headers, &state)?;
+    let client = state.client.write().await;
     let requested_semester = payload
         .and_then(|Json(req)| req.semester)
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let explicit_semester = requested_semester.is_some();
 
-    let schedule_context = client.resolve_schedule_context(requested_semester.as_deref()).await;
+    let schedule_context = client
+        .resolve_schedule_context(requested_semester.as_deref())
+        .await;
     let semester_to_query = schedule_context
         .get("semester")
         .and_then(|v| v.as_str())
@@ -714,7 +954,11 @@ async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<Sche
         .map_err(|e| {
             let msg = e.to_string();
             if crate::http_client::HbutClient::is_no_schedule_error_message(&msg) {
-                return err(StatusCode::BAD_REQUEST, "业务错误", "暂无可用课表".to_string());
+                return err(
+                    StatusCode::BAD_REQUEST,
+                    "业务错误",
+                    "暂无可用课表".to_string(),
+                );
             }
             if explicit_semester {
                 return err(StatusCode::BAD_REQUEST, "业务错误", msg);
@@ -725,7 +969,10 @@ async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<Sche
     let mut meta = schedule_context;
     if let Some(map) = meta.as_object_mut() {
         map.insert("semester".to_string(), serde_json::json!(semester_to_query));
-        map.insert("total_courses".to_string(), serde_json::json!(course_list.len()));
+        map.insert(
+            "total_courses".to_string(),
+            serde_json::json!(course_list.len()),
+        );
         map.insert(
             "query_time".to_string(),
             serde_json::json!(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
@@ -752,8 +999,15 @@ async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<Sche
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
     let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
         let meta = cal.get("meta");
-        let week = meta.and_then(|m| m.get("current_week")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let start = meta.and_then(|m| m.get("start_date")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let week = meta
+            .and_then(|m| m.get("current_week"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+        let start = meta
+            .and_then(|m| m.get("start_date"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         (week, start)
     } else {
         (1, String::new())
@@ -774,7 +1028,11 @@ async fn sync_schedule(State(state): State<HttpState>, payload: Option<Json<Sche
                     || lower.contains("unknown schedule")
                     || lower.contains("no schedule"))
             {
-                err(StatusCode::BAD_REQUEST, "业务错误", "该学期无课表，请切换学期".to_string())
+                err(
+                    StatusCode::BAD_REQUEST,
+                    "业务错误",
+                    "该学期无课表，请切换学期".to_string(),
+                )
             } else {
                 err(StatusCode::BAD_REQUEST, "业务错误", msg)
             }
@@ -899,7 +1157,11 @@ fn validate_debug_custom_schedule_course(
         .unwrap_or_default();
     let id = if provided_id.is_empty() {
         let mut rng = rand::thread_rng();
-        format!("c{}{:04}", Utc::now().timestamp_millis(), rng.gen_range(0..10000))
+        format!(
+            "c{}{:04}",
+            Utc::now().timestamp_millis(),
+            rng.gen_range(0..10000)
+        )
     } else {
         provided_id
     };
@@ -909,7 +1171,12 @@ fn validate_debug_custom_schedule_course(
         student_id: student_id.to_string(),
         semester,
         name,
-        teacher: course.teacher.clone().unwrap_or_default().trim().to_string(),
+        teacher: course
+            .teacher
+            .clone()
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
         room: course.room.clone().unwrap_or_default().trim().to_string(),
         weekday: course.weekday,
         period: course.period,
@@ -932,14 +1199,19 @@ fn schedule_ranges_overlap(
 }
 
 fn weeks_intersection(left: &[i32], right: &[i32]) -> Vec<i32> {
-    let right_set = right.iter().copied().collect::<std::collections::BTreeSet<_>>();
+    let right_set = right
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
     left.iter()
         .copied()
         .filter(|item| right_set.contains(item))
         .collect::<Vec<_>>()
 }
 
-fn build_custom_schedule_conflicts(courses: &[db::CustomScheduleCourseRecord]) -> Vec<serde_json::Value> {
+fn build_custom_schedule_conflicts(
+    courses: &[db::CustomScheduleCourseRecord],
+) -> Vec<serde_json::Value> {
     let mut grouped: std::collections::BTreeMap<String, Vec<&db::CustomScheduleCourseRecord>> =
         std::collections::BTreeMap::new();
     for course in courses {
@@ -986,17 +1258,31 @@ fn build_custom_schedule_conflicts(courses: &[db::CustomScheduleCourseRecord]) -
 
 async fn schedule_custom_list(
     Json(req): Json<CustomScheduleListRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let sid = req.student_id.trim();
     let sem = req.semester.trim();
     if sid.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
     }
     if sem.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "semester 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "semester 不能为空".to_string(),
+        ));
     }
-    let list = db::list_custom_schedule_courses(DB_FILENAME, sid, sem)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+    let list = db::list_custom_schedule_courses(DB_FILENAME, sid, sem).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
     let data = list
         .iter()
         .map(custom_course_payload)
@@ -1009,13 +1295,23 @@ async fn schedule_custom_list(
 
 async fn schedule_custom_list_all(
     Json(req): Json<CustomScheduleListAllRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let sid = req.student_id.trim();
     if sid.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
     }
-    let list = db::list_all_custom_schedule_courses(DB_FILENAME, sid)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+    let list = db::list_all_custom_schedule_courses(DB_FILENAME, sid).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
     let data = list
         .iter()
         .map(custom_course_payload)
@@ -1028,24 +1324,45 @@ async fn schedule_custom_list_all(
 
 async fn schedule_custom_add(
     Json(req): Json<AddCustomScheduleCourseRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let sid = req.student_id.trim().to_string();
     let sem = req.semester.trim().to_string();
     let name = req.name.trim().to_string();
     if sid.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
     }
     if sem.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "semester 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "semester 不能为空".to_string(),
+        ));
     }
     if name.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "课程名称不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "课程名称不能为空".to_string(),
+        ));
     }
     if !(1..=7).contains(&req.weekday) {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "上课时间必须是周一到周日".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "上课时间必须是周一到周日".to_string(),
+        ));
     }
     if !(1..=11).contains(&req.period) {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "开始节次必须在 1-11 节".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "开始节次必须在 1-11 节".to_string(),
+        ));
     }
     let max_span = 12 - req.period;
     if req.djs < 1 || req.djs > max_span {
@@ -1057,11 +1374,19 @@ async fn schedule_custom_add(
     }
     let weeks = normalize_custom_weeks(&req.weeks);
     if weeks.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "请至少选择一个上课周次".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "请至少选择一个上课周次".to_string(),
+        ));
     }
 
     let mut rng = rand::thread_rng();
-    let id = format!("c{}{:04}", Utc::now().timestamp_millis(), rng.gen_range(0..10000));
+    let id = format!(
+        "c{}{:04}",
+        Utc::now().timestamp_millis(),
+        rng.gen_range(0..10000)
+    );
     let now = chrono::Local::now().to_rfc3339();
     let record = db::CustomScheduleCourseRecord {
         id,
@@ -1077,10 +1402,21 @@ async fn schedule_custom_add(
         created_at: now.clone(),
         updated_at: now,
     };
-    db::add_custom_schedule_course(DB_FILENAME, &record)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+    db::add_custom_schedule_course(DB_FILENAME, &record).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
     let saved = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), record.id.as_str())
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?
         .unwrap_or(record);
     Ok(ok(serde_json::json!({
         "success": true,
@@ -1090,41 +1426,85 @@ async fn schedule_custom_add(
 
 async fn schedule_custom_delete(
     Json(req): Json<DeleteCustomScheduleCourseRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let sid = req.student_id.trim().to_string();
     let sem = req.semester.trim().to_string();
     let course_id = strip_custom_course_id(req.course_id.as_str());
     if sid.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
     }
     if sem.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "semester 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "semester 不能为空".to_string(),
+        ));
     }
     if course_id.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "course_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "course_id 不能为空".to_string(),
+        ));
     }
 
     let mode = req.mode.unwrap_or_else(|| "all".to_string()).to_lowercase();
     if mode == "current_week" {
         let week = req.current_week.unwrap_or(0);
         if week <= 0 {
-            return Err(err(StatusCode::BAD_REQUEST, "参数错误", "current_week 参数不合法".to_string()));
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "参数错误",
+                "current_week 参数不合法".to_string(),
+            ));
         }
-        let existing = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
-            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
-            .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "未找到要删除的自定义课程".to_string()))?;
+        let existing =
+            db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+                .map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "数据库错误",
+                        e.to_string(),
+                    )
+                })?
+                .ok_or_else(|| {
+                    err(
+                        StatusCode::BAD_REQUEST,
+                        "业务错误",
+                        "未找到要删除的自定义课程".to_string(),
+                    )
+                })?;
         if existing.semester != sem {
-            return Err(err(StatusCode::BAD_REQUEST, "业务错误", "学期不匹配，无法删除该课程".to_string()));
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "学期不匹配，无法删除该课程".to_string(),
+            ));
         }
         let mut weeks = normalize_custom_weeks(&existing.weeks);
         let before_len = weeks.len();
         weeks.retain(|w| *w != week);
         if weeks.len() == before_len {
-            return Err(err(StatusCode::BAD_REQUEST, "业务错误", "当前周不在该课程周次中".to_string()));
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "当前周不在该课程周次中".to_string(),
+            ));
         }
         if weeks.is_empty() {
             db::delete_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+                .map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "数据库错误",
+                        e.to_string(),
+                    )
+                })?;
             return Ok(ok(serde_json::json!({
                 "success": true,
                 "deleted": true,
@@ -1132,11 +1512,34 @@ async fn schedule_custom_delete(
                 "removed_week": week
             })));
         }
-        db::update_custom_schedule_course_weeks(DB_FILENAME, sid.as_str(), course_id.as_str(), weeks.as_slice())
-            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+        db::update_custom_schedule_course_weeks(
+            DB_FILENAME,
+            sid.as_str(),
+            course_id.as_str(),
+            weeks.as_slice(),
+        )
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?;
         let updated = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
-            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
-            .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "更新后未找到课程记录".to_string()))?;
+            .map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "数据库错误",
+                    e.to_string(),
+                )
+            })?
+            .ok_or_else(|| {
+                err(
+                    StatusCode::BAD_REQUEST,
+                    "业务错误",
+                    "更新后未找到课程记录".to_string(),
+                )
+            })?;
         return Ok(ok(serde_json::json!({
             "success": true,
             "deleted": false,
@@ -1147,9 +1550,19 @@ async fn schedule_custom_delete(
     }
 
     let affected = db::delete_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
-    if affected <= 0 {
-        return Err(err(StatusCode::BAD_REQUEST, "业务错误", "未找到要删除的自定义课程".to_string()));
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?;
+    if affected == 0 {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "未找到要删除的自定义课程".to_string(),
+        ));
     }
     Ok(ok(serde_json::json!({
         "success": true,
@@ -1160,28 +1573,53 @@ async fn schedule_custom_delete(
 
 async fn schedule_custom_update(
     Json(req): Json<UpdateCustomScheduleCourseRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let sid = req.student_id.trim().to_string();
     let sem = req.semester.trim().to_string();
     let course_id = strip_custom_course_id(req.course_id.as_str());
     let name = req.name.trim().to_string();
     if sid.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
     }
     if sem.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "semester 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "semester 不能为空".to_string(),
+        ));
     }
     if course_id.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "course_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "course_id 不能为空".to_string(),
+        ));
     }
     if name.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "课程名称不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "课程名称不能为空".to_string(),
+        ));
     }
     if !(1..=7).contains(&req.weekday) {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "上课时间必须是周一到周日".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "上课时间必须是周一到周日".to_string(),
+        ));
     }
     if !(1..=11).contains(&req.period) {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "开始节次必须在 1-11 节".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "开始节次必须在 1-11 节".to_string(),
+        ));
     }
     let max_span = 12 - req.period;
     if req.djs < 1 || req.djs > max_span {
@@ -1193,14 +1631,34 @@ async fn schedule_custom_update(
     }
     let weeks = normalize_custom_weeks(&req.weeks);
     if weeks.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "请至少选择一个上课周次".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "请至少选择一个上课周次".to_string(),
+        ));
     }
 
     let existing = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "未找到要修改的自定义课程".to_string()))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?
+        .ok_or_else(|| {
+            err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "未找到要修改的自定义课程".to_string(),
+            )
+        })?;
     if existing.semester != sem {
-        return Err(err(StatusCode::BAD_REQUEST, "业务错误", "学期不匹配，无法修改该课程".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "学期不匹配，无法修改该课程".to_string(),
+        ));
     }
 
     let record = db::CustomScheduleCourseRecord {
@@ -1218,15 +1676,36 @@ async fn schedule_custom_update(
         updated_at: existing.updated_at,
     };
 
-    let affected = db::update_custom_schedule_course(DB_FILENAME, &record)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
-    if affected <= 0 {
-        return Err(err(StatusCode::BAD_REQUEST, "业务错误", "未找到要修改的自定义课程".to_string()));
+    let affected = db::update_custom_schedule_course(DB_FILENAME, &record).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "数据库错误",
+            e.to_string(),
+        )
+    })?;
+    if affected == 0 {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "未找到要修改的自定义课程".to_string(),
+        ));
     }
 
     let updated = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), record.id.as_str())
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "更新后未找到课程记录".to_string()))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?
+        .ok_or_else(|| {
+            err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "更新后未找到课程记录".to_string(),
+            )
+        })?;
 
     Ok(ok(serde_json::json!({
         "success": true,
@@ -1238,22 +1717,37 @@ async fn debug_custom_schedule_upsert(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<DebugCustomScheduleUpsertRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_local_cache_auth(&headers, &state)?;
     ensure_debug_bridge_enabled(&state)?;
 
     let student_id = req.student_id.trim().to_string();
     if student_id.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "student_id 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "student_id 不能为空".to_string(),
+        ));
     }
     if req.courses.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "courses 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "courses 不能为空".to_string(),
+        ));
     }
 
     let dry_run = req.dry_run.unwrap_or(false);
     let return_conflicts = req.return_conflicts.unwrap_or(true);
     let existing_all = db::list_all_custom_schedule_courses(DB_FILENAME, student_id.as_str())
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "数据库错误",
+                e.to_string(),
+            )
+        })?;
     let mut simulated = existing_all
         .iter()
         .map(|course| (course.id.clone(), course.clone()))
@@ -1262,13 +1756,14 @@ async fn debug_custom_schedule_upsert(
     let mut affected_semesters = std::collections::BTreeSet::new();
 
     for (index, input) in req.courses.iter().enumerate() {
-        let mut record = validate_debug_custom_schedule_course(student_id.as_str(), input).map_err(|message| {
-            err(
-                StatusCode::BAD_REQUEST,
-                "参数错误",
-                format!("第 {} 条课程不合法: {}", index + 1, message),
-            )
-        })?;
+        let mut record = validate_debug_custom_schedule_course(student_id.as_str(), input)
+            .map_err(|message| {
+                err(
+                    StatusCode::BAD_REQUEST,
+                    "参数错误",
+                    format!("第 {} 条课程不合法: {}", index + 1, message),
+                )
+            })?;
         if let Some(existing) = simulated.get(record.id.as_str()) {
             record.created_at = existing.created_at.clone();
             record.updated_at = chrono::Local::now().to_rfc3339();
@@ -1277,14 +1772,30 @@ async fn debug_custom_schedule_upsert(
         simulated.insert(record.id.clone(), record.clone());
         if !dry_run {
             if db::get_custom_schedule_course(DB_FILENAME, student_id.as_str(), record.id.as_str())
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
+                .map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "数据库错误",
+                        e.to_string(),
+                    )
+                })?
                 .is_some()
             {
-                db::update_custom_schedule_course(DB_FILENAME, &record)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+                db::update_custom_schedule_course(DB_FILENAME, &record).map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "数据库错误",
+                        e.to_string(),
+                    )
+                })?;
             } else {
-                db::add_custom_schedule_course(DB_FILENAME, &record)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?;
+                db::add_custom_schedule_course(DB_FILENAME, &record).map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "数据库错误",
+                        e.to_string(),
+                    )
+                })?;
             }
         }
         persisted.push(record);
@@ -1299,8 +1810,13 @@ async fn debug_custom_schedule_upsert(
         let final_courses = if dry_run {
             simulated.values().cloned().collect::<Vec<_>>()
         } else {
-            db::list_all_custom_schedule_courses(DB_FILENAME, student_id.as_str())
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "数据库错误", e.to_string()))?
+            db::list_all_custom_schedule_courses(DB_FILENAME, student_id.as_str()).map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "数据库错误",
+                    e.to_string(),
+                )
+            })?
         };
         let affected_courses = final_courses
             .into_iter()
@@ -1330,14 +1846,13 @@ async fn debug_open_module(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<DebugOpenModuleRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
     } else {
-        eprintln!(
-            "[DebugBridge] debug_open_module skipped auth: local_api_key not configured"
-        );
+        eprintln!("[DebugBridge] debug_open_module skipped auth: local_api_key not configured");
     }
     match debug_bridge::request_debug_open_module(&state.app, req, 12_000).await {
         Ok(()) => Ok(ok(serde_json::json!({
@@ -1353,11 +1868,9 @@ async fn debug_open_module(
             "点击超时",
             "12 秒内未完成模块按钮点击".to_string(),
         )),
-        Err(DebugOpenModuleBridgeError::Failed(message)) => Err(err(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "点击失败",
-            message,
-        )),
+        Err(DebugOpenModuleBridgeError::Failed(message)) => {
+            Err(err(StatusCode::UNPROCESSABLE_ENTITY, "点击失败", message))
+        }
     }
 }
 
@@ -1365,14 +1878,13 @@ async fn debug_screenshot(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<DebugScreenshotRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
     } else {
-        eprintln!(
-            "[DebugBridge] debug_screenshot skipped auth: local_api_key not configured"
-        );
+        eprintln!("[DebugBridge] debug_screenshot skipped auth: local_api_key not configured");
     }
 
     match debug_bridge::capture_native_debug_screenshot(&state.app, req) {
@@ -1384,11 +1896,7 @@ async fn debug_screenshot(
             "captured_at": result.captured_at,
             "base64": result.base64
         }))),
-        Err(message) => Err(err(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "截图失败",
-            message,
-        )),
+        Err(message) => Err(err(StatusCode::UNPROCESSABLE_ENTITY, "截图失败", message)),
     }
 }
 
@@ -1396,14 +1904,13 @@ async fn debug_dom_screenshot(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<DebugScreenshotRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
     } else {
-        eprintln!(
-            "[DebugBridge] debug_screenshot skipped auth: local_api_key not configured"
-        );
+        eprintln!("[DebugBridge] debug_screenshot skipped auth: local_api_key not configured");
     }
     match debug_bridge::request_debug_screenshot(&state.app, req, 15_000).await {
         Ok(result) => {
@@ -1431,25 +1938,22 @@ async fn debug_dom_screenshot(
             "截图超时",
             "15 秒内未收到页面截图响应".to_string(),
         )),
-        Err(DebugScreenshotBridgeError::Failed(message)) => Err(err(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "截图失败",
-            message,
-        )),
+        Err(DebugScreenshotBridgeError::Failed(message)) => {
+            Err(err(StatusCode::UNPROCESSABLE_ENTITY, "截图失败", message))
+        }
     }
 }
 
 async fn debug_state(
     State(state): State<HttpState>,
     headers: HeaderMap,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
     } else {
-        eprintln!(
-            "[DebugBridge] debug_state skipped auth: local_api_key not configured"
-        );
+        eprintln!("[DebugBridge] debug_state skipped auth: local_api_key not configured");
     }
 
     match debug_bridge::request_debug_state(&state.app, DebugStateRequest::default(), 8_000).await {
@@ -1476,7 +1980,8 @@ async fn debug_reset_more_modules(
     State(state): State<HttpState>,
     headers: HeaderMap,
     payload: Option<Json<DebugResetMoreModulesRequest>>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
@@ -1490,8 +1995,7 @@ async fn debug_reset_more_modules(
         .map(|json| json.0)
         .unwrap_or_else(DebugResetMoreModulesRequest::default);
 
-    match debug_bridge::request_debug_reset_more_modules(&state.app, request, 8_000).await
-    {
+    match debug_bridge::request_debug_reset_more_modules(&state.app, request, 8_000).await {
         Ok(()) => {}
         Err(DebugResetMoreModulesBridgeError::NotReady) => {
             return Err(err(
@@ -1508,11 +2012,7 @@ async fn debug_reset_more_modules(
             ));
         }
         Err(DebugResetMoreModulesBridgeError::Failed(message)) => {
-            return Err(err(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "重置失败",
-                message,
-            ));
+            return Err(err(StatusCode::UNPROCESSABLE_ENTITY, "重置失败", message));
         }
     }
 
@@ -1551,14 +2051,13 @@ async fn debug_navigate(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<DebugNavigateRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
     } else {
-        eprintln!(
-            "[DebugBridge] debug_navigate skipped auth: local_api_key not configured"
-        );
+        eprintln!("[DebugBridge] debug_navigate skipped auth: local_api_key not configured");
     }
 
     let view = req.view.trim().to_string();
@@ -1604,7 +2103,10 @@ async fn debug_save_export_file(
     State(state): State<HttpState>,
     headers: HeaderMap,
     Json(req): Json<crate::SaveExportFileRequest>,
-) -> Result<Json<ApiResponse<crate::SaveExportFileResult>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<
+    Json<ApiResponse<crate::SaveExportFileResult>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
     ensure_debug_bridge_enabled(&state)?;
     if state.local_api_key.is_some() {
         ensure_local_cache_auth(&headers, &state)?;
@@ -1664,7 +2166,8 @@ fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
         return Some(dt.naive_local());
     }
-    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S").ok()
+    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S")
+        .ok()
         .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
@@ -1703,9 +2206,14 @@ async fn export_schedule_calendar(
     State(_state): State<HttpState>,
     _headers: HeaderMap,
     Json(req): Json<ScheduleExportRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     if req.events.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "娌℃可导出的课▼数据".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "娌℃可导出的课▼数据".to_string(),
+        ));
     }
 
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -1751,8 +2259,14 @@ async fn export_schedule_calendar(
         ics.push_str("BEGIN:VEVENT\r\n");
         ics.push_str(&fold_ics_line(&format!("UID:{}", uid)));
         ics.push_str(&fold_ics_line(&format!("DTSTAMP:{}", dtstamp)));
-        ics.push_str(&fold_ics_line(&format!("DTSTART;TZID=Asia/Shanghai:{}", start.format("%Y%m%dT%H%M%S"))));
-        ics.push_str(&fold_ics_line(&format!("DTEND;TZID=Asia/Shanghai:{}", end.format("%Y%m%dT%H%M%S"))));
+        ics.push_str(&fold_ics_line(&format!(
+            "DTSTART;TZID=Asia/Shanghai:{}",
+            start.format("%Y%m%dT%H%M%S")
+        )));
+        ics.push_str(&fold_ics_line(&format!(
+            "DTEND;TZID=Asia/Shanghai:{}",
+            end.format("%Y%m%dT%H%M%S")
+        )));
         ics.push_str(&fold_ics_line(&format!("SUMMARY:{}", summary)));
         if let Some(desc) = desc {
             ics.push_str(&fold_ics_line(&format!("DESCRIPTION:{}", desc)));
@@ -1775,7 +2289,13 @@ async fn export_schedule_calendar(
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "导出失败", format!("创建上传客户端失败: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "导出失败",
+                format!("创建上传客户端失败: {}", e),
+            )
+        })?;
 
     // 带轮询兜底的上传逻辑
     let mut upload_endpoints = vec![upload_url.clone()];
@@ -1798,11 +2318,19 @@ async fn export_schedule_calendar(
                 let status = resp.status();
                 match resp.json::<serde_json::Value>().await {
                     Ok(body) => {
-                        if status.is_success() && body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        if status.is_success()
+                            && body
+                                .get("success")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                        {
                             resp_body = Some(body);
                             break;
                         }
-                        let msg = body.get("error").and_then(|v| v.as_str()).unwrap_or("上传服务返回失败");
+                        let msg = body
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("上传服务返回失败");
                         last_err = format!("端点 {} 失败: {}", ep, msg);
                     }
                     Err(e) => {
@@ -1816,12 +2344,25 @@ async fn export_schedule_calendar(
         }
     }
 
-    let body = resp_body.ok_or_else(|| err(StatusCode::BAD_GATEWAY, "导出失败", format!("上传失败（已尝试 {} 个端点）: {}", upload_endpoints.len(), last_err)))?;
+    let body = resp_body.ok_or_else(|| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "导出失败",
+            format!(
+                "上传失败（已尝试 {} 个端点）: {}",
+                upload_endpoints.len(),
+                last_err
+            ),
+        )
+    })?;
 
-    let url = body
-        .get("url")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| err(StatusCode::BAD_GATEWAY, "导出失败", "上传成功但未返回链接".to_string()))?;
+    let url = body.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "导出失败",
+            "上传成功但未返回链接".to_string(),
+        )
+    })?;
     let remote_filename = body
         .get("filename")
         .and_then(|v| v.as_str())
@@ -1856,7 +2397,10 @@ async fn download_export(Path(filename): Path<String>) -> impl IntoResponse {
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "read error").into_response(),
     };
     let mut resp = Response::new(Body::from(bytes));
-    resp.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/calendar; charset=utf-8"));
+    resp.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/calendar; charset=utf-8"),
+    );
     let disposition = format!("attachment; filename=\"{}\"", filename);
     if let Ok(value) = HeaderValue::from_str(&disposition) {
         resp.headers_mut().insert(CONTENT_DISPOSITION, value);
@@ -1971,8 +2515,12 @@ async fn serve_module_bundle_file(
     response
 }
 
-async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+async fn fetch_exams(
+    State(state): State<HttpState>,
+    Json(req): Json<ExamRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     match client.fetch_exams(req.semester.as_deref()).await {
         Ok(exams) => {
             let payload = serde_json::json!({
@@ -1983,23 +2531,38 @@ async fn fetch_exams(State(state): State<HttpState>, Json(req): Json<ExamRequest
             });
             Ok(ok(payload))
         }
-        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        Err(e) => Err(err(StatusCode::BAD_REQUEST, "业务错误", e.to_string())),
     }
 }
 
-async fn fetch_ranking(State(state): State<HttpState>, Json(req): Json<RankingRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+async fn fetch_ranking(
+    State(state): State<HttpState>,
+    Json(req): Json<RankingRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     if !client.is_logged_in && client.user_info.is_none() {
-        return Err(err(StatusCode::UNAUTHORIZED, "未登录", "请先登录后再查询排名".to_string()));
+        return Err(err(
+            StatusCode::UNAUTHORIZED,
+            "未登录",
+            "请先登录后再查询排名".to_string(),
+        ));
     }
-    client.fetch_ranking(req.student_id.as_deref(), req.semester.as_deref()).await
+    client
+        .fetch_ranking(req.student_id.as_deref(), req.semester.as_deref())
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_student_info(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_student_info().await
+async fn fetch_student_info(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_student_info()
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
@@ -2007,11 +2570,12 @@ async fn fetch_student_info(State(state): State<HttpState>) -> Result<Json<ApiRe
 async fn fetch_personal_login_access_info(
     State(state): State<HttpState>,
     body: Option<Json<PersonalLoginAccessRequest>>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let req = body.map(|b| b.0).unwrap_or_default();
     let page = req.page.unwrap_or(1).max(1);
     let page_size = req.page_size.unwrap_or(10).clamp(1, 100);
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client
         .fetch_personal_login_access_info(Some(page), Some(page_size))
         .await
@@ -2019,69 +2583,114 @@ async fn fetch_personal_login_access_info(
         .map_err(|e| err(StatusCode::BAD_REQUEST, "请求失败", e.to_string()))
 }
 
-async fn fetch_semesters(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_semesters().await
+async fn fetch_semesters(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_semesters()
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_classroom_buildings(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_classroom_buildings().await
+async fn fetch_classroom_buildings(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_classroom_buildings()
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_classrooms(State(state): State<HttpState>, Json(req): Json<ClassroomQueryRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_classrooms_query(req.week, req.weekday, req.periods, req.building).await
+async fn fetch_classrooms(
+    State(state): State<HttpState>,
+    Json(req): Json<ClassroomQueryRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_classrooms_query(req.week, req.weekday, req.periods, req.building)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_training_plan_options(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_training_plan_options().await
+async fn fetch_training_plan_options(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_training_plan_options()
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_training_plan_jys(State(state): State<HttpState>, Json(req): Json<TrainingPlanJysRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_training_plan_jys(&req.yxid).await
+async fn fetch_training_plan_jys(
+    State(state): State<HttpState>,
+    Json(req): Json<TrainingPlanJysRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_training_plan_jys(&req.yxid)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_training_plan_courses(State(state): State<HttpState>, Json(req): Json<TrainingPlanCoursesRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_training_plan_courses(
-        req.grade,
-        req.kkxq,
-        req.kkyx,
-        req.kkjys,
-        req.kcxz,
-        req.kcgs,
-        req.kcbh,
-        req.kcmc,
-        req.page,
-        req.page_size,
-    ).await
+async fn fetch_training_plan_courses(
+    State(state): State<HttpState>,
+    Json(req): Json<TrainingPlanCoursesRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_training_plan_courses(
+            req.grade,
+            req.kkxq,
+            req.kkyx,
+            req.kkjys,
+            req.kcxz,
+            req.kcgs,
+            req.kcbh,
+            req.kcmc,
+            req.page,
+            req.page_size,
+        )
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_calendar_data(State(state): State<HttpState>, Json(req): Json<CalendarRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_calendar_data(req.semester).await
+async fn fetch_calendar_data(
+    State(state): State<HttpState>,
+    Json(req): Json<CalendarRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_calendar_data(req.semester)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_academic_progress(State(state): State<HttpState>, Json(req): Json<AcademicProgressRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_academic_progress(req.fasz.unwrap_or(1)).await
+async fn fetch_academic_progress(
+    State(state): State<HttpState>,
+    Json(req): Json<AcademicProgressRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_academic_progress(req.fasz.unwrap_or(1))
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
@@ -2090,16 +2699,25 @@ async fn cache_get(
     State(state): State<HttpState>,
     Query(req): Query<CacheGetQuery>,
     headers: HeaderMap,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     ensure_local_cache_auth(&headers, &state)?;
 
     let table = req.table.trim();
     let key = req.key.trim();
     if table.is_empty() || key.is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "table 和 key 不能为空".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "table 和 key 不能为空".to_string(),
+        ));
     }
     if !is_allowed_cache_table(table) {
-        return Err(err(StatusCode::BAD_REQUEST, "参数错误", "不允许访问该缓存表".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "不允许访问该缓存表".to_string(),
+        ));
     }
 
     match db::get_cache(DB_FILENAME, table, key) {
@@ -2112,13 +2730,24 @@ async fn cache_get(
             });
             Ok(ok(payload))
         }
-        Ok(None) => Err(err(StatusCode::NOT_FOUND, "未找到", "缓存不存在".to_string())),
-        Err(e) => Err(err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", e.to_string())),
+        Ok(None) => Err(err(
+            StatusCode::NOT_FOUND,
+            "未找到",
+            "缓存不存在".to_string(),
+        )),
+        Err(e) => Err(err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "系统错误",
+            e.to_string(),
+        )),
     }
 }
 
-async fn fetch_qxzkb_options(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+async fn fetch_qxzkb_options(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     let context = client.resolve_schedule_context(None).await;
     let current_semester = context
         .get("semester")
@@ -2166,35 +2795,64 @@ async fn fetch_qxzkb_options(State(state): State<HttpState>) -> Result<Json<ApiR
     Ok(ok(payload))
 }
 
-async fn fetch_qxzkb_jcinfo(State(state): State<HttpState>, Json(req): Json<QxzkbJcinfoRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_qxzkb_jcinfo(&req.xnxq).await
+async fn fetch_qxzkb_jcinfo(
+    State(state): State<HttpState>,
+    Json(req): Json<QxzkbJcinfoRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_qxzkb_jcinfo(&req.xnxq)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_qxzkb_zyxx(State(state): State<HttpState>, Json(req): Json<QxzkbZyxxRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_qxzkb_zyxx(&req.yxid, &req.nj).await
+async fn fetch_qxzkb_zyxx(
+    State(state): State<HttpState>,
+    Json(req): Json<QxzkbZyxxRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_qxzkb_zyxx(&req.yxid, &req.nj)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_qxzkb_kkjys(State(state): State<HttpState>, Json(req): Json<QxzkbKkjysRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    client.fetch_qxzkb_kkjys(&req.kkyxid).await
+async fn fetch_qxzkb_kkjys(
+    State(state): State<HttpState>,
+    Json(req): Json<QxzkbKkjysRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    client
+        .fetch_qxzkb_kkjys(&req.kkyxid)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<QxzkbQuery>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+async fn fetch_qxzkb_list(
+    State(state): State<HttpState>,
+    Json(query): Json<QxzkbQuery>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     if query.xnxq.trim().is_empty() {
-        return Err(err(StatusCode::BAD_REQUEST, "业务错误", "请选择学年学期".to_string()));
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "业务错误",
+            "请选择学年学期".to_string(),
+        ));
     }
 
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let mut params: HashMap<String, String> = HashMap::new();
-    params.insert("queryFields".to_string(), crate::qxzkb_options::QXZKB_QUERY_FIELDS.to_string());
+    params.insert(
+        "queryFields".to_string(),
+        crate::qxzkb_options::QXZKB_QUERY_FIELDS.to_string(),
+    );
     params.insert("_search".to_string(), "false".to_string());
     params.insert("nd".to_string(), Utc::now().timestamp_millis().to_string());
     params.insert("xnxq".to_string(), query.xnxq.clone());
@@ -2235,12 +2893,16 @@ async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<Qxzk
         params.insert("zdzc".to_string(), get_val(&query.zdzc));
     }
 
-    let kklx = query.kklx.as_ref()
-        .map(|list| list.iter()
-            .filter(|v| !v.trim().is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(","))
+    let kklx = query
+        .kklx
+        .as_ref()
+        .map(|list| {
+            list.iter()
+                .filter(|v| !v.trim().is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(",")
+        })
         .unwrap_or_default();
     params.insert("kklx".to_string(), kklx.clone());
 
@@ -2251,14 +2913,18 @@ async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<Qxzk
     let sort = query.sort.as_deref().unwrap_or("kcmc");
     let sort = if sort.trim().is_empty() { "kcmc" } else { sort };
     let order = query.order.as_deref().unwrap_or("asc");
-    let order = if order.trim().is_empty() { "asc" } else { order };
+    let order = if order.trim().is_empty() {
+        "asc"
+    } else {
+        order
+    };
     params.insert("sort".to_string(), sort.to_string());
     params.insert("order".to_string(), order.to_string());
 
     let query_fields = vec![
-        "xnxq", "xqid", "nj", "yxid", "zyid", "kkyxid", "kkjysid", "kcxz", "kclb",
-        "xslx", "kcmc", "skjs", "jxlid", "jslx", "ksxs", "ksfs", "jsmc",
-        "zxjc", "zdjc", "zxzc", "zdzc", "zxxq", "zdxq", "xsqbkb", "kklx"
+        "xnxq", "xqid", "nj", "yxid", "zyid", "kkyxid", "kkjysid", "kcxz", "kclb", "xslx", "kcmc",
+        "skjs", "jxlid", "jslx", "ksxs", "ksfs", "jsmc", "zxjc", "zdjc", "zxzc", "zdzc", "zxxq",
+        "zdxq", "xsqbkb", "kklx",
     ];
     for key in query_fields {
         if xsqbkb == "1" && (key == "zxzc" || key == "zdzc") {
@@ -2268,7 +2934,9 @@ async fn fetch_qxzkb_list(State(state): State<HttpState>, Json(query): Json<Qxzk
         params.insert(format!("query.{}||", key), value);
     }
 
-    client.fetch_qxzkb_list(&params).await
+    client
+        .fetch_qxzkb_list(&params)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
@@ -2307,7 +2975,8 @@ const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";
 const HBUT_WEBSITE_TARGET_BASE: &str = "https://www.hbut.edu.cn";
 const TOWERGO_TARGET_HOST: &str = "ebike-oper.chinatowercom.cn";
 const TOWERGO_APP_ID: &str = "wx278283883c249e3e";
-const TOWERGO_MINIPROGRAM_REFERER: &str = "https://servicewechat.com/wx278283883c249e3e/47/page-frame.html";
+const TOWERGO_MINIPROGRAM_REFERER: &str =
+    "https://servicewechat.com/wx278283883c249e3e/47/page-frame.html";
 const TOWERGO_USER_AGENT: &str = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.43 MiniProgramEnv/android NetType/WIFI Language/zh_CN ABI/arm64";
 
 static TOWERGO_WAF_COOKIES: OnceLock<Mutex<String>> = OnceLock::new();
@@ -2359,14 +3028,35 @@ fn towergo_sanitize_request_headers(headers: &HeaderMap, waf_cookies: &str) -> H
         }
         out.insert(name.clone(), value.clone());
     }
-    out.insert(HeaderName::from_static("host"), HeaderValue::from_static(TOWERGO_TARGET_HOST));
-    out.insert(HeaderName::from_static("user-agent"), HeaderValue::from_static(TOWERGO_USER_AGENT));
-    out.insert(HeaderName::from_static("referer"), HeaderValue::from_static(TOWERGO_MINIPROGRAM_REFERER));
-    out.insert(HeaderName::from_static("origin"), HeaderValue::from_static("https://servicewechat.com"));
-    out.insert(HeaderName::from_static("x-miniprogram-appid"), HeaderValue::from_static(TOWERGO_APP_ID));
-    out.insert(HeaderName::from_static("x-requested-with"), HeaderValue::from_static("com.tencent.mm"));
+    out.insert(
+        HeaderName::from_static("host"),
+        HeaderValue::from_static(TOWERGO_TARGET_HOST),
+    );
+    out.insert(
+        HeaderName::from_static("user-agent"),
+        HeaderValue::from_static(TOWERGO_USER_AGENT),
+    );
+    out.insert(
+        HeaderName::from_static("referer"),
+        HeaderValue::from_static(TOWERGO_MINIPROGRAM_REFERER),
+    );
+    out.insert(
+        HeaderName::from_static("origin"),
+        HeaderValue::from_static("https://servicewechat.com"),
+    );
+    out.insert(
+        HeaderName::from_static("x-miniprogram-appid"),
+        HeaderValue::from_static(TOWERGO_APP_ID),
+    );
+    out.insert(
+        HeaderName::from_static("x-requested-with"),
+        HeaderValue::from_static("com.tencent.mm"),
+    );
     if !out.contains_key("accept") {
-        out.insert(HeaderName::from_static("accept"), HeaderValue::from_static("application/json, text/plain, */*"));
+        out.insert(
+            HeaderName::from_static("accept"),
+            HeaderValue::from_static("application/json, text/plain, */*"),
+        );
     }
     if !waf_cookies.trim().is_empty() {
         if let Ok(value) = HeaderValue::from_str(waf_cookies) {
@@ -2439,7 +3129,9 @@ fn school_website_sanitize_request_headers(headers: &HeaderMap) -> HeaderMap {
     if !out.contains_key("accept") {
         out.insert(
             HeaderName::from_static("accept"),
-            HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
+            HeaderValue::from_static(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ),
         );
     }
     if !out.contains_key("user-agent") {
@@ -2507,17 +3199,26 @@ async fn school_website_proxy(
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::limited(8))
         .build()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建学校官网代理客户端失败: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建学校官网代理客户端失败: {}", e),
+            )
+        })?;
 
     let mut request_builder = client.request(method, remote_url).headers(request_headers);
     if !body.is_empty() {
         request_builder = request_builder.body(body);
     }
 
-    let upstream = request_builder
-        .send()
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("学校官网代理请求失败: {}", e)))?;
+    let upstream = request_builder.send().await.map_err(|e| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "代理错误",
+            format!("学校官网代理请求失败: {}", e),
+        )
+    })?;
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
@@ -2576,17 +3277,26 @@ async fn towergo_proxy(
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(15))
         .build()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建小塔代理客户端失败: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建小塔代理客户端失败: {}", e),
+            )
+        })?;
 
     let mut request_builder = client.request(method, remote_url).headers(request_headers);
     if !body.is_empty() {
         request_builder = request_builder.body(body);
     }
 
-    let upstream = request_builder
-        .send()
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("小塔出行代理请求失败: {}", e)))?;
+    let upstream = request_builder.send().await.map_err(|e| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "代理错误",
+            format!("小塔出行代理请求失败: {}", e),
+        )
+    })?;
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
@@ -2602,7 +3312,11 @@ async fn towergo_proxy(
         resp
     } else {
         let body_bytes = upstream.bytes().await.unwrap_or_default();
-        let snippet: String = String::from_utf8_lossy(&body_bytes).trim().chars().take(500).collect();
+        let snippet: String = String::from_utf8_lossy(&body_bytes)
+            .trim()
+            .chars()
+            .take(500)
+            .collect();
         eprintln!(
             "[towergo] 代理上游非 2xx：path=/{} status={} body_len={} body_snippet={}",
             clean_path,
@@ -2630,7 +3344,8 @@ async fn resource_share_proxy(
     Query(req): Query<ResourceShareProxyQuery>,
 ) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
     let endpoint = req.endpoint.trim().trim_end_matches('/').to_string();
-    if endpoint.is_empty() || !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+    if endpoint.is_empty() || !(endpoint.starts_with("http://") || endpoint.starts_with("https://"))
+    {
         return Err(err(
             StatusCode::BAD_REQUEST,
             "参数错误",
@@ -2659,7 +3374,13 @@ async fn resource_share_proxy(
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(180))
         .build()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建代理客户端失败: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建代理客户端失败: {}", e),
+            )
+        })?;
 
     let mut request_builder = client.get(remote_url).header("Authorization", auth);
     if let Some(range) = headers.get("range") {
@@ -2669,10 +3390,13 @@ async fn resource_share_proxy(
         request_builder = request_builder.header("If-Range", if_range.clone());
     }
 
-    let upstream = request_builder
-        .send()
-        .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("资源代理请求失败: {}", e)))?;
+    let upstream = request_builder.send().await.map_err(|e| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "代理错误",
+            format!("资源代理请求失败: {}", e),
+        )
+    })?;
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
@@ -2701,9 +3425,11 @@ async fn resource_share_proxy(
 async fn resource_share_direct_url(
     State(_state): State<HttpState>,
     Query(req): Query<ResourceShareProxyQuery>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let endpoint = req.endpoint.trim().trim_end_matches('/').to_string();
-    if endpoint.is_empty() || !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+    if endpoint.is_empty() || !(endpoint.starts_with("http://") || endpoint.starts_with("https://"))
+    {
         return Err(err(
             StatusCode::BAD_REQUEST,
             "参数错误",
@@ -2733,7 +3459,13 @@ async fn resource_share_direct_url(
         .timeout(Duration::from_secs(25))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("创建客户端失败: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建客户端失败: {}", e),
+            )
+        })?;
 
     let mut direct_url = String::new();
     let mut need_auth = false;
@@ -2744,10 +3476,20 @@ async fn resource_share_direct_url(
         .header("Authorization", auth.clone())
         .send()
         .await
-        .map_err(|e| err(StatusCode::BAD_GATEWAY, "代理错误", format!("HEAD 请求失败: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::BAD_GATEWAY,
+                "代理错误",
+                format!("HEAD 请求失败: {}", e),
+            )
+        })?;
 
     let mut status_code = head_resp.status().as_u16();
-    if let Some(loc) = head_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+    if let Some(loc) = head_resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+    {
         direct_url = loc.to_string();
     }
 
@@ -2762,7 +3504,11 @@ async fn resource_share_direct_url(
         {
             Ok(get_resp) => {
                 status_code = get_resp.status().as_u16();
-                if let Some(loc) = get_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+                if let Some(loc) = get_resp
+                    .headers()
+                    .get("location")
+                    .and_then(|v| v.to_str().ok())
+                {
                     direct_url = loc.to_string();
                 } else if get_resp.status().is_success() {
                     need_auth = true;
@@ -2809,8 +3555,9 @@ async fn resource_share_direct_url(
 
 async fn fetch_course_selection_overview(
     State(state): State<HttpState>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_overview(&client)
         .await
         .map(ok)
@@ -2820,8 +3567,9 @@ async fn fetch_course_selection_overview(
 async fn fetch_course_selection_list(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionListRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_list(&client, &req)
         .await
         .map(ok)
@@ -2831,8 +3579,9 @@ async fn fetch_course_selection_list(
 async fn fetch_course_selection_end_time(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionEndTimeRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_end_time(&client, &req)
         .await
         .map(ok)
@@ -2842,8 +3591,9 @@ async fn fetch_course_selection_end_time(
 async fn fetch_course_selection_child_classes(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionChildClassesRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_child_classes(&client, &req)
         .await
         .map(ok)
@@ -2853,8 +3603,9 @@ async fn fetch_course_selection_child_classes(
 async fn select_course_selection_course(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionSelectRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::select_course_selection_course(&client, &req)
         .await
         .map(ok)
@@ -2864,8 +3615,9 @@ async fn select_course_selection_course(
 async fn withdraw_course_selection_course(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionWithdrawRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::withdraw_course_selection_course(&client, &req)
         .await
         .map(ok)
@@ -2875,8 +3627,9 @@ async fn withdraw_course_selection_course(
 async fn fetch_course_selection_selected_courses(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionSelectedCoursesRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_selected_courses(&client, &req)
         .await
         .map(ok)
@@ -2886,8 +3639,9 @@ async fn fetch_course_selection_selected_courses(
 async fn fetch_course_selection_detail_intro(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionDetailRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_detail_intro(&client, &req)
         .await
         .map(ok)
@@ -2897,8 +3651,9 @@ async fn fetch_course_selection_detail_intro(
 async fn fetch_course_selection_detail_teacher(
     State(state): State<HttpState>,
     Json(req): Json<CourseSelectionDetailRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::course_selection::fetch_course_selection_detail_teacher(&client, &req)
         .await
         .map(ok)
@@ -2908,19 +3663,24 @@ async fn fetch_course_selection_detail_teacher(
 async fn fetch_online_learning_overview(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningOverviewRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    crate::modules::online_learning::fetch_online_learning_overview(&client, req.student_id.as_deref())
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    crate::modules::online_learning::fetch_online_learning_overview(
+        &client,
+        req.student_id.as_deref(),
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn online_learning_sync_now(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningSyncRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     crate::modules::online_learning::online_learning_sync_now(
         &mut client,
         req.student_id.as_deref(),
@@ -2935,16 +3695,28 @@ async fn online_learning_sync_now(
 async fn online_learning_list_sync_runs(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningSyncRunsRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     let student_id = req
         .student_id
         .as_deref()
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(|item| item.to_string())
-        .or_else(|| client.user_info.as_ref().map(|info| info.student_id.clone()))
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "缺少 student_id，且当前未登录".to_string()))?;
+        .or_else(|| {
+            client
+                .user_info
+                .as_ref()
+                .map(|info| info.student_id.clone())
+        })
+        .ok_or_else(|| {
+            err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "缺少 student_id，且当前未登录".to_string(),
+            )
+        })?;
     crate::modules::online_learning::list_online_learning_sync_runs(
         &student_id,
         req.platform.as_deref(),
@@ -2957,37 +3729,57 @@ async fn online_learning_list_sync_runs(
 async fn online_learning_clear_cache(
     State(state): State<HttpState>,
     Json(req): Json<OnlineLearningClearCacheRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     let student_id = req
         .student_id
         .as_deref()
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .map(|item| item.to_string())
-        .or_else(|| client.user_info.as_ref().map(|info| info.student_id.clone()))
-        .ok_or_else(|| err(StatusCode::BAD_REQUEST, "业务错误", "缺少 student_id，且当前未登录".to_string()))?;
-    crate::modules::online_learning::clear_online_learning_cache(&student_id, req.platform.as_deref())
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+        .or_else(|| {
+            client
+                .user_info
+                .as_ref()
+                .map(|info| info.student_id.clone())
+        })
+        .ok_or_else(|| {
+            err(
+                StatusCode::BAD_REQUEST,
+                "业务错误",
+                "缺少 student_id，且当前未登录".to_string(),
+            )
+        })?;
+    crate::modules::online_learning::clear_online_learning_cache(
+        &student_id,
+        req.platform.as_deref(),
+    )
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn chaoxing_get_session_status(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingSessionStatusRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    crate::modules::online_learning::chaoxing_get_session_status(&mut client, req.student_id.as_deref())
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    crate::modules::online_learning::chaoxing_get_session_status(
+        &mut client,
+        req.student_id.as_deref(),
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn chaoxing_fetch_courses(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingCoursesRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     crate::modules::online_learning::chaoxing_fetch_courses(
         &mut client,
         req.student_id.as_deref(),
@@ -3001,8 +3793,9 @@ async fn chaoxing_fetch_courses(
 async fn chaoxing_fetch_course_outline(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingCourseOutlineRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     crate::modules::online_learning::chaoxing_fetch_course_outline(&mut client, &req)
         .await
         .map(ok)
@@ -3012,8 +3805,9 @@ async fn chaoxing_fetch_course_outline(
 async fn chaoxing_fetch_course_progress(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingCourseProgressRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     crate::modules::online_learning::chaoxing_fetch_course_progress(&mut client, &req)
         .await
         .map(ok)
@@ -3022,7 +3816,8 @@ async fn chaoxing_fetch_course_progress(
 
 async fn chaoxing_get_launch_url(
     Json(req): Json<ChaoxingLaunchUrlRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     crate::modules::online_learning::chaoxing_get_launch_url(&req)
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
@@ -3031,8 +3826,9 @@ async fn chaoxing_get_launch_url(
 async fn yuketang_create_qr_login(
     State(state): State<HttpState>,
     Json(req): Json<YuketangQrCreateRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::yuketang_create_qr_login(&client, &req)
         .await
         .map(ok)
@@ -3042,8 +3838,9 @@ async fn yuketang_create_qr_login(
 async fn yuketang_poll_qr_login(
     State(state): State<HttpState>,
     Json(req): Json<YuketangPollQrLoginRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::yuketang_poll_qr_login(&client, &req)
         .await
         .map(ok)
@@ -3053,8 +3850,9 @@ async fn yuketang_poll_qr_login(
 async fn yuketang_fetch_courses(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCoursesRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::yuketang_fetch_courses(
         &client,
         req.student_id.as_deref(),
@@ -3068,8 +3866,9 @@ async fn yuketang_fetch_courses(
 async fn yuketang_fetch_course_outline(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCourseOutlineRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::yuketang_fetch_course_outline(&client, &req)
         .await
         .map(ok)
@@ -3079,8 +3878,9 @@ async fn yuketang_fetch_course_outline(
 async fn yuketang_fetch_course_progress(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCourseProgressRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::yuketang_fetch_course_progress(&client, &req)
         .await
         .map(ok)
@@ -3092,10 +3892,15 @@ async fn yuketang_fetch_course_progress(
 async fn chaoxing_get_knowledge_cards(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingKnowledgeCardsRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::chaoxing_get_knowledge_cards(
-        &client, &req.clazz_id, &req.course_id, &req.knowledge_id, &req.cpi,
+        &client,
+        &req.clazz_id,
+        &req.course_id,
+        &req.knowledge_id,
+        &req.cpi,
     )
     .await
     .map(ok)
@@ -3105,8 +3910,9 @@ async fn chaoxing_get_knowledge_cards(
 async fn chaoxing_get_video_status(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingVideoStatusRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::chaoxing_get_video_status(&client, &req.object_id, &req.fid)
         .await
         .map(ok)
@@ -3116,8 +3922,9 @@ async fn chaoxing_get_video_status(
 async fn chaoxing_report_progress(
     State(state): State<HttpState>,
     Json(req): Json<ChaoxingReportProgressRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
     crate::modules::online_learning::chaoxing_report_progress(
         &client,
         &req.report_url,
@@ -3142,40 +3949,56 @@ async fn chaoxing_report_progress(
 async fn yuketang_get_course_chapters(
     State(state): State<HttpState>,
     Json(req): Json<YuketangCourseChaptersRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    crate::modules::online_learning::yuketang_get_course_chapters(&client, &req.classroom_id, &req.sign)
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    crate::modules::online_learning::yuketang_get_course_chapters(
+        &client,
+        &req.classroom_id,
+        &req.sign,
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn yuketang_get_leaf_info(
     State(state): State<HttpState>,
     Json(req): Json<YuketangLeafInfoRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    crate::modules::online_learning::yuketang_get_leaf_info(&client, &req.classroom_id, &req.leaf_id)
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    crate::modules::online_learning::yuketang_get_leaf_info(
+        &client,
+        &req.classroom_id,
+        &req.leaf_id,
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn yuketang_send_heartbeat(
     State(state): State<HttpState>,
     Json(req): Json<YuketangHeartbeatRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let client = state.client.lock().await;
-    crate::modules::online_learning::yuketang_send_heartbeat(&client, &req.classroom_id, &req.events)
-        .await
-        .map(ok)
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    crate::modules::online_learning::yuketang_send_heartbeat(
+        &client,
+        &req.classroom_id,
+        &req.events,
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn fetch_library_dict(
     State(state): State<HttpState>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     client
         .fetch_library_dict()
         .await
@@ -3186,8 +4009,9 @@ async fn fetch_library_dict(
 async fn search_library_books(
     State(state): State<HttpState>,
     Json(req): Json<LibrarySearchRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     client
         .search_library_books(req.params)
         .await
@@ -3198,8 +4022,9 @@ async fn search_library_books(
 async fn fetch_library_book_detail(
     State(state): State<HttpState>,
     Json(req): Json<LibraryDetailRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     client
         .fetch_library_book_detail(&req.title, &req.isbn, req.record_id)
         .await
@@ -3207,57 +4032,101 @@ async fn fetch_library_book_detail(
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn electricity_query_location(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.query_electricity_location(req.payload).await
+async fn electricity_query_location(
+    State(state): State<HttpState>,
+    Json(req): Json<ElectricityRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .query_electricity_location(req.payload)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn electricity_query_account(State(state): State<HttpState>, Json(req): Json<ElectricityRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.query_electricity_account(req.payload).await
+async fn electricity_query_account(
+    State(state): State<HttpState>,
+    Json(req): Json<ElectricityRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .query_electricity_account(req.payload)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn fetch_transaction_history(State(state): State<HttpState>, Json(req): Json<TransactionRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.fetch_transaction_history(&req.start_date, &req.end_date, req.page_no, req.page_size).await
+async fn fetch_transaction_history(
+    State(state): State<HttpState>,
+    Json(req): Json<TransactionRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .fetch_transaction_history(&req.start_date, &req.end_date, req.page_no, req.page_size)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn one_code_token(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.get_one_code_token().await
+async fn one_code_token(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .get_one_code_token()
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn campus_code_config(State(state): State<HttpState>, Json(req): Json<CampusCodeRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.query_campus_code_config(req.payload).await
+async fn campus_code_config(
+    State(state): State<HttpState>,
+    Json(req): Json<CampusCodeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .query_campus_code_config(req.payload)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn campus_code_qrcode(State(state): State<HttpState>, Json(req): Json<CampusCodeRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.query_campus_code_qrcode(req.payload).await
+async fn campus_code_qrcode(
+    State(state): State<HttpState>,
+    Json(req): Json<CampusCodeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .query_campus_code_qrcode(req.payload)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn campus_code_order_status(State(state): State<HttpState>, Json(req): Json<CampusCodeRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
-    client.query_campus_code_order_status(req.payload).await
+async fn campus_code_order_status(
+    State(state): State<HttpState>,
+    Json(req): Json<CampusCodeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
+    client
+        .query_campus_code_order_status(req.payload)
+        .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
-async fn ai_init(State(state): State<HttpState>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let mut client = state.client.lock().await;
+async fn ai_init(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let mut client = state.client.write().await;
     let result = std::panic::AssertUnwindSafe(client.init_ai_session())
         .catch_unwind()
         .await;
@@ -3277,12 +4146,20 @@ async fn ai_init(State(state): State<HttpState>) -> Result<Json<ApiResponse<serd
                 "unknown panic".to_string()
             };
             eprintln!("[HTTP] AI 初始化 panic: {}", msg);
-            Err(err(StatusCode::INTERNAL_SERVER_ERROR, "系统错误", format!("ai_init panic: {}", msg)))
+            Err(err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("ai_init panic: {}", msg),
+            ))
         }
     }
 }
 
-async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+async fn ai_upload(
+    State(_state): State<HttpState>,
+    Json(req): Json<AiUploadRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let res = crate::modules::ai::hbut_ai_upload(
         req.token,
         req.blade_auth,
@@ -3290,8 +4167,9 @@ async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequ
         req.file_name,
         req.file_base64,
         req.file_mime,
-    ).await
-        .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
+    )
+    .await
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
     Ok(ok(serde_json::json!({
         "success": res.success,
         "link": res.link,
@@ -3302,7 +4180,8 @@ async fn ai_upload(State(_state): State<HttpState>, Json(req): Json<AiUploadRequ
 async fn ai_chat_session_new(
     State(_state): State<HttpState>,
     Json(req): Json<AiSessionNewRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let session_id = crate::modules::ai::create_ai_remote_session(&req.token, &req.blade_auth)
         .await
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
@@ -3312,7 +4191,8 @@ async fn ai_chat_session_new(
 async fn ai_chat_session_history(
     State(_state): State<HttpState>,
     Json(req): Json<AiSessionHistoryRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let page = crate::modules::ai::fetch_ai_session_history(
         &req.token,
         &req.blade_auth,
@@ -3322,34 +4202,43 @@ async fn ai_chat_session_history(
     )
     .await
     .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
-    Ok(ok(serde_json::to_value(page).unwrap_or_else(|_| serde_json::json!({}))))
+    Ok(ok(
+        serde_json::to_value(page).unwrap_or_else(|_| serde_json::json!({}))
+    ))
 }
 
 async fn ai_chat_session_messages(
     State(_state): State<HttpState>,
     Json(req): Json<AiSessionMessagesRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
-    let payload = crate::modules::ai::fetch_ai_session_messages(
-        &req.token,
-        &req.blade_auth,
-        &req.session_id,
-    )
-    .await
-    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
-    Ok(ok(serde_json::to_value(payload).unwrap_or_else(|_| serde_json::json!({}))))
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let payload =
+        crate::modules::ai::fetch_ai_session_messages(&req.token, &req.blade_auth, &req.session_id)
+            .await
+            .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
+    Ok(ok(
+        serde_json::to_value(payload).unwrap_or_else(|_| serde_json::json!({}))
+    ))
 }
 
 async fn ai_chat_session_delete(
     State(_state): State<HttpState>,
     Json(req): Json<AiSessionDeleteRequest>,
-) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     crate::modules::ai::delete_ai_session(&req.token, &req.blade_auth, &req.session_id)
         .await
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e))?;
-    Ok(ok(serde_json::json!({ "success": true, "session_id": req.session_id })))
+    Ok(ok(
+        serde_json::json!({ "success": true, "session_id": req.session_id }),
+    ))
 }
 
-async fn ai_chat(State(_state): State<HttpState>, Json(req): Json<AiChatRequest>) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+async fn ai_chat(
+    State(_state): State<HttpState>,
+    Json(req): Json<AiChatRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
     let res = crate::modules::ai::hbut_ai_chat(
         req.token,
         req.blade_auth,
@@ -3357,20 +4246,27 @@ async fn ai_chat(State(_state): State<HttpState>, Json(req): Json<AiChatRequest>
         req.user_attachment.or(req.upload_url).unwrap_or_default(),
         req.model.unwrap_or_else(|| "qwen-max".to_string()),
         req.session_id,
-    ).await.map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
+    )
+    .await
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?;
     Ok(ok(serde_json::json!({"success": true, "data": res})))
 }
 
 async fn ai_chat_stream(
     State(_state): State<HttpState>,
     Json(req): Json<AiChatRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+) -> Result<
+    Sse<impl Stream<Item = Result<Event, Infallible>>>,
+    (StatusCode, Json<ApiResponse<serde_json::Value>>),
+> {
     let token = req.token;
     let blade_auth = req.blade_auth;
     let question = req.question;
     let model = req.model.unwrap_or_else(|| "qwen-max".to_string());
     let user_attachment = req.user_attachment.or(req.upload_url).unwrap_or_default();
-    let final_upload_url = crate::modules::ai::ensure_stream_upload_url(&token, &blade_auth, user_attachment.trim()).await;
+    let final_upload_url =
+        crate::modules::ai::ensure_stream_upload_url(&token, &blade_auth, user_attachment.trim())
+            .await;
     let effective_question = crate::modules::ai::build_effective_ask(&question);
     let network_flag = "1";
 
@@ -3383,16 +4279,28 @@ async fn ai_chat_stream(
         remote_session_id
     };
 
-    let url = "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
+    let url =
+        "https://virtualhuman2h5.59wanmei.com/apis/virtualhuman/serverApi/question/streamAnswer";
     let mut headers = HeaderMap::new();
     if !blade_auth.is_empty() {
-        headers.insert("blade-auth", HeaderValue::from_str(&blade_auth).map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?);
+        headers.insert(
+            "blade-auth",
+            HeaderValue::from_str(&blade_auth)
+                .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?,
+        );
     }
     headers.insert("Accept", HeaderValue::from_static("text/event-stream"));
     headers.insert("Accept-Encoding", HeaderValue::from_static("identity"));
     headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
-    let referer = format!("https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}", token);
-    headers.insert("Referer", HeaderValue::from_str(&referer).map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?);
+    let referer = format!(
+        "https://virtualhuman2h5.59wanmei.com/digitalPeople3/index.html?token={}",
+        token
+    );
+    headers.insert(
+        "Referer",
+        HeaderValue::from_str(&referer)
+            .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))?,
+    );
 
     let timestamp = Utc::now().timestamp_millis().to_string();
 
@@ -3595,9 +4503,13 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                                 out.push(serde_json::json!({"event":"thinking","delta":cleaned}));
                             }
 
-                            if let (Some(content_v), Some(thinking_v)) = (content_cleaned, thinking_cleaned) {
+                            if let (Some(content_v), Some(thinking_v)) =
+                                (content_cleaned, thinking_cleaned)
+                            {
                                 if content_v != thinking_v {
-                                    out.push(serde_json::json!({"event":"thinking","delta":thinking_v}));
+                                    out.push(
+                                        serde_json::json!({"event":"thinking","delta":thinking_v}),
+                                    );
                                 }
                             }
                             if should_emit_done {
@@ -3607,8 +4519,12 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                         }
                         11 => {
                             if let Some(thinking_text) = thinking {
-                                if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&thinking_text) {
-                                    out.push(serde_json::json!({"event":"thinking","delta":cleaned}));
+                                if let Some(cleaned) =
+                                    crate::modules::ai::clean_stream_chunk(&thinking_text)
+                                {
+                                    out.push(
+                                        serde_json::json!({"event":"thinking","delta":cleaned}),
+                                    );
                                 }
                             }
                             if should_emit_done {
@@ -3619,7 +4535,9 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                         // 源站正文分片事件（不同模型/通道会返回不同 type）
                         4 | 12 => {
                             if let Some(content_text) = content.or(thinking) {
-                                if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text) {
+                                if let Some(cleaned) =
+                                    crate::modules::ai::clean_stream_chunk(&content_text)
+                                {
                                     out.push(serde_json::json!({"event":"delta","delta":cleaned}));
                                 }
                             }
@@ -3631,7 +4549,9 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                         24 | 999 => {
                             if let Some(progress) = extract_progress_text(&json) {
                                 if !progress.trim().is_empty() {
-                                    out.push(serde_json::json!({"event":"progress","message":progress}));
+                                    out.push(
+                                        serde_json::json!({"event":"progress","message":progress}),
+                                    );
                                 }
                             }
                             if should_emit_done {
@@ -3656,7 +4576,8 @@ fn normalize_ai_stream_events(raw_line: &str) -> Vec<serde_json::Value> {
                     }
                 } else {
                     if let Some(content_text) = content.or(thinking) {
-                        if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text) {
+                        if let Some(cleaned) = crate::modules::ai::clean_stream_chunk(&content_text)
+                        {
                             out.push(serde_json::json!({"event":"delta","delta":cleaned}));
                         }
                     }
