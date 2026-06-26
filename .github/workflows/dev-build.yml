@@ -499,7 +499,7 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-build-ios:
+  build-ios:
     needs: [source, meta]
     runs-on: macos-latest
     steps:
