@@ -160,15 +160,13 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup NDK
-        run: |
-          sdkmanager "ndk;27.0.11718014"
-          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.11718014" >> "$GITHUB_ENV"
+      - name: Setup Android NDK
+        uses: ./.github/actions/setup-android-ndk
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Setup Rust
@@ -187,6 +185,9 @@ jobs:
 
       - name: Initialize Android project
         run: npm run tauri android init
+
+      - name: Pin Android NDK version in Gradle
+        run: python scripts/ci/patch_android_ndk.py
 
       - name: Generate, sync, and verify Android launcher icons
         run: |
@@ -313,59 +314,28 @@ jobs:
         run: npx tauri android build --target aarch64
         env:
           NDK_HOME: ${{ env.NDK_HOME }}
+          ANDROID_NDK_HOME: ${{ env.NDK_HOME }}
+          ANDROID_NDK_ROOT: ${{ env.NDK_HOME }}
 
       - name: Report Android raw build size
         env:
           BUNDLE_ROOT: src-tauri/gen/android/app/build/outputs/apk
         run: node scripts/report_bundle_sizes.mjs
 
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
       - name: Sign APK
-        run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
-            VERSION="$(node -p "require('./package.json').version")"
-          fi
-          if [ -z "$VERSION" ]; then
-            echo "Unable to resolve VERSION"
-            exit 1
-          fi
-
-          UNSIGNED_APK="$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -n 1)"
-          if [ -z "$UNSIGNED_APK" ]; then
-            echo "No unsigned APK found."
-            find src-tauri/gen/android/app/build/outputs -maxdepth 6 -type f -print || true
-            exit 1
-          fi
-          echo "Found unsigned APK: $UNSIGNED_APK"
-
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release-key.jks
-            echo "Using keystore from secret"
-          else
-            keytool -genkeypair -v \
-              -keystore release-key.jks \
-              -alias mini-hbut \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass android \
-              -keypass android \
-              -dname "CN=Mini-HBUT, OU=HBUT, O=HBUT, L=Wuhan, ST=Hubei, C=CN"
-            echo "Generated fallback keystore"
-          fi
-
-          "${ANDROID_SDK_ROOT}/build-tools/35.0.0/zipalign" -v -p 4 "$UNSIGNED_APK" app-aligned.apk
-          APK_NAME="Mini-HBUT_${VERSION}_arm64.apk"
-          "${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner" sign \
-            --ks release-key.jks \
-            --ks-key-alias mini-hbut \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --out "$APK_NAME" \
-            app-aligned.apk
-          "${ANDROID_SDK_ROOT}/build-tools/35.0.0/apksigner" verify -v "$APK_NAME"
-          ls -lh "$APK_NAME"
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          OUTPUT_APK: Mini-HBUT_${{ steps.version.outputs.VERSION }}_arm64.apk
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          REQUIRE_KEYSTORE: "true"
+        run: bash scripts/ci/sign_android_apk.sh
 
       - name: Report Android package size
         env:
@@ -581,7 +551,7 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli
+        run: npm exec -- tauri --version
 
       - name: Build iOS app bundle
         run: |
@@ -604,7 +574,7 @@ jobs:
           });
           NODE
 
-          npm run tauri ios init
+          npm exec -- tauri ios init
           cargo fetch --manifest-path src-tauri/Cargo.toml
           node scripts/patch_tauri_ios_edge_to_edge.mjs
           node scripts/sync_tauri_platform_icons.mjs ios
@@ -806,11 +776,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   deploy-website:
-    needs: [build-android, build-windows, build-macos, build-ios, build-linux]
+    needs: [create-release, build-android, build-windows, build-macos, build-ios, build-linux]
     runs-on: ubuntu-latest
     concurrency:
       group: website-pages-deploy
-      cancel-in-progress: false
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
@@ -940,17 +910,7 @@ jobs:
           npm run build
 
       - name: Deploy to website-pages branch
-        run: |
-          set -euo pipefail
-          DEPLOY=$(mktemp -d)
-          echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
-          cp -r website/dist "$DEPLOY/dist"
-          cd "$DEPLOY"
-          git init
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "deploy: ${GITHUB_REF_NAME}"
-          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_MESSAGE: deploy: ${{ github.ref_name }}
+        run: bash scripts/ci/deploy_website_pages.sh

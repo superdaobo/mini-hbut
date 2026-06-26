@@ -64,15 +64,16 @@ apksigner verify -v Mini-HBUT_signed.apk
 
 ## CI/CD 签名（GitHub Actions）
 
-在 `.github/workflows/release.yml` 和 `.github/workflows/dev-build.yml` 中，签名流程为：
+在 `.github/workflows/release.yml` 和 `.github/workflows/dev-build.yml` 中，统一调用 `scripts/ci/sign_android_apk.sh`：
 
-1. 从 secret `ANDROID_KEYSTORE_BASE64` 解码 keystore：
-   ```bash
-   echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release-key.jks
-   ```
-2. 如果 secret 为空，则生成临时 keystore（开发用途）
-3. 使用 `$ANDROID_SDK_ROOT/build-tools/35.0.0/zipalign` 对齐
-4. 使用 `$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner` 签名
+1. 从 Secret `ANDROID_KEYSTORE_BASE64` 解码 keystore（须与本地 `release-key.jks` 一致）
+2. 使用以下 Secret；**未设置时回退为文档默认值**，与历史硬编码行为一致：
+   - `ANDROID_KEYSTORE_PASSWORD` → 默认 `android`
+   - `ANDROID_KEY_ALIAS` → 默认 `mini-hbut`
+   - `ANDROID_KEY_PASSWORD` → 默认 `android`
+3. 校验证书 **SHA-256 指纹** 必须为 `8E:E9:9F:A4:93:1C:51:35:A9:4D:26:6A:C9:C3:FF:F5:6C:19:97:EB:B7:BA:41:82:6F:6D:51:9D:FC:20:18:E8`，不匹配则构建失败（避免错误密钥导致无法覆盖安装）
+4. zipalign + apksigner 签名
+5. **不再**在 CI 中生成临时 keystore
 
 ## 设置 GitHub Secret
 
@@ -81,6 +82,14 @@ apksigner verify -v Mini-HBUT_signed.apk
 1. 进入 GitHub 仓库 → Settings → Secrets and variables → Actions
 2. 新建 secret，名称为 `ANDROID_KEYSTORE_BASE64`
 3. 粘贴 `keystore-base64.txt` 的内容
+
+建议同时配置（若与下表相同可省略，脚本会自动使用默认值）：
+
+| Secret | 推荐值 |
+|--------|--------|
+| `ANDROID_KEYSTORE_PASSWORD` | `android` |
+| `ANDROID_KEY_ALIAS` | `mini-hbut` |
+| `ANDROID_KEY_PASSWORD` | `android` |
 
 ## 重新生成 Base64 编码
 

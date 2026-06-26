@@ -1,0 +1,8 @@
+name: Setup Android NDK
+description: Install pinned Android NDK and export environment variables
+runs:
+  using: composite
+  steps:
+    - name: Setup Android NDK
+      shell: bash
+      run: bash scripts/ci/setup_android_ndk.sh

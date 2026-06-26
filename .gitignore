@@ -5,7 +5,8 @@ dist/
 
 # Rust
 src-tauri/target/
-Cargo.lock
+/Cargo.lock
+!src-tauri/Cargo.lock
 
 # IDE
 .idea/

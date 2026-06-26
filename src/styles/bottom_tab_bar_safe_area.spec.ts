@@ -49,11 +49,11 @@ describe('bottom tab bar safe area contract', () => {
   const releaseWorkflow = () => readSource('.github/workflows/release.yml')
 
   const expectTauriIosWorkflowOrder = (workflow: string) => {
-    const initIndex = workflow.indexOf('npm run tauri ios init')
+    const initIndex = workflow.search(/npm (run tauri|exec -- tauri) ios init/)
     const fetchIndex = workflow.indexOf('cargo fetch --manifest-path src-tauri/Cargo.toml')
     const patchIndex = workflow.indexOf('node scripts/patch_tauri_ios_edge_to_edge.mjs')
     const iconIndex = workflow.indexOf('node scripts/sync_tauri_platform_icons.mjs ios')
-    const buildIndex = workflow.indexOf('xcodebuild')
+    const buildIndex = workflow.indexOf('TMPDIR="$TMPDIR" xcodebuild')
 
     expect(initIndex).toBeGreaterThanOrEqual(0)
     expect(fetchIndex).toBeGreaterThan(initIndex)
