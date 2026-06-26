@@ -534,6 +534,19 @@ jobs:
     needs: create-release
     runs-on: macos-latest
     steps:
+      - name: Select Xcode 16.4 for iOS build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode_16.4.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_16.4.app"
+            echo "Switched to $(xcodebuild -version)"
+          else
+            echo "Xcode_16.4.app not found; available Xcode versions:"
+            ls -d /Applications/Xcode*.app 2>/dev/null || true
+            echo "WARNING: falling back to default Xcode; iOS link may fail with swiftCompatibility56 missing."
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Prune non-runtime files (iOS)
