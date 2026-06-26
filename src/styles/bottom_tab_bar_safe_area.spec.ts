@@ -13,6 +13,38 @@ const getRuleBody = (source: string, selector: string) => {
 
 const normalizeCss = (source: string) => source.replace(/\s+/g, '')
 
+const readDistBundledStyles = () => {
+  const indexPath = resolve(process.cwd(), 'dist/index.html')
+  const publicRoot = dirname(indexPath)
+  const indexHtml = readFileSync(indexPath, 'utf8')
+  const stylesheetHrefs = Array.from(indexHtml.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]+href=["'](?<href>[^"']+\.css)["']/gi))
+    .map((match) => match.groups?.href)
+    .filter((href): href is string => Boolean(href))
+
+  const cssPaths = stylesheetHrefs
+    .map((href) => resolve(publicRoot, href.replace(/^\//, '')))
+    .filter((path) => existsSync(path))
+
+  if (cssPaths.length === 0) {
+    const assetsDir = resolve(publicRoot, 'assets')
+    cssPaths.push(
+      ...readdirSync(assetsDir)
+        .filter((file) => file.endsWith('.css'))
+        .map((file) => resolve(assetsDir, file))
+    )
+  }
+
+  return cssPaths.map((path) => readFileSync(path, 'utf8')).join('\n')
+}
+
+const readBundledWebStyles = () => {
+  const iosIndexPath = resolve(process.cwd(), 'ios/App/App/public/index.html')
+  if (existsSync(iosIndexPath)) {
+    return readIosBundledStyles()
+  }
+  return readDistBundledStyles()
+}
+
 const readIosBundledStyles = () => {
   const publicIndexPath = resolve(process.cwd(), 'ios/App/App/public/index.html')
   const publicRoot = dirname(publicIndexPath)
@@ -242,7 +274,7 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
   })
 
   it('ships the fixed bottom tab bar contract in the bundled iOS web assets', () => {
-    const bundledCss = normalizeCss(readIosBundledStyles())
+    const bundledCss = normalizeCss(readBundledWebStyles())
 
     expect(bundledCss).not.toContain('@import')
     expect(bundledCss).toContain('bottom:calc(10px+var(--app-safe-bottom))')

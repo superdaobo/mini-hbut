@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Production build smoke
+        run: npm run build
+
       - name: Run Vitest
         run: npm run test:ci
 
@@ -56,9 +59,6 @@ jobs:
 
       - name: Check dist boundary script
         run: node scripts/check_dist_boundary.mjs
-
-      - name: Production build smoke
-        run: npm run build
 
       - name: Vue typecheck (CI subset)
         run: npx vue-tsc --noEmit -p tsconfig.ci.json
@@ -86,7 +86,7 @@ jobs:
             ./src-tauri -> target
 
       - name: Cargo test
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
 
       - name: Cargo fmt check
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
