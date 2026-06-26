@@ -1,0 +1,46 @@
+name: Bug 报告
+description: 报告缺陷或异常行为
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰描述发生了什么、期望是什么
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 …
+        2. 点击 …
+        3. 看到 …
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iOS
+        - Web
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      placeholder: 例如 1.4.2 或 dev-latest
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 如有报错日志或截图请附上

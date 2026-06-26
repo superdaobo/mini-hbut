@@ -12,7 +12,8 @@ const expectedGameOrder = [
   'clumsy_bird_hbut',
   'hbut_monopoly',
   'hbut_miner',
-  'hbut_memory_match'
+  'hbut_memory_match',
+  'hbut_gomoku'
 ]
 
 describe('module center cards', () => {

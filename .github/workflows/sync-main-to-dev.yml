@@ -1,0 +1,37 @@
+name: Sync main to dev
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-main-to-dev
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge main into dev
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main dev
+          if git merge-base --is-ancestor origin/main origin/dev; then
+            echo "dev already contains main; skip"
+            exit 0
+          fi
+          git checkout -B dev origin/dev
+          git merge origin/main -m "chore(ci): auto-sync main into dev"
+          git push origin dev

@@ -26,7 +26,7 @@ jobs:
     # 跳过 tag 推送触发（tag push 由 release.yml 的 deploy-website 负责）
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
       - name: Get latest release tag
         id: release
@@ -128,9 +128,9 @@ jobs:
           node scripts/build_release_manifests.mjs
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: website/package-lock.json
 
@@ -160,17 +160,7 @@ jobs:
           npm run build
 
       - name: Deploy to website-pages branch
-        run: |
-          set -euo pipefail
-          DEPLOY=$(mktemp -d)
-          echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
-          cp -r website/dist "$DEPLOY/dist"
-          cd "$DEPLOY"
-          git init
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "deploy: sync website from ${GITHUB_SHA::7}"
-          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_MESSAGE: deploy: sync website from ${{ github.sha }}
+        run: bash scripts/ci/deploy_website_pages.sh

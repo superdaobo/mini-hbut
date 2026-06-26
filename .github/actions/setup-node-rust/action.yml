@@ -1,0 +1,36 @@
+name: Setup Node.js and Rust
+description: Install Node 20 and Rust toolchain with optional Android targets
+inputs:
+  rust_targets:
+    description: Comma-separated rustup targets
+    required: false
+    default: ""
+  cache_rust:
+    description: Enable rust-cache
+    required: false
+    default: "true"
+  save_rust_cache:
+    description: Save rust cache on cache miss
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ inputs.rust_targets }}
+
+    - name: Restore Rust cache
+      if: inputs.cache_rust == 'true'
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: |
+          ./src-tauri -> target
+        save-if: ${{ inputs.save_rust_cache == 'true' }}
