@@ -74,7 +74,7 @@ export const measureSchoolWebsiteEmbedBounds = async (
       width = Math.max(1, Math.round(rect.width || innerLogical.width - left * 2))
       const heightFromWindow = Math.max(1, Math.round(innerLogical.height - top - bottomPadding))
       const minExpected = Math.round(innerLogical.height * 0.45)
-      height = heightFromRect >= minExpected ? heightFromRect : heightFromWindow
+      height = height >= minExpected ? height : heightFromWindow
     } catch {
       // 保留 DOM 测量结果
     }
