@@ -48,7 +48,7 @@ regex = "1.10"
 base64 = "0.22"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 aes = "0.8"
-cbc = "0.1"
+cbc = "0.2"
 rand = "0.8"
 thiserror = "1.0"
 rusqlite = { version = "0.38.0", features = ["bundled"] }
