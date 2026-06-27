@@ -1,4 +1,4 @@
-﻿name: Release Build
+name: Release Build
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
       release_id: ${{ steps.create_release.outputs.id }}
       previous_tag: ${{ steps.release_notes.outputs.previous_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -141,7 +141,7 @@ jobs:
     needs: create-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Prune non-runtime files (Android)
         run: |
@@ -354,7 +354,7 @@ jobs:
     needs: create-release
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Prune non-runtime files (Windows)
         shell: pwsh
@@ -432,7 +432,7 @@ jobs:
     needs: create-release
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -517,7 +517,7 @@ jobs:
             echo "WARNING: falling back to default Xcode; iOS link may fail with swiftCompatibility56 missing."
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Prune non-runtime files (iOS)
         run: |
@@ -703,7 +703,7 @@ jobs:
     needs: create-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Get version from tag
         id: version
@@ -782,7 +782,7 @@ jobs:
       group: website-pages-deploy
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Get version from tag
         id: version
