@@ -199,7 +199,11 @@ fn has_valid_pcencs(value: &Value) -> bool {
         .unwrap_or(false)
 }
 
-async fn fetch_list_v2_raw(client: &HbutClient, base: &str, referer: &str) -> Result<Value, DynError> {
+async fn fetch_list_v2_raw(
+    client: &HbutClient,
+    base: &str,
+    referer: &str,
+) -> Result<Value, DynError> {
     let url = format!("{}/admin/xsd/xk/listV2", base);
 
     // 第一次：空 body（与 Python _post_form({}) 一致，必须带 Content-Type）
@@ -207,7 +211,10 @@ async fn fetch_list_v2_raw(client: &HbutClient, base: &str, referer: &str) -> Re
         .client
         .post(&url)
         .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
         .header("Origin", base)
         .header("Referer", referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -225,7 +232,10 @@ async fn fetch_list_v2_raw(client: &HbutClient, base: &str, referer: &str) -> Re
         .client
         .post(&url)
         .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
         .header("Origin", base)
         .header("Referer", referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -236,7 +246,11 @@ async fn fetch_list_v2_raw(client: &HbutClient, base: &str, referer: &str) -> Re
     read_json_response(resp2, "获取选课总览失败").await
 }
 
-async fn fetch_show_tab_raw(client: &HbutClient, base: &str, referer: &str) -> Result<Value, DynError> {
+async fn fetch_show_tab_raw(
+    client: &HbutClient,
+    base: &str,
+    referer: &str,
+) -> Result<Value, DynError> {
     let url = format!("{}/admin/xsd/xk/getShowTab", base);
     let resp = client
         .client
@@ -435,16 +449,30 @@ pub async fn fetch_course_selection_overview(client: &HbutClient) -> Result<Valu
         let ret = raw.get("ret").and_then(|v| v.as_i64()).unwrap_or_default();
         let msg = response_msg(&raw, "获取成功");
         let empty = ret == -1 && msg.contains("没有可选的教学班");
-        println!("[选课调试] overview attempt={}, ret={}, msg={}, empty={}", attempt, ret, msg, empty);
+        println!(
+            "[选课调试] overview attempt={}, ret={}, msg={}, empty={}",
+            attempt, ret, msg, empty
+        );
         if ret != 0 && !empty {
             return Err(err_box(msg));
         }
 
         let next_data = raw.get("data").cloned().unwrap_or_else(|| json!({}));
         let next_tabs = extract_tabs_from_list_v2(&next_data);
-        let next_pcencs = next_data.get("pcencs").cloned().unwrap_or_else(|| json!({}));
-        let pcenc_keys: Vec<_> = next_pcencs.as_object().map(|m| m.keys().collect::<Vec<_>>()).unwrap_or_default();
-        println!("[选课调试] overview attempt={}: tabs={}, pcenc_keys={:?}", attempt, next_tabs.len(), pcenc_keys);
+        let next_pcencs = next_data
+            .get("pcencs")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let pcenc_keys: Vec<_> = next_pcencs
+            .as_object()
+            .map(|m| m.keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+        println!(
+            "[选课调试] overview attempt={}: tabs={}, pcenc_keys={:?}",
+            attempt,
+            next_tabs.len(),
+            pcenc_keys
+        );
 
         data = next_data;
         tabs = next_tabs;
@@ -513,7 +541,10 @@ pub async fn fetch_course_selection_list(
     params.insert("kcxz".to_string(), req.kcxz.clone().unwrap_or_default());
     params.insert("jxms".to_string(), req.jxms.clone().unwrap_or_default());
     params.insert("kcgs".to_string(), req.kcgs.clone().unwrap_or_default());
-    params.insert("teacher".to_string(), req.teacher.clone().unwrap_or_default());
+    params.insert(
+        "teacher".to_string(),
+        req.teacher.clone().unwrap_or_default(),
+    );
     params.insert("pcid".to_string(), req.pcid.clone());
     params.insert("kkxq".to_string(), req.kkxq.clone().unwrap_or_default());
     params.insert("kclb".to_string(), req.kclb.clone().unwrap_or_default());
@@ -524,7 +555,10 @@ pub async fn fetch_course_selection_list(
         .client
         .post(&url)
         .header("Accept", "application/json, text/javascript, */*; q=0.01")
-        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
         .header("Origin", base)
         .header("Referer", &referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -574,7 +608,12 @@ pub async fn fetch_course_selection_end_time(
 
     let base = client.academic_base_url();
     let referer = academic_referer(base);
-    let url = format!("{}/admin/xsd/xk/getEndTime/{}?pcid={}", base, req.kklx.trim(), req.pcid.trim());
+    let url = format!(
+        "{}/admin/xsd/xk/getEndTime/{}?pcid={}",
+        base,
+        req.kklx.trim(),
+        req.pcid.trim()
+    );
 
     let resp = client
         .client
@@ -622,7 +661,10 @@ pub async fn fetch_course_selection_child_classes(
         .client
         .post(&url)
         .header("Accept", "application/json, text/javascript, */*; q=0.01")
-        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
         .header("Origin", base)
         .header("Referer", &referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -664,7 +706,12 @@ pub async fn select_course_selection_course(
     params.insert("pcid".to_string(), req.pcid.clone());
     params.insert("jxbid".to_string(), req.jxbid.clone());
     params.insert("from".to_string(), from.clone());
-    if let Some(zjxbid) = req.zjxbid.as_ref().map(|v| v.trim()).filter(|v| !v.is_empty()) {
+    if let Some(zjxbid) = req
+        .zjxbid
+        .as_ref()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+    {
         params.insert("zjxbid".to_string(), zjxbid.to_string());
     }
 
@@ -672,7 +719,10 @@ pub async fn select_course_selection_course(
         .client
         .post(&url)
         .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
         .header("Origin", base)
         .header("Referer", &referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -717,7 +767,10 @@ pub async fn withdraw_course_selection_course(
         .client
         .post(&url)
         .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
         .header("Origin", base)
         .header("Referer", &referer)
         .header("X-Requested-With", "XMLHttpRequest")
@@ -883,7 +936,10 @@ pub async fn fetch_course_selection_selected_courses(
     let ret = raw.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
     if ret != 0 {
         let msg = response_msg(&raw, "未知错误");
-        return Err(err_box(format!("获取已选课程失败: ret={}, msg={}", ret, msg)));
+        return Err(err_box(format!(
+            "获取已选课程失败: ret={}, msg={}",
+            ret, msg
+        )));
     }
 
     let results = raw

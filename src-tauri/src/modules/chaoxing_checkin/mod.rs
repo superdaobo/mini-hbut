@@ -4,14 +4,14 @@
 
 //! 超星学习通签到模块 — 对外聚合入口。
 
-pub mod types;
-pub mod errors;
-pub mod qr_url;
-pub mod qr_decode;
-pub mod screen_capture;
-pub mod inflight;
-pub mod log_repo;
-pub mod session;
-pub mod protocol;
-pub mod interceptor;
 pub mod commands;
+pub mod errors;
+pub mod inflight;
+pub mod interceptor;
+pub mod log_repo;
+pub mod protocol;
+pub mod qr_decode;
+pub mod qr_url;
+pub mod screen_capture;
+pub mod session;
+pub mod types;

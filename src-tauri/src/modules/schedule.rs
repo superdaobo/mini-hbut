@@ -1,15 +1,15 @@
-﻿//! 📅 课表查询模块 - 与 Python modules/schedule.py 对应
-//! 
+//! 📅 课表查询模块 - 与 Python modules/schedule.py 对应
+//!
 //! 主要功能：
 //! 1. 获取包含原始课表数据的 JSON。
 //! 2. 解析复杂的周次字符串 (如 "1-16周(单)", "3,5-7周")。
 //! 3. 计算当前周次。
 
+use chrono::{Datelike, Local, NaiveDate};
+use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::{Local, NaiveDate, Datelike};
-use regex::Regex;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
@@ -81,14 +81,17 @@ impl ScheduleModule {
         Local::now().date_naive().weekday().num_days_from_monday() as i32 + 1
     }
 
-    pub async fn fetch_schedule(&self, _student_id: &str) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_schedule(
+        &self,
+        _student_id: &str,
+    ) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
         // 1. 获取 xhid
         let xhid = self.get_xhid().await?;
         println!("[调试] 获取到 xhid: {}", xhid);
-        
+
         // 2. 获取课表数据
         let schedule_url = format!("{}/admin/pkgl/xskb/sdpkkbList", JWXT_BASE_URL);
-        
+
         let params = [
             ("xnxq", self.semester.as_str()),
             ("xhid", &xhid),
@@ -97,26 +100,36 @@ impl ScheduleModule {
             ("zxzc", ""),
             ("xskbxslx", "0"),
         ];
-        
+
         println!("[调试] 获取 schedule 来自: {}", schedule_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&schedule_url)
             .query(&params)
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Referer", format!("{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}", JWXT_BASE_URL, self.semester))
+            .header(
+                "Referer",
+                format!(
+                    "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
+                    JWXT_BASE_URL, self.semester
+                ),
+            )
             .send()
             .await?;
-        
+
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[调试] Schedule 响应 status: {}, 地址: {}", status, final_url);
-        
+        println!(
+            "[调试] Schedule 响应 status: {}, 地址: {}",
+            status, final_url
+        );
+
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
-        
+
         let json: Value = response.json().await?;
         self.parse_schedule(&json)
     }
@@ -126,104 +139,144 @@ impl ScheduleModule {
             "{}/admin/pkgl/xskb/queryKbForXsd?xnxq={}",
             JWXT_BASE_URL, self.semester
         );
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&xhid_url)
             .header("Referer", format!("{}/admin/index.html", JWXT_BASE_URL))
             .send()
             .await?;
-        
+
         let html = response.text().await?;
-        
+
         // 从 HTML 中提取 xhid
         if let Ok(re) = Regex::new(r#"xhid['\"]?\s*[:=]\s*['\"]([^'\"]+)['\"]"#) {
             if let Some(cap) = re.captures(&html) {
-                return Ok(cap.get(1).map(|m| m.as_str().to_string()).unwrap_or_default());
+                return Ok(cap
+                    .get(1)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default());
             }
         }
-        
+
         if let Ok(re) = Regex::new(r"WGEyQ[A-Za-z0-9]+") {
             if let Some(cap) = re.find(&html) {
                 return Ok(cap.as_str().to_string());
             }
         }
-        
+
         Err("无法获取学号ID (xhid)".into())
     }
 
-    fn parse_schedule(&self, json: &Value) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
+    fn parse_schedule(
+        &self,
+        json: &Value,
+    ) -> Result<(Vec<ScheduleCourse>, i32), Box<dyn std::error::Error + Send + Sync>> {
         let mut courses = Vec::new();
         let current_week = self.get_current_week();
-        
+
         let items = if let Some(data) = json.get("data").and_then(|v| v.as_array()) {
             let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(-1);
             let msg = json.get("msg").and_then(|v| v.as_str()).unwrap_or("");
-            
-            println!("[调试] Schedule API ret={}, msg={}, data count={}", ret, msg, data.len());
-            
+
+            println!(
+                "[调试] Schedule API ret={}, msg={}, data count={}",
+                ret,
+                msg,
+                data.len()
+            );
+
             if ret != 0 {
                 return Err(format!("课表 API 返回错误: ret={}, msg={}", ret, msg).into());
             }
-            
+
             data.clone()
         } else {
             return Err("课表数据格式不正确".into());
         };
-        
+
         for item in &items {
             let raw_name = item.get("kcmc").and_then(|v| v.as_str()).unwrap_or("");
             let name = Self::extract_text_from_html(raw_name);
-            
-            let raw_teacher = item.get("tmc")
+
+            let raw_teacher = item
+                .get("tmc")
                 .or_else(|| item.get("xm"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let teacher = Self::extract_text_from_html(raw_teacher);
-            
-            let raw_room = item.get("croommc")
+
+            let raw_room = item
+                .get("croommc")
                 .or_else(|| item.get("cdmc"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let location = Self::extract_text_from_html(raw_room);
-            
-            let weekday = item.get("xingqi")
+
+            let weekday = item
+                .get("xingqi")
                 .or_else(|| item.get("xqj"))
                 .and_then(|v| v.as_i64())
                 .unwrap_or(1) as i32;
-            
-            let period = item.get("djc")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(1) as i32;
-            
-            let periods = item.get("djs")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(2) as i32;
-            
-            let weeks_str = item.get("zcstr")
+
+            let period = item.get("djc").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+
+            let periods = item.get("djs").and_then(|v| v.as_i64()).unwrap_or(2) as i32;
+
+            let weeks_str = item
+                .get("zcstr")
                 .or_else(|| item.get("zc"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let weeks = Self::parse_weeks(weeks_str);
-            
+
             let course = ScheduleCourse {
-                id: item.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                id: item
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 name,
                 teacher,
                 location,
-                room_code: item.get("croombh").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                building: item.get("jxlmc").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                room_code: item
+                    .get("croombh")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                building: item
+                    .get("jxlmc")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 weekday,
                 period,
                 periods,
                 weeks,
-                weeks_text: item.get("zc").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                credit: item.get("xf").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                course_type: item.get("kcxz").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                weeks_text: item
+                    .get("zc")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                credit: item
+                    .get("xf")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                course_type: item
+                    .get("kcxz")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
             };
             courses.push(course);
         }
-        
-        println!("[调试] 已解析 {} courses for current week {}", courses.len(), current_week);
+
+        println!(
+            "[调试] 已解析 {} courses for current week {}",
+            courses.len(),
+            current_week
+        );
         Ok((courses, current_week))
     }
 
@@ -248,15 +301,18 @@ impl ScheduleModule {
         let is_even = weeks_str.contains("(双)") || weeks_str.contains("（双）");
         let clean_str = weeks_str
             .replace("周", "")
-            .replace("(单)", "").replace("（单）", "")
-            .replace("(双)", "").replace("（双）", "");
-        
+            .replace("(单)", "")
+            .replace("（单）", "")
+            .replace("(双)", "")
+            .replace("（双）", "");
+
         for part in clean_str.split(',') {
             let part = part.trim();
             if part.contains('-') {
                 let parts: Vec<&str> = part.split('-').collect();
                 if parts.len() == 2 {
-                    if let (Ok(start), Ok(end)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) {
+                    if let (Ok(start), Ok(end)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>())
+                    {
                         for w in start..=end {
                             weeks.push(w);
                         }
@@ -266,13 +322,13 @@ impl ScheduleModule {
                 weeks.push(w);
             }
         }
-        
+
         if is_odd {
             weeks.retain(|w| w % 2 == 1);
         } else if is_even {
             weeks.retain(|w| w % 2 == 0);
         }
-        
+
         weeks
     }
 }

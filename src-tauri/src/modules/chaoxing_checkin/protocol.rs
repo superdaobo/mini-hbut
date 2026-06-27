@@ -4,15 +4,15 @@
 
 //! 超星签到协议端点与重试策略。
 
-use std::time::Duration;
-use serde::{Deserialize, Serialize};
 use super::errors::CheckinErrorCode;
 use super::session::detect_session_expired;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ─── HTTP Header 指纹 ───────────────────────────────────────────────────────
 
 mod headers {
-    use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, ACCEPT};
+    use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, USER_AGENT};
 
     /// 构造仿真超星移动客户端的默认 HTTP 请求头。
     pub fn default_headers() -> HeaderMap {
@@ -134,7 +134,7 @@ pub async fn list_activities(
 ) -> Result<Vec<serde_json::Value>, CheckinErrorCode> {
     // 第一步：获取课程列表
     let clazz_list = list_clazz(client, _uid).await?;
-    
+
     if clazz_list.is_empty() {
         eprintln!("[签到调试] list_activities: 课程列表为空，无法获取签到活动");
         return Ok(Vec::new());
@@ -142,7 +142,7 @@ pub async fn list_activities(
 
     // 从 cookie 中提取 fid（学校 ID）
     let fid = "0".to_string(); // 默认值，后续从 cookie 提取
-    
+
     // 第二步：对每个课程查询签到活动
     let mut all_activities: Vec<serde_json::Value> = Vec::new();
     let timestamp = chrono::Utc::now().timestamp_millis();
@@ -165,7 +165,10 @@ pub async fn list_activities(
         {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[签到调试] list_activities 课程 {} 网络错误: {}", clazz.course_id, e);
+                eprintln!(
+                    "[签到调试] list_activities 课程 {} 网络错误: {}",
+                    clazz.course_id, e
+                );
                 continue; // 跳过失败的课程，继续下一个
             }
         };
@@ -183,8 +186,12 @@ pub async fn list_activities(
         }
 
         if !status.is_success() {
-            eprintln!("[签到调试] list_activities 课程 {} 返回 {}: {}", 
-                clazz.course_id, status, &body[..body.len().min(200)]);
+            eprintln!(
+                "[签到调试] list_activities 课程 {} 返回 {}: {}",
+                clazz.course_id,
+                status,
+                &body[..body.len().min(200)]
+            );
             continue; // 跳过失败的课程
         }
 
@@ -210,8 +217,11 @@ pub async fn list_activities(
         }
     }
 
-    eprintln!("[签到调试] list_activities 共获取 {} 个活动（来自 {} 个课程）", 
-        all_activities.len(), clazz_list.len());
+    eprintln!(
+        "[签到调试] list_activities 共获取 {} 个活动（来自 {} 个课程）",
+        all_activities.len(),
+        clazz_list.len()
+    );
 
     Ok(all_activities)
 }
@@ -234,7 +244,10 @@ pub async fn list_clazz(
 
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let body = resp.text().await.map_err(|_| CheckinErrorCode::NetworkError)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|_| CheckinErrorCode::NetworkError)?;
 
     if detect_session_expired(status, &final_url, &body) {
         return Err(CheckinErrorCode::SessionExpired);
@@ -259,7 +272,12 @@ pub async fn list_clazz(
                     .and_then(|d| d.get("id"))
                     .and_then(|v| v.as_i64())
                     .map(|v| v.to_string())
-                    .or_else(|| course.get("courseId").and_then(|v| v.as_i64()).map(|v| v.to_string()))
+                    .or_else(|| {
+                        course
+                            .get("courseId")
+                            .and_then(|v| v.as_i64())
+                            .map(|v| v.to_string())
+                    })
                     .unwrap_or_default();
 
                 let clazz_id = content
@@ -287,7 +305,11 @@ pub async fn list_clazz(
                     .get("data")
                     .and_then(|d| d.get(0))
                     .and_then(|d| d.get("belongSchoolId"))
-                    .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_i64().map(|n| n.to_string())))
+                    .and_then(|v| {
+                        v.as_str()
+                            .map(|s| s.to_string())
+                            .or_else(|| v.as_i64().map(|n| n.to_string()))
+                    })
                     .unwrap_or_else(|| "0".to_string());
 
                 if !course_id.is_empty() && !clazz_id.is_empty() {
@@ -333,7 +355,11 @@ pub fn normalize_activities(
             .get("id")
             .and_then(|v| v.as_i64())
             .map(|v| v.to_string())
-            .or_else(|| item.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .or_else(|| {
+                item.get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_default();
 
         if active_id.is_empty() || !seen_ids.insert(active_id.clone()) {
@@ -344,14 +370,22 @@ pub fn normalize_activities(
             .get("courseId")
             .and_then(|v| v.as_i64())
             .map(|v| v.to_string())
-            .or_else(|| item.get("courseId").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .or_else(|| {
+                item.get("courseId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_default();
 
         let clazz_id = item
             .get("classId")
             .and_then(|v| v.as_i64())
             .map(|v| v.to_string())
-            .or_else(|| item.get("classId").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .or_else(|| {
+                item.get("classId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_default();
 
         // 从 clazz_list 补全课程名和教师名
@@ -367,10 +401,7 @@ pub fn normalize_activities(
         };
 
         // 活动类型：otherId 字段
-        let other_id = item
-            .get("otherId")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let other_id = item.get("otherId").and_then(|v| v.as_i64()).unwrap_or(0);
 
         let activity_type = match other_id {
             2 => ActivityType::Qrcode,
@@ -384,20 +415,25 @@ pub fn normalize_activities(
         let start_time = item
             .get("startTime")
             .and_then(|v| v.as_i64())
-            .or_else(|| item.get("startTime").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()))
+            .or_else(|| {
+                item.get("startTime")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+            })
             .unwrap_or(0);
 
         let end_time = item
             .get("endTime")
             .and_then(|v| v.as_i64())
-            .or_else(|| item.get("endTime").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()))
+            .or_else(|| {
+                item.get("endTime")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+            })
             .unwrap_or(0);
 
         // 状态判定
-        let status_code = item
-            .get("status")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let status_code = item.get("status").and_then(|v| v.as_i64()).unwrap_or(0);
 
         let status = if status_code == 1 {
             // 已签到
@@ -429,7 +465,9 @@ pub fn normalize_activities(
 
     // 排序：status 升序（Active < Pending < Signed < Expired），同状态 start_time DESC
     activities.sort_by(|a, b| {
-        a.status.cmp(&b.status).then_with(|| b.start_time.cmp(&a.start_time))
+        a.status
+            .cmp(&b.status)
+            .then_with(|| b.start_time.cmp(&a.start_time))
     });
 
     activities
@@ -462,7 +500,10 @@ pub async fn pre_sign(
 
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let body = resp.text().await.map_err(|_| CheckinErrorCode::NetworkError)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|_| CheckinErrorCode::NetworkError)?;
 
     if detect_session_expired(status, &final_url, &body) {
         return Err(CheckinErrorCode::SessionExpired);
@@ -491,8 +532,14 @@ pub async fn ppt_sign(
         "https://mobilelearn.chaoxing.com/pptSign\
          ?activeId={}&uid={}&clientip=&latitude={}&longitude={}\
          &appType=15&fid={}&name={}&address={}&objectId={}",
-        params.active_id, params.uid, latitude, longitude,
-        params.fid, params.name, address, object_id
+        params.active_id,
+        params.uid,
+        latitude,
+        longitude,
+        params.fid,
+        params.name,
+        address,
+        object_id
     );
 
     let resp = client
@@ -504,7 +551,10 @@ pub async fn ppt_sign(
 
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let body = resp.text().await.map_err(|_| CheckinErrorCode::NetworkError)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|_| CheckinErrorCode::NetworkError)?;
 
     if detect_session_expired(status, &final_url, &body) {
         return Err(CheckinErrorCode::SessionExpired);
@@ -544,7 +594,10 @@ pub async fn ppt_sign_with_code(
 
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let body = resp.text().await.map_err(|_| CheckinErrorCode::NetworkError)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|_| CheckinErrorCode::NetworkError)?;
 
     if detect_session_expired(status, &final_url, &body) {
         return Err(CheckinErrorCode::SessionExpired);
@@ -574,9 +627,7 @@ pub async fn upload_photo(
         .mime_str(mime)
         .map_err(|_| CheckinErrorCode::BadRequest)?;
 
-    let form = Form::new()
-        .part("file", part)
-        .text("puid", uid.to_string());
+    let form = Form::new().part("file", part).text("puid", uid.to_string());
 
     let resp = client
         .post("https://pan-yz.chaoxing.com/upload")
@@ -588,7 +639,10 @@ pub async fn upload_photo(
 
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let body = resp.text().await.map_err(|_| CheckinErrorCode::NetworkError)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|_| CheckinErrorCode::NetworkError)?;
 
     if detect_session_expired(status, &final_url, &body) {
         return Err(CheckinErrorCode::SessionExpired);
@@ -652,7 +706,10 @@ pub async fn qr_pre_sign(
 
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let body = resp.text().await.map_err(|_| CheckinErrorCode::NetworkError)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|_| CheckinErrorCode::NetworkError)?;
 
     if detect_session_expired(status, &final_url, &body) {
         return Err(CheckinErrorCode::SessionExpired);
@@ -708,7 +765,7 @@ mod retry_unit {
 #[cfg(test)]
 mod headers_unit {
     use super::headers::default_headers;
-    use reqwest::header::{USER_AGENT, ACCEPT};
+    use reqwest::header::{ACCEPT, USER_AGENT};
 
     #[test]
     fn has_user_agent() {
@@ -738,7 +795,13 @@ mod headers_unit {
 mod normalize_unit {
     use super::*;
 
-    fn make_raw_activity(id: i64, other_id: i64, status: i64, start: i64, end: i64) -> serde_json::Value {
+    fn make_raw_activity(
+        id: i64,
+        other_id: i64,
+        status: i64,
+        start: i64,
+        end: i64,
+    ) -> serde_json::Value {
         serde_json::json!({
             "id": id,
             "courseId": 1001,
@@ -782,10 +845,10 @@ mod normalize_unit {
     fn determines_status_correctly() {
         let now = 5000i64;
         let raw = vec![
-            make_raw_activity(1, 0, 1, 1000, 9999),  // signed (status=1)
-            make_raw_activity(2, 0, 0, 1000, 4000),  // expired (end < now)
-            make_raw_activity(3, 0, 0, 6000, 9000),  // pending (start > now)
-            make_raw_activity(4, 0, 0, 1000, 9000),  // active
+            make_raw_activity(1, 0, 1, 1000, 9999), // signed (status=1)
+            make_raw_activity(2, 0, 0, 1000, 4000), // expired (end < now)
+            make_raw_activity(3, 0, 0, 6000, 9000), // pending (start > now)
+            make_raw_activity(4, 0, 0, 1000, 9000), // active
         ];
         let result = normalize_activities(raw, &[], now);
         // 排序后：active, pending, signed, expired
@@ -811,7 +874,6 @@ mod normalize_unit {
     }
 }
 
-
 #[cfg(test)]
 mod proptest_p3_activity_status_exclusive {
     // Feature: chaoxing-checkin, Property 3: 活动状态分类互斥
@@ -822,11 +884,11 @@ mod proptest_p3_activity_status_exclusive {
     /// 生成一个原始活动 JSON 值。
     fn arb_raw_activity() -> impl Strategy<Value = serde_json::Value> {
         (
-            1i64..=100000,       // id
-            0i64..=10,           // otherId
-            0i64..=2,            // status (0=未签, 1=已签, 2=其他)
-            0i64..=100000,       // startTime
-            0i64..=200000,       // endTime
+            1i64..=100000, // id
+            0i64..=10,     // otherId
+            0i64..=2,      // status (0=未签, 1=已签, 2=其他)
+            0i64..=100000, // startTime
+            0i64..=200000, // endTime
         )
             .prop_map(|(id, other_id, status, start, end)| {
                 serde_json::json!({
@@ -999,7 +1061,10 @@ mod proptest_p17_retry_policy {
     }
 
     fn is_retryable(err: &CheckinErrorCode) -> bool {
-        matches!(err, CheckinErrorCode::NetworkError | CheckinErrorCode::ServerError)
+        matches!(
+            err,
+            CheckinErrorCode::NetworkError | CheckinErrorCode::ServerError
+        )
     }
 
     proptest! {

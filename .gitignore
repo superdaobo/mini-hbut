@@ -43,6 +43,12 @@ opencode.json
 
 # Generated Android project
 src-tauri/gen/
+android/app/build/
+android/.gradle/
+android/build/
+ios/App/build/
+ios/Pods/
+ios/DerivedData/
 
 # Python cache
 __pycache__/

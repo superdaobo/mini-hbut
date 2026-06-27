@@ -45,6 +45,12 @@ import {
   resolveModuleHostPreviewSource
 } from './utils/more_modules.js'
 import {
+  MAIN_TABS,
+  ME_SUB_VIEWS,
+  HIERARCHICAL_PARENT_VIEW_MAP,
+  normalizeViewName
+} from './navigation/app_navigation.ts'
+import {
   exitNativeApp,
   getCurrentNativeWindow,
   invokeNative,
@@ -171,44 +177,6 @@ let gradeNavigationToken = 0
 // Widget 深链接参数（由 widgetDeeplink 事件或 appUrlOpen 注入）
 const widgetDeeplinkDate = ref('')
 const widgetDeeplinkPeriod = ref(0)
-
-const MAIN_TABS = ['home', 'schedule', 'notifications', 'me']
-const ME_SUB_VIEWS = [
-  'official',
-  'feedback',
-  'config',
-  'settings',
-  'export_center',
-  'service_stats',
-  'school_website',
-  'quick_links',
-  'more',
-  'more_module_host',
-  'more_chaoxing_checkin'
-]
-
-const HIERARCHICAL_PARENT_VIEW_MAP = Object.freeze({
-  schedule: 'home',
-  forum: 'home',
-  notifications: 'home',
-  me: 'home',
-  official: 'me',
-  feedback: 'me',
-  config: 'me',
-  settings: 'me',
-  export_center: 'me',
-  service_stats: 'me',
-  school_website: 'me',
-  quick_links: 'me',
-  more: 'me',
-  more_module_host: 'more',
-  more_chaoxing_checkin: 'more'
-})
-
-const normalizeViewName = (view) => {
-  const normalized = String(view || '').trim()
-  return normalized || 'home'
-}
 
 const VIEW_PREFETCHERS = Object.freeze({
   home: loadDashboardView,

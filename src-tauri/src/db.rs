@@ -13,18 +13,18 @@
 //
 // 逻辑文档: N/A (简单的 SQLite 包装)
 // 模块功能: 本地数据持久化与缓存
-// 
+//
 // 本文件主要职责:
 // 1. 初始化 SQLite 数据库连接和表结构 (grades 表, cache 表)。
 // 2. 提供通用的 JSON 缓存存取接口 (get_cache/save_cache)。
 // 3. 这里的缓存策略主要是为了支持离线模式 (Offline Mode) 和提升首屏加载速度。
 
+use base64::Engine;
+use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension, Result};
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::Local;
-use base64::Engine;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct UserSessionData {
@@ -87,9 +87,18 @@ pub struct OnlineLearningSyncRunRecord {
 }
 
 fn ensure_user_session_columns(conn: &Connection) {
-    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT", []);
-    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN electricity_refresh_token TEXT", []);
-    let _ = conn.execute("ALTER TABLE user_sessions ADD COLUMN electricity_token_expires_at TEXT", []);
+    let _ = conn.execute(
+        "ALTER TABLE user_sessions ADD COLUMN one_code_token TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE user_sessions ADD COLUMN electricity_refresh_token TEXT",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE user_sessions ADD COLUMN electricity_token_expires_at TEXT",
+        [],
+    );
 }
 
 fn resolve_db_path<P: AsRef<Path>>(path: P) -> PathBuf {
@@ -109,7 +118,30 @@ fn open_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
             let _ = std::fs::create_dir_all(parent);
         }
     }
-    Connection::open(resolved)
+    let conn = Connection::open(resolved)?;
+    // WAL 降低读写锁争用，改善 async 运行时中的同步 SQLite 访问体验
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    Ok(conn)
+}
+
+/// 从 DB 占位列或密钥环（含旧版 Base64 迁移）解析会话密码。
+fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
+    use crate::credential_store::{self, KEYRING_MARKER};
+
+    if encrypted == KEYRING_MARKER || encrypted.is_empty() {
+        return credential_store::load_password(student_id).unwrap_or_default();
+    }
+
+    // 兼容旧版 Base64 明文落库：读到后迁移到密钥环
+    if let Ok(password_bytes) = base64::engine::general_purpose::STANDARD.decode(encrypted) {
+        if let Ok(password) = String::from_utf8(password_bytes) {
+            if !password.is_empty() {
+                let _ = credential_store::save_password(student_id, &password);
+                return password;
+            }
+        }
+    }
+    String::new()
 }
 
 // 初始化数据库
@@ -160,12 +192,11 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         "transaction_cache",
         "student_login_access_cache",
         "ai_session_cache",
-        "calendar_public_cache",   // public
-
-        "classroom_public_cache",  // public
-        "semesters_public_cache",  // public
-        "qxzkb_public_cache",      // public
-        "library_public_cache",    // public
+        "calendar_public_cache",  // public
+        "classroom_public_cache", // public
+        "semesters_public_cache", // public
+        "qxzkb_public_cache",     // public
+        "library_public_cache",   // public
         "online_learning_overview_cache",
         "online_learning_chaoxing_courses_cache",
         "online_learning_chaoxing_outline_cache",
@@ -177,17 +208,23 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
 
     for table in cache_tables {
         let sql = if table.contains("public") {
-             format!("CREATE TABLE IF NOT EXISTS {} (
+            format!(
+                "CREATE TABLE IF NOT EXISTS {} (
                 cache_key TEXT PRIMARY KEY,
                 data TEXT,
                 sync_time TEXT
-            )", table)
+            )",
+                table
+            )
         } else {
-            format!("CREATE TABLE IF NOT EXISTS {} (
+            format!(
+                "CREATE TABLE IF NOT EXISTS {} (
                 student_id TEXT PRIMARY KEY,
                 data TEXT,
                 sync_time TEXT
-            )", table)
+            )",
+                table
+            )
         };
         conn.execute(&sql, [])?;
     }
@@ -284,6 +321,36 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
 
     migrate_add_chaoxing_checkin_log(&conn)?;
 
+    ensure_schema_migration(&conn, 1, "WAL journal_mode (open_connection)")?;
+    ensure_schema_migration(&conn, 2, "chaoxing_checkin_log")?;
+
+    Ok(())
+}
+
+/// 记录已应用的 schema 版本，便于追溯与回滚说明。
+fn ensure_schema_migration(conn: &Connection, version: i64, description: &str) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            description TEXT NOT NULL DEFAULT '',
+            applied_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        )",
+        [],
+    )?;
+    let applied: bool = conn
+        .query_row(
+            "SELECT 1 FROM schema_migrations WHERE version = ?1",
+            params![version],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !applied {
+        conn.execute(
+            "INSERT INTO schema_migrations (version, description) VALUES (?1, ?2)",
+            params![version, description],
+        )?;
+    }
     Ok(())
 }
 
@@ -310,7 +377,10 @@ fn migrate_add_chaoxing_checkin_log(conn: &Connection) -> Result<()> {
 }
 
 /// 按学号删除签到日志（供 clear_chaoxing_data 级联调用）。
-pub fn delete_chaoxing_checkin_log_by_student<P: AsRef<Path>>(path: P, student_id: &str) -> Result<usize> {
+pub fn delete_chaoxing_checkin_log_by_student<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+) -> Result<usize> {
     let conn = open_connection(path)?;
     conn.execute(
         "DELETE FROM chaoxing_checkin_log WHERE student_id = ?1",
@@ -325,9 +395,15 @@ pub fn save_cache<P: AsRef<Path>>(path: P, table: &str, key: &str, data: &Value)
     let sync_time = Local::now().to_rfc3339();
 
     let sql = if table.contains("public") {
-        format!("INSERT OR REPLACE INTO {} (cache_key, data, sync_time) VALUES (?1, ?2, ?3)", table)
+        format!(
+            "INSERT OR REPLACE INTO {} (cache_key, data, sync_time) VALUES (?1, ?2, ?3)",
+            table
+        )
     } else {
-        format!("INSERT OR REPLACE INTO {} (student_id, data, sync_time) VALUES (?1, ?2, ?3)", table)
+        format!(
+            "INSERT OR REPLACE INTO {} (student_id, data, sync_time) VALUES (?1, ?2, ?3)",
+            table
+        )
     };
 
     conn.execute(&sql, params![key, payload, sync_time])?;
@@ -335,13 +411,20 @@ pub fn save_cache<P: AsRef<Path>>(path: P, table: &str, key: &str, data: &Value)
 }
 
 // 读取缓存
-pub fn get_cache<P: AsRef<Path>>(path: P, table: &str, key: &str) -> Result<Option<(Value, String)>> {
+pub fn get_cache<P: AsRef<Path>>(
+    path: P,
+    table: &str,
+    key: &str,
+) -> Result<Option<(Value, String)>> {
     let conn = open_connection(path)?;
-    
+
     let sql = if table.contains("public") {
         format!("SELECT data, sync_time FROM {} WHERE cache_key = ?1", table)
     } else {
-        format!("SELECT data, sync_time FROM {} WHERE student_id = ?1", table)
+        format!(
+            "SELECT data, sync_time FROM {} WHERE student_id = ?1",
+            table
+        )
     };
 
     let mut stmt = conn.prepare(&sql)?;
@@ -357,21 +440,24 @@ pub fn get_cache<P: AsRef<Path>>(path: P, table: &str, key: &str) -> Result<Opti
     }
 }
 
-// 保存用户会话 (包括密码，用于自动重登录)
-// 注意：实际生产应使用系统密钥环 (Keytar) 或更安全的加密方式
+// 保存用户会话；密码写入系统密钥环，DB 仅存占位标记。
 pub fn save_user_session<P: AsRef<Path>>(
-    path: P, 
-    student_id: &str, 
-    cookies: &str, 
+    path: P,
+    student_id: &str,
+    cookies: &str,
     password: &str,
     one_code_token: &str,
     refresh_token: Option<&str>,
     token_expires_at: Option<&str>,
 ) -> Result<()> {
     let conn = open_connection(path)?;
-    // 简单 Base64 编码作为"加密" (仅防君子)
-    let encrypted_password = base64::engine::general_purpose::STANDARD.encode(password);
-    
+    if !password.is_empty() {
+        if let Err(e) = crate::credential_store::save_password(student_id, password) {
+            eprintln!("[db] 密钥环写入失败（将仅依赖 cookie 会话）: {}", e);
+        }
+    }
+    let encrypted_password = crate::credential_store::KEYRING_MARKER;
+
     ensure_user_session_columns(&conn);
 
     conn.execute(
@@ -412,7 +498,10 @@ pub fn delete_cache_by_prefix<P: AsRef<Path>>(path: P, table: &str, prefix: &str
 }
 
 // 获取用户会话
-pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Option<UserSessionData>> {
+pub fn get_user_session<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+) -> Result<Option<UserSessionData>> {
     let conn = open_connection(path)?;
     ensure_user_session_columns(&conn);
 
@@ -421,18 +510,16 @@ pub fn get_user_session<P: AsRef<Path>>(path: P, student_id: &str) -> Result<Opt
          FROM user_sessions WHERE student_id = ?1"
     )?;
     let mut rows = stmt.query(params![student_id])?;
-    
+
     if let Some(row) = rows.next()? {
         let cookies: String = row.get(0)?;
         let encrypted: String = row.get(1)?;
         let token: String = row.get(2).unwrap_or_default();
         let refresh_token: String = row.get(3).unwrap_or_default();
         let token_expires_at: String = row.get(4).unwrap_or_default();
-        
-        // 解码密码
-        let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
-        let password = String::from_utf8(password_bytes).unwrap_or_default();
-        
+
+        let password = resolve_session_password(student_id, &encrypted);
+
         Ok(Some(UserSessionData {
             cookies,
             password,
@@ -464,8 +551,7 @@ pub fn get_latest_user_session<P: AsRef<Path>>(path: P) -> Result<Option<LatestU
         let refresh_token: String = row.get(4).unwrap_or_default();
         let token_expires_at: String = row.get(5).unwrap_or_default();
 
-        let password_bytes = base64::engine::general_purpose::STANDARD.decode(encrypted).unwrap_or_default();
-        let password = String::from_utf8(password_bytes).unwrap_or_default();
+        let password = resolve_session_password(&student_id, &encrypted);
 
         Ok(Some(LatestUserSessionData {
             student_id,
@@ -894,4 +980,91 @@ pub fn clear_online_learning_sync_runs<P: AsRef<Path>>(
             params![student_id],
         )
     }
+}
+
+/// 在 Tokio 阻塞线程池执行同步 SQLite，避免长时间占用 async worker。
+pub async fn run_blocking<T, F>(f: F) -> std::result::Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("db blocking task failed: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+/// 异步读取缓存（内部 `spawn_blocking`）。
+pub async fn get_cache_async<P>(
+    path: P,
+    table: &str,
+    key: &str,
+) -> std::result::Result<Option<(Value, String)>, String>
+where
+    P: AsRef<Path> + Send + 'static,
+{
+    let table = table.to_string();
+    let key = key.to_string();
+    run_blocking(move || get_cache(path, &table, &key)).await
+}
+
+/// 异步写入缓存（内部 `spawn_blocking`）。
+pub async fn save_cache_async<P>(
+    path: P,
+    table: &str,
+    key: &str,
+    data: &Value,
+) -> std::result::Result<(), String>
+where
+    P: AsRef<Path> + Send + 'static,
+{
+    let table = table.to_string();
+    let key = key.to_string();
+    let data = data.clone();
+    run_blocking(move || save_cache(path, &table, &key, &data)).await
+}
+
+/// 异步读取用户会话。
+pub async fn get_user_session_async<P>(
+    path: P,
+    student_id: &str,
+) -> std::result::Result<Option<UserSessionData>, String>
+where
+    P: AsRef<Path> + Send + 'static,
+{
+    let sid = student_id.to_string();
+    run_blocking(move || get_user_session(path, &sid)).await
+}
+
+/// 异步保存用户会话。
+pub async fn save_user_session_async<P>(
+    path: P,
+    student_id: &str,
+    cookies: &str,
+    password: &str,
+    one_code_token: &str,
+    refresh_token: Option<&str>,
+    token_expires_at: Option<&str>,
+) -> std::result::Result<(), String>
+where
+    P: AsRef<Path> + Send + 'static,
+{
+    let sid = student_id.to_string();
+    let cookies = cookies.to_string();
+    let password = password.to_string();
+    let one_code_token = one_code_token.to_string();
+    let refresh_token = refresh_token.map(|s| s.to_string());
+    let token_expires_at = token_expires_at.map(|s| s.to_string());
+    run_blocking(move || {
+        save_user_session(
+            path,
+            &sid,
+            &cookies,
+            &password,
+            &one_code_token,
+            refresh_token.as_deref(),
+            token_expires_at.as_deref(),
+        )
+    })
+    .await
 }

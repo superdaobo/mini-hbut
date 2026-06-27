@@ -2,7 +2,7 @@
 //
 // 逻辑文档: lib_logic.md
 // 妯″功能: Tauri 后端逻辑ュ彛
-// 
+//
 // 本文件主要职?
 // 1. 定义应用状态(AppState) 和全局单例 HbutClient
 // 2. 灏?HbutClient 的功能包装为 Tauri Commands 供前端调?
@@ -14,49 +14,51 @@
 // lib.rs -> db.rs (数据存储)
 // lib.rs -> modules/ (特定功能″潡)
 
+use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+use base64::{engine::general_purpose, Engine as _};
+use chrono::{Datelike, Utc};
+use rand::Rng;
+use regex::Regex;
+use reqwest::cookie::CookieStore;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
-use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
-use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
-use base64::{engine::general_purpose, Engine as _};
-use regex::Regex;
-use reqwest::cookie::CookieStore;
-use sha2::{Digest, Sha256};
-use tauri::{State, Manager};
 use tauri::path::BaseDirectory;
-use tauri_plugin_shell::ShellExt;
+use tauri::{Manager, State};
 #[cfg(not(target_os = "windows"))]
 use tauri_plugin_notification::NotificationExt;
-use chrono::{Datelike, Utc};
-use rand::Rng;
+use tauri_plugin_shell::ShellExt;
+use tokio::sync::RwLock;
 
-pub mod http_client;
-pub mod parser;
+pub mod app_state;
+pub mod credential_store;
 pub mod db;
-pub mod modules;
-pub mod http_server;
-pub mod qxzkb_options;
 pub mod debug_bridge;
+pub mod http_client;
+pub mod http_server;
+pub mod modules;
+pub mod parser;
+pub mod qxzkb_options;
 pub mod utils;
 
+use app_state::AppState;
 use http_client::HbutClient;
 
-
 use modules::ai::*;
+use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
 use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
-use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
 
 // ... imports
 
-
 const DB_FILENAME: &str = "grades.db";
 const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
-pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/temp/upload";
+pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str =
+    "https://mini-hbut-testocr1.hf.space/api/temp/upload";
 const DEFAULT_PORTAL_SERVICE_URL: &str = "https://e.hbut.edu.cn/login#/";
 const CHAOXING_LOGIN_PAGE_URL: &str =
     "https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com";
@@ -119,13 +121,20 @@ fn persist_electricity_tokens(client: &HbutClient) {
     );
 }
 
-fn attach_sync_time(payload: serde_json::Value, sync_time: &str, offline: bool) -> serde_json::Value {
+fn attach_sync_time(
+    payload: serde_json::Value,
+    sync_time: &str,
+    offline: bool,
+) -> serde_json::Value {
     match payload {
         serde_json::Value::Object(mut map) => {
             if !map.contains_key("success") {
                 map.insert("success".to_string(), serde_json::Value::Bool(true));
             }
-            map.insert("sync_time".to_string(), serde_json::Value::String(sync_time.to_string()));
+            map.insert(
+                "sync_time".to_string(),
+                serde_json::Value::String(sync_time.to_string()),
+            );
             map.insert("offline".to_string(), serde_json::Value::Bool(offline));
             serde_json::Value::Object(map)
         }
@@ -134,15 +143,11 @@ fn attach_sync_time(payload: serde_json::Value, sync_time: &str, offline: bool) 
             "data": payload,
             "sync_time": sync_time,
             "offline": offline
-        })
+        }),
     }
 }
 
-// 应用状态
-/// 鍏ㄥ眬鐘舵€侊細鍏变韩 HbutClient 实例
-pub struct AppState {
-    pub client: Arc<Mutex<HbutClient>>,
-}
+// 应用状态见 app_state.rs
 
 // 数据结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -580,15 +585,23 @@ fn save_grade_teacher_cache(
         );
     }
     object.insert("by_kcbh".to_string(), serde_json::Value::Object(by_kcbh));
-    object.insert("semesters".to_string(), serde_json::Value::Object(semesters));
+    object.insert(
+        "semesters".to_string(),
+        serde_json::Value::Object(semesters),
+    );
 
-    db::save_cache(DB_FILENAME, GRADE_TEACHER_CACHE_TABLE, student_id, &existing)
-        .map_err(|e| e.to_string())?;
+    db::save_cache(
+        DB_FILENAME,
+        GRADE_TEACHER_CACHE_TABLE,
+        student_id,
+        &existing,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(existing)
 }
 
 fn spawn_grade_teacher_enrichment(
-    client: Arc<Mutex<HbutClient>>,
+    client: Arc<RwLock<HbutClient>>,
     student_id: String,
     semesters: Vec<String>,
 ) {
@@ -602,7 +615,7 @@ fn spawn_grade_teacher_enrichment(
                 continue;
             }
             let result = {
-                let client = client.lock().await;
+                let client = client.write().await;
                 client.fetch_course_teachers(&semester).await
             };
             match result {
@@ -633,7 +646,12 @@ fn normalize_portal_service_url(service: Option<String>) -> String {
     }
 }
 
-fn upsert_form_value(form: &mut HashMap<String, String>, keys: &[&str], default_key: &str, value: &str) {
+fn upsert_form_value(
+    form: &mut HashMap<String, String>,
+    keys: &[&str],
+    default_key: &str,
+    value: &str,
+) {
     let mut replaced = false;
     for key in keys {
         if form.contains_key(*key) {
@@ -668,7 +686,11 @@ fn parse_hidden_input_map(html: &str) -> HashMap<String, String> {
         let mut input_value = String::new();
         let tag = input.as_str();
         for cap in attr_re.captures_iter(tag) {
-            let key = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_ascii_lowercase();
+            let key = cap
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
             let value = cap.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
             match key.as_str() {
                 "id" => input_id = value,
@@ -848,12 +870,17 @@ fn json_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     })
 }
 
-async fn load_chaoxing_login_page(client: &mut HbutClient) -> Result<ChaoxingLoginPagePayload, String> {
+async fn load_chaoxing_login_page(
+    client: &mut HbutClient,
+) -> Result<ChaoxingLoginPagePayload, String> {
     let mut debug = Vec::new();
     let response = client
         .client
         .get(CHAOXING_LOGIN_PAGE_URL)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .send()
         .await
         .map_err(|e| format!("学习通登录页请求失败: {}", e))?;
@@ -1015,8 +1042,8 @@ async fn finalize_chaoxing_login(
     let bridge_ready = client.ensure_chaoxing_academic_session().await;
     debug.push(format!("chaoxing_bridge_ready={}", bridge_ready));
 
-    let passport_url = reqwest::Url::parse(CHAOXING_BASE_URL)
-        .map_err(|e| format!("学习通域名解析失败: {}", e))?;
+    let passport_url =
+        reqwest::Url::parse(CHAOXING_BASE_URL).map_err(|e| format!("学习通域名解析失败: {}", e))?;
     let jw_url = reqwest::Url::parse("https://hbut.jw.chaoxing.com")
         .map_err(|e| format!("学习通教务域名解析失败: {}", e))?;
     let passport_cookie = client
@@ -1344,7 +1371,10 @@ pub struct YuketangHeartbeatRequest {
     pub events: serde_json::Value,
 }
 
-fn resolve_online_learning_student_id(client: &HbutClient, student_id: Option<&str>) -> Result<String, String> {
+fn resolve_online_learning_student_id(
+    client: &HbutClient,
+    student_id: Option<&str>,
+) -> Result<String, String> {
     if let Some(raw) = student_id {
         let sid = raw.trim();
         if !sid.is_empty() {
@@ -1363,13 +1393,13 @@ fn resolve_online_learning_student_id(client: &HbutClient, student_id: Option<&s
 
 #[tauri::command]
 async fn get_login_page(state: State<'_, AppState>) -> Result<LoginPageInfo, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client.get_login_page().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn get_captcha(state: State<'_, AppState>) -> Result<String, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     client.get_captcha().await.map_err(|e| e.to_string())
 }
 
@@ -1379,7 +1409,7 @@ async fn portal_qr_init_login(
     service: Option<String>,
 ) -> Result<PortalQrInitResponse, String> {
     let service_url = normalize_portal_service_url(service);
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
 
     let page_info = client
         .get_login_page_with_service(&service_url)
@@ -1488,7 +1518,7 @@ async fn portal_qr_check_status(
         return Err("二维码 uuid 不能为空".to_string());
     }
 
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let status_code = fetch_portal_qr_status_code(&client, &qr_uuid).await?;
 
     let (status_label, should_submit) = map_portal_qr_status(&status_code);
@@ -1524,7 +1554,7 @@ async fn portal_qr_confirm_login(
         urlencoding::encode(&service_url)
     );
 
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let mut form_data = client.last_login_inputs.clone().unwrap_or_default();
 
     let execution_value = execution
@@ -1543,7 +1573,12 @@ async fn portal_qr_confirm_login(
     upsert_form_value(&mut form_data, &["uuid"], "uuid", &qr_uuid);
     upsert_form_value(&mut form_data, &["cllt"], "cllt", "qrLogin");
     upsert_form_value(&mut form_data, &["dllt"], "dllt", "generalLogin");
-    upsert_form_value(&mut form_data, &["execution"], "execution", &execution_value);
+    upsert_form_value(
+        &mut form_data,
+        &["execution"],
+        "execution",
+        &execution_value,
+    );
     if !lt_value.is_empty() {
         upsert_form_value(&mut form_data, &["lt"], "lt", &lt_value);
     }
@@ -1569,38 +1604,39 @@ async fn portal_qr_confirm_login(
         || final_url.contains("e.hbut.edu.cn")
         || final_url.contains("code.hbut.edu.cn");
 
-    let user_info = match fetch_portal_user_info_with_retry(
-        &mut client,
-        if confirmed_hint { 4 } else { 2 },
-    )
-    .await
-    {
-        Ok(info) => info,
-        Err(fetch_err) => {
-            let status_code = fetch_portal_qr_status_code(&client, &qr_uuid)
-                .await
-                .unwrap_or_default();
-            if status_code == "3" {
-                return Err("二维码已失效，请重新扫码".to_string());
-            }
-            let pending_like = status_code == "0" || status_code == "2" || status_code.is_empty();
-            if pending_like && !confirmed_hint {
-                return Err("扫码确认未完成，请在手机端确认后重试".to_string());
-            }
-            if !confirmed_hint && (final_url.contains("authserver/login") || html.contains("qrLoginForm")) {
-                return Err("扫码确认未完成，请在手机端确认后重试".to_string());
-            }
-            if pending_like && confirmed_hint {
-                if let Ok(info) = fetch_portal_user_info_with_retry(&mut client, 2).await {
-                    info
+    let user_info =
+        match fetch_portal_user_info_with_retry(&mut client, if confirmed_hint { 4 } else { 2 })
+            .await
+        {
+            Ok(info) => info,
+            Err(fetch_err) => {
+                let status_code = fetch_portal_qr_status_code(&client, &qr_uuid)
+                    .await
+                    .unwrap_or_default();
+                if status_code == "3" {
+                    return Err("二维码已失效，请重新扫码".to_string());
+                }
+                let pending_like =
+                    status_code == "0" || status_code == "2" || status_code.is_empty();
+                if pending_like && !confirmed_hint {
+                    return Err("扫码确认未完成，请在手机端确认后重试".to_string());
+                }
+                if !confirmed_hint
+                    && (final_url.contains("authserver/login") || html.contains("qrLoginForm"))
+                {
+                    return Err("扫码确认未完成，请在手机端确认后重试".to_string());
+                }
+                if pending_like && confirmed_hint {
+                    if let Ok(info) = fetch_portal_user_info_with_retry(&mut client, 2).await {
+                        info
+                    } else {
+                        return Err(format!("扫码已确认，但同步教务信息失败: {}", fetch_err));
+                    }
                 } else {
                     return Err(format!("扫码已确认，但同步教务信息失败: {}", fetch_err));
                 }
-            } else {
-                return Err(format!("扫码已确认，但同步教务信息失败: {}", fetch_err));
             }
-        }
-    };
+        };
 
     client.is_logged_in = true;
     client.set_chaoxing_login_mode(false);
@@ -1612,9 +1648,7 @@ async fn portal_qr_confirm_login(
     let one_code_token = client.ensure_electricity_token().await.unwrap_or_default();
     let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
     let refresh_token = refresh_opt.unwrap_or_default();
-    let expires_at = expires_at_opt
-        .map(|dt| dt.to_rfc3339())
-        .unwrap_or_default();
+    let expires_at = expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
     let _ = db::save_user_session(
         DB_FILENAME,
         &user_info.student_id,
@@ -1629,8 +1663,10 @@ async fn portal_qr_confirm_login(
 }
 
 #[tauri::command]
-async fn chaoxing_qr_init_login(state: State<'_, AppState>) -> Result<ChaoxingQrInitResponse, String> {
-    let mut client = state.client.lock().await;
+async fn chaoxing_qr_init_login(
+    state: State<'_, AppState>,
+) -> Result<ChaoxingQrInitResponse, String> {
+    let mut client = state.client.write().await;
     let page = load_chaoxing_login_page(&mut client).await?;
     if page.uuid.is_empty() || page.enc.is_empty() {
         return Err("学习通二维码参数缺失，请重试".to_string());
@@ -1655,8 +1691,10 @@ async fn chaoxing_qr_init_login(state: State<'_, AppState>) -> Result<ChaoxingQr
 }
 
 #[tauri::command]
-async fn chaoxing_qr_refresh_login(state: State<'_, AppState>) -> Result<ChaoxingQrInitResponse, String> {
-    let mut client = state.client.lock().await;
+async fn chaoxing_qr_refresh_login(
+    state: State<'_, AppState>,
+) -> Result<ChaoxingQrInitResponse, String> {
+    let mut client = state.client.write().await;
     let page = load_chaoxing_login_page(&mut client).await?;
     let mut debug = page.debug.clone();
     let refresh_url = format!("{}/refreshQRCode", CHAOXING_BASE_URL);
@@ -1723,7 +1761,7 @@ async fn chaoxing_qr_check_status(
         return Err("学习通二维码状态查询参数缺失".to_string());
     }
     let mut debug = Vec::new();
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let status_url = format!("{}/getauthstatus/v2", CHAOXING_BASE_URL);
     let form = vec![
         ("enc".to_string(), qr_enc.clone()),
@@ -1851,7 +1889,7 @@ async fn chaoxing_qr_confirm_login(
         return Err("学习通扫码确认参数缺失".to_string());
     }
 
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let mut debug = Vec::new();
     let status_url = format!("{}/getauthstatus/v2", CHAOXING_BASE_URL);
     let form = vec![
@@ -1933,7 +1971,7 @@ async fn chaoxing_password_login(
         return Err("学习通账号和密码不能为空".to_string());
     }
 
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let page = load_chaoxing_login_page(&mut client).await?;
     let mut debug = page.debug.clone();
     if page.context.need_vcode == "1" {
@@ -1962,13 +2000,19 @@ async fn chaoxing_password_login(
         ("password".to_string(), encoded_password),
         ("refer".to_string(), page.context.refer.clone()),
         ("t".to_string(), page.context.t.clone()),
-        ("forbidotherlogin".to_string(), page.context.forbidotherlogin.clone()),
+        (
+            "forbidotherlogin".to_string(),
+            page.context.forbidotherlogin.clone(),
+        ),
         ("validate".to_string(), page.context.validate.clone()),
         (
             "doubleFactorLogin".to_string(),
             page.context.double_factor_login.clone(),
         ),
-        ("independentId".to_string(), page.context.independent_id.clone()),
+        (
+            "independentId".to_string(),
+            page.context.independent_id.clone(),
+        ),
         (
             "independentNameId".to_string(),
             page.context.independent_name_id.clone(),
@@ -2028,17 +2072,19 @@ async fn chaoxing_password_login(
 }
 
 #[tauri::command]
-async fn recognize_captcha(state: State<'_, AppState>, image_base64: String) -> Result<String, String> {
-    let mut hbut = state.client.lock().await;
-    hbut
-        .recognize_captcha_base64(&image_base64)
+async fn recognize_captcha(
+    state: State<'_, AppState>,
+    image_base64: String,
+) -> Result<String, String> {
+    let mut hbut = state.client.write().await;
+    hbut.recognize_captcha_base64(&image_base64)
         .await
         .map_err(|e| format!("OCR recognize failed: {}", e))
 }
 
 #[tauri::command]
 async fn set_ocr_endpoint(state: State<'_, AppState>, endpoint: String) -> Result<(), String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client.set_ocr_endpoint(endpoint);
     Ok(())
 }
@@ -2049,7 +2095,7 @@ async fn set_ocr_runtime_config(
     endpoints: Option<Vec<String>>,
     local_fallback_endpoints: Option<Vec<String>>,
 ) -> Result<(), String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client.set_ocr_runtime_config(
         endpoints.unwrap_or_default(),
         local_fallback_endpoints.unwrap_or_default(),
@@ -2059,19 +2105,19 @@ async fn set_ocr_runtime_config(
 
 #[tauri::command]
 async fn get_ocr_runtime_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     Ok(client.get_ocr_runtime_status())
 }
 
 #[tauri::command]
-async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<serde_json::Value, String> {
+async fn fetch_remote_config(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<serde_json::Value, String> {
     let parsed = fetch_remote_json(url.clone()).await?;
 
     let ocr = parsed.get("ocr").cloned().unwrap_or_default();
-    let ocr_enabled = ocr
-        .get("enabled")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let ocr_enabled = ocr.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
     let mut remote_endpoints = Vec::new();
     if ocr_enabled {
@@ -2093,7 +2139,10 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     }
 
     let mut local_fallback_endpoints = Vec::new();
-    if let Some(arr) = ocr.get("local_fallback_endpoints").and_then(|v| v.as_array()) {
+    if let Some(arr) = ocr
+        .get("local_fallback_endpoints")
+        .and_then(|v| v.as_array())
+    {
         for item in arr {
             if let Some(text) = item.as_str() {
                 local_fallback_endpoints.push(text.to_string());
@@ -2109,12 +2158,14 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     }
 
     {
-        let mut hbut = state.client.lock().await;
+        let mut hbut = state.client.write().await;
         hbut.set_ocr_runtime_config(remote_endpoints.clone(), local_fallback_endpoints.clone());
     }
 
     // 提取 temp_upload 端点配置
-    let temp_upload = parsed.get("temp_upload").or_else(|| parsed.get("tempUpload"));
+    let temp_upload = parsed
+        .get("temp_upload")
+        .or_else(|| parsed.get("tempUpload"));
     if let Some(ep) = temp_upload
         .and_then(|v| v.get("endpoint").or_else(|| v.get("url")))
         .and_then(|v| v.as_str())
@@ -2126,7 +2177,8 @@ async fn fetch_remote_config(state: State<'_, AppState>, url: String) -> Result<
     }
 
     // 提取 cloud_sync.proxy_endpoint（已在前端消费，此处仅日志确认）
-    if let Some(proxy) = parsed.get("cloud_sync")
+    if let Some(proxy) = parsed
+        .get("cloud_sync")
         .and_then(|v| v.get("proxy_endpoint").or_else(|| v.get("proxyEndpoint")))
         .and_then(|v| v.as_str())
     {
@@ -2170,7 +2222,7 @@ fn resolve_shared_prefs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf
             return Ok(candidate);
         }
     }
-    
+
     // 方案 2：硬编码路径（Android 标准位置）
     let hardcoded = std::path::PathBuf::from("/data/data/com.hbut.mini/shared_prefs");
     Ok(hardcoded)
@@ -2182,23 +2234,25 @@ fn resolve_shared_prefs_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf
 #[tauri::command]
 async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> Result<(), String> {
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    
+
     tokio::fs::create_dir_all(&prefs_dir)
         .await
         .map_err(|e| format!("创建 shared_prefs 目录失败: {}", e))?;
-    
+
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    
+
     // 读取现有内容保留其他字段
-    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let existing = tokio::fs::read_to_string(&prefs_file)
+        .await
+        .unwrap_or_default();
     let electricity_json = extract_xml_string(&existing, "electricity_json");
     let exam_json = extract_xml_string(&existing, "exam_json");
     let theme_color = extract_xml_string(&existing, "theme_color");
-    
+
     let xml_content = format!(
         r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
@@ -2216,11 +2270,11 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
         theme_color,
         now_ms
     );
-    
+
     tokio::fs::write(&prefs_file, xml_content.as_bytes())
         .await
         .map_err(|e| format!("写入 widget 快照失败: {} (path: {:?})", e, prefs_file))?;
-    
+
     Ok(())
 }
 
@@ -2229,13 +2283,13 @@ async fn write_widget_snapshot(app: tauri::AppHandle, snapshot_json: String) -> 
 async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    
+
     if prefs_file.exists() {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        
+
         let xml_content = format!(
             r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
@@ -2246,12 +2300,12 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
 "#,
             now_ms
         );
-        
+
         tokio::fs::write(&prefs_file, xml_content.as_bytes())
             .await
             .map_err(|e| format!("清空 widget 快照失败: {}", e))?;
     }
-    
+
     Ok(())
 }
 
@@ -2259,20 +2313,23 @@ async fn clear_widget_snapshot(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn write_widget_theme_color(app: tauri::AppHandle, color: String) -> Result<(), String> {
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir).await
+    tokio::fs::create_dir_all(&prefs_dir)
+        .await
         .map_err(|e| format!("创建目录失败: {}", e))?;
-    
+
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let existing = tokio::fs::read_to_string(&prefs_file)
+        .await
+        .unwrap_or_default();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    
+
     let snapshot_json = extract_xml_string(&existing, "snapshot_json");
     let electricity_json = extract_xml_string(&existing, "electricity_json");
     let exam_json = extract_xml_string(&existing, "exam_json");
-    
+
     let xml_content = format!(
         r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
@@ -2284,10 +2341,15 @@ async fn write_widget_theme_color(app: tauri::AppHandle, color: String) -> Resul
     <long name="last_write_ts" value="{}" />
 </map>
 "#,
-        snapshot_json, electricity_json, exam_json, escape_xml(&color), now_ms
+        snapshot_json,
+        electricity_json,
+        exam_json,
+        escape_xml(&color),
+        now_ms
     );
-    
-    tokio::fs::write(&prefs_file, xml_content.as_bytes()).await
+
+    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+        .await
         .map_err(|e| format!("写入主题色失败: {}", e))?;
     Ok(())
 }
@@ -2296,22 +2358,25 @@ async fn write_widget_theme_color(app: tauri::AppHandle, color: String) -> Resul
 #[tauri::command]
 async fn write_electricity_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir).await
+    tokio::fs::create_dir_all(&prefs_dir)
+        .await
         .map_err(|e| format!("创建目录失败: {}", e))?;
-    
+
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    
+
     // 读取现有内容并更新 electricity_json 字段
-    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+    let existing = tokio::fs::read_to_string(&prefs_file)
+        .await
+        .unwrap_or_default();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    
+
     // 提取现有的 snapshot_json
     let snapshot_json = extract_xml_string(&existing, "snapshot_json");
     let exam_json = extract_xml_string(&existing, "exam_json");
-    
+
     let xml_content = format!(
         r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
@@ -2322,10 +2387,14 @@ async fn write_electricity_snapshot(app: tauri::AppHandle, json: String) -> Resu
     <long name="last_write_ts" value="{}" />
 </map>
 "#,
-        snapshot_json, escape_xml(&json), exam_json, now_ms
+        snapshot_json,
+        escape_xml(&json),
+        exam_json,
+        now_ms
     );
-    
-    tokio::fs::write(&prefs_file, xml_content.as_bytes()).await
+
+    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+        .await
         .map_err(|e| format!("写入电费快照失败: {}", e))?;
     Ok(())
 }
@@ -2334,20 +2403,23 @@ async fn write_electricity_snapshot(app: tauri::AppHandle, json: String) -> Resu
 #[tauri::command]
 async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
-    tokio::fs::create_dir_all(&prefs_dir).await
+    tokio::fs::create_dir_all(&prefs_dir)
+        .await
         .map_err(|e| format!("创建目录失败: {}", e))?;
-    
+
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
-    
-    let existing = tokio::fs::read_to_string(&prefs_file).await.unwrap_or_default();
+
+    let existing = tokio::fs::read_to_string(&prefs_file)
+        .await
+        .unwrap_or_default();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    
+
     let snapshot_json = extract_xml_string(&existing, "snapshot_json");
     let electricity_json = extract_xml_string(&existing, "electricity_json");
-    
+
     let xml_content = format!(
         r#"<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
@@ -2358,10 +2430,14 @@ async fn write_exam_snapshot(app: tauri::AppHandle, json: String) -> Result<(), 
     <long name="last_write_ts" value="{}" />
 </map>
 "#,
-        snapshot_json, electricity_json, escape_xml(&json), now_ms
+        snapshot_json,
+        electricity_json,
+        escape_xml(&json),
+        now_ms
     );
-    
-    tokio::fs::write(&prefs_file, xml_content.as_bytes()).await
+
+    tokio::fs::write(&prefs_file, xml_content.as_bytes())
+        .await
         .map_err(|e| format!("写入考试快照失败: {}", e))?;
     Ok(())
 }
@@ -2381,19 +2457,23 @@ fn extract_xml_string(xml: &str, key: &str) -> String {
 /// 调试命令：返回 widget 相关路径信息，用于诊断写入问题
 #[tauri::command]
 async fn debug_widget_paths(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let data_dir = app.path().data_dir()
+    let data_dir = app
+        .path()
+        .data_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|e| format!("ERROR: {}", e));
-    
+
     let prefs_dir = resolve_shared_prefs_dir(&app)?;
     let prefs_file = prefs_dir.join("mini_hbut_widget.xml");
     let file_exists = prefs_file.exists();
     let file_content = if file_exists {
-        tokio::fs::read_to_string(&prefs_file).await.unwrap_or_else(|e| format!("READ_ERROR: {}", e))
+        tokio::fs::read_to_string(&prefs_file)
+            .await
+            .unwrap_or_else(|e| format!("READ_ERROR: {}", e))
     } else {
         "FILE_NOT_FOUND".to_string()
     };
-    
+
     Ok(serde_json::json!({
         "data_dir": data_dir,
         "prefs_dir": prefs_dir.to_string_lossy().to_string(),
@@ -2455,7 +2535,10 @@ fn exit_app(app_handle: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
-fn notify_android_media_scanner(file_path: &std::path::Path, mime_type: &str) -> Result<(), String> {
+fn notify_android_media_scanner(
+    file_path: &std::path::Path,
+    mime_type: &str,
+) -> Result<(), String> {
     use jni::objects::{JObject, JValue};
 
     let ctx = ndk_context::android_context();
@@ -2574,7 +2657,10 @@ async fn download_deyihei_font(
                     reqwest::header::USER_AGENT,
                     "Mini-HBUT/1.0 (font-downloader; +https://github.com/superdaobo/mini-hbut)",
                 )
-                .header(reqwest::header::ACCEPT, "font/ttf,application/octet-stream,*/*")
+                .header(
+                    reqwest::header::ACCEPT,
+                    "font/ttf,application/octet-stream,*/*",
+                )
                 .send()
                 .await
             {
@@ -2599,7 +2685,11 @@ async fn download_deyihei_font(
             };
 
             if bytes.len() < 50_000 {
-                last_error = format!("downloaded file too small: {} ({} bytes)", candidate, bytes.len());
+                last_error = format!(
+                    "downloaded file too small: {} ({} bytes)",
+                    candidate,
+                    bytes.len()
+                );
                 continue;
             }
 
@@ -2695,7 +2785,10 @@ async fn download_remote_font_payload(
                     reqwest::header::USER_AGENT,
                     "Mini-HBUT/1.0 (font-downloader; +https://github.com/superdaobo/mini-hbut)",
                 )
-                .header(reqwest::header::ACCEPT, "font/woff2,font/woff,font/ttf,application/octet-stream,*/*")
+                .header(
+                    reqwest::header::ACCEPT,
+                    "font/woff2,font/woff,font/ttf,application/octet-stream,*/*",
+                )
                 .send()
                 .await
             {
@@ -2720,7 +2813,11 @@ async fn download_remote_font_payload(
             };
 
             if bytes.len() < 10_000 {
-                last_error = format!("downloaded file too small: {} ({} bytes)", trimmed, bytes.len());
+                last_error = format!(
+                    "downloaded file too small: {} ({} bytes)",
+                    trimmed,
+                    bytes.len()
+                );
                 continue;
             }
 
@@ -2883,12 +2980,18 @@ fn pick_debug_export_directory(req: &SaveExportFileRequest) -> Option<std::path:
 
 #[tauri::command]
 #[allow(unused_variables)]
-fn save_export_file(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result<SaveExportFileResult, String> {
+fn save_export_file(
+    app: tauri::AppHandle,
+    req: SaveExportFileRequest,
+) -> Result<SaveExportFileResult, String> {
     save_export_file_impl(app, req)
 }
 
 #[allow(unused_variables)]
-pub(crate) fn save_export_file_impl(app: tauri::AppHandle, req: SaveExportFileRequest) -> Result<SaveExportFileResult, String> {
+pub(crate) fn save_export_file_impl(
+    app: tauri::AppHandle,
+    req: SaveExportFileRequest,
+) -> Result<SaveExportFileResult, String> {
     let ext = extension_from_mime(&req.mime_type);
     let file_name = sanitize_export_file_name(&req.file_name, ext);
     let bytes = general_purpose::STANDARD
@@ -2901,11 +3004,9 @@ pub(crate) fn save_export_file_impl(app: tauri::AppHandle, req: SaveExportFileRe
         let selected_dir = pick_debug_export_directory(&req)
             .or_else(pick_export_directory)
             .ok_or_else(|| "已取消选择保存目录".to_string())?;
-        std::fs::create_dir_all(&selected_dir)
-            .map_err(|e| format!("创建目录失败: {}", e))?;
+        std::fs::create_dir_all(&selected_dir).map_err(|e| format!("创建目录失败: {}", e))?;
         let file_path = selected_dir.join(file_name);
-        std::fs::write(&file_path, &bytes)
-            .map_err(|e| format!("写入导出文件失败: {}", e))?;
+        std::fs::write(&file_path, &bytes).map_err(|e| format!("写入导出文件失败: {}", e))?;
         return Ok(SaveExportFileResult {
             path: file_path.to_string_lossy().to_string(),
             saved_to: "windows-selected-dir".to_string(),
@@ -2959,8 +3060,8 @@ pub(crate) fn save_export_file_impl(app: tauri::AppHandle, req: SaveExportFileRe
                 Ok(_) => {
                     #[cfg(target_os = "android")]
                     let needs_manual_import = {
-                        let wants_image_album =
-                            prefer_media && req.mime_type.to_ascii_lowercase().starts_with("image/");
+                        let wants_image_album = prefer_media
+                            && req.mime_type.to_ascii_lowercase().starts_with("image/");
                         if wants_image_album {
                             notify_android_media_scanner(&file_path, &req.mime_type).is_err()
                         } else {
@@ -3162,7 +3263,9 @@ fn build_resource_share_auth(username: &str, password: &str) -> String {
 }
 
 #[tauri::command]
-async fn resource_share_direct_url_native(req: ResourceShareNativeRequest) -> Result<serde_json::Value, String> {
+async fn resource_share_direct_url_native(
+    req: ResourceShareNativeRequest,
+) -> Result<serde_json::Value, String> {
     let endpoint = validate_resource_share_request(&req.endpoint, &req.username, &req.password)?;
     let encoded_path = encode_resource_share_path_native(&req.path);
     let remote_url = format!("{}/dav{}", endpoint, encoded_path);
@@ -3186,7 +3289,11 @@ async fn resource_share_direct_url_native(req: ResourceShareNativeRequest) -> Re
     let mut need_auth = false;
     let mut status_code = head_resp.status().as_u16();
 
-    if let Some(loc) = head_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+    if let Some(loc) = head_resp
+        .headers()
+        .get("location")
+        .and_then(|v| v.to_str().ok())
+    {
         direct_url = loc.to_string();
     }
 
@@ -3201,7 +3308,11 @@ async fn resource_share_direct_url_native(req: ResourceShareNativeRequest) -> Re
         {
             Ok(get_resp) => {
                 status_code = get_resp.status().as_u16();
-                if let Some(loc) = get_resp.headers().get("location").and_then(|v| v.to_str().ok()) {
+                if let Some(loc) = get_resp
+                    .headers()
+                    .get("location")
+                    .and_then(|v| v.to_str().ok())
+                {
                     direct_url = loc.to_string();
                 } else if get_resp.status().is_success() {
                     need_auth = true;
@@ -3295,7 +3406,9 @@ async fn resource_share_fetch_file_payload_native(
 }
 
 #[tauri::command]
-async fn resource_share_list_dir_native(req: ResourceShareListDirRequest) -> Result<serde_json::Value, String> {
+async fn resource_share_list_dir_native(
+    req: ResourceShareListDirRequest,
+) -> Result<serde_json::Value, String> {
     let endpoint = validate_resource_share_request(&req.endpoint, &req.username, &req.password)?;
     let encoded_path = encode_resource_share_path_native(&req.path);
     let remote_url = format!("{}/dav{}", endpoint, encoded_path);
@@ -3421,8 +3534,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[allow(dead_code)]
 fn extract_zip_bytes_to_dir(bytes: Vec<u8>, target_dir: PathBuf) -> Result<(), String> {
     let cursor = Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("解析模块 ZIP 失败: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| format!("解析模块 ZIP 失败: {}", e))?;
 
     for index in 0..archive.len() {
         let mut entry = archive
@@ -3435,20 +3548,17 @@ fn extract_zip_bytes_to_dir(bytes: Vec<u8>, target_dir: PathBuf) -> Result<(), S
         let output_path = target_dir.join(relative);
 
         if entry.is_dir() || entry_name.ends_with('/') {
-            std::fs::create_dir_all(&output_path)
-                .map_err(|e| format!("创建目录失败: {}", e))?;
+            std::fs::create_dir_all(&output_path).map_err(|e| format!("创建目录失败: {}", e))?;
             continue;
         }
 
         if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("创建父目录失败: {}", e))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建父目录失败: {}", e))?;
         }
 
-        let mut output = std::fs::File::create(&output_path)
-            .map_err(|e| format!("写入模块文件失败: {}", e))?;
-        std::io::copy(&mut entry, &mut output)
-            .map_err(|e| format!("解压模块文件失败: {}", e))?;
+        let mut output =
+            std::fs::File::create(&output_path).map_err(|e| format!("写入模块文件失败: {}", e))?;
+        std::io::copy(&mut entry, &mut output).map_err(|e| format!("解压模块文件失败: {}", e))?;
     }
     Ok(())
 }
@@ -3660,14 +3770,14 @@ async fn login(
 ) -> Result<UserInfo, String> {
     println!("[调试] Command login called with: username={}, password len={}, captcha={:?}, lt={:?}, execution={:?}", 
              username, password.len(), captcha, lt, execution);
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client
         .login(
-            &username, 
-            &password, 
-            &captcha.unwrap_or_default(), 
-            &lt.unwrap_or_default(), 
-            &execution.unwrap_or_default()
+            &username,
+            &password,
+            &captcha.unwrap_or_default(),
+            &lt.unwrap_or_default(),
+            &execution.unwrap_or_default(),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -3678,7 +3788,7 @@ async fn login(
         Ok(t) => {
             println!("[调试] Login: Successfully obtained one_code_浠ょ墝");
             t
-        },
+        }
         Err(e) => {
             println!("[璀﹀憡] 登录：获?one_code_浠ょ墝 失败: {}", e);
             String::new()
@@ -3727,18 +3837,29 @@ async fn login(
 
 #[tauri::command]
 async fn logout(state: State<'_, AppState>) -> Result<(), String> {
-    let mut client = state.client.lock().await;
+    let student_id = {
+        let client = state.client.write().await;
+        client
+            .user_info
+            .as_ref()
+            .map(|u| u.student_id.clone())
+            .unwrap_or_default()
+    };
+    if !student_id.is_empty() {
+        credential_store::delete_password(&student_id);
+    }
+    let mut client = state.client.write().await;
     client.clear_session();
     Ok(())
 }
 
 #[tauri::command]
-async fn restore_session(
-    state: State<'_, AppState>,
-    cookies: String,
-) -> Result<UserInfo, String> {
-    let mut client = state.client.lock().await;
-    let user_info = client.restore_session(&cookies).await.map_err(|e| e.to_string())?;
+async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<UserInfo, String> {
+    let mut client = state.client.write().await;
+    let user_info = client
+        .restore_session(&cookies)
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Prefer session by student id; fallback to latest session if needed.
     let mut session_opt = match db::get_user_session(DB_FILENAME, &user_info.student_id) {
@@ -3764,7 +3885,10 @@ async fn restore_session(
 
     match session_opt {
         Some(session) => {
-            println!("[调试] Restored credentials for user: {}", user_info.student_id);
+            println!(
+                "[调试] Restored credentials for user: {}",
+                user_info.student_id
+            );
             if !session.password.is_empty() {
                 client.set_credentials(user_info.student_id.clone(), session.password.clone());
             }
@@ -3790,7 +3914,10 @@ async fn restore_session(
                 Some(session.token_expires_at.as_str()),
             );
         }
-        None => println!("[调试] No saved credentials found for user: {}", user_info.student_id),
+        None => println!(
+            "[调试] No saved credentials found for user: {}",
+            user_info.student_id
+        ),
     }
 
     Ok(user_info)
@@ -3806,8 +3933,11 @@ async fn restore_latest_session(state: State<'_, AppState>) -> Result<UserInfo, 
         return Err("历史会话缺少 cookies".to_string());
     }
 
-    let mut client = state.client.lock().await;
-    let user_info = client.restore_session(&session.cookies).await.map_err(|e| e.to_string())?;
+    let mut client = state.client.write().await;
+    let user_info = client
+        .restore_session(&session.cookies)
+        .await
+        .map_err(|e| e.to_string())?;
 
     if !session.password.is_empty() {
         client.set_credentials(user_info.student_id.clone(), session.password);
@@ -3836,20 +3966,20 @@ async fn set_offline_user_context(
     if sid.is_empty() {
         return Ok(());
     }
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client.set_offline_user_context(&sid);
     Ok(())
 }
 
 #[tauri::command]
 async fn get_cookies(state: State<'_, AppState>) -> Result<String, String> {
-    let client = state.client.lock().await;
+    let client = state.client.read().await;
     Ok(client.get_cookies())
 }
 
 #[tauri::command]
 async fn refresh_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     client.refresh_session().await.map_err(|e| e.to_string())
 }
 
@@ -3860,7 +3990,7 @@ async fn sync_grades(
 ) -> Result<serde_json::Value, String> {
     let current_only = current_only.unwrap_or(false);
     let client_handle = state.client.clone();
-    let client = client_handle.lock().await;
+    let client = client_handle.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     match client.fetch_grades().await {
         Ok(mut grades) => {
@@ -3890,7 +4020,9 @@ async fn sync_grades(
         }
         Err(e) => {
             if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "grades_cache", uid) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "grades_cache", uid)
+                {
                     let payload = attach_sync_time(cached_data, &sync_time, true);
                     return Ok(merge_grade_teacher_cache_into_payload(payload, uid));
                 }
@@ -3905,10 +4037,13 @@ async fn get_grade_teacher_cache(
     state: State<'_, AppState>,
     student_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let sid = match student_id.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
+    let sid = match student_id
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    {
         Some(sid) => sid,
         None => {
-            let client = state.client.lock().await;
+            let client = state.client.write().await;
             client
                 .user_info
                 .as_ref()
@@ -3936,7 +4071,7 @@ async fn get_grade_teacher_cache(
 async fn sync_grade_teachers_current_semester(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let uid = client
         .user_info
         .as_ref()
@@ -3972,7 +4107,7 @@ async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value
                 "data": data,
                 "sync_time": sync_time
             })))
-        },
+        }
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
@@ -3982,14 +4117,19 @@ async fn get_grades_local(student_id: String) -> Result<Option<serde_json::Value
 
 #[tauri::command]
 #[allow(unreachable_code)]
-async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn sync_schedule(
+    state: State<'_, AppState>,
+    semester: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let requested_semester = semester
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let explicit_semester = requested_semester.is_some();
-    let schedule_context = client.resolve_schedule_context(requested_semester.as_deref()).await;
+    let schedule_context = client
+        .resolve_schedule_context(requested_semester.as_deref())
+        .await;
     let semester_to_query = schedule_context
         .get("semester")
         .and_then(|v| v.as_str())
@@ -3998,12 +4138,18 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
         .or_else(|| requested_semester.clone())
         .unwrap_or_else(|| "2024-2025-1".to_string());
 
-    let result = match client.fetch_schedule(Some(semester_to_query.as_str())).await {
+    let result = match client
+        .fetch_schedule(Some(semester_to_query.as_str()))
+        .await
+    {
         Ok((course_list, _now_week)) => {
             let mut meta = schedule_context;
             if let Some(map) = meta.as_object_mut() {
                 map.insert("semester".to_string(), serde_json::json!(semester_to_query));
-                map.insert("total_courses".to_string(), serde_json::json!(course_list.len()));
+                map.insert(
+                    "total_courses".to_string(),
+                    serde_json::json!(course_list.len()),
+                );
                 map.insert(
                     "query_time".to_string(),
                     serde_json::json!(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()),
@@ -4030,7 +4176,9 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
                 return Err(msg);
             }
             if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "schedule_cache", uid) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "schedule_cache", uid)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4038,7 +4186,7 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
         }
     };
     return Ok(result);
-    
+
     // 获取当前︽（基于日期计算）
     let semester = match requested_semester {
         Some(s) => s,
@@ -4047,18 +4195,25 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
             .await
             .unwrap_or_else(|_| "2024-2025-1".to_string()),
     };
-    
+
     // 获取″数据计算当前ㄦ和开始日?
     let calendar_data = client.fetch_calendar_data(Some(semester.clone())).await;
     let (current_week, start_date) = if let Ok(ref cal) = calendar_data {
         let meta = cal.get("meta");
-        let week = meta.and_then(|m| m.get("current_week")).and_then(|v| v.as_i64()).unwrap_or(1) as i32;
-        let start = meta.and_then(|m| m.get("start_date")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let week = meta
+            .and_then(|m| m.get("current_week"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+        let start = meta
+            .and_then(|m| m.get("start_date"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         (week, start)
     } else {
         (1, String::new())
     };
-    
+
     match client.fetch_schedule(Some(semester.as_str())).await {
         Ok((course_list, _now_week)) => {
             // Keep response shape consistent with Python backend.
@@ -4080,7 +4235,7 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
             if let Some(uid) = &uid {
                 let _ = db::save_cache(DB_FILENAME, "schedule_cache", uid, &result);
             }
-            
+
             Ok(result)
         }
         Err(e) => {
@@ -4104,7 +4259,9 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
                 return Err(msg);
             }
             if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "schedule_cache", uid) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "schedule_cache", uid)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4116,13 +4273,11 @@ async fn sync_schedule(state: State<'_, AppState>, semester: Option<String>) -> 
 #[tauri::command]
 async fn get_schedule_local(student_id: String) -> Result<Option<serde_json::Value>, String> {
     match db::get_cache(DB_FILENAME, "schedule_cache", &student_id) {
-        Ok(Some((data, sync_time))) => {
-            Ok(Some(serde_json::json!({
-                "success": true,
-                "data": data,
-                "sync_time": sync_time
-            })))
-        },
+        Ok(Some((data, sync_time))) => Ok(Some(serde_json::json!({
+            "success": true,
+            "data": data,
+            "sync_time": sync_time
+        }))),
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
@@ -4172,7 +4327,9 @@ pub(crate) fn strip_custom_course_id(value: &str) -> String {
     value.trim().trim_start_matches("custom:").to_string()
 }
 
-pub(crate) fn custom_course_to_payload(course: &db::CustomScheduleCourseRecord) -> serde_json::Value {
+pub(crate) fn custom_course_to_payload(
+    course: &db::CustomScheduleCourseRecord,
+) -> serde_json::Value {
     serde_json::json!({
         "id": format!("custom:{}", course.id),
         "source_id": course.id,
@@ -4221,9 +4378,7 @@ async fn list_custom_schedule_courses(
 }
 
 #[tauri::command]
-async fn list_all_custom_schedule_courses(
-    student_id: String,
-) -> Result<serde_json::Value, String> {
+async fn list_all_custom_schedule_courses(student_id: String) -> Result<serde_json::Value, String> {
     let sid = student_id.trim().to_string();
     if sid.is_empty() {
         return Err("student_id 不能为空".to_string());
@@ -4272,7 +4427,11 @@ async fn add_custom_schedule_course(
     }
 
     let mut rng = rand::thread_rng();
-    let id = format!("c{}{:04}", Utc::now().timestamp_millis(), rng.gen_range(0..10000));
+    let id = format!(
+        "c{}{:04}",
+        Utc::now().timestamp_millis(),
+        rng.gen_range(0..10000)
+    );
     let now = chrono::Local::now().to_rfc3339();
     let record = db::CustomScheduleCourseRecord {
         id,
@@ -4321,9 +4480,10 @@ async fn delete_custom_schedule_course(
         if week <= 0 {
             return Err("current_week 参数不合法".to_string());
         }
-        let existing = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "未找到要删除的自定义课程".to_string())?;
+        let existing =
+            db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "未找到要删除的自定义课程".to_string())?;
         if existing.semester != sem {
             return Err("学期不匹配，无法删除该课程".to_string());
         }
@@ -4343,8 +4503,13 @@ async fn delete_custom_schedule_course(
                 "removed_week": week
             }));
         }
-        db::update_custom_schedule_course_weeks(DB_FILENAME, sid.as_str(), course_id.as_str(), weeks.as_slice())
-            .map_err(|e| e.to_string())?;
+        db::update_custom_schedule_course_weeks(
+            DB_FILENAME,
+            sid.as_str(),
+            course_id.as_str(),
+            weeks.as_slice(),
+        )
+        .map_err(|e| e.to_string())?;
         let updated = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "更新后未找到课程记录".to_string())?;
@@ -4359,7 +4524,7 @@ async fn delete_custom_schedule_course(
 
     let affected = db::delete_custom_schedule_course(DB_FILENAME, sid.as_str(), course_id.as_str())
         .map_err(|e| e.to_string())?;
-    if affected <= 0 {
+    if affected == 0 {
         return Err("未找到要删除的自定义课程".to_string());
     }
     Ok(serde_json::json!({
@@ -4426,8 +4591,9 @@ async fn update_custom_schedule_course(
         updated_at: existing.updated_at,
     };
 
-    let affected = db::update_custom_schedule_course(DB_FILENAME, &record).map_err(|e| e.to_string())?;
-    if affected <= 0 {
+    let affected =
+        db::update_custom_schedule_course(DB_FILENAME, &record).map_err(|e| e.to_string())?;
+    if affected == 0 {
         return Err("未找到要修改的自定义课程".to_string());
     }
     let updated = db::get_custom_schedule_course(DB_FILENAME, sid.as_str(), record.id.as_str())
@@ -4485,7 +4651,8 @@ fn parse_ics_datetime(input: &str) -> Option<chrono::NaiveDateTime> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(input) {
         return Some(dt.naive_local());
     }
-    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S").ok()
+    chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S")
+        .ok()
         .or_else(|| chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%d %H:%M:%S").ok())
 }
 
@@ -4558,8 +4725,14 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
         ics.push_str("BEGIN:VEVENT\r\n");
         ics.push_str(&fold_ics_line(&format!("UID:{}", uid)));
         ics.push_str(&fold_ics_line(&format!("DTSTAMP:{}", dtstamp)));
-        ics.push_str(&fold_ics_line(&format!("DTSTART;TZID=Asia/Shanghai:{}", start.format("%Y%m%dT%H%M%S"))));
-        ics.push_str(&fold_ics_line(&format!("DTEND;TZID=Asia/Shanghai:{}", end.format("%Y%m%dT%H%M%S"))));
+        ics.push_str(&fold_ics_line(&format!(
+            "DTSTART;TZID=Asia/Shanghai:{}",
+            start.format("%Y%m%dT%H%M%S")
+        )));
+        ics.push_str(&fold_ics_line(&format!(
+            "DTEND;TZID=Asia/Shanghai:{}",
+            end.format("%Y%m%dT%H%M%S")
+        )));
         ics.push_str(&fold_ics_line(&format!("SUMMARY:{}", summary)));
         if let Some(desc) = desc {
             ics.push_str(&fold_ics_line(&format!("DESCRIPTION:{}", desc)));
@@ -4610,11 +4783,19 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
                 let status = resp.status();
                 match resp.json::<serde_json::Value>().await {
                     Ok(body) => {
-                        if status.is_success() && body.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        if status.is_success()
+                            && body
+                                .get("success")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false)
+                        {
                             resp_body = Some(body);
                             break;
                         }
-                        let msg = body.get("error").and_then(|v| v.as_str()).unwrap_or("上传服务返回失败");
+                        let msg = body
+                            .get("error")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("上传服务返回失败");
                         last_err = format!("端点 {} 失败: {}", ep, msg);
                         println!("[警告] {}", last_err);
                     }
@@ -4631,7 +4812,13 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
         }
     }
 
-    let body = resp_body.ok_or_else(|| format!("课表导出上传失败（已尝试 {} 个端点）: {}", upload_endpoints.len(), last_err))?;
+    let body = resp_body.ok_or_else(|| {
+        format!(
+            "课表导出上传失败（已尝试 {} 个端点）: {}",
+            upload_endpoints.len(),
+            last_err
+        )
+    })?;
 
     let url = body
         .get("url")
@@ -4658,8 +4845,11 @@ async fn export_schedule_calendar(req: ScheduleExportRequest) -> Result<serde_js
 }
 
 #[tauri::command]
-async fn fetch_exams(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_exams(
+    state: State<'_, AppState>,
+    semester: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
     let cache_key = uid.as_ref().map(|u| format!("{}:{}", u, sem_key));
@@ -4680,7 +4870,9 @@ async fn fetch_exams(state: State<'_, AppState>, semester: Option<String>) -> Re
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "exams_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "exams_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4691,16 +4883,19 @@ async fn fetch_exams(state: State<'_, AppState>, semester: Option<String>) -> Re
 
 #[tauri::command]
 async fn fetch_ranking(
-    state: State<'_, AppState>, 
+    state: State<'_, AppState>,
     student_id: Option<String>,
-    semester: Option<String>
+    semester: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let sid = student_id.or_else(|| client.user_info.as_ref().map(|u| u.student_id.clone()));
     let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
     let cache_key = sid.as_ref().map(|s| format!("{}:{}", s, sem_key));
 
-    match client.fetch_ranking(sid.as_deref(), semester.as_deref()).await {
+    match client
+        .fetch_ranking(sid.as_deref(), semester.as_deref())
+        .await
+    {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
@@ -4711,7 +4906,9 @@ async fn fetch_ranking(
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "ranking_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "ranking_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4725,7 +4922,7 @@ async fn school_inbox_fetch(
     state: State<'_, AppState>,
     login_mode: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let mode = login_mode.unwrap_or_default();
     let response = modules::school_inbox::fetch_school_inbox(&mut client, &mode).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
@@ -4738,13 +4935,18 @@ async fn school_inbox_detail_fetch(
     item_id: String,
     fallback: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let mode = login_mode.unwrap_or_default();
-    let fallback_item = fallback
-        .and_then(|value| serde_json::from_value::<modules::school_inbox::SchoolInboxItem>(value).ok());
-    let response =
-        modules::school_inbox::fetch_school_inbox_detail(&mut client, &mode, &item_id, fallback_item)
-            .await?;
+    let fallback_item = fallback.and_then(|value| {
+        serde_json::from_value::<modules::school_inbox::SchoolInboxItem>(value).ok()
+    });
+    let response = modules::school_inbox::fetch_school_inbox_detail(
+        &mut client,
+        &mode,
+        &item_id,
+        fallback_item,
+    )
+    .await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
@@ -4754,15 +4956,16 @@ async fn school_inbox_mark_read(
     login_mode: Option<String>,
     item_id: String,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let mode = login_mode.unwrap_or_default();
-    let response = modules::school_inbox::mark_school_inbox_read(&mut client, &mode, &item_id).await?;
+    let response =
+        modules::school_inbox::mark_school_inbox_read(&mut client, &mode, &item_id).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let uid = client
         .user_info
         .as_ref()
@@ -4783,7 +4986,9 @@ async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Va
         Err(e) => {
             // 网络失败时回退到缓存
             if let Some(uid) = &uid {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "studentinfo_cache", uid) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "studentinfo_cache", uid)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4798,7 +5003,7 @@ async fn fetch_personal_login_access_info(
     page: Option<i32>,
     page_size: Option<i32>,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let uid = client
         .user_info
         .as_ref()
@@ -4818,7 +5023,12 @@ async fn fetch_personal_login_access_info(
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
             if let Some(cache_key) = &cache_key {
-                let _ = db::save_cache(DB_FILENAME, "student_login_access_cache", cache_key, &payload);
+                let _ = db::save_cache(
+                    DB_FILENAME,
+                    "student_login_access_cache",
+                    cache_key,
+                    &payload,
+                );
             }
             Ok(payload)
         }
@@ -4837,7 +5047,7 @@ async fn fetch_personal_login_access_info(
 
 #[tauri::command]
 async fn fetch_semesters(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match client.fetch_semesters().await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -4846,7 +5056,9 @@ async fn fetch_semesters(state: State<'_, AppState>) -> Result<serde_json::Value
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "semesters_public_cache", "semesters") {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "semesters_public_cache", "semesters")
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -4855,8 +5067,10 @@ async fn fetch_semesters(state: State<'_, AppState>) -> Result<serde_json::Value
 }
 
 #[tauri::command]
-async fn fetch_classroom_buildings(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_classroom_buildings(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     match client.fetch_classroom_buildings().await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -4865,7 +5079,9 @@ async fn fetch_classroom_buildings(state: State<'_, AppState>) -> Result<serde_j
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "classroom_public_cache", "buildings") {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "classroom_public_cache", "buildings")
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -4881,20 +5097,33 @@ async fn fetch_classrooms(
     periods: Option<Vec<i32>>,
     building: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    let periods_key = periods.as_ref().map(|p| p.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")).unwrap_or_default();
+    let periods_key = periods
+        .as_ref()
+        .map(|p| {
+            p.iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
     let building_key = building.clone().unwrap_or_default();
-    let cache_key = uid.as_ref().map(|u| format!(
-        "{}:classroom:{}:{}:{}:{}",
-        u,
-        week.unwrap_or_default(),
-        weekday.unwrap_or_default(),
-        periods_key,
-        building_key
-    ));
+    let cache_key = uid.as_ref().map(|u| {
+        format!(
+            "{}:classroom:{}:{}:{}:{}",
+            u,
+            week.unwrap_or_default(),
+            weekday.unwrap_or_default(),
+            periods_key,
+            building_key
+        )
+    });
 
-    match client.fetch_classrooms_query(week, weekday, periods, building).await {
+    match client
+        .fetch_classrooms_query(week, weekday, periods, building)
+        .await
+    {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
@@ -4905,7 +5134,9 @@ async fn fetch_classrooms(
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "classroom_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "classroom_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4915,8 +5146,10 @@ async fn fetch_classrooms(
 }
 
 #[tauri::command]
-async fn fetch_training_plan_options(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_training_plan_options(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let cache_key = uid.as_ref().map(|u| format!("{}:options", u));
     match client.fetch_training_plan_options().await {
@@ -4930,7 +5163,9 @@ async fn fetch_training_plan_options(state: State<'_, AppState>) -> Result<serde
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "training_plan_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "training_plan_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4940,8 +5175,11 @@ async fn fetch_training_plan_options(state: State<'_, AppState>) -> Result<serde
 }
 
 #[tauri::command]
-async fn fetch_training_plan_jys(state: State<'_, AppState>, yxid: String) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_training_plan_jys(
+    state: State<'_, AppState>,
+    yxid: String,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let cache_key = uid.as_ref().map(|u| format!("{}:jys:{}", u, yxid));
     match client.fetch_training_plan_jys(&yxid).await {
@@ -4955,7 +5193,9 @@ async fn fetch_training_plan_jys(state: State<'_, AppState>, yxid: String) -> Re
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "training_plan_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "training_plan_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -4978,24 +5218,31 @@ async fn fetch_training_plan_courses(
     page: Option<i32>,
     page_size: Option<i32>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    let cache_key = uid.as_ref().map(|u| format!(
-        "{}:courses:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
-        u,
-        grade.clone().unwrap_or_default(),
-        kkxq.clone().unwrap_or_default(),
-        kkyx.clone().unwrap_or_default(),
-        kkjys.clone().unwrap_or_default(),
-        kcxz.clone().unwrap_or_default(),
-        kcgs.clone().unwrap_or_default(),
-        kcbh.clone().unwrap_or_default(),
-        kcmc.clone().unwrap_or_default(),
-        page.unwrap_or(1),
-        page_size.unwrap_or(50)
-    ));
+    let cache_key = uid.as_ref().map(|u| {
+        format!(
+            "{}:courses:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+            u,
+            grade.clone().unwrap_or_default(),
+            kkxq.clone().unwrap_or_default(),
+            kkyx.clone().unwrap_or_default(),
+            kkjys.clone().unwrap_or_default(),
+            kcxz.clone().unwrap_or_default(),
+            kcgs.clone().unwrap_or_default(),
+            kcbh.clone().unwrap_or_default(),
+            kcmc.clone().unwrap_or_default(),
+            page.unwrap_or(1),
+            page_size.unwrap_or(50)
+        )
+    });
 
-    match client.fetch_training_plan_courses(grade, kkxq, kkyx, kkjys, kcxz, kcgs, kcbh, kcmc, page, page_size).await {
+    match client
+        .fetch_training_plan_courses(
+            grade, kkxq, kkyx, kkjys, kcxz, kcgs, kcbh, kcmc, page, page_size,
+        )
+        .await
+    {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
@@ -5006,7 +5253,9 @@ async fn fetch_training_plan_courses(
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "training_plan_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "training_plan_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -5017,13 +5266,16 @@ async fn fetch_training_plan_courses(
 
 #[tauri::command]
 async fn fetch_calendar(state: State<'_, AppState>) -> Result<Vec<CalendarEvent>, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     client.fetch_calendar().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn fetch_calendar_data(state: State<'_, AppState>, semester: Option<String>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_calendar_data(
+    state: State<'_, AppState>,
+    semester: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
     match client.fetch_calendar_data(semester).await {
         Ok(data) => {
@@ -5033,7 +5285,9 @@ async fn fetch_calendar_data(state: State<'_, AppState>, semester: Option<String
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "calendar_public_cache", &sem_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "calendar_public_cache", &sem_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5042,8 +5296,11 @@ async fn fetch_calendar_data(state: State<'_, AppState>, semester: Option<String
 }
 
 #[tauri::command]
-async fn fetch_academic_progress(state: State<'_, AppState>, fasz: Option<i32>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_academic_progress(
+    state: State<'_, AppState>,
+    fasz: Option<i32>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let fasz_val = fasz.unwrap_or(1);
     let cache_key = uid.as_ref().map(|u| format!("{}:{}", u, fasz_val));
@@ -5058,7 +5315,9 @@ async fn fetch_academic_progress(state: State<'_, AppState>, fasz: Option<i32>) 
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "academic_progress_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "academic_progress_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -5069,7 +5328,7 @@ async fn fetch_academic_progress(state: State<'_, AppState>, fasz: Option<i32>) 
 
 #[tauri::command]
 async fn fetch_qxzkb_options(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let context = client.resolve_schedule_context(None).await;
     let current_semester = context
         .get("semester")
@@ -5117,8 +5376,11 @@ async fn fetch_qxzkb_options(state: State<'_, AppState>) -> Result<serde_json::V
 }
 
 #[tauri::command]
-async fn fetch_qxzkb_jcinfo(state: State<'_, AppState>, xnxq: String) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_qxzkb_jcinfo(
+    state: State<'_, AppState>,
+    xnxq: String,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let cache_key = format!("jcinfo:{}", xnxq);
     match client.fetch_qxzkb_jcinfo(&xnxq).await {
         Ok(data) => {
@@ -5128,7 +5390,9 @@ async fn fetch_qxzkb_jcinfo(state: State<'_, AppState>, xnxq: String) -> Result<
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5137,8 +5401,12 @@ async fn fetch_qxzkb_jcinfo(state: State<'_, AppState>, xnxq: String) -> Result<
 }
 
 #[tauri::command]
-async fn fetch_qxzkb_zyxx(state: State<'_, AppState>, yxid: String, nj: String) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_qxzkb_zyxx(
+    state: State<'_, AppState>,
+    yxid: String,
+    nj: String,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let cache_key = format!("zyxx:{}:{}", yxid, nj);
     match client.fetch_qxzkb_zyxx(&yxid, &nj).await {
         Ok(data) => {
@@ -5148,7 +5416,9 @@ async fn fetch_qxzkb_zyxx(state: State<'_, AppState>, yxid: String, nj: String) 
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5157,8 +5427,11 @@ async fn fetch_qxzkb_zyxx(state: State<'_, AppState>, yxid: String, nj: String) 
 }
 
 #[tauri::command]
-async fn fetch_qxzkb_kkjys(state: State<'_, AppState>, kkyxid: String) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_qxzkb_kkjys(
+    state: State<'_, AppState>,
+    kkyxid: String,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     let cache_key = format!("kkjys:{}", kkyxid);
     match client.fetch_qxzkb_kkjys(&kkyxid).await {
         Ok(data) => {
@@ -5168,7 +5441,9 @@ async fn fetch_qxzkb_kkjys(state: State<'_, AppState>, kkyxid: String) -> Result
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5177,14 +5452,20 @@ async fn fetch_qxzkb_kkjys(state: State<'_, AppState>, kkyxid: String) -> Result
 }
 
 #[tauri::command]
-async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Result<serde_json::Value, String> {
+async fn fetch_qxzkb_list(
+    state: State<'_, AppState>,
+    query: QxzkbQuery,
+) -> Result<serde_json::Value, String> {
     if query.xnxq.trim().is_empty() {
         return Err("请选择学年学期".to_string());
     }
 
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let mut params: HashMap<String, String> = HashMap::new();
-    params.insert("queryFields".to_string(), crate::qxzkb_options::QXZKB_QUERY_FIELDS.to_string());
+    params.insert(
+        "queryFields".to_string(),
+        crate::qxzkb_options::QXZKB_QUERY_FIELDS.to_string(),
+    );
     params.insert("_search".to_string(), "false".to_string());
     params.insert("nd".to_string(), Utc::now().timestamp_millis().to_string());
     params.insert("xnxq".to_string(), query.xnxq.clone());
@@ -5225,12 +5506,16 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
         params.insert("zdzc".to_string(), get_val(&query.zdzc));
     }
 
-    let kklx = query.kklx.as_ref()
-        .map(|list| list.iter()
-            .filter(|v| !v.trim().is_empty())
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(","))
+    let kklx = query
+        .kklx
+        .as_ref()
+        .map(|list| {
+            list.iter()
+                .filter(|v| !v.trim().is_empty())
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(",")
+        })
         .unwrap_or_default();
     params.insert("kklx".to_string(), kklx.clone());
 
@@ -5241,14 +5526,18 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
     let sort = query.sort.as_deref().unwrap_or("kcmc");
     let sort = if sort.trim().is_empty() { "kcmc" } else { sort };
     let order = query.order.as_deref().unwrap_or("asc");
-    let order = if order.trim().is_empty() { "asc" } else { order };
+    let order = if order.trim().is_empty() {
+        "asc"
+    } else {
+        order
+    };
     params.insert("sort".to_string(), sort.to_string());
     params.insert("order".to_string(), order.to_string());
 
     let query_fields = vec![
-        "xnxq", "xqid", "nj", "yxid", "zyid", "kkyxid", "kkjysid", "kcxz", "kclb",
-        "xslx", "kcmc", "skjs", "jxlid", "jslx", "ksxs", "ksfs", "jsmc",
-        "zxjc", "zdjc", "zxzc", "zdzc", "zxxq", "zdxq", "xsqbkb", "kklx"
+        "xnxq", "xqid", "nj", "yxid", "zyid", "kkyxid", "kkjysid", "kcxz", "kclb", "xslx", "kcmc",
+        "skjs", "jxlid", "jslx", "ksxs", "ksfs", "jsmc", "zxjc", "zdjc", "zxzc", "zdzc", "zxxq",
+        "zdxq", "xsqbkb", "kklx",
     ];
     for key in query_fields {
         if xsqbkb == "1" && (key == "zxzc" || key == "zdzc") {
@@ -5258,11 +5547,11 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
         params.insert(format!("query.{}||", key), value);
     }
 
-    let mut items: Vec<(&String, &String)> = params.iter()
-        .filter(|(k, _)| k.as_str() != "nd")
-        .collect();
+    let mut items: Vec<(&String, &String)> =
+        params.iter().filter(|(k, _)| k.as_str() != "nd").collect();
     items.sort_by(|a, b| a.0.cmp(b.0));
-    let cache_key = items.iter()
+    let cache_key = items
+        .iter()
         .map(|(k, v)| format!("{}={}", k, v))
         .collect::<Vec<_>>()
         .join("&");
@@ -5275,7 +5564,9 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "qxzkb_public_cache", &cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5285,7 +5576,7 @@ async fn fetch_qxzkb_list(state: State<'_, AppState>, query: QxzkbQuery) -> Resu
 
 #[tauri::command]
 async fn fetch_library_dict(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let cache_key = "dict";
     match client.fetch_library_dict().await {
         Ok(data) => {
@@ -5295,7 +5586,9 @@ async fn fetch_library_dict(state: State<'_, AppState>) -> Result<serde_json::Va
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "library_public_cache", cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "library_public_cache", cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5308,7 +5601,7 @@ async fn search_library_books(
     state: State<'_, AppState>,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let raw = params.to_string();
     let cache_key = build_public_cache_key("search", &raw);
 
@@ -5320,7 +5613,9 @@ async fn search_library_books(
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "library_public_cache", &cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "library_public_cache", &cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5335,11 +5630,14 @@ async fn fetch_library_book_detail(
     isbn: String,
     record_id: Option<i64>,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let raw = format!("{}|{}|{}", title, isbn, record_id.unwrap_or_default());
     let cache_key = build_public_cache_key("detail", &raw);
 
-    match client.fetch_library_book_detail(&title, &isbn, record_id).await {
+    match client
+        .fetch_library_book_detail(&title, &isbn, record_id)
+        .await
+    {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
@@ -5347,7 +5645,9 @@ async fn fetch_library_book_detail(
             Ok(payload)
         }
         Err(e) => {
-            if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "library_public_cache", &cache_key) {
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "library_public_cache", &cache_key)
+            {
                 return Ok(attach_sync_time(cached_data, &sync_time, true));
             }
             Err(e.to_string())
@@ -5356,8 +5656,11 @@ async fn fetch_library_book_detail(
 }
 
 #[tauri::command]
-async fn electricity_query_location(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+async fn electricity_query_location(
+    state: State<'_, AppState>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let key_suffix = payload.to_string();
     let cache_key = uid.as_ref().map(|u| format!("{}:loc:{}", u, key_suffix));
@@ -5374,7 +5677,9 @@ async fn electricity_query_location(state: State<'_, AppState>, payload: serde_j
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "electricity_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "electricity_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -5384,8 +5689,11 @@ async fn electricity_query_location(state: State<'_, AppState>, payload: serde_j
 }
 
 #[tauri::command]
-async fn electricity_query_account(state: State<'_, AppState>, payload: serde_json::Value) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+async fn electricity_query_account(
+    state: State<'_, AppState>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
     let key_suffix = payload.to_string();
     let cache_key = uid.as_ref().map(|u| format!("{}:acct:{}", u, key_suffix));
@@ -5402,7 +5710,9 @@ async fn electricity_query_account(state: State<'_, AppState>, payload: serde_js
         }
         Err(e) => {
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "electricity_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "electricity_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -5413,8 +5723,12 @@ async fn electricity_query_account(state: State<'_, AppState>, payload: serde_js
 
 #[tauri::command]
 async fn refresh_electricity_token(state: State<'_, AppState>) -> Result<bool, String> {
-    let mut client = state.client.lock().await;
-    client.ensure_electricity_token().await.map(|_| true).map_err(|e| e.to_string())
+    let mut client = state.client.write().await;
+    client
+        .ensure_electricity_token()
+        .await
+        .map(|_| true)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -5423,20 +5737,21 @@ async fn fetch_transaction_history(
     start_date: String,
     end_date: String,
     page_no: i32,
-    page_size: i32
+    page_size: i32,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let uid = client.user_info.as_ref().map(|u| u.student_id.clone());
-    let cache_key = uid.as_ref().map(|u| format!(
-        "{}:{}:{}:{}:{}",
-        u,
-        start_date,
-        end_date,
-        page_no,
-        page_size
-    ));
+    let cache_key = uid.as_ref().map(|u| {
+        format!(
+            "{}:{}:{}:{}:{}",
+            u, start_date, end_date, page_no, page_size
+        )
+    });
 
-    match client.fetch_transaction_history(&start_date, &end_date, page_no, page_size).await {
+    match client
+        .fetch_transaction_history(&start_date, &end_date, page_no, page_size)
+        .await
+    {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
             let payload = attach_sync_time(data, &sync_time, false);
@@ -5447,9 +5762,14 @@ async fn fetch_transaction_history(
             Ok(payload)
         }
         Err(e) => {
-            println!("[璀﹀憡] Transaction network fetch failed: {}, trying cache...", e);
+            println!(
+                "[璀﹀憡] Transaction network fetch failed: {}, trying cache...",
+                e
+            );
             if let Some(key) = cache_key.as_ref() {
-                if let Ok(Some((cached_data, sync_time))) = db::get_cache(DB_FILENAME, "transaction_cache", key) {
+                if let Ok(Some((cached_data, sync_time))) =
+                    db::get_cache(DB_FILENAME, "transaction_cache", key)
+                {
                     return Ok(attach_sync_time(cached_data, &sync_time, true));
                 }
             }
@@ -5459,8 +5779,10 @@ async fn fetch_transaction_history(
 }
 
 #[tauri::command]
-async fn fetch_course_selection_overview(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+async fn fetch_course_selection_overview(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_overview(&client).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5475,7 +5797,7 @@ async fn fetch_course_selection_list(
     state: State<'_, AppState>,
     req: CourseSelectionListRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_list(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5490,7 +5812,7 @@ async fn fetch_course_selection_end_time(
     state: State<'_, AppState>,
     req: CourseSelectionEndTimeRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_end_time(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5505,7 +5827,7 @@ async fn fetch_course_selection_child_classes(
     state: State<'_, AppState>,
     req: CourseSelectionChildClassesRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_child_classes(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5520,7 +5842,7 @@ async fn select_course_selection_course(
     state: State<'_, AppState>,
     req: CourseSelectionSelectRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::select_course_selection_course(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5535,7 +5857,7 @@ async fn withdraw_course_selection_course(
     state: State<'_, AppState>,
     req: CourseSelectionWithdrawRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::withdraw_course_selection_course(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5550,7 +5872,7 @@ async fn fetch_course_selection_selected_courses(
     state: State<'_, AppState>,
     req: CourseSelectionSelectedCoursesRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_selected_courses(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5565,7 +5887,7 @@ async fn fetch_course_selection_detail_intro(
     state: State<'_, AppState>,
     req: CourseSelectionDetailRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_detail_intro(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5580,7 +5902,7 @@ async fn fetch_course_selection_detail_teacher(
     state: State<'_, AppState>,
     req: CourseSelectionDetailRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     match modules::course_selection::fetch_course_selection_detail_teacher(&client, &req).await {
         Ok(data) => {
             let sync_time = chrono::Local::now().to_rfc3339();
@@ -5595,7 +5917,7 @@ async fn online_learning_overview(
     state: State<'_, AppState>,
     req: OnlineLearningOverviewRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::fetch_online_learning_overview(&client, req.student_id.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -5606,7 +5928,7 @@ async fn online_learning_sync_now(
     state: State<'_, AppState>,
     req: OnlineLearningSyncRequest,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     modules::online_learning::online_learning_sync_now(
         &mut client,
         req.student_id.as_deref(),
@@ -5622,7 +5944,7 @@ async fn online_learning_list_sync_runs(
     state: State<'_, AppState>,
     req: OnlineLearningSyncRunsRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let student_id = resolve_online_learning_student_id(&client, req.student_id.as_deref())?;
     modules::online_learning::list_online_learning_sync_runs(
         &student_id,
@@ -5637,9 +5959,10 @@ async fn online_learning_clear_cache(
     state: State<'_, AppState>,
     req: OnlineLearningClearCacheRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     let student_id = resolve_online_learning_student_id(&client, req.student_id.as_deref())?;
-    modules::online_learning::clear_online_learning_cache(&student_id, req.platform.as_deref()).map_err(|e| e.to_string())
+    modules::online_learning::clear_online_learning_cache(&student_id, req.platform.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -5647,7 +5970,7 @@ async fn chaoxing_get_session_status(
     state: State<'_, AppState>,
     req: ChaoxingSessionStatusRequest,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     modules::online_learning::chaoxing_get_session_status(&mut client, req.student_id.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -5658,7 +5981,7 @@ async fn chaoxing_fetch_courses(
     state: State<'_, AppState>,
     req: ChaoxingCoursesRequest,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     modules::online_learning::chaoxing_fetch_courses(
         &mut client,
         req.student_id.as_deref(),
@@ -5673,7 +5996,7 @@ async fn chaoxing_fetch_course_outline(
     state: State<'_, AppState>,
     req: ChaoxingCourseOutlineRequest,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     modules::online_learning::chaoxing_fetch_course_outline(&mut client, &req)
         .await
         .map_err(|e| e.to_string())
@@ -5684,7 +6007,7 @@ async fn chaoxing_fetch_course_progress(
     state: State<'_, AppState>,
     req: ChaoxingCourseProgressRequest,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     modules::online_learning::chaoxing_fetch_course_progress(&mut client, &req)
         .await
         .map_err(|e| e.to_string())
@@ -5703,7 +6026,7 @@ async fn yuketang_create_qr_login(
     state: State<'_, AppState>,
     req: YuketangQrCreateRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_create_qr_login(&client, &req)
         .await
         .map_err(|e| e.to_string())
@@ -5714,7 +6037,7 @@ async fn yuketang_poll_qr_login(
     state: State<'_, AppState>,
     req: YuketangPollQrLoginRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_poll_qr_login(&client, &req)
         .await
         .map_err(|e| e.to_string())
@@ -5725,7 +6048,7 @@ async fn yuketang_fetch_courses(
     state: State<'_, AppState>,
     req: YuketangCoursesRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_fetch_courses(
         &client,
         req.student_id.as_deref(),
@@ -5740,7 +6063,7 @@ async fn yuketang_fetch_course_outline(
     state: State<'_, AppState>,
     req: YuketangCourseOutlineRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_fetch_course_outline(&client, &req)
         .await
         .map_err(|e| e.to_string())
@@ -5751,7 +6074,7 @@ async fn yuketang_fetch_course_progress(
     state: State<'_, AppState>,
     req: YuketangCourseProgressRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_fetch_course_progress(&client, &req)
         .await
         .map_err(|e| e.to_string())
@@ -5764,7 +6087,7 @@ async fn chaoxing_get_knowledge_cards(
     state: State<'_, AppState>,
     req: ChaoxingKnowledgeCardsRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::chaoxing_get_knowledge_cards(
         &client,
         &req.clazz_id,
@@ -5781,7 +6104,7 @@ async fn chaoxing_get_video_status(
     state: State<'_, AppState>,
     req: ChaoxingVideoStatusRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::chaoxing_get_video_status(&client, &req.object_id, &req.fid)
         .await
         .map_err(|e| e.to_string())
@@ -5792,7 +6115,7 @@ async fn chaoxing_report_progress(
     state: State<'_, AppState>,
     req: ChaoxingReportProgressRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::chaoxing_report_progress(
         &client,
         &req.report_url,
@@ -5818,7 +6141,7 @@ async fn yuketang_get_course_chapters(
     state: State<'_, AppState>,
     req: YuketangCourseChaptersRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_get_course_chapters(&client, &req.classroom_id, &req.sign)
         .await
         .map_err(|e| e.to_string())
@@ -5829,7 +6152,7 @@ async fn yuketang_get_leaf_info(
     state: State<'_, AppState>,
     req: YuketangLeafInfoRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_get_leaf_info(&client, &req.classroom_id, &req.leaf_id)
         .await
         .map_err(|e| e.to_string())
@@ -5840,7 +6163,7 @@ async fn yuketang_send_heartbeat(
     state: State<'_, AppState>,
     req: YuketangHeartbeatRequest,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.lock().await;
+    let client = state.client.write().await;
     modules::online_learning::yuketang_send_heartbeat(&client, &req.classroom_id, &req.events)
         .await
         .map_err(|e| e.to_string())
@@ -5851,7 +6174,7 @@ async fn campus_code_fetch_config(
     state: State<'_, AppState>,
     payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let result = client
         .query_campus_code_config(payload)
         .await
@@ -5865,7 +6188,7 @@ async fn campus_code_fetch_qrcode(
     state: State<'_, AppState>,
     payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let result = client
         .query_campus_code_qrcode(payload)
         .await
@@ -5879,7 +6202,7 @@ async fn campus_code_fetch_order_status(
     state: State<'_, AppState>,
     payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mut client = state.client.lock().await;
+    let mut client = state.client.write().await;
     let result = client
         .query_campus_code_order_status(payload)
         .await
@@ -5899,8 +6222,7 @@ pub fn run() {
     ));
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let builder = builder
-        .plugin(tauri_plugin_keep_screen_on::init());
+    let builder = builder.plugin(tauri_plugin_keep_screen_on::init());
 
     let builder = builder
         .plugin(tauri_plugin_notification::init())
@@ -5933,7 +6255,10 @@ pub fn run() {
                 eprintln!("初始化数据库失败: {}", e);
             }
 
-            fn find_file_in_parents(file_name: &str, max_depth: usize) -> Option<std::path::PathBuf> {
+            fn find_file_in_parents(
+                file_name: &str,
+                max_depth: usize,
+            ) -> Option<std::path::PathBuf> {
                 let mut dir = std::env::current_dir().ok()?;
                 for _ in 0..=max_depth {
                     let candidate = dir.join(file_name);
@@ -5952,7 +6277,11 @@ pub fn run() {
                 let after = &raw[pos + marker.len()..];
                 let end = after.find('|').unwrap_or(after.len());
                 let segment = after[..end].trim();
-                if segment.is_empty() { None } else { Some(segment.to_string()) }
+                if segment.is_empty() {
+                    None
+                } else {
+                    Some(segment.to_string())
+                }
             }
 
             fn clean_cookie_string(raw: &str) -> String {
@@ -6014,7 +6343,8 @@ pub fn run() {
                     jwxt_cookie = extract_cookie_segment(&cookies, "Jwxt");
                 }
 
-                let should_restore = code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some();
+                let should_restore =
+                    code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some();
                 let should_set_credentials = !password.is_empty();
                 let should_set_token = !token.is_empty();
 
@@ -6028,17 +6358,22 @@ pub fn run() {
                 if should_restore || should_set_credentials || should_set_token {
                     let state = app.state::<AppState>();
                     tauri::async_runtime::block_on(async {
-                        let mut client = state.client.lock().await;
+                        let mut client = state.client.write().await;
                         if should_restore {
-                            let _ = client.restore_cookie_snapshot(code_cookie, auth_cookie, jwxt_cookie);
+                            let _ = client.restore_cookie_snapshot(
+                                code_cookie,
+                                auth_cookie,
+                                jwxt_cookie,
+                            );
                         }
                         if should_set_credentials {
                             client.set_credentials(student_id, password);
                         }
                         if should_set_token {
-                            let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
-                                .ok()
-                                .map(|dt| dt.with_timezone(&chrono::Utc));
+                            let expires_at =
+                                chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
+                                    .ok()
+                                    .map(|dt| dt.with_timezone(&chrono::Utc));
                             let refresh = if session.refresh_token.trim().is_empty() {
                                 None
                             } else {
@@ -6052,37 +6387,65 @@ pub fn run() {
             if !restored_any {
                 if let Some(path) = find_file_in_parents("rust_backend_session.json", 6) {
                     if let Ok(text) = std::fs::read_to_string(path) {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                        if let Some(snapshot) = json.get("cookie_snapshot") {
-                            let code_raw = snapshot.get("code").and_then(|v| v.as_str()).unwrap_or("");
-                            let auth_raw = snapshot.get("auth").and_then(|v| v.as_str()).unwrap_or("");
-                            let jwxt_raw = snapshot.get("jwxt").and_then(|v| v.as_str()).unwrap_or("");
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                            if let Some(snapshot) = json.get("cookie_snapshot") {
+                                let code_raw =
+                                    snapshot.get("code").and_then(|v| v.as_str()).unwrap_or("");
+                                let auth_raw =
+                                    snapshot.get("auth").and_then(|v| v.as_str()).unwrap_or("");
+                                let jwxt_raw =
+                                    snapshot.get("jwxt").and_then(|v| v.as_str()).unwrap_or("");
 
-                            let cleaned_code = clean_cookie_string(code_raw);
-                            let cleaned_auth = clean_cookie_string(auth_raw);
-                            let cleaned_jwxt = clean_cookie_string(jwxt_raw);
+                                let cleaned_code = clean_cookie_string(code_raw);
+                                let cleaned_auth = clean_cookie_string(auth_raw);
+                                let cleaned_jwxt = clean_cookie_string(jwxt_raw);
 
-                            let code_cookie = extract_cookie_segment(code_raw, "Code")
-                                .or_else(|| extract_cookie_segment(auth_raw, "Code"))
-                                .or_else(|| extract_cookie_segment(jwxt_raw, "Code"))
-                                .or_else(|| if cleaned_code.is_empty() { None } else { Some(cleaned_code) });
-                            let auth_cookie = extract_cookie_segment(auth_raw, "Auth")
-                                .or_else(|| extract_cookie_segment(code_raw, "Auth"))
-                                .or_else(|| extract_cookie_segment(jwxt_raw, "Auth"))
-                                .or_else(|| if cleaned_auth.is_empty() { None } else { Some(cleaned_auth) });
-                            let jwxt_cookie = extract_cookie_segment(jwxt_raw, "Jwxt")
-                                .or_else(|| extract_cookie_segment(code_raw, "Jwxt"))
-                                .or_else(|| extract_cookie_segment(auth_raw, "Jwxt"))
-                                .or_else(|| if cleaned_jwxt.is_empty() { None } else { Some(cleaned_jwxt) });
+                                let code_cookie = extract_cookie_segment(code_raw, "Code")
+                                    .or_else(|| extract_cookie_segment(auth_raw, "Code"))
+                                    .or_else(|| extract_cookie_segment(jwxt_raw, "Code"))
+                                    .or_else(|| {
+                                        if cleaned_code.is_empty() {
+                                            None
+                                        } else {
+                                            Some(cleaned_code)
+                                        }
+                                    });
+                                let auth_cookie = extract_cookie_segment(auth_raw, "Auth")
+                                    .or_else(|| extract_cookie_segment(code_raw, "Auth"))
+                                    .or_else(|| extract_cookie_segment(jwxt_raw, "Auth"))
+                                    .or_else(|| {
+                                        if cleaned_auth.is_empty() {
+                                            None
+                                        } else {
+                                            Some(cleaned_auth)
+                                        }
+                                    });
+                                let jwxt_cookie = extract_cookie_segment(jwxt_raw, "Jwxt")
+                                    .or_else(|| extract_cookie_segment(code_raw, "Jwxt"))
+                                    .or_else(|| extract_cookie_segment(auth_raw, "Jwxt"))
+                                    .or_else(|| {
+                                        if cleaned_jwxt.is_empty() {
+                                            None
+                                        } else {
+                                            Some(cleaned_jwxt)
+                                        }
+                                    });
 
-                            if code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some() {
-                                let state = app.state::<AppState>();
-                                tauri::async_runtime::block_on(async {
-                                    let mut client = state.client.lock().await;
-                                    let _ = client.restore_cookie_snapshot(code_cookie, auth_cookie, jwxt_cookie);
-                                });
+                                if code_cookie.is_some()
+                                    || auth_cookie.is_some()
+                                    || jwxt_cookie.is_some()
+                                {
+                                    let state = app.state::<AppState>();
+                                    tauri::async_runtime::block_on(async {
+                                        let mut client = state.client.write().await;
+                                        let _ = client.restore_cookie_snapshot(
+                                            code_cookie,
+                                            auth_cookie,
+                                            jwxt_cookie,
+                                        );
+                                    });
+                                }
                             }
-                        }
                         }
                     }
                 }
@@ -6098,7 +6461,7 @@ pub fn run() {
                 if let Some(token) = read_access_token_from_capture(&capture_paths) {
                     let state = app.state::<AppState>();
                     tauri::async_runtime::block_on(async {
-                        let mut client = state.client.lock().await;
+                        let mut client = state.client.write().await;
                         client.set_electricity_token(token);
                     });
                 }
@@ -6108,9 +6471,7 @@ pub fn run() {
             crate::http_server::spawn_http_server(client, app.handle().clone());
             Ok(())
         })
-        .manage(AppState {
-            client: Arc::new(Mutex::new(HbutClient::new())),
-        })
+        .manage(AppState::new(HbutClient::new()))
         .manage(chaoxing_checkin_cmd::CheckinState::new())
         .invoke_handler(tauri::generate_handler![
             get_login_page,
@@ -6261,7 +6622,6 @@ pub fn run() {
             chaoxing_checkin_cmd::clear_chaoxing_data,
             modules::weather::fetch_weather,
         ])
-
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

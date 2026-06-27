@@ -93,12 +93,18 @@ pub async fn chaoxing_checkin_list(
 
     // 确保学习通会话可用（复用 HbutClient 的 SSO 桥接）
     let client_ref = {
-        let mut client = app_state.client.lock().await;
+        let mut client = app_state.client.write().await;
         // 尝试确保学习通会话就绪
-        let student_id = client.user_info.as_ref()
+        let student_id = client
+            .user_info
+            .as_ref()
             .map(|u| u.student_id.clone())
             .unwrap_or_default();
-        let session_ready = crate::modules::online_learning::ensure_chaoxing_session_for_checkin(&mut client, &student_id).await;
+        let session_ready = crate::modules::online_learning::ensure_chaoxing_session_for_checkin(
+            &mut client,
+            &student_id,
+        )
+        .await;
         if !session_ready {
             return Err(err_to_string(CheckinErrorCode::SessionExpired));
         }
@@ -137,7 +143,7 @@ pub async fn chaoxing_checkin_submit_common(
     }
 
     let client_ref = {
-        let client = app_state.client.lock().await;
+        let client = app_state.client.write().await;
         client.client.clone()
     };
     let aid = active_id.clone();
@@ -215,7 +221,7 @@ pub async fn chaoxing_checkin_submit_location(
     }
 
     let client_ref = {
-        let client = app_state.client.lock().await;
+        let client = app_state.client.write().await;
         client.client.clone()
     };
 
@@ -288,7 +294,7 @@ pub async fn chaoxing_checkin_upload_photo(
     types::validate_photo_input(&image_bytes, &mime_type).map_err(err_to_string)?;
 
     let client_ref = {
-        let client = app_state.client.lock().await;
+        let client = app_state.client.write().await;
         client.client.clone()
     };
 
@@ -312,7 +318,7 @@ pub async fn chaoxing_checkin_submit_photo(
     }
 
     let client_ref = {
-        let client = app_state.client.lock().await;
+        let client = app_state.client.write().await;
         client.client.clone()
     };
 
@@ -386,7 +392,7 @@ pub async fn chaoxing_checkin_submit_qrcode(
     }
 
     let client_ref = {
-        let client = app_state.client.lock().await;
+        let client = app_state.client.write().await;
         client.client.clone()
     };
 
@@ -448,7 +454,7 @@ pub async fn chaoxing_checkin_submit_gesture(
     }
 
     let client_ref = {
-        let client = app_state.client.lock().await;
+        let client = app_state.client.write().await;
         client.client.clone()
     };
 
@@ -521,9 +527,7 @@ pub async fn chaoxing_checkin_history(
 
 /// 解析二维码 URL，提取 active_id 和 enc。
 #[tauri::command]
-pub async fn chaoxing_checkin_parse_qr_url(
-    url: String,
-) -> Result<QrUrlPartsResponse, String> {
+pub async fn chaoxing_checkin_parse_qr_url(url: String) -> Result<QrUrlPartsResponse, String> {
     let parts = qr_url::parse(&url).map_err(err_to_string)?;
     Ok(QrUrlPartsResponse {
         active_id: parts.active_id,
@@ -540,12 +544,11 @@ pub async fn chaoxing_checkin_decode_qr_image(
     mime_type: String,
 ) -> Result<QrDecodeResponse, String> {
     // 在阻塞线程中执行图像解码（CPU 密集型）
-    let result = tokio::task::spawn_blocking(move || {
-        qr_decode::decode_qr_image(&image_bytes, &mime_type)
-    })
-    .await
-    .map_err(|e| format!("解码任务失败: {}", e))?
-    .map_err(err_to_string)?;
+    let result =
+        tokio::task::spawn_blocking(move || qr_decode::decode_qr_image(&image_bytes, &mime_type))
+            .await
+            .map_err(|e| format!("解码任务失败: {}", e))?
+            .map_err(err_to_string)?;
 
     Ok(QrDecodeResponse { url: result })
 }
@@ -558,12 +561,10 @@ pub async fn chaoxing_checkin_capture_screen_qr(
     rect: Option<ScreenRect>,
 ) -> Result<QrDecodeResponse, String> {
     // 在阻塞线程中执行截屏（涉及系统调用）
-    let result = tokio::task::spawn_blocking(move || {
-        screen_capture::capture_screen_qr(rect)
-    })
-    .await
-    .map_err(|e| format!("截屏任务失败: {}", e))?
-    .map_err(err_to_string)?;
+    let result = tokio::task::spawn_blocking(move || screen_capture::capture_screen_qr(rect))
+        .await
+        .map_err(|e| format!("截屏任务失败: {}", e))?
+        .map_err(err_to_string)?;
 
     Ok(QrDecodeResponse { url: result })
 }
@@ -578,9 +579,7 @@ pub async fn chaoxing_checkin_capture_screen_qr(
 /// 3. 重置内存状态（inflight registry + list cache）
 /// 4. 整体 2s 超时保护
 #[tauri::command]
-pub async fn clear_chaoxing_data(
-    checkin_state: State<'_, CheckinState>,
-) -> Result<(), String> {
+pub async fn clear_chaoxing_data(checkin_state: State<'_, CheckinState>) -> Result<(), String> {
     // 使用 2s 超时保护
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         // Step 1: Cookie 清理由上层 HbutClient 负责（此处跳过）

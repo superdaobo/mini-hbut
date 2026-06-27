@@ -4,8 +4,8 @@ use tauri::{AppHandle, Manager};
 
 #[cfg(desktop)]
 use tauri::{
-    LogicalPosition, LogicalSize, WebviewUrl,
     webview::{NewWindowResponse, WebviewBuilder},
+    LogicalPosition, LogicalSize, WebviewUrl,
 };
 use url::Url;
 
@@ -95,7 +95,10 @@ pub async fn school_website_embed_open(app: AppHandle, bounds: EmbedBounds) -> R
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn school_website_embed_resize(app: AppHandle, bounds: EmbedBounds) -> Result<(), String> {
+pub async fn school_website_embed_resize(
+    app: AppHandle,
+    bounds: EmbedBounds,
+) -> Result<(), String> {
     let webview = app
         .get_webview(EMBED_LABEL)
         .ok_or_else(|| "学校官网内嵌未打开".to_string())?;
@@ -120,13 +123,19 @@ pub async fn school_website_embed_close(app: AppHandle) -> Result<(), String> {
 
 #[cfg(not(desktop))]
 #[tauri::command]
-pub async fn school_website_embed_open(_app: AppHandle, _bounds: EmbedBounds) -> Result<(), String> {
+pub async fn school_website_embed_open(
+    _app: AppHandle,
+    _bounds: EmbedBounds,
+) -> Result<(), String> {
     Err("当前平台不支持学校官网内嵌".to_string())
 }
 
 #[cfg(not(desktop))]
 #[tauri::command]
-pub async fn school_website_embed_resize(_app: AppHandle, _bounds: EmbedBounds) -> Result<(), String> {
+pub async fn school_website_embed_resize(
+    _app: AppHandle,
+    _bounds: EmbedBounds,
+) -> Result<(), String> {
     Err("当前平台不支持学校官网内嵌".to_string())
 }
 

@@ -84,7 +84,10 @@ mod unit {
 
     #[test]
     fn body_hint_does_not_leak() {
-        let msg = human_message(CheckinErrorCode::ServerError, Some("Internal Server Error 500"));
+        let msg = human_message(
+            CheckinErrorCode::ServerError,
+            Some("Internal Server Error 500"),
+        );
         assert!(!msg.contains("Internal"));
         assert!(!msg.contains("500"));
     }

@@ -80,8 +80,8 @@
 | Windows | Tauri | ✅ |
 | macOS | Tauri | ✅ |
 | Linux | Tauri | ✅ |
-| Android | Capacitor | ✅ |
-| iOS | Capacitor | ✅（签名安装） |
+| Android | Tauri Mobile | ✅ |
+| iOS | Tauri Mobile | ✅（签名安装） |
 
 ## 📥 下载安装
 
@@ -101,6 +101,7 @@ https://cdn.jsdelivr.net/gh/superdaobo/mini-hbut@latest/releases/
 tauri-app/
 ├── src/                      # Vue 前端
 │   ├── components/           # 业务页面与设置页
+│   ├── navigation/           # 主导航常量（从 App.vue 抽离）
 │   ├── utils/                # 通知/缓存/CDN/字体/配置
 │   └── platform/             # web/tauri/capacitor 桥接
 ├── src-tauri/                # Rust Core（Tauri）
@@ -110,11 +111,22 @@ tauri-app/
 └── release.py                # 发布脚本
 ```
 
+### 双栈发布边界（Tauri + Capacitor）
+
+| 平台 | 运行时 | 本地构建 | CI 工作流 |
+|------|--------|----------|-----------|
+| Windows / macOS / Linux | Tauri 2 | `npm run tauri build` | `dev-build.yml` / `release.yml` |
+| Android / iOS | Tauri 2 Mobile | `npm run tauri android build` / `tauri ios` | `dev-build.yml` / `release.yml` |
+
+- 桌面与移动共享 `src/` 前端与 `src-tauri/` Rust 逻辑（移动端通过 Capacitor 插件桥接）。
+- **勿提交** `android/app/build/`、`ios/Pods/` 等原生构建产物（已写入 `.gitignore`）。
+- 安全与贡献流程见 [SECURITY.md](./SECURITY.md)、[CONTRIBUTING.md](./CONTRIBUTING.md)。
+
 ## 💻 本地开发
 
 ### 环境要求
 
-- Node.js 18+
+- Node.js 20+（见 `.nvmrc`）
 - Rust stable（Tauri 开发需要）
 - Android Studio（Android 构建需要）
 - Xcode（iOS 构建需要）
