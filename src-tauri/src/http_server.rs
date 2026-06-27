@@ -3170,13 +3170,8 @@ async fn school_website_proxy(
     }
 
     let query_text = query.as_deref();
-    let target = parse_school_website_proxy_path(&path, query_text).map_err(|message| {
-        err(
-            StatusCode::BAD_REQUEST,
-            "参数错误",
-            message,
-        )
-    })?;
+    let target = parse_school_website_proxy_path(&path, query_text)
+        .map_err(|message| err(StatusCode::BAD_REQUEST, "参数错误", message))?;
     let remote_url = build_school_website_remote_url(&target, query_text);
 
     let request_headers = school_website_sanitize_request_headers(&headers);

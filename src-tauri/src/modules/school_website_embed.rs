@@ -147,7 +147,8 @@ pub fn rewrite_school_website_html(html: &str) -> String {
         }
     }
 
-    let re = regex::Regex::new(r#"https?://([a-z0-9-]+)\.hbut\.edu\.cn"#).expect("school website rewrite regex");
+    let re = regex::Regex::new(r#"https?://([a-z0-9-]+)\.hbut\.edu\.cn"#)
+        .expect("school website rewrite regex");
     out = re
         .replace_all(&out, |caps: &regex::Captures| {
             let label = &caps[1];
