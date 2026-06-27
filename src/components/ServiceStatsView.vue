@@ -63,7 +63,13 @@ const normalizeServiceHealth = (raw = {}) => {
     cloud_sync: {
       total_records: toNumber(raw?.cloud_sync?.total_records),
       latest_version: raw?.cloud_sync?.latest_version || '',
-      latest_version_user_count: toNumber(raw?.cloud_sync?.latest_version_user_count)
+      latest_version_user_count: toNumber(raw?.cloud_sync?.latest_version_user_count),
+      version_user_counts: Array.isArray(raw?.cloud_sync?.version_user_counts)
+        ? raw.cloud_sync.version_user_counts.map((item) => ({
+            version: String(item?.version || '').trim(),
+            user_count: toNumber(item?.user_count)
+          })).filter((item) => item.version)
+        : []
     },
     trend: {
       last_7_days: trendRows
@@ -180,6 +186,9 @@ const overviewItems = computed(() => [
 
 const trendRows = computed(() => health.value.trend?.last_7_days || [])
 const hasTrend = computed(() => trendRows.value.length > 0)
+
+const versionUserCounts = computed(() => health.value.cloud_sync.version_user_counts || [])
+const hasVersionUserCounts = computed(() => versionUserCounts.value.length > 0)
 
 const trendMetrics = computed(() => [
   {
@@ -401,6 +410,19 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
+    <section v-if="hasVersionUserCounts" class="version-card" aria-label="各版本人数">
+      <div class="section-title">
+        <span class="material-symbols-outlined">devices</span>
+        <h2>各版本人数</h2>
+      </div>
+      <ul class="version-list">
+        <li v-for="item in versionUserCounts" :key="item.version" class="version-row">
+          <span class="version-name">{{ item.version }}</span>
+          <strong class="version-count">{{ formatNumber(item.user_count) }}</strong>
+        </li>
+      </ul>
+    </section>
+
     <section class="trend-card">
       <div class="section-title">
         <span class="material-symbols-outlined">stacked_line_chart</span>
@@ -526,11 +548,48 @@ onBeforeUnmount(() => {
 }
 
 .status-card,
+.version-card,
 .trend-card,
 .metric-card {
   background: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.06);
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+.version-card {
+  padding: 16px;
+  border-radius: 22px;
+  margin-bottom: 12px;
+}
+
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.version-name {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.version-count {
+  font-size: 15px;
+  color: #0f172a;
 }
 
 .status-card {
