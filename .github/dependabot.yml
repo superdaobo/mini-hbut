@@ -1,34 +1,69 @@
 version: 2
 updates:
+  # 主应用 npm：仅自动提 patch/minor，禁止大版本与 Capacitor 跨代升级
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
-    groups:
-      dev-dependencies:
-        dependency-type: development
-        patterns:
-          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    ignore:
+      - dependency-name: "@capacitor/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@transistorsoft/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vue-router"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vue"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@tauri-apps/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
+  # 官网独立目录，同样忽略 major
   - package-ecosystem: npm
     directory: /website
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - website
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
+  # Rust：忽略 0.x major 与显式 major，减少 cbc/sha2/tower-http 类破坏性 PR
   - package-ecosystem: cargo
     directory: /src-tauri
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
