@@ -1484,8 +1484,8 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
     <!-- Quick Entry Editor Modal -->
     <Teleport to="body">
-      <div v-if="showQuickEntryEditor" class="fixed inset-0 z-[200] flex items-end justify-center bg-black/40" @click.self="showQuickEntryEditor = false">
-        <div class="w-full max-w-md bg-white rounded-t-3xl p-6 animate-slide-up max-h-[80vh] overflow-y-auto">
+      <div v-if="showQuickEntryEditor" class="quick-entry-editor-overlay fixed inset-0 z-[200] flex items-end justify-center bg-black/40" @click.self="showQuickEntryEditor = false">
+        <div class="quick-entry-editor-panel w-full max-w-md bg-white rounded-t-3xl p-6 animate-slide-up max-h-[80vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-lg text-gray-800">编辑快捷入口</h3>
             <button class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center" @click="showQuickEntryEditor = false">

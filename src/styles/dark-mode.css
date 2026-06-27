@@ -58,7 +58,8 @@ html.dark .bg-gray-100 {
   background-color: #334155 !important;
 }
 
-html.dark .dashboard-root .quick-entry-icon {
+/* 含 Teleport 到 body 的「编辑快捷入口」弹窗，不能限定 .dashboard-root */
+html.dark .quick-entry-icon {
   background: #000 !important;
 }
 
