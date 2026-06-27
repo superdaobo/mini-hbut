@@ -178,7 +178,7 @@ jobs:
         run: tar -xzf source.tar.gz
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -221,7 +221,7 @@ jobs:
         uses: ./.github/actions/setup-android-ndk
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -348,7 +348,7 @@ jobs:
         run: tar -xzf source.tar.gz
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -415,7 +415,7 @@ jobs:
         run: tar -xzf source.tar.gz
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -512,7 +512,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -686,7 +686,7 @@ jobs:
             build-essential
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
@@ -879,7 +879,7 @@ jobs:
           node scripts/build_release_manifests.mjs
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm
