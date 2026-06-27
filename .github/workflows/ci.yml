@@ -63,6 +63,9 @@ jobs:
       - name: Vue typecheck (CI subset)
         run: npx vue-tsc --noEmit -p tsconfig.ci.json
 
+      - name: Tauri npm/rust version alignment
+        run: npm exec -- tauri info
+
   test-rust:
     runs-on: ubuntu-latest
     steps:
