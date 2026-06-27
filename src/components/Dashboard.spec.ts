@@ -13,13 +13,15 @@ describe('Dashboard quick entry defaults', () => {
     expect(vue).toContain("schedule: { name: '课表'")
   })
 
-  it('keeps quick entry icons colorful in dark mode instead of falling back to black surfaces', () => {
+  it('uses unified black quick-entry icon surfaces in dark mode', () => {
     const vue = source()
     const darkCss = readFileSync(new URL('../styles/dark-mode.css', import.meta.url), 'utf8')
 
     expect(vue).toContain('class="quick-entry-icon w-12 h-12')
     expect(vue).toContain(':data-module="item.id"')
-    expect(darkCss).toContain('html.dark .dashboard-root .quick-entry-icon[data-module=\'grades\']')
-    expect(darkCss).toContain('rgba(59, 130, 246, 0.34)')
+    expect(vue).toContain('class="quick-entry-icon w-10 h-10')
+    expect(vue).toContain(':data-module="id"')
+    expect(darkCss).toContain('html.dark .dashboard-root .quick-entry-icon')
+    expect(darkCss).toContain('background: #000 !important')
   })
 })

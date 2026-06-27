@@ -76,4 +76,13 @@ describe('service stats frontend contract', () => {
     expect(source).toContain("版本 {{ displayClientVersion || '未知' }}")
     expect(source).not.toContain("版本 {{ health.service.version || '未知' }}")
   })
+
+  it('labels latest-version trend series with version axis instead of date-only labels', () => {
+    const source = readSource('src/components/ServiceStatsView.vue')
+
+    expect(source).toContain("label: '最新版本人数'")
+    expect(source).toContain("axisLabelKey: 'latest_version'")
+    expect(source).toContain('formatAxisVersion')
+    expect(source).toContain("axisLabelKey === 'latest_version'")
+  })
 })

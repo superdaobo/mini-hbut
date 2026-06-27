@@ -1501,7 +1501,11 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
               :class="draftQuickEntries.includes(id) ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-gray-50'"
               @click="toggleDraftEntry(id)"
             >
-              <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-1" :class="meta.color">
+              <div
+                class="quick-entry-icon w-10 h-10 rounded-xl flex items-center justify-center mb-1"
+                :class="meta.color"
+                :data-module="id"
+              >
                 <i class="fas" :class="[meta.icon, meta.iconColor]"></i>
               </div>
               <span class="text-[10px] text-gray-600 text-center">{{ meta.name }}</span>

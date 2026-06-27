@@ -208,9 +208,10 @@ const trendMetrics = computed(() => [
   },
   {
     key: 'latest_version_user_count',
-    label: '最新版',
+    label: '最新版本人数',
     color: '#0891b2',
-    values: trendRows.value.map((row) => row.latest_version_user_count)
+    values: trendRows.value.map((row) => row.latest_version_user_count),
+    axisLabelKey: 'latest_version'
   }
 ])
 
@@ -235,7 +236,12 @@ const formatAxisDate = (value) => {
   return text || '-'
 }
 
-const buildTrendChart = (values) => {
+const formatAxisVersion = (value) => {
+  const text = String(value || '').trim()
+  return text || '-'
+}
+
+const buildTrendChart = (values, axisLabelKey = 'date') => {
   const safeValues = Array.isArray(values) ? values.map((value) => toNumber(value)) : []
   const plotWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right
   const plotHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom
@@ -272,10 +278,12 @@ const buildTrendChart = (values) => {
     y: CHART_PADDING.top + ((max - value) / span) * plotHeight
   }))
   const dateSource = trendRows.value
+  const formatAxisLabel = axisLabelKey === 'latest_version' ? formatAxisVersion : formatAxisDate
+  const labelField = axisLabelKey === 'latest_version' ? 'latest_version' : 'date'
   const dateTicks = points
     .map((point, index) => ({
       x: point.x,
-      label: formatAxisDate(dateSource[index]?.date)
+      label: formatAxisLabel(dateSource[index]?.[labelField])
     }))
     .filter((_, index) => index === 0 || index === points.length - 1)
 
@@ -411,7 +419,7 @@ onBeforeUnmount(() => {
             role="img"
             :aria-label="`${metric.label}趋势`"
           >
-            <template v-for="tick in buildTrendChart(metric.values).axisTicks" :key="`${metric.key}-${tick.label}`">
+            <template v-for="tick in buildTrendChart(metric.values, metric.axisLabelKey).axisTicks" :key="`${metric.key}-${tick.label}`">
               <line
                 class="trend-grid-line"
                 :x1="CHART_PADDING.left"
@@ -422,7 +430,7 @@ onBeforeUnmount(() => {
               <text class="trend-axis-label" x="4" :y="tick.y + 4">{{ tick.label }}</text>
             </template>
             <text
-              v-for="tick in buildTrendChart(metric.values).dateTicks"
+              v-for="tick in buildTrendChart(metric.values, metric.axisLabelKey).dateTicks"
               :key="`${metric.key}-${tick.label}`"
               class="trend-date-label"
               :x="tick.x"
@@ -432,7 +440,7 @@ onBeforeUnmount(() => {
               {{ tick.label }}
             </text>
             <path
-              :d="buildTrendChart(metric.values).path"
+              :d="buildTrendChart(metric.values, metric.axisLabelKey).path"
               class="trend-line drawTrendLine"
               fill="none"
               :stroke="metric.color"
@@ -444,7 +452,7 @@ onBeforeUnmount(() => {
               stroke-dashoffset="1"
             />
             <circle
-              v-for="point in buildTrendChart(metric.values).points"
+              v-for="point in buildTrendChart(metric.values, metric.axisLabelKey).points"
               :key="`${metric.key}-${point.x}`"
               class="trend-point"
               :cx="point.x"
