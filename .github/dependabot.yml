@@ -1,8 +1,16 @@
 version: 2
+registries:
+  # 私有仓库默认会探测 GitHub Packages；本项目仅使用 npmjs，显式声明避免 Dependabot 报错
+  npmjs:
+    type: npm-registry
+    url: https://registry.npmjs.org
+    replaces-base: true
 updates:
   # 主应用 npm：仅自动提 patch/minor，禁止大版本与 Capacitor 跨代升级
   - package-ecosystem: npm
     directory: /
+    registries:
+      - npmjs
     schedule:
       interval: weekly
       day: monday
@@ -33,6 +41,8 @@ updates:
   # 官网独立目录，同样忽略 major
   - package-ecosystem: npm
     directory: /website
+    registries:
+      - npmjs
     schedule:
       interval: weekly
       day: monday
@@ -54,6 +64,11 @@ updates:
     labels:
       - dependencies
       - rust
+    groups:
+      tauri:
+        patterns:
+          - "tauri"
+          - "tauri-*"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]

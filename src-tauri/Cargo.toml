@@ -25,16 +25,16 @@ name = "hbut_helper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-tauri = { version = "2.0", features = ["unstable"] }
-tauri-plugin-fs = "2.0"
-tauri-plugin-shell = "2.0"
-tauri-plugin-notification = "2.0"
-tauri-plugin-autostart = "2.0"
+tauri = { version = "2.11", features = ["unstable"] }
+tauri-plugin-fs = "2.5"
+tauri-plugin-shell = "2.3"
+tauri-plugin-notification = "2.3"
+tauri-plugin-autostart = "2.5"
 tauri-plugin-keep-screen-on = "0.1.4"
-tauri-plugin-window-state = "2.0"
+tauri-plugin-window-state = "2.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "multipart", "rustls-tls", "stream"] }
