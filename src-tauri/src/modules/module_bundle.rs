@@ -231,10 +231,14 @@ fn read_cache_metadata(cache_dir: &Path) -> Option<ModuleBundleCacheMetadata> {
     serde_json::from_str::<ModuleBundleCacheMetadata>(&raw).ok()
 }
 
-fn write_cache_metadata(cache_dir: &Path, metadata: &ModuleBundleCacheMetadata) -> Result<(), String> {
+fn write_cache_metadata(
+    cache_dir: &Path,
+    metadata: &ModuleBundleCacheMetadata,
+) -> Result<(), String> {
     let text = serde_json::to_string_pretty(metadata)
         .map_err(|e| format!("序列化模块缓存元信息失败: {}", e))?;
-    fs::write(cache_meta_path(cache_dir), text).map_err(|e| format!("写入模块缓存元信息失败: {}", e))
+    fs::write(cache_meta_path(cache_dir), text)
+        .map_err(|e| format!("写入模块缓存元信息失败: {}", e))
 }
 
 fn resolve_cached_entry_path(
@@ -355,19 +359,17 @@ fn write_bundle_archive(dest_root: &Path, zip_bytes: &[u8]) -> Result<(), String
             return Err("压缩包路径越界".to_string());
         }
         if entry.name().ends_with('/') {
-            fs::create_dir_all(&output_path)
-                .map_err(|e| format!("创建模块子目录失败: {}", e))?;
+            fs::create_dir_all(&output_path).map_err(|e| format!("创建模块子目录失败: {}", e))?;
             continue;
         }
         if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("创建模块文件父目录失败: {}", e))?;
+            fs::create_dir_all(parent).map_err(|e| format!("创建模块文件父目录失败: {}", e))?;
         }
-        let mut file = fs::File::create(&output_path)
-            .map_err(|e| format!("写入模块文件失败: {}", e))?;
-        std::io::copy(&mut entry, &mut file)
-            .map_err(|e| format!("解压模块文件失败: {}", e))?;
-        file.flush().map_err(|e| format!("刷新模块文件失败: {}", e))?;
+        let mut file =
+            fs::File::create(&output_path).map_err(|e| format!("写入模块文件失败: {}", e))?;
+        std::io::copy(&mut entry, &mut file).map_err(|e| format!("解压模块文件失败: {}", e))?;
+        file.flush()
+            .map_err(|e| format!("刷新模块文件失败: {}", e))?;
     }
 
     if dest_root.exists() {
@@ -441,10 +443,8 @@ pub async fn prepare_module_bundle(
     let channel = normalize_channel(&req.channel)?;
     let module_id = sanitize_storage_segment(&req.module_id, "module_id")?;
     let version = sanitize_storage_segment(&req.version, "version")?;
-    let min_compatible_version = sanitize_optional_storage_segment(
-        &req.min_compatible_version,
-        "min_compatible_version",
-    )?;
+    let min_compatible_version =
+        sanitize_optional_storage_segment(&req.min_compatible_version, "min_compatible_version")?;
     let requested_entry = normalize_relative_path(&req.entry_path, "index.html")?;
     let package_url = req.package_url.trim().to_string();
     let mut package_urls: Vec<String> = req

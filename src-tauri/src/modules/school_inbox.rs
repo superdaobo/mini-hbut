@@ -58,8 +58,7 @@ pub struct SchoolInboxResponse {
 fn looks_like_login_redirect(url: &str) -> bool {
     let lower = url.to_lowercase();
     lower.contains("authserver/login")
-        || lower.contains("/login")
-            && (lower.contains("cas") || lower.contains("passport"))
+        || lower.contains("/login") && (lower.contains("cas") || lower.contains("passport"))
 }
 
 fn trim_summary(text: &str, max_len: usize) -> String {
@@ -313,7 +312,10 @@ async fn fetch_portal_inbox(client: &HbutClient) -> Result<Vec<SchoolInboxItem>,
     Ok(parse_portal_tzsjx_payload(&payload))
 }
 
-async fn fetch_chaoxing_inbox(client: &mut HbutClient, student_id: &str) -> Result<Vec<SchoolInboxItem>, String> {
+async fn fetch_chaoxing_inbox(
+    client: &mut HbutClient,
+    student_id: &str,
+) -> Result<Vec<SchoolInboxItem>, String> {
     if !online_learning::ensure_chaoxing_session_for_checkin(client, student_id).await {
         return Err("学习通会话未就绪，请重新登录".into());
     }
@@ -335,8 +337,8 @@ async fn fetch_chaoxing_inbox(client: &mut HbutClient, student_id: &str) -> Resu
         .text()
         .await
         .map_err(|e| format!("学习通通知响应读取失败: {e}"))?;
-    let payload: Value = serde_json::from_str(&text)
-        .map_err(|e| format!("学习通通知 JSON 解析失败: {e}"))?;
+    let payload: Value =
+        serde_json::from_str(&text).map_err(|e| format!("学习通通知 JSON 解析失败: {e}"))?;
 
     let result = json_string(payload.get("result"));
     if result != "1" {
@@ -392,7 +394,10 @@ async fn fetch_portal_detail_body(client: &HbutClient, raw_id: &str) -> Result<S
     let response = client
         .http_client()
         .get(&url)
-        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .header("Referer", referer)
         .send()
         .await
@@ -515,8 +520,8 @@ pub async fn fetch_school_inbox_detail(
     item_id: &str,
     fallback: Option<SchoolInboxItem>,
 ) -> Result<SchoolInboxDetailResponse, String> {
-    let (source, raw_id) = parse_normalized_item_id(item_id)
-        .ok_or_else(|| "无效的消息 ID".to_string())?;
+    let (source, raw_id) =
+        parse_normalized_item_id(item_id).ok_or_else(|| "无效的消息 ID".to_string())?;
 
     let body = if source == "portal" {
         fetch_portal_detail_body(client, &raw_id).await?
@@ -573,8 +578,8 @@ pub async fn mark_school_inbox_read(
     _login_mode: &str,
     item_id: &str,
 ) -> Result<SchoolInboxMarkReadResponse, String> {
-    let (source, raw_id) = parse_normalized_item_id(item_id)
-        .ok_or_else(|| "无效的消息 ID".to_string())?;
+    let (source, raw_id) =
+        parse_normalized_item_id(item_id).ok_or_else(|| "无效的消息 ID".to_string())?;
 
     let result = if source == "portal" {
         mark_portal_read(client, &raw_id).await

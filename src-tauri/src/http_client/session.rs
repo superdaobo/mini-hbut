@@ -1,4 +1,4 @@
-﻿//! 会话与 Cookie 管理模块。
+//! 会话与 Cookie 管理模块。
 //!
 //! 负责：
 //! - 获取/恢复用户信息
@@ -11,8 +11,8 @@
 //! - 快照文件位于应用数据目录（不同平台路径不同）
 
 use super::*;
-use reqwest::Url;
 use reqwest::cookie::CookieStore;
+use reqwest::Url;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -30,7 +30,8 @@ fn is_valid_cookie_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 128 {
         return false;
     }
-    name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
 }
 
 fn parse_cookie_pairs(raw: &str) -> Vec<(String, String)> {
@@ -229,11 +230,7 @@ impl HbutClient {
                     let _ = resp.text().await;
                 }
                 Err(e) => {
-                    println!(
-                        "[调试] 学习通补票：xxtlogin[{}] 请求失败: {}",
-                        idx + 1,
-                        e
-                    );
+                    println!("[调试] 学习通补票：xxtlogin[{}] 请求失败: {}", idx + 1, e);
                 }
             }
         }
@@ -351,7 +348,8 @@ impl HbutClient {
         self.set_chaoxing_login_mode(true);
 
         // 访问学习通教务首页以激活完整会话
-        let _ = self.client
+        let _ = self
+            .client
             .get("https://hbut.jw.chaoxing.com/admin/")
             .header("Referer", "https://i.chaoxing.com/")
             .send()
@@ -367,7 +365,10 @@ impl HbutClient {
         let jw_url = Url::parse("https://hbut.jw.chaoxing.com").ok();
 
         let mut all_cookies = String::new();
-        for url in [&passport_url, &i_url, &jw_url].iter().filter_map(|u| u.as_ref()) {
+        for url in [&passport_url, &i_url, &jw_url]
+            .iter()
+            .filter_map(|u| u.as_ref())
+        {
             if let Some(c) = self.cookie_jar.cookies(url) {
                 if let Ok(s) = c.to_str() {
                     if !s.trim().is_empty() {
@@ -384,7 +385,9 @@ impl HbutClient {
         let has_jw = all_cookies.contains("jw_uf=");
         println!(
             "[调试] CAS→超星桥接完成: has_uid={}, has_jw={}, cookie_len={}",
-            has_uid, has_jw, all_cookies.len()
+            has_uid,
+            has_jw,
+            all_cookies.len()
         );
 
         // FYSSO 链的 Set-Cookie 可能不带 Domain=.chaoxing.com，
@@ -399,21 +402,27 @@ impl HbutClient {
 
     /// 将关键学习通 cookies 从 passport2/i 域传播到 mooc1 域
     fn propagate_chaoxing_cookies_to_mooc(&self) {
-        let source_urls = [
-            "https://passport2.chaoxing.com",
-            "https://i.chaoxing.com",
-        ];
+        let source_urls = ["https://passport2.chaoxing.com", "https://i.chaoxing.com"];
         let target_urls = [
             "https://mooc1.chaoxing.com",
             "https://mooc1-api.chaoxing.com",
         ];
         let key_names: &[&str] = &[
-            "UID", "_uid", "fid", "cx_p_token", "p_auth_token", "xxtenc",
-            "_d", "uf", "spaceFid", "spaceRoleId",
+            "UID",
+            "_uid",
+            "fid",
+            "cx_p_token",
+            "p_auth_token",
+            "xxtenc",
+            "_d",
+            "uf",
+            "spaceFid",
+            "spaceRoleId",
         ];
 
         // 收集所有源域 cookies
-        let mut collected: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut collected: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for src in &source_urls {
             if let Ok(url) = Url::parse(src) {
                 if let Some(header) = self.cookie_jar.cookies(&url) {
@@ -423,7 +432,9 @@ impl HbutClient {
                             if let Some((name, value)) = pair.split_once('=') {
                                 let name = name.trim();
                                 if key_names.iter().any(|k| k.eq_ignore_ascii_case(name)) {
-                                    collected.entry(name.to_string()).or_insert_with(|| value.trim().to_string());
+                                    collected
+                                        .entry(name.to_string())
+                                        .or_insert_with(|| value.trim().to_string());
                                 }
                             }
                         }
@@ -452,7 +463,9 @@ impl HbutClient {
     }
 
     /// 拉取当前登录用户信息
-    pub async fn fetch_user_info(&self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_user_info(
+        &self,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let info_url = format!("{}/admin/xsd/xsjbxx/xskp", self.academic_base_url());
         println!("[调试] 获取用户信息： {}", info_url);
 
@@ -465,7 +478,10 @@ impl HbutClient {
                     "Referer",
                     format!("{}/admin/indexMain/M1402", self.academic_base_url()),
                 )
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
                 .send()
                 .await?;
 
@@ -506,7 +522,7 @@ impl HbutClient {
             break response.text().await?;
         };
         println!("[调试] 用户信息 HTML 长度: {}", html.len());
-        
+
         match parser::parse_user_info(&html) {
             Ok(info) => {
                 println!("[调试] 解析出的用户信息: {:?}", info);
@@ -515,14 +531,20 @@ impl HbutClient {
             Err(e) => {
                 println!("[调试] 用户信息解析失败: {}", e);
                 // 打印 HTML 的前 500 字符帮助调试
-                println!("[调试] HTML 预览: {}", &html.chars().take(500).collect::<String>());
+                println!(
+                    "[调试] HTML 预览: {}",
+                    &html.chars().take(500).collect::<String>()
+                );
                 Err(e)
             }
         }
     }
 
     /// 使用 Cookie 字符串恢复会话并返回用户信息
-    pub async fn restore_session(&mut self, cookies: &str) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn restore_session(
+        &mut self,
+        cookies: &str,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         // 先重置会话，避免历史脏 cookie 污染。
         self.reset_http_state();
 
@@ -530,7 +552,10 @@ impl HbutClient {
         let auth_url: Url = "https://auth.hbut.edu.cn".parse()?;
         let jwxt_url: Url = JWXT_BASE_URL.parse()?;
         let chaoxing_url: Url = CHAOXING_JWXT_BASE_URL.parse()?;
-        let has_scoped = cookies.contains("Code:") || cookies.contains("Auth:") || cookies.contains("Jwxt:") || cookies.contains("ChaoxingJwxt:");
+        let has_scoped = cookies.contains("Code:")
+            || cookies.contains("Auth:")
+            || cookies.contains("Jwxt:")
+            || cookies.contains("ChaoxingJwxt:");
 
         let add_pairs = |jar: &Arc<Jar>, target_url: &Url, domain: &str, raw: &str| {
             for (name, value) in parse_cookie_pairs(raw) {
@@ -570,18 +595,20 @@ impl HbutClient {
         if self.prefer_chaoxing_jwxt {
             let _ = self.ensure_chaoxing_academic_session().await;
         }
-        
+
         // 验证会话
         let user_info = self.fetch_user_info().await?;
         self.is_logged_in = true;
         self.user_info = Some(user_info.clone());
         self.save_cookie_snapshot_to_file();
-        
+
         Ok(user_info)
     }
 
     /// 刷新会话（保持登录态）
-    pub async fn refresh_session(&mut self) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn refresh_session(
+        &mut self,
+    ) -> Result<UserInfo, Box<dyn std::error::Error + Send + Sync>> {
         let user_info = self.fetch_user_info().await?;
         // 成功登录
         self.last_login_time = Some(std::time::Instant::now());
@@ -591,7 +618,7 @@ impl HbutClient {
 
         // 自动预热 SSO Token (如电费)
         let _ = self.ensure_electricity_token().await;
-        
+
         Ok(user_info)
     }
 
@@ -601,12 +628,20 @@ impl HbutClient {
         let auth_url = "https://auth.hbut.edu.cn".parse().unwrap();
         let jwxt_url = "https://jwxt.hbut.edu.cn".parse().unwrap();
         let chaoxing_jwxt_url = "https://hbut.jw.chaoxing.com".parse().unwrap();
-        
+
         let mut all_cookies = Vec::new();
-        if let Some(c) = self.cookie_jar.cookies(&code_url) { all_cookies.push(format!("Code: {}", c.to_str().unwrap_or_default())); }
-        if let Some(c) = self.cookie_jar.cookies(&auth_url) { all_cookies.push(format!("Auth: {}", c.to_str().unwrap_or_default())); }
-        if let Some(c) = self.cookie_jar.cookies(&jwxt_url) { all_cookies.push(format!("Jwxt: {}", c.to_str().unwrap_or_default())); }
-        if let Some(c) = self.cookie_jar.cookies(&chaoxing_jwxt_url) { all_cookies.push(format!("ChaoxingJwxt: {}", c.to_str().unwrap_or_default())); }
+        if let Some(c) = self.cookie_jar.cookies(&code_url) {
+            all_cookies.push(format!("Code: {}", c.to_str().unwrap_or_default()));
+        }
+        if let Some(c) = self.cookie_jar.cookies(&auth_url) {
+            all_cookies.push(format!("Auth: {}", c.to_str().unwrap_or_default()));
+        }
+        if let Some(c) = self.cookie_jar.cookies(&jwxt_url) {
+            all_cookies.push(format!("Jwxt: {}", c.to_str().unwrap_or_default()));
+        }
+        if let Some(c) = self.cookie_jar.cookies(&chaoxing_jwxt_url) {
+            all_cookies.push(format!("ChaoxingJwxt: {}", c.to_str().unwrap_or_default()));
+        }
         all_cookies.join(" | ")
     }
 
@@ -618,16 +653,24 @@ impl HbutClient {
         let jwxt_url: Url = "https://jwxt.hbut.edu.cn".parse().unwrap();
         let chaoxing_jwxt_url: Url = "https://hbut.jw.chaoxing.com".parse().unwrap();
 
-        let code = self.cookie_jar.cookies(&code_url)
+        let code = self
+            .cookie_jar
+            .cookies(&code_url)
             .map(|c| c.to_str().unwrap_or_default().to_string())
             .unwrap_or_default();
-        let auth = self.cookie_jar.cookies(&auth_url)
+        let auth = self
+            .cookie_jar
+            .cookies(&auth_url)
             .map(|c| c.to_str().unwrap_or_default().to_string())
             .unwrap_or_default();
-        let jwxt = self.cookie_jar.cookies(&jwxt_url)
+        let jwxt = self
+            .cookie_jar
+            .cookies(&jwxt_url)
             .map(|c| c.to_str().unwrap_or_default().to_string())
             .unwrap_or_default();
-        let chaoxing_jwxt = self.cookie_jar.cookies(&chaoxing_jwxt_url)
+        let chaoxing_jwxt = self
+            .cookie_jar
+            .cookies(&chaoxing_jwxt_url)
             .map(|c| c.to_str().unwrap_or_default().to_string())
             .unwrap_or_default();
 
@@ -645,7 +688,7 @@ impl HbutClient {
         &mut self,
         code: Option<String>,
         auth: Option<String>,
-        jwxt: Option<String>
+        jwxt: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let code_url: Url = "https://code.hbut.edu.cn".parse()?;
         let auth_url: Url = "https://auth.hbut.edu.cn".parse()?;
@@ -703,7 +746,9 @@ impl HbutClient {
     }
 
     fn legacy_cookie_snapshot_path() -> Option<PathBuf> {
-        std::env::current_dir().ok().map(|dir| dir.join("hbut_cookie_snapshot.json"))
+        std::env::current_dir()
+            .ok()
+            .map(|dir| dir.join("hbut_cookie_snapshot.json"))
     }
 
     /// 将 Cookie 快照写入本地文件
@@ -734,9 +779,18 @@ impl HbutClient {
             Err(_) => return,
         };
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            let raw_code = json.get("code").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let raw_auth = json.get("auth").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let raw_jwxt = json.get("jwxt").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let raw_code = json
+                .get("code")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let raw_auth = json
+                .get("auth")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let raw_jwxt = json
+                .get("jwxt")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let raw_chaoxing_jwxt = json
                 .get("chaoxing_jwxt")
                 .and_then(|v| v.as_str())
@@ -827,5 +881,4 @@ impl HbutClient {
         self.electricity_refresh_token = None;
         self.electricity_token_expires_at = None;
     }
-
 }

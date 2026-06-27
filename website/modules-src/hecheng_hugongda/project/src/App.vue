@@ -1007,7 +1007,7 @@ export default {
       if (/class_name/i.test(message)) {
         return '排行榜缺少班级信息，请重新进入模块后再试。'
       }
-      return message
+      return '排行榜加载失败，请稍后重试'
     },
 
     toggleLeaderboard() {

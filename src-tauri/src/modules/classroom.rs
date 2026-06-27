@@ -1,16 +1,16 @@
-﻿//! 🏫 空教室查询模块
-//! 
+//! 🏫 空教室查询模块
+//!
 //! 该模块用于查询全校的空闲教室资源。
 //! 主要功能：
 //! 1. `get_buildings`: 获取所有教学楼列表。
 //! 2. `get_available_classrooms`: 根据时间（周次、星期、节次）查询空教室。
-//! 
+//!
 //! 目前 `http_client.rs` 中的空教室查询处于暂未实现状态 (Stub)，本模块保留了相关的数据结构定义和部分逻辑骨架。
 
+use chrono::{Datelike, Local, NaiveDate, Timelike};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use chrono::{Local, NaiveDate, Datelike, Timelike};
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
@@ -75,15 +75,15 @@ impl ClassroomModule {
 
         // 节次时间表
         let class_schedule = [
-            (8 * 60, 8 * 60 + 45),      // 第1节
-            (8 * 60 + 55, 9 * 60 + 40), // 第2节
+            (8 * 60, 8 * 60 + 45),        // 第1节
+            (8 * 60 + 55, 9 * 60 + 40),   // 第2节
             (10 * 60 + 10, 10 * 60 + 55), // 第3节
             (11 * 60 + 5, 11 * 60 + 50),  // 第4节
-            (14 * 60, 14 * 60 + 45),     // 第5节
+            (14 * 60, 14 * 60 + 45),      // 第5节
             (14 * 60 + 55, 15 * 60 + 40), // 第6节
             (16 * 60 + 10, 16 * 60 + 55), // 第7节
             (17 * 60 + 5, 17 * 60 + 50),  // 第8节
-            (19 * 60, 19 * 60 + 45),     // 第9节
+            (19 * 60, 19 * 60 + 45),      // 第9节
             (19 * 60 + 55, 20 * 60 + 40), // 第10节
             (20 * 60 + 50, 21 * 60 + 35), // 第11节
         ];
@@ -102,15 +102,41 @@ impl ClassroomModule {
         periods
     }
 
-    pub async fn get_buildings(&self) -> Result<Vec<Building>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_buildings(
+        &self,
+    ) -> Result<Vec<Building>, Box<dyn std::error::Error + Send + Sync>> {
         // 返回预定义的教学楼列表
         Ok(vec![
-            Building { id: "1".to_string(), name: "1号教学楼".to_string(), campus: "本部".to_string() },
-            Building { id: "2".to_string(), name: "2号教学楼".to_string(), campus: "本部".to_string() },
-            Building { id: "3".to_string(), name: "3号教学楼".to_string(), campus: "本部".to_string() },
-            Building { id: "4".to_string(), name: "4号教学楼".to_string(), campus: "本部".to_string() },
-            Building { id: "5".to_string(), name: "工程实训楼".to_string(), campus: "本部".to_string() },
-            Building { id: "6".to_string(), name: "艺术楼".to_string(), campus: "本部".to_string() },
+            Building {
+                id: "1".to_string(),
+                name: "1号教学楼".to_string(),
+                campus: "本部".to_string(),
+            },
+            Building {
+                id: "2".to_string(),
+                name: "2号教学楼".to_string(),
+                campus: "本部".to_string(),
+            },
+            Building {
+                id: "3".to_string(),
+                name: "3号教学楼".to_string(),
+                campus: "本部".to_string(),
+            },
+            Building {
+                id: "4".to_string(),
+                name: "4号教学楼".to_string(),
+                campus: "本部".to_string(),
+            },
+            Building {
+                id: "5".to_string(),
+                name: "工程实训楼".to_string(),
+                campus: "本部".to_string(),
+            },
+            Building {
+                id: "6".to_string(),
+                name: "艺术楼".to_string(),
+                campus: "本部".to_string(),
+            },
         ])
     }
 
@@ -131,7 +157,11 @@ impl ClassroomModule {
 
         let classrooms_url = format!("{}/admin/pkgl/jyjs/mobile/jsxx", JWXT_BASE_URL);
 
-        let periods_str = periods_value.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+        let periods_str = periods_value
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
 
         let mut params = vec![
             ("zcStr", week_value.to_string()),
@@ -153,10 +183,13 @@ impl ClassroomModule {
             params.push(("jxlmc", b.to_string()));
         }
 
-        println!("[调试] 查询 empty classrooms: week={}, weekday={}, periods={:?}", 
-            week_value, weekday_value, periods_value);
+        println!(
+            "[调试] 查询 empty classrooms: week={}, weekday={}, periods={:?}",
+            week_value, weekday_value, periods_value
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&classrooms_url)
             .form(&params)
             .header("X-Requested-With", "XMLHttpRequest")
@@ -166,7 +199,10 @@ impl ClassroomModule {
 
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[调试] Classrooms 响应 status: {}, 地址: {}", status, final_url);
+        println!(
+            "[调试] Classrooms 响应 status: {}, 地址: {}",
+            status, final_url
+        );
 
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
@@ -176,10 +212,14 @@ impl ClassroomModule {
         self.parse_classrooms(&json)
     }
 
-    fn parse_classrooms(&self, json: &Value) -> Result<Vec<Classroom>, Box<dyn std::error::Error + Send + Sync>> {
+    fn parse_classrooms(
+        &self,
+        json: &Value,
+    ) -> Result<Vec<Classroom>, Box<dyn std::error::Error + Send + Sync>> {
         let mut classrooms = Vec::new();
 
-        let items = json.get("list")
+        let items = json
+            .get("list")
             .or_else(|| json.get("data"))
             .or_else(|| json.get("results"))
             .and_then(|v| v.as_array());
@@ -188,13 +228,33 @@ impl ClassroomModule {
             println!("[调试] 找到 {} classrooms", items.len());
             for item in items {
                 let classroom = Classroom {
-                    name: item.get("jsmc").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    building: item.get("jxlmc").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    capacity: item.get("jsrl")
-                        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                    name: item
+                        .get("jsmc")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    building: item
+                        .get("jxlmc")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    capacity: item
+                        .get("jsrl")
+                        .and_then(|v| {
+                            v.as_i64()
+                                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                        })
                         .unwrap_or(0) as i32,
-                    address: item.get("jsdz").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    campus: item.get("xqmc").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    address: item
+                        .get("jsdz")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    campus: item
+                        .get("xqmc")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 };
                 classrooms.push(classroom);
             }

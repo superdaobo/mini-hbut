@@ -28,6 +28,12 @@ pub struct ScreenRect {
 pub fn capture_screen_qr(rect: Option<ScreenRect>) -> Result<String, CheckinErrorCode> {
     use xcap::Monitor;
 
+    if let Some(r) = &rect {
+        if r.w == 0 || r.h == 0 {
+            return Err(CheckinErrorCode::BadRequest);
+        }
+    }
+
     let monitors = Monitor::all().map_err(|_| CheckinErrorCode::PermissionDenied)?;
     let primary = monitors
         .into_iter()
@@ -42,9 +48,6 @@ pub fn capture_screen_qr(rect: Option<ScreenRect>) -> Result<String, CheckinErro
     let img = image::DynamicImage::ImageRgba8(screenshot);
 
     let final_img = if let Some(r) = rect {
-        if r.w == 0 || r.h == 0 {
-            return Err(CheckinErrorCode::BadRequest);
-        }
         img.crop_imm(r.x as u32, r.y as u32, r.w, r.h)
     } else {
         img

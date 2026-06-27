@@ -54,10 +54,7 @@ pub fn assert_domain_allowed(url: &str) -> Result<(), CheckinErrorCode> {
         Ok(())
     } else {
         #[cfg(debug_assertions)]
-        panic!(
-            "域名白名单拦截：URL '{}' 的 host 不在允许列表中",
-            url
-        );
+        panic!("域名白名单拦截：URL '{}' 的 host 不在允许列表中", url);
         #[cfg(not(debug_assertions))]
         Err(CheckinErrorCode::PermissionDenied)
     }
@@ -69,8 +66,12 @@ mod unit {
 
     #[test]
     fn allows_whitelisted_domains() {
-        assert!(is_domain_allowed("https://mobilelearn.chaoxing.com/pptSign?activeId=123"));
-        assert!(is_domain_allowed("https://mooc1-api.chaoxing.com/mycourse/backclazzdata"));
+        assert!(is_domain_allowed(
+            "https://mobilelearn.chaoxing.com/pptSign?activeId=123"
+        ));
+        assert!(is_domain_allowed(
+            "https://mooc1-api.chaoxing.com/mycourse/backclazzdata"
+        ));
         assert!(is_domain_allowed("https://pan-yz.chaoxing.com/upload"));
         assert!(is_domain_allowed("https://passport2.chaoxing.com/login"));
         assert!(is_domain_allowed("https://hbut.edu.cn/something"));
@@ -135,7 +136,14 @@ mod proptest_p8_domain_whitelist {
             "www.chaoxing.com",
             "hbut.edu.cn",
         ];
-        let paths = vec!["/api", "/login", "/upload", "/pptSign", "/preSign", "/mycourse"];
+        let paths = vec![
+            "/api",
+            "/login",
+            "/upload",
+            "/pptSign",
+            "/preSign",
+            "/mycourse",
+        ];
         (
             proptest::sample::select(domains),
             proptest::sample::select(paths),

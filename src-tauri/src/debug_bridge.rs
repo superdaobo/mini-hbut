@@ -14,7 +14,7 @@ use windows::Win32::Foundation::RECT;
 #[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-    ReleaseDC, SelectObject, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HGDIOBJ,
+    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
 };
 #[cfg(windows)]
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS, PW_CLIENTONLY};
@@ -38,8 +38,9 @@ static STATE_SEQ: AtomicU64 = AtomicU64::new(1);
 static SCREENSHOT_WAITERS: OnceLock<
     StdMutex<HashMap<String, oneshot::Sender<Result<DebugScreenshotResponse, String>>>>,
 > = OnceLock::new();
-static OPEN_MODULE_WAITERS: OnceLock<StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>>> =
-    OnceLock::new();
+static OPEN_MODULE_WAITERS: OnceLock<
+    StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+> = OnceLock::new();
 static RESET_MORE_MODULES_WAITERS: OnceLock<
     StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
 > = OnceLock::new();
@@ -239,7 +240,8 @@ fn screenshot_waiters(
     SCREENSHOT_WAITERS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-fn open_module_waiters() -> &'static StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>> {
+fn open_module_waiters() -> &'static StdMutex<HashMap<String, oneshot::Sender<Result<(), String>>>>
+{
     OPEN_MODULE_WAITERS.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
@@ -296,7 +298,8 @@ fn save_debug_runtime_config_inner(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建调试配置目录失败: {}", e))?;
     }
-    let text = serde_json::to_string_pretty(config).map_err(|e| format!("序列化调试配置失败: {}", e))?;
+    let text =
+        serde_json::to_string_pretty(config).map_err(|e| format!("序列化调试配置失败: {}", e))?;
     std::fs::write(&path, text).map_err(|e| format!("写入调试配置失败: {}", e))?;
     Ok(config.clone())
 }
@@ -369,7 +372,8 @@ pub fn save_debug_capture_file(
     let bytes = general_purpose::STANDARD
         .decode(req.content_base64.trim())
         .map_err(|e| format!("调试截图 Base64 解析失败: {}", e))?;
-    let saved_path = save_debug_capture_bytes(&app, req.filename.as_deref(), &req.mime_type, &bytes)?;
+    let saved_path =
+        save_debug_capture_bytes(&app, req.filename.as_deref(), &req.mime_type, &bytes)?;
     Ok(DebugCaptureSaveResult {
         path: saved_path,
         mime: req.mime_type,
@@ -392,9 +396,7 @@ pub async fn complete_debug_screenshot(
     let result = if payload.success {
         Ok(DebugScreenshotResponse {
             saved_path: payload.saved_path,
-            mime: payload
-                .mime
-                .unwrap_or_else(|| "image/png".to_string()),
+            mime: payload.mime.unwrap_or_else(|| "image/png".to_string()),
             width: payload.width.unwrap_or(0),
             height: payload.height.unwrap_or(0),
             base64: payload.base64,
@@ -442,7 +444,9 @@ pub async fn complete_debug_reset_more_modules(
     let result = if payload.success {
         Ok(())
     } else {
-        Err(payload.error.unwrap_or_else(|| "模块缓存重置失败".to_string()))
+        Err(payload
+            .error
+            .unwrap_or_else(|| "模块缓存重置失败".to_string()))
     };
     let _ = sender.send(result);
     Ok(true)
@@ -463,7 +467,9 @@ pub async fn complete_debug_state(payload: DebugStateCompletePayload) -> Result<
             state: payload.state.unwrap_or(serde_json::Value::Null),
         })
     } else {
-        Err(payload.error.unwrap_or_else(|| "读取调试状态失败".to_string()))
+        Err(payload
+            .error
+            .unwrap_or_else(|| "读取调试状态失败".to_string()))
     };
     let _ = sender.send(result);
     Ok(true)
@@ -506,15 +512,13 @@ pub(crate) async fn request_debug_screenshot(
         let _ = screenshot_waiters()
             .lock()
             .map(|mut waiters| waiters.remove(request_id.as_str()));
-        return Err(DebugScreenshotBridgeError::Failed(format!("发送截图事件失败: {}", e)));
+        return Err(DebugScreenshotBridgeError::Failed(format!(
+            "发送截图事件失败: {}",
+            e
+        )));
     }
 
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms.max(1000)),
-        rx,
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms.max(1000)), rx).await {
         Ok(Ok(Ok(result))) => Ok(result),
         Ok(Ok(Err(message))) => Err(DebugScreenshotBridgeError::Failed(message)),
         Ok(Err(_)) => Err(DebugScreenshotBridgeError::Failed(
@@ -558,15 +562,13 @@ pub(crate) async fn request_debug_open_module(
         let _ = open_module_waiters()
             .lock()
             .map(|mut waiters| waiters.remove(request_id.as_str()));
-        return Err(DebugOpenModuleBridgeError::Failed(format!("发送模块点击事件失败: {}", e)));
+        return Err(DebugOpenModuleBridgeError::Failed(format!(
+            "发送模块点击事件失败: {}",
+            e
+        )));
     }
 
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms.max(1000)),
-        rx,
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms.max(1000)), rx).await {
         Ok(Ok(Ok(()))) => Ok(()),
         Ok(Ok(Err(message))) => Err(DebugOpenModuleBridgeError::Failed(message)),
         Ok(Err(_)) => Err(DebugOpenModuleBridgeError::Failed(
@@ -602,10 +604,9 @@ pub(crate) async fn request_debug_reset_more_modules(
     let (tx, rx) = oneshot::channel::<Result<(), String>>();
     reset_more_modules_waiters()
         .lock()
-        .map_err(|e| DebugResetMoreModulesBridgeError::Failed(format!(
-            "模块缓存重置请求注册失败: {}",
-            e
-        )))?
+        .map_err(|e| {
+            DebugResetMoreModulesBridgeError::Failed(format!("模块缓存重置请求注册失败: {}", e))
+        })?
         .insert(request_id.clone(), tx);
 
     if let Err(e) = app.emit(RESET_MORE_MODULES_EVENT_NAME, &bridge_payload) {
@@ -618,12 +619,7 @@ pub(crate) async fn request_debug_reset_more_modules(
         )));
     }
 
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms.max(1000)),
-        rx,
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms.max(1000)), rx).await {
         Ok(Ok(Ok(()))) => Ok(()),
         Ok(Ok(Err(message))) => Err(DebugResetMoreModulesBridgeError::Failed(message)),
         Ok(Err(_)) => Err(DebugResetMoreModulesBridgeError::Failed(
@@ -674,8 +670,12 @@ fn encode_rgba_to_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, S
 }
 
 #[cfg(windows)]
-fn capture_window_client_rgba(window: &tauri::WebviewWindow) -> Result<(Vec<u8>, u32, u32), String> {
-    let hwnd = window.hwnd().map_err(|e| format!("获取窗口句柄失败: {}", e))?;
+fn capture_window_client_rgba(
+    window: &tauri::WebviewWindow,
+) -> Result<(Vec<u8>, u32, u32), String> {
+    let hwnd = window
+        .hwnd()
+        .map_err(|e| format!("获取窗口句柄失败: {}", e))?;
     let _ = window.set_focus();
     unsafe {
         let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -816,15 +816,13 @@ pub(crate) async fn request_debug_state(
         let _ = state_waiters()
             .lock()
             .map(|mut waiters| waiters.remove(request_id.as_str()));
-        return Err(DebugStateBridgeError::Failed(format!("发送状态事件失败: {}", e)));
+        return Err(DebugStateBridgeError::Failed(format!(
+            "发送状态事件失败: {}",
+            e
+        )));
     }
 
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms.max(1000)),
-        rx,
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms.max(1000)), rx).await {
         Ok(Ok(Ok(result))) => Ok(result),
         Ok(Ok(Err(message))) => Err(DebugStateBridgeError::Failed(message)),
         Ok(Err(_)) => Err(DebugStateBridgeError::Failed(

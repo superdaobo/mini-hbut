@@ -1,12 +1,12 @@
-﻿//! 👤 个人信息查询模块
-//! 
+//! 👤 个人信息查询模块
+//!
 //! 负责获取学生的学籍基本信息。
 //! 数据来源：教务系统学籍卡片页面。
 //! 解析方式：通常使用正则表达式从 HTML 中提取字段。
 
+use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use regex::Regex;
 
 const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 
@@ -45,33 +45,48 @@ impl StudentInfoModule {
         Self { client }
     }
 
-    pub async fn fetch_info(&self) -> Result<StudentInfo, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn fetch_info(
+        &self,
+    ) -> Result<StudentInfo, Box<dyn std::error::Error + Send + Sync>> {
         let info_url = format!("{}/admin/xsd/xsjbxx/xskp", JWXT_BASE_URL);
-        
+
         println!("[调试] 获取 student info 来自: {}", info_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .get(&info_url)
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Referer", format!("{}/admin/indexMain/M1402", JWXT_BASE_URL))
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .header(
+                "Referer",
+                format!("{}/admin/indexMain/M1402", JWXT_BASE_URL),
+            )
             .send()
             .await?;
-        
+
         let status = response.status();
         let final_url = response.url().to_string();
-        println!("[调试] Student info 响应 status: {}, 地址: {}", status, final_url);
-        
+        println!(
+            "[调试] Student info 响应 status: {}, 地址: {}",
+            status, final_url
+        );
+
         if final_url.contains("authserver/login") {
             return Err("会话已过期，请重新登录".into());
         }
-        
+
         let html = response.text().await?;
         println!("[调试] Student info HTML length: {}", html.len());
-        
+
         self.parse_html(&html)
     }
 
-    fn parse_html(&self, html: &str) -> Result<StudentInfo, Box<dyn std::error::Error + Send + Sync>> {
+    fn parse_html(
+        &self,
+        html: &str,
+    ) -> Result<StudentInfo, Box<dyn std::error::Error + Send + Sync>> {
         let extract_field = |label: &str| -> String {
             let patterns = [
                 format!(
@@ -91,7 +106,10 @@ impl StudentInfoModule {
             for pattern in patterns {
                 if let Ok(re) = Regex::new(&pattern) {
                     if let Some(cap) = re.captures(html) {
-                        let value = cap.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                        let value = cap
+                            .get(1)
+                            .map(|m| m.as_str().trim().to_string())
+                            .unwrap_or_default();
                         if !value.is_empty() && value != "★★★★" {
                             return value;
                         }
@@ -130,7 +148,10 @@ impl StudentInfoModule {
             return Err("无法解析学生信息，可能会话已过期".into());
         }
 
-        println!("[调试] 已解析 student info: {} - {}", info.student_id, info.name);
+        println!(
+            "[调试] 已解析 student info: {} - {}",
+            info.student_id, info.name
+        );
         Ok(info)
     }
 }

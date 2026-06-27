@@ -228,7 +228,7 @@ mod proptest_p6_gesture {
     /// 生成合法手势密码：从 '1'-'9' 中随机选取 4~9 个不重复字符
     fn valid_gesture_strategy() -> impl Strategy<Value = String> {
         (4usize..=9usize).prop_flat_map(|len| {
-            proptest::sample::subsequence(vec!['1','2','3','4','5','6','7','8','9'], len)
+            proptest::sample::subsequence(vec!['1', '2', '3', '4', '5', '6', '7', '8', '9'], len)
                 .prop_map(|chars| chars.into_iter().collect::<String>())
         })
     }
@@ -269,8 +269,13 @@ mod proptest_p7_photo {
 
     const VALID_MIMES: &[&str] = &["image/jpeg", "image/png", "image/webp"];
     const INVALID_MIMES: &[&str] = &[
-        "image/gif", "image/bmp", "image/tiff", "application/pdf",
-        "text/plain", "video/mp4", "application/octet-stream",
+        "image/gif",
+        "image/bmp",
+        "image/tiff",
+        "application/pdf",
+        "text/plain",
+        "video/mp4",
+        "application/octet-stream",
     ];
 
     proptest! {

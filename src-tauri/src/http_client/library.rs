@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 use reqwest::RequestBuilder;
 use serde_json::{json, Map, Value};
 
@@ -150,7 +150,10 @@ fn build_library_search_payload(params: Value) -> Value {
         "rows".to_string(),
         Value::Number(to_i64_or(obj.get("rows"), 50).into()),
     );
-    payload.insert("onlyOnShelf".to_string(), to_nullable_bool(obj.get("onlyOnShelf")));
+    payload.insert(
+        "onlyOnShelf".to_string(),
+        to_nullable_bool(obj.get("onlyOnShelf")),
+    );
     payload.insert(
         "searchItems".to_string(),
         obj.get("searchItems").cloned().unwrap_or(Value::Null),
@@ -202,7 +205,9 @@ impl HbutClient {
         Ok(cover)
     }
 
-    async fn ensure_opac_session(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn ensure_opac_session(
+        &mut self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/", OPAC_BASE_URL);
         let response = self.client.get(url).send().await?;
         if !response.status().is_success() {
@@ -236,7 +241,8 @@ impl HbutClient {
                 return Ok(false);
             }
             println!("[调试] 图书会话兜底：执行 OPAC SSO 登录");
-            self.login_for_service(&username, &password, OPAC_SERVICE_URL).await?;
+            self.login_for_service(&username, &password, OPAC_SERVICE_URL)
+                .await?;
         } else {
             println!("[调试] 图书会话兜底：CAS 会话可用，直接建立 OPAC 会话");
         }
@@ -295,7 +301,9 @@ impl HbutClient {
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         self.ensure_opac_session().await?;
         let payload = json!({});
-        let result = self.post_opac_json("/find/groupResource/dict", &payload).await?;
+        let result = self
+            .post_opac_json("/find/groupResource/dict", &payload)
+            .await?;
         ensure_opac_success(&result, "获取图书筛选项")?;
         Ok(result)
     }
@@ -411,7 +419,8 @@ impl HbutClient {
         if let Some(id) = record_id {
             cover_query.push(("recordId".to_string(), id.to_string()));
         }
-        let should_try_cover = record_id.is_some() || !title.trim().is_empty() || !isbn.trim().is_empty();
+        let should_try_cover =
+            record_id.is_some() || !title.trim().is_empty() || !isbn.trim().is_empty();
         let cover_result = if should_try_cover {
             self.get_opac_json("/find/book/getDuxiuImageUrl", &cover_query)
                 .await
@@ -474,4 +483,3 @@ impl HbutClient {
         }))
     }
 }
-

@@ -65,6 +65,7 @@ rqrr = "0.9"
 image = "0.25"
 dashmap = "6"
 url = "2"
+keyring = "3"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 notify-rust = "4.11.7"

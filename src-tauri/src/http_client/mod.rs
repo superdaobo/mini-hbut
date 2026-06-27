@@ -10,30 +10,27 @@
 //! - OCR 请求使用独立的 `ocr_client`，避免污染主会话
 //! - 这里不直接实现业务接口，业务逻辑在子模块中实现
 
+use chrono::{DateTime, Utc};
 use reqwest::{
-    Client,
     cookie::{CookieStore, Jar},
+    Client,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use chrono::{DateTime, Utc};
 
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::Engine;
 use rand::Rng;
 
-use crate::{
-    UserInfo, LoginPageInfo, Grade, ScheduleCourse, Exam, CalendarEvent,
-    parser,
-};
+use crate::{parser, CalendarEvent, Exam, Grade, LoginPageInfo, ScheduleCourse, UserInfo};
 
-mod auth;
-mod session;
 mod academic;
-mod electricity;
-mod qxzkb;
-mod library;
 mod ai;
+mod auth;
+mod electricity;
+mod library;
+mod qxzkb;
+mod session;
 mod utils;
 
 // 学期 URLs
@@ -51,13 +48,13 @@ pub(super) const AUTH_BASE_URL: &str = "https://auth.hbut.edu.cn/authserver";
 pub(super) const JWXT_BASE_URL: &str = "https://jwxt.hbut.edu.cn";
 pub(super) const CHAOXING_JWXT_BASE_URL: &str = "https://hbut.jw.chaoxing.com";
 pub(super) const TARGET_SERVICE: &str = "https://jwxt.hbut.edu.cn/admin/?loginType=1";
-pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
+pub(super) const DEFAULT_REMOTE_OCR_ENDPOINT: &str =
+    "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_OCR_ENDPOINT: &str = "http://1.94.167.18:5080/api/ocr/recognize";
-pub(super) const SECONDARY_OCR_ENDPOINT: &str = "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
-pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] = &[
-    DEFAULT_OCR_ENDPOINT,
-    SECONDARY_OCR_ENDPOINT,
-];
+pub(super) const SECONDARY_OCR_ENDPOINT: &str =
+    "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
+pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] =
+    &[DEFAULT_OCR_ENDPOINT, SECONDARY_OCR_ENDPOINT];
 
 /// 判断是否跳转到了教务登录页（包含 CAS 登录与教务自身登录页）。
 /// 注意：不匹配 `/admin/caslogin`，因为它是学习通 CAS 的 service URL 本身，
@@ -81,7 +78,10 @@ pub(super) fn get_random_string(length: usize) -> String {
 }
 
 /// 使用 AES-CBC 加密密码（模拟 CAS 前端 encrypt.js 的加密逻辑）
-pub(super) fn encrypt_password_aes(password: &str, salt: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+pub(super) fn encrypt_password_aes(
+    password: &str,
+    salt: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     if salt.len() != 16 {
         return Err(format!("Salt must be 16 bytes, got {}", salt.len()).into());
     }
@@ -104,7 +104,8 @@ pub(super) fn encrypt_password_aes(password: &str, salt: &str) -> Result<String,
 
     // AES-CBC 加密
     let cipher = Aes128CbcEnc::new(key.into(), iv_bytes.into());
-    let encrypted = cipher.encrypt_padded_mut::<Pkcs7>(&mut buf, plain_bytes.len())
+    let encrypted = cipher
+        .encrypt_padded_mut::<Pkcs7>(&mut buf, plain_bytes.len())
         .map_err(|e| format!("Encryption failed: {:?}", e))?;
 
     // Base64 编码
@@ -149,8 +150,8 @@ impl HbutClient {
         if self.prefer_chaoxing_jwxt {
             return CHAOXING_JWXT_BASE_URL;
         }
-        let chaoxing_url = reqwest::Url::parse(CHAOXING_JWXT_BASE_URL)
-            .expect("invalid CHAOXING_JWXT_BASE_URL");
+        let chaoxing_url =
+            reqwest::Url::parse(CHAOXING_JWXT_BASE_URL).expect("invalid CHAOXING_JWXT_BASE_URL");
         let has_chaoxing_cookie = match self.cookie_jar.cookies(&chaoxing_url) {
             Some(v) => v
                 .to_str()
@@ -182,20 +183,45 @@ impl HbutClient {
     }
 
     fn build_http_client(jar: Arc<Jar>) -> Client {
-        Client::builder()
+        let mut builder = Client::builder()
             .cookie_store(true)
             .cookie_provider(jar)
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .danger_accept_invalid_certs(true)
+            .redirect(reqwest::redirect::Policy::limited(10));
+        if Self::insecure_tls_allowed() {
+            builder = builder.danger_accept_invalid_certs(true);
+        }
+        builder
             // DNS 兜底：某些环境 getaddrinfo 失败时，强制使用已知可用 IP。
-            .resolve("auth.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 47], 443)))
-            .resolve("jwxt.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
-            .resolve("hbut.jw.chaoxing.com", std::net::SocketAddr::from(([202, 114, 191, 16], 443)))
-            .resolve("code.hbut.edu.cn", std::net::SocketAddr::from(([202, 114, 191, 2], 443)))
+            .resolve(
+                "auth.hbut.edu.cn",
+                std::net::SocketAddr::from(([202, 114, 191, 47], 443)),
+            )
+            .resolve(
+                "jwxt.hbut.edu.cn",
+                std::net::SocketAddr::from(([202, 114, 191, 16], 443)),
+            )
+            .resolve(
+                "hbut.jw.chaoxing.com",
+                std::net::SocketAddr::from(([202, 114, 191, 16], 443)),
+            )
+            .resolve(
+                "code.hbut.edu.cn",
+                std::net::SocketAddr::from(([202, 114, 191, 2], 443)),
+            )
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("创建 HTTP 客户端失败")
+    }
+
+    /// Release 默认校验 TLS；Debug 或 `MINI_HBUT_INSECURE_TLS=1` 时允许无效证书。
+    fn insecure_tls_allowed() -> bool {
+        if cfg!(debug_assertions) {
+            return true;
+        }
+        std::env::var("MINI_HBUT_INSECURE_TLS")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
     }
 
     fn build_ocr_client() -> Client {
@@ -298,7 +324,10 @@ impl HbutClient {
                 format!("{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
             }
         } else {
-            format!("http://{}/api/ocr/recognize", endpoint.trim_end_matches('/'))
+            format!(
+                "http://{}/api/ocr/recognize",
+                endpoint.trim_end_matches('/')
+            )
         }
     }
 
@@ -381,7 +410,9 @@ impl HbutClient {
     }
 
     /// 获取当前电费会话快照（用于持久化）
-    pub fn get_electricity_session(&self) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
+    pub fn get_electricity_session(
+        &self,
+    ) -> (Option<String>, Option<String>, Option<DateTime<Utc>>) {
         (
             self.electricity_token.clone(),
             self.electricity_refresh_token.clone(),
@@ -422,5 +453,3 @@ impl HbutClient {
         }
     }
 }
-
-
