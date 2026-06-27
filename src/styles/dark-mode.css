@@ -58,29 +58,8 @@ html.dark .bg-gray-100 {
   background-color: #334155 !important;
 }
 
-html.dark .dashboard-root .quick-entry-icon[data-module='grades'] {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.34), rgba(96, 165, 250, 0.18)) !important;
-}
-
-html.dark .dashboard-root .quick-entry-icon[data-module='exams'],
-html.dark .dashboard-root .quick-entry-icon[data-module='campus_map'] {
-  background: linear-gradient(135deg, rgba(20, 184, 166, 0.32), rgba(45, 212, 191, 0.16)) !important;
-}
-
-html.dark .dashboard-root .quick-entry-icon[data-module='classroom'] {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(134, 239, 172, 0.15)) !important;
-}
-
-html.dark .dashboard-root .quick-entry-icon[data-module='electricity'] {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(248, 113, 113, 0.16)) !important;
-}
-
-html.dark .dashboard-root .quick-entry-icon[data-module='ranking'] {
-  background: linear-gradient(135deg, rgba(234, 179, 8, 0.32), rgba(250, 204, 21, 0.16)) !important;
-}
-
-html.dark .dashboard-root .quick-entry-icon:not([data-module='grades']):not([data-module='exams']):not([data-module='campus_map']):not([data-module='classroom']):not([data-module='electricity']):not([data-module='ranking']) {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(125, 211, 252, 0.15)) !important;
+html.dark .dashboard-root .quick-entry-icon {
+  background: #000 !important;
 }
 
 /* ─── 通用文字颜色 ─── */

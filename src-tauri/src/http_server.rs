@@ -248,6 +248,9 @@ use crate::http_client::HbutClient;
 use crate::modules::module_bundle::{
     self, ModuleBundlePrepareRequest, OpenModuleBundleWindowRequest,
 };
+use crate::modules::school_website_embed::{
+    build_school_website_remote_url, parse_school_website_proxy_path, rewrite_school_website_html,
+};
 use crate::{
     AddCustomScheduleCourseRequest, ChaoxingCourseOutlineRequest, ChaoxingCourseProgressRequest,
     ChaoxingCoursesRequest, ChaoxingKnowledgeCardsRequest, ChaoxingLaunchUrlRequest,
@@ -2972,7 +2975,6 @@ fn encode_resource_share_path(path: &str) -> String {
 }
 
 const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";
-const HBUT_WEBSITE_TARGET_BASE: &str = "https://www.hbut.edu.cn";
 const TOWERGO_TARGET_HOST: &str = "ebike-oper.chinatowercom.cn";
 const TOWERGO_APP_ID: &str = "wx278283883c249e3e";
 const TOWERGO_MINIPROGRAM_REFERER: &str =
@@ -3167,31 +3169,15 @@ async fn school_website_proxy(
         return Ok(response);
     }
 
-    let clean_path = path.trim_start_matches('/');
-    if clean_path.contains("..") {
-        return Err(err(
+    let query_text = query.as_deref();
+    let target = parse_school_website_proxy_path(&path, query_text).map_err(|message| {
+        err(
             StatusCode::BAD_REQUEST,
             "参数错误",
-            "学校官网代理路径非法".to_string(),
-        ));
-    }
-
-    let remote_url = match query {
-        Some(q) if !q.trim().is_empty() => {
-            if clean_path.is_empty() {
-                format!("{}/?{}", HBUT_WEBSITE_TARGET_BASE, q)
-            } else {
-                format!("{}/{}?{}", HBUT_WEBSITE_TARGET_BASE, clean_path, q)
-            }
-        }
-        _ => {
-            if clean_path.is_empty() {
-                format!("{}/", HBUT_WEBSITE_TARGET_BASE)
-            } else {
-                format!("{}/{}", HBUT_WEBSITE_TARGET_BASE, clean_path)
-            }
-        }
-    };
+            message,
+        )
+    })?;
+    let remote_url = build_school_website_remote_url(&target, query_text);
 
     let request_headers = school_website_sanitize_request_headers(&headers);
     let client = reqwest::Client::builder()
@@ -3222,25 +3208,36 @@ async fn school_website_proxy(
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
-    let mut response = if status.is_success() {
-        let stream = upstream
-            .bytes_stream()
-            .map(|chunk| chunk.map_err(|e| std::io::Error::new(ErrorKind::Other, e.to_string())));
-        let mut resp = Response::new(Body::from_stream(stream));
-        *resp.status_mut() = status;
-        resp
+    let body_bytes = upstream.bytes().await.unwrap_or_default();
+    let is_html = upstream_headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.contains("text/html"))
+        .unwrap_or(false);
+    let final_body = if is_html && status.is_success() {
+        let html = String::from_utf8_lossy(&body_bytes).to_string();
+        rewrite_school_website_html(&html).into_bytes()
     } else {
-        let body_bytes = upstream.bytes().await.unwrap_or_default();
-        let mut resp = Response::new(Body::from(body_bytes));
-        *resp.status_mut() = status;
-        resp
+        body_bytes.to_vec()
     };
+
+    let mut response = Response::new(Body::from(final_body));
+    *response.status_mut() = status;
 
     for (name, value) in upstream_headers.iter() {
         let lower = name.as_str().to_ascii_lowercase();
         if school_website_copy_response_header(&lower) {
+            if lower == "content-length" {
+                continue;
+            }
             response.headers_mut().insert(name.clone(), value.clone());
         }
+    }
+    if is_html && status.is_success() {
+        response.headers_mut().insert(
+            HeaderName::from_static("content-type"),
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
     }
     Ok(response)
 }

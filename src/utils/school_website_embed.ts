@@ -1,7 +1,8 @@
 import { detectRuntime } from '../platform/runtime'
 
 export const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'
-const LOCAL_BRIDGE_BASE = 'http://127.0.0.1:4399'
+const LOCAL_BRIDGE_BASE =
+  detectRuntime() === 'tauri' ? 'http://127.0.0.1:4399' : '/bridge'
 
 export const SCHOOL_WEBSITE_PROXY_URL = `${LOCAL_BRIDGE_BASE}/school-website/`
 
