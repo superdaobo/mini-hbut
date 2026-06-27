@@ -24,8 +24,9 @@ const iframeSrc = computed(() => {
 })
 
 let loadingGuardTimer = null
-let bridgeProbeTimer = null
 let embedCleanup = null
+/** 首页已成功渲染后，忽略 iOS iframe 偶发的 error（子资源/站内跳转误报） */
+const hasIframeLoadedOnce = ref(false)
 
 const clearLoadingGuardTimer = () => {
   if (loadingGuardTimer) {
@@ -34,16 +35,8 @@ const clearLoadingGuardTimer = () => {
   }
 }
 
-const clearBridgeProbeTimer = () => {
-  if (bridgeProbeTimer) {
-    clearTimeout(bridgeProbeTimer)
-    bridgeProbeTimer = null
-  }
-}
-
 const showBridgeUnavailable = () => {
   clearLoadingGuardTimer()
-  clearBridgeProbeTimer()
   loading.value = false
   loadHint.value = ''
   loadError.value = '本地桥接服务不可用，无法在应用内加载学校官网，请点击下方按钮在浏览器中打开。'
@@ -51,17 +44,10 @@ const showBridgeUnavailable = () => {
 
 const resetIframeState = () => {
   clearLoadingGuardTimer()
-  clearBridgeProbeTimer()
+  hasIframeLoadedOnce.value = false
   loading.value = true
   loadError.value = ''
   loadHint.value = ''
-
-  if (embedMode.value === 'proxy-iframe') {
-    bridgeProbeTimer = window.setTimeout(() => {
-      if (!loading.value || loadError.value) return
-      showBridgeUnavailable()
-    }, 3000)
-  }
 
   loadingGuardTimer = window.setTimeout(() => {
     if (!loading.value || useNativeEmbed.value || useExternalOnly.value) return
@@ -73,7 +59,7 @@ const resetIframeState = () => {
 const handleLoad = () => {
   if (useNativeEmbed.value || useExternalOnly.value) return
   clearLoadingGuardTimer()
-  clearBridgeProbeTimer()
+  hasIframeLoadedOnce.value = true
   loading.value = false
   loadError.value = ''
   loadHint.value = ''
@@ -81,12 +67,13 @@ const handleLoad = () => {
 
 const handleError = () => {
   if (useNativeEmbed.value || useExternalOnly.value) return
+  // iOS WKWebView 在页面已展示后仍可能误报 error；桥接可用性已在进入页面前探测过。
+  if (embedMode.value === 'proxy-iframe' && hasIframeLoadedOnce.value) return
   if (embedMode.value === 'proxy-iframe') {
     showBridgeUnavailable()
     return
   }
   clearLoadingGuardTimer()
-  clearBridgeProbeTimer()
   loading.value = false
   loadError.value = '官网页面无法在应用内嵌入显示，请点击下方按钮在浏览器中打开。'
   loadHint.value = ''
@@ -98,7 +85,7 @@ const handleOpenExternal = async () => {
 
 const cleanupEmbed = async () => {
   clearLoadingGuardTimer()
-  clearBridgeProbeTimer()
+  hasIframeLoadedOnce.value = false
   if (embedCleanup) {
     const cleanup = embedCleanup
     embedCleanup = null
