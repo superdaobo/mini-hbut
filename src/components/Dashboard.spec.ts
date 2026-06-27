@@ -21,7 +21,7 @@ describe('Dashboard quick entry defaults', () => {
     expect(vue).toContain(':data-module="item.id"')
     expect(vue).toContain('class="quick-entry-icon w-10 h-10')
     expect(vue).toContain(':data-module="id"')
-    expect(darkCss).toContain('html.dark .dashboard-root .quick-entry-icon')
+    expect(darkCss).toContain('html.dark .quick-entry-icon')
     expect(darkCss).toContain('background: #000 !important')
   })
 })
