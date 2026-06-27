@@ -1,4 +1,10 @@
 import { detectRuntime } from '../platform/runtime'
+import {
+  isLikelyAndroidUserAgent,
+  isLikelyIOSUserAgent,
+  isTauriDesktopRuntime,
+  isTauriRuntime
+} from '../platform/native'
 
 export const SCHOOL_WEBSITE_URL = 'https://www.hbut.edu.cn/'
 const LOCAL_BRIDGE_BASE =
@@ -6,7 +12,11 @@ const LOCAL_BRIDGE_BASE =
 
 export const SCHOOL_WEBSITE_PROXY_URL = `${LOCAL_BRIDGE_BASE}/school-website/`
 
-export type SchoolWebsiteEmbedMode = 'tauri-webview' | 'proxy-iframe' | 'direct-iframe'
+export type SchoolWebsiteEmbedMode =
+  | 'tauri-webview'
+  | 'proxy-iframe'
+  | 'direct-iframe'
+  | 'external-open'
 
 export type EmbedBounds = {
   x: number
@@ -15,12 +25,12 @@ export type EmbedBounds = {
   height: number
 }
 
-export const resolveSchoolWebsiteIframeUrl = (mode: Exclude<SchoolWebsiteEmbedMode, 'tauri-webview'>) =>
+export const resolveSchoolWebsiteIframeUrl = (mode: Exclude<SchoolWebsiteEmbedMode, 'tauri-webview' | 'external-open'>) =>
   mode === 'proxy-iframe' ? SCHOOL_WEBSITE_PROXY_URL : SCHOOL_WEBSITE_URL
 
-const canUseTauriEmbeddedWebview = () => detectRuntime() === 'tauri'
+const canUseTauriEmbeddedWebview = () => isTauriDesktopRuntime()
 
-const probeProxyReachable = async () => {
+export const probeSchoolWebsiteProxyReachable = async () => {
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 1500)
@@ -37,7 +47,19 @@ const probeProxyReachable = async () => {
 
 export const resolveSchoolWebsiteEmbedMode = async (): Promise<SchoolWebsiteEmbedMode> => {
   if (canUseTauriEmbeddedWebview()) return 'tauri-webview'
-  if (await probeProxyReachable()) return 'proxy-iframe'
+
+  // Tauri Android 不走 loopback 代理，官网也无法 iframe 直连。
+  if (isTauriRuntime() && isLikelyAndroidUserAgent()) {
+    return 'external-open'
+  }
+
+  // Tauri iOS：依赖 loopback Bridge + proxy-iframe。
+  if (isTauriRuntime() && isLikelyIOSUserAgent()) {
+    if (await probeSchoolWebsiteProxyReachable()) return 'proxy-iframe'
+    return 'external-open'
+  }
+
+  if (await probeSchoolWebsiteProxyReachable()) return 'proxy-iframe'
   return 'direct-iframe'
 }
 

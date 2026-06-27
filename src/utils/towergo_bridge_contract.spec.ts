@@ -14,6 +14,8 @@ describe('towergo bridge and location permission contract', () => {
     expect(bridge).toContain('.route("/towergo/*path", any(towergo_proxy))')
     expect(bridge).toContain('const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";')
     expect(bridge).toContain('towergo_sanitize_request_headers')
+    expect(bridge).toContain('cfg!(target_os = "ios")')
+    expect(bridge).toContain('HBUT_HTTP_BRIDGE_ENABLED')
   })
 
   it('declares platform location permissions so geolocation can request the system prompt', () => {

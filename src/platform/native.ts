@@ -13,6 +13,18 @@ export const isTauriRuntime = () => detectRuntime() === 'tauri'
  */
 export const isCapacitorRuntime = () => detectRuntime() === 'capacitor'
 
+export const isLikelyIOSUserAgent = () =>
+  /(iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
+
+export const isLikelyAndroidUserAgent = () =>
+  /android/i.test(String(globalThis?.navigator?.userAgent || ''))
+
+export const isTauriDesktopRuntime = () =>
+  isTauriRuntime() && !isLikelyIOSUserAgent() && !isLikelyAndroidUserAgent()
+
+export const isTauriMobileRuntime = () =>
+  isTauriRuntime() && (isLikelyIOSUserAgent() || isLikelyAndroidUserAgent())
+
 /**
  * 统一的原生命令调用入口（当前仅 Tauri 支持 invoke）。
  */

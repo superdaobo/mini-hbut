@@ -16,11 +16,15 @@ const loading = ref(true)
 const loadError = ref('')
 const loadHint = ref('')
 const useNativeEmbed = computed(() => embedMode.value === 'tauri-webview')
-const iframeSrc = computed(() =>
-  resolveSchoolWebsiteIframeUrl(embedMode.value === 'proxy-iframe' ? 'proxy-iframe' : 'direct-iframe')
-)
+const useExternalOnly = computed(() => embedMode.value === 'external-open')
+const iframeSrc = computed(() => {
+  if (useNativeEmbed.value || useExternalOnly.value) return ''
+  const mode = embedMode.value === 'proxy-iframe' ? 'proxy-iframe' : 'direct-iframe'
+  return resolveSchoolWebsiteIframeUrl(mode)
+})
 
 let loadingGuardTimer = null
+let bridgeProbeTimer = null
 let embedCleanup = null
 
 const clearLoadingGuardTimer = () => {
@@ -30,30 +34,59 @@ const clearLoadingGuardTimer = () => {
   }
 }
 
+const clearBridgeProbeTimer = () => {
+  if (bridgeProbeTimer) {
+    clearTimeout(bridgeProbeTimer)
+    bridgeProbeTimer = null
+  }
+}
+
+const showBridgeUnavailable = () => {
+  clearLoadingGuardTimer()
+  clearBridgeProbeTimer()
+  loading.value = false
+  loadHint.value = ''
+  loadError.value = '本地桥接服务不可用，无法在应用内加载学校官网，请点击下方按钮在浏览器中打开。'
+}
+
 const resetIframeState = () => {
   clearLoadingGuardTimer()
+  clearBridgeProbeTimer()
   loading.value = true
   loadError.value = ''
   loadHint.value = ''
 
+  if (embedMode.value === 'proxy-iframe') {
+    bridgeProbeTimer = window.setTimeout(() => {
+      if (!loading.value || loadError.value) return
+      showBridgeUnavailable()
+    }, 3000)
+  }
+
   loadingGuardTimer = window.setTimeout(() => {
-    if (!loading.value || useNativeEmbed.value) return
+    if (!loading.value || useNativeEmbed.value || useExternalOnly.value) return
     loading.value = false
     loadHint.value = '页面加载较慢，若长时间空白可尝试在浏览器中打开。'
   }, 4500)
 }
 
 const handleLoad = () => {
-  if (useNativeEmbed.value) return
+  if (useNativeEmbed.value || useExternalOnly.value) return
   clearLoadingGuardTimer()
+  clearBridgeProbeTimer()
   loading.value = false
   loadError.value = ''
   loadHint.value = ''
 }
 
 const handleError = () => {
-  if (useNativeEmbed.value) return
+  if (useNativeEmbed.value || useExternalOnly.value) return
+  if (embedMode.value === 'proxy-iframe') {
+    showBridgeUnavailable()
+    return
+  }
   clearLoadingGuardTimer()
+  clearBridgeProbeTimer()
   loading.value = false
   loadError.value = '官网页面无法在应用内嵌入显示，请点击下方按钮在浏览器中打开。'
   loadHint.value = ''
@@ -65,6 +98,7 @@ const handleOpenExternal = async () => {
 
 const cleanupEmbed = async () => {
   clearLoadingGuardTimer()
+  clearBridgeProbeTimer()
   if (embedCleanup) {
     const cleanup = embedCleanup
     embedCleanup = null
@@ -77,6 +111,11 @@ const mountEmbed = async () => {
   if (!container) return
 
   embedMode.value = await resolveSchoolWebsiteEmbedMode()
+
+  if (embedMode.value === 'external-open') {
+    showBridgeUnavailable()
+    return
+  }
 
   if (embedMode.value === 'tauri-webview') {
     try {
@@ -94,7 +133,9 @@ const mountEmbed = async () => {
       embedCleanup = mounted.cleanup
       return
     } catch {
-      embedMode.value = 'proxy-iframe'
+      loading.value = false
+      loadError.value = '创建学校官网内嵌视图失败，请点击下方按钮在浏览器中打开。'
+      return
     }
   }
 
@@ -142,7 +183,7 @@ onBeforeUnmount(() => {
       </div>
 
       <iframe
-        v-if="!useNativeEmbed"
+        v-if="!useNativeEmbed && !useExternalOnly && iframeSrc"
         class="website-frame"
         :src="iframeSrc"
         title="湖北工业大学官网"
