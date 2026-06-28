@@ -256,7 +256,7 @@ const handleShowLegal = async (tab) => {
     <!-- 开源说明弹窗 -->
     <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
       <div class="modal-card" @click.stop>
-        <h3>📚 开源说明</h3>
+        <h3><span class="material-symbols-outlined opensource-title-icon">menu_book</span> 开源说明</h3>
         <p class="intro">Mini-HBUT 是一个开源项目，致力于提供更好的校园信息查询体验。</p>
         <div class="section">
           <p class="label">项目地址</p>
@@ -627,6 +627,13 @@ const handleShowLegal = async (tab) => {
   font-size: 18px;
   font-weight: 700;
   color: #1f2937;
+}
+
+.opensource-title-icon {
+  font-size: 20px;
+  vertical-align: -4px;
+  margin-right: 6px;
+  color: var(--ui-primary, #2563eb);
 }
 
 .modal-card .intro {

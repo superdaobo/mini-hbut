@@ -64,7 +64,7 @@ node scripts/check-design-tokens.mjs
 
 | 变量 | 用途 |
 |------|------|
-| `HBUT_HTTP_BRIDGE_ENABLED=1` | Release 下启动本地 Bridge |
+| `HBUT_HTTP_BRIDGE_ENABLED=1` | 桌面 Release 下启动本地 Bridge；Tauri iOS Release 默认已开启 |
 | `HBUT_BRIDGE_TOKEN` | Bridge 敏感 API Bearer 令牌 |
 | `MINI_HBUT_INSECURE_TLS=1` | 禁用 TLS 校验（仅排障） |
 

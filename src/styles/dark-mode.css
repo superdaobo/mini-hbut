@@ -58,9 +58,93 @@ html.dark .bg-gray-100 {
   background-color: #334155 !important;
 }
 
-/* 含 Teleport 到 body 的「编辑快捷入口」弹窗，不能限定 .dashboard-root */
-html.dark .quick-entry-icon {
-  background: #000 !important;
+/* 快捷入口：保留各模块 Tailwind 浅色底在暗色下的分色映射（勿统一压黑） */
+html.dark .quick-entry-editor-panel {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .quick-entry-editor-item {
+  border-color: transparent !important;
+}
+
+html.dark .quick-entry-editor-item:hover,
+html.dark .quick-entry-editor-item:active {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark .quick-entry-editor-item--selected {
+  border-color: #3b82f6 !important;
+  background-color: rgba(59, 130, 246, 0.18) !important;
+}
+
+html.dark .quick-entry-editor-item--selected:hover,
+html.dark .quick-entry-editor-item--selected:active {
+  background-color: rgba(59, 130, 246, 0.24) !important;
+}
+
+html.dark .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+}
+
+html.dark .bg-green-50 {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+html.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+html.dark .bg-yellow-50 {
+  background-color: rgba(234, 179, 8, 0.15) !important;
+}
+
+html.dark .bg-teal-50 {
+  background-color: rgba(20, 184, 166, 0.15) !important;
+}
+
+html.dark .bg-indigo-50 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+html.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+
+html.dark .bg-cyan-50 {
+  background-color: rgba(6, 182, 212, 0.15) !important;
+}
+
+html.dark .bg-pink-50 {
+  background-color: rgba(236, 72, 153, 0.15) !important;
+}
+
+html.dark .bg-violet-50 {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+}
+
+html.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+}
+
+html.dark .bg-sky-50 {
+  background-color: rgba(14, 165, 233, 0.15) !important;
+}
+
+html.dark .bg-lime-50 {
+  background-color: rgba(132, 204, 22, 0.15) !important;
+}
+
+html.dark .quick-entry-icon.bg-gray-50 {
+  background-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+html.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+}
+
+html.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
 }
 
 /* ─── 通用文字颜色 ─── */
@@ -330,9 +414,14 @@ html.dark .schedule-view .drawer-subtitle {
   color: #cbd5e1 !important;
 }
 
+html.dark .schedule-view .drawer-subtitle::before {
+  background: var(--ui-primary, #60a5fa) !important;
+  color: #0f172a !important;
+}
+
 /* 课表工具 - 各模块之间的分割线 */
 html.dark .schedule-view .drawer-section {
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.32) !important;
   padding-bottom: 16px !important;
 }
 
@@ -343,22 +432,54 @@ html.dark .schedule-view .drawer-actions {
 
 html.dark .schedule-view .drawer-sync-group,
 html.dark .schedule-view .drawer-course-group {
-  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
   border-radius: 12px !important;
   padding: 12px !important;
 }
 
 /* 课表工具 - 按钮 */
 html.dark .schedule-view .drawer-action {
-  background: #334155 !important;
-  border: 1px solid rgba(148, 163, 184, 0.15) !important;
-  color: #e2e8f0 !important;
+  border: none !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4) !important;
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.22) !important;
 }
 
 html.dark .schedule-view .drawer-action.ghost {
   background: transparent !important;
-  border: 1px solid rgba(148, 163, 184, 0.2) !important;
-  color: #94a3b8 !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+html.dark .schedule-view .drawer-action.add-course {
+  background: linear-gradient(135deg, #f97316, #ec4899) !important;
+  box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26) !important;
+}
+
+html.dark .schedule-view .drawer-action.manage-course {
+  background: linear-gradient(135deg, #8b5cf6, #2563eb) !important;
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.22) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-upload {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb) !important;
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-download {
+  background: linear-gradient(135deg, #10b981, #0f766e) !important;
+  box-shadow: 0 10px 18px rgba(15, 118, 110, 0.24) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-json-export {
+  background: linear-gradient(135deg, #6366f1, #2563eb) !important;
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.24) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-json-import {
+  background: linear-gradient(135deg, #f97316, #ea580c) !important;
+  box-shadow: 0 10px 18px rgba(234, 88, 12, 0.24) !important;
 }
 
 /* 课表工具 - 选择器 */
@@ -375,6 +496,8 @@ html.dark .schedule-view .drawer-style-chip {
 
 html.dark .schedule-view .drawer-style-chip.active {
   color: #ffffff !important;
+  background: var(--ui-primary, #2563eb) !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
 }
 
 /* 课表工具 - 提示和状态 */
@@ -382,19 +505,6 @@ html.dark .schedule-view .drawer-tip,
 html.dark .schedule-view .drawer-sync-status,
 html.dark .schedule-view .drawer-sync-cooldown {
   color: #64748b !important;
-}
-
-/* 课表工具 - 课程管理按钮保持渐变 */
-html.dark .schedule-view .drawer-course-actions button:first-child {
-  background: linear-gradient(135deg, #f97316, #ec4899) !important;
-  border: none !important;
-  color: #ffffff !important;
-}
-
-html.dark .schedule-view .drawer-course-actions button:last-child {
-  background: linear-gradient(135deg, #6366f1, #3b82f6) !important;
-  border: none !important;
-  color: #ffffff !important;
 }
 
 /* 课表 - 汉堡菜单按钮 */
@@ -1328,14 +1438,6 @@ html.dark .dialog-btn.ghost {
   border-color: rgba(148, 163, 184, 0.2) !important;
 }
 
-html.dark .bg-blue-50 {
-  background-color: rgba(59, 130, 246, 0.15) !important;
-}
-
-html.dark .bg-blue-100 {
-  background-color: rgba(59, 130, 246, 0.2) !important;
-}
-
 /* ═══════════════════════════════════════════════════════════════
    设置页面 SettingsView 暗色模式修复
    ═══════════════════════════════════════════════════════════════ */
@@ -2202,4 +2304,158 @@ html.dark .text-orange-700 {
 
 html.dark .text-orange-600 {
   color: #fb923c !important;
+}
+
+/* ─── 检查更新弹窗 UpdateDialog ─── */
+html.dark .update-dialog {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55) !important;
+}
+
+html.dark .update-dialog .dialog-content {
+  color: #e2e8f0 !important;
+}
+
+html.dark .update-dialog .checking p,
+html.dark .update-dialog .version-badge.current,
+html.dark .update-dialog .notes-content,
+html.dark .update-dialog .platform-info,
+html.dark .update-dialog .up-to-date p,
+html.dark .update-dialog .up-to-date .version,
+html.dark .update-dialog .error {
+  color: #94a3b8 !important;
+}
+
+html.dark .update-dialog .release-notes {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border: 1px solid rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark .update-dialog .release-notes h4,
+html.dark .update-dialog .source-table-header,
+html.dark .update-dialog .source-label {
+  color: #e2e8f0 !important;
+}
+
+html.dark .update-dialog .version-badge.current {
+  background: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark .update-dialog .source-table {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+html.dark .update-dialog .source-table-header,
+html.dark .update-dialog .source-row {
+  background: rgba(15, 23, 42, 0.55) !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+
+html.dark .update-dialog .source-row:hover,
+html.dark .update-dialog .source-row:active {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+html.dark .update-dialog .retest-btn {
+  background: rgba(59, 130, 246, 0.14) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .update-dialog .dialog-actions {
+  background: rgba(15, 23, 42, 0.88) !important;
+  border-top-color: rgba(148, 163, 184, 0.18) !important;
+}
+
+html.dark .update-dialog .btn-secondary {
+  background: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .update-dialog .download-progress {
+  background: rgba(59, 130, 246, 0.12) !important;
+}
+
+html.dark .update-dialog .progress-bar {
+  background: rgba(59, 130, 246, 0.22) !important;
+}
+
+html.dark .update-dialog .spinner {
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  border-top-color: var(--ui-primary, #60a5fa) !important;
+}
+
+html.dark .update-dialog .speed-ok {
+  background: rgba(16, 185, 129, 0.18) !important;
+  color: #6ee7b7 !important;
+}
+
+html.dark .update-dialog .speed-slow {
+  background: rgba(245, 158, 11, 0.18) !important;
+  color: #fcd34d !important;
+}
+
+html.dark .update-dialog .speed-fail {
+  background: rgba(239, 68, 68, 0.18) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .update-dialog .speed-testing {
+  background: rgba(59, 130, 246, 0.18) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .update-dialog .status-icon {
+  color: #93c5fd !important;
+}
+
+html.dark .update-dialog .status-icon--success {
+  color: #34d399 !important;
+}
+
+html.dark .update-dialog .status-icon--warn {
+  color: #fbbf24 !important;
+}
+
+/* ─── 开源说明 / 赞助弹窗（MeView modal-card 子元素） ─── */
+html.dark .modal-card h3 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .modal-card .intro,
+html.dark .modal-card .label,
+html.dark .modal-card .opensource-list,
+html.dark .modal-card .opensource-list li,
+html.dark .modal-card .thanks p {
+  color: #94a3b8 !important;
+}
+
+html.dark .modal-card .github-link {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .modal-card .thanks {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border-left-color: #60a5fa !important;
+}
+
+html.dark .modal-card .thanks .highlight {
+  color: #93c5fd !important;
+}
+
+html.dark .modal-card .tag {
+  background: rgba(59, 130, 246, 0.22) !important;
+  color: #dbeafe !important;
+}
+
+html.dark .modal-card .opensource-title-icon {
+  color: #93c5fd !important;
+}
+
+/* 快捷入口课表图标：避免被首页维护横幅的 bg-orange-50 规则覆盖 */
+html.dark .quick-entry-icon.bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.15) !important;
 }

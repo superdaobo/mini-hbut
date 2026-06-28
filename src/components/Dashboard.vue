@@ -1497,8 +1497,8 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
             <div
               v-for="(meta, id) in quickEntryMeta"
               :key="id"
-              class="flex flex-col items-center p-2 rounded-xl cursor-pointer border-2 transition-all"
-              :class="draftQuickEntries.includes(id) ? 'border-blue-500 bg-blue-50' : 'border-transparent hover:bg-gray-50'"
+              class="quick-entry-editor-item flex flex-col items-center p-2 rounded-xl cursor-pointer border-2 transition-all"
+              :class="draftQuickEntries.includes(id) ? 'quick-entry-editor-item--selected' : 'border-transparent'"
               @click="toggleDraftEntry(id)"
             >
               <div

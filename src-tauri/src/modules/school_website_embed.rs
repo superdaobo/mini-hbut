@@ -159,6 +159,31 @@ pub fn rewrite_school_website_html(html: &str) -> String {
             }
         })
         .to_string();
+
+    // 官网 HTML 常含 href="/xxgk/..." 等根路径；iframe 在 /school-website/ 下会误跳到 Bridge 其它路由。
+    let base_re = regex::Regex::new(
+        r#"(?i)(<base\s+[^>]*href\s*=\s*["'])(?:https?:)?//(?:www\.)?hbut\.edu\.cn/?(["'])"#,
+    )
+    .expect("school website base rewrite regex");
+    out = base_re
+        .replace_all(&out, r#"$1/school-website/$2"#)
+        .to_string();
+
+    let root_rel = regex::Regex::new(r#"(?i)(href|src|action)\s*=\s*(["'])/([^"']*)"#)
+        .expect("school website root-relative rewrite regex");
+    out = root_rel
+        .replace_all(&out, |caps: &regex::Captures| {
+            let attr = &caps[1];
+            let quote = &caps[2];
+            let path = &caps[3];
+            if path.starts_with("school-website/") {
+                caps[0].to_string()
+            } else {
+                format!("{attr}={quote}/school-website/{path}{quote}")
+            }
+        })
+        .to_string();
+
     out
 }
 
@@ -327,5 +352,20 @@ mod tests {
         let html = r#"<a href="https://news.hbut.edu.cn/info/1">news</a>"#;
         let rewritten = rewrite_school_website_html(html);
         assert!(rewritten.contains("/school-website/@news/info/1"));
+    }
+
+    #[test]
+    fn rewrites_root_relative_links_to_proxy_paths() {
+        let html = r#"<a href="/xxgk/index.htm">about</a><img src="/images/logo.png">"#;
+        let rewritten = rewrite_school_website_html(html);
+        assert!(rewritten.contains(r#"href="/school-website/xxgk/index.htm""#));
+        assert!(rewritten.contains(r#"src="/school-website/images/logo.png""#));
+    }
+
+    #[test]
+    fn rewrites_base_tag_to_proxy_origin() {
+        let html = r#"<head><base href="https://www.hbut.edu.cn/"></head>"#;
+        let rewritten = rewrite_school_website_html(html);
+        assert!(rewritten.contains(r#"<base href="/school-website/""#));
     }
 }

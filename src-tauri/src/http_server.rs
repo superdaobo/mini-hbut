@@ -541,7 +541,10 @@ struct AiSessionDeleteRequest {
 
 /// 启动本地 Bridge 服务
 pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
+    // Tauri iOS 内嵌（小游戏 module_bundle + 学校官网 proxy）依赖 loopback Bridge。
+    // Android 前端不走桥接，故 Release 不自动为 Android 开启。
     let bridge_enabled = cfg!(debug_assertions)
+        || cfg!(target_os = "ios")
         || std::env::var("HBUT_HTTP_BRIDGE_ENABLED")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);

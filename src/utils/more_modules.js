@@ -1,4 +1,4 @@
-import { getNativeAppVersion, isCapacitorRuntime, isTauriRuntime, toNativeFileSrc } from '../platform/native'
+import { getNativeAppVersion, isCapacitorRuntime, isLikelyAndroidUserAgent, isTauriRuntime, toNativeFileSrc } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
 
 const DEFAULT_MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
@@ -34,10 +34,6 @@ const withCacheBust = (url) => {
 const isAbsoluteHttpUrl = (url) => /^https?:\/\//i.test(safeText(url))
 export const isLocalModuleBridgePreviewUrl = (url) =>
   /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/module_bundle\/content\//i.test(safeText(url))
-const isLikelyMobileUserAgent = () =>
-  /(android|iphone|ipad|ipod)/i.test(String(globalThis?.navigator?.userAgent || ''))
-const isLikelyAndroidUserAgent = () =>
-  /android/i.test(String(globalThis?.navigator?.userAgent || ''))
 
 export const canUseLocalModuleBridgePreview = () => isTauriRuntime() && !isLikelyAndroidUserAgent()
 

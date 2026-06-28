@@ -13,7 +13,7 @@ describe('Dashboard quick entry defaults', () => {
     expect(vue).toContain("schedule: { name: '课表'")
   })
 
-  it('uses unified black quick-entry icon surfaces in dark mode', () => {
+  it('keeps per-module tinted quick-entry icon surfaces in dark mode', () => {
     const vue = source()
     const darkCss = readFileSync(new URL('../styles/dark-mode.css', import.meta.url), 'utf8')
 
@@ -21,7 +21,9 @@ describe('Dashboard quick entry defaults', () => {
     expect(vue).toContain(':data-module="item.id"')
     expect(vue).toContain('class="quick-entry-icon w-10 h-10')
     expect(vue).toContain(':data-module="id"')
-    expect(darkCss).toContain('html.dark .quick-entry-icon')
-    expect(darkCss).toContain('background: #000 !important')
+    expect(vue).toContain('quick-entry-editor-item')
+    expect(darkCss).not.toContain('html.dark .quick-entry-icon {\n  background: #000')
+    expect(darkCss).toContain('html.dark .bg-blue-50')
+    expect(darkCss).toContain('html.dark .quick-entry-editor-item--selected')
   })
 })
