@@ -151,7 +151,7 @@ onMounted(() => {
   <div class="update-dialog-overlay" @click.self="emit('close')">
     <div class="update-dialog">
       <div class="dialog-header">
-        <span class="icon">🔄</span>
+        <span class="material-symbols-outlined dialog-header-icon">sync</span>
         <h3>版本更新</h3>
       </div>
 
@@ -197,7 +197,7 @@ onMounted(() => {
                 @click="handleDownloadFromSource(source.url)"
               >
                 <div class="source-label">
-                  <span class="source-icon">{{ source.tag === 'github' ? '🐙' : '🔗' }}</span>
+                  <span class="material-symbols-outlined source-icon">{{ source.tag === 'github' ? 'code' : 'link' }}</span>
                   <span>{{ source.label }}</span>
                 </div>
                 <div class="source-speed">
@@ -212,15 +212,15 @@ onMounted(() => {
           </div>
 
           <div class="platform-info">
-            <span>📱 检测到平台: {{ updateInfo.platform }}</span>
-            <span v-if="updateInfo.assetName">📦 {{ updateInfo.assetName }}</span>
+            <span class="platform-line"><span class="material-symbols-outlined platform-icon">smartphone</span> 检测到平台: {{ updateInfo.platform }}</span>
+            <span v-if="updateInfo.assetName" class="platform-line"><span class="material-symbols-outlined platform-icon">inventory_2</span> {{ updateInfo.assetName }}</span>
           </div>
         </template>
 
         <!-- 构建中/无可用下载资产 -->
         <template v-else-if="updateInfo?.pending">
           <div class="up-to-date">
-            <span class="icon">⏳</span>
+            <span class="material-symbols-outlined status-icon">hourglass_top</span>
             <p>新版本正在构建中，请稍后再试</p>
             <span class="version">v{{ updateInfo.latestVersion }}</span>
           </div>
@@ -229,7 +229,7 @@ onMounted(() => {
         <!-- 已是最新 -->
         <template v-else-if="updateInfo && !updateInfo.hasUpdate && !updateInfo.error">
           <div class="up-to-date">
-            <span class="icon">✅</span>
+            <span class="material-symbols-outlined status-icon status-icon--success">check_circle</span>
             <p>已是最新版本</p>
             <span class="version">v{{ currentVersion }}</span>
           </div>
@@ -237,7 +237,7 @@ onMounted(() => {
 
         <!-- 错误 -->
         <div v-else-if="error || updateInfo?.error" class="error">
-          <span class="icon">⚠️</span>
+          <span class="material-symbols-outlined status-icon status-icon--warn">error</span>
           <p>{{ error || updateInfo?.message || '无法获取更新信息，请检查网络连接' }}</p>
           <button class="retry-btn" @click="checkUpdate">重试</button>
         </div>
@@ -291,7 +291,11 @@ onMounted(() => {
   color: white;
 }
 
-.dialog-header .icon { font-size: 28px; }
+.dialog-header .dialog-header-icon {
+  font-size: 28px;
+  line-height: 1;
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
 .dialog-header h3 { margin: 0; font-size: 20px; font-weight: 700; }
 
 .dialog-content {
@@ -361,10 +365,21 @@ onMounted(() => {
 .platform-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
   color: #9ca3af;
   margin-top: 12px;
+}
+
+.platform-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.platform-icon {
+  font-size: 16px;
+  line-height: 1;
 }
 
 /* 下载源选择表 */
@@ -424,7 +439,11 @@ onMounted(() => {
   color: #374151;
 }
 
-.source-icon { font-size: 16px; }
+.source-icon {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ui-primary, #6366f1);
+}
 
 .source-speed { display: flex; align-items: center; }
 
@@ -469,7 +488,22 @@ onMounted(() => {
   padding: 20px 0;
 }
 
-.up-to-date .icon { font-size: 48px; margin-bottom: 12px; }
+.up-to-date .status-icon,
+.error .status-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+  color: #6366f1;
+}
+
+.up-to-date .status-icon--success {
+  color: #10b981;
+}
+
+.error .status-icon--warn {
+  color: #f59e0b;
+}
+
 .up-to-date p { margin: 0; font-size: 18px; font-weight: 600; color: #374151; }
 .up-to-date .version { margin-top: 4px; color: #9ca3af; font-size: 14px; }
 
@@ -481,7 +515,6 @@ onMounted(() => {
   color: #6b7280;
 }
 
-.error .icon { font-size: 48px; margin-bottom: 12px; }
 .error p { margin: 0 0 16px 0; text-align: center; }
 
 .retry-btn {
