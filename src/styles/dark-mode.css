@@ -414,9 +414,14 @@ html.dark .schedule-view .drawer-subtitle {
   color: #cbd5e1 !important;
 }
 
+html.dark .schedule-view .drawer-subtitle::before {
+  background: var(--ui-primary, #60a5fa) !important;
+  color: #0f172a !important;
+}
+
 /* 课表工具 - 各模块之间的分割线 */
 html.dark .schedule-view .drawer-section {
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.32) !important;
   padding-bottom: 16px !important;
 }
 
@@ -427,22 +432,54 @@ html.dark .schedule-view .drawer-actions {
 
 html.dark .schedule-view .drawer-sync-group,
 html.dark .schedule-view .drawer-course-group {
-  border: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
   border-radius: 12px !important;
   padding: 12px !important;
 }
 
 /* 课表工具 - 按钮 */
 html.dark .schedule-view .drawer-action {
-  background: #334155 !important;
-  border: 1px solid rgba(148, 163, 184, 0.15) !important;
-  color: #e2e8f0 !important;
+  border: none !important;
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #3b82f6, #06b6d4) !important;
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.22) !important;
 }
 
 html.dark .schedule-view .drawer-action.ghost {
   background: transparent !important;
-  border: 1px solid rgba(148, 163, 184, 0.2) !important;
-  color: #94a3b8 !important;
+  border: 1px solid rgba(148, 163, 184, 0.28) !important;
+  color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+
+html.dark .schedule-view .drawer-action.add-course {
+  background: linear-gradient(135deg, #f97316, #ec4899) !important;
+  box-shadow: 0 10px 18px rgba(236, 72, 153, 0.26) !important;
+}
+
+html.dark .schedule-view .drawer-action.manage-course {
+  background: linear-gradient(135deg, #8b5cf6, #2563eb) !important;
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.22) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-upload {
+  background: linear-gradient(135deg, #0ea5e9, #2563eb) !important;
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-download {
+  background: linear-gradient(135deg, #10b981, #0f766e) !important;
+  box-shadow: 0 10px 18px rgba(15, 118, 110, 0.24) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-json-export {
+  background: linear-gradient(135deg, #6366f1, #2563eb) !important;
+  box-shadow: 0 10px 18px rgba(79, 70, 229, 0.24) !important;
+}
+
+html.dark .schedule-view .drawer-action.sync-json-import {
+  background: linear-gradient(135deg, #f97316, #ea580c) !important;
+  box-shadow: 0 10px 18px rgba(234, 88, 12, 0.24) !important;
 }
 
 /* 课表工具 - 选择器 */
@@ -459,6 +496,8 @@ html.dark .schedule-view .drawer-style-chip {
 
 html.dark .schedule-view .drawer-style-chip.active {
   color: #ffffff !important;
+  background: var(--ui-primary, #2563eb) !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
 }
 
 /* 课表工具 - 提示和状态 */
@@ -466,19 +505,6 @@ html.dark .schedule-view .drawer-tip,
 html.dark .schedule-view .drawer-sync-status,
 html.dark .schedule-view .drawer-sync-cooldown {
   color: #64748b !important;
-}
-
-/* 课表工具 - 课程管理按钮保持渐变 */
-html.dark .schedule-view .drawer-course-actions button:first-child {
-  background: linear-gradient(135deg, #f97316, #ec4899) !important;
-  border: none !important;
-  color: #ffffff !important;
-}
-
-html.dark .schedule-view .drawer-course-actions button:last-child {
-  background: linear-gradient(135deg, #6366f1, #3b82f6) !important;
-  border: none !important;
-  color: #ffffff !important;
 }
 
 /* 课表 - 汉堡菜单按钮 */
