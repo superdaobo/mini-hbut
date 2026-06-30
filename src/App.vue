@@ -1055,21 +1055,62 @@ const handleWidgetDeeplinkPayload = (payload) => {
 }
 
 /**
- * 解析 minihbut://schedule?... URL 并派发
+ * 处理 Widget 导航 payload（电费 / 考试等）
  */
-const parseWidgetDeeplinkUrl = (urlStr) => {
+const handleWidgetNavigatePayload = (payload) => {
+  if (!payload) return
+  const view = normalizeViewName(String(payload.view || '').trim())
+  const source = String(payload.source || 'widget').trim()
+  if (!view) return
+  if (source && source !== 'widget') return
+  if (view !== 'electricity' && view !== 'exams') return
+  console.info('[Widget] Navigate received:', { view, source })
+  if (currentView.value !== view) {
+    goToView(view, { push: true })
+  }
+}
+
+/**
+ * 解析 minihbut:// 小组件 URL
+ */
+const parseWidgetOpenUrl = (urlStr) => {
   try {
     const url = new URL(urlStr)
-    if (url.protocol !== 'minihbut:' || url.hostname !== 'schedule') return null
-    return {
-      date: url.searchParams.get('date') || '',
-      source: url.searchParams.get('source') || 'widget',
-      period: url.searchParams.get('period') || ''
+    if (url.protocol !== 'minihbut:') return null
+    const source = url.searchParams.get('source') || 'widget'
+    if (url.hostname === 'schedule') {
+      return {
+        kind: 'schedule',
+        date: url.searchParams.get('date') || '',
+        source,
+        period: url.searchParams.get('period') || ''
+      }
     }
+    if (url.hostname === 'electricity') {
+      return { kind: 'navigate', view: 'electricity', source }
+    }
+    if (url.hostname === 'exam') {
+      return { kind: 'navigate', view: 'exams', source }
+    }
+    return null
   } catch {
     return null
   }
 }
+
+const handleWidgetOpenPayload = (payload) => {
+  if (!payload) return
+  if (payload.kind === 'schedule' || payload.date) {
+    handleWidgetDeeplinkPayload(payload)
+    return
+  }
+  if (payload.kind === 'navigate' || payload.view) {
+    handleWidgetNavigatePayload(payload)
+  }
+}
+
+/** @deprecated 使用 parseWidgetOpenUrl */
+const parseWidgetDeeplinkUrl = (urlStr) => parseWidgetOpenUrl(urlStr)
 
 /**
  * 注册 Widget 深链接监听器（Capacitor appUrlOpen + 原生 bridge 事件）
@@ -1081,10 +1122,23 @@ const installWidgetDeeplinkListeners = () => {
       const detail = typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail
       handleWidgetDeeplinkPayload(detail)
     } catch {
-      // 尝试从 event 本身解析（triggerJSEvent 会把 JSON 字符串作为 CustomEvent.detail）
       try {
         const raw = (e && typeof e === 'object') ? JSON.parse(String(e.data || '{}')) : {}
         handleWidgetDeeplinkPayload(raw)
+      } catch {
+        // ignore
+      }
+    }
+  })
+
+  window.addEventListener('widgetNavigate', (e) => {
+    try {
+      const detail = typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail
+      handleWidgetNavigatePayload(detail)
+    } catch {
+      try {
+        const raw = (e && typeof e === 'object') ? JSON.parse(String(e.data || '{}')) : {}
+        handleWidgetNavigatePayload(raw)
       } catch {
         // ignore
       }
@@ -1096,20 +1150,19 @@ const installWidgetDeeplinkListeners = () => {
     import('@capacitor/app').then((mod) => {
       mod.App.addListener('appUrlOpen', (event) => {
         if (!event?.url) return
-        const payload = parseWidgetDeeplinkUrl(event.url)
+        const payload = parseWidgetOpenUrl(event.url)
         if (payload) {
-          // 冷启动路径：等 appBootstrapped 后再执行
+          const dispatch = () => handleWidgetOpenPayload(payload)
           if (!appBootstrapped) {
             const waitForBoot = setInterval(() => {
               if (appBootstrapped) {
                 clearInterval(waitForBoot)
-                handleWidgetDeeplinkPayload(payload)
+                dispatch()
               }
             }, 100)
-            // 最多等 5s
             setTimeout(() => clearInterval(waitForBoot), 5000)
           } else {
-            handleWidgetDeeplinkPayload(payload)
+            dispatch()
           }
         }
       })

@@ -53,16 +53,16 @@ object ElectricityWidgetRenderer {
             if (statusId != 0) views.setViewVisibility(statusId, View.GONE)
         }
 
-        // 点击启动 App
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-            ?: Intent().apply {
-                setClassName(packageName, "${packageName}.MainActivity")
-                action = Intent.ACTION_MAIN
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val pi = PendingIntent.getActivity(context, appWidgetId + 1000, launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // 点击跳转电费查询页
+        val pi = WidgetDeepLink.pendingIntent(
+            context,
+            appWidgetId + 1000,
+            WidgetDeepLink.electricityUri()
+        )
+        val themeColor = parseColor(store.readThemeColor())
+        if (quantityId != 0 && data != null) {
+            views.setTextColor(quantityId, themeColor)
+        }
         val rootId = context.resources.getIdentifier("widget_elec_root", "id", packageName)
         if (rootId != 0) views.setOnClickPendingIntent(rootId, pi)
 
@@ -72,5 +72,13 @@ object ElectricityWidgetRenderer {
     private fun parseJson(json: String?): JSONObject? {
         if (json.isNullOrBlank()) return null
         return try { JSONObject(json) } catch (_: Exception) { null }
+    }
+
+    private fun parseColor(hex: String): Int {
+        return try {
+            android.graphics.Color.parseColor(hex)
+        } catch (_: Exception) {
+            android.graphics.Color.parseColor("#2563eb")
+        }
     }
 }
