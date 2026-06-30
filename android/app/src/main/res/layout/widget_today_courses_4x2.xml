@@ -21,6 +21,17 @@
         android:ellipsize="end"
         android:paddingBottom="6dp" />
 
+    <!-- 空态提示（4x2 无课程时显示） -->
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
     <!-- 课程列表 -->
     <ListView
         android:id="@+id/widget_list"

@@ -112,7 +112,34 @@ class TodayCoursesRemoteViewsFactory(
             contentDesc
         )
 
+        // 行点击深链：携带节次参数
+        val snapshotDate = readSnapshotDate(store.readSnapshot())
+        if (snapshotDate.isNotEmpty() && row.periodStart >= 1) {
+            val fillInIntent = Intent().apply {
+                data = WidgetDeepLink.scheduleUri(snapshotDate, row.periodStart)
+            }
+            views.setOnClickFillInIntent(
+                context.resources.getIdentifier("widget_item_row_root", "id", packageName),
+                fillInIntent
+            )
+        }
+
+        // 节次 badge 背景
+        val periodBgId = context.resources.getIdentifier("widget_period_badge", "drawable", packageName)
+        if (periodBgId != 0) {
+            views.setInt(periodId, "setBackgroundResource", periodBgId)
+        }
+
         return views
+    }
+
+    private fun readSnapshotDate(json: String?): String {
+        if (json.isNullOrBlank()) return ""
+        return try {
+            JSONObject(json).optString("date", "")
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     override fun getLoadingView(): RemoteViews? = null

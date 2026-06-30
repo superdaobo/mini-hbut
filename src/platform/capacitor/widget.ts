@@ -168,14 +168,17 @@ export async function writeSnapshot(snapshot: TodayCourseSnapshot): Promise<void
  */
 export async function clearSnapshot(): Promise<void> {
   await getWidgetBridge().clearSnapshot()
+  await requestRefresh()
 }
 
 export async function writeElectricitySnapshot(data: ElectricityWidgetSnapshot): Promise<void> {
   await getWidgetBridge().writeElectricity({ data })
+  await requestRefresh()
 }
 
 export async function writeExamSnapshot(data: ExamWidgetSnapshot): Promise<void> {
   await getWidgetBridge().writeExam({ data })
+  await requestRefresh()
 }
 
 export async function writeWidgetThemeColor(color: string): Promise<void> {
@@ -203,6 +206,7 @@ export async function writeSnapshotWithRetry(snapshot: TodayCourseSnapshot): Pro
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
     try {
       await writeSnapshot(snapshot)
+      await requestRefresh()
       return
     } catch (err: unknown) {
       lastError = err

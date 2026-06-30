@@ -11,6 +11,8 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "MainActivity";
+    private String pendingWidgetEvent = null;
+    private String pendingWidgetPayload = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -18,46 +20,84 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MiniHbutWidgetPlugin.class);
         super.onCreate(savedInstanceState);
         configureWebViewForEmbeddedModules();
-        // 冷启动时也检查 intent 中的 deep link
         handleDeepLinkIntent(getIntent());
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        setIntent(intent);
         handleDeepLinkIntent(intent);
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        flushPendingWidgetEvent();
+    }
+
+    private void flushPendingWidgetEvent() {
+        if (pendingWidgetPayload == null || pendingWidgetEvent == null) return;
+        if (getBridge() == null) return;
+        getBridge().triggerJSEvent(pendingWidgetEvent, "window", pendingWidgetPayload);
+        pendingWidgetEvent = null;
+        pendingWidgetPayload = null;
+    }
+
+    private void dispatchWidgetEvent(String eventName, String payloadJson) {
+        Log.i(TAG, "Widget event " + eventName + ": " + payloadJson);
+        if (getBridge() != null) {
+            getBridge().triggerJSEvent(eventName, "window", payloadJson);
+            return;
+        }
+        pendingWidgetEvent = eventName;
+        pendingWidgetPayload = payloadJson;
+    }
+
     /**
-     * 解析 minihbut://schedule 深链接并派发到 Web 层
-     * 仅当 scheme == "minihbut" 且 host == "schedule" 时处理
+     * 解析 minihbut:// 深链接并派发到 Web 层。
      */
     private void handleDeepLinkIntent(Intent intent) {
         if (intent == null) return;
         Uri data = intent.getData();
         if (data == null) return;
-        if (!"minihbut".equals(data.getScheme()) || !"schedule".equals(data.getHost())) return;
+        if (!"minihbut".equals(data.getScheme())) return;
 
-        String date = data.getQueryParameter("date");
-        String source = data.getQueryParameter("source");
-        String period = data.getQueryParameter("period");
+        String host = data.getHost();
+        if (host == null) return;
 
-        // 构建 JSON payload
-        StringBuilder json = new StringBuilder("{");
-        json.append("\"date\":").append(date != null ? "\"" + escapeJson(date) + "\"" : "null");
-        json.append(",\"source\":").append(source != null ? "\"" + escapeJson(source) + "\"" : "\"widget\"");
-        json.append(",\"period\":").append(period != null ? period : "null");
-        json.append("}");
-
-        String payloadJson = json.toString();
-        Log.i(TAG, "Widget deep link received: " + payloadJson);
-
-        if (getBridge() != null) {
-            getBridge().triggerJSEvent("widgetDeeplink", "window", payloadJson);
+        switch (host) {
+            case "schedule": {
+                String date = data.getQueryParameter("date");
+                String source = data.getQueryParameter("source");
+                String period = data.getQueryParameter("period");
+                StringBuilder json = new StringBuilder("{");
+                json.append("\"date\":").append(date != null ? "\"" + escapeJson(date) + "\"" : "null");
+                json.append(",\"source\":").append(source != null ? "\"" + escapeJson(source) + "\"" : "\"widget\"");
+                json.append(",\"period\":").append(period != null ? period : "null");
+                json.append("}");
+                dispatchWidgetEvent("widgetDeeplink", json.toString());
+                break;
+            }
+            case "electricity": {
+                String source = data.getQueryParameter("source");
+                String payload = "{\"view\":\"electricity\",\"source\":\""
+                    + escapeJson(source != null ? source : "widget") + "\"}";
+                dispatchWidgetEvent("widgetNavigate", payload);
+                break;
+            }
+            case "exam": {
+                String source = data.getQueryParameter("source");
+                String payload = "{\"view\":\"exams\",\"source\":\""
+                    + escapeJson(source != null ? source : "widget") + "\"}";
+                dispatchWidgetEvent("widgetNavigate", payload);
+                break;
+            }
+            default:
+                break;
         }
     }
 
-    /** 简单 JSON 字符串转义（防止注入） */
     private static String escapeJson(String value) {
         if (value == null) return "";
         return value
@@ -74,9 +114,6 @@ public class MainActivity extends BridgeActivity {
             if (webView == null) return;
             WebSettings settings = webView.getSettings();
             if (settings == null) return;
-            // 安卓模块页统一改为 Capacitor 本地文件映射内嵌。
-            // 宿主页仍是 https://localhost，部分 WebView 对本地映射资源会误判为混合内容，
-            // 这里保留兼容配置，但不再把 127.0.0.1 module bridge 视为安卓预期链路。
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
             settings.setDomStorageEnabled(true);
             settings.setJavaScriptCanOpenWindowsAutomatically(true);
@@ -85,5 +122,4 @@ public class MainActivity extends BridgeActivity {
             Log.w(TAG, "WebView configure skipped: " + e.getMessage());
         }
     }
-
 }

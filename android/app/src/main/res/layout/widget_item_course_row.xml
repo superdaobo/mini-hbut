@@ -13,10 +13,14 @@
         android:id="@+id/widget_item_period"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:background="@drawable/widget_period_badge"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
         android:textColor="@color/widget_period_text"
         android:textSize="12sp"
         android:textStyle="bold"
-        android:paddingEnd="8dp"
         android:minWidth="40dp" />
 
     <!-- 课程名 -->
