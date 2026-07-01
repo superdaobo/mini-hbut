@@ -10,6 +10,15 @@
 //! - OCR 请求使用独立的 `ocr_client`，避免污染主会话
 //! - 这里不直接实现业务接口，业务逻辑在子模块中实现
 
+#[macro_export]
+macro_rules! hbut_debug {
+    ($($arg:tt)*) => {
+        if cfg!(debug_assertions) {
+            println!($($arg)*);
+        }
+    };
+}
+
 use chrono::{DateTime, Utc};
 use reqwest::{
     cookie::{CookieStore, Jar},
@@ -55,6 +64,28 @@ pub(super) const SECONDARY_OCR_ENDPOINT: &str =
     "https://mini-hbut-testocr1.hf.space/api/ocr/recognize";
 pub(super) const DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS: &[&str] =
     &[DEFAULT_OCR_ENDPOINT, SECONDARY_OCR_ENDPOINT];
+/// Release 构建仅允许 HTTPS OCR，避免验证码图片经明文 HTTP 外传。
+pub(super) const DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS: &[&str] = &[SECONDARY_OCR_ENDPOINT];
+
+/// Release 构建过滤掉非 HTTPS 的 OCR 端点。
+pub(super) fn filter_release_ocr_endpoints(endpoints: Vec<String>) -> Vec<String> {
+    if cfg!(debug_assertions) {
+        return endpoints;
+    }
+    endpoints
+        .into_iter()
+        .filter(|e| e.trim().starts_with("https://"))
+        .collect()
+}
+
+fn default_local_ocr_fallback_endpoints() -> Vec<String> {
+    let source = if cfg!(debug_assertions) {
+        DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
+    } else {
+        DEFAULT_RELEASE_OCR_FALLBACK_ENDPOINTS
+    };
+    source.iter().map(|v| v.to_string()).collect()
+}
 
 /// 判断是否跳转到了教务登录页（包含 CAS 登录与教务自身登录页）。
 /// 注意：不匹配 `/admin/caslogin`，因为它是学习通 CAS 的 service URL 本身，
@@ -226,7 +257,7 @@ impl HbutClient {
 
     fn build_ocr_client() -> Client {
         Client::builder()
-            .timeout(std::time::Duration::from_secs(12))
+            .timeout(std::time::Duration::from_secs(5))
             .build()
             .expect("创建 OCR 客户端失败")
     }
@@ -252,10 +283,7 @@ impl HbutClient {
             electricity_token_expires_at: None,
             ocr_endpoint: None,
             ocr_remote_endpoints: Vec::new(),
-            ocr_local_fallback_endpoints: DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
-                .iter()
-                .map(|v| v.to_string())
-                .collect(),
+            ocr_local_fallback_endpoints: default_local_ocr_fallback_endpoints(),
             ocr_active_endpoint: None,
             ocr_active_source: None,
             ocr_last_error: None,
@@ -278,14 +306,13 @@ impl HbutClient {
         } else {
             let normalized = Self::normalize_ocr_endpoint(trimmed);
             self.ocr_endpoint = Some(normalized.clone());
-            self.ocr_remote_endpoints = vec![normalized];
+            self.ocr_remote_endpoints = filter_release_ocr_endpoints(vec![normalized]);
         }
         if self.ocr_local_fallback_endpoints.is_empty() {
-            self.ocr_local_fallback_endpoints = DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
-                .iter()
-                .map(|v| v.to_string())
-                .collect();
+            self.ocr_local_fallback_endpoints = default_local_ocr_fallback_endpoints();
         }
+        self.ocr_local_fallback_endpoints =
+            filter_release_ocr_endpoints(self.ocr_local_fallback_endpoints.clone());
         // 每次配置更新后清理运行态，下一次 OCR 请求会重新填充状态。
         self.ocr_active_endpoint = None;
         self.ocr_active_source = None;
@@ -297,17 +324,15 @@ impl HbutClient {
         endpoints: Vec<String>,
         local_fallback_endpoints: Vec<String>,
     ) {
-        self.ocr_remote_endpoints = Self::normalize_ocr_endpoint_list(endpoints);
+        self.ocr_remote_endpoints =
+            filter_release_ocr_endpoints(Self::normalize_ocr_endpoint_list(endpoints));
         self.ocr_endpoint = self.ocr_remote_endpoints.first().cloned();
 
         let normalized_local = Self::normalize_ocr_endpoint_list(local_fallback_endpoints);
         self.ocr_local_fallback_endpoints = if normalized_local.is_empty() {
-            DEFAULT_LOCAL_OCR_FALLBACK_ENDPOINTS
-                .iter()
-                .map(|v| v.to_string())
-                .collect()
+            default_local_ocr_fallback_endpoints()
         } else {
-            normalized_local
+            filter_release_ocr_endpoints(normalized_local)
         };
 
         self.ocr_active_endpoint = None;
@@ -344,7 +369,7 @@ impl HbutClient {
                 result.push(normalized);
             }
         }
-        result
+        filter_release_ocr_endpoints(result)
     }
 
     pub(super) fn set_ocr_runtime_success(&mut self, source: &str, endpoint: &str) {

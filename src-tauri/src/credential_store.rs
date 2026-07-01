@@ -39,6 +39,44 @@ pub fn delete_password(student_id: &str) {
     }
 }
 
+/// 校验前端「记住密码」账户键（`hbut:` 学号 / `cx:` 学习通账号）。
+fn validate_account_key(account_key: &str) -> Result<(), String> {
+    let key = account_key.trim();
+    if key.is_empty() || key.len() > 128 {
+        return Err("账户键无效".to_string());
+    }
+    if !(key.starts_with("hbut:") || key.starts_with("cx:")) {
+        return Err("账户键格式无效".to_string());
+    }
+    if !key
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '-' | '.' | '@'))
+    {
+        return Err("账户键包含非法字符".to_string());
+    }
+    Ok(())
+}
+
+/// 将「记住密码」凭据写入密钥环（Web 路径由前端本地加密兜底）。
+pub fn save_remembered_credential(account_key: &str, password: &str) -> Result<(), String> {
+    validate_account_key(account_key)?;
+    save_password(account_key, password)
+}
+
+/// 从密钥环读取「记住密码」凭据。
+pub fn load_remembered_credential(account_key: &str) -> Option<String> {
+    validate_account_key(account_key).ok()?;
+    load_password(account_key)
+}
+
+/// 清除密钥环中的「记住密码」凭据。
+pub fn delete_remembered_credential(account_key: &str) {
+    if validate_account_key(account_key).is_err() {
+        return;
+    }
+    delete_password(account_key);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

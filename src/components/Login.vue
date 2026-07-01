@@ -1,9 +1,15 @@
 ﻿<script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import { encryptData, decryptData } from '../utils/encryption.js'
+import { encryptData } from '../utils/encryption.js'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke } from '../platform/native'
+import {
+  buildHbutAccountKey,
+  loadRememberedCredential,
+  migrateLegacyCredential,
+  saveRememberedCredential
+} from '../utils/credential_storage.js'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
 
@@ -47,18 +53,14 @@ onMounted(async () => {
   // 从 localStorage 读取保存的凭据
   const savedUsername = localStorage.getItem('hbu_username')
   const savedRemember = localStorage.getItem('hbu_remember')
-  const savedCredentials = localStorage.getItem('hbu_credentials')
-  
+
   if (savedRemember !== 'false' && savedUsername) {
     username.value = savedUsername
-    if (savedCredentials) {
-      try {
-        const decrypted = await decryptData(savedCredentials)
-        password.value = decrypted?.password || ''
-      } catch (e) {
-        password.value = ''
-      }
-    }
+    await migrateLegacyCredential({
+      legacyPasswordKey: 'hbu_credentials',
+      accountKey: buildHbutAccountKey(savedUsername)
+    })
+    password.value = await loadRememberedCredential(buildHbutAccountKey(savedUsername))
     rememberMe.value = true
   }
 
@@ -122,16 +124,17 @@ const handleOcrConfigUpdated = () => {
 const saveCredentials = async () => {
   if (rememberMe.value) {
     localStorage.setItem('hbu_username', username.value)
-    const encrypted = await encryptData({
-      username: username.value,
-      password: password.value
-    })
-    localStorage.setItem('hbu_credentials', encrypted)
     localStorage.setItem('hbu_remember', 'true')
+    await saveRememberedCredential(
+      buildHbutAccountKey(username.value),
+      password.value
+    )
+    localStorage.removeItem('hbu_credentials')
   } else {
     localStorage.removeItem('hbu_username')
     localStorage.removeItem('hbu_credentials')
     localStorage.setItem('hbu_remember', 'false')
+    await saveRememberedCredential(buildHbutAccountKey(username.value), '')
   }
 }
 

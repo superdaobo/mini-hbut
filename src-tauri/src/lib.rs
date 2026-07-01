@@ -35,6 +35,7 @@ use tauri_plugin_shell::ShellExt;
 use tokio::sync::RwLock;
 
 pub mod app_state;
+pub mod commands;
 pub mod credential_store;
 pub mod db;
 pub mod debug_bridge;
@@ -46,6 +47,7 @@ pub mod qxzkb_options;
 pub mod utils;
 
 use app_state::AppState;
+use commands::{delete_remembered_credential, load_remembered_credential, save_remembered_credential};
 use http_client::HbutClient;
 
 use modules::ai::*;
@@ -119,6 +121,51 @@ fn persist_electricity_tokens(client: &HbutClient) {
         &refresh_token,
         &expires_at,
     );
+}
+
+/// 登录成功后后台预热一码通 Token，避免阻塞返回用户信息。
+fn spawn_electricity_session_warmup(
+    client_arc: Arc<RwLock<HbutClient>>,
+    session_key: String,
+    password: String,
+) {
+    if session_key.trim().is_empty() {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let (cookies, one_code_token, refresh_token, expires_at) = {
+            let mut client = client_arc.write().await;
+            let token = match client.ensure_electricity_token().await {
+                Ok(t) => t,
+                Err(e) => {
+                    println!("[警告] 后台获取 one_code_token 失败: {}", e);
+                    return;
+                }
+            };
+            let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
+            (
+                client.get_cookies(),
+                token,
+                refresh_opt.unwrap_or_default(),
+                expires_at_opt
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+            )
+        };
+        if let Err(e) = db::save_user_session(
+            DB_FILENAME,
+            &session_key,
+            &cookies,
+            &password,
+            &one_code_token,
+            Some(refresh_token.as_str()),
+            Some(expires_at.as_str()),
+        ) {
+            println!("[警告] 后台保存 one_code 会话失败: {}", e);
+        }
+        let client = client_arc.read().await;
+        persist_electricity_tokens(&client);
+    });
 }
 
 fn attach_sync_time(
@@ -1645,19 +1692,18 @@ async fn portal_qr_confirm_login(
     client.last_password = None;
     client.save_cookie_snapshot_to_file();
 
-    let one_code_token = client.ensure_electricity_token().await.unwrap_or_default();
-    let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
-    let refresh_token = refresh_opt.unwrap_or_default();
-    let expires_at = expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
     let _ = db::save_user_session(
         DB_FILENAME,
         &user_info.student_id,
         &client.get_cookies(),
         "",
-        &one_code_token,
-        Some(refresh_token.as_str()),
-        Some(expires_at.as_str()),
+        "",
+        Some(""),
+        Some(""),
     );
+
+    let client_arc = Arc::clone(&state.client);
+    spawn_electricity_session_warmup(client_arc, user_info.student_id.clone(), String::new());
 
     Ok(user_info)
 }
@@ -3783,34 +3829,6 @@ async fn login(
         .map_err(|e| e.to_string())?;
     client.set_chaoxing_login_mode(false);
 
-    // 尝试获取电费 Token (One Code)
-    let one_code_token = match client.ensure_electricity_token().await {
-        Ok(t) => {
-            println!("[调试] Login: Successfully obtained one_code_浠ょ墝");
-            t
-        }
-        Err(e) => {
-            println!("[璀﹀憡] 登录：获?one_code_浠ょ墝 失败: {}", e);
-            String::new()
-        }
-    };
-
-    // 保存会话到本地数据库 (鐢ㄤ自动重连)
-    let (_token_opt, refresh_opt, expires_at_opt) = client.get_electricity_session();
-    let refresh_token = refresh_opt.unwrap_or_default();
-    let expires_at = expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default();
-    if let Err(e) = db::save_user_session(
-        DB_FILENAME,
-        &username,
-        &client.get_cookies(),
-        &password,
-        &one_code_token,
-        Some(refresh_token.as_str()),
-        Some(expires_at.as_str()),
-    ) {
-        println!("[璀﹀憡] 保存会话失败: {}", e);
-    }
-
     let user_info = client
         .user_info
         .clone()
@@ -3820,17 +3838,33 @@ async fn login(
     } else {
         user_info.student_id.clone()
     };
+
+    // 先保存 Cookie 会话，一码通 Token 后台预热，不阻塞登录返回。
+    if let Err(e) = db::save_user_session(
+        DB_FILENAME,
+        &session_key,
+        &client.get_cookies(),
+        &password,
+        "",
+        Some(""),
+        Some(""),
+    ) {
+        println!("[璀﹀憡] 保存会话失败: {}", e);
+    }
     if session_key != username {
         let _ = db::save_user_session(
             DB_FILENAME,
-            &session_key,
+            &username,
             &client.get_cookies(),
             &password,
-            &one_code_token,
-            Some(refresh_token.as_str()),
-            Some(expires_at.as_str()),
+            "",
+            Some(""),
+            Some(""),
         );
     }
+
+    let client_arc = Arc::clone(&state.client);
+    spawn_electricity_session_warmup(client_arc, session_key, password);
 
     Ok(user_info)
 }
@@ -6521,6 +6555,9 @@ pub fn run() {
             chaoxing_qr_confirm_login,
             chaoxing_password_login,
             logout,
+            save_remembered_credential,
+            load_remembered_credential,
+            delete_remembered_credential,
             restore_session,
             restore_latest_session,
             set_offline_user_context,

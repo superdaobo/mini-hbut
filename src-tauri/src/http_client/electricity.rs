@@ -57,7 +57,7 @@ impl HbutClient {
     pub(super) async fn get_electricity_token(
         &mut self,
     ) -> Result<ElectricityTokenBundle, Box<dyn std::error::Error + Send + Sync>> {
-        println!("[调试] 开始电费 SSO 流程...");
+        crate::hbut_debug!("[调试] 开始电费 SSO 流程...");
         // 0) 先通过融合门户建立会话（对齐 Python fast_auth.py）
         let portal_service = "https://e.hbut.edu.cn/login";
         let code_service = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
@@ -81,7 +81,7 @@ impl HbutClient {
         let mut expires_in: Option<i64> = None;
         // 1. 触发电费 SSO 流程
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
-        println!("[调试] 步骤 1: 开始 SSO {}", sso_url);
+        crate::hbut_debug!("[调试] 步骤 1: 开始 SSO {}", sso_url);
 
         // 优先走“现有门户 Cookie 直连”路径（自动重定向），减少额外登录。
         match self.client.get(sso_url).send().await {
@@ -92,14 +92,14 @@ impl HbutClient {
                         .get(1)
                         .map(|m| m.as_str().to_string())
                         .unwrap_or_default();
-                    println!("[调试] 直连 SSO 获取 tid: {}", tid);
+                    crate::hbut_debug!("[调试] 直连 SSO 获取 tid: {}", tid);
                 }
                 if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&final_url) {
                     ticket = caps
                         .get(1)
                         .map(|m| m.as_str().to_string())
                         .unwrap_or_default();
-                    println!("[调试] 直连 SSO 获取 ticket: {}", ticket);
+                    crate::hbut_debug!("[调试] 直连 SSO 获取 ticket: {}", ticket);
                 }
                 if let Some(token_header) = resp.headers().get("Authorization") {
                     auth_token = token_header.to_str()?.to_string();
@@ -124,7 +124,7 @@ impl HbutClient {
                             .get(1)
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        println!("[调试] 直连 SSO 获取 tid HTML: {}", tid);
+                        crate::hbut_debug!("[调试] 直连 SSO 获取 tid HTML: {}", tid);
                     }
                     if ticket.is_empty() {
                         if let Some(caps) =
@@ -134,7 +134,7 @@ impl HbutClient {
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
                                 .unwrap_or_default();
-                            println!("[调试] 直连 SSO 获取 ticket HTML: {}", ticket);
+                            crate::hbut_debug!("[调试] 直连 SSO 获取 ticket HTML: {}", ticket);
                         }
                     }
                 }
@@ -179,7 +179,7 @@ impl HbutClient {
                 // 手动跟踪重定向
                 while redirect_count < MAX_重定向S {
                     redirect_count += 1;
-                    println!("[调试] 重定向 {}: {}", redirect_count, current_url);
+                    crate::hbut_debug!("[调试] 重定向 {}: {}", redirect_count, current_url);
 
                     let response = match no_redirect_client
                         .get(&current_url)
@@ -230,7 +230,7 @@ impl HbutClient {
                             .get(1)
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        println!("[调试] 获取到 tid 地址: {}", tid);
+                        crate::hbut_debug!("[调试] 获取到 tid 地址: {}", tid);
                     }
                     if ticket.is_empty() {
                         if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str)
@@ -239,7 +239,7 @@ impl HbutClient {
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
                                 .unwrap_or_default();
-                            println!("[调试] 获取到 ticket 地址: {}", ticket);
+                            crate::hbut_debug!("[调试] 获取到 ticket 地址: {}", ticket);
                         }
                     }
 
@@ -256,7 +256,7 @@ impl HbutClient {
                                     .get(1)
                                     .map(|m| m.as_str().to_string())
                                     .unwrap_or_default();
-                                println!("[调试] 获取到 tid 重定向: {}", tid);
+                                crate::hbut_debug!("[调试] 获取到 tid 重定向: {}", tid);
                             }
                             if ticket.is_empty() {
                                 if let Some(caps) =
@@ -266,7 +266,7 @@ impl HbutClient {
                                         .get(1)
                                         .map(|m| m.as_str().to_string())
                                         .unwrap_or_default();
-                                    println!("[调试] 获取到 ticket 重定向: {}", ticket);
+                                    crate::hbut_debug!("[调试] 获取到 ticket 重定向: {}", ticket);
                                 }
                             }
 
@@ -290,7 +290,7 @@ impl HbutClient {
                                 && current_url.contains("code.hbut.edu.cn")
                                 && !current_url.contains("/server/auth/")
                             {
-                                println!("[调试] 已到达最终地址（tid）");
+                                crate::hbut_debug!("[调试] 已到达最终地址（tid）");
                                 break;
                             }
                         } else {
@@ -307,7 +307,7 @@ impl HbutClient {
                                     .get(1)
                                     .map(|m| m.as_str().to_string())
                                     .unwrap_or_default();
-                                println!("[调试] 获取到 tid HTML: {}", tid);
+                                crate::hbut_debug!("[调试] 获取到 tid HTML: {}", tid);
                             }
                         }
                         if ticket.is_empty() {
@@ -318,7 +318,7 @@ impl HbutClient {
                                     .get(1)
                                     .map(|m| m.as_str().to_string())
                                     .unwrap_or_default();
-                                println!("[调试] 获取到 ticket HTML: {}", ticket);
+                                crate::hbut_debug!("[调试] 获取到 ticket HTML: {}", ticket);
                             }
                         }
                         if auth_token.is_empty() {
@@ -351,10 +351,10 @@ impl HbutClient {
                 }
 
                 if needs_login && attempt == 0 {
-                    println!("[调试] 电费 SSO 需要登录，重新登录后重试...");
+                    crate::hbut_debug!("[调试] 电费 SSO 需要登录，重新登录后重试...");
                     match self.relogin_for_code_service().await {
                         Ok(true) => {
-                            println!("[调试] 重新登录成功，重试 SSO...");
+                            crate::hbut_debug!("[调试] 重新登录成功，重试 SSO...");
                             continue;
                         }
                         Ok(false) => {
@@ -381,7 +381,7 @@ impl HbutClient {
                         .get(1)
                         .map(|m| m.as_str().to_string())
                         .unwrap_or_default();
-                    println!("[调试] 获取到最终 tid 地址: {}", tid);
+                    crate::hbut_debug!("[调试] 获取到最终 tid 地址: {}", tid);
                 }
                 if ticket.is_empty() {
                     if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str) {
@@ -389,7 +389,7 @@ impl HbutClient {
                             .get(1)
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        println!("[调试] 获取到最终 ticket 地址: {}", ticket);
+                        crate::hbut_debug!("[调试] 获取到最终 ticket 地址: {}", ticket);
                     }
                 }
                 if tid.is_empty() {
@@ -399,7 +399,7 @@ impl HbutClient {
                             .get(1)
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        println!("[调试] 获取到最终 tid HTML: {}", tid);
+                        crate::hbut_debug!("[调试] 获取到最终 tid HTML: {}", tid);
                     }
                     if ticket.is_empty() {
                         if let Some(caps) =
@@ -409,7 +409,7 @@ impl HbutClient {
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
                                 .unwrap_or_default();
-                            println!("[调试] 获取到最终 ticket HTML: {}", ticket);
+                            crate::hbut_debug!("[调试] 获取到最终 ticket HTML: {}", ticket);
                         }
                     }
                     if auth_token.is_empty() {
@@ -433,7 +433,7 @@ impl HbutClient {
 
         // 2. 如果有 tid，尝试多种方式交换 token (与 Python fast_auth.py 一致)
         if auth_token.is_empty() && (!tid.is_empty() || !ticket.is_empty()) {
-            println!("[调试] 步骤 2: 使用 tid 换取令牌（多种方式）");
+            crate::hbut_debug!("[调试] 步骤 2: 使用 tid 换取令牌（多种方式）");
 
             let referer_url = if !tid.is_empty() {
                 format!("https://code.hbut.edu.cn/?tid={}&orgId=2", tid)
@@ -489,7 +489,7 @@ impl HbutClient {
 
             for (url_str, post_body) in token_urls {
                 let resp_result = if let Some(body) = post_body {
-                    println!("[调试] 尝试 POST: {}", url_str);
+                    crate::hbut_debug!("[调试] 尝试 POST: {}", url_str);
                     self.client
                         .post(&url_str)
                         .header("Origin", "https://code.hbut.edu.cn")
@@ -500,7 +500,7 @@ impl HbutClient {
                         .send()
                         .await
                 } else {
-                    println!("[调试] 尝试 GET: {}", url_str);
+                    crate::hbut_debug!("[调试] 尝试 GET: {}", url_str);
                     self.client
                         .get(&url_str)
                         .header("Origin", "https://code.hbut.edu.cn")
@@ -512,7 +512,7 @@ impl HbutClient {
 
                 if let Ok(resp) = resp_result {
                     if let Ok(json) = resp.json::<serde_json::Value>().await {
-                        println!("[调试] 令牌交换响应: {:?}", json);
+                        crate::hbut_debug!("[调试] 令牌交换响应: {:?}", json);
 
                         if json
                             .get("success")
@@ -550,7 +550,7 @@ impl HbutClient {
 
             // 尝试 getLoginUser 接口 (此路径常在 session 已建立时返回 token)
             if auth_token.is_empty() {
-                println!("[调试] 尝试 getLoginUser 相关接口");
+                crate::hbut_debug!("[调试] 尝试 getLoginUser 相关接口");
                 for endpoint in &["getLoginUser", "getUserInfo", "getData"] {
                     let url = format!("https://code.hbut.edu.cn/server/auth/{}", endpoint);
                     if let Ok(resp) = self
@@ -562,7 +562,7 @@ impl HbutClient {
                         .await
                     {
                         if let Ok(json) = resp.json::<serde_json::Value>().await {
-                            // println!("[调试] {} 响应: {:?}", endpoint, json);
+                            // crate::hbut_debug!("[调试] {} 响应: {:?}", endpoint, json);
                             if json
                                 .get("success")
                                 .and_then(|v| v.as_bool())
@@ -607,7 +607,7 @@ impl HbutClient {
                     .get(1)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default();
-                println!("[调试] 获取到令牌 Cookie");
+                crate::hbut_debug!("[调试] 获取到令牌 Cookie");
             }
         }
         if auth_token.is_empty() {
@@ -618,7 +618,7 @@ impl HbutClient {
                     .get(1)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default();
-                println!("[调试] 获取到令牌 Cookie 值");
+                crate::hbut_debug!("[调试] 获取到令牌 Cookie 值");
             }
         }
 
@@ -632,7 +632,7 @@ impl HbutClient {
             .into());
         }
 
-        println!("[调试] 电费令牌获取成功");
+        crate::hbut_debug!("[调试] 电费令牌获取成功");
         Ok(ElectricityTokenBundle {
             access_token: auth_token,
             refresh_token,
@@ -754,7 +754,7 @@ impl HbutClient {
 
             if within_ttl {
                 // 验证 token 有效性（优先使用官方 App 走的接口）
-                println!("[调试] 检查电费令牌有效性...");
+                crate::hbut_debug!("[调试] 检查电费令牌有效性...");
                 let mut invalid = false;
                 let mut uncertain = false;
                 let check_endpoints = vec![
@@ -806,11 +806,11 @@ impl HbutClient {
                                     || json.get("data").is_some()
                                     || json.get("resultData").is_some()
                                 {
-                                    println!("[调试] 缓存电费令牌有效");
+                                    crate::hbut_debug!("[调试] 缓存电费令牌有效");
                                     return Ok(token.clone());
                                 }
                             } else if !looks_like_login && !text.trim().is_empty() {
-                                println!("[调试] 缓存电费令牌有效（非标准响应）");
+                                crate::hbut_debug!("[调试] 缓存电费令牌有效（非标准响应）");
                                 return Ok(token.clone());
                             }
                             println!("[警告] 令牌校验未通过（{}），准备刷新", status);
@@ -852,7 +852,7 @@ impl HbutClient {
                 }
 
                 if invalid {
-                    println!("[调试] 缓存电费令牌无效或过期");
+                    crate::hbut_debug!("[调试] 缓存电费令牌无效或过期");
                     self.electricity_token = None;
                     self.electricity_token_at = None;
                     self.electricity_token_expires_at = None;
@@ -863,7 +863,7 @@ impl HbutClient {
 
         // 优先使用 refreshToken 刷新（若可用）
         if self.electricity_refresh_token.is_some() {
-            println!("[调试] 尝试使用 refreshToken 刷新电费令牌...");
+            crate::hbut_debug!("[调试] 尝试使用 refreshToken 刷新电费令牌...");
             if let Ok(bundle) = self.refresh_electricity_token().await {
                 let refresh = bundle
                     .refresh_token
@@ -880,14 +880,14 @@ impl HbutClient {
             }
         }
 
-        println!("[调试] 令牌无效或缺失，尝试 SSO...");
+        crate::hbut_debug!("[调试] 令牌无效或缺失，尝试 SSO...");
 
         let token_result = self.get_electricity_token().await;
         let bundle = match token_result {
             Ok(res) => res,
             Err(err) => {
                 let err_msg = err.to_string();
-                println!("[调试] 电费令牌失败: {}", err_msg);
+                crate::hbut_debug!("[调试] 电费令牌失败: {}", err_msg);
 
                 if err_msg.contains("tid=") && err_msg.contains("ticket=") {
                     if let Some(fallback) = cached_token.clone() {
@@ -904,7 +904,7 @@ impl HbutClient {
                     }
                     return Err(format!("登录频率过高，请{}秒后再试", remaining.as_secs()).into());
                 }
-                println!("[调试] 尝试重新登录并重试...");
+                crate::hbut_debug!("[调试] 尝试重新登录并重试...");
                 match self.relogin_for_code_service().await {
                     Ok(true) => self.get_electricity_token().await?,
                     Ok(false) => {
@@ -950,7 +950,7 @@ impl HbutClient {
         &mut self,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
-        println!("[调试] 一码通: 开始 SSO {}", sso_url);
+        crate::hbut_debug!("[调试] 一码通: 开始 SSO {}", sso_url);
 
         // 预热门户与 code SSO
         let portal_service = "https://e.hbut.edu.cn/login";
@@ -978,14 +978,14 @@ impl HbutClient {
                         .get(1)
                         .map(|m| m.as_str().to_string())
                         .unwrap_or_default();
-                    println!("[调试] 一码通：直连 tid={}", tid);
+                    crate::hbut_debug!("[调试] 一码通：直连 tid={}", tid);
                 }
                 if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&final_url) {
                     ticket = caps
                         .get(1)
                         .map(|m| m.as_str().to_string())
                         .unwrap_or_default();
-                    println!("[调试] 一码通：直连 ticket={}", ticket);
+                    crate::hbut_debug!("[调试] 一码通：直连 ticket={}", ticket);
                 }
             }
             Err(err) => {
@@ -1043,14 +1043,14 @@ impl HbutClient {
 
                     let status = resp.status();
                     let url_str = resp.url().to_string();
-                    println!("[调试] 一码通：状态={}, url={}", status, url_str);
+                    crate::hbut_debug!("[调试] 一码通：状态={}, url={}", status, url_str);
                     if tid.is_empty() {
                         if let Some(caps) = regex::Regex::new(r"tid=([^&]+)")?.captures(&url_str) {
                             tid = caps
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
                                 .unwrap_or_default();
-                            println!("[调试] 一码通：tid 地址={}", tid);
+                            crate::hbut_debug!("[调试] 一码通：tid 地址={}", tid);
                         }
                     }
                     if ticket.is_empty() {
@@ -1060,14 +1060,14 @@ impl HbutClient {
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
                                 .unwrap_or_default();
-                            println!("[调试] 一码通：ticket 地址={}", ticket);
+                            crate::hbut_debug!("[调试] 一码通：ticket 地址={}", ticket);
                         }
                     }
 
                     if status.is_redirection() {
                         if let Some(location) = resp.headers().get("Location") {
                             let location_str = location.to_str().unwrap_or("");
-                            println!("[调试] 一码通：重定向地址={}", location_str);
+                            crate::hbut_debug!("[调试] 一码通：重定向地址={}", location_str);
                             if tid.is_empty() {
                                 if let Some(caps) =
                                     regex::Regex::new(r"tid=([^&]+)")?.captures(location_str)
@@ -1076,7 +1076,7 @@ impl HbutClient {
                                         .get(1)
                                         .map(|m| m.as_str().to_string())
                                         .unwrap_or_default();
-                                    println!("[调试] 一码通：tid 重定向={}", tid);
+                                    crate::hbut_debug!("[调试] 一码通：tid 重定向={}", tid);
                                 }
                             }
                             if ticket.is_empty() {
@@ -1087,7 +1087,7 @@ impl HbutClient {
                                         .get(1)
                                         .map(|m| m.as_str().to_string())
                                         .unwrap_or_default();
-                                    println!("[调试] 一码通：ticket 重定向={}", ticket);
+                                    crate::hbut_debug!("[调试] 一码通：ticket 重定向={}", ticket);
                                 }
                             }
                             current_url = if location_str.starts_with("http") {
@@ -1115,7 +1115,7 @@ impl HbutClient {
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
                         if !tid.is_empty() {
-                            println!("[调试] 一码通：tid 内容={}", tid);
+                            crate::hbut_debug!("[调试] 一码通：tid 内容={}", tid);
                         }
                     }
                     if ticket.is_empty() {
@@ -1125,7 +1125,7 @@ impl HbutClient {
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
                         if !ticket.is_empty() {
-                            println!("[调试] 一码通：ticket 内容={}", ticket);
+                            crate::hbut_debug!("[调试] 一码通：ticket 内容={}", ticket);
                         }
                     }
 
@@ -1134,13 +1134,13 @@ impl HbutClient {
                         || body.contains("pwdEncryptSalt")
                     {
                         needs_login = true;
-                        println!("[调试] 一码通：检测到认证登录页");
+                        crate::hbut_debug!("[调试] 一码通：检测到认证登录页");
                     }
                     break;
                 }
 
                 if tid.is_empty() && needs_login && attempt == 0 {
-                    println!("[调试] 一码通：SSO 需要登录，重新登录后重试...");
+                    crate::hbut_debug!("[调试] 一码通：SSO 需要登录，重新登录后重试...");
                     if let Some(remaining) = self.relogin_cooldown_remaining() {
                         println!(
                             "[警告] 一码通：重登冷却中（{}s），跳过重登",
@@ -1150,7 +1150,7 @@ impl HbutClient {
                     }
                     match self.relogin_for_code_service().await {
                         Ok(true) => {
-                            println!("[调试] 一码通：重登成功，重试 SSO...");
+                            crate::hbut_debug!("[调试] 一码通：重登成功，重试 SSO...");
                             continue;
                         }
                         Ok(false) => {
@@ -1175,7 +1175,7 @@ impl HbutClient {
                         .get(1)
                         .map(|m| m.as_str().to_string())
                         .unwrap_or_default();
-                    println!("[调试] 一码通：最终 tid 地址={}", tid);
+                    crate::hbut_debug!("[调试] 一码通：最终 tid 地址={}", tid);
                 }
                 if ticket.is_empty() {
                     if let Some(caps) = regex::Regex::new(r"ticket=([^&]+)")?.captures(&url_str) {
@@ -1183,7 +1183,7 @@ impl HbutClient {
                             .get(1)
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        println!("[调试] 一码通：最终 ticket 地址={}", ticket);
+                        crate::hbut_debug!("[调试] 一码通：最终 ticket 地址={}", ticket);
                     }
                 }
                 if tid.is_empty() && ticket.is_empty() {
@@ -1193,7 +1193,7 @@ impl HbutClient {
                             .get(1)
                             .map(|m| m.as_str().to_string())
                             .unwrap_or_default();
-                        println!("[调试] 一码通：最终 tid HTML={}", tid);
+                        crate::hbut_debug!("[调试] 一码通：最终 tid HTML={}", tid);
                     }
                     if ticket.is_empty() {
                         if let Some(caps) =
@@ -1203,7 +1203,7 @@ impl HbutClient {
                                 .get(1)
                                 .map(|m| m.as_str().to_string())
                                 .unwrap_or_default();
-                            println!("[调试] 一码通：最终 ticket HTML={}", ticket);
+                            crate::hbut_debug!("[调试] 一码通：最终 ticket HTML={}", ticket);
                         }
                     }
                 }
@@ -1566,7 +1566,7 @@ impl HbutClient {
         {
             let msg = json.get("message").and_then(|v| v.as_str()).unwrap_or("");
             if msg.contains("token") || msg.contains("授权") || msg.contains("Authentication") {
-                println!("[调试] 获取交易记录时令牌无效，尝试刷新...");
+                crate::hbut_debug!("[调试] 获取交易记录时令牌无效，尝试刷新...");
                 let token = self.ensure_electricity_token().await?;
                 let retry = self
                     .client
@@ -1653,13 +1653,13 @@ impl HbutClient {
             urlencoding::encode(code_service)
         );
 
-        println!("[调试] code 服务重登： 检查 CAS 会话是否仍有效...");
+        crate::hbut_debug!("[调试] code 服务重登： 检查 CAS 会话是否仍有效...");
         let check_resp = self.client.get(&code_sso_url).send().await?;
         let check_url = check_resp.url().to_string();
         let needs_login = check_url.contains("authserver/login") && !check_url.contains("ticket=");
 
         if needs_login {
-            println!("[调试] code 服务重登： code 服务 CAS 会话已过期，需要重新登录...");
+            crate::hbut_debug!("[调试] code 服务重登： code 服务 CAS 会话已过期，需要重新登录...");
             if let Err(err) = self
                 .login_for_service(&username, &password, code_service)
                 .await
@@ -1669,10 +1669,10 @@ impl HbutClient {
                 return Err(err);
             }
         } else {
-            println!("[调试] code 服务重登： code 服务 CAS 会话仍有效，跳过登录");
+            crate::hbut_debug!("[调试] code 服务重登： code 服务 CAS 会话仍有效，跳过登录");
         }
 
-        println!("[调试] code 服务重登： 建立 code.hbut.edu.cn 会话...");
+        crate::hbut_debug!("[调试] code 服务重登： 建立 code.hbut.edu.cn 会话...");
         let _ = self.client.get(code_service).send().await;
 
         println!(

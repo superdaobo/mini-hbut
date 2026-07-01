@@ -5,7 +5,7 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache, getStaleCachedData, setCachedData } from './utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
   SCHEDULE_POPUP_PENDING_KEY,
@@ -19,6 +19,10 @@ import {
   isRemoteConfigEnabled
 } from './utils/remote_config.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
+import {
+  loadChaoxingStoredPassword,
+  loadPortalStoredPassword
+} from './composables/useSessionCredentials.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
@@ -1916,7 +1920,9 @@ const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = fal
       `grades:${sid}`,
       () => fetchGradesRemote(sid, { teacherCurrentOnly }),
       undefined,
-      { forceRemote: true, priority: 'foreground' }
+      force
+        ? { forceRemote: true, priority: 'foreground' }
+        : { ...DEFAULT_SWR_OPTIONS, priority: 'foreground' }
     )
     lastGradeRefreshUsedOffline.value = !!data?.offline
     if (data?.success && !data.offline) {
@@ -2249,28 +2255,9 @@ const tryRestoreLatestSession = async () => {
   return false
 }
 
-const getStoredPassword = () => {
-  const remember = localStorage.getItem('hbu_remember')
-  const username = localStorage.getItem('hbu_username')
-  const credential = localStorage.getItem('hbu_credentials')
-  if (remember === 'false' || !username || !credential) {
-    return null
-  }
-  if (credential.length > 50 || /[A-Za-z0-9+/=]{30,}/.test(credential)) {
-    return null
-  }
-  return { username, password: credential }
-}
+const getStoredPassword = () => loadPortalStoredPassword()
 
-const getStoredChaoxingPassword = () => {
-  const remember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
-  const account = String(localStorage.getItem(CHAOXING_ACCOUNT_KEY) || '').trim()
-  const password = String(localStorage.getItem(CHAOXING_PASSWORD_KEY) || '').trim()
-  if (remember === 'false' || !account || !password) {
-    return null
-  }
-  return { account, password }
-}
+const getStoredChaoxingPassword = () => loadChaoxingStoredPassword()
 
 const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
 
@@ -2298,7 +2285,7 @@ const attemptAutoRelogin = async () => {
   }
   const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
   if (method.startsWith('chaoxing_')) {
-    const chaoxingCreds = getStoredChaoxingPassword()
+    const chaoxingCreds = await getStoredChaoxingPassword()
     if (!chaoxingCreds) return false
     try {
       const payload = await invokeNative('chaoxing_password_login', {
@@ -2320,7 +2307,7 @@ const attemptAutoRelogin = async () => {
     }
   }
 
-  const creds = getStoredPassword()
+  const creds = await getStoredPassword()
   if (!creds) return false
 
   const doLogin = async () => {

@@ -4,6 +4,13 @@ import axios from 'axios'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from '../utils/debug_logger'
+import {
+  buildChaoxingAccountKey,
+  buildHbutAccountKey,
+  loadRememberedCredential,
+  migrateLegacyCredential,
+  saveRememberedCredential
+} from '../utils/credential_storage.js'
 
 const props = defineProps({
   loginMode: { type: String, default: 'portal' }
@@ -426,25 +433,35 @@ const emitSuccessWithGrades = async (sid) => {
   }
 }
 
-const savePortalCredentials = () => {
+const savePortalCredentials = async () => {
   if (rememberMe.value) {
     localStorage.setItem('hbu_username', username.value)
-    localStorage.setItem('hbu_credentials', password.value)
     localStorage.setItem('hbu_remember', 'true')
+    await saveRememberedCredential(
+      buildHbutAccountKey(username.value),
+      password.value
+    )
+    localStorage.removeItem('hbu_credentials')
   } else {
     localStorage.removeItem('hbu_credentials')
     localStorage.setItem('hbu_remember', 'false')
+    await saveRememberedCredential(buildHbutAccountKey(username.value), '')
   }
 }
 
-const saveChaoxingCredentials = () => {
+const saveChaoxingCredentials = async () => {
   if (rememberMe.value) {
     localStorage.setItem(CHAOXING_ACCOUNT_KEY, chaoxingAccount.value)
-    localStorage.setItem(CHAOXING_PASSWORD_KEY, chaoxingPassword.value)
     localStorage.setItem(CHAOXING_REMEMBER_KEY, 'true')
+    await saveRememberedCredential(
+      buildChaoxingAccountKey(chaoxingAccount.value),
+      chaoxingPassword.value
+    )
+    localStorage.removeItem(CHAOXING_PASSWORD_KEY)
   } else {
     localStorage.removeItem(CHAOXING_PASSWORD_KEY)
     localStorage.setItem(CHAOXING_REMEMBER_KEY, 'false')
+    await saveRememberedCredential(buildChaoxingAccountKey(chaoxingAccount.value), '')
   }
 }
 
@@ -463,7 +480,7 @@ const handlePasswordLogin = async () => {
   void ensureOcrEndpointReady().catch((e) => {
     pushDebugLog('Login', '登录前 OCR 配置刷新失败（已忽略）', 'warn', e)
   })
-  savePortalCredentials()
+  await savePortalCredentials()
 
   try {
     const res = await axios.post(`${API_BASE}/v2/start_login`, {
@@ -654,7 +671,7 @@ const handleChaoxingLoginSuccess = async (payload, modeKey) => {
   }
   username.value = sid
   localStorage.setItem('hbu_username', sid)
-  saveChaoxingCredentials()
+  await saveChaoxingCredentials()
   applyLoginMethodStorage(modeKey)
   localStorage.removeItem('hbu_manual_logout')
   localStorage.removeItem(LOGOUT_REASON_KEY)
@@ -900,19 +917,27 @@ onMounted(async () => {
 
   const savedUsername = localStorage.getItem('hbu_username')
   const savedRemember = localStorage.getItem('hbu_remember')
-  const savedCredentials = localStorage.getItem('hbu_credentials')
   if (savedRemember !== 'false' && savedUsername) {
     username.value = savedUsername
-    password.value = savedCredentials || ''
+    await migrateLegacyCredential({
+      legacyPasswordKey: 'hbu_credentials',
+      accountKey: buildHbutAccountKey(savedUsername)
+    })
+    password.value = await loadRememberedCredential(buildHbutAccountKey(savedUsername))
     rememberMe.value = true
   }
 
   const savedCxRemember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
   const savedCxAccount = localStorage.getItem(CHAOXING_ACCOUNT_KEY)
-  const savedCxPassword = localStorage.getItem(CHAOXING_PASSWORD_KEY)
   if (savedCxRemember !== 'false' && savedCxAccount) {
     chaoxingAccount.value = savedCxAccount
-    chaoxingPassword.value = savedCxPassword || ''
+    await migrateLegacyCredential({
+      legacyPasswordKey: CHAOXING_PASSWORD_KEY,
+      accountKey: buildChaoxingAccountKey(savedCxAccount)
+    })
+    chaoxingPassword.value = await loadRememberedCredential(
+      buildChaoxingAccountKey(savedCxAccount)
+    )
     rememberMe.value = true
   }
 

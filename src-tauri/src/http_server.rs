@@ -834,7 +834,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
 }
 
 async fn health(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
-    let client = state.client.write().await;
+    let client = state.client.read().await;
     ok(serde_json::json!({
         "success": true,
         "logged_in": client.user_info.is_some()
@@ -881,7 +881,7 @@ async fn export_cookies(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let client = state.client.write().await;
+    let client = state.client.read().await;
     Ok(ok(serde_json::json!({
         "success": true,
         "data": client.get_cookie_snapshot()
@@ -912,7 +912,7 @@ async fn sync_grades(
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
     ensure_sensitive_bridge_auth(&headers, &state)?;
-    let client = state.client.write().await;
+    let client = state.client.read().await;
     match client.fetch_grades().await {
         Ok(grades) => {
             let payload = serde_json::json!({
@@ -2526,7 +2526,7 @@ async fn fetch_exams(
     Json(req): Json<ExamRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
+    let client = state.client.read().await;
     match client.fetch_exams(req.semester.as_deref()).await {
         Ok(exams) => {
             let payload = serde_json::json!({
@@ -2546,7 +2546,7 @@ async fn fetch_ranking(
     Json(req): Json<RankingRequest>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
+    let client = state.client.read().await;
     if !client.is_logged_in && client.user_info.is_none() {
         return Err(err(
             StatusCode::UNAUTHORIZED,
@@ -2565,7 +2565,7 @@ async fn fetch_student_info(
     State(state): State<HttpState>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
 {
-    let client = state.client.write().await;
+    let client = state.client.read().await;
     client
         .fetch_student_info()
         .await

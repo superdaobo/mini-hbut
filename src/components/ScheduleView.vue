@@ -1,7 +1,7 @@
 ﻿<script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
-import { fetchWithCache } from '../utils/api.js'
+import { fetchWithCache, DEFAULT_SWR_OPTIONS, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { normalizeSemesterList, resolveCurrentSemester } from '../utils/semester.js'
 import { flushUiSettings, useUiSettings } from '../utils/ui_settings'
@@ -751,7 +751,7 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
         semester: requestedSemester || undefined
       })
       return res.data
-    })
+    }, undefined, DEFAULT_SWR_OPTIONS)
 
     if (data?.success) {
       applySchedulePayload(data, requestedSemester)
@@ -878,7 +878,7 @@ const fetchSemesterOptions = async () => {
     const { data } = await fetchWithCache('semesters', async () => {
       const res = await axios.get(`${API_BASE}/v2/semesters`)
       return res.data
-    })
+    }, EXTRA_LONG_TTL, DEFAULT_SWR_OPTIONS)
     if (!data?.success) {
       throw new Error(data?.error || '获取学期列表失败')
     }

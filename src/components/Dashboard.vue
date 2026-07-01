@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import axios from 'axios'
-import { fetchWithCache, getCachedData, setCachedData } from '../utils/api'
+import { fetchWithCache, getCachedData, setCachedData, DEFAULT_SWR_OPTIONS } from '../utils/api'
 import { showToast } from '../utils/toast'
 import { openExternal } from '../utils/external_link'
 import { stripMarkdown } from '../utils/markdown_text.js'
@@ -333,7 +333,7 @@ const fetchTodayCourses = async () => {
       const res = await fetchWithCache(cacheKey, async () => {
         const rsp = await axios.post(`${API_BASE}/v2/schedule/query`, { student_id: props.studentId, semester: preferredSemester || undefined })
         return rsp.data
-      })
+      }, undefined, DEFAULT_SWR_OPTIONS)
       payload = res?.data
     }
     const shouldForceOnlineRetry = !!payload?.success && !!payload?.offline && isVacationPreviousMeta(payload?.meta)
