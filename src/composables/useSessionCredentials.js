@@ -2,8 +2,10 @@ import {
   buildChaoxingAccountKey,
   buildHbutAccountKey,
   loadRememberedCredential,
-  migrateLegacyCredential
+  migrateLegacyCredential,
+  saveRememberedCredential
 } from '../utils/credential_storage.js'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
 const CHAOXING_ACCOUNT_KEY = 'hbu_cx_account'
@@ -22,7 +24,14 @@ export async function loadPortalStoredPassword() {
     legacyPasswordKey: 'hbu_credentials',
     accountKey: buildHbutAccountKey(username)
   })
-  const password = await loadRememberedCredential(buildHbutAccountKey(username))
+  let password = await loadRememberedCredential(buildHbutAccountKey(username))
+  if (!password && isTauriRuntime()) {
+    const sessionPassword = await invokeNative('load_session_password', { studentId: username })
+    password = String(sessionPassword || '').trim()
+    if (password) {
+      await saveRememberedCredential(buildHbutAccountKey(username), password)
+    }
+  }
   if (!password) return null
   return { username, password }
 }

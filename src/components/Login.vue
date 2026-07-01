@@ -8,7 +8,8 @@ import {
   buildHbutAccountKey,
   loadRememberedCredential,
   migrateLegacyCredential,
-  saveRememberedCredential
+  saveRememberedCredential,
+  syncPortalRememberCredential
 } from '../utils/credential_storage.js'
 
 const emit = defineEmits(['success', 'switchMode', 'showLegal'])
@@ -210,6 +211,13 @@ const autoLogin = async () => {
     }
     
     if (result.success && result.auto_login) {
+      const sid = String(result?.data?.student_id || username.value || '').trim()
+      await syncPortalRememberCredential({
+        username: username.value,
+        studentId: sid,
+        password: password.value,
+        remember: rememberMe.value
+      })
       // 自动登录成功
       statusMsg.value = '✅ 登录成功！正在获取数据...'
       

@@ -3,5 +3,6 @@
 pub mod credentials;
 
 pub use credentials::{
-    delete_remembered_credential, load_remembered_credential, save_remembered_credential,
+    delete_remembered_credential, load_remembered_credential, load_session_password,
+    save_remembered_credential,
 };

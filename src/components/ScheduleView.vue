@@ -2966,9 +2966,21 @@ const handleCloudSyncDownload = async () => {
   }
 }
 
+const handleSessionOnline = () => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) return
+  offline.value = false
+  offlineHint.value = ''
+  const targetSemester = String(
+    semester.value || semesterDraft.value || readStoredSemester() || deriveSemesterByDate()
+  ).trim()
+  void fetchSchedule(targetSemester)
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', handleWeekKeydown)
   window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
+  window.addEventListener('hbu-session-online', handleSessionOnline)
   document.addEventListener('visibilitychange', handleScheduleVisibilityChange)
   refreshCloudSyncCooldown()
   ensureCloudSyncCooldownTimer()
@@ -3070,6 +3082,7 @@ onBeforeUnmount(() => {
   persistScheduleRenderSnapshot('component-unmount')
   window.removeEventListener('keydown', handleWeekKeydown)
   window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
+  window.removeEventListener('hbu-session-online', handleSessionOnline)
   document.removeEventListener('visibilitychange', handleScheduleVisibilityChange)
   document.removeEventListener('click', closeSemesterBadgePopover)
   clearCloudSyncCooldownTimer()

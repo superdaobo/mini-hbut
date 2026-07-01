@@ -77,6 +77,11 @@ pub fn delete_remembered_credential(account_key: &str) {
     delete_password(account_key);
 }
 
+/// 读取 DB 会话关联的密钥环密码（学号键，无 `hbut:` 前缀）。
+pub fn load_session_password(student_id: &str) -> Option<String> {
+    load_password(student_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

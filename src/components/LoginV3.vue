@@ -9,7 +9,8 @@ import {
   buildHbutAccountKey,
   loadRememberedCredential,
   migrateLegacyCredential,
-  saveRememberedCredential
+  saveRememberedCredential,
+  syncPortalRememberCredential
 } from '../utils/credential_storage.js'
 
 const props = defineProps({
@@ -501,6 +502,12 @@ const handlePasswordLogin = async () => {
     if (sid) {
       localStorage.setItem('hbu_username', sid)
     }
+    await syncPortalRememberCredential({
+      username: username.value,
+      studentId: sid,
+      password: password.value,
+      remember: rememberMe.value
+    })
     applyLoginMethodStorage('portal_password')
     localStorage.removeItem(LOGOUT_REASON_KEY)
     statusMsg.value = '✅ 登录成功，正在同步数据...'

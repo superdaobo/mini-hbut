@@ -48,7 +48,8 @@ pub mod utils;
 
 use app_state::AppState;
 use commands::{
-    delete_remembered_credential, load_remembered_credential, save_remembered_credential,
+    delete_remembered_credential, load_remembered_credential, load_session_password,
+    save_remembered_credential,
 };
 use http_client::HbutClient;
 
@@ -3871,17 +3872,7 @@ async fn login(
 
 #[tauri::command]
 async fn logout(state: State<'_, AppState>) -> Result<(), String> {
-    let student_id = {
-        let client = state.client.write().await;
-        client
-            .user_info
-            .as_ref()
-            .map(|u| u.student_id.clone())
-            .unwrap_or_default()
-    };
-    if !student_id.is_empty() {
-        credential_store::delete_password(&student_id);
-    }
+    // 仅清理内存会话；保留密钥环中的「记住密码」与会话密码，供下次自动登录/表单回填。
     let mut client = state.client.write().await;
     client.clear_session();
     Ok(())
@@ -6557,6 +6548,7 @@ pub fn run() {
             logout,
             save_remembered_credential,
             load_remembered_credential,
+            load_session_password,
             delete_remembered_credential,
             restore_session,
             restore_latest_session,

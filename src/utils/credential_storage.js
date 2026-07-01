@@ -60,6 +60,32 @@ export async function deleteRememberedCredential(accountKey) {
 }
 
 /**
+ * 读取旧版 localStorage 凭据（支持 AES 密文、JSON、明文）。
+ */
+async function readLegacyStoredPassword(legacyPasswordKey, legacyPlaintext = '') {
+  const raw = String(legacyPlaintext || localStorage.getItem(legacyPasswordKey) || '').trim()
+  if (!raw) return ''
+
+  try {
+    const decrypted = await decryptData(raw)
+    const password = String(decrypted?.password || '').trim()
+    if (password) return password
+  } catch {
+    // 非 AES 密文，继续尝试其它格式
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    const password = String(parsed?.password || '').trim()
+    if (password) return password
+  } catch {
+    // 非 JSON
+  }
+
+  return raw
+}
+
+/**
  * 迁移旧版 localStorage 明文/旧键名凭据到安全存储。
  */
 export async function migrateLegacyCredential({
@@ -71,13 +97,41 @@ export async function migrateLegacyCredential({
   if (!key) return
 
   const existing = await loadRememberedCredential(key)
-  if (existing) return
+  const legacyRaw = legacyPasswordKey
+    ? String(localStorage.getItem(legacyPasswordKey) || '').trim()
+    : String(legacyPlaintext || '').trim()
+  if (existing && !legacyRaw) return
 
-  const legacy = String(legacyPlaintext || localStorage.getItem(legacyPasswordKey) || '').trim()
+  const legacy = await readLegacyStoredPassword(legacyPasswordKey, legacyPlaintext)
   if (!legacy) return
 
   await saveRememberedCredential(key, legacy)
   if (legacyPasswordKey) {
     localStorage.removeItem(legacyPasswordKey)
   }
+}
+
+/**
+ * 登录成功后，将记住密码同步到学号/账号多个键，避免 username 与 student_id 不一致。
+ */
+export async function syncPortalRememberCredential({
+  username,
+  studentId,
+  password,
+  remember = true
+}) {
+  if (!remember) return
+  const value = String(password || '').trim()
+  if (!value) return
+
+  const keys = new Set()
+  const loginName = String(username || '').trim()
+  const sid = String(studentId || '').trim()
+  if (loginName) keys.add(buildHbutAccountKey(loginName))
+  if (sid) keys.add(buildHbutAccountKey(sid))
+
+  for (const accountKey of keys) {
+    await saveRememberedCredential(accountKey, value)
+  }
+  localStorage.removeItem('hbu_credentials')
 }

@@ -15,3 +15,8 @@ pub fn delete_remembered_credential(account_key: String) -> Result<(), String> {
     credential_store::delete_remembered_credential(&account_key);
     Ok(())
 }
+
+#[tauri::command]
+pub fn load_session_password(student_id: String) -> Result<Option<String>, String> {
+    Ok(credential_store::load_session_password(&student_id))
+}

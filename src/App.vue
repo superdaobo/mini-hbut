@@ -1639,6 +1639,17 @@ const clearJwxtMaintenance = () => {
   }
 }
 
+const notifySessionOnline = (source = 'recovery') => {
+  if (!studentId.value) return
+  clearJwxtMaintenance()
+  window.dispatchEvent(new CustomEvent('hbu-session-online', {
+    detail: {
+      studentId: studentId.value,
+      source
+    }
+  }))
+}
+
 const syncJwxtMaintenanceFromStorage = () => {
   const active = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
   if (!active) {
@@ -1724,6 +1735,7 @@ const attemptOnlineRecovery = async (options = {}) => {
       }
       await persistSessionCookies()
       stopJwxtRecoveryPolling()
+      notifySessionOnline(relogged ? 'auto-relogin' : 'session-restore')
       // 后台恢复/重登录成功后自动上传成绩和设置到云端（不含自定义课程）
       if (relogged && studentId.value) {
         resetCloudSyncCooldownForSession(studentId.value)
@@ -2311,7 +2323,7 @@ const attemptAutoRelogin = async () => {
   if (!creds) return false
 
   const doLogin = async () => {
-    await invokeNative('login', {
+    const userInfo = await invokeNative('login', {
       username: creds.username,
       password: creds.password,
       captcha: '',
@@ -2319,8 +2331,10 @@ const attemptAutoRelogin = async () => {
       execution: ''
     })
     await persistSessionCookies()
-    if (!studentId.value) {
-      studentId.value = creds.username
+    const sid = String(userInfo?.student_id || creds.username || '').trim()
+    if (sid) {
+      studentId.value = sid
+      localStorage.setItem('hbu_username', sid)
     }
   }
 
@@ -2727,6 +2741,9 @@ onMounted(async () => {
     }
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
+    if (bootstrappedCachedIdentity || skipSplashForFastScheduleBoot) {
+      notifySessionOnline(relogged ? 'boot-auto-relogin' : 'boot-session-restore')
+    }
   } else if (bootstrappedCachedIdentity || studentId.value) {
     startJwxtRecoveryPolling()
     attemptOnlineRecovery({ silent: true }).then((ok) => {
