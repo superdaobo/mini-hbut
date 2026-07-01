@@ -275,16 +275,18 @@ async fn try_ocr_endpoint(
         .json(&serde_json::json!({ "image": normalized }))
         .send()
         .await
-        .map_err(|e| (source.clone(), ocr_url.clone(), format!("OCR request failed: {}", e)))?;
+        .map_err(|e| {
+            (
+                source.clone(),
+                ocr_url.clone(),
+                format!("OCR request failed: {}", e),
+            )
+        })?;
 
     let ocr_status = ocr_response.status();
     let ocr_text = ocr_response.text().await.unwrap_or_default();
     if !ocr_status.is_success() {
-        return Err((
-            source,
-            ocr_url,
-            format!("OCR status {}", ocr_status),
-        ));
+        return Err((source, ocr_url, format!("OCR status {}", ocr_status)));
     }
 
     let ocr_result: serde_json::Value = serde_json::from_str(&ocr_text).map_err(|e| {
@@ -426,7 +428,8 @@ impl HbutClient {
             Ok(info) => Ok(info),
             Err(err) => {
                 let err_msg = err.to_string();
-                if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期") {
+                if err_msg.contains("无法解析用户信息") || err_msg.contains("会话已过期")
+                {
                     crate::hbut_debug!("[调试] 用户信息获取失败，再次补偿 CAS 入口");
                     let _ = self.client.get(&caslogin_url).send().await?;
                     self.fetch_user_info().await
@@ -446,7 +449,9 @@ impl HbutClient {
             return Ok(page_info);
         }
 
-        crate::hbut_debug!("[调试] 默认登录页参数不完整（salt/execution），并行尝试 service 回退链路");
+        crate::hbut_debug!(
+            "[调试] 默认登录页参数不完整（salt/execution），并行尝试 service 回退链路"
+        );
         let client = self.client.clone();
         let mut tasks = FuturesUnordered::new();
         for service in LOGIN_PAGE_FALLBACK_SERVICES {
@@ -963,12 +968,7 @@ impl HbutClient {
         for (source, ocr_url) in endpoints {
             let client = self.ocr_client.clone();
             let img = image.clone();
-            tasks.push(try_ocr_endpoint(
-                client,
-                source.to_string(),
-                ocr_url,
-                img,
-            ));
+            tasks.push(try_ocr_endpoint(client, source.to_string(), ocr_url, img));
         }
 
         let mut last_err = String::new();

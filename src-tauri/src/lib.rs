@@ -47,7 +47,9 @@ pub mod qxzkb_options;
 pub mod utils;
 
 use app_state::AppState;
-use commands::{delete_remembered_credential, load_remembered_credential, save_remembered_credential};
+use commands::{
+    delete_remembered_credential, load_remembered_credential, save_remembered_credential,
+};
 use http_client::HbutClient;
 
 use modules::ai::*;
@@ -147,9 +149,7 @@ fn spawn_electricity_session_warmup(
                 client.get_cookies(),
                 token,
                 refresh_opt.unwrap_or_default(),
-                expires_at_opt
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default(),
+                expires_at_opt.map(|dt| dt.to_rfc3339()).unwrap_or_default(),
             )
         };
         if let Err(e) = db::save_user_session(
