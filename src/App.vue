@@ -23,7 +23,7 @@ import {
   loadChaoxingStoredPassword,
   loadPortalStoredPassword
 } from './composables/useSessionCredentials.js'
-import { preservePortalRememberedPasswordOnLogout } from './utils/credential_storage.js'
+import { ensureRememberedPasswordCached, preservePortalRememberedPasswordOnLogout } from './utils/credential_storage.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
@@ -1460,6 +1460,9 @@ const handleLoginSuccess = (data) => {
   startSessionKeepAlive()
   startElectricityKeepAlive()
   if (studentId.value) {
+    void ensureRememberedPasswordCached(studentId.value).catch((e) => {
+      console.warn('[Session] 登录后缓存记住密码失败:', e)
+    })
     startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
       console.warn('[Notify] 启动通知监控失败:', e)
     })
@@ -2743,6 +2746,9 @@ onMounted(async () => {
     startElectricityKeepAlive()
     if (studentId.value) {
       markLoginSessionToken()
+      void ensureRememberedPasswordCached(studentId.value).catch((e) => {
+        console.warn('[Session] 启动后缓存记住密码失败:', e)
+      })
       startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
         console.warn('[Notify] 启动通知监控失败:', e)
       })

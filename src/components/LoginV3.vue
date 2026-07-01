@@ -508,6 +508,9 @@ const handlePasswordLogin = async () => {
       password: password.value,
       remember: rememberMe.value
     })
+    if (rememberMe.value) {
+      localStorage.setItem('hbu_remember', 'true')
+    }
     applyLoginMethodStorage('portal_password')
     localStorage.removeItem(LOGOUT_REASON_KEY)
     statusMsg.value = '✅ 登录成功，正在同步数据...'
