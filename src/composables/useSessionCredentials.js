@@ -1,11 +1,9 @@
 import {
   buildChaoxingAccountKey,
   buildHbutAccountKey,
-  loadRememberedCredential,
-  migrateLegacyCredential,
-  saveRememberedCredential
+  loadChaoxingRememberedPassword,
+  loadPortalRememberedPassword
 } from '../utils/credential_storage.js'
-import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const CHAOXING_REMEMBER_KEY = 'hbu_cx_remember'
 const CHAOXING_ACCOUNT_KEY = 'hbu_cx_account'
@@ -20,18 +18,7 @@ export async function loadPortalStoredPassword() {
   if (remember === 'false' || !username) {
     return null
   }
-  await migrateLegacyCredential({
-    legacyPasswordKey: 'hbu_credentials',
-    accountKey: buildHbutAccountKey(username)
-  })
-  let password = await loadRememberedCredential(buildHbutAccountKey(username))
-  if (!password && isTauriRuntime()) {
-    const sessionPassword = await invokeNative('load_session_password', { studentId: username })
-    password = String(sessionPassword || '').trim()
-    if (password) {
-      await saveRememberedCredential(buildHbutAccountKey(username), password)
-    }
-  }
+  const password = await loadPortalRememberedPassword(username)
   if (!password) return null
   return { username, password }
 }
@@ -45,11 +32,7 @@ export async function loadChaoxingStoredPassword() {
   if (remember === 'false' || !account) {
     return null
   }
-  await migrateLegacyCredential({
-    legacyPasswordKey: CHAOXING_PASSWORD_KEY,
-    accountKey: buildChaoxingAccountKey(account)
-  })
-  const password = await loadRememberedCredential(buildChaoxingAccountKey(account))
+  const password = await loadChaoxingRememberedPassword(account)
   if (!password) return null
   return { account, password }
 }

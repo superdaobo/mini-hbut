@@ -23,6 +23,7 @@ import {
   loadChaoxingStoredPassword,
   loadPortalStoredPassword
 } from './composables/useSessionCredentials.js'
+import { preservePortalRememberedPasswordOnLogout } from './utils/credential_storage.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
@@ -1543,11 +1544,18 @@ const isTemporaryLoginSession = () => {
 }
 
 // 处理登出
-const handleLogout = (options = {}) => {
+const handleLogout = async (options = {}) => {
   const payload = options && typeof options === 'object' ? options : {}
   const manual = payload.manual !== false
   const reason = String(payload.reason || '').trim()
   const notice = String(payload.notice || '').trim()
+
+  try {
+    await preservePortalRememberedPasswordOnLogout()
+  } catch (e) {
+    console.warn('[Session] 退出前同步记住密码失败:', e)
+  }
+
   applyViewState('home')
   gradeData.value = []
   gradeTeacherCache.value = null

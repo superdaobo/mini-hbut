@@ -7,8 +7,8 @@ import { pushDebugLog } from '../utils/debug_logger'
 import {
   buildChaoxingAccountKey,
   buildHbutAccountKey,
-  loadRememberedCredential,
-  migrateLegacyCredential,
+  loadChaoxingRememberedPassword,
+  loadPortalRememberedPassword,
   saveRememberedCredential,
   syncPortalRememberCredential
 } from '../utils/credential_storage.js'
@@ -910,6 +910,24 @@ watch(activeMode, (mode) => {
   emit('switchMode', mode)
 })
 
+const hydrateRememberedCredentials = async () => {
+  const savedUsername = localStorage.getItem('hbu_username')
+  const savedRemember = localStorage.getItem('hbu_remember')
+  if (savedRemember !== 'false' && savedUsername) {
+    username.value = savedUsername
+    password.value = await loadPortalRememberedPassword(savedUsername)
+    rememberMe.value = true
+  }
+
+  const savedCxRemember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
+  const savedCxAccount = localStorage.getItem(CHAOXING_ACCOUNT_KEY)
+  if (savedCxRemember !== 'false' && savedCxAccount) {
+    chaoxingAccount.value = savedCxAccount
+    chaoxingPassword.value = await loadChaoxingRememberedPassword(savedCxAccount)
+    rememberMe.value = true
+  }
+}
+
 onMounted(async () => {
   const savedMode = normalizeModeKey(localStorage.getItem(LOGIN_MODE_PREF_KEY))
   if (isKnownMode(savedMode) && savedMode !== activeMode.value) {
@@ -922,31 +940,7 @@ onMounted(async () => {
     localStorage.removeItem(LOGOUT_REASON_KEY)
   }
 
-  const savedUsername = localStorage.getItem('hbu_username')
-  const savedRemember = localStorage.getItem('hbu_remember')
-  if (savedRemember !== 'false' && savedUsername) {
-    username.value = savedUsername
-    await migrateLegacyCredential({
-      legacyPasswordKey: 'hbu_credentials',
-      accountKey: buildHbutAccountKey(savedUsername)
-    })
-    password.value = await loadRememberedCredential(buildHbutAccountKey(savedUsername))
-    rememberMe.value = true
-  }
-
-  const savedCxRemember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
-  const savedCxAccount = localStorage.getItem(CHAOXING_ACCOUNT_KEY)
-  if (savedCxRemember !== 'false' && savedCxAccount) {
-    chaoxingAccount.value = savedCxAccount
-    await migrateLegacyCredential({
-      legacyPasswordKey: CHAOXING_PASSWORD_KEY,
-      accountKey: buildChaoxingAccountKey(savedCxAccount)
-    })
-    chaoxingPassword.value = await loadRememberedCredential(
-      buildChaoxingAccountKey(savedCxAccount)
-    )
-    rememberMe.value = true
-  }
+  await hydrateRememberedCredentials()
 
   void ensureOcrEndpointReady().catch((e) => {
     console.warn('[Login] OCR 初始化失败（后台重试）:', e)

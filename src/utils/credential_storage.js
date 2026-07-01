@@ -112,6 +112,71 @@ export async function migrateLegacyCredential({
 }
 
 /**
+ * 加载门户「记住密码」凭据（密钥环 hbut: 键 + 会话学号键 + 旧版 localStorage）。
+ */
+export async function loadPortalRememberedPassword(username) {
+  const sid = String(username || '').trim()
+  if (!sid) return ''
+
+  await migrateLegacyCredential({
+    legacyPasswordKey: 'hbu_credentials',
+    accountKey: buildHbutAccountKey(sid)
+  })
+
+  const password = await loadRememberedCredential(buildHbutAccountKey(sid))
+  if (password) return password
+
+  if (isTauriRuntime()) {
+    try {
+      const sessionPassword = await invokeNative('load_session_password', { studentId: sid })
+      const normalized = String(sessionPassword || '').trim()
+      if (normalized) {
+        await saveRememberedCredential(buildHbutAccountKey(sid), normalized)
+        return normalized
+      }
+    } catch {
+      // 旧版二进制可能尚未注册 load_session_password，已由 Rust 侧 hbut: 回退覆盖
+    }
+  }
+
+  return ''
+}
+
+/**
+ * 退出登录前，把会话密钥环密码同步到「记住密码」键，确保登录表单可回填。
+ */
+export async function preservePortalRememberedPasswordOnLogout() {
+  const remember = localStorage.getItem('hbu_remember')
+  const username = String(localStorage.getItem('hbu_username') || '').trim()
+  if (remember === 'false' || !username) return
+
+  const password = await loadPortalRememberedPassword(username)
+  if (!password) return
+
+  await syncPortalRememberCredential({
+    username,
+    studentId: username,
+    password,
+    remember: true
+  })
+}
+
+/**
+ * 加载学习通「记住密码」凭据。
+ */
+export async function loadChaoxingRememberedPassword(account) {
+  const normalized = String(account || '').trim()
+  if (!normalized) return ''
+
+  await migrateLegacyCredential({
+    legacyPasswordKey: 'hbu_cx_password',
+    accountKey: buildChaoxingAccountKey(normalized)
+  })
+
+  return loadRememberedCredential(buildChaoxingAccountKey(normalized))
+}
+
+/**
  * 登录成功后，将记住密码同步到学号/账号多个键，避免 username 与 student_id 不一致。
  */
 export async function syncPortalRememberCredential({

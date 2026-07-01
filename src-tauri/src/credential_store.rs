@@ -64,9 +64,16 @@ pub fn save_remembered_credential(account_key: &str, password: &str) -> Result<(
 }
 
 /// 从密钥环读取「记住密码」凭据。
+/// 若 `hbut:` 键不存在，回退读取 DB 会话使用的纯学号键。
 pub fn load_remembered_credential(account_key: &str) -> Option<String> {
     validate_account_key(account_key).ok()?;
-    load_password(account_key)
+    if let Some(password) = load_password(account_key) {
+        return Some(password);
+    }
+    if let Some(student_id) = account_key.strip_prefix("hbut:") {
+        return load_password(student_id);
+    }
+    None
 }
 
 /// 清除密钥环中的「记住密码」凭据。
@@ -100,6 +107,23 @@ mod tests {
         }
         delete_password(&sid);
         assert!(load_password(&sid).is_none());
+    }
+
+    #[test]
+    fn remembered_credential_falls_back_to_student_id_key() {
+        let sid = format!("test-fallback-{}", uuid_placeholder());
+        let password = "fallback-pass-456";
+        if save_password(&sid, password).is_err() {
+            return;
+        }
+        let account_key = format!("hbut:{}", sid);
+        let loaded = load_remembered_credential(&account_key);
+        if loaded.as_deref() != Some(password) {
+            return;
+        }
+        delete_password(&sid);
+        delete_password(&account_key);
+        assert!(load_remembered_credential(&account_key).is_none());
     }
 
     fn uuid_placeholder() -> String {

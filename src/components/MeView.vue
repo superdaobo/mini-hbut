@@ -10,6 +10,16 @@ const props = defineProps({
   configAdminIds: { type: Array, default: () => [] }
 })
 
+const loginFormKey = ref(0)
+watch(
+  () => props.isLoggedIn,
+  (loggedIn, wasLoggedIn) => {
+    if (wasLoggedIn && !loggedIn) {
+      loginFormKey.value += 1
+    }
+  }
+)
+
 const emit = defineEmits(['success', 'switchMode', 'logout', 'navigate', 'checkUpdate', 'openOfficial', 'openFeedback', 'openConfig', 'openSettings'])
 
 const activeLegalTab = ref('disclaimer')
@@ -113,6 +123,7 @@ const handleShowLegal = async (tab) => {
 
     <section v-else class="profile-card">
       <LoginV3
+        :key="loginFormKey"
         :login-mode="loginMode"
         @success="emit('success', $event)"
         @switchMode="emit('switchMode', $event)"

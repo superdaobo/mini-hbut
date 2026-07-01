@@ -6,8 +6,7 @@ import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '..
 import { invokeNative as invoke } from '../platform/native'
 import {
   buildHbutAccountKey,
-  loadRememberedCredential,
-  migrateLegacyCredential,
+  loadPortalRememberedPassword,
   saveRememberedCredential,
   syncPortalRememberCredential
 } from '../utils/credential_storage.js'
@@ -57,11 +56,7 @@ onMounted(async () => {
 
   if (savedRemember !== 'false' && savedUsername) {
     username.value = savedUsername
-    await migrateLegacyCredential({
-      legacyPasswordKey: 'hbu_credentials',
-      accountKey: buildHbutAccountKey(savedUsername)
-    })
-    password.value = await loadRememberedCredential(buildHbutAccountKey(savedUsername))
+    password.value = await loadPortalRememberedPassword(savedUsername)
     rememberMe.value = true
   }
 
