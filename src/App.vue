@@ -5,9 +5,10 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS } from './utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS, clearUserScopedCaches } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
+  clearScheduleRenderSnapshot,
   SCHEDULE_POPUP_PENDING_KEY,
   SCHEDULE_SWITCH_PENDING_KEY
 } from './utils/schedule_prefetch.js'
@@ -1552,11 +1553,20 @@ const handleLogout = async (options = {}) => {
   const manual = payload.manual !== false
   const reason = String(payload.reason || '').trim()
   const notice = String(payload.notice || '').trim()
+  const logoutSid = String(studentId.value || localStorage.getItem('hbu_username') || '').trim()
 
   try {
     await preservePortalRememberedPasswordOnLogout()
   } catch (e) {
     console.warn('[Session] 退出前同步记住密码失败:', e)
+  }
+
+  if (manual && logoutSid) {
+    clearUserScopedCaches(logoutSid)
+    clearScheduleRenderSnapshot(logoutSid)
+    window.dispatchEvent(new CustomEvent('hbu-session-logout', {
+      detail: { studentId: logoutSid, manual: true }
+    }))
   }
 
   applyViewState('home')

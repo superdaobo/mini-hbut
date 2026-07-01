@@ -143,6 +143,8 @@ const readStoredSemester = () => {
 const resolveDisplayStudentId = () => {
   const sid = String(props.studentId || '').trim()
   if (sid) return sid
+  // 主动退出后不再用 hbu_username 回退，避免未登录仍展示上一账号课表
+  if (localStorage.getItem('hbu_manual_logout') === 'true') return ''
   const fallback = String(localStorage.getItem('hbu_username') || '').trim()
   return /^\d{10}$/.test(fallback) ? fallback : ''
 }
@@ -736,6 +738,14 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
       if (hasInstantCache) {
         initialFetchDone.value = true
         errorMsg.value = ''
+      } else if (localStorage.getItem('hbu_manual_logout') === 'true') {
+        scheduleData.value = []
+        remoteScheduleData.value = []
+        customScheduleData.value = []
+        offline.value = false
+        offlineHint.value = ''
+        initialFetchDone.value = true
+        errorMsg.value = '请先登录后查看课表'
       } else {
         // 启动阶段可能还在恢复身份，此时不显示“请登录”闪屏，等待身份恢复后自动刷新。
         errorMsg.value = ''
@@ -2966,6 +2976,16 @@ const handleCloudSyncDownload = async () => {
   }
 }
 
+const handleSessionLogout = () => {
+  scheduleData.value = []
+  remoteScheduleData.value = []
+  customScheduleData.value = []
+  offline.value = false
+  offlineHint.value = ''
+  errorMsg.value = '请先登录后查看课表'
+  initialFetchDone.value = true
+}
+
 const handleSessionOnline = () => {
   const sid = String(props.studentId || '').trim()
   if (!sid) return
@@ -2981,6 +3001,7 @@ onMounted(async () => {
   window.addEventListener('keydown', handleWeekKeydown)
   window.addEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
   window.addEventListener('hbu-session-online', handleSessionOnline)
+  window.addEventListener('hbu-session-logout', handleSessionLogout)
   document.addEventListener('visibilitychange', handleScheduleVisibilityChange)
   refreshCloudSyncCooldown()
   ensureCloudSyncCooldownTimer()
@@ -3083,6 +3104,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWeekKeydown)
   window.removeEventListener(CLOUD_SYNC_UPDATED_EVENT, handleCloudSyncUpdated)
   window.removeEventListener('hbu-session-online', handleSessionOnline)
+  window.removeEventListener('hbu-session-logout', handleSessionLogout)
   document.removeEventListener('visibilitychange', handleScheduleVisibilityChange)
   document.removeEventListener('click', closeSemesterBadgePopover)
   clearCloudSyncCooldownTimer()

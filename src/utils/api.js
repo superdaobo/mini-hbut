@@ -112,6 +112,22 @@ export function clearCacheByPrefix(prefix) {
   keysToRemove.forEach((k) => localStorage.removeItem(k))
 }
 
+/**
+ * 清除指定学号的教务/课表等用户级缓存（退出登录时调用）。
+ */
+export function clearUserScopedCaches(studentId) {
+  const sid = String(studentId || '').trim()
+  if (!sid) return
+
+  for (const prefix of JWXT_KEY_PREFIXES) {
+    if (prefix === 'semesters') continue
+    clearCacheByPrefix(`${prefix}${sid}`)
+  }
+  clearCacheByPrefix(`grade_teachers:${sid}`)
+  clearCacheByPrefix(`training:options:${sid}`)
+  clearCacheByPrefix(`training:jys:${sid}`)
+}
+
 export function getCachedData(key, ttl = DEFAULT_TTL) {
   const now = Date.now()
   const inMemory = memoryCache.get(key)
