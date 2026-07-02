@@ -1,5 +1,8 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import Navbar from '../components/Navbar';
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import Navbar from '@/components/Navbar';
 import {
     Bell,
     Book,
@@ -242,18 +245,18 @@ const recommendedReadingByPath: Record<string, Array<{ path: string; label: stri
     ],
 };
 
-const DocsLayout = () => {
+const DocsLayout = ({ children }: { children: React.ReactNode }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const location = useLocation();
+    const pathname = usePathname() ?? '/docs';
 
     const currentSection = docsNavSections.find((section) =>
-        section.links.some((link) => link.path === location.pathname)
+        section.links.some((link) => link.path === pathname)
     ) ?? docsNavSections[0];
-    const currentPage = currentSection.links.find((link) => link.path === location.pathname) ?? docsNavSections[0].links[0];
-    const recommendedDocs = recommendedReadingByPath[location.pathname] ?? defaultRecommendedDocs;
+    const currentPage = currentSection.links.find((link) => link.path === pathname) ?? docsNavSections[0].links[0];
+    const recommendedDocs = recommendedReadingByPath[pathname] ?? defaultRecommendedDocs;
 
     const isActive = (path: string) => {
-        return location.pathname === path;
+        return pathname === path;
     };
 
     return (
@@ -315,7 +318,7 @@ const DocsLayout = () => {
                                     {section.links.map((link) => (
                                         <Link
                                             key={link.path}
-                                            to={link.path}
+                                            href={link.path}
                                             onClick={() => setIsSidebarOpen(false)}
                                             aria-current={isActive(link.path) ? 'page' : undefined}
                                             className={`
@@ -357,7 +360,7 @@ const DocsLayout = () => {
                                 </p>
                             </div>
                             <div className="prose prose-invert prose-cyan max-w-none prose-p:leading-8 prose-li:leading-7 prose-headings:scroll-mt-28 prose-pre:max-w-full prose-pre:overflow-x-auto">
-                                <Outlet />
+                                {children}
                             </div>
                             <section className="mt-12 border-t border-white/10 pt-8">
                                 <div className="mb-4">
@@ -373,7 +376,7 @@ const DocsLayout = () => {
                                     {recommendedDocs.map((item) => (
                                         <Link
                                             key={item.path}
-                                            to={item.path}
+                                            href={item.path}
                                             className="rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-cyan/50 hover:bg-white/[0.05]"
                                         >
                                             <div className="font-semibold text-cyan">{item.label}</div>
