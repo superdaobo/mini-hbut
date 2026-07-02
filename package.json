@@ -55,7 +55,7 @@
     "dompurify": "^3.1.6",
     "fflate": "^0.8.3",
     "html2canvas": "^1.4.1",
-    "marked": "^12.0.2",
+    "marked": "^18.0.5",
     "pinia": "^3.0.4",
     "qrcode": "^1.5.4",
     "reka-ui": "2.10.1",
@@ -69,16 +69,17 @@
     "@capacitor/cli": "^6.1.2",
     "@tauri-apps/cli": "^2.11.3",
     "@vitejs/plugin-vue": "^5.0.0",
-    "@vitest/coverage-v8": "^1",
+    "@vitest/coverage-v8": "^4.1.9",
     "ajv": "^8",
     "autoprefixer": "^10.5.0",
+    "esbuild": "^0.28.1",
     "fast-check": "^4",
     "material-symbols": "^0.44.8",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.3.0",
     "vite": "^5.0.0",
-    "vitest": "^1",
+    "vitest": "^4.1.9",
     "vue-tsc": "^2.2.8"
   }
 }
