@@ -2,8 +2,8 @@ import { getCachedData, setCachedData } from './api.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 
 const STATIC_RESOURCE_BASE = 'https://hbut.6661111.xyz/app-resources'
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/superdaobo/mini-hbut/website-pages/dist/app-resources'
-const GITHUB_PROXY_BASE = 'https://ghfast.top/https://raw.githubusercontent.com/superdaobo/mini-hbut/website-pages/dist/app-resources'
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/superdaobo/mini-hbut/website-pages/app-resources'
+const GITHUB_PROXY_BASE = 'https://ghfast.top/https://raw.githubusercontent.com/superdaobo/mini-hbut/website-pages/app-resources'
 const DORMITORY_MANIFEST_URL = `${STATIC_RESOURCE_BASE}/dormitory/manifest.json`
 const DORMITORY_FALLBACK_URL = `${STATIC_RESOURCE_BASE}/dormitory/dormitory_data-20260423.json`
 const DORMITORY_CACHE_KEY = 'static_resource:dormitory_data'

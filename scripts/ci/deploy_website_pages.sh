@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 将 website/dist 强制推送到 website-pages 分支（供多个 workflow 复用）。
+# 将 website/dist 内容强制推送到 website-pages 分支根目录（供多个 workflow 复用）。
+# GitHub Pages「Deploy from a branch」仅支持 / 或 /docs，因此不能发布到 dist/ 子目录。
 set -euo pipefail
 
 DEPLOY_MESSAGE="${DEPLOY_MESSAGE:?DEPLOY_MESSAGE is required}"
@@ -12,8 +13,7 @@ if [ ! -d website/dist ]; then
 fi
 
 DEPLOY="$(mktemp -d)"
-echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
-cp -r website/dist "$DEPLOY/dist"
+cp -r website/dist/. "$DEPLOY/"
 cd "$DEPLOY"
 git init -q
 git config user.name "github-actions[bot]"
