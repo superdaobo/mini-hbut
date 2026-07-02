@@ -17,11 +17,13 @@ export default defineConfig({
     assetsInlineLimit: 4096,
     rollupOptions: {
       output: {
-        manualChunks: {
-          three: ['three'],
-        }
-      }
-    }
+        manualChunks(id) {
+          if (id.includes('node_modules/three')) {
+            return 'three'
+          }
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',

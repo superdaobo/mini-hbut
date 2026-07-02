@@ -42,19 +42,31 @@ jobs:
           set -euo pipefail
           RESTORE_DIR="$(mktemp -d)"
           if git clone --depth=1 --branch website-pages "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$RESTORE_DIR" >/dev/null 2>&1; then
-            if [ -d "$RESTORE_DIR/dist/releases" ]; then
+            RELEASES_SRC=""
+            if [ -d "$RESTORE_DIR/releases" ]; then
+              RELEASES_SRC="$RESTORE_DIR/releases"
+            elif [ -d "$RESTORE_DIR/dist/releases" ]; then
+              RELEASES_SRC="$RESTORE_DIR/dist/releases"
+            fi
+            if [ -n "$RELEASES_SRC" ]; then
               mkdir -p website/public/releases
-              cp -a "$RESTORE_DIR/dist/releases/." website/public/releases/
+              cp -a "$RELEASES_SRC/." website/public/releases/
               echo "Restored existing releases from website-pages"
             else
-              echo "website-pages has no dist/releases"
+              echo "website-pages has no releases"
             fi
-            if [ -d "$RESTORE_DIR/dist/modules" ]; then
+            MODULES_SRC=""
+            if [ -d "$RESTORE_DIR/modules" ]; then
+              MODULES_SRC="$RESTORE_DIR/modules"
+            elif [ -d "$RESTORE_DIR/dist/modules" ]; then
+              MODULES_SRC="$RESTORE_DIR/dist/modules"
+            fi
+            if [ -n "$MODULES_SRC" ]; then
               mkdir -p website/public/modules
-              cp -a "$RESTORE_DIR/dist/modules/." website/public/modules/
+              cp -a "$MODULES_SRC/." website/public/modules/
               echo "Restored existing modules from website-pages"
             else
-              echo "website-pages has no dist/modules"
+              echo "website-pages has no modules"
             fi
           else
             echo "website-pages branch unavailable, skip restore"
