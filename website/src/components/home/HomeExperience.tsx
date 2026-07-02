@@ -8,10 +8,12 @@ import FeatureTextOverlay from '@/components/FeatureTextOverlay';
 import CTASection from '@/components/CTASection';
 import { ScrollProgressProvider } from '@/hooks/use-scroll-progress';
 
+import SceneErrorBoundary from '@/components/SceneErrorBoundary';
+
 const SceneCanvas = dynamic(() => import('@/components/SceneCanvas'), {
   ssr: false,
   loading: () => (
-    <div className="absolute inset-0 bg-[#03060d]" />
+    <div className="absolute inset-0 bg-[#03060d]" aria-hidden />
   ),
 });
 
@@ -24,7 +26,9 @@ export default function HomeExperience() {
           <div id="features" className="sr-only" aria-hidden />
           <div id="about" className="sr-only" aria-hidden />
           <SmoothScrollProvider>
-            <SceneCanvas />
+            <SceneErrorBoundary>
+              <SceneCanvas />
+            </SceneErrorBoundary>
           </SmoothScrollProvider>
           <HeroText />
           <FeatureTextOverlay />

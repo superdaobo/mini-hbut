@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef } from 'react';
-import { Text } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
@@ -126,26 +125,6 @@ export default function FloatingFeatureCards() {
               emissiveIntensity={0.3}
             />
           </mesh>
-          <Text
-            position={[-0.42, 0.08, 0.03]}
-            fontSize={0.12}
-            color="#ffffff"
-            anchorX="left"
-            anchorY="middle"
-            maxWidth={0.9}
-          >
-            {card.title}
-          </Text>
-          <Text
-            position={[-0.42, -0.1, 0.03]}
-            fontSize={0.07}
-            color="#cbd5e1"
-            anchorX="left"
-            anchorY="middle"
-            maxWidth={0.9}
-          >
-            {card.subtitle}
-          </Text>
         </group>
       ))}
     </group>

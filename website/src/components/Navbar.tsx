@@ -44,7 +44,7 @@ export default function Navbar({ variant = 'default' }: NavbarProps) {
     if (navRef.current) {
       gsap.fromTo(
         navRef.current,
-        { y: -100, opacity: 0 },
+        { y: -24 },
         { y: 0, opacity: 1, duration: 0.8, ease: 'expo.out', delay: 0.2 },
       );
     }
@@ -53,7 +53,7 @@ export default function Navbar({ variant = 'default' }: NavbarProps) {
       if (link) {
         gsap.fromTo(
           link,
-          { opacity: 0, y: -20 },
+          { y: -12 },
           { opacity: 1, y: 0, duration: 0.4, delay: 0.4 + i * 0.1, ease: 'power2.out' },
         );
       }

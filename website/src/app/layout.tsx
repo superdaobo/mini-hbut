@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body>
+      <body className="bg-[#03060d] text-white antialiased" style={{ margin: 0, backgroundColor: '#03060d', color: '#ffffff' }}>
         <Suspense fallback={null}>
           <RouteScrollManager />
         </Suspense>
