@@ -11,6 +11,32 @@ pub(super) fn chrono_timestamp() -> u64 {
         .as_millis() as u64
 }
 
+pub(super) fn app_data_dir() -> Option<std::path::PathBuf> {
+    if let Ok(raw) = std::env::var("HBUT_APP_DATA_DIR") {
+        let dir = std::path::PathBuf::from(raw.trim());
+        if !dir.as_os_str().is_empty() {
+            let _ = std::fs::create_dir_all(&dir);
+            return Some(dir);
+        }
+    }
+
+    let base = std::env::var("LOCALAPPDATA")
+        .or_else(|_| std::env::var("APPDATA"))
+        .or_else(|_| std::env::var("HOME"))
+        .ok()?;
+    let dir = std::path::PathBuf::from(base).join("Mini-HBUT");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir)
+}
+
+/// 仅 Debug 构建写入应用数据目录，避免污染 cwd。
+pub(super) fn write_debug_artifact(filename: &str, content: &str) {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = app_data_dir() {
+        let _ = std::fs::write(dir.join(filename), content);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::encrypt_password_aes;

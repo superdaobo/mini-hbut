@@ -5,9 +5,10 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache, getStaleCachedData, setCachedData } from './utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS, clearUserScopedCaches } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
+  clearScheduleRenderSnapshot,
   SCHEDULE_POPUP_PENDING_KEY,
   SCHEDULE_SWITCH_PENDING_KEY
 } from './utils/schedule_prefetch.js'
@@ -19,6 +20,11 @@ import {
   isRemoteConfigEnabled
 } from './utils/remote_config.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
+import {
+  loadChaoxingStoredPassword,
+  loadPortalStoredPassword
+} from './composables/useSessionCredentials.js'
+import { ensureRememberedPasswordCached, preservePortalRememberedPasswordOnLogout } from './utils/credential_storage.js'
 import { startNotificationMonitor, stopNotificationMonitor } from './utils/notify_center.js'
 import { openExternal, isHttpLink } from './utils/external_link'
 import { useUiSettings } from './utils/ui_settings'
@@ -1455,6 +1461,9 @@ const handleLoginSuccess = (data) => {
   startSessionKeepAlive()
   startElectricityKeepAlive()
   if (studentId.value) {
+    void ensureRememberedPasswordCached(studentId.value).catch((e) => {
+      console.warn('[Session] 登录后缓存记住密码失败:', e)
+    })
     startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
       console.warn('[Notify] 启动通知监控失败:', e)
     })
@@ -1539,11 +1548,27 @@ const isTemporaryLoginSession = () => {
 }
 
 // 处理登出
-const handleLogout = (options = {}) => {
+const handleLogout = async (options = {}) => {
   const payload = options && typeof options === 'object' ? options : {}
   const manual = payload.manual !== false
   const reason = String(payload.reason || '').trim()
   const notice = String(payload.notice || '').trim()
+  const logoutSid = String(studentId.value || localStorage.getItem('hbu_username') || '').trim()
+
+  try {
+    await preservePortalRememberedPasswordOnLogout()
+  } catch (e) {
+    console.warn('[Session] 退出前同步记住密码失败:', e)
+  }
+
+  if (manual && logoutSid) {
+    clearUserScopedCaches(logoutSid)
+    clearScheduleRenderSnapshot(logoutSid)
+    window.dispatchEvent(new CustomEvent('hbu-session-logout', {
+      detail: { studentId: logoutSid, manual: true }
+    }))
+  }
+
   applyViewState('home')
   gradeData.value = []
   gradeTeacherCache.value = null
@@ -1635,6 +1660,17 @@ const clearJwxtMaintenance = () => {
   }
 }
 
+const notifySessionOnline = (source = 'recovery') => {
+  if (!studentId.value) return
+  clearJwxtMaintenance()
+  window.dispatchEvent(new CustomEvent('hbu-session-online', {
+    detail: {
+      studentId: studentId.value,
+      source
+    }
+  }))
+}
+
 const syncJwxtMaintenanceFromStorage = () => {
   const active = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
   if (!active) {
@@ -1720,6 +1756,7 @@ const attemptOnlineRecovery = async (options = {}) => {
       }
       await persistSessionCookies()
       stopJwxtRecoveryPolling()
+      notifySessionOnline(relogged ? 'auto-relogin' : 'session-restore')
       // 后台恢复/重登录成功后自动上传成绩和设置到云端（不含自定义课程）
       if (relogged && studentId.value) {
         resetCloudSyncCooldownForSession(studentId.value)
@@ -1916,7 +1953,9 @@ const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = fal
       `grades:${sid}`,
       () => fetchGradesRemote(sid, { teacherCurrentOnly }),
       undefined,
-      { forceRemote: true, priority: 'foreground' }
+      force
+        ? { forceRemote: true, priority: 'foreground' }
+        : { ...DEFAULT_SWR_OPTIONS, priority: 'foreground' }
     )
     lastGradeRefreshUsedOffline.value = !!data?.offline
     if (data?.success && !data.offline) {
@@ -2249,28 +2288,9 @@ const tryRestoreLatestSession = async () => {
   return false
 }
 
-const getStoredPassword = () => {
-  const remember = localStorage.getItem('hbu_remember')
-  const username = localStorage.getItem('hbu_username')
-  const credential = localStorage.getItem('hbu_credentials')
-  if (remember === 'false' || !username || !credential) {
-    return null
-  }
-  if (credential.length > 50 || /[A-Za-z0-9+/=]{30,}/.test(credential)) {
-    return null
-  }
-  return { username, password: credential }
-}
+const getStoredPassword = () => loadPortalStoredPassword()
 
-const getStoredChaoxingPassword = () => {
-  const remember = localStorage.getItem(CHAOXING_REMEMBER_KEY)
-  const account = String(localStorage.getItem(CHAOXING_ACCOUNT_KEY) || '').trim()
-  const password = String(localStorage.getItem(CHAOXING_PASSWORD_KEY) || '').trim()
-  if (remember === 'false' || !account || !password) {
-    return null
-  }
-  return { account, password }
-}
+const getStoredChaoxingPassword = () => loadChaoxingStoredPassword()
 
 const isLikelyStudentId = (value) => /^\d{10}$/.test(String(value || '').trim())
 
@@ -2298,7 +2318,7 @@ const attemptAutoRelogin = async () => {
   }
   const method = String(localStorage.getItem(LOGIN_METHOD_KEY) || '').trim()
   if (method.startsWith('chaoxing_')) {
-    const chaoxingCreds = getStoredChaoxingPassword()
+    const chaoxingCreds = await getStoredChaoxingPassword()
     if (!chaoxingCreds) return false
     try {
       const payload = await invokeNative('chaoxing_password_login', {
@@ -2320,11 +2340,11 @@ const attemptAutoRelogin = async () => {
     }
   }
 
-  const creds = getStoredPassword()
+  const creds = await getStoredPassword()
   if (!creds) return false
 
   const doLogin = async () => {
-    await invokeNative('login', {
+    const userInfo = await invokeNative('login', {
       username: creds.username,
       password: creds.password,
       captcha: '',
@@ -2332,8 +2352,10 @@ const attemptAutoRelogin = async () => {
       execution: ''
     })
     await persistSessionCookies()
-    if (!studentId.value) {
-      studentId.value = creds.username
+    const sid = String(userInfo?.student_id || creds.username || '').trim()
+    if (sid) {
+      studentId.value = sid
+      localStorage.setItem('hbu_username', sid)
     }
   }
 
@@ -2734,12 +2756,18 @@ onMounted(async () => {
     startElectricityKeepAlive()
     if (studentId.value) {
       markLoginSessionToken()
+      void ensureRememberedPasswordCached(studentId.value).catch((e) => {
+        console.warn('[Session] 启动后缓存记住密码失败:', e)
+      })
       startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
         console.warn('[Notify] 启动通知监控失败:', e)
       })
     }
     clearJwxtMaintenance()
     stopJwxtRecoveryPolling()
+    if (bootstrappedCachedIdentity || skipSplashForFastScheduleBoot) {
+      notifySessionOnline(relogged ? 'boot-auto-relogin' : 'boot-session-restore')
+    }
   } else if (bootstrappedCachedIdentity || studentId.value) {
     startJwxtRecoveryPolling()
     attemptOnlineRecovery({ silent: true }).then((ok) => {
