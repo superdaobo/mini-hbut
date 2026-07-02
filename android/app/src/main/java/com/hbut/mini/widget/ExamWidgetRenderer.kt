@@ -83,16 +83,16 @@ object ExamWidgetRenderer {
             if (countdownId != 0) views.setViewVisibility(countdownId, View.GONE)
         }
 
-        // 点击启动 App
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-            ?: Intent().apply {
-                setClassName(packageName, "${packageName}.MainActivity")
-                action = Intent.ACTION_MAIN
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val pi = PendingIntent.getActivity(context, appWidgetId + 2000, launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        // 点击跳转考试安排页
+        val pi = WidgetDeepLink.pendingIntent(
+            context,
+            appWidgetId + 2000,
+            WidgetDeepLink.examUri()
+        )
+        val themeColor = parseColor(store.readThemeColor())
+        if (countdownId != 0 && data != null) {
+            views.setTextColor(countdownId, themeColor)
+        }
         val rootId = context.resources.getIdentifier("widget_exam_root", "id", packageName)
         if (rootId != 0) views.setOnClickPendingIntent(rootId, pi)
 
@@ -107,5 +107,13 @@ object ExamWidgetRenderer {
     private fun parseJson(json: String?): JSONObject? {
         if (json.isNullOrBlank()) return null
         return try { JSONObject(json) } catch (_: Exception) { null }
+    }
+
+    private fun parseColor(hex: String): Int {
+        return try {
+            android.graphics.Color.parseColor(hex)
+        } catch (_: Exception) {
+            android.graphics.Color.parseColor("#2563eb")
+        }
     }
 }

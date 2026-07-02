@@ -25,6 +25,15 @@ class TodayCoursesProvider : AppWidgetProvider() {
         }
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        WidgetRenderer.updateWidget(context, appWidgetManager, appWidgetId)
+    }
+
     override fun onEnabled(context: Context) {
         // 第一个小组件实例被添加，注册 WorkManager 周期刷新任务
         WidgetRefreshScheduler.ensurePeriodic(context)

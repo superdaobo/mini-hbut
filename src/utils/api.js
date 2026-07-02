@@ -76,7 +76,10 @@ const trimLocalCacheStorage = (count = 24) => {
   if (!entries.length) return
   const removeCount = Math.min(count, entries.length)
   for (let i = 0; i < removeCount; i += 1) {
-    localStorage.removeItem(entries[i].storageKey)
+    const storageKey = entries[i].storageKey
+    // 仅淘汰 cache: 前缀条目，会话键（hbu_session_cookies 等）不在此列。
+    if (!storageKey.startsWith('cache:')) continue
+    localStorage.removeItem(storageKey)
   }
 }
 
@@ -107,6 +110,22 @@ export function clearCacheByPrefix(prefix) {
     }
   }
   keysToRemove.forEach((k) => localStorage.removeItem(k))
+}
+
+/**
+ * 清除指定学号的教务/课表等用户级缓存（退出登录时调用）。
+ */
+export function clearUserScopedCaches(studentId) {
+  const sid = String(studentId || '').trim()
+  if (!sid) return
+
+  for (const prefix of JWXT_KEY_PREFIXES) {
+    if (prefix === 'semesters') continue
+    clearCacheByPrefix(`${prefix}${sid}`)
+  }
+  clearCacheByPrefix(`grade_teachers:${sid}`)
+  clearCacheByPrefix(`training:options:${sid}`)
+  clearCacheByPrefix(`training:jys:${sid}`)
 }
 
 export function getCachedData(key, ttl = DEFAULT_TTL) {
@@ -372,6 +391,13 @@ const clearMaintenanceFlag = () => {
 
 export { DEFAULT_TTL, LONG_TTL, EXTRA_LONG_TTL, SHORT_TTL }
 
+export const DEFAULT_SWR_OPTIONS = {
+  staleWhileRevalidate: true,
+  priority: 'foreground'
+}
+
+const backgroundRefreshInflight = new Map()
+
 const recordRequestMetric = (key, { source, start, stale = false, priority = 'foreground', error = '' } = {}) => {
   try {
     pushDebugLog('Cache', `请求缓存指标 key=${key} source=${source}`, 'debug', {
@@ -388,35 +414,50 @@ const recordRequestMetric = (key, { source, start, stale = false, priority = 'fo
 }
 
 const refreshCacheInBackground = async (key, fetcher, priority) => {
-  const start = Date.now()
-  try {
-    const data = await fetcher()
-    if (data && data.success && !data.offline) {
-      setCachedData(key, data)
-      if (isJwxtCacheKey(key)) {
-        clearMaintenanceFlag()
+  if (backgroundRefreshInflight.has(key)) {
+    return backgroundRefreshInflight.get(key)
+  }
+  const task = (async () => {
+    const start = Date.now()
+    try {
+      const data = await fetcher()
+      if (data && data.success && !data.offline) {
+        setCachedData(key, data)
+        if (isJwxtCacheKey(key)) {
+          clearMaintenanceFlag()
+        }
+        recordRequestMetric(key, { source: 'remote', start, priority })
+      } else {
+        recordRequestMetric(key, {
+          source: 'remote',
+          start,
+          priority,
+          error: data?.error || data?.msg || data?.message || 'unsuccessful-response'
+        })
       }
-      recordRequestMetric(key, { source: 'remote', start, priority })
-    } else {
+    } catch (error) {
       recordRequestMetric(key, {
         source: 'remote',
         start,
         priority,
-        error: data?.error || data?.msg || data?.message || 'unsuccessful-response'
+        error: error?.message || error
       })
     }
-  } catch (error) {
-    recordRequestMetric(key, {
-      source: 'remote',
-      start,
-      priority,
-      error: error?.message || error
-    })
+  })().finally(() => {
+    backgroundRefreshInflight.delete(key)
+  })
+  backgroundRefreshInflight.set(key, task)
+  return task
+}
+
+const cacheDebug = (message, detail) => {
+  if (import.meta.env?.DEV) {
+    console.log(message, detail ?? '')
   }
 }
 
 export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = {}) {
-  console.log('[Cache] Checking cache for key:', key)
+  cacheDebug('[Cache] Checking cache for key:', key)
   if (ttl && typeof ttl === 'object') {
     options = ttl
     ttl = DEFAULT_TTL
@@ -429,7 +470,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   const cached = forceRemote ? null : getCachedData(key, ttl)
 
   if (cached) {
-    console.log('[Cache] Cache HIT for key:', key)
+    cacheDebug('[Cache] Cache HIT for key:', key)
     const data = maintenanceMode
       ? withOfflineMeta(cached.data, cached.timestamp)
       : cached.data
@@ -446,7 +487,7 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   if (!forceRemote && maintenanceMode) {
     const stale = getBestCachedEntry(key)
     if (stale) {
-      console.log('[Cache] Maintenance mode stale HIT for key:', key)
+      cacheDebug('[Cache] Maintenance mode stale HIT for key:', key)
       recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
       return {
         data: withOfflineMeta(stale.data, stale.timestamp),
@@ -460,18 +501,18 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   if (staleWhileRevalidate) {
     const stale = getStaleCachedData(key)
     if (stale) {
-      console.log('[Cache] Stale HIT for key:', key, '- refreshing in background')
+      cacheDebug('[Cache] Stale HIT for key:', key)
       recordRequestMetric(key, { source: 'stale-cache', start: Date.now(), stale: true, priority })
       refreshCacheInBackground(key, fetcher, 'background').catch(() => {})
       return stale
     }
   }
 
-  console.log('[Cache] Cache MISS for key:', key, '- fetching...')
+  cacheDebug('[Cache] Cache MISS for key:', key)
   const remoteStart = Date.now()
   try {
     const data = await fetcher()
-    console.log('[Cache] Fetched data for key:', key, '- success:', data?.success)
+    cacheDebug('[Cache] Fetched data for key:', `${key} success=${data?.success}`)
 
     if (data && data.success && !data.offline) {
       setCachedData(key, data)

@@ -11,7 +11,8 @@ import {
   clearSnapshot,
   writeElectricitySnapshot,
   writeExamSnapshot,
-  writeWidgetThemeColor as writeNativeWidgetThemeColor
+  writeWidgetThemeColor as writeNativeWidgetThemeColor,
+  requestRefresh as requestWidgetRefresh
 } from '@/platform/capacitor/widget'
 import { pushDebugLog } from './debug_logger'
 import { getCacheKey } from './api.js'
@@ -146,6 +147,7 @@ export async function afterScheduleRefresh(
     })
 
     await writeSnapshotWithRetry(snapshot)
+    await requestWidgetRefresh()
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code ?? 'UNKNOWN'
     const message = err instanceof Error ? err.message : String(err)
@@ -183,6 +185,7 @@ export async function tryWriteSnapshotFromCache(sid: string): Promise<void> {
     })
 
     await writeSnapshotWithRetry(snapshot)
+    await requestWidgetRefresh()
   } catch (err: unknown) {
     const code = (err as { code?: string })?.code ?? 'UNKNOWN'
     const message = err instanceof Error ? err.message : String(err)
@@ -258,6 +261,7 @@ export async function writeExamToWidget(data: {
 export async function writeWidgetThemeColor(color: string): Promise<void> {
   try {
     await writeNativeWidgetThemeColor(color)
+    await requestWidgetRefresh()
   } catch (err: unknown) {
     console.warn('[widget] writeWidgetThemeColor failed:', err)
     pushDebugLog('widget', 'widget_write_failed', 'warn', { source: 'writeWidgetThemeColor' })

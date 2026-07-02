@@ -1,0 +1,4 @@
+# Windows 开发机内存/页面文件紧张时，降低并行编译峰值，避免 os error 1455 与损坏的 .rlib
+[build]
+jobs = 2
+incremental = false

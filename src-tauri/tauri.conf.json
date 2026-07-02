@@ -4,7 +4,7 @@
   "version": "1.4.2",
   "identifier": "com.hbut.mini",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/ensure_dist.mjs && npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build && node scripts/check_dist_boundary.mjs",
     "frontendDist": "../dist"

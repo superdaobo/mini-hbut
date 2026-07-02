@@ -592,9 +592,7 @@ impl HbutClient {
             }
         }
 
-        if self.prefer_chaoxing_jwxt {
-            let _ = self.ensure_chaoxing_academic_session().await;
-        }
+        // 学习通补票改为按需：仅在 fetch_user_info 命中登录页时由 session 模块触发。
 
         // 验证会话
         let user_info = self.fetch_user_info().await?;
