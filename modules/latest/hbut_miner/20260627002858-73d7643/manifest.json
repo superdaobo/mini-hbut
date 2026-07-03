@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "hbut_miner",
+  "module_name": "湖工矿工",
+  "version": "20260627002858-73d7643",
+  "package_url": "https://hbut.6661111.xyz/modules/latest/hbut_miner/20260627002858-73d7643/bundle.zip",
+  "package_sha256": "60bb89b4eb87c38ad5ba2f6512e42d4e08932b535b6ada395ba0798b2a99605d",
+  "package_size": 7996,
+  "entry_path": "index.html",
+  "published_at": "2026-06-27T00:29:04.118Z",
+  "release_notes": "湖工矿工模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/latest/hbut_miner/20260627002858-73d7643/site/index.html",
+  "published_channel": "latest",
+  "source_channel": "main"
+}

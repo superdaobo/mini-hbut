@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "hugongda_escape",
+  "module_name": "湖工大逃生",
+  "version": "20260505120633-local",
+  "package_url": "https://hbut.6661111.xyz/modules/latest/hugongda_escape/20260505120633-local/bundle.zip",
+  "package_sha256": "8cfdf6934ce88f8d6670d75fcee57eb60e3d73c3d5aef6a3de4f6a3fc1b3cd19",
+  "package_size": 41520,
+  "entry_path": "index.html",
+  "published_at": "2026-05-05T12:06:42.668Z",
+  "release_notes": "湖工大逃生模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/latest/hugongda_escape/20260505120633-local/site/index.html",
+  "published_channel": "latest",
+  "source_channel": "dev"
+}

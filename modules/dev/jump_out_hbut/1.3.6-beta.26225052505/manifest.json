@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "module_id": "jump_out_hbut",
+  "module_name": "跳出湖工大",
+  "version": "1.3.6-beta.26225052505",
+  "package_url": "https://hbut.6661111.xyz/modules/dev/jump_out_hbut/1.3.6-beta.26225052505/bundle.zip",
+  "package_sha256": "80a9454d91651cef51d4d56d5231185406149411f06c21a54442ac9da7c2f4ed",
+  "package_size": 158143,
+  "entry_path": "index.html",
+  "published_at": "2026-05-21T12:22:18.027Z",
+  "release_notes": "跳出湖工大模块自动构建包",
+  "open_url": "https://hbut.6661111.xyz/modules/dev/jump_out_hbut/1.3.6-beta.26225052505/site/index.html",
+  "published_channel": "dev",
+  "source_channel": "dev"
+}
