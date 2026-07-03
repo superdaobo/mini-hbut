@@ -1,21 +1,36 @@
+'use client';
+
 import { useState, useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { Menu, X, Download } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
-const navLinks = [
+const defaultNavLinks = [
   { name: '功能', href: '#features' },
   { name: '下载', href: '#download' },
   { name: '关于', href: '#about' },
 ];
 
-export default function Navbar() {
+const homeNavLinks = [
+  { name: '体验', href: 'http://score.6661111.xyz', external: true },
+  { name: '文档', href: '/docs' },
+  { name: '版本', href: '/releases' },
+];
+
+interface NavbarProps {
+  variant?: 'default' | 'home';
+}
+
+export default function Navbar({ variant = 'default' }: NavbarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const linksRef = useRef<(HTMLAnchorElement | null)[]>([]);
-  const location = useLocation();
-  const isHome = location.pathname === '/';
+  const pathname = usePathname();
+  const isHome = pathname === '/';
+  const isHomeVariant = variant === 'home' || isHome;
+  const links = isHomeVariant ? homeNavLinks : defaultNavLinks;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -26,12 +41,11 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
-    // Entrance animation
     if (navRef.current) {
       gsap.fromTo(
         navRef.current,
-        { y: -100, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.8, ease: 'expo.out', delay: 0.2 }
+        { y: -24 },
+        { y: 0, opacity: 1, duration: 0.8, ease: 'expo.out', delay: 0.2 },
       );
     }
 
@@ -39,8 +53,8 @@ export default function Navbar() {
       if (link) {
         gsap.fromTo(
           link,
-          { opacity: 0, y: -20 },
-          { opacity: 1, y: 0, duration: 0.4, delay: 0.4 + i * 0.1, ease: 'power2.out' }
+          { y: -12 },
+          { opacity: 1, y: 0, duration: 0.4, delay: 0.4 + i * 0.1, ease: 'power2.out' },
         );
       }
     });
@@ -77,7 +91,6 @@ export default function Navbar() {
 
   const scrollToSection = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!isHome && href.startsWith('#')) {
-      // Allow default navigation to home page with hash
       return;
     }
 
@@ -101,19 +114,18 @@ export default function Navbar() {
   return (
     <nav
       ref={navRef}
-      className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 ${isScrolled
-          ? 'w-[95%] max-w-6xl glass rounded-2xl shadow-neon'
-          : 'w-[95%] max-w-6xl bg-transparent'
-        }`}
-      style={{
-        borderColor: isScrolled ? 'rgba(15, 240, 252, 0.3)' : 'transparent',
-      }}
+      className={`fixed top-4 left-1/2 z-50 -translate-x-1/2 transition-all duration-500 ${
+        isHomeVariant && !isScrolled
+          ? 'w-[95%] max-w-6xl border border-white/5 bg-black/20 backdrop-blur-md'
+          : isScrolled
+            ? 'w-[95%] max-w-6xl rounded-2xl border border-cyan/30 bg-black/60 shadow-neon glass'
+            : 'w-[95%] max-w-6xl bg-transparent'
+      } ${isHomeVariant ? 'rounded-2xl' : ''}`}
     >
-      <div className="px-6 py-4 flex items-center justify-between">
-        {/* Logo */}
+      <div className="flex items-center justify-between px-6 py-4">
         <Link
-          to="/"
-          className="font-pixel text-sm md:text-base text-cyan hover:text-pink transition-colors"
+          href="/"
+          className="font-pixel text-sm text-cyan transition-colors hover:text-pink md:text-base"
           onClick={() => {
             if (isHome) window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
@@ -121,103 +133,135 @@ export default function Navbar() {
           <span className="neon-text-cyan">Mini-HBUT</span>
         </Link>
 
-        {/* Desktop Links */}
-        <div className="hidden md:flex items-center gap-8">
-          {navLinks.map((link, i) => (
-            <a
-              key={link.name}
-              ref={(el) => { linksRef.current[i] = el; }}
-              href={getLinkHref(link.href)}
-              data-text={link.name}
-              className="text-sm text-gray-300 hover:text-cyan transition-colors relative group"
-              onMouseEnter={handleLinkHover}
-              onMouseLeave={handleLinkLeave}
-              onClick={(e) => scrollToSection(e, link.href)}
-            >
-              {link.name}
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-cyan transition-all duration-300 group-hover:w-full" />
-            </a>
-          ))}
+        <div className="hidden items-center gap-8 md:flex">
+          {links.map((link, i) =>
+            'external' in link && link.external ? (
+              <a
+                key={link.name}
+                ref={(el) => { linksRef.current[i] = el; }}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-text={link.name}
+                className="text-sm text-gray-300 transition-colors hover:text-cyan"
+                onMouseEnter={handleLinkHover}
+                onMouseLeave={handleLinkLeave}
+              >
+                {link.name}
+              </a>
+            ) : link.href.startsWith('#') ? (
+              <a
+                key={link.name}
+                ref={(el) => { linksRef.current[i] = el; }}
+                href={getLinkHref(link.href)}
+                data-text={link.name}
+                className="group relative text-sm text-gray-300 transition-colors hover:text-cyan"
+                onMouseEnter={handleLinkHover}
+                onMouseLeave={handleLinkLeave}
+                onClick={(e) => scrollToSection(e, link.href)}
+              >
+                {link.name}
+                <span className="absolute -bottom-1 left-0 h-0.5 w-0 bg-cyan transition-all duration-300 group-hover:w-full" />
+              </a>
+            ) : (
+              <Link
+                key={link.name}
+                href={link.href}
+                data-text={link.name}
+                className="group relative text-sm text-gray-300 transition-colors hover:text-cyan"
+                onMouseEnter={handleLinkHover}
+                onMouseLeave={handleLinkLeave}
+              >
+                {link.name}
+                <span className="absolute -bottom-1 left-0 h-0.5 w-0 bg-cyan transition-all duration-300 group-hover:w-full" />
+              </Link>
+            ),
+          )}
 
-          {/* Docs Link */}
+          {!isHomeVariant && (
+            <>
           <Link
-            to="/docs"
+            href="/docs"
             data-text="文档"
-            className="text-sm text-gray-300 hover:text-cyan transition-colors relative group"
+            className="group relative text-sm text-gray-300 transition-colors hover:text-cyan"
             onMouseEnter={handleLinkHover}
             onMouseLeave={handleLinkLeave}
           >
             文档
-            <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-cyan transition-all duration-300 group-hover:w-full" />
+            <span className="absolute -bottom-1 left-0 h-0.5 w-0 bg-cyan transition-all duration-300 group-hover:w-full" />
           </Link>
 
-          {/* Releases Link */}
           <Link
-            to="/releases"
+            href="/releases"
             data-text="历史版本"
-            className="text-sm text-gray-300 hover:text-cyan transition-colors relative group"
+            className="group relative text-sm text-gray-300 transition-colors hover:text-cyan"
             onMouseEnter={handleLinkHover}
             onMouseLeave={handleLinkLeave}
           >
             历史版本
-            <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-cyan transition-all duration-300 group-hover:w-full" />
+            <span className="absolute -bottom-1 left-0 h-0.5 w-0 bg-cyan transition-all duration-300 group-hover:w-full" />
           </Link>
+            </>
+          )}
         </div>
 
-        {/* CTA Button */}
+        {!isHomeVariant && (
         <a
-          href={getLinkHref("#download")}
-          className="hidden md:flex items-center gap-2 cyber-btn px-4 py-2 text-xs font-mono"
+          href={getLinkHref('#download')}
+          className="cyber-btn hidden items-center gap-2 px-4 py-2 font-mono text-xs md:flex"
           onClick={(e) => scrollToSection(e, '#download')}
         >
-          <Download className="w-4 h-4" />
+          <Download className="h-4 w-4" />
           获取应用
         </a>
+        )}
 
-        {/* Mobile Menu Button */}
         <button
-          className="md:hidden text-cyan"
+          type="button"
+          className="text-cyan md:hidden"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
-          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
         </button>
       </div>
 
-      {/* Mobile Menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden glass rounded-b-2xl border-t border-cyan/20">
-          <div className="px-6 py-4 flex flex-col gap-4">
-            {navLinks.map((link) => (
-              <a
-                key={link.name}
-                href={getLinkHref(link.href)}
-                className="text-gray-300 hover:text-cyan transition-colors py-2"
-                onClick={(e) => scrollToSection(e, link.href)}
-              >
-                {link.name}
-              </a>
-            ))}
+        <div className="glass rounded-b-2xl border-t border-cyan/20 md:hidden">
+          <div className="flex flex-col gap-4 px-6 py-4">
+            {links.map((link) =>
+              'external' in link && link.external ? (
+                <a key={link.name} href={link.href} target="_blank" rel="noopener noreferrer" className="py-2 text-gray-300">{link.name}</a>
+              ) : link.href.startsWith('#') ? (
+                <a key={link.name} href={getLinkHref(link.href)} className="py-2 text-gray-300" onClick={(e) => scrollToSection(e, link.href)}>{link.name}</a>
+              ) : (
+                <Link key={link.name} href={link.href} className="py-2 text-gray-300" onClick={() => setIsMobileMenuOpen(false)}>{link.name}</Link>
+              ),
+            )}
+            {!isHomeVariant && (
+              <>
             <Link
-              to="/docs"
-              className="text-gray-300 hover:text-cyan transition-colors py-2"
+              href="/docs"
+              className="py-2 text-gray-300 transition-colors hover:text-cyan"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               文档
             </Link>
             <Link
-              to="/releases"
-              className="text-gray-300 hover:text-cyan transition-colors py-2"
+              href="/releases"
+              className="py-2 text-gray-300 transition-colors hover:text-cyan"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               历史版本
             </Link>
             <a
-              href={getLinkHref("#download")}
-              className="cyber-btn px-4 py-2 text-xs font-mono text-center mt-2"
+              href={getLinkHref('#download')}
+              className="cyber-btn mt-2 px-4 py-2 text-center font-mono text-xs"
               onClick={(e) => scrollToSection(e, '#download')}
             >
               获取应用
             </a>
+              </>
+            )}
           </div>
         </div>
       )}

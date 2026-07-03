@@ -8,13 +8,13 @@ const repoRoot = path.resolve(root, '..');
 
 const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8');
 
-const developerOverview = read('src/pages/docs/DeveloperOverview.tsx');
-const architectureDataFlow = read('src/pages/docs/ArchitectureDataFlow.tsx');
-const platformTauri = read('src/pages/docs/PlatformTauri.tsx');
-const moduleSystem = read('src/pages/docs/ModuleSystem.tsx');
-const buildRelease = read('src/pages/docs/BuildRelease.tsx');
-const securityPrivacy = read('src/pages/docs/SecurityPrivacy.tsx');
-const referenceIndex = read('src/pages/docs/ReferenceIndex.tsx');
+const developerOverview = read('src/views/docs/DeveloperOverview.tsx');
+const architectureDataFlow = read('src/views/docs/ArchitectureDataFlow.tsx');
+const platformTauri = read('src/views/docs/PlatformTauri.tsx');
+const moduleSystem = read('src/views/docs/ModuleSystem.tsx');
+const buildRelease = read('src/views/docs/BuildRelease.tsx');
+const securityPrivacy = read('src/views/docs/SecurityPrivacy.tsx');
+const referenceIndex = read('src/views/docs/ReferenceIndex.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {
@@ -568,24 +568,24 @@ expectRepoPathsExist('ReferenceIndex', [
   'src/App.vue',
   'website/src/App.tsx',
   'website/src/layouts/DocsLayout.tsx',
-  'website/src/pages/docs/QuickStart.tsx',
-  'website/src/pages/docs/UserGuide.tsx',
-  'website/src/pages/docs/AcademicServices.tsx',
-  'website/src/pages/docs/CampusLife.tsx',
-  'website/src/pages/docs/CommunityNotifications.tsx',
-  'website/src/pages/docs/Extensions.tsx',
-  'website/src/pages/docs/SettingsData.tsx',
-  'website/src/pages/docs/Troubleshooting.tsx',
-  'website/src/pages/docs/DeveloperOverview.tsx',
-  'website/src/pages/docs/ArchitectureDataFlow.tsx',
-  'website/src/pages/docs/PlatformTauri.tsx',
-  'website/src/pages/docs/ModuleSystem.tsx',
-  'website/src/pages/docs/BuildRelease.tsx',
-  'website/src/pages/docs/SecurityPrivacy.tsx',
-  'website/src/pages/docs/TauriApi.tsx',
-  'website/src/pages/docs/DevRules.tsx',
-  'website/src/pages/docs/Nonebot.tsx',
-  'website/src/pages/docs/Implementation.tsx',
+  'website/src/views/docs/QuickStart.tsx',
+  'website/src/views/docs/UserGuide.tsx',
+  'website/src/views/docs/AcademicServices.tsx',
+  'website/src/views/docs/CampusLife.tsx',
+  'website/src/views/docs/CommunityNotifications.tsx',
+  'website/src/views/docs/Extensions.tsx',
+  'website/src/views/docs/SettingsData.tsx',
+  'website/src/views/docs/Troubleshooting.tsx',
+  'website/src/views/docs/DeveloperOverview.tsx',
+  'website/src/views/docs/ArchitectureDataFlow.tsx',
+  'website/src/views/docs/PlatformTauri.tsx',
+  'website/src/views/docs/ModuleSystem.tsx',
+  'website/src/views/docs/BuildRelease.tsx',
+  'website/src/views/docs/SecurityPrivacy.tsx',
+  'website/src/views/docs/TauriApi.tsx',
+  'website/src/views/docs/DevRules.tsx',
+  'website/src/views/docs/Nonebot.tsx',
+  'website/src/views/docs/Implementation.tsx',
   'src/components/Dashboard.vue',
   'src/components/ScheduleView.vue',
   'src/components/GradeView.vue',
