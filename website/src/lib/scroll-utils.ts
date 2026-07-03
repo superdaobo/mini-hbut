@@ -14,6 +14,19 @@ export type ScrollPhase =
   | 'return'
   | 'cta';
 
+/** 手机内展示的 Tauri 应用页面 */
+export type AppScreen =
+  | 'home'
+  | 'schedule'
+  | 'grades'
+  | 'exams'
+  | 'notifications'
+  | 'electricity'
+  | 'classroom'
+  | 'ranking'
+  | 'all-features'
+  | 'me';
+
 export interface Vec3 {
   x: number;
   y: number;
@@ -47,6 +60,7 @@ export interface ScrollSample {
   heroOpacity: number;
   featureOpacity: number;
   ctaOpacity: number;
+  activeScreen: AppScreen;
 }
 
 const PHASE_RANGES: Array<{ phase: ScrollPhase; start: number; end: number }> = [
@@ -108,6 +122,33 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+export function resolveActiveScreen(phase: ScrollPhase, globalProgress: number): AppScreen {
+  const p = clamp01(globalProgress);
+  switch (phase) {
+    case 'intro':
+    case 'ignite':
+    case 'lift':
+      return 'home';
+    case 'dive':
+      return p < 0.36 ? 'home' : 'schedule';
+    case 'schedule':
+      return 'schedule';
+    case 'grades':
+      return p < 0.58 ? 'grades' : 'ranking';
+    case 'tunnel':
+      if (p < 0.675) return 'exams';
+      if (p < 0.705) return 'notifications';
+      if (p < 0.735) return 'electricity';
+      return 'classroom';
+    case 'return':
+      return 'all-features';
+    case 'cta':
+      return p < 0.92 ? 'all-features' : 'home';
+    default:
+      return 'home';
+  }
+}
+
 export function getPhase(progress: number): { phase: ScrollPhase; phaseProgress: number } {
   const p = clamp01(progress);
   const match = PHASE_RANGES.find((range) => p >= range.start && p < range.end)
@@ -160,6 +201,7 @@ export function sampleScroll(progress: number): ScrollSample {
   const heroOpacity = 1 - smoothstep(0.12, 0.28, globalProgress);
   const featureOpacity = smoothstep(0.38, 0.5, globalProgress) * (1 - smoothstep(0.7, 0.82, globalProgress));
   const ctaOpacity = smoothstep(0.84, 0.94, globalProgress);
+  const activeScreen = resolveActiveScreen(phase, globalProgress);
 
   return {
     phase,
@@ -174,6 +216,7 @@ export function sampleScroll(progress: number): ScrollSample {
     heroOpacity,
     featureOpacity,
     ctaOpacity,
+    activeScreen,
   };
 }
 
