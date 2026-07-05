@@ -783,6 +783,7 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
         .route("/towergo/*path", any(towergo_proxy))
+        .route("/campus-map/direction", get(campus_map_direction_proxy))
         .route("/school-website", any(school_website_proxy_root))
         .route("/school-website/", any(school_website_proxy_root))
         .route("/school-website/*path", any(school_website_proxy))
@@ -2979,6 +2980,8 @@ fn encode_resource_share_path(path: &str) -> String {
 
 const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";
 const TOWERGO_TARGET_HOST: &str = "ebike-oper.chinatowercom.cn";
+const CAMPUS_MAP_QQ_KEY: &str = "LQBBZ-Y42ER-STHWC-WORES-QFUQS-SKFFV";
+const CAMPUS_MAP_DIRECTION_BASE: &str = "https://apis.map.qq.com/ws/direction/v1/walking/";
 const TOWERGO_APP_ID: &str = "wx278283883c249e3e";
 const TOWERGO_MINIPROGRAM_REFERER: &str =
     "https://servicewechat.com/wx278283883c249e3e/47/page-frame.html";
@@ -3330,6 +3333,50 @@ async fn towergo_proxy(
             response.headers_mut().insert(name.clone(), value.clone());
         }
     }
+    Ok(response)
+}
+
+async fn campus_map_direction_proxy(
+    RawQuery(query): RawQuery,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let query_text = query.unwrap_or_default();
+    if query_text.trim().is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "缺少 from/to 参数".to_string(),
+        ));
+    }
+    let remote_url = format!("{}?{}&key={}", CAMPUS_MAP_DIRECTION_BASE, query_text, CAMPUS_MAP_QQ_KEY);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建校园地图代理客户端失败: {}", e),
+            )
+        })?;
+
+    let upstream = client.get(remote_url).send().await.map_err(|e| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "代理错误",
+            format!("校园地图路线代理请求失败: {}", e),
+        )
+    })?;
+
+    let status = upstream.status();
+    let body_bytes = upstream.bytes().await.unwrap_or_default();
+    let mut response = Response::new(Body::from(body_bytes));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        HeaderName::from_static("content-type"),
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
     Ok(response)
 }
 
