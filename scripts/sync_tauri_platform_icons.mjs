@@ -24,10 +24,12 @@ const removeMatching = (dirPath, predicate) => {
   }
 }
 
-const APP_STORE_ICON_NAMES = new Set([
-  'AppIcon-512@2x.png',
-  'AppIcon-1024x1024@1x.png'
-])
+const APP_STORE_ICON_OVERRIDES = {
+  'AppIcon-512@2x-appstore.png': 'AppIcon-512@2x.png',
+  'AppIcon-1024x1024@1x-appstore.png': 'AppIcon-1024x1024@1x.png'
+}
+
+const APP_STORE_SOURCE_ICONS = new Set(Object.keys(APP_STORE_ICON_OVERRIDES))
 
 const pngHasAlphaChannel = (filePath) => {
   const buffer = fs.readFileSync(filePath)
@@ -42,16 +44,34 @@ const pngHasAlphaChannel = (filePath) => {
   return colorType === 4 || colorType === 6
 }
 
-const assertAppStoreIconsAreOpaque = (sourceDir) => {
-  for (const name of APP_STORE_ICON_NAMES) {
-    const iconPath = path.join(sourceDir, name)
-    if (!fs.existsSync(iconPath)) continue
+const assertAppStoreOverridesAreOpaque = (sourceDir) => {
+  for (const sourceName of APP_STORE_SOURCE_ICONS) {
+    const iconPath = path.join(sourceDir, sourceName)
+    if (!fs.existsSync(iconPath)) {
+      fail(
+        `缺少 ${sourceName}，请先运行: python scripts/fix_ios_app_store_icon.py`
+      )
+    }
     if (pngHasAlphaChannel(iconPath)) {
       fail(
-        `${name} 含 alpha 通道，TestFlight 会拒绝上传。请先运行: python scripts/fix_ios_app_store_icon.py`
+        `${sourceName} 含 alpha 通道，TestFlight 会拒绝上传。请重新运行: python scripts/fix_ios_app_store_icon.py`
       )
     }
   }
+}
+
+const shouldSkipIosSourceIcon = (name, sourceDir) => {
+  if (name.endsWith('-appstore.png')) return true
+  if (name === 'AppIcon-512@2x.png' && fs.existsSync(path.join(sourceDir, 'AppIcon-512@2x-appstore.png'))) {
+    return true
+  }
+  if (
+    name === 'AppIcon-1024x1024@1x.png'
+    && fs.existsSync(path.join(sourceDir, 'AppIcon-1024x1024@1x-appstore.png'))
+  ) {
+    return true
+  }
+  return false
 }
 
 const copyFiles = (sourceDir, targetDir, predicate = () => true) => {
@@ -132,9 +152,22 @@ const syncIosIcons = () => {
   if (!fs.existsSync(sourceDir)) fail(`iOS 图标源目录不存在: ${sourceDir}`)
   if (!fs.existsSync(targetDir)) fail(`iOS 目标目录不存在，请先执行 tauri ios init: ${targetDir}`)
 
-  assertAppStoreIconsAreOpaque(sourceDir)
+  assertAppStoreOverridesAreOpaque(sourceDir)
   removeMatching(targetDir, (name) => name.endsWith('.png'))
-  const copied = copyFiles(sourceDir, targetDir, (name) => name.endsWith('.png'))
+
+  let copied = 0
+  for (const [sourceName, targetName] of Object.entries(APP_STORE_ICON_OVERRIDES)) {
+    fs.copyFileSync(path.join(sourceDir, sourceName), path.join(targetDir, targetName))
+    copied += 1
+  }
+
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.png')) continue
+    if (shouldSkipIosSourceIcon(entry.name, sourceDir)) continue
+    fs.copyFileSync(path.join(sourceDir, entry.name), path.join(targetDir, entry.name))
+    copied += 1
+  }
+
   if (copied === 0) fail('iOS 图标同步失败：未复制任何 PNG')
   console.log(`[icon-sync] iOS 图标已同步，共复制 ${copied} 个文件`)
 }
