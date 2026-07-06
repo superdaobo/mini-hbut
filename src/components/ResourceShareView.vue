@@ -5,6 +5,7 @@ import { openExternal } from '../utils/external_link'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { importModuleFromCdn, loadScriptFromCdn, loadStyleFromCdn } from '../utils/cdn_loader'
+import { isTestAccountSession } from '../utils/test_account.js'
 import { TPageHeader } from './templates'
 
 const emit = defineEmits(['back'])
@@ -242,6 +243,51 @@ const getTypeClass = (item) => {
   return 'other'
 }
 
+const buildTestAccountResourceShareItems = (path = '/') => {
+  const targetPath = normalizePath(path)
+  if (targetPath === '/') {
+    return [
+      {
+        name: 'TestFlight演示资料',
+        path: '/TestFlight演示资料',
+        isDir: true,
+        size: 0,
+        modified: '2026-07-06T08:00:00+08:00',
+        contentType: ''
+      },
+      {
+        name: '演示说明.txt',
+        path: '/演示说明.txt',
+        isDir: false,
+        size: 128,
+        modified: '2026-07-06T08:00:00+08:00',
+        contentType: 'text/plain'
+      }
+    ]
+  }
+  if (targetPath === '/TestFlight演示资料') {
+    return [
+      {
+        name: '课程资料预览.txt',
+        path: '/TestFlight演示资料/课程资料预览.txt',
+        isDir: false,
+        size: 96,
+        modified: '2026-07-06T08:00:00+08:00',
+        contentType: 'text/plain'
+      }
+    ]
+  }
+  return []
+}
+
+const getTestAccountResourceText = (path = '/') =>
+  `Mini-HBUT TestFlight demo resource\n\nPath: ${normalizePath(path)}\nThis is a local demo payload.`
+
+const getTestAccountResourceDirectUrl = (path = '/') => ({
+  url: `data:text/plain;charset=utf-8,${encodeURIComponent(getTestAccountResourceText(path))}`,
+  needAuth: false
+})
+
 const fetchWithTimeout = async (url, init = {}, timeoutMs = 25000) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -382,6 +428,13 @@ const listDirectory = async (path, force = false) => {
   loadingList.value = true
   try {
     const now = Date.now()
+    if (isTestAccountSession()) {
+      const demoItems = buildTestAccountResourceShareItems(targetPath)
+      currentPath.value = targetPath
+      items.value = demoItems
+      totalCount.value = demoItems.length
+      return
+    }
     const cached = dirCache.value[targetPath]
     if (!force && cached && now - Number(cached.time || 0) <= DIR_CACHE_TTL_MS && Array.isArray(cached.items)) {
       currentPath.value = targetPath
@@ -478,6 +531,7 @@ const withCacheBustUrl = (url) => {
 }
 
 const buildPreviewUrlCandidates = (path, signed) => {
+  if (isTestAccountSession()) return [String(signed?.url || '').trim()].filter(Boolean)
   const normalized = normalizePath(path)
   const candidates = []
   const signedUrl = String(signed?.url || '').trim()
@@ -564,6 +618,7 @@ const fetchDirectUrlFromBridge = async (params) => {
 
 const getSignedDirectUrl = async (path) => {
   const normalized = normalizePath(path)
+  if (isTestAccountSession()) return getTestAccountResourceDirectUrl(normalized)
   const cacheKey = `${endpoint.value}|${normalized}`
   const cached = directUrlCache.get(cacheKey)
   if (cached?.url && Number(cached.expireAt || 0) > Date.now() + 5000) {
@@ -603,6 +658,12 @@ const getSignedDirectUrl = async (path) => {
 }
 
 const fetchNativeResourcePayload = async (path, maxBytes = undefined) => {
+  if (isTestAccountSession()) {
+    return {
+      base64: btoa(getTestAccountResourceText(path)),
+      contentType: 'text/plain'
+    }
+  }
   if (!runtimeIsTauri) return null
   return invokeNative('resource_share_fetch_file_payload_native', {
     req: {
@@ -640,6 +701,9 @@ const resolvePreviewPlayableUrl = (path, signed) => {
 }
 
 const fetchTextWithAuth = async (path) => {
+  if (isTestAccountSession()) {
+    return getTestAccountResourceText(path)
+  }
   const response = await fetchWithTimeout(
     getDavUrl(path),
     {
@@ -1162,6 +1226,10 @@ const openBreadcrumb = async (path) => {
 
 const openDownload = async () => {
   if (!previewPath.value) return
+  if (isTestAccountSession()) {
+    previewHint.value = '演示账号不下载真实资料'
+    return
+  }
   try {
     const signed = await getSignedDirectUrl(previewPath.value)
     const baseCandidates = buildPreviewUrlCandidates(previewPath.value, signed)

@@ -20,6 +20,7 @@ import {
 } from '../utils/layout_collision_fx.js'
 import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../utils/home_search.js'
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
+import { isTestAccountSession } from '../utils/test_account.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -367,7 +368,9 @@ const fetchTodayCourses = async () => {
     if (payload?.meta) {
       const nextWeek = Number(payload.meta.current_week || 0)
       const persistedWeek = nextWeek > 0 ? nextWeek : getCurrentWeek()
-      localStorage.setItem('hbu_schedule_meta', JSON.stringify({ semester: payload.meta.semester || preferredSemester || '', start_date: payload.meta.start_date || '', current_week: persistedWeek }))
+      if (!isTestAccountSession()) {
+        localStorage.setItem('hbu_schedule_meta', JSON.stringify({ semester: payload.meta.semester || preferredSemester || '', start_date: payload.meta.start_date || '', current_week: persistedWeek }))
+      }
     }
     const week = getCurrentWeek(payload?.meta?.current_week)
     const remoteCourses = Array.isArray(payload?.data) ? payload.data : []

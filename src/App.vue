@@ -5,7 +5,7 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS, clearUserScopedCaches } from './utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS, clearUserScopedCaches, clearCacheByPrefix } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
   clearScheduleRenderSnapshot,
@@ -30,6 +30,15 @@ import {
   startUsageUploadScheduler,
   stopUsageUploadScheduler
 } from './utils/usage_uploader.js'
+import {
+  TEST_ACCOUNT,
+  clearTestAccountSession,
+  isTestAccountSession
+} from './utils/test_account.js'
+import {
+  getTestAccountGrades,
+  seedTestAccountCaches
+} from './utils/test_account_fixtures.js'
 import {
   loadChaoxingStoredPassword,
   loadPortalStoredPassword
@@ -1037,7 +1046,7 @@ const scheduleWidgetCrossDayTimer = () => {
   const delay = msUntilNextDayCrossover()
   widgetCrossDayTimer = setTimeout(() => {
     widgetCrossDayTimer = null
-    if (studentId.value) {
+    if (studentId.value && !isTestAccountSession()) {
       tryWriteSnapshotFromCache(studentId.value).catch(() => {})
       // 递归注册下一天
       scheduleWidgetCrossDayTimer()
@@ -1439,6 +1448,24 @@ const markLoginSessionToken = () => {
   }
 }
 
+const restoreTestAccountSession = () => {
+  if (!isTestAccountSession()) return false
+  const sid = TEST_ACCOUNT.studentId
+  studentId.value = sid
+  gradeData.value = getTestAccountGrades()
+  gradeTeacherCache.value = null
+  gradeTeacherCacheSid.value = sid
+  localStorage.setItem('hbu_username', sid)
+  localStorage.setItem(LOGIN_METHOD_KEY, 'test_account')
+  localStorage.setItem(LOGIN_TEMP_FLAG_KEY, '0')
+  localStorage.removeItem('hbu_manual_logout')
+  localStorage.removeItem(LOGOUT_REASON_KEY)
+  seedTestAccountCaches(setCachedData, sid)
+  clearJwxtMaintenance()
+  stopJwxtRecoveryPolling()
+  return true
+}
+
 // 处理登录成功
 const handleLoginSuccess = (data) => {
   gradeData.value = data
@@ -1452,12 +1479,16 @@ const handleLoginSuccess = (data) => {
   // 预取培养方案默认数据并落地缓存
   if (studentId.value) {
     markLoginSessionToken()
+    if (isTestAccountSession()) {
+      seedTestAccountCaches(setCachedData, studentId.value)
+      gradeData.value = getTestAccountGrades()
+    }
 
     fetchWithCache(`training:options:${studentId.value}`, async () => {
       const res = await axios.post(`${API_BASE}/v2/training_plan/options`, {
         student_id: studentId.value
       })
-      if (res.data?.success) {
+      if (res.data?.success && !isTestAccountSession()) {
         localStorage.setItem('hbu_training_options', JSON.stringify({
           options: res.data.options || {},
           defaults: res.data.defaults || {}
@@ -1469,26 +1500,28 @@ const handleLoginSuccess = (data) => {
 
   localStorage.removeItem('hbu_manual_logout')
   localStorage.removeItem(LOGOUT_REASON_KEY)
-  persistSessionCookies()
-  startSessionKeepAlive()
-  startElectricityKeepAlive()
-  if (studentId.value) {
-    void ensureRememberedPasswordCached(studentId.value).catch((e) => {
-      console.warn('[Session] 登录后缓存记住密码失败:', e)
-    })
-    startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
-      console.warn('[Notify] 启动通知监控失败:', e)
-    })
-    resetCloudSyncCooldownForSession(studentId.value)
-    runAutoCloudSyncAfterLogin({
-      studentId: studentId.value,
-      latestGrades: Array.isArray(data) ? data : []
-    }).catch((e) => {
-      console.warn('[CloudSync] 登录后自动同步失败:', e)
-    })
-    setUsageTrackingStudentId(studentId.value)
-    initUsageTracker({ studentId: studentId.value })
-    scheduleUsageUpload({ studentId: studentId.value, reason: 'login', force: true })
+  if (!isTestAccountSession()) {
+    persistSessionCookies()
+    startSessionKeepAlive()
+    startElectricityKeepAlive()
+    if (studentId.value) {
+      void ensureRememberedPasswordCached(studentId.value).catch((e) => {
+        console.warn('[Session] 登录后缓存记住密码失败:', e)
+      })
+      startNotificationMonitor({ studentId: studentId.value }).catch((e) => {
+        console.warn('[Notify] 启动通知监控失败:', e)
+      })
+      resetCloudSyncCooldownForSession(studentId.value)
+      runAutoCloudSyncAfterLogin({
+        studentId: studentId.value,
+        latestGrades: Array.isArray(data) ? data : []
+      }).catch((e) => {
+        console.warn('[CloudSync] 登录后自动同步失败:', e)
+      })
+      setUsageTrackingStudentId(studentId.value)
+      initUsageTracker({ studentId: studentId.value })
+      scheduleUsageUpload({ studentId: studentId.value, reason: 'login', force: true })
+    }
   }
   clearJwxtMaintenance()
   stopJwxtRecoveryPolling()
@@ -1562,6 +1595,21 @@ const isTemporaryLoginSession = () => {
   return marked || method.endsWith('_temp')
 }
 
+const clearTestAccountRuntimeCaches = () => {
+  clearCacheByPrefix(`grades:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`schedule:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`classroom:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`studentinfo:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`student_info:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`exams:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`ranking:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`calendar:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`academic:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`training:options:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`training:jys:${TEST_ACCOUNT.studentId}`)
+  clearCacheByPrefix(`electricity:${TEST_ACCOUNT.studentId}`)
+}
+
 // 处理登出
 const handleLogout = async (options = {}) => {
   const payload = options && typeof options === 'object' ? options : {}
@@ -1569,11 +1617,14 @@ const handleLogout = async (options = {}) => {
   const reason = String(payload.reason || '').trim()
   const notice = String(payload.notice || '').trim()
   const logoutSid = String(studentId.value || localStorage.getItem('hbu_username') || '').trim()
+  const wasTestAccountSession = isTestAccountSession()
 
-  try {
-    await preservePortalRememberedPasswordOnLogout()
-  } catch (e) {
-    console.warn('[Session] 退出前同步记住密码失败:', e)
+  if (!wasTestAccountSession) {
+    try {
+      await preservePortalRememberedPasswordOnLogout()
+    } catch (e) {
+      console.warn('[Session] 退出前同步记住密码失败:', e)
+    }
   }
 
   if (manual && logoutSid) {
@@ -1615,14 +1666,21 @@ const handleLogout = async (options = {}) => {
   } else {
     localStorage.removeItem('hbu_manual_logout')
   }
-  invokeNative('logout').catch(() => {})
+  if (wasTestAccountSession) {
+    clearTestAccountRuntimeCaches()
+    clearTestAccountSession()
+  } else {
+    invokeNative('logout').catch(() => {})
+  }
   if (notice) {
     window.setTimeout(() => {
       window.alert(notice)
     }, 80)
   }
-  // Widget 快照清空（异步，不阻塞登出流程）
-  clearWidgetForLogout().catch(() => {})
+  // Widget 快照属于真实账号设备状态，演示账号退出时不触发 native/plugin 清理。
+  if (!wasTestAccountSession) {
+    clearWidgetForLogout().catch(() => {})
+  }
   // 清除跨天定时器
   if (widgetCrossDayTimer) {
     clearTimeout(widgetCrossDayTimer)
@@ -1724,6 +1782,9 @@ const restoreCachedIdentityFromLocal = async () => {
     localStorage.removeItem('hbu_username')
     return false
   }
+  if (isTestAccountSession() && cachedSid === TEST_ACCOUNT.studentId) {
+    return restoreTestAccountSession()
+  }
 
   studentId.value = cachedSid
   // 异步通知 Rust 侧，不阻塞首屏
@@ -1747,6 +1808,7 @@ const stopJwxtRecoveryPolling = () => {
 }
 
 const attemptOnlineRecovery = async (options = {}) => {
+  if (isTestAccountSession()) return restoreTestAccountSession()
   if (!hasTauri || isManualLogout()) return false
   if (jwxtRecoveryInFlight) return false
   jwxtRecoveryInFlight = true
@@ -1792,6 +1854,7 @@ const attemptOnlineRecovery = async (options = {}) => {
 }
 
 const startJwxtRecoveryPolling = () => {
+  if (isTestAccountSession()) return
   if (isManualLogout() || !studentId.value) return
   stopJwxtRecoveryPolling()
   jwxtRecoveryTimer = setInterval(() => {
@@ -2214,6 +2277,7 @@ const importCookiesViaBridge = async (snapshot) => {
 }
 
 const persistSessionCookies = async () => {
+  if (isTestAccountSession()) return
   if (!hasTauri) return
   try {
     const cookies = await invokeNative('get_cookies')
@@ -2227,6 +2291,7 @@ const persistSessionCookies = async () => {
 }
 
 const tryRestoreSession = async () => {
+  if (isTestAccountSession()) return restoreTestAccountSession()
   const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
   if (!cookies && !hasTauri) {
     try {
@@ -2285,6 +2350,7 @@ const tryRestoreSession = async () => {
 }
 
 const tryRestoreLatestSession = async () => {
+  if (isTestAccountSession()) return restoreTestAccountSession()
   if (!hasTauri) return false
   if (isManualLogout()) {
     return false
@@ -2327,6 +2393,7 @@ const resolveAutoLoginStudentId = async (payload) => {
 }
 
 const attemptAutoRelogin = async () => {
+  if (isTestAccountSession()) return restoreTestAccountSession()
   if (!hasTauri) return false
   if (isManualLogout()) {
     return false
@@ -2401,6 +2468,7 @@ const attemptAutoRelogin = async () => {
 }
 
 const refreshSessionSilently = async () => {
+  if (isTestAccountSession()) return
   const cookies = localStorage.getItem(SESSION_COOKIE_KEY)
   if (!cookies) return
   if (!hasTauri) return
@@ -2694,6 +2762,11 @@ onMounted(async () => {
     console.time('[Boot] session-restore')
     let restored = false
     let relogged = false
+    if (isTestAccountSession()) {
+      restored = restoreTestAccountSession()
+      console.timeEnd('[Boot] session-restore')
+      return { restored, relogged }
+    }
     restored = await tryRestoreSession()
     if (!restored) {
       restored = await tryRestoreLatestSession()
@@ -2766,7 +2839,7 @@ onMounted(async () => {
   }
 
   // ── 阶段 5：后台启动长期任务 ──
-  if (onlineReady) {
+  if (onlineReady && !isTestAccountSession()) {
     startSessionKeepAlive()
     startElectricityKeepAlive()
     if (studentId.value) {
@@ -2783,7 +2856,7 @@ onMounted(async () => {
     if (bootstrappedCachedIdentity || skipSplashForFastScheduleBoot) {
       notifySessionOnline(relogged ? 'boot-auto-relogin' : 'boot-session-restore')
     }
-  } else if (bootstrappedCachedIdentity || studentId.value) {
+  } else if (!isTestAccountSession() && (bootstrappedCachedIdentity || studentId.value)) {
     startJwxtRecoveryPolling()
     attemptOnlineRecovery({ silent: true }).then((ok) => {
       if (!ok) {
@@ -2809,7 +2882,7 @@ onMounted(async () => {
   }
 
   // Widget 快照（异步不阻塞）
-  if (studentId.value) {
+  if (studentId.value && !isTestAccountSession()) {
     tryWriteSnapshotFromCache(studentId.value).catch(() => {})
     scheduleWidgetCrossDayTimer()
   }

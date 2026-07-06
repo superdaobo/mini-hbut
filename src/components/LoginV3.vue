@@ -4,6 +4,17 @@ import axios from 'axios'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from '../utils/debug_logger'
+import { setCachedData } from '../utils/api.js'
+import {
+  TEST_ACCOUNT,
+  TEST_ACCOUNT_LOGIN_METHOD,
+  isTestAccountCredentials,
+  markTestAccountSession
+} from '../utils/test_account.js'
+import {
+  getTestAccountGrades,
+  seedTestAccountCaches
+} from '../utils/test_account_fixtures.js'
 import {
   buildChaoxingAccountKey,
   buildHbutAccountKey,
@@ -466,6 +477,26 @@ const saveChaoxingCredentials = async () => {
   }
 }
 
+const handleTestAccountLogin = async () => {
+  loading.value = true
+  statusMsg.value = '正在进入 TestFlight 演示账号...'
+  try {
+    markTestAccountSession()
+    username.value = TEST_ACCOUNT.studentId
+    localStorage.setItem('hbu_username', TEST_ACCOUNT.studentId)
+    localStorage.setItem('hbu_remember', 'false')
+    localStorage.setItem('hbu_login_entry_mode', 'portal')
+    applyLoginMethodStorage(TEST_ACCOUNT_LOGIN_METHOD)
+    localStorage.removeItem('hbu_manual_logout')
+    localStorage.removeItem(LOGOUT_REASON_KEY)
+    seedTestAccountCaches(setCachedData, TEST_ACCOUNT.studentId)
+    statusMsg.value = '登录成功，已加载演示数据'
+    emit('success', getTestAccountGrades())
+  } finally {
+    loading.value = false
+  }
+}
+
 const handlePasswordLogin = async () => {
   if (!username.value || !password.value) {
     statusMsg.value = '请输入完整的账号和密码'
@@ -473,6 +504,11 @@ const handlePasswordLogin = async () => {
   }
   if (!agreePolicy.value) {
     statusMsg.value = '请先阅读并同意免责声明与隐私政策'
+    return
+  }
+
+  if (isTestAccountCredentials(username.value, password.value)) {
+    await handleTestAccountLogin()
     return
   }
 
@@ -959,7 +995,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="login-container glass-card">
+  <div class="login-container">
     <div class="logo">
       <img class="logo-img" src="/splash/app_icon.png" alt="Mini-HBUT" />
     </div>
@@ -1173,9 +1209,12 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .login-container {
+  width: 100%;
   max-width: 520px;
-  margin: 1.2rem auto;
+  margin: 0 auto;
   padding: 1.3rem 1.15rem;
+  box-sizing: border-box;
+  min-width: 0;
   text-align: center;
 }
 
@@ -1301,15 +1340,14 @@ h2 {
 }
 
 .checkbox-group.agreement {
-  display: block;
+  display: flex;
   width: 100%;
+  min-width: 0;
   margin-top: 0.88rem;
   justify-content: flex-start;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding: 0 0 2px;
+  flex-wrap: wrap;
+  overflow: hidden;
+  padding: 0;
 }
 
 .checkbox-label {
@@ -1324,21 +1362,21 @@ h2 {
 .checkbox-label--agreement {
   display: inline-flex;
   align-items: center;
-  width: max-content;
-  min-width: max-content;
-  flex: 0 0 auto;
-  white-space: nowrap;
-  flex-wrap: nowrap;
-  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 2px 4px;
   background: linear-gradient(135deg, #ecfeff 0%, #eff6ff 100%);
   border: 1px solid #bae6fd;
   border-radius: 999px;
   padding: 0.35rem 0.68rem;
+  box-sizing: border-box;
 }
 
 .agreement-text {
   display: inline;
-  white-space: nowrap;
   flex: 0 0 auto;
   margin-right: 1px;
   font-size: 0.82rem;

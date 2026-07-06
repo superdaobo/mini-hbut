@@ -49,6 +49,7 @@ describe('usage tracking contract', () => {
     expect(libSource).toContain('usage_stats_get_personal_summary')
     expect(libSource).toContain('usage_stats_list_pending_upload')
     expect(dbSource).toContain('app_usage_events')
-    expect(dbSource).toContain('ensure_schema_migration(&conn, 3,')
+    expect(dbSource).toContain('ensure_schema_migration(')
+    expect(dbSource).toContain('app_usage_events/sessions/daily_rollup/device_profile')
   })
 })
