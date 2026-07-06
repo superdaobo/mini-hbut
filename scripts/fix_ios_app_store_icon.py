@@ -29,7 +29,7 @@ APP_STORE_ICON_PAIRS = {
     "AppIcon-1024x1024@1x.png": "AppIcon-1024x1024@1x-appstore.png",
 }
 
-BACKGROUND = (255, 255, 255)
+BACKGROUND = (61, 136, 252)
 
 
 def flatten_to_appstore(source_path: Path, target_path: Path) -> bool:

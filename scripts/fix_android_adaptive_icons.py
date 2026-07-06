@@ -37,8 +37,10 @@ DENSITIES = {
     "xxxhdpi": (192, 432),
 }
 
-LEGACY_SCALE = 0.92
+LEGACY_SCALE = 1.0
 ADAPTIVE_SAFE_ZONE_RATIO = 72 / 108
+LAUNCHER_BACKGROUND_RGB = (61, 136, 252)
+LAUNCHER_BACKGROUND_HEX = "#3D88FC"
 
 
 def resolve_source() -> Path:
@@ -90,9 +92,9 @@ def write_launcher_xml() -> None:
     values_dir = ICONS_DIR / "values"
     values_dir.mkdir(parents=True, exist_ok=True)
     (values_dir / "ic_launcher_background.xml").write_text(
-        """<?xml version="1.0" encoding="utf-8"?>
+        f"""<?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <color name="ic_launcher_background">#FFFFFF</color>
+  <color name="ic_launcher_background">{LAUNCHER_BACKGROUND_HEX}</color>
 </resources>
 """,
         encoding="utf-8",
@@ -109,7 +111,7 @@ def generate_icons() -> int:
         for dir_name in (density, f"mipmap-{density}"):
             target_dir = ICONS_DIR / dir_name
 
-            legacy_icon = fit_image(source, legacy_size, LEGACY_SCALE, (255, 255, 255, 255))
+            legacy_icon = fit_image(source, legacy_size, LEGACY_SCALE, (*LAUNCHER_BACKGROUND_RGB, 255))
             save_png(legacy_icon, target_dir / "ic_launcher.png")
             save_png(legacy_icon, target_dir / "ic_launcher_round.png")
             written += 2
