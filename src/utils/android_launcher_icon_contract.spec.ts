@@ -10,7 +10,7 @@ type PngMetrics = {
   height: number
   bbox: [number, number, number, number] | null
   fullyOpaque: boolean
-  whiteCornerCount: number
+  brandBlueCornerCount: number
 }
 
 type PngColor = {
@@ -64,7 +64,16 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
   let maxX = -1
   let maxY = -1
   let fullyOpaque = true
-  let whiteCornerCount = 0
+  let brandBlueCornerCount = 0
+
+  const isBrandBlue = (color: PngColor) =>
+    color.alpha === 255 &&
+    color.red >= 51 &&
+    color.red <= 71 &&
+    color.green >= 121 &&
+    color.green <= 151 &&
+    color.blue >= 242 &&
+    color.blue <= 255
 
   const readColor = (row: Buffer, x: number): PngColor => {
     const index = x * bytesPerPixel
@@ -125,8 +134,8 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
         (x === width - 1 && y === 0) ||
         (x === 0 && y === height - 1) ||
         (x === width - 1 && y === height - 1)
-      if (isCorner && alpha === 255 && red >= 245 && green >= 245 && blue >= 245) {
-        whiteCornerCount += 1
+      if (isCorner && isBrandBlue({ red, green, blue, alpha })) {
+        brandBlueCornerCount += 1
       }
     }
 
@@ -138,7 +147,7 @@ const readPngMetrics = (relativePath: string): PngMetrics => {
     height,
     bbox: maxX >= 0 ? [minX, minY, maxX, maxY] : null,
     fullyOpaque,
-    whiteCornerCount
+    brandBlueCornerCount
   }
 }
 
@@ -151,13 +160,13 @@ describe('Android launcher icon resources', () => {
 
   const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']
 
-  it('keeps legacy launcher icons on an opaque white canvas for APK installer previews', () => {
+  it('keeps legacy launcher icons on an opaque brand-blue canvas for APK installer previews', () => {
     for (const root of iconRoots) {
       for (const density of densities) {
         for (const iconName of ['ic_launcher.png', 'ic_launcher_round.png']) {
           const metrics = readPngMetrics(`${root}/mipmap-${density}/${iconName}`)
           expect(metrics.fullyOpaque, `${root} ${density} ${iconName}`).toBe(true)
-          expect(metrics.whiteCornerCount, `${root} ${density} ${iconName}`).toBe(4)
+          expect(metrics.brandBlueCornerCount, `${root} ${density} ${iconName}`).toBe(4)
         }
       }
     }
