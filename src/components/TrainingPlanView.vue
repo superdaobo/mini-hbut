@@ -4,6 +4,7 @@ import axios from 'axios'
 import { fetchWithCache, LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import { TPageHeader, TEmptyState } from './templates'
+import { isTestAccountSession } from '../utils/test_account.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -119,10 +120,12 @@ const fetchOptions = async () => {
       defaults.value = data.defaults || defaults.value
       filters.value.grade = defaults.value.grade || ''
       filters.value.kkxq = defaults.value.kkxq || ''
-      localStorage.setItem('hbu_training_options', JSON.stringify({
-        options: options.value,
-        defaults: defaults.value
-      }))
+      if (!isTestAccountSession()) {
+        localStorage.setItem('hbu_training_options', JSON.stringify({
+          options: options.value,
+          defaults: defaults.value
+        }))
+      }
       await fetchJys()
     } else if (data?.need_login) {
       emit('logout')

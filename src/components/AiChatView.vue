@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { initMarkdownRuntime, renderMarkdown } from '../utils/markdown.js'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { isTestAccountSession } from '../utils/test_account.js'
 
 const props = defineProps({
   studentId: String,
@@ -41,6 +42,15 @@ const AI_MIME_BY_EXT = {
   pdf: 'application/pdf',
   txt: 'text/plain',
   md: 'text/markdown'
+}
+
+const buildTestAccountAiReply = (question = '') => {
+  const prompt = String(question || '').trim()
+  return [
+    '演示账号不会调用外部 AI 服务。',
+    prompt ? `你刚才的问题是：${prompt}` : '你可以继续输入问题查看本地演示回复。',
+    'TestFlight 审核环境下，此模块只展示界面与历史记录交互。'
+  ].join('\n\n')
 }
 
 const defaultModelOptions = [
@@ -474,6 +484,13 @@ const parsePostResponse = async (res) => {
 }
 
 const postJson = async (path, body, options = {}) => {
+  if (isTestAccountSession()) {
+    return {
+      success: false,
+      demo_disabled: true,
+      error: '演示账号不会调用外部 AI 服务'
+    }
+  }
   const retries = Number.isFinite(options?.retries) ? Math.max(0, Number(options.retries)) : 2
   const skipProbe = options?.skipProbe === true
   let lastError = null
@@ -859,6 +876,14 @@ const renderMessage = (msg) => {
 const initAiSession = async () => {
   initStatus.value = 'loading'
   initError.value = ''
+  if (isTestAccountSession()) {
+    token.value = 'test-account-token'
+    bladeAuth.value = 'test-account-blade-auth'
+    dynamicModelOptions.value = defaultModelOptions
+    initStatus.value = 'success'
+    initError.value = ''
+    return
+  }
   try {
     const resp = await postJson(AI_BRIDGE_PATHS.init, {})
     applyInitPayload(resp)
@@ -892,6 +917,7 @@ const ensureInitReady = async () => {
 }
 
 const createRemoteSession = async () => {
+  if (isTestAccountSession()) return ''
   await ensureInitReady()
   const resp = await postJson(AI_BRIDGE_PATHS.sessionNew, {
     token: token.value,
@@ -944,6 +970,7 @@ const loadSessionMessagesFromRemote = async (session, force = false) => {
 }
 
 const syncRemoteHistory = async () => {
+  if (isTestAccountSession()) return
   await ensureInitReady()
   const resp = await postJson(AI_BRIDGE_PATHS.sessionHistory, {
     token: token.value,
@@ -1551,6 +1578,10 @@ const sendMessage = async () => {
   syncMessagesToActiveSession()
 
   try {
+    if (isTestAccountSession()) {
+      await appendTextWithTyping(assistantMsg, buildTestAccountAiReply(userText))
+      return
+    }
     await ensureInitReady()
     ensureModelSelection()
     const active = await ensureActiveSession()
@@ -1682,6 +1713,11 @@ const triggerUpload = () => fileInput.value?.click()
 const handleFileChange = async (event) => {
   const file = event?.target?.files?.[0]
   if (!file) return
+  if (isTestAccountSession()) {
+    attachment.value = { name: file.name, url: 'demo://ai-upload-disabled' }
+    event.target.value = ''
+    return
+  }
   if (initStatus.value !== 'success') {
     await initAiSession()
   }

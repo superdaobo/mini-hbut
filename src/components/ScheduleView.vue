@@ -29,6 +29,7 @@ import { hasBootMetric, markBootMetric } from '../utils/boot_metrics.js'
 import { showToast } from '../utils/toast'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { afterScheduleRefresh } from '../utils/widget_bridge'
+import { isTestAccountSession } from '../utils/test_account.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -665,13 +666,15 @@ const applyMeta = (meta, requestedSemester = '') => {
   currentWeek.value = safeWeek
   selectedWeek.value = safeWeek
 
-  localStorage.setItem('hbu_schedule_meta', JSON.stringify({
-    semester: resolvedSemester,
-    start_date: startDateStr.value,
-    current_week: currentWeek.value,
-    total_weeks: totalWeeks.value,
-    vacation_notice: vacationNotice.value
-  }))
+  if (!isTestAccountSession()) {
+    localStorage.setItem('hbu_schedule_meta', JSON.stringify({
+      semester: resolvedSemester,
+      start_date: startDateStr.value,
+      current_week: currentWeek.value,
+      total_weeks: totalWeeks.value,
+      vacation_notice: vacationNotice.value
+    }))
+  }
 }
 
 const applySchedulePayload = (payload, requestedSemester = '') => {

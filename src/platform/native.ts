@@ -1,5 +1,7 @@
 import { detectRuntime } from './runtime'
 import { pushDebugLog } from '../utils/debug_logger'
+import { isTestAccountSession } from '../utils/test_account.js'
+import { resolveTestAccountNativeResponse } from '../utils/test_account_fixtures.js'
 
 type InvokeArgs = Record<string, unknown> | undefined
 
@@ -32,6 +34,18 @@ export const invokeNative = async <T = unknown>(
   command: string,
   args?: InvokeArgs
 ): Promise<T> => {
+  if (isTestAccountSession()) {
+    const testAccountResponse = resolveTestAccountNativeResponse(command, args)
+    if (testAccountResponse !== null && testAccountResponse !== undefined) {
+      pushDebugLog('Native', `测试账号 invoke 命中演示数据：${command}`, 'debug', args)
+      return testAccountResponse as T
+    }
+    return {
+      success: false,
+      demo_disabled: true,
+      error: '未知测试账号 invoke 已拦截'
+    } as T
+  }
   if (!isTauriRuntime()) {
     pushDebugLog('Native', `invoke 调用被拒绝：${command}`, 'warn')
     throw new Error(`当前运行时不支持 invoke: ${command}`)

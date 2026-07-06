@@ -2,6 +2,7 @@ import { invokeNative as invoke } from '../platform/native'
 import { detectRuntime } from '../platform/runtime'
 import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_center'
+import { isTestAccountSession } from './test_account.js'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
@@ -710,6 +711,9 @@ export const applyOcrRuntimeConfig = async (configLike) => {
 
 export async function fetchRemoteConfig(options = {}) {
   const forceRefresh = options?.force === true
+  if (isTestAccountSession()) {
+    return normalizeRemoteConfig(DEFAULT_CONFIG)
+  }
   if (!isRemoteConfigEnabled()) {
     return buildLocalOnlyConfig()
   }
