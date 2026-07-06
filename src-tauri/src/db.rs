@@ -324,7 +324,11 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
 
     ensure_schema_migration(&conn, 1, "WAL journal_mode (open_connection)")?;
     ensure_schema_migration(&conn, 2, "chaoxing_checkin_log")?;
-    ensure_schema_migration(&conn, 3, "app_usage_events/sessions/daily_rollup/device_profile")?;
+    ensure_schema_migration(
+        &conn,
+        3,
+        "app_usage_events/sessions/daily_rollup/device_profile",
+    )?;
 
     Ok(())
 }

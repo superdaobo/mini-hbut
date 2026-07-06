@@ -55,9 +55,9 @@ use http_client::HbutClient;
 
 use modules::ai::*;
 use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
-use modules::usage_stats::commands as usage_stats_cmd;
 use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
+use modules::usage_stats::commands as usage_stats_cmd;
 
 // ... imports
 

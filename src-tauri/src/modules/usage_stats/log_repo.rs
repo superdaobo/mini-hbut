@@ -4,9 +4,8 @@ use chrono::{Local, TimeZone};
 use rusqlite::{params, Connection, Result};
 
 use super::types::{
-    UsageDailyTrendRow, UsageDeviceProfileInput, UsageEventInput, UsageLoadModeRow,
+    UsageCountRow, UsageDailyTrendRow, UsageDeviceProfileInput, UsageEventInput, UsageLoadModeRow,
     UsagePendingUploadBatch, UsagePersonalSummary, UsageSessionInput, UsageTodaySummary,
-    UsageCountRow,
 };
 
 const RETENTION_DAYS: i64 = 180;
@@ -189,8 +188,8 @@ pub fn get_personal_summary(conn: &Connection, student_id: &str) -> Result<Usage
     let today = today_key();
     let today_start = start_of_today_ms();
 
-    let (open_count, duration_ms, module_open_count, view_open_count): (i64, i64, i64, i64) =
-        conn.query_row(
+    let (open_count, duration_ms, module_open_count, view_open_count): (i64, i64, i64, i64) = conn
+        .query_row(
             "SELECT
                 COALESCE(SUM(open_count), 0),
                 COALESCE(SUM(duration_ms_total), 0),

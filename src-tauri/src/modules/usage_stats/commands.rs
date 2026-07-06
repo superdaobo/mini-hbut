@@ -4,7 +4,7 @@ use crate::db;
 
 use super::log_repo;
 use super::types::{
-    UsageDeviceProfileInput, UsageEventInput, UsagePersonalSummary, UsagePendingUploadBatch,
+    UsageDeviceProfileInput, UsageEventInput, UsagePendingUploadBatch, UsagePersonalSummary,
     UsageSessionInput,
 };
 
@@ -36,7 +36,9 @@ pub fn usage_stats_upsert_device_profile(profile: UsageDeviceProfileInput) -> Re
 }
 
 #[tauri::command]
-pub fn usage_stats_get_personal_summary(student_id: String) -> Result<UsagePersonalSummary, String> {
+pub fn usage_stats_get_personal_summary(
+    student_id: String,
+) -> Result<UsagePersonalSummary, String> {
     let sid = student_id.trim();
     if sid.is_empty() {
         return Err("student_id 不能为空".to_string());
@@ -57,8 +59,7 @@ pub fn usage_stats_list_pending_upload(
         return Err("student_id 与 device_id 不能为空".to_string());
     }
     let conn = db_conn()?;
-    log_repo::list_pending_upload(&conn, sid, did, limit.unwrap_or(200))
-        .map_err(|e| e.to_string())
+    log_repo::list_pending_upload(&conn, sid, did, limit.unwrap_or(200)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
