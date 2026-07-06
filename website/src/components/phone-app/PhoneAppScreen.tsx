@@ -3,6 +3,7 @@
 import type { ComponentType } from 'react';
 import type { AppScreen } from '@/lib/scroll-utils';
 import AppShell, { AppCard, PageHeader } from './AppShell';
+import './phone-app.css';
 import { APP_MODULES, MODULE_CATEGORIES, QUICK_ENTRY_IDS, modulesByCategory } from './app-modules';
 import {
   DEMO_CLASSROOMS,
@@ -349,7 +350,64 @@ const SCREEN_MAP: Record<AppScreen, ComponentType> = {
   me: MeScreen,
 };
 
-export default function PhoneAppScreen({ screen }: { screen: AppScreen }) {
+function ScreenLayer({
+  screen,
+  opacity,
+  translateY = 0,
+  scale = 1,
+}: {
+  screen: AppScreen;
+  opacity: number;
+  translateY?: number;
+  scale?: number;
+}) {
   const Screen = SCREEN_MAP[screen] ?? HomeScreen;
-  return <Screen />;
+  if (opacity <= 0.001) return null;
+  return (
+    <div
+      className="phone-screen-layer"
+      style={{
+        opacity,
+        transform: `translateY(${translateY}px) scale(${scale})`,
+        pointerEvents: 'none',
+      }}
+    >
+      <Screen />
+    </div>
+  );
+}
+
+interface PhoneAppScreenProps {
+  screenFrom: AppScreen;
+  screenTo: AppScreen;
+  screenBlend: number;
+}
+
+export default function PhoneAppScreen({
+  screenFrom,
+  screenTo,
+  screenBlend,
+}: PhoneAppScreenProps) {
+  const blend = Math.min(1, Math.max(0, screenBlend));
+  const same = screenFrom === screenTo;
+
+  if (same) {
+    return (
+      <div className="phone-app-viewport">
+        <ScreenLayer screen={screenTo} opacity={1} />
+      </div>
+    );
+  }
+
+  const fromY = blend * -10;
+  const toY = (1 - blend) * 10;
+  const fromScale = 1 - blend * 0.025;
+  const toScale = 0.975 + blend * 0.025;
+
+  return (
+    <div className="phone-app-viewport">
+      <ScreenLayer screen={screenFrom} opacity={1 - blend} translateY={fromY} scale={fromScale} />
+      <ScreenLayer screen={screenTo} opacity={blend} translateY={toY} scale={toScale} />
+    </div>
+  );
 }

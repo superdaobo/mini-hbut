@@ -4,7 +4,6 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
-import ScreenUI from './ScreenUI';
 import {
   BEVEL_RADIUS,
   PHONE_DEPTH,
@@ -179,11 +178,17 @@ export default function PhoneModel() {
         </mesh>
       ))}
 
-      <ScreenUI
-        brightness={sample.phone.screenBrightness}
-        insideScreen={sample.insideScreen}
-        activeScreen={sample.activeScreen}
-      />
+      {/* 发光屏幕平面（UI 由 PhoneScreenOverlay DOM 叠层渲染） */}
+      <mesh position={[0, 0, zFront + 0.003]}>
+        <planeGeometry args={[SCREEN_WIDTH, SCREEN_HEIGHT]} />
+        <meshStandardMaterial
+          color="#0a1628"
+          emissive="#38bdf8"
+          emissiveIntensity={sample.phone.screenBrightness * 0.35}
+          transparent
+          opacity={0.15 + sample.phone.screenBrightness * 0.85}
+        />
+      </mesh>
     </group>
   );
 }

@@ -3,14 +3,12 @@
 import { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Grid } from '@react-three/drei';
-import { Bloom, EffectComposer } from '@react-three/postprocessing';
 import CameraRig from './CameraRig';
 import PhoneModel from './PhoneModel';
 import ParticleField from './ParticleField';
 import LightRibbons from './LightRibbons';
 import FloatingFeatureCards from './FloatingFeatureCards';
 import SceneErrorBoundary from './SceneErrorBoundary';
-import { useScrollProgress } from '@/hooks/use-scroll-progress';
 
 function supportsWebGL() {
   if (typeof window === 'undefined') return true;
@@ -23,9 +21,6 @@ function supportsWebGL() {
 }
 
 function SceneContent() {
-  const { isMobile, reducedMotion } = useScrollProgress();
-  const enableBloom = !isMobile && !reducedMotion;
-
   return (
     <>
       <color attach="background" args={['#03060d']} />
@@ -56,11 +51,6 @@ function SceneContent() {
         infiniteGrid
       />
 
-      {enableBloom && (
-        <EffectComposer multisampling={0}>
-          <Bloom intensity={0.45} luminanceThreshold={0.2} luminanceSmoothing={0.85} mipmapBlur />
-        </EffectComposer>
-      )}
     </>
   );
 }
@@ -97,7 +87,7 @@ export default function SceneCanvas() {
       <SceneErrorBoundary fallback={<CanvasFallback />}>
         <Canvas
           dpr={dpr}
-          camera={{ position: [0, 5.5, 4.2], fov: 42, near: 0.1, far: 50 }}
+          camera={{ position: [0, 10.8, 13.6], fov: 58, near: 0.1, far: 60 }}
           gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
           onCreated={({ gl }) => {
             gl.setClearColor('#03060d');

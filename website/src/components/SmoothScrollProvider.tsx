@@ -11,9 +11,10 @@ gsap.registerPlugin(ScrollTrigger);
 
 interface SmoothScrollProviderProps {
   children: ReactNode;
+  hideScene?: boolean;
 }
 
-export default function SmoothScrollProvider({ children }: SmoothScrollProviderProps) {
+export default function SmoothScrollProvider({ children, hideScene = false }: SmoothScrollProviderProps) {
   const driverRef = useRef<HTMLDivElement>(null);
   const { setProgress, reducedMotion } = useScrollProgress();
   const lenisRef = useRef<Lenis | null>(null);
@@ -69,11 +70,16 @@ export default function SmoothScrollProvider({ children }: SmoothScrollProviderP
     <>
       <div
         ref={driverRef}
+        data-hero-scroll-driver
         className="relative"
         style={{ height: `${SCROLL_DRIVER_VH}vh` }}
         aria-hidden
       />
-      <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+      <div
+        className={`fixed inset-0 z-0 overflow-hidden pointer-events-none transition-opacity duration-500 ${
+          hideScene ? 'opacity-0 invisible' : 'opacity-100 visible'
+        }`}
+      >
         {children}
       </div>
     </>

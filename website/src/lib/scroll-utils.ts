@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 /** 滚动驱动区域高度（vh） */
-export const SCROLL_DRIVER_VH = 900;
+export const SCROLL_DRIVER_VH = 720;
 
 export type ScrollPhase =
   | 'intro'
@@ -61,44 +61,64 @@ export interface ScrollSample {
   featureOpacity: number;
   ctaOpacity: number;
   activeScreen: AppScreen;
+  screenFrom: AppScreen;
+  screenTo: AppScreen;
+  screenBlend: number;
 }
 
+/** 手机内演示：各页面稳定展示区间 */
+const PHONE_SCREEN_SEQUENCE: AppScreen[] = [
+  'home',
+  'schedule',
+  'grades',
+  'exams',
+  'notifications',
+  'electricity',
+  'classroom',
+  'ranking',
+  'all-features',
+];
+
+const PHONE_DEMO_START = 0.22;
+const PHONE_DEMO_END = 0.88;
+const SCREEN_FADE_PORTION = 0.28;
+
 const PHASE_RANGES: Array<{ phase: ScrollPhase; start: number; end: number }> = [
-  { phase: 'intro', start: 0, end: 0.08 },
-  { phase: 'ignite', start: 0.08, end: 0.18 },
-  { phase: 'lift', start: 0.18, end: 0.3 },
-  { phase: 'dive', start: 0.3, end: 0.42 },
-  { phase: 'schedule', start: 0.42, end: 0.55 },
-  { phase: 'grades', start: 0.55, end: 0.66 },
-  { phase: 'tunnel', start: 0.66, end: 0.76 },
-  { phase: 'return', start: 0.76, end: 0.86 },
-  { phase: 'cta', start: 0.86, end: 1 },
+  { phase: 'intro', start: 0, end: 0.06 },
+  { phase: 'ignite', start: 0.06, end: 0.14 },
+  { phase: 'lift', start: 0.14, end: 0.24 },
+  { phase: 'dive', start: 0.24, end: 0.34 },
+  { phase: 'schedule', start: 0.34, end: 0.46 },
+  { phase: 'grades', start: 0.46, end: 0.56 },
+  { phase: 'tunnel', start: 0.56, end: 0.84 },
+  { phase: 'return', start: 0.84, end: 0.92 },
+  { phase: 'cta', start: 0.92, end: 1 },
 ];
 
 const CAMERA_KEYFRAMES: CameraKeyframe[] = [
-  { position: { x: 0, y: 5.5, z: 4.2 }, lookAt: { x: 0, y: -0.2, z: 0 }, fov: 42 },
-  { position: { x: 0.3, y: 3.8, z: 3.6 }, lookAt: { x: 0, y: 0.1, z: 0 }, fov: 40 },
-  { position: { x: 1.2, y: 1.8, z: 2.8 }, lookAt: { x: 0, y: 0.2, z: 0 }, fov: 38 },
-  { position: { x: 0, y: 0.35, z: 2.1 }, lookAt: { x: 0, y: 0.15, z: 0 }, fov: 36 },
-  { position: { x: 0, y: 0.05, z: 0.55 }, lookAt: { x: 0, y: 0.12, z: 0 }, fov: 34 },
-  { position: { x: -0.15, y: 0.2, z: -0.35 }, lookAt: { x: 0, y: 0, z: -1.2 }, fov: 48 },
-  { position: { x: 0.2, y: 0.55, z: -1.8 }, lookAt: { x: 0, y: 0.1, z: -2.6 }, fov: 52 },
-  { position: { x: 0, y: 0.15, z: -3.4 }, lookAt: { x: 0, y: 0, z: -5 }, fov: 58 },
-  { position: { x: 0, y: 0.25, z: -1.2 }, lookAt: { x: 0, y: 0.1, z: -2.2 }, fov: 46 },
-  { position: { x: 0, y: 0.45, z: 2.4 }, lookAt: { x: 0, y: 0.1, z: 0 }, fov: 38 },
+  { position: { x: 0, y: 10.8, z: 13.6 }, lookAt: { x: 0, y: -0.72, z: 0 }, fov: 58 },
+  { position: { x: 0.03, y: 10.2, z: 12.8 }, lookAt: { x: 0, y: -0.62, z: 0 }, fov: 57 },
+  { position: { x: 0.06, y: 9.6, z: 12.0 }, lookAt: { x: 0, y: -0.48, z: 0 }, fov: 56 },
+  { position: { x: 0.08, y: 9.1, z: 11.4 }, lookAt: { x: 0, y: -0.32, z: 0 }, fov: 55 },
+  { position: { x: 0.1, y: 8.8, z: 11.0 }, lookAt: { x: 0, y: -0.14, z: 0 }, fov: 54 },
+  { position: { x: 0.1, y: 8.7, z: 10.9 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 53 },
+  { position: { x: 0.08, y: 8.7, z: 10.9 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 53 },
+  { position: { x: 0.06, y: 8.8, z: 11.0 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 53 },
+  { position: { x: 0.04, y: 8.9, z: 11.1 }, lookAt: { x: 0, y: -0.02, z: 0 }, fov: 54 },
+  { position: { x: 0, y: 9.6, z: 12.2 }, lookAt: { x: 0, y: -0.2, z: 0 }, fov: 56 },
 ];
 
 const PHONE_KEYFRAMES: PhoneKeyframe[] = [
-  { position: { x: 0, y: -0.35, z: 0 }, rotation: { x: -1.15, y: 0.15, z: 0 }, scale: 1, screenBrightness: 0.05, float: 0 },
-  { position: { x: 0, y: -0.28, z: 0.02 }, rotation: { x: -0.85, y: 0.1, z: 0 }, scale: 1, screenBrightness: 0.55, float: 0.02 },
-  { position: { x: 0, y: 0.05, z: 0.05 }, rotation: { x: -0.35, y: 0.25, z: 0 }, scale: 1.02, screenBrightness: 0.85, float: 0.05 },
-  { position: { x: 0, y: 0.18, z: 0.08 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1.04, screenBrightness: 1, float: 0.08 },
-  { position: { x: 0, y: 0.22, z: 0.12 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1.12, screenBrightness: 1, float: 0.1 },
-  { position: { x: 0, y: 0.15, z: -0.8 }, rotation: { x: 0, y: 0.08, z: 0 }, scale: 1.35, screenBrightness: 1, float: 0.12 },
-  { position: { x: 0, y: 0.1, z: -1.6 }, rotation: { x: 0.05, y: -0.05, z: 0 }, scale: 1.2, screenBrightness: 0.95, float: 0.1 },
-  { position: { x: 0, y: 0.12, z: -2.4 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1.05, screenBrightness: 0.9, float: 0.08 },
-  { position: { x: 0, y: 0.2, z: -0.5 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1.08, screenBrightness: 1, float: 0.12 },
-  { position: { x: 0, y: 0.28, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: 1.06, screenBrightness: 1, float: 0.15 },
+  { position: { x: 0, y: -0.52, z: 0 }, rotation: { x: -1.08, y: 0.1, z: 0 }, scale: 0.48, screenBrightness: 0.02, float: 0 },
+  { position: { x: 0, y: -0.42, z: 0.01 }, rotation: { x: -0.88, y: 0.08, z: 0 }, scale: 0.52, screenBrightness: 0.3, float: 0.006 },
+  { position: { x: 0, y: -0.3, z: 0.015 }, rotation: { x: -0.62, y: 0.06, z: 0 }, scale: 0.56, screenBrightness: 0.65, float: 0.01 },
+  { position: { x: 0, y: -0.16, z: 0.02 }, rotation: { x: -0.34, y: 0.04, z: 0 }, scale: 0.58, screenBrightness: 0.9, float: 0.014 },
+  { position: { x: 0, y: -0.06, z: 0.022 }, rotation: { x: -0.1, y: 0.02, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.018 },
+  { position: { x: 0, y: 0, z: 0.024 }, rotation: { x: 0, y: 0.01, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.02 },
+  { position: { x: 0, y: 0.01, z: 0.024 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.02 },
+  { position: { x: 0, y: 0.01, z: 0.022 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.02 },
+  { position: { x: 0, y: 0, z: 0.02 }, rotation: { x: 0, y: -0.01, z: 0 }, scale: 0.59, screenBrightness: 1, float: 0.018 },
+  { position: { x: 0, y: 0.02, z: 0.018 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.58, screenBrightness: 1, float: 0.016 },
 ];
 
 export function clamp01(value: number): number {
@@ -122,31 +142,54 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-export function resolveActiveScreen(phase: ScrollPhase, globalProgress: number): AppScreen {
+export function smootherstep(edge0: number, edge1: number, x: number): number {
+  const t = smoothstep(edge0, edge1, x);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+interface ScreenTransition {
+  from: AppScreen;
+  to: AppScreen;
+  blend: number;
+}
+
+function holdScreen(screen: AppScreen): ScreenTransition {
+  return { from: screen, to: screen, blend: 0 };
+}
+
+export function resolveScreenTransition(globalProgress: number): ScreenTransition {
   const p = clamp01(globalProgress);
-  switch (phase) {
-    case 'intro':
-    case 'ignite':
-    case 'lift':
-      return 'home';
-    case 'dive':
-      return p < 0.36 ? 'home' : 'schedule';
-    case 'schedule':
-      return 'schedule';
-    case 'grades':
-      return p < 0.58 ? 'grades' : 'ranking';
-    case 'tunnel':
-      if (p < 0.675) return 'exams';
-      if (p < 0.705) return 'notifications';
-      if (p < 0.735) return 'electricity';
-      return 'classroom';
-    case 'return':
-      return 'all-features';
-    case 'cta':
-      return p < 0.92 ? 'all-features' : 'home';
-    default:
-      return 'home';
+
+  if (p < PHONE_DEMO_START) {
+    return holdScreen('home');
   }
+
+  if (p >= PHONE_DEMO_END) {
+    return holdScreen('all-features');
+  }
+
+  const seq = PHONE_SCREEN_SEQUENCE;
+  const local = (p - PHONE_DEMO_START) / (PHONE_DEMO_END - PHONE_DEMO_START);
+  const segmentSize = 1 / (seq.length - 1);
+  const rawIdx = local / segmentSize;
+  const idx = Math.min(seq.length - 2, Math.floor(rawIdx));
+  const segT = rawIdx - idx;
+  const fadeStart = 1 - SCREEN_FADE_PORTION;
+
+  if (segT < fadeStart) {
+    return holdScreen(seq[idx]);
+  }
+
+  const blend = smootherstep(fadeStart, 1, segT);
+  return {
+    from: seq[idx],
+    to: seq[idx + 1],
+    blend,
+  };
+}
+
+export function resolveActiveScreen(globalProgress: number): AppScreen {
+  return resolveScreenTransition(globalProgress).to;
 }
 
 export function getPhase(progress: number): { phase: ScrollPhase; phaseProgress: number } {
@@ -192,16 +235,17 @@ export function sampleScroll(progress: number): ScrollSample {
   const camera = sampleTrack(CAMERA_KEYFRAMES, globalProgress, interpolateCamera);
   const phone = sampleTrack(PHONE_KEYFRAMES, globalProgress, interpolatePhone);
 
-  const insideScreen = smoothstep(0.36, 0.48, globalProgress) * (1 - smoothstep(0.74, 0.86, globalProgress));
-  const particleIntensity = lerp(0.35, 1, smoothstep(0, 0.2, globalProgress))
+  const insideScreen = 0;
+  const particleIntensity = lerp(0.35, 1, smoothstep(0, 0.16, globalProgress))
     * (1 - smoothstep(0.82, 0.95, globalProgress) * 0.35);
-  const ribbonIntensity = smoothstep(0.5, 0.72, globalProgress) * (1 - smoothstep(0.78, 0.9, globalProgress));
-  const cardSpread = smoothstep(0.4, 0.55, globalProgress) * (1 - smoothstep(0.72, 0.86, globalProgress));
+  const ribbonIntensity = smoothstep(0.38, 0.58, globalProgress) * (1 - smoothstep(0.72, 0.86, globalProgress));
+  const cardSpread = smoothstep(0.30, 0.44, globalProgress) * (1 - smoothstep(0.68, 0.82, globalProgress));
 
-  const heroOpacity = 1 - smoothstep(0.12, 0.28, globalProgress);
-  const featureOpacity = smoothstep(0.38, 0.5, globalProgress) * (1 - smoothstep(0.7, 0.82, globalProgress));
+  const heroOpacity = 1 - smoothstep(0.1, 0.24, globalProgress);
+  const featureOpacity = smoothstep(0.22, 0.32, globalProgress) * (1 - smoothstep(0.74, 0.86, globalProgress));
   const ctaOpacity = smoothstep(0.84, 0.94, globalProgress);
-  const activeScreen = resolveActiveScreen(phase, globalProgress);
+  const screenTransition = resolveScreenTransition(globalProgress);
+  const activeScreen = screenTransition.to;
 
   return {
     phase,
@@ -217,6 +261,9 @@ export function sampleScroll(progress: number): ScrollSample {
     featureOpacity,
     ctaOpacity,
     activeScreen,
+    screenFrom: screenTransition.from,
+    screenTo: screenTransition.to,
+    screenBlend: screenTransition.blend,
   };
 }
 
