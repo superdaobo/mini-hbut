@@ -1,37 +1,59 @@
+'use client';
+
 import { useState, useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { Menu, X, Download } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
-const navLinks = [
+type NavLink = { name: string; href: string; external?: boolean };
+
+const siteNavLinks: NavLink[] = [
   { name: '功能', href: '#features' },
   { name: '下载', href: '#download' },
   { name: '关于', href: '#about' },
+  { name: '文档', href: '/docs' },
+  { name: '版本', href: '/releases' },
 ];
 
-export default function Navbar() {
+interface NavbarProps {
+  variant?: 'default' | 'home';
+  pastHero?: boolean;
+}
+
+export default function Navbar({ variant = 'default', pastHero = false }: NavbarProps) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const linksRef = useRef<(HTMLAnchorElement | null)[]>([]);
-  const location = useLocation();
-  const isHome = location.pathname === '/';
+  const pathname = usePathname();
+  const isHome = pathname === '/';
+  const isHomeVariant = variant === 'home' || isHome;
+  const showSolidNav = isScrolled || (isHomeVariant && pastHero) || !isHome;
+
+  const isActiveLink = (href: string) => {
+    if (href === '/docs') return pathname === '/docs' || pathname.startsWith('/docs/');
+    if (href === '/releases') return pathname === '/releases' || pathname.startsWith('/releases/');
+    return false;
+  };
+
+  const linkClassName = (href: string) => {
+    const active = isActiveLink(href);
+    return `group relative text-sm transition-colors ${active ? 'text-cyan' : 'text-gray-300 hover:text-cyan'}`;
+  };
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   useEffect(() => {
-    // Entrance animation
     if (navRef.current) {
       gsap.fromTo(
         navRef.current,
-        { y: -100, opacity: 0 },
-        { y: 0, opacity: 1, duration: 0.8, ease: 'expo.out', delay: 0.2 }
+        { y: -24, opacity: 0 },
+        { y: 0, opacity: 1, duration: 0.8, ease: 'expo.out', delay: 0.2 },
       );
     }
 
@@ -39,8 +61,8 @@ export default function Navbar() {
       if (link) {
         gsap.fromTo(
           link,
-          { opacity: 0, y: -20 },
-          { opacity: 1, y: 0, duration: 0.4, delay: 0.4 + i * 0.1, ease: 'power2.out' }
+          { opacity: 0, y: -12 },
+          { opacity: 1, y: 0, duration: 0.4, delay: 0.4 + i * 0.1, ease: 'power2.out' },
         );
       }
     });
@@ -55,65 +77,110 @@ export default function Navbar() {
     const interval = setInterval(() => {
       target.textContent = originalText
         .split('')
-        .map((_, index) => {
-          if (index < iteration) {
-            return originalText[index];
-          }
-          return chars[Math.floor(Math.random() * chars.length)];
-        })
+        .map((_, index) => (index < iteration ? originalText[index] : chars[Math.floor(Math.random() * chars.length)]))
         .join('');
 
-      if (iteration >= originalText.length) {
-        clearInterval(interval);
-      }
+      if (iteration >= originalText.length) clearInterval(interval);
       iteration += 1 / 2;
     }, 30);
   };
 
   const handleLinkLeave = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    const target = e.currentTarget;
-    target.textContent = target.dataset.text || '';
+    e.currentTarget.textContent = e.currentTarget.dataset.text || '';
   };
 
   const scrollToSection = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!isHome && href.startsWith('#')) {
-      // Allow default navigation to home page with hash
+      setIsMobileMenuOpen(false);
       return;
     }
 
     if (href.startsWith('#')) {
       e.preventDefault();
-      const element = document.querySelector(href);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth' });
-      }
+      document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
       setIsMobileMenuOpen(false);
     }
   };
 
-  const getLinkHref = (href: string) => {
-    if (href.startsWith('#') && !isHome) {
-      return `/${href}`;
+  const getLinkHref = (href: string) => (href.startsWith('#') && !isHome ? `/${href}` : href);
+
+  const renderNavLink = (link: NavLink, index?: number, mobile = false) => {
+    const underline = (
+      <span
+        className={`absolute -bottom-1 left-0 h-0.5 bg-cyan transition-all duration-300 ${
+          isActiveLink(link.href) ? 'w-full' : 'w-0 group-hover:w-full'
+        }`}
+      />
+    );
+    const itemClass = `${linkClassName(link.href)}${mobile ? ' block py-2' : ''}`;
+
+    if (link.external) {
+      return (
+        <a
+          key={link.name}
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-text={link.name}
+          className={itemClass}
+          onMouseEnter={handleLinkHover}
+          onMouseLeave={handleLinkLeave}
+        >
+          {link.name}
+        </a>
+      );
     }
-    return href;
+
+    if (link.href.startsWith('#')) {
+      return (
+        <a
+          key={link.name}
+          ref={index !== undefined ? (el) => { linksRef.current[index] = el; } : undefined}
+          href={getLinkHref(link.href)}
+          data-text={link.name}
+          className={itemClass}
+          onMouseEnter={handleLinkHover}
+          onMouseLeave={handleLinkLeave}
+          onClick={(e) => scrollToSection(e, link.href)}
+        >
+          {link.name}
+          {underline}
+        </a>
+      );
+    }
+
+    return (
+      <Link
+        key={link.name}
+        href={link.href}
+        ref={index !== undefined ? (el) => { linksRef.current[index] = el; } : undefined}
+        data-text={link.name}
+        className={itemClass}
+        onMouseEnter={handleLinkHover}
+        onMouseLeave={handleLinkLeave}
+        onClick={() => setIsMobileMenuOpen(false)}
+      >
+        {link.name}
+        {underline}
+      </Link>
+    );
   };
 
   return (
     <nav
       ref={navRef}
-      className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 transition-all duration-500 ${isScrolled
-          ? 'w-[95%] max-w-6xl glass rounded-2xl shadow-neon'
-          : 'w-[95%] max-w-6xl bg-transparent'
-        }`}
-      style={{
-        borderColor: isScrolled ? 'rgba(15, 240, 252, 0.3)' : 'transparent',
-      }}
+      className={`fixed top-4 left-1/2 z-50 -translate-x-1/2 transition-all duration-500 ${
+        isHomeVariant && !showSolidNav
+          ? 'w-[95%] max-w-6xl rounded-2xl border border-white/5 bg-black/20 backdrop-blur-md'
+          : showSolidNav
+            ? 'w-[95%] max-w-6xl rounded-2xl border border-cyan/30 bg-black/60 shadow-neon glass'
+            : 'w-[95%] max-w-6xl bg-transparent'
+      } ${isHomeVariant ? 'rounded-2xl' : ''}`}
     >
-      <div className="px-6 py-4 flex items-center justify-between">
-        {/* Logo */}
+      <div className="flex items-center justify-between px-6 py-4">
         <Link
-          to="/"
-          className="font-pixel text-sm md:text-base text-cyan hover:text-pink transition-colors"
+          href="/"
+          className="font-pixel text-sm text-cyan transition-colors hover:text-pink md:text-base"
           onClick={() => {
             if (isHome) window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
@@ -121,99 +188,35 @@ export default function Navbar() {
           <span className="neon-text-cyan">Mini-HBUT</span>
         </Link>
 
-        {/* Desktop Links */}
-        <div className="hidden md:flex items-center gap-8">
-          {navLinks.map((link, i) => (
-            <a
-              key={link.name}
-              ref={(el) => { linksRef.current[i] = el; }}
-              href={getLinkHref(link.href)}
-              data-text={link.name}
-              className="text-sm text-gray-300 hover:text-cyan transition-colors relative group"
-              onMouseEnter={handleLinkHover}
-              onMouseLeave={handleLinkLeave}
-              onClick={(e) => scrollToSection(e, link.href)}
-            >
-              {link.name}
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-cyan transition-all duration-300 group-hover:w-full" />
-            </a>
-          ))}
-
-          {/* Docs Link */}
-          <Link
-            to="/docs"
-            data-text="文档"
-            className="text-sm text-gray-300 hover:text-cyan transition-colors relative group"
-            onMouseEnter={handleLinkHover}
-            onMouseLeave={handleLinkLeave}
-          >
-            文档
-            <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-cyan transition-all duration-300 group-hover:w-full" />
-          </Link>
-
-          {/* Releases Link */}
-          <Link
-            to="/releases"
-            data-text="历史版本"
-            className="text-sm text-gray-300 hover:text-cyan transition-colors relative group"
-            onMouseEnter={handleLinkHover}
-            onMouseLeave={handleLinkLeave}
-          >
-            历史版本
-            <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-cyan transition-all duration-300 group-hover:w-full" />
-          </Link>
+        <div className="hidden items-center gap-8 md:flex">
+          {siteNavLinks.map((link, i) => renderNavLink(link, i))}
         </div>
 
-        {/* CTA Button */}
         <a
-          href={getLinkHref("#download")}
-          className="hidden md:flex items-center gap-2 cyber-btn px-4 py-2 text-xs font-mono"
+          href={getLinkHref('#download')}
+          className="cyber-btn hidden items-center gap-2 px-4 py-2 font-mono text-xs md:flex"
           onClick={(e) => scrollToSection(e, '#download')}
         >
-          <Download className="w-4 h-4" />
+          <Download className="h-4 w-4" />
           获取应用
         </a>
 
-        {/* Mobile Menu Button */}
         <button
-          className="md:hidden text-cyan"
+          type="button"
+          className="text-cyan md:hidden"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
-          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
         </button>
       </div>
 
-      {/* Mobile Menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden glass rounded-b-2xl border-t border-cyan/20">
-          <div className="px-6 py-4 flex flex-col gap-4">
-            {navLinks.map((link) => (
-              <a
-                key={link.name}
-                href={getLinkHref(link.href)}
-                className="text-gray-300 hover:text-cyan transition-colors py-2"
-                onClick={(e) => scrollToSection(e, link.href)}
-              >
-                {link.name}
-              </a>
-            ))}
-            <Link
-              to="/docs"
-              className="text-gray-300 hover:text-cyan transition-colors py-2"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              文档
-            </Link>
-            <Link
-              to="/releases"
-              className="text-gray-300 hover:text-cyan transition-colors py-2"
-              onClick={() => setIsMobileMenuOpen(false)}
-            >
-              历史版本
-            </Link>
+        <div className="glass rounded-b-2xl border-t border-cyan/20 md:hidden">
+          <div className="flex flex-col gap-4 px-6 py-4">
+            {siteNavLinks.map((link) => renderNavLink(link, undefined, true))}
             <a
-              href={getLinkHref("#download")}
-              className="cyber-btn px-4 py-2 text-xs font-mono text-center mt-2"
+              href={getLinkHref('#download')}
+              className="cyber-btn mt-2 px-4 py-2 text-center font-mono text-xs"
               onClick={(e) => scrollToSection(e, '#download')}
             >
               获取应用
