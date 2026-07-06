@@ -24,6 +24,36 @@ const removeMatching = (dirPath, predicate) => {
   }
 }
 
+const APP_STORE_ICON_NAMES = new Set([
+  'AppIcon-512@2x.png',
+  'AppIcon-1024x1024@1x.png'
+])
+
+const pngHasAlphaChannel = (filePath) => {
+  const buffer = fs.readFileSync(filePath)
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  if (buffer.length < 26 || !buffer.subarray(0, 8).equals(signature)) {
+    fail(`无效的 PNG 文件: ${filePath}`)
+  }
+  if (buffer.toString('ascii', 12, 16) !== 'IHDR') {
+    fail(`PNG 缺少 IHDR 块: ${filePath}`)
+  }
+  const colorType = buffer[25]
+  return colorType === 4 || colorType === 6
+}
+
+const assertAppStoreIconsAreOpaque = (sourceDir) => {
+  for (const name of APP_STORE_ICON_NAMES) {
+    const iconPath = path.join(sourceDir, name)
+    if (!fs.existsSync(iconPath)) continue
+    if (pngHasAlphaChannel(iconPath)) {
+      fail(
+        `${name} 含 alpha 通道，TestFlight 会拒绝上传。请先运行: python scripts/fix_ios_app_store_icon.py`
+      )
+    }
+  }
+}
+
 const copyFiles = (sourceDir, targetDir, predicate = () => true) => {
   if (!fs.existsSync(sourceDir)) return 0
   ensureDir(targetDir)
@@ -102,6 +132,7 @@ const syncIosIcons = () => {
   if (!fs.existsSync(sourceDir)) fail(`iOS 图标源目录不存在: ${sourceDir}`)
   if (!fs.existsSync(targetDir)) fail(`iOS 目标目录不存在，请先执行 tauri ios init: ${targetDir}`)
 
+  assertAppStoreIconsAreOpaque(sourceDir)
   removeMatching(targetDir, (name) => name.endsWith('.png'))
   const copied = copyFiles(sourceDir, targetDir, (name) => name.endsWith('.png'))
   if (copied === 0) fail('iOS 图标同步失败：未复制任何 PNG')
