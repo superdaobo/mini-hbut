@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.2",
-    "@emnapi/core": "^1.11.1",
+    "@emnapi/core": "^1.11.2",
     "@emnapi/runtime": "^1.11.1",
     "@tauri-apps/cli": "^2.11.4",
     "@vitejs/plugin-vue": "^5.0.0",
