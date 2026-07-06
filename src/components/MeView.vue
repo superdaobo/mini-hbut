@@ -121,7 +121,7 @@ const handleShowLegal = async (tab) => {
       </div>
     </section>
 
-    <section v-else class="profile-card">
+    <section v-else class="profile-card profile-card--login">
       <LoginV3
         :key="loginFormKey"
         :login-mode="loginMode"
@@ -376,6 +376,19 @@ const handleShowLegal = async (tab) => {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* 登录表单需占满卡片宽度，避免 flex 居中 + 内容收缩导致右偏 */
+.profile-card--login {
+  align-items: stretch;
+  padding-top: 24px;
+  padding-bottom: 24px;
+  overflow-x: clip;
+}
+
+.profile-card--login :deep(.login-container) {
+  margin: 0;
+  max-width: none;
 }
 
 .profile-avatar {

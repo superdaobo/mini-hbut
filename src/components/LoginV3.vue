@@ -995,7 +995,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="login-container glass-card">
+  <div class="login-container">
     <div class="logo">
       <img class="logo-img" src="/splash/app_icon.png" alt="Mini-HBUT" />
     </div>
@@ -1209,9 +1209,12 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .login-container {
+  width: 100%;
   max-width: 520px;
-  margin: 1.2rem auto;
+  margin: 0 auto;
   padding: 1.3rem 1.15rem;
+  box-sizing: border-box;
+  min-width: 0;
   text-align: center;
 }
 
@@ -1337,15 +1340,14 @@ h2 {
 }
 
 .checkbox-group.agreement {
-  display: block;
+  display: flex;
   width: 100%;
+  min-width: 0;
   margin-top: 0.88rem;
   justify-content: flex-start;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  padding: 0 0 2px;
+  flex-wrap: wrap;
+  overflow: hidden;
+  padding: 0;
 }
 
 .checkbox-label {
@@ -1360,21 +1362,21 @@ h2 {
 .checkbox-label--agreement {
   display: inline-flex;
   align-items: center;
-  width: max-content;
-  min-width: max-content;
-  flex: 0 0 auto;
-  white-space: nowrap;
-  flex-wrap: nowrap;
-  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 2px 4px;
   background: linear-gradient(135deg, #ecfeff 0%, #eff6ff 100%);
   border: 1px solid #bae6fd;
   border-radius: 999px;
   padding: 0.35rem 0.68rem;
+  box-sizing: border-box;
 }
 
 .agreement-text {
   display: inline;
-  white-space: nowrap;
   flex: 0 0 auto;
   margin-right: 1px;
   font-size: 0.82rem;
