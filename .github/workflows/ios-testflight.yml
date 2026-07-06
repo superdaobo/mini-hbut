@@ -1,0 +1,418 @@
+name: iOS TestFlight Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Marketing version. Empty uses package.json version."
+        required: false
+        type: string
+      build_number:
+        description: "TestFlight build number. Empty uses GitHub run number."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: 8
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+  CARGO_PROFILE_RELEASE_LTO: fat
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+  CARGO_PROFILE_RELEASE_PANIC: abort
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+  MINI_HBUT_BUILD_PROFILE: release
+  npm_config_audit: "false"
+  npm_config_fund: "false"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  IOS_BUNDLE_ID: com.hbut.mini
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upload-testflight:
+    name: Build signed IPA and upload to TestFlight
+    runs-on: macos-latest
+    steps:
+      - name: Select Xcode 16.4 for iOS build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode_16.4.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_16.4.app"
+            echo "Switched to $(xcodebuild -version)"
+          else
+            echo "Xcode_16.4.app not found; available Xcode versions:"
+            ls -d /Applications/Xcode*.app 2>/dev/null || true
+            echo "WARNING: falling back to default Xcode; iOS link may fail with swiftCompatibility56 missing."
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Prune non-runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf src-tauri/exports .tauri-tmp dist-release captures tools/.session_cookies.json || true
+          find src-tauri -type f \( -name "*.ics" -o -name "*.bak" -o -name "*.tmp" \) -delete
+          find . -type f \( -name "*.log" -o -name "*.cache" \) -delete || true
+
+      - name: Resolve TestFlight version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_NAME="${{ inputs.version_name }}"
+          BUILD_NUMBER="${{ inputs.build_number }}"
+
+          if [ -z "$VERSION_NAME" ]; then
+            VERSION_NAME="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          fi
+          if [ -z "$BUILD_NUMBER" ]; then
+            BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          fi
+
+          if ! [[ "$VERSION_NAME" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::version_name must look like 1, 1.2, or 1.2.3; got '$VERSION_NAME'"
+            exit 1
+          fi
+          if ! [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::build_number must be numeric; got '$BUILD_NUMBER'"
+            exit 1
+          fi
+
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "VERSION_NAME=$VERSION_NAME"
+          echo "BUILD_NUMBER=$BUILD_NUMBER"
+
+      - name: Verify signing and upload secrets
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+          IOS_PROVISION_PROFILE_UUID: ${{ secrets.IOS_PROVISION_PROFILE_UUID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            APPLE_TEAM_ID \
+            IOS_CERTIFICATE_P12_BASE64 \
+            IOS_CERTIFICATE_PASSWORD \
+            IOS_KEYCHAIN_PASSWORD \
+            IOS_PROVISION_PROFILE_BASE64 \
+            IOS_PROVISION_PROFILE_NAME \
+            IOS_PROVISION_PROFILE_UUID \
+            APPSTORE_KEY_ID \
+            APPSTORE_ISSUER_ID \
+            APPSTORE_PRIVATE_KEY
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is required"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install Tauri CLI
+        run: npm exec -- tauri --version
+
+      - name: Import signing certificate and provisioning profile
+        id: signing
+        shell: bash
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          IOS_PROVISION_PROFILE_UUID: ${{ secrets.IOS_PROVISION_PROFILE_UUID }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/ios_distribution.p12"
+          PROFILE_PATH="$RUNNER_TEMP/ios_appstore.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          echo "$IOS_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          echo "$IOS_PROVISION_PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          mkdir -p "$PROFILES_DIR"
+          cp "$PROFILE_PATH" "$PROFILES_DIR/${IOS_PROVISION_PROFILE_UUID}.mobileprovision"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+          echo "keychain_path=$KEYCHAIN_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Install App Store Connect API key
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          PRIVATE_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$PRIVATE_KEYS_DIR"
+          printf '%s' "$APPSTORE_PRIVATE_KEY" > "$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+          chmod 600 "$PRIVATE_KEYS_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+
+      - name: Build signed iOS archive
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain_path }}
+        run: |
+          set -euo pipefail
+          # Force production web assets for iOS CI builds.
+          # If devUrl is present, runtime may try to open localhost:1420.
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          const p = 'src-tauri/tauri.conf.json';
+          const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+          conf.build = conf.build || {};
+          delete conf.build.devUrl;
+          delete conf.build.beforeDevCommand;
+          conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
+          conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
+          console.log('Patched tauri.conf.json for iOS CI:', {
+            frontendDist: conf.build.frontendDist,
+            hasDevUrl: Object.prototype.hasOwnProperty.call(conf.build, 'devUrl'),
+          });
+          NODE
+
+          npm exec -- tauri ios init
+          cargo fetch --manifest-path src-tauri/Cargo.toml
+          node scripts/patch_tauri_ios_edge_to_edge.mjs
+          node scripts/sync_tauri_platform_icons.mjs ios
+
+          npm run build
+          node scripts/check_dist_boundary.mjs
+          node scripts/report_bundle_sizes.mjs
+
+          export TMPDIR="$PWD/.tauri-tmp"
+          export NPM_CONFIG_AUDIT=false
+          export NPM_CONFIG_FUND=false
+          mkdir -p "$TMPDIR"
+
+          npm install ws --no-save --no-audit --no-fund
+          node -e "require('ws'); console.log('ws ok')"
+
+          cp tools/ci/tauri-cli-options-server.cjs "$TMPDIR/tauri-cli-options-server.cjs"
+
+          IDENTIFIER="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).identifier")"
+          PORT="$(python -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()")"
+          export PORT
+          echo "127.0.0.1:$PORT" > "$TMPDIR/${IDENTIFIER}-server-addr"
+
+          LOG="$TMPDIR/tauri-cli-options-server.log"
+          TAURI_CLI_OPTIONS_PORT="$PORT" TMPDIR="$TMPDIR" NODE_PATH="$PWD/node_modules" node "$TMPDIR/tauri-cli-options-server.cjs" >"$LOG" 2>&1 &
+          OPTIONS_PID=$!
+          cleanup() {
+            if [ -n "${OPTIONS_PID:-}" ] && kill -0 "$OPTIONS_PID" 2>/dev/null; then
+              kill "$OPTIONS_PID"
+            fi
+          }
+          trap cleanup EXIT
+
+          sleep 1
+          if ! kill -0 "$OPTIONS_PID" 2>/dev/null; then
+            echo "WS server process exited early"
+            cat "$LOG"
+            exit 1
+          fi
+
+          python - <<'PY'
+          import os
+          import socket
+          import sys
+          import time
+
+          port = int(os.environ["PORT"])
+          for _ in range(60):
+              sock = socket.socket()
+              sock.settimeout(0.2)
+              try:
+                  sock.connect(("127.0.0.1", port))
+                  sock.close()
+                  sys.exit(0)
+              except Exception:
+                  sock.close()
+                  time.sleep(0.2)
+          sys.exit(1)
+          PY
+
+          # Fallback: if tauri-cli resolves debug output path, make sure the static lib exists there too.
+          mkdir -p src-tauri/target/aarch64-apple-ios/debug
+          ln -sf ../release/libhbut_helper_lib.a src-tauri/target/aarch64-apple-ios/debug/libhbut_helper_lib.a
+
+          ARCHIVE_PATH="$PWD/build-ios/Mini-HBUT.xcarchive"
+
+          TMPDIR="$TMPDIR" xcodebuild archive \
+            -workspace src-tauri/gen/apple/hbut-helper.xcodeproj/project.xcworkspace \
+            -scheme hbut-helper_iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            -derivedDataPath build-ios/DerivedData \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
+            PRODUCT_BUNDLE_IDENTIFIER="${IOS_BUNDLE_ID}" \
+            PROVISIONING_PROFILE_SPECIFIER="${IOS_PROVISION_PROFILE_NAME}" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            MARKETING_VERSION="$VERSION_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
+
+      - name: Export signed IPA
+        id: export
+        shell: bash
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+          VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          ARCHIVE_PATH="$PWD/build-ios/Mini-HBUT.xcarchive"
+          EXPORT_PATH="$PWD/build-ios/export"
+          EXPORT_OPTIONS="$RUNNER_TEMP/exportOptions.plist"
+          mkdir -p "$EXPORT_PATH"
+
+          cat > "$EXPORT_OPTIONS" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>export</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${IOS_BUNDLE_ID}</key>
+              <string>${IOS_PROVISION_PROFILE_NAME}</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS"
+
+          IPA_PATH="$(find "$EXPORT_PATH" -maxdepth 1 -name "*.ipa" -type f | head -n 1 || true)"
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No exported IPA found in $EXPORT_PATH"
+            find "$EXPORT_PATH" -maxdepth 2 -type f -print || true
+            exit 1
+          fi
+
+          IPA_NAME="Mini-HBUT_${VERSION_NAME}_${BUILD_NUMBER}_TestFlight.ipa"
+          cp "$IPA_PATH" "$IPA_NAME"
+          echo "ipa_path=$PWD/$IPA_NAME" >> "$GITHUB_OUTPUT"
+          ls -lh "$IPA_NAME"
+
+      - name: Validate and upload to TestFlight
+        shell: bash
+        env:
+          IPA_PATH: ${{ steps.export.outputs.ipa_path }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          xcrun altool --validate-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+      - name: Report iOS package size
+        if: always()
+        env:
+          BUNDLE_ROOT: .
+        run: node scripts/report_bundle_sizes.mjs
+
+      - name: Upload signed IPA artifact
+        if: always() && steps.export.outputs.ipa_path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-${{ steps.version.outputs.version_name }}-${{ steps.version.outputs.build_number }}
+          path: ${{ steps.export.outputs.ipa_path }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Cleanup signing material
+        if: always()
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          IOS_PROVISION_PROFILE_UUID: ${{ secrets.IOS_PROVISION_PROFILE_UUID }}
+          KEYCHAIN_PATH: ${{ steps.signing.outputs.keychain_path }}
+        run: |
+          set +e
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${IOS_PROVISION_PROFILE_UUID}.mobileprovision"
