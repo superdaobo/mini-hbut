@@ -4,6 +4,17 @@ import axios from 'axios'
 import { fetchRemoteConfig, applyOcrRuntimeConfig, getStoredOcrConfig } from '../utils/remote_config.js'
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native'
 import { pushDebugLog } from '../utils/debug_logger'
+import { setCachedData } from '../utils/api.js'
+import {
+  TEST_ACCOUNT,
+  TEST_ACCOUNT_LOGIN_METHOD,
+  isTestAccountCredentials,
+  markTestAccountSession
+} from '../utils/test_account.js'
+import {
+  getTestAccountGrades,
+  seedTestAccountCaches
+} from '../utils/test_account_fixtures.js'
 import {
   buildChaoxingAccountKey,
   buildHbutAccountKey,
@@ -466,6 +477,26 @@ const saveChaoxingCredentials = async () => {
   }
 }
 
+const handleTestAccountLogin = async () => {
+  loading.value = true
+  statusMsg.value = '正在进入 TestFlight 演示账号...'
+  try {
+    markTestAccountSession()
+    username.value = TEST_ACCOUNT.studentId
+    localStorage.setItem('hbu_username', TEST_ACCOUNT.studentId)
+    localStorage.setItem('hbu_remember', 'false')
+    localStorage.setItem('hbu_login_entry_mode', 'portal')
+    applyLoginMethodStorage(TEST_ACCOUNT_LOGIN_METHOD)
+    localStorage.removeItem('hbu_manual_logout')
+    localStorage.removeItem(LOGOUT_REASON_KEY)
+    seedTestAccountCaches(setCachedData, TEST_ACCOUNT.studentId)
+    statusMsg.value = '登录成功，已加载演示数据'
+    emit('success', getTestAccountGrades())
+  } finally {
+    loading.value = false
+  }
+}
+
 const handlePasswordLogin = async () => {
   if (!username.value || !password.value) {
     statusMsg.value = '请输入完整的账号和密码'
@@ -473,6 +504,11 @@ const handlePasswordLogin = async () => {
   }
   if (!agreePolicy.value) {
     statusMsg.value = '请先阅读并同意免责声明与隐私政策'
+    return
+  }
+
+  if (isTestAccountCredentials(username.value, password.value)) {
+    await handleTestAccountLogin()
     return
   }
 

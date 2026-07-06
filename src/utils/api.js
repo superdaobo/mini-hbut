@@ -1,4 +1,6 @@
 import { pushDebugLog } from './debug_logger'
+import { isTestAccountSession } from './test_account.js'
+import { resolveTestAccountCachePayload } from './test_account_fixtures.js'
 
 const DEFAULT_TTL = 5 * 60 * 1000
 const LONG_TTL = 3 * 24 * 60 * 60 * 1000
@@ -49,6 +51,13 @@ const shouldPersistToLocalStorage = (key, payloadText) => {
   }
   if (!payloadText) return true
   return payloadText.length <= MAX_LOCAL_CACHE_VALUE_BYTES
+}
+
+const shouldPersistTestAccountPayload = (key) => {
+  const text = String(key || '').trim()
+  if (text === 'semesters') return false
+  if (text.startsWith('classroom:')) return false
+  return true
 }
 
 const collectCacheEntries = () => {
@@ -466,6 +475,21 @@ export async function fetchWithCache(key, fetcher, ttl = DEFAULT_TTL, options = 
   const priority = requestOptions.priority || 'foreground'
   const staleWhileRevalidate = !!requestOptions.staleWhileRevalidate
   const forceRemote = !!requestOptions.forceRemote
+  const testAccountPayload = isTestAccountSession()
+    ? resolveTestAccountCachePayload(key)
+    : null
+  if (testAccountPayload) {
+    if (shouldPersistTestAccountPayload(key)) {
+      setCachedData(key, testAccountPayload)
+    }
+    recordRequestMetric(key, { source: 'test-account-cache', start: Date.now(), priority })
+    return {
+      data: testAccountPayload,
+      fromCache: true,
+      timestamp: Date.now(),
+      demo: true
+    }
+  }
   const maintenanceMode = localStorage.getItem(JWXT_MAINTENANCE_KEY) === '1'
   const cached = forceRemote ? null : getCachedData(key, ttl)
 
