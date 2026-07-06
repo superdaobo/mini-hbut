@@ -21,6 +21,16 @@ import {
 } from './utils/remote_config.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
 import {
+  initUsageTracker,
+  setUsageTrackingStudentId,
+  trackViewNavigation
+} from './utils/usage_tracker.js'
+import {
+  scheduleUsageUpload,
+  startUsageUploadScheduler,
+  stopUsageUploadScheduler
+} from './utils/usage_uploader.js'
+import {
   loadChaoxingStoredPassword,
   loadPortalStoredPassword
 } from './composables/useSessionCredentials.js'
@@ -1336,6 +1346,7 @@ const ensureProtectedViewAccess = (
 
 const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => {
   const normalized = normalizeViewName(view)
+  const fromView = currentView.value
   if (currentView.value === 'home' && normalized !== 'home') {
     rememberHomeScrollPosition()
   }
@@ -1353,6 +1364,7 @@ const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => 
   } else {
     recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
   }
+  void trackViewNavigation(fromView, normalized)
 }
 
 const goToView = (view, { push = true, restoreScroll = false } = {}) => {
@@ -1474,6 +1486,9 @@ const handleLoginSuccess = (data) => {
     }).catch((e) => {
       console.warn('[CloudSync] 登录后自动同步失败:', e)
     })
+    setUsageTrackingStudentId(studentId.value)
+    initUsageTracker({ studentId: studentId.value })
+    scheduleUsageUpload({ studentId: studentId.value, reason: 'login', force: true })
   }
   clearJwxtMaintenance()
   stopJwxtRecoveryPolling()
@@ -2801,6 +2816,8 @@ onMounted(async () => {
 
   // 延迟检查更新
   window.setTimeout(() => { autoCheckUpdate() }, 1500)
+  initUsageTracker({ studentId: studentId.value })
+  startUsageUploadScheduler(() => studentId.value)
   console.timeEnd('[Boot] total')
 
   // Capacitor 环境注册原生 appStateChange 事件（补充浏览器 visibilitychange 的盲区）
@@ -2821,6 +2838,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopUsageUploadScheduler()
   document.removeEventListener('click', handleGlobalLinkClick, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('popstate', handlePopState)
@@ -2998,6 +3016,7 @@ onBeforeUnmount(() => {
 
       <ServiceStatsView
         v-else-if="currentView === 'service_stats'"
+        :student-id="studentId"
         @back="handleBackToMe"
       />
 

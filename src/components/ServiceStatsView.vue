@@ -1,5 +1,14 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { fetchPersonalUsageSummary } from '../utils/usage_tracker.js'
+import { fetchRemotePersonalUsageSummary } from '../utils/usage_uploader.js'
+
+const props = defineProps({
+  studentId: {
+    type: String,
+    default: ''
+  }
+})
 
 const emit = defineEmits(['back'])
 
@@ -25,6 +34,91 @@ const formatDuration = (seconds) => {
   if (days > 0) return `${days}天 ${hours}小时`
   if (hours > 0) return `${hours}小时 ${minutes}分钟`
   return `${minutes}分钟`
+}
+
+const formatDurationMs = (ms) => formatDuration(Math.floor(toNumber(ms) / 1000))
+
+const normalizeClientUsage = (raw = {}) => ({
+  today_active_users: toNumber(raw?.today_active_users),
+  today_total_events: toNumber(raw?.today_total_events),
+  today_duration_hours: toNumber(raw?.today_duration_hours),
+  today_app_opens: toNumber(raw?.today_app_opens),
+  top_modules_today: Array.isArray(raw?.top_modules_today)
+    ? raw.top_modules_today.map((item) => ({
+        module_id: String(item?.module_id || '').trim(),
+        open_count: toNumber(item?.open_count),
+        duration_ms_total: toNumber(item?.duration_ms_total),
+        remote_count: toNumber(item?.remote_count),
+        local_count: toNumber(item?.local_count)
+      })).filter((item) => item.module_id)
+    : [],
+  load_mode_split_today: raw?.load_mode_split_today && typeof raw.load_mode_split_today === 'object'
+    ? raw.load_mode_split_today
+    : {},
+  trend_last_7_days: Array.isArray(raw?.trend_last_7_days)
+    ? raw.trend_last_7_days.map((row) => ({
+        date: row?.date || '',
+        active_users: toNumber(row?.active_users),
+        total_events: toNumber(row?.total_events),
+        total_duration_ms: toNumber(row?.total_duration_ms),
+        app_opens: toNumber(row?.app_opens)
+      }))
+    : []
+})
+
+const normalizePersonalUsage = (raw = null) => {
+  if (!raw || typeof raw !== 'object') return null
+  const today = raw?.today || {}
+  return {
+    today: {
+      stat_date: today?.stat_date || '',
+      open_count: toNumber(today?.open_count),
+      duration_ms: toNumber(today?.duration_ms),
+      module_open_count: toNumber(today?.module_open_count),
+      view_open_count: toNumber(today?.view_open_count)
+    },
+    top_modules: Array.isArray(raw?.top_modules)
+      ? raw.top_modules.map((item) => ({
+          target_id: String(item?.target_id || '').trim(),
+          open_count: toNumber(item?.open_count),
+          duration_ms_total: toNumber(item?.duration_ms_total)
+        })).filter((item) => item.target_id)
+      : [],
+    load_mode_split: Array.isArray(raw?.load_mode_split)
+      ? raw.load_mode_split.map((item) => ({
+          load_mode: String(item?.load_mode || 'native').trim() || 'native',
+          open_count: toNumber(item?.open_count)
+        }))
+      : [],
+    daily_trend: Array.isArray(raw?.daily_trend)
+      ? raw.daily_trend.map((row) => ({
+          stat_date: row?.stat_date || '',
+          open_count: toNumber(row?.open_count),
+          duration_ms: toNumber(row?.duration_ms)
+        }))
+      : []
+  }
+}
+
+const mergePersonalUsage = (localRaw, remoteRaw) => {
+  const local = normalizePersonalUsage(localRaw)
+  const remote = normalizePersonalUsage(remoteRaw?.success === false ? null : remoteRaw)
+  if (!local && !remote) return null
+  if (!remote) return local
+  if (!local) return remote
+  const pickMax = (a, b) => Math.max(toNumber(a), toNumber(b))
+  return {
+    today: {
+      stat_date: remote.today.stat_date || local.today.stat_date,
+      open_count: pickMax(local.today.open_count, remote.today.open_count),
+      duration_ms: pickMax(local.today.duration_ms, remote.today.duration_ms),
+      module_open_count: pickMax(local.today.module_open_count, remote.today.module_open_count),
+      view_open_count: pickMax(local.today.view_open_count, remote.today.view_open_count)
+    },
+    top_modules: remote.top_modules.length ? remote.top_modules : local.top_modules,
+    load_mode_split: remote.load_mode_split.length ? remote.load_mode_split : local.load_mode_split,
+    daily_trend: remote.daily_trend.length ? remote.daily_trend : local.daily_trend
+  }
 }
 
 const normalizeTrendRows = (rows) => {
@@ -87,7 +181,8 @@ const normalizeServiceHealth = (raw = {}) => {
       last_archive_at: archiveStatus.last_archive_at || '',
       last_archive_path: archiveStatus.last_archive_path || '',
       last_error: archiveStatus.last_error || ''
-    }
+    },
+    client_usage: normalizeClientUsage(raw?.client_usage || {})
   }
 }
 
@@ -95,8 +190,30 @@ const loading = ref(false)
 const error = ref('')
 const lastUpdatedAt = ref('')
 const health = ref(normalizeServiceHealth())
+const personalUsage = ref(null)
+const personalLoading = ref(false)
 let refreshTimer = null
 let healthRequestSeq = 0
+
+const loadPersonalUsage = async () => {
+  const sid = String(props.studentId || '').trim()
+  if (!sid) {
+    personalUsage.value = null
+    return
+  }
+  personalLoading.value = true
+  try {
+    const [localSummary, remoteSummary] = await Promise.all([
+      fetchPersonalUsageSummary(sid),
+      fetchRemotePersonalUsageSummary(sid)
+    ])
+    personalUsage.value = mergePersonalUsage(localSummary, remoteSummary)
+  } catch {
+    personalUsage.value = null
+  } finally {
+    personalLoading.value = false
+  }
+}
 
 const readCachedHealth = () => {
   try {
@@ -150,6 +267,56 @@ const statusClass = computed(() => ({
 }))
 
 const displayClientVersion = computed(() => health.value.cloud_sync.latest_version || '')
+
+const clientUsage = computed(() => health.value.client_usage || normalizeClientUsage())
+
+const hasClientUsage = computed(() => (
+  clientUsage.value.today_total_events > 0
+  || clientUsage.value.today_active_users > 0
+  || clientUsage.value.top_modules_today.length > 0
+))
+
+const loadModeLabel = (mode) => {
+  const key = String(mode || '').trim()
+  if (key === 'remote-site') return '服务器软加载'
+  if (key === 'tauri-local' || key === 'capacitor-local') return '本地直接加载'
+  if (key === 'native') return '原生页面'
+  return key || '未知'
+}
+
+const personalOverviewItems = computed(() => {
+  const today = personalUsage.value?.today
+  if (!today) return []
+  return [
+    { label: '今日打开', value: formatNumber(today.open_count), icon: 'touch_app' },
+    { label: '今日时长', value: formatDurationMs(today.duration_ms), icon: 'schedule' },
+    { label: '模块打开', value: formatNumber(today.module_open_count), icon: 'extension' },
+    { label: '页面打开', value: formatNumber(today.view_open_count), icon: 'web' }
+  ]
+})
+
+const globalUsageOverviewItems = computed(() => [
+  { label: '今日活跃', value: formatNumber(clientUsage.value.today_active_users), icon: 'groups' },
+  { label: '今日事件', value: formatNumber(clientUsage.value.today_total_events), icon: 'analytics' },
+  { label: '今日时长', value: `${clientUsage.value.today_duration_hours.toFixed(1)} 小时`, icon: 'timer' },
+  { label: '应用打开', value: formatNumber(clientUsage.value.today_app_opens), icon: 'smartphone' }
+])
+
+const loadModeSplitRows = computed(() => {
+  const split = clientUsage.value.load_mode_split_today || {}
+  return Object.entries(split)
+    .map(([mode, count]) => ({
+      mode,
+      label: loadModeLabel(mode),
+      open_count: toNumber(count)
+    }))
+    .filter((item) => item.open_count > 0)
+    .sort((a, b) => b.open_count - a.open_count)
+})
+
+const personalLoadModeRows = computed(() => personalUsage.value?.load_mode_split || [])
+
+const hasPersonalUsage = computed(() => Boolean(personalUsage.value?.today))
 
 const overviewItems = computed(() => [
   {
@@ -354,14 +521,23 @@ const loadHealth = async ({ silent = false } = {}) => {
 
 const refreshNow = () => {
   void loadHealth()
+  void loadPersonalUsage()
 }
 
 onMounted(() => {
   void loadHealth()
+  void loadPersonalUsage()
   refreshTimer = setInterval(() => {
     void loadHealth({ silent: true })
   }, REFRESH_INTERVAL_MS)
 })
+
+watch(
+  () => props.studentId,
+  () => {
+    void loadPersonalUsage()
+  }
+)
 
 onBeforeUnmount(() => {
   if (refreshTimer) {
@@ -408,6 +584,59 @@ onBeforeUnmount(() => {
         <span class="metric-label">{{ item.label }}</span>
         <strong class="metric-value">{{ item.value }}</strong>
       </article>
+    </section>
+
+    <section v-if="hasPersonalUsage" class="usage-card" aria-label="我的使用">
+      <div class="section-title">
+        <span class="material-symbols-outlined">person</span>
+        <h2>我的使用</h2>
+      </div>
+      <div class="overview-grid personal-grid">
+        <article v-for="item in personalOverviewItems" :key="item.label" class="metric-card">
+          <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
+          <span class="metric-label">{{ item.label }}</span>
+          <strong class="metric-value">{{ item.value }}</strong>
+        </article>
+      </div>
+      <ul v-if="personalUsage?.top_modules?.length" class="version-list">
+        <li v-for="item in personalUsage.top_modules" :key="item.target_id" class="version-row">
+          <span class="version-name">{{ item.target_id }}</span>
+          <strong class="version-count">{{ formatNumber(item.open_count) }} 次</strong>
+        </li>
+      </ul>
+      <ul v-if="personalLoadModeRows.length" class="version-list">
+        <li v-for="item in personalLoadModeRows" :key="item.load_mode" class="version-row">
+          <span class="version-name">{{ loadModeLabel(item.load_mode) }}</span>
+          <strong class="version-count">{{ formatNumber(item.open_count) }}</strong>
+        </li>
+      </ul>
+      <p v-else-if="personalLoading" class="empty-hint">正在加载个人统计…</p>
+    </section>
+
+    <section v-if="hasClientUsage" class="usage-card" aria-label="全站试用概况">
+      <div class="section-title">
+        <span class="material-symbols-outlined">public</span>
+        <h2>全站试用概况</h2>
+      </div>
+      <div class="overview-grid personal-grid">
+        <article v-for="item in globalUsageOverviewItems" :key="item.label" class="metric-card">
+          <span class="material-symbols-outlined metric-icon">{{ item.icon }}</span>
+          <span class="metric-label">{{ item.label }}</span>
+          <strong class="metric-value">{{ item.value }}</strong>
+        </article>
+      </div>
+      <ul v-if="clientUsage.top_modules_today.length" class="version-list">
+        <li v-for="item in clientUsage.top_modules_today" :key="item.module_id" class="version-row">
+          <span class="version-name">{{ item.module_id }}</span>
+          <strong class="version-count">{{ formatNumber(item.open_count) }} 次</strong>
+        </li>
+      </ul>
+      <ul v-if="loadModeSplitRows.length" class="version-list">
+        <li v-for="item in loadModeSplitRows" :key="item.mode" class="version-row">
+          <span class="version-name">{{ item.label }}</span>
+          <strong class="version-count">{{ formatNumber(item.open_count) }}</strong>
+        </li>
+      </ul>
     </section>
 
     <section v-if="hasVersionUserCounts" class="version-card" aria-label="各版本人数">
@@ -549,6 +778,7 @@ onBeforeUnmount(() => {
 
 .status-card,
 .version-card,
+.usage-card,
 .trend-card,
 .metric-card {
   background: #ffffff;
@@ -560,6 +790,25 @@ onBeforeUnmount(() => {
   padding: 16px;
   border-radius: 22px;
   margin-bottom: 12px;
+}
+
+.usage-card {
+  padding: 16px;
+  border-radius: 22px;
+  margin-bottom: 12px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+.personal-grid {
+  margin-bottom: 8px;
+}
+
+.empty-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .version-list {

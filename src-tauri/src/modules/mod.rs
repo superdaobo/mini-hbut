@@ -23,4 +23,5 @@ pub mod school_website_embed;
 pub mod student_info;
 pub mod training_plan;
 pub mod transaction;
+pub mod usage_stats;
 pub mod weather;

@@ -55,6 +55,7 @@ use http_client::HbutClient;
 
 use modules::ai::*;
 use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
+use modules::usage_stats::commands as usage_stats_cmd;
 use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
 
@@ -6649,6 +6650,12 @@ pub fn run() {
             chaoxing_checkin_cmd::chaoxing_checkin_decode_qr_image,
             chaoxing_checkin_cmd::chaoxing_checkin_capture_screen_qr,
             chaoxing_checkin_cmd::clear_chaoxing_data,
+            usage_stats_cmd::usage_stats_record_event,
+            usage_stats_cmd::usage_stats_end_session,
+            usage_stats_cmd::usage_stats_upsert_device_profile,
+            usage_stats_cmd::usage_stats_get_personal_summary,
+            usage_stats_cmd::usage_stats_list_pending_upload,
+            usage_stats_cmd::usage_stats_mark_uploaded,
             modules::weather::fetch_weather,
         ])
         .run(tauri::generate_context!())
