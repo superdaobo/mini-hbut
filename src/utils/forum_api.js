@@ -1,3 +1,6 @@
+import { isTestAccountSession } from './test_account.js'
+import { resolveTestAccountForumResponse } from './test_account_fixtures.js'
+
 const DEFAULT_FORUM_ENDPOINT = 'https://mini-hbut-testocr1.hf.space/api/forum'
 const TOKEN_CACHE_KEY_PREFIX = 'hbu_forum_token:'
 const PROFILE_CACHE_KEY_PREFIX = 'hbu_forum_profile:'
@@ -149,6 +152,20 @@ export const createForumApiClient = ({
   let memoryToken = ''
 
   const request = async (path, { method = 'GET', body, auth = false, headers = {}, etag = '', includeMeta = false } = {}) => {
+    if (isTestAccountSession()) {
+      const payload = resolveTestAccountForumResponse(path, {
+        method,
+        body,
+        auth,
+        headers,
+        etag,
+        studentId: sid
+      })
+      return includeMeta
+        ? { value: payload, etag: 'test-account-forum', notModified: false }
+        : payload
+    }
+
     const createHeaders = async (forceTokenRefresh = false) => {
       const reqHeaders = { Accept: 'application/json', ...headers }
       if (body !== undefined && !(body instanceof FormData)) {

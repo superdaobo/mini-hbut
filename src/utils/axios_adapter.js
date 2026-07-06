@@ -1,4 +1,6 @@
 import { invokeNative as invoke, isTauriRuntime } from '../platform/native';
+import { isTestAccountSession } from './test_account.js';
+import { resolveTestAccountHttpResponse } from './test_account_fixtures.js';
 
 const hasTauri = isTauriRuntime();
 const LOCAL_BRIDGE = 'http://127.0.0.1:4399';
@@ -92,6 +94,15 @@ const adapter = {
         console.log('[Axios Adapter] GET request received:', url);
         console.log('[Axios Adapter] Full URL:', url);
         try {
+            if (isTestAccountSession()) {
+                const testAccountResponse = resolveTestAccountHttpResponse('get', url, config);
+                if (testAccountResponse) return mockResponse(testAccountResponse);
+                return mockResponse({
+                    success: false,
+                    demo_disabled: true,
+                    error: '未知测试账号 HTTP 请求已拦截'
+                });
+            }
             if (url.includes('/v3/login_params')) {
                 const data = await invoke('get_login_page');
                 // 适配前端期望的格?
@@ -160,6 +171,17 @@ const adapter = {
         console.log('[Axios Adapter] POST request received:', url);
         console.log('[Axios Adapter] POST data:', JSON.stringify(data));
         try {
+            const testAccountResponse = resolveTestAccountHttpResponse('post', url, data);
+            if (testAccountResponse && (isTestAccountSession() || url.includes('/v2/start_login'))) {
+                return mockResponse(testAccountResponse);
+            }
+            if (isTestAccountSession()) {
+                return mockResponse({
+                    success: false,
+                    demo_disabled: true,
+                    error: '未知测试账号 HTTP 请求已拦截'
+                });
+            }
             // 登录
 
             if (url.includes('/v2/start_login')) {
