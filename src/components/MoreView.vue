@@ -18,6 +18,7 @@ import {
   buildModuleCenterCards,
   normalizeModuleCenterChannel as normalizeChannel
 } from '../utils/module_center.js'
+import { trackModuleOpen } from '../utils/usage_tracker.js'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -312,6 +313,13 @@ const emitPreparedModuleNavigate = (moduleItem, prepared, manifest, sessionMeta 
         ? 'tauri-bridge-blocked'
         : '')
   )
+  void trackModuleOpen({
+    moduleId,
+    loadMode: previewMode || sessionPayload.preview_mode || 'remote-site',
+    launchMode: safeText(prepared?.launch_mode || prepared?.source || ''),
+    moduleVersion: sessionPayload.version,
+    channel: sessionPayload.channel
+  })
   emit('navigate', {
     view: 'more_module_host',
     payload: {

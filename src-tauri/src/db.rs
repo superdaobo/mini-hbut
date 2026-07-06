@@ -320,11 +320,22 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     )?;
 
     migrate_add_chaoxing_checkin_log(&conn)?;
+    migrate_add_app_usage_tables(&conn)?;
 
     ensure_schema_migration(&conn, 1, "WAL journal_mode (open_connection)")?;
     ensure_schema_migration(&conn, 2, "chaoxing_checkin_log")?;
+    ensure_schema_migration(
+        &conn,
+        3,
+        "app_usage_events/sessions/daily_rollup/device_profile",
+    )?;
 
     Ok(())
+}
+
+/// 打开 SQLite 连接（供 usage_stats 等模块复用 HBUT_DB_PATH）。
+pub fn open_db_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
+    open_connection(path)
 }
 
 /// 记录已应用的 schema 版本，便于追溯与回滚说明。
@@ -351,6 +362,79 @@ fn ensure_schema_migration(conn: &Connection, version: i64, description: &str) -
             params![version, description],
         )?;
     }
+    Ok(())
+}
+
+/// 创建本地试用频率统计相关表（幂等迁移）。
+fn migrate_add_app_usage_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS app_usage_events (
+            event_id TEXT PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            load_mode TEXT NOT NULL DEFAULT 'native',
+            launch_mode TEXT NOT NULL DEFAULT '',
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            app_version TEXT NOT NULL DEFAULT '',
+            runtime TEXT NOT NULL DEFAULT '',
+            platform TEXT NOT NULL DEFAULT '',
+            extra_json TEXT NOT NULL DEFAULT '{}',
+            occurred_at INTEGER NOT NULL,
+            uploaded_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_app_usage_events_student_time
+            ON app_usage_events (student_id, occurred_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_app_usage_events_upload
+            ON app_usage_events (uploaded_at, occurred_at ASC);
+
+        CREATE TABLE IF NOT EXISTS app_usage_sessions (
+            session_id TEXT PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            started_at INTEGER NOT NULL,
+            ended_at INTEGER NOT NULL,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            app_version TEXT NOT NULL DEFAULT '',
+            runtime TEXT NOT NULL DEFAULT '',
+            platform TEXT NOT NULL DEFAULT '',
+            uploaded_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_app_usage_sessions_upload
+            ON app_usage_sessions (uploaded_at, started_at ASC);
+
+        CREATE TABLE IF NOT EXISTS app_usage_daily_rollup (
+            student_id TEXT NOT NULL,
+            stat_date TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            load_mode TEXT NOT NULL DEFAULT 'native',
+            open_count INTEGER NOT NULL DEFAULT 0,
+            duration_ms_total INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (student_id, stat_date, target_kind, target_id, load_mode)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_app_usage_daily_rollup_student_date
+            ON app_usage_daily_rollup (student_id, stat_date DESC);
+
+        CREATE TABLE IF NOT EXISTS app_usage_device_profile (
+            device_id TEXT PRIMARY KEY,
+            student_id TEXT NOT NULL,
+            app_version TEXT NOT NULL DEFAULT '',
+            runtime TEXT NOT NULL DEFAULT '',
+            platform TEXT NOT NULL DEFAULT '',
+            os_version TEXT NOT NULL DEFAULT '',
+            arch TEXT NOT NULL DEFAULT '',
+            locale TEXT NOT NULL DEFAULT '',
+            updated_at INTEGER NOT NULL DEFAULT 0
+        );",
+    )?;
     Ok(())
 }
 
