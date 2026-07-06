@@ -70,7 +70,7 @@
     "@emnapi/core": "^1.11.2",
     "@emnapi/runtime": "^1.11.1",
     "@tauri-apps/cli": "^2.11.4",
-    "@vitejs/plugin-vue": "^5.0.0",
+    "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/coverage-v8": "^4.1.9",
     "ajv": "^8",
     "autoprefixer": "^10.5.0",
