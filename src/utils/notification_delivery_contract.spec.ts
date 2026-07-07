@@ -259,4 +259,38 @@ describe('notification delivery contract', () => {
     expect(homeSearch).toContain('school_inbox:')
     expect(readText('src/styles/dark-mode.css')).toContain('.school-inbox-page')
   })
+
+  it('filters read school inbox items before enqueueing notifications', () => {
+    const notifySource = readText('src/utils/notify_center.js')
+
+    expect(notifySource).toContain('isSchoolInboxItemRead')
+    expect(notifySource).toContain('is_read')
+    expect(notifySource).toContain('isRead')
+    expect(notifySource).toContain('markSchoolInboxNotified')
+    expect(notifySource).toMatch(/!isSchoolInboxItemRead\(item\)/)
+  })
+
+  it('syncs school inbox read state into notify dedup snapshot', () => {
+    const inboxView = readText('src/components/SchoolInboxView.vue')
+    const headlessSource = readText(
+      'android/app/src/main/java/com/hbut/mini/BackgroundFetchHeadlessTask.java'
+    )
+
+    expect(inboxView).toContain('markSchoolInboxNotified')
+    expect(headlessSource).toContain('optString("isread"')
+    expect(headlessSource).toContain('!isRead')
+  })
+
+  it('uses Mini-HBUT branding on main tab headers', () => {
+    const dashboard = readText('src/components/Dashboard.vue')
+    const notificationView = readText('src/components/NotificationView.vue')
+    const meView = readText('src/components/MeView.vue')
+
+    expect(dashboard).toContain('Mini-HBUT')
+    expect(notificationView).toContain('Mini-HBUT')
+    expect(meView).toContain('Mini-HBUT')
+    expect(dashboard).not.toContain('HBUT 校园助手')
+    expect(notificationView).not.toContain('HBUT 校园助手')
+    expect(meView).not.toContain('HBUT 校园助手')
+  })
 })
