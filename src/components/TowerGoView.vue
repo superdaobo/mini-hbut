@@ -15,6 +15,7 @@ import {
   type TowerGoPoint,
   type TowerGoVehicle
 } from '../utils/towergo_map'
+import { loadTencentMap, toTencentLatLng } from '../utils/tencent_map_loader'
 import TPageHeader from './templates/TPageHeader.vue'
 
 defineProps({
@@ -99,35 +100,9 @@ const mapSubtitle = computed(() => {
 const validId = (value: unknown) => String(value ?? '').trim()
 
 // ── 腾讯地图 ──────────────────────────────────────────────────────
-const loadTencentMap = async () => {
-  if (typeof window === 'undefined') throw new Error('当前环境无法加载地图')
-  if ((window as any).TMap) return (window as any).TMap
-
-  const existing = document.querySelector<HTMLScriptElement>('script[data-towergo-map="1"]')
-  if (existing) {
-    await new Promise((resolve, reject) => {
-      existing.addEventListener('load', resolve, { once: true })
-      existing.addEventListener('error', reject, { once: true })
-    })
-    return (window as any).TMap
-  }
-
-  mapScriptState.value = 'loading'
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.dataset.towergoMap = '1'
-    script.src = `https://map.qq.com/api/gljs?v=1.exp&key=${encodeURIComponent(TOWERGO_CONFIG.qqMapKey)}`
-    script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('腾讯地图脚本加载失败'))
-    document.head.appendChild(script)
-  })
-  return (window as any).TMap
-}
-
 const toTMapLatLng = (point: TowerGoPoint) => {
   const TMap = (window as any).TMap
-  return new TMap.LatLng(Number(point.latitude), Number(point.longitude))
+  return toTencentLatLng(TMap, { latitude: point.latitude, longitude: point.longitude })
 }
 
 const initMap = async () => {
@@ -138,7 +113,8 @@ const initMap = async () => {
     return
   }
   try {
-    const TMap = await loadTencentMap()
+    mapScriptState.value = 'loading'
+    const TMap = await loadTencentMap(TOWERGO_CONFIG.qqMapKey)
     const center = toTMapLatLng(currentLocation.value)
     mapInstance.value = new TMap.Map(container, { center, zoom: 16, viewMode: '2D' })
     centerMarkerLayer.value = new TMap.MultiMarker({
