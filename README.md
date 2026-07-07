@@ -13,8 +13,8 @@
   <a href="https://github.com/superdaobo/mini-hbut/releases">
     <img src="https://img.shields.io/github/v/release/superdaobo/mini-hbut?style=flat-square" alt="Latest Release">
   </a>
-  <a href="https://github.com/superdaobo/mini-hbut/actions/workflows/release.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/superdaobo/mini-hbut/release.yml?style=flat-square" alt="Build Status">
+  <a href="https://github.com/superdaobo/mini-hbut/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/superdaobo/mini-hbut/ci.yml?branch=main&style=flat-square" alt="Build Status">
   </a>
   <a href="#license">
     <img src="https://img.shields.io/badge/license-GPL%20v3-blue?style=flat-square" alt="License">
