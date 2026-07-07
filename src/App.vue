@@ -73,6 +73,7 @@ import {
   MAIN_TABS,
   ME_SUB_VIEWS,
   HIERARCHICAL_PARENT_VIEW_MAP,
+  isLoginRequiredView,
   normalizeViewName
 } from './navigation/app_navigation.ts'
 import {
@@ -1358,6 +1359,15 @@ const ensureProtectedViewAccess = (
   return false
 }
 
+const ensureLoginRequiredViewAccess = (view) => {
+  const normalized = normalizeViewName(view)
+  if (!isLoginRequiredView(normalized) || isLoggedIn.value) {
+    return true
+  }
+  handleRequireLogin()
+  return false
+}
+
 const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => {
   const normalized = normalizeViewName(view)
   const fromView = currentView.value
@@ -1383,6 +1393,9 @@ const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => 
 
 const goToView = (view, { push = true, restoreScroll = false } = {}) => {
   const normalized = normalizeViewName(view)
+  if (!ensureLoginRequiredViewAccess(normalized)) {
+    return false
+  }
   if (!ensureProtectedViewAccess(normalized, { push, fallbackView: currentView.value })) {
     return false
   }
@@ -3099,12 +3112,12 @@ onBeforeUnmount(() => {
       />
 
       <SchoolWebsiteView
-        v-else-if="currentView === 'school_website'"
+        v-else-if="currentView === 'school_website' && isLoggedIn"
         @back="handleBackToMe"
       />
 
       <QuickLinksView
-        v-else-if="currentView === 'quick_links'"
+        v-else-if="currentView === 'quick_links' && isLoggedIn"
         @back="handleBackToMe"
       />
 

@@ -18,6 +18,14 @@ export const ME_SUB_VIEWS = [
   'more_chaoxing_checkin'
 ] as const
 
+/** 需登录后才能访问的「我的」子页面 */
+export const LOGIN_REQUIRED_ME_VIEWS = ['school_website', 'quick_links'] as const
+
+export const isLoginRequiredView = (view: unknown): boolean => {
+  const normalized = String(view || '').trim()
+  return (LOGIN_REQUIRED_ME_VIEWS as readonly string[]).includes(normalized)
+}
+
 export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Object.freeze({
   schedule: 'home',
   forum: 'home',
