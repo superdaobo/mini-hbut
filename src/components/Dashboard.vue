@@ -1080,7 +1080,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
           <img src="/splash/app_icon.png" class="w-6 h-6 object-contain" alt="HBUT" />
         </div>
-        <span class="font-bold text-lg tracking-wide text-gray-800">HBUT 校园助手</span>
+        <span class="font-bold text-lg tracking-wide text-gray-800">Mini-HBUT</span>
       </div>
       <div class="flex items-center space-x-3 flex-1 ml-4">
         <div class="relative flex-1">

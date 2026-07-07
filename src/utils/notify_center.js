@@ -291,6 +291,38 @@ const powerStateKeyFor = (studentId, roomKey) => `hbu_notify_power_state:${stude
 const classReminderStateKeyFor = (studentId) => `hbu_notify_class_state:${studentId}`
 const schoolInboxStateKeyFor = (studentId) => `hbu_notify_school_inbox_state:${studentId}`
 
+const isSchoolInboxItemRead = (item) => !!(item?.is_read ?? item?.isRead)
+
+const readSchoolInboxState = (studentId) => {
+  const state = readJSON(schoolInboxStateKeyFor(studentId), null)
+  const ids = Array.isArray(state?.ids)
+    ? state.ids.map((item) => toSafeText(item)).filter(Boolean)
+    : []
+  return {
+    initialized: state?.initialized === true,
+    ids
+  }
+}
+
+/** 将学校消息 id 写入通知去重快照，避免重登或后续检查重复推送。 */
+export const markSchoolInboxNotified = (studentId, itemId) => {
+  const sid = toSafeText(studentId)
+  const id = toSafeText(itemId)
+  if (!sid || !id) return false
+
+  const state = readSchoolInboxState(sid)
+  if (state.ids.includes(id)) return true
+
+  const nextIds = [id, ...state.ids].slice(0, 500)
+  writeJSON(schoolInboxStateKeyFor(sid), {
+    initialized: true,
+    ids: nextIds,
+    updated_at: nowIso()
+  })
+  syncSchoolInboxBackgroundPrefs(sid, getNotifySettings(), nextIds)
+  return true
+}
+
 const resolveLoginMode = () => toSafeText(localStorage.getItem('hbu_login_method'))
 
 const syncSchoolInboxBackgroundPrefs = (studentId, settings, knownIds = []) => {
@@ -1094,16 +1126,17 @@ const checkSchoolInbox = async (studentId, settings, queue) => {
     const response = await invokeNative('school_inbox_fetch', { loginMode })
     const items = Array.isArray(response?.items) ? response.items : []
     const stateKey = schoolInboxStateKeyFor(sid)
-    const state = readJSON(stateKey, null)
-    const knownIds = Array.isArray(state?.ids)
-      ? state.ids.map((item) => toSafeText(item)).filter(Boolean)
-      : []
-    const isFirstSync = !state || state.initialized !== true
-    const knownSet = new Set(knownIds)
+    const state = readSchoolInboxState(sid)
+    const isFirstSync = !state.initialized
+    const knownSet = new Set(state.ids)
     const allIds = items.map((item) => toSafeText(item?.id)).filter(Boolean)
     const toNotify = isFirstSync
       ? []
-      : items.filter((item) => !knownSet.has(toSafeText(item?.id)))
+      : items.filter((item) => {
+          const id = toSafeText(item?.id)
+          if (!id || knownSet.has(id)) return false
+          return !isSchoolInboxItemRead(item)
+        })
 
     toNotify.forEach((item) => {
       queue.push({

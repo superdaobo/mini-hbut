@@ -181,7 +181,8 @@ public class BackgroundFetchHeadlessTask {
                 if (rawId.isEmpty()) continue;
                 String normalizedId = "chaoxing:notice:" + rawId;
                 allIds.add(normalizedId);
-                if (!isFirstSync && !knownIds.contains(normalizedId)) {
+                boolean isRead = "1".equals(safe(item.optString("isread", "")));
+                if (!isFirstSync && !knownIds.contains(normalizedId) && !isRead) {
                     freshItems.add(item);
                 }
             }

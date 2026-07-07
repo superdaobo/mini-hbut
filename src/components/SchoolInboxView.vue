@@ -4,6 +4,7 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
+import { markSchoolInboxNotified } from '../utils/notify_center.js'
 import { TPageHeader, TEmptyState } from './templates'
 
 const LOGIN_METHOD_KEY = 'hbu_login_method'
@@ -227,6 +228,7 @@ const markSelectedAsRead = async () => {
   markingRead.value = true
   markReadHint.value = ''
   syncItemReadState(itemId, true)
+  markSchoolInboxNotified(props.studentId, itemId)
 
   try {
     const response = await invokeNative('school_inbox_mark_read', {
