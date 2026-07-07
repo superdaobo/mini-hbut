@@ -1,3 +1,7 @@
+param(
+  [switch]$WindowsOnly
+)
+
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $ErrorActionPreference = 'Stop'
@@ -8,6 +12,9 @@ Add-Type -AssemblyName System.Drawing
 $rootDir = Split-Path -Parent $PSScriptRoot
 function Resolve-OfficialIconSource {
   $relativePaths = @(
+    'src-tauri/icons/icon.png',
+    'src-tauri/icons/icon-512.png',
+    'src-tauri/icons/128x128@2x.png',
     'src-tauri/icons/source/official_badge.png',
     'src-tauri/icons/source/official_badge.svg.png',
     'src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png'
@@ -111,6 +118,58 @@ function Save-Png {
   }
 }
 
+function ConvertTo-PngBytes {
+  param(
+    [Parameter(Mandatory = $true)][System.Drawing.Image]$Source,
+    [Parameter(Mandatory = $true)][int]$Size
+  )
+
+  $bitmap = New-SizedBitmap -Source $Source -Size $Size
+  $stream = [System.IO.MemoryStream]::new()
+  try {
+    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    return $stream.ToArray()
+  } finally {
+    $stream.Dispose()
+    $bitmap.Dispose()
+  }
+}
+
+function Write-UInt16LE {
+  param(
+    [Parameter(Mandatory = $true)][System.IO.BinaryWriter]$Writer,
+    [Parameter(Mandatory = $true)][int]$Value
+  )
+  $Writer.Write([UInt16]$Value)
+}
+
+function Write-UInt32LE {
+  param(
+    [Parameter(Mandatory = $true)][System.IO.BinaryWriter]$Writer,
+    [Parameter(Mandatory = $true)][int]$Value
+  )
+  $Writer.Write([UInt32]$Value)
+}
+
+function Resolve-IcoFramePngPath {
+  param([Parameter(Mandatory = $true)][int]$Size)
+
+  # Reuse generated Tauri PNG frames so the Windows ICO stays aligned.
+  if ($Size -eq 32) {
+    return (Join-Path $rootDir 'src-tauri/icons/32x32.png')
+  }
+  if ($Size -eq 64) {
+    return (Join-Path $rootDir 'src-tauri/icons/64x64.png')
+  }
+  if ($Size -eq 128) {
+    return (Join-Path $rootDir 'src-tauri/icons/128x128.png')
+  }
+  if ($Size -eq 256) {
+    return (Join-Path $rootDir 'src-tauri/icons/128x128@2x.png')
+  }
+  return ''
+}
+
 function Get-ExistingPngSize {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -136,29 +195,60 @@ function Write-Ico {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
   }
 
-  $bitmap = New-SizedBitmap -Source $Source -Size 256
-  $iconHandle = [IntPtr]::Zero
-  $icon = $null
+  $sizes = @(16, 24, 32, 48, 64, 128, 256)
+  $frames = foreach ($size in $sizes) {
+    $existingFramePath = Resolve-IcoFramePngPath -Size $size
+    $frameBytes = if ($existingFramePath) {
+      [System.IO.File]::ReadAllBytes($existingFramePath)
+    } else {
+      ConvertTo-PngBytes -Source $Source -Size $size
+    }
+
+    [PSCustomObject]@{
+      Size  = $size
+      Bytes = $frameBytes
+    }
+  }
+
   $fileStream = $null
+  $writer = $null
   try {
-    $iconHandle = $bitmap.GetHicon()
-    $icon = [System.Drawing.Icon]::FromHandle($iconHandle)
     $fileStream = [System.IO.File]::Create($TargetPath)
-    $icon.Save($fileStream)
+    $writer = [System.IO.BinaryWriter]::new($fileStream)
+
+    Write-UInt16LE -Writer $writer -Value 0
+    Write-UInt16LE -Writer $writer -Value 1
+    Write-UInt16LE -Writer $writer -Value $frames.Count
+
+    $imageOffset = 6 + ($frames.Count * 16)
+    foreach ($frame in $frames) {
+      $directorySize = if ($frame.Size -eq 256) { 0 } else { $frame.Size }
+      $writer.Write([byte]$directorySize)
+      $writer.Write([byte]$directorySize)
+      $writer.Write([byte]0)
+      $writer.Write([byte]0)
+      Write-UInt16LE -Writer $writer -Value 1
+      Write-UInt16LE -Writer $writer -Value 32
+      Write-UInt32LE -Writer $writer -Value $frame.Bytes.Length
+      Write-UInt32LE -Writer $writer -Value $imageOffset
+      $imageOffset += $frame.Bytes.Length
+    }
+
+    foreach ($frame in $frames) {
+      $writer.Write([byte[]]$frame.Bytes)
+    }
+
     $fileStream.Flush()
     $writtenLength = (Get-Item $TargetPath).Length
-    if ($writtenLength -lt 1024) {
+    if ($writtenLength -lt 4096) {
       throw "Generated ICO is unexpectedly small: $writtenLength bytes"
     }
   } finally {
+    if ($writer) {
+      $writer.Dispose()
+    }
     if ($fileStream) {
       $fileStream.Dispose()
-    }
-    if ($icon) {
-      $icon.Dispose()
-    }
-    if ($bitmap) {
-      $bitmap.Dispose()
     }
   }
 }
@@ -171,7 +261,7 @@ $masterBitmap = $null
 $adaptiveForegroundBitmap = $null
 try {
   $masterSize = 1024
-  # 整图作为应用图标：尽量铺满画布，避免旧版 badge 留白缩放
+  # Fill the app icon canvas to avoid legacy badge-style padding.
   $masterScale = 1.0
   $androidAdaptiveForegroundScale = 0.72
 
@@ -179,84 +269,86 @@ try {
   $adaptiveForegroundBitmap =
     New-ScaledMasterBitmap -Source $sourceImage -CanvasSize $masterSize -Scale $androidAdaptiveForegroundScale
 
-  $rootPngTargets = @(
-    'src-tauri/icons/32x32.png',
-    'src-tauri/icons/64x64.png',
-    'src-tauri/icons/128x128.png',
-    'src-tauri/icons/128x128@2x.png',
-    'src-tauri/icons/icon-512.png',
-    'src-tauri/icons/Square30x30Logo.png',
-    'src-tauri/icons/Square44x44Logo.png',
-    'src-tauri/icons/Square71x71Logo.png',
-    'src-tauri/icons/Square89x89Logo.png',
-    'src-tauri/icons/Square107x107Logo.png',
-    'src-tauri/icons/Square142x142Logo.png',
-    'src-tauri/icons/Square150x150Logo.png',
-    'src-tauri/icons/Square284x284Logo.png',
-    'src-tauri/icons/Square310x310Logo.png',
-    'src-tauri/icons/StoreLogo.png',
-    'src-tauri/icons/icon.png',
-    'src-tauri/icons/icon.svg.png',
-    'src-tauri/icons/icon.icns.png'
-  )
+  if (-not $WindowsOnly) {
+    $rootPngTargets = @(
+      'src-tauri/icons/32x32.png',
+      'src-tauri/icons/64x64.png',
+      'src-tauri/icons/128x128.png',
+      'src-tauri/icons/128x128@2x.png',
+      'src-tauri/icons/icon-512.png',
+      'src-tauri/icons/Square30x30Logo.png',
+      'src-tauri/icons/Square44x44Logo.png',
+      'src-tauri/icons/Square71x71Logo.png',
+      'src-tauri/icons/Square89x89Logo.png',
+      'src-tauri/icons/Square107x107Logo.png',
+      'src-tauri/icons/Square142x142Logo.png',
+      'src-tauri/icons/Square150x150Logo.png',
+      'src-tauri/icons/Square284x284Logo.png',
+      'src-tauri/icons/Square310x310Logo.png',
+      'src-tauri/icons/StoreLogo.png',
+      'src-tauri/icons/icon.png',
+      'src-tauri/icons/icon.svg.png',
+      'src-tauri/icons/icon.icns.png'
+    )
 
-  foreach ($relativePath in $rootPngTargets) {
-    $targetPath = Join-Path $rootDir $relativePath
-    $targetSize = Get-ExistingPngSize -Path $targetPath
-    if (-not $targetSize) {
-      if ($relativePath -like '*128x128@2x.png') {
-        $targetSize = 256
-      } elseif ($relativePath -like '*icon-512.png') {
-        $targetSize = 512
-      } elseif ($relativePath -like '*icon.png' -or $relativePath -like '*icon.svg.png' -or $relativePath -like '*icon.icns.png') {
-        $targetSize = 1024
-      } else {
-        continue
+    foreach ($relativePath in $rootPngTargets) {
+      $targetPath = Join-Path $rootDir $relativePath
+      $targetSize = Get-ExistingPngSize -Path $targetPath
+      if (-not $targetSize) {
+        if ($relativePath -like '*128x128@2x.png') {
+          $targetSize = 256
+        } elseif ($relativePath -like '*icon-512.png') {
+          $targetSize = 512
+        } elseif ($relativePath -like '*icon.png' -or $relativePath -like '*icon.svg.png' -or $relativePath -like '*icon.icns.png') {
+          $targetSize = 1024
+        } else {
+          continue
+        }
+      }
+      Save-Png -Source $masterBitmap -TargetPath $targetPath -Size $targetSize
+    }
+
+    $iosTargets = Get-ChildItem (Join-Path $rootDir 'src-tauri\icons\ios') -Filter '*.png' -File
+    foreach ($file in $iosTargets) {
+      $targetSize = Get-ExistingPngSize -Path $file.FullName
+      if ($targetSize) {
+        Save-Png -Source $masterBitmap -TargetPath $file.FullName -Size $targetSize
       }
     }
-    Save-Png -Source $masterBitmap -TargetPath $targetPath -Size $targetSize
-  }
 
-  $iosTargets = Get-ChildItem (Join-Path $rootDir 'src-tauri\icons\ios') -Filter '*.png' -File
-  foreach ($file in $iosTargets) {
-    $targetSize = Get-ExistingPngSize -Path $file.FullName
-    if ($targetSize) {
-      Save-Png -Source $masterBitmap -TargetPath $file.FullName -Size $targetSize
+    $androidTargets = Get-ChildItem (Join-Path $rootDir 'src-tauri\icons\android') -Recurse -File |
+      Where-Object { $_.Extension -eq '.png' -and $_.Name -like 'ic_launcher*.png' }
+    foreach ($file in $androidTargets) {
+      $targetSize = Get-ExistingPngSize -Path $file.FullName
+      if ($targetSize) {
+        $targetSource = if ($file.Name -eq 'ic_launcher_foreground.png') { $adaptiveForegroundBitmap } else { $masterBitmap }
+        Save-Png -Source $targetSource -TargetPath $file.FullName -Size $targetSize
+      }
     }
-  }
 
-  $androidTargets = Get-ChildItem (Join-Path $rootDir 'src-tauri\icons\android') -Recurse -File |
-    Where-Object { $_.Extension -eq '.png' -and $_.Name -like 'ic_launcher*.png' }
-  foreach ($file in $androidTargets) {
-    $targetSize = Get-ExistingPngSize -Path $file.FullName
-    if ($targetSize) {
-      $targetSource = if ($file.Name -eq 'ic_launcher_foreground.png') { $adaptiveForegroundBitmap } else { $masterBitmap }
-      Save-Png -Source $targetSource -TargetPath $file.FullName -Size $targetSize
-    }
-  }
-
-  $whiteBackgroundXml = @'
+    $whiteBackgroundXml = @'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <color name="ic_launcher_background">#3D88FC</color>
 </resources>
 '@
-  Set-Content -Path (Join-Path $rootDir 'src-tauri\icons\android\values\ic_launcher_background.xml') -Value $whiteBackgroundXml -Encoding UTF8
+    Set-Content -Path (Join-Path $rootDir 'src-tauri\icons\android\values\ic_launcher_background.xml') -Value $whiteBackgroundXml -Encoding UTF8
 
-  $iconStream = [System.IO.MemoryStream]::new()
-  try {
-    $masterBitmap.Save($iconStream, [System.Drawing.Imaging.ImageFormat]::Png)
-    $iconBase64 = [Convert]::ToBase64String($iconStream.ToArray())
-  } finally {
-    $iconStream.Dispose()
-  }
+    $iconStream = [System.IO.MemoryStream]::new()
+    try {
+      $masterBitmap.Save($iconStream, [System.Drawing.Imaging.ImageFormat]::Png)
+      $iconBase64 = [Convert]::ToBase64String($iconStream.ToArray())
+    } finally {
+      $iconStream.Dispose()
+    }
 
-  $svg = @"
+    $svg = @"
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <image width="1024" height="1024" href="data:image/png;base64,$iconBase64" />
 </svg>
 "@
-  Set-Content -Path (Join-Path $rootDir 'src-tauri\icons\icon.svg') -Value $svg -Encoding UTF8
+    Set-Content -Path (Join-Path $rootDir 'src-tauri\icons\icon.svg') -Value $svg -Encoding UTF8
+  }
 
   Write-Ico -Source $masterBitmap -TargetPath (Join-Path $rootDir 'src-tauri\icons\icon.ico')
 } finally {
