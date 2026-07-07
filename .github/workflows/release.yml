@@ -392,6 +392,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Regenerate and verify official desktop icons
+        shell: pwsh
+        run: |
+          python -m pip install Pillow
+          python scripts/regenerate_official_icons.py
+          npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
+
       - name: Build Windows App
         run: npm run tauri build -- --bundles nsis,msi
 
@@ -453,6 +460,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Regenerate and verify official desktop icons
+        run: |
+          python3 -m pip install Pillow
+          python3 scripts/regenerate_official_icons.py
+          npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build macOS App (Universal, app only)
         run: npm run tauri build -- --target universal-apple-darwin --bundles app
@@ -734,6 +747,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Regenerate and verify official desktop icons
+        run: |
+          python3 -m pip install Pillow
+          python3 scripts/regenerate_official_icons.py
+          npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build Linux App
         run: npm run tauri build -- --bundles appimage
