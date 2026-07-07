@@ -14,10 +14,21 @@ describe('me quick links frontend contract', () => {
 
     expect(source).toContain("const handleOpenSchoolWebsite = () => emit('navigate', 'school_website')")
     expect(source).toContain("const handleOpenQuickLinks = () => emit('navigate', 'quick_links')")
-    expect(source).toContain('@click="handleOpenSchoolWebsite"')
-    expect(source).toContain('@click="handleOpenQuickLinks"')
+    expect(source).toContain('v-if="isLoggedIn" class="grid-item" @click="handleOpenSchoolWebsite"')
+    expect(source).toContain('v-if="isLoggedIn" class="grid-item" @click="handleOpenQuickLinks"')
     expect(source).toContain('学校官网')
     expect(source).toContain('快捷链接')
+  })
+
+  it('requires login before entering school_website or quick_links', () => {
+    const appSource = readSource('src/App.vue')
+    const navSource = readSource('src/navigation/app_navigation.ts')
+
+    expect(navSource).toContain('LOGIN_REQUIRED_ME_VIEWS')
+    expect(navSource).toContain('isLoginRequiredView')
+    expect(appSource).toContain('ensureLoginRequiredViewAccess')
+    expect(appSource).toContain("currentView === 'school_website' && isLoggedIn")
+    expect(appSource).toContain("currentView === 'quick_links' && isLoggedIn")
   })
 
   it('registers school_website and quick_links as Me sub views in App.vue', () => {
@@ -34,8 +45,8 @@ describe('me quick links frontend contract', () => {
     expect(navSource).toMatch(/HIERARCHICAL_PARENT_VIEW_MAP[\s\S]*quick_links:\s*'me'/)
     expect(appSource).toMatch(/VIEW_PREFETCHERS[\s\S]*school_website:\s*loadSchoolWebsiteView/)
     expect(appSource).toMatch(/VIEW_PREFETCHERS[\s\S]*quick_links:\s*loadQuickLinksView/)
-    expect(appSource).toContain("v-else-if=\"currentView === 'school_website'\"")
-    expect(appSource).toContain("v-else-if=\"currentView === 'quick_links'\"")
+    expect(appSource).toContain("v-else-if=\"currentView === 'school_website' && isLoggedIn\"")
+    expect(appSource).toContain("v-else-if=\"currentView === 'quick_links' && isLoggedIn\"")
     expect(appSource).toContain('<SchoolWebsiteView')
     expect(appSource).toContain('<QuickLinksView')
     expect(appSource).toContain('@back="handleBackToMe"')

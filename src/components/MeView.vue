@@ -165,13 +165,13 @@ const handleShowLegal = async (tab) => {
         </div>
         <span class="grid-label">导出中心</span>
       </button>
-      <button class="grid-item" @click="handleOpenSchoolWebsite">
+      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenSchoolWebsite">
         <div class="grid-icon-box" style="background: #E8EAF6;">
           <span class="material-symbols-outlined" style="color: #3949AB;">language</span>
         </div>
         <span class="grid-label">学校官网</span>
       </button>
-      <button class="grid-item" @click="handleOpenQuickLinks">
+      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenQuickLinks">
         <div class="grid-icon-box" style="background: #E0F7FA;">
           <span class="material-symbols-outlined" style="color: #00838F;">link</span>
         </div>
