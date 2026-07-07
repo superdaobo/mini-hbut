@@ -59,6 +59,7 @@ describe("iOS TestFlight workflow contract", () => {
     expect(workflow).toContain('CODE_SIGN_IDENTITY="Apple Distribution"');
     expect(workflow).toContain('CURRENT_PROJECT_VERSION="$BUILD_NUMBER"');
     expect(workflow).toContain('MARKETING_VERSION="$VERSION_NAME"');
+    expect(workflow).toContain("conf.bundle.iOS.bundleVersion = buildNumber");
     expect(workflow).toContain("xcrun altool --validate-app");
     expect(workflow).toContain("xcrun altool --upload-app");
     expect(workflow).toContain("secrets.APPSTORE_KEY_ID");

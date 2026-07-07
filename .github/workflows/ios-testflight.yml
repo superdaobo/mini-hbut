@@ -201,15 +201,29 @@ jobs:
           import fs from 'node:fs';
           const p = 'src-tauri/tauri.conf.json';
           const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const versionName = String(process.env.VERSION_NAME || '').trim();
+          const buildNumber = String(process.env.BUILD_NUMBER || '').trim();
           conf.build = conf.build || {};
           delete conf.build.devUrl;
           delete conf.build.beforeDevCommand;
           conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          if (versionName) {
+            conf.version = versionName;
+          }
+          conf.bundle = conf.bundle || {};
+          conf.bundle.iOS = conf.bundle.iOS || {};
+          if (buildNumber) {
+            // Tauri syncs CFBundleVersion from bundle.iOS.bundleVersion at ios init.
+            // xcodebuild CURRENT_PROJECT_VERSION alone is not enough.
+            conf.bundle.iOS.bundleVersion = buildNumber;
+          }
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
           console.log('Patched tauri.conf.json for iOS CI:', {
             frontendDist: conf.build.frontendDist,
             hasDevUrl: Object.prototype.hasOwnProperty.call(conf.build, 'devUrl'),
+            version: conf.version,
+            bundleVersion: conf.bundle.iOS.bundleVersion,
           });
           NODE
 
