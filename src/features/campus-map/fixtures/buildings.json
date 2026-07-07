@@ -1,0 +1,104 @@
+{
+  "schema_version": "1",
+  "buildings": [
+    {
+      "id": "library",
+      "name": "图书馆",
+      "aliases": ["湖工图书馆"],
+      "category": "library",
+      "lat": 30.4826,
+      "lng": 114.3128,
+      "tags": ["自习", "借阅"]
+    },
+    {
+      "id": "j1",
+      "name": "教学1号楼",
+      "aliases": ["一教", "1教"],
+      "category": "teaching",
+      "lat": 30.4812,
+      "lng": 114.3115
+    },
+    {
+      "id": "j2",
+      "name": "教学2号楼",
+      "aliases": ["二教", "2教"],
+      "category": "teaching",
+      "lat": 30.4808,
+      "lng": 114.3126
+    },
+    {
+      "id": "j3",
+      "name": "教学3号楼",
+      "aliases": ["三教", "3教"],
+      "category": "teaching",
+      "lat": 30.4815,
+      "lng": 114.3142
+    },
+    {
+      "id": "j4",
+      "name": "教学4号楼",
+      "aliases": ["四教", "4教"],
+      "category": "teaching",
+      "lat": 30.4821,
+      "lng": 114.3151
+    },
+    {
+      "id": "gym",
+      "name": "体育馆",
+      "category": "sports",
+      "lat": 30.4834,
+      "lng": 114.3109
+    },
+    {
+      "id": "canteen-n",
+      "name": "北区食堂",
+      "aliases": ["北食堂"],
+      "category": "canteen",
+      "lat": 30.4838,
+      "lng": 114.3136
+    },
+    {
+      "id": "canteen-s",
+      "name": "南区食堂",
+      "aliases": ["南食堂"],
+      "category": "canteen",
+      "lat": 30.4796,
+      "lng": 114.3148
+    },
+    {
+      "id": "admin",
+      "name": "行政楼",
+      "category": "admin",
+      "lat": 30.4819,
+      "lng": 114.313
+    },
+    {
+      "id": "gate-south",
+      "name": "南门",
+      "category": "gate",
+      "lat": 30.4788,
+      "lng": 114.3134
+    },
+    {
+      "id": "gate-north",
+      "name": "北门",
+      "category": "gate",
+      "lat": 30.4852,
+      "lng": 114.3122
+    },
+    {
+      "id": "dorm-1",
+      "name": "1号学生公寓",
+      "category": "dormitory",
+      "lat": 30.4846,
+      "lng": 114.3158
+    },
+    {
+      "id": "dorm-2",
+      "name": "2号学生公寓",
+      "category": "dormitory",
+      "lat": 30.4841,
+      "lng": 114.3168
+    }
+  ]
+}

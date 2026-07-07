@@ -1,0 +1,7 @@
+{
+  "schema_version": "1",
+  "version": "2026.07.05",
+  "buildings_url": "./buildings.json",
+  "config_url": "./config.json",
+  "updated_at": "2026-07-05T00:00:00Z"
+}

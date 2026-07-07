@@ -122,7 +122,12 @@ const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheck
 const loadTransactionHistoryView = () => import('./components/TransactionHistory.vue')
 const loadCampusCodeView = () => import('./components/CampusCodeView.vue')
 const loadAiChatView = () => import('./components/AiChatView.vue')
-const loadCampusMapView = () => import('./components/CampusMapView.vue')
+const loadCampusMapView = () =>
+  import('./features/campus-guide/config.ts').then(({ readCampusGuideMode }) =>
+    readCampusGuideMode() === 'tencent'
+      ? import('./features/campus-guide/views/CampusGuideShell.vue')
+      : import('./components/CampusMapView.vue')
+  )
 const loadLibraryView = () => import('./components/LibraryView.vue')
 const loadResourceShareView = () => import('./components/ResourceShareView.vue')
 const loadTowerGoView = () => import('./components/TowerGoView.vue')
