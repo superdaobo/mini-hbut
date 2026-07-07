@@ -8,29 +8,29 @@ const root = path.resolve(__dirname, '..');
 const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8');
 
 const requiredPages = [
-  ['src/pages/docs/QuickStart.tsx', '/docs/quick-start', '快速开始'],
-  ['src/pages/docs/UserGuide.tsx', '/docs/user-guide', '用户手册'],
-  ['src/pages/docs/AcademicServices.tsx', '/docs/academic', '教务服务'],
-  ['src/pages/docs/CampusLife.tsx', '/docs/campus-life', '校园生活'],
-  ['src/pages/docs/CommunityNotifications.tsx', '/docs/community-notifications', '社区与通知'],
-  ['src/pages/docs/Extensions.tsx', '/docs/extensions', '扩展模块'],
-  ['src/pages/docs/SettingsData.tsx', '/docs/settings-data', '设置与数据'],
-  ['src/pages/docs/Troubleshooting.tsx', '/docs/troubleshooting', '故障排查'],
-  ['src/pages/docs/DeveloperOverview.tsx', '/docs/developer', '开发者总览'],
-  ['src/pages/docs/ArchitectureDataFlow.tsx', '/docs/architecture', '架构与数据流'],
-  ['src/pages/docs/PlatformTauri.tsx', '/docs/platform-tauri', '平台与 Tauri'],
-  ['src/pages/docs/ModuleSystem.tsx', '/docs/module-system', '模块系统'],
-  ['src/pages/docs/BuildRelease.tsx', '/docs/build-release', '构建发布'],
-  ['src/pages/docs/SecurityPrivacy.tsx', '/docs/security-privacy', '安全与隐私'],
-  ['src/pages/docs/ReferenceIndex.tsx', '/docs/reference', '参考资料'],
+  ['src/views/docs/QuickStart.tsx', '/docs/quick-start', '快速开始'],
+  ['src/views/docs/UserGuide.tsx', '/docs/user-guide', '用户手册'],
+  ['src/views/docs/AcademicServices.tsx', '/docs/academic', '教务服务'],
+  ['src/views/docs/CampusLife.tsx', '/docs/campus-life', '校园生活'],
+  ['src/views/docs/CommunityNotifications.tsx', '/docs/community-notifications', '社区与通知'],
+  ['src/views/docs/Extensions.tsx', '/docs/extensions', '扩展模块'],
+  ['src/views/docs/SettingsData.tsx', '/docs/settings-data', '设置与数据'],
+  ['src/views/docs/Troubleshooting.tsx', '/docs/troubleshooting', '故障排查'],
+  ['src/views/docs/DeveloperOverview.tsx', '/docs/developer', '开发者总览'],
+  ['src/views/docs/ArchitectureDataFlow.tsx', '/docs/architecture', '架构与数据流'],
+  ['src/views/docs/PlatformTauri.tsx', '/docs/platform-tauri', '平台与 Tauri'],
+  ['src/views/docs/ModuleSystem.tsx', '/docs/module-system', '模块系统'],
+  ['src/views/docs/BuildRelease.tsx', '/docs/build-release', '构建发布'],
+  ['src/views/docs/SecurityPrivacy.tsx', '/docs/security-privacy', '安全与隐私'],
+  ['src/views/docs/ReferenceIndex.tsx', '/docs/reference', '参考资料'],
 ];
 
 const legacyPages = [
-  ['src/pages/docs/Guide.tsx', '/docs/guide', '安装指南'],
-  ['src/pages/docs/Configuration.tsx', '/docs/configuration', '配置说明'],
-  ['src/pages/docs/FAQ.tsx', '/docs/faq', '旧版 FAQ'],
-  ['src/pages/docs/Technical.tsx', '/docs/technical', '技术原理'],
-  ['src/pages/docs/More.tsx', '/docs/more', '更多资料'],
+  ['src/views/docs/Guide.tsx', '/docs/guide', '安装指南'],
+  ['src/views/docs/Configuration.tsx', '/docs/configuration', '配置说明'],
+  ['src/views/docs/FAQ.tsx', '/docs/faq', '旧版 FAQ'],
+  ['src/views/docs/Technical.tsx', '/docs/technical', '技术原理'],
+  ['src/views/docs/More.tsx', '/docs/more', '更多资料'],
 ];
 
 const referenceRoutes = [
@@ -50,8 +50,8 @@ const expect = (condition, message) => {
 const app = read('src/App.tsx');
 const layout = read('src/layouts/DocsLayout.tsx');
 const vite = read('vite.config.ts');
-const overview = read('src/pages/docs/Overview.tsx');
-const search = read('src/pages/Search.tsx');
+const overview = read('src/views/docs/Overview.tsx');
+const search = read('src/views/Search.tsx');
 
 for (const [pagePath, route, label] of requiredPages) {
   expect(existsSync(path.join(root, pagePath)), `缺少页面文件: ${pagePath}`);
@@ -151,7 +151,7 @@ for (const route of [
   expect(search.includes(route), `Search.tsx 站内搜索未覆盖新路由: ${route}`);
 }
 
-const referenceIndex = read('src/pages/docs/ReferenceIndex.tsx');
+const referenceIndex = read('src/views/docs/ReferenceIndex.tsx');
 for (const term of ['交叉阅读矩阵', '旧版文档索引', 'Guide.tsx', 'Configuration.tsx', 'FAQ.tsx', 'Technical.tsx', 'More.tsx']) {
   expect(referenceIndex.includes(term), `ReferenceIndex.tsx 未覆盖交叉链接索引信息: ${term}`);
 }

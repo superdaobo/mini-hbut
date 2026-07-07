@@ -86,4 +86,15 @@ describe('service stats frontend contract', () => {
     expect(source).toContain('formatAxisVersion')
     expect(source).toContain("axisLabelKey === 'latest_version'")
   })
+
+  it('shows personal and global client usage sections', () => {
+    const source = readSource('src/components/ServiceStatsView.vue')
+
+    expect(source).toContain('我的使用')
+    expect(source).toContain('全站试用概况')
+    expect(source).toContain('client_usage')
+    expect(source).toContain('fetchPersonalUsageSummary')
+    expect(source).toContain('fetchRemotePersonalUsageSummary')
+    expect(source).toContain('studentId')
+  })
 })

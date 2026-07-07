@@ -7,14 +7,14 @@ const root = path.resolve(__dirname, '..');
 
 const read = (relativePath) => readFileSync(path.join(root, relativePath), 'utf8');
 
-const quickStart = read('src/pages/docs/QuickStart.tsx');
-const userGuide = read('src/pages/docs/UserGuide.tsx');
-const academicServices = read('src/pages/docs/AcademicServices.tsx');
-const campusLife = read('src/pages/docs/CampusLife.tsx');
-const communityNotifications = read('src/pages/docs/CommunityNotifications.tsx');
-const settingsData = read('src/pages/docs/SettingsData.tsx');
-const extensions = read('src/pages/docs/Extensions.tsx');
-const troubleshooting = read('src/pages/docs/Troubleshooting.tsx');
+const quickStart = read('src/views/docs/QuickStart.tsx');
+const userGuide = read('src/views/docs/UserGuide.tsx');
+const academicServices = read('src/views/docs/AcademicServices.tsx');
+const campusLife = read('src/views/docs/CampusLife.tsx');
+const communityNotifications = read('src/views/docs/CommunityNotifications.tsx');
+const settingsData = read('src/views/docs/SettingsData.tsx');
+const extensions = read('src/views/docs/Extensions.tsx');
+const troubleshooting = read('src/views/docs/Troubleshooting.tsx');
 
 const failures = [];
 const expectIncludes = (content, label, terms) => {

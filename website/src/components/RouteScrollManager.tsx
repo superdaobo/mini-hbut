@@ -1,5 +1,7 @@
+'use client';
+
 import { useEffect, useLayoutEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 function instantScrollTop() {
   const doc = document.documentElement;
@@ -33,7 +35,9 @@ function scrollToHash(hash: string) {
 }
 
 export default function RouteScrollManager() {
-  const location = useLocation();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const hash = typeof window !== 'undefined' ? window.location.hash : '';
 
   useEffect(() => {
     if ('scrollRestoration' in window.history) {
@@ -53,9 +57,9 @@ export default function RouteScrollManager() {
     const run = (attempt = 0) => {
       if (cancelled) return;
 
-      if (location.pathname === '/' && location.hash) {
+      if (pathname === '/' && hash) {
         instantScrollTop();
-        const ok = scrollToHash(location.hash);
+        const ok = scrollToHash(hash);
         if (!ok && attempt < 30) {
           timer = window.setTimeout(() => run(attempt + 1), 120);
         }
@@ -73,7 +77,7 @@ export default function RouteScrollManager() {
       window.clearTimeout(timer);
       cancelAnimationFrame(raf);
     };
-  }, [location.pathname, location.hash]);
+  }, [pathname, hash, searchParams]);
 
   return null;
 }

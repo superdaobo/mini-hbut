@@ -171,8 +171,9 @@ $masterBitmap = $null
 $adaptiveForegroundBitmap = $null
 try {
   $masterSize = 1024
-  $masterScale = 0.74
-  $androidAdaptiveForegroundScale = 0.58
+  # 整图作为应用图标：尽量铺满画布，避免旧版 badge 留白缩放
+  $masterScale = 1.0
+  $androidAdaptiveForegroundScale = 0.72
 
   $masterBitmap = New-ScaledMasterBitmap -Source $sourceImage -CanvasSize $masterSize -Scale $masterScale
   $adaptiveForegroundBitmap =
@@ -237,7 +238,7 @@ try {
   $whiteBackgroundXml = @'
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <color name="ic_launcher_background">#FFFFFF</color>
+  <color name="ic_launcher_background">#3D88FC</color>
 </resources>
 '@
   Set-Content -Path (Join-Path $rootDir 'src-tauri\icons\android\values\ic_launcher_background.xml') -Value $whiteBackgroundXml -Encoding UTF8
