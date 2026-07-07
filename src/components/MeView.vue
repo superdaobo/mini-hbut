@@ -103,7 +103,7 @@ const handleShowLegal = async (tab) => {
     <header class="dashboard-header">
       <div class="header-left">
         <img class="logo-img" src="/splash/app_icon.png" alt="HBUT" />
-        <span class="header-title">HBUT 校园助手</span>
+        <span class="header-title">Mini-HBUT</span>
       </div>
       <span class="header-pill">我的</span>
     </header>
