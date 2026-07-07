@@ -15,4 +15,4 @@
 
 ## 发布说明
 
-版本发布说明保留在仓库根目录：`RELEASE_v*.md`、`release.md`（供 `scripts/build_release_manifests.mjs` 读取）。
+通用发布说明保留在仓库根目录 `release.md`（供 `scripts/build_release_manifests.mjs` 读取；按版本专属说明时可在发布前更新该文件）。
