@@ -1482,6 +1482,8 @@ watch(
 .notify-msg-left {
   display: flex;
   gap: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .notify-msg-icon {
@@ -1496,6 +1498,8 @@ watch(
 
 .notify-msg-body {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .notify-msg-head {
@@ -1545,6 +1549,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
+  max-width: 100%;
 }
 
 .notify-detail-list li {
@@ -1604,6 +1609,8 @@ watch(
 
 .detail-row .detail-sub {
   margin-top: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .detail-score {
