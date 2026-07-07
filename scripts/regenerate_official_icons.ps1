@@ -12,10 +12,11 @@ Add-Type -AssemblyName System.Drawing
 $rootDir = Split-Path -Parent $PSScriptRoot
 function Resolve-OfficialIconSource {
   $relativePaths = @(
+    'src-tauri/icons/source/official_badge.png',
+    'public/splash/app_icon.png',
     'src-tauri/icons/icon.png',
     'src-tauri/icons/icon-512.png',
     'src-tauri/icons/128x128@2x.png',
-    'src-tauri/icons/source/official_badge.png',
     'src-tauri/icons/source/official_badge.svg.png',
     'src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png'
   )

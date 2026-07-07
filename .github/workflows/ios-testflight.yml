@@ -227,6 +227,10 @@ jobs:
           });
           NODE
 
+          python -m pip install --quiet Pillow
+          python scripts/fix_ios_app_icons.py
+          npx vitest run src/utils/ios_launcher_icon_contract.spec.ts
+
           npm exec -- tauri ios init
           cargo fetch --manifest-path src-tauri/Cargo.toml
           node scripts/patch_tauri_ios_edge_to_edge.mjs

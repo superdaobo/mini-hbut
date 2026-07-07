@@ -49,12 +49,12 @@ const assertAppStoreOverridesAreOpaque = (sourceDir) => {
     const iconPath = path.join(sourceDir, sourceName)
     if (!fs.existsSync(iconPath)) {
       fail(
-        `缺少 ${sourceName}，请先运行: python scripts/fix_ios_app_store_icon.py`
+        `缺少 ${sourceName}，请先运行: python scripts/fix_ios_app_icons.py`
       )
     }
     if (pngHasAlphaChannel(iconPath)) {
       fail(
-        `${sourceName} 含 alpha 通道，TestFlight 会拒绝上传。请重新运行: python scripts/fix_ios_app_store_icon.py`
+        `${sourceName} 含 alpha 通道，TestFlight 会拒绝上传。请重新运行: python scripts/fix_ios_app_icons.py`
       )
     }
   }
