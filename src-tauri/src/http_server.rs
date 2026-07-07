@@ -783,6 +783,13 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/library/search", post(search_library_books))
         .route("/library/detail", post(fetch_library_book_detail))
         .route("/towergo/*path", any(towergo_proxy))
+        .route("/campus-map/direction", get(campus_map_direction_proxy))
+        .route("/campus-guide/*path", any(campus_guide_proxy))
+        .route("/campus-guide-debug/probe", post(campus_guide_debug_probe))
+        .route(
+            "/campus-guide-debug/field-matrix",
+            get(campus_guide_debug_field_matrix),
+        )
         .route("/school-website", any(school_website_proxy_root))
         .route("/school-website/", any(school_website_proxy_root))
         .route("/school-website/*path", any(school_website_proxy))
@@ -2977,8 +2984,14 @@ fn encode_resource_share_path(path: &str) -> String {
         .join("/")
 }
 
+const CAMPUS_GUIDE_TARGET_BASE: &str = "https://wisdomscenic.map.qq.com";
+const CAMPUS_GUIDE_APP: &str = "wisdom_scenic";
+const CAMPUS_GUIDE_SECRET: &str = "gBtshVoSZriuTIxf";
+
 const TOWERGO_TARGET_BASE: &str = "https://ebike-oper.chinatowercom.cn";
 const TOWERGO_TARGET_HOST: &str = "ebike-oper.chinatowercom.cn";
+const CAMPUS_MAP_QQ_KEY: &str = "LQBBZ-Y42ER-STHWC-WORES-QFUQS-SKFFV";
+const CAMPUS_MAP_DIRECTION_BASE: &str = "https://apis.map.qq.com/ws/direction/v1/walking/";
 const TOWERGO_APP_ID: &str = "wx278283883c249e3e";
 const TOWERGO_MINIPROGRAM_REFERER: &str =
     "https://servicewechat.com/wx278283883c249e3e/47/page-frame.html";
@@ -3240,6 +3253,410 @@ async fn school_website_proxy(
     Ok(response)
 }
 
+fn campus_guide_should_include(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(flag) => *flag,
+        serde_json::Value::Number(_) => true,
+        serde_json::Value::String(text) => !text.is_empty(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+    }
+}
+
+fn campus_guide_format_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            serde_json::to_string(value).unwrap_or_default()
+        }
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::Bool(flag) => flag.to_string(),
+        serde_json::Value::Null => String::new(),
+    }
+}
+
+fn campus_guide_serialize_params(params: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut keys: Vec<&String> = params.keys().collect();
+    keys.sort();
+    let mut parts = Vec::new();
+    for key in keys {
+        let value = &params[key];
+        if !campus_guide_should_include(value) {
+            continue;
+        }
+        parts.push(format!("{}={}", key, campus_guide_format_value(value)));
+    }
+    parts.join("&")
+}
+
+fn campus_guide_compute_sign(
+    params: &serde_json::Map<String, serde_json::Value>,
+    ts: i64,
+) -> String {
+    let serialized = campus_guide_serialize_params(params);
+    let raw = format!(
+        "{}{}{}{}",
+        CAMPUS_GUIDE_APP, CAMPUS_GUIDE_SECRET, ts, serialized
+    );
+    format!("{:x}", md5::compute(raw.as_bytes()))
+}
+
+fn campus_guide_build_signed_headers(
+    params: &serde_json::Map<String, serde_json::Value>,
+) -> Result<HeaderMap, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let ts = chrono::Utc::now().timestamp();
+    let sign = campus_guide_compute_sign(params, ts);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("app"),
+        HeaderValue::from_static(CAMPUS_GUIDE_APP),
+    );
+    headers.insert(
+        HeaderName::from_static("content-type"),
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        HeaderName::from_static("accept"),
+        HeaderValue::from_static("application/json, text/plain, */*"),
+    );
+    headers.insert(
+        HeaderName::from_static("ts"),
+        HeaderValue::from_str(&ts.to_string()).map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("校园导览签名时间戳无效: {}", e),
+            )
+        })?,
+    );
+    headers.insert(
+        HeaderName::from_static("sign"),
+        HeaderValue::from_str(&sign).map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("校园导览签名无效: {}", e),
+            )
+        })?,
+    );
+    Ok(headers)
+}
+
+async fn campus_guide_proxy(
+    method: Method,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+    _headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    if method == Method::OPTIONS {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NO_CONTENT;
+        return Ok(response);
+    }
+
+    let clean_path = path.trim_start_matches('/');
+    if clean_path.is_empty() || clean_path.contains("..") {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "校园导览代理路径非法".to_string(),
+        ));
+    }
+
+    let params: serde_json::Map<String, serde_json::Value> = if body.is_empty() {
+        serde_json::Map::new()
+    } else {
+        match serde_json::from_slice::<serde_json::Value>(&body) {
+            Ok(serde_json::Value::Object(map)) => map,
+            Ok(_) => serde_json::Map::new(),
+            Err(e) => {
+                return Err(err(
+                    StatusCode::BAD_REQUEST,
+                    "参数错误",
+                    format!("校园导览请求体不是 JSON 对象: {}", e),
+                ));
+            }
+        }
+    };
+
+    let request_headers = campus_guide_build_signed_headers(&params)?;
+    let remote_url = match query {
+        Some(q) if !q.trim().is_empty() => {
+            format!("{}/{}?{}", CAMPUS_GUIDE_TARGET_BASE, clean_path, q)
+        }
+        _ => format!("{}/{}", CAMPUS_GUIDE_TARGET_BASE, clean_path),
+    };
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建校园导览代理客户端失败: {}", e),
+            )
+        })?;
+
+    let request_body = if body.is_empty() {
+        Bytes::from_static(b"{}")
+    } else {
+        body
+    };
+
+    let upstream = client
+        .request(method, remote_url)
+        .headers(request_headers)
+        .body(request_body.to_vec())
+        .send()
+        .await
+        .map_err(|e| {
+            err(
+                StatusCode::BAD_GATEWAY,
+                "代理错误",
+                format!("校园导览代理请求失败: {}", e),
+            )
+        })?;
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let body_bytes = upstream.bytes().await.unwrap_or_default();
+    let mut response = Response::new(Body::from(body_bytes));
+    *response.status_mut() = status;
+    for (name, value) in upstream_headers.iter() {
+        if towergo_copy_response_header(name.as_str()) {
+            response.headers_mut().insert(name.clone(), value.clone());
+        }
+    }
+    Ok(response)
+}
+
+#[derive(Debug, Deserialize)]
+struct CampusGuideDebugProbeRequest {
+    scenic_id: Option<String>,
+    path: Option<String>,
+    field: Option<Vec<String>>,
+    #[serde(default)]
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
+struct CampusGuideUpstreamProbe {
+    remote_url: String,
+    serialized_params: String,
+    ts: i64,
+    sign: String,
+    http_status: u16,
+    body_text: String,
+    parsed: Option<serde_json::Value>,
+}
+
+async fn campus_guide_probe_upstream(
+    path: &str,
+    mut params: serde_json::Map<String, serde_json::Value>,
+) -> Result<CampusGuideUpstreamProbe, String> {
+    let clean_path = path.trim_start_matches('/');
+    if clean_path.is_empty() || clean_path.contains("..") {
+        return Err("校园导览调试路径非法".to_string());
+    }
+
+    let ts = chrono::Utc::now().timestamp();
+    let sign = campus_guide_compute_sign(&params, ts);
+    let serialized_params = campus_guide_serialize_params(&params);
+    let remote_url = format!("{}/{}", CAMPUS_GUIDE_TARGET_BASE, clean_path);
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("创建校园导览调试客户端失败: {}", e))?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        HeaderName::from_static("app"),
+        HeaderValue::from_static(CAMPUS_GUIDE_APP),
+    );
+    headers.insert(
+        HeaderName::from_static("content-type"),
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        HeaderName::from_static("accept"),
+        HeaderValue::from_static("application/json, text/plain, */*"),
+    );
+    headers.insert(
+        HeaderName::from_static("ts"),
+        HeaderValue::from_str(&ts.to_string())
+            .map_err(|e| format!("校园导览调试时间戳无效: {}", e))?,
+    );
+    headers.insert(
+        HeaderName::from_static("sign"),
+        HeaderValue::from_str(&sign).map_err(|e| format!("校园导览调试签名无效: {}", e))?,
+    );
+
+    let body = serde_json::Value::Object(std::mem::take(&mut params));
+    let upstream = client
+        .post(&remote_url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("校园导览调试请求失败: {}", e))?;
+
+    let http_status = upstream.status().as_u16();
+    let body_text = upstream
+        .text()
+        .await
+        .unwrap_or_else(|_| String::from("<empty>"));
+    let parsed = serde_json::from_str::<serde_json::Value>(&body_text).ok();
+
+    Ok(CampusGuideUpstreamProbe {
+        remote_url,
+        serialized_params,
+        ts,
+        sign,
+        http_status,
+        body_text,
+        parsed,
+    })
+}
+
+fn campus_guide_debug_summarize(probe: &CampusGuideUpstreamProbe) -> serde_json::Value {
+    let api_code = probe
+        .parsed
+        .as_ref()
+        .and_then(|value| value.get("code"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let api_msg = probe
+        .parsed
+        .as_ref()
+        .and_then(|value| value.get("msg").or_else(|| value.get("message")))
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let data_keys = probe
+        .parsed
+        .as_ref()
+        .and_then(|value| value.get("data"))
+        .and_then(|data| data.as_object())
+        .map(|obj| {
+            let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+            keys.sort_unstable();
+            keys
+        })
+        .unwrap_or_default();
+
+    serde_json::json!({
+        "http_status": probe.http_status,
+        "api_code": api_code,
+        "api_msg": api_msg,
+        "data_keys": data_keys,
+        "success": api_code == serde_json::json!(0) || api_code == serde_json::json!("0"),
+    })
+}
+
+async fn campus_guide_debug_probe(
+    Json(req): Json<CampusGuideDebugProbeRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let scenic_id = req
+        .scenic_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("48770");
+    let path = req
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("guide/v1/scenic/info");
+
+    let mut params = req.extra;
+    params.insert(
+        "scenic_id".to_string(),
+        serde_json::Value::String(scenic_id.to_string()),
+    );
+    if let Some(field) = req.field {
+        params.insert("field".to_string(), serde_json::json!(field));
+    }
+
+    let probe = campus_guide_probe_upstream(path, params)
+        .await
+        .map_err(|message| err(StatusCode::BAD_GATEWAY, "代理错误", message))?;
+
+    Ok(ok(serde_json::json!({
+        "path": path,
+        "scenic_id": scenic_id,
+        "serialized_params": probe.serialized_params,
+        "ts": probe.ts,
+        "sign": probe.sign,
+        "remote_url": probe.remote_url,
+        "summary": campus_guide_debug_summarize(&probe),
+        "upstream_body": probe.body_text,
+    })))
+}
+
+async fn campus_guide_debug_field_matrix(
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let scenic_id = "48770";
+    let candidates: Vec<(&str, Vec<&str>)> = vec![
+        (
+            "mini_program_main",
+            vec!["basic", "ticket_info", "aoi", "bus_road_list"],
+        ),
+        (
+            "legacy_broken",
+            vec![
+                "basic",
+                "tags",
+                "notice",
+                "bus_road_list",
+                "tour_road_list",
+                "aoi",
+            ],
+        ),
+        ("notice_only", vec!["notice"]),
+        ("tour_road_only", vec!["tour_road_list"]),
+    ];
+
+    let mut results = Vec::new();
+    for (label, field) in candidates {
+        let mut params = serde_json::Map::new();
+        params.insert(
+            "scenic_id".to_string(),
+            serde_json::Value::String(scenic_id.to_string()),
+        );
+        params.insert("field".to_string(), serde_json::json!(field));
+
+        match campus_guide_probe_upstream("guide/v1/scenic/info", params).await {
+            Ok(probe) => {
+                results.push(serde_json::json!({
+                    "label": label,
+                    "field": field,
+                    "summary": campus_guide_debug_summarize(&probe),
+                    "serialized_params": probe.serialized_params,
+                }));
+            }
+            Err(message) => {
+                results.push(serde_json::json!({
+                    "label": label,
+                    "field": field,
+                    "error": message,
+                }));
+            }
+        }
+    }
+
+    Ok(ok(serde_json::json!({
+        "scenic_id": scenic_id,
+        "path": "guide/v1/scenic/info",
+        "results": results,
+    })))
+}
+
 async fn towergo_proxy(
     method: Method,
     Path(path): Path<String>,
@@ -3330,6 +3747,53 @@ async fn towergo_proxy(
             response.headers_mut().insert(name.clone(), value.clone());
         }
     }
+    Ok(response)
+}
+
+async fn campus_map_direction_proxy(
+    RawQuery(query): RawQuery,
+) -> Result<Response, (StatusCode, Json<ApiResponse<serde_json::Value>>)> {
+    let query_text = query.unwrap_or_default();
+    if query_text.trim().is_empty() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "缺少 from/to 参数".to_string(),
+        ));
+    }
+    let remote_url = format!(
+        "{}?{}&key={}",
+        CAMPUS_MAP_DIRECTION_BASE, query_text, CAMPUS_MAP_QQ_KEY
+    );
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "系统错误",
+                format!("创建校园地图代理客户端失败: {}", e),
+            )
+        })?;
+
+    let upstream = client.get(remote_url).send().await.map_err(|e| {
+        err(
+            StatusCode::BAD_GATEWAY,
+            "代理错误",
+            format!("校园地图路线代理请求失败: {}", e),
+        )
+    })?;
+
+    let status = upstream.status();
+    let body_bytes = upstream.bytes().await.unwrap_or_default();
+    let mut response = Response::new(Body::from(body_bytes));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        HeaderName::from_static("content-type"),
+        HeaderValue::from_static("application/json; charset=utf-8"),
+    );
     Ok(response)
 }
 
