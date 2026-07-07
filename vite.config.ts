@@ -105,6 +105,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:4399',
         changeOrigin: true
       },
+      '/campus-guide': {
+        target: 'http://127.0.0.1:4399',
+        changeOrigin: true
+      },
+      '/campus-guide-debug': {
+        target: 'http://127.0.0.1:4399',
+        changeOrigin: true
+      },
       '/school-website': {
         target: 'http://127.0.0.1:4399',
         changeOrigin: true
