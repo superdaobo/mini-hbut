@@ -141,6 +141,8 @@ jobs:
           exit 1
 
       - name: Build website
+        env:
+          GITHUB_PAGES: 'true'
         run: |
           cd website
           npm ci --prefer-offline --no-audit --no-fund

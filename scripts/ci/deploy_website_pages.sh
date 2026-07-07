@@ -14,6 +14,8 @@ fi
 
 DEPLOY="$(mktemp -d)"
 cp -r website/dist/. "$DEPLOY/"
+# Jekyll 会忽略下划线前缀目录（如 _next/），必须禁用。
+touch "$DEPLOY/.nojekyll"
 cd "$DEPLOY"
 git init -q
 git config user.name "github-actions[bot]"
