@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: sync-main-to-dev
@@ -23,6 +24,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge main into dev
+        id: merge
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -30,8 +32,16 @@ jobs:
           git fetch origin main dev
           if git merge-base --is-ancestor origin/main origin/dev; then
             echo "dev already contains main; skip"
+            echo "dev_pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git checkout -B dev origin/dev
           git merge origin/main -m "chore(ci): auto-sync main into dev"
           git push origin dev
+          echo "dev_pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Dev Build after sync push
+        if: steps.merge.outputs.dev_pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run "Dev Build" --ref dev
