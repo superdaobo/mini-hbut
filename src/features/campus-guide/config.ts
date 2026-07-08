@@ -8,6 +8,7 @@ export const CAMPUS_GUIDE_CONFIG = Object.freeze({
   customLayerId: '6913dc019029',
   themeColor: '#0074CF',
   apiBase: '/campus-guide',
+  localBridgeBaseUrl: 'http://127.0.0.1:4399/campus-guide',
   minZoom: 15,
   maxZoom: 20,
   defaultZoom: 16,
@@ -18,6 +19,15 @@ export const CAMPUS_GUIDE_CONFIG = Object.freeze({
   markerDodge: false,
   cdnBase: 'https://industry.map.qq.com/cloud/hugongda/2022/09/05'
 })
+
+export const resolveCampusGuideBaseUrl = () => {
+  const win = typeof window === 'undefined' ? null : window as Window & {
+    __TAURI_INTERNALS__?: unknown
+    __TAURI__?: unknown
+  }
+  if (win?.__TAURI_INTERNALS__ || win?.__TAURI__) return CAMPUS_GUIDE_CONFIG.localBridgeBaseUrl
+  return CAMPUS_GUIDE_CONFIG.apiBase
+}
 
 const GUIDE_MODE_KEY = 'campus_guide_use_tencent'
 

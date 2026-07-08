@@ -51,4 +51,15 @@ describe('campus guide bridge contract', () => {
     expect(home).toContain('openYunyou')
     expect(home).toContain('openPunch')
   })
+
+  it('resolves campus-guide API base through tauri loopback bridge on mobile', () => {
+    const config = read('src/features/campus-guide/config.ts')
+    const client = read('src/features/campus-guide/api/wisdom_client.ts')
+
+    expect(config).toContain("localBridgeBaseUrl: 'http://127.0.0.1:4399/campus-guide'")
+    expect(config).toContain('resolveCampusGuideBaseUrl')
+    expect(config).toContain('__TAURI_INTERNALS__')
+    expect(client).toContain('resolveCampusGuideBaseUrl')
+    expect(client).not.toContain('CAMPUS_GUIDE_CONFIG.apiBase.replace')
+  })
 })
