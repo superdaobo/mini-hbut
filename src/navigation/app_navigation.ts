@@ -13,13 +13,14 @@ export const ME_SUB_VIEWS = [
   'service_stats',
   'school_website',
   'quick_links',
+  'campus_network',
   'more',
   'more_module_host',
   'more_chaoxing_checkin'
 ] as const
 
 /** 需登录后才能访问的「我的」子页面 */
-export const LOGIN_REQUIRED_ME_VIEWS = ['school_website', 'quick_links'] as const
+export const LOGIN_REQUIRED_ME_VIEWS = ['school_website', 'quick_links', 'campus_network'] as const
 
 export const isLoginRequiredView = (view: unknown): boolean => {
   const normalized = String(view || '').trim()
@@ -39,6 +40,7 @@ export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Ob
   service_stats: 'me',
   school_website: 'me',
   quick_links: 'me',
+  campus_network: 'me',
   more: 'me',
   more_module_host: 'more',
   more_chaoxing_checkin: 'more'

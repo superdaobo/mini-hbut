@@ -25,3 +25,4 @@ pub mod training_plan;
 pub mod transaction;
 pub mod usage_stats;
 pub mod weather;
+pub mod campus_network;

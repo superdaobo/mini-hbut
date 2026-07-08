@@ -9,6 +9,7 @@ import { initFontSettings } from './utils/font_settings'
 import { initThemeBridge } from './utils/theme-bridge'
 import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
+import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 import { invokeNative, isTauriRuntime } from './platform/native'
 
@@ -70,6 +71,14 @@ const runDeferredInitializers = () => {
         })
       } catch (error) {
         console.warn('[BackgroundFetch] check failed:', taskId, error)
+      }
+      try {
+        await runCampusNetworkAutoLogin({
+          studentId,
+          reason: reason || 'background-fetch'
+        })
+      } catch (error) {
+        console.warn('[BackgroundFetch] campus network failed:', taskId, error)
       }
     }).catch((error) => {
       console.warn('[Bootstrap] background fetch init failed:', error)

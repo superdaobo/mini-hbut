@@ -67,7 +67,7 @@ npm run tauri dev
 
 ### 5. 首次启动校验
 
-1. 打开 Mini-HBUT，确认首页可加载（不应出现 `localhost:1420` 或 `tauri://localhost` 错误）。
+1. 打开 Mini-HBUT，确认首页可加载（不应出现 `localhost:15173` 或 `tauri://localhost` 错误）。
 2. 登录后测试：
    - 电费查询
    - 交易记录
@@ -79,7 +79,7 @@ npm run tauri dev
   - 重新信任证书并在 SideStore 刷新签名。
 - 提示 “AFC was unable to manage files / invalid pairing”：
   - 重新完成手机与电脑配对，再重试 SideStore 刷新。
-- 提示打开即请求 `localhost:1420`：
+- 提示打开即请求 `localhost:15173`：
   - 使用最新 Release 的 IPA，旧包可能是开发模式构建。
 
 ## 说明：缓存与导出目录

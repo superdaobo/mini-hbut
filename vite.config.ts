@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import { DEFAULT_DEV_HOST, resolveDevPort } from './scripts/dev_port.mjs'
 
 // 读取 package.json 中的版本号
 import { readFileSync } from 'fs'
@@ -85,9 +86,10 @@ export default defineConfig({
   },
   clearScreen: false,
   server: {
-    port: 1420,
+    // 1420: Windows Hyper-V 保留段；5173: 易与其他 Vite 冲突 → 默认 15173（见 scripts/dev_port.mjs）
+    port: resolveDevPort(),
     strictPort: true,
-    host: true,
+    host: process.env.VITE_DEV_HOST || DEFAULT_DEV_HOST,
     watch: {
       ignored: ["**/src-tauri/**"],
     },

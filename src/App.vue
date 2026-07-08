@@ -85,6 +85,7 @@ import {
 import { isCapacitorRuntime } from './platform/native'
 import { platformBridge } from './platform'
 import { resolveNotificationActionTarget } from './platform/notification_actions'
+import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 
 const createAsyncPage = (loader) => defineAsyncComponent({
   loader,
@@ -117,6 +118,7 @@ const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')
 const loadSchoolWebsiteView = () => import('./components/SchoolWebsiteView.vue')
 const loadQuickLinksView = () => import('./components/QuickLinksView.vue')
+const loadCampusNetworkView = () => import('./components/CampusNetworkView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
 const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
@@ -158,6 +160,7 @@ const ExportCenterView = createAsyncPage(loadExportCenterView)
 const ServiceStatsView = createAsyncPage(loadServiceStatsView)
 const SchoolWebsiteView = createAsyncPage(loadSchoolWebsiteView)
 const QuickLinksView = createAsyncPage(loadQuickLinksView)
+const CampusNetworkView = createAsyncPage(loadCampusNetworkView)
 const MoreView = createAsyncPage(loadMoreView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
 const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
@@ -223,6 +226,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   service_stats: loadServiceStatsView,
   school_website: loadSchoolWebsiteView,
   quick_links: loadQuickLinksView,
+  campus_network: loadCampusNetworkView,
   more: loadMoreView,
   more_module_host: loadMoreModuleHostView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
@@ -1251,6 +1255,12 @@ const handleAppResume = (source = 'visibilitychange') => {
   if (studentId.value) {
     scheduleWidgetCrossDayTimer()
   }
+  void runCampusNetworkAutoLogin({
+    studentId: studentId.value,
+    reason: source
+  }).catch((error) => {
+    console.warn('[CampusNetwork] auto login failed:', error)
+  })
 }
 
 const handleVisibilityChange = () => {
@@ -2909,6 +2919,12 @@ onMounted(async () => {
   window.setTimeout(() => { autoCheckUpdate() }, 1500)
   initUsageTracker({ studentId: studentId.value })
   startUsageUploadScheduler(() => studentId.value)
+  void runCampusNetworkAutoLogin({
+    studentId: studentId.value,
+    reason: 'app-boot'
+  }).catch((error) => {
+    console.warn('[CampusNetwork] boot auto login failed:', error)
+  })
   console.timeEnd('[Boot] total')
 
   // Capacitor 环境注册原生 appStateChange 事件（补充浏览器 visibilitychange 的盲区）
@@ -3118,6 +3134,12 @@ onBeforeUnmount(() => {
 
       <QuickLinksView
         v-else-if="currentView === 'quick_links' && isLoggedIn"
+        @back="handleBackToMe"
+      />
+
+      <CampusNetworkView
+        v-else-if="currentView === 'campus_network' && isLoggedIn"
+        :student-id="studentId"
         @back="handleBackToMe"
       />
 
