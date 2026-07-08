@@ -14,6 +14,8 @@ fi
 
 DEPLOY="$(mktemp -d)"
 cp -r website/dist/. "$DEPLOY/"
+# EdgeOne 在 website-pages 分支可能执行默认 npm install；提供占位 package.json 避免 ENOENT（对齐 v1.4.2）。
+echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
 # Jekyll 会忽略下划线前缀目录（如 _next/），必须禁用。
 touch "$DEPLOY/.nojekyll"
 cd "$DEPLOY"

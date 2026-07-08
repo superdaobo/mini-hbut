@@ -937,8 +937,6 @@ jobs:
           node scripts/build_website_modules.mjs
 
       - name: Build website
-        env:
-          GITHUB_PAGES: 'true'
         run: |
           cd website
           npm ci --prefer-offline --no-audit --no-fund
