@@ -1,4 +1,4 @@
-import { CAMPUS_GUIDE_CONFIG } from '../config'
+import { resolveCampusGuideBaseUrl } from '../config'
 import type { WisdomApiResponse } from '../types'
 import { CAMPUS_GUIDE_ENDPOINTS } from './endpoints'
 
@@ -18,7 +18,7 @@ export class WisdomApiError extends Error {
 }
 
 const joinUrl = (path: string) => {
-  const base = CAMPUS_GUIDE_CONFIG.apiBase.replace(/\/$/, '')
+  const base = resolveCampusGuideBaseUrl().replace(/\/$/, '')
   const normalized = path.startsWith('/') ? path : `/${path}`
   return `${base}${normalized}`
 }
