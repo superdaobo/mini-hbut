@@ -249,7 +249,9 @@ jobs:
 
       - name: Generate, sync, and verify Android launcher icons
         run: |
-          python -m pip install --quiet Pillow
+          set -euo pipefail
+          PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
+          pip install --quiet Pillow
           python scripts/fix_android_adaptive_icons.py
           node scripts/sync_tauri_platform_icons.mjs android
           npx vitest run src/utils/android_launcher_icon_contract.spec.ts
@@ -444,8 +446,10 @@ jobs:
 
       - name: Regenerate and verify official desktop icons
         run: |
-          python3 -m pip install Pillow
-          python3 scripts/regenerate_official_icons.py
+          set -euo pipefail
+          source scripts/ci/setup_python_venv.sh
+          pip install --quiet Pillow
+          python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build macOS app (universal, app only)
@@ -561,7 +565,8 @@ jobs:
           console.log('Patched tauri.conf.json for iOS CI.');
           NODE
 
-          python -m pip install --quiet Pillow
+          PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
+          pip install --quiet Pillow
           python scripts/fix_ios_app_icons.py
           npx vitest run src/utils/ios_launcher_icon_contract.spec.ts
 
@@ -732,8 +737,10 @@ jobs:
 
       - name: Regenerate and verify official desktop icons
         run: |
-          python3 -m pip install Pillow
-          python3 scripts/regenerate_official_icons.py
+          set -euo pipefail
+          source scripts/ci/setup_python_venv.sh
+          pip install --quiet Pillow
+          python scripts/regenerate_official_icons.py
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build Linux app
