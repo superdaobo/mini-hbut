@@ -1,6 +1,6 @@
 {
   "installCommand": "cd website && npm ci",
-  "buildCommand": "node scripts/build_website_modules.mjs && cd website && npm run build",
+  "buildCommand": "node scripts/restore_website_cdn_assets.mjs && MODULE_MERGE_CATALOG=1 node scripts/build_website_modules.mjs && cd website && npm run build",
   "outputDirectory": "website/dist",
   "nodeVersion": "22.17.1"
 }
