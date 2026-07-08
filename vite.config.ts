@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
+import { TAURI_DEV_VITE_PORT } from './scripts/tauri_dev_port.mjs'
 
 // 读取 package.json 中的版本号
 import { readFileSync } from 'fs'
@@ -85,9 +86,9 @@ export default defineConfig({
   },
   clearScreen: false,
   server: {
-    port: 1420,
+    port: TAURI_DEV_VITE_PORT,
     strictPort: true,
-    host: true,
+    host: '127.0.0.1',
     watch: {
       ignored: ["**/src-tauri/**"],
     },

@@ -52,6 +52,7 @@ const filterMinBattery = ref(0)
 
 let refreshTimer: number | null = null
 let mapErrorHandler: ((e: ErrorEvent) => void) | null = null
+let activeScanToken = 0
 
 // ── computed ──────────────────────────────────────────────────────
 const nearestVehicle = computed(() => vehicles.value[0] || null)
@@ -217,9 +218,11 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
   scanProgress.value = { done: 0, total: scanPoints.length, unique: 0 }
 
   let lastProgressUpdate = 0
+  const token = activeScanToken
   const concurrency = Math.min(SCAN_CONCURRENCY, scanPoints.length)
   const worker = async () => {
     while (cursor < scanPoints.length) {
+      if (!mapContainerRef.value || token !== activeScanToken) return
       const scanPoint = scanPoints[cursor++]
       try {
         const scanned = await scanNearbyVehicles(scanPoint, sid)
@@ -253,6 +256,7 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
 
 const loadMapData = async (point: TowerGoPoint = currentLocation.value) => {
   if (loadingMap.value) return
+  activeScanToken += 1
   loadingMap.value = true
   selectedVehicle.value = null
   mapErrors.value = []

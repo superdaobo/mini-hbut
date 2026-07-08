@@ -28,15 +28,25 @@ export const wisdomPost = async <T = unknown>(
   body: Record<string, unknown> = {},
   options: WisdomRequestOptions = {}
 ): Promise<T> => {
-  const response = await fetch(joinUrl(path), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json, text/plain, */*'
-    },
-    body: JSON.stringify(body),
-    signal: options.signal
-  })
+  let response: Response
+  try {
+    response = await fetch(joinUrl(path), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/plain, */*'
+      },
+      body: JSON.stringify(body),
+      signal: options.signal
+    })
+  } catch (error) {
+    const message = String((error as Error)?.message || '').toLowerCase()
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+    if (offline || message.includes('failed to fetch') || message.includes('network')) {
+      throw new WisdomApiError('校园导览网络连接失败，请检查网络或稍后重试')
+    }
+    throw new WisdomApiError('校园导览服务暂时不可用，请稍后重试')
+  }
 
   const text = await response.text()
   let payload: WisdomApiResponse<T> | null = null
