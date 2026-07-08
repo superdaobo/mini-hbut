@@ -176,3 +176,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPLOY_MESSAGE: "deploy: sync website from ${{ github.sha }}"
         run: bash scripts/ci/deploy_website_pages.sh
+
+      - name: Sync EdgeOne static website-pages settings
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EDGEONE_API_TOKEN:-}" ]; then
+            echo "EDGEONE_API_TOKEN not configured, skip EdgeOne API sync"
+            exit 0
+          fi
+          node scripts/configure_edgeone_website_pages.mjs

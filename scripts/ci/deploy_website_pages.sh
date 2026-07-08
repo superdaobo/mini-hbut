@@ -14,6 +14,12 @@ fi
 
 DEPLOY="$(mktemp -d)"
 cp -r website/dist/. "$DEPLOY/"
+# EdgeOne 读取仓库根目录 edgeone.json；website-pages 必须带上静态构建配置，覆盖控制台里残留的 main 分支命令。
+if [ -f edgeone.json ]; then
+  cp edgeone.json "$DEPLOY/edgeone.json"
+elif [ -f website/public/edgeone.json ]; then
+  cp website/public/edgeone.json "$DEPLOY/edgeone.json"
+fi
 # EdgeOne 在 website-pages 分支可能执行默认 npm install；提供占位 package.json 避免 ENOENT（对齐 v1.4.2）。
 echo '{"name":"mini-hbut-website","private":true,"scripts":{"build":"echo skip"}}' > "$DEPLOY/package.json"
 # Jekyll 会忽略下划线前缀目录（如 _next/），必须禁用。
