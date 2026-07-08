@@ -165,14 +165,38 @@ jobs:
           set -euo pipefail
           node scripts/build_website_modules.mjs
 
-      - name: Build website
+      - name: Build website (EdgeOne / custom domain)
         run: |
           cd website
           npm ci --prefer-offline --no-audit --no-fund
           npm run build
 
-      - name: Deploy to website-pages branch
+      - name: Deploy to website-pages branch (EdgeOne)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPLOY_MESSAGE: "deploy: sync website from ${{ github.sha }}"
         run: bash scripts/ci/deploy_website_pages.sh
+
+      - name: Build website (GitHub Pages /mini-hbut)
+        run: |
+          cd website
+          rm -rf dist
+          npm ci --prefer-offline --no-audit --no-fund
+          GITHUB_PAGES=true npm run build
+
+      - name: Deploy to gh-pages branch (GitHub Pages)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_MESSAGE: "deploy: github-pages from ${{ github.sha }}"
+        run: bash scripts/ci/deploy_github_pages.sh
+
+      - name: Sync EdgeOne static website-pages settings
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EDGEONE_API_TOKEN:-}" ]; then
+            echo "EDGEONE_API_TOKEN not configured, skip EdgeOne API sync"
+            exit 0
+          fi
+          node scripts/configure_edgeone_website_pages.mjs
