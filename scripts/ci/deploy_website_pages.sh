@@ -1,19 +1,32 @@
 #!/usr/bin/env bash
-# 将 website/dist 内容强制推送到 website-pages 分支根目录（供多个 workflow 复用）。
-# GitHub Pages「Deploy from a branch」仅支持 / 或 /docs，因此不能发布到 dist/ 子目录。
+# 部署静态站点到 website-pages 分支根目录（EdgeOne 自定义域名 hbut.6661111.xyz）。
+#
+# 构建在 CI 完成（website/ 内 npm run build），本脚本只发布产物：
+#   源目录：website/dist/（Next.js export 输出，含 public/ 同步进来的静态资源）
+#   目标分支：website-pages 根目录 /（不是 dist/ 子目录）
+#   EdgeOne：RepoBranch=website-pages，outputDirectory=.，install/build=echo skip
+#
+# 纯网页约 ~130 个文件；modules/ 为游戏 CDN，部署前会裁剪历史版本目录。
+# GitHub Pages（/mini-hbut/ 子路径）请用 deploy_github_pages.sh → gh-pages 分支。
 set -euo pipefail
 
 DEPLOY_MESSAGE="${DEPLOY_MESSAGE:?DEPLOY_MESSAGE is required}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 GITHUB_TOKEN="${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
+DEPLOY_SOURCE_DIR="${DEPLOY_SOURCE_DIR:-website/dist}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-website-pages}"
 
-if [ ! -d website/dist ]; then
-  echo "ERROR: website/dist not found"
+if [ ! -d "$DEPLOY_SOURCE_DIR" ]; then
+  echo "ERROR: $DEPLOY_SOURCE_DIR not found"
   exit 1
 fi
 
+if [ -d "$DEPLOY_SOURCE_DIR/modules" ]; then
+  node scripts/prune_website_module_versions.mjs "$DEPLOY_SOURCE_DIR/modules"
+fi
+
 DEPLOY="$(mktemp -d)"
-cp -r website/dist/. "$DEPLOY/"
+cp -r "$DEPLOY_SOURCE_DIR/." "$DEPLOY/"
 # EdgeOne 读取仓库根目录 edgeone.json；website-pages 必须带上静态构建配置，覆盖控制台里残留的 main 分支命令。
 if [ -f edgeone.json ]; then
   cp edgeone.json "$DEPLOY/edgeone.json"
@@ -30,5 +43,5 @@ git config user.name "github-actions[bot]"
 git config user.email "github-actions[bot]@users.noreply.github.com"
 git add -A
 git commit -q -m "$DEPLOY_MESSAGE"
-git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:website-pages
-echo "Deployed website-pages: $DEPLOY_MESSAGE"
+git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:"$DEPLOY_BRANCH"
+echo "Deployed $DEPLOY_BRANCH from $DEPLOY_SOURCE_DIR: $DEPLOY_MESSAGE"
