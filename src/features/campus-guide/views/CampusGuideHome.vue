@@ -9,6 +9,7 @@ import { CAMPUS_GUIDE_CONFIG } from '../config'
 import { CampusMapCore } from '../map/campus-map-core'
 import { CAMPUS_GUIDE_VIEWS } from '../navigation'
 import { playCampusSpeech } from '../services/audio-service'
+import { resolveNavEndPoint } from '../services/navigation-service'
 import { hasSeenYunyouIntro, readYunyouUser } from '../services/phase2-storage'
 import { useCampusGuideStore } from '../store/campus-guide-store'
 import type { CampusSpot } from '../types'
@@ -120,11 +121,7 @@ const closePoiCard = () => {
 
 const startNavigation = () => {
   const spot = activePoi.value
-  const endPoint =
-    spot?.point ||
-    (Number.isFinite(Number(spot?.latitude)) && Number.isFinite(Number(spot?.longitude))
-      ? { latitude: Number(spot?.latitude), longitude: Number(spot?.longitude) }
-      : null)
+  const endPoint = resolveNavEndPoint(spot)
   if (!spot || !endPoint) {
     showToast('该点位缺少坐标，无法导航', 'warning', 1800)
     return
