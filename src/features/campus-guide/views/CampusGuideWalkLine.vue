@@ -6,7 +6,9 @@ import { CampusMapCore } from '../map/campus-map-core'
 import {
   fetchCampusWalkRoute,
   formatWalkDuration,
-  openExternalMapNavigation
+  isValidGeoPoint,
+  openExternalMapNavigation,
+  resolveNavEndPoint
 } from '../services/navigation-service'
 import { useCampusGuideStore } from '../store/campus-guide-store'
 
@@ -18,13 +20,16 @@ const routeText = ref('')
 const loadingRoute = ref(true)
 const routeReady = ref(false)
 
-const endPoint = computed(() => store.navParams.endPoint || store.navParams.spot?.point)
+const endPoint = computed(() => resolveNavEndPoint(store.navParams.spot, store.navParams.endPoint))
 const endName = computed(() => store.navParams.spot?.name || '目的地')
 
 const openExternalNav = async () => {
   const end = endPoint.value
-  if (!end) return
-  const ok = await openExternalMapNavigation(end, endName.value)
+  if (!end || !isValidGeoPoint(end)) {
+    showToast('该点位缺少坐标，无法打开外部地图', 'warning', 2200)
+    return
+  }
+  const ok = await openExternalMapNavigation(end, endName.value, store.userLocation)
   if (!ok) showToast('无法打开外部地图', 'error', 2200)
 }
 

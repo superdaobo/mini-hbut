@@ -4,6 +4,7 @@ import GuidePageLayout from '../components/GuidePageLayout.vue'
 import { showToast } from '../../../utils/toast'
 import { CAMPUS_GUIDE_VIEWS } from '../navigation'
 import { playCampusSpeech } from '../services/audio-service'
+import { resolveNavEndPoint } from '../services/navigation-service'
 import { useCampusGuideStore } from '../store/campus-guide-store'
 
 const emit = defineEmits(['back'])
@@ -40,7 +41,12 @@ onMounted(async () => {
         <button
           type="button"
           class="primary"
-          @click="store.navigateTo(CAMPUS_GUIDE_VIEWS.walkline, { spot: detail, endPoint: detail.point })"
+          @click="
+            store.navigateTo(CAMPUS_GUIDE_VIEWS.walkline, {
+              spot: detail,
+              endPoint: resolveNavEndPoint(detail)
+            })
+          "
         >
           导航
         </button>
