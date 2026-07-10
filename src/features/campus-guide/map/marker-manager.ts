@@ -86,11 +86,17 @@ export const spotToMarkerGeometry = (
   index: number,
   selectedId?: string | number
 ) => {
-  const point = spot.point || {
-    latitude: Number(spot.latitude),
-    longitude: Number(spot.longitude)
-  }
-  if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return null
+  // 兼容 point / latlng / 顶层 latitude·longitude 多种载荷
+  const raw = spot.point || (spot as { latlng?: { latitude?: number; longitude?: number } }).latlng
+  const latitude = Number(
+    raw?.latitude ?? (spot as { latitude?: number }).latitude ?? (spot as { lat?: number }).lat
+  )
+  const longitude = Number(
+    raw?.longitude ?? (spot as { longitude?: number }).longitude ?? (spot as { lng?: number }).lng
+  )
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null
+  const point = { latitude, longitude }
   const id = String(spot.spot_id || index)
   const size = markerSizeByName(spot.name)
   const active = String(selectedId ?? '') === id

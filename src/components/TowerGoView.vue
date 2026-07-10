@@ -5,6 +5,8 @@ import {
   HBUT_LOCATION,
   SCAN_CONCURRENCY,
   SCAN_GRID_SPACING_METERS,
+  SCAN_MAX_POINTS,
+  SCAN_REFRESH_INTERVAL_MS,
   SCAN_REQUEST_DELAY_MS,
   createServiceAreaScanPoints,
   dedupeVehicles,
@@ -91,7 +93,7 @@ const parkingList = computed(() => {
 
 const mapSubtitle = computed(() => {
   if (loadingMap.value && scanProgress.value) {
-    return `全区扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
+    return `附近扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
   }
   if (nearestVehicle.value)
     return `最近车辆 ${nearestVehicle.value.id || nearestVehicle.value.imei}，${formatDistance(nearestVehicle.value.distance)}`
@@ -206,10 +208,13 @@ const scanNearbyVehicles = async (point: TowerGoPoint, sid: string) => {
 }
 
 const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, serviceData: unknown) => {
+  // 附近优先 + 点数上限：避免整区高并发网格打满 WebView
   const scanPoints = createServiceAreaScanPoints({
     serviceData,
     origin: point,
-    spacingMeters: SCAN_GRID_SPACING_METERS
+    spacingMeters: SCAN_GRID_SPACING_METERS,
+    maxPoints: SCAN_MAX_POINTS,
+    nearbyRadiusMeters: 900
   })
   const allVehicles: TowerGoVehicle[] = []
   const errors: string[] = []
@@ -222,22 +227,27 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
   const concurrency = Math.min(SCAN_CONCURRENCY, scanPoints.length)
   const worker = async () => {
     while (cursor < scanPoints.length) {
-      if (!mapContainerRef.value || token !== activeScanToken) return
+      // 离开页面 / 新扫描开始时立即停工
+      if (token !== activeScanToken || !mapContainerRef.value) return
       const scanPoint = scanPoints[cursor++]
       try {
         const scanned = await scanNearbyVehicles(scanPoint, sid)
+        if (token !== activeScanToken) return
         if (scanned.ok) {
           allVehicles.splice(0, allVehicles.length, ...dedupeVehicles([...allVehicles, ...scanned.vehicles], point))
         } else if (scanned.msg) {
           errors.push(scanned.msg)
         }
       } catch (error) {
+        if (token !== activeScanToken) return
         errors.push((error as Error)?.message || '扫描失败')
       }
       done += 1
       const now = Date.now()
       if (now - lastProgressUpdate >= 100 || done === scanPoints.length) {
-        scanProgress.value = { done, total: scanPoints.length, unique: allVehicles.length }
+        if (token === activeScanToken) {
+          scanProgress.value = { done, total: scanPoints.length, unique: allVehicles.length }
+        }
         lastProgressUpdate = now
       }
       if (SCAN_REQUEST_DELAY_MS) await new Promise((resolve) => window.setTimeout(resolve, SCAN_REQUEST_DELAY_MS))
@@ -245,6 +255,9 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
   }
 
   await Promise.all(Array.from({ length: concurrency }, worker))
+  if (token !== activeScanToken) {
+    return { ok: false, msg: '已取消', scanPoints, errors: ['cancelled'], vehicles: [] as TowerGoVehicle[] }
+  }
   return {
     ok: errors.length < scanPoints.length,
     msg: errors[0] || '成功',
@@ -318,8 +331,8 @@ const refreshCurrentArea = async () => {
 const startRefreshTimer = () => {
   stopRefreshTimer()
   refreshTimer = window.setInterval(() => {
-    if (!loadingMap.value) void refreshCurrentArea()
-  }, 120000)
+    if (!loadingMap.value && mapContainerRef.value) void refreshCurrentArea()
+  }, SCAN_REFRESH_INTERVAL_MS)
 }
 
 const stopRefreshTimer = () => {
@@ -327,6 +340,32 @@ const stopRefreshTimer = () => {
     window.clearInterval(refreshTimer)
     refreshTimer = null
   }
+}
+
+/** 离开模块时必须调用：取消扫描、停 timer、销毁地图，避免返回主页仍卡顿。 */
+const teardownTowerGoRuntime = () => {
+  activeScanToken += 1
+  stopRefreshTimer()
+  loadingMap.value = false
+  scanProgress.value = null
+  if (mapErrorHandler) {
+    window.removeEventListener('error', mapErrorHandler, true)
+    mapErrorHandler = null
+  }
+  try {
+    vehicleMarkerLayer.value?.setMap?.(null)
+    centerMarkerLayer.value?.setMap?.(null)
+    fencePolygonLayer.value?.setMap?.(null)
+    vehicleMarkerLayer.value = null
+    centerMarkerLayer.value = null
+    fencePolygonLayer.value = null
+    mapInstance.value?.destroy?.()
+  } catch {
+    // ignore destroy errors
+  }
+  mapInstance.value = null
+  mapDataReady.value = false
+  mapContainerRef.value = null
 }
 
 // 抑制腾讯地图 gljs 在 WebView 下瓦片 Worker 的 DataCloneError 控制台噪声（非阻塞功能）
@@ -377,13 +416,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  stopRefreshTimer()
-  if (mapErrorHandler) window.removeEventListener('error', mapErrorHandler, true)
+  teardownTowerGoRuntime()
   restoreMapWorker()
-  vehicleMarkerLayer.value?.setMap?.(null)
-  centerMarkerLayer.value?.setMap?.(null)
-  fencePolygonLayer.value?.setMap?.(null)
-  mapInstance.value?.destroy?.()
 })
 </script>
 
@@ -440,7 +474,7 @@ onBeforeUnmount(() => {
         </button>
         <button :disabled="loadingMap" @click="refreshCurrentArea">
           <span class="material-symbols-outlined">radar</span>
-          全区扫描
+          刷新附近
         </button>
       </div>
       <!-- 选中车辆浮卡 -->

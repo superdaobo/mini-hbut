@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   HBUT_LOCATION,
+  SCAN_CONCURRENCY,
+  SCAN_GRID_SPACING_METERS,
+  SCAN_MAX_POINTS,
   createServiceAreaScanPoints,
   dedupeVehicles,
   distanceMeters,
@@ -119,15 +122,41 @@ describe('towergo map utilities', () => {
     const dense = createServiceAreaScanPoints({
       serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
       origin: HBUT_LOCATION,
-      spacingMeters: 80
+      spacingMeters: 80,
+      maxPoints: 80
     })
     const sparse = createServiceAreaScanPoints({
       serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
       origin: HBUT_LOCATION,
-      spacingMeters: 160
+      spacingMeters: 160,
+      maxPoints: 80
     })
     expect(dense.length).toBeGreaterThan(4)
     expect(sparse.length).toBeGreaterThan(4)
-    expect(sparse.length).toBeLessThan(dense.length)
+    expect(sparse.length).toBeLessThanOrEqual(dense.length)
+  })
+
+  it('caps scan points for nearby-first low-impact scans', () => {
+    expect(SCAN_CONCURRENCY).toBeLessThanOrEqual(4)
+    expect(SCAN_GRID_SPACING_METERS).toBeGreaterThanOrEqual(150)
+    expect(SCAN_MAX_POINTS).toBeLessThanOrEqual(32)
+
+    const polygon = [
+      { latitude: 30.47, longitude: 114.30 },
+      { latitude: 30.47, longitude: 114.33 },
+      { latitude: 30.50, longitude: 114.33 },
+      { latitude: 30.50, longitude: 114.30 }
+    ]
+    const points = createServiceAreaScanPoints({
+      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
+      origin: HBUT_LOCATION,
+      spacingMeters: SCAN_GRID_SPACING_METERS,
+      maxPoints: SCAN_MAX_POINTS,
+      nearbyRadiusMeters: 900
+    })
+    expect(points.length).toBeGreaterThanOrEqual(4)
+    expect(points.length).toBeLessThanOrEqual(SCAN_MAX_POINTS)
+    // 最近点应为用户原点
+    expect(points[0].latitude).toBeCloseTo(HBUT_LOCATION.latitude, 4)
   })
 })

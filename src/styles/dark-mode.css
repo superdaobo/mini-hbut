@@ -2459,3 +2459,48 @@ html.dark .modal-card .opensource-title-icon {
 html.dark .quick-entry-icon.bg-orange-50 {
   background-color: rgba(249, 115, 22, 0.15) !important;
 }
+
+/* Campus guide POI card — dark mode readable contrast */
+html.dark .campus-poi-card {
+  background: rgba(30, 41, 59, 0.98) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+html.dark .campus-poi-close {
+  color: #94a3b8 !important;
+}
+
+html.dark .campus-poi-head h3 {
+  color: #f8fafc !important;
+}
+
+html.dark .campus-poi-head span {
+  color: #7dd3fc !important;
+}
+
+html.dark .campus-poi-desc {
+  color: #cbd5e1 !important;
+}
+
+html.dark .campus-poi-actions button {
+  background: rgba(15, 23, 42, 0.72) !important;
+  border-color: rgba(125, 211, 252, 0.28) !important;
+  color: #7dd3fc !important;
+}
+
+html.dark .campus-poi-actions button.primary {
+  background: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #fff !important;
+}
+
+html.dark .campus-guide-status {
+  background: rgba(30, 41, 59, 0.94) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .campus-guide-status.is-error {
+  color: #fecaca !important;
+}

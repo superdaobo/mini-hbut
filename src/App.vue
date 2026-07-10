@@ -1247,9 +1247,26 @@ const handleAppResume = (source = 'visibilitychange') => {
     nudgeWebViewPaint(targetView, { verify: false, allowReload: false })
   }
   void restoreViewFromSnapshot(snapshot, { softRemount, source })
+  // 回前台：探测 loopback bridge，并通知内嵌页恢复（官网/模块）
+  void recoverEmbeddedWebAfterResume(targetView, idle)
   // 回前台时重算跨天定时器剩余时间
   if (studentId.value) {
     scheduleWidgetCrossDayTimer()
+  }
+}
+
+const recoverEmbeddedWebAfterResume = async (targetView, idleMs = 0) => {
+  try {
+    const { recoverSchoolWebsiteBridgeOnResume } = await import('./utils/school_website_embed.ts')
+    const bridgeOk = await recoverSchoolWebsiteBridgeOnResume()
+    // 挂后台超过 8s 或 bridge 曾不可达：对官网 / 模块宿主发自定义事件强制 remount
+    if (idleMs >= 8000 || !bridgeOk || targetView === 'school_website' || targetView === 'more_module_host') {
+      window.dispatchEvent(new CustomEvent('hbu-embed-resume', {
+        detail: { view: targetView, bridgeOk, idleMs, source: 'app-resume' }
+      }))
+    }
+  } catch {
+    // ignore resume recovery failures
   }
 }
 

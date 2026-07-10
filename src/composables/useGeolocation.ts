@@ -16,8 +16,12 @@ export function useGeolocation() {
   const lastPosition = ref<GeoPosition | null>(null)
   const lastError = ref('')
 
-  /** 获取当前位置 */
-  async function getCurrentPosition(timeout = 10000): Promise<GeoPosition> {
+  /**
+   * 获取当前位置。
+   * @param timeout 超时 ms
+   * @param maximumAge 允许的缓存年龄 ms；0 表示强制刷新（校园导览 iOS 建议 0）
+   */
+  async function getCurrentPosition(timeout = 10000, maximumAge = 5000): Promise<GeoPosition> {
     if (!available.value) {
       lastError.value = '当前设备不支持定位'
       throw new Error(lastError.value)
@@ -58,7 +62,7 @@ export function useGeolocation() {
         {
           enableHighAccuracy: true,
           timeout,
-          maximumAge: 30000
+          maximumAge: Math.max(0, Number(maximumAge) || 0)
         }
       )
     })

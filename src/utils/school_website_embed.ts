@@ -34,6 +34,17 @@ export const probeSchoolWebsiteProxyReachable = async () => {
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 1500)
+    // 优先 /health（轻量）；失败再探代理路径
+    const healthUrl = LOCAL_BRIDGE_BASE.replace(/\/$/, '') + '/health'
+    try {
+      const health = await fetch(healthUrl, { method: 'GET', signal: controller.signal })
+      if (health.ok) {
+        window.clearTimeout(timer)
+        return true
+      }
+    } catch {
+      // fall through
+    }
     const response = await fetch(SCHOOL_WEBSITE_PROXY_URL, {
       method: 'HEAD',
       signal: controller.signal
@@ -43,6 +54,16 @@ export const probeSchoolWebsiteProxyReachable = async () => {
   } catch {
     return false
   }
+}
+
+/**
+ * 前台恢复时探测 bridge；供 App resume / 官网页 remount 使用。
+ * 返回 true 表示 loopback 可用。
+ */
+export const recoverSchoolWebsiteBridgeOnResume = async (): Promise<boolean> => {
+  if (!isTauriRuntime()) return false
+  if (isLikelyAndroidUserAgent()) return false
+  return probeSchoolWebsiteProxyReachable()
 }
 
 export const resolveSchoolWebsiteEmbedMode = async (): Promise<SchoolWebsiteEmbedMode> => {
