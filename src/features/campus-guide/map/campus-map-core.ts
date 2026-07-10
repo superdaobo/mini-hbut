@@ -200,6 +200,7 @@ export class CampusMapCore {
     const categoryChanged = signature !== this.lastSpotSignature
     this.lastSpotSignature = signature
 
+    // 始终写入 geometries（含空数组）以清掉上一分类残留；无有效坐标时不早退
     if (!categoryChanged && this.markerLayer) {
       this.markerLayer.setStyles?.(styles)
       this.markerLayer.setGeometries?.(geometries)

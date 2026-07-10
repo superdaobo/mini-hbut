@@ -13,7 +13,7 @@
 
 ```bash
 npm ci
-npm run dev              # 前端 Vite（:1420）
+npm run dev              # 前端 Vite（:15173，可用 VITE_DEV_PORT 覆盖，需同步 tauri devUrl）
 npm run tauri dev        # Tauri 桌面开发
 npm run tauri:dev:debug-bridge   # 带 HTTP Bridge 的调试启动
 ```

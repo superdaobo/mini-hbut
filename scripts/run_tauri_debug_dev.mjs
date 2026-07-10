@@ -2,7 +2,9 @@ import net from 'node:net'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 
-const VITE_PORT = Number(process.env.TAURI_DEV_VITE_PORT || 1420)
+import { DEFAULT_DEV_PORT } from './dev_port.mjs'
+
+const VITE_PORT = Number(process.env.TAURI_DEV_VITE_PORT || process.env.VITE_DEV_PORT || DEFAULT_DEV_PORT)
 const BRIDGE_PORT = Number(process.env.TAURI_DEV_BRIDGE_PORT || 4399)
 const HOST = '127.0.0.1'
 

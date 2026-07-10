@@ -5,6 +5,8 @@ import {
   HBUT_LOCATION,
   SCAN_CONCURRENCY,
   SCAN_GRID_SPACING_METERS,
+  SCAN_MAX_POINTS,
+  SCAN_REFRESH_INTERVAL_MS,
   SCAN_REQUEST_DELAY_MS,
   createServiceAreaScanPoints,
   dedupeVehicles,
@@ -91,7 +93,7 @@ const parkingList = computed(() => {
 
 const mapSubtitle = computed(() => {
   if (loadingMap.value && scanProgress.value) {
-    return `全区扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
+    return `附近扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
   }
   if (nearestVehicle.value)
     return `最近车辆 ${nearestVehicle.value.id || nearestVehicle.value.imei}，${formatDistance(nearestVehicle.value.distance)}`
@@ -193,6 +195,79 @@ const selectVehicle = (vehicle: TowerGoVehicle) => {
   if (mapInstance.value && (window as any).TMap) {
     mapInstance.value.setCenter(toTMapLatLng(vehicle))
   }
+  drawRouteToVehicle(vehicle)
+}
+
+let locationWatchId: number | null = null
+let routeLineLayer: any = null
+
+const clearRouteLine = () => {
+  try {
+    routeLineLayer?.setMap?.(null)
+  } catch {
+    // ignore
+  }
+  routeLineLayer = null
+}
+
+const drawRouteToVehicle = (vehicle: TowerGoVehicle | null) => {
+  clearRouteLine()
+  if (!vehicle || !mapInstance.value || !(window as any).TMap) return
+  const TMap = (window as any).TMap
+  const from = toTMapLatLng(currentLocation.value)
+  const to = toTMapLatLng(vehicle)
+  try {
+    routeLineLayer = new TMap.MultiPolyline({
+      map: mapInstance.value,
+      styles: {
+        route: new TMap.PolylineStyle({
+          color: '#007AFF',
+          width: 6,
+          borderWidth: 2,
+          borderColor: '#ffffff',
+          lineCap: 'round'
+        })
+      },
+      geometries: [{ id: 'to-vehicle', styleId: 'route', paths: [from, to] }]
+    })
+  } catch {
+    // MultiPolyline 不可用时忽略
+  }
+}
+
+const startNavigateToSelected = () => {
+  if (!selectedVehicle.value) return
+  drawRouteToVehicle(selectedVehicle.value)
+  stopLocationWatch()
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return
+  locationWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      currentLocation.value = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        name: '当前位置',
+        source: 'system'
+      }
+      updateMapCenter(currentLocation.value)
+      if (selectedVehicle.value) drawRouteToVehicle(selectedVehicle.value)
+    },
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 12000 }
+  )
+}
+
+const stopLocationWatch = () => {
+  if (locationWatchId != null && typeof navigator !== 'undefined' && navigator.geolocation) {
+    navigator.geolocation.clearWatch(locationWatchId)
+  }
+  locationWatchId = null
+}
+
+const stopNavigateToSelected = () => {
+  selectedVehicle.value = null
+  stopLocationWatch()
+  clearRouteLine()
 }
 
 // ── 车辆扫描 ──────────────────────────────────────────────────────
@@ -206,10 +281,13 @@ const scanNearbyVehicles = async (point: TowerGoPoint, sid: string) => {
 }
 
 const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, serviceData: unknown) => {
+  // 附近优先 + 点数上限：避免整区高并发网格打满 WebView
   const scanPoints = createServiceAreaScanPoints({
     serviceData,
     origin: point,
-    spacingMeters: SCAN_GRID_SPACING_METERS
+    spacingMeters: SCAN_GRID_SPACING_METERS,
+    maxPoints: SCAN_MAX_POINTS,
+    nearbyRadiusMeters: 900
   })
   const allVehicles: TowerGoVehicle[] = []
   const errors: string[] = []
@@ -222,22 +300,27 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
   const concurrency = Math.min(SCAN_CONCURRENCY, scanPoints.length)
   const worker = async () => {
     while (cursor < scanPoints.length) {
-      if (!mapContainerRef.value || token !== activeScanToken) return
+      // 离开页面 / 新扫描开始时立即停工
+      if (token !== activeScanToken || !mapContainerRef.value) return
       const scanPoint = scanPoints[cursor++]
       try {
         const scanned = await scanNearbyVehicles(scanPoint, sid)
+        if (token !== activeScanToken) return
         if (scanned.ok) {
           allVehicles.splice(0, allVehicles.length, ...dedupeVehicles([...allVehicles, ...scanned.vehicles], point))
         } else if (scanned.msg) {
           errors.push(scanned.msg)
         }
       } catch (error) {
+        if (token !== activeScanToken) return
         errors.push((error as Error)?.message || '扫描失败')
       }
       done += 1
       const now = Date.now()
       if (now - lastProgressUpdate >= 100 || done === scanPoints.length) {
-        scanProgress.value = { done, total: scanPoints.length, unique: allVehicles.length }
+        if (token === activeScanToken) {
+          scanProgress.value = { done, total: scanPoints.length, unique: allVehicles.length }
+        }
         lastProgressUpdate = now
       }
       if (SCAN_REQUEST_DELAY_MS) await new Promise((resolve) => window.setTimeout(resolve, SCAN_REQUEST_DELAY_MS))
@@ -245,6 +328,9 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
   }
 
   await Promise.all(Array.from({ length: concurrency }, worker))
+  if (token !== activeScanToken) {
+    return { ok: false, msg: '已取消', scanPoints, errors: ['cancelled'], vehicles: [] as TowerGoVehicle[] }
+  }
   return {
     ok: errors.length < scanPoints.length,
     msg: errors[0] || '成功',
@@ -318,8 +404,8 @@ const refreshCurrentArea = async () => {
 const startRefreshTimer = () => {
   stopRefreshTimer()
   refreshTimer = window.setInterval(() => {
-    if (!loadingMap.value) void refreshCurrentArea()
-  }, 120000)
+    if (!loadingMap.value && mapContainerRef.value) void refreshCurrentArea()
+  }, SCAN_REFRESH_INTERVAL_MS)
 }
 
 const stopRefreshTimer = () => {
@@ -327,6 +413,34 @@ const stopRefreshTimer = () => {
     window.clearInterval(refreshTimer)
     refreshTimer = null
   }
+}
+
+/** 离开模块时必须调用：取消扫描、停 timer、销毁地图，避免返回主页仍卡顿。 */
+const teardownTowerGoRuntime = () => {
+  activeScanToken += 1
+  stopRefreshTimer()
+  stopLocationWatch()
+  clearRouteLine()
+  loadingMap.value = false
+  scanProgress.value = null
+  if (mapErrorHandler) {
+    window.removeEventListener('error', mapErrorHandler, true)
+    mapErrorHandler = null
+  }
+  try {
+    vehicleMarkerLayer.value?.setMap?.(null)
+    centerMarkerLayer.value?.setMap?.(null)
+    fencePolygonLayer.value?.setMap?.(null)
+    vehicleMarkerLayer.value = null
+    centerMarkerLayer.value = null
+    fencePolygonLayer.value = null
+    mapInstance.value?.destroy?.()
+  } catch {
+    // ignore destroy errors
+  }
+  mapInstance.value = null
+  mapDataReady.value = false
+  mapContainerRef.value = null
 }
 
 // 抑制腾讯地图 gljs 在 WebView 下瓦片 Worker 的 DataCloneError 控制台噪声（非阻塞功能）
@@ -377,41 +491,28 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  stopRefreshTimer()
-  if (mapErrorHandler) window.removeEventListener('error', mapErrorHandler, true)
+  teardownTowerGoRuntime()
   restoreMapWorker()
-  vehicleMarkerLayer.value?.setMap?.(null)
-  centerMarkerLayer.value?.setMap?.(null)
-  fencePolygonLayer.value?.setMap?.(null)
-  mapInstance.value?.destroy?.()
 })
 </script>
 
 <template>
-  <div class="towergo-view module-page">
-    <TPageHeader icon="electric_bike" title="小塔出行" @back="emit('back')">
-      <template #actions>
-        <button class="tg-icon-btn" :disabled="loadingMap" title="刷新当前区域" @click="refreshCurrentArea">
-          <span class="material-symbols-outlined">refresh</span>
-        </button>
-      </template>
-    </TPageHeader>
-
-    <!-- 概览条 -->
-    <section class="tg-overview">
-      <div class="tg-overview-main">
-        <strong>{{ serviceName }}</strong>
-        <p>{{ mapSubtitle }}</p>
+  <div class="towergo-view towergo-view--fullscreen module-page">
+    <header class="tg-fs-header">
+      <button class="tg-icon-btn" type="button" aria-label="返回" @click="emit('back')">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <div class="tg-fs-title">
+        <strong>小塔出行</strong>
+        <small>{{ mapSubtitle }}</small>
       </div>
-      <div class="tg-overview-stats">
-        <div><strong>{{ vehicles.length }}</strong><span>车辆</span></div>
-        <div><strong>{{ parkingCount }}</strong><span>停车点</span></div>
-        <div><strong>{{ scanProgress?.total || '--' }}</strong><span>扫描点</span></div>
-      </div>
-    </section>
+      <button class="tg-icon-btn" :disabled="loadingMap" title="刷新附近" @click="refreshCurrentArea">
+        <span class="material-symbols-outlined">refresh</span>
+      </button>
+    </header>
 
-    <!-- 分段切换 -->
-    <nav class="tg-tabs">
+    <!-- 分段切换（悬浮） -->
+    <nav class="tg-tabs tg-tabs--overlay">
       <button :class="{ active: activeTab === 'map' }" @click="activeTab = 'map'">
         <span class="material-symbols-outlined">map</span>地图
       </button>
@@ -424,33 +525,34 @@ onBeforeUnmount(() => {
       </button>
     </nav>
 
-    <!-- 地图 -->
-    <section v-show="activeTab === 'map'" class="tg-map-panel">
-      <div ref="mapContainerRef" class="tg-map">
+    <!-- 地图全屏 -->
+    <section v-show="activeTab === 'map'" class="tg-map-panel tg-map-panel--fs">
+      <div ref="mapContainerRef" class="tg-map tg-map--fs">
         <div v-if="mapScriptState === 'fallback' || !mapDataReady" class="map-fallback">
           <span class="material-symbols-outlined">electric_bike</span>
           <strong>{{ currentLocation.name || '湖北工业大学' }}</strong>
           <p>{{ mapErrors[0] || '地图加载中，车辆数据会继续刷新。' }}</p>
         </div>
       </div>
-      <div class="map-toolbar">
+      <div class="map-toolbar map-toolbar--fs">
         <button :disabled="locating || loadingMap" @click="refreshBySystemLocation">
           <span class="material-symbols-outlined">my_location</span>
-          {{ locating ? '定位中' : '系统定位' }}
+          {{ locating ? '定位中' : '定位' }}
         </button>
         <button :disabled="loadingMap" @click="refreshCurrentArea">
           <span class="material-symbols-outlined">radar</span>
-          全区扫描
+          刷新附近
         </button>
       </div>
-      <!-- 选中车辆浮卡 -->
-      <div v-if="selectedVehicle" class="tg-vehicle-pop">
+      <!-- 选中车辆浮卡 + 到车 -->
+      <div v-if="selectedVehicle" class="tg-vehicle-pop tg-vehicle-pop--apple">
         <span class="vehicle-icon material-symbols-outlined">electric_bike</span>
         <div class="pop-main">
           <strong>NO.{{ selectedVehicle.id || selectedVehicle.imei || '--' }}</strong>
           <small>{{ formatDistance(selectedVehicle.distance) }} · 电量 {{ selectedVehicle.battery || '--' }}%</small>
         </div>
-        <button class="pop-close" @click="selectedVehicle = null"><span class="material-symbols-outlined">close</span></button>
+        <button class="pop-nav" type="button" @click="startNavigateToSelected">到这</button>
+        <button class="pop-close" @click="stopNavigateToSelected"><span class="material-symbols-outlined">close</span></button>
       </div>
     </section>
 
@@ -524,6 +626,107 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.towergo-view--fullscreen {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #0b1220;
+}
+
+.tg-fs-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + var(--app-safe-top, env(safe-area-inset-top, 0px))) 12px 10px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), transparent);
+  color: #fff;
+}
+
+.tg-fs-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tg-fs-title strong {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tg-fs-title small {
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tg-tabs--overlay {
+  position: absolute;
+  top: calc(58px + var(--app-safe-top, env(safe-area-inset-top, 0px)));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 28;
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+}
+
+.tg-map-panel--fs {
+  flex: 1;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.tg-map--fs {
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+}
+
+.map-toolbar--fs {
+  bottom: calc(24px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  right: 14px;
+}
+
+.tg-vehicle-pop--apple {
+  left: 12px;
+  right: 12px;
+  bottom: calc(88px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.22);
+}
+
+.tg-vehicle-pop .pop-nav {
+  border: none;
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: #007aff;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .tg-icon-btn,

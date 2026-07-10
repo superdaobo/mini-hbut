@@ -3,6 +3,7 @@ import { encryptData, decryptData } from './encryption.js'
 
 export const HBUT_CREDENTIAL_PREFIX = 'hbut:'
 export const CHAOXING_CREDENTIAL_PREFIX = 'cx:'
+export const CAMPUS_CREDENTIAL_PREFIX = 'campus:'
 
 const webStorageKey = (accountKey) => `cred:${accountKey}`
 
@@ -15,6 +16,10 @@ export function buildHbutAccountKey(username) {
 
 export function buildChaoxingAccountKey(account) {
   return `${CHAOXING_CREDENTIAL_PREFIX}${String(account || '').trim()}`
+}
+
+export function buildCampusAccountKey(username) {
+  return `${CAMPUS_CREDENTIAL_PREFIX}${String(username || '').trim()}`
 }
 
 export function rememberPortalPasswordInMemory(studentId, password) {

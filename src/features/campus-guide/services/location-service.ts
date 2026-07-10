@@ -29,7 +29,8 @@ export const resolveCampusLocation = async (): Promise<GeoPoint> => {
 
   const geo = useGeolocation()
   try {
-    const position = await geo.getCurrentPosition()
+    // 缩短 maximumAge：避免 iOS 把缓存的旧坐标（校外）当成当前
+    const position = await geo.getCurrentPosition(12000, 0)
     return {
       latitude: position.latitude,
       longitude: position.longitude,
@@ -41,7 +42,26 @@ export const resolveCampusLocation = async (): Promise<GeoPoint> => {
   }
 }
 
+/**
+ * 是否在景区内。
+ * - 无 AOI 数据：默认 true（避免误报校外）
+ * - 精度很差（>150m）且点在 AOI 外：仍给 true 并依赖 UI 提示精度差（避免 GPS 抖出校区）
+ * - 正常：严格点内判定
+ */
 export const resolveInsideScenic = (point: GeoPoint, aoiRings: GeoPoint[][]) => {
   if (!aoiRings.length) return true
-  return isPointInAoi(point, aoiRings)
+  const inside = isPointInAoi(point, aoiRings)
+  if (inside) return true
+  const accuracy = Number(point.accuracy)
+  if (Number.isFinite(accuracy) && accuracy > 150) {
+    // 精度不足时不武断判校外（iOS 冷启动常见）
+    return true
+  }
+  // 与校区中心距离 < 2.5km 时，AOI 边界抖动也倾向判在校内
+  const d = Math.hypot(
+    (point.latitude - HBUT_LOCATION.latitude) * 111320,
+    (point.longitude - HBUT_LOCATION.longitude) * 111320 * Math.cos(point.latitude * Math.PI / 180)
+  )
+  if (d < 2500) return true
+  return false
 }

@@ -334,8 +334,19 @@ watch(
   { immediate: true }
 )
 
+const handleAppEmbedResumeEvent = (event) => {
+  const view = String(event?.detail?.view || '')
+  if (view && view !== 'more_module_host') return
+  // 后台恢复：强制换 key remount iframe，并清空错误态
+  loadError.value = ''
+  loadHint.value = ''
+  usedCapacitorLocalFallback.value = false
+  reloadFrame()
+}
+
 onMounted(() => {
   window.addEventListener('message', handleFrameSizeMessage)
+  window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
 })
 
 onBeforeUnmount(() => {
@@ -343,6 +354,7 @@ onBeforeUnmount(() => {
   clearFrameSizeHintTimer()
   clearCapacitorFallbackTimer()
   window.removeEventListener('message', handleFrameSizeMessage)
+  window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
 })
 </script>
 

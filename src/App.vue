@@ -85,6 +85,7 @@ import {
 import { isCapacitorRuntime } from './platform/native'
 import { platformBridge } from './platform'
 import { resolveNotificationActionTarget } from './platform/notification_actions'
+import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 
 const createAsyncPage = (loader) => defineAsyncComponent({
   loader,
@@ -117,6 +118,7 @@ const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')
 const loadSchoolWebsiteView = () => import('./components/SchoolWebsiteView.vue')
 const loadQuickLinksView = () => import('./components/QuickLinksView.vue')
+const loadCampusNetworkView = () => import('./components/CampusNetworkView.vue')
 const loadMoreView = () => import('./components/MoreView.vue')
 const loadMoreModuleHostView = () => import('./components/MoreModuleHostView.vue')
 const loadMoreChaoxingCheckinView = () => import('./components/MoreChaoxingCheckinView.vue')
@@ -158,6 +160,7 @@ const ExportCenterView = createAsyncPage(loadExportCenterView)
 const ServiceStatsView = createAsyncPage(loadServiceStatsView)
 const SchoolWebsiteView = createAsyncPage(loadSchoolWebsiteView)
 const QuickLinksView = createAsyncPage(loadQuickLinksView)
+const CampusNetworkView = createAsyncPage(loadCampusNetworkView)
 const MoreView = createAsyncPage(loadMoreView)
 const MoreModuleHostView = createAsyncPage(loadMoreModuleHostView)
 const MoreChaoxingCheckinView = createAsyncPage(loadMoreChaoxingCheckinView)
@@ -223,6 +226,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   service_stats: loadServiceStatsView,
   school_website: loadSchoolWebsiteView,
   quick_links: loadQuickLinksView,
+  campus_network: loadCampusNetworkView,
   more: loadMoreView,
   more_module_host: loadMoreModuleHostView,
   more_chaoxing_checkin: loadMoreChaoxingCheckinView,
@@ -1247,9 +1251,32 @@ const handleAppResume = (source = 'visibilitychange') => {
     nudgeWebViewPaint(targetView, { verify: false, allowReload: false })
   }
   void restoreViewFromSnapshot(snapshot, { softRemount, source })
+  // 回前台：探测 loopback bridge，并通知内嵌页恢复（官网/模块）
+  void recoverEmbeddedWebAfterResume(targetView, idle)
   // 回前台时重算跨天定时器剩余时间
   if (studentId.value) {
     scheduleWidgetCrossDayTimer()
+  }
+  void runCampusNetworkAutoLogin({
+    studentId: studentId.value,
+    reason: source
+  }).catch((error) => {
+    console.warn('[CampusNetwork] auto login failed:', error)
+  })
+}
+
+const recoverEmbeddedWebAfterResume = async (targetView, idleMs = 0) => {
+  try {
+    const { recoverSchoolWebsiteBridgeOnResume } = await import('./utils/school_website_embed.ts')
+    const bridgeOk = await recoverSchoolWebsiteBridgeOnResume()
+    // 挂后台超过 8s 或 bridge 曾不可达：对官网 / 模块宿主发自定义事件强制 remount
+    if (idleMs >= 8000 || !bridgeOk || targetView === 'school_website' || targetView === 'more_module_host') {
+      window.dispatchEvent(new CustomEvent('hbu-embed-resume', {
+        detail: { view: targetView, bridgeOk, idleMs, source: 'app-resume' }
+      }))
+    }
+  } catch {
+    // ignore resume recovery failures
   }
 }
 
@@ -2924,6 +2951,12 @@ onMounted(async () => {
   window.setTimeout(() => { autoCheckUpdate() }, 1500)
   initUsageTracker({ studentId: studentId.value })
   startUsageUploadScheduler(() => studentId.value)
+  void runCampusNetworkAutoLogin({
+    studentId: studentId.value,
+    reason: 'app-boot'
+  }).catch((error) => {
+    console.warn('[CampusNetwork] boot auto login failed:', error)
+  })
   console.timeEnd('[Boot] total')
 
   // Capacitor 环境注册原生 appStateChange 事件（补充浏览器 visibilitychange 的盲区）
@@ -3133,6 +3166,12 @@ onBeforeUnmount(() => {
 
       <QuickLinksView
         v-else-if="currentView === 'quick_links' && isLoggedIn"
+        @back="handleBackToMe"
+      />
+
+      <CampusNetworkView
+        v-else-if="currentView === 'campus_network' && isLoggedIn"
+        :student-id="studentId"
         @back="handleBackToMe"
       />
 

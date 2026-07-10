@@ -97,6 +97,7 @@ const mountEmbed = async () => {
   const container = frameShellRef.value
   if (!container) return
 
+  await cleanupEmbed()
   embedMode.value = await resolveSchoolWebsiteEmbedMode()
 
   if (embedMode.value === 'external-open') {
@@ -129,13 +130,47 @@ const mountEmbed = async () => {
   resetIframeState()
 }
 
+/** 后台恢复：重新探测 bridge 并 remount iframe / native embed */
+const remountAfterResume = async () => {
+  loading.value = true
+  loadError.value = ''
+  loadHint.value = ''
+  await cleanupEmbed()
+  await nextTick()
+  await mountEmbed()
+}
+
+const handleRetryEmbed = () => {
+  void remountAfterResume()
+}
+
+const handleVisibilityForEmbed = () => {
+  if (document.hidden) return
+  // 仅在已有错误或 proxy 模式时自动恢复，避免无意义重载
+  if (loadError.value || embedMode.value === 'proxy-iframe') {
+    void remountAfterResume()
+  }
+}
+
+const handleAppEmbedResumeEvent = (event) => {
+  const view = String(event?.detail?.view || '')
+  if (view && view !== 'school_website') return
+  void remountAfterResume()
+}
+
 onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityForEmbed)
+  window.addEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
   void nextTick().then(() => mountEmbed())
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityForEmbed)
+  window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
   void cleanupEmbed()
 })
+
+defineExpose({ remountAfterResume })
 </script>
 
 <template>
@@ -161,7 +196,10 @@ onBeforeUnmount(() => {
 
       <div v-if="loadError" class="frame-message frame-message--error">
         <p>{{ loadError }}</p>
-        <button class="external-open-btn" type="button" @click="handleOpenExternal">在浏览器中打开</button>
+        <div class="frame-message-actions">
+          <button class="external-open-btn" type="button" @click="handleRetryEmbed">重试加载</button>
+          <button class="external-open-btn" type="button" @click="handleOpenExternal">在浏览器中打开</button>
+        </div>
       </div>
 
       <div v-else-if="loadHint" class="frame-message frame-message--hint">

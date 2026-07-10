@@ -39,13 +39,13 @@ pub fn delete_password(student_id: &str) {
     }
 }
 
-/// 校验前端「记住密码」账户键（`hbut:` 学号 / `cx:` 学习通账号）。
+/// 校验前端「记住密码」账户键（`hbut:` 学号 / `cx:` 学习通 / `campus:` 校园网）。
 fn validate_account_key(account_key: &str) -> Result<(), String> {
     let key = account_key.trim();
     if key.is_empty() || key.len() > 128 {
         return Err("账户键无效".to_string());
     }
-    if !(key.starts_with("hbut:") || key.starts_with("cx:")) {
+    if !(key.starts_with("hbut:") || key.starts_with("cx:") || key.starts_with("campus:")) {
         return Err("账户键格式无效".to_string());
     }
     if !key
@@ -124,6 +124,12 @@ mod tests {
         delete_password(&sid);
         delete_password(&account_key);
         assert!(load_remembered_credential(&account_key).is_none());
+    }
+
+    #[test]
+    fn campus_account_key_is_valid() {
+        assert!(validate_account_key("campus:2024123456").is_ok());
+        assert!(validate_account_key("invalid:2024").is_err());
     }
 
     fn uuid_placeholder() -> String {

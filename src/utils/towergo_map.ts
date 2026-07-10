@@ -25,9 +25,16 @@ export const HBUT_LOCATION: TowerGoPoint = {
   longitude: 114.313
 }
 
-export const SCAN_GRID_SPACING_METERS = 120
-export const SCAN_CONCURRENCY = 8
-export const SCAN_REQUEST_DELAY_MS = 30
+/** 默认网格间距（米）。越大请求越少；附近优先策略下再配合 maxScanPoints。 */
+export const SCAN_GRID_SPACING_METERS = 180
+/** 并发拉取车辆上限，避免 WebView 主线程与网络打满。 */
+export const SCAN_CONCURRENCY = 3
+/** 单次请求间隔（ms）。 */
+export const SCAN_REQUEST_DELAY_MS = 80
+/** 单次扫描最多探测点数（含原点/中心）。超出时保留距用户最近的点。 */
+export const SCAN_MAX_POINTS = 24
+/** 定时刷新间隔（ms）：仅刷新附近，不整区打爆。 */
+export const SCAN_REFRESH_INTERVAL_MS = 180_000
 
 const toNumber = (value: unknown) => {
   const num = Number(value)
@@ -186,11 +193,16 @@ export const dedupeScanPoints = (points: unknown[]) => {
 export const createServiceAreaScanPoints = ({
   serviceData,
   origin = HBUT_LOCATION,
-  spacingMeters = SCAN_GRID_SPACING_METERS
+  spacingMeters = SCAN_GRID_SPACING_METERS,
+  maxPoints = SCAN_MAX_POINTS,
+  /** 仅扫描用户附近半径（米）；默认 900m 附近优先，避免整区打爆。 */
+  nearbyRadiusMeters = 900
 }: {
   serviceData?: unknown
   origin?: TowerGoPoint
   spacingMeters?: number
+  maxPoints?: number
+  nearbyRadiusMeters?: number
 }) => {
   const loc = normalizePoint(origin) || HBUT_LOCATION
   const polygon = getServiceAreaPolygon(serviceData)
@@ -199,55 +211,53 @@ export const createServiceAreaScanPoints = ({
     longitude: (serviceData as Record<string, unknown> | undefined)?.centerLng
   }) || loc
 
-  // Determine scan bounding box
-  let minLat: number
-  let maxLat: number
-  let minLng: number
-  let maxLng: number
-  let effectiveSpacing: number
+  // Determine scan bounding box（优先用户附近方框，而不是整片服务区）
+  const nearbyDeg = Math.max(200, Number(nearbyRadiusMeters) || 900) / 111320
+  let minLat = loc.latitude - nearbyDeg
+  let maxLat = loc.latitude + nearbyDeg
+  let minLng = loc.longitude - nearbyDeg / Math.max(0.1, Math.cos(loc.latitude * Math.PI / 180))
+  let maxLng = loc.longitude + nearbyDeg / Math.max(0.1, Math.cos(loc.latitude * Math.PI / 180))
+  let effectiveSpacing = Math.max(80, Number(spacingMeters) || SCAN_GRID_SPACING_METERS)
 
   if (polygon.length >= 3) {
-    // ── Polygon available: use its bounds expanded by 30% ──────
+    // 与服务区求交：不超过服务区外包矩形
     const lats = polygon.map((point) => point.latitude)
     const lngs = polygon.map((point) => point.longitude)
-    minLat = Math.min(...lats)
-    maxLat = Math.max(...lats)
-    minLng = Math.min(...lngs)
-    maxLng = Math.max(...lngs)
-    const latPad = Math.max((maxLat - minLat) * 0.2, 0.003)
-    const lngPad = Math.max((maxLng - minLng) * 0.2, 0.003)
-    minLat -= latPad
-    maxLat += latPad
-    minLng -= lngPad
-    maxLng += lngPad
-    effectiveSpacing = Math.max(60, Number(spacingMeters) || SCAN_GRID_SPACING_METERS)
+    const polyMinLat = Math.min(...lats)
+    const polyMaxLat = Math.max(...lats)
+    const polyMinLng = Math.min(...lngs)
+    const polyMaxLng = Math.max(...lngs)
+    minLat = Math.max(minLat, polyMinLat)
+    maxLat = Math.min(maxLat, polyMaxLat)
+    minLng = Math.max(minLng, polyMinLng)
+    maxLng = Math.min(maxLng, polyMaxLng)
+    if (minLat > maxLat || minLng > maxLng) {
+      minLat = polyMinLat
+      maxLat = polyMaxLat
+      minLng = polyMinLng
+      maxLng = polyMaxLng
+    }
   } else {
-    // ── No polygon: cover ~3 km radius around center ──────────
-    const range = 0.027 // roughly 3 km in each direction
-    minLat = center.latitude - range
-    maxLat = center.latitude + range
-    minLng = center.longitude - range
-    maxLng = center.longitude + range
-    // Coarser spacing for wide fallback to keep request count reasonable
-    effectiveSpacing = 200
+    effectiveSpacing = Math.max(effectiveSpacing, 200)
   }
 
   const midLat = (minLat + maxLat) / 2
   const latStep = effectiveSpacing / 111320
   const lngStep = effectiveSpacing / (111320 * Math.max(0.1, Math.cos(midLat * Math.PI / 180)))
 
-  // Build the grid — scan EVERY point in the bounding box, never restrict to polygon interior
   const points: TowerGoPoint[] = [loc, center]
-  for (let lat = minLat; lat <= maxLat; lat += latStep) {
-    for (let lng = minLng; lng <= maxLng; lng += lngStep) {
+  for (let lat = minLat; lat <= maxLat + 1e-12; lat += latStep) {
+    for (let lng = minLng; lng <= maxLng + 1e-12; lng += lngStep) {
       points.push({ latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) })
     }
   }
 
-  return dedupeScanPoints(points).sort((a, b) =>
+  const sorted = dedupeScanPoints(points).sort((a, b) =>
     distanceMeters(loc.latitude, loc.longitude, a.latitude, a.longitude) -
     distanceMeters(loc.latitude, loc.longitude, b.latitude, b.longitude)
   )
+  const limit = Math.max(4, Number(maxPoints) || SCAN_MAX_POINTS)
+  return sorted.slice(0, limit)
 }
 
 export const normalizeVehicles = (data: unknown, origin: TowerGoPoint = HBUT_LOCATION): TowerGoVehicle[] => {
