@@ -51,6 +51,10 @@ describe('grade view header contract', () => {
     expect(appSource).not.toMatch(
       /import\s*\{[^}]*DEFAULT_SWR_OPTIONS[^}]*\}\s*from\s*['"]\.\/utils\/api\.js['"]/
     )
+    // 在线成功后整表替换：清分片再写主缓存，避免学期 key 残留已删除成绩
+    expect(fetchGradesBlock).toContain('clearCacheByPrefix(`grades:${sid}`)')
+    expect(fetchGradesBlock).toContain('setCachedData(`grades:${sid}`, data)')
+    expect(fetchGradesBlock).toContain('setCachedData(`grades:${sid}:${sem}`, { success: true, data: list })')
   })
 
   it('refreshes grades every time the grades view is opened, even when old data exists', () => {

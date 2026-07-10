@@ -2055,7 +2055,22 @@ const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = fal
     )
     lastGradeRefreshUsedOffline.value = !!data?.offline
     if (data?.success && !data.offline) {
+      // 整表替换：先清 grades:{sid}* 学期分片，再写主缓存，避免已删除成绩残留分片被云同步并回。
+      clearCacheByPrefix(`grades:${sid}`)
       setCachedData(`grades:${sid}`, data)
+      if (Array.isArray(data.data)) {
+        const bySem = {}
+        data.data.forEach((item) => {
+          const sem = String(item?.term || item?.xnxq || item?.semester || '').trim()
+          if (!sem) return
+          if (!Array.isArray(bySem[sem])) bySem[sem] = []
+          bySem[sem].push(item)
+        })
+        Object.entries(bySem).forEach(([sem, list]) => {
+          if (!list.length) return
+          setCachedData(`grades:${sid}:${sem}`, { success: true, data: list })
+        })
+      }
     }
     return applyGradesPayload(data)
   } catch (e) {
