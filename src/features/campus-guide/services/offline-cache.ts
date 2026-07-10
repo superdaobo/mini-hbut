@@ -1,8 +1,9 @@
 import { normalizeSpotList } from '../api/normalize'
 import type { CampusSpot, ScenicInfo } from '../types'
 
-const SPOTS_CACHE_PREFIX = 'campus_guide_spots_v1_'
-const META_KEY = 'campus_guide_offline_meta_v1'
+/** bump 后缀使旧 spots 缓存整体失效 */
+const SPOTS_CACHE_PREFIX = 'campus_guide_spots_v2_'
+const META_KEY = 'campus_guide_offline_meta_v2'
 
 export type OfflineMeta = {
   scenicUpdatedAt?: string

@@ -75,6 +75,7 @@ const handleOpenExport = () => emit('navigate', 'export_center')
 const handleOpenServiceStats = () => emit('navigate', 'service_stats')
 const handleOpenSchoolWebsite = () => emit('navigate', 'school_website')
 const handleOpenQuickLinks = () => emit('navigate', 'quick_links')
+const handleOpenCampusNetwork = () => emit('navigate', 'campus_network')
 const handleOpenMore = () => emit('navigate', 'more')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
@@ -164,6 +165,12 @@ const handleShowLegal = async (tab) => {
           <span class="material-symbols-outlined" style="color: #1E8E3E;">download</span>
         </div>
         <span class="grid-label">导出中心</span>
+      </button>
+      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenCampusNetwork">
+        <div class="grid-icon-box" style="background: #E3F2FD;">
+          <span class="material-symbols-outlined" style="color: #1565C0;">wifi</span>
+        </div>
+        <span class="grid-label">校园网</span>
       </button>
       <button v-if="isLoggedIn" class="grid-item" @click="handleOpenSchoolWebsite">
         <div class="grid-icon-box" style="background: #E8EAF6;">

@@ -5,6 +5,7 @@
 // 模块化设计 - 与 Python backend/modules 对应
 pub mod ai;
 pub mod calendar;
+pub mod campus_network;
 pub mod chaoxing_checkin;
 pub mod classroom;
 pub mod course_selection;
