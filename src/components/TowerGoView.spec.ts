@@ -22,7 +22,7 @@ describe('TowerGoView simplified contract', () => {
   it('keeps map, location, and nearby scan functionality with teardown on leave', () => {
     const vue = source()
 
-    expect(vue).toContain('系统定位')
+    expect(vue).toContain('定位')
     expect(vue).toContain('刷新附近')
     expect(vue).not.toContain('全区扫描')
     expect(vue).toContain('loadMapData')
@@ -32,6 +32,9 @@ describe('TowerGoView simplified contract', () => {
     expect(vue).toContain('SCAN_MAX_POINTS')
     expect(vue).toContain('SCAN_REFRESH_INTERVAL_MS')
     expect(vue).toContain('activeScanToken += 1')
+    expect(vue).toContain('startNavigateToSelected')
+    expect(vue).toContain('watchPosition')
+    expect(vue).toContain('towergo-view--fullscreen')
     expect(vue).toMatch(/onBeforeUnmount\(\(\) => \{\s*teardownTowerGoRuntime\(\)/)
   })
 
