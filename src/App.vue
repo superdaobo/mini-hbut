@@ -5,7 +5,7 @@ import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
-import { fetchWithCache, getStaleCachedData, setCachedData, DEFAULT_SWR_OPTIONS, clearUserScopedCaches, clearCacheByPrefix } from './utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData, clearUserScopedCaches, clearCacheByPrefix } from './utils/api.js'
 import {
   readScheduleRenderSnapshot,
   clearScheduleRenderSnapshot,
@@ -2045,13 +2045,13 @@ const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = fal
     isLoading.value = true
   }
   try {
+    // 成绩必须以教务完整列表为权威源：始终 forceRemote，避免 SWR/TTL 命中
+    // 把已删除成绩（如故障 0 分）从本地缓存复活到 UI（对齐 v1.4.2）。
     const { data } = await fetchWithCache(
       `grades:${sid}`,
       () => fetchGradesRemote(sid, { teacherCurrentOnly }),
       undefined,
-      force
-        ? { forceRemote: true, priority: 'foreground' }
-        : { ...DEFAULT_SWR_OPTIONS, priority: 'foreground' }
+      { forceRemote: true, priority: 'foreground' }
     )
     lastGradeRefreshUsedOffline.value = !!data?.offline
     if (data?.success && !data.offline) {

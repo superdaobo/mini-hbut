@@ -37,9 +37,20 @@ describe('grade view header contract', () => {
     expect(appSource).toContain('fetchGradesFromAPI(studentId.value, { force: true, teacherCurrentOnly: true })')
     expect(appSource).toContain('const fetchGradesFromAPI = async (sid, { force = false, teacherCurrentOnly = false, silent = false } = {})')
     expect(appSource).toContain('const showedStaleSnapshot = !force ? applyStaleGradesSnapshot(sid) : false')
-    expect(appSource).toContain('forceRemote: true')
     expect(appSource).toContain('setCachedData(`grades:${sid}`, data)')
     expect(appSource).not.toContain('const { data } = await fetchWithCache(`grades:${sid}`, () => fetchGradesRemote(sid))')
+
+    // 成绩必须以教务完整列表为权威源：始终 forceRemote，禁止 SWR 三元分支复活已删除成绩。
+    const fetchGradesBlock =
+      appSource.match(
+        /const fetchGradesFromAPI = async \(sid, \{ force = false, teacherCurrentOnly = false, silent = false \} = \{\}\) => \{[\s\S]*?^const handleRequireLogin/m
+      )?.[0] || ''
+    expect(fetchGradesBlock).toContain("{ forceRemote: true, priority: 'foreground' }")
+    expect(fetchGradesBlock).not.toContain('DEFAULT_SWR_OPTIONS')
+    expect(fetchGradesBlock).not.toMatch(/force\s*\?\s*\{\s*forceRemote:\s*true/)
+    expect(appSource).not.toMatch(
+      /import\s*\{[^}]*DEFAULT_SWR_OPTIONS[^}]*\}\s*from\s*['"]\.\/utils\/api\.js['"]/
+    )
   })
 
   it('refreshes grades every time the grades view is opened, even when old data exists', () => {

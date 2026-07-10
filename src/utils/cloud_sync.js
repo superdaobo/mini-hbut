@@ -4,7 +4,7 @@ import { applyUiSettingsSnapshot } from './ui_settings'
 import { applyFontSettingsSnapshot } from './font_settings'
 import { normalizeSemesterList } from './semester'
 import { pushDebugLog } from './debug_logger'
-import { setCachedData } from './api.js'
+import { clearCacheByPrefix, setCachedData } from './api.js'
 import { getCurrentVersion } from './updater'
 import { detectRuntime } from '../platform/runtime'
 import {
@@ -666,22 +666,7 @@ const makeGradeFingerprint = (item, semester = '') => {
   return `${sem}|${gradeId}|${code}|${name}|${score}|${credit}`
 }
 
-const buildGradeSnapshot = (studentId, latestGrades = []) => {
-  const sid = toSafeText(studentId)
-  const prefix = `grades:${sid}`
-  const sourceEntries = []
-  if (Array.isArray(latestGrades) && latestGrades.length > 0) {
-    sourceEntries.push({
-      semester: '',
-      list: toArrayOfObjects(latestGrades)
-    })
-  }
-  readCachedEntriesByPrefix(prefix).forEach((entry) => {
-    sourceEntries.push({
-      semester: normalizeSemesterFromText(extractSuffixFromKey(entry.key, prefix)),
-      list: toArrayOfObjects(extractDataArray(entry.data))
-    })
-  })
+const accumulateGradeSnapshot = (sourceEntries = []) => {
   const all = []
   const bySemester = {}
   const seen = new Set()
@@ -706,6 +691,51 @@ const buildGradeSnapshot = (studentId, latestGrades = []) => {
     all,
     bySemester
   }
+}
+
+/**
+ * 构建成绩快照。
+ * 当 latestGrades 为非空数组时，视作教务完整权威列表：仅基于它构建，
+ * 不再并入本地 grades:{sid}* 缓存，避免已删除成绩（如故障 0 分）复活。
+ * 仅在无权威列表时，才回退到本地缓存拼快照（离线上传场景）。
+ */
+const buildGradeSnapshot = (studentId, latestGrades = []) => {
+  const sid = toSafeText(studentId)
+  const prefix = `grades:${sid}`
+  const hasAuthoritativeList = Array.isArray(latestGrades) && latestGrades.length > 0
+  const sourceEntries = []
+  if (hasAuthoritativeList) {
+    sourceEntries.push({
+      semester: '',
+      list: toArrayOfObjects(latestGrades)
+    })
+    return accumulateGradeSnapshot(sourceEntries)
+  }
+  readCachedEntriesByPrefix(prefix).forEach((entry) => {
+    sourceEntries.push({
+      semester: normalizeSemesterFromText(extractSuffixFromKey(entry.key, prefix)),
+      list: toArrayOfObjects(extractDataArray(entry.data))
+    })
+  })
+  return accumulateGradeSnapshot(sourceEntries)
+}
+
+/** 用权威成绩列表整表替换本地 grades 缓存（含学期分片），清除陈旧 key。 */
+const replaceAuthoritativeGradeCaches = (studentId, grades = []) => {
+  const sid = toSafeText(studentId)
+  if (!sid) return { all: [], bySemester: {} }
+  const list = toArrayOfObjects(grades)
+  const gradesSnapshot = buildGradeSnapshot(sid, list)
+  // 先清掉同前缀分片，避免教务已删除学期/成绩残留。
+  clearCacheByPrefix(`grades:${sid}`)
+  setCachedData(`grades:${sid}`, { success: true, data: gradesSnapshot.all })
+  Object.entries(gradesSnapshot.bySemester).forEach(([semester, semesterList]) => {
+    const sem = normalizeSemesterFromText(semester)
+    const gradeList = toArrayOfObjects(semesterList)
+    if (!sem || !gradeList.length) return
+    setCachedData(`grades:${sid}:${sem}`, { success: true, data: gradeList })
+  })
+  return gradesSnapshot
 }
 
 const normalizePersonalInfoPayload = (payload, fallbackStudentId = '') => {
@@ -1028,17 +1058,16 @@ const primeAcademicCaches = async (studentId, seedGrades = [], options = {}) => 
   if (!sid) return grades
   const skipSemesterRankingWarmup = options?.skipSemesterRankingWarmup !== false
   const semesters = skipSemesterRankingWarmup ? [] : await fetchSemestersForSync(sid)
+  let authoritativeGrades = null
   try {
     if (!grades.length) {
       const gradeRes = await axios.post(`${API_BASE}/v2/quick_fetch`, { student_id: sid })
       if (gradeRes?.data?.success && Array.isArray(gradeRes?.data?.data)) {
         grades = gradeRes.data.data
-      }
-      if (gradeRes?.data?.success) {
-        setCachedData(`grades:${sid}`, gradeRes.data)
+        authoritativeGrades = grades
       }
     } else {
-      setCachedData(`grades:${sid}`, { success: true, data: grades })
+      authoritativeGrades = grades
     }
   } catch {
     // ignore
@@ -1084,22 +1113,16 @@ const primeAcademicCaches = async (studentId, seedGrades = [], options = {}) => 
   } catch {
     // ignore
   }
-  const gradesSnapshot = buildGradeSnapshot(sid, grades)
-  if (gradesSnapshot.all.length > 0) {
-    setCachedData(`grades:${sid}`, { success: true, data: gradesSnapshot.all })
-    Object.entries(gradesSnapshot.bySemester).forEach(([semester, list]) => {
-      const sem = normalizeSemesterFromText(semester)
-      const gradeList = toArrayOfObjects(list)
-      if (!sem || !gradeList.length) return
-      setCachedData(`grades:${sid}:${sem}`, { success: true, data: gradeList })
-    })
-  }
+  // 有教务权威列表时整表替换；否则仅用本地缓存拼快照（可能为空，不强行并集复活）。
+  const gradesSnapshot = authoritativeGrades
+    ? replaceAuthoritativeGradeCaches(sid, authoritativeGrades)
+    : buildGradeSnapshot(sid, [])
   pushDebugLog(
     'CloudSync',
-    `学业缓存预热完成 student=${sid} semesters=${semesters.length} grades=${gradesSnapshot.all.length}`,
+    `学业缓存预热完成 student=${sid} semesters=${semesters.length} grades=${gradesSnapshot.all.length} authoritative=${authoritativeGrades ? 1 : 0}`,
     'debug'
   )
-  return grades
+  return authoritativeGrades || gradesSnapshot.all || grades
 }
 
 const shouldAttachChallenge = (path) => {
