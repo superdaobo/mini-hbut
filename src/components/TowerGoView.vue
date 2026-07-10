@@ -108,6 +108,50 @@ const toTMapLatLng = (point: TowerGoPoint) => {
   return toTencentLatLng(TMap, { latitude: point.latitude, longitude: point.longitude })
 }
 
+/** Apple Maps 风格：用户蓝点 + 车辆青绿 pin（SVG data URL → MarkerStyle） */
+const appleUserDotSvg = () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+    <circle cx="22" cy="22" r="10" fill="#007AFF" stroke="#ffffff" stroke-width="3"/>
+    <circle cx="22" cy="22" r="18" fill="none" stroke="#007AFF" stroke-opacity="0.28" stroke-width="4"/>
+  </svg>`
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
+const appleVehiclePinSvg = (active = false) => {
+  const fill = active ? '#0A84FF' : '#34C759'
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
+    <path d="M20 2C11.7 2 5 8.7 5 17c0 11.2 15 29 15 29s15-17.8 15-29C35 8.7 28.3 2 20 2z" fill="${fill}" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="20" cy="17" r="7" fill="#fff"/>
+    <path d="M14 18h12l-1.2-4.2a3 3 0 0 0-2.9-2.3h-3.8a3 3 0 0 0-2.9 2.3L14 18zm1.5 1.5h9v2.2a1.2 1.2 0 0 1-1.2 1.2h-6.6a1.2 1.2 0 0 1-1.2-1.2v-2.2z" fill="${fill}"/>
+  </svg>`
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
+const buildTowerGoMarkerStyles = (TMap: any) => {
+  const styles: Record<string, unknown> = {}
+  if (typeof TMap.MarkerStyle === 'function') {
+    styles.user = new TMap.MarkerStyle({
+      width: 36,
+      height: 36,
+      anchor: { x: 18, y: 18 },
+      src: appleUserDotSvg()
+    })
+    styles.vehicle = new TMap.MarkerStyle({
+      width: 34,
+      height: 40,
+      anchor: { x: 17, y: 40 },
+      src: appleVehiclePinSvg(false)
+    })
+    styles.vehicleActive = new TMap.MarkerStyle({
+      width: 38,
+      height: 46,
+      anchor: { x: 19, y: 46 },
+      src: appleVehiclePinSvg(true)
+    })
+  }
+  return styles
+}
+
 const initMap = async () => {
   const container = mapContainerRef.value
   if (!container || mapInstance.value) return
@@ -120,9 +164,16 @@ const initMap = async () => {
     const TMap = await loadTencentMap(TOWERGO_CONFIG.qqMapKey)
     const center = toTMapLatLng(currentLocation.value)
     mapInstance.value = new TMap.Map(container, { center, zoom: 16, viewMode: '2D' })
+    const styles = buildTowerGoMarkerStyles(TMap)
     centerMarkerLayer.value = new TMap.MultiMarker({
       map: mapInstance.value,
-      geometries: [{ id: 'center', position: center, properties: { title: currentLocation.value.name || '当前位置' } }]
+      styles,
+      geometries: [{
+        id: 'center',
+        styleId: styles.user ? 'user' : undefined,
+        position: center,
+        properties: { title: currentLocation.value.name || '当前位置' }
+      }]
     })
     mapScriptState.value = 'ready'
   } catch (error) {
@@ -136,20 +187,35 @@ const updateMapCenter = (point: TowerGoPoint) => {
   if (!mapInstance.value || !(window as any).TMap) return
   const center = toTMapLatLng(point)
   mapInstance.value.setCenter(center)
-  centerMarkerLayer.value?.setGeometries?.([{ id: 'center', position: center, properties: { title: point.name || '当前位置' } }])
+  const TMap = (window as any).TMap
+  const styles = buildTowerGoMarkerStyles(TMap)
+  centerMarkerLayer.value?.setStyles?.(styles)
+  centerMarkerLayer.value?.setGeometries?.([{
+    id: 'center',
+    styleId: styles.user ? 'user' : undefined,
+    position: center,
+    properties: { title: point.name || '当前位置' }
+  }])
 }
 
 const renderVehicleMarkers = () => {
   if (!mapInstance.value || !(window as any).TMap) return
   const TMap = (window as any).TMap
-  // 地图上最多展示 200 个车辆标记
-  const geometries = vehicles.value.slice(0, 200).map((vehicle, index) => ({
-    id: vehicle.id || vehicle.imei || `vehicle-${index}`,
-    position: new TMap.LatLng(vehicle.latitude, vehicle.longitude),
-    properties: { title: vehicle.id || vehicle.imei || '车辆' }
-  }))
+  const styles = buildTowerGoMarkerStyles(TMap)
+  const selectedId = selectedVehicle.value?.id || selectedVehicle.value?.imei || ''
+  // 地图上最多展示 200 个车辆标记（Apple 风格 pin）
+  const geometries = vehicles.value.slice(0, 200).map((vehicle, index) => {
+    const id = vehicle.id || vehicle.imei || `vehicle-${index}`
+    const active = !!selectedId && (id === selectedId)
+    return {
+      id,
+      styleId: styles.vehicle ? (active ? 'vehicleActive' : 'vehicle') : undefined,
+      position: new TMap.LatLng(vehicle.latitude, vehicle.longitude),
+      properties: { title: vehicle.id || vehicle.imei || '车辆' }
+    }
+  })
   if (!vehicleMarkerLayer.value) {
-    vehicleMarkerLayer.value = new TMap.MultiMarker({ map: mapInstance.value, geometries })
+    vehicleMarkerLayer.value = new TMap.MultiMarker({ map: mapInstance.value, styles, geometries })
     vehicleMarkerLayer.value.on?.('click', (event: any) => {
       const id = event?.geometry?.id
       const item = vehicles.value.find((vehicle) => vehicle.id === id || vehicle.imei === id)
@@ -157,6 +223,7 @@ const renderVehicleMarkers = () => {
     })
     return
   }
+  vehicleMarkerLayer.value.setStyles?.(styles)
   vehicleMarkerLayer.value.setGeometries?.(geometries)
 }
 

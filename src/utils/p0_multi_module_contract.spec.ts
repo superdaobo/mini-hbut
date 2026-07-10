@@ -43,6 +43,34 @@ describe('P0 multi-module contracts', () => {
     expect(vue).not.toContain('全区扫描')
   })
 
+  it('uses custom MarkerStyle for Apple-like vehicle and user markers', () => {
+    const vue = read('src/components/TowerGoView.vue')
+    expect(vue).toContain('buildTowerGoMarkerStyles')
+    expect(vue).toContain('new TMap.MarkerStyle')
+    expect(vue).toContain('appleUserDotSvg')
+    expect(vue).toContain('appleVehiclePinSvg')
+    expect(vue).toContain("styleId: styles.user")
+    expect(vue).toContain("styleId: styles.vehicle")
+  })
+
+  it('keeps favicon and app-icon SVG under 80KB after slim', () => {
+    const fav = read('public/favicon.svg')
+    const app = read('src/assets/app-icon.svg')
+    expect(Buffer.byteLength(fav, 'utf8')).toBeLessThan(80 * 1024)
+    expect(Buffer.byteLength(app, 'utf8')).toBeLessThan(80 * 1024)
+    expect(fav).toContain('viewBox="0 0 256 256"')
+  })
+
+  it('documents multi-platform size gate and rust size assessment', () => {
+    const sizeDoc = read('docs/release-size-baseline.md')
+    const rustDoc = read('docs/rust-install-size-assessment.md')
+    expect(sizeDoc).toContain('report_release_asset_sizes.mjs')
+    expect(sizeDoc).toContain('> 5%')
+    expect(sizeDoc).toContain('APK')
+    expect(rustDoc).toContain('strip')
+    expect(rustDoc).toContain('LTO')
+  })
+
   it('does not use loopback campus-guide base on Android tauri path', () => {
     const config = read('src/features/campus-guide/config.ts')
     expect(config).toContain('isLikelyAndroidUserAgent')

@@ -35,6 +35,12 @@ describe('TowerGoView simplified contract', () => {
     expect(vue).toContain('startNavigateToSelected')
     expect(vue).toContain('watchPosition')
     expect(vue).toContain('towergo-view--fullscreen')
+    // Apple-style custom MarkerStyle (user blue dot + vehicle pin)
+    expect(vue).toContain('buildTowerGoMarkerStyles')
+    expect(vue).toContain('MarkerStyle')
+    expect(vue).toContain('appleUserDotSvg')
+    expect(vue).toContain('appleVehiclePinSvg')
+    expect(vue).toContain("styleId: styles.vehicle")
     expect(vue).toMatch(/onBeforeUnmount\(\(\) => \{\s*teardownTowerGoRuntime\(\)/)
   })
 

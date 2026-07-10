@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-07-10T19:15:49.680Z",
+  "totalBytes": 669766,
+  "files": [
+    {
+      "path": "public/splash/app_icon.png",
+      "bytes": 93554,
+      "kb": 91.4
+    },
+    {
+      "path": "public/splash/app_icon.webp",
+      "bytes": 34872,
+      "kb": 34.1
+    },
+    {
+      "path": "public/favicon.svg",
+      "bytes": 42569,
+      "kb": 41.6
+    },
+    {
+      "path": "src/assets/app-icon.svg",
+      "bytes": 42569,
+      "kb": 41.6
+    },
+    {
+      "path": "public/fonts/material-symbols-outlined.subset.woff2",
+      "bytes": 318928,
+      "kb": 311.5
+    },
+    {
+      "path": "public/splash/cas_bg.webp",
+      "bytes": 84424,
+      "kb": 82.4
+    },
+    {
+      "path": "public/splash/campus_illustration.webp",
+      "bytes": 52850,
+      "kb": 51.6
+    }
+  ]
+}
