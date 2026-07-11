@@ -2192,13 +2192,15 @@ const dismissSplash = () => {
   splashRef.value?.dismiss()
 }
 
-// 自动检查更新
+// 自动检查更新（尊重用户频道：默认 stable，开启 dev 后才查 beta）
 const autoCheckUpdate = async () => {
   try {
+    const { getUpdateChannel, getSkippedVersion } = await import('./utils/updater.js')
     const currentVersion = await getCurrentVersion()
-    const skippedVersion = localStorage.getItem('hbu_skipped_version')
+    const channel = getUpdateChannel()
+    const skippedVersion = getSkippedVersion(channel)
     
-    const result = await checkForUpdates(currentVersion)
+    const result = await checkForUpdates(currentVersion, { channel })
     if (result?.hasUpdate && result.latestVersion !== skippedVersion) {
       showUpdateDialog.value = true
     }

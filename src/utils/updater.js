@@ -9,10 +9,56 @@ const GH_DOWNLOAD_PROXY_PREFIX = 'https://gh-proxy.org/'
 // 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
 const STABLE_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/stable-latest.json` : ''
+const DEV_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/dev-latest.json` : ''
+const UPDATE_CHANNEL_KEY = 'hbu_update_channel'
+const SKIPPED_VERSION_STABLE_KEY = 'hbu_skipped_version'
+const SKIPPED_VERSION_DEV_KEY = 'hbu_skipped_version_dev'
+const DEV_RELEASE_TAG = 'dev-latest'
+
+/** 无 localStorage 时（部分测试环境）的内存回退 */
+const memoryPrefs = {
+  channel: 'stable',
+  skippedStable: '',
+  skippedDev: ''
+}
+
+const storageGet = (key) => {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage) {
+      return localStorage.getItem(key)
+    }
+  } catch {
+    // ignore
+  }
+  if (key === UPDATE_CHANNEL_KEY) return memoryPrefs.channel
+  if (key === SKIPPED_VERSION_STABLE_KEY) return memoryPrefs.skippedStable
+  if (key === SKIPPED_VERSION_DEV_KEY) return memoryPrefs.skippedDev
+  return null
+}
+
+const storageSet = (key, value) => {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage) {
+      localStorage.setItem(key, value)
+      return
+    }
+  } catch {
+    // fall through to memory
+  }
+  if (key === UPDATE_CHANNEL_KEY) memoryPrefs.channel = value
+  if (key === SKIPPED_VERSION_STABLE_KEY) memoryPrefs.skippedStable = value
+  if (key === SKIPPED_VERSION_DEV_KEY) memoryPrefs.skippedDev = value
+}
+
 const API_PROXIES = [
   `${GH_API_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
   `https://cdn.jsdelivr.net/gh/${GITHUB_REPO}@latest/package.json`
+]
+
+const DEV_API_PROXIES = [
+  `${GH_API_PROXY_PREFIX}https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${DEV_RELEASE_TAG}`,
+  `https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${DEV_RELEASE_TAG}`
 ]
 
 const DOWNLOAD_PROXIES = [
@@ -218,6 +264,33 @@ function isPrereleaseVersion(version) {
   return parseVersion(version).isPrerelease
 }
 
+/** 归一化用户更新频道：stable | dev */
+export const normalizeUpdateChannel = (value) => {
+  const text = String(value || '').trim().toLowerCase()
+  if (text === 'dev' || text === 'beta' || text === 'development' || text === 'nightly') return 'dev'
+  return 'stable'
+}
+
+export const getUpdateChannel = () => normalizeUpdateChannel(storageGet(UPDATE_CHANNEL_KEY))
+
+export const setUpdateChannel = (channel) => {
+  const next = normalizeUpdateChannel(channel)
+  storageSet(UPDATE_CHANNEL_KEY, next)
+  return next
+}
+
+export const getSkippedVersionKey = (channel = getUpdateChannel()) =>
+  normalizeUpdateChannel(channel) === 'dev' ? SKIPPED_VERSION_DEV_KEY : SKIPPED_VERSION_STABLE_KEY
+
+export const getSkippedVersion = (channel = getUpdateChannel()) =>
+  String(storageGet(getSkippedVersionKey(channel)) || '').trim()
+
+export const setSkippedVersion = (version, channel = getUpdateChannel()) => {
+  const text = String(version || '').trim()
+  if (!text) return
+  storageSet(getSkippedVersionKey(channel), text)
+}
+
 function isStableRelease(release) {
   const latestVersion = String(release?.version || release?.tag_name || '').replace(/^v/i, '')
   if (!latestVersion) return false
@@ -237,12 +310,55 @@ function isStableRelease(release) {
   return true
 }
 
-function shouldOfferRelease(release, currentVersion) {
+/** 是否为开发版/滚动 beta 产物（CDN channel=dev 或 tag=dev-latest） */
+export function isDevRelease(release) {
+  if (!release) return false
+  const channel = String(release?.channel || '').trim().toLowerCase()
+  if (channel === 'dev' || channel === 'beta') return true
+  const tag = String(release?.tag_name || '').trim().toLowerCase()
+  if (tag === DEV_RELEASE_TAG || tag === 'beta-latest') return true
+  if (release?.prerelease) return true
+  const version = String(release?.version || tag).replace(/^v/i, '')
+  return isPrereleaseVersion(version)
+}
+
+/**
+ * 是否应对用户提示更新。
+ * - stable：仅正式版且版本更高（含「当前为 beta、远端同 core 正式版」可提示回落）
+ * - dev：允许 prerelease；完整 semver 比较；core 低于当前安装的 dev 不提示
+ */
+export function shouldOfferRelease(release, currentVersion, channel = 'stable') {
+  const preferred = normalizeUpdateChannel(channel)
   const latestVersion = String(release?.version || release?.tag_name || '').replace(/^v/i, '')
   const currentText = String(currentVersion || '').replace(/^v/i, '')
   if (!latestVersion) return false
-  if (!isStableRelease(release)) return false
+
+  if (preferred === 'stable') {
+    if (!isStableRelease(release)) return false
+    if (!currentText) return true
+    return compareVersions(latestVersion, currentText) > 0
+  }
+
+  // 开发频道只跟踪 dev 滚动产物，避免把 /latest 稳定包误当 dev
+  if (!isDevRelease(release)) return false
   if (!currentText) return true
+
+  const latest = parseVersion(latestVersion)
+  const current = parseVersion(currentText)
+  // 远端 core 落后于当前安装（例如装了 1.4.4 却只剩 1.4.3-beta）→ 不提示
+  const coreCmp = (() => {
+    const len = Math.max(latest.core.length, current.core.length)
+    for (let i = 0; i < len; i += 1) {
+      const lv = latest.core[i] || 0
+      const rv = current.core[i] || 0
+      if (lv > rv) return 1
+      if (lv < rv) return -1
+    }
+    return 0
+  })()
+  if (coreCmp < 0) return false
+  // 同 core：用户已装正式版，远端为更新/任意 beta → 允许（主动开 dev）
+  if (coreCmp === 0 && !current.isPrerelease && latest.isPrerelease) return true
   return compareVersions(latestVersion, currentText) > 0
 }
 
@@ -265,7 +381,8 @@ function getAssetPatterns(platform) {
     case 'windows':
       return [/x64-setup\.exe$/i, /\.msi$/i, /\.exe$/i]
     case 'macos':
-      return [/\.dmg$/i]
+      // dev-latest 常为 .app.zip，稳定版多为 .dmg
+      return [/\.dmg$/i, /\.app\.zip$/i, /universal\.app\.zip$/i, /\.zip$/i]
     case 'linux':
       return [/\.AppImage$/i, /\.deb$/i]
     default:
@@ -287,11 +404,13 @@ const normalizePackageJsonAsRelease = (data) => {
   }
 }
 
-function buildExpectedAssetName(platform, version) {
+function buildExpectedAssetName(platform, version, { preferDevZip = false } = {}) {
   const v = String(version).replace(/^v/, '')
   switch (platform) {
     case 'windows': return `Mini-HBUT_${v}_x64-setup.exe`
-    case 'macos': return `Mini-HBUT_${v}_universal.dmg`
+    case 'macos': return preferDevZip
+      ? `Mini-HBUT_${v}_universal.app.zip`
+      : `Mini-HBUT_${v}_universal.dmg`
     case 'linux': return `Mini-HBUT_${v}_amd64.AppImage`
     case 'android': return `Mini-HBUT_${v}_arm64.apk`
     case 'ios': return `Mini-HBUT_${v}_iOS.ipa`
@@ -343,6 +462,7 @@ export const normalizeCdnManifestAsRelease = (manifest) => {
     version,
     prerelease: !!manifest.prerelease,
     channel: String(manifest.channel || '').trim(),
+    downloadDir,
     __fromCdnManifest: true,
     __staleReleaseNotes: Boolean(rawBody && !body)
   }
@@ -365,19 +485,22 @@ export const mergeCdnReleaseWithApiNotes = (cdnRelease, apiRelease) => {
   }
 }
 
-async function fetchReleaseInfo(currentVersion) {
+async function fetchStableReleaseInfo(currentVersion) {
   let cdnCandidate = null
   if (STABLE_MANIFEST_URL) {
     try {
-      // 自动更新只允许读取稳定版 manifest，避免 dev alias 触发错误下载。
+      // 稳定频道只读 stable-latest，避免误用 dev alias。
       const manifest = await fetchJson(STABLE_MANIFEST_URL, 6000)
       const release = normalizeCdnManifestAsRelease(manifest)
-      if (release && shouldOfferRelease(release, currentVersion)) {
+      if (release && shouldOfferRelease(release, currentVersion, 'stable')) {
         if (release.__staleReleaseNotes) {
           cdnCandidate = release
         } else {
           return release
         }
+      } else if (release) {
+        // 即使无需升级也保留 candidate，供 UI 展示 latestVersion
+        cdnCandidate = release
       }
     } catch (_) {
       // stable manifest 不可用，继续 fallback
@@ -394,7 +517,7 @@ async function fetchReleaseInfo(currentVersion) {
       if (!fallback || (release.assets?.length || 0) > (fallback.assets?.length || 0)) {
         fallback = release
       }
-      if (shouldOfferRelease(release, currentVersion)) {
+      if (shouldOfferRelease(release, currentVersion, 'stable')) {
         return mergeCdnReleaseWithApiNotes(cdnCandidate, release)
       }
     } catch (_) {
@@ -404,94 +527,183 @@ async function fetchReleaseInfo(currentVersion) {
   return cdnCandidate || fallback
 }
 
-export async function checkForUpdates(currentVersion) {
-  try {
-    const release = await fetchReleaseInfo(currentVersion)
-    if (!release) {
-      return {
-        error: true,
-        message: '无法连接更新服务',
-        currentVersion
-      }
-    }
-    if (!isStableRelease(release)) {
-      return {
-        hasUpdate: false,
-        currentVersion,
-        latestVersion: ''
-      }
-    }
-
-    const tagName = release.tag_name || release.name || ''
-    const latestVersion = String(release.version || tagName).replace(/^v/, '')
-    const currentText = String(currentVersion || '').replace(/^v/, '')
-    if (!shouldOfferRelease(release, currentText)) {
-      return { hasUpdate: false, currentVersion, latestVersion }
-    }
-
-    const platform = getPlatform()
-    const patterns = getAssetPatterns(platform)
-    let asset = null
-
-    if (Array.isArray(release.assets) && release.assets.length > 0) {
-      for (const pattern of patterns) {
-        asset = release.assets.find((item) => pattern.test(item.name))
-        if (asset) break
-      }
-    }
-
-    if (!asset) {
-      // 当 API 未返回资产列表时（如仅 jsdelivr 可用），根据命名规则构造下载链接
-      const expectedName = buildExpectedAssetName(platform, tagName)
-      if (expectedName) {
-        const downloadUrls = buildUpdateDownloadUrls(tagName, expectedName)
-        return {
-          hasUpdate: true,
-          currentVersion,
-          latestVersion,
-          tagName,
-          releaseNotes: release.body || '暂无更新说明',
-          releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
-          downloadUrls,
-          preferredDownloadUrl: downloadUrls[0] || '',
-          assetName: expectedName,
-          platform,
-          publishedAt: release.published_at
+async function fetchDevReleaseInfo(currentVersion) {
+  let cdnCandidate = null
+  if (DEV_MANIFEST_URL) {
+    try {
+      const manifest = await fetchJson(DEV_MANIFEST_URL, 6000)
+      const release = normalizeCdnManifestAsRelease(manifest)
+      if (release) {
+        // 强制标记为 dev，避免旧 manifest 缺 channel
+        release.channel = release.channel || 'dev'
+        release.prerelease = true
+        if (!release.tag_name) release.tag_name = DEV_RELEASE_TAG
+        cdnCandidate = release
+        if (shouldOfferRelease(release, currentVersion, 'dev') && !release.__staleReleaseNotes) {
+          return release
         }
       }
+    } catch (_) {
+      // dev CDN 不可用，走 GH tag
+    }
+  }
+
+  let fallback = null
+  for (const url of DEV_API_PROXIES) {
+    try {
+      const data = await fetchJson(url, 9000)
+      if (!data?.tag_name && !data?.assets) continue
+      const release = {
+        ...data,
+        prerelease: true,
+        channel: 'dev',
+        version: String(data.tag_name || DEV_RELEASE_TAG).replace(/^v/i, '')
+      }
+      // tag 固定为 dev-latest，版本号尽量从 asset 名解析
+      if (Array.isArray(data.assets) && data.assets.length) {
+        const sample = String(data.assets[0]?.name || '')
+        const m = sample.match(/Mini-HBUT_([^_]+)_/i)
+        if (m?.[1]) release.version = m[1]
+      }
+      if (!fallback || (release.assets?.length || 0) > (fallback.assets?.length || 0)) {
+        fallback = release
+      }
+      if (shouldOfferRelease(release, currentVersion, 'dev')) {
+        return mergeCdnReleaseWithApiNotes(cdnCandidate, release)
+      }
+    } catch (_) {
+      // try next
+    }
+  }
+  return cdnCandidate || fallback
+}
+
+async function fetchReleaseInfo(currentVersion, channel = 'stable') {
+  const preferred = normalizeUpdateChannel(channel)
+  if (preferred === 'dev') return fetchDevReleaseInfo(currentVersion)
+  return fetchStableReleaseInfo(currentVersion)
+}
+
+const buildUpdateResultFromRelease = (release, currentVersion, channel) => {
+  const preferred = normalizeUpdateChannel(channel)
+  const tagName = release.tag_name || release.name || ''
+  const latestVersion = String(release.version || tagName).replace(/^v/, '')
+  const currentText = String(currentVersion || '').replace(/^v/, '')
+  const platform = getPlatform()
+  const patterns = getAssetPatterns(platform)
+  const isPrerelease = preferred === 'dev' || isDevRelease(release) || isPrereleaseVersion(latestVersion)
+
+  if (!shouldOfferRelease(release, currentText, preferred)) {
+    return {
+      hasUpdate: false,
+      currentVersion: currentText,
+      latestVersion,
+      tagName,
+      channel: preferred,
+      isPrerelease,
+      platform
+    }
+  }
+
+  let asset = null
+  if (Array.isArray(release.assets) && release.assets.length > 0) {
+    for (const pattern of patterns) {
+      asset = release.assets.find((item) => pattern.test(item.name))
+      if (asset) break
+    }
+  }
+
+  // 下载 tag：CDN/GH 滚动 dev 使用 dev-latest 目录名
+  const downloadTag = preferred === 'dev'
+    ? (String(release.downloadDir || tagName || DEV_RELEASE_TAG).trim() || DEV_RELEASE_TAG)
+    : tagName
+
+  if (!asset) {
+    const versionForName = preferred === 'dev' ? latestVersion : tagName
+    const expectedName = buildExpectedAssetName(platform, versionForName, {
+      preferDevZip: preferred === 'dev'
+    })
+    if (expectedName) {
+      const downloadUrls = buildUpdateDownloadUrls(downloadTag, expectedName)
       return {
-        hasUpdate: false,
-        pending: true,
-        currentVersion,
+        hasUpdate: true,
+        currentVersion: currentText,
         latestVersion,
         tagName,
+        channel: preferred,
+        isPrerelease,
         releaseNotes: release.body || '暂无更新说明',
         releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
+        downloadUrls,
+        preferredDownloadUrl: downloadUrls[0] || '',
+        assetName: expectedName,
         platform,
         publishedAt: release.published_at
       }
     }
-
-    const downloadUrls = buildUpdateDownloadUrls(tagName, asset.name, asset.browser_download_url)
-
     return {
-      hasUpdate: true,
-      currentVersion,
+      hasUpdate: false,
+      pending: true,
+      currentVersion: currentText,
       latestVersion,
       tagName,
+      channel: preferred,
+      isPrerelease,
       releaseNotes: release.body || '暂无更新说明',
       releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
-      downloadUrls,
-      preferredDownloadUrl: downloadUrls[0] || '',
-      assetName: asset.name,
       platform,
       publishedAt: release.published_at
     }
+  }
+
+  const downloadUrls = buildUpdateDownloadUrls(downloadTag, asset.name, asset.browser_download_url)
+  return {
+    hasUpdate: true,
+    currentVersion: currentText,
+    latestVersion,
+    tagName,
+    channel: preferred,
+    isPrerelease,
+    releaseNotes: release.body || '暂无更新说明',
+    releaseUrl: toGhProxyUrl(release.html_url) || release.html_url || `${GH_DOWNLOAD_PROXY_PREFIX}${GITHUB_RELEASES_URL}`,
+    downloadUrls,
+    preferredDownloadUrl: downloadUrls[0] || '',
+    assetName: asset.name,
+    platform,
+    publishedAt: release.published_at
+  }
+}
+
+export async function checkForUpdates(currentVersion, options = {}) {
+  const channel = normalizeUpdateChannel(options.channel ?? getUpdateChannel())
+  try {
+    const release = await fetchReleaseInfo(currentVersion, channel)
+    if (!release) {
+      return {
+        error: true,
+        message: '无法连接更新服务',
+        currentVersion,
+        channel
+      }
+    }
+
+    // stable 频道若只拿到 prerelease，视为无正式更新
+    if (channel === 'stable' && !isStableRelease(release) && !shouldOfferRelease(release, currentVersion, 'stable')) {
+      return {
+        hasUpdate: false,
+        currentVersion,
+        latestVersion: String(release.version || release.tag_name || '').replace(/^v/, ''),
+        channel
+      }
+    }
+
+    return buildUpdateResultFromRelease(release, currentVersion, channel)
   } catch (error) {
     return {
       error: true,
       message: error?.message || '检查更新失败',
-      currentVersion
+      currentVersion,
+      channel
     }
   }
 }
@@ -540,5 +752,12 @@ export default {
   downloadUpdate,
   getCurrentVersion,
   compareVersions,
-  toGhProxyUrl
+  toGhProxyUrl,
+  getUpdateChannel,
+  setUpdateChannel,
+  normalizeUpdateChannel,
+  getSkippedVersion,
+  setSkippedVersion,
+  shouldOfferRelease,
+  isDevRelease
 }

@@ -5,6 +5,9 @@ import {
   describeUpdateDownloadSource,
   downloadUpdate,
   getCurrentVersion,
+  getUpdateChannel,
+  setSkippedVersion,
+  setUpdateChannel,
   isOfficialDownloadUrl
 } from '../utils/updater.js'
 
@@ -16,19 +19,25 @@ const downloading = ref(false)
 const downloadProgress = ref(0)
 const error = ref('')
 const currentVersion = ref('')
+const updateChannel = ref(getUpdateChannel())
 
 // 下载源速度测试
 const sourceSpeedResults = ref({}) // { url: { ms: number, status: 'testing'|'ok'|'fail'|'slow' } }
 const showSourceTable = ref(false)
 
+const isDevChannel = computed(() => updateChannel.value === 'dev')
+const channelBadge = computed(() => (isDevChannel.value ? '开发版' : '正式版'))
+
 const checkUpdate = async () => {
   checking.value = true
   error.value = ''
+  showSourceTable.value = false
+  sourceSpeedResults.value = {}
   
   try {
     const version = currentVersion.value || await getCurrentVersion()
     currentVersion.value = version
-    const result = await checkForUpdates(version)
+    const result = await checkForUpdates(version, { channel: updateChannel.value })
     updateInfo.value = result
   } catch (e) {
     error.value = '检查更新失败，请稍后重试'
@@ -36,6 +45,12 @@ const checkUpdate = async () => {
   } finally {
     checking.value = false
   }
+}
+
+const handleChannelToggle = () => {
+  const next = isDevChannel.value ? 'stable' : 'dev'
+  updateChannel.value = setUpdateChannel(next)
+  void checkUpdate()
 }
 
 // 构建带标签的下载源列表
@@ -137,7 +152,7 @@ const handleDownloadFromSource = async (url) => {
 
 const handleSkip = () => {
   if (updateInfo.value?.latestVersion) {
-    localStorage.setItem('hbu_skipped_version', updateInfo.value.latestVersion)
+    setSkippedVersion(updateInfo.value.latestVersion, updateChannel.value)
   }
   emit('close')
 }
@@ -156,10 +171,30 @@ onMounted(() => {
       </div>
 
       <div class="dialog-content">
+        <!-- 频道选择：用户可选接收开发版推送 -->
+        <div class="channel-row">
+          <div class="channel-copy">
+            <strong>接收开发版更新（Beta）</strong>
+            <p>开启后从 CDN / GitHub <code>dev-latest</code> 检查预发布构建，可能不稳定。</p>
+          </div>
+          <button
+            type="button"
+            class="channel-switch"
+            :class="{ on: isDevChannel }"
+            :aria-pressed="isDevChannel"
+            @click="handleChannelToggle"
+          >
+            <span class="channel-knob" />
+          </button>
+        </div>
+        <div class="channel-badge-row">
+          <span class="channel-pill" :data-channel="updateChannel">当前频道：{{ channelBadge }}</span>
+        </div>
+
         <!-- 检查中 -->
         <div v-if="checking" class="checking">
           <div class="spinner"></div>
-          <p>正在检查更新...</p>
+          <p>正在检查{{ isDevChannel ? '开发版' : '正式版' }}更新...</p>
         </div>
 
         <!-- 有更新 -->
@@ -167,7 +202,10 @@ onMounted(() => {
           <div class="version-info">
             <div class="version-badge current">当前 v{{ currentVersion }}</div>
             <span class="arrow">→</span>
-            <div class="version-badge new">新版本 v{{ updateInfo.latestVersion }}</div>
+            <div class="version-badge new" :data-channel="updateInfo.channel || updateChannel">
+              {{ updateInfo.isPrerelease || isDevChannel ? '开发版' : '新版本' }}
+              v{{ updateInfo.latestVersion }}
+            </div>
           </div>
           
           <div class="release-notes">
@@ -230,8 +268,9 @@ onMounted(() => {
         <template v-else-if="updateInfo && !updateInfo.hasUpdate && !updateInfo.error">
           <div class="up-to-date">
             <span class="material-symbols-outlined status-icon status-icon--success">check_circle</span>
-            <p>已是最新版本</p>
+            <p>{{ isDevChannel ? '已是最新开发版' : '已是最新正式版' }}</p>
             <span class="version">v{{ currentVersion }}</span>
+            <span v-if="updateInfo.latestVersion" class="version muted">远端 {{ updateInfo.latestVersion }}</span>
           </div>
         </template>
 
@@ -297,6 +336,105 @@ onMounted(() => {
   font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
 }
 .dialog-header h3 { margin: 0; font-size: 20px; font-weight: 700; }
+
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+.channel-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.channel-copy strong {
+  display: block;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.channel-copy p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #64748b;
+}
+
+.channel-copy code {
+  font-size: 11px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.channel-switch {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 160ms ease;
+}
+
+.channel-switch.on {
+  background: #7c3aed;
+}
+
+.channel-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.25);
+  transition: transform 160ms ease;
+}
+
+.channel-switch.on .channel-knob {
+  transform: translateX(20px);
+}
+
+.channel-badge-row {
+  margin-bottom: 12px;
+}
+
+.channel-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.channel-pill[data-channel='dev'] {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+.version-badge.new[data-channel='dev'] {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+}
+
+.version.muted {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.65;
+}
 
 .dialog-content {
   padding: 20px;
