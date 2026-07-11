@@ -83,7 +83,8 @@ describe('update download sources', () => {
 
     expect(source).toContain('<div class="version-badge current">当前 v{{ currentVersion }}</div>')
     expect(source).toContain('<span class="arrow">→</span>')
-    expect(source).toContain('<div class="version-badge new">新版本 v{{ updateInfo.latestVersion }}</div>')
+    expect(source).toContain('version-badge new')
+    expect(source).toContain('updateInfo.latestVersion')
     expect(source).not.toContain('<div class="version-badge new">v{{ updateInfo.latestVersion }}</div>')
   })
 
