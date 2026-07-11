@@ -86,7 +86,13 @@
                 </div>
               </div>
 
-              <div v-if="rankSubmitBusy" class="sync-status">正在同步排行榜成绩...</div>
+              <div v-if="rankSubmitBusy" class="sync-status sync-status--uploading">正在上传成绩...</div>
+              <div
+                v-else-if="rankSubmitSuccess && (gameOver || hasWon)"
+                class="sync-status sync-status--success"
+              >
+                ✓ 成绩已上传
+              </div>
               <button
                 v-else-if="rankSubmitError && (gameOver || hasWon)"
                 class="sync-status sync-status--error"
@@ -106,6 +112,12 @@
                 <h2>挑战结束</h2>
                 <p class="final-score">最终得分 {{ score }}</p>
                 <p class="message">场上已经没有安全落点了。</p>
+                <p v-if="rankSubmitBusy" class="overlay-subtext">正在上传成绩...</p>
+                <p v-else-if="rankSubmitSuccess" class="overlay-subtext">✓ 成绩已上传</p>
+                <p v-else-if="rankSubmitError" class="overlay-subtext">
+                  上传失败：{{ rankSubmitError }}
+                  <button class="ghost-btn ghost-btn--warn" type="button" @click="retryRankSubmit">重试上传</button>
+                </p>
                 <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
                 <div class="overlay-btns">
                   <button class="restart-btn" type="button" @click="forceRestart">再来一局</button>
@@ -117,6 +129,12 @@
                 <h2>成功合成湖工大</h2>
                 <p class="message">本局已自动记录，你可以直接查看排名。</p>
                 <p class="final-score">最终得分 {{ score }}</p>
+                <p v-if="rankSubmitBusy" class="overlay-subtext">正在上传成绩...</p>
+                <p v-else-if="rankSubmitSuccess" class="overlay-subtext">✓ 成绩已上传</p>
+                <p v-else-if="rankSubmitError" class="overlay-subtext">
+                  上传失败：{{ rankSubmitError }}
+                  <button class="ghost-btn ghost-btn--warn" type="button" @click="retryRankSubmit">重试上传</button>
+                </p>
                 <p v-if="rankSummaryText" class="overlay-subtext">{{ rankSummaryText }}</p>
                 <div class="overlay-btns">
                   <button class="restart-btn" type="button" @click="forceRestart">继续挑战</button>
@@ -354,12 +372,15 @@ export default {
       leaderboardUpdatedAt: '',
       rankSubmitBusy: false,
       rankSubmitError: '',
+      rankSubmitSuccess: false,
       lastRankSubmission: null,
+      pendingRankPayload: null,
       currentRunId: '',
       gameStartedAt: 0,
       moveCount: 0,
       bestLevelReached: 0,
       hasSubmittedResult: false,
+      rankSuccessTimer: null,
 
       toastMessage: '',
       showToast: false,
@@ -431,7 +452,8 @@ export default {
     },
     rankHintText() {
       if (!this.rankEnabled) return '当前未注入学号，排行榜会保持关闭。'
-      if (this.rankSubmitBusy) return '本局结束后正在同步成绩。'
+      if (this.rankSubmitBusy) return '正在上传成绩...'
+      if (this.rankSubmitSuccess) return '✓ 成绩已上传'
       if (this.rankSubmitError) return `成绩上传失败：${this.rankSubmitError}`
       if (!this.hasClassContext) return '当前未注入班级信息，排行榜默认显示全校榜。'
       return '本局结束后会自动上传最佳成绩。'
@@ -693,6 +715,10 @@ export default {
     },
 
     resetRunState() {
+      if (this.rankSuccessTimer) {
+        clearTimeout(this.rankSuccessTimer)
+        this.rankSuccessTimer = null
+      }
       this.currentRunId = createRunId()
       this.gameStartedAt = Date.now()
       this.moveCount = 0
@@ -700,6 +726,8 @@ export default {
       this.hasSubmittedResult = false
       this.rankSubmitBusy = false
       this.rankSubmitError = ''
+      this.rankSubmitSuccess = false
+      this.pendingRankPayload = null
       this.lastRankSubmission = null
     },
 
@@ -856,6 +884,8 @@ export default {
         this.hasSubmittedResult = !!data.hasSubmittedResult
         this.rankSubmitBusy = false
         this.rankSubmitError = ''
+        this.rankSubmitSuccess = !!data.hasSubmittedResult
+        this.pendingRankPayload = null
         this.lastRankSubmission = null
         this.gameOver = false
         this.hasWon = false
@@ -1060,40 +1090,63 @@ export default {
       }
     },
 
+    buildRankPayload(endedReason) {
+      return {
+        runId: this.currentRunId,
+        score: this.score,
+        maxLevel: this.computeCurrentMaxLevel(),
+        durationMs: Math.max(0, Date.now() - Number(this.gameStartedAt || Date.now())),
+        moveCount: this.moveCount,
+        endedReason,
+        extra: {
+          source: 'mini-hbut-module',
+          is_mobile: this.isMobile,
+          from: this.rankContext.from || '',
+          runtime: this.rankContext.runtime || ''
+        }
+      }
+    },
+
     async finalizeRankSubmission(endedReason) {
       if (!this.rankEnabled || this.rankSubmitBusy || this.hasSubmittedResult) return
+      const payload = this.pendingRankPayload || this.buildRankPayload(endedReason)
+      this.pendingRankPayload = payload
       this.rankSubmitBusy = true
       this.rankSubmitError = ''
+      this.rankSubmitSuccess = false
+      if (this.rankSuccessTimer) {
+        clearTimeout(this.rankSuccessTimer)
+        this.rankSuccessTimer = null
+      }
       try {
-        const result = await submitGameRank(this.rankContext, {
-          runId: this.currentRunId,
-          score: this.score,
-          maxLevel: this.computeCurrentMaxLevel(),
-          durationMs: Math.max(0, Date.now() - Number(this.gameStartedAt || Date.now())),
-          moveCount: this.moveCount,
-          endedReason,
-          extra: {
-            source: 'mini-hbut-module',
-            is_mobile: this.isMobile,
-            from: this.rankContext.from || '',
-            runtime: this.rankContext.runtime || ''
-          }
-        })
+        const result = await submitGameRank(this.rankContext, payload)
         this.lastRankSubmission = result?.player || null
         this.leaderboardPlayer = result?.player || this.leaderboardPlayer
         this.hasSubmittedResult = true
+        this.rankSubmitSuccess = true
+        this.pendingRankPayload = null
+        this.rankSuccessTimer = setTimeout(() => {
+          this.rankSubmitSuccess = false
+          this.rankSuccessTimer = null
+        }, 3000)
         if (this.showLeaderboard) {
           await this.loadLeaderboard(this.leaderboardScope, { silent: true })
         }
       } catch (error) {
         this.rankSubmitError = error?.message || '排行榜上传失败'
         this.hasSubmittedResult = false
+        this.rankSubmitSuccess = false
       } finally {
         this.rankSubmitBusy = false
       }
     },
 
     retryRankSubmit() {
+      if (this.rankSubmitBusy) return
+      if (this.pendingRankPayload) {
+        void this.finalizeRankSubmission(this.pendingRankPayload.endedReason)
+        return
+      }
       if (this.hasWon) {
         void this.finalizeRankSubmission('cleared')
       } else if (this.gameOver) {

@@ -299,6 +299,15 @@ textarea {
   box-shadow: 0 8px 18px rgba(63, 68, 58, 0.12);
 }
 
+.sync-status--uploading {
+  color: var(--accent-strong);
+}
+
+.sync-status--success {
+  color: #1f7a4c;
+  border-color: rgba(31, 122, 76, 0.28);
+}
+
 .sync-status--error {
   color: var(--danger);
   border-color: rgba(153, 58, 46, 0.22);
