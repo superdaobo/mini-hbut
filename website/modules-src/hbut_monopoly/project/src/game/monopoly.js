@@ -631,7 +631,20 @@ export const playTurn = (currentState, diceInput) => {
   return resolveStageProgress(next)
 }
 
-export const restartGame = (options = {}) => createInitialState(options)
+/** 重开一局：忽略上一局完整状态，仅允许显式 options 覆盖初始资源/阶段等。 */
+export const restartGame = (_previousState = {}, options = {}) => createInitialState(options)
+
+/**
+ * 排行榜综合分（可比较）：
+ * score = credits * 100 + influence * 100 + max(0, coins)
+ * 通关/失败均用终局资源快照，便于「尽力分」上榜。
+ */
+export const computeRankScore = (state = {}) => {
+  const credits = Math.max(0, Math.round(Number(state.credits) || 0))
+  const influence = Math.max(0, Math.round(Number(state.influence) || 0))
+  const coins = Math.round(Number(state.coins) || 0)
+  return credits * 100 + influence * 100 + Math.max(0, coins)
+}
 
 export const createDeterministicDice = (seed = Date.now()) => {
   let value = Math.abs(Math.floor(Number(seed) || 1)) % 2147483647
