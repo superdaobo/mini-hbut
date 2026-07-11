@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { PlatformGenerator } from './PlatformGenerator.js'
+import {
+  PlatformGenerator,
+  clampPlatformDistance,
+  isPlatformCenterOnScreen,
+  planarDistance
+} from './PlatformGenerator.js'
 import {
   BUILDING_DATA,
   BUILDING_TYPES,
@@ -7,7 +12,8 @@ import {
   PLATFORM_DISTANCE_MAX_FACTOR,
   HIGH_SCORE_SCALE_MAX,
   HIGH_SCORE_THRESHOLD,
-  PLATFORM_PROBABILITY
+  PLATFORM_PROBABILITY,
+  PLATFORM_VISIBILITY
 } from '../utils/constants.js'
 
 describe('PlatformGenerator', () => {
@@ -89,38 +95,60 @@ describe('PlatformGenerator', () => {
   })
 
   describe('距离约束', () => {
-    it('score < 1500 时距离在固定基础距离倍率范围内', () => {
+    it('score < 1500 时距离在固定基础距离倍率与入画上限内', () => {
       const initial = generator.getInitialPlatform()
       const baseDistance = 4.5
       const minDist = PLATFORM_DISTANCE_MIN_FACTOR * baseDistance
-      const maxDist = PLATFORM_DISTANCE_MAX_FACTOR * baseDistance
+      const maxDist = Math.min(
+        PLATFORM_DISTANCE_MAX_FACTOR * baseDistance,
+        PLATFORM_VISIBILITY.maxGenerateDistance
+      )
 
       for (let i = 0; i < 50; i++) {
         const next = generator.generateNext(initial, 100)
-        const dx = next.position.x - initial.position.x
-        const dz = next.position.z - initial.position.z
-        const distance = Math.sqrt(dx * dx + dz * dz)
+        const distance = planarDistance(next.position, initial.position)
 
         expect(distance).toBeGreaterThanOrEqual(minDist - 0.001)
         expect(distance).toBeLessThanOrEqual(maxDist + 0.001)
       }
     })
 
-    it('score >= 1500 时距离在固定基础距离倍率和高分缩放范围内', () => {
+    it('score >= 1500 时距离仍受入画硬上限约束', () => {
       const initial = generator.getInitialPlatform()
       const baseDistance = 4.5
       const minDist = PLATFORM_DISTANCE_MIN_FACTOR * baseDistance
-      const maxDist = PLATFORM_DISTANCE_MAX_FACTOR * baseDistance * HIGH_SCORE_SCALE_MAX
+      const maxDist = PLATFORM_VISIBILITY.maxGenerateDistance
 
       for (let i = 0; i < 50; i++) {
         const next = generator.generateNext(initial, 2000)
-        const dx = next.position.x - initial.position.x
-        const dz = next.position.z - initial.position.z
-        const distance = Math.sqrt(dx * dx + dz * dz)
+        const distance = planarDistance(next.position, initial.position)
 
         expect(distance).toBeGreaterThanOrEqual(minDist - 0.001)
         expect(distance).toBeLessThanOrEqual(maxDist + 0.001)
       }
+    })
+
+    it('连续生成时下一平台中心相对当前平台始终入画', () => {
+      let current = generator.getInitialPlatform()
+      for (let i = 0; i < 80; i++) {
+        const next = generator.generateNext(current, i * 30)
+        expect(
+          isPlatformCenterOnScreen(
+            current.position,
+            next.position,
+            PLATFORM_VISIBILITY.visibleRadiusFromCameraTarget
+          )
+        ).toBe(true)
+        expect(planarDistance(current.position, next.position)).toBeLessThanOrEqual(
+          PLATFORM_VISIBILITY.maxCenterDistance + 0.001
+        )
+        current = next
+      }
+    })
+
+    it('clampPlatformDistance 钳制超大距离', () => {
+      expect(clampPlatformDistance(99)).toBeLessThanOrEqual(PLATFORM_VISIBILITY.maxGenerateDistance)
+      expect(clampPlatformDistance(0)).toBeGreaterThanOrEqual(4.5 * PLATFORM_DISTANCE_MIN_FACTOR - 0.001)
     })
   })
 
@@ -155,10 +183,10 @@ describe('PlatformGenerator', () => {
 
         const baseDistance = 4.5
         const minDist = PLATFORM_DISTANCE_MIN_FACTOR * baseDistance
-        let maxDist = PLATFORM_DISTANCE_MAX_FACTOR * baseDistance
-        if (score >= HIGH_SCORE_THRESHOLD) {
-          maxDist *= HIGH_SCORE_SCALE_MAX
-        }
+        const maxDist = Math.min(
+          PLATFORM_DISTANCE_MAX_FACTOR * baseDistance * (score >= HIGH_SCORE_THRESHOLD ? HIGH_SCORE_SCALE_MAX : 1),
+          PLATFORM_VISIBILITY.maxGenerateDistance
+        )
 
         expect(distance).toBeGreaterThanOrEqual(minDist - 0.001)
         expect(distance).toBeLessThanOrEqual(maxDist + 0.001)
