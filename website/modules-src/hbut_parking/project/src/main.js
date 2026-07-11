@@ -1,11 +1,12 @@
 import './style.css'
 import {
   PARKING_LEVELS,
+  applyDirectionInput,
   computeParkingScore,
   createInitialParkingState,
+  directionFromKey,
   restartParkingGame,
   selectVehicle,
-  slideSelected,
   vehicleCells
 } from './game/parking.js'
 import {
@@ -230,6 +231,9 @@ function afterChange() {
   render()
 }
 
+/**
+ * 用百分比绝对定位车辆，避免 CSS grid 跨格在重绘时出现「压扁/不动」错觉。
+ */
 function vehicleStyle(vehicle) {
   const cells = vehicleCells(vehicle)
   const rows = cells.map((c) => c.row)
@@ -238,7 +242,23 @@ function vehicleStyle(vehicle) {
   const c0 = Math.min(...cols)
   const r1 = Math.max(...rows)
   const c1 = Math.max(...cols)
-  return `grid-row: ${r0 + 1} / ${r1 + 2}; grid-column: ${c0 + 1} / ${c1 + 2};`
+  const w = Math.max(1, state.width)
+  const h = Math.max(1, state.height)
+  const left = (c0 / w) * 100
+  const top = (r0 / h) * 100
+  const width = ((c1 - c0 + 1) / w) * 100
+  const height = ((r1 - r0 + 1) / h) * 100
+  return `left:${left}%;top:${top}%;width:${width}%;height:${height}%;`
+}
+
+function exitStyle() {
+  const w = Math.max(1, state.width)
+  const h = Math.max(1, state.height)
+  const left = (state.exit.col / w) * 100
+  const top = (state.exit.row / h) * 100
+  const width = (1 / w) * 100
+  const height = (1 / h) * 100
+  return `left:${left}%;top:${top}%;width:${width}%;height:${height}%;`
 }
 
 function renderBoard() {
@@ -246,18 +266,27 @@ function renderBoard() {
     .map((vehicle) => {
       const selected = state.selectedId === vehicle.id ? 'selected' : ''
       const target = vehicle.target ? 'target' : ''
-      return `<button type="button" class="vehicle ${selected} ${target}" data-vehicle-id="${vehicle.id}" style="${vehicleStyle(vehicle)}" aria-label="${vehicle.label}">${vehicle.label}</button>`
+      const axis = vehicle.orientation === 'h' ? 'h' : 'v'
+      return `<button type="button" class="vehicle ${selected} ${target} axis-${axis}" data-vehicle-id="${vehicle.id}" data-axis="${axis}" style="${vehicleStyle(vehicle)}" aria-label="${vehicle.label}">${vehicle.label}</button>`
     })
     .join('')
   return `
     <div class="board-grid" style="--cols:${state.width};--rows:${state.height}">
+      <div class="board-cells" aria-hidden="true">
       ${Array.from({ length: state.width * state.height })
         .map(() => '<span class="cell"></span>')
         .join('')}
-      <span class="exit-marker" style="grid-row:${state.exit.row + 1};grid-column:${state.exit.col + 1}">出</span>
+      </div>
+      <span class="exit-marker" style="${exitStyle()}">出</span>
       ${vehiclesHtml}
     </div>
   `
+}
+
+function handleDirection(dir) {
+  const result = applyDirectionInput(state, dir)
+  state = result.state
+  afterChange()
 }
 
 function render() {
@@ -344,33 +373,9 @@ function render() {
     })
   }
 
-  const dirMap = {
-    left: -1,
-    right: 1,
-    up: -1,
-    down: 1
-  }
   for (const button of app.querySelectorAll('[data-dir]')) {
     button.addEventListener('click', () => {
-      const dir = button.dataset.dir
-      const selected = state.vehicles.find((item) => item.id === state.selectedId)
-      if (!selected) {
-        state = { ...state, log: ['请先点选一辆车。', ...(state.log || [])].slice(0, 6) }
-        afterChange()
-        return
-      }
-      if ((dir === 'left' || dir === 'right') && selected.orientation !== 'h') {
-        state = { ...state, log: ['该车只能上下移动。', ...(state.log || [])].slice(0, 6) }
-        afterChange()
-        return
-      }
-      if ((dir === 'up' || dir === 'down') && selected.orientation !== 'v') {
-        state = { ...state, log: ['该车只能左右移动。', ...(state.log || [])].slice(0, 6) }
-        afterChange()
-        return
-      }
-      state = slideSelected(state, dirMap[dir])
-      afterChange()
+      handleDirection(button.dataset.dir)
     })
   }
 
@@ -389,6 +394,16 @@ function render() {
   notifyHostHeight()
 }
 
+function onKeyDown(event) {
+  const dir = directionFromKey(event.key)
+  if (!dir) return
+  const tag = String(event.target?.tagName || '').toLowerCase()
+  if (tag === 'input' || tag === 'textarea') return
+  event.preventDefault()
+  handleDirection(dir)
+}
+
+window.addEventListener('keydown', onKeyDown)
 window.addEventListener('resize', syncViewport)
 window.addEventListener('orientationchange', syncViewport)
 window.visualViewport?.addEventListener('resize', syncViewport)
