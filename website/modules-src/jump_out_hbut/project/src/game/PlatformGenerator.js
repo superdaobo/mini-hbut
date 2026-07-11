@@ -1,6 +1,7 @@
 /**
  * 平台生成器
  * 负责生成下一个跳跃目标平台，包括方向、距离、建筑类型选择
+ * 生成距离受相机可见性约束，避免目标平台整块出画
  */
 import { randomRange } from '../utils/math.js'
 import {
@@ -11,7 +12,10 @@ import {
   PLATFORM_DISTANCE_MAX_FACTOR,
   HIGH_SCORE_SCALE_MIN,
   HIGH_SCORE_SCALE_MAX,
-  HIGH_SCORE_THRESHOLD
+  HIGH_SCORE_THRESHOLD,
+  PLATFORM_VISIBILITY,
+  MIN_JUMP_DISTANCE,
+  MAX_JUMP_DISTANCE
 } from '../utils/constants.js'
 
 /** 平台 ID 计数器 */
@@ -74,6 +78,46 @@ function pickTypeFromCategory(category) {
   return candidates[idx]
 }
 
+/**
+ * 计算两点平面距离
+ * @param {{x:number,z:number}} a
+ * @param {{x:number,z:number}} b
+ * @returns {number}
+ */
+export function planarDistance(a, b) {
+  const dx = Number(a?.x || 0) - Number(b?.x || 0)
+  const dz = Number(a?.z || 0) - Number(b?.z || 0)
+  return Math.sqrt(dx * dx + dz * dz)
+}
+
+/**
+ * 将生成距离钳制到「可跳 + 可入画」区间
+ * @param {number} distance
+ * @returns {number}
+ */
+export function clampPlatformDistance(distance) {
+  const minDist = Math.max(MIN_JUMP_DISTANCE, 4.5 * PLATFORM_DISTANCE_MIN_FACTOR)
+  const maxDist = Math.min(
+    MAX_JUMP_DISTANCE,
+    PLATFORM_VISIBILITY.maxGenerateDistance,
+    PLATFORM_VISIBILITY.maxCenterDistance
+  )
+  const value = Number(distance)
+  if (!Number.isFinite(value)) return minDist
+  return Math.min(maxDist, Math.max(minDist, value))
+}
+
+/**
+ * 判断下一平台中心是否相对相机目标入画（简化：平面距离阈值）
+ * @param {{x:number,z:number}} cameraTarget
+ * @param {{x:number,z:number}} platformCenter
+ * @param {number} [radius]
+ * @returns {boolean}
+ */
+export function isPlatformCenterOnScreen(cameraTarget, platformCenter, radius = PLATFORM_VISIBILITY.visibleRadiusFromCameraTarget) {
+  return planarDistance(cameraTarget, platformCenter) <= Number(radius || 0)
+}
+
 export class PlatformGenerator {
   constructor() {
     this._idCounter = 0
@@ -113,18 +157,19 @@ export class PlatformGenerator {
     const type = pickTypeFromCategory(category)
     const data = BUILDING_DATA[type]
 
-    // 3. 计算距离（使用固定基准距离，不依赖当前平台宽度）
-    // 基准距离 = 跳跃范围的中间值附近，确保大部分跳跃可达
+    // 3. 计算距离（使用固定基准距离，再钳制到可见/可跳范围）
     const baseDistance = 4.5 // 跳跃范围 2.0~8.0 的中间偏下
     let distance = baseDistance * randomRange(
       PLATFORM_DISTANCE_MIN_FACTOR,
       PLATFORM_DISTANCE_MAX_FACTOR
     )
 
-    // 高分时增加距离缩放
+    // 高分时轻微增加距离，但仍受入画硬上限约束
     if (score >= HIGH_SCORE_THRESHOLD) {
       distance *= randomRange(HIGH_SCORE_SCALE_MIN, HIGH_SCORE_SCALE_MAX)
     }
+
+    distance = clampPlatformDistance(distance)
 
     // 4. 计算位置
     // 方向角度：left = -30°, right = +30°（相对 Z 轴正方向，60° zigzag）

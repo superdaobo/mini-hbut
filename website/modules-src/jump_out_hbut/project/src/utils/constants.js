@@ -156,6 +156,20 @@ export const CAMERA_CONFIG = {
   followDuration: 300
 }
 
+/**
+ * 下一平台入画约束（相对当前站立平台 / 相机 lookAt）
+ * 正交相机 frustumSize=12 时半高 6；竖屏半宽更窄，取保守半径。
+ * 目标：落跳前下一平台中心主要落在可见区内。
+ */
+export const PLATFORM_VISIBILITY = {
+  /** 相对当前平台中心，下一平台中心允许的最大平面距离 */
+  maxCenterDistance: 6.0,
+  /** 生成距离硬上限（同时受跳跃上限约束） */
+  maxGenerateDistance: 6.0,
+  /** 窄屏/默认 aspect 下用于测试的可见半径（世界单位，与生成上限一致） */
+  visibleRadiusFromCameraTarget: 6.0
+}
+
 // ========== 落点判定阈值 ==========
 /** 完美着陆阈值（距中心 35% 以内） */
 export const PERFECT_LANDING_THRESHOLD = 0.35
