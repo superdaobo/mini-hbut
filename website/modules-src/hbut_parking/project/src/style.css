@@ -124,50 +124,86 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 220px;
+  min-height: 240px;
+  aspect-ratio: 1;
+  background:
+    linear-gradient(180deg, #e8f3ef 0%, #d5e6df 100%);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.12);
+}
+
+.board-cells {
+  position: absolute;
+  inset: 8px;
   display: grid;
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
   gap: 4px;
-  background: #dbe7e2;
-  border-radius: 10px;
-  padding: 6px;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .cell {
-  background: rgba(255, 255, 255, 0.55);
-  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.62);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.06);
 }
 
 .exit-marker {
+  position: absolute;
+  z-index: 1;
   display: grid;
   place-items: center;
   color: #0f766e;
   font-weight: 900;
   font-size: 0.78rem;
-  z-index: 1;
   pointer-events: none;
+  border: 2px dashed rgba(15, 118, 110, 0.55);
+  border-radius: 10px;
+  background: rgba(167, 243, 208, 0.45);
+  box-sizing: border-box;
+  padding: 2px;
 }
 
 .vehicle {
+  position: absolute;
   z-index: 2;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   color: #fff;
   font-weight: 800;
   font-size: 0.78rem;
-  background: #2563eb;
+  background: linear-gradient(180deg, #3b82f6, #1d4ed8);
   cursor: pointer;
   touch-action: manipulation;
+  box-shadow: 0 6px 14px rgba(29, 78, 216, 0.28);
+  transition: left 120ms ease, top 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 2px;
+}
+
+.vehicle.axis-h {
+  min-height: 0;
+}
+
+.vehicle.axis-v {
+  min-width: 0;
+  writing-mode: horizontal-tb;
 }
 
 .vehicle.target {
-  background: #ea580c;
+  background: linear-gradient(180deg, #fb923c, #ea580c);
+  box-shadow: 0 6px 14px rgba(234, 88, 12, 0.3);
 }
 
 .vehicle.selected {
   outline: 3px solid #fbbf24;
-  outline-offset: 1px;
+  outline-offset: 2px;
+  transform: scale(1.02);
+  z-index: 3;
 }
 
 .control-panel {

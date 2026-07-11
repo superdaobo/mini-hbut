@@ -184,3 +184,82 @@ export function slideSelected(state, delta) {
   if (!state?.selectedId) return addLog(state, '请先点选一辆车。')
   return slideVehicle(state, state.selectedId, delta)
 }
+
+/**
+ * 方向名 → 逻辑 delta（与方向板一致）。
+ * @param {'left'|'right'|'up'|'down'|string} dir
+ * @returns {number}
+ */
+export function deltaFromDirection(dir) {
+  if (dir === 'left' || dir === 'up') return -1
+  if (dir === 'right' || dir === 'down') return 1
+  return 0
+}
+
+/**
+ * 键盘/方向板方向是否匹配车辆朝向。
+ * 横车只能 left/right；竖车只能 up/down。
+ */
+export function isDirectionAllowedForVehicle(vehicle, dir) {
+  if (!vehicle) return false
+  if (dir === 'left' || dir === 'right') return vehicle.orientation === 'h'
+  if (dir === 'up' || dir === 'down') return vehicle.orientation === 'v'
+  return false
+}
+
+/**
+ * 统一处理方向输入：选中校验 + 轴向校验 + slide。
+ * @returns {{ state: object, ok: boolean, reason?: string }}
+ */
+export function applyDirectionInput(state, dir) {
+  if (!state || state.status !== 'playing') {
+    return { state, ok: false, reason: 'not_playing' }
+  }
+  if (!state.selectedId) {
+    return {
+      state: addLog(state, '请先点选一辆车。'),
+      ok: false,
+      reason: 'no_selection'
+    }
+  }
+  const selected = state.vehicles.find((item) => item.id === state.selectedId)
+  if (!selected) {
+    return { state: addLog(state, '请先点选一辆车。'), ok: false, reason: 'no_selection' }
+  }
+  if (!isDirectionAllowedForVehicle(selected, dir)) {
+    const msg =
+      selected.orientation === 'h' ? '该车只能左右移动。' : '该车只能上下移动。'
+    return { state: addLog(state, msg), ok: false, reason: 'wrong_axis' }
+  }
+  const delta = deltaFromDirection(dir)
+  if (!delta) return { state, ok: false, reason: 'bad_dir' }
+  const next = slideSelected(state, delta)
+  const moved =
+    next.totalSteps !== state.totalSteps ||
+    next.vehicles.some((v, i) => {
+      const prev = state.vehicles[i]
+      return !prev || prev.row !== v.row || prev.col !== v.col
+    })
+  return { state: next, ok: moved, reason: moved ? 'moved' : 'blocked' }
+}
+
+/**
+ * Arrow 键名 → 方向 token
+ */
+export function directionFromKey(key) {
+  const map = {
+    ArrowLeft: 'left',
+    ArrowRight: 'right',
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+    a: 'left',
+    A: 'left',
+    d: 'right',
+    D: 'right',
+    w: 'up',
+    W: 'up',
+    s: 'down',
+    S: 'down'
+  }
+  return map[key] || ''
+}

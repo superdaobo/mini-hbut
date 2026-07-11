@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   PARKING_LEVELS,
+  applyDirectionInput,
   canSlideVehicle,
   computeParkingScore,
   createInitialParkingState,
+  directionFromKey,
+  isDirectionAllowedForVehicle,
   isLevelCleared,
+  selectVehicle,
   slideVehicle
 } from '../../website/modules-src/hbut_parking/project/src/game/parking.js'
 
@@ -49,5 +53,27 @@ describe('hbut_parking move legality and score', () => {
     state = slideVehicle(state, 'bus', 1)
     expect(state.clearedLevels).toBe(1)
     expect(state.levelIndex === 1 || state.status === 'won').toBe(true)
+  })
+
+  it('maps arrow keys and enforces vehicle axis for direction input', () => {
+    expect(directionFromKey('ArrowLeft')).toBe('left')
+    expect(directionFromKey('ArrowUp')).toBe('up')
+    expect(isDirectionAllowedForVehicle({ orientation: 'h' }, 'left')).toBe(true)
+    expect(isDirectionAllowedForVehicle({ orientation: 'h' }, 'up')).toBe(false)
+
+    let state = createInitialParkingState({ levelIndex: 0 })
+    state = {
+      ...state,
+      vehicles: [{ id: 'bus', label: '校车', row: 2, col: 1, length: 2, orientation: 'h', target: true }],
+      selectedId: 'bus'
+    }
+    const wrong = applyDirectionInput(state, 'up')
+    expect(wrong.ok).toBe(false)
+    expect(wrong.state.vehicles[0].col).toBe(1)
+
+    const right = applyDirectionInput(state, 'right')
+    expect(right.ok).toBe(true)
+    expect(right.state.vehicles[0].col).toBe(2)
+    expect(right.state.totalSteps).toBeGreaterThan(state.totalSteps)
   })
 })
