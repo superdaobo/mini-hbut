@@ -1,5 +1,8 @@
+import { isLikelyAndroidUserAgent, isTauriRuntime } from '../../../platform/native'
 import { CAMPUS_MAP_DIRECTION_PROXY } from '../constants'
 import type { MapLatLng, WalkingRouteResult } from '../types'
+
+const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:4399'
 
 /** 解码腾讯步行路线 polyline（整数序列，前两项为起点 * 1e6，后续为增量） */
 export const decodeTencentPolyline = (coors: number[]): MapLatLng[] => {
@@ -16,6 +19,21 @@ export const decodeTencentPolyline = (coors: number[]): MapLatLng[] => {
   return points
 }
 
+/**
+ * 解析步行路线代理 base。
+ * - Web / Vite：相对路径 `/campus-map/direction`（dev server 反代）
+ * - Tauri iOS / 桌面：loopback bridge（与 campus-guide / towergo 一致）
+ * - Tauri Android：相对路径（Release 通常不启 4399）
+ */
+export const resolveCampusMapDirectionUrl = (proxyPath = CAMPUS_MAP_DIRECTION_PROXY) => {
+  const path = String(proxyPath || CAMPUS_MAP_DIRECTION_PROXY).trim() || CAMPUS_MAP_DIRECTION_PROXY
+  if (/^https?:\/\//i.test(path)) return path
+  if (!isTauriRuntime()) return path
+  if (isLikelyAndroidUserAgent()) return path
+  const normalized = path.startsWith('/') ? path : `/${path}`
+  return `${LOCAL_BRIDGE_ORIGIN}${normalized}`
+}
+
 const formatCoord = (point: MapLatLng) => `${point.lat},${point.lng}`
 
 export const fetchWalkingRoute = async (
@@ -23,12 +41,20 @@ export const fetchWalkingRoute = async (
   to: MapLatLng,
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<WalkingRouteResult> => {
+  const fromLat = Number(from?.lat)
+  const fromLng = Number(from?.lng)
+  const toLat = Number(to?.lat)
+  const toLng = Number(to?.lng)
+  if (![fromLat, fromLng, toLat, toLng].every(Number.isFinite)) {
+    throw new Error('路线起终点坐标无效')
+  }
   const params = new URLSearchParams({
-    from: formatCoord(from),
-    to: formatCoord(to),
+    from: formatCoord({ lat: fromLat, lng: fromLng }),
+    to: formatCoord({ lat: toLat, lng: toLng }),
     output: 'json'
   })
-  const response = await fetch(`${CAMPUS_MAP_DIRECTION_PROXY}?${params.toString()}`, {
+  const endpoint = resolveCampusMapDirectionUrl()
+  const response = await fetch(`${endpoint}?${params.toString()}`, {
     method: 'GET',
     cache: 'no-store',
     signal
@@ -54,10 +80,14 @@ export const fetchWalkingRoute = async (
   if (!route?.polyline?.length) {
     throw new Error('路线结果为空')
   }
+  const polyline = decodeTencentPolyline(route.polyline)
+  if (polyline.length < 2) {
+    throw new Error('路线折线无效')
+  }
   return {
     distanceMeters: Number(route.distance) || 0,
     durationSeconds: Number(route.duration) || 0,
-    polyline: decodeTencentPolyline(route.polyline)
+    polyline
   }
 }
 

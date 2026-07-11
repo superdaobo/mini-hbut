@@ -32,6 +32,15 @@ type MarkerStyleFactory = { MarkerStyle: new (opts: Record<string, unknown>) => 
 
 const styleCache = new Map<string, unknown>()
 
+const createMarkerStyle = (
+  TMap: MarkerStyleFactory,
+  opts: { width: number; height: number; anchor: { x: number; y: number }; src: string }
+) => {
+  if (typeof TMap.MarkerStyle === 'function') return new TMap.MarkerStyle(opts)
+  // MarkerStyle 未就绪时用纯对象，避免 styles 为空导致 MultiMarker 静默不可见
+  return { ...opts }
+}
+
 const ensureSpotStyle = (
   TMap: MarkerStyleFactory,
   name: string,
@@ -43,7 +52,7 @@ const ensureSpotStyle = (
   if (!styleCache.has(key)) {
     styleCache.set(
       key,
-      new TMap.MarkerStyle({
+      createMarkerStyle(TMap, {
         width: active ? 40 : 34,
         height: active ? 46 : 40,
         anchor: { x: active ? 20 : 17, y: active ? 46 : 40 },
@@ -56,7 +65,7 @@ const ensureSpotStyle = (
 
 export const buildMarkerStyles = (TMap: MarkerStyleFactory) => {
   const styles: Record<string, unknown> = {}
-  styles.location = new TMap.MarkerStyle({
+  styles.location = createMarkerStyle(TMap, {
     width: 28,
     height: 28,
     anchor: { x: 14, y: 14 },

@@ -87,21 +87,23 @@ export class CampusMapController {
     this.buildings = buildings
     if (!this.map || !this.TMap) return
 
-    // 腾讯 GL MultiMarker 无 MarkerStyle 时 pin 常不可见，必须显式 styleId
+    // 腾讯 GL MultiMarker 必须带 styles + styleId，否则 pin 常不可见
     const styles = buildCampusBuildingMarkerStyles(this.TMap, buildings)
-    const geometries = buildings.map((building) => ({
-      id: building.id,
-      styleId: campusBuildingStyleId(building),
-      position: toTencentLatLng(this.TMap!, { lat: building.lat, lng: building.lng }),
-      properties: { title: building.name, category: building.category }
-    }))
+    const geometries = buildings
+      .filter((building) => Number.isFinite(building.lat) && Number.isFinite(building.lng))
+      .map((building) => ({
+        id: building.id,
+        styleId: campusBuildingStyleId(building),
+        position: toTencentLatLng(this.TMap!, { lat: building.lat, lng: building.lng }),
+        properties: { title: building.name, category: building.category }
+      }))
 
     if (!this.buildingLayer) {
       this.buildingLayer = new this.TMap.MultiMarker({
         map: this.map,
         styles,
         geometries,
-        zIndex: 30
+        zIndex: 120
       })
       this.buildingLayer.on?.('click', (event: { geometry?: { id?: string } }) => {
         const id = event?.geometry?.id
@@ -149,23 +151,25 @@ export class CampusMapController {
       return
     }
     const paths = points.map((point) => toTencentLatLng(this.TMap!, point))
-    const geometry = { id: 'walking-route', paths }
+    const geometry = { id: 'walking-route', styleId: 'route', paths }
+    const styles = {
+      route: {
+        color: '#6366f1',
+        width: 6,
+        borderColor: '#ffffff',
+        borderWidth: 2,
+        lineCap: 'round'
+      }
+    }
     if (!this.routeLayer) {
       this.routeLayer = new this.TMap.MultiPolyline({
         map: this.map,
         geometries: [geometry],
-        styles: {
-          route: {
-            color: '#6366f1',
-            width: 6,
-            borderColor: '#ffffff',
-            borderWidth: 2,
-            lineCap: 'round'
-          }
-        }
+        styles
       })
       return
     }
+    this.routeLayer.setStyles?.(styles)
     this.routeLayer.setGeometries?.([geometry])
   }
 
