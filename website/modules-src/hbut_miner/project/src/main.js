@@ -6,14 +6,29 @@ import {
   restartMinerGame,
   stepMinerGame
 } from './game/miner.js'
+import {
+  canUseGameRank,
+  createRunId,
+  fetchGameLeaderboard,
+  readGameModuleContext,
+  submitGameRank
+} from './utils/game_rank.js'
 
 const MODULE_ID = 'hbut_miner'
 const app = document.getElementById('app')
+
+const moduleContext = readGameModuleContext()
+const rankEnabled = canUseGameRank(moduleContext)
 
 let state = createInitialMinerState()
 let lastFrame = performance.now()
 let canvas
 let ctx
+let currentRunId = createRunId()
+let runStartedAt = Date.now()
+let submitPending = null
+let lastTerminalStatus = ''
+let currentLeaderboardScope = moduleContext.className ? 'class' : 'school'
 
 function syncViewport() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
@@ -97,7 +112,10 @@ function renderShell() {
       <section class="control-panel">
         <button id="launch-button" class="primary-action" type="button">发射吊钩</button>
         <button id="restart-button" class="secondary-action" type="button">重新开始</button>
+        ${rankEnabled ? '<button id="leaderboard-button" class="secondary-action" type="button">排行榜</button>' : ''}
       </section>
+
+      <div id="submit-status" class="submit-status" aria-live="polite"></div>
 
       <section class="log-panel" aria-label="矿区记录">
         <div class="log-heading">
@@ -107,6 +125,24 @@ function renderShell() {
         <ol data-log></ol>
       </section>
     </main>
+
+    ${rankEnabled ? `
+    <div class="leaderboard-overlay" id="leaderboard-overlay" style="display:none">
+      <div class="leaderboard-modal">
+        <div class="leaderboard-header">
+          <h2>🏆 排行榜</h2>
+          <button class="leaderboard-close" id="leaderboard-close" type="button">&times;</button>
+        </div>
+        <div class="leaderboard-tabs">
+          <button class="tab-btn ${currentLeaderboardScope === 'class' ? 'active' : ''}" data-scope="class" type="button">班级榜</button>
+          <button class="tab-btn ${currentLeaderboardScope === 'school' ? 'active' : ''}" data-scope="school" type="button">全校榜</button>
+          <button class="tab-btn ${currentLeaderboardScope === 'class_total' ? 'active' : ''}" data-scope="class_total" type="button">班级总分榜</button>
+        </div>
+        <div class="leaderboard-content" id="leaderboard-content">
+          <div class="leaderboard-loading">加载中...</div>
+        </div>
+      </div>
+    </div>` : ''}
   `
 
   canvas = document.getElementById('miner-canvas')
@@ -115,6 +151,11 @@ function renderShell() {
   document.getElementById('launch-button')?.addEventListener('click', launchHook)
   document.getElementById('restart-button')?.addEventListener('click', () => {
     state = restartMinerGame(state)
+    currentRunId = createRunId()
+    runStartedAt = Date.now()
+    lastTerminalStatus = ''
+    submitPending = null
+    showSubmitStatus('')
     lastFrame = performance.now()
     updateUi()
   })
@@ -122,8 +163,134 @@ function renderShell() {
     event.preventDefault()
     launchHook()
   })
+  setupLeaderboard()
 
   resizeCanvas()
+}
+
+function showSubmitStatus(status) {
+  const el = document.getElementById('submit-status')
+  if (!el) return
+  switch (status) {
+    case 'uploading':
+      el.textContent = '正在上传成绩...'
+      el.className = 'submit-status uploading'
+      el.onclick = null
+      break
+    case 'success':
+      el.textContent = '✓ 成绩已上传'
+      el.className = 'submit-status success'
+      el.onclick = null
+      setTimeout(() => {
+        if (el.classList.contains('success')) {
+          el.textContent = ''
+          el.className = 'submit-status'
+        }
+      }, 3000)
+      break
+    case 'failed':
+      el.textContent = '上传失败，点此重试'
+      el.className = 'submit-status failed'
+      el.onclick = () => {
+        void retrySubmit()
+      }
+      break
+    default:
+      el.textContent = ''
+      el.className = 'submit-status'
+      el.onclick = null
+  }
+}
+
+async function submitTerminalScore(endedReason) {
+  if (!rankEnabled) return
+  const payload = {
+    runId: currentRunId,
+    score: state.score,
+    maxLevel: state.levelNumber || 1,
+    durationMs: Math.max(0, Date.now() - runStartedAt),
+    moveCount: Number(state.shotCount || 0),
+    endedReason,
+    extra: {
+      levelName: state.levelName || '',
+      targetScore: state.targetScore || 0
+    }
+  }
+  submitPending = payload
+  showSubmitStatus('uploading')
+  try {
+    await submitGameRank(moduleContext, payload)
+    submitPending = null
+    showSubmitStatus('success')
+  } catch (error) {
+    console.warn('[hbut_miner] rank submit failed', error)
+    showSubmitStatus('failed')
+  }
+}
+
+async function retrySubmit() {
+  if (!submitPending || !rankEnabled) return
+  showSubmitStatus('uploading')
+  try {
+    await submitGameRank(moduleContext, submitPending)
+    submitPending = null
+    showSubmitStatus('success')
+  } catch (error) {
+    console.warn('[hbut_miner] rank retry failed', error)
+    showSubmitStatus('failed')
+  }
+}
+
+function setupLeaderboard() {
+  if (!rankEnabled) return
+  const overlay = document.getElementById('leaderboard-overlay')
+  const openBtn = document.getElementById('leaderboard-button')
+  const closeBtn = document.getElementById('leaderboard-close')
+  openBtn?.addEventListener('click', () => {
+    if (overlay) overlay.style.display = 'flex'
+    void loadLeaderboard(currentLeaderboardScope)
+  })
+  closeBtn?.addEventListener('click', () => {
+    if (overlay) overlay.style.display = 'none'
+  })
+  overlay?.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.style.display = 'none'
+  })
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach((item) => item.classList.remove('active'))
+      btn.classList.add('active')
+      currentLeaderboardScope = btn.dataset.scope || 'class'
+      void loadLeaderboard(currentLeaderboardScope)
+    })
+  })
+}
+
+async function loadLeaderboard(scope) {
+  const content = document.getElementById('leaderboard-content')
+  if (!content) return
+  content.innerHTML = '<div class="leaderboard-loading">加载中...</div>'
+  try {
+    const data = await fetchGameLeaderboard(moduleContext, { scope, limit: 20 })
+    const list = data.leaderboard || data.data || []
+    if (!list.length) {
+      content.innerHTML = '<div class="leaderboard-empty">暂无数据</div>'
+      return
+    }
+    const isClassTotal = scope === 'class_total'
+    content.innerHTML = `<div class="leaderboard-list">${list
+      .map((item, index) => {
+        const rank = item.rank || index + 1
+        const name = isClassTotal
+          ? item.class_name || item.className || '未知班级'
+          : item.player_name || item.playerName || item.student_id || '匿名'
+        const score = isClassTotal ? item.total_score ?? item.totalScore ?? 0 : item.score ?? 0
+        return `<div class="leaderboard-item"><span class="rank-badge">${rank}</span><span class="rank-name">${name}</span><span class="rank-score">${score}</span></div>`
+      })
+      .join('')}</div>`
+  } catch (error) {
+    content.innerHTML = `<div class="leaderboard-error">加载失败: ${error?.message || '未知错误'}</div>`
+  }
 }
 
 function launchHook() {
@@ -298,6 +465,10 @@ function tick(now) {
   const delta = now - lastFrame
   lastFrame = now
   state = stepMinerGame(state, delta)
+  if ((state.status === 'won' || state.status === 'lost') && state.status !== lastTerminalStatus) {
+    lastTerminalStatus = state.status
+    void submitTerminalScore(state.status === 'won' ? 'won' : 'lost')
+  }
   updateUi()
   requestAnimationFrame(tick)
 }
