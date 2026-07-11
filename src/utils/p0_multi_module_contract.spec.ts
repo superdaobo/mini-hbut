@@ -47,11 +47,11 @@ describe('P0 multi-module contracts', () => {
   it('uses custom MarkerStyle for Apple-like vehicle and user markers', () => {
     const vue = read('src/components/TowerGoView.vue')
     expect(vue).toContain('buildTowerGoMarkerStyles')
-    expect(vue).toContain('new TMap.MarkerStyle')
+    expect(vue).toContain('MarkerStyle')
     expect(vue).toContain('appleUserDotSvg')
     expect(vue).toContain('appleVehiclePinSvg')
-    expect(vue).toContain("styleId: styles.user")
-    expect(vue).toContain("styleId: styles.vehicle")
+    expect(vue).toContain("styleId: 'user'")
+    expect(vue).toContain("styleId: active ? 'vehicleActive' : 'vehicle'")
   })
 
   it('keeps favicon and app-icon SVG under 80KB after slim', () => {

@@ -144,7 +144,16 @@ const bindMapViewportScan = () => {
       void scanViewportVehicles()
     }, SCAN_VIEWPORT_DEBOUNCE_MS)
   }
-  for (const eventName of ['idle', 'dragend', 'zoom_changed', 'zoomend']) {
+  // 腾讯 GL 实际会触发 bounds_changed / center_changed / zoom；idle 可能永不触发
+  for (const eventName of [
+    'bounds_changed',
+    'center_changed',
+    'zoom',
+    'zoom_changed',
+    'dragend',
+    'idle',
+    'zoomend'
+  ]) {
     try {
       map.on(eventName, schedule)
     } catch {
@@ -182,26 +191,28 @@ const appleVehiclePinSvg = (active = false) => {
 
 const buildTowerGoMarkerStyles = (TMap: any) => {
   const styles: Record<string, unknown> = {}
-  if (typeof TMap.MarkerStyle === 'function') {
-    styles.user = new TMap.MarkerStyle({
-      width: 36,
-      height: 36,
-      anchor: { x: 18, y: 18 },
-      src: appleUserDotSvg()
-    })
-    styles.vehicle = new TMap.MarkerStyle({
-      width: 34,
-      height: 40,
-      anchor: { x: 17, y: 40 },
-      src: appleVehiclePinSvg(false)
-    })
-    styles.vehicleActive = new TMap.MarkerStyle({
-      width: 38,
-      height: 46,
-      anchor: { x: 19, y: 46 },
-      src: appleVehiclePinSvg(true)
-    })
-  }
+  const makeStyle =
+    typeof TMap?.MarkerStyle === 'function'
+      ? (opts: Record<string, unknown>) => new TMap.MarkerStyle(opts)
+      : (opts: Record<string, unknown>) => ({ ...opts })
+  styles.user = makeStyle({
+    width: 36,
+    height: 36,
+    anchor: { x: 18, y: 18 },
+    src: appleUserDotSvg()
+  })
+  styles.vehicle = makeStyle({
+    width: 34,
+    height: 40,
+    anchor: { x: 17, y: 40 },
+    src: appleVehiclePinSvg(false)
+  })
+  styles.vehicleActive = makeStyle({
+    width: 38,
+    height: 46,
+    anchor: { x: 19, y: 46 },
+    src: appleVehiclePinSvg(true)
+  })
   return styles
 }
 
@@ -223,13 +234,17 @@ const initMap = async () => {
       styles,
       geometries: [{
         id: 'center',
-        styleId: styles.user ? 'user' : undefined,
+        styleId: 'user',
         position: center,
         properties: { title: currentLocation.value.name || '当前位置' }
       }]
     })
     bindMapViewportScan()
     mapScriptState.value = 'ready'
+    // 地图就绪后主动扫一次当前视野（不依赖 idle 是否触发）
+    window.setTimeout(() => {
+      void scanViewportVehicles()
+    }, 600)
   } catch (error) {
     mapScriptState.value = 'fallback'
     mapErrors.value = [(error as Error)?.message || '地图加载失败']
@@ -246,7 +261,7 @@ const updateMapCenter = (point: TowerGoPoint) => {
   centerMarkerLayer.value?.setStyles?.(styles)
   centerMarkerLayer.value?.setGeometries?.([{
     id: 'center',
-    styleId: styles.user ? 'user' : undefined,
+    styleId: 'user',
     position: center,
     properties: { title: point.name || '当前位置' }
   }])
@@ -263,13 +278,18 @@ const renderVehicleMarkers = () => {
     const active = !!selectedId && (id === selectedId)
     return {
       id,
-      styleId: styles.vehicle ? (active ? 'vehicleActive' : 'vehicle') : undefined,
+      styleId: active ? 'vehicleActive' : 'vehicle',
       position: new TMap.LatLng(vehicle.latitude, vehicle.longitude),
       properties: { title: vehicle.id || vehicle.imei || '车辆' }
     }
   })
   if (!vehicleMarkerLayer.value) {
-    vehicleMarkerLayer.value = new TMap.MultiMarker({ map: mapInstance.value, styles, geometries })
+    vehicleMarkerLayer.value = new TMap.MultiMarker({
+      map: mapInstance.value,
+      styles,
+      geometries,
+      zIndex: 80
+    })
     vehicleMarkerLayer.value.on?.('click', (event: any) => {
       const id = event?.geometry?.id
       const item = vehicles.value.find((vehicle) => vehicle.id === id || vehicle.imei === id)
@@ -369,9 +389,19 @@ const drawRouteToVehicle = async (vehicle: TowerGoVehicle | null) => {
     return
   }
   const TMap = (window as any).TMap
+  // 路径规划前尽量用最新定位，避免旧起点导致路线偏移
+  try {
+    const fresh = await resolveTowerGoLocation({ maximumAge: 0, timeoutMs: 8000 })
+    if (fresh.source === 'system') {
+      currentLocation.value = fresh
+      updateMapCenter(fresh)
+    }
+  } catch {
+    // 保留 currentLocation
+  }
   const from = toTMapLatLng(currentLocation.value)
   const to = toTMapLatLng(vehicle)
-  // 优先步行路网，失败再直线示意
+  // 优先步行路网（Tauri 下走 loopback direction 代理），失败再直线示意
   try {
     const walk = await fetchWalkingRoute(
       { lat: currentLocation.value.latitude, lng: currentLocation.value.longitude },
@@ -719,11 +749,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="towergo-view towergo-view--fullscreen module-page">
-    <header class="tg-fs-header">
+    <header class="tg-fs-header" @pointerdown.stop @touchstart.stop>
       <button
         class="tg-icon-btn tg-back-btn"
         type="button"
         aria-label="返回"
+        @pointerdown.stop.prevent="handleBack"
         @click.stop.prevent="handleBack"
         @touchend.stop.prevent="handleBack"
       >
@@ -868,12 +899,12 @@ onBeforeUnmount(() => {
 }
 
 .tg-fs-header {
-  position: absolute;
+  /* fixed 跳出地图子树 stacking context，避免 GL canvas 吞点击 */
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  /* 必须高于腾讯地图 canvas，否则返回按钮点不到 */
-  z-index: 1000;
+  z-index: 2147483000;
   isolation: isolate;
   pointer-events: auto;
   display: flex;
@@ -882,6 +913,9 @@ onBeforeUnmount(() => {
   padding: calc(10px + var(--app-safe-top, env(safe-area-inset-top, 0px))) 12px 10px;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.72), transparent);
   color: #fff;
+  /* 建立独立层，减少与 WebGL 合成层争抢 */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
 }
 
 .tg-fs-title {
@@ -906,11 +940,11 @@ onBeforeUnmount(() => {
 }
 
 .tg-tabs--overlay {
-  position: absolute;
+  position: fixed;
   top: calc(58px + var(--app-safe-top, env(safe-area-inset-top, 0px)));
   left: 50%;
-  transform: translateX(-50%);
-  z-index: 900;
+  transform: translateX(-50%) translateZ(0);
+  z-index: 2147482900;
   pointer-events: auto;
   display: inline-flex;
   gap: 4px;
@@ -928,6 +962,8 @@ onBeforeUnmount(() => {
   margin: 0;
   border: none;
   border-radius: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .tg-map--fs {
@@ -935,6 +971,8 @@ onBeforeUnmount(() => {
   min-height: 100dvh;
   max-height: none;
   border-radius: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .map-toolbar--fs {
@@ -987,16 +1025,20 @@ onBeforeUnmount(() => {
   min-width: 38px;
   padding: 0;
   position: relative;
-  z-index: 1001;
+  z-index: 2147483001;
   pointer-events: auto;
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .tg-back-btn {
   /* 加大命中区域，避免被地图层吞掉点击 */
-  width: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.2);
 }
 
 .tg-icon-btn:hover,

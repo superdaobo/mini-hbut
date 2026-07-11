@@ -213,7 +213,7 @@ export class CampusMapCore {
       map: this.map,
       styles,
       geometries,
-      zIndex: 30
+      zIndex: 120
     })
     this.bindMarkerClick()
   }

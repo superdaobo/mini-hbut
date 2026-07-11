@@ -39,14 +39,30 @@ export const campusBuildingStyleId = (building: Pick<CampusBuilding, 'id' | 'cat
 
 export const campusUserLocationStyleId = () => 'user-location'
 
+/** MarkerStyle 不可用时的纯对象回退（部分 WebView / 加载时序） */
+const plainMarkerStyle = (opts: {
+  width: number
+  height: number
+  anchor: { x: number; y: number }
+  src: string
+}) => ({ ...opts })
+
 export const buildCampusBuildingMarkerStyles = (
   TMap: MarkerStyleFactory,
   buildings: Array<Pick<CampusBuilding, 'id' | 'category' | 'name'>>
 ) => {
   const styles: Record<string, unknown> = {}
-  if (typeof TMap.MarkerStyle !== 'function') return styles
+  const makeStyle =
+    typeof TMap.MarkerStyle === 'function'
+      ? (opts: {
+          width: number
+          height: number
+          anchor: { x: number; y: number }
+          src: string
+        }) => new TMap.MarkerStyle!(opts)
+      : plainMarkerStyle
 
-  styles[campusUserLocationStyleId()] = new TMap.MarkerStyle({
+  styles[campusUserLocationStyleId()] = makeStyle({
     width: 32,
     height: 32,
     anchor: { x: 16, y: 16 },
@@ -56,7 +72,7 @@ export const buildCampusBuildingMarkerStyles = (
   for (const building of buildings || []) {
     const fill = CATEGORY_COLORS[String(building.category || '')] || '#0074CF'
     const styleId = campusBuildingStyleId(building)
-    styles[styleId] = new TMap.MarkerStyle({
+    styles[styleId] = makeStyle({
       width: 34,
       height: 40,
       anchor: { x: 17, y: 40 },

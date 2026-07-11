@@ -69,12 +69,16 @@ export const useCampusMap = () => {
   }
 
   const refreshLocation = async () => {
+    // 路径规划前强制刷新：maximumAge=0，避免用陈旧起点
     const resolved = await resolveTowerGoLocation({
       fallback: HBUT_LOCATION,
-      maxDriftMeters: CAMPUS_LOCATION_DRIFT_THRESHOLD_METERS
+      maxDriftMeters: CAMPUS_LOCATION_DRIFT_THRESHOLD_METERS,
+      maximumAge: 0,
+      timeoutMs: 12000
     })
     userLocation.value = { lat: resolved.latitude, lng: resolved.longitude }
     controller.setUserLocation(userLocation.value)
+    return resolved
   }
 
   const selectBuilding = (building: CampusBuilding) => {
@@ -99,6 +103,8 @@ export const useCampusMap = () => {
     routeLoading.value = true
     routeError.value = ''
     try {
+      // 先刷新定位，保证 from 是最新点
+      await refreshLocation()
       const result = await fetchWalkingRoute(userLocation.value, {
         lat: selectedBuilding.value.lat,
         lng: selectedBuilding.value.lng
