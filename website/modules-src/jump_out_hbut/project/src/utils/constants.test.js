@@ -110,8 +110,8 @@ describe('constants.js', () => {
   })
 
   it('落点判定阈值正确', () => {
-    expect(PERFECT_LANDING_THRESHOLD).toBe(0.35)
-    expect(NORMAL_LANDING_THRESHOLD).toBe(1.1)
+    expect(PERFECT_LANDING_THRESHOLD).toBe(0.32)
+    expect(NORMAL_LANDING_THRESHOLD).toBe(1.06)
   })
 
   it('平台概率分布总和为 1', () => {
