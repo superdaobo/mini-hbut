@@ -131,6 +131,20 @@ describe('update channel (stable / dev)', () => {
     expect(viteIdx).toBeGreaterThan(nativeIdx)
   })
 
+  it('dev-build stamps beta marketing version before platform builds', () => {
+    const workflow = readSource('.github/workflows/dev-build.yml')
+    const stampScript = readSource('scripts/ci/stamp_app_version.mjs')
+    expect(stampScript).toContain('stampWorkspaceFiles')
+    expect(stampScript).toContain('package.json')
+    expect(stampScript).toContain('tauri.conf.json')
+    expect(stampScript).toContain('Cargo.toml')
+    // 每个平台构建 job 都应 stamp，避免仅改文件名
+    const stampMatches = workflow.match(/stamp_app_version\.mjs/g) || []
+    expect(stampMatches.length).toBeGreaterThanOrEqual(5)
+    expect(workflow).toContain('MARKETING_VERSION="${BETA_VERSION}"')
+    expect(workflow).toContain('CFBundleShortVersionString')
+  })
+
   it('wires UpdateDialog channel toggle and App autoCheck channel options', () => {
     const dialog = readSource('src/components/UpdateDialog.vue')
     const app = readSource('src/App.vue')
