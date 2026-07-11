@@ -5,18 +5,35 @@ import {
   MONOPOLY_STAGES,
   applyActionCard,
   applyEventChoice,
+  computeRankScore,
   createDeterministicDice,
   createInitialState,
   investInCampusSite,
   playTurn,
   restartGame
 } from './game/monopoly.js'
+import {
+  canUseGameRank,
+  createRunId,
+  fetchGameLeaderboard,
+  readGameModuleContext,
+  submitGameRank
+} from './utils/game_rank.js'
 
 const MODULE_ID = 'hbut_monopoly'
 const dice = createDeterministicDice()
 let state = createInitialState()
 
 const app = document.getElementById('app')
+const moduleContext = readGameModuleContext()
+const rankEnabled = canUseGameRank(moduleContext)
+
+let currentRunId = createRunId()
+let runStartedAt = Date.now()
+let submitPending = null
+let lastTerminalStatus = ''
+let lastSubmitUiStatus = ''
+let currentLeaderboardScope = moduleContext.className ? 'class' : 'school'
 
 function syncViewport() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
@@ -66,7 +83,7 @@ function statusDetail() {
   if (state.status === 'won') return '目标全部达成，湖工经营路线完成。'
   if (state.status === 'lost') return '资金、精力或压力已越界，需要重新规划。'
   if (state.pendingEvent) return state.pendingEvent.description
-  return `目标：${state.targetCredits} 绩点 / ${state.targetInfluence} 影响力`
+  return `目标：${state.targetCredits} 绩点 / ${state.targetInfluence} 影响力 · 综合分 ${computeRankScore(state)}`
 }
 
 function resourceClass(value, mode) {
@@ -198,6 +215,150 @@ function renderInvestments() {
   }).join('')
 }
 
+function showSubmitStatus(status) {
+  lastSubmitUiStatus = status || ''
+  const el = document.getElementById('submit-status')
+  if (!el) return
+  switch (status) {
+    case 'uploading':
+      el.textContent = '正在上传成绩...'
+      el.className = 'submit-status uploading'
+      el.onclick = null
+      break
+    case 'success':
+      el.textContent = '✓ 成绩已上传'
+      el.className = 'submit-status success'
+      el.onclick = null
+      setTimeout(() => {
+        if (el.classList.contains('success')) {
+          el.textContent = ''
+          el.className = 'submit-status'
+          lastSubmitUiStatus = ''
+        }
+      }, 3000)
+      break
+    case 'failed':
+      el.textContent = '上传失败，点此重试'
+      el.className = 'submit-status failed'
+      el.onclick = () => {
+        void retrySubmit()
+      }
+      break
+    default:
+      el.textContent = ''
+      el.className = 'submit-status'
+      el.onclick = null
+  }
+}
+
+async function submitTerminalScore(endedReason) {
+  if (!rankEnabled) return
+  const payload = {
+    runId: currentRunId,
+    score: computeRankScore(state),
+    maxLevel: (state.stageIndex || 0) + 1,
+    durationMs: Math.max(0, Date.now() - runStartedAt),
+    moveCount: Number(state.turn || 0),
+    endedReason,
+    extra: {
+      credits: state.credits,
+      influence: state.influence,
+      coins: state.coins,
+      energy: state.energy,
+      stress: state.stress,
+      stage: state.stageName,
+      stageIndex: state.stageIndex
+    }
+  }
+  submitPending = payload
+  showSubmitStatus('uploading')
+  try {
+    await submitGameRank(moduleContext, payload)
+    submitPending = null
+    showSubmitStatus('success')
+  } catch (error) {
+    console.warn('[hbut_monopoly] rank submit failed', error)
+    showSubmitStatus('failed')
+  }
+}
+
+async function retrySubmit() {
+  if (!submitPending || !rankEnabled) return
+  showSubmitStatus('uploading')
+  try {
+    await submitGameRank(moduleContext, submitPending)
+    submitPending = null
+    showSubmitStatus('success')
+  } catch (error) {
+    console.warn('[hbut_monopoly] rank retry failed', error)
+    showSubmitStatus('failed')
+  }
+}
+
+function setupLeaderboard() {
+  if (!rankEnabled) return
+  const overlay = document.getElementById('leaderboard-overlay')
+  const openBtn = document.getElementById('leaderboard-button')
+  const closeBtn = document.getElementById('leaderboard-close')
+  openBtn?.addEventListener('click', () => {
+    if (overlay) overlay.style.display = 'flex'
+    void loadLeaderboard(currentLeaderboardScope)
+  })
+  closeBtn?.addEventListener('click', () => {
+    if (overlay) overlay.style.display = 'none'
+  })
+  overlay?.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.style.display = 'none'
+  })
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach((item) => item.classList.remove('active'))
+      btn.classList.add('active')
+      currentLeaderboardScope = btn.dataset.scope || 'class'
+      void loadLeaderboard(currentLeaderboardScope)
+    })
+  })
+}
+
+async function loadLeaderboard(scope) {
+  const content = document.getElementById('leaderboard-content')
+  if (!content) return
+  content.innerHTML = '<div class="leaderboard-loading">加载中...</div>'
+  try {
+    const data = await fetchGameLeaderboard(moduleContext, { scope, limit: 20 })
+    const list = data.leaderboard || data.data || []
+    if (!list.length) {
+      content.innerHTML = '<div class="leaderboard-empty">暂无数据</div>'
+      return
+    }
+    const isClassTotal = scope === 'class_total'
+    content.innerHTML = `<div class="leaderboard-list">${list
+      .map((item, index) => {
+        const rank = item.rank || index + 1
+        const name = isClassTotal
+          ? item.class_name || item.className || '未知班级'
+          : item.player_name || item.playerName || item.student_id || '匿名'
+        const score = isClassTotal ? item.total_score ?? item.totalScore ?? 0 : item.score ?? 0
+        return `<div class="leaderboard-item"><span class="rank-badge">${rank}</span><span class="rank-name">${name}</span><span class="rank-score">${score}</span></div>`
+      })
+      .join('')}</div>`
+  } catch (error) {
+    content.innerHTML = `<div class="leaderboard-error">加载失败: ${error?.message || '未知错误'}</div>`
+  }
+}
+
+function maybeSubmitTerminal() {
+  if ((state.status === 'won' || state.status === 'lost') && state.status !== lastTerminalStatus) {
+    lastTerminalStatus = state.status
+    void submitTerminalScore(state.status === 'won' ? 'won' : 'lost')
+  }
+}
+
+function afterStateChange() {
+  maybeSubmitTerminal()
+  render()
+}
+
 function render() {
   app.innerHTML = `
     <main class="app-shell">
@@ -248,7 +409,10 @@ function render() {
           ${state.pendingEvent ? '先处理事件' : '投骰前进'}
         </button>
         <button id="restart-button" class="secondary-action" type="button">重新开始</button>
+        ${rankEnabled ? '<button id="leaderboard-button" class="secondary-action" type="button">排行榜</button>' : ''}
       </section>
+
+      <div id="submit-status" class="submit-status" aria-live="polite"></div>
 
       <section class="action-panel" aria-label="回合选择">
         <div class="panel-section event-section">
@@ -278,34 +442,59 @@ function render() {
         <ol>${renderLog()}</ol>
       </section>
     </main>
+
+    ${rankEnabled ? `
+    <div class="leaderboard-overlay" id="leaderboard-overlay" style="display:none">
+      <div class="leaderboard-modal">
+        <div class="leaderboard-header">
+          <h2>🏆 排行榜</h2>
+          <button class="leaderboard-close" id="leaderboard-close" type="button">&times;</button>
+        </div>
+        <div class="leaderboard-tabs">
+          <button class="tab-btn ${currentLeaderboardScope === 'class' ? 'active' : ''}" data-scope="class" type="button">班级榜</button>
+          <button class="tab-btn ${currentLeaderboardScope === 'school' ? 'active' : ''}" data-scope="school" type="button">全校榜</button>
+          <button class="tab-btn ${currentLeaderboardScope === 'class_total' ? 'active' : ''}" data-scope="class_total" type="button">班级总分榜</button>
+        </div>
+        <div class="leaderboard-content" id="leaderboard-content">
+          <div class="leaderboard-loading">加载中...</div>
+        </div>
+      </div>
+    </div>` : ''}
   `
 
   document.getElementById('roll-button')?.addEventListener('click', () => {
     state = playTurn(state, dice())
-    render()
+    afterStateChange()
   })
   document.getElementById('restart-button')?.addEventListener('click', () => {
     state = restartGame()
-    render()
+    currentRunId = createRunId()
+    runStartedAt = Date.now()
+    lastTerminalStatus = ''
+    submitPending = null
+    lastSubmitUiStatus = ''
+    afterStateChange()
   })
   for (const button of app.querySelectorAll('[data-choice-id]')) {
     button.addEventListener('click', () => {
       state = applyEventChoice(state, button.dataset.choiceId)
-      render()
+      afterStateChange()
     })
   }
   for (const button of app.querySelectorAll('[data-card-id]')) {
     button.addEventListener('click', () => {
       state = applyActionCard(state, button.dataset.cardId)
-      render()
+      afterStateChange()
     })
   }
   for (const button of app.querySelectorAll('[data-site-id]')) {
     button.addEventListener('click', () => {
       state = investInCampusSite(state, button.dataset.siteId)
-      render()
+      afterStateChange()
     })
   }
+  setupLeaderboard()
+  if (lastSubmitUiStatus) showSubmitStatus(lastSubmitUiStatus)
   notifyHostHeight()
 }
 

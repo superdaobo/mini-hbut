@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   CAMPUS_BOARD,
+  MONOPOLY_STAGES,
+  computeRankScore,
   createInitialState,
   playTurn,
   restartGame
@@ -32,11 +34,14 @@ describe('hbut_monopoly core gameplay', () => {
     expect(next.log[0]).toContain('图书馆')
   })
 
-  it('经过起点获得奖学金，并能在绩点达标时胜利', () => {
+  it('经过起点获得奖学金，并能在最后阶段目标达成时胜利', () => {
     let state = {
-      ...createInitialState(),
-      position: CAMPUS_BOARD.length - 1,
-      credits: 11
+      ...createInitialState({
+        stageIndex: MONOPOLY_STAGES.length - 1,
+        credits: 16,
+        influence: 12
+      }),
+      position: CAMPUS_BOARD.length - 1
     }
 
     state = playTurn(state, 2)
@@ -44,6 +49,7 @@ describe('hbut_monopoly core gameplay', () => {
     expect(state.position).toBe(1)
     expect(state.coins).toBeGreaterThan(300)
     expect(state.status).toBe('won')
+    expect(computeRankScore(state)).toBeGreaterThan(0)
   })
 
   it('金币耗尽时失败，重开会恢复初始资源', () => {
