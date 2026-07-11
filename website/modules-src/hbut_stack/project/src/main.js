@@ -211,19 +211,19 @@ function renderShell() {
       <section class="metric-strip" aria-label="叠塔状态">
         <div>
           <span>层数</span>
-          <strong data-layers>0</strong>
+          <strong data-layers data-mcp-metric="layers">0</strong>
         </div>
         <div>
           <span>得分</span>
-          <strong data-score>0</strong>
+          <strong data-score data-mcp-metric="score">0</strong>
         </div>
         <div>
           <span>完美</span>
-          <strong data-perfect>0</strong>
+          <strong data-perfect data-mcp-metric="perfect">0</strong>
         </div>
         <div>
           <span>连击</span>
-          <strong data-combo>0</strong>
+          <strong data-combo data-mcp-metric="combo">0</strong>
         </div>
       </section>
 

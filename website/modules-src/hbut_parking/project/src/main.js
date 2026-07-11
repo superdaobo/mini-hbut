@@ -266,19 +266,19 @@ function render() {
       <section class="metric-strip" aria-label="挪车状态">
         <div>
           <span>关卡</span>
-          <strong>${state.levelNumber}/${state.totalLevels}</strong>
+          <strong data-mcp-metric="level">${state.levelNumber}/${state.totalLevels}</strong>
         </div>
         <div>
           <span>通关</span>
-          <strong>${state.clearedLevels}</strong>
+          <strong data-mcp-metric="cleared">${state.clearedLevels}</strong>
         </div>
         <div>
           <span>步数</span>
-          <strong>${state.totalSteps}</strong>
+          <strong data-mcp-metric="steps">${state.totalSteps}</strong>
         </div>
         <div>
           <span>得分</span>
-          <strong>${liveScore()}</strong>
+          <strong data-mcp-metric="score">${liveScore()}</strong>
         </div>
       </section>
 
