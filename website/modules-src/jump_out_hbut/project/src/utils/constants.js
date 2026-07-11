@@ -123,19 +123,21 @@ export const BUILDING_DATA = {
   },
   dormitory: {
     category: 'small',
-    size: { width: 1.5, depth: 1.2, height: 2.2 },
+    // 略加宽顶面，减少「窄楼视觉踩中却 miss」
+    size: { width: 1.7, depth: 1.5, height: 2.2 },
     baseScore: 3,
     color: '#CD5C5C'
   },
   metro_station: {
     category: 'small',
-    size: { width: 1.5, depth: 1.5, height: 0.8 },
+    size: { width: 1.7, depth: 1.7, height: 0.9 },
     baseScore: 3,
     color: '#003DA5'
   },
   nanhu_bridge: {
     category: 'special',
-    size: { width: 4.0, depth: 1.0, height: 0.5 },
+    // 保留桥主题，但碰撞/落点矩形更方，避免 4x1 细长体主导坏手感
+    size: { width: 2.6, depth: 1.8, height: 0.6 },
     baseScore: 4,
     color: '#808080'
   }
@@ -192,7 +194,7 @@ export const HIGH_SCORE_THRESHOLD = 1500
  * large / medium / small / special
  */
 export const PLATFORM_PROBABILITY = {
-  low: { large: 0.4, medium: 0.3, small: 0.2, special: 0.1 },       // score < 500
-  mid: { large: 0.25, medium: 0.35, small: 0.3, special: 0.1 },     // 500 <= score < 1500
-  high: { large: 0.15, medium: 0.25, small: 0.5, special: 0.1 }     // score >= 1500
+  low: { large: 0.4, medium: 0.32, small: 0.22, special: 0.06 },       // score < 500
+  mid: { large: 0.28, medium: 0.36, small: 0.3, special: 0.06 },     // 500 <= score < 1500
+  high: { large: 0.18, medium: 0.3, small: 0.46, special: 0.06 }     // score >= 1500
 }

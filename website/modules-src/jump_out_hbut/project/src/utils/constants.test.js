@@ -84,16 +84,18 @@ describe('constants.js', () => {
     expect(BUILDING_DATA.activity_center.size).toEqual({ width: 2.0, depth: 2.0, height: 1.5 })
     expect(BUILDING_DATA.activity_center.color).toBe('#4682B4')
 
-    expect(BUILDING_DATA.dormitory.size).toEqual({ width: 1.5, depth: 1.2, height: 2.2 })
+    expect(BUILDING_DATA.dormitory.size).toEqual({ width: 1.7, depth: 1.5, height: 2.2 })
     expect(BUILDING_DATA.dormitory.baseScore).toBe(3)
     expect(BUILDING_DATA.dormitory.color).toBe('#CD5C5C')
 
-    expect(BUILDING_DATA.metro_station.size).toEqual({ width: 1.5, depth: 1.5, height: 0.8 })
+    expect(BUILDING_DATA.metro_station.size).toEqual({ width: 1.7, depth: 1.7, height: 0.9 })
     expect(BUILDING_DATA.metro_station.color).toBe('#003DA5')
 
-    expect(BUILDING_DATA.nanhu_bridge.size).toEqual({ width: 4.0, depth: 1.0, height: 0.5 })
+    expect(BUILDING_DATA.nanhu_bridge.size).toEqual({ width: 2.6, depth: 1.8, height: 0.6 })
     expect(BUILDING_DATA.nanhu_bridge.baseScore).toBe(4)
     expect(BUILDING_DATA.nanhu_bridge.color).toBe('#808080')
+    // 极端细长比应消除（宽/深更接近正方形）
+    expect(BUILDING_DATA.nanhu_bridge.size.width / BUILDING_DATA.nanhu_bridge.size.depth).toBeLessThan(2)
   })
 
   it('相机配置参数正确', () => {
