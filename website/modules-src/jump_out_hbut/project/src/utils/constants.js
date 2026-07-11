@@ -173,18 +173,23 @@ export const PLATFORM_VISIBILITY = {
 }
 
 // ========== 落点判定阈值 ==========
-/** 完美着陆阈值（距中心 35% 以内） */
-export const PERFECT_LANDING_THRESHOLD = 0.35
-/** 普通着陆阈值（距中心 110% 以内，稍微宽容） */
-export const NORMAL_LANDING_THRESHOLD = 1.1
+/**
+ * 完美着陆：归一化偏移 max(|dx|/(w/2), |dz|/(d/2)) ≤ 该值
+ * 0.32 ≈ 顶面中心约 32% 半径，与「中心偏内」视觉一致
+ */
+export const PERFECT_LANDING_THRESHOLD = 0.32
+/**
+ * 普通着陆：≤1.0 为几何顶面内；略大于 1 给予脚底/动画误差宽容
+ */
+export const NORMAL_LANDING_THRESHOLD = 1.06
 
 // ========== 平台生成参数 ==========
 /** 平台间距倍率范围（确保在跳跃距离范围内） */
 export const PLATFORM_DISTANCE_MIN_FACTOR = 0.8
-export const PLATFORM_DISTANCE_MAX_FACTOR = 1.6
-/** 高分难度缩放范围 */
+export const PLATFORM_DISTANCE_MAX_FACTOR = 1.55
+/** 高分难度缩放范围（平滑，避免 1500 分断崖） */
 export const HIGH_SCORE_SCALE_MIN = 1.0
-export const HIGH_SCORE_SCALE_MAX = 1.15
+export const HIGH_SCORE_SCALE_MAX = 1.08
 /** 高分阈值 */
 export const HIGH_SCORE_THRESHOLD = 1500
 
@@ -192,9 +197,10 @@ export const HIGH_SCORE_THRESHOLD = 1500
 /**
  * 按分数阶段的建筑类型概率分布
  * large / medium / small / special
+ * 高分段 small 上升但保留足够 large/medium，避免突然不可玩
  */
 export const PLATFORM_PROBABILITY = {
-  low: { large: 0.4, medium: 0.32, small: 0.22, special: 0.06 },       // score < 500
-  mid: { large: 0.28, medium: 0.36, small: 0.3, special: 0.06 },     // 500 <= score < 1500
-  high: { large: 0.18, medium: 0.3, small: 0.46, special: 0.06 }     // score >= 1500
+  low: { large: 0.4, medium: 0.34, small: 0.2, special: 0.06 },       // score < 500
+  mid: { large: 0.3, medium: 0.36, small: 0.28, special: 0.06 },     // 500 <= score < 1500
+  high: { large: 0.22, medium: 0.32, small: 0.4, special: 0.06 }     // score >= 1500
 }

@@ -10,9 +10,9 @@ import { clamp } from '../utils/math.js'
  *   offsetZ = |landPos.z - platform.center.z| / (platform.depth / 2)
  *   maxOffset = max(offsetX, offsetZ)
  *
- *   maxOffset <= 0.3  → perfect（中心 30%）
- *   maxOffset <= 1.0  → normal
- *   maxOffset > 1.0   → miss
+ *   maxOffset <= PERFECT_LANDING_THRESHOLD (0.32) → perfect
+ *   maxOffset <= NORMAL_LANDING_THRESHOLD (1.06)  → normal
+ *   maxOffset > NORMAL_LANDING_THRESHOLD          → miss
  */
 export class LandingDetector {
   /**
