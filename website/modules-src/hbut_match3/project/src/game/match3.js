@@ -201,7 +201,9 @@ export function createInitialMatch3State(options = {}) {
     selected: null,
     seed,
     chainPeak: 0,
-    log: ['限步 30：点两格相邻交换，三连消除。']
+    /** UI 反馈：select | deselect | invalid | matched */
+    feedback: null,
+    log: ['限步 30：点选或滑动交换相邻格，三连消除。']
   }
 }
 
@@ -213,21 +215,47 @@ function addLog(state, message) {
   return { ...state, log: [message, ...(state.log || [])].slice(0, 6) }
 }
 
+/**
+ * 点选/滑动共用：首次选中；同格取消；相邻合法交换；非法则反馈并改选目标格。
+ */
 export function selectCell(state, row, col) {
   if (!state || state.status !== 'playing') return state
   const r = clampIndex(row, state.size)
   const c = clampIndex(col, state.size)
   const selected = state.selected
   if (!selected) {
-    return { ...state, selected: { row: r, col: c } }
+    return {
+      ...state,
+      selected: { row: r, col: c },
+      feedback: { type: 'select', at: { row: r, col: c }, token: Date.now() }
+    }
   }
   if (selected.row === r && selected.col === c) {
-    return { ...state, selected: null }
+    return {
+      ...state,
+      selected: null,
+      feedback: { type: 'deselect', at: { row: r, col: c }, token: Date.now() }
+    }
   }
   const random = createSeededRandom(state.seed + state.movesLeft * 17 + r * 31 + c)
   const result = trySwap(state.board, selected, { row: r, col: c }, random)
   if (!result.ok) {
-    return addLog({ ...state, selected: { row: r, col: c } }, result.reason === 'not_adjacent' ? '只能交换相邻格子。' : '这样交换不会形成三连。')
+    const message =
+      result.reason === 'not_adjacent' ? '只能交换相邻格子。' : '这样交换不会形成三连。'
+    return addLog(
+      {
+        ...state,
+        selected: { row: r, col: c },
+        feedback: {
+          type: 'invalid',
+          reason: result.reason,
+          from: { ...selected },
+          at: { row: r, col: c },
+          token: Date.now()
+        }
+      },
+      message
+    )
   }
   const movesLeft = state.movesLeft - 1
   let next = {
@@ -237,7 +265,15 @@ export function selectCell(state, row, col) {
     movesLeft,
     selected: null,
     chainPeak: Math.max(state.chainPeak, result.chainCount || 0),
-    seed: state.seed + 1
+    seed: state.seed + 1,
+    feedback: {
+      type: 'matched',
+      scoreGained: result.scoreGained,
+      chainCount: result.chainCount || 0,
+      from: { ...selected },
+      at: { row: r, col: c },
+      token: Date.now()
+    }
   }
   next = addLog(next, `消除 +${result.scoreGained}（连锁 x${result.chainCount}）`)
   if (movesLeft <= 0) {
@@ -245,4 +281,45 @@ export function selectCell(state, row, col) {
     next = addLog(next, `步数用尽，最终得分 ${next.score}。`)
   }
   return next
+}
+
+/**
+ * 从起点格向主方向滑动一格并尝试交换（供 pointer 手势调用）。
+ * @returns 新 state；方向无效时返回原 state
+ */
+export function swipeFromCell(state, row, col, direction) {
+  if (!state || state.status !== 'playing') return state
+  const r = clampIndex(row, state.size)
+  const c = clampIndex(col, state.size)
+  let tr = r
+  let tc = c
+  switch (direction) {
+    case 'up':
+      tr -= 1
+      break
+    case 'down':
+      tr += 1
+      break
+    case 'left':
+      tc -= 1
+      break
+    case 'right':
+      tc += 1
+      break
+    default:
+      return state
+  }
+  if (tr < 0 || tr >= state.size || tc < 0 || tc >= state.size) {
+    return {
+      ...state,
+      selected: { row: r, col: c },
+      feedback: { type: 'invalid', reason: 'out_of_bounds', at: { row: r, col: c }, token: Date.now() }
+    }
+  }
+  const primed = {
+    ...state,
+    selected: { row: r, col: c },
+    feedback: null
+  }
+  return selectCell(primed, tr, tc)
 }

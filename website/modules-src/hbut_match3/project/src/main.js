@@ -4,7 +4,8 @@ import {
   TILE_TYPES,
   createInitialMatch3State,
   restartMatch3Game,
-  selectCell
+  selectCell,
+  swipeFromCell
 } from './game/match3.js'
 import {
   canUseGameRank,
@@ -27,6 +28,9 @@ let submitPending = null
 let lastTerminalStatus = ''
 let lastSubmitUiStatus = ''
 let currentLeaderboardScope = moduleContext.className ? 'class' : 'school'
+/** pointer 手势：点击双选 / 滑动交换 */
+let boardGesture = null
+const SWIPE_THRESHOLD_PX = 28
 
 function syncViewport() {
   const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight
@@ -196,39 +200,157 @@ function afterChange() {
   render()
 }
 
+function tileExtraClass(r, c) {
+  const classes = []
+  if (state.selected && state.selected.row === r && state.selected.col === c) {
+    classes.push('selected')
+  }
+  const fb = state.feedback
+  if (!fb) return classes.join(' ')
+  if (fb.type === 'invalid' && fb.at && fb.at.row === r && fb.at.col === c) {
+    classes.push('invalid')
+  }
+  if (fb.type === 'invalid' && fb.from && fb.from.row === r && fb.from.col === c) {
+    classes.push('invalid')
+  }
+  if (fb.type === 'matched' && fb.at && fb.at.row === r && fb.at.col === c) {
+    classes.push('pulse')
+  }
+  if (fb.type === 'matched' && fb.from && fb.from.row === r && fb.from.col === c) {
+    classes.push('pulse')
+  }
+  return classes.join(' ')
+}
+
+function feedbackBanner() {
+  const fb = state.feedback
+  if (!fb) {
+    return `<div class="feedback-banner idle" role="status">点选两格交换，或按住格子向相邻方向滑动</div>`
+  }
+  if (fb.type === 'invalid') {
+    const text =
+      fb.reason === 'not_adjacent'
+        ? '只能交换相邻格子'
+        : fb.reason === 'out_of_bounds'
+          ? '已经到边界了'
+          : '这样交换不会形成三连'
+    return `<div class="feedback-banner invalid" role="status">${text}</div>`
+  }
+  if (fb.type === 'matched') {
+    return `<div class="feedback-banner matched" role="status">消除 +${fb.scoreGained || 0} · 连锁 x${fb.chainCount || 1}</div>`
+  }
+  if (fb.type === 'select') {
+    return `<div class="feedback-banner select" role="status">已选中 · 点相邻格或向相邻方向滑动</div>`
+  }
+  if (fb.type === 'deselect') {
+    return `<div class="feedback-banner idle" role="status">已取消选中</div>`
+  }
+  return `<div class="feedback-banner idle" role="status">点选两格交换，或按住格子向相邻方向滑动</div>`
+}
+
 function renderBoard() {
   const cells = []
   for (let r = 0; r < state.size; r += 1) {
     for (let c = 0; c < state.size; c += 1) {
       const id = state.board[r][c]
       const meta = typeMap.get(id) || { label: '?', color: '#94a3b8' }
-      const selected =
-        state.selected && state.selected.row === r && state.selected.col === c ? 'selected' : ''
+      const extra = tileExtraClass(r, c)
       cells.push(
-        `<button type="button" class="tile ${selected}" data-row="${r}" data-col="${c}" style="--tile:${meta.color}" aria-label="${meta.label}">${meta.label.slice(0, 2)}</button>`
+        `<button type="button" class="tile ${extra}" data-row="${r}" data-col="${c}" style="--tile:${meta.color}" aria-label="${meta.label}" aria-pressed="${extra.includes('selected') ? 'true' : 'false'}">${meta.label.slice(0, 2)}</button>`
       )
     }
   }
-  return `<div class="match-grid" style="--size:${state.size}">${cells.join('')}</div>`
+  return `<div class="match-grid" style="--size:${state.size}" data-feedback="${state.feedback?.type || ''}">${cells.join('')}</div>`
+}
+
+function applyBoardChange(nextState) {
+  state = nextState
+  afterChange()
+}
+
+function directionFromDelta(dx, dy) {
+  if (Math.abs(dx) < SWIPE_THRESHOLD_PX && Math.abs(dy) < SWIPE_THRESHOLD_PX) return null
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? 'right' : 'left'
+  return dy > 0 ? 'down' : 'up'
+}
+
+function bindBoardGestures() {
+  const grid = app.querySelector('.match-grid')
+  if (!grid) return
+
+  const readCell = (target) => {
+    const button = target?.closest?.('[data-row]')
+    if (!button || !grid.contains(button)) return null
+    return { row: Number(button.dataset.row), col: Number(button.dataset.col) }
+  }
+
+  grid.addEventListener('pointerdown', (event) => {
+    if (state.status !== 'playing') return
+    if (event.button != null && event.button !== 0) return
+    const cell = readCell(event.target)
+    if (!cell) return
+    boardGesture = {
+      start: cell,
+      x: event.clientX,
+      y: event.clientY,
+      done: false,
+      pointerId: event.pointerId
+    }
+    try {
+      grid.setPointerCapture(event.pointerId)
+    } catch {
+      /* ignore */
+    }
+    event.preventDefault()
+  })
+
+  grid.addEventListener('pointermove', (event) => {
+    if (!boardGesture || boardGesture.done || state.status !== 'playing') return
+    const direction = directionFromDelta(event.clientX - boardGesture.x, event.clientY - boardGesture.y)
+    if (!direction) return
+    const start = boardGesture.start
+    boardGesture.done = true
+    boardGesture = null
+    applyBoardChange(swipeFromCell(state, start.row, start.col, direction))
+  })
+
+  const endGesture = () => {
+    if (!boardGesture) return
+    const gesture = boardGesture
+    boardGesture = null
+    if (gesture.done || state.status !== 'playing') return
+    // 未滑动：按点击双选逻辑
+    applyBoardChange(selectCell(state, gesture.start.row, gesture.start.col))
+  }
+
+  grid.addEventListener('pointerup', endGesture)
+  grid.addEventListener('pointercancel', () => {
+    boardGesture = null
+  })
 }
 
 function render() {
+  const tip =
+    state.status === 'lost'
+      ? `最终得分 ${state.score} · 点「重新开始」再来一局`
+      : '点选两格交换，或按住格子向相邻方向滑动'
+
   app.innerHTML = `
     <main class="match-shell">
       <section class="metric-strip" aria-label="消消乐状态">
-        <div>
+        <div class="metric-card metric-score">
           <span>得分</span>
           <strong data-mcp-metric="score">${state.score}</strong>
         </div>
-        <div>
+        <div class="metric-card metric-moves">
           <span>剩余步数</span>
           <strong data-mcp-metric="moves_left">${state.movesLeft}</strong>
         </div>
-        <div>
+        <div class="metric-card metric-chain">
           <span>最高连锁</span>
           <strong data-mcp-metric="chain_peak">x${state.chainPeak}</strong>
         </div>
-        <div>
+        <div class="metric-card metric-limit">
           <span>限步</span>
           <strong data-mcp-metric="move_limit">${MOVE_LIMIT}</strong>
         </div>
@@ -238,13 +360,15 @@ function render() {
         <div>
           <p class="kicker">湖工消消乐</p>
           <h1>${state.status === 'lost' ? '本局结束' : '交换相邻校园格'}</h1>
-          <p class="status-detail">${state.status === 'lost' ? `最终得分 ${state.score}` : '点选两格相邻交换，三连消除，连锁加分'}</p>
+          <p class="status-detail">${tip}</p>
         </div>
         <div class="count-card">
           <span>棋盘</span>
           <strong>${state.size}×${state.size}</strong>
         </div>
       </section>
+
+      ${feedbackBanner()}
 
       <section class="board-panel" aria-label="三消棋盘">${renderBoard()}</section>
 
@@ -283,13 +407,7 @@ function render() {
     </div>` : ''}
   `
 
-  for (const button of app.querySelectorAll('[data-row]')) {
-    button.addEventListener('click', () => {
-      if (state.status !== 'playing') return
-      state = selectCell(state, Number(button.dataset.row), Number(button.dataset.col))
-      afterChange()
-    })
-  }
+  bindBoardGestures()
 
   document.getElementById('restart-button')?.addEventListener('click', () => {
     state = restartMatch3Game({ seed: Date.now() % 100000 })
@@ -298,6 +416,7 @@ function render() {
     lastTerminalStatus = ''
     submitPending = null
     lastSubmitUiStatus = ''
+    boardGesture = null
     afterChange()
   })
 
