@@ -241,6 +241,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Stamp beta app version into package sources
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
+
       - name: Initialize Android project
         run: npm run tauri android init
 
@@ -368,6 +373,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Stamp beta app version into package sources
+        shell: bash
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
+
       - name: Regenerate and verify official desktop icons
         shell: powershell
         run: |
@@ -443,6 +454,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Stamp beta app version into package sources
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Regenerate and verify official desktop icons
         run: |
@@ -546,23 +562,40 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Stamp beta app version into package sources
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
+
       - name: Install Tauri CLI
         run: npm exec -- tauri --version
 
       - name: Build iOS app bundle
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
         run: |
           set -euo pipefail
           node --input-type=module - <<'NODE'
           import fs from 'node:fs';
           const p = 'src-tauri/tauri.conf.json';
           const conf = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const betaVersion = String(process.env.BETA_VERSION || '').trim();
           conf.build = conf.build || {};
           delete conf.build.devUrl;
           delete conf.build.beforeDevCommand;
           conf.build.beforeBuildCommand = 'npm run build && node scripts/check_dist_boundary.mjs';
           conf.build.frontendDist = conf.build.frontendDist || '../dist';
+          if (betaVersion) {
+            conf.version = betaVersion;
+            conf.bundle = conf.bundle || {};
+            conf.bundle.iOS = conf.bundle.iOS || {};
+            conf.bundle.iOS.bundleVersion = betaVersion.replace(/[^0-9]/g, '') || String(Date.now());
+          }
           fs.writeFileSync(p, JSON.stringify(conf, null, 2) + '\n');
-          console.log('Patched tauri.conf.json for iOS CI.');
+          console.log('Patched tauri.conf.json for iOS CI.', {
+            version: conf.version,
+            bundleVersion: conf.bundle?.iOS?.bundleVersion,
+          });
           NODE
 
           PYTHON_BIN=python source scripts/ci/setup_python_venv.sh
@@ -640,6 +673,8 @@ jobs:
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             -derivedDataPath build-ios \
+            MARKETING_VERSION="${BETA_VERSION}" \
+            CURRENT_PROJECT_VERSION="${BETA_VERSION//[^0-9]/}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY="" \
@@ -666,6 +701,18 @@ jobs:
             echo "No iPhoneOS .app found under build-ios/Build/Products"
             find build-ios/Build/Products -maxdepth 6 -type d -print || true
             exit 1
+          fi
+
+          # Defense-in-depth: ensure installed app identity carries prerelease version.
+          PLIST="$APP_PATH/Info.plist"
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BETA_VERSION}" "$PLIST" \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${BETA_VERSION}" "$PLIST"
+            BUILD_NUM="${BETA_VERSION//[^0-9]/}"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_NUM}" "$PLIST" \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${BUILD_NUM}" "$PLIST"
+            echo "CFBundleShortVersionString=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+            echo "CFBundleVersion=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")"
           fi
 
           APP_BIN="$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist" 2>/dev/null || basename "$APP_PATH" .app)"
@@ -734,6 +781,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Stamp beta app version into package sources
+        env:
+          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+        run: node scripts/ci/stamp_app_version.mjs "$BETA_VERSION"
 
       - name: Regenerate and verify official desktop icons
         run: |
