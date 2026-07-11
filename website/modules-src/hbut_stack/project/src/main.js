@@ -2,6 +2,7 @@ import './style.css'
 import {
   BLOCK_HEIGHT,
   WORLD_WIDTH,
+  computeCameraOffsetY,
   createInitialStackState,
   dropStackBlock,
   restartStackGame,
@@ -320,56 +321,115 @@ function drawScene() {
   const h = canvas.height
   const scaleX = w / WORLD_WIDTH
   const scaleY = Math.min(scaleX, h / 180)
+  const blockH = BLOCK_HEIGHT * scaleY
   const groundY = h * 0.88
+  // 相机：塔升高时把「移动层」固定在视口上部，避免高层冲出画布
+  const cameraOffsetY = computeCameraOffsetY({
+    blockCount: state.blocks.length,
+    blockHeightPx: blockH,
+    viewportHeight: h,
+    groundY,
+    focusRatio: 0.36
+  })
+  const gy = groundY + cameraOffsetY
 
   ctx.clearRect(0, 0, w, h)
   const sky = ctx.createLinearGradient(0, 0, 0, h)
-  sky.addColorStop(0, '#d7ebff')
-  sky.addColorStop(0.55, '#eef6f0')
-  sky.addColorStop(1, '#c9e0cf')
+  sky.addColorStop(0, '#cfe8ff')
+  sky.addColorStop(0.45, '#eef7f2')
+  sky.addColorStop(1, '#d5e8db')
   ctx.fillStyle = sky
   ctx.fillRect(0, 0, w, h)
 
-  ctx.fillStyle = 'rgba(35, 95, 118, 0.12)'
-  ctx.fillRect(0, groundY, w, h - groundY)
+  // 远景软装饰
+  ctx.fillStyle = 'rgba(37, 99, 235, 0.08)'
+  ctx.beginPath()
+  ctx.ellipse(w * 0.18, h * 0.22, w * 0.16, h * 0.05, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = 'rgba(15, 118, 110, 0.1)'
+  ctx.beginPath()
+  ctx.ellipse(w * 0.78, h * 0.28, w * 0.2, h * 0.06, 0, 0, Math.PI * 2)
+  ctx.fill()
 
-  const visible = state.blocks.slice(-12)
+  ctx.fillStyle = 'rgba(35, 95, 118, 0.16)'
+  ctx.fillRect(0, gy, w, Math.max(0, h - gy + 4))
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'
+  ctx.fillRect(0, gy, w, 2)
+
+  const maxVisible = Math.max(8, Math.floor((gy - h * 0.08) / blockH) + 2)
+  const visible = state.blocks.slice(-maxVisible)
   const startIndex = Math.max(0, state.blocks.length - visible.length)
 
   visible.forEach((block, i) => {
     const layerFromBottom = startIndex + i
-    const y = groundY - (layerFromBottom + 1) * BLOCK_HEIGHT * scaleY
+    const y = gy - (layerFromBottom + 1) * blockH
     const x = block.left * scaleX
     const bw = block.width * scaleX
-    const bh = BLOCK_HEIGHT * scaleY * 0.92
-    ctx.fillStyle = block.perfect ? '#2f9b69' : layerFromBottom % 2 === 0 ? '#2563eb' : '#164f90'
-    ctx.fillRect(x, y, bw, bh)
+    const bh = blockH * 0.92
+    const grad = ctx.createLinearGradient(x, y, x, y + bh)
+    if (block.perfect) {
+      grad.addColorStop(0, '#3ecf8e')
+      grad.addColorStop(1, '#1f9b63')
+    } else if (layerFromBottom % 2 === 0) {
+      grad.addColorStop(0, '#3b82f6')
+      grad.addColorStop(1, '#1d4ed8')
+    } else {
+      grad.addColorStop(0, '#2563eb')
+      grad.addColorStop(1, '#1e3a8a')
+    }
+    ctx.fillStyle = grad
+    roundRect(ctx, x, y, bw, bh, Math.min(6, bh * 0.25))
+    ctx.fill()
     ctx.strokeStyle = 'rgba(255,255,255,0.55)'
-    ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1)
+    ctx.stroke()
+    if (block.label && bw > 28 * scaleX) {
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'
+      ctx.font = `${Math.max(9, Math.min(12, bh * 0.55))}px "Microsoft YaHei", sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(String(block.label).slice(0, 6), x + bw / 2, y + bh / 2)
+    }
   })
 
   if (state.moving && state.status === 'playing') {
     const topLayer = state.blocks.length
-    const y = groundY - (topLayer + 1) * BLOCK_HEIGHT * scaleY
+    const y = gy - (topLayer + 1) * blockH
     const x = state.moving.left * scaleX
     const bw = state.moving.width * scaleX
-    const bh = BLOCK_HEIGHT * scaleY * 0.92
-    ctx.fillStyle = '#f97316'
-    ctx.fillRect(x, y, bw, bh)
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-    ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1)
+    const bh = blockH * 0.92
+    const grad = ctx.createLinearGradient(x, y, x, y + bh)
+    grad.addColorStop(0, '#fb923c')
+    grad.addColorStop(1, '#ea580c')
+    ctx.fillStyle = grad
+    roundRect(ctx, x, y, bw, bh, Math.min(6, bh * 0.25))
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.lineWidth = 1
   }
 
   if (state.status === 'lost') {
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.42)'
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.45)'
     ctx.fillRect(0, 0, w, h)
     ctx.fillStyle = '#fff'
-    ctx.font = `${Math.max(16, 18 * scaleY)}px "Microsoft YaHei", sans-serif`
+    ctx.font = `600 ${Math.max(16, 18 * scaleY)}px "Microsoft YaHei", sans-serif`
     ctx.textAlign = 'center'
-    ctx.fillText('Game Over', w / 2, h * 0.42)
+    ctx.fillText('挑战结束', w / 2, h * 0.42)
     ctx.font = `${Math.max(12, 13 * scaleY)}px "Microsoft YaHei", sans-serif`
     ctx.fillText(`得分 ${state.score} · ${state.layers} 层`, w / 2, h * 0.5)
   }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2))
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.arcTo(x + w, y, x + w, y + h, radius)
+  ctx.arcTo(x + w, y + h, x, y + h, radius)
+  ctx.arcTo(x, y + h, x, y, radius)
+  ctx.arcTo(x, y, x + w, y, radius)
+  ctx.closePath()
 }
 
 function updateUi() {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BLOCK_HEIGHT,
+  computeCameraOffsetY,
   cutBlockAgainstBase,
   createInitialStackState,
   dropStackBlock,
@@ -33,6 +35,33 @@ describe('hbut_stack pure cut/score', () => {
     expect(scoreForSuccessfulDrop({ perfect: false })).toBe(100)
     expect(scoreForSuccessfulDrop({ perfect: true, perfectCombo: 1 })).toBe(150)
     expect(scoreForSuccessfulDrop({ perfect: true, perfectCombo: 3 })).toBe(200)
+  })
+
+  it('camera offset keeps tall towers in the upper viewport', () => {
+    const viewportHeight = 400
+    const blockHeightPx = BLOCK_HEIGHT * 2
+    const groundY = viewportHeight * 0.88
+    const low = computeCameraOffsetY({
+      blockCount: 1,
+      blockHeightPx,
+      viewportHeight,
+      groundY,
+      focusRatio: 0.36
+    })
+    const high = computeCameraOffsetY({
+      blockCount: 30,
+      blockHeightPx,
+      viewportHeight,
+      groundY,
+      focusRatio: 0.36
+    })
+    expect(low).toBe(0)
+    expect(high).toBeGreaterThan(low)
+    // with offset, top layer y lands near focus band
+    const topLayerIndex = 30
+    const rawTopY = groundY - (topLayerIndex + 1) * blockHeightPx
+    const drawnTopY = rawTopY + high
+    expect(drawnTopY).toBeCloseTo(viewportHeight * 0.36, 0)
   })
 
   it('drops increase score/layers and miss ends the run', () => {
