@@ -10,7 +10,8 @@ const expectedGameOrder = [
   'hbut_monopoly',
   'hbut_miner',
   'hbut_memory_match',
-  'hbut_gomoku'
+  'hbut_gomoku',
+  'hbut_stack'
 ]
 
 describe('remote config module center defaults', () => {

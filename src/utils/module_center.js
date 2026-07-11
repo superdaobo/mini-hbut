@@ -74,6 +74,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 8
+    }),
+    Object.freeze({
+      id: 'hbut_stack',
+      name: '湖工叠塔',
+      icon: '🏗️',
+      description: '点击落下叠高楼，切除悬挑冲高分',
+      key_required: false,
+      kind: 'remote',
+      order: 9
     })
   ])
 })
