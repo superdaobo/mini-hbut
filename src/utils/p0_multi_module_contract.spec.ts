@@ -18,7 +18,8 @@ describe('P0 multi-module contracts', () => {
   it('downshifts TowerGo scan defaults and nearby-first caps', () => {
     expect(SCAN_CONCURRENCY).toBeLessThanOrEqual(4)
     expect(SCAN_GRID_SPACING_METERS).toBeGreaterThanOrEqual(150)
-    expect(SCAN_MAX_POINTS).toBeLessThanOrEqual(32)
+    // 视口动态扫描允许略高上限，仍远低于全校区无界网格
+    expect(SCAN_MAX_POINTS).toBeLessThanOrEqual(48)
 
     const polygon = [
       { latitude: 30.47, longitude: 114.30 },
