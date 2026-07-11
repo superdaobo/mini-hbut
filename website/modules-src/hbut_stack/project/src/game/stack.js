@@ -87,6 +87,33 @@ export function speedForLayer(layerIndex) {
   return clamp(MIN_SPEED + layerIndex * SPEED_STEP, MIN_SPEED, MAX_SPEED)
 }
 
+/**
+ * 计算叠塔画布的相机纵向偏移（向下为正时用于 y' = y + offset）。
+ * 目标：让「当前可玩层 / 移动块」落在视口上部区域，塔升高时视野上移。
+ *
+ * @param {{ blockCount: number, blockHeightPx: number, viewportHeight: number, groundY?: number, focusRatio?: number }} opts
+ * @returns {number} cameraOffsetY（加到绘制 y 上）
+ */
+export function computeCameraOffsetY({
+  blockCount = 1,
+  blockHeightPx = BLOCK_HEIGHT,
+  viewportHeight = 400,
+  groundY,
+  focusRatio = 0.38
+} = {}) {
+  const h = Math.max(1, finiteOr(viewportHeight, 400))
+  const bh = Math.max(1, finiteOr(blockHeightPx, BLOCK_HEIGHT))
+  const count = Math.max(1, Math.trunc(finiteOr(blockCount, 1)))
+  // 包含尚未落下的移动层：可玩顶 = 已放置块数（底座+已叠）对应移动块层索引
+  const topLayerIndex = count // moving sits on top of blocks.length
+  const gy = Number.isFinite(groundY) ? Number(groundY) : h * 0.88
+  const rawTopY = gy - (topLayerIndex + 1) * bh
+  const desiredTopY = h * clamp(finiteOr(focusRatio, 0.38), 0.2, 0.55)
+  // 若顶层仍在 desired 之下，无需上移（offset=0）；否则把顶层拉到 desired
+  const offset = desiredTopY - rawTopY
+  return Math.max(0, offset)
+}
+
 function makeBlock({ left, width, layerIndex, perfect = false }) {
   return {
     left: finiteOr(left, (WORLD_WIDTH - BASE_BLOCK_WIDTH) / 2),
