@@ -76,18 +76,47 @@ export const normalizeScenicInfo = (raw: unknown): ScenicInfo => {
   }
 }
 
+/** 解析经纬度：兼容字符串、微度（绝对值 > 1000 时 /1e6） */
+const toCoord = (value: unknown) => {
+  const num = toNumber(value)
+  if (!Number.isFinite(num)) return NaN
+  if (Math.abs(num) > 1000) return num / 1_000_000
+  return num
+}
+
 export const normalizeSpot = (raw: unknown): CampusSpot | null => {
   if (!raw || typeof raw !== 'object') return null
   const data = raw as Record<string, unknown>
-  const location = (data.location && typeof data.location === 'object' ? data.location : data.point) as
-    | Record<string, unknown>
-    | undefined
-  const lat = toNumber(location?.lat ?? location?.latitude ?? data.latitude)
-  const lng = toNumber(location?.lon ?? location?.lng ?? location?.longitude ?? data.longitude)
+  const location = (data.location && typeof data.location === 'object'
+    ? data.location
+    : data.point && typeof data.point === 'object'
+      ? data.point
+      : data.latlng && typeof data.latlng === 'object'
+        ? data.latlng
+        : undefined) as Record<string, unknown> | undefined
+  let lat = toCoord(location?.lat ?? location?.latitude ?? data.latitude ?? data.lat)
+  let lng = toCoord(
+    location?.lon ?? location?.lng ?? location?.longitude ?? data.longitude ?? data.lng ?? data.lon
+  )
+  // 兼容 "lat,lng" / "lng,lat" 字符串
+  if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && typeof data.location === 'string') {
+    const parts = data.location.split(/[,，\s]+/).map((p) => toCoord(p.trim()))
+    if (parts.length >= 2 && parts.every(Number.isFinite)) {
+      // 智慧景区常见 lat,lng 或 lng,lat：纬度应在 ±90
+      if (Math.abs(parts[0]) <= 90 && Math.abs(parts[1]) <= 180) {
+        lat = parts[0]
+        lng = parts[1]
+      } else if (Math.abs(parts[1]) <= 90 && Math.abs(parts[0]) <= 180) {
+        lat = parts[1]
+        lng = parts[0]
+      }
+    }
+  }
   const spotId = data.spot_id ?? data.id
-  const name = String(data.name ?? '').trim()
+  const name = String(data.name ?? data.title ?? '').trim()
   if (!spotId || !name) return null
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
 
   return {
     spot_id: spotId as string | number,

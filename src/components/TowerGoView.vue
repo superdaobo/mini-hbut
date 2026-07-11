@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { fetchWalkingRoute } from '../features/campus-map/services/walking_route_service'
 import { towerGoApi, towerGoStorage, TOWERGO_CONFIG } from '../utils/towergo_api'
 import {
   HBUT_LOCATION,
@@ -8,17 +9,19 @@ import {
   SCAN_MAX_POINTS,
   SCAN_REFRESH_INTERVAL_MS,
   SCAN_REQUEST_DELAY_MS,
+  SCAN_VIEWPORT_DEBOUNCE_MS,
   createServiceAreaScanPoints,
   dedupeVehicles,
   formatDistance,
   normalizePoint,
   normalizeVehicles,
   resolveTowerGoLocation,
+  scanCellKey,
+  type ScanBounds,
   type TowerGoPoint,
   type TowerGoVehicle
 } from '../utils/towergo_map'
 import { loadTencentMap, toTencentLatLng } from '../utils/tencent_map_loader'
-import TPageHeader from './templates/TPageHeader.vue'
 
 defineProps({
   studentId: { type: String, default: '' }
@@ -46,6 +49,7 @@ const centerMarkerLayer = ref<any>(null)
 const vehicleMarkerLayer = ref<any>(null)
 const fencePolygonLayer = ref<any>(null)
 const mapDataReady = ref(false)
+const routeIsStraight = ref(false)
 
 // UI 状态：分区 / 排序 / 电量筛选
 const activeTab = ref<'map' | 'list' | 'area'>('map')
@@ -55,6 +59,10 @@ const filterMinBattery = ref(0)
 let refreshTimer: number | null = null
 let mapErrorHandler: ((e: ErrorEvent) => void) | null = null
 let activeScanToken = 0
+/** 已扫格子 key，视口增量扫描去重 */
+const scannedCellKeys = new Set<string>()
+let viewportScanTimer: number | null = null
+const viewportScanInFlight = ref(false)
 
 // ── computed ──────────────────────────────────────────────────────
 const nearestVehicle = computed(() => vehicles.value[0] || null)
@@ -92,13 +100,58 @@ const parkingList = computed(() => {
 })
 
 const mapSubtitle = computed(() => {
-  if (loadingMap.value && scanProgress.value) {
-    return `附近扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
+  if ((loadingMap.value || viewportScanInFlight.value) && scanProgress.value) {
+    return `视口扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
   }
   if (nearestVehicle.value)
     return `最近车辆 ${nearestVehicle.value.id || nearestVehicle.value.imei}，${formatDistance(nearestVehicle.value.distance)}`
   return mapErrors.value[0] || '正在连接小塔出行真实接口'
 })
+
+const handleBack = (event?: Event) => {
+  event?.preventDefault?.()
+  event?.stopPropagation?.()
+  emit('back')
+}
+
+const readMapBounds = (): ScanBounds | null => {
+  const map = mapInstance.value
+  if (!map?.getBounds) return null
+  try {
+    const bounds = map.getBounds()
+    if (!bounds) return null
+    const sw = bounds.getSouthWest?.() || bounds.sw
+    const ne = bounds.getNorthEast?.() || bounds.ne
+    const minLat = Number(sw?.getLat?.() ?? sw?.lat)
+    const minLng = Number(sw?.getLng?.() ?? sw?.lng)
+    const maxLat = Number(ne?.getLat?.() ?? ne?.lat)
+    const maxLng = Number(ne?.getLng?.() ?? ne?.lng)
+    if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) return null
+    if (minLat > maxLat || minLng > maxLng) return null
+    return { minLat, maxLat, minLng, maxLng }
+  } catch {
+    return null
+  }
+}
+
+const bindMapViewportScan = () => {
+  const map = mapInstance.value
+  if (!map?.on) return
+  const schedule = () => {
+    if (viewportScanTimer) window.clearTimeout(viewportScanTimer)
+    viewportScanTimer = window.setTimeout(() => {
+      viewportScanTimer = null
+      void scanViewportVehicles()
+    }, SCAN_VIEWPORT_DEBOUNCE_MS)
+  }
+  for (const eventName of ['idle', 'dragend', 'zoom_changed', 'zoomend']) {
+    try {
+      map.on(eventName, schedule)
+    } catch {
+      // 事件名因 SDK 版本可能不可用
+    }
+  }
+}
 
 const validId = (value: unknown) => String(value ?? '').trim()
 
@@ -175,6 +228,7 @@ const initMap = async () => {
         properties: { title: currentLocation.value.name || '当前位置' }
       }]
     })
+    bindMapViewportScan()
     mapScriptState.value = 'ready'
   } catch (error) {
     mapScriptState.value = 'fallback'
@@ -262,7 +316,7 @@ const selectVehicle = (vehicle: TowerGoVehicle) => {
   if (mapInstance.value && (window as any).TMap) {
     mapInstance.value.setCenter(toTMapLatLng(vehicle))
   }
-  drawRouteToVehicle(vehicle)
+  void drawRouteToVehicle(vehicle)
 }
 
 let locationWatchId: number | null = null
@@ -275,36 +329,70 @@ const clearRouteLine = () => {
     // ignore
   }
   routeLineLayer = null
+  routeIsStraight.value = false
 }
 
-const drawRouteToVehicle = (vehicle: TowerGoVehicle | null) => {
-  clearRouteLine()
-  if (!vehicle || !mapInstance.value || !(window as any).TMap) return
+const paintRoutePaths = (paths: unknown[]) => {
+  if (!mapInstance.value || !(window as any).TMap || paths.length < 2) return
   const TMap = (window as any).TMap
-  const from = toTMapLatLng(currentLocation.value)
-  const to = toTMapLatLng(vehicle)
+  clearRouteLine()
   try {
+    const style =
+      typeof TMap.PolylineStyle === 'function'
+        ? new TMap.PolylineStyle({
+            color: '#007AFF',
+            width: 6,
+            borderWidth: 2,
+            borderColor: '#ffffff',
+            lineCap: 'round'
+          })
+        : {
+            color: '#007AFF',
+            width: 6,
+            borderWidth: 2,
+            borderColor: '#ffffff',
+            lineCap: 'round'
+          }
     routeLineLayer = new TMap.MultiPolyline({
       map: mapInstance.value,
-      styles: {
-        route: new TMap.PolylineStyle({
-          color: '#007AFF',
-          width: 6,
-          borderWidth: 2,
-          borderColor: '#ffffff',
-          lineCap: 'round'
-        })
-      },
-      geometries: [{ id: 'to-vehicle', styleId: 'route', paths: [from, to] }]
+      styles: { route: style },
+      geometries: [{ id: 'to-vehicle', styleId: 'route', paths }]
     })
   } catch {
     // MultiPolyline 不可用时忽略
   }
 }
 
+const drawRouteToVehicle = async (vehicle: TowerGoVehicle | null) => {
+  if (!vehicle || !mapInstance.value || !(window as any).TMap) {
+    clearRouteLine()
+    return
+  }
+  const TMap = (window as any).TMap
+  const from = toTMapLatLng(currentLocation.value)
+  const to = toTMapLatLng(vehicle)
+  // 优先步行路网，失败再直线示意
+  try {
+    const walk = await fetchWalkingRoute(
+      { lat: currentLocation.value.latitude, lng: currentLocation.value.longitude },
+      { lat: vehicle.latitude, lng: vehicle.longitude }
+    )
+    if (walk.polyline?.length >= 2) {
+      const paths = walk.polyline.map((p) => new TMap.LatLng(p.lat, p.lng))
+      paintRoutePaths(paths)
+      routeIsStraight.value = false
+      return
+    }
+  } catch {
+    // fall through to straight line
+  }
+  paintRoutePaths([from, to])
+  routeIsStraight.value = true
+}
+
 const startNavigateToSelected = () => {
   if (!selectedVehicle.value) return
-  drawRouteToVehicle(selectedVehicle.value)
+  void drawRouteToVehicle(selectedVehicle.value)
   stopLocationWatch()
   if (typeof navigator === 'undefined' || !navigator.geolocation) return
   locationWatchId = navigator.geolocation.watchPosition(
@@ -317,10 +405,10 @@ const startNavigateToSelected = () => {
         source: 'system'
       }
       updateMapCenter(currentLocation.value)
-      if (selectedVehicle.value) drawRouteToVehicle(selectedVehicle.value)
+      if (selectedVehicle.value) void drawRouteToVehicle(selectedVehicle.value)
     },
     () => {},
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 12000 }
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
   )
 }
 
@@ -347,34 +435,35 @@ const scanNearbyVehicles = async (point: TowerGoPoint, sid: string) => {
   }
 }
 
-const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, serviceData: unknown) => {
-  // 附近优先 + 点数上限：避免整区高并发网格打满 WebView
-  const scanPoints = createServiceAreaScanPoints({
-    serviceData,
-    origin: point,
-    spacingMeters: SCAN_GRID_SPACING_METERS,
-    maxPoints: SCAN_MAX_POINTS,
-    nearbyRadiusMeters: 900
-  })
-  const allVehicles: TowerGoVehicle[] = []
+const runScanPoints = async (
+  scanPoints: TowerGoPoint[],
+  sid: string,
+  origin: TowerGoPoint,
+  { mergeExisting = false }: { mergeExisting?: boolean } = {}
+) => {
+  const allVehicles: TowerGoVehicle[] = mergeExisting ? [...vehicles.value] : []
   const errors: string[] = []
   let done = 0
   let cursor = 0
-  scanProgress.value = { done: 0, total: scanPoints.length, unique: 0 }
+  scanProgress.value = { done: 0, total: scanPoints.length, unique: allVehicles.length }
 
   let lastProgressUpdate = 0
   const token = activeScanToken
-  const concurrency = Math.min(SCAN_CONCURRENCY, scanPoints.length)
+  const concurrency = Math.min(SCAN_CONCURRENCY, Math.max(1, scanPoints.length))
   const worker = async () => {
     while (cursor < scanPoints.length) {
-      // 离开页面 / 新扫描开始时立即停工
       if (token !== activeScanToken || !mapContainerRef.value) return
       const scanPoint = scanPoints[cursor++]
       try {
         const scanned = await scanNearbyVehicles(scanPoint, sid)
         if (token !== activeScanToken) return
         if (scanned.ok) {
-          allVehicles.splice(0, allVehicles.length, ...dedupeVehicles([...allVehicles, ...scanned.vehicles], point))
+          allVehicles.splice(
+            0,
+            allVehicles.length,
+            ...dedupeVehicles([...allVehicles, ...scanned.vehicles], origin)
+          )
+          scannedCellKeys.add(scanCellKey(scanPoint, SCAN_GRID_SPACING_METERS))
         } else if (scanned.msg) {
           errors.push(scanned.msg)
         }
@@ -399,7 +488,7 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
     return { ok: false, msg: '已取消', scanPoints, errors: ['cancelled'], vehicles: [] as TowerGoVehicle[] }
   }
   return {
-    ok: errors.length < scanPoints.length,
+    ok: scanPoints.length === 0 || errors.length < scanPoints.length,
     msg: errors[0] || '成功',
     scanPoints,
     errors,
@@ -407,7 +496,64 @@ const scanServiceAreaVehicles = async (point: TowerGoPoint, sid: string, service
   }
 }
 
-const loadMapData = async (point: TowerGoPoint = currentLocation.value) => {
+const scanServiceAreaVehicles = async (
+  point: TowerGoPoint,
+  sid: string,
+  serviceData: unknown,
+  bounds?: ScanBounds | null
+) => {
+  const scanPoints = createServiceAreaScanPoints({
+    serviceData,
+    origin: point,
+    spacingMeters: SCAN_GRID_SPACING_METERS,
+    maxPoints: SCAN_MAX_POINTS,
+    nearbyRadiusMeters: 900,
+    bounds: bounds || undefined
+  })
+  // 冷启动附近扫：清空格子缓存；视口扫在外层过滤已扫格子
+  if (!bounds) scannedCellKeys.clear()
+  return runScanPoints(scanPoints, sid, point, { mergeExisting: Boolean(bounds) })
+}
+
+/** 地图视野变化：仅扫描未覆盖格子 */
+const scanViewportVehicles = async () => {
+  if (loadingMap.value || viewportScanInFlight.value) return
+  const sid = validId(serviceId.value)
+  if (!sid || !serviceInfo.value) return
+  const bounds = readMapBounds()
+  if (!bounds) return
+
+  const rawPoints = createServiceAreaScanPoints({
+    serviceData: serviceInfo.value,
+    origin: currentLocation.value,
+    spacingMeters: SCAN_GRID_SPACING_METERS,
+    maxPoints: SCAN_MAX_POINTS,
+    bounds
+  })
+  const freshPoints = rawPoints.filter(
+    (p) => !scannedCellKeys.has(scanCellKey(p, SCAN_GRID_SPACING_METERS))
+  )
+  if (!freshPoints.length) return
+
+  viewportScanInFlight.value = true
+  activeScanToken += 1
+  try {
+    const result = await runScanPoints(freshPoints, sid, currentLocation.value, { mergeExisting: true })
+    if (result.ok || result.vehicles.length) {
+      vehicles.value = result.vehicles
+      lastScanAt.value = Date.now()
+      renderVehicleMarkers()
+    }
+  } finally {
+    viewportScanInFlight.value = false
+    scanProgress.value = null
+  }
+}
+
+const loadMapData = async (
+  point: TowerGoPoint = currentLocation.value,
+  { preferViewport = false }: { preferViewport?: boolean } = {}
+) => {
   if (loadingMap.value) return
   activeScanToken += 1
   loadingMap.value = true
@@ -426,9 +572,10 @@ const loadMapData = async (point: TowerGoPoint = currentLocation.value) => {
     serviceInfo.value = data
     towerGoStorage.set('serviceId', sid)
 
+    const viewportBounds = preferViewport ? readMapBounds() : null
     // 第二步：并行扫描车辆 / 取围栏 / 取停车点数（nearParkingNum 免登可能未授权，降级不阻塞）
     const [scanResult, fenceResult, parkingResult] = await Promise.all([
-      scanServiceAreaVehicles(point, sid, data),
+      scanServiceAreaVehicles(point, sid, data, viewportBounds),
       towerGoApi.fence.nearFence(point.latitude, point.longitude, { serviceId: sid }),
       towerGoApi.fence.nearParkingNum(point.latitude, point.longitude, { serviceId: sid })
     ])
@@ -455,16 +602,17 @@ const loadMapData = async (point: TowerGoPoint = currentLocation.value) => {
 const refreshBySystemLocation = async () => {
   locating.value = true
   try {
-    const point = await resolveTowerGoLocation()
+    const point = await resolveTowerGoLocation({ maximumAge: 0 })
     updateMapCenter(point)
-    await loadMapData(point)
+    await loadMapData(point, { preferViewport: false })
   } finally {
     locating.value = false
   }
 }
 
 const refreshCurrentArea = async () => {
-  await loadMapData(currentLocation.value)
+  // 手动刷新：优先当前视野
+  await loadMapData(currentLocation.value, { preferViewport: true })
 }
 
 // ── 定时刷新 ──────────────────────────────────────────────────────
@@ -488,6 +636,12 @@ const teardownTowerGoRuntime = () => {
   stopRefreshTimer()
   stopLocationWatch()
   clearRouteLine()
+  if (viewportScanTimer) {
+    window.clearTimeout(viewportScanTimer)
+    viewportScanTimer = null
+  }
+  viewportScanInFlight.value = false
+  scannedCellKeys.clear()
   loadingMap.value = false
   scanProgress.value = null
   if (mapErrorHandler) {
@@ -566,14 +720,20 @@ onBeforeUnmount(() => {
 <template>
   <div class="towergo-view towergo-view--fullscreen module-page">
     <header class="tg-fs-header">
-      <button class="tg-icon-btn" type="button" aria-label="返回" @click="emit('back')">
+      <button
+        class="tg-icon-btn tg-back-btn"
+        type="button"
+        aria-label="返回"
+        @click.stop.prevent="handleBack"
+        @touchend.stop.prevent="handleBack"
+      >
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <div class="tg-fs-title">
         <strong>小塔出行</strong>
         <small>{{ mapSubtitle }}</small>
       </div>
-      <button class="tg-icon-btn" :disabled="loadingMap" title="刷新附近" @click="refreshCurrentArea">
+      <button class="tg-icon-btn" :disabled="loadingMap" title="刷新当前视野" @click="refreshCurrentArea">
         <span class="material-symbols-outlined">refresh</span>
       </button>
     </header>
@@ -608,7 +768,7 @@ onBeforeUnmount(() => {
         </button>
         <button :disabled="loadingMap" @click="refreshCurrentArea">
           <span class="material-symbols-outlined">radar</span>
-          刷新附近
+          刷新视野
         </button>
       </div>
       <!-- 选中车辆浮卡 + 到车 -->
@@ -616,7 +776,10 @@ onBeforeUnmount(() => {
         <span class="vehicle-icon material-symbols-outlined">electric_bike</span>
         <div class="pop-main">
           <strong>NO.{{ selectedVehicle.id || selectedVehicle.imei || '--' }}</strong>
-          <small>{{ formatDistance(selectedVehicle.distance) }} · 电量 {{ selectedVehicle.battery || '--' }}%</small>
+          <small>
+            {{ formatDistance(selectedVehicle.distance) }} · 电量 {{ selectedVehicle.battery || '--' }}%
+            <template v-if="routeIsStraight"> · 直线示意</template>
+          </small>
         </div>
         <button class="pop-nav" type="button" @click="startNavigateToSelected">到这</button>
         <button class="pop-close" @click="stopNavigateToSelected"><span class="material-symbols-outlined">close</span></button>
@@ -709,7 +872,10 @@ onBeforeUnmount(() => {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 30;
+  /* 必须高于腾讯地图 canvas，否则返回按钮点不到 */
+  z-index: 1000;
+  isolation: isolate;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -744,7 +910,8 @@ onBeforeUnmount(() => {
   top: calc(58px + var(--app-safe-top, env(safe-area-inset-top, 0px)));
   left: 50%;
   transform: translateX(-50%);
-  z-index: 28;
+  z-index: 900;
+  pointer-events: auto;
   display: inline-flex;
   gap: 4px;
   padding: 4px;
@@ -819,6 +986,17 @@ onBeforeUnmount(() => {
   width: 38px;
   min-width: 38px;
   padding: 0;
+  position: relative;
+  z-index: 1001;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.tg-back-btn {
+  /* 加大命中区域，避免被地图层吞掉点击 */
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .tg-icon-btn:hover,

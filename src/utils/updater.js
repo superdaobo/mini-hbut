@@ -264,6 +264,17 @@ function isPrereleaseVersion(version) {
   return parseVersion(version).isPrerelease
 }
 
+/**
+ * 当前安装是否为开发版/预发布构建。
+ * 以版本字符串为准（含 -beta/-dev/-rc 等），与「接收更新频道」开关无关。
+ */
+export function isCurrentInstallDev(version) {
+  const text = String(version || '').replace(/^v/i, '').trim()
+  if (!text) return false
+  if (isPrereleaseVersion(text)) return true
+  return /(^|[-._])(alpha|beta|rc|dev|nightly)([-._]|$)/i.test(text)
+}
+
 /** 归一化用户更新频道：stable | dev */
 export const normalizeUpdateChannel = (value) => {
   const text = String(value || '').trim().toLowerCase()
@@ -737,14 +748,23 @@ export async function downloadUpdate(downloadUrls, filename, onProgress) {
   throw new Error('无法打开浏览器下载链接')
 }
 
+/**
+ * 读取当前安装版本：
+ * 1. 原生包版本（Tauri/Capacitor）— 开发版 APK 可能带 -beta，优先于构建期注入
+ * 2. Vite 注入 VITE_APP_VERSION
+ * 3. 兜底 1.0.0
+ */
 export async function getCurrentVersion() {
-  if (import.meta.env.VITE_APP_VERSION) return import.meta.env.VITE_APP_VERSION
   try {
-    const version = await getNativeAppVersion()
-    return version || '1.0.0'
+    const native = await getNativeAppVersion()
+    const nativeText = String(native || '').trim()
+    if (nativeText) return nativeText.replace(/^v/i, '')
   } catch {
-    return '1.0.0'
+    // fall through
   }
+  const viteVersion = String(import.meta.env.VITE_APP_VERSION || '').trim()
+  if (viteVersion) return viteVersion.replace(/^v/i, '')
+  return '1.0.0'
 }
 
 export default {
@@ -759,5 +779,6 @@ export default {
   getSkippedVersion,
   setSkippedVersion,
   shouldOfferRelease,
-  isDevRelease
+  isDevRelease,
+  isCurrentInstallDev
 }
