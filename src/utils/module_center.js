@@ -92,6 +92,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 10
+    }),
+    Object.freeze({
+      id: 'hbut_match3',
+      name: '湖工消消乐',
+      icon: '🍬',
+      description: '校园三消：交换连锁冲高分',
+      key_required: false,
+      kind: 'remote',
+      order: 11
     })
   ])
 })

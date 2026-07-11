@@ -12,7 +12,8 @@ const expectedGameOrder = [
   'hbut_memory_match',
   'hbut_gomoku',
   'hbut_stack',
-  'hbut_parking'
+  'hbut_parking',
+  'hbut_match3'
 ]
 
 describe('remote config module center defaults', () => {

@@ -45,7 +45,8 @@ const gameModuleIds = [
   'hbut_memory_match',
   'hbut_gomoku',
   'hbut_stack',
-  'hbut_parking'
+  'hbut_parking',
+  'hbut_match3'
 ]
 const embeddedMobileGameIds = [
   'jump_out_hbut',
@@ -55,7 +56,8 @@ const embeddedMobileGameIds = [
   'hbut_memory_match',
   'hbut_gomoku',
   'hbut_stack',
-  'hbut_parking'
+  'hbut_parking',
+  'hbut_match3'
 ]
 
 const modulePath = (moduleId: string, ...segments: string[]) =>
