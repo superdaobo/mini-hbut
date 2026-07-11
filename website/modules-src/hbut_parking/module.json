@@ -1,0 +1,11 @@
+{
+  "id": "hbut_parking",
+  "name": "湖工挪车",
+  "icon": "🚌",
+  "order": 10,
+  "key_required": false,
+  "entry_path": "index.html",
+  "min_compatible_version": "",
+  "source_dir": "project",
+  "release_notes": "湖工挪车：Rush Hour 风格出库闯关与排行榜"
+}

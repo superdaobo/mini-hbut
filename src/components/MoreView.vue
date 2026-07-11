@@ -60,7 +60,8 @@ const CONTEXT_AWARE_GAME_MODULE_IDS = new Set([
   'hbut_miner',
   'hbut_memory_match',
   'hbut_gomoku',
-  'hbut_stack'
+  'hbut_stack',
+  'hbut_parking'
 ])
 
 const buildStudentProfileStorageKey = (studentId) => {

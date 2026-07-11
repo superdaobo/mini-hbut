@@ -83,6 +83,15 @@ export const DEFAULT_MODULE_CENTER = Object.freeze({
       key_required: false,
       kind: 'remote',
       order: 9
+    }),
+    Object.freeze({
+      id: 'hbut_parking',
+      name: '湖工挪车',
+      icon: '🚌',
+      description: '滑块挪车，把校车移出停车场',
+      key_required: false,
+      kind: 'remote',
+      order: 10
     })
   ])
 })
