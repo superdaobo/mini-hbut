@@ -218,19 +218,19 @@ function render() {
       <section class="metric-strip" aria-label="消消乐状态">
         <div>
           <span>得分</span>
-          <strong>${state.score}</strong>
+          <strong data-mcp-metric="score">${state.score}</strong>
         </div>
         <div>
           <span>剩余步数</span>
-          <strong>${state.movesLeft}</strong>
+          <strong data-mcp-metric="moves_left">${state.movesLeft}</strong>
         </div>
         <div>
           <span>最高连锁</span>
-          <strong>x${state.chainPeak}</strong>
+          <strong data-mcp-metric="chain_peak">x${state.chainPeak}</strong>
         </div>
         <div>
           <span>限步</span>
-          <strong>${MOVE_LIMIT}</strong>
+          <strong data-mcp-metric="move_limit">${MOVE_LIMIT}</strong>
         </div>
       </section>
 
