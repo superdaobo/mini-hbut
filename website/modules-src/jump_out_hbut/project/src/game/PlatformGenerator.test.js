@@ -238,14 +238,14 @@ describe('PlatformGenerator', () => {
       expect(counts.small / total).toBeGreaterThan(0.3)
     })
 
-    it('special 类型在所有阶段占比约 10%', () => {
+    it('special 类型在所有阶段占比约 6%', () => {
       const scores = [100, 800, 2000]
       for (const score of scores) {
         const counts = generateAndCount(generator, score, 300)
         const total = 300
-        // special 概率 10%，允许 2%~25% 的波动范围
-        expect(counts.special / total).toBeGreaterThan(0.02)
-        expect(counts.special / total).toBeLessThan(0.25)
+        // special 概率 6%，允许 1%~20% 的波动范围
+        expect(counts.special / total).toBeGreaterThan(0.01)
+        expect(counts.special / total).toBeLessThan(0.2)
       }
     })
   })
