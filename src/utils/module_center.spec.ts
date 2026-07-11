@@ -14,7 +14,8 @@ const expectedGameOrder = [
   'hbut_miner',
   'hbut_memory_match',
   'hbut_gomoku',
-  'hbut_stack'
+  'hbut_stack',
+  'hbut_parking'
 ]
 
 describe('module center cards', () => {

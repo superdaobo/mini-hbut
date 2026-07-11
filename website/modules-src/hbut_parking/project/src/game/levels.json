@@ -1,0 +1,98 @@
+[
+  {
+    "id": "gate-warmup",
+    "name": "校门热身",
+    "width": 6,
+    "height": 6,
+    "exit": { "row": 2, "col": 5 },
+    "vehicles": [
+      { "id": "bus", "label": "校车", "row": 2, "col": 1, "length": 2, "orientation": "h", "target": true },
+      { "id": "a", "label": "A", "row": 0, "col": 0, "length": 2, "orientation": "v" },
+      { "id": "b", "label": "B", "row": 1, "col": 3, "length": 2, "orientation": "v" },
+      { "id": "c", "label": "C", "row": 3, "col": 2, "length": 2, "orientation": "h" },
+      { "id": "d", "label": "D", "row": 4, "col": 4, "length": 2, "orientation": "v" }
+    ]
+  },
+  {
+    "id": "library-block",
+    "name": "图书馆挡道",
+    "width": 6,
+    "height": 6,
+    "exit": { "row": 2, "col": 5 },
+    "vehicles": [
+      { "id": "bus", "label": "校车", "row": 2, "col": 0, "length": 2, "orientation": "h", "target": true },
+      { "id": "a", "label": "A", "row": 0, "col": 2, "length": 2, "orientation": "v" },
+      { "id": "b", "label": "B", "row": 0, "col": 4, "length": 2, "orientation": "h" },
+      { "id": "c", "label": "C", "row": 1, "col": 5, "length": 2, "orientation": "v" },
+      { "id": "d", "label": "D", "row": 3, "col": 0, "length": 3, "orientation": "h" },
+      { "id": "e", "label": "E", "row": 4, "col": 3, "length": 2, "orientation": "v" }
+    ]
+  },
+  {
+    "id": "canteen-rush",
+    "name": "食堂高峰",
+    "width": 6,
+    "height": 6,
+    "exit": { "row": 2, "col": 5 },
+    "vehicles": [
+      { "id": "bus", "label": "校车", "row": 2, "col": 1, "length": 2, "orientation": "h", "target": true },
+      { "id": "a", "label": "A", "row": 0, "col": 0, "length": 2, "orientation": "h" },
+      { "id": "b", "label": "B", "row": 0, "col": 3, "length": 3, "orientation": "v" },
+      { "id": "c", "label": "C", "row": 1, "col": 1, "length": 2, "orientation": "h" },
+      { "id": "d", "label": "D", "row": 3, "col": 4, "length": 2, "orientation": "h" },
+      { "id": "e", "label": "E", "row": 4, "col": 0, "length": 2, "orientation": "v" },
+      { "id": "f", "label": "F", "row": 5, "col": 2, "length": 3, "orientation": "h" }
+    ]
+  },
+  {
+    "id": "lab-jam",
+    "name": "实验楼堵车",
+    "width": 6,
+    "height": 6,
+    "exit": { "row": 2, "col": 5 },
+    "vehicles": [
+      { "id": "bus", "label": "校车", "row": 2, "col": 0, "length": 2, "orientation": "h", "target": true },
+      { "id": "a", "label": "A", "row": 0, "col": 1, "length": 2, "orientation": "v" },
+      { "id": "b", "label": "B", "row": 0, "col": 3, "length": 2, "orientation": "h" },
+      { "id": "c", "label": "C", "row": 1, "col": 4, "length": 2, "orientation": "v" },
+      { "id": "d", "label": "D", "row": 3, "col": 2, "length": 2, "orientation": "h" },
+      { "id": "e", "label": "E", "row": 3, "col": 5, "length": 3, "orientation": "v" },
+      { "id": "f", "label": "F", "row": 4, "col": 0, "length": 2, "orientation": "h" }
+    ]
+  },
+  {
+    "id": "stadium-exit",
+    "name": "体育馆出库",
+    "width": 6,
+    "height": 6,
+    "exit": { "row": 2, "col": 5 },
+    "vehicles": [
+      { "id": "bus", "label": "校车", "row": 2, "col": 1, "length": 2, "orientation": "h", "target": true },
+      { "id": "a", "label": "A", "row": 0, "col": 0, "length": 3, "orientation": "h" },
+      { "id": "b", "label": "B", "row": 0, "col": 4, "length": 2, "orientation": "v" },
+      { "id": "c", "label": "C", "row": 1, "col": 2, "length": 2, "orientation": "h" },
+      { "id": "d", "label": "D", "row": 3, "col": 0, "length": 2, "orientation": "v" },
+      { "id": "e", "label": "E", "row": 3, "col": 3, "length": 2, "orientation": "h" },
+      { "id": "f", "label": "F", "row": 4, "col": 5, "length": 2, "orientation": "v" },
+      { "id": "g", "label": "G", "row": 5, "col": 1, "length": 3, "orientation": "h" }
+    ]
+  },
+  {
+    "id": "graduation-lot",
+    "name": "毕业季车场",
+    "width": 6,
+    "height": 6,
+    "exit": { "row": 2, "col": 5 },
+    "vehicles": [
+      { "id": "bus", "label": "校车", "row": 2, "col": 0, "length": 2, "orientation": "h", "target": true },
+      { "id": "a", "label": "A", "row": 0, "col": 0, "length": 2, "orientation": "v" },
+      { "id": "b", "label": "B", "row": 0, "col": 2, "length": 2, "orientation": "h" },
+      { "id": "c", "label": "C", "row": 0, "col": 5, "length": 2, "orientation": "v" },
+      { "id": "d", "label": "D", "row": 1, "col": 3, "length": 2, "orientation": "h" },
+      { "id": "e", "label": "E", "row": 3, "col": 1, "length": 3, "orientation": "h" },
+      { "id": "f", "label": "F", "row": 4, "col": 0, "length": 2, "orientation": "v" },
+      { "id": "g", "label": "G", "row": 4, "col": 4, "length": 2, "orientation": "h" },
+      { "id": "h", "label": "H", "row": 5, "col": 2, "length": 2, "orientation": "h" }
+    ]
+  }
+]
