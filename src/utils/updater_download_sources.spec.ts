@@ -81,7 +81,9 @@ describe('update download sources', () => {
   it('renders the current version on the left and the target version on the right', () => {
     const source = readSource('src/components/UpdateDialog.vue')
 
-    expect(source).toContain('<div class="version-badge current">当前 v{{ currentVersion }}</div>')
+    expect(source).toContain('currentVersionLabel')
+    expect(source).toContain('当前 ·')
+    expect(source).toContain('isCurrentInstallDev')
     expect(source).toContain('<span class="arrow">→</span>')
     expect(source).toContain('version-badge new')
     expect(source).toContain('updateInfo.latestVersion')

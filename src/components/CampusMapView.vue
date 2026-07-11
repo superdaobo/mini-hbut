@@ -66,6 +66,12 @@ onMounted(async () => {
 
     <section v-if="degradedText" class="status-banner warn">{{ degradedText }}</section>
     <section v-if="errorText" class="status-banner error">{{ errorText }}</section>
+    <section
+      v-else-if="mapReady && bundle && !bundle.buildings?.length"
+      class="status-banner warn"
+    >
+      暂无建筑点位数据，请点击刷新或检查网络
+    </section>
 
     <section class="search-panel">
       <input

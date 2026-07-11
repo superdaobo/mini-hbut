@@ -32,9 +32,31 @@ export const SCAN_CONCURRENCY = 3
 /** 单次请求间隔（ms）。 */
 export const SCAN_REQUEST_DELAY_MS = 80
 /** 单次扫描最多探测点数（含原点/中心）。超出时保留距用户最近的点。 */
-export const SCAN_MAX_POINTS = 24
-/** 定时刷新间隔（ms）：仅刷新附近，不整区打爆。 */
+export const SCAN_MAX_POINTS = 36
+/** 定时刷新间隔（ms）：仅刷新附近/当前视野，不整区打爆。 */
 export const SCAN_REFRESH_INTERVAL_MS = 180_000
+/** 视口扫描防抖（ms）。 */
+export const SCAN_VIEWPORT_DEBOUNCE_MS = 400
+
+export type ScanBounds = {
+  minLat: number
+  maxLat: number
+  minLng: number
+  maxLng: number
+}
+
+/** 将扫描点量化为格子 key，用于增量扫描去重 */
+export const scanCellKey = (
+  point: { latitude: number; longitude: number },
+  spacingMeters = SCAN_GRID_SPACING_METERS
+) => {
+  const step = Math.max(50, Number(spacingMeters) || SCAN_GRID_SPACING_METERS)
+  const latStep = step / 111320
+  const lngStep = step / (111320 * Math.max(0.1, Math.cos((point.latitude * Math.PI) / 180)))
+  const latCell = Math.round(point.latitude / latStep)
+  const lngCell = Math.round(point.longitude / lngStep)
+  return `${latCell},${lngCell}`
+}
 
 const toNumber = (value: unknown) => {
   const num = Number(value)
@@ -195,14 +217,17 @@ export const createServiceAreaScanPoints = ({
   origin = HBUT_LOCATION,
   spacingMeters = SCAN_GRID_SPACING_METERS,
   maxPoints = SCAN_MAX_POINTS,
-  /** 仅扫描用户附近半径（米）；默认 900m 附近优先，避免整区打爆。 */
-  nearbyRadiusMeters = 900
+  /** 仅扫描用户附近半径（米）；默认 900m 附近优先，避免整区打爆。有 bounds 时忽略。 */
+  nearbyRadiusMeters = 900,
+  /** 地图视口外包矩形：与服务区求交后网格扫描（动态加载） */
+  bounds
 }: {
   serviceData?: unknown
   origin?: TowerGoPoint
   spacingMeters?: number
   maxPoints?: number
   nearbyRadiusMeters?: number
+  bounds?: ScanBounds | null
 }) => {
   const loc = normalizePoint(origin) || HBUT_LOCATION
   const polygon = getServiceAreaPolygon(serviceData)
@@ -211,13 +236,34 @@ export const createServiceAreaScanPoints = ({
     longitude: (serviceData as Record<string, unknown> | undefined)?.centerLng
   }) || loc
 
-  // Determine scan bounding box（优先用户附近方框，而不是整片服务区）
-  const nearbyDeg = Math.max(200, Number(nearbyRadiusMeters) || 900) / 111320
-  let minLat = loc.latitude - nearbyDeg
-  let maxLat = loc.latitude + nearbyDeg
-  let minLng = loc.longitude - nearbyDeg / Math.max(0.1, Math.cos(loc.latitude * Math.PI / 180))
-  let maxLng = loc.longitude + nearbyDeg / Math.max(0.1, Math.cos(loc.latitude * Math.PI / 180))
+  let minLat: number
+  let maxLat: number
+  let minLng: number
+  let maxLng: number
   let effectiveSpacing = Math.max(80, Number(spacingMeters) || SCAN_GRID_SPACING_METERS)
+
+  if (
+    bounds &&
+    Number.isFinite(bounds.minLat) &&
+    Number.isFinite(bounds.maxLat) &&
+    Number.isFinite(bounds.minLng) &&
+    Number.isFinite(bounds.maxLng) &&
+    bounds.minLat <= bounds.maxLat &&
+    bounds.minLng <= bounds.maxLng
+  ) {
+    // 视口优先：用当前地图视野作为扫描范围
+    minLat = bounds.minLat
+    maxLat = bounds.maxLat
+    minLng = bounds.minLng
+    maxLng = bounds.maxLng
+  } else {
+    // 冷启动：用户附近方框
+    const nearbyDeg = Math.max(200, Number(nearbyRadiusMeters) || 900) / 111320
+    minLat = loc.latitude - nearbyDeg
+    maxLat = loc.latitude + nearbyDeg
+    minLng = loc.longitude - nearbyDeg / Math.max(0.1, Math.cos((loc.latitude * Math.PI) / 180))
+    maxLng = loc.longitude + nearbyDeg / Math.max(0.1, Math.cos((loc.latitude * Math.PI) / 180))
+  }
 
   if (polygon.length >= 3) {
     // 与服务区求交：不超过服务区外包矩形
@@ -243,18 +289,33 @@ export const createServiceAreaScanPoints = ({
 
   const midLat = (minLat + maxLat) / 2
   const latStep = effectiveSpacing / 111320
-  const lngStep = effectiveSpacing / (111320 * Math.max(0.1, Math.cos(midLat * Math.PI / 180)))
+  const lngStep = effectiveSpacing / (111320 * Math.max(0.1, Math.cos((midLat * Math.PI) / 180)))
 
-  const points: TowerGoPoint[] = [loc, center]
+  const points: TowerGoPoint[] = bounds ? [] : [loc, center]
+  // 视口中心也纳入，便于视野内优先
+  if (bounds) {
+    points.push({
+      latitude: Number(((minLat + maxLat) / 2).toFixed(6)),
+      longitude: Number(((minLng + maxLng) / 2).toFixed(6))
+    })
+  }
   for (let lat = minLat; lat <= maxLat + 1e-12; lat += latStep) {
     for (let lng = minLng; lng <= maxLng + 1e-12; lng += lngStep) {
       points.push({ latitude: Number(lat.toFixed(6)), longitude: Number(lng.toFixed(6)) })
     }
   }
 
-  const sorted = dedupeScanPoints(points).sort((a, b) =>
-    distanceMeters(loc.latitude, loc.longitude, a.latitude, a.longitude) -
-    distanceMeters(loc.latitude, loc.longitude, b.latitude, b.longitude)
+  const sortOrigin = bounds
+    ? {
+        latitude: (minLat + maxLat) / 2,
+        longitude: (minLng + maxLng) / 2
+      }
+    : loc
+
+  const sorted = dedupeScanPoints(points).sort(
+    (a, b) =>
+      distanceMeters(sortOrigin.latitude, sortOrigin.longitude, a.latitude, a.longitude) -
+      distanceMeters(sortOrigin.latitude, sortOrigin.longitude, b.latitude, b.longitude)
   )
   const limit = Math.max(4, Number(maxPoints) || SCAN_MAX_POINTS)
   return sorted.slice(0, limit)
@@ -306,13 +367,16 @@ export const dedupeVehicles = (vehicles: TowerGoVehicle[], origin: TowerGoPoint 
 export const resolveTowerGoLocation = async ({
   geolocation = typeof navigator === 'undefined' ? undefined : navigator.geolocation,
   fallback = HBUT_LOCATION,
-  timeoutMs = 5000,
-  maxDriftMeters = 2000
+  timeoutMs = 12000,
+  maxDriftMeters = 2000,
+  /** 0 = 强制刷新，避免 iOS/系统把陈旧校外坐标当当前 */
+  maximumAge = 0
 }: {
   geolocation?: Geolocation
   fallback?: TowerGoPoint
   timeoutMs?: number
   maxDriftMeters?: number
+  maximumAge?: number
 } = {}): Promise<TowerGoPoint> => {
   if (!geolocation?.getCurrentPosition) {
     return { ...fallback, source: 'fallback' }
@@ -341,7 +405,11 @@ export const resolveTowerGoLocation = async ({
         () => {
           resolve({ ...fallback, source: 'fallback' })
         },
-        { timeout: timeoutMs, enableHighAccuracy: true, maximumAge: 5000 }
+        {
+          timeout: timeoutMs,
+          enableHighAccuracy: true,
+          maximumAge: Math.max(0, Number(maximumAge) || 0)
+        }
       )
     } catch {
       resolve({ ...fallback, source: 'fallback' })

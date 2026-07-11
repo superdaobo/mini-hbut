@@ -19,12 +19,15 @@ describe('TowerGoView simplified contract', () => {
     expect(vue).not.toContain('寻车铃')
   })
 
-  it('keeps map, location, and nearby scan functionality with teardown on leave', () => {
+  it('keeps map, location, viewport scan, and back button with teardown on leave', () => {
     const vue = source()
 
     expect(vue).toContain('定位')
-    expect(vue).toContain('刷新附近')
-    expect(vue).not.toContain('全区扫描')
+    expect(vue).toContain('刷新视野')
+    expect(vue).toContain('scanViewportVehicles')
+    expect(vue).toContain('bindMapViewportScan')
+    expect(vue).toContain('scannedCellKeys')
+    expect(vue).toContain('SCAN_VIEWPORT_DEBOUNCE_MS')
     expect(vue).toContain('loadMapData')
     expect(vue).toContain('renderVehicleMarkers')
     expect(vue).toContain('selectVehicle')
@@ -33,8 +36,12 @@ describe('TowerGoView simplified contract', () => {
     expect(vue).toContain('SCAN_REFRESH_INTERVAL_MS')
     expect(vue).toContain('activeScanToken += 1')
     expect(vue).toContain('startNavigateToSelected')
+    expect(vue).toContain('fetchWalkingRoute')
     expect(vue).toContain('watchPosition')
     expect(vue).toContain('towergo-view--fullscreen')
+    expect(vue).toContain('handleBack')
+    expect(vue).toContain('z-index: 1000')
+    expect(vue).toContain('tg-back-btn')
     // Apple-style custom MarkerStyle (user blue dot + vehicle pin)
     expect(vue).toContain('buildTowerGoMarkerStyles')
     expect(vue).toContain('MarkerStyle')

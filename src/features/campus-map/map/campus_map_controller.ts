@@ -1,6 +1,11 @@
 import { loadTencentMap, toTencentLatLng } from '../../../utils/tencent_map_loader'
 import { TOWERGO_CONFIG } from '../../../utils/towergo_api'
 import type { CampusBuilding, CampusMapConfig, MapLatLng } from '../types'
+import {
+  buildCampusBuildingMarkerStyles,
+  campusBuildingStyleId,
+  campusUserLocationStyleId
+} from './campus_map_markers'
 import { CAMPUS_MAP_CONTAINER_CLASS, injectCampusMapStyles } from './map_style'
 
 type TMapInstance = {
@@ -9,6 +14,7 @@ type TMapInstance = {
   LatLngBounds: new (sw: unknown, ne: unknown) => unknown
   MultiMarker: new (options: Record<string, unknown>) => TMapLayer
   MultiPolyline: new (options: Record<string, unknown>) => TMapLayer
+  MarkerStyle?: new (options: Record<string, unknown>) => unknown
 }
 
 type TMapMap = {
@@ -20,6 +26,7 @@ type TMapMap = {
 
 type TMapLayer = {
   setGeometries?: (geometries: unknown[]) => void
+  setStyles?: (styles: Record<string, unknown>) => void
   on?: (event: string, handler: (event: unknown) => void) => void
   setMap?: (map: TMapMap | null) => void
 }
@@ -80,14 +87,22 @@ export class CampusMapController {
     this.buildings = buildings
     if (!this.map || !this.TMap) return
 
+    // 腾讯 GL MultiMarker 无 MarkerStyle 时 pin 常不可见，必须显式 styleId
+    const styles = buildCampusBuildingMarkerStyles(this.TMap, buildings)
     const geometries = buildings.map((building) => ({
       id: building.id,
+      styleId: campusBuildingStyleId(building),
       position: toTencentLatLng(this.TMap!, { lat: building.lat, lng: building.lng }),
       properties: { title: building.name, category: building.category }
     }))
 
     if (!this.buildingLayer) {
-      this.buildingLayer = new this.TMap.MultiMarker({ map: this.map, geometries })
+      this.buildingLayer = new this.TMap.MultiMarker({
+        map: this.map,
+        styles,
+        geometries,
+        zIndex: 30
+      })
       this.buildingLayer.on?.('click', (event: { geometry?: { id?: string } }) => {
         const id = event?.geometry?.id
         const target = this.buildings.find((item) => item.id === id)
@@ -95,6 +110,7 @@ export class CampusMapController {
       })
       return
     }
+    this.buildingLayer.setStyles?.(styles)
     this.buildingLayer.setGeometries?.(geometries)
   }
 
@@ -106,15 +122,23 @@ export class CampusMapController {
 
   setUserLocation(point: MapLatLng) {
     if (!this.map || !this.TMap) return
+    const styles = buildCampusBuildingMarkerStyles(this.TMap, [])
     const geometry = {
       id: 'user-location',
+      styleId: campusUserLocationStyleId(),
       position: toTencentLatLng(this.TMap, point),
       properties: { title: '我的位置' }
     }
     if (!this.userLayer) {
-      this.userLayer = new this.TMap.MultiMarker({ map: this.map, geometries: [geometry] })
+      this.userLayer = new this.TMap.MultiMarker({
+        map: this.map,
+        styles,
+        geometries: [geometry],
+        zIndex: 40
+      })
       return
     }
+    this.userLayer.setStyles?.(styles)
     this.userLayer.setGeometries?.([geometry])
   }
 

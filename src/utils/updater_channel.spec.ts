@@ -5,6 +5,7 @@ import {
   buildUpdateDownloadUrls,
   getSkippedVersionKey,
   getUpdateChannel,
+  isCurrentInstallDev,
   isDevRelease,
   normalizeCdnManifestAsRelease,
   normalizeUpdateChannel,
@@ -112,6 +113,24 @@ describe('update channel (stable / dev)', () => {
     )
   })
 
+  it('detects current install identity from version string', () => {
+    expect(isCurrentInstallDev('1.4.3')).toBe(false)
+    expect(isCurrentInstallDev('1.4.3-beta.1')).toBe(true)
+    expect(isCurrentInstallDev('v1.4.3-dev.2')).toBe(true)
+    expect(isCurrentInstallDev('1.4.3-rc.1')).toBe(true)
+    expect(isCurrentInstallDev('')).toBe(false)
+  })
+
+  it('prefers native package version over Vite inject in getCurrentVersion', () => {
+    const updater = readSource('src/utils/updater.js')
+    expect(updater).toContain('getNativeAppVersion')
+    // 原生优先：先 await native，再 VITE_APP_VERSION
+    const nativeIdx = updater.indexOf('const native = await getNativeAppVersion()')
+    const viteIdx = updater.indexOf('import.meta.env.VITE_APP_VERSION')
+    expect(nativeIdx).toBeGreaterThan(-1)
+    expect(viteIdx).toBeGreaterThan(nativeIdx)
+  })
+
   it('wires UpdateDialog channel toggle and App autoCheck channel options', () => {
     const dialog = readSource('src/components/UpdateDialog.vue')
     const app = readSource('src/App.vue')
@@ -123,6 +142,9 @@ describe('update channel (stable / dev)', () => {
     expect(dialog).toContain('getUpdateChannel')
     expect(dialog).toContain('dev-latest')
     expect(dialog).toContain('handleChannelToggle')
+    expect(dialog).toContain('isCurrentInstallDev')
+    expect(dialog).toContain('当前安装')
+    expect(dialog).toContain('currentVersionLabel')
     expect(app).toContain('checkForUpdates(currentVersion, { channel })')
     expect(app).toContain('getSkippedVersion')
     expect(updater).toContain('DEV_MANIFEST_URL')
@@ -131,5 +153,6 @@ describe('update channel (stable / dev)', () => {
     expect(updater).toContain('fetchDevReleaseInfo')
     expect(updater).toContain('app.zip')
     expect(updater).toContain('preferDevZip')
+    expect(updater).toContain('isCurrentInstallDev')
   })
 })

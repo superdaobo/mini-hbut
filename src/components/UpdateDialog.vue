@@ -6,6 +6,7 @@ import {
   downloadUpdate,
   getCurrentVersion,
   getUpdateChannel,
+  isCurrentInstallDev,
   setSkippedVersion,
   setUpdateChannel,
   isOfficialDownloadUrl
@@ -26,7 +27,14 @@ const sourceSpeedResults = ref({}) // { url: { ms: number, status: 'testing'|'ok
 const showSourceTable = ref(false)
 
 const isDevChannel = computed(() => updateChannel.value === 'dev')
+/** 接收更新偏好（开关），不是安装身份 */
 const channelBadge = computed(() => (isDevChannel.value ? '开发版' : '正式版'))
+/** 当前安装身份：看版本字符串是否 prerelease，与频道开关解耦 */
+const isInstallDev = computed(() => isCurrentInstallDev(currentVersion.value))
+const installBadge = computed(() => (isInstallDev.value ? '开发版' : '正式版'))
+const currentVersionLabel = computed(
+  () => `当前 · ${installBadge.value} v${currentVersion.value || '--'}`
+)
 
 const checkUpdate = async () => {
   checking.value = true
@@ -188,8 +196,14 @@ onMounted(() => {
           </button>
         </div>
         <div class="channel-badge-row">
-          <span class="channel-pill" :data-channel="updateChannel">当前频道：{{ channelBadge }}</span>
+          <span class="channel-pill" :data-channel="isInstallDev ? 'dev' : 'stable'">
+            当前安装：{{ installBadge }}
+          </span>
+          <span class="channel-pill" :data-channel="updateChannel">接收频道：{{ channelBadge }}</span>
         </div>
+        <p v-if="isInstallDev && !isDevChannel" class="install-hint">
+          当前安装为开发版。若要继续接收 Beta 推送，请打开上方开关。
+        </p>
 
         <!-- 检查中 -->
         <div v-if="checking" class="checking">
@@ -200,7 +214,9 @@ onMounted(() => {
         <!-- 有更新 -->
         <template v-else-if="updateInfo?.hasUpdate">
           <div class="version-info">
-            <div class="version-badge current">当前 v{{ currentVersion }}</div>
+            <div class="version-badge current" :data-install="isInstallDev ? 'dev' : 'stable'">
+              {{ currentVersionLabel }}
+            </div>
             <span class="arrow">→</span>
             <div class="version-badge new" :data-channel="updateInfo.channel || updateChannel">
               {{ updateInfo.isPrerelease || isDevChannel ? '开发版' : '新版本' }}
@@ -269,7 +285,7 @@ onMounted(() => {
           <div class="up-to-date">
             <span class="material-symbols-outlined status-icon status-icon--success">check_circle</span>
             <p>{{ isDevChannel ? '已是最新开发版' : '已是最新正式版' }}</p>
-            <span class="version">v{{ currentVersion }}</span>
+            <span class="version">{{ currentVersionLabel }}</span>
             <span v-if="updateInfo.latestVersion" class="version muted">远端 {{ updateInfo.latestVersion }}</span>
           </div>
         </template>
@@ -405,7 +421,17 @@ onMounted(() => {
   transform: translateX(20px);
 }
 
+.install-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #b45309;
+}
+
 .channel-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
@@ -481,6 +507,10 @@ onMounted(() => {
 
 .version-badge.new { background: #10b981; color: white; }
 .version-badge.current { background: #f3f4f6; color: #6b7280; }
+.version-badge.current[data-install='dev'] {
+  background: #fef3c7;
+  color: #92400e;
+}
 .arrow { font-size: 20px; color: #9ca3af; }
 
 .release-notes {

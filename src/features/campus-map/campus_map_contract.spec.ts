@@ -66,4 +66,14 @@ describe('campus map contract', () => {
     expect(view).toContain('useCampusMap')
     expect(view).not.toContain('map1.jpg')
   })
+
+  it('uses MarkerStyle for building pins so Tencent MultiMarker is visible', () => {
+    const controller = read('src/features/campus-map/map/campus_map_controller.ts')
+    const markers = read('src/features/campus-map/map/campus_map_markers.ts')
+    expect(markers).toContain('buildCampusBuildingMarkerStyles')
+    expect(markers).toContain('MarkerStyle')
+    expect(controller).toContain('buildCampusBuildingMarkerStyles')
+    expect(controller).toContain('styleId')
+    expect(controller).toContain('campusBuildingStyleId')
+  })
 })

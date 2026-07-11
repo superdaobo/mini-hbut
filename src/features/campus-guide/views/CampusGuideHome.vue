@@ -167,6 +167,14 @@ onMounted(async () => {
     if (!store.mapReady) await store.bootstrap()
     activePoi.value = store.selectedSpot
     await initMap()
+    // 地图 ready 后再刷一次，避免首帧 container 尺寸为 0 导致点位丢失
+    window.setTimeout(() => {
+      mapCore.value?.resize()
+      void refreshMapMarkers()
+      if (!store.spots.length && !store.loading && !store.spotsLoading) {
+        showToast('当前分类暂无点位，可切换分类或检查网络', 'warning', 2200)
+      }
+    }, 320)
   } catch {
     // error 已写入
   }
