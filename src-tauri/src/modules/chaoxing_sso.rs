@@ -20,8 +20,9 @@ use crate::modules::online_learning;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
-/// 缓存有效期：短窗口内复用成功桥接，避免连打 FYSSO
-const SSO_TTL: Duration = Duration::from_secs(4 * 60);
+/// 缓存有效期：对齐「浏览器开着就尽量复用」的预期。
+/// 4 分钟过短会导致用户短暂离开后误判会话失效；cookie 仍有效时应直接复用。
+const SSO_TTL: Duration = Duration::from_secs(60 * 60);
 /// 静默重登节流，避免验证码风暴
 const SILENT_RELOGIN_COOLDOWN: Duration = Duration::from_secs(45);
 
@@ -542,6 +543,35 @@ pub async fn ensure_chaoxing_sso(
                 }));
             }
         }
+
+        // 缓存过期但学习通 cookie 仍在：优先探针复用，避免无谓 CAS 桥接/误报失效
+        let (has_uid, has_jw) = cookie_flags(client);
+        if has_uid {
+            if probe_chaoxing_ready(client).await {
+                let diag = ChaoxingSsoDiag {
+                    ok: true,
+                    bridged: false,
+                    has_uid,
+                    has_jw,
+                    final_url: String::new(),
+                    fail_reason: String::new(),
+                    fail_kind: String::new(),
+                    silent_relogin: false,
+                    from_cache: true,
+                    preheated: opts.preheated,
+                    at_ms: now_unix_ms(),
+                };
+                mark_ready(diag.clone());
+                return Ok(json!({
+                    "success": true,
+                    "sso": true,
+                    "from_cache": true,
+                    "cookie_reuse": true,
+                    "diag": diag.to_json(),
+                    "hint": "学习通 cookie 仍有效，已复用（无需重桥接）",
+                }));
+            }
+        }
     }
 
     // 简单 in-flight 标记（client 已由外层 Mutex 串行化，这里防同链重复语义）
@@ -595,6 +625,7 @@ pub async fn ensure_chaoxing_sso(
     }
 
     let (has_uid, has_jw) = cookie_flags(client);
+    // 桥接失败但 UID cookie 仍在时也探针，避免把仍可用的会话判死
     let ready = if bridged || has_uid {
         probe_chaoxing_ready(client).await
     } else {
