@@ -270,6 +270,44 @@ fn resolve_portal_password(client: &HbutClient, student_id: &str) -> Option<Stri
     None
 }
 
+/// 直接从会话库取密码（绕过可能的空 last_password / 错键）
+fn load_password_from_db_direct(student_id: &str) -> Option<(String, String)> {
+    let sid = student_id.trim();
+    if !sid.is_empty() {
+        if let Ok(Some(session)) = crate::db::get_user_session(crate::DB_FILENAME, sid) {
+            if let Some(p) = password_nonempty(&session.password) {
+                return Some((sid.to_string(), p));
+            }
+        }
+    }
+    if let Ok(Some(latest)) = crate::db::get_latest_user_session(crate::DB_FILENAME) {
+        if let Some(p) = password_nonempty(&latest.password) {
+            return Some((latest.student_id, p));
+        }
+    }
+    // 绝对路径兜底：dev 下 cwd 漂移时 HBUT_DB_PATH 偶发未命中
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let path = std::path::PathBuf::from(local)
+            .join("Mini-HBUT")
+            .join("grades.db");
+        if path.exists() {
+            if !sid.is_empty() {
+                if let Ok(Some(session)) = crate::db::get_user_session(&path, sid) {
+                    if let Some(p) = password_nonempty(&session.password) {
+                        return Some((sid.to_string(), p));
+                    }
+                }
+            }
+            if let Ok(Some(latest)) = crate::db::get_latest_user_session(&path) {
+                if let Some(p) = password_nonempty(&latest.password) {
+                    return Some((latest.student_id, p));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// 进入 SSO 前把 DB/密钥环密码灌回内存，保证静默续期可用
 fn hydrate_credentials(client: &mut HbutClient, student_id: &str) {
     if client
@@ -278,9 +316,31 @@ fn hydrate_credentials(client: &mut HbutClient, student_id: &str) {
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
     {
+        println!(
+            "[SSO] 内存已有密码 len={}",
+            client.last_password.as_ref().map(|s| s.len()).unwrap_or(0)
+        );
         return;
     }
     let sid = student_id.trim();
+
+    // 1) 直接 DB（含 LOCALAPPDATA 兜底）
+    if let Some((user, pwd)) = load_password_from_db_direct(sid) {
+        client.set_credentials(user.clone(), pwd.clone());
+        let _ = crate::credential_store::save_password(&user, &pwd);
+        let _ = crate::credential_store::save_remembered_credential(
+            &format!("hbut:{user}"),
+            &pwd,
+        );
+        println!(
+            "[SSO] 已从 DB 回填门户凭据 user={} pwd_len={}",
+            user,
+            pwd.len()
+        );
+        return;
+    }
+
+    // 2) 其它来源
     if let Some(pwd) = resolve_portal_password(client, sid) {
         let user = if !sid.is_empty() {
             sid.to_string()
@@ -288,23 +348,20 @@ fn hydrate_credentials(client: &mut HbutClient, student_id: &str) {
             client
                 .last_username
                 .clone()
-                .or_else(|| {
-                    client
-                        .user_info
-                        .as_ref()
-                        .map(|u| u.student_id.clone())
-                })
+                .or_else(|| client.user_info.as_ref().map(|u| u.student_id.clone()))
                 .unwrap_or_default()
         };
         if !user.is_empty() {
             client.set_credentials(user.clone(), pwd.clone());
-            // 同步写入密钥环，后续冷启动也能静默
             let _ = crate::credential_store::save_password(&user, &pwd);
-            if user != sid && !sid.is_empty() {
-                let _ = crate::credential_store::save_password(sid, &pwd);
-            }
-            println!("[SSO] 已回填门户凭据到内存/密钥环 user={}", user);
+            println!(
+                "[SSO] 已回填门户凭据到内存/密钥环 user={} pwd_len={}",
+                user,
+                pwd.len()
+            );
         }
+    } else {
+        println!("[SSO] hydrate 失败：DB/密钥环均无密码 sid={}", sid);
     }
 }
 
