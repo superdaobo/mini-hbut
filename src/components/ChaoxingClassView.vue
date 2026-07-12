@@ -56,8 +56,14 @@ const previewModalLoading = ref(false)
 const previewModalError = ref('')
 const previewModalOfficial = ref(false)
 const previewDownloadUrl = ref('')
+/** image | iframe | video */
+const previewModalMode = ref('iframe')
+const previewCandidates = ref([])
+const previewCandidateIdx = ref(0)
 /** 列表筛选：all | folder | image | video | doc */
 const filterChip = ref('all')
+/** 缩略图加载失败的 key 集合 */
+const thumbFailed = ref({})
 
 const hasTauri = isTauriRuntime()
 
@@ -268,20 +274,43 @@ const breadcrumbLabels = computed(() => {
   return base.concat(folderStack.value.map((f) => f.name || '文件夹'))
 })
 
-const mapResourceItem = (item) => ({
-  data_id: String(item.data_id || item.dataId || ''),
-  name: String(item.name || '未命名'),
-  file_type: String(item.file_type || item.fileType || ''),
-  object_id: String(item.object_id || item.objectId || ''),
-  size_label: String(item.size_label || item.sizeLabel || '-'),
-  creator: String(item.creator || ''),
-  created_at: String(item.created_at || item.createdAt || ''),
-  is_folder: !!(item.is_folder ?? item.isFolder),
-  folder_kind: String(item.folder_kind || item.folderKind || ''),
-  download_url: String(item.download_url || item.downloadUrl || ''),
-  preview_cdn_url: String(item.preview_cdn_url || item.previewCdnUrl || ''),
-  is_downloadable: !!(item.is_downloadable ?? item.isDownloadable ?? true)
-})
+const mapResourceItem = (item) => {
+  const name = String(item.name || '未命名')
+  const file_type = String(item.file_type || item.fileType || '')
+  const object_id = String(item.object_id || item.objectId || '')
+  let thumbnail_url = String(item.thumbnail_url || item.thumbnailUrl || '')
+  // 后端未给缩略图时，图片类本地拼 star3（对齐网页）
+  if (!thumbnail_url && object_id) {
+    const t = `${file_type} ${name}`.toLowerCase()
+    if (/\b(jpg|jpeg|png|gif|webp|bmp|heic)\b/.test(t)) {
+      thumbnail_url = `https://p.ananas.chaoxing.com/star3/150_150c/${object_id}`
+    }
+  }
+  return {
+    data_id: String(item.data_id || item.dataId || ''),
+    name,
+    file_type,
+    object_id,
+    size_label: String(item.size_label || item.sizeLabel || '-'),
+    creator: String(item.creator || ''),
+    created_at: String(item.created_at || item.createdAt || ''),
+    is_folder: !!(item.is_folder ?? item.isFolder),
+    folder_kind: String(item.folder_kind || item.folderKind || ''),
+    download_url: String(item.download_url || item.downloadUrl || ''),
+    preview_cdn_url: String(item.preview_cdn_url || item.previewCdnUrl || ''),
+    thumbnail_url,
+    is_downloadable: !!(item.is_downloadable ?? item.isDownloadable ?? true)
+  }
+}
+
+const thumbKey = (item) => item.data_id || item.object_id || item.name
+
+const onThumbError = (item) => {
+  thumbFailed.value = { ...thumbFailed.value, [thumbKey(item)]: true }
+}
+
+const showThumb = (item) =>
+  !!(item.thumbnail_url && !thumbFailed.value[thumbKey(item)] && fileKind(item) === 'image')
 
 const loadResources = async () => {
   const cls = activeClass.value || preview.value
@@ -339,6 +368,8 @@ const resolveAccess = async (item) => {
       data_id: item.data_id,
       object_id: item.object_id || null,
       cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+      file_name: item.name || null,
+      file_type: item.file_type || null,
       ...studentPayload()
     }
   })
@@ -350,6 +381,27 @@ const closePreviewModal = () => {
   previewModalError.value = ''
   previewModalTitle.value = ''
   previewDownloadUrl.value = ''
+  previewModalMode.value = 'iframe'
+  previewCandidates.value = []
+  previewCandidateIdx.value = 0
+}
+
+const applyPreviewCandidate = (idx) => {
+  const list = previewCandidates.value
+  if (!list.length) return
+  const i = Math.max(0, Math.min(idx, list.length - 1))
+  previewCandidateIdx.value = i
+  previewModalUrl.value = list[i]
+}
+
+const onPreviewImageError = () => {
+  const next = previewCandidateIdx.value + 1
+  if (next < previewCandidates.value.length) {
+    applyPreviewCandidate(next)
+    return
+  }
+  previewModalError.value =
+    previewModalError.value || '图片无法加载。可尝试「系统打开」或「下载」。'
 }
 
 const handleOpenFolder = async (item) => {
@@ -396,20 +448,41 @@ const handlePreviewResource = async (item) => {
   previewModalError.value = ''
   previewModalUrl.value = ''
   previewModalOfficial.value = false
+  previewModalMode.value = fileKind(item) === 'image' ? 'image' : 'iframe'
+  previewCandidates.value = []
+  previewCandidateIdx.value = 0
   previewDownloadUrl.value = item.download_url || ''
   showPreviewModal.value = true
   try {
     const res = await resolveAccess(item)
     const url = String(res?.preview_url || '').trim()
     const official = !!(res?.official_preview ?? res?.embeddable)
+    const mode = String(res?.preview_mode || previewModalMode.value || 'iframe').toLowerCase()
+    const cands = Array.isArray(res?.preview_candidates)
+      ? res.preview_candidates.map((u) => String(u || '').trim()).filter(Boolean)
+      : []
+    if (url && !cands.includes(url)) cands.unshift(url)
+    // 前端再补缩略图/origin 兜底（图片）
+    if (mode === 'image' && item.object_id) {
+      for (const u of [
+        item.thumbnail_url,
+        `https://p.ananas.chaoxing.com/star3/400_400c/${item.object_id}`,
+        `https://p.ananas.chaoxing.com/star3/origin/${item.object_id}`
+      ]) {
+        const s = String(u || '').trim()
+        if (s && !cands.includes(s)) cands.push(s)
+      }
+    }
     previewDownloadUrl.value = String(res?.download_url || item.download_url || '')
     previewModalOfficial.value = official
-    if (!url) throw new Error('未获取到官方预览地址')
-    if (url.includes('star3/origin')) {
+    previewModalMode.value = mode === 'image' || mode === 'video' ? mode : 'iframe'
+    previewCandidates.value = cands
+    if (!cands.length && !url) throw new Error('未获取到预览地址')
+    applyPreviewCandidate(0)
+    if (previewModalUrl.value.includes('star3/origin') && mode !== 'image') {
       previewModalError.value =
         '未拿到签名预览，CDN 直链可能无权限。可尝试「系统打开」或「下载」。'
     }
-    previewModalUrl.value = url
   } catch (e) {
     previewModalError.value = formatErr(e)
   } finally {
@@ -707,7 +780,18 @@ onMounted(() => {
               @keydown.enter.prevent="handleRowClick(item)"
             >
               <div class="cx-thumb" :data-kind="fileKind(item)">
-                <span class="material-symbols-outlined fill">{{ kindMeta[fileKind(item)].icon }}</span>
+                <img
+                  v-if="showThumb(item)"
+                  class="cx-thumb-img"
+                  :src="item.thumbnail_url"
+                  :alt="item.name"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                  @error="onThumbError(item)"
+                />
+                <span v-else class="material-symbols-outlined fill">{{
+                  kindMeta[fileKind(item)].icon
+                }}</span>
               </div>
               <div class="cx-row-main">
                 <h3 class="cx-row-name" :title="item.name">{{ item.name }}</h3>
@@ -837,8 +921,25 @@ onMounted(() => {
             </div>
             <template v-else>
               <p v-if="previewModalError" class="cx-preview-warn">{{ previewModalError }}</p>
+              <!-- 图片：用 img 直出，避免 iframe 黑屏（WebView 不共享 Rust cookie） -->
+              <div v-if="previewModalMode === 'image' && previewModalUrl" class="cx-preview-image-wrap">
+                <img
+                  class="cx-preview-image"
+                  :src="previewModalUrl"
+                  :alt="previewModalTitle"
+                  referrerpolicy="no-referrer"
+                  @error="onPreviewImageError"
+                />
+              </div>
+              <video
+                v-else-if="previewModalMode === 'video' && previewModalUrl"
+                class="cx-preview-video"
+                :src="previewModalUrl"
+                controls
+                playsinline
+              />
               <iframe
-                v-if="previewModalUrl"
+                v-else-if="previewModalUrl"
                 class="cx-preview-frame"
                 :src="previewModalUrl"
                 title="资料预览"
@@ -1262,6 +1363,13 @@ onMounted(() => {
 
 .cx-thumb .fill {
   font-variation-settings: 'FILL' 1;
+}
+
+.cx-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .cx-thumb[data-kind='video'] {
@@ -1698,8 +1806,36 @@ onMounted(() => {
   flex: 1;
   width: 100%;
   border: none;
-  background: #000;
+  background: var(--cx-surface-low);
   min-height: 0;
+}
+
+.cx-preview-image-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: var(--cx-surface-low);
+  overflow: auto;
+}
+
+.cx-preview-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: var(--cx-shadow-soft);
+  background: #fff;
+}
+
+.cx-preview-video {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background: #000;
+  outline: none;
 }
 
 /* Join dialog */

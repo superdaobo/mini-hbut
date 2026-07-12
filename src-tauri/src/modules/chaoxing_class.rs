@@ -657,7 +657,69 @@ pub struct ClassResource {
     pub download_url: String,
     /// 弱降级用，主预览请走 get-preview-url
     pub preview_cdn_url: String,
+    /// 列表缩略图（图片类，对齐网页 star3 缩略图）
+    pub thumbnail_url: String,
     pub is_downloadable: bool,
+}
+
+fn looks_like_image(name: &str, file_type: &str) -> bool {
+    let t = format!("{} {}", file_type, name).to_ascii_lowercase();
+    t.contains("jpg")
+        || t.contains("jpeg")
+        || t.contains("png")
+        || t.contains("gif")
+        || t.contains("webp")
+        || t.contains("bmp")
+        || t.contains("heic")
+}
+
+fn looks_like_video(name: &str, file_type: &str) -> bool {
+    let t = format!("{} {}", file_type, name).to_ascii_lowercase();
+    t.contains("mp4")
+        || t.contains("mov")
+        || t.contains("avi")
+        || t.contains("mkv")
+        || t.contains("webm")
+        || t.contains("m4v")
+}
+
+/// 网页列表常用缩略图：`star3/150_150c/{objectId}`
+fn build_thumbnail_url(object_id: &str, name: &str, file_type: &str) -> String {
+    let oid = object_id.trim();
+    if oid.is_empty() || !looks_like_image(name, file_type) {
+        return String::new();
+    }
+    format!("https://p.ananas.chaoxing.com/star3/150_150c/{oid}")
+}
+
+fn build_image_cdn_candidates(object_id: &str) -> Vec<String> {
+    let oid = object_id.trim();
+    if oid.is_empty() {
+        return Vec::new();
+    }
+    vec![
+        format!("https://p.ananas.chaoxing.com/star3/origin/{oid}"),
+        format!("https://p.ananas.chaoxing.com/star3/400_400c/{oid}"),
+        format!("https://p.ananas.chaoxing.com/star3/270_160c/{oid}"),
+        format!("https://p.ananas.chaoxing.com/star3/150_150c/{oid}"),
+        format!("https://p.ananas.chaoxing.com/star3/270_160c/{oid}.png"),
+    ]
+}
+
+fn is_direct_media_url(url: &str) -> bool {
+    let u = url.to_ascii_lowercase();
+    if u.contains("objectshowpreview") || u.contains(".html") {
+        return false;
+    }
+    u.contains(".jpg")
+        || u.contains(".jpeg")
+        || u.contains(".png")
+        || u.contains(".gif")
+        || u.contains(".webp")
+        || u.contains(".bmp")
+        || u.contains("/star3/")
+        || u.contains("download")
+        || u.contains("cloudstorage")
 }
 
 #[derive(Debug, Clone, Default)]
@@ -916,6 +978,7 @@ fn parse_stu_datalist_html(
         } else {
             format!("https://p.ananas.chaoxing.com/star3/origin/{object_id}")
         };
+        let thumbnail_url = build_thumbnail_url(&object_id, &name, &file_type);
         resources.push(ClassResource {
             data_id: id,
             name,
@@ -945,6 +1008,7 @@ fn parse_stu_datalist_html(
             folder_kind,
             download_url,
             preview_cdn_url,
+            thumbnail_url,
             is_downloadable,
         });
     }
@@ -1034,9 +1098,10 @@ async fn list_teacher_courseware(
         } else {
             String::new()
         };
+        let thumbnail_url = build_thumbnail_url(&object_id, &name, &file_type);
         resources.push(ClassResource {
             data_id: data_id.clone(),
-            name,
+            name: name.clone(),
             file_type: file_type.clone(),
             object_id: object_id.clone(),
             size_label: item
@@ -1067,6 +1132,7 @@ async fn list_teacher_courseware(
             } else {
                 format!("https://p.ananas.chaoxing.com/star3/origin/{object_id}")
             },
+            thumbnail_url,
             is_downloadable: !is_folder && !data_id.is_empty(),
         });
     }
@@ -1088,7 +1154,7 @@ async fn list_teacher_courseware(
     }))
 }
 
-/// 官方预览：必须 get-preview-url；禁止默认 CDN origin
+/// 官方预览：必须 get-preview-url；图片优先直链 `<img>`，避免 iframe 黑屏
 pub async fn resolve_resource_access(
     client: &mut HbutClient,
     course_id: &str,
@@ -1096,6 +1162,8 @@ pub async fn resolve_resource_access(
     data_id: &str,
     object_id: Option<&str>,
     cpi: Option<&str>,
+    file_name: Option<&str>,
+    file_type: Option<&str>,
 ) -> Result<Value, DynError> {
     let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
         client,
@@ -1109,6 +1177,12 @@ pub async fn resolve_resource_access(
     .await;
 
     let cpi = cpi.unwrap_or("0").trim();
+    let oid = object_id.map(str::trim).unwrap_or("").to_string();
+    let fname = file_name.unwrap_or("").trim();
+    let ftype = file_type.unwrap_or("").trim();
+    let is_image = looks_like_image(fname, ftype);
+    let is_video = looks_like_video(fname, ftype);
+
     let download_url = format!(
         "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
         urlencoding::encode(data_id.trim()),
@@ -1154,30 +1228,179 @@ pub async fn resolve_resource_access(
         }
     }
 
-    let fallback_cdn = object_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|oid| format!("https://p.ananas.chaoxing.com/star3/origin/{oid}"))
-        .unwrap_or_default();
-
-    if preview_url.is_empty() {
-        // 仅当官方失败时弱降级，并标记可能无权限
-        preview_url = fallback_cdn.clone();
+    // ananas/status 常返回可直链的 http(s) 字段（图片/视频）
+    let mut ananas_http = String::new();
+    let mut raw_ananas = Value::Null;
+    if !oid.is_empty() {
+        let status_url = format!(
+            "https://mooc1.chaoxing.com/ananas/status/{}?k=&flag=normal&_={}",
+            urlencoding::encode(&oid),
+            now_ms()
+        );
+        if let Ok(resp) = client
+            .client
+            .get(&status_url)
+            .header(
+                "Referer",
+                "https://mooc1.chaoxing.com/ananas/modules/video/index.html",
+            )
+            .send()
+            .await
+        {
+            if let Ok(text) = resp.text().await {
+                if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                    raw_ananas = v.clone();
+                    for key in ["https", "http", "download", "pdf", "thumb"] {
+                        if let Some(u) = v.get(key).and_then(|x| x.as_str()) {
+                            let n = normalize_url(u);
+                            if !n.is_empty() {
+                                ananas_http = n;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    let fallback_cdn = if oid.is_empty() {
+        String::new()
+    } else {
+        format!("https://p.ananas.chaoxing.com/star3/origin/{oid}")
+    };
+
+    let mut candidates: Vec<String> = Vec::new();
+    let push_unique = |list: &mut Vec<String>, u: String| {
+        let t = u.trim().to_string();
+        if t.is_empty() {
+            return;
+        }
+        if !list.iter().any(|x| x == &t) {
+            list.push(t);
+        }
+    };
+
+    // 图片：必须走 <img> 直链；WebView iframe 不共享 reqwest cookie，objectshowpreview 易黑屏
+    let mut preview_mode = if is_image {
+        "image"
+    } else if is_video {
+        "iframe"
+    } else {
+        "iframe"
+    }
+    .to_string();
+
+    if is_image {
+        if !ananas_http.is_empty() {
+            push_unique(&mut candidates, ananas_http.clone());
+        }
+        if !preview_url.is_empty() && is_direct_media_url(&preview_url) {
+            push_unique(&mut candidates, preview_url.clone());
+        }
+        // 鉴权下载（依赖客户端 cookie，前端无法直接用；优先尝试服务端转 data URL）
+        if let Some(data_url) = try_fetch_image_data_url(client, &download_url).await {
+            push_unique(&mut candidates, data_url);
+            preview_status = true;
+        }
+        for u in build_image_cdn_candidates(&oid) {
+            push_unique(&mut candidates, u);
+        }
+        if !preview_url.is_empty() {
+            push_unique(&mut candidates, preview_url.clone());
+        }
+        if candidates.is_empty() && !download_url.is_empty() {
+            // 最后：系统打开下载链
+            push_unique(&mut candidates, download_url.clone());
+        }
+        preview_url = candidates.first().cloned().unwrap_or_default();
+    } else {
+        if preview_url.is_empty() {
+            if !ananas_http.is_empty() {
+                preview_url = ananas_http.clone();
+            } else {
+                preview_url = fallback_cdn.clone();
+            }
+        }
+        if !preview_url.is_empty() {
+            push_unique(&mut candidates, preview_url.clone());
+        }
+        if !ananas_http.is_empty() {
+            push_unique(&mut candidates, ananas_http.clone());
+        }
+        // 若官方页是 HTML 预览器，保持 iframe；若已是直链媒体可前端降级
+        if is_direct_media_url(&preview_url) && is_video {
+            preview_mode = "video".into();
+        }
+    }
+
+    let official = preview_status
+        && !preview_url.contains("star3/origin")
+        && !preview_url.starts_with("data:");
 
     Ok(json!({
         "success": true,
         "download_url": download_url,
         "preview_url": preview_url,
-        "official_preview": preview_status && !preview_url.contains("star3/origin"),
+        "preview_mode": preview_mode,
+        "preview_candidates": candidates,
+        "thumbnail_url": build_thumbnail_url(&oid, fname, ftype),
+        "official_preview": official,
         "fallback_cdn_url": fallback_cdn,
-        "embeddable": preview_status,
+        "embeddable": preview_status || !preview_url.is_empty(),
         "data_id": data_id,
         "course_id": course_id,
         "clazz_id": clazz_id,
         "cpi": cpi,
         "raw": raw_preview,
+        "ananas": raw_ananas,
     }))
+}
+
+/// 用会话 cookie 拉取图片并转为 data URL，供 WebView `<img>` 直显（绕开 iframe cookie 隔离）
+async fn try_fetch_image_data_url(client: &HbutClient, download_url: &str) -> Option<String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let resp = client
+        .client
+        .get(download_url)
+        .header("Referer", "https://mooc2-ans.chaoxing.com/")
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let ctype = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // 下载接口有时返回 application/octet-stream，仍可能是图
+    let bytes = resp.bytes().await.ok()?;
+    if bytes.len() < 32 || bytes.len() > 12 * 1024 * 1024 {
+        return None;
+    }
+    let sniff = if ctype.starts_with("image/") {
+        ctype
+            .split(';')
+            .next()
+            .unwrap_or("image/jpeg")
+            .trim()
+            .to_string()
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg".into()
+    } else if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "image/png".into()
+    } else if bytes.starts_with(b"GIF8") {
+        "image/gif".into()
+    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp".into()
+    } else {
+        return None;
+    };
+    let b64 = general_purpose::STANDARD.encode(&bytes);
+    Some(format!("data:{sniff};base64,{b64}"))
 }
 
 #[cfg(test)]
@@ -1274,5 +1497,31 @@ mod tests {
             normalize_url("http://mooc1.chaoxing.com/a"),
             "https://mooc1.chaoxing.com/a"
         );
+    }
+
+    #[test]
+    fn image_thumbnail_url_for_jpg() {
+        let u = build_thumbnail_url("abc123", "photo.JPG", "jpg");
+        assert!(u.contains("150_150c/abc123"));
+        assert!(looks_like_image("a.png", ""));
+        assert!(!looks_like_image("a.mp4", "mp4"));
+        assert!(is_direct_media_url(
+            "https://p.ananas.chaoxing.com/star3/origin/x"
+        ));
+        assert!(!is_direct_media_url(
+            "https://pan-yz.chaoxing.com/preview/v2/objectshowpreview.html?x=1"
+        ));
+    }
+
+    #[test]
+    fn parse_datalist_sets_thumbnail_for_image() {
+        let html = r#"
+        <ul class="dataBody_td" id="9" objectid="oidimg" dataname="shot.jpg" type="jpg" isdown="1">
+          <li>shot.jpg</li><li>1MB</li>
+        </ul>
+        "#;
+        let list = parse_stu_datalist_html(html, "1", "2", "3");
+        let img = list.iter().find(|r| r.name.contains("shot")).unwrap();
+        assert!(img.thumbnail_url.contains("150_150c/oidimg"));
     }
 }

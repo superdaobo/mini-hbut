@@ -134,6 +134,12 @@ Response JSON:
 - 网页端 iframe 内嵌该 `url`（图片/视频/文档）
 - 文档类也可能走 `/ananas/modules/pdf/mooc2-resource-index.html` + previewUrl
 - **不要**默认用 `https://p.ananas.chaoxing.com/star3/origin/{objectId}` 作主预览（无签名/无 cookie →「资源不存在/无权限」）
+- **列表缩略图**（对齐网页）：`https://p.ananas.chaoxing.com/star3/150_150c/{objectId}`
+- **客户端图片预览**：WebView iframe **不共享** Rust `reqwest` CookieJar，对图片应优先：
+  1. `ananas/status/{objectId}` 返回的 `http(s)` 直链
+  2. 带会话 cookie 下载 `downloadData` 转 `data:image/...;base64,...` 用 `<img>` 直显
+  3. 勿对图片只塞黑底 iframe 加载 `objectshowpreview`
+- **SSO 缓存**：`chaoxing_sso` 进程内 TTL 与浏览器「关浏览器才丢 cookie」不同；cookie 仍有效时应探针复用，勿短 TTL 误杀
 
 可预览类型（JS `previewType`）：  
 `ppt/pptx/pdf/doc/docx` + 多种视频 + `txt/mp3/xls/xlsx/m4a` 等。

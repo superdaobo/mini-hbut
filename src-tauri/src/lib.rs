@@ -1376,6 +1376,9 @@ pub struct ChaoxingClassResourceAccessRequest {
     pub object_id: Option<String>,
     pub cpi: Option<String>,
     pub student_id: Option<String>,
+    /// 用于判断图片/视频预览模式
+    pub file_name: Option<String>,
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6154,6 +6157,8 @@ async fn chaoxing_class_resolve_resource(
         &req.data_id,
         req.object_id.as_deref(),
         req.cpi.as_deref(),
+        req.file_name.as_deref(),
+        req.file_type.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())
