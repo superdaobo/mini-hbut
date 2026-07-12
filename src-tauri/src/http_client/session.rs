@@ -339,10 +339,9 @@ impl HbutClient {
         println!("[调试] CAS→超星桥接: 跳转到 {}", final_url);
 
         // 检查是否回到了 CAS 登录页（说明 TGT 失效）
+        // 注意：此处不立即清 is_logged_in，交由 chaoxing_sso 统一层尝试静默重登后再决定
         if final_url.contains("authserver/login") {
             println!("[调试] CAS→超星桥接: TGT 已失效，跳转回登录页");
-            // 关键：清掉陈旧登录标记，避免 UI 以为“已登录却全站失败=断网”
-            self.is_logged_in = false;
             return false;
         }
 
@@ -725,8 +724,8 @@ impl HbutClient {
         Ok(())
     }
 
-    /// 获取应用数据目录（用于持久化 Cookie）
-    pub(super) fn app_data_dir() -> Option<PathBuf> {
+    /// 获取应用数据目录（用于持久化 Cookie / SSO 诊断）
+    pub(crate) fn app_data_dir() -> Option<PathBuf> {
         if let Ok(raw) = std::env::var("HBUT_APP_DATA_DIR") {
             let dir = PathBuf::from(raw.trim());
             if !dir.as_os_str().is_empty() {

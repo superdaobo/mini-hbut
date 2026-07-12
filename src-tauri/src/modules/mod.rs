@@ -8,6 +8,7 @@ pub mod calendar;
 pub mod campus_network;
 pub mod chaoxing_checkin;
 pub mod chaoxing_class;
+pub mod chaoxing_sso;
 pub mod classroom;
 pub mod course_selection;
 pub mod electricity;

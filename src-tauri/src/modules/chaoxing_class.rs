@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::http_client::HbutClient;
-use crate::modules::online_learning;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
@@ -77,61 +76,36 @@ fn looks_like_login_url(url: &str) -> bool {
         || (u.contains("/login") && u.contains("refer="))
 }
 
-/// 确保门户 SSO → 学习通会话可用；失败返回可读错误。
+/// 确保门户 SSO → 学习通会话可用（走统一会话层，可静默续期，禁止 force 全量课程）。
 pub async fn ensure_sso_session(client: &mut HbutClient, student_id: Option<&str>) -> Result<Value, DynError> {
-    let ready = online_learning::chaoxing_get_session_status(client, student_id)
-        .await
-        .unwrap_or_else(|_| json!({ "connected": false }));
+    use crate::modules::chaoxing_sso::{ensure_chaoxing_sso, EnsureSsoOptions};
 
-    let sid = student_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("")
-        .to_string();
-
-    // 先尝试 CAS→学习通桥接（内部在 TGT 失效时会清除 is_logged_in）
-    let bridged = client.try_bridge_cas_to_chaoxing().await;
-    if !bridged && !client.is_logged_in {
-        return Err(err_box(
-            "门户登录已过期，请返回首页重新登录融合门户后再进入学习通（本模块不二次登录学习通）",
-        ));
-    }
-
-    let courses =
-        online_learning::chaoxing_fetch_courses(client, if sid.is_empty() { None } else { Some(&sid) }, true)
-            .await;
-    match courses {
-        Ok(v) => Ok(json!({
-            "success": true,
-            "sso": true,
-            "bridged": bridged,
-            "session": ready,
-            "hint": "门户 CAS→学习通桥接",
-            "course_probe": v.get("success").cloned().unwrap_or(json!(true))
-        })),
+    match ensure_chaoxing_sso(
+        client,
+        student_id,
+        EnsureSsoOptions {
+            force: false,
+            allow_silent_relogin: true,
+            preheated: false,
+        },
+    )
+    .await
+    {
+        Ok(v) => Ok(v),
         Err(e) => {
-            // 课程接口失败：若固定班级资料仍可访问，也算会话部分可用
+            // 固定班探测兜底：部分场景课程 API 抖动但资料页仍可用
             if let Some(meta) = fixed_meta("73202625") {
                 if probe_class_accessible(client, meta.course_id, meta.clazz_id).await {
                     return Ok(json!({
                         "success": true,
                         "sso": true,
-                        "bridged": bridged,
                         "partial": true,
-                        "session": ready,
-                        "hint": "学习通会话可用（固定班级探测成功）",
+                        "hint": "学习通会话部分可用（固定班级资料页探测成功）",
+                        "diag": crate::modules::chaoxing_sso::get_sso_diag(),
                     }));
                 }
             }
-            if !client.is_logged_in {
-                return Err(err_box(
-                    "请先登录新融合门户。门户会话过期后无法 SSO 到学习通，并非客户端断网",
-                ));
-            }
-            Err(err_box(format!(
-                "学习通会话未就绪（门户 SSO 桥接失败）：{}。请重新登录门户后重试",
-                e
-            )))
+            Err(e)
         }
     }
 }
@@ -290,10 +264,17 @@ pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Resul
         return Err(err_box("请输入邀请码"));
     }
 
-    // 桥接门户会话
-    if client.is_logged_in {
-        let _ = client.try_bridge_cas_to_chaoxing().await;
-    }
+    // 统一会话层：缓存命中则跳过重复 FYSSO
+    let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
+        client,
+        None,
+        crate::modules::chaoxing_sso::EnsureSsoOptions {
+            force: false,
+            allow_silent_relogin: true,
+            preheated: false,
+        },
+    )
+    .await;
 
     // 1) 在线解析 getInviteCode
     let online = fetch_invite_preview_online(client, code).await;
@@ -550,9 +531,16 @@ async fn fetch_invite_preview_online(
 /// 接受邀请入班
 pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result<Value, DynError> {
     let code = invite_code.trim();
-    if client.is_logged_in {
-        let _ = client.try_bridge_cas_to_chaoxing().await;
-    }
+    let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
+        client,
+        None,
+        crate::modules::chaoxing_sso::EnsureSsoOptions {
+            force: false,
+            allow_silent_relogin: true,
+            preheated: false,
+        },
+    )
+    .await;
 
     let preview = preview_invite(client, code).await?;
 
@@ -663,9 +651,16 @@ pub async fn list_resources(
     clazz_id: &str,
     cpi: Option<&str>,
 ) -> Result<Value, DynError> {
-    if client.is_logged_in {
-        let _ = client.try_bridge_cas_to_chaoxing().await;
-    }
+    let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
+        client,
+        None,
+        crate::modules::chaoxing_sso::EnsureSsoOptions {
+            force: false,
+            allow_silent_relogin: true,
+            preheated: false,
+        },
+    )
+    .await;
     let cpi = cpi.unwrap_or("0").trim();
     let t = now_ms();
     let list_url = format!(

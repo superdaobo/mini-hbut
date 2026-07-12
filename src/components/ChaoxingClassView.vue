@@ -12,6 +12,16 @@ import { TPageHeader } from './templates'
 
 /** 固定班级邀请码（产品约定，不开放自填） */
 const FIXED_INVITE_CODE = '73202625'
+/** 与后端固定元数据一致：邀请码 → 课程/班级 */
+const FIXED_CLASS_META = Object.freeze({
+  invite_code: FIXED_INVITE_CODE,
+  course_id: '264356359',
+  clazz_id: '148246853',
+  course_name: '库来西库',
+  teacher_name: '周金阳',
+  cover_url: '',
+  cpi: '0'
+})
 const LAST_CLASS_KEY = 'hbu_chaoxing_class_last_v1'
 const JOIN_DECLINED_KEY = 'hbu_chaoxing_class_declined_v1'
 
@@ -175,10 +185,7 @@ const handleJoinConfirm = async () => {
   error.value = ''
   statusMsg.value = ''
   try {
-    if (!ssoReady.value) {
-      const ok = await ensureSso()
-      if (!ok) throw new Error(ssoHint.value || '学习通会话未就绪')
-    }
+    // SSO 由后端 accept 路径统一缓存/静默续期，避免前端再串一遍
     const res = await invokeNative('chaoxing_class_accept_invite', {
       req: { invite_code: FIXED_INVITE_CODE, ...studentPayload() }
     })
@@ -364,6 +371,12 @@ const kindMeta = {
   file: { icon: 'draft', label: '文件', tone: 'slate' }
 }
 
+/**
+ * #326 进入路径简化：
+ * 1) SSO（缓存优先）
+ * 2) 本地已入班 / 固定班可拉资料 → 直接资料库
+ * 3) 否则最多一次入班确认
+ */
 const boot = async () => {
   loadingBoot.value = true
   error.value = ''
@@ -376,6 +389,7 @@ const boot = async () => {
     return
   }
 
+  // 已有本地班级记录：秒开资料
   if (saved) {
     try {
       await loadResources()
@@ -386,17 +400,38 @@ const boot = async () => {
     return
   }
 
-  // 首次进入：拉预览并询问是否加入
+  // 无本地记录：用固定班探测是否已在班（避免多余预览/入班往返）
+  activeClass.value = { ...FIXED_CLASS_META }
+  await loadResources()
+  if (!error.value) {
+    // 列表成功（即使 0 项）说明已在班
+    saveLastClass(activeClass.value)
+    statusMsg.value = resources.value.length
+      ? `共 ${resources.value.length} 项`
+      : '已在班级'
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+    return
+  }
+  // 探测失败 → 回退加入流程
+  activeClass.value = null
+  error.value = ''
+
+  if (joinDeclined.value) {
+    preview.value = { ...FIXED_CLASS_META }
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+    return
+  }
+
+  // 未入班：一次确认（元数据用固定班，不必再等 preview 网络）
   try {
-    await fetchPreview()
-    if (joinDeclined.value) {
-      bootPhase.value = 'ready'
-    } else {
-      showJoinDialog.value = true
-      bootPhase.value = 'ready'
-    }
+    preview.value = { ...FIXED_CLASS_META }
+    // 后台再补一次 preview（可选，不阻塞弹窗）
+    void fetchPreview().catch(() => {})
+    showJoinDialog.value = true
+    bootPhase.value = 'ready'
   } catch (e) {
-    // 若已在班但预览/入班链路异常，仍展示询问或错误
     error.value = formatErr(e)
     bootPhase.value = 'error'
   } finally {

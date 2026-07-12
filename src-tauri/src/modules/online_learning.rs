@@ -500,6 +500,11 @@ fn chaoxing_encrypt_value(raw: &str) -> Result<String, DynError> {
     Ok(general_purpose::STANDARD.encode(encrypted))
 }
 
+/// 轻量探测：课程列表 API 是否可用（供 SSO 统一层使用，非 force 业务同步）
+pub async fn chaoxing_session_probe_ready(client: &HbutClient) -> bool {
+    check_chaoxing_course_api_ready(client).await
+}
+
 async fn check_chaoxing_course_api_ready(client: &HbutClient) -> bool {
     let url = "https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1";
     let resp = match client
