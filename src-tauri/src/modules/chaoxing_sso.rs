@@ -182,34 +182,130 @@ fn cookie_flags(client: &HbutClient) -> (bool, bool) {
     (has_uid, has_jw)
 }
 
+fn password_nonempty(raw: &str) -> Option<String> {
+    let p = raw.trim().to_string();
+    if p.is_empty() || p == crate::credential_store::KEYRING_MARKER {
+        None
+    } else {
+        Some(p)
+    }
+}
+
+/// 从内存 / 密钥环 / 会话库尽力解析门户密码（用于静默重登）
 fn resolve_portal_password(client: &HbutClient, student_id: &str) -> Option<String> {
     if let Some(p) = client
         .last_password
         .as_ref()
+        .and_then(|s| password_nonempty(s))
+    {
+        println!("[SSO] 密码来源: memory.last_password");
+        return Some(p);
+    }
+
+    let mut candidates: Vec<String> = Vec::new();
+    let sid = student_id.trim();
+    if !sid.is_empty() {
+        candidates.push(sid.to_string());
+        candidates.push(format!("hbut:{sid}"));
+    }
+    if let Some(u) = client
+        .last_username
+        .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
     {
-        return Some(p);
+        candidates.push(u.clone());
+        candidates.push(format!("hbut:{u}"));
     }
-    if let Some(p) = crate::credential_store::load_password(student_id) {
-        if !p.trim().is_empty() {
+
+    for key in &candidates {
+        if let Some(p) = crate::credential_store::load_password(key).and_then(|s| password_nonempty(&s))
+        {
+            println!("[SSO] 密码来源: keyring({})", key);
+            return Some(p);
+        }
+        if let Some(p) =
+            crate::credential_store::load_remembered_credential(key).and_then(|s| password_nonempty(&s))
+        {
+            println!("[SSO] 密码来源: remembered({})", key);
             return Some(p);
         }
     }
-    if let Some(p) = crate::credential_store::load_remembered_credential(&format!("hbut:{student_id}"))
-    {
-        if !p.trim().is_empty() {
+
+    // 按学号查会话
+    if !sid.is_empty() {
+        if let Ok(Some(session)) = crate::db::get_user_session(crate::DB_FILENAME, sid) {
+            if let Some(p) = password_nonempty(&session.password) {
+                println!("[SSO] 密码来源: db.user_session({})", sid);
+                return Some(p);
+            }
+        }
+    }
+
+    // 最近一次会话兜底（学号不一致时）
+    if let Ok(Some(latest)) = crate::db::get_latest_user_session(crate::DB_FILENAME) {
+        if let Some(p) = password_nonempty(&latest.password) {
+            println!(
+                "[SSO] 密码来源: db.latest_session(student={})",
+                latest.student_id
+            );
+            return Some(p);
+        }
+        // 再按 latest.student_id 查密钥环
+        if let Some(p) = crate::credential_store::load_password(&latest.student_id)
+            .and_then(|s| password_nonempty(&s))
+        {
+            println!("[SSO] 密码来源: keyring(latest.student_id)");
             return Some(p);
         }
     }
-    // db 会话密码（内部已解析 keyring）
-    if let Ok(Some(session)) = crate::db::get_user_session(crate::DB_FILENAME, student_id) {
-        let p = session.password.trim().to_string();
-        if !p.is_empty() && p != crate::credential_store::KEYRING_MARKER {
-            return Some(p);
-        }
-    }
+
+    println!(
+        "[SSO] 密码解析失败: sid={} has_last_password={} has_user_info={} db_path={:?}",
+        sid,
+        client.last_password.as_ref().map(|s| !s.is_empty()).unwrap_or(false),
+        client.user_info.is_some(),
+        std::env::var("HBUT_DB_PATH").ok()
+    );
     None
+}
+
+/// 进入 SSO 前把 DB/密钥环密码灌回内存，保证静默续期可用
+fn hydrate_credentials(client: &mut HbutClient, student_id: &str) {
+    if client
+        .last_password
+        .as_ref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let sid = student_id.trim();
+    if let Some(pwd) = resolve_portal_password(client, sid) {
+        let user = if !sid.is_empty() {
+            sid.to_string()
+        } else {
+            client
+                .last_username
+                .clone()
+                .or_else(|| {
+                    client
+                        .user_info
+                        .as_ref()
+                        .map(|u| u.student_id.clone())
+                })
+                .unwrap_or_default()
+        };
+        if !user.is_empty() {
+            client.set_credentials(user.clone(), pwd.clone());
+            // 同步写入密钥环，后续冷启动也能静默
+            let _ = crate::credential_store::save_password(&user, &pwd);
+            if user != sid && !sid.is_empty() {
+                let _ = crate::credential_store::save_password(sid, &pwd);
+            }
+            println!("[SSO] 已回填门户凭据到内存/密钥环 user={}", user);
+        }
+    }
 }
 
 async fn try_silent_portal_relogin(client: &mut HbutClient, student_id: &str) -> Result<bool, DynError> {
@@ -223,33 +319,78 @@ async fn try_silent_portal_relogin(client: &mut HbutClient, student_id: &str) ->
         }
     }
 
+    hydrate_credentials(client, student_id);
+
     let Some(password) = resolve_portal_password(client, student_id) else {
         println!("[SSO] 无本地门户密码，无法静默重登");
         return Ok(false);
     };
 
+    let login_user = {
+        let sid = student_id.trim();
+        if !sid.is_empty() {
+            sid.to_string()
+        } else if let Some(u) = client
+            .last_username
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
+            u
+        } else if let Some(u) = client
+            .user_info
+            .as_ref()
+            .map(|i| i.student_id.trim().to_string())
+            .filter(|s| !s.is_empty())
+        {
+            u
+        } else if let Ok(Some(latest)) = crate::db::get_latest_user_session(crate::DB_FILENAME) {
+            latest.student_id
+        } else {
+            String::new()
+        }
+    };
+    if login_user.is_empty() {
+        println!("[SSO] 无法确定静默重登用户名");
+        return Ok(false);
+    }
+
     if let Ok(mut rt) = SSO_RUNTIME.lock() {
         rt.last_silent_relogin_at = Some(Instant::now());
     }
 
-    let service = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
-    println!("[SSO] 尝试静默重登门户 service=code");
-    match client
-        .login_for_service(student_id, &password, service)
-        .await
-    {
-        Ok(info) => {
-            client.is_logged_in = true;
-            client.user_info = Some(info);
-            client.save_cookie_snapshot_to_file();
-            println!("[SSO] 静默重登门户成功");
-            Ok(true)
-        }
-        Err(e) => {
-            println!("[SSO] 静默重登门户失败: {}", e);
-            Ok(false)
+    // 与主登录一致：优先教务 service，再试 code 服务
+    let services = [
+        "https://jwxt.hbut.edu.cn/admin/?loginType=1",
+        "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2",
+    ];
+
+    for service in services {
+        println!(
+            "[SSO] 尝试静默重登门户 user={} service={}",
+            login_user, service
+        );
+        match client
+            .login_for_service(&login_user, &password, service)
+            .await
+        {
+            Ok(info) => {
+                client.is_logged_in = true;
+                if !info.student_id.trim().is_empty() {
+                    client.user_info = Some(info);
+                }
+                client.set_credentials(login_user.clone(), password.clone());
+                let _ = crate::credential_store::save_password(&login_user, &password);
+                client.save_cookie_snapshot_to_file();
+                println!("[SSO] 静默重登门户成功 service={}", service);
+                return Ok(true);
+            }
+            Err(e) => {
+                println!("[SSO] 静默重登失败 service={}: {}", service, e);
+            }
         }
     }
+    Ok(false)
 }
 
 /// 轻量探测：UID cookie 或课程 API 任一可用即认为学习通可用
@@ -279,7 +420,7 @@ pub async fn ensure_chaoxing_sso(
     student_id: Option<&str>,
     opts: EnsureSsoOptions,
 ) -> Result<Value, DynError> {
-    let sid = student_id
+    let mut sid = student_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
@@ -290,7 +431,24 @@ pub async fn ensure_chaoxing_sso(
                 .map(|u| u.student_id.clone())
                 .filter(|s| !s.trim().is_empty())
         })
+        .or_else(|| {
+            client
+                .last_username
+                .as_ref()
+                .map(|u| u.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_default();
+
+    // 学号仍空：用最近会话
+    if sid.is_empty() {
+        if let Ok(Some(latest)) = crate::db::get_latest_user_session(crate::DB_FILENAME) {
+            sid = latest.student_id.clone();
+        }
+    }
+
+    // 关键：回填密码，否则静默续期必失败
+    hydrate_credentials(client, &sid);
 
     if !opts.force {
         if let Some(mut hit) = cache_hit() {
@@ -331,19 +489,24 @@ pub async fn ensure_chaoxing_sso(
     let mut silent_used = false;
     let final_url = String::new();
 
-    // 1) 直接桥接（is_logged_in 为 false 时仍尝试：可能 cookie 仍有效）
-    let mut bridged = client.try_bridge_cas_to_chaoxing().await;
-    if !bridged && !client.is_logged_in {
-        // 尝试把内存中的 cookie 会话标为可试
-        client.is_logged_in = true;
-        bridged = client.try_bridge_cas_to_chaoxing().await;
-        if !bridged {
-            client.is_logged_in = false;
+    // 1) 有 cookie 时允许尝试桥接：不要因 is_logged_in 假阴性直接跳过
+    if !client.is_logged_in {
+        // 有用户信息或 cookie 快照时先标为可尝试，避免 try_bridge 开头直接 return
+        if client.user_info.is_some()
+            || client
+                .last_username
+                .as_ref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
+        {
+            client.is_logged_in = true;
         }
     }
 
-    // 2) 桥接失败 → 静默重登门户
-    if !bridged && opts.allow_silent_relogin && !sid.is_empty() {
+    let mut bridged = client.try_bridge_cas_to_chaoxing().await;
+
+    // 2) 桥接失败 → 静默重登门户（有密码就必须自动登，禁止甩给用户）
+    if !bridged && opts.allow_silent_relogin {
         match try_silent_portal_relogin(client, &sid).await {
             Ok(true) => {
                 silent_used = true;
@@ -419,8 +582,15 @@ pub async fn ensure_chaoxing_sso(
         )
     };
 
-    // 仅在最终失败时清除登录标记，避免过早打断静默续期
-    if fail_kind == "portal_not_logged_in" || fail_kind == "tgt_expired_no_password" {
+    // 不因 SSO 失败清掉门户登录标记（教务 cookie 可能仍可用）；避免 UI 连环“去登录”
+    // 仅在完全没有用户上下文时标记未登录
+    if client.user_info.is_none()
+        && client
+            .last_username
+            .as_ref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
+    {
         client.is_logged_in = false;
     }
 

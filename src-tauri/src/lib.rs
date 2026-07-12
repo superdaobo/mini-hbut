@@ -3911,6 +3911,13 @@ async fn login(
             Some(""),
         );
     }
+    // 密钥环双写：学号键 + 登录用户名键，供静默 SSO 续期
+    let _ = credential_store::save_password(&session_key, &password);
+    if session_key != username {
+        let _ = credential_store::save_password(&username, &password);
+    }
+    let _ = credential_store::save_remembered_credential(&format!("hbut:{session_key}"), &password);
+    client.set_credentials(session_key.clone(), password.clone());
 
     let client_arc = Arc::clone(&state.client);
     spawn_electricity_session_warmup(client_arc.clone(), session_key.clone(), password);
@@ -3967,6 +3974,14 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
             );
             if !session.password.is_empty() {
                 client.set_credentials(user_info.student_id.clone(), session.password.clone());
+                let _ = credential_store::save_password(
+                    &user_info.student_id,
+                    &session.password,
+                );
+                let _ = credential_store::save_remembered_credential(
+                    &format!("hbut:{}", user_info.student_id),
+                    &session.password,
+                );
             }
             if !session.one_code_token.is_empty() {
                 let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
@@ -3978,7 +3993,7 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
                     Some(session.refresh_token.clone())
                 };
                 client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
-                println!("[调试] Restored one_code_浠ょ墝");
+                println!("[调试] Restored one_code_token");
             }
             let _ = db::save_user_session(
                 DB_FILENAME,
