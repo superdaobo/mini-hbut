@@ -1360,6 +1360,12 @@ pub struct ChaoxingClassResourcesRequest {
     pub clazz_id: String,
     pub cpi: Option<String>,
     pub student_id: Option<String>,
+    /// 子目录 dataId（普通文件夹）
+    pub parent_data_id: Option<String>,
+    pub data_name: Option<String>,
+    pub parent_chain: Option<String>,
+    /// `tch-courseware` | `afolder`
+    pub folder_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6116,7 +6122,13 @@ async fn chaoxing_class_list_resources(
         &mut client,
         &req.course_id,
         &req.clazz_id,
-        req.cpi.as_deref(),
+        modules::chaoxing_class::ListResourcesOpts {
+            cpi: req.cpi,
+            parent_data_id: req.parent_data_id,
+            data_name: req.data_name,
+            parent_chain: req.parent_chain,
+            folder_kind: req.folder_kind,
+        },
     )
     .await
     .map_err(|e| e.to_string())

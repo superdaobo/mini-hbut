@@ -652,16 +652,93 @@ pub struct ClassResource {
     pub creator: String,
     pub created_at: String,
     pub is_folder: bool,
+    /// `tch-courseware` | `afolder` | ``
+    pub folder_kind: String,
     pub download_url: String,
+    /// 弱降级用，主预览请走 get-preview-url
     pub preview_cdn_url: String,
+    pub is_downloadable: bool,
 }
 
-/// 拉取班级资料列表（解析 stu-datalist HTML）
+#[derive(Debug, Clone, Default)]
+pub struct ListResourcesOpts {
+    pub cpi: Option<String>,
+    /// 普通文件夹 dataId；教师课件用 folder_kind=tch-courseware
+    pub parent_data_id: Option<String>,
+    pub data_name: Option<String>,
+    pub parent_chain: Option<String>,
+    /// `tch-courseware` 时走 mobilelearn 课件列表 API
+    pub folder_kind: Option<String>,
+}
+
+fn classify_folder(
+    file_type: &str,
+    object_id: &str,
+    name: &str,
+    inner_html: &str,
+) -> (bool, String) {
+    let ft = file_type.trim().to_ascii_lowercase();
+    if ft == "tch-courseware"
+        || inner_html.contains("toCourseware")
+        || inner_html.contains("coursewareFolder")
+    {
+        return (true, "tch-courseware".into());
+    }
+    if ft == "afolder" || ft == "folder" {
+        return (true, "afolder".into());
+    }
+    if object_id.is_empty()
+        && (ft.is_empty() || ft == "dir")
+        && (name.contains("文件夹")
+            || name.contains("课件")
+            || inner_html.contains("folder")
+            || inner_html.contains("Folder"))
+    {
+        return (
+            true,
+            if name.contains("课件") {
+                "tch-courseware".into()
+            } else {
+                "afolder".into()
+            },
+        );
+    }
+    (false, String::new())
+}
+
+fn extract_cpi_from_html(html: &str) -> String {
+    let from_id = extract_hidden(html, "cpi");
+    if !from_id.is_empty() {
+        return from_id;
+    }
+    extract_js_or_attr(html, "cpi")
+}
+
+fn row_display_name(row: scraper::ElementRef<'_>, attr_name: &str) -> String {
+    if !attr_name.is_empty() {
+        return attr_name.to_string();
+    }
+    // 教师课件等无 dataname：取名称列
+    if let Ok(sel) = Selector::parse(".dataBody_name_stu, .dataBody_name, dl dt, .name") {
+        if let Some(n) = row.select(&sel).next() {
+            let t = n.text().collect::<String>().trim().to_string();
+            if !t.is_empty() {
+                return t.lines().next().unwrap_or(&t).trim().to_string();
+            }
+        }
+    }
+    row.text()
+        .map(|s| s.trim().to_string())
+        .find(|s| !s.is_empty() && *s != "-")
+        .unwrap_or_else(|| "未命名".into())
+}
+
+/// 拉取班级资料列表（根目录 / 子文件夹 / 教师课件）
 pub async fn list_resources(
     client: &mut HbutClient,
     course_id: &str,
     clazz_id: &str,
-    cpi: Option<&str>,
+    opts: ListResourcesOpts,
 ) -> Result<Value, DynError> {
     let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
         client,
@@ -673,15 +750,60 @@ pub async fn list_resources(
         },
     )
     .await;
-    let cpi = cpi.unwrap_or("0").trim();
+
+    let folder_kind = opts
+        .folder_kind
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+
+    if folder_kind == "tch-courseware" {
+        return list_teacher_courseware(
+            client,
+            course_id,
+            clazz_id,
+            opts.parent_data_id.as_deref(),
+            opts.cpi.as_deref(),
+        )
+        .await;
+    }
+
+    let mut cpi = opts.cpi.unwrap_or_default();
+    if cpi.trim().is_empty() {
+        cpi = "0".into();
+    }
+    let cpi = cpi.trim().to_string();
     let t = now_ms();
-    let list_url = format!(
-        "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi={}&ut=s&t={}",
-        urlencoding::encode(course_id.trim()),
-        urlencoding::encode(clazz_id.trim()),
-        urlencoding::encode(cpi),
-        t
-    );
+    let parent_id = opts
+        .parent_data_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let data_name = opts.data_name.as_deref().unwrap_or("").trim();
+    let parent_chain = opts.parent_chain.as_deref().unwrap_or("").trim();
+
+    let list_url = if let Some(pid) = parent_id {
+        format!(
+            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&dataName={}&dataId={}&type=1&parent={}&clazzid={}&cpi={}&ut=s&t={}",
+            urlencoding::encode(course_id.trim()),
+            urlencoding::encode(data_name),
+            urlencoding::encode(pid),
+            urlencoding::encode(parent_chain),
+            urlencoding::encode(clazz_id.trim()),
+            urlencoding::encode(&cpi),
+            t
+        )
+    } else {
+        format!(
+            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi={}&ut=s&t={}",
+            urlencoding::encode(course_id.trim()),
+            urlencoding::encode(clazz_id.trim()),
+            urlencoding::encode(&cpi),
+            t
+        )
+    };
+
     let resp = client
         .client
         .get(&list_url)
@@ -706,9 +828,36 @@ pub async fn list_resources(
         return Err(err_box("资料页为登录页。请重新登录融合门户后再试"));
     }
 
-    let doc = Html::parse_document(&html);
-    let row_sel = Selector::parse("ul.dataBody_td, .dataBody_td, li.dataBody_td")
-        .map_err(|e| err_box(e.to_string()))?;
+    // 页面真实 cpi 优先
+    let page_cpi = extract_cpi_from_html(&html);
+    let cpi = if !page_cpi.is_empty() { page_cpi } else { cpi };
+
+    let resources = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi);
+
+    Ok(json!({
+        "success": true,
+        "course_id": course_id,
+        "clazz_id": clazz_id,
+        "cpi": cpi,
+        "parent_data_id": parent_id.unwrap_or(""),
+        "folder_kind": folder_kind,
+        "count": resources.len(),
+        "resources": resources,
+        "list_url": list_url,
+    }))
+}
+
+fn parse_stu_datalist_html(
+    html: &str,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+) -> Vec<ClassResource> {
+    let doc = Html::parse_document(html);
+    let row_sel = match Selector::parse("ul.dataBody_td, .dataBody_td") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
     let mut resources: Vec<ClassResource> = Vec::new();
     for row in doc.select(&row_sel) {
         let id = row.value().attr("id").unwrap_or("").trim().to_string();
@@ -718,19 +867,27 @@ pub async fn list_resources(
             .unwrap_or("")
             .trim()
             .to_string();
-        let name = row
+        let attr_name = row
             .value()
             .attr("dataname")
             .unwrap_or("")
             .trim()
             .to_string();
         let file_type = row.value().attr("type").unwrap_or("").trim().to_string();
-        if id.is_empty() && name.is_empty() {
+        let isdown = row.value().attr("isdown").unwrap_or("").trim();
+        let inner = row.inner_html();
+        let name = row_display_name(row, &attr_name);
+        let (is_folder, folder_kind) = classify_folder(&file_type, &object_id, &name, &inner);
+
+        // 跳过完全空行
+        if id.is_empty() && name.is_empty() && !is_folder {
             continue;
         }
-        let is_folder = file_type.is_empty()
-            && object_id.is_empty()
-            && (name.contains("课件") || row.inner_html().contains("coursewareFolder"));
+        // 教师课件无 id 也要保留
+        if id.is_empty() && !is_folder && object_id.is_empty() {
+            continue;
+        }
+
         let texts: Vec<String> = row
             .text()
             .map(|s| s.trim().to_string())
@@ -741,9 +898,8 @@ pub async fn list_resources(
             .find(|s| s.contains("MB") || s.contains("KB") || s.contains("GB") || *s == "-")
             .cloned()
             .unwrap_or_else(|| "-".into());
-        let download_url = if id.is_empty() || is_folder {
-            String::new()
-        } else {
+        let is_downloadable = !is_folder && isdown != "0" && !id.is_empty();
+        let download_url = if is_downloadable {
             format!(
                 "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
                 urlencoding::encode(&id),
@@ -751,7 +907,10 @@ pub async fn list_resources(
                 urlencoding::encode(cpi),
                 urlencoding::encode(course_id.trim())
             )
+        } else {
+            String::new()
         };
+        // 仅作弱降级标记，主预览禁止依赖此 URL
         let preview_cdn_url = if object_id.is_empty() {
             String::new()
         } else {
@@ -759,11 +918,7 @@ pub async fn list_resources(
         };
         resources.push(ClassResource {
             data_id: id,
-            name: if name.is_empty() {
-                texts.first().cloned().unwrap_or_else(|| "未命名".into())
-            } else {
-                name
-            },
+            name,
             file_type,
             object_id,
             size_label,
@@ -772,60 +927,148 @@ pub async fn list_resources(
                 .find(|s| {
                     !s.contains("MB")
                         && !s.contains("KB")
+                        && !s.contains("GB")
                         && !s.contains('-')
                         && s.chars().count() < 20
+                        && *s != "-"
                 })
                 .cloned()
                 .unwrap_or_default(),
             created_at: texts
                 .iter()
-                .find(|s| s.contains('-') && s.contains(':'))
+                .find(|s| {
+                    s.contains('-') && (s.contains(':') || s.chars().any(|c| c.is_ascii_digit()))
+                })
                 .cloned()
                 .unwrap_or_default(),
             is_folder,
+            folder_kind,
             download_url,
             preview_cdn_url,
+            is_downloadable,
         });
     }
+    resources
+}
 
-    if resources.is_empty() {
-        let re = Regex::new(
-            r#"(?is)id=["'](\d+)["'][^>]*objectid=["']([a-f0-9]+)["'][^>]*dataname=["']([^"']+)["']|objectid=["']([a-f0-9]+)["'][^>]*id=["'](\d+)["'][^>]*dataname=["']([^"']+)["']"#,
-        )
-        .map_err(|e| err_box(e.to_string()))?;
-        for c in re.captures_iter(&html) {
-            let (data_id, object_id, name) = if c.get(1).is_some() {
-                (
-                    c.get(1).unwrap().as_str().to_string(),
-                    c.get(2).unwrap().as_str().to_string(),
-                    c.get(3).unwrap().as_str().to_string(),
-                )
+/// 教师课件列表 API（mobilelearn）
+async fn list_teacher_courseware(
+    client: &mut HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    parent_folder_id: Option<&str>,
+    cpi: Option<&str>,
+) -> Result<Value, DynError> {
+    let parent = parent_folder_id.unwrap_or("0").trim();
+    let parent = if parent.is_empty() { "0" } else { parent };
+    let api = format!(
+        "https://mobilelearn.chaoxing.com/v2/apis/activePlan/getStudentCourseWareList?DB_STRATEGY=COURSEID&STRATEGY_PARA=courseId&classId={}&courseId={}&page=1&pageSize=50&parentFolderId={}&keyWord=&search=0&createUid=-1&orderByCreateTime=-1&_={}",
+        urlencoding::encode(clazz_id.trim()),
+        urlencoding::encode(course_id.trim()),
+        urlencoding::encode(parent),
+        now_ms()
+    );
+    let resp = client
+        .client
+        .get(&api)
+        .header("Referer", "https://mobilelearn.chaoxing.com/")
+        .send()
+        .await
+        .map_err(|e| err_box(format!("教师课件列表请求失败: {}", e)))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| err_box(format!("教师课件列表读取失败: {}", e)))?;
+    if looks_like_login_html(&text) {
+        return Err(err_box("教师课件接口跳转登录，请重登门户"));
+    }
+    let payload: Value =
+        serde_json::from_str(&text).map_err(|e| err_box(format!("教师课件响应非 JSON: {}", e)))?;
+    let list = payload
+        .pointer("/data/list")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let cpi = cpi.unwrap_or("0");
+    let mut resources = Vec::new();
+    for item in list {
+        let data_id = item
+            .get("id")
+            .or_else(|| item.get("dataId"))
+            .or_else(|| item.get("aid"))
+            .map(|v| v.to_string().trim_matches('"').to_string())
+            .unwrap_or_default();
+        let name = item
+            .get("name")
+            .or_else(|| item.get("title"))
+            .or_else(|| item.get("dataName"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("未命名")
+            .to_string();
+        let object_id = item
+            .get("objectId")
+            .or_else(|| item.get("objectid"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let file_type = item
+            .get("type")
+            .or_else(|| item.get("dataType"))
+            .or_else(|| item.get("extension"))
+            .map(|v| v.as_str().unwrap_or("").to_string())
+            .unwrap_or_default();
+        let is_folder = item
+            .get("isFolder")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+            || file_type.eq_ignore_ascii_case("folder")
+            || file_type.eq_ignore_ascii_case("afolder");
+        let download_url = if !is_folder && !data_id.is_empty() {
+            format!(
+                "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
+                urlencoding::encode(&data_id),
+                urlencoding::encode(clazz_id.trim()),
+                urlencoding::encode(cpi),
+                urlencoding::encode(course_id.trim())
+            )
+        } else {
+            String::new()
+        };
+        resources.push(ClassResource {
+            data_id: data_id.clone(),
+            name,
+            file_type: file_type.clone(),
+            object_id: object_id.clone(),
+            size_label: item
+                .get("size")
+                .or_else(|| item.get("sizeLabel"))
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_else(|| "-".into()),
+            creator: item
+                .get("creatorName")
+                .or_else(|| item.get("createName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            created_at: item
+                .get("createTime")
+                .or_else(|| item.get("updateTime"))
+                .map(|v| v.to_string().trim_matches('"').to_string())
+                .unwrap_or_default(),
+            is_folder,
+            folder_kind: if is_folder {
+                "tch-courseware".into()
             } else {
-                (
-                    c.get(5).unwrap().as_str().to_string(),
-                    c.get(4).unwrap().as_str().to_string(),
-                    c.get(6).unwrap().as_str().to_string(),
-                )
-            };
-            resources.push(ClassResource {
-                download_url: format!(
-                    "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
-                    urlencoding::encode(&data_id),
-                    urlencoding::encode(clazz_id.trim()),
-                    urlencoding::encode(cpi),
-                    urlencoding::encode(course_id.trim())
-                ),
-                preview_cdn_url: format!("https://p.ananas.chaoxing.com/star3/origin/{object_id}"),
-                data_id,
-                object_id,
-                name,
-                file_type: String::new(),
-                size_label: String::new(),
-                creator: String::new(),
-                created_at: String::new(),
-                is_folder: false,
-            });
-        }
+                String::new()
+            },
+            download_url,
+            preview_cdn_url: if object_id.is_empty() {
+                String::new()
+            } else {
+                format!("https://p.ananas.chaoxing.com/star3/origin/{object_id}")
+            },
+            is_downloadable: !is_folder && !data_id.is_empty(),
+        });
     }
 
     Ok(json!({
@@ -833,13 +1076,19 @@ pub async fn list_resources(
         "course_id": course_id,
         "clazz_id": clazz_id,
         "cpi": cpi,
+        "folder_kind": "tch-courseware",
+        "parent_data_id": parent,
         "count": resources.len(),
         "resources": resources,
-        "list_url": list_url,
+        "list_url": format!(
+            "https://mobilelearn.chaoxing.com/page/ppt/studentCourseware/studentCoursewareList?courseId={}&classId={}",
+            course_id, clazz_id
+        ),
+        "raw_total": payload.pointer("/data/allCount").cloned().unwrap_or(json!(resources.len())),
     }))
 }
 
-/// 解析预览：优先 CDN origin；下载返回官方 downloadData URL
+/// 官方预览：必须 get-preview-url；禁止默认 CDN origin
 pub async fn resolve_resource_access(
     client: &mut HbutClient,
     course_id: &str,
@@ -848,54 +1097,86 @@ pub async fn resolve_resource_access(
     object_id: Option<&str>,
     cpi: Option<&str>,
 ) -> Result<Value, DynError> {
-    let cpi = cpi.unwrap_or("0");
+    let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
+        client,
+        None,
+        crate::modules::chaoxing_sso::EnsureSsoOptions {
+            force: false,
+            allow_silent_relogin: true,
+            preheated: false,
+        },
+    )
+    .await;
+
+    let cpi = cpi.unwrap_or("0").trim();
     let download_url = format!(
         "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
         urlencoding::encode(data_id.trim()),
         urlencoding::encode(clazz_id.trim()),
-        urlencoding::encode(cpi.trim()),
+        urlencoding::encode(cpi),
         urlencoding::encode(course_id.trim())
     );
-    let mut preview_url = object_id
+
+    // 官方签名预览（与网页 intPreviewDiv 一致；参数名 clazzid/courseid）
+    let probe = format!(
+        "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/get-preview-url?dataId={}&cpi={}&clazzid={}&ut=s&courseid={}",
+        urlencoding::encode(data_id.trim()),
+        urlencoding::encode(cpi),
+        urlencoding::encode(clazz_id.trim()),
+        urlencoding::encode(course_id.trim())
+    );
+    let mut preview_url = String::new();
+    let mut preview_status = false;
+    let mut raw_preview = Value::Null;
+    if let Ok(resp) = client
+        .client
+        .get(&probe)
+        .header("Referer", "https://mooc2-ans.chaoxing.com/")
+        .send()
+        .await
+    {
+        if let Ok(text) = resp.text().await {
+            if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                raw_preview = v.clone();
+                preview_status = v.get("status").and_then(|x| x.as_bool()).unwrap_or(false);
+                if let Some(u) = v
+                    .get("url")
+                    .or_else(|| v.get("previewUrl"))
+                    .or_else(|| v.pointer("/data/url"))
+                    .and_then(|x| x.as_str())
+                {
+                    preview_url = normalize_url(u);
+                }
+            } else if text.trim().starts_with("http") {
+                preview_url = normalize_url(text.trim());
+                preview_status = true;
+            }
+        }
+    }
+
+    let fallback_cdn = object_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|oid| format!("https://p.ananas.chaoxing.com/star3/origin/{oid}"))
         .unwrap_or_default();
 
     if preview_url.is_empty() {
-        let probe = format!(
-            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/get-preview-url?dataId={}&courseId={}&classId={}&cpi={}&ut=s",
-            urlencoding::encode(data_id.trim()),
-            urlencoding::encode(course_id.trim()),
-            urlencoding::encode(clazz_id.trim()),
-            urlencoding::encode(cpi.trim())
-        );
-        if let Ok(resp) = client.client.get(&probe).send().await {
-            if let Ok(text) = resp.text().await {
-                if let Ok(v) = serde_json::from_str::<Value>(&text) {
-                    if let Some(u) = v
-                        .get("url")
-                        .or_else(|| v.get("previewUrl"))
-                        .or_else(|| v.pointer("/data/url"))
-                        .and_then(|x| x.as_str())
-                    {
-                        preview_url = normalize_url(u);
-                    }
-                } else if text.starts_with("http") {
-                    preview_url = normalize_url(text.trim());
-                }
-            }
-        }
+        // 仅当官方失败时弱降级，并标记可能无权限
+        preview_url = fallback_cdn.clone();
     }
 
-    let _ = Url::parse(&download_url);
     Ok(json!({
         "success": true,
         "download_url": download_url,
         "preview_url": preview_url,
+        "official_preview": preview_status && !preview_url.contains("star3/origin"),
+        "fallback_cdn_url": fallback_cdn,
+        "embeddable": preview_status,
         "data_id": data_id,
         "course_id": course_id,
         "clazz_id": clazz_id,
+        "cpi": cpi,
+        "raw": raw_preview,
     }))
 }
 
@@ -940,6 +1221,47 @@ mod tests {
         assert!(!looks_like_login_html(
             r#"<input id="courseId" value="1" /><div class="course-name">x</div>"#
         ));
+    }
+
+    #[test]
+    fn classify_tch_courseware_folder() {
+        let (is_f, kind) = classify_folder(
+            "tch-courseware",
+            "",
+            "教师课件",
+            r#"onclick="toCourseware()" coursewareFolder.png"#,
+        );
+        assert!(is_f);
+        assert_eq!(kind, "tch-courseware");
+    }
+
+    #[test]
+    fn classify_afolder() {
+        let (is_f, kind) = classify_folder("afolder", "", "作业", "");
+        assert!(is_f);
+        assert_eq!(kind, "afolder");
+    }
+
+    #[test]
+    fn parse_datalist_detects_folder_and_files() {
+        let html = r#"
+        <input id="cpi" value="509967218" />
+        <ul class="dataBody_td" type="tch-courseware">
+          <li class="dataBody_file" onclick="toCourseware()"><img src="/coursewareFolder.png"></li>
+          <li class="dataBody_name_stu"><dl><dt>教师课件</dt></dl></li>
+        </ul>
+        <ul class="dataBody_td" id="132" objectid="abc" dataname="a.mp4" type="mp4" isdown="1">
+          <li>a.mp4</li><li>10MB</li>
+        </ul>
+        "#;
+        let list = parse_stu_datalist_html(html, "1", "2", "509967218");
+        assert!(list
+            .iter()
+            .any(|r| r.is_folder && r.folder_kind == "tch-courseware"));
+        assert!(list
+            .iter()
+            .any(|r| r.file_type == "mp4" && r.is_downloadable));
+        assert_eq!(extract_cpi_from_html(html), "509967218");
     }
 
     #[test]

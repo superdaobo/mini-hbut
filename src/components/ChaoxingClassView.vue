@@ -20,7 +20,7 @@ const FIXED_CLASS_META = Object.freeze({
   course_name: '库来西库',
   teacher_name: '周金阳',
   cover_url: '',
-  cpi: '0'
+  cpi: '509967218'
 })
 const LAST_CLASS_KEY = 'hbu_chaoxing_class_last_v1'
 const JOIN_DECLINED_KEY = 'hbu_chaoxing_class_declined_v1'
@@ -46,6 +46,15 @@ const activeClass = ref(null)
 const showJoinDialog = ref(false)
 const joinDeclined = ref(false)
 const bootPhase = ref('init') // init | sso | preview | ready | error
+/** 文件夹导航栈：{ name, parent_data_id, folder_kind, data_name } */
+const folderStack = ref([])
+const showPreviewModal = ref(false)
+const previewModalTitle = ref('')
+const previewModalUrl = ref('')
+const previewModalLoading = ref(false)
+const previewModalError = ref('')
+const previewModalOfficial = ref(false)
+const previewDownloadUrl = ref('')
 
 const hasTauri = isTauriRuntime()
 
@@ -243,6 +252,30 @@ const reopenJoinDialog = async () => {
   }
 }
 
+const currentFolder = computed(() =>
+  folderStack.value.length ? folderStack.value[folderStack.value.length - 1] : null
+)
+
+const breadcrumbLabels = computed(() => {
+  const base = ['班级资料']
+  return base.concat(folderStack.value.map((f) => f.name || '文件夹'))
+})
+
+const mapResourceItem = (item) => ({
+  data_id: String(item.data_id || item.dataId || ''),
+  name: String(item.name || '未命名'),
+  file_type: String(item.file_type || item.fileType || ''),
+  object_id: String(item.object_id || item.objectId || ''),
+  size_label: String(item.size_label || item.sizeLabel || '-'),
+  creator: String(item.creator || ''),
+  created_at: String(item.created_at || item.createdAt || ''),
+  is_folder: !!(item.is_folder ?? item.isFolder),
+  folder_kind: String(item.folder_kind || item.folderKind || ''),
+  download_url: String(item.download_url || item.downloadUrl || ''),
+  preview_cdn_url: String(item.preview_cdn_url || item.previewCdnUrl || ''),
+  is_downloadable: !!(item.is_downloadable ?? item.isDownloadable ?? true)
+})
+
 const loadResources = async () => {
   const cls = activeClass.value || preview.value
   if (!cls?.course_id || !cls?.clazz_id) {
@@ -252,27 +285,26 @@ const loadResources = async () => {
   loadingResources.value = true
   error.value = ''
   try {
+    const folder = currentFolder.value
     const res = await invokeNative('chaoxing_class_list_resources', {
       req: {
         course_id: cls.course_id,
         clazz_id: cls.clazz_id,
         cpi: cls.cpi || '0',
+        parent_data_id: folder?.parent_data_id || null,
+        data_name: folder?.data_name || null,
+        parent_chain: folder?.parent_chain || null,
+        folder_kind: folder?.folder_kind || null,
         ...studentPayload()
       }
     })
+    // 回写真实 cpi
+    if (res?.cpi && activeClass.value) {
+      activeClass.value = { ...activeClass.value, cpi: String(res.cpi) }
+      saveLastClass(activeClass.value)
+    }
     const list = Array.isArray(res?.resources) ? res.resources : []
-    resources.value = list.map((item) => ({
-      data_id: String(item.data_id || item.dataId || ''),
-      name: String(item.name || '未命名'),
-      file_type: String(item.file_type || item.fileType || ''),
-      object_id: String(item.object_id || item.objectId || ''),
-      size_label: String(item.size_label || item.sizeLabel || '-'),
-      creator: String(item.creator || ''),
-      created_at: String(item.created_at || item.createdAt || ''),
-      is_folder: !!(item.is_folder ?? item.isFolder),
-      download_url: String(item.download_url || item.downloadUrl || ''),
-      preview_cdn_url: String(item.preview_cdn_url || item.previewCdnUrl || '')
-    }))
+    resources.value = list.map(mapResourceItem)
     bootPhase.value = 'ready'
     statusMsg.value = resources.value.length
       ? `共 ${resources.value.length} 项`
@@ -308,21 +340,71 @@ const resolveAccess = async (item) => {
   })
 }
 
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+  previewModalUrl.value = ''
+  previewModalError.value = ''
+  previewModalTitle.value = ''
+  previewDownloadUrl.value = ''
+}
+
+const handleOpenFolder = async (item) => {
+  if (!item?.is_folder) return
+  const kind = item.folder_kind || (item.file_type === 'tch-courseware' ? 'tch-courseware' : 'afolder')
+  folderStack.value = [
+    ...folderStack.value,
+    {
+      name: item.name || '文件夹',
+      parent_data_id: kind === 'tch-courseware' ? '0' : item.data_id || '0',
+      folder_kind: kind,
+      data_name: item.name || '',
+      parent_chain: folderStack.value.map((f) => f.parent_data_id).filter(Boolean).join(',')
+    }
+  ]
+  await loadResources()
+}
+
+const handleBreadcrumb = async (index) => {
+  // 0 = 根
+  if (index <= 0) {
+    folderStack.value = []
+  } else {
+    folderStack.value = folderStack.value.slice(0, index)
+  }
+  await loadResources()
+}
+
 const handlePreviewResource = async (item) => {
+  if (item.is_folder) {
+    await handleOpenFolder(item)
+    return
+  }
   error.value = ''
   actingId.value = `p-${item.data_id}`
+  previewModalTitle.value = item.name
+  previewModalLoading.value = true
+  previewModalError.value = ''
+  previewModalUrl.value = ''
+  previewModalOfficial.value = false
+  previewDownloadUrl.value = item.download_url || ''
+  showPreviewModal.value = true
   try {
-    if (item.preview_cdn_url) {
-      await openUrl(item.preview_cdn_url)
-      return
-    }
     const res = await resolveAccess(item)
-    const url = String(res?.preview_url || res?.download_url || '').trim()
-    if (!url) throw new Error('未获取到预览地址')
-    await openUrl(url)
+    const url = String(res?.preview_url || '').trim()
+    const official = !!(res?.official_preview ?? res?.embeddable)
+    previewDownloadUrl.value = String(res?.download_url || item.download_url || '')
+    previewModalOfficial.value = official
+    if (!url) throw new Error('未获取到官方预览地址')
+    // 禁止优先裸 CDN；若仍是 star3/origin 给出提示
+    if (url.includes('star3/origin')) {
+      previewModalError.value =
+        '未拿到签名预览，CDN 直链可能无权限。可尝试「系统打开」或「下载」。'
+    }
+    previewModalUrl.value = url
   } catch (e) {
-    error.value = formatErr(e)
+    previewModalError.value = formatErr(e)
   } finally {
+    previewModalLoading.value = false
     actingId.value = ''
   }
 }
@@ -331,12 +413,8 @@ const handleDownloadResource = async (item) => {
   error.value = ''
   actingId.value = `d-${item.data_id}`
   try {
-    if (item.download_url) {
-      await openUrl(item.download_url)
-      return
-    }
     const res = await resolveAccess(item)
-    const url = String(res?.download_url || '').trim()
+    const url = String(res?.download_url || item.download_url || '').trim()
     if (!url) throw new Error('未获取到下载地址')
     await openUrl(url)
   } catch (e) {
@@ -347,7 +425,9 @@ const handleDownloadResource = async (item) => {
 }
 
 const fileKind = (item) => {
-  if (item.is_folder) return 'folder'
+  if (item.is_folder || item.folder_kind === 'tch-courseware' || item.folder_kind === 'afolder') {
+    return item.folder_kind === 'tch-courseware' ? 'courseware' : 'folder'
+  }
   const t = `${item.file_type} ${item.name}`.toLowerCase()
   if (/\b(mp4|mov|avi|mkv|webm)\b/.test(t) || t.endsWith('.mp4')) return 'video'
   if (/\b(jpg|jpeg|png|gif|webp|bmp)\b/.test(t)) return 'image'
@@ -361,6 +441,7 @@ const fileKind = (item) => {
 
 const kindMeta = {
   folder: { icon: 'folder', label: '文件夹', tone: 'amber' },
+  courseware: { icon: 'folder_special', label: '教师课件', tone: 'orange' },
   video: { icon: 'movie', label: '视频', tone: 'violet' },
   image: { icon: 'image', label: '图片', tone: 'sky' },
   pdf: { icon: 'picture_as_pdf', label: 'PDF', tone: 'rose' },
@@ -518,8 +599,23 @@ onMounted(() => {
         </header>
 
         <section class="cx-section">
+          <nav class="cx-breadcrumb" aria-label="资料路径">
+            <button
+              v-for="(label, idx) in breadcrumbLabels"
+              :key="`${idx}-${label}`"
+              type="button"
+              class="cx-crumb"
+              :class="{ current: idx === breadcrumbLabels.length - 1 }"
+              :disabled="idx === breadcrumbLabels.length - 1 || loadingResources"
+              @click="handleBreadcrumb(idx)"
+            >
+              {{ label }}
+              <span v-if="idx < breadcrumbLabels.length - 1" class="cx-crumb-sep" aria-hidden="true">/</span>
+            </button>
+          </nav>
+
           <div class="cx-section-head">
-            <h3>全部资料</h3>
+            <h3>{{ currentFolder?.name || '全部资料' }}</h3>
             <span v-if="statusMsg" class="cx-section-hint">{{ statusMsg }}</span>
           </div>
 
@@ -530,15 +626,26 @@ onMounted(() => {
           <div v-else-if="!resources.length" class="cx-empty">
             <span class="material-symbols-outlined">folder_off</span>
             <p>暂无资料</p>
-            <p class="sub">教师上传后将显示在这里</p>
+            <p class="sub">{{ currentFolder ? '此文件夹为空' : '教师上传后将显示在这里' }}</p>
+            <button
+              v-if="folderStack.length"
+              type="button"
+              class="cx-btn secondary"
+              style="margin-top: 12px"
+              @click="handleBreadcrumb(folderStack.length - 1)"
+            >
+              返回上级
+            </button>
           </div>
 
           <div v-else class="cx-res-grid">
             <article
               v-for="item in resources"
-              :key="item.data_id || item.name"
+              :key="item.data_id || item.name + item.folder_kind"
               class="cx-res-card"
+              :class="{ folder: item.is_folder }"
               :data-tone="kindMeta[fileKind(item)].tone"
+              @click="item.is_folder ? handleOpenFolder(item) : null"
             >
               <div class="cx-res-icon-wrap">
                 <span class="material-symbols-outlined">{{ kindMeta[fileKind(item)].icon }}</span>
@@ -551,29 +658,42 @@ onMounted(() => {
                   <span v-if="item.created_at">{{ item.created_at }}</span>
                 </p>
               </div>
-              <div v-if="!item.is_folder" class="cx-res-actions">
+              <div class="cx-res-actions" @click.stop>
                 <button
-                  type="button"
-                  class="cx-action"
-                  :disabled="!!actingId"
-                  @click="handlePreviewResource(item)"
-                >
-                  <span class="material-symbols-outlined">
-                    {{ actingId === `p-${item.data_id}` ? 'progress_activity' : 'visibility' }}
-                  </span>
-                  预览
-                </button>
-                <button
+                  v-if="item.is_folder"
                   type="button"
                   class="cx-action primary"
-                  :disabled="!!actingId"
-                  @click="handleDownloadResource(item)"
+                  :disabled="loadingResources"
+                  @click="handleOpenFolder(item)"
                 >
-                  <span class="material-symbols-outlined">
-                    {{ actingId === `d-${item.data_id}` ? 'progress_activity' : 'download' }}
-                  </span>
-                  下载
+                  <span class="material-symbols-outlined">subdirectory_arrow_right</span>
+                  进入
                 </button>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="cx-action"
+                    :disabled="!!actingId"
+                    @click="handlePreviewResource(item)"
+                  >
+                    <span class="material-symbols-outlined">
+                      {{ actingId === `p-${item.data_id}` ? 'progress_activity' : 'visibility' }}
+                    </span>
+                    预览
+                  </button>
+                  <button
+                    v-if="item.is_downloadable || item.download_url || item.data_id"
+                    type="button"
+                    class="cx-action primary"
+                    :disabled="!!actingId"
+                    @click="handleDownloadResource(item)"
+                  >
+                    <span class="material-symbols-outlined">
+                      {{ actingId === `d-${item.data_id}` ? 'progress_activity' : 'download' }}
+                    </span>
+                    下载
+                  </button>
+                </template>
               </div>
             </article>
           </div>
@@ -607,6 +727,77 @@ onMounted(() => {
         </section>
       </template>
     </template>
+
+    <!-- 官方预览弹层（pan-yz 签名页） -->
+    <Teleport to="body">
+      <div
+        v-if="showPreviewModal"
+        class="cx-preview-root"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="previewModalTitle || '资料预览'"
+      >
+        <div class="cx-preview-backdrop" @click="closePreviewModal" />
+        <div class="cx-preview-sheet">
+          <header class="cx-preview-head">
+            <div class="cx-preview-titles">
+              <p class="cx-preview-kicker">{{ previewModalOfficial ? '学习通官方预览' : '预览' }}</p>
+              <h3 class="cx-preview-title">{{ previewModalTitle }}</h3>
+            </div>
+            <div class="cx-preview-head-actions">
+              <button
+                v-if="previewModalUrl"
+                type="button"
+                class="cx-action"
+                @click="openUrl(previewModalUrl)"
+              >
+                系统打开
+              </button>
+              <button
+                v-if="previewDownloadUrl"
+                type="button"
+                class="cx-action primary"
+                @click="openUrl(previewDownloadUrl)"
+              >
+                下载
+              </button>
+              <button type="button" class="cx-icon-btn" aria-label="关闭" @click="closePreviewModal">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+          </header>
+          <div class="cx-preview-body">
+            <div v-if="previewModalLoading" class="cx-preview-state">
+              <div class="cx-spinner" />
+              <p>正在获取官方预览…</p>
+            </div>
+            <div v-else-if="previewModalError && !previewModalUrl" class="cx-preview-state err">
+              <span class="material-symbols-outlined">error</span>
+              <p>{{ previewModalError }}</p>
+              <button
+                v-if="previewDownloadUrl"
+                type="button"
+                class="cx-btn primary"
+                @click="openUrl(previewDownloadUrl)"
+              >
+                改为下载
+              </button>
+            </div>
+            <template v-else>
+              <p v-if="previewModalError" class="cx-preview-warn">{{ previewModalError }}</p>
+              <iframe
+                v-if="previewModalUrl"
+                class="cx-preview-frame"
+                :src="previewModalUrl"
+                title="资料预览"
+                allow="fullscreen; autoplay"
+                referrerpolicy="no-referrer-when-downgrade"
+              />
+            </template>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 首次入班确认弹层 -->
     <Teleport to="body">
@@ -1512,5 +1703,173 @@ onMounted(() => {
 }
 :global(html.dark) .cx-res-card[data-tone='slate'] .cx-res-icon-wrap {
   color: #cbd5e1;
+}
+
+/* 面包屑 */
+.cx-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.cx-crumb {
+  border: none;
+  background: transparent;
+  color: var(--cx-primary);
+  font-weight: 650;
+  font-size: 12px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.cx-crumb.current {
+  color: var(--cx-muted);
+  cursor: default;
+  font-weight: 600;
+}
+
+.cx-crumb:disabled {
+  opacity: 1;
+}
+
+.cx-crumb-sep {
+  margin-left: 4px;
+  color: var(--cx-muted);
+  font-weight: 400;
+}
+
+.cx-res-card.folder {
+  cursor: pointer;
+}
+
+.cx-res-card.folder:hover {
+  border-color: color-mix(in srgb, var(--cx-primary) 35%, var(--cx-border));
+}
+
+/* 官方预览弹层 */
+.cx-preview-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+@media (min-width: 720px) {
+  .cx-preview-root {
+    align-items: center;
+    padding: 24px;
+  }
+}
+
+.cx-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+.cx-preview-sheet {
+  position: relative;
+  width: min(100%, 920px);
+  height: min(92vh, 860px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px 20px 0 0;
+  background: var(--cx-surface, #fff);
+  border: 1px solid var(--cx-border);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+@media (min-width: 720px) {
+  .cx-preview-sheet {
+    border-radius: 20px;
+    height: min(88vh, 800px);
+  }
+}
+
+.cx-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cx-border);
+}
+
+.cx-preview-kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cx-primary);
+  letter-spacing: 0.06em;
+}
+
+.cx-preview-title {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.cx-preview-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cx-preview-body {
+  flex: 1;
+  min-height: 0;
+  background: #0b1220;
+  position: relative;
+}
+
+.cx-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #0b1220;
+}
+
+.cx-preview-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #e2e8f0;
+  padding: 24px;
+  text-align: center;
+}
+
+.cx-preview-state.err {
+  color: #fecaca;
+}
+
+.cx-preview-warn {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+
+:global(html.dark) .cx-preview-sheet {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+:global(html.dark) .cx-crumb {
+  color: #93c5fd;
 }
 </style>

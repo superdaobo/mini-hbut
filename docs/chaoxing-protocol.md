@@ -82,32 +82,63 @@ http://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu
 ### 列表页（服务端渲染 HTML）
 
 ```
-GET http://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist
+GET https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist
   ?courseid={courseId}
   &clazzid={clazzId}
-  &cpi={cpi}
+  &cpi={cpi}          # 必须用课程页真实 cpi，勿写死 0
   &ut=s
   &t={ms}
   &stuenc={enc from course page}
 ```
 
-列表项在 `.dataBody_td`：
+进入普通文件夹（`type=afolder`，JS `changeFolder`）：
 
-- `id` → dataId
-- `objectid` → 云盘/预览 objectId
-- `dataname` / `type` / `isdown`
-- 下载链（a.colorBlue）：  
-  `http://mooc1.chaoxing.com/coursedata/downloadData?dataId=...&classId=...&cpi=...&courseId=...&ut=s`
+```
+.../stu-datalist?courseid=...&dataName={encodeURIComponent name}&dataId={folderDataId}
+  &type=1&parent={parentIds}&clazzid=...&enc=...&ut=s&t=...&cpi=...
+```
 
-### 预览 / 下载相关路径（JS 暴露）
+列表项在 `ul.dataBody_td`：
 
-- `/mooc2-ans/coursedata/get-preview-url`
-- `/mooc2-ans/coursedata/preview-coursedata?dataId=`
-- `/mooc2-ans/coursedata/download?dataId=`
-- `/coursedata/downloadData?dataId=`（mooc1）
-- CDN 原件：`https://p.ananas.chaoxing.com/star3/origin/{objectId}`
+| 属性/特征 | 含义 |
+|-----------|------|
+| `id` | dataId |
+| `objectid` | 云盘 objectId（预览用） |
+| `dataname` / `type` / `isdown` | 名称/扩展名/可否下载 |
+| `type=tch-courseware` | **教师课件**虚拟夹（无 id），点击 `toCourseware()` |
+| `type=afolder` | 普通文件夹 |
+| 下载链 | `mooc1.../coursedata/downloadData?dataId&classId&cpi&courseId&ut=s` |
 
-实测资料样例：2 张 jpg + 1 个 mp4（文件夹「教师课件」）。
+教师课件入口（非 stu-datalist 子目录）：
+
+```
+{mobilelearnDomain}/page/ppt/studentCourseware/studentCoursewareList
+  ?courseId={courseId}&classId={clazzId}
+```
+
+`mobilelearnDomain` 默认 `https://mobilelearn.chaoxing.com`。
+
+### 官方预览（禁止裸开 CDN origin）
+
+```
+GET https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/get-preview-url
+  ?dataId={dataId}&cpi={cpi}&clazzid={clazzId}&ut=s&courseid={courseId}
+
+Response JSON:
+{
+  "status": true,
+  "url": "https://pan-yz.chaoxing.com/preview/v2/objectshowpreview.html?puid=...&objectid=...&fn=xxx.mp4&...&signature=..."
+}
+```
+
+- 网页端 iframe 内嵌该 `url`（图片/视频/文档）
+- 文档类也可能走 `/ananas/modules/pdf/mooc2-resource-index.html` + previewUrl
+- **不要**默认用 `https://p.ananas.chaoxing.com/star3/origin/{objectId}` 作主预览（无签名/无 cookie →「资源不存在/无权限」）
+
+可预览类型（JS `previewType`）：  
+`ppt/pptx/pdf/doc/docx` + 多种视频 + `txt/mp3/xls/xlsx/m4a` 等。
+
+实测根列表（库来西库）：教师课件夹 + 2×jpg + 1×mp4；`cpi=509967218`。
 
 ---
 
