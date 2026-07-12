@@ -285,23 +285,36 @@ fn load_password_from_db_direct(student_id: &str) -> Option<(String, String)> {
             return Some((latest.student_id, p));
         }
     }
-    // 绝对路径兜底：dev 下 cwd 漂移时 HBUT_DB_PATH 偶发未命中
+    // 绝对路径兜底：Tauri AppData / 旧目录
+    let mut candidates = Vec::new();
+    if let Ok(roaming) = std::env::var("APPDATA") {
+        candidates.push(
+            std::path::PathBuf::from(&roaming)
+                .join("com.hbut.mini")
+                .join("grades.db"),
+        );
+    }
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        let path = std::path::PathBuf::from(local)
-            .join("Mini-HBUT")
-            .join("grades.db");
-        if path.exists() {
-            if !sid.is_empty() {
-                if let Ok(Some(session)) = crate::db::get_user_session(&path, sid) {
-                    if let Some(p) = password_nonempty(&session.password) {
-                        return Some((sid.to_string(), p));
-                    }
+        candidates.push(
+            std::path::PathBuf::from(local)
+                .join("Mini-HBUT")
+                .join("grades.db"),
+        );
+    }
+    for path in candidates {
+        if !path.exists() {
+            continue;
+        }
+        if !sid.is_empty() {
+            if let Ok(Some(session)) = crate::db::get_user_session(&path, sid) {
+                if let Some(p) = password_nonempty(&session.password) {
+                    return Some((sid.to_string(), p));
                 }
             }
-            if let Ok(Some(latest)) = crate::db::get_latest_user_session(&path) {
-                if let Some(p) = password_nonempty(&latest.password) {
-                    return Some((latest.student_id, p));
-                }
+        }
+        if let Ok(Some(latest)) = crate::db::get_latest_user_session(&path) {
+            if let Some(p) = password_nonempty(&latest.password) {
+                return Some((latest.student_id, p));
             }
         }
     }
