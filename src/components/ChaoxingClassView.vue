@@ -60,6 +60,18 @@ const previewDownloadUrl = ref('')
 const previewModalMode = ref('iframe')
 const previewCandidates = ref([])
 const previewCandidateIdx = ref(0)
+/** 当前资料项（下载/切换方式用） */
+const previewItem = ref(null)
+/** 官方签名预览页 URL（objectshowpreview 等） */
+const previewOfficialUrl = ref('')
+/**
+ * 打开方式列表（对齐学习通「切换打开方式」）
+ * { id, label, desc, icon, kind: 'embed'|'browser'|'download', mode?, url }
+ */
+const previewOpenMethods = ref([])
+const previewMethodId = ref('')
+const showOpenMethodMenu = ref(false)
+const previewDownloading = ref(false)
 /** 列表筛选：all | folder | image | video | doc */
 const filterChip = ref('all')
 /** 缩略图加载失败的 key 集合 */
@@ -424,6 +436,39 @@ const closePreviewModal = () => {
   previewModalMode.value = 'iframe'
   previewCandidates.value = []
   previewCandidateIdx.value = 0
+  previewItem.value = null
+  previewOfficialUrl.value = ''
+  previewOpenMethods.value = []
+  previewMethodId.value = ''
+  showOpenMethodMenu.value = false
+  previewDownloading.value = false
+}
+
+const isOfficialPreviewPage = (url) => {
+  const u = String(url || '').toLowerCase()
+  return (
+    u.includes('objectshowpreview') ||
+    u.includes('mooc2-resource-index') ||
+    u.includes('ananas/modules') ||
+    u.includes('preview/v2')
+  )
+}
+
+const isLikelyDirectMedia = (url) => {
+  const u = String(url || '').toLowerCase()
+  if (!u || isOfficialPreviewPage(u)) return false
+  if (u.startsWith('data:image/')) return true
+  return (
+    u.includes('.jpg') ||
+    u.includes('.jpeg') ||
+    u.includes('.png') ||
+    u.includes('.gif') ||
+    u.includes('.webp') ||
+    u.includes('/star3/') ||
+    u.includes('.mp4') ||
+    u.includes('.webm') ||
+    u.includes('.m4v')
+  )
 }
 
 const applyPreviewCandidate = (idx) => {
@@ -441,7 +486,190 @@ const onPreviewImageError = () => {
     return
   }
   previewModalError.value =
-    previewModalError.value || '图片无法加载。可尝试「系统打开」或「下载」。'
+    previewModalError.value || '图片无法加载。可切换打开方式或下载。'
+}
+
+const currentOpenMethod = computed(
+  () => previewOpenMethods.value.find((m) => m.id === previewMethodId.value) || null
+)
+
+const buildOpenMethods = ({ item, mode, cands, officialUrl, downloadUrl }) => {
+  const kind = fileKind(item)
+  const methods = []
+  const mediaUrls = cands.filter((u) => isLikelyDirectMedia(u))
+  const official =
+    officialUrl ||
+    cands.find((u) => isOfficialPreviewPage(u)) ||
+    (mode === 'iframe' ? cands[0] : '') ||
+    ''
+
+  if (kind === 'image' && mediaUrls.length) {
+    methods.push({
+      id: 'embed-image',
+      label: '内嵌图片预览',
+      desc: '在应用内直接查看图片',
+      icon: 'image',
+      kind: 'embed',
+      mode: 'image',
+      url: mediaUrls[0]
+    })
+  }
+  if (kind === 'video' && mediaUrls.length) {
+    methods.push({
+      id: 'embed-video',
+      label: '内嵌视频播放',
+      desc: '在应用内播放视频',
+      icon: 'movie',
+      kind: 'embed',
+      mode: 'video',
+      url: mediaUrls[0]
+    })
+  }
+  if (official) {
+    methods.push({
+      id: 'embed-official',
+      label: '官方在线预览',
+      desc: '学习通官方预览页（内嵌）',
+      icon: 'preview',
+      kind: 'embed',
+      mode: 'iframe',
+      url: official
+    })
+  } else if (cands[0] && kind !== 'image' && kind !== 'video') {
+    methods.push({
+      id: 'embed-default',
+      label: '内嵌预览',
+      desc: '应用内打开',
+      icon: 'visibility',
+      kind: 'embed',
+      mode: 'iframe',
+      url: cands[0]
+    })
+  }
+
+  const browserTarget = official || mediaUrls[0] || cands[0] || ''
+  if (browserTarget && !String(browserTarget).startsWith('data:')) {
+    methods.push({
+      id: 'browser-preview',
+      label: '浏览器打开',
+      desc: '用系统浏览器打开预览',
+      icon: 'open_in_browser',
+      kind: 'browser',
+      url: browserTarget
+    })
+  }
+  if (downloadUrl) {
+    methods.push({
+      id: 'download',
+      label: '下载',
+      desc: '下载到本地查看',
+      icon: 'download',
+      kind: 'download',
+      url: downloadUrl
+    })
+  }
+  return methods
+}
+
+const applyOpenMethod = async (method, { externalOnly = false } = {}) => {
+  if (!method) return
+  showOpenMethodMenu.value = false
+  previewMethodId.value = method.id
+  previewModalError.value = ''
+
+  if (method.kind === 'download') {
+    const url = method.url || previewDownloadUrl.value
+    if (!url) {
+      previewModalError.value = '暂无下载地址'
+      return
+    }
+    previewDownloading.value = true
+    try {
+      await openUrl(url)
+    } catch (e) {
+      previewModalError.value = formatErr(e)
+    } finally {
+      previewDownloading.value = false
+    }
+    return
+  }
+
+  if (method.kind === 'browser' || externalOnly) {
+    const url = method.url || previewModalUrl.value
+    if (!url || String(url).startsWith('data:')) {
+      previewModalError.value = '当前预览无法用浏览器打开，请改用下载'
+      return
+    }
+    await openUrl(url)
+    return
+  }
+
+  // embed
+  if (method.mode) previewModalMode.value = method.mode
+  if (method.url) {
+    previewModalUrl.value = method.url
+    // 图片：同步候选链，便于 onerror 切换
+    if (method.mode === 'image') {
+      const rest = previewCandidates.value.filter((u) => u !== method.url)
+      previewCandidates.value = [method.url, ...rest]
+      previewCandidateIdx.value = 0
+    }
+  }
+}
+
+const toggleOpenMethodMenu = () => {
+  if (previewModalLoading.value) return
+  showOpenMethodMenu.value = !showOpenMethodMenu.value
+}
+
+const handlePreviewDownload = async () => {
+  const m = previewOpenMethods.value.find((x) => x.kind === 'download')
+  if (m) {
+    await applyOpenMethod(m)
+    return
+  }
+  if (previewDownloadUrl.value) {
+    previewDownloading.value = true
+    try {
+      await openUrl(previewDownloadUrl.value)
+    } catch (e) {
+      previewModalError.value = formatErr(e)
+    } finally {
+      previewDownloading.value = false
+    }
+    return
+  }
+  if (previewItem.value) {
+    previewDownloading.value = true
+    try {
+      const res = await resolveAccess(previewItem.value)
+      const url = String(res?.download_url || '').trim()
+      if (!url) throw new Error('未获取到下载地址')
+      previewDownloadUrl.value = url
+      await openUrl(url)
+    } catch (e) {
+      previewModalError.value = formatErr(e)
+    } finally {
+      previewDownloading.value = false
+    }
+  } else {
+    previewModalError.value = '暂无下载地址'
+  }
+}
+
+const handleBrowserOpenCurrent = async () => {
+  const m =
+    previewOpenMethods.value.find((x) => x.kind === 'browser') ||
+    previewOpenMethods.value.find((x) => x.kind === 'embed' && x.url && !String(x.url).startsWith('data:'))
+  if (m) {
+    await applyOpenMethod({ ...m, kind: 'browser' })
+    return
+  }
+  if (previewModalUrl.value && !String(previewModalUrl.value).startsWith('data:')) {
+    await openUrl(previewModalUrl.value)
+  } else {
+    previewModalError.value = '当前无可在浏览器打开的链接'
+  }
 }
 
 const handleOpenFolder = async (item) => {
@@ -483,6 +711,7 @@ const handlePreviewResource = async (item) => {
   }
   error.value = ''
   actingId.value = `p-${item.data_id}`
+  previewItem.value = item
   previewModalTitle.value = item.name
   previewModalLoading.value = true
   previewModalError.value = ''
@@ -492,6 +721,10 @@ const handlePreviewResource = async (item) => {
   previewCandidates.value = []
   previewCandidateIdx.value = 0
   previewDownloadUrl.value = item.download_url || ''
+  previewOfficialUrl.value = ''
+  previewOpenMethods.value = []
+  previewMethodId.value = ''
+  showOpenMethodMenu.value = false
   showPreviewModal.value = true
   try {
     const res = await resolveAccess(item)
@@ -503,7 +736,7 @@ const handlePreviewResource = async (item) => {
       : []
     if (url && !cands.includes(url)) cands.unshift(url)
     // 前端再补缩略图/origin 兜底（图片）
-    if (mode === 'image' && item.object_id) {
+    if ((mode === 'image' || fileKind(item) === 'image') && item.object_id) {
       for (const u of [
         item.thumbnail_url,
         `https://p.ananas.chaoxing.com/star3/400_400c/${item.object_id}`,
@@ -513,18 +746,57 @@ const handlePreviewResource = async (item) => {
         if (s && !cands.includes(s)) cands.push(s)
       }
     }
-    previewDownloadUrl.value = String(res?.download_url || item.download_url || '')
+    const dl = String(res?.download_url || item.download_url || '')
+    previewDownloadUrl.value = dl
     previewModalOfficial.value = official
     previewModalMode.value = mode === 'image' || mode === 'video' ? mode : 'iframe'
     previewCandidates.value = cands
-    if (!cands.length && !url) throw new Error('未获取到预览地址')
-    applyPreviewCandidate(0)
+
+    // 官方预览页：优先候选中的 objectshowpreview / 后端返回且像官方页的 url
+    const officialFromCands = cands.find((u) => isOfficialPreviewPage(u)) || ''
+    previewOfficialUrl.value =
+      officialFromCands || (isOfficialPreviewPage(url) ? url : '') || ''
+
+    const methods = buildOpenMethods({
+      item,
+      mode: previewModalMode.value,
+      cands,
+      officialUrl: previewOfficialUrl.value,
+      downloadUrl: dl
+    })
+    previewOpenMethods.value = methods
+
+    if (!cands.length && !url && !dl) throw new Error('未获取到预览或下载地址')
+
+    // 默认内嵌方式
+    const defaultEmbed =
+      methods.find((m) => m.kind === 'embed') || methods.find((m) => m.kind === 'download')
+    if (defaultEmbed?.kind === 'embed') {
+      await applyOpenMethod(defaultEmbed)
+    } else if (cands.length) {
+      applyPreviewCandidate(0)
+      previewMethodId.value = methods[0]?.id || ''
+    } else if (dl) {
+      previewMethodId.value = methods.find((m) => m.kind === 'download')?.id || ''
+      previewModalError.value = '暂无法内嵌预览，请下载或切换打开方式'
+    }
+
     if (previewModalUrl.value.includes('star3/origin') && mode !== 'image') {
       previewModalError.value =
-        '未拿到签名预览，CDN 直链可能无权限。可尝试「系统打开」或「下载」。'
+        '未拿到签名预览，CDN 直链可能无权限。可切换打开方式或下载。'
     }
   } catch (e) {
     previewModalError.value = formatErr(e)
+    // 失败时仍尽量提供下载
+    if (previewDownloadUrl.value || item.download_url) {
+      previewOpenMethods.value = buildOpenMethods({
+        item,
+        mode: 'iframe',
+        cands: [],
+        officialUrl: '',
+        downloadUrl: previewDownloadUrl.value || item.download_url
+      })
+    }
   } finally {
     previewModalLoading.value = false
     actingId.value = ''
@@ -913,7 +1185,7 @@ onMounted(() => {
       </template>
     </template>
 
-    <!-- 官方预览弹层 -->
+    <!-- 官方预览弹层（对齐学习通：切换打开方式 + 下载） -->
     <Teleport to="body">
       <div
         v-if="showPreviewModal"
@@ -927,53 +1199,59 @@ onMounted(() => {
           <header class="cx-preview-head">
             <div class="cx-preview-titles">
               <p class="cx-preview-kicker">
-                {{ previewModalOfficial ? '学习通官方预览' : '预览' }}
+                {{ previewModalOfficial ? '学习通官方预览' : '资料预览' }}
               </p>
               <h3 class="cx-preview-title">{{ previewModalTitle }}</h3>
+              <p v-if="currentOpenMethod" class="cx-preview-method-hint">
+                当前：{{ currentOpenMethod.label }}
+              </p>
             </div>
             <div class="cx-preview-head-actions">
               <button
-                v-if="previewModalUrl"
                 type="button"
-                class="cx-btn secondary sm"
-                @click="openUrl(previewModalUrl)"
+                class="cx-icon-btn"
+                aria-label="关闭"
+                @click="closePreviewModal"
               >
-                系统打开
-              </button>
-              <button
-                v-if="previewDownloadUrl"
-                type="button"
-                class="cx-btn primary sm"
-                @click="openUrl(previewDownloadUrl)"
-              >
-                下载
-              </button>
-              <button type="button" class="cx-icon-btn" aria-label="关闭" @click="closePreviewModal">
                 <span class="material-symbols-outlined">close</span>
               </button>
             </div>
           </header>
-          <div class="cx-preview-body">
+
+          <div class="cx-preview-body" @click="showOpenMethodMenu = false">
             <div v-if="previewModalLoading" class="cx-preview-state">
               <div class="cx-spinner" />
-              <p>正在获取官方预览…</p>
+              <p>正在获取预览…</p>
             </div>
             <div v-else-if="previewModalError && !previewModalUrl" class="cx-preview-state err">
               <span class="material-symbols-outlined">error</span>
               <p>{{ previewModalError }}</p>
-              <button
-                v-if="previewDownloadUrl"
-                type="button"
-                class="cx-btn primary"
-                @click="openUrl(previewDownloadUrl)"
-              >
-                改为下载
-              </button>
+              <div class="cx-preview-state-actions">
+                <button
+                  type="button"
+                  class="cx-btn secondary"
+                  @click.stop="toggleOpenMethodMenu"
+                >
+                  切换打开方式
+                </button>
+                <button
+                  v-if="previewDownloadUrl || previewOpenMethods.some((m) => m.kind === 'download')"
+                  type="button"
+                  class="cx-btn primary"
+                  :disabled="previewDownloading"
+                  @click.stop="handlePreviewDownload"
+                >
+                  {{ previewDownloading ? '下载中…' : '下载' }}
+                </button>
+              </div>
             </div>
             <template v-else>
               <p v-if="previewModalError" class="cx-preview-warn">{{ previewModalError }}</p>
               <!-- 图片：用 img 直出，避免 iframe 黑屏（WebView 不共享 Rust cookie） -->
-              <div v-if="previewModalMode === 'image' && previewModalUrl" class="cx-preview-image-wrap">
+              <div
+                v-if="previewModalMode === 'image' && previewModalUrl"
+                class="cx-preview-image-wrap"
+              >
                 <img
                   class="cx-preview-image"
                   :src="previewModalUrl"
@@ -997,8 +1275,93 @@ onMounted(() => {
                 allow="fullscreen; autoplay"
                 referrerpolicy="no-referrer-when-downgrade"
               />
+              <div v-else class="cx-preview-state">
+                <span class="material-symbols-outlined">visibility_off</span>
+                <p>暂无内嵌预览内容</p>
+                <p class="sub">请使用下方「切换打开方式」或「下载」</p>
+              </div>
             </template>
           </div>
+
+          <!-- 底栏：切换打开方式 + 下载（对齐学习通） -->
+          <footer class="cx-preview-toolbar" v-if="!previewModalLoading">
+            <div class="cx-preview-toolbar-inner">
+              <div class="cx-open-method-wrap">
+                <button
+                  type="button"
+                  class="cx-toolbar-btn method"
+                  :class="{ open: showOpenMethodMenu }"
+                  :disabled="!previewOpenMethods.length"
+                  @click.stop="toggleOpenMethodMenu"
+                >
+                  <span class="material-symbols-outlined">swap_horiz</span>
+                  <span class="cx-toolbar-btn-text">
+                    <span class="cx-toolbar-btn-label">切换打开方式</span>
+                    <span class="cx-toolbar-btn-sub">{{
+                      currentOpenMethod?.label || '选择方式'
+                    }}</span>
+                  </span>
+                  <span class="material-symbols-outlined cx-chev-sm">{{
+                    showOpenMethodMenu ? 'expand_less' : 'expand_more'
+                  }}</span>
+                </button>
+
+                <div
+                  v-if="showOpenMethodMenu"
+                  class="cx-open-method-menu"
+                  role="menu"
+                  @click.stop
+                >
+                  <p class="cx-open-method-menu-title">选择打开方式</p>
+                  <button
+                    v-for="m in previewOpenMethods"
+                    :key="m.id"
+                    type="button"
+                    class="cx-open-method-item"
+                    :class="{ active: m.id === previewMethodId }"
+                    role="menuitem"
+                    @click="applyOpenMethod(m)"
+                  >
+                    <span class="material-symbols-outlined">{{ m.icon }}</span>
+                    <span class="cx-open-method-item-text">
+                      <span class="name">{{ m.label }}</span>
+                      <span class="desc">{{ m.desc }}</span>
+                    </span>
+                    <span
+                      v-if="m.id === previewMethodId"
+                      class="material-symbols-outlined check"
+                      >check</span
+                    >
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="cx-toolbar-btn browser"
+                :disabled="previewModalLoading"
+                title="浏览器打开"
+                @click="handleBrowserOpenCurrent"
+              >
+                <span class="material-symbols-outlined">open_in_browser</span>
+                <span class="cx-toolbar-btn-label only">浏览器</span>
+              </button>
+
+              <button
+                type="button"
+                class="cx-toolbar-btn download"
+                :disabled="previewDownloading || (!previewDownloadUrl && !previewItem)"
+                @click="handlePreviewDownload"
+              >
+                <span class="material-symbols-outlined">
+                  {{ previewDownloading ? 'progress_activity' : 'download' }}
+                </span>
+                <span class="cx-toolbar-btn-label only">{{
+                  previewDownloading ? '下载中' : '下载'
+                }}</span>
+              </button>
+            </div>
+          </footer>
         </div>
       </div>
     </Teleport>
@@ -1823,6 +2186,14 @@ onMounted(() => {
   word-break: break-word;
 }
 
+.cx-preview-method-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--cx-outline);
+}
+
 .cx-preview-head-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1837,6 +2208,224 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--cx-surface-low);
+}
+
+.cx-preview-state .sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cx-outline);
+  font-weight: 400;
+}
+
+.cx-preview-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+/* 底栏：切换打开方式 + 浏览器 + 下载 */
+.cx-preview-toolbar {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--cx-outline-var);
+  background: var(--cx-surface);
+}
+
+.cx-preview-toolbar-inner {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.cx-open-method-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.cx-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--cx-outline-var);
+  border-radius: 10px;
+  background: var(--cx-surface-low);
+  color: var(--cx-on);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 48px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.cx-toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cx-toolbar-btn.method {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.cx-toolbar-btn.method.open {
+  border-color: color-mix(in srgb, var(--cx-primary) 45%, var(--cx-outline-var));
+  background: color-mix(in srgb, var(--cx-primary) 8%, var(--cx-surface));
+}
+
+.cx-toolbar-btn.browser {
+  flex-direction: column;
+  gap: 2px;
+  min-width: 64px;
+  padding: 8px 10px;
+  color: var(--cx-on-var);
+}
+
+.cx-toolbar-btn.download {
+  flex-direction: column;
+  gap: 2px;
+  min-width: 68px;
+  padding: 8px 12px;
+  border: none;
+  background: var(--cx-primary);
+  color: #fff;
+}
+
+:global(html.dark) .cx-toolbar-btn.download {
+  background: var(--cx-primary-soft);
+  color: #0b1c3a;
+}
+
+.cx-toolbar-btn.download:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.cx-toolbar-btn.browser:hover:not(:disabled),
+.cx-toolbar-btn.method:hover:not(:disabled) {
+  background: var(--cx-surface-high);
+}
+
+.cx-toolbar-btn .material-symbols-outlined {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.cx-toolbar-btn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+}
+
+.cx-toolbar-btn-label {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.cx-toolbar-btn-label.only {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.cx-toolbar-btn-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cx-outline);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-chev-sm {
+  font-size: 20px !important;
+  color: var(--cx-outline);
+  margin-left: auto;
+}
+
+.cx-open-method-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  max-height: min(52vh, 360px);
+  overflow: auto;
+  background: var(--cx-surface);
+  border: 1px solid var(--cx-outline-var);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+  padding: 8px;
+  z-index: 5;
+}
+
+.cx-open-method-menu-title {
+  margin: 0 8px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--cx-outline);
+  text-transform: uppercase;
+}
+
+.cx-open-method-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cx-on);
+}
+
+.cx-open-method-item:hover {
+  background: var(--cx-surface-low);
+}
+
+.cx-open-method-item.active {
+  background: color-mix(in srgb, var(--cx-primary) 10%, var(--cx-surface-low));
+}
+
+.cx-open-method-item .material-symbols-outlined {
+  font-size: 22px;
+  color: var(--cx-primary);
+  flex-shrink: 0;
+}
+
+.cx-open-method-item .check {
+  margin-left: auto;
+  color: var(--cx-primary);
+  font-size: 20px;
+}
+
+.cx-open-method-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cx-open-method-item-text .name {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.cx-open-method-item-text .desc {
+  font-size: 11px;
+  color: var(--cx-outline);
+  font-weight: 500;
 }
 
 .cx-preview-state {
