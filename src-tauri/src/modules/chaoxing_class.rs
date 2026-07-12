@@ -66,7 +66,10 @@ fn looks_like_login_html(html: &str) -> bool {
         || h.contains("用户登录")
         || h.contains("id=\"loginname\"")
         || h.contains("name=\"uname\"")
-        || (h.contains("login") && h.contains("password") && h.contains("fid") && !h.contains("courseid"))
+        || (h.contains("login")
+            && h.contains("password")
+            && h.contains("fid")
+            && !h.contains("courseid"))
 }
 
 fn looks_like_login_url(url: &str) -> bool {
@@ -77,7 +80,10 @@ fn looks_like_login_url(url: &str) -> bool {
 }
 
 /// 确保门户 SSO → 学习通会话可用（走统一会话层，可静默续期，禁止 force 全量课程）。
-pub async fn ensure_sso_session(client: &mut HbutClient, student_id: Option<&str>) -> Result<Value, DynError> {
+pub async fn ensure_sso_session(
+    client: &mut HbutClient,
+    student_id: Option<&str>,
+) -> Result<Value, DynError> {
     use crate::modules::chaoxing_sso::{ensure_chaoxing_sso, EnsureSsoOptions};
 
     match ensure_chaoxing_sso(
@@ -258,7 +264,10 @@ fn preview_from_fixed(code: &str) -> Option<InvitePreview> {
 }
 
 /// 解析邀请码 → 课程/班级预览（不入班）
-pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Result<InvitePreview, DynError> {
+pub async fn preview_invite(
+    client: &mut HbutClient,
+    invite_code: &str,
+) -> Result<InvitePreview, DynError> {
     let code = invite_code.trim();
     if code.is_empty() {
         return Err(err_box("请输入邀请码"));
@@ -569,7 +578,10 @@ pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result
     submit_participate(client, &preview).await
 }
 
-async fn submit_participate(client: &mut HbutClient, preview: &InvitePreview) -> Result<Value, DynError> {
+async fn submit_participate(
+    client: &mut HbutClient,
+    preview: &InvitePreview,
+) -> Result<Value, DynError> {
     let url = format!(
         "https://mooc1.chaoxing.com/mooc-ans/teachingClassPhoneManage/phone/participateCls?courseId={}&classId={}&enc={}&timeStamp={}&inviteCode={}",
         urlencoding::encode(&preview.course_id),
@@ -589,9 +601,9 @@ async fn submit_participate(client: &mut HbutClient, preview: &InvitePreview) ->
         .text()
         .await
         .map_err(|e| err_box(format!("入班响应读取失败: {}", e)))?;
-    let payload: Value = serde_json::from_str(&body).unwrap_or_else(|_| {
-        json!({ "result": 0, "errorMsg": body.chars().take(200).collect::<String>() })
-    });
+    let payload: Value = serde_json::from_str(&body).unwrap_or_else(
+        |_| json!({ "result": 0, "errorMsg": body.chars().take(200).collect::<String>() }),
+    );
     let result = payload
         .get("result")
         .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|u| u as i64)))
@@ -691,9 +703,7 @@ pub async fn list_resources(
         .map_err(|e| err_box(format!("资料列表读取失败: {}", e)))?;
 
     if looks_like_login_html(&html) {
-        return Err(err_box(
-            "资料页为登录页。请重新登录融合门户后再试",
-        ));
+        return Err(err_box("资料页为登录页。请重新登录融合门户后再试"));
     }
 
     let doc = Html::parse_document(&html);
@@ -702,7 +712,12 @@ pub async fn list_resources(
     let mut resources: Vec<ClassResource> = Vec::new();
     for row in doc.select(&row_sel) {
         let id = row.value().attr("id").unwrap_or("").trim().to_string();
-        let object_id = row.value().attr("objectid").unwrap_or("").trim().to_string();
+        let object_id = row
+            .value()
+            .attr("objectid")
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let name = row
             .value()
             .attr("dataname")
@@ -754,7 +769,12 @@ pub async fn list_resources(
             size_label,
             creator: texts
                 .iter()
-                .find(|s| !s.contains("MB") && !s.contains("KB") && !s.contains('-') && s.chars().count() < 20)
+                .find(|s| {
+                    !s.contains("MB")
+                        && !s.contains("KB")
+                        && !s.contains('-')
+                        && s.chars().count() < 20
+                })
                 .cloned()
                 .unwrap_or_default(),
             created_at: texts

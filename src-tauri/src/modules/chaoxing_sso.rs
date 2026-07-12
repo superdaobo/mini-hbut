@@ -219,13 +219,14 @@ fn resolve_portal_password(client: &HbutClient, student_id: &str) -> Option<Stri
     }
 
     for key in &candidates {
-        if let Some(p) = crate::credential_store::load_password(key).and_then(|s| password_nonempty(&s))
+        if let Some(p) =
+            crate::credential_store::load_password(key).and_then(|s| password_nonempty(&s))
         {
             println!("[SSO] 密码来源: keyring({})", key);
             return Some(p);
         }
-        if let Some(p) =
-            crate::credential_store::load_remembered_credential(key).and_then(|s| password_nonempty(&s))
+        if let Some(p) = crate::credential_store::load_remembered_credential(key)
+            .and_then(|s| password_nonempty(&s))
         {
             println!("[SSO] 密码来源: remembered({})", key);
             return Some(p);
@@ -263,7 +264,11 @@ fn resolve_portal_password(client: &HbutClient, student_id: &str) -> Option<Stri
     println!(
         "[SSO] 密码解析失败: sid={} has_last_password={} has_user_info={} db_path={:?}",
         sid,
-        client.last_password.as_ref().map(|s| !s.is_empty()).unwrap_or(false),
+        client
+            .last_password
+            .as_ref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
         client.user_info.is_some(),
         std::env::var("HBUT_DB_PATH").ok()
     );
@@ -341,10 +346,7 @@ fn hydrate_credentials(client: &mut HbutClient, student_id: &str) {
     if let Some((user, pwd)) = load_password_from_db_direct(sid) {
         client.set_credentials(user.clone(), pwd.clone());
         let _ = crate::credential_store::save_password(&user, &pwd);
-        let _ = crate::credential_store::save_remembered_credential(
-            &format!("hbut:{user}"),
-            &pwd,
-        );
+        let _ = crate::credential_store::save_remembered_credential(&format!("hbut:{user}"), &pwd);
         println!(
             "[SSO] 已从 DB 回填门户凭据 user={} pwd_len={}",
             user,
@@ -378,7 +380,10 @@ fn hydrate_credentials(client: &mut HbutClient, student_id: &str) {
     }
 }
 
-async fn try_silent_portal_relogin(client: &mut HbutClient, student_id: &str) -> Result<bool, DynError> {
+async fn try_silent_portal_relogin(
+    client: &mut HbutClient,
+    student_id: &str,
+) -> Result<bool, DynError> {
     // 冷却
     if let Ok(rt) = SSO_RUNTIME.lock() {
         if let Some(at) = rt.last_silent_relogin_at {

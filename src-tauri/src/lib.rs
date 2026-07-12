@@ -3975,18 +3975,13 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
             );
             if !session.password.is_empty() {
                 client.set_credentials(user_info.student_id.clone(), session.password.clone());
-                let _ = credential_store::save_password(
-                    &user_info.student_id,
-                    &session.password,
-                );
+                let _ = credential_store::save_password(&user_info.student_id, &session.password);
                 let _ = credential_store::save_remembered_credential(
                     &format!("hbut:{}", user_info.student_id),
                     &session.password,
                 );
             } else {
-                println!(
-                    "[调试] 会话存在但密码为空，静默 SSO 将尝试 LOCALAPPDATA DB 兜底"
-                );
+                println!("[调试] 会话存在但密码为空，静默 SSO 将尝试 LOCALAPPDATA DB 兜底");
             }
             if !session.one_code_token.is_empty() {
                 let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
