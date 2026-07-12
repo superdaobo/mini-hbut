@@ -37,6 +37,8 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('showPreviewModal')
     expect(view).not.toContain('get-preview-url') // 前端不直连
     expect(view).toContain('官方预览')
+    expect(view).toContain('cx-nimbus-head')
+    expect(view).toContain('filterChip')
     expect(rustMod).toContain('pub mod chaoxing_class;')
     expect(rustMod).toContain('pub mod chaoxing_sso;')
     expect(rustLib).toContain('chaoxing_class_ensure_sso')
