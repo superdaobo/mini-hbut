@@ -222,28 +222,40 @@ impl HbutClient {
         if Self::insecure_tls_allowed() {
             builder = builder.danger_accept_invalid_certs(true);
         }
+        // 默认走系统 DNS。仅当 MINI_HBUT_DNS_PIN=1 时强制钉死校内 IP
+        //（部分旧环境 getaddrinfo 失败才需要；误钉 IP 会导致“像断网一样登不上”）。
+        if Self::dns_pin_enabled() {
+            builder = builder
+                .resolve(
+                    "auth.hbut.edu.cn",
+                    std::net::SocketAddr::from(([202, 114, 191, 47], 443)),
+                )
+                .resolve(
+                    "jwxt.hbut.edu.cn",
+                    std::net::SocketAddr::from(([202, 114, 191, 16], 443)),
+                )
+                .resolve(
+                    "hbut.jw.chaoxing.com",
+                    std::net::SocketAddr::from(([202, 114, 191, 16], 443)),
+                )
+                .resolve(
+                    "code.hbut.edu.cn",
+                    std::net::SocketAddr::from(([202, 114, 191, 2], 443)),
+                );
+        }
         builder
-            // DNS 兜底：某些环境 getaddrinfo 失败时，强制使用已知可用 IP。
-            .resolve(
-                "auth.hbut.edu.cn",
-                std::net::SocketAddr::from(([202, 114, 191, 47], 443)),
+            .user_agent(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             )
-            .resolve(
-                "jwxt.hbut.edu.cn",
-                std::net::SocketAddr::from(([202, 114, 191, 16], 443)),
-            )
-            .resolve(
-                "hbut.jw.chaoxing.com",
-                std::net::SocketAddr::from(([202, 114, 191, 16], 443)),
-            )
-            .resolve(
-                "code.hbut.edu.cn",
-                std::net::SocketAddr::from(([202, 114, 191, 2], 443)),
-            )
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("创建 HTTP 客户端失败")
+    }
+
+    fn dns_pin_enabled() -> bool {
+        std::env::var("MINI_HBUT_DNS_PIN")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
     }
 
     /// Release 默认校验 TLS；Debug 或 `MINI_HBUT_INSECURE_TLS=1` 时允许无效证书。

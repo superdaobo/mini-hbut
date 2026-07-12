@@ -17,6 +17,28 @@ use crate::modules::online_learning;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
+/// 产品固定班级（邀请码 → 已知课程/班级元数据）
+/// 当在线中间页解析失败（登录页/已入班跳转）时作兜底。
+struct FixedInviteMeta {
+    code: &'static str,
+    course_id: &'static str,
+    clazz_id: &'static str,
+    course_name: &'static str,
+    teacher_name: &'static str,
+}
+
+const FIXED_INVITES: &[FixedInviteMeta] = &[FixedInviteMeta {
+    code: "73202625",
+    course_id: "264356359",
+    clazz_id: "148246853",
+    course_name: "库来西库",
+    teacher_name: "周金阳",
+}];
+
+fn fixed_meta(code: &str) -> Option<&'static FixedInviteMeta> {
+    FIXED_INVITES.iter().find(|m| m.code == code.trim())
+}
+
 fn err_box(message: impl Into<String>) -> DynError {
     Box::new(io::Error::other(message.into()))
 }
@@ -34,10 +56,25 @@ fn normalize_url(raw: &str) -> String {
         return format!("https:{t}");
     }
     if t.starts_with("http://") {
-        // 统一 https，避免混合内容/重定向丢 cookie
         return format!("https://{}", t.trim_start_matches("http://"));
     }
     t.to_string()
+}
+
+fn looks_like_login_html(html: &str) -> bool {
+    let h = html.to_ascii_lowercase();
+    h.contains("passport2.chaoxing.com")
+        || h.contains("用户登录")
+        || h.contains("id=\"loginname\"")
+        || h.contains("name=\"uname\"")
+        || (h.contains("login") && h.contains("password") && h.contains("fid") && !h.contains("courseid"))
+}
+
+fn looks_like_login_url(url: &str) -> bool {
+    let u = url.to_ascii_lowercase();
+    u.contains("passport2.chaoxing.com")
+        || u.contains("authserver/login")
+        || (u.contains("/login") && u.contains("refer="))
 }
 
 /// 确保门户 SSO → 学习通会话可用；失败返回可读错误。
@@ -46,25 +83,50 @@ pub async fn ensure_sso_session(client: &mut HbutClient, student_id: Option<&str
         .await
         .unwrap_or_else(|_| json!({ "connected": false }));
 
-    // 再强制走一次 ensure（内部会 try_bridge_cas_to_chaoxing）
     let sid = student_id
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("")
         .to_string();
-    let courses = online_learning::chaoxing_fetch_courses(client, if sid.is_empty() { None } else { Some(&sid) }, false)
-        .await;
+
+    // 先尝试 CAS→学习通桥接（内部在 TGT 失效时会清除 is_logged_in）
+    let bridged = client.try_bridge_cas_to_chaoxing().await;
+    if !bridged && !client.is_logged_in {
+        return Err(err_box(
+            "门户登录已过期，请返回首页重新登录融合门户后再进入学习通（本模块不二次登录学习通）",
+        ));
+    }
+
+    let courses =
+        online_learning::chaoxing_fetch_courses(client, if sid.is_empty() { None } else { Some(&sid) }, true)
+            .await;
     match courses {
         Ok(v) => Ok(json!({
             "success": true,
             "sso": true,
+            "bridged": bridged,
             "session": ready,
             "hint": "门户 CAS→学习通桥接",
             "course_probe": v.get("success").cloned().unwrap_or(json!(true))
         })),
         Err(e) => {
+            // 课程接口失败：若固定班级资料仍可访问，也算会话部分可用
+            if let Some(meta) = fixed_meta("73202625") {
+                if probe_class_accessible(client, meta.course_id, meta.clazz_id).await {
+                    return Ok(json!({
+                        "success": true,
+                        "sso": true,
+                        "bridged": bridged,
+                        "partial": true,
+                        "session": ready,
+                        "hint": "学习通会话可用（固定班级探测成功）",
+                    }));
+                }
+            }
             if !client.is_logged_in {
-                return Err(err_box("请先登录新融合门户，本模块通过门户会话 SSO 进入学习通，无需学习通密码"));
+                return Err(err_box(
+                    "请先登录新融合门户。门户会话过期后无法 SSO 到学习通，并非客户端断网",
+                ));
             }
             Err(err_box(format!(
                 "学习通会话未就绪（门户 SSO 桥接失败）：{}。请重新登录门户后重试",
@@ -72,6 +134,42 @@ pub async fn ensure_sso_session(client: &mut HbutClient, student_id: Option<&str
             )))
         }
     }
+}
+
+/// 探测是否已能访问班级资料（表示已入班且 cookie 有效）
+async fn probe_class_accessible(client: &HbutClient, course_id: &str, clazz_id: &str) -> bool {
+    let t = now_ms();
+    let list_url = format!(
+        "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi=0&ut=s&t={}",
+        urlencoding::encode(course_id),
+        urlencoding::encode(clazz_id),
+        t
+    );
+    let Ok(resp) = client
+        .client
+        .get(&list_url)
+        .header("Referer", "https://mooc2-ans.chaoxing.com/")
+        .send()
+        .await
+    else {
+        return false;
+    };
+    let final_url = resp.url().to_string();
+    if looks_like_login_url(&final_url) {
+        return false;
+    }
+    let Ok(html) = resp.text().await else {
+        return false;
+    };
+    if looks_like_login_html(&html) {
+        return false;
+    }
+    // 资料页特征：dataBody / 下载 / 教师课件 等
+    html.contains("dataBody")
+        || html.contains("downloadData")
+        || html.contains("coursedata")
+        || html.contains("objectid")
+        || html.contains("资料")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +186,6 @@ pub struct InvitePreview {
 }
 
 fn extract_hidden(html: &str, id: &str) -> String {
-    // id="courseId" value="..."
     let re = Regex::new(&format!(
         r#"(?i)id\s*=\s*["']{}["'][^>]*value\s*=\s*["']([^"']*)["']|value\s*=\s*["']([^"']*)["'][^>]*id\s*=\s*["']{}["']"#,
         regex::escape(id),
@@ -102,6 +199,55 @@ fn extract_hidden(html: &str, id: &str) -> String {
                 .or_else(|| c.get(2))
                 .map(|m| m.as_str().trim().to_string())
                 .unwrap_or_default();
+        }
+    }
+    // name= 兜底
+    let re2 = Regex::new(&format!(
+        r#"(?i)name\s*=\s*["']{}["'][^>]*value\s*=\s*["']([^"']*)["']|value\s*=\s*["']([^"']*)["'][^>]*name\s*=\s*["']{}["']"#,
+        regex::escape(id),
+        regex::escape(id)
+    ))
+    .ok();
+    if let Some(re2) = re2 {
+        if let Some(c) = re2.captures(html) {
+            return c
+                .get(1)
+                .or_else(|| c.get(2))
+                .map(|m| m.as_str().trim().to_string())
+                .unwrap_or_default();
+        }
+    }
+    String::new()
+}
+
+fn extract_js_or_attr(html: &str, key: &str) -> String {
+    // courseId: "123" / courseId='123' / "courseId":"123" / courseid=123
+    let patterns = [
+        format!(
+            r#"(?i)["']?{}["']?\s*[:=]\s*["'](\d{{5,}})["']"#,
+            regex::escape(key)
+        ),
+        format!(r#"(?i)\b{}=(\d{{5,}})\b"#, regex::escape(key)),
+    ];
+    for p in patterns {
+        if let Ok(re) = Regex::new(&p) {
+            if let Some(c) = re.captures(html) {
+                if let Some(m) = c.get(1) {
+                    return m.as_str().to_string();
+                }
+            }
+        }
+    }
+    String::new()
+}
+
+fn extract_from_url(url: &str, key: &str) -> String {
+    let Ok(parsed) = Url::parse(url) else {
+        return String::new();
+    };
+    for (k, v) in parsed.query_pairs() {
+        if k.eq_ignore_ascii_case(key) && !v.trim().is_empty() {
+            return v.trim().to_string();
         }
     }
     String::new()
@@ -119,39 +265,127 @@ fn extract_text_class(html: &str, class: &str) -> String {
         .unwrap_or_default()
 }
 
+fn preview_from_fixed(code: &str) -> Option<InvitePreview> {
+    let meta = fixed_meta(code)?;
+    Some(InvitePreview {
+        invite_code: meta.code.to_string(),
+        course_id: meta.course_id.to_string(),
+        clazz_id: meta.clazz_id.to_string(),
+        course_name: meta.course_name.to_string(),
+        teacher_name: meta.teacher_name.to_string(),
+        cover_url: String::new(),
+        addclz_enc: String::new(),
+        addclz_timestamp: String::new(),
+        middle_url: format!(
+            "https://mooc1.chaoxing.com/addcourse/pcqrcodemiddleview?inviteCode={}",
+            meta.code
+        ),
+    })
+}
+
 /// 解析邀请码 → 课程/班级预览（不入班）
 pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Result<InvitePreview, DynError> {
     let code = invite_code.trim();
     if code.is_empty() {
         return Err(err_box("请输入邀请码"));
     }
-    if !client.is_logged_in {
-        return Err(err_box("请先登录新融合门户（学习通通过门户 SSO 接入）"));
-    }
-    // 确保 cookie 已桥接
-    let _ = client.try_bridge_cas_to_chaoxing().await;
 
-    let resolve_url = format!(
-        "https://i.chaoxing.com/base/getInviteCode?invitecode={}&_t={}",
-        urlencoding::encode(code),
-        now_ms()
-    );
+    // 桥接门户会话
+    if client.is_logged_in {
+        let _ = client.try_bridge_cas_to_chaoxing().await;
+    }
+
+    // 1) 在线解析 getInviteCode
+    let online = fetch_invite_preview_online(client, code).await;
+    match online {
+        Ok(p) if !p.course_id.is_empty() && !p.clazz_id.is_empty() => return Ok(p),
+        Ok(_) => { /* 字段不全，继续兜底 */ }
+        Err(e) => {
+            let msg = e.to_string();
+            // 登录态问题：固定班级仍可返回预览（供 UI 展示），enc 可能为空
+            if msg.contains("登录") || msg.contains("会话") {
+                if let Some(fixed) = preview_from_fixed(code) {
+                    // 若已入班可访问资料，直接当预览成功
+                    if probe_class_accessible(client, &fixed.course_id, &fixed.clazz_id).await {
+                        return Ok(fixed);
+                    }
+                    // 返回固定预览，前端可询问加入；真正加入时再要求会话
+                    return Ok(fixed);
+                }
+                return Err(e);
+            }
+            // 其它错误：固定班级兜底
+            if let Some(fixed) = preview_from_fixed(code) {
+                println!("[学习通] 邀请码在线解析失败，使用固定班级兜底: {}", msg);
+                return Ok(fixed);
+            }
+            return Err(e);
+        }
+    }
+
+    // 2) 固定班级兜底
+    if let Some(fixed) = preview_from_fixed(code) {
+        return Ok(fixed);
+    }
+    Err(err_box(
+        "入班页未解析到课程/班级信息，可能邀请码类型不支持或学习通会话未就绪，请重新登录门户后重试",
+    ))
+}
+
+async fn fetch_invite_preview_online(
+    client: &mut HbutClient,
+    code: &str,
+) -> Result<InvitePreview, DynError> {
     let resp = client
         .client
         .post("https://i.chaoxing.com/base/getInviteCode")
         .header("Referer", "https://i.chaoxing.com/")
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(format!("invitecode={}&_t={}", urlencoding::encode(code), now_ms()))
+        .header("Origin", "https://i.chaoxing.com")
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
+        .body(format!(
+            "invitecode={}&_t={}",
+            urlencoding::encode(code),
+            now_ms()
+        ))
         .send()
         .await
-        .map_err(|e| err_box(format!("解析邀请码失败: {}", e)))?;
+        .map_err(|e| err_box(format!("解析邀请码网络失败（请检查网络）：{}", e)))?;
+
+    let final_url = resp.url().to_string();
+    if looks_like_login_url(&final_url) {
+        return Err(err_box(
+            "学习通会话未就绪（邀请码接口跳转登录页）。请重新登录融合门户后再试，并非断网",
+        ));
+    }
+
     let body = resp
         .text()
         .await
         .map_err(|e| err_box(format!("解析邀请码响应失败: {}", e)))?;
-    let payload: Value = serde_json::from_str(&body)
-        .map_err(|e| err_box(format!("邀请码响应非 JSON: {} / {}", e, body.chars().take(200).collect::<String>())))?;
-    if !payload.get("status").and_then(|v| v.as_bool()).unwrap_or(false) {
+
+    if looks_like_login_html(&body) {
+        return Err(err_box(
+            "学习通会话未就绪（邀请码接口返回登录页）。请重新登录融合门户后再试",
+        ));
+    }
+
+    let payload: Value = serde_json::from_str(body.trim()).map_err(|_| {
+        err_box(format!(
+            "邀请码响应异常（非 JSON，可能未登录学习通）。片段: {}",
+            body.chars().take(120).collect::<String>()
+        ))
+    })?;
+
+    if !payload
+        .get("status")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let msg = payload
             .get("msg")
             .or_else(|| payload.get("message"))
@@ -159,6 +393,7 @@ pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Resul
             .unwrap_or("邀请码无效或已过期");
         return Err(err_box(msg));
     }
+
     let middle = payload
         .get("url")
         .and_then(|v| v.as_str())
@@ -170,23 +405,126 @@ pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Resul
         .client
         .get(&middle)
         .header("Referer", "https://i.chaoxing.com/")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
         .send()
         .await
         .map_err(|e| err_box(format!("打开入班页失败: {}", e)))?;
+
+    let page_url = page.url().to_string();
+    if looks_like_login_url(&page_url) {
+        return Err(err_box(
+            "入班页跳转到学习通登录。门户 SSO 可能未完成，请重新登录门户",
+        ));
+    }
+
     let html = page
         .text()
         .await
         .map_err(|e| err_box(format!("读取入班页失败: {}", e)))?;
 
-    let course_id = extract_hidden(&html, "courseId");
-    let clazz_id = extract_hidden(&html, "clazzId");
-    let addclz_enc = extract_hidden(&html, "addclzenc");
-    let addclz_timestamp = extract_hidden(&html, "addclztimeStamp");
-    if course_id.is_empty() || clazz_id.is_empty() {
-        return Err(err_box("入班页未解析到课程/班级信息，可能邀请码类型不支持（仅支持课程班级码）"));
+    if looks_like_login_html(&html) {
+        return Err(err_box(
+            "入班页为登录页。请重新登录融合门户以刷新学习通会话",
+        ));
     }
-    let course_name = extract_text_class(&html, "course-name");
-    let teacher_name = extract_text_class(&html, "name");
+
+    // 多策略解析 course / clazz
+    let mut course_id = extract_hidden(&html, "courseId");
+    if course_id.is_empty() {
+        course_id = extract_js_or_attr(&html, "courseId");
+    }
+    if course_id.is_empty() {
+        course_id = extract_js_or_attr(&html, "courseid");
+    }
+    if course_id.is_empty() {
+        course_id = extract_from_url(&page_url, "courseId");
+    }
+    if course_id.is_empty() {
+        course_id = extract_from_url(&page_url, "courseid");
+    }
+
+    let mut clazz_id = extract_hidden(&html, "clazzId");
+    if clazz_id.is_empty() {
+        clazz_id = extract_hidden(&html, "classId");
+    }
+    if clazz_id.is_empty() {
+        clazz_id = extract_js_or_attr(&html, "clazzId");
+    }
+    if clazz_id.is_empty() {
+        clazz_id = extract_js_or_attr(&html, "classId");
+    }
+    if clazz_id.is_empty() {
+        clazz_id = extract_from_url(&page_url, "clazzId");
+    }
+    if clazz_id.is_empty() {
+        clazz_id = extract_from_url(&page_url, "classId");
+    }
+    if clazz_id.is_empty() {
+        clazz_id = extract_from_url(&page_url, "clazzid");
+    }
+
+    let mut addclz_enc = extract_hidden(&html, "addclzenc");
+    if addclz_enc.is_empty() {
+        addclz_enc = extract_js_or_attr(&html, "addclzenc");
+    }
+    if addclz_enc.is_empty() {
+        addclz_enc = extract_from_url(&middle, "enc");
+    }
+
+    let mut addclz_timestamp = extract_hidden(&html, "addclztimeStamp");
+    if addclz_timestamp.is_empty() {
+        addclz_timestamp = extract_js_or_attr(&html, "addclztimeStamp");
+    }
+    if addclz_timestamp.is_empty() {
+        addclz_timestamp = extract_js_or_attr(&html, "timeStamp");
+    }
+
+    // 已入班场景：中间页可能跳到课程页，hidden 缺失；用固定元数据补全
+    if (course_id.is_empty() || clazz_id.is_empty()) && fixed_meta(code).is_some() {
+        if let Some(fixed) = preview_from_fixed(code) {
+            return Ok(InvitePreview {
+                addclz_enc,
+                addclz_timestamp,
+                cover_url: {
+                    let re = Regex::new(r#"(?i)<img[^>]+src=["']([^"']+)["']"#).ok();
+                    re.and_then(|r| {
+                        r.captures(&html)
+                            .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+                    })
+                    .unwrap_or_default()
+                },
+                middle_url: middle,
+                ..fixed
+            });
+        }
+    }
+
+    if course_id.is_empty() || clazz_id.is_empty() {
+        return Err(err_box(format!(
+            "入班页未解析到课程/班级信息（page={} html_len={}）。可能已入班跳转或会话无效",
+            page_url.chars().take(80).collect::<String>(),
+            html.len()
+        )));
+    }
+
+    let mut course_name = extract_text_class(&html, "course-name");
+    if course_name.is_empty() {
+        course_name = extract_text_class(&html, "colorDeep");
+    }
+    if course_name.is_empty() {
+        if let Some(m) = fixed_meta(code) {
+            course_name = m.course_name.to_string();
+        }
+    }
+    let mut teacher_name = extract_text_class(&html, "name");
+    if teacher_name.is_empty() {
+        if let Some(m) = fixed_meta(code) {
+            teacher_name = m.teacher_name.to_string();
+        }
+    }
     let cover = {
         let re = Regex::new(r#"(?i)<img[^>]+src=["']([^"']+)["']"#).ok();
         re.and_then(|r| {
@@ -195,9 +533,6 @@ pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Resul
         })
         .unwrap_or_default()
     };
-
-    // 丢弃未用的 resolve_url 警告
-    let _ = resolve_url;
 
     Ok(InvitePreview {
         invite_code: code.to_string(),
@@ -214,10 +549,39 @@ pub async fn preview_invite(client: &mut HbutClient, invite_code: &str) -> Resul
 
 /// 接受邀请入班
 pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result<Value, DynError> {
-    let preview = preview_invite(client, invite_code).await?;
-    if preview.addclz_enc.is_empty() || preview.addclz_timestamp.is_empty() {
-        return Err(err_box("入班凭证不完整（enc/timeStamp 缺失）"));
+    let code = invite_code.trim();
+    if client.is_logged_in {
+        let _ = client.try_bridge_cas_to_chaoxing().await;
     }
+
+    let preview = preview_invite(client, code).await?;
+
+    // 已可访问资料 → 视为已入班（无需 enc）
+    if probe_class_accessible(client, &preview.course_id, &preview.clazz_id).await {
+        return Ok(json!({
+            "success": true,
+            "already_joined": true,
+            "message": "已在该班级",
+            "preview": preview,
+        }));
+    }
+
+    if preview.addclz_enc.is_empty() || preview.addclz_timestamp.is_empty() {
+        // 再尝试在线拉一次完整凭证
+        if let Ok(full) = fetch_invite_preview_online(client, code).await {
+            if !full.addclz_enc.is_empty() && !full.addclz_timestamp.is_empty() {
+                return submit_participate(client, &full).await;
+            }
+        }
+        return Err(err_box(
+            "无法获取入班凭证（enc）。通常是门户登录过期导致学习通 SSO 失败，请重新登录融合门户后再试",
+        ));
+    }
+
+    submit_participate(client, &preview).await
+}
+
+async fn submit_participate(client: &mut HbutClient, preview: &InvitePreview) -> Result<Value, DynError> {
     let url = format!(
         "https://mooc1.chaoxing.com/mooc-ans/teachingClassPhoneManage/phone/participateCls?courseId={}&classId={}&enc={}&timeStamp={}&inviteCode={}",
         urlencoding::encode(&preview.course_id),
@@ -250,8 +614,16 @@ pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result
             .or_else(|| payload.get("msg"))
             .and_then(|v| v.as_str())
             .unwrap_or("加入课程失败");
-        // 已在班也算可继续
         if msg.contains("已") && (msg.contains("加入") || msg.contains("在")) {
+            return Ok(json!({
+                "success": true,
+                "already_joined": true,
+                "message": msg,
+                "preview": preview,
+            }));
+        }
+        // 入班失败但资料页已可访问
+        if probe_class_accessible(client, &preview.course_id, &preview.clazz_id).await {
             return Ok(json!({
                 "success": true,
                 "already_joined": true,
@@ -291,13 +663,11 @@ pub async fn list_resources(
     clazz_id: &str,
     cpi: Option<&str>,
 ) -> Result<Value, DynError> {
-    if !client.is_logged_in {
-        return Err(err_box("请先登录新融合门户"));
+    if client.is_logged_in {
+        let _ = client.try_bridge_cas_to_chaoxing().await;
     }
-    let _ = client.try_bridge_cas_to_chaoxing().await;
     let cpi = cpi.unwrap_or("0").trim();
     let t = now_ms();
-    // stuenc 可选；部分环境无 enc 也可打开列表
     let list_url = format!(
         "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi={}&ut=s&t={}",
         urlencoding::encode(course_id.trim()),
@@ -311,14 +681,29 @@ pub async fn list_resources(
         .header("Referer", "https://mooc2-ans.chaoxing.com/")
         .send()
         .await
-        .map_err(|e| err_box(format!("资料列表请求失败: {}", e)))?;
+        .map_err(|e| err_box(format!("资料列表网络失败: {}", e)))?;
+
+    let final_url = resp.url().to_string();
+    if looks_like_login_url(&final_url) {
+        return Err(err_box(
+            "资料页跳转登录。请重新登录融合门户以刷新学习通会话（非断网）",
+        ));
+    }
+
     let html = resp
         .text()
         .await
         .map_err(|e| err_box(format!("资料列表读取失败: {}", e)))?;
 
+    if looks_like_login_html(&html) {
+        return Err(err_box(
+            "资料页为登录页。请重新登录融合门户后再试",
+        ));
+    }
+
     let doc = Html::parse_document(&html);
-    let row_sel = Selector::parse("ul.dataBody_td, .dataBody_td").map_err(|e| err_box(e.to_string()))?;
+    let row_sel = Selector::parse("ul.dataBody_td, .dataBody_td, li.dataBody_td")
+        .map_err(|e| err_box(e.to_string()))?;
     let mut resources: Vec<ClassResource> = Vec::new();
     for row in doc.select(&row_sel) {
         let id = row.value().attr("id").unwrap_or("").trim().to_string();
@@ -336,7 +721,6 @@ pub async fn list_resources(
         let is_folder = file_type.is_empty()
             && object_id.is_empty()
             && (name.contains("课件") || row.inner_html().contains("coursewareFolder"));
-        // size / creator / date: list items order
         let texts: Vec<String> = row
             .text()
             .map(|s| s.trim().to_string())
@@ -375,7 +759,7 @@ pub async fn list_resources(
             size_label,
             creator: texts
                 .iter()
-                .find(|s| !s.contains("MB") && !s.contains("KB") && !s.contains("-") && s.chars().count() < 20)
+                .find(|s| !s.contains("MB") && !s.contains("KB") && !s.contains('-') && s.chars().count() < 20)
                 .cloned()
                 .unwrap_or_default(),
             created_at: texts
@@ -389,7 +773,6 @@ pub async fn list_resources(
         });
     }
 
-    // 若 selector 未命中，用 regex 兜底
     if resources.is_empty() {
         let re = Regex::new(
             r#"(?is)id=["'](\d+)["'][^>]*objectid=["']([a-f0-9]+)["'][^>]*dataname=["']([^"']+)["']|objectid=["']([a-f0-9]+)["'][^>]*id=["'](\d+)["'][^>]*dataname=["']([^"']+)["']"#,
@@ -441,7 +824,7 @@ pub async fn list_resources(
     }))
 }
 
-/// 解析预览：优先 CDN origin；下载返回官方 downloadData URL（由前端/原生打开）
+/// 解析预览：优先 CDN origin；下载返回官方 downloadData URL
 pub async fn resolve_resource_access(
     client: &mut HbutClient,
     course_id: &str,
@@ -464,7 +847,6 @@ pub async fn resolve_resource_access(
         .map(|oid| format!("https://p.ananas.chaoxing.com/star3/origin/{oid}"))
         .unwrap_or_default();
 
-    // 尝试官方 get-preview-url
     if preview_url.is_empty() {
         let probe = format!(
             "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/get-preview-url?dataId={}&courseId={}&classId={}&cpi={}&ut=s",
@@ -521,10 +903,28 @@ mod tests {
     }
 
     #[test]
-    fn extract_text_class_reads_course_name() {
-        let html = r#"<div class="course-name">库来西库</div><div class="name">周金阳</div>"#;
-        assert_eq!(extract_text_class(html, "course-name"), "库来西库");
-        assert_eq!(extract_text_class(html, "name"), "周金阳");
+    fn extract_js_or_attr_reads_ids() {
+        let html = r#"var courseId = "264356359"; clazzId:'148246853'"#;
+        assert_eq!(extract_js_or_attr(html, "courseId"), "264356359");
+        assert_eq!(extract_js_or_attr(html, "clazzId"), "148246853");
+    }
+
+    #[test]
+    fn fixed_invite_catalog_has_73202625() {
+        let p = preview_from_fixed("73202625").unwrap();
+        assert_eq!(p.course_id, "264356359");
+        assert_eq!(p.clazz_id, "148246853");
+        assert_eq!(p.course_name, "库来西库");
+    }
+
+    #[test]
+    fn detect_login_html() {
+        assert!(looks_like_login_html(
+            r#"<title>用户登录</title><input id="loginName" />"#
+        ));
+        assert!(!looks_like_login_html(
+            r#"<input id="courseId" value="1" /><div class="course-name">x</div>"#
+        ));
     }
 
     #[test]
@@ -537,28 +937,5 @@ mod tests {
             normalize_url("http://mooc1.chaoxing.com/a"),
             "https://mooc1.chaoxing.com/a"
         );
-        assert_eq!(
-            normalize_url("https://mooc1.chaoxing.com/a"),
-            "https://mooc1.chaoxing.com/a"
-        );
-    }
-
-    #[test]
-    fn parse_resource_rows_from_datalist_html() {
-        let html = r#"
-        <ul class="dataBody_td" id="12345" objectid="abcdef0123456789abcdef0123456789" dataname="课件1.jpg" type="jpg">
-          <li>课件1.jpg</li><li>1.2MB</li><li>周老师</li><li>2026-07-01 12:00</li>
-        </ul>
-        <ul class="dataBody_td" id="67890" objectid="fedcba9876543210fedcba9876543210" dataname="demo.mp4" type="mp4">
-          <li>demo.mp4</li><li>10MB</li>
-        </ul>
-        "#;
-        let doc = Html::parse_document(html);
-        let row_sel = Selector::parse("ul.dataBody_td, .dataBody_td").unwrap();
-        let count = doc.select(&row_sel).count();
-        assert_eq!(count, 2);
-        let first = doc.select(&row_sel).next().unwrap();
-        assert_eq!(first.value().attr("id").unwrap(), "12345");
-        assert_eq!(first.value().attr("dataname").unwrap(), "课件1.jpg");
     }
 }

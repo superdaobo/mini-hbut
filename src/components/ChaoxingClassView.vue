@@ -136,13 +136,17 @@ const ensureSso = async () => {
     })
     ssoReady.value = !!(res?.success ?? res?.sso)
     ssoHint.value = ssoReady.value
-      ? '门户 SSO 已连接'
+      ? (res?.partial ? '门户会话部分可用（已可访问固定班级）' : '门户 SSO 已连接')
       : '会话未就绪，请重新登录门户'
     return ssoReady.value
   } catch (e) {
     ssoReady.value = false
-    ssoHint.value = formatErr(e)
-    error.value = formatErr(e)
+    const msg = formatErr(e)
+    ssoHint.value = msg
+    // 门户过期 ≠ 断网：明确提示用户去登录
+    error.value = msg.includes('过期') || msg.includes('登录')
+      ? `${msg}（接口可达，属于会话失效，不是客户端断网）`
+      : msg
     return false
   } finally {
     loadingSso.value = false
@@ -442,6 +446,14 @@ onMounted(() => {
         <span class="cx-sso-dot" />
         <span class="cx-sso-label">{{ ssoReady ? ssoHint || '门户已连接' : ssoHint || '会话异常' }}</span>
         <button v-if="!ssoReady" type="button" class="cx-link-btn" @click="boot">重试</button>
+        <button
+          v-if="!ssoReady"
+          type="button"
+          class="cx-link-btn"
+          @click="emit('back')"
+        >
+          去登录
+        </button>
       </div>
 
       <p v-if="error" class="cx-alert" role="alert">{{ error }}</p>

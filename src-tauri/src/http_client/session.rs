@@ -341,6 +341,8 @@ impl HbutClient {
         // 检查是否回到了 CAS 登录页（说明 TGT 失效）
         if final_url.contains("authserver/login") {
             println!("[调试] CAS→超星桥接: TGT 已失效，跳转回登录页");
+            // 关键：清掉陈旧登录标记，避免 UI 以为“已登录却全站失败=断网”
+            self.is_logged_in = false;
             return false;
         }
 
@@ -406,6 +408,9 @@ impl HbutClient {
         let target_urls = [
             "https://mooc1.chaoxing.com",
             "https://mooc1-api.chaoxing.com",
+            "https://mooc2-ans.chaoxing.com",
+            "https://i.chaoxing.com",
+            "https://mobilelearn.chaoxing.com",
         ];
         let key_names: &[&str] = &[
             "UID",
