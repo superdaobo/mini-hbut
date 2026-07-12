@@ -13,7 +13,7 @@ describe('towergo home integration contract', () => {
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('towergo')
     expect(dashboard).toContain("{ id: 'towergo', name: '小塔出行'")
-    expect(dashboard).toContain("['library', 'campus_map', 'resource_share', 'towergo', 'ai']")
+    expect(dashboard).toContain("['library', 'campus_map', 'resource_share', 'chaoxing_class', 'towergo', 'ai']")
     expect(app).toContain("const loadTowerGoView = () => import('./components/TowerGoView.vue')")
     expect(app).toContain("towergo: loadTowerGoView")
     expect(app).toContain("currentView === 'towergo'")

@@ -56,6 +56,7 @@ const homeModuleMeta = {
   library: '图书查询',
   campus_map: '校园地图',
   resource_share: '资料分享',
+  chaoxing_class: '学习通',
   ai: '校园助手'
 }
 

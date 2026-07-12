@@ -105,3 +105,6 @@ forum-backend/
 # Permanently blocked secret-bearing scripts
 scripts/analyze_turso_grades.py
 scripts/query_turso.py
+
+# Local Netlify folder
+.netlify

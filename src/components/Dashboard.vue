@@ -400,6 +400,7 @@ const baseModules = [
   { id: 'library', name: '图书查询', iconKey: 'library', color: '#0f766e', desc: '馆藏检索与定位', available: true, requiresLogin: false },
   { id: 'campus_map', name: '校园地图', iconKey: 'campus_map', color: '#14b8a6', desc: '校园地图查看', available: true, requiresLogin: false },
   { id: 'resource_share', name: '资料分享', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
+  { id: 'chaoxing_class', name: '学习通', iconKey: 'chaoxing_class', color: '#3b82f6', desc: '邀请码入班与班级资料', available: true, requiresLogin: true },
   { id: 'towergo', name: '小塔出行', iconKey: 'towergo', color: '#22c55e', desc: '校园电单车与骑行服务', available: true, requiresLogin: false },
   { id: 'ai', name: '校园助手', iconKey: 'ai', color: '#94a3b8', desc: '暂不可用', available: true, requiresLogin: true }
 ]
@@ -435,7 +436,7 @@ const homeCollisionFx = ref([])
 const moduleCategories = computed(() => [
   { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar', 'school_inbox'].includes(m.id)) },
   { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions'].includes(m.id)) },
-  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)) }
+  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'chaoxing_class', 'towergo', 'ai'].includes(m.id)) }
 ])
 
 const handleCategoryModuleClick = (moduleId) => { showAllModules.value = false; navigateTo(moduleId) }

@@ -1330,6 +1330,36 @@ pub struct ChaoxingLaunchUrlRequest {
     pub launch_url: Option<String>,
 }
 
+/// 学习通班级资料：SSO 状态 / 邀请码 / 资料列表
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassSsoRequest {
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassInviteRequest {
+    pub invite_code: String,
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassResourcesRequest {
+    pub course_id: String,
+    pub clazz_id: String,
+    pub cpi: Option<String>,
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassResourceAccessRequest {
+    pub course_id: String,
+    pub clazz_id: String,
+    pub data_id: String,
+    pub object_id: Option<String>,
+    pub cpi: Option<String>,
+    pub student_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YuketangQrCreateRequest {
     pub student_id: Option<String>,
@@ -6002,6 +6032,83 @@ async fn chaoxing_get_session_status(
         .map_err(|e| e.to_string())
 }
 
+/// 学习通班级：确保门户 CAS → 学习通 SSO（不二次登录）
+#[tauri::command]
+async fn chaoxing_class_ensure_sso(
+    state: State<'_, AppState>,
+    req: ChaoxingClassSsoRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::chaoxing_class::ensure_sso_session(&mut client, req.student_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 学习通班级：预览邀请码（不入班）
+#[tauri::command]
+async fn chaoxing_class_preview_invite(
+    state: State<'_, AppState>,
+    req: ChaoxingClassInviteRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    // 先尝试桥接，再解析邀请码
+    let _ = modules::chaoxing_class::ensure_sso_session(&mut client, req.student_id.as_deref()).await;
+    let preview = modules::chaoxing_class::preview_invite(&mut client, &req.invite_code)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(preview).unwrap_or_default())
+}
+
+/// 学习通班级：接受邀请入班
+#[tauri::command]
+async fn chaoxing_class_accept_invite(
+    state: State<'_, AppState>,
+    req: ChaoxingClassInviteRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    let _ = modules::chaoxing_class::ensure_sso_session(&mut client, req.student_id.as_deref()).await;
+    modules::chaoxing_class::accept_invite(&mut client, &req.invite_code)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 学习通班级：资料列表
+#[tauri::command]
+async fn chaoxing_class_list_resources(
+    state: State<'_, AppState>,
+    req: ChaoxingClassResourcesRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    let _ = modules::chaoxing_class::ensure_sso_session(&mut client, req.student_id.as_deref()).await;
+    modules::chaoxing_class::list_resources(
+        &mut client,
+        &req.course_id,
+        &req.clazz_id,
+        req.cpi.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// 学习通班级：解析资料预览/下载 URL
+#[tauri::command]
+async fn chaoxing_class_resolve_resource(
+    state: State<'_, AppState>,
+    req: ChaoxingClassResourceAccessRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::chaoxing_class::resolve_resource_access(
+        &mut client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.data_id,
+        req.object_id.as_deref(),
+        req.cpi.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn chaoxing_fetch_courses(
     state: State<'_, AppState>,
@@ -6606,6 +6713,11 @@ pub fn run() {
             online_learning_list_sync_runs,
             online_learning_clear_cache,
             chaoxing_get_session_status,
+            chaoxing_class_ensure_sso,
+            chaoxing_class_preview_invite,
+            chaoxing_class_accept_invite,
+            chaoxing_class_list_resources,
+            chaoxing_class_resolve_resource,
             chaoxing_fetch_courses,
             chaoxing_fetch_course_outline,
             chaoxing_fetch_course_progress,

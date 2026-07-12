@@ -148,7 +148,8 @@ pub struct HbutClient {
     pub(crate) client: Client,
     pub(super) ocr_client: Client,
     pub(super) cookie_jar: Arc<Jar>,
-    pub(super) is_logged_in: bool,
+    /// 门户会话是否已登录（modules 侧桥接/业务会读取）
+    pub(crate) is_logged_in: bool,
     pub user_info: Option<UserInfo>,
     pub(super) last_login_inputs: Option<HashMap<String, String>>,
     pub(super) last_username: Option<String>,

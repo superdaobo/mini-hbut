@@ -26,6 +26,7 @@ const iconMap = {
   library: 'local_library',
   campus_map: 'map',
   resource_share: 'folder_shared',
+  chaoxing_class: 'menu_book',
   towergo: 'electric_bike',
   ai: 'smart_toy',
   more: 'apps',
