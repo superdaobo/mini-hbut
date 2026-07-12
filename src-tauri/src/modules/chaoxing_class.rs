@@ -49,6 +49,111 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
+/// 快速进出目录时常见瞬时连接失败，可安全重试。
+fn is_transient_reqwest_error(err: &reqwest::Error) -> bool {
+    err.is_connect()
+        || err.is_timeout()
+        || err.is_request()
+        || err
+            .status()
+            .map(|s| s.is_server_error() || s.as_u16() == 429)
+            .unwrap_or(false)
+}
+
+/// GET + 有限次退避重试；仅对 send/读体前的瞬时错误重试。
+async fn get_text_with_retry(
+    client: &HbutClient,
+    url: &str,
+    referer: &str,
+    label: &str,
+) -> Result<(String, String), DynError> {
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut last_err = String::new();
+    for attempt in 1..=MAX_ATTEMPTS {
+        if attempt > 1 {
+            // 120ms / 280ms 退避，避免连打
+            let delay_ms = 80u64 + 100u64 * u64::from(attempt - 1);
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        let send = client
+            .client
+            .get(url)
+            .header("Referer", referer)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            )
+            .send()
+            .await;
+        let resp = match send {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = e.to_string();
+                if is_transient_reqwest_error(&e) && attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "[chaoxing_class] {} send 瞬时失败 attempt={}/{}: {}",
+                        label, attempt, MAX_ATTEMPTS, last_err
+                    );
+                    continue;
+                }
+                return Err(err_box(format!(
+                    "{}网络失败（已重试 {} 次）: {}",
+                    label,
+                    attempt,
+                    short_net_err(&last_err)
+                )));
+            }
+        };
+        let final_url = resp.url().to_string();
+        match resp.text().await {
+            Ok(text) => return Ok((text, final_url)),
+            Err(e) => {
+                last_err = e.to_string();
+                // 响应体中途断开也重试（快速导航时常见）
+                if attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "[chaoxing_class] {} body 失败 attempt={}/{}: {}",
+                        label, attempt, MAX_ATTEMPTS, last_err
+                    );
+                    continue;
+                }
+                return Err(err_box(format!(
+                    "{}读取失败（已重试 {} 次）: {}",
+                    label,
+                    attempt,
+                    short_net_err(&last_err)
+                )));
+            }
+        }
+    }
+    Err(err_box(format!(
+        "{}网络失败: {}",
+        label,
+        short_net_err(&last_err)
+    )))
+}
+
+fn short_net_err(raw: &str) -> String {
+    // 去掉超长 URL 噪声，保留错误类型
+    let s = raw.trim();
+    if let Some(idx) = s.find(" for url ") {
+        let head = s[..idx].trim();
+        if head.is_empty() {
+            return "连接中断或超时，请重试".into();
+        }
+        // error sending request → 更口语
+        if head.contains("error sending request") {
+            return "连接中断或超时，请稍后重试（非业务权限问题）".into();
+        }
+        return head.to_string();
+    }
+    if s.len() > 160 {
+        format!("{}…", &s[..160])
+    } else {
+        s.to_string()
+    }
+}
+
 fn normalize_url(raw: &str) -> String {
     let t = raw.trim();
     if t.starts_with("//") {
@@ -866,25 +971,19 @@ pub async fn list_resources(
         )
     };
 
-    let resp = client
-        .client
-        .get(&list_url)
-        .header("Referer", "https://mooc2-ans.chaoxing.com/")
-        .send()
-        .await
-        .map_err(|e| err_box(format!("资料列表网络失败: {}", e)))?;
+    let (html, final_url) = get_text_with_retry(
+        client,
+        &list_url,
+        "https://mooc2-ans.chaoxing.com/",
+        "资料列表",
+    )
+    .await?;
 
-    let final_url = resp.url().to_string();
     if looks_like_login_url(&final_url) {
         return Err(err_box(
             "资料页跳转登录。请重新登录融合门户以刷新学习通会话（非断网）",
         ));
     }
-
-    let html = resp
-        .text()
-        .await
-        .map_err(|e| err_box(format!("资料列表读取失败: {}", e)))?;
 
     if looks_like_login_html(&html) {
         return Err(err_box("资料页为登录页。请重新登录融合门户后再试"));
@@ -1032,17 +1131,13 @@ async fn list_teacher_courseware(
         urlencoding::encode(parent),
         now_ms()
     );
-    let resp = client
-        .client
-        .get(&api)
-        .header("Referer", "https://mobilelearn.chaoxing.com/")
-        .send()
-        .await
-        .map_err(|e| err_box(format!("教师课件列表请求失败: {}", e)))?;
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| err_box(format!("教师课件列表读取失败: {}", e)))?;
+    let (text, _) = get_text_with_retry(
+        client,
+        &api,
+        "https://mobilelearn.chaoxing.com/",
+        "教师课件列表",
+    )
+    .await?;
     if looks_like_login_html(&text) {
         return Err(err_box("教师课件接口跳转登录，请重登门户"));
     }
@@ -1523,5 +1618,13 @@ mod tests {
         let list = parse_stu_datalist_html(html, "1", "2", "3");
         let img = list.iter().find(|r| r.name.contains("shot")).unwrap();
         assert!(img.thumbnail_url.contains("150_150c/oidimg"));
+    }
+
+    #[test]
+    fn short_net_err_strips_long_url() {
+        let raw = "error sending request for url (https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid=1&dataName=%E8%B5%84%E6%96)";
+        let s = short_net_err(raw);
+        assert!(!s.contains("mooc2-ans"));
+        assert!(s.contains("重试") || s.contains("连接"));
     }
 }

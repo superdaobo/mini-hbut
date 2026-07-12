@@ -64,6 +64,8 @@ const previewCandidateIdx = ref(0)
 const filterChip = ref('all')
 /** 缩略图加载失败的 key 集合 */
 const thumbFailed = ref({})
+/** 目录导航请求序号：只应用最新一次结果，避免快速进出时陈旧失败覆盖 */
+let loadSeq = 0
 
 const hasTauri = isTauriRuntime()
 
@@ -312,28 +314,59 @@ const onThumbError = (item) => {
 const showThumb = (item) =>
   !!(item.thumbnail_url && !thumbFailed.value[thumbKey(item)] && fileKind(item) === 'image')
 
+const isTransientListError = (msg) => {
+  const m = String(msg || '')
+  return (
+    m.includes('网络失败') ||
+    m.includes('连接') ||
+    m.includes('超时') ||
+    m.includes('error sending') ||
+    m.includes('timed out') ||
+    m.includes('connection')
+  )
+}
+
 const loadResources = async () => {
   const cls = activeClass.value || preview.value
   if (!cls?.course_id || !cls?.clazz_id) {
     error.value = '尚未加入班级'
     return
   }
+  const seq = ++loadSeq
+  const folderSnap = currentFolder.value
+    ? { ...currentFolder.value }
+    : null
   loadingResources.value = true
+  // 导航导航时不清掉旧列表，避免闪空；仅清错误
   error.value = ''
-  try {
-    const folder = currentFolder.value
-    const res = await invokeNative('chaoxing_class_list_resources', {
+  const invokeOnce = () =>
+    invokeNative('chaoxing_class_list_resources', {
       req: {
         course_id: cls.course_id,
         clazz_id: cls.clazz_id,
         cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
-        parent_data_id: folder?.parent_data_id || null,
-        data_name: folder?.data_name || null,
-        parent_chain: folder?.parent_chain || null,
-        folder_kind: folder?.folder_kind || null,
+        parent_data_id: folderSnap?.parent_data_id || null,
+        data_name: folderSnap?.data_name || null,
+        parent_chain: folderSnap?.parent_chain || null,
+        folder_kind: folderSnap?.folder_kind || null,
         ...studentPayload()
       }
     })
+
+  try {
+    let res
+    try {
+      res = await invokeOnce()
+    } catch (e1) {
+      // 前端再补一次：后端已重试，这里覆盖排队竞态/偶发失败
+      const msg1 = formatErr(e1)
+      if (seq !== loadSeq) return
+      if (!isTransientListError(msg1)) throw e1
+      await new Promise((r) => setTimeout(r, 200))
+      if (seq !== loadSeq) return
+      res = await invokeOnce()
+    }
+    if (seq !== loadSeq) return
     if (res?.cpi && activeClass.value) {
       activeClass.value = { ...activeClass.value, cpi: String(res.cpi) }
       saveLastClass(activeClass.value)
@@ -342,10 +375,17 @@ const loadResources = async () => {
     resources.value = list.map(mapResourceItem)
     bootPhase.value = 'ready'
     statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '暂无资料'
+    error.value = ''
   } catch (e) {
-    error.value = formatErr(e)
+    if (seq !== loadSeq) return
+    const msg = formatErr(e)
+    error.value = isTransientListError(msg)
+      ? `${msg}（快速进出目录时可能瞬时失败，可点重试）`
+      : msg
   } finally {
-    loadingResources.value = false
+    if (seq === loadSeq) {
+      loadingResources.value = false
+    }
   }
 }
 
@@ -678,7 +718,18 @@ onMounted(() => {
         <button v-if="!ssoReady" type="button" class="cx-link-btn" @click="emit('back')">去登录</button>
       </div>
 
-      <p v-if="error" class="cx-alert" role="alert">{{ error }}</p>
+      <div v-if="error" class="cx-alert" role="alert">
+        <p class="cx-alert-text">{{ error }}</p>
+        <button
+          v-if="isJoined"
+          type="button"
+          class="cx-btn secondary sm"
+          :disabled="loadingResources"
+          @click="loadResources"
+        >
+          重试加载
+        </button>
+      </div>
 
       <!-- 已入班：Nimbus 资料列表 -->
       <template v-if="isJoined">
@@ -1172,6 +1223,16 @@ onMounted(() => {
   color: var(--cx-error);
   font-size: 13px;
   line-height: 1.45;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cx-alert-text {
+  margin: 0;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 /* Sticky nimbus header */
