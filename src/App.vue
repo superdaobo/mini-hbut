@@ -133,6 +133,7 @@ const loadCampusMapView = () =>
   )
 const loadLibraryView = () => import('./components/LibraryView.vue')
 const loadResourceShareView = () => import('./components/ResourceShareView.vue')
+const loadChaoxingClassView = () => import('./components/ChaoxingClassView.vue')
 const loadTowerGoView = () => import('./components/TowerGoView.vue')
 
 const Dashboard = createAsyncPage(loadDashboardView)
@@ -170,6 +171,7 @@ const AiChatView = createAsyncPage(loadAiChatView)
 const CampusMapView = createAsyncPage(loadCampusMapView)
 const LibraryView = createAsyncPage(loadLibraryView)
 const ResourceShareView = createAsyncPage(loadResourceShareView)
+const ChaoxingClassView = createAsyncPage(loadChaoxingClassView)
 const TowerGoView = createAsyncPage(loadTowerGoView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -248,6 +250,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   campus_map: loadCampusMapView,
   library: loadLibraryView,
   resource_share: loadResourceShareView,
+  chaoxing_class: loadChaoxingClassView,
   towergo: loadTowerGoView
 })
 
@@ -3331,6 +3334,13 @@ onBeforeUnmount(() => {
       <!-- 资料分享 -->
       <ResourceShareView
         v-else-if="currentView === 'resource_share'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 学习通：邀请码入班 + 班级资料 -->
+      <ChaoxingClassView
+        v-else-if="currentView === 'chaoxing_class'"
         :student-id="studentId"
         @back="handleBackToDashboard"
       />

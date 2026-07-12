@@ -127,19 +127,69 @@ fn open_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
 /// 从 DB 占位列或密钥环（含旧版 Base64 迁移）解析会话密码。
 fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
     use crate::credential_store::{self, KEYRING_MARKER};
+    use base64::Engine;
+
+    let try_keyring = |sid: &str| -> String {
+        credential_store::load_password(sid)
+            .filter(|p| !p.trim().is_empty())
+            .or_else(|| {
+                credential_store::load_remembered_credential(&format!("hbut:{sid}"))
+                    .filter(|p| !p.trim().is_empty())
+            })
+            .unwrap_or_default()
+    };
+
+    let try_b64 = |raw: &str| -> Option<String> {
+        let bytes = base64::engine::general_purpose::STANDARD.decode(raw).ok()?;
+        let password = String::from_utf8(bytes).ok()?;
+        let password = password.trim().to_string();
+        if password.is_empty() {
+            None
+        } else {
+            Some(password)
+        }
+    };
 
     if encrypted == KEYRING_MARKER || encrypted.is_empty() {
-        return credential_store::load_password(student_id).unwrap_or_default();
+        let from_ring = try_keyring(student_id);
+        if !from_ring.is_empty() {
+            return from_ring;
+        }
+        // 密钥环丢失：从同库其它仍保留 base64 的会话回填（开发机常见）
+        if let Ok(conn) = open_connection(resolve_db_path("grades.db")) {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT student_id, encrypted_password FROM user_sessions ORDER BY last_login DESC LIMIT 20",
+            ) {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                }) {
+                    for row in rows.flatten() {
+                        let (other_sid, enc) = row;
+                        if enc == KEYRING_MARKER || enc.is_empty() {
+                            continue;
+                        }
+                        if let Some(password) = try_b64(&enc) {
+                            let _ = credential_store::save_password(student_id, &password);
+                            eprintln!(
+                                "[db] 密钥环缺失，已从会话 {} 的 base64 凭据回填到 {}",
+                                other_sid, student_id
+                            );
+                            return password;
+                        }
+                    }
+                }
+            }
+        }
+        return String::new();
     }
 
-    // 兼容旧版 Base64 明文落库：读到后迁移到密钥环
-    if let Ok(password_bytes) = base64::engine::general_purpose::STANDARD.decode(encrypted) {
-        if let Ok(password) = String::from_utf8(password_bytes) {
-            if !password.is_empty() {
-                let _ = credential_store::save_password(student_id, &password);
+    if let Some(password) = try_b64(encrypted) {
+        if credential_store::save_password(student_id, &password).is_ok() {
+            if try_keyring(student_id) == password {
                 return password;
             }
         }
+        return password;
     }
     String::new()
 }
@@ -524,7 +574,7 @@ pub fn get_cache<P: AsRef<Path>>(
     }
 }
 
-// 保存用户会话；密码写入系统密钥环，DB 仅存占位标记。
+// 保存用户会话；密码优先密钥环，失败则 base64 回退落库，避免丢密导致无法静默 SSO。
 pub fn save_user_session<P: AsRef<Path>>(
     path: P,
     student_id: &str,
@@ -534,13 +584,41 @@ pub fn save_user_session<P: AsRef<Path>>(
     refresh_token: Option<&str>,
     token_expires_at: Option<&str>,
 ) -> Result<()> {
+    use base64::Engine;
+
     let conn = open_connection(path)?;
-    if !password.is_empty() {
-        if let Err(e) = crate::credential_store::save_password(student_id, password) {
-            eprintln!("[db] 密钥环写入失败（将仅依赖 cookie 会话）: {}", e);
+    let encrypted_password = if password.is_empty() {
+        // 保留旧值：空密码写入时不要覆盖成无用 KEYRING 标记
+        conn.query_row(
+            "SELECT encrypted_password FROM user_sessions WHERE student_id = ?1",
+            params![student_id],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_default()
+    } else {
+        let mut stored = crate::credential_store::KEYRING_MARKER.to_string();
+        match crate::credential_store::save_password(student_id, password) {
+            Ok(()) => {
+                // 校验密钥环可读，否则回退 base64，防止「标记 KEYRING 但环内为空」
+                let ok = crate::credential_store::load_password(student_id)
+                    .map(|p| p == password)
+                    .unwrap_or(false);
+                if !ok {
+                    eprintln!("[db] 密钥环写入后读回失败，回退 base64 落库");
+                    stored = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+                }
+                let _ = crate::credential_store::save_remembered_credential(
+                    &format!("hbut:{student_id}"),
+                    password,
+                );
+            }
+            Err(e) => {
+                eprintln!("[db] 密钥环写入失败，回退 base64 落库: {}", e);
+                stored = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+            }
         }
-    }
-    let encrypted_password = crate::credential_store::KEYRING_MARKER;
+        stored
+    };
 
     ensure_user_session_columns(&conn);
 

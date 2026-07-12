@@ -128,6 +128,18 @@ fn persist_electricity_tokens(client: &HbutClient) {
 }
 
 /// 登录成功后后台预热一码通 Token，避免阻塞返回用户信息。
+/// 门户登录成功后后台预热 CAS→学习通 SSO（#324）
+fn spawn_chaoxing_sso_warmup(client_arc: Arc<RwLock<HbutClient>>, student_id: String) {
+    let sid = student_id.trim().to_string();
+    if sid.is_empty() {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let mut client = client_arc.write().await;
+        modules::chaoxing_sso::preheat_after_portal_login(&mut client, &sid).await;
+    });
+}
+
 fn spawn_electricity_session_warmup(
     client_arc: Arc<RwLock<HbutClient>>,
     session_key: String,
@@ -1330,6 +1342,36 @@ pub struct ChaoxingLaunchUrlRequest {
     pub launch_url: Option<String>,
 }
 
+/// 学习通班级资料：SSO 状态 / 邀请码 / 资料列表
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassSsoRequest {
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassInviteRequest {
+    pub invite_code: String,
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassResourcesRequest {
+    pub course_id: String,
+    pub clazz_id: String,
+    pub cpi: Option<String>,
+    pub student_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassResourceAccessRequest {
+    pub course_id: String,
+    pub clazz_id: String,
+    pub data_id: String,
+    pub object_id: Option<String>,
+    pub cpi: Option<String>,
+    pub student_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YuketangQrCreateRequest {
     pub student_id: Option<String>,
@@ -1705,7 +1747,12 @@ async fn portal_qr_confirm_login(
     );
 
     let client_arc = Arc::clone(&state.client);
-    spawn_electricity_session_warmup(client_arc, user_info.student_id.clone(), String::new());
+    spawn_electricity_session_warmup(
+        client_arc.clone(),
+        user_info.student_id.clone(),
+        String::new(),
+    );
+    spawn_chaoxing_sso_warmup(client_arc, user_info.student_id.clone());
 
     Ok(user_info)
 }
@@ -3864,9 +3911,18 @@ async fn login(
             Some(""),
         );
     }
+    // 密钥环双写：学号键 + 登录用户名键，供静默 SSO 续期
+    let _ = credential_store::save_password(&session_key, &password);
+    if session_key != username {
+        let _ = credential_store::save_password(&username, &password);
+    }
+    let _ = credential_store::save_remembered_credential(&format!("hbut:{session_key}"), &password);
+    client.set_credentials(session_key.clone(), password.clone());
 
     let client_arc = Arc::clone(&state.client);
-    spawn_electricity_session_warmup(client_arc, session_key, password);
+    spawn_electricity_session_warmup(client_arc.clone(), session_key.clone(), password);
+    // #324：登录成功后预热学习通 SSO（不阻塞登录返回）
+    spawn_chaoxing_sso_warmup(client_arc, session_key);
 
     Ok(user_info)
 }
@@ -3876,6 +3932,7 @@ async fn logout(state: State<'_, AppState>) -> Result<(), String> {
     // 仅清理内存会话；保留密钥环中的「记住密码」与会话密码，供下次自动登录/表单回填。
     let mut client = state.client.write().await;
     client.clear_session();
+    modules::chaoxing_sso::invalidate_sso_cache();
     Ok(())
 }
 
@@ -3912,11 +3969,19 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
     match session_opt {
         Some(session) => {
             println!(
-                "[调试] Restored credentials for user: {}",
-                user_info.student_id
+                "[调试] Restored credentials for user: {} password_len={}",
+                user_info.student_id,
+                session.password.len()
             );
             if !session.password.is_empty() {
                 client.set_credentials(user_info.student_id.clone(), session.password.clone());
+                let _ = credential_store::save_password(&user_info.student_id, &session.password);
+                let _ = credential_store::save_remembered_credential(
+                    &format!("hbut:{}", user_info.student_id),
+                    &session.password,
+                );
+            } else {
+                println!("[调试] 会话存在但密码为空，静默 SSO 将尝试 LOCALAPPDATA DB 兜底");
             }
             if !session.one_code_token.is_empty() {
                 let expires_at = chrono::DateTime::parse_from_rfc3339(&session.token_expires_at)
@@ -3928,7 +3993,7 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
                     Some(session.refresh_token.clone())
                 };
                 client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
-                println!("[调试] Restored one_code_浠ょ墝");
+                println!("[调试] Restored one_code_token");
             }
             let _ = db::save_user_session(
                 DB_FILENAME,
@@ -6002,6 +6067,86 @@ async fn chaoxing_get_session_status(
         .map_err(|e| e.to_string())
 }
 
+/// 学习通班级：确保门户 CAS → 学习通 SSO（不二次登录）
+#[tauri::command]
+async fn chaoxing_class_ensure_sso(
+    state: State<'_, AppState>,
+    req: ChaoxingClassSsoRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::chaoxing_class::ensure_sso_session(&mut client, req.student_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 学习通班级：预览邀请码（不入班）
+#[tauri::command]
+async fn chaoxing_class_preview_invite(
+    state: State<'_, AppState>,
+    req: ChaoxingClassInviteRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    // 模块内已走统一 SSO 缓存，不再额外 force ensure
+    let preview = modules::chaoxing_class::preview_invite(&mut client, &req.invite_code)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::to_value(preview).unwrap_or_default())
+}
+
+/// 学习通班级：接受邀请入班
+#[tauri::command]
+async fn chaoxing_class_accept_invite(
+    state: State<'_, AppState>,
+    req: ChaoxingClassInviteRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::chaoxing_class::accept_invite(&mut client, &req.invite_code)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 学习通班级：资料列表
+#[tauri::command]
+async fn chaoxing_class_list_resources(
+    state: State<'_, AppState>,
+    req: ChaoxingClassResourcesRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::chaoxing_class::list_resources(
+        &mut client,
+        &req.course_id,
+        &req.clazz_id,
+        req.cpi.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// 学习通 SSO 诊断（不含密码）
+#[tauri::command]
+async fn chaoxing_sso_get_diag() -> Result<serde_json::Value, String> {
+    Ok(modules::chaoxing_sso::get_sso_diag())
+}
+
+/// 学习通班级：解析资料预览/下载 URL
+#[tauri::command]
+async fn chaoxing_class_resolve_resource(
+    state: State<'_, AppState>,
+    req: ChaoxingClassResourceAccessRequest,
+) -> Result<serde_json::Value, String> {
+    let mut client = state.client.write().await;
+    modules::chaoxing_class::resolve_resource_access(
+        &mut client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.data_id,
+        req.object_id.as_deref(),
+        req.cpi.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn chaoxing_fetch_courses(
     state: State<'_, AppState>,
@@ -6606,6 +6751,12 @@ pub fn run() {
             online_learning_list_sync_runs,
             online_learning_clear_cache,
             chaoxing_get_session_status,
+            chaoxing_class_ensure_sso,
+            chaoxing_class_preview_invite,
+            chaoxing_class_accept_invite,
+            chaoxing_class_list_resources,
+            chaoxing_class_resolve_resource,
+            chaoxing_sso_get_diag,
             chaoxing_fetch_courses,
             chaoxing_fetch_course_outline,
             chaoxing_fetch_course_progress,

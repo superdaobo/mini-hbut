@@ -24,6 +24,7 @@ export type HomeModuleKey =
   | 'library'
   | 'campus_map'
   | 'resource_share'
+  | 'chaoxing_class'
   | 'towergo'
   | 'ai'
 export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams' | 'school_inbox'
@@ -86,6 +87,7 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'library',
   'campus_map',
   'resource_share',
+  'chaoxing_class',
   'towergo',
   'ai'
 ] as const satisfies readonly HomeModuleKey[]
