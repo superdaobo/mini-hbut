@@ -19,7 +19,6 @@
 // 2. 提供通用的 JSON 缓存存取接口 (get_cache/save_cache)。
 // 3. 这里的缓存策略主要是为了支持离线模式 (Offline Mode) 和提升首屏加载速度。
 
-use base64::Engine;
 use chrono::Local;
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
@@ -124,34 +123,152 @@ fn open_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
     Ok(conn)
 }
 
-/// 从 DB 占位列或密钥环（含旧版 Base64 迁移）解析会话密码。
-fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
-    use crate::credential_store::{self, KEYRING_MARKER};
+fn try_decode_base64_password(raw: &str) -> Option<String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(raw).ok()?;
+    let password = String::from_utf8(bytes).ok()?;
+    let password = password.trim().to_string();
+    if password.is_empty() {
+        None
+    } else {
+        Some(password)
+    }
+}
+
+fn load_password_from_keyring_or_remembered(student_id: &str) -> String {
+    use crate::credential_store;
+    credential_store::load_password(student_id)
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| {
+            credential_store::load_remembered_credential(&format!("hbut:{student_id}"))
+                .filter(|p| !p.trim().is_empty())
+        })
+        .unwrap_or_default()
+}
+
+/// 将明文密码尽量写入密钥环；成功且可读返回 true，否则返回 false（调用方应保留 base64）。
+fn try_persist_password_to_keyring(student_id: &str, password: &str) -> bool {
+    use crate::credential_store;
+    if password.trim().is_empty() {
+        return false;
+    }
+    if credential_store::save_password(student_id, password).is_err() {
+        return false;
+    }
+    let ok = credential_store::load_password(student_id)
+        .map(|p| p == password)
+        .unwrap_or(false);
+    if ok {
+        let _ =
+            credential_store::save_remembered_credential(&format!("hbut:{student_id}"), password);
+    }
+    ok
+}
+
+/// 启动时一次性/幂等迁移：1.4.2 base64 列 → 密钥环（失败则保留 base64）。
+#[derive(Debug, Clone, Default)]
+pub struct CredMigrateReport {
+    pub scanned: usize,
+    pub migrated_to_keyring: usize,
+    pub kept_base64: usize,
+    pub keyring_ok: usize,
+    pub empty_shells: usize,
+}
+
+/// 扫描 `user_sessions`，修复 1.4.3 密钥环空壳与未完成的 base64 迁移。
+pub fn migrate_session_passwords_v2<P: AsRef<Path>>(path: P) -> Result<CredMigrateReport> {
+    use crate::credential_store::KEYRING_MARKER;
     use base64::Engine;
 
-    let try_keyring = |sid: &str| -> String {
-        credential_store::load_password(sid)
-            .filter(|p| !p.trim().is_empty())
-            .or_else(|| {
-                credential_store::load_remembered_credential(&format!("hbut:{sid}"))
-                    .filter(|p| !p.trim().is_empty())
-            })
-            .unwrap_or_default()
-    };
+    let conn = open_connection(path.as_ref())?;
+    ensure_user_session_columns(&conn);
 
-    let try_b64 = |raw: &str| -> Option<String> {
-        let bytes = base64::engine::general_purpose::STANDARD.decode(raw).ok()?;
-        let password = String::from_utf8(bytes).ok()?;
-        let password = password.trim().to_string();
-        if password.is_empty() {
-            None
-        } else {
-            Some(password)
+    let mut report = CredMigrateReport::default();
+    let mut stmt = conn.prepare(
+        "SELECT student_id, encrypted_password FROM user_sessions ORDER BY last_login DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+
+    for row in rows.flatten() {
+        let (sid, enc) = row;
+        report.scanned += 1;
+        let sid = sid.trim().to_string();
+        if sid.is_empty() {
+            continue;
         }
-    };
+
+        if enc == KEYRING_MARKER || enc.is_empty() {
+            let from_ring = load_password_from_keyring_or_remembered(&sid);
+            if !from_ring.is_empty() {
+                report.keyring_ok += 1;
+                let _ = crate::credential_store::save_remembered_credential(
+                    &format!("hbut:{sid}"),
+                    &from_ring,
+                );
+                continue;
+            }
+            report.empty_shells += 1;
+            eprintln!(
+                "[db] cred_migrate_v2: {} 为 KEYRING 空壳，无法自动恢复，需用户重新登录",
+                sid
+            );
+            continue;
+        }
+
+        if let Some(password) = try_decode_base64_password(&enc) {
+            if try_persist_password_to_keyring(&sid, &password) {
+                conn.execute(
+                    "UPDATE user_sessions SET encrypted_password = ?1 WHERE student_id = ?2",
+                    params![KEYRING_MARKER, sid],
+                )?;
+                report.migrated_to_keyring += 1;
+            } else {
+                // 密钥环不可用：显式保留 base64，并写入 remembered（若 keyring 部分可用）
+                let encoded = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+                if encoded != enc {
+                    conn.execute(
+                        "UPDATE user_sessions SET encrypted_password = ?1 WHERE student_id = ?2",
+                        params![encoded, sid],
+                    )?;
+                }
+                let _ = crate::credential_store::save_remembered_credential(
+                    &format!("hbut:{sid}"),
+                    &password,
+                );
+                report.kept_base64 += 1;
+            }
+            continue;
+        }
+
+        // 无法识别的列：不覆盖，计为空壳引导
+        report.empty_shells += 1;
+    }
+
+    ensure_schema_migration(
+        &conn,
+        4,
+        "cred_migrate_v2: base64→keyring with base64 fallback",
+    )?;
+
+    eprintln!(
+        "[db] cred_migrate_v2 done scanned={} keyring_ok={} migrated={} kept_b64={} empty_shells={}",
+        report.scanned,
+        report.keyring_ok,
+        report.migrated_to_keyring,
+        report.kept_base64,
+        report.empty_shells
+    );
+    Ok(report)
+}
+
+/// 从 DB 占位列或密钥环（含旧版 Base64 迁移）解析会话密码。
+fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
+    use crate::credential_store::KEYRING_MARKER;
 
     if encrypted == KEYRING_MARKER || encrypted.is_empty() {
-        let from_ring = try_keyring(student_id);
+        let from_ring = load_password_from_keyring_or_remembered(student_id);
         if !from_ring.is_empty() {
             return from_ring;
         }
@@ -168,8 +285,8 @@ fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
                         if enc == KEYRING_MARKER || enc.is_empty() {
                             continue;
                         }
-                        if let Some(password) = try_b64(&enc) {
-                            let _ = credential_store::save_password(student_id, &password);
+                        if let Some(password) = try_decode_base64_password(&enc) {
+                            let _ = try_persist_password_to_keyring(student_id, &password);
                             eprintln!(
                                 "[db] 密钥环缺失，已从会话 {} 的 base64 凭据回填到 {}",
                                 other_sid, student_id
@@ -183,12 +300,8 @@ fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
         return String::new();
     }
 
-    if let Some(password) = try_b64(encrypted) {
-        if credential_store::save_password(student_id, &password).is_ok() {
-            if try_keyring(student_id) == password {
-                return password;
-            }
-        }
+    if let Some(password) = try_decode_base64_password(encrypted) {
+        let _ = try_persist_password_to_keyring(student_id, &password);
         return password;
     }
     String::new()
@@ -196,7 +309,8 @@ fn resolve_session_password(student_id: &str, encrypted: &str) -> String {
 
 // 初始化数据库
 pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
-    let conn = open_connection(path)?;
+    let path_ref = path.as_ref();
+    let conn = open_connection(path_ref)?;
 
     // 1. 创建 grades 表
     conn.execute(
@@ -379,6 +493,12 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         3,
         "app_usage_events/sessions/daily_rollup/device_profile",
     )?;
+    drop(conn);
+
+    // 1.4.2→1.4.3 凭据迁移：base64 列迁密钥环（失败保留 base64），修复 KEYRING 空壳可恢复路径
+    if let Err(e) = migrate_session_passwords_v2(path_ref) {
+        eprintln!("[db] cred_migrate_v2 失败（不阻断启动）: {}", e);
+    }
 
     Ok(())
 }
@@ -584,6 +704,7 @@ pub fn save_user_session<P: AsRef<Path>>(
     refresh_token: Option<&str>,
     token_expires_at: Option<&str>,
 ) -> Result<()> {
+    use crate::credential_store::KEYRING_MARKER;
     use base64::Engine;
 
     let conn = open_connection(path)?;
@@ -595,29 +716,11 @@ pub fn save_user_session<P: AsRef<Path>>(
             |row| row.get::<_, String>(0),
         )
         .unwrap_or_default()
+    } else if try_persist_password_to_keyring(student_id, password) {
+        KEYRING_MARKER.to_string()
     } else {
-        let mut stored = crate::credential_store::KEYRING_MARKER.to_string();
-        match crate::credential_store::save_password(student_id, password) {
-            Ok(()) => {
-                // 校验密钥环可读，否则回退 base64，防止「标记 KEYRING 但环内为空」
-                let ok = crate::credential_store::load_password(student_id)
-                    .map(|p| p == password)
-                    .unwrap_or(false);
-                if !ok {
-                    eprintln!("[db] 密钥环写入后读回失败，回退 base64 落库");
-                    stored = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
-                }
-                let _ = crate::credential_store::save_remembered_credential(
-                    &format!("hbut:{student_id}"),
-                    password,
-                );
-            }
-            Err(e) => {
-                eprintln!("[db] 密钥环写入失败，回退 base64 落库: {}", e);
-                stored = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
-            }
-        }
-        stored
+        eprintln!("[db] 密钥环不可用或读回失败，回退 base64 落库");
+        base64::engine::general_purpose::STANDARD.encode(password.as_bytes())
     };
 
     ensure_user_session_columns(&conn);
@@ -1229,4 +1332,106 @@ where
         )
     })
     .await
+}
+
+#[cfg(test)]
+mod cred_migrate_tests {
+    use super::*;
+    use base64::Engine;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mini_hbut_cred_{label}_{nanos}.db"))
+    }
+
+    #[test]
+    fn empty_password_save_does_not_wipe_base64_column() {
+        let path = temp_db_path("empty_save");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let sid = "2510231199";
+        let password = "legacy-pass-1";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+        {
+            let conn = open_connection(&path).unwrap();
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token)
+                 VALUES (?1, ?2, ?3, '')",
+                params![sid, "c=1", b64],
+            )
+            .unwrap();
+        }
+
+        save_user_session(&path, sid, "c=2", "", "", None, None).expect("save empty");
+
+        let conn = open_connection(&path).unwrap();
+        let enc: String = conn
+            .query_row(
+                "SELECT encrypted_password FROM user_sessions WHERE student_id = ?1",
+                params![sid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_ne!(enc, crate::credential_store::KEYRING_MARKER);
+        assert_eq!(try_decode_base64_password(&enc).as_deref(), Some(password));
+
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.password, password);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn migrate_v2_keeps_or_promotes_base64_rows() {
+        let path = temp_db_path("migrate_v2");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let sid = "2510231188";
+        let password = "migrate-pass-2";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+        {
+            let conn = open_connection(&path).unwrap();
+            conn.execute(
+                "INSERT OR REPLACE INTO user_sessions (student_id, cookies, encrypted_password, one_code_token)
+                 VALUES (?1, 'c=1', ?2, '')",
+                params![sid, b64],
+            )
+            .unwrap();
+        }
+
+        let report = migrate_session_passwords_v2(&path).expect("migrate");
+        assert!(report.scanned >= 1);
+        assert!(report.migrated_to_keyring + report.kept_base64 >= 1);
+
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.password, password);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn resolve_reads_base64_legacy_column() {
+        let path = temp_db_path("resolve_b64");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+        let sid = "2510231177";
+        let password = "plain-from-142";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+        {
+            let conn = open_connection(&path).unwrap();
+            conn.execute(
+                "INSERT INTO user_sessions (student_id, cookies, encrypted_password, one_code_token)
+                 VALUES (?1, 'c=1', ?2, '')",
+                params![sid, b64],
+            )
+            .unwrap();
+        }
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.password, password);
+        let _ = std::fs::remove_file(&path);
+    }
 }

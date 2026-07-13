@@ -157,6 +157,17 @@ export async function migrateLegacyCredential({
   if (!legacy) return
 
   await saveRememberedCredential(key, legacy)
+
+  // 必须确认新存储可读后再删旧键，避免 1.4.3 密钥环失败时把明文/旧密文一并清掉
+  const verified = String((await loadRememberedCredential(key)) || '').trim()
+  if (verified !== legacy) {
+    console.warn(
+      '[Credential] 旧凭据迁移后校验失败，保留 legacy 键以便下次重试:',
+      key
+    )
+    return
+  }
+
   if (legacyPasswordKey) {
     localStorage.removeItem(legacyPasswordKey)
   }
