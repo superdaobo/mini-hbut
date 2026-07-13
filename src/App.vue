@@ -2922,22 +2922,43 @@ onMounted(async () => {
       notifySessionOnline(relogged ? 'boot-auto-relogin' : 'boot-session-restore')
     }
   } else if (!isTestAccountSession() && (bootstrappedCachedIdentity || studentId.value)) {
-    startJwxtRecoveryPolling()
-    attemptOnlineRecovery({ silent: true }).then((ok) => {
-      if (!ok) {
+    // 假在线收敛：cookie 恢复与静默重登均失败，且本地无可用密码 → 强制进入登录（不设 manual_logout，保留记住密码回填）
+    let forceReauth = false
+    try {
+      const portalCreds = await getStoredPassword()
+      const cxCreds = await getStoredChaoxingPassword()
+      forceReauth = !portalCreds && !cxCreds
+    } catch (e) {
+      console.warn('[Session] 检查本地凭据失败:', e)
+      forceReauth = true
+    }
+
+    if (forceReauth) {
+      console.warn('[Session] 会话失效且无可用于静默重登的密码，引导重新登录（#345）')
+      await handleLogout({
+        manual: false,
+        reason: 'session_reauth_required',
+        notice:
+          '登录状态已失效，且本地未找到可用密码（可能与 1.4.3 凭据迁移有关）。请使用融合门户学号重新登录以同步成绩。'
+      })
+    } else {
+      startJwxtRecoveryPolling()
+      attemptOnlineRecovery({ silent: true }).then((ok) => {
+        if (!ok) {
+          setTimeout(() => {
+            if (!jwxtMaintenanceMode.value) {
+              markJwxtMaintenance()
+            }
+          }, 6000)
+        }
+      }).catch(() => {
         setTimeout(() => {
           if (!jwxtMaintenanceMode.value) {
             markJwxtMaintenance()
           }
         }, 6000)
-      }
-    }).catch(() => {
-      setTimeout(() => {
-        if (!jwxtMaintenanceMode.value) {
-          markJwxtMaintenance()
-        }
-      }, 6000)
-    })
+      })
+    }
   }
 
   if (!appBootstrapped) {
