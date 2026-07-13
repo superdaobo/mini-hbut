@@ -90,6 +90,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       beta_version: ${{ steps.version.outputs.beta_version }}
+      artifact_tag: ${{ steps.version.outputs.artifact_tag }}
     steps:
       - name: Download source artifact
         uses: actions/download-artifact@v4
@@ -158,11 +159,19 @@ jobs:
           print(base_version or current_version or '0.0.0')
           PY
           )"
-          BETA_VERSION="${VERSION}-beta.${GITHUB_RUN_ID}"
+          # WiX/MSI：pre-release 数字段必须 ≤ 65535。GITHUB_RUN_ID 远超该上限会让
+          # `tauri build --bundles nsis,msi` 在 MSI 阶段失败（NSIS 已成功也会整 job 失败）。
+          # 使用 run_number（工作流内递增、通常远小于 65535），并保留 run_id 供产物命名。
+          BETA_NUM=$((GITHUB_RUN_NUMBER % 65535))
+          if [ "$BETA_NUM" -eq 0 ]; then BETA_NUM=1; fi
+          BETA_VERSION="${VERSION}-beta.${BETA_NUM}"
+          ARTIFACT_TAG="${VERSION}-beta.${GITHUB_RUN_ID}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "beta_version=$BETA_VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact_tag=$ARTIFACT_TAG" >> "$GITHUB_OUTPUT"
           echo "VERSION=$VERSION"
           echo "BETA_VERSION=$BETA_VERSION"
+          echo "ARTIFACT_TAG=$ARTIFACT_TAG"
 
   smoke-fast-build:
     needs: source
@@ -387,7 +396,15 @@ jobs:
           npx vitest run src/utils/windows_taskbar_icon_contract.spec.ts src/utils/ios_launcher_icon_contract.spec.ts src/utils/android_launcher_icon_contract.spec.ts
 
       - name: Build Windows app
-        run: npm run tauri build -- --bundles nsis,msi
+        shell: bash
+        run: |
+          set -euo pipefail
+          # MSI 要求 pre-release 数字 ≤65535（由 meta 的 beta_version 保证）。
+          # 若 MSI 仍失败，降级只打 NSIS，避免整 job 失败导致无 Windows 安装包。
+          if ! npm run tauri build -- --bundles nsis,msi; then
+            echo "::warning::nsis+msi 失败，降级为仅 NSIS"
+            npm run tauri build -- --bundles nsis
+          fi
 
       - name: Report dist and raw Windows bundle size
         run: node scripts/report_bundle_sizes.mjs
@@ -395,16 +412,20 @@ jobs:
       - name: Rename Windows bundles
         shell: powershell
         env:
-          BETA_VERSION: ${{ needs.meta.outputs.beta_version }}
+          ARTIFACT_TAG: ${{ needs.meta.outputs.artifact_tag }}
         run: |
           New-Item -ItemType Directory -Force -Path dist-dev | Out-Null
+          $tag = $env:ARTIFACT_TAG
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = $env:BETA_VERSION }
           $exe = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
           if (-not $exe) { throw "NSIS EXE not found" }
-          Copy-Item $exe.FullName "dist-dev/Mini-HBUT_$env:BETA_VERSION`_x64-setup.exe" -Force
+          Copy-Item $exe.FullName "dist-dev/Mini-HBUT_${tag}_x64-setup.exe" -Force
 
-          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if ($msi) {
-            Copy-Item $msi.FullName "dist-dev/Mini-HBUT_$env:BETA_VERSION`_x64_en-US.msi" -Force
+            Copy-Item $msi.FullName "dist-dev/Mini-HBUT_${tag}_x64_en-US.msi" -Force
+          } else {
+            Write-Host "MSI not produced (optional)"
           }
 
           Get-ChildItem dist-dev
@@ -417,7 +438,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ needs.meta.outputs.beta_version }}
+          name: windows-${{ needs.meta.outputs.artifact_tag }}
           path: dist-dev/*
           if-no-files-found: error
           retention-days: 14
