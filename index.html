@@ -287,7 +287,7 @@
 
 <body>
   <div id="app">
-    <!-- 原生 HTML Splash：Vue 挂载后自动替换 -->
+    <!-- 原生 HTML Splash：仅 Vue 挂载前占位；必须有纯 JS 超时，否则模块加载卡住会永远停在这里 -->
     <div class="native-splash" id="native-splash">
       <div class="native-splash-bg">
         <div class="native-splash-bg-image"></div>
@@ -318,11 +318,52 @@
             <div class="native-splash-spinner-ring"></div>
             <div class="native-splash-spinner-dot"></div>
           </div>
-          <p class="native-splash-text">正在启动…</p>
+          <p class="native-splash-text" id="native-splash-text">正在启动…</p>
+          <p class="native-splash-text" style="font-size:12px;opacity:0.7;margin-top:4px">点击可跳过</p>
         </div>
       </div>
     </div>
   </div>
+  <!-- 不依赖 Vue：超时 / 点击强制移除原生启动页，避免模块加载卡住时永远黑屏加载 -->
+  <script>
+    (function () {
+      var removed = false
+      function removeNativeSplash(reason) {
+        if (removed) return
+        var el = document.getElementById('native-splash')
+        if (!el) {
+          removed = true
+          return
+        }
+        removed = true
+        try {
+          el.style.transition = 'opacity 0.25s ease'
+          el.style.opacity = '0'
+          setTimeout(function () {
+            if (el && el.parentNode) el.parentNode.removeChild(el)
+          }, 280)
+        } catch (e) {
+          try { el.remove() } catch (_) {}
+        }
+        if (reason && typeof console !== 'undefined') {
+          console.info('[native-splash] removed:', reason)
+        }
+      }
+      // 2 秒硬超时（Vue 正常会在更早挂载并替换 #app）
+      setTimeout(function () { removeNativeSplash('timeout-2s') }, 2000)
+      // 最长 5 秒仍在则强制移除（双保险）
+      setTimeout(function () { removeNativeSplash('timeout-5s') }, 5000)
+      document.addEventListener('click', function () {
+        removeNativeSplash('click')
+      }, true)
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+          removeNativeSplash('keydown')
+        }
+      }, true)
+      window.__removeNativeSplash = removeNativeSplash
+    })()
+  </script>
   <script type="module" charset="utf-8" src="/src/main.ts"></script>
 </body>
 

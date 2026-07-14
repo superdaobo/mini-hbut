@@ -428,7 +428,12 @@ const showWorkspaceLayoutEditor = ref(false)
 const workspaceLayoutEditorTab = ref('home')
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
-const showSplash = ref(useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot)
+// 开发态默认不再叠第二层 Vue Splash（index.html 已有原生启动页；双层易造成“永远加载”）
+const showSplash = ref(
+  import.meta.env.DEV
+    ? false
+    : useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot
+)
 const HOME_LAYOUT_DEBUG_HIDDEN_KEY = 'hbu_home_layout_debug_hidden'
 const HOME_LAYOUT_DEBUG_FORCE_KEY = 'hbu_home_layout_debug_enabled'
 const homeLayoutDebugForced = (() => {
