@@ -69,7 +69,27 @@ export default defineConfig({
   },
   esbuild: {
     legalComments: 'none',
-    drop: isReleaseProfile ? ['console', 'debugger'] : []
+    // 非 release 一律关闭 minify（含标识符重命名 NumberRenamer，曾导致 errno=1455 OOM）
+    minify: false,
+    minifyIdentifiers: false,
+    minifySyntax: false,
+    minifyWhitespace: false,
+    drop: isReleaseProfile ? ['console', 'debugger'] : [],
+    logLimit: 10,
+    // 降低目标语法变换压力
+    target: 'es2020'
+  },
+  optimizeDeps: {
+    // 首次打开页面时也禁止 esbuild minify
+    esbuildOptions: {
+      minify: false,
+      minifyIdentifiers: false,
+      minifySyntax: false,
+      minifyWhitespace: false,
+      legalComments: 'none',
+      target: 'es2020',
+      logLimit: 10
+    }
   },
   build: {
     minify: isDevFastProfile ? false : 'esbuild',
@@ -89,8 +109,34 @@ export default defineConfig({
     port: TAURI_DEV_VITE_PORT,
     strictPort: true,
     host: '127.0.0.1',
+    // Tauri 窗口加载 127.0.0.1:5173 时，HMR WebSocket 必须同 host，否则改代码不刷新
+    hmr: {
+      protocol: 'ws',
+      host: '127.0.0.1',
+      port: TAURI_DEV_VITE_PORT,
+      clientPort: TAURI_DEV_VITE_PORT
+    },
+    // 降低并发预转换，避免 esbuild 一次开太多 goroutine
+    preTransformRequests: false,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // 避免把 target / 安装包 / 会话垃圾扫进 esbuild HMR，降低 Windows 上 OOM(errno=1455) 概率
+      ignored: [
+        '**/src-tauri/**',
+        '**/dist-dev-packages/**',
+        '**/target/**',
+        '**/.git/**',
+        '**/terminals/**',
+        '**/.ci-logs/**',
+        '**/agent-tools/**',
+        '**/mcps/**',
+        '**/website/.serve-root/**',
+        '**/website/modules/**',
+        '**/node_modules/**'
+      ],
+      awaitWriteFinish: {
+        stabilityThreshold: 400,
+        pollInterval: 100
+      }
     },
     proxy: {
       '/bridge': {
