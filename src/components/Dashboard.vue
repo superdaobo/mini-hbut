@@ -1170,9 +1170,14 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
     <!-- Header -->
     <header class="flex items-center justify-between px-4 pt-4 pb-4">
       <div class="flex items-center space-x-2">
-        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
-          <img src="/splash/app_icon.png" class="w-6 h-6 object-contain" alt="HBUT" />
-        </div>
+        <!-- 与「通知 / 我的」一致：整图圆形裁切，避免圆底里再嵌方框图标 -->
+        <img
+          class="home-logo-img"
+          src="/splash/app_icon.png"
+          alt="HBUT"
+          width="32"
+          height="32"
+        />
         <span class="font-bold text-lg tracking-wide text-gray-800">Mini-HBUT</span>
       </div>
       <div class="flex items-center space-x-3 flex-1 ml-4">
@@ -1710,6 +1715,16 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 .dashboard-root {
   padding-bottom: 80px;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* 与 NotificationView / MeView 的 .logo-img 一致：圆形裁切整图 */
+.home-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
 }
 
 .today-empty-icon {

@@ -36,6 +36,7 @@ describe('chaoxing_class home integration contract', () => {
     expect(view).toContain('加入班级并查看资料')
     expect(view).toContain('是否加入班级')
     expect(view).toContain('rejoinOnNotJoined')
+    expect(view).toContain("data-theme='graphite_night'")
     expect(view).toContain('html.dark')
     expect(view).toContain('门户 SSO')
     expect(view).toContain('handleOpenFolder')

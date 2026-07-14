@@ -1697,8 +1697,13 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Nimbus / Lumina Cloud Storage tokens */
-.cx-page {
+/*
+ * 主题 token：页面 + Teleport 弹层（预览 / 入班对话框）共用
+ * 弹层挂在 body 上，必须单独挂变量，否则暗色只剩页面内生效
+ */
+.cx-page,
+.cx-preview-root,
+.cx-dialog-root {
   --cx-bg: #f7f9fb;
   --cx-surface: #ffffff;
   --cx-surface-low: #f2f4f6;
@@ -1711,12 +1716,54 @@ onMounted(() => {
   --cx-primary: #004ac6;
   --cx-primary-soft: #2563eb;
   --cx-primary-fixed: #dbe1ff;
+  --cx-primary-on: #ffffff;
   --cx-tertiary-fixed: #d3e4fe;
   --cx-error: #ba1a1a;
   --cx-error-container: #ffdad6;
   --cx-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.05);
+  --cx-scrim: rgba(15, 23, 42, 0.48);
   --cx-radius: 0.5rem;
   --cx-radius-lg: 1rem;
+  --cx-ios-label: #1c1c1e;
+  --cx-ios-secondary: rgba(60, 60, 67, 0.55);
+  --cx-ios-separator: rgba(60, 60, 67, 0.22);
+  --cx-ios-fill: rgba(120, 120, 128, 0.14);
+  --cx-ios-blue: #007aff;
+  --cx-glass: rgba(242, 242, 247, 0.78);
+  --cx-glass-border: rgba(255, 255, 255, 0.55);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-page,
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-root,
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-dialog-root {
+  --cx-bg: #0e1012;
+  --cx-surface: #1a1d21;
+  --cx-surface-low: #22262b;
+  --cx-surface-high: #2c3136;
+  --cx-surface-highest: #383e44;
+  --cx-on: #f0f2f4;
+  --cx-on-var: #c4c8d4;
+  --cx-outline: #9aa0b0;
+  --cx-outline-var: #3d424a;
+  --cx-primary: #aec1ff;
+  --cx-primary-soft: #8aa4ff;
+  --cx-primary-fixed: #1e2f5c;
+  --cx-primary-on: #0b1224;
+  --cx-tertiary-fixed: #1e2a3a;
+  --cx-error: #ffb4ab;
+  --cx-error-container: #7a0f14;
+  --cx-shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --cx-scrim: rgba(0, 0, 0, 0.62);
+  --cx-ios-label: #f5f5f7;
+  --cx-ios-secondary: rgba(235, 235, 245, 0.5);
+  --cx-ios-separator: rgba(84, 84, 88, 0.65);
+  --cx-ios-fill: rgba(120, 120, 128, 0.28);
+  --cx-ios-blue: #0a84ff;
+  --cx-glass: rgba(44, 44, 46, 0.72);
+  --cx-glass-border: rgba(255, 255, 255, 0.14);
+}
+
+.cx-page {
   position: relative;
   min-height: 100%;
   max-width: 760px;
@@ -1725,25 +1772,6 @@ onMounted(() => {
   color: var(--cx-on);
   background: var(--cx-bg);
   font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
-}
-
-:global(html.dark) .cx-page {
-  --cx-bg: #121416;
-  --cx-surface: #1c1f22;
-  --cx-surface-low: #23272a;
-  --cx-surface-high: #2d3133;
-  --cx-surface-highest: #363a3d;
-  --cx-on: #eff1f3;
-  --cx-on-var: #c3c6d7;
-  --cx-outline: #8d90a0;
-  --cx-outline-var: #434655;
-  --cx-primary: #b4c5ff;
-  --cx-primary-soft: #8aa4ff;
-  --cx-primary-fixed: #1a2f66;
-  --cx-tertiary-fixed: #243246;
-  --cx-error: #ffb4ab;
-  --cx-error-container: #93000a;
-  --cx-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 .cx-icon-btn {
@@ -1962,7 +1990,7 @@ onMounted(() => {
   color: var(--cx-bg);
 }
 
-:global(html.dark) .cx-chip.active {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip.active {
   background: var(--cx-primary-fixed);
   color: var(--cx-primary);
 }
@@ -2102,10 +2130,10 @@ onMounted(() => {
   background: color-mix(in srgb, var(--cx-primary) 12%, var(--cx-tertiary-fixed));
 }
 
-:global(html.dark) .cx-thumb[data-kind='video'] {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-thumb[data-kind='video'] {
   color: #c4b5fd;
 }
-:global(html.dark) .cx-thumb[data-kind='image'] {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-thumb[data-kind='image'] {
   color: #7dd3fc;
 }
 
@@ -2278,12 +2306,12 @@ onMounted(() => {
 
 .cx-btn.primary {
   background: var(--cx-primary);
-  color: #fff;
+  color: var(--cx-primary-on);
 }
 
-:global(html.dark) .cx-btn.primary {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.primary {
   background: var(--cx-primary-soft);
-  color: #0b1c3a;
+  color: var(--cx-primary-on);
 }
 
 .cx-btn.primary:hover:not(:disabled) {
@@ -2424,8 +2452,9 @@ onMounted(() => {
 .cx-preview-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(12px);
+  background: var(--cx-scrim);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .cx-preview-sheet {
@@ -2584,12 +2613,12 @@ onMounted(() => {
   padding: 8px 12px;
   border: none;
   background: var(--cx-primary);
-  color: #fff;
+  color: var(--cx-primary-on);
 }
 
-:global(html.dark) .cx-toolbar-btn.download {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.download {
   background: var(--cx-primary-soft);
-  color: #0b1c3a;
+  color: var(--cx-primary-on);
 }
 
 .cx-toolbar-btn.download:hover:not(:disabled) {
@@ -2648,61 +2677,102 @@ onMounted(() => {
   margin-left: auto;
 }
 
+/* iOS 风格毛玻璃菜单（Context Menu / Action Sheet） */
 .cx-open-method-menu {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 10px);
   max-height: min(52vh, 360px);
   overflow: auto;
-  background: var(--cx-surface);
-  border: 1px solid var(--cx-outline-var);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
-  padding: 8px;
-  z-index: 5;
+  z-index: 30;
+  isolation: isolate;
+  padding: 4px 0 6px;
+  border-radius: 14px;
+  background: var(--cx-glass);
+  border: 0.5px solid var(--cx-glass-border);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.16),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.45);
+  -webkit-backdrop-filter: saturate(180%) blur(40px);
+  backdrop-filter: saturate(180%) blur(40px);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-open-method-menu {
+  box-shadow:
+    0 14px 44px rgba(0, 0, 0, 0.48),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .cx-open-method-menu {
+    background: color-mix(in srgb, var(--cx-surface) 96%, transparent);
+  }
 }
 
 .cx-open-method-menu-title {
-  margin: 0 8px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--cx-outline);
-  text-transform: uppercase;
+  margin: 8px 16px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--cx-ios-secondary);
+  text-transform: none;
 }
 
 .cx-open-method-item {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   border: none;
-  background: transparent;
-  border-radius: 10px;
-  padding: 10px 10px;
+  border-radius: 0;
+  padding: 12px 16px;
+  margin: 0;
   cursor: pointer;
   text-align: left;
-  color: var(--cx-on);
+  color: var(--cx-ios-label);
+  background: transparent;
+  transition: background 0.12s ease;
 }
 
-.cx-open-method-item:hover {
-  background: var(--cx-surface-low);
+/* iOS 分组列表分割线 */
+.cx-open-method-item + .cx-open-method-item::before {
+  content: '';
+  position: absolute;
+  left: 52px;
+  right: 0;
+  top: 0;
+  height: 0.5px;
+  background: var(--cx-ios-separator);
+  pointer-events: none;
+}
+
+.cx-open-method-item:hover,
+.cx-open-method-item:focus-visible {
+  background: var(--cx-ios-fill);
+  outline: none;
+}
+
+.cx-open-method-item:active {
+  background: color-mix(in srgb, var(--cx-ios-fill) 140%, transparent);
 }
 
 .cx-open-method-item.active {
-  background: color-mix(in srgb, var(--cx-primary) 10%, var(--cx-surface-low));
+  background: color-mix(in srgb, var(--cx-ios-blue) 16%, transparent);
 }
 
 .cx-open-method-item .material-symbols-outlined {
   font-size: 22px;
-  color: var(--cx-primary);
+  color: var(--cx-ios-blue);
   flex-shrink: 0;
 }
 
 .cx-open-method-item .check {
   margin-left: auto;
-  color: var(--cx-primary);
+  color: var(--cx-ios-blue);
   font-size: 20px;
 }
 
@@ -2714,14 +2784,16 @@ onMounted(() => {
 }
 
 .cx-open-method-item-text .name {
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--cx-ios-label);
 }
 
 .cx-open-method-item-text .desc {
-  font-size: 11px;
-  color: var(--cx-outline);
-  font-weight: 500;
+  font-size: 12px;
+  color: var(--cx-ios-secondary);
+  font-weight: 400;
 }
 
 .cx-preview-state {
@@ -2773,7 +2845,7 @@ onMounted(() => {
   object-fit: contain;
   border-radius: 8px;
   box-shadow: var(--cx-shadow-soft);
-  background: #fff;
+  background: var(--cx-surface);
 }
 
 .cx-preview-video {
@@ -2798,8 +2870,9 @@ onMounted(() => {
 .cx-dialog-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(12px);
+  background: var(--cx-scrim);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .cx-dialog {
@@ -2809,9 +2882,13 @@ onMounted(() => {
   border: 1px solid var(--cx-outline-var);
   border-radius: var(--cx-radius-lg);
   padding: 22px 20px 18px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--cx-shadow-soft), 0 20px 50px rgba(0, 0, 0, 0.18);
   color: var(--cx-on);
   text-align: center;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-dialog {
+  box-shadow: var(--cx-shadow-soft), 0 24px 56px rgba(0, 0, 0, 0.5);
 }
 
 .cx-dialog-cover {
@@ -2899,22 +2976,326 @@ onMounted(() => {
 
 .cx-btn.dialog-primary {
   background: var(--cx-primary);
-  color: #fff;
+  color: var(--cx-primary-on);
   border: 1px solid transparent;
 }
 
-:global(html.dark) .cx-btn.dialog-primary {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.dialog-primary {
   background: var(--cx-primary-soft);
-  color: #0b1c3a;
+  color: var(--cx-primary-on);
 }
 
 .cx-btn.dialog-primary:hover:not(:disabled) {
   filter: brightness(0.96);
 }
 
-:global(html.dark) .cx-btn.dialog-secondary {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.dialog-secondary {
   background: var(--cx-surface-high);
   color: var(--cx-on);
   border-color: var(--cx-outline-var);
+}
+
+/* —— 暗色模式：列表/欢迎页/状态条等细节补强 —— */
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-nimbus-head {
+  background: color-mix(in srgb, var(--cx-bg) 88%, transparent);
+  border-bottom-color: var(--cx-outline-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-row:hover {
+  background: var(--cx-surface-low);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-row:active {
+  background: var(--cx-surface-high);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-welcome-card {
+  background: var(--cx-surface);
+  border-color: var(--cx-outline-var);
+  box-shadow: var(--cx-shadow-soft);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-welcome-badge {
+  background: var(--cx-primary-fixed);
+  color: var(--cx-primary);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-sso-chip.ok {
+  background: color-mix(in srgb, #16a34a 18%, var(--cx-surface-low));
+  border-color: color-mix(in srgb, #16a34a 40%, var(--cx-outline-var));
+  color: #86efac;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-sso-chip.bad {
+  background: var(--cx-error-container);
+  color: var(--cx-error);
+  border-color: color-mix(in srgb, var(--cx-error) 35%, var(--cx-outline-var));
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-alert {
+  background: var(--cx-error-container);
+  color: var(--cx-error);
+  border: 1px solid color-mix(in srgb, var(--cx-error) 30%, transparent);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-sheet {
+  background: var(--cx-surface);
+  border-color: var(--cx-outline-var);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-head {
+  background: var(--cx-bg);
+  border-bottom-color: var(--cx-outline-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-body {
+  background: #0b0d10;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-toolbar {
+  background: var(--cx-surface);
+  border-top-color: var(--cx-outline-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn {
+  background: var(--cx-surface-low);
+  border-color: var(--cx-outline-var);
+  color: var(--cx-on);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.method.open {
+  border-color: color-mix(in srgb, var(--cx-primary) 50%, var(--cx-outline-var));
+  background: color-mix(in srgb, var(--cx-primary) 14%, var(--cx-surface));
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.browser:hover:not(:disabled),
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.method:hover:not(:disabled) {
+  background: var(--cx-surface-high);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip {
+  background: var(--cx-surface-high);
+  color: var(--cx-on-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip.active {
+  background: var(--cx-primary-fixed);
+  color: var(--cx-primary);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-skeleton-row {
+  background: linear-gradient(
+    90deg,
+    var(--cx-surface-low) 25%,
+    var(--cx-surface-high) 50%,
+    var(--cx-surface-low) 75%
+  );
+  background-size: 200% 100%;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-empty {
+  color: var(--cx-outline);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-secure-note {
+  color: var(--cx-outline);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-trail-btn:hover:not(:disabled) {
+  background: var(--cx-surface-high);
+  color: var(--cx-primary);
+}
+</style>
+
+<!--
+  非 scoped：与全局主题桥 html[data-theme] 对齐。
+  应用真实暗色是 graphite_night，不是 html.dark；Teleport 弹层也必须吃到变量。
+-->
+<style>
+html[data-theme='graphite_night'] .cx-page,
+html[data-theme='graphite_night'] .cx-preview-root,
+html[data-theme='graphite_night'] .cx-dialog-root,
+html.dark .cx-page,
+html.dark .cx-preview-root,
+html.dark .cx-dialog-root {
+  --cx-bg: #0e1012;
+  --cx-surface: #1a1d21;
+  --cx-surface-low: #22262b;
+  --cx-surface-high: #2c3136;
+  --cx-surface-highest: #383e44;
+  --cx-on: #f0f2f4;
+  --cx-on-var: #c4c8d4;
+  --cx-outline: #9aa0b0;
+  --cx-outline-var: #3d424a;
+  --cx-primary: #aec1ff;
+  --cx-primary-soft: #8aa4ff;
+  --cx-primary-fixed: #1e2f5c;
+  --cx-primary-on: #0b1224;
+  --cx-tertiary-fixed: #1e2a3a;
+  --cx-error: #ffb4ab;
+  --cx-error-container: #7a0f14;
+  --cx-shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --cx-scrim: rgba(0, 0, 0, 0.62);
+  --cx-ios-label: #f5f5f7;
+  --cx-ios-secondary: rgba(235, 235, 245, 0.5);
+  --cx-ios-separator: rgba(84, 84, 88, 0.65);
+  --cx-ios-fill: rgba(120, 120, 128, 0.28);
+  --cx-ios-blue: #0a84ff;
+  --cx-glass: rgba(44, 44, 46, 0.72);
+  --cx-glass-border: rgba(255, 255, 255, 0.14);
+  color-scheme: dark;
+}
+
+html[data-theme='graphite_night'] .cx-page,
+html.dark .cx-page {
+  background: #0e1012 !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-nimbus-head,
+html.dark .cx-nimbus-head {
+  background: rgba(14, 16, 18, 0.92) !important;
+  border-bottom-color: #3d424a !important;
+}
+
+html[data-theme='graphite_night'] .cx-welcome-card,
+html.dark .cx-welcome-card {
+  background: #1a1d21 !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-row,
+html.dark .cx-row {
+  color: #f0f2f4;
+  border-bottom-color: #2c3136 !important;
+}
+
+html[data-theme='graphite_night'] .cx-row-name,
+html.dark .cx-row-name {
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-row-meta,
+html[data-theme='graphite_night'] .cx-nimbus-sub,
+html[data-theme='graphite_night'] .cx-toolbar-meta,
+html[data-theme='graphite_night'] .cx-empty,
+html[data-theme='graphite_night'] .cx-empty .sub,
+html.dark .cx-row-meta,
+html.dark .cx-nimbus-sub,
+html.dark .cx-toolbar-meta,
+html.dark .cx-empty,
+html.dark .cx-empty .sub {
+  color: #9aa0b0 !important;
+}
+
+html[data-theme='graphite_night'] .cx-chip,
+html.dark .cx-chip {
+  background: #2c3136 !important;
+  color: #c4c8d4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-chip.active,
+html.dark .cx-chip.active {
+  background: #1e2f5c !important;
+  color: #aec1ff !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-sheet,
+html.dark .cx-preview-root .cx-preview-sheet {
+  background: #1a1d21 !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-head,
+html.dark .cx-preview-root .cx-preview-head {
+  background: #0e1012 !important;
+  border-bottom-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-body,
+html.dark .cx-preview-root .cx-preview-body {
+  background: #0b0d10 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-toolbar,
+html.dark .cx-preview-root .cx-preview-toolbar {
+  background: #1a1d21 !important;
+  border-top-color: #3d424a !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-toolbar-btn,
+html.dark .cx-preview-root .cx-toolbar-btn {
+  background: #22262b !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-toolbar-btn.download,
+html.dark .cx-preview-root .cx-toolbar-btn.download {
+  background: #8aa4ff !important;
+  color: #0b1224 !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-menu,
+html.dark .cx-preview-root .cx-open-method-menu {
+  background: rgba(44, 44, 46, 0.82) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #f5f5f7 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-item,
+html.dark .cx-preview-root .cx-open-method-item {
+  color: #f5f5f7 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-item .desc,
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-menu-title,
+html.dark .cx-preview-root .cx-open-method-item .desc,
+html.dark .cx-preview-root .cx-open-method-menu-title {
+  color: rgba(235, 235, 245, 0.55) !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-dialog,
+html.dark .cx-dialog-root .cx-dialog {
+  background: #1a1d21 !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-dialog-desc,
+html[data-theme='graphite_night'] .cx-dialog-root .cx-dialog-teacher,
+html.dark .cx-dialog-root .cx-dialog-desc,
+html.dark .cx-dialog-root .cx-dialog-teacher {
+  color: #9aa0b0 !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-btn.dialog-secondary,
+html.dark .cx-dialog-root .cx-btn.dialog-secondary {
+  background: #2c3136 !important;
+  color: #f0f2f4 !important;
+  border-color: #3d424a !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-btn.dialog-primary,
+html.dark .cx-dialog-root .cx-btn.dialog-primary {
+  background: #8aa4ff !important;
+  color: #0b1224 !important;
+}
+
+html[data-theme='graphite_night'] .cx-btn.primary,
+html.dark .cx-btn.primary {
+  background: #8aa4ff !important;
+  color: #0b1224 !important;
+}
+
+html[data-theme='graphite_night'] .cx-skeleton-row,
+html.dark .cx-skeleton-row {
+  background: linear-gradient(90deg, #22262b 25%, #2c3136 50%, #22262b 75%) !important;
+  background-size: 200% 100% !important;
 }
 </style>
