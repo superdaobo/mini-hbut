@@ -79,39 +79,25 @@ const maintenanceNotices = computed(() => {
 })
 
 /**
- * 会话状态点（替代启动时整块「正在恢复」横幅闪一下）：
- * - red：未连上 / 失败 / 需登录；进首页先短时红点，避免一上来就绿/闪文案
- * - blink：后台重连中（红绿交替）
- * - green：已连上
- * 详情面板仅用户点击状态点后展开，避免首屏打扰。
+ * 会话状态点（仅圆点，无文字）：
+ * - red：未登录 / 失败 / 需登录 / 维护
+ * - blink：后台重连中
+ * - green：已连接
+ * 注意：不要在 onMounted 人为先红后绿（进出模块会 remount，会闪红点）。
+ * 详情仅点击非绿点时展开。
  */
 const sessionDetailOpen = ref(false)
-/** 首屏 ~1.2s 内先显示红点，再落到真实状态（避免文案/绿点闪一下） */
-const sessionStatusBooting = ref(true)
-let sessionStatusBootTimer = null
-onMounted(() => {
-  sessionStatusBootTimer = window.setTimeout(() => {
-    sessionStatusBooting.value = false
-    sessionStatusBootTimer = null
-  }, 1200)
-})
-onBeforeUnmount(() => {
-  if (sessionStatusBootTimer) {
-    window.clearTimeout(sessionStatusBootTimer)
-    sessionStatusBootTimer = null
-  }
-})
 
 const sessionStatusVisual = computed(() => {
   if (!props.isLoggedIn) return 'red'
   const phase = String(props.jwxtRecoveryPhase || 'idle')
-  // 重连过程优先闪烁
   if (phase === 'recovering') return 'blink'
-  if (props.jwxtMaintenance || phase === 'failed' || phase === 'need_login' || phase === 'maintenance') {
+  if (phase === 'failed' || phase === 'need_login' || phase === 'maintenance') {
     return 'red'
   }
-  // 已在线：首屏短时仍显示红点，再变绿（不弹维护条）
-  if (sessionStatusBooting.value) return 'red'
+  // maintenance 布尔为 true 但 phase 已 idle：视为仍异常
+  if (props.jwxtMaintenance && phase !== 'idle') return 'red'
+  if (props.jwxtMaintenance && phase === 'idle') return 'red'
   return 'green'
 })
 
@@ -122,23 +108,11 @@ const sessionStatusAria = computed(() => {
   return '会话异常或未连接，点击查看详情'
 })
 
-const sessionStatusHint = computed(() => {
-  const v = sessionStatusVisual.value
-  if (v === 'green') return '已连接'
-  if (v === 'blink') return '重连中'
-  const phase = String(props.jwxtRecoveryPhase || '')
-  if (phase === 'need_login') return '需登录'
-  if (phase === 'failed') return '未连上'
-  if (props.jwxtMaintenance) return '异常'
-  return '未连上'
-})
-
 const onSessionStatusClick = (event) => {
   event?.stopPropagation?.()
   event?.preventDefault?.()
   if (sessionStatusVisual.value === 'green') {
     sessionDetailOpen.value = false
-    showToast('教务会话已连接', 'success', 1800)
     return
   }
   sessionDetailOpen.value = !sessionDetailOpen.value
@@ -1254,7 +1228,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 
         <button
           type="button"
-          class="session-status-btn shrink-0 flex flex-col items-center gap-1 px-1 py-0.5 rounded-lg active:opacity-80"
+          class="session-status-btn shrink-0 flex items-center justify-center p-2 rounded-lg active:opacity-80"
           :aria-label="sessionStatusAria"
           :title="sessionStatusAria"
           @click="onSessionStatusClick"
@@ -1267,14 +1241,6 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
               'is-blink': sessionStatusVisual === 'blink'
             }"
           />
-          <span
-            class="text-[10px] leading-none"
-            :class="{
-              'text-emerald-600': sessionStatusVisual === 'green',
-              'text-red-500': sessionStatusVisual === 'red',
-              'text-orange-500': sessionStatusVisual === 'blink'
-            }"
-          >{{ sessionStatusHint }}</span>
         </button>
       </div>
 
@@ -1774,7 +1740,8 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 }
 
 .session-status-btn {
-  min-width: 2.5rem;
+  min-width: 2rem;
+  min-height: 2rem;
   -webkit-tap-highlight-color: transparent;
 }
 
