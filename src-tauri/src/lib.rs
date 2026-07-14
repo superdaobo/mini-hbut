@@ -6157,7 +6157,9 @@ async fn chaoxing_class_resolve_resource(
     .map_err(|e| e.to_string())
 }
 
-/// 学习通班级：用会话 cookie 下载课件到本机（#358，禁止外置浏览器无 cookie 打开 downloadData）
+/// 学习通班级：用会话 cookie 下载课件到本机（#358/#359）
+/// - 鉴权拉取 + 重试 + Range 续传/多分片
+/// - 移动端优先缓存目录，前端再调系统分享（方案 A）
 #[tauri::command]
 async fn chaoxing_class_download_resource(
     app: tauri::AppHandle,
@@ -6165,82 +6167,111 @@ async fn chaoxing_class_download_resource(
     req: ChaoxingClassDownloadRequest,
 ) -> Result<serde_json::Value, String> {
     use tauri::Manager;
-    let mut client = state.client.write().await;
-    let (bytes, file_name, source_url) = modules::chaoxing_class::download_resource_bytes(
-        &mut client,
-        &req.course_id,
-        &req.clazz_id,
-        &req.data_id,
-        req.object_id.as_deref(),
-        req.cpi.as_deref(),
-        req.file_name.as_deref(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
 
+    // 选落盘根目录：移动优先 cache/app_data（再分享）；桌面优先 Downloads
+    let is_mobile = cfg!(target_os = "android") || cfg!(target_os = "ios");
     let mut candidates: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
-    if let Ok(dir) = app.path().download_dir() {
-        candidates.push((dir, "download"));
-    }
-    if let Ok(dir) = app.path().document_dir() {
-        candidates.push((dir, "document"));
-    }
-    if let Ok(dir) = app.path().app_data_dir() {
-        candidates.push((dir, "app_data"));
+    if is_mobile {
+        if let Ok(dir) = app.path().app_cache_dir() {
+            candidates.push((dir, "cache"));
+        }
+        if let Ok(dir) = app.path().app_data_dir() {
+            candidates.push((dir, "app_data"));
+        }
+        if let Ok(dir) = app.path().download_dir() {
+            candidates.push((dir, "download"));
+        }
+    } else {
+        if let Ok(dir) = app.path().download_dir() {
+            candidates.push((dir, "download"));
+        }
+        if let Ok(dir) = app.path().document_dir() {
+            candidates.push((dir, "document"));
+        }
+        if let Ok(dir) = app.path().app_data_dir() {
+            candidates.push((dir, "app_data"));
+        }
     }
     if candidates.is_empty() {
-        return Err("无法定位本机下载/文档目录".into());
+        return Err("无法定位本机可写目录".into());
     }
 
-    let mut last_error = String::new();
-    for (base_dir, label) in candidates {
-        let export_dir = base_dir.join("Mini-HBUT-Chaoxing");
-        if let Err(e) = std::fs::create_dir_all(&export_dir) {
-            last_error = format!("创建目录失败({}): {}", label, e);
-            continue;
-        }
-        // 重名追加序号
-        let mut path = export_dir.join(&file_name);
-        if path.exists() {
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("file")
-                .to_string();
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .map(|s| format!(".{}", s))
-                .unwrap_or_default();
-            for i in 1..50 {
-                let alt = export_dir.join(format!("{} ({}){}", stem, i, ext));
-                if !alt.exists() {
-                    path = alt;
-                    break;
-                }
-            }
-        }
-        match std::fs::write(&path, &bytes) {
-            Ok(_) => {
-                return Ok(serde_json::json!({
-                    "success": true,
-                    "path": path.to_string_lossy(),
-                    "file_name": path.file_name().and_then(|s| s.to_str()).unwrap_or(&file_name),
-                    "bytes": bytes.len(),
-                    "source_url": source_url,
-                    "hint": "已用学习通会话下载到本机（非系统浏览器）",
-                }));
-            }
-            Err(e) => {
-                last_error = format!("写入失败({}): {}", label, e);
+    let (base_dir, dir_label) = &candidates[0];
+    let export_dir = base_dir.join("Mini-HBUT-Chaoxing");
+    std::fs::create_dir_all(&export_dir)
+        .map_err(|e| format!("创建目录失败({}): {}", dir_label, e))?;
+
+    // 续传 part：按 data_id 固定名，避免多文件冲突
+    let part_name = format!(".part_{}.download", req.data_id.trim());
+    let part_path = export_dir.join(&part_name);
+
+    let mut client = state.client.write().await;
+    let (bytes, file_name, source_url) =
+        modules::chaoxing_class::download_resource_bytes_with_part(
+            &mut client,
+            &req.course_id,
+            &req.clazz_id,
+            &req.data_id,
+            req.object_id.as_deref(),
+            req.cpi.as_deref(),
+            req.file_name.as_deref(),
+            Some(part_path.as_path()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    drop(client);
+
+    // 成功后清理 part
+    let _ = std::fs::remove_file(&part_path);
+
+    // 重名追加序号
+    let mut path = export_dir.join(&file_name);
+    if path.exists() {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| format!(".{}", s))
+            .unwrap_or_default();
+        for i in 1..50 {
+            let alt = export_dir.join(format!("{} ({}){}", stem, i, ext));
+            if !alt.exists() {
+                path = alt;
+                break;
             }
         }
     }
-    Err(if last_error.is_empty() {
-        "保存文件失败".into()
+
+    // 先写 part 再 rename，便于中断后续传（完整文件）
+    let tmp = export_dir.join(format!("{}.writing", part_name));
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("写入失败: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("重命名失败: {}", e))?;
+
+    let path_str = path.to_string_lossy().to_string();
+    let file_uri = if path_str.starts_with("file:") {
+        path_str.clone()
     } else {
-        last_error
-    })
+        format!("file:///{}", path_str.replace('\\', "/"))
+    };
+
+    Ok(serde_json::json!({
+        "success": true,
+        "path": path_str,
+        "file_uri": file_uri,
+        "file_name": path.file_name().and_then(|s| s.to_str()).unwrap_or(&file_name),
+        "bytes": bytes.len(),
+        "source_url": source_url,
+        "mobile_share": is_mobile,
+        "hint": if is_mobile {
+            "已下载，请在系统分享面板中保存或发给好友"
+        } else {
+            "已用学习通会话下载到本机（非系统浏览器）"
+        },
+    }))
 }
 
 #[tauri::command]

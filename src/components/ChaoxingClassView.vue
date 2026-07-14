@@ -8,6 +8,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { platformBridge } from '../platform'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
@@ -437,29 +438,77 @@ const resolveAccess = async (item) => {
   })
 }
 
-/** 应用内鉴权下载到本机（带 cookie，避免外置浏览器 403） */
-const downloadWithSession = async (item) => {
+const isMobileClient = () => {
+  if (typeof navigator === 'undefined') return false
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return true
+  try {
+    // Capacitor WebView
+    return !!(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.())
+  } catch {
+    return false
+  }
+}
+
+/** 应用内鉴权下载（重试/续传在 Rust）；移动端成功后弹系统分享（#359 方案 A） */
+const downloadWithSession = async (item, { retries = 2 } = {}) => {
   const cls = activeClass.value || preview.value
   if (!cls) throw new Error('尚未加入班级')
   if (!hasTauri) {
     throw new Error('请在客户端内下载（浏览器环境无法携带学习通会话）')
   }
-  const res = await invokeNative('chaoxing_class_download_resource', {
-    req: {
-      course_id: cls.course_id,
-      clazz_id: cls.clazz_id,
-      data_id: item.data_id,
-      object_id: item.object_id || null,
-      cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
-      file_name: item.name || null,
-      ...studentPayload()
+
+  let lastErr = null
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await invokeNative('chaoxing_class_download_resource', {
+        req: {
+          course_id: cls.course_id,
+          clazz_id: cls.clazz_id,
+          data_id: item.data_id,
+          object_id: item.object_id || null,
+          cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+          file_name: item.name || null,
+          ...studentPayload()
+        }
+      })
+      const path = String(res?.path || '').trim()
+      const fileUri = String(res?.file_uri || '').trim()
+      const name = String(res?.file_name || item.name || '文件').trim()
+      if (!path) throw new Error('下载完成但未返回保存路径')
+
+      const mobile = !!(res?.mobile_share || isMobileClient())
+      if (mobile) {
+        showToast('下载完成，请选择保存位置或分享…', 'success', 2400)
+        const shareTarget = fileUri || path
+        try {
+          const ok = await platformBridge.shareLinkOrFile(
+            shareTarget,
+            `保存或分享：${name}`
+          )
+          if (!ok) {
+            showToast(`已保存，可到文件管理中查看：${name}`, 'info', 4000)
+          }
+        } catch (shareErr) {
+          console.warn('[chaoxing] share failed:', shareErr)
+          showToast(`已下载：${name}（分享面板打开失败时可到文件中查找）`, 'warning', 4200)
+        }
+      } else {
+        showToast(`已保存：${name}`, 'success', 3600)
+      }
+      return res
+    } catch (e) {
+      lastErr = e
+      const msg = formatErr(e)
+      // 可恢复错误：前端再点一次；这里自动多试
+      if (i < retries) {
+        showToast(`下载失败，正在重试（${i + 1}/${retries}）…`, 'warning', 2000)
+        await new Promise((r) => setTimeout(r, 600 * (i + 1)))
+        continue
+      }
+      throw new Error(msg || '下载失败')
     }
-  })
-  const path = String(res?.path || '').trim()
-  const name = String(res?.file_name || item.name || '文件').trim()
-  if (!path) throw new Error('下载完成但未返回保存路径')
-  showToast(`已保存：${name}`, 'success', 3600)
-  return res
+  }
+  throw lastErr || new Error('下载失败')
 }
 
 const closePreviewModal = () => {
