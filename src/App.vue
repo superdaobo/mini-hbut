@@ -2896,6 +2896,19 @@ watch(currentView, () => {
 onMounted(async () => {
   console.time('[Boot] total')
   console.time('[Boot] to-splash-dismiss')
+  // 启动页硬超时：会话恢复/网络卡住时也必须进入界面（避免一直卡在加载）
+  const splashFailsafeTimer = window.setTimeout(() => {
+    if (!showSplash.value) return
+    console.warn('[Boot] splash failsafe 6s：强制进入应用')
+    splashStatusText.value = '准备就绪'
+    dismissSplash()
+    if (!appBootstrapped) {
+      appBootstrapped = true
+      handleSplashDismissed()
+      replaceHistorySnapshot(currentView.value)
+      ensureConfigAccess()
+    }
+  }, 6000)
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
@@ -2980,6 +2993,22 @@ onMounted(async () => {
     return { restored, relogged }
   })()
 
+  // 即使启动页超时先进入，会话仍在后台完成；成功后补 keepalive
+  void sessionRestoreTask
+    .then((result) => {
+      if (!result?.restored && !result?.relogged) return
+      clearJwxtMaintenance()
+      if (isTestAccountSession()) return
+      startSessionKeepAlive()
+      startElectricityKeepAlive()
+      if (studentId.value) {
+        markLoginSessionToken()
+        startNotificationMonitor({ studentId: studentId.value }).catch(() => {})
+      }
+      notifySessionOnline(result.relogged ? 'boot-auto-relogin' : 'boot-session-restore')
+    })
+    .catch((e) => console.warn('[Boot] session-restore late fail:', e))
+
   const remoteConfigTask = (async () => {
     console.time('[Boot] remote-config')
     try { await applyRemoteConfig() } catch (e) {
@@ -2997,19 +3026,26 @@ onMounted(async () => {
     ])
   })()
 
-  // 等待所有后台任务完成
-  const [sessionResult] = await Promise.all([sessionRestoreTask, remoteConfigTask, infraTask])
-  const { restored, relogged } = sessionResult
-  const onlineReady = restored || relogged
+  // 会话恢复可能因网络很慢；远程配置并行，但不阻塞过久
+  const sessionOrTimeout = Promise.race([
+    sessionRestoreTask,
+    new Promise((resolve) => {
+      window.setTimeout(() => resolve({ restored: false, relogged: false, timedOut: true }), 4500)
+    })
+  ])
+  const [sessionResult] = await Promise.all([sessionOrTimeout, remoteConfigTask, infraTask])
+  const { restored, relogged } = sessionResult || {}
+  const onlineReady = !!(restored || relogged)
   console.timeEnd('[Boot] background-tasks')
   markBootMetric('session_restore_finished', {
     restored: !!restored,
     relogged: !!relogged,
     online_ready: !!onlineReady,
-    student_id: String(studentId.value || '').trim()
+    student_id: String(studentId.value || '').trim(),
+    timed_out: !!(sessionResult && sessionResult.timedOut)
   })
 
-  // ── 阶段 4：如果没有缓存身份（首次登录/已登出），现在才 dismiss ──
+  // ── 阶段 4：关闭启动页（有缓存身份时阶段 2 已关；此处兜底）──
   if (!bootstrappedCachedIdentity && !skipSplashForFastScheduleBoot) {
     await syncFromHash({ scrollToTop: false })
     if (restored && !window.location.hash) {
@@ -3030,7 +3066,11 @@ onMounted(async () => {
     handleSplashDismissed()
     replaceHistorySnapshot(currentView.value)
     ensureConfigAccess()
+  } else if (showSplash.value) {
+    // 阶段 2 已进主界面但 splash 仍在时强制关掉
+    dismissSplash()
   }
+  window.clearTimeout(splashFailsafeTimer)
 
   if (currentView.value === 'more_module_host') {
     moduleHostSession.value = await repairModuleHostSession(moduleHostSession.value)
