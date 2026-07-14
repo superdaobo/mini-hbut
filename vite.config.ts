@@ -81,7 +81,9 @@ export default defineConfig({
       'pinia',
       'axios',
       'marked',
-      'dompurify'
+      'dompurify',
+      'ajv',
+      'ajv/dist/2020.js'
     ]
   },
   build: {

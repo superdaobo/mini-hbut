@@ -1,7 +1,8 @@
 // src/utils/widget_snapshot_schema.ts
 // Ajv 预编译 validator — 对齐 design §4.1 JSON Schema
 
-import Ajv2020 from 'ajv/dist/2020'
+// Vite/ESM 下 ajv CJS 无 default，使用具名导出（兼容 dist/2020）
+import { Ajv2020 } from 'ajv/dist/2020.js'
 
 /**
  * ISO 8601 date-time 正则（简化版，覆盖常见格式）
