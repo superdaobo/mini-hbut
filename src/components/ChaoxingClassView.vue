@@ -1,8 +1,8 @@
 <script setup>
 /**
  * 学习通班级资料 — Nimbus 云盘列表风格
- * - 固定邀请码 73202625（库来西库）
- * - 首次进入未入班：先询问是否加入
+ * - 邀请码/课程由远程配置 chaoxing_class 覆盖（#360），缺省兼容历史固定班
+ * - 首次进入未入班 / 退课后：询问是否加入
  * - 门户 CAS → 学习通 SSO（不二次登录）
  * - 文件夹进入 + 官方签名预览内嵌
  */
@@ -10,23 +10,33 @@ import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { platformBridge } from '../platform'
 import { openExternal } from '../utils/external_link'
+import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_config'
 import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
 
-/** 固定班级邀请码（产品约定，不开放自填） */
-const FIXED_INVITE_CODE = '73202625'
-/** 与后端固定元数据一致：邀请码 → 课程/班级 */
-const FIXED_CLASS_META = Object.freeze({
-  invite_code: FIXED_INVITE_CODE,
-  course_id: '264356359',
-  clazz_id: '148246853',
-  course_name: '库来西库',
-  teacher_name: '周金阳',
-  cover_url: '',
-  cpi: '509967218'
-})
 const LAST_CLASS_KEY = 'hbu_chaoxing_class_last_v1'
 const JOIN_DECLINED_KEY = 'hbu_chaoxing_class_declined_v1'
+
+/** 当前生效的远程/默认班级配置（#360） */
+const classConfig = ref(getChaoxingClassConfig())
+
+const inviteCode = computed(() => String(classConfig.value?.invite_code || '').trim())
+
+/** 与远程配置一致：邀请码 → 课程/班级元数据（预填展示） */
+const classMeta = computed(() => {
+  const c = classConfig.value || {}
+  return {
+    invite_code: String(c.invite_code || '').trim(),
+    course_id: String(c.course_id || '').trim(),
+    clazz_id: String(c.clazz_id || '').trim(),
+    course_name: String(c.course_name || '').trim(),
+    teacher_name: String(c.teacher_name || '').trim(),
+    cover_url: '',
+    cpi: String(c.cpi || '0').trim() || '0'
+  }
+})
+
+const defaultCpi = () => classMeta.value.cpi || '0'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -123,14 +133,20 @@ const loadLastClass = () => {
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (parsed?.course_id && parsed?.clazz_id) {
+      const savedInvite = String(parsed.invite_code || '').trim()
+      // 远程 invite 变更后旧缓存失效（#360）
+      if (savedInvite && inviteCode.value && savedInvite !== inviteCode.value) {
+        clearLastClassStorageOnly()
+        return null
+      }
       activeClass.value = {
-        invite_code: FIXED_INVITE_CODE,
+        invite_code: savedInvite || inviteCode.value,
         course_id: String(parsed.course_id),
         clazz_id: String(parsed.clazz_id),
         course_name: String(parsed.course_name || ''),
         teacher_name: String(parsed.teacher_name || ''),
         cover_url: String(parsed.cover_url || ''),
-        cpi: String(parsed.cpi || FIXED_CLASS_META.cpi || '0')
+        cpi: String(parsed.cpi || defaultCpi())
       }
       return activeClass.value
     }
@@ -138,6 +154,21 @@ const loadLastClass = () => {
     /* ignore */
   }
   return null
+}
+
+const clearLastClassStorageOnly = () => {
+  try {
+    localStorage.removeItem(LAST_CLASS_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+const clearLastClass = () => {
+  clearLastClassStorageOnly()
+  activeClass.value = null
+  resources.value = []
+  folderStack.value = []
 }
 
 const saveLastClass = (cls) => {
@@ -151,7 +182,7 @@ const saveLastClass = (cls) => {
 
 const loadDeclined = () => {
   try {
-    joinDeclined.value = localStorage.getItem(JOIN_DECLINED_KEY) === FIXED_INVITE_CODE
+    joinDeclined.value = localStorage.getItem(JOIN_DECLINED_KEY) === inviteCode.value
   } catch {
     joinDeclined.value = false
   }
@@ -161,10 +192,37 @@ const markDeclined = () => {
   joinDeclined.value = true
   showJoinDialog.value = false
   try {
-    localStorage.setItem(JOIN_DECLINED_KEY, FIXED_INVITE_CODE)
+    localStorage.setItem(JOIN_DECLINED_KEY, inviteCode.value)
   } catch {
     /* ignore */
   }
+}
+
+/** 未入班 / 已退班：清脏缓存并进入欢迎页（可选弹加入） */
+const enterNotJoinedState = async ({ openDialog = false, reason = '' } = {}) => {
+  clearLastClass()
+  error.value = ''
+  statusMsg.value = reason || ''
+  preview.value = { ...classMeta.value }
+  bootPhase.value = 'ready'
+  loadingBoot.value = false
+  if (openDialog && !joinDeclined.value) {
+    try {
+      void fetchPreview().catch(() => {})
+      showJoinDialog.value = true
+    } catch {
+      showJoinDialog.value = true
+    }
+  }
+}
+
+const isNotJoinedSignal = (resOrMsg) => {
+  if (resOrMsg && typeof resOrMsg === 'object') {
+    const m = String(resOrMsg.membership || '').toLowerCase()
+    if (m === 'not_joined' || m === 'not-joined') return true
+  }
+  const msg = typeof resOrMsg === 'string' ? resOrMsg : formatErr(resOrMsg)
+  return /未加入|不在该班|无权限|请先加入|不是该班|未选课|已退课|退班|无权访问/.test(String(msg || ''))
 }
 
 const ensureSso = async () => {
@@ -206,17 +264,19 @@ const ensureSso = async () => {
 
 const fetchPreview = async () => {
   bootPhase.value = 'preview'
+  const code = inviteCode.value
+  if (!code) throw new Error('未配置学习通邀请码')
   const res = await invokeNative('chaoxing_class_preview_invite', {
-    req: { invite_code: FIXED_INVITE_CODE, ...studentPayload() }
+    req: { invite_code: code, ...studentPayload() }
   })
   preview.value = {
-    invite_code: FIXED_INVITE_CODE,
-    course_id: String(res.course_id || ''),
-    clazz_id: String(res.clazz_id || ''),
-    course_name: String(res.course_name || '班级'),
-    teacher_name: String(res.teacher_name || ''),
+    invite_code: code,
+    course_id: String(res.course_id || classMeta.value.course_id || ''),
+    clazz_id: String(res.clazz_id || classMeta.value.clazz_id || ''),
+    course_name: String(res.course_name || classMeta.value.course_name || '班级'),
+    teacher_name: String(res.teacher_name || classMeta.value.teacher_name || ''),
     cover_url: String(res.cover_url || ''),
-    cpi: String(res.cpi || FIXED_CLASS_META.cpi || '0')
+    cpi: String(res.cpi || defaultCpi())
   }
   return preview.value
 }
@@ -226,18 +286,22 @@ const handleJoinConfirm = async () => {
   error.value = ''
   statusMsg.value = ''
   try {
+    const code = inviteCode.value
+    if (!code) throw new Error('未配置学习通邀请码')
     const res = await invokeNative('chaoxing_class_accept_invite', {
-      req: { invite_code: FIXED_INVITE_CODE, ...studentPayload() }
+      req: { invite_code: code, ...studentPayload() }
     })
     const p = res?.preview || preview.value || {}
     const cls = {
-      invite_code: FIXED_INVITE_CODE,
-      course_id: String(p.course_id || preview.value?.course_id || ''),
-      clazz_id: String(p.clazz_id || preview.value?.clazz_id || ''),
-      course_name: String(p.course_name || preview.value?.course_name || ''),
-      teacher_name: String(p.teacher_name || preview.value?.teacher_name || ''),
+      invite_code: code,
+      course_id: String(p.course_id || preview.value?.course_id || classMeta.value.course_id || ''),
+      clazz_id: String(p.clazz_id || preview.value?.clazz_id || classMeta.value.clazz_id || ''),
+      course_name: String(p.course_name || preview.value?.course_name || classMeta.value.course_name || ''),
+      teacher_name: String(
+        p.teacher_name || preview.value?.teacher_name || classMeta.value.teacher_name || ''
+      ),
       cover_url: String(p.cover_url || preview.value?.cover_url || ''),
-      cpi: String(p.cpi || preview.value?.cpi || FIXED_CLASS_META.cpi || '0')
+      cpi: String(p.cpi || preview.value?.cpi || defaultCpi())
     }
     if (!cls.course_id || !cls.clazz_id) {
       throw new Error('入班成功但未返回课程信息')
@@ -255,8 +319,8 @@ const handleJoinConfirm = async () => {
       if (preview.value?.course_id) {
         activeClass.value = {
           ...preview.value,
-          invite_code: FIXED_INVITE_CODE,
-          cpi: String(preview.value.cpi || FIXED_CLASS_META.cpi || '0')
+          invite_code: inviteCode.value,
+          cpi: String(preview.value.cpi || defaultCpi())
         }
         saveLastClass(activeClass.value)
         showJoinDialog.value = false
@@ -278,10 +342,15 @@ const reopenJoinDialog = async () => {
   } catch {
     /* ignore */
   }
+  // 主动重加：清本地已入班缓存，避免脏 course 锁死
+  clearLastClass()
+  preview.value = { ...classMeta.value }
   try {
-    if (!preview.value) await fetchPreview()
+    if (!preview.value?.course_id) await fetchPreview()
     showJoinDialog.value = true
   } catch (e) {
+    preview.value = { ...classMeta.value }
+    showJoinDialog.value = true
     error.value = formatErr(e)
   }
 }
@@ -363,7 +432,7 @@ const loadResources = async () => {
       req: {
         course_id: cls.course_id,
         clazz_id: cls.clazz_id,
-        cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+        cpi: cls.cpi || defaultCpi(),
         parent_data_id: folderSnap?.parent_data_id || null,
         data_name: folderSnap?.data_name || null,
         parent_chain: folderSnap?.parent_chain || null,
@@ -380,12 +449,21 @@ const loadResources = async () => {
       // 前端再补一次：后端已重试，这里覆盖排队竞态/偶发失败
       const msg1 = formatErr(e1)
       if (seq !== loadSeq) return
+      if (isNotJoinedSignal(msg1) && !folderSnap) {
+        await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+        return
+      }
       if (!isTransientListError(msg1)) throw e1
       await new Promise((r) => setTimeout(r, 200))
       if (seq !== loadSeq) return
       res = await invokeOnce()
     }
     if (seq !== loadSeq) return
+    // 后端 membership 信号：退课/未入班
+    if (isNotJoinedSignal(res) && !folderSnap) {
+      await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+      return
+    }
     if (res?.cpi && activeClass.value) {
       activeClass.value = { ...activeClass.value, cpi: String(res.cpi) }
       saveLastClass(activeClass.value)
@@ -398,6 +476,10 @@ const loadResources = async () => {
   } catch (e) {
     if (seq !== loadSeq) return
     const msg = formatErr(e)
+    if (isNotJoinedSignal(msg) && !folderSnap) {
+      await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+      return
+    }
     error.value = isTransientListError(msg)
       ? `${msg}（快速进出目录时可能瞬时失败，可点重试）`
       : msg
@@ -430,7 +512,7 @@ const resolveAccess = async (item) => {
       clazz_id: cls.clazz_id,
       data_id: item.data_id,
       object_id: item.object_id || null,
-      cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+      cpi: cls.cpi || defaultCpi(),
       file_name: item.name || null,
       file_type: item.file_type || null,
       ...studentPayload()
@@ -466,7 +548,7 @@ const downloadWithSession = async (item, { retries = 2 } = {}) => {
           clazz_id: cls.clazz_id,
           data_id: item.data_id,
           object_id: item.object_id || null,
-          cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+          cpi: cls.cpi || defaultCpi(),
           file_name: item.name || null,
           ...studentPayload()
         }
@@ -951,16 +1033,23 @@ const metaLine = (item) => {
 }
 
 /**
- * #326 进入路径简化：
- * 1) SSO（缓存优先）
- * 2) 本地已入班 / 固定班可拉资料 → 直接资料库
- * 3) 否则最多一次入班确认
+ * #326 进入路径简化 + #360 远程配置/退课重加：
+ * 1) 拉取远程 chaoxing_class 配置
+ * 2) SSO（缓存优先）
+ * 3) 本地已入班缓存可先露壳；拉资料时若 not_joined 则清缓存引导重加
+ * 4) 否则最多一次入班确认
  */
 const boot = async () => {
   loadingBoot.value = true
   error.value = ''
+  try {
+    const remote = await fetchRemoteConfig({ force: false }).catch(() => null)
+    classConfig.value = getChaoxingClassConfig(remote || undefined)
+  } catch {
+    classConfig.value = getChaoxingClassConfig()
+  }
   loadDeclined()
-  const saved = loadLastClass()
+  let saved = loadLastClass()
 
   // #351：有本地班级缓存时先露出资料页壳，SSO 在后台完成，避免整页卡「接入学习通」
   bootPhase.value = 'sso'
@@ -981,38 +1070,56 @@ const boot = async () => {
   if (saved) {
     try {
       await loadResources()
+      // loadResources 内部可能已 enterNotJoinedState
     } catch (e) {
-      error.value = formatErr(e)
+      const msg = formatErr(e)
+      if (isNotJoinedSignal(msg)) {
+        await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+      } else {
+        error.value = msg
+      }
     }
     return
   }
 
-  activeClass.value = { ...FIXED_CLASS_META }
-  bootPhase.value = 'ready'
-  loadingBoot.value = false
-  await loadResources()
-  if (!error.value) {
-    saveLastClass(activeClass.value)
-    statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '已在班级'
-    return
+  // 无本地缓存：用配置 meta 尝试直连（可能已在班）
+  if (classMeta.value.course_id && classMeta.value.clazz_id) {
+    activeClass.value = { ...classMeta.value }
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+    await loadResources()
+    // 若仍 isJoined（未触发 not_joined 清缓存）且无致命错误，保存缓存
+    if (isJoined.value && !error.value) {
+      saveLastClass(activeClass.value)
+      statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '已在班级'
+      return
+    }
+    // 已进入 not_joined 欢迎态，或资料页已有错误（网络等）→ 结束，勿误弹入班
+    if (!isJoined.value || error.value) {
+      return
+    }
   }
+
   activeClass.value = null
   error.value = ''
 
   if (joinDeclined.value) {
-    preview.value = { ...FIXED_CLASS_META }
+    preview.value = { ...classMeta.value }
     bootPhase.value = 'ready'
+    loadingBoot.value = false
     return
   }
 
   try {
-    preview.value = { ...FIXED_CLASS_META }
+    preview.value = { ...classMeta.value }
     void fetchPreview().catch(() => {})
     showJoinDialog.value = true
     bootPhase.value = 'ready'
+    loadingBoot.value = false
   } catch (e) {
     error.value = formatErr(e)
     bootPhase.value = 'error'
+    loadingBoot.value = false
   }
 }
 
@@ -1025,6 +1132,15 @@ onMounted(() => {
   <div class="cx-page">
     <TPageHeader title="学习通" icon="menu_book" @back="emit('back')">
       <template v-if="isJoined" #actions>
+        <button
+          type="button"
+          class="cx-icon-btn"
+          :disabled="loadingJoin"
+          title="重新加入班级"
+          @click="reopenJoinDialog"
+        >
+          <span class="material-symbols-outlined">group_add</span>
+        </button>
         <button
           type="button"
           class="cx-icon-btn"
@@ -1154,7 +1270,9 @@ onMounted(() => {
                   ? '当前筛选下没有内容'
                   : currentFolder
                     ? '此文件夹为空'
-                    : '教师上传后将显示在这里'
+                    : statusMsg && statusMsg.includes('退')
+                      ? '若你已退课，可重新加入班级后查看资料'
+                      : '教师上传后将显示在这里。若已退课，可点下方重新加入'
               }}
             </p>
             <button
@@ -1164,6 +1282,16 @@ onMounted(() => {
               @click="handleBreadcrumb(folderStack.length - 1)"
             >
               返回上级
+            </button>
+            <!-- #360 根目录空列表：始终提供重新加入 CTA（不强制清缓存，避免真·无资料误伤） -->
+            <button
+              v-else-if="filterChip === 'all'"
+              type="button"
+              class="cx-btn primary"
+              :disabled="loadingJoin"
+              @click="reopenJoinDialog"
+            >
+              重新加入班级
             </button>
           </div>
 
@@ -1238,7 +1366,7 @@ onMounted(() => {
       <template v-else>
         <section class="cx-welcome">
           <div class="cx-welcome-card">
-            <div class="cx-welcome-badge">固定班级</div>
+            <div class="cx-welcome-badge">班级资料库</div>
             <div v-if="coverUrl" class="cx-welcome-cover">
               <img :src="coverUrl" alt="" />
             </div>
@@ -1248,7 +1376,7 @@ onMounted(() => {
             <h2>{{ courseTitle || '学习通班级' }}</h2>
             <p v-if="teacherName" class="cx-welcome-teacher">任课教师 · {{ teacherName }}</p>
             <p class="cx-welcome-desc">
-              本模块提供班级课件与资料的预览、下载。首次使用需加入班级（邀请码已内置，无需手动填写）。
+              本模块提供班级课件与资料的预览、下载。邀请码由管理员远程配置，加入时无需手填。
             </p>
             <div class="cx-welcome-actions">
               <button type="button" class="cx-btn primary lg" @click="reopenJoinDialog">
@@ -1256,6 +1384,7 @@ onMounted(() => {
               </button>
             </div>
             <p v-if="joinDeclined" class="cx-welcome-note">你之前选择了暂不加入，可随时再次加入。</p>
+            <p v-else-if="statusMsg" class="cx-welcome-note">{{ statusMsg }}</p>
           </div>
         </section>
       </template>
@@ -1457,7 +1586,7 @@ onMounted(() => {
             <img v-if="coverUrl" :src="coverUrl" alt="" />
             <span v-else class="material-symbols-outlined fill">menu_book</span>
           </div>
-          <p class="cx-dialog-kicker">首次进入</p>
+          <p class="cx-dialog-kicker">{{ statusMsg && statusMsg.includes('不在') ? '重新加入' : '加入班级' }}</p>
           <h3 id="cx-join-title">是否加入班级？</h3>
           <p class="cx-dialog-course">{{ courseTitle || '班级' }}</p>
           <p v-if="teacherName" class="cx-dialog-teacher">教师 {{ teacherName }}</p>

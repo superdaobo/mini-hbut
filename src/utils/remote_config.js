@@ -73,6 +73,16 @@ const DEFAULT_CONFIG = {
     channel: DEFAULT_MODULE_CENTER.channel,
     modules: [...DEFAULT_MODULE_CENTER.modules]
   },
+  // #360 学习通资料库：邀请码/课程可由远程覆盖；缺省兼容历史固定班
+  chaoxing_class: {
+    enabled: true,
+    invite_code: '73202625',
+    course_id: '264356359',
+    clazz_id: '148246853',
+    course_name: '库来西库',
+    teacher_name: '周金阳',
+    cpi: '509967218'
+  },
   ai_models: [],
   config_admin_ids: []
 }
@@ -88,6 +98,7 @@ const REMOTE_CONFIG_KEYS = [
   'cloud_sync',
   'module_center',
   'more_modules',
+  'chaoxing_class',
   'ai_models',
   'config_admin_ids'
 ]
@@ -539,9 +550,68 @@ export function normalizeRemoteConfig(raw) {
       )
     },
     module_center: resolveModuleCenter(cfg),
+    chaoxing_class: normalizeChaoxingClassConfig(cfg.chaoxing_class || cfg.chaoxingClass),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids)
   }
+}
+
+const DEFAULT_CHAOXING_CLASS = DEFAULT_CONFIG.chaoxing_class
+
+/**
+ * 归一化学习通资料库配置（#360）
+ * @param {unknown} raw
+ */
+export function normalizeChaoxingClassConfig(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const invite = firstNonEmpty(
+    src.invite_code,
+    src.inviteCode,
+    src.invite,
+    DEFAULT_CHAOXING_CLASS.invite_code
+  )
+  return {
+    enabled: src.enabled !== false,
+    invite_code: invite || DEFAULT_CHAOXING_CLASS.invite_code,
+    course_id: firstNonEmpty(src.course_id, src.courseId, DEFAULT_CHAOXING_CLASS.course_id),
+    clazz_id: firstNonEmpty(src.clazz_id, src.clazzId, src.class_id, DEFAULT_CHAOXING_CLASS.clazz_id),
+    course_name: firstNonEmpty(
+      src.course_name,
+      src.courseName,
+      DEFAULT_CHAOXING_CLASS.course_name
+    ),
+    teacher_name: firstNonEmpty(
+      src.teacher_name,
+      src.teacherName,
+      DEFAULT_CHAOXING_CLASS.teacher_name
+    ),
+    cpi: firstNonEmpty(src.cpi, DEFAULT_CHAOXING_CLASS.cpi)
+  }
+}
+
+/**
+ * 读取当前生效的学习通班级配置（远程快照 → 默认）
+ * @param {object} [config] 可选已归一化/原始 remote config
+ */
+export function getChaoxingClassConfig(config) {
+  if (config && typeof config === 'object') {
+    const block = config.chaoxing_class || config.chaoxingClass
+    if (block && typeof block === 'object' && (block.invite_code || block.inviteCode)) {
+      return normalizeChaoxingClassConfig(block)
+    }
+    return normalizeRemoteConfig(config).chaoxing_class
+  }
+  const mem = readMemoryConfig()
+  if (mem?.chaoxing_class) return mem.chaoxing_class
+  try {
+    const raw = localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
+    if (raw) {
+      return normalizeRemoteConfig(JSON.parse(raw)).chaoxing_class
+    }
+  } catch {
+    /* ignore */
+  }
+  return normalizeChaoxingClassConfig(DEFAULT_CHAOXING_CLASS)
 }
 
 const saveSnapshot = (config) => {

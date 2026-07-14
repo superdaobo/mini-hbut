@@ -184,6 +184,54 @@ fn looks_like_login_url(url: &str) -> bool {
         || (u.contains("/login") && u.contains("refer="))
 }
 
+/// 资料列表页是否像「未加入班级 / 无权访问」（#360）
+fn looks_like_not_joined_html(html: &str) -> bool {
+    let h = html.to_ascii_lowercase();
+    // 常见中文提示（保留原文匹配，避免全 lower 弄丢中文）
+    let raw = html;
+    raw.contains("未加入")
+        || raw.contains("请先加入")
+        || raw.contains("不在该班")
+        || raw.contains("不是该班")
+        || raw.contains("无权访问")
+        || raw.contains("无权限")
+        || raw.contains("未选课")
+        || raw.contains("已退课")
+        || raw.contains("你还没有加入")
+        || raw.contains("尚未加入")
+        || h.contains("not in class")
+        || h.contains("not join")
+        || h.contains("no permission")
+        || h.contains("access denied")
+}
+
+/// 推断 membership：ok | not_joined | unknown
+fn infer_list_membership(html: &str, resource_count: usize) -> &'static str {
+    if looks_like_not_joined_html(html) {
+        return "not_joined";
+    }
+    // 有资料行 → 肯定在班
+    if resource_count > 0 {
+        return "ok";
+    }
+    // 空列表但页面含资料区/班级壳 → 多半仍在班
+    let h = html.to_ascii_lowercase();
+    if h.contains("databody")
+        || h.contains("databody_td")
+        || h.contains("coursedata")
+        || h.contains("stu-datalist")
+        || html.contains("班级资料")
+        || html.contains("课程资料")
+    {
+        return "ok";
+    }
+    // 极短错误页 / 无资料结构
+    if html.len() < 400 || h.contains("error") || h.contains("404") {
+        return "unknown";
+    }
+    "unknown"
+}
+
 /// 确保门户 SSO → 学习通会话可用（走统一会话层，可静默续期，禁止 force 全量课程）。
 pub async fn ensure_sso_session(
     client: &mut HbutClient,
@@ -994,6 +1042,7 @@ pub async fn list_resources(
     let cpi = if !page_cpi.is_empty() { page_cpi } else { cpi };
 
     let resources = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi);
+    let membership = infer_list_membership(&html, resources.len());
 
     Ok(json!({
         "success": true,
@@ -1005,6 +1054,8 @@ pub async fn list_resources(
         "count": resources.len(),
         "resources": resources,
         "list_url": list_url,
+        // #360：前端据此区分「空资料」与「未入班/已退课」
+        "membership": membership,
     }))
 }
 
@@ -2028,6 +2079,23 @@ mod tests {
         assert!(!looks_like_login_html(
             r#"<input id="courseId" value="1" /><div class="course-name">x</div>"#
         ));
+    }
+
+    #[test]
+    fn detect_not_joined_and_membership() {
+        assert!(looks_like_not_joined_html("你还没有加入该课程，请先加入"));
+        assert!(!looks_like_not_joined_html(
+            r#"<ul class="dataBody_td" id="1"></ul>"#
+        ));
+        assert_eq!(
+            infer_list_membership("请先加入班级后再查看资料", 0),
+            "not_joined"
+        );
+        assert_eq!(
+            infer_list_membership(r#"<ul class="dataBody_td" id="x"></ul>班级资料"#, 0),
+            "ok"
+        );
+        assert_eq!(infer_list_membership(r#"<ul class="dataBody_td"></ul>"#, 3), "ok");
     }
 
     #[test]

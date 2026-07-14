@@ -41,6 +41,16 @@ const defaultConfig = {
     secret_ref: 'kv1-main',
     timeout_ms: 12000,
     cooldown_seconds: 180
+  },
+  // #360 学习通资料库（邀请码/课程，导出到 remote_config.json）
+  chaoxing_class: {
+    enabled: true,
+    invite_code: '73202625',
+    course_id: '264356359',
+    clazz_id: '148246853',
+    course_name: '库来西库',
+    teacher_name: '周金阳',
+    cpi: '509967218'
   }
 }
 
@@ -98,6 +108,17 @@ const ensureStruct = () => {
   config.value.cloud_sync.secret_ref = String(
     config.value.cloud_sync.secret_ref || defaultConfig.cloud_sync.secret_ref
   ).trim()
+  if (!config.value.chaoxing_class || typeof config.value.chaoxing_class !== 'object') {
+    config.value.chaoxing_class = { ...defaultConfig.chaoxing_class }
+  }
+  const cx = config.value.chaoxing_class
+  cx.enabled = cx.enabled !== false
+  cx.invite_code = String(cx.invite_code || cx.inviteCode || defaultConfig.chaoxing_class.invite_code).trim()
+  cx.course_id = String(cx.course_id || cx.courseId || defaultConfig.chaoxing_class.course_id).trim()
+  cx.clazz_id = String(cx.clazz_id || cx.clazzId || defaultConfig.chaoxing_class.clazz_id).trim()
+  cx.course_name = String(cx.course_name || cx.courseName || defaultConfig.chaoxing_class.course_name).trim()
+  cx.teacher_name = String(cx.teacher_name || cx.teacherName || defaultConfig.chaoxing_class.teacher_name).trim()
+  cx.cpi = String(cx.cpi || defaultConfig.chaoxing_class.cpi).trim()
 }
 
 const addNotice = () => {
@@ -122,6 +143,13 @@ const loadRemoteConfig = async () => {
 
 const exportJson = async () => {
   ensureStruct()
+  const invite = String(config.value.chaoxing_class?.invite_code || '').trim()
+  if (!invite) {
+    jsonError.value = '学习通邀请码不能为空'
+    showToast('请填写学习通邀请码后再导出', 'error')
+    return
+  }
+  jsonError.value = ''
   const data = JSON.stringify(config.value, null, 2)
   rawJson.value = data
   try {
@@ -248,6 +276,43 @@ onMounted(() => {
         <label>
           同步冷却（秒）
           <input v-model.number="config.cloud_sync.cooldown_seconds" type="number" min="30" max="3600" step="10" />
+        </label>
+      </div>
+    </section>
+
+    <section class="editor-card">
+      <h3>学习通资料库</h3>
+      <p class="hint">
+        配置目标班级邀请码与课程元数据。导出 remote_config.json 并推送到远程配置仓库后，客户端会用此邀请码引导用户入班。
+      </p>
+      <div class="form-grid">
+        <label class="toggle">
+          <input v-model="config.chaoxing_class.enabled" type="checkbox" />
+          启用学习通资料库
+        </label>
+        <label>
+          邀请码（必填）
+          <input v-model="config.chaoxing_class.invite_code" placeholder="73202625" />
+        </label>
+        <label>
+          课程 ID（course_id）
+          <input v-model="config.chaoxing_class.course_id" placeholder="264356359" />
+        </label>
+        <label>
+          班级 ID（clazz_id）
+          <input v-model="config.chaoxing_class.clazz_id" placeholder="148246853" />
+        </label>
+        <label>
+          课程名称
+          <input v-model="config.chaoxing_class.course_name" placeholder="库来西库" />
+        </label>
+        <label>
+          教师名称
+          <input v-model="config.chaoxing_class.teacher_name" placeholder="周金阳" />
+        </label>
+        <label>
+          cpi（可选）
+          <input v-model="config.chaoxing_class.cpi" placeholder="509967218" />
         </label>
       </div>
     </section>
@@ -381,6 +446,13 @@ onMounted(() => {
 .editor-card h3 {
   margin: 0 0 10px;
   color: #0f172a;
+}
+
+.editor-card .hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
 }
 
 .form-grid {
