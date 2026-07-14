@@ -104,6 +104,14 @@ auth.hbut.edu.cn (CASTGC / TGT)
 4. **`CASTGC` 是静默续期枢纽**：务必从 auth 域导出并 hydrate，否则 7 天后只能重登门户。  
 5. **超星教务 `jw_uf` 仅 2 小时**：列表/成绩接口宜短周期重登或用学习通 SSO 重刷，不能指望数天免登。  
 
+### 客户端续期策略（实现）
+
+| 票种 | 策略 |
+|------|------|
+| 学习通 7 天票 | `ensure_chaoxing_sso`：jar 有 UID+token 则 `cookie_reuse`；进程内 7 天 SSO 缓存；30 分钟内跳过网络探针 |
+| 教务 jw_uf 2h | `ensure_chaoxing_academic_session`：90 分钟 soft TTL；过期先 `getMenuList` 探针，失败再 xxtlogin 续期 |
+| keep-alive | `refresh_session` 成功后顺带补 jw 短票并 `persist_session_cookies` |
+
 关键 cookie 名：
 
 - 门户：`CASTGC`, `happyVoyage`, `MOD_AUTH_CAS`

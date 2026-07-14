@@ -20,9 +20,12 @@ use crate::modules::online_learning;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
-/// 缓存有效期：对齐「浏览器开着就尽量复用」的预期。
-/// 4 分钟过短会导致用户短暂离开后误判会话失效；cookie 仍有效时应直接复用。
-const SSO_TTL: Duration = Duration::from_secs(60 * 60);
+/// 进程内 SSO 缓存：桥接成功后默认 1 小时（仍会以 cookie 为准）。
+const SSO_TTL_BRIDGE: Duration = Duration::from_secs(60 * 60);
+/// 学习通长效 cookie（UID/cx_p_token 约 7 天）命中后：进程内尽量复用，避免反复 CAS。
+const SSO_TTL_COOKIE_REUSE: Duration = Duration::from_secs(60 * 60 * 24 * 7);
+/// 有长效票时，探针结果缓存时长（避免每次进模块打网络）
+const COOKIE_PROBE_TTL: Duration = Duration::from_secs(30 * 60);
 /// 静默重登节流，避免验证码风暴
 const SILENT_RELOGIN_COOLDOWN: Duration = Duration::from_secs(45);
 
@@ -77,6 +80,8 @@ struct SsoRuntime {
     last_silent_relogin_at: Option<Instant>,
     /// 进程内去重：同时只允许一次完整 ensure
     in_flight: bool,
+    /// 最近一次学习通 cookie 探针成功时间（用于 7 天票快速复用）
+    last_cookie_probe_ok_at: Option<Instant>,
 }
 
 static SSO_RUNTIME: Mutex<SsoRuntime> = Mutex::new(SsoRuntime {
@@ -96,6 +101,7 @@ static SSO_RUNTIME: Mutex<SsoRuntime> = Mutex::new(SsoRuntime {
     },
     last_silent_relogin_at: None,
     in_flight: false,
+    last_cookie_probe_ok_at: None,
 });
 
 fn diag_path() -> Option<PathBuf> {
@@ -110,13 +116,31 @@ fn persist_diag(diag: &ChaoxingSsoDiag) {
     }
 }
 
-fn mark_ready(diag: ChaoxingSsoDiag) {
+fn mark_ready_with_ttl(diag: ChaoxingSsoDiag, ttl: Duration) {
     if let Ok(mut rt) = SSO_RUNTIME.lock() {
-        rt.ready_until = Some(Instant::now() + SSO_TTL);
+        rt.ready_until = Some(Instant::now() + ttl);
         rt.last_diag = diag.clone();
         rt.in_flight = false;
+        if diag.ok {
+            rt.last_cookie_probe_ok_at = Some(Instant::now());
+        }
     }
     persist_diag(&diag);
+}
+
+fn note_cookie_probe_ok() {
+    if let Ok(mut rt) = SSO_RUNTIME.lock() {
+        rt.last_cookie_probe_ok_at = Some(Instant::now());
+    }
+}
+
+fn recent_cookie_probe_ok() -> bool {
+    SSO_RUNTIME
+        .lock()
+        .ok()
+        .and_then(|rt| rt.last_cookie_probe_ok_at)
+        .map(|at| at.elapsed() < COOKIE_PROBE_TTL)
+        .unwrap_or(false)
 }
 
 fn mark_fail(diag: ChaoxingSsoDiag) {
@@ -159,7 +183,7 @@ pub fn get_sso_diag() -> Value {
     read_last_diag().to_json()
 }
 
-fn cookie_flags(client: &HbutClient) -> (bool, bool) {
+fn cookie_blob(client: &HbutClient) -> String {
     let mut blob = String::new();
     for host in [
         "https://passport2.chaoxing.com",
@@ -178,9 +202,25 @@ fn cookie_flags(client: &HbutClient) -> (bool, bool) {
             }
         }
     }
+    blob
+}
+
+fn cookie_flags(client: &HbutClient) -> (bool, bool) {
+    let blob = cookie_blob(client);
     let has_uid = blob.contains("UID=") || blob.contains("_uid=");
     let has_jw = blob.contains("jw_uf=");
     (has_uid, has_jw)
+}
+
+/// 学习通约 7 天长效票是否已在 jar 中（无需 CAS 即可尝试复用）
+fn has_long_lived_chaoxing_ticket(client: &HbutClient) -> bool {
+    let blob = cookie_blob(client);
+    let has_uid = blob.contains("UID=") || blob.contains("_uid=");
+    let has_token = blob.contains("cx_p_token=")
+        || blob.contains("p_auth_token=")
+        || blob.contains("xxtenc=")
+        || blob.contains("uf=");
+    has_uid && has_token
 }
 
 fn password_nonempty(raw: &str) -> Option<String> {
@@ -534,6 +574,10 @@ pub async fn ensure_chaoxing_sso(
                 hit.has_uid = has_uid;
                 hit.has_jw = has_jw;
                 hit.from_cache = true;
+                // 短票可能已过 2h：缓存命中时后台轻量续 jw_uf（不阻塞返回）
+                if has_uid && !has_jw {
+                    let _ = client.ensure_chaoxing_academic_session().await;
+                }
                 return Ok(json!({
                     "success": true,
                     "sso": true,
@@ -544,10 +588,19 @@ pub async fn ensure_chaoxing_sso(
             }
         }
 
-        // 缓存过期但学习通 cookie 仍在：优先探针复用，避免无谓 CAS 桥接/误报失效
+        // 7 天长效票在 jar 中：优先复用，跳过 CAS
         let (has_uid, has_jw) = cookie_flags(client);
         if has_uid {
-            if probe_chaoxing_ready(client).await {
+            let long_lived = has_long_lived_chaoxing_ticket(client);
+            // 近期探针成功 + 长效票 → 零网络秒开
+            let trust_without_probe = long_lived && recent_cookie_probe_ok();
+            let probe_ok = if trust_without_probe {
+                true
+            } else {
+                probe_chaoxing_ready(client).await
+            };
+            if probe_ok {
+                note_cookie_probe_ok();
                 let diag = ChaoxingSsoDiag {
                     ok: true,
                     bridged: false,
@@ -561,7 +614,9 @@ pub async fn ensure_chaoxing_sso(
                     preheated: opts.preheated,
                     at_ms: now_unix_ms(),
                 };
-                mark_ready(diag.clone());
+                mark_ready_with_ttl(diag.clone(), SSO_TTL_COOKIE_REUSE);
+                // 学习通票有效时补教务 2h 短票（jw_uf）
+                let jw_ok = client.ensure_chaoxing_academic_session().await;
                 if !sid.is_empty() {
                     client.persist_session_cookies(&sid);
                 }
@@ -570,8 +625,15 @@ pub async fn ensure_chaoxing_sso(
                     "sso": true,
                     "from_cache": true,
                     "cookie_reuse": true,
+                    "long_lived_ticket": long_lived,
+                    "jw_short_ticket": jw_ok,
+                    "skipped_probe": trust_without_probe,
                     "diag": diag.to_json(),
-                    "hint": "学习通 cookie 仍有效，已复用（无需重桥接）",
+                    "hint": if trust_without_probe {
+                        "学习通 7 天票进程内复用（跳过探针）"
+                    } else {
+                        "学习通 cookie 仍有效，已复用（无需重桥接）"
+                    },
                 }));
             }
         }
@@ -649,7 +711,10 @@ pub async fn ensure_chaoxing_sso(
             preheated: opts.preheated,
             at_ms: now_unix_ms(),
         };
-        mark_ready(diag.clone());
+        mark_ready_with_ttl(diag.clone(), SSO_TTL_BRIDGE);
+        note_cookie_probe_ok();
+        // 桥接后立刻补超星教务 2h 短票（jw_uf）
+        let jw_ok = client.ensure_chaoxing_academic_session().await;
         // 桥接成功后落盘全域 cookie（#348 长效会话）
         if !sid.is_empty() {
             client.persist_session_cookies(&sid);
@@ -661,6 +726,7 @@ pub async fn ensure_chaoxing_sso(
             "silent_relogin": silent_used,
             "from_cache": false,
             "preheated": opts.preheated,
+            "jw_short_ticket": jw_ok,
             "diag": diag.to_json(),
             "hint": if silent_used {
                 "静默重登门户后 SSO 成功"
@@ -753,5 +819,7 @@ pub fn invalidate_sso_cache() {
         rt.ready_until = None;
         rt.last_diag.ok = false;
         rt.in_flight = false;
+        rt.last_cookie_probe_ok_at = None;
     }
+    crate::http_client::HbutClient::invalidate_jw_uf_soft_ttl();
 }

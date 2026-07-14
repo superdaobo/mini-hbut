@@ -15,7 +15,13 @@ use reqwest::cookie::CookieStore;
 use reqwest::Url;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+/// 超星教务 jw_uf 实测约 2 小时；在 90 分钟内进程内视为仍新鲜，避免无谓 xxtlogin。
+const JW_UF_SOFT_TTL: Duration = Duration::from_secs(90 * 60);
+
+static JW_UF_READY_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
 
 fn normalize_cookie_blob(raw: &str) -> String {
     raw.replace('\r', "")
@@ -135,42 +141,95 @@ fn collect_chaoxing_xxtlogin_urls(html: &str) -> Vec<String> {
 }
 
 impl HbutClient {
+    pub fn invalidate_jw_uf_soft_ttl() {
+        if let Ok(mut g) = JW_UF_READY_UNTIL.lock() {
+            *g = None;
+        }
+    }
+
+    fn mark_jw_uf_soft_fresh() {
+        if let Ok(mut g) = JW_UF_READY_UNTIL.lock() {
+            *g = Some(Instant::now() + JW_UF_SOFT_TTL);
+        }
+    }
+
+    fn jw_uf_soft_fresh() -> bool {
+        JW_UF_READY_UNTIL
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .map(|until| Instant::now() < until)
+            .unwrap_or(false)
+    }
+
+    fn chaoxing_cookie_header(&self, origin: &str) -> String {
+        Url::parse(origin)
+            .ok()
+            .and_then(|url| self.cookie_jar.cookies(&url))
+            .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    fn has_chaoxing_learning_cookies(&self) -> bool {
+        let passport = self.chaoxing_cookie_header("https://passport2.chaoxing.com");
+        let i = self.chaoxing_cookie_header("https://i.chaoxing.com");
+        let blob = format!("{};{}", passport, i);
+        (blob.contains("UID=") || blob.contains("_uid="))
+            && (blob.contains("cx_p_token=")
+                || blob.contains("p_auth_token=")
+                || blob.contains("xxtenc=")
+                || blob.contains("uf="))
+    }
+
+    fn has_jw_uf_pair(&self) -> bool {
+        let jw = self.chaoxing_cookie_header("https://hbut.jw.chaoxing.com");
+        jw.contains("jw_uf=") && jw.contains("username=")
+    }
+
+    /// 轻量探测 jw_uf 是否仍被服务端接受（比完整 xxtlogin 便宜）
+    async fn probe_jw_uf_alive(&self) -> bool {
+        let resp = self
+            .client
+            .post("https://hbut.jw.chaoxing.com/admin/getMenuList")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Origin", "https://hbut.jw.chaoxing.com")
+            .header("Referer", "https://hbut.jw.chaoxing.com/admin/")
+            .send()
+            .await;
+        match resp {
+            Ok(r) => {
+                let status = r.status();
+                let final_url = r.url().to_string();
+                let _ = r.text().await;
+                status.is_success() && !super::looks_like_academic_login_url(&final_url)
+            }
+            Err(_) => false,
+        }
+    }
+
     /// 学习通登录后补齐教务票据链，确保 `hbut.jw.chaoxing.com` 接口可直接访问。
+    /// 短票 jw_uf 约 2 小时：90 分钟内进程复用；过期则走 xxtlogin 轻量续期（不重登学习通）。
     pub async fn ensure_chaoxing_academic_session(&self) -> bool {
-        if !self.prefer_chaoxing_jwxt {
+        let has_learning = self.has_chaoxing_learning_cookies();
+        if !self.prefer_chaoxing_jwxt && !has_learning {
             return false;
         }
+        // 冷启动 hydrate 出学习通 cookie 时，也允许补教务短票
+        if has_learning && !self.prefer_chaoxing_jwxt {
+            // prefer 标志可能尚未设置
+            // 不直接 mutate self（&self）；桥接路径在 try_bridge 里会 set
+        }
 
-        let has_ready_cookie = || {
-            let jw_raw = Url::parse("https://hbut.jw.chaoxing.com")
-                .ok()
-                .and_then(|url| self.cookie_jar.cookies(&url))
-                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
-                .unwrap_or_default();
-            let has_jw = jw_raw.contains("jw_uf=") && jw_raw.contains("username=");
-            if !has_jw {
-                return false;
+        if self.has_jw_uf_pair() {
+            if Self::jw_uf_soft_fresh() {
+                return true;
             }
-            let passport_raw = Url::parse("https://passport2.chaoxing.com")
-                .ok()
-                .and_then(|url| self.cookie_jar.cookies(&url))
-                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
-                .unwrap_or_default();
-            let i_raw = Url::parse("https://i.chaoxing.com")
-                .ok()
-                .and_then(|url| self.cookie_jar.cookies(&url))
-                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
-                .unwrap_or_default();
-            [passport_raw.as_str(), i_raw.as_str(), jw_raw.as_str()]
-                .iter()
-                .any(|cookie| {
-                    cookie.contains("p_auth_token=")
-                        || cookie.contains("cx_p_token=")
-                        || cookie.contains("xxtenc=")
-                })
-        };
-        if has_ready_cookie() {
-            return true;
+            if self.probe_jw_uf_alive().await {
+                Self::mark_jw_uf_soft_fresh();
+                println!("[调试] 教务短票 jw_uf 探针仍有效，跳过 xxtlogin");
+                return true;
+            }
+            println!("[调试] 教务短票 jw_uf 已失效（约 2h），开始 xxtlogin 续期");
         }
 
         let base_url = format!(
@@ -306,6 +365,9 @@ impl HbutClient {
             has_learning_uid,
             has_learning_token
         );
+        if ready {
+            Self::mark_jw_uf_soft_fresh();
+        }
         ready
     }
 
@@ -620,6 +682,20 @@ impl HbutClient {
 
         // 自动预热 SSO Token (如电费)
         let _ = self.ensure_electricity_token().await;
+
+        // 学习通 7 天票仍在时，顺带续超星教务 2h 短票（不阻塞失败）
+        if self.prefer_chaoxing_jwxt || self.has_chaoxing_learning_cookies() {
+            let jw_ok = self.ensure_chaoxing_academic_session().await;
+            println!("[session] keep-alive 教务短票续期: {}", jw_ok);
+            if let Some(sid) = self
+                .user_info
+                .as_ref()
+                .map(|u| u.student_id.clone())
+                .filter(|s| !s.trim().is_empty())
+            {
+                self.persist_session_cookies(&sid);
+            }
+        }
 
         Ok(user_info)
     }
@@ -1074,5 +1150,6 @@ impl HbutClient {
         if let Some(path) = Self::cookie_snapshot_path() {
             let _ = std::fs::remove_file(path);
         }
+        Self::invalidate_jw_uf_soft_ttl();
     }
 }
