@@ -205,8 +205,8 @@ fn looks_like_not_joined_html(html: &str) -> bool {
         || h.contains("access denied")
 }
 
-/// 推断 membership：ok | not_joined | unknown
-fn infer_list_membership(html: &str, resource_count: usize) -> &'static str {
+/// 仅从 HTML 启发式推断 membership（会把空壳资料页误判为 ok，需配合 backclazzdata）
+fn infer_list_membership_from_html(html: &str, resource_count: usize) -> &'static str {
     if looks_like_not_joined_html(html) {
         return "not_joined";
     }
@@ -214,22 +214,153 @@ fn infer_list_membership(html: &str, resource_count: usize) -> &'static str {
     if resource_count > 0 {
         return "ok";
     }
-    // 空列表但页面含资料区/班级壳 → 多半仍在班
+    // 空列表但页面含资料区/班级壳 → HTML 侧多半仍像「在班」（退课后也可能如此）
     let h = html.to_ascii_lowercase();
     if h.contains("databody")
         || h.contains("databody_td")
-        || h.contains("coursedata")
-        || h.contains("stu-datalist")
-        || html.contains("班级资料")
-        || html.contains("课程资料")
+        || h.contains("downloadData")
+        || h.contains("objectid")
+        || html.contains("教师课件")
     {
         return "ok";
     }
-    // 极短错误页 / 无资料结构
+    // 仅有通用 coursedata 字样不再视为在班
     if html.len() < 400 || h.contains("error") || h.contains("404") {
         return "unknown";
     }
     "unknown"
+}
+
+/// 合并 HTML 启发式与课程列表权威结果。
+/// 课程列表明确不在班时优先 not_joined（解决退课后空壳仍显示「暂无资料」）。
+fn resolve_membership(
+    html_membership: &'static str,
+    enrolled: Option<bool>,
+) -> &'static str {
+    match enrolled {
+        Some(false) => "not_joined",
+        Some(true) => {
+            if html_membership == "not_joined" {
+                // 列表有课但资料页明确未加入文案 → 仍以页面为准
+                "not_joined"
+            } else {
+                "ok"
+            }
+        }
+        None => html_membership,
+    }
+}
+
+/// 从 backclazzdata 解析 (course_id, clazz_id) 列表
+fn parse_backclazz_pairs(payload: &Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let Some(channel_list) = payload.get("channelList").and_then(|c| c.as_array()) else {
+        return out;
+    };
+    for item in channel_list {
+        let Some(content) = item.get("content") else {
+            continue;
+        };
+        let course = content.get("course").unwrap_or(content);
+        let course_id = course
+            .get("data")
+            .and_then(|d| d.get(0))
+            .and_then(|d| d.get("id"))
+            .map(|v| match v {
+                Value::Number(n) => n.to_string(),
+                Value::String(s) => s.trim().to_string(),
+                _ => String::new(),
+            })
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                course.get("courseId").map(|v| match v {
+                    Value::Number(n) => n.to_string(),
+                    Value::String(s) => s.trim().to_string(),
+                    _ => String::new(),
+                })
+            })
+            .unwrap_or_default();
+        let clazz_id = content
+            .get("id")
+            .map(|v| match v {
+                Value::Number(n) => n.to_string(),
+                Value::String(s) => s.trim().to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        if !course_id.is_empty() && !clazz_id.is_empty() {
+            out.push((course_id, clazz_id));
+        }
+    }
+    out
+}
+
+fn json_result_ok(payload: &Value) -> bool {
+    match payload.get("result") {
+        Some(Value::Bool(true)) => true,
+        Some(Value::Number(n)) => n.as_i64() == Some(1) || n.as_u64() == Some(1),
+        Some(Value::String(s)) => {
+            let t = s.trim();
+            t == "1" || t.eq_ignore_ascii_case("true") || t == "success"
+        }
+        _ => match payload.get("status") {
+            Some(Value::Bool(true)) => true,
+            Some(Value::Number(n)) => n.as_i64() == Some(1),
+            _ => false,
+        },
+    }
+}
+
+/// 查询学生是否仍在指定课程/班级（权威：mycourse/backclazzdata）
+/// - Some(true) 在班
+/// - Some(false) 明确不在班（含已退课）
+/// - None 接口失败/无法判断
+async fn is_student_enrolled_in_clazz(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+) -> Option<bool> {
+    let course_id = course_id.trim();
+    let clazz_id = clazz_id.trim();
+    if course_id.is_empty() || clazz_id.is_empty() {
+        return None;
+    }
+    let url = "https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1";
+    let resp = client
+        .client
+        .get(url)
+        .header("Accept", "application/json, text/plain, */*")
+        .header("Referer", "https://i.chaoxing.com/base")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
+        .send()
+        .await
+        .ok()?;
+    let final_url = resp.url().to_string();
+    if looks_like_login_url(&final_url) {
+        return None;
+    }
+    let text = resp.text().await.ok()?;
+    if looks_like_login_html(&text) {
+        return None;
+    }
+    let payload: Value = serde_json::from_str(&text).ok()?;
+    if !json_result_ok(&payload) {
+        // 某些账号 result 字段异常但仍有 channelList
+        if payload.get("channelList").and_then(|c| c.as_array()).is_none() {
+            return None;
+        }
+    }
+    let pairs = parse_backclazz_pairs(&payload);
+    // 能成功解析接口：列表中须同时命中 course_id + clazz_id
+    let enrolled = pairs
+        .iter()
+        .any(|(c, z)| c == course_id && z == clazz_id);
+    // 仅有 course 无 clazz 精确匹配时：同 course 也视为仍在课（退课通常两者都消失）
+    let enrolled = enrolled || pairs.iter().any(|(c, _)| c == course_id);
+    Some(enrolled)
 }
 
 /// 确保门户 SSO → 学习通会话可用（走统一会话层，可静默续期，禁止 force 全量课程）。
@@ -269,8 +400,14 @@ pub async fn ensure_sso_session(
     }
 }
 
-/// 探测是否已能访问班级资料（表示已入班且 cookie 有效）
+/// 探测是否已在班（优先课程列表；退课后空壳资料页不能当已入班）
 async fn probe_class_accessible(client: &HbutClient, course_id: &str, clazz_id: &str) -> bool {
+    // 权威：是否出现在「我的课程」backclazzdata
+    if let Some(enrolled) = is_student_enrolled_in_clazz(client, course_id, clazz_id).await {
+        return enrolled;
+    }
+
+    // 课程列表不可用时的 HTML 兜底（更严格，避免退课后空壳误判）
     let t = now_ms();
     let list_url = format!(
         "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi=0&ut=s&t={}",
@@ -297,12 +434,14 @@ async fn probe_class_accessible(client: &HbutClient, course_id: &str, clazz_id: 
     if looks_like_login_html(&html) {
         return false;
     }
-    // 资料页特征：dataBody / 下载 / 教师课件 等
-    html.contains("dataBody")
+    if looks_like_not_joined_html(&html) {
+        return false;
+    }
+    // 必须有真实资料行特征，不能只凭 coursedata 字样
+    html.contains("dataBody_td")
         || html.contains("downloadData")
-        || html.contains("coursedata")
-        || html.contains("objectid")
-        || html.contains("资料")
+        || html.contains("objectid=")
+        || html.contains("教师课件")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1042,7 +1181,14 @@ pub async fn list_resources(
     let cpi = if !page_cpi.is_empty() { page_cpi } else { cpi };
 
     let resources = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi);
-    let membership = infer_list_membership(&html, resources.len());
+    let html_membership = infer_list_membership_from_html(&html, resources.len());
+    // 根目录列表时用课程列表校正：退课后 HTML 仍可能是空壳「暂无资料」
+    let enrolled = if parent_id.is_none() {
+        is_student_enrolled_in_clazz(client, course_id, clazz_id).await
+    } else {
+        None
+    };
+    let membership = resolve_membership(html_membership, enrolled);
 
     Ok(json!({
         "success": true,
@@ -1056,6 +1202,8 @@ pub async fn list_resources(
         "list_url": list_url,
         // #360：前端据此区分「空资料」与「未入班/已退课」
         "membership": membership,
+        "enrolled": enrolled,
+        "membership_html": html_membership,
     }))
 }
 
@@ -2088,14 +2236,45 @@ mod tests {
             r#"<ul class="dataBody_td" id="1"></ul>"#
         ));
         assert_eq!(
-            infer_list_membership("请先加入班级后再查看资料", 0),
+            infer_list_membership_from_html("请先加入班级后再查看资料", 0),
             "not_joined"
         );
         assert_eq!(
-            infer_list_membership(r#"<ul class="dataBody_td" id="x"></ul>班级资料"#, 0),
+            infer_list_membership_from_html(r#"<ul class="dataBody_td" id="x"></ul>班级资料"#, 0),
             "ok"
         );
-        assert_eq!(infer_list_membership(r#"<ul class="dataBody_td"></ul>"#, 3), "ok");
+        assert_eq!(
+            infer_list_membership_from_html(r#"<ul class="dataBody_td"></ul>"#, 3),
+            "ok"
+        );
+        // 退课后：课程列表明确不在班 → 即使 HTML 像空资料页也是 not_joined
+        assert_eq!(
+            resolve_membership("ok", Some(false)),
+            "not_joined"
+        );
+        assert_eq!(resolve_membership("unknown", Some(false)), "not_joined");
+        assert_eq!(resolve_membership("ok", Some(true)), "ok");
+        assert_eq!(resolve_membership("unknown", None), "unknown");
+    }
+
+    #[test]
+    fn parse_backclazz_pairs_matches_course() {
+        let payload = json!({
+            "result": 1,
+            "channelList": [{
+                "content": {
+                    "id": 148246853,
+                    "teacherfactor": "周金阳",
+                    "course": {
+                        "data": [{ "id": 264356359, "name": "库来西库" }]
+                    }
+                }
+            }]
+        });
+        let pairs = parse_backclazz_pairs(&payload);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].0, "264356359");
+        assert_eq!(pairs[0].1, "148246853");
     }
 
     #[test]

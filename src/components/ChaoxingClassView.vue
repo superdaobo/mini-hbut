@@ -58,6 +58,11 @@ const resources = ref([])
 const activeClass = ref(null)
 const showJoinDialog = ref(false)
 const joinDeclined = ref(false)
+/**
+ * 仅当「本地曾有入班记录 + 检测到已不在班」为 true。
+ * 新人首次进入永远走欢迎入班页，不展示「重新加入」文案。
+ */
+const needsRejoin = ref(false)
 const bootPhase = ref('init') // init | sso | preview | ready | error
 /** 文件夹导航栈：{ name, parent_data_id, folder_kind, data_name, parent_chain } */
 const folderStack = ref([])
@@ -90,6 +95,8 @@ const filterChip = ref('all')
 const thumbFailed = ref({})
 /** 目录导航请求序号：只应用最新一次结果，避免快速进出时陈旧失败覆盖 */
 let loadSeq = 0
+/** 入班成功后短时忽略 not_joined，避免学习通侧延迟导致刚加入又被清缓存 */
+let suppressNotJoinedUntil = 0
 
 const hasTauri = isTauriRuntime()
 
@@ -198,11 +205,16 @@ const markDeclined = () => {
   }
 }
 
-/** 未入班 / 已退班：清脏缓存并进入欢迎页（可选弹加入） */
-const enterNotJoinedState = async ({ openDialog = false, reason = '' } = {}) => {
+/**
+ * 进入未入班欢迎页。
+ * @param {{ openDialog?: boolean, reason?: string, rejoin?: boolean }} opts
+ * rejoin=true 仅用于「曾有 last-class 且识别到已退班」
+ */
+const enterNotJoinedState = async ({ openDialog = false, reason = '', rejoin = false } = {}) => {
   clearLastClass()
+  needsRejoin.value = !!rejoin
   error.value = ''
-  statusMsg.value = reason || ''
+  statusMsg.value = rejoin ? reason || '你已不在该班级，请重新加入' : ''
   preview.value = { ...classMeta.value }
   bootPhase.value = 'ready'
   loadingBoot.value = false
@@ -217,7 +229,13 @@ const enterNotJoinedState = async ({ openDialog = false, reason = '' } = {}) => 
 }
 
 const isNotJoinedSignal = (resOrMsg) => {
+  // 刚入班成功：忽略短暂 not_joined，防止 UI 又退回「已退出」
+  if (Date.now() < suppressNotJoinedUntil) return false
   if (resOrMsg && typeof resOrMsg === 'object') {
+    // 权威：backclazzdata 返回 enrolled=false（退课后资料页仍可能是空壳）
+    if (resOrMsg.enrolled === false || resOrMsg.enrolled === 0 || resOrMsg.enrolled === 'false') {
+      return true
+    }
     const m = String(resOrMsg.membership || '').toLowerCase()
     if (m === 'not_joined' || m === 'not-joined') return true
   }
@@ -281,6 +299,43 @@ const fetchPreview = async () => {
   return preview.value
 }
 
+/** 入班/重加成功后刷新资料页状态（避免仍停在「已退班」欢迎态） */
+const refreshAfterJoin = async (cls, statusText = '加入成功') => {
+  joinDeclined.value = false
+  needsRejoin.value = false
+  showJoinDialog.value = false
+  folderStack.value = []
+  resources.value = []
+  filterChip.value = 'all'
+  error.value = ''
+  preview.value = cls
+  activeClass.value = cls
+  saveLastClass(cls)
+  bootPhase.value = 'ready'
+  loadingBoot.value = false
+  statusMsg.value = statusText
+  // 学习通侧入班后资料页偶发仍短暂提示未加入，短时忽略以免立刻退回欢迎页
+  suppressNotJoinedUntil = Date.now() + 12_000
+  await loadResources()
+  // 若仍被误判清缓存，强制恢复已入班态再拉一次
+  if (!isJoined.value && cls?.course_id && cls?.clazz_id) {
+    needsRejoin.value = false
+    activeClass.value = cls
+    preview.value = cls
+    saveLastClass(cls)
+    bootPhase.value = 'ready'
+    statusMsg.value = statusText
+    suppressNotJoinedUntil = Date.now() + 12_000
+    await loadResources()
+  }
+  if (isJoined.value && !error.value) {
+    needsRejoin.value = false
+    statusMsg.value = resources.value.length
+      ? `共 ${resources.value.length} 项`
+      : statusText || '已在班级'
+  }
+}
+
 const handleJoinConfirm = async () => {
   loadingJoin.value = true
   error.value = ''
@@ -306,25 +361,21 @@ const handleJoinConfirm = async () => {
     if (!cls.course_id || !cls.clazz_id) {
       throw new Error('入班成功但未返回课程信息')
     }
-    preview.value = cls
-    activeClass.value = cls
-    saveLastClass(cls)
-    showJoinDialog.value = false
-    joinDeclined.value = false
-    statusMsg.value = res?.already_joined ? '你已在该班级' : '加入成功'
-    await loadResources()
+    await refreshAfterJoin(cls, res?.already_joined ? '你已在该班级' : '加入成功')
   } catch (e) {
     const msg = formatErr(e)
     if (msg.includes('已') && (msg.includes('加入') || msg.includes('在'))) {
-      if (preview.value?.course_id) {
-        activeClass.value = {
-          ...preview.value,
-          invite_code: inviteCode.value,
-          cpi: String(preview.value.cpi || defaultCpi())
-        }
-        saveLastClass(activeClass.value)
-        showJoinDialog.value = false
-        await loadResources()
+      const fallback = preview.value?.course_id
+        ? {
+            ...preview.value,
+            invite_code: inviteCode.value,
+            cpi: String(preview.value.cpi || defaultCpi())
+          }
+        : classMeta.value.course_id
+          ? { ...classMeta.value }
+          : null
+      if (fallback?.course_id && fallback?.clazz_id) {
+        await refreshAfterJoin(fallback, '你已在该班级')
         return
       }
     }
@@ -450,7 +501,12 @@ const loadResources = async () => {
       const msg1 = formatErr(e1)
       if (seq !== loadSeq) return
       if (isNotJoinedSignal(msg1) && !folderSnap) {
-        await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+        // 仅「曾经有 activeClass 缓存」才视为退课后重加
+        await enterNotJoinedState({
+          openDialog: true,
+          rejoin: true,
+          reason: '你已不在该班级，请重新加入'
+        })
         return
       }
       if (!isTransientListError(msg1)) throw e1
@@ -459,9 +515,13 @@ const loadResources = async () => {
       res = await invokeOnce()
     }
     if (seq !== loadSeq) return
-    // 后端 membership 信号：退课/未入班
+    // 后端 membership 信号：仅在已有本地入班上下文时走「重新加入」
     if (isNotJoinedSignal(res) && !folderSnap) {
-      await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+      await enterNotJoinedState({
+        openDialog: true,
+        rejoin: true,
+        reason: '你已不在该班级，请重新加入'
+      })
       return
     }
     if (res?.cpi && activeClass.value) {
@@ -477,7 +537,11 @@ const loadResources = async () => {
     if (seq !== loadSeq) return
     const msg = formatErr(e)
     if (isNotJoinedSignal(msg) && !folderSnap) {
-      await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+      await enterNotJoinedState({
+        openDialog: true,
+        rejoin: true,
+        reason: '你已不在该班级，请重新加入'
+      })
       return
     }
     error.value = isTransientListError(msg)
@@ -1033,15 +1097,16 @@ const metaLine = (item) => {
 }
 
 /**
- * #326 进入路径简化 + #360 远程配置/退课重加：
+ * #326 / #360 进入路径：
  * 1) 拉取远程 chaoxing_class 配置
- * 2) SSO（缓存优先）
- * 3) 本地已入班缓存可先露壳；拉资料时若 not_joined 则清缓存引导重加
- * 4) 否则最多一次入班确认
+ * 2) SSO
+ * 3) 有本地 last-class → 拉资料；若 not_joined 才进入「重新加入」
+ * 4) 新人（无 last-class）→ 永远欢迎入班页，不直连资料库、不展示重加文案
  */
 const boot = async () => {
   loadingBoot.value = true
   error.value = ''
+  needsRejoin.value = false
   try {
     const remote = await fetchRemoteConfig({ force: false }).catch(() => null)
     classConfig.value = getChaoxingClassConfig(remote || undefined)
@@ -1049,9 +1114,9 @@ const boot = async () => {
     classConfig.value = getChaoxingClassConfig()
   }
   loadDeclined()
-  let saved = loadLastClass()
+  const saved = loadLastClass()
 
-  // #351：有本地班级缓存时先露出资料页壳，SSO 在后台完成，避免整页卡「接入学习通」
+  // #351：有本地班级缓存时先露出资料页壳，SSO 在后台完成
   bootPhase.value = 'sso'
   ssoHint.value = '正在连接学习通会话…'
   if (saved) {
@@ -1067,14 +1132,18 @@ const boot = async () => {
     return
   }
 
+  // 有历史入班记录：拉资料；退课则 needsRejoin
   if (saved) {
     try {
       await loadResources()
-      // loadResources 内部可能已 enterNotJoinedState
     } catch (e) {
       const msg = formatErr(e)
       if (isNotJoinedSignal(msg)) {
-        await enterNotJoinedState({ openDialog: true, reason: '你已不在该班级，请重新加入' })
+        await enterNotJoinedState({
+          openDialog: true,
+          rejoin: true,
+          reason: '你已不在该班级，请重新加入'
+        })
       } else {
         error.value = msg
       }
@@ -1082,44 +1151,26 @@ const boot = async () => {
     return
   }
 
-  // 无本地缓存：用配置 meta 尝试直连（可能已在班）
-  if (classMeta.value.course_id && classMeta.value.clazz_id) {
-    activeClass.value = { ...classMeta.value }
-    bootPhase.value = 'ready'
-    loadingBoot.value = false
-    await loadResources()
-    // 若仍 isJoined（未触发 not_joined 清缓存）且无致命错误，保存缓存
-    if (isJoined.value && !error.value) {
-      saveLastClass(activeClass.value)
-      statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '已在班级'
-      return
-    }
-    // 已进入 not_joined 欢迎态，或资料页已有错误（网络等）→ 结束，勿误弹入班
-    if (!isJoined.value || error.value) {
-      return
-    }
-  }
-
+  // 新人：固定欢迎页 + 入班确认，绝不静默当「已入班」
   activeClass.value = null
+  resources.value = []
   error.value = ''
+  needsRejoin.value = false
+  preview.value = { ...classMeta.value }
+  bootPhase.value = 'ready'
+  loadingBoot.value = false
 
   if (joinDeclined.value) {
-    preview.value = { ...classMeta.value }
-    bootPhase.value = 'ready'
-    loadingBoot.value = false
+    statusMsg.value = ''
     return
   }
 
   try {
-    preview.value = { ...classMeta.value }
     void fetchPreview().catch(() => {})
     showJoinDialog.value = true
-    bootPhase.value = 'ready'
-    loadingBoot.value = false
   } catch (e) {
     error.value = formatErr(e)
     bootPhase.value = 'error'
-    loadingBoot.value = false
   }
 }
 
@@ -1132,15 +1183,6 @@ onMounted(() => {
   <div class="cx-page">
     <TPageHeader title="学习通" icon="menu_book" @back="emit('back')">
       <template v-if="isJoined" #actions>
-        <button
-          type="button"
-          class="cx-icon-btn"
-          :disabled="loadingJoin"
-          title="重新加入班级"
-          @click="reopenJoinDialog"
-        >
-          <span class="material-symbols-outlined">group_add</span>
-        </button>
         <button
           type="button"
           class="cx-icon-btn"
@@ -1270,9 +1312,7 @@ onMounted(() => {
                   ? '当前筛选下没有内容'
                   : currentFolder
                     ? '此文件夹为空'
-                    : statusMsg && statusMsg.includes('退')
-                      ? '若你已退课，可重新加入班级后查看资料'
-                      : '教师上传后将显示在这里。若已退课，可点下方重新加入'
+                    : '教师上传后将显示在这里'
               }}
             </p>
             <button
@@ -1282,16 +1322,6 @@ onMounted(() => {
               @click="handleBreadcrumb(folderStack.length - 1)"
             >
               返回上级
-            </button>
-            <!-- #360 根目录空列表：始终提供重新加入 CTA（不强制清缓存，避免真·无资料误伤） -->
-            <button
-              v-else-if="filterChip === 'all'"
-              type="button"
-              class="cx-btn primary"
-              :disabled="loadingJoin"
-              @click="reopenJoinDialog"
-            >
-              重新加入班级
             </button>
           </div>
 
@@ -1380,11 +1410,13 @@ onMounted(() => {
             </p>
             <div class="cx-welcome-actions">
               <button type="button" class="cx-btn primary lg" @click="reopenJoinDialog">
-                加入班级并查看资料
+                {{ needsRejoin ? '重新加入班级' : '加入班级并查看资料' }}
               </button>
             </div>
-            <p v-if="joinDeclined" class="cx-welcome-note">你之前选择了暂不加入，可随时再次加入。</p>
-            <p v-else-if="statusMsg" class="cx-welcome-note">{{ statusMsg }}</p>
+            <p v-if="needsRejoin" class="cx-welcome-note">
+              {{ statusMsg || '检测到你已不在该班级，可重新加入后查看资料。' }}
+            </p>
+            <p v-else-if="joinDeclined" class="cx-welcome-note">你之前选择了暂不加入，可随时再次加入。</p>
           </div>
         </section>
       </template>
@@ -1586,7 +1618,7 @@ onMounted(() => {
             <img v-if="coverUrl" :src="coverUrl" alt="" />
             <span v-else class="material-symbols-outlined fill">menu_book</span>
           </div>
-          <p class="cx-dialog-kicker">{{ statusMsg && statusMsg.includes('不在') ? '重新加入' : '加入班级' }}</p>
+          <p class="cx-dialog-kicker">{{ needsRejoin ? '重新加入' : '加入班级' }}</p>
           <h3 id="cx-join-title">是否加入班级？</h3>
           <p class="cx-dialog-course">{{ courseTitle || '班级' }}</p>
           <p v-if="teacherName" class="cx-dialog-teacher">教师 {{ teacherName }}</p>
@@ -1594,12 +1626,17 @@ onMounted(() => {
             加入后可浏览与下载本班资料。认证仅使用校园门户登录态，不会要求学习通密码。
           </p>
           <div class="cx-dialog-actions">
-            <button type="button" class="cx-btn ghost" :disabled="loadingJoin" @click="markDeclined">
+            <button
+              type="button"
+              class="cx-btn dialog-secondary"
+              :disabled="loadingJoin"
+              @click="markDeclined"
+            >
               暂不加入
             </button>
             <button
               type="button"
-              class="cx-btn primary"
+              class="cx-btn dialog-primary"
               :disabled="loadingJoin"
               @click="handleJoinConfirm"
             >
@@ -2789,5 +2826,41 @@ onMounted(() => {
 
 .cx-dialog-actions .cx-btn {
   flex: 1;
+  min-height: 44px;
+  border-radius: 10px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* 弹层双按钮：实心底，避免透明「悬浮」难认成按钮 */
+.cx-btn.dialog-secondary {
+  background: var(--cx-surface-high);
+  color: var(--cx-on);
+  border: 1px solid var(--cx-outline-var);
+}
+
+.cx-btn.dialog-secondary:hover:not(:disabled) {
+  background: var(--cx-surface-highest);
+}
+
+.cx-btn.dialog-primary {
+  background: var(--cx-primary);
+  color: #fff;
+  border: 1px solid transparent;
+}
+
+:global(html.dark) .cx-btn.dialog-primary {
+  background: var(--cx-primary-soft);
+  color: #0b1c3a;
+}
+
+.cx-btn.dialog-primary:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+:global(html.dark) .cx-btn.dialog-secondary {
+  background: var(--cx-surface-high);
+  color: var(--cx-on);
+  border-color: var(--cx-outline-var);
 }
 </style>
