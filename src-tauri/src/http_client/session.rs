@@ -720,7 +720,11 @@ impl HbutClient {
             ),
             ("i_chaoxing", "https://i.chaoxing.com", ".chaoxing.com"),
             ("mooc1", "https://mooc1.chaoxing.com", ".chaoxing.com"),
-            ("mooc2_ans", "https://mooc2-ans.chaoxing.com", ".chaoxing.com"),
+            (
+                "mooc2_ans",
+                "https://mooc2-ans.chaoxing.com",
+                ".chaoxing.com",
+            ),
             ("pan_yz", "https://pan-yz.chaoxing.com", ".chaoxing.com"),
             (
                 "mobilelearn",
@@ -763,10 +767,7 @@ impl HbutClient {
         }
         // 扩展域（新标签，restore_session 可识别 Key:）
         for (key, origin, _) in Self::session_cookie_domains() {
-            if matches!(
-                *key,
-                "code" | "auth" | "jwxt" | "chaoxing_jwxt"
-            ) {
+            if matches!(*key, "code" | "auth" | "jwxt" | "chaoxing_jwxt") {
                 continue;
             }
             let raw = self.cookie_header_for_origin(origin);
@@ -922,15 +923,9 @@ impl HbutClient {
                     if name.is_empty() || value.is_empty() {
                         continue;
                     }
-                    let path = item
-                        .get("path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("/");
+                    let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("/");
                     self.cookie_jar.add_cookie_str(
-                        &format!(
-                            "{}={}; Domain={}; Path={}",
-                            name, value, domain_attr, path
-                        ),
+                        &format!("{}={}; Domain={}; Path={}", name, value, domain_attr, path),
                         &url,
                     );
                 }
@@ -1064,11 +1059,7 @@ impl HbutClient {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
             // 新格式：按 session_cookie_domains 的 key 存
             for (key, origin, domain_attr) in Self::session_cookie_domains() {
-                let raw = json
-                    .get(*key)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim();
+                let raw = json.get(*key).and_then(|v| v.as_str()).unwrap_or("").trim();
                 if raw.is_empty() {
                     continue;
                 }
@@ -1085,9 +1076,18 @@ impl HbutClient {
                 }
             }
             // 旧格式兜底
-            let code = json.get("code").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let auth = json.get("auth").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let jwxt = json.get("jwxt").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let code = json
+                .get("code")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let auth = json
+                .get("auth")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let jwxt = json
+                .get("jwxt")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let cx = json
                 .get("chaoxing_jwxt")
                 .and_then(|v| v.as_str())

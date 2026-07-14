@@ -10,12 +10,14 @@ permissions:
   contents: write
 
 env:
-  MINI_HBUT_BUILD_PROFILE: release
-  CARGO_INCREMENTAL: 0
+  # Dev 构建优先速度：禁用 fat LTO / codegen-units=1（正式 release 仍用 src-tauri 默认极致体积配置）
+  # 实测 fat LTO 冷编 Windows 约 20–25min，thin+多 codegen 热编约 6–8min
+  MINI_HBUT_BUILD_PROFILE: dev-fast
+  CARGO_INCREMENTAL: 1
   CARGO_BUILD_JOBS: 8
-  CARGO_PROFILE_RELEASE_OPT_LEVEL: z
-  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
-  CARGO_PROFILE_RELEASE_LTO: fat
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: "2"
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
+  CARGO_PROFILE_RELEASE_LTO: "thin"
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_PROFILE_RELEASE_PANIC: abort
   CARGO_PROFILE_RELEASE_STRIP: symbols
@@ -377,7 +379,10 @@ jobs:
         with:
           workspaces: |
             ./src-tauri -> target
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          # 共享 key，避免 runner/分支细粒度 miss 导致冷编 20min+
+          shared-key: mini-hbut-dev-windows
+          # dev 推送与手动 workflow_dispatch 均写入缓存
+          save-if: ${{ github.ref == 'refs/heads/dev' || github.event_name == 'workflow_dispatch' }}
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -399,12 +404,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # MSI 要求 pre-release 数字 ≤65535（由 meta 的 beta_version 保证）。
-          # 若 MSI 仍失败，降级只打 NSIS，避免整 job 失败导致无 Windows 安装包。
-          if ! npm run tauri build -- --bundles nsis,msi; then
-            echo "::warning::nsis+msi 失败，降级为仅 NSIS"
-            npm run tauri build -- --bundles nsis
-          fi
+          # Dev：只打 NSIS（约 6–10min 量级）。
+          # 原因：1) fat LTO + MSI 曾把 Windows job 拉到 ~23min；2) nsis+msi 失败再整包重编会翻倍。
+          # 正式 MSI 仍在 release.yml 中构建。
+          npm run tauri build -- --bundles nsis
 
       - name: Report dist and raw Windows bundle size
         run: node scripts/report_bundle_sizes.mjs

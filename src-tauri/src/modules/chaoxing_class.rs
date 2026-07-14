@@ -231,10 +231,7 @@ fn infer_list_membership_from_html(html: &str, resource_count: usize) -> &'stati
 
 /// 合并 HTML 启发式与课程列表权威结果。
 /// 课程列表明确不在班时优先 not_joined（解决退课后空壳仍显示「暂无资料」）。
-fn resolve_membership(
-    html_membership: &'static str,
-    enrolled: Option<bool>,
-) -> &'static str {
+fn resolve_membership(html_membership: &'static str, enrolled: Option<bool>) -> &'static str {
     match enrolled {
         Some(false) => "not_joined",
         Some(true) => {
@@ -347,15 +344,17 @@ async fn is_student_enrolled_in_clazz(
     let payload: Value = serde_json::from_str(&text).ok()?;
     if !json_result_ok(&payload) {
         // 某些账号 result 字段异常但仍有 channelList
-        if payload.get("channelList").and_then(|c| c.as_array()).is_none() {
+        if payload
+            .get("channelList")
+            .and_then(|c| c.as_array())
+            .is_none()
+        {
             return None;
         }
     }
     let pairs = parse_backclazz_pairs(&payload);
     // 能成功解析接口：列表中须同时命中 course_id + clazz_id
-    let enrolled = pairs
-        .iter()
-        .any(|(c, z)| c == course_id && z == clazz_id);
+    let enrolled = pairs.iter().any(|(c, z)| c == course_id && z == clazz_id);
     // 仅有 course 无 clazz 精确匹配时：同 course 也视为仍在课（退课通常两者都消失）
     let enrolled = enrolled || pairs.iter().any(|(c, _)| c == course_id);
     Some(enrolled)
@@ -1195,7 +1194,11 @@ async fn fetch_datalist_student_or_teacher(
             client,
             &list_url,
             "https://mooc2-ans.chaoxing.com/",
-            if ut == "t" { "资料列表(教师)" } else { "资料列表" },
+            if ut == "t" {
+                "资料列表(教师)"
+            } else {
+                "资料列表"
+            },
         )
         .await
         {
@@ -1270,12 +1273,7 @@ async fn fetch_datalist_student_or_teacher(
                     last_err = Some(err_box("教师视角也无法访问该班级资料"));
                     continue;
                 }
-                return Ok((
-                    html,
-                    list_url,
-                    cpi_out,
-                    if ut == "t" { "t" } else { "s" },
-                ));
+                return Ok((html, list_url, cpi_out, if ut == "t" { "t" } else { "s" }));
             }
             Err(e) => {
                 last_err = Some(e);
@@ -1982,11 +1980,7 @@ async fn probe_download_meta(
 }
 
 /// 多分片并行（需 Accept-Ranges + Content-Length）
-async fn download_multipart(
-    client: &HbutClient,
-    url: &str,
-    total: u64,
-) -> Result<Vec<u8>, String> {
+async fn download_multipart(client: &HbutClient, url: &str, total: u64) -> Result<Vec<u8>, String> {
     if total == 0 || total > CX_MAX_BYTES as u64 {
         return Err("invalid total".into());
     }
@@ -2027,8 +2021,10 @@ async fn download_multipart(
                     Err(e) => last = e.to_string(),
                 }
                 if attempt < 2 {
-                    tokio::time::sleep(std::time::Duration::from_millis(300 * (attempt as u64 + 1)))
-                        .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        300 * (attempt as u64 + 1),
+                    ))
+                    .await;
                 }
             }
             Err(format!("part {} failed: {}", i, last))
@@ -2185,8 +2181,10 @@ pub async fn download_resource_bytes(
     cpi: Option<&str>,
     file_name: Option<&str>,
 ) -> Result<(Vec<u8>, String, String), DynError> {
-    download_resource_bytes_with_part(client, course_id, clazz_id, data_id, object_id, cpi, file_name, None)
-        .await
+    download_resource_bytes_with_part(
+        client, course_id, clazz_id, data_id, object_id, cpi, file_name, None,
+    )
+    .await
 }
 
 /// `part_path`：可选的本地未完成文件路径，用于断点续传
@@ -2226,8 +2224,7 @@ pub async fn download_resource_bytes_with_part(
 
         for url in try_urls {
             // 探测元数据：大文件多分片
-            let (content_len, accept_ranges, probe_cd, _) =
-                probe_download_meta(client, &url).await;
+            let (content_len, accept_ranges, probe_cd, _) = probe_download_meta(client, &url).await;
 
             let result = if accept_ranges
                 && content_len.unwrap_or(0) >= CX_MULTI_PART_MIN
@@ -2295,10 +2292,7 @@ pub async fn download_resource_bytes_with_part(
         }
     }
 
-    Err(err_box(format!(
-        "{}（已重试 {} 次）",
-        last_err, CX_RETRY
-    )))
+    Err(err_box(format!("{}（已重试 {} 次）", last_err, CX_RETRY)))
 }
 
 #[cfg(test)]
@@ -2366,10 +2360,7 @@ mod tests {
             "ok"
         );
         // 退课后：课程列表明确不在班 → 即使 HTML 像空资料页也是 not_joined
-        assert_eq!(
-            resolve_membership("ok", Some(false)),
-            "not_joined"
-        );
+        assert_eq!(resolve_membership("ok", Some(false)), "not_joined");
         assert_eq!(resolve_membership("unknown", Some(false)), "not_joined");
         assert_eq!(resolve_membership("ok", Some(true)), "ok");
         assert_eq!(resolve_membership("unknown", None), "unknown");
