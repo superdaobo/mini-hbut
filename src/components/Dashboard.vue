@@ -78,6 +78,82 @@ const maintenanceNotices = computed(() => {
   return pick(props.noticeList).slice(0, 3)
 })
 
+/**
+ * 会话状态点（替代启动时整块「正在恢复」横幅闪一下）：
+ * - red：未连上 / 失败 / 需登录；进首页先短时红点，避免一上来就绿/闪文案
+ * - blink：后台重连中（红绿交替）
+ * - green：已连上
+ * 详情面板仅用户点击状态点后展开，避免首屏打扰。
+ */
+const sessionDetailOpen = ref(false)
+/** 首屏 ~1.2s 内先显示红点，再落到真实状态（避免文案/绿点闪一下） */
+const sessionStatusBooting = ref(true)
+let sessionStatusBootTimer = null
+onMounted(() => {
+  sessionStatusBootTimer = window.setTimeout(() => {
+    sessionStatusBooting.value = false
+    sessionStatusBootTimer = null
+  }, 1200)
+})
+onBeforeUnmount(() => {
+  if (sessionStatusBootTimer) {
+    window.clearTimeout(sessionStatusBootTimer)
+    sessionStatusBootTimer = null
+  }
+})
+
+const sessionStatusVisual = computed(() => {
+  if (!props.isLoggedIn) return 'red'
+  const phase = String(props.jwxtRecoveryPhase || 'idle')
+  // 重连过程优先闪烁
+  if (phase === 'recovering') return 'blink'
+  if (props.jwxtMaintenance || phase === 'failed' || phase === 'need_login' || phase === 'maintenance') {
+    return 'red'
+  }
+  // 已在线：首屏短时仍显示红点，再变绿（不弹维护条）
+  if (sessionStatusBooting.value) return 'red'
+  return 'green'
+})
+
+const sessionStatusAria = computed(() => {
+  const v = sessionStatusVisual.value
+  if (v === 'green') return '会话已连接'
+  if (v === 'blink') return '正在重连会话，点击查看详情'
+  return '会话异常或未连接，点击查看详情'
+})
+
+const sessionStatusHint = computed(() => {
+  const v = sessionStatusVisual.value
+  if (v === 'green') return '已连接'
+  if (v === 'blink') return '重连中'
+  const phase = String(props.jwxtRecoveryPhase || '')
+  if (phase === 'need_login') return '需登录'
+  if (phase === 'failed') return '未连上'
+  if (props.jwxtMaintenance) return '异常'
+  return '未连上'
+})
+
+const onSessionStatusClick = (event) => {
+  event?.stopPropagation?.()
+  event?.preventDefault?.()
+  if (sessionStatusVisual.value === 'green') {
+    sessionDetailOpen.value = false
+    showToast('教务会话已连接', 'success', 1800)
+    return
+  }
+  sessionDetailOpen.value = !sessionDetailOpen.value
+}
+
+watch(
+  () => [props.jwxtMaintenance, props.jwxtRecoveryPhase, props.isLoggedIn],
+  () => {
+    // 连上后自动收起详情，避免绿点还挂着维护卡
+    if (sessionStatusVisual.value === 'green') {
+      sessionDetailOpen.value = false
+    }
+  }
+)
+
 const uiSettings = useUiSettings()
 
 const brokenImages = ref(new Set())
@@ -1161,25 +1237,50 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         </div>
       </div>
 
-      <!-- User Profile Card -->
-      <div class="bg-white rounded-2xl p-4 flex items-center card-shadow" @click="handleProfileClick">
-        <div class="flex items-center space-x-4">
-          <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
+      <!-- User Profile Card + 会话状态点（红/闪/绿，点开才看维护详情） -->
+      <div class="bg-white rounded-2xl p-4 flex items-center justify-between gap-3 card-shadow">
+        <div class="flex items-center space-x-4 min-w-0 flex-1 cursor-pointer" @click="handleProfileClick">
+          <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 shrink-0">
             <i class="fas fa-user-graduate text-2xl"></i>
           </div>
-          <div>
+          <div class="min-w-0">
             <div class="flex items-center space-x-2">
-              <h2 class="font-bold text-lg text-gray-800">{{ studentId || '未登录' }}</h2>
-              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm">本科生</span>
+              <h2 class="font-bold text-lg text-gray-800 truncate">{{ studentId || '未登录' }}</h2>
+              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm shrink-0">本科生</span>
             </div>
-            <p class="text-xs text-gray-500 mt-1">{{ userCollegeInfo }}</p>
+            <p class="text-xs text-gray-500 mt-1 truncate">{{ userCollegeInfo }}</p>
           </div>
         </div>
+
+        <button
+          type="button"
+          class="session-status-btn shrink-0 flex flex-col items-center gap-1 px-1 py-0.5 rounded-lg active:opacity-80"
+          :aria-label="sessionStatusAria"
+          :title="sessionStatusAria"
+          @click="onSessionStatusClick"
+        >
+          <span
+            class="session-status-dot"
+            :class="{
+              'is-green': sessionStatusVisual === 'green',
+              'is-red': sessionStatusVisual === 'red',
+              'is-blink': sessionStatusVisual === 'blink'
+            }"
+          />
+          <span
+            class="text-[10px] leading-none"
+            :class="{
+              'text-emerald-600': sessionStatusVisual === 'green',
+              'text-red-500': sessionStatusVisual === 'red',
+              'text-orange-500': sessionStatusVisual === 'blink'
+            }"
+          >{{ sessionStatusHint }}</span>
+        </button>
       </div>
 
-      <!-- 会话/教务状态窗：错误、恢复进度、通知摘要集中在此（#356） -->
+      <!-- 仅用户点击状态点后展开：维护/错误/通知（不在启动时自动弹出） -->
       <div
-        v-if="jwxtMaintenance"
+        v-if="sessionDetailOpen && sessionStatusVisual !== 'green'"
         class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow"
         role="status"
         aria-live="polite"
@@ -1189,18 +1290,17 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
             <div class="font-bold text-orange-800 text-sm">{{ maintenanceTitle }}</div>
             <div class="text-[11px] text-orange-500 mt-0.5">{{ maintenancePhaseLabel }}</div>
           </div>
-          <span
-            v-if="jwxtRecoveryPhase === 'recovering'"
-            class="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200"
-          >恢复中</span>
-          <span
-            v-else-if="jwxtRecoveryPhase === 'need_login'"
-            class="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100"
-          >需登录</span>
+          <button
+            type="button"
+            class="shrink-0 text-[11px] text-orange-500 px-2 py-0.5"
+            @click="sessionDetailOpen = false"
+          >收起</button>
         </div>
 
         <div class="text-xs text-orange-700 mt-2 leading-relaxed">
-          {{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}
+          {{ jwxtMaintenanceHint || (sessionStatusVisual === 'blink'
+            ? '正在后台恢复登录会话，请稍候…'
+            : '当前可能无法同步最新教务数据，可查看下方详情或重试。') }}
         </div>
 
         <div
@@ -1239,7 +1339,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
             {{ jwxtRecoveryPhase === 'recovering' ? '正在恢复…' : '立即重试' }}
           </button>
           <button
-            v-if="jwxtRecoveryPhase === 'need_login' || jwxtRecoveryPhase === 'failed'"
+            v-if="jwxtRecoveryPhase === 'need_login' || jwxtRecoveryPhase === 'failed' || sessionStatusVisual === 'red'"
             type="button"
             class="text-xs px-3 py-1.5 rounded-full bg-white border border-orange-300 text-orange-800 font-medium"
             @click="$emit('require-login')"
@@ -1671,6 +1771,44 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   opacity: 0.3;
   mix-blend-mode: overlay;
   pointer-events: none;
+}
+
+.session-status-btn {
+  min-width: 2.5rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.session-status-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.session-status-dot.is-green {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+
+.session-status-dot.is-red {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
+.session-status-dot.is-blink {
+  animation: session-status-blink 0.9s ease-in-out infinite;
+}
+
+@keyframes session-status-blink {
+  0%,
+  100% {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+  }
 }
 
 .card-shadow {
