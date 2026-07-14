@@ -2601,9 +2601,16 @@ onMounted(() => {
   background: var(--cx-surface-high);
 }
 
-.cx-toolbar-btn .material-symbols-outlined {
+.cx-toolbar-btn .material-symbols-outlined,
+.cx-preview-root .material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif !important;
+  font-weight: normal !important;
   font-size: 22px;
+  line-height: 1;
   flex-shrink: 0;
+  text-transform: none !important;
+  font-feature-settings: 'liga' 1, 'clig' 1;
+  -webkit-font-feature-settings: 'liga' 1;
 }
 
 .cx-toolbar-btn-text {
