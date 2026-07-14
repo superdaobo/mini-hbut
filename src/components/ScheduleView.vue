@@ -621,11 +621,16 @@ const applyScheduleRenderSnapshot = (snapshot, options = {}) => {
   const safeWeek = Math.min(Math.max(nextWeek, 1), Math.max(Number(totalWeeks.value || 1), 1))
   selectedWeek.value = safeWeek
   syncTime.value = String(saved.sync_time || '').trim()
-  offline.value = options?.markOffline !== false
-  offlineHint.value = String(
-    options?.offlineHint ||
-      '当前为缓存课表，登录恢复后自动刷新。'
-  ).trim()
+  // 秒开快照只是本地渲染缓存，不代表会话离线；默认不展示「离线/登录恢复」横幅。
+  // 只有显式 markOffline:true（如 need_login / 网络失败回退）才亮条。
+  const markOffline = options?.markOffline === true
+  offline.value = markOffline
+  offlineHint.value = markOffline
+    ? String(
+        options?.offlineHint ||
+          '当前为缓存课表，登录恢复后自动刷新。'
+      ).trim()
+    : ''
   errorMsg.value = scheduleData.value.length ? '' : '暂无可用课表'
   initialFetchDone.value = true
 
@@ -677,11 +682,23 @@ const applyMeta = (meta, requestedSemester = '') => {
   }
 }
 
-const applySchedulePayload = (payload, requestedSemester = '') => {
+const applySchedulePayload = (payload, requestedSemester = '', options = {}) => {
   if (!payload?.success) return false
   const rawData = Array.isArray(payload?.data) ? payload.data : []
-  offline.value = !!payload.offline
-  offlineHint.value = payload.offline ? '当前显示为离线数据，登录恢复后自动刷新。' : ''
+  // 已登录且非强制展示：成功在线结果清除离线条；仅 payload.offline 且无「静默秒开」时提示
+  const silentCachePaint = options?.silentCachePaint === true
+  if (payload.offline) {
+    if (!silentCachePaint) {
+      offline.value = true
+      // 已登录：勿误报「登录恢复」；首页绿灯时更常见是缓存命中/教务抖动
+      offlineHint.value = String(props.studentId || '').trim()
+        ? '当前显示为缓存课表，教务暂不可用。'
+        : '当前显示为离线数据，登录恢复后自动刷新。'
+    }
+  } else {
+    offline.value = false
+    offlineHint.value = ''
+  }
   syncTime.value = payload.sync_time || ''
   remoteScheduleData.value = processScheduleData(rawData)
   mergeScheduleSources()
@@ -690,13 +707,22 @@ const applySchedulePayload = (payload, requestedSemester = '') => {
   return true
 }
 
-const applyCachedScheduleImmediately = (targetSemester = '') => {
+const applyCachedScheduleImmediately = (targetSemester = '', options = {}) => {
   const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
   const sid = resolveDisplayStudentId()
   if (!sid || !sem) return false
   const snapshot = getCachedScheduleSnapshot(sid, sem)
   if (!snapshot?.data?.success) return false
-  const applied = applySchedulePayload(snapshot.data, sem)
+  // 秒开缓存：有学号时静默应用，不亮「登录恢复」条（随后会在线刷新）
+  const silent =
+    options?.silentCachePaint !== false && String(props.studentId || sid || '').trim()
+  const applied = applySchedulePayload(snapshot.data, sem, {
+    silentCachePaint: !!silent
+  })
+  if (applied && silent) {
+    offline.value = false
+    offlineHint.value = ''
+  }
   if (applied && !syncTime.value && snapshot.timestamp) {
     syncTime.value = new Date(snapshot.timestamp).toISOString()
   }
@@ -724,6 +750,11 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
   const requestedSemester = String(targetSemester || semester.value || semesterDraft.value || '').trim()
   const previousSemester = String(semester.value || '').trim()
   errorMsg.value = ''
+  // 已有登录身份：在线刷新期间不展示「登录恢复」恐吓条，结果以接口为准
+  if (String(props.studentId || '').trim() && options?.preserveOfflineBanner !== true) {
+    offline.value = false
+    offlineHint.value = ''
+  }
   try {
     if (requestedSemester && requestedSemester !== previousSemester) {
       customScheduleData.value = []
@@ -769,7 +800,9 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
     if (data?.success) {
       applySchedulePayload(data, requestedSemester)
       await loadCustomCourses(requestedSemester || semester.value)
-      offlineHint.value = offline.value ? '当前显示为离线数据，登录恢复后自动刷新。' : ''
+      if (offline.value && String(props.studentId || '').trim()) {
+        offlineHint.value = '当前显示为缓存课表，教务暂不可用。'
+      }
       if (!remoteScheduleData.value.length && customScheduleData.value.length > 0) {
         errorMsg.value = ''
       }
@@ -3279,7 +3312,8 @@ onBeforeUnmount(() => {
       </aside>
     </Transition>
 
-    <div v-if="offline && initialFetchDone" class="offline-banner">
+    <!-- 在线刷新中不展示离线条，避免秒开缓存误报 10s「登录恢复」 -->
+    <div v-if="offline && initialFetchDone && !loading" class="offline-banner">
       {{ offlineBannerText }}
     </div>
 
