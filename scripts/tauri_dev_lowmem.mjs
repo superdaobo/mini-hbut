@@ -52,13 +52,13 @@ console.log('[tauri-dev-lowmem] beforeDevCommand → vite_dev_lowmem → http://
 console.log('[tauri-dev-lowmem] 改 src/** 会自动刷新窗口；若再次黑屏/卡死：只结束 hbut-helper / esbuild，不要杀全部 node')
 console.log('[tauri-dev-lowmem] 无热更新应急：npm run tauri:dev:static')
 
+// Windows Node 24 对 .cmd + shell:false 会 spawn EINVAL，统一 shell:true
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-// shell:false 避免误拼接；Windows 用 npm.cmd 直接 spawn
 const child = spawn(npmCmd, ['run', 'tauri', '--', 'dev'], {
   cwd: root,
   stdio: 'inherit',
   env: process.env,
-  shell: false,
+  shell: true,
   windowsHide: false
 })
 
