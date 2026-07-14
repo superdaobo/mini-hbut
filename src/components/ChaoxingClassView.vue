@@ -9,6 +9,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { openExternal } from '../utils/external_link'
+import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
 
 /** 固定班级邀请码（产品约定，不开放自填） */
@@ -412,6 +413,10 @@ const openUrl = async (url) => {
     error.value = '链接为空'
     return
   }
+  // downloadData 依赖学习通 cookie，系统浏览器会 403（#358）
+  if (/coursedata\/downloadData/i.test(href) || /mooc1\.chaoxing\.com\/coursedata\/download/i.test(href)) {
+    throw new Error('该下载链接需登录会话，请使用应用内「下载」而非浏览器打开')
+  }
   await openExternal(href)
 }
 
@@ -430,6 +435,31 @@ const resolveAccess = async (item) => {
       ...studentPayload()
     }
   })
+}
+
+/** 应用内鉴权下载到本机（带 cookie，避免外置浏览器 403） */
+const downloadWithSession = async (item) => {
+  const cls = activeClass.value || preview.value
+  if (!cls) throw new Error('尚未加入班级')
+  if (!hasTauri) {
+    throw new Error('请在客户端内下载（浏览器环境无法携带学习通会话）')
+  }
+  const res = await invokeNative('chaoxing_class_download_resource', {
+    req: {
+      course_id: cls.course_id,
+      clazz_id: cls.clazz_id,
+      data_id: item.data_id,
+      object_id: item.object_id || null,
+      cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+      file_name: item.name || null,
+      ...studentPayload()
+    }
+  })
+  const path = String(res?.path || '').trim()
+  const name = String(res?.file_name || item.name || '文件').trim()
+  if (!path) throw new Error('下载完成但未返回保存路径')
+  showToast(`已保存：${name}`, 'success', 3600)
+  return res
 }
 
 const closePreviewModal = () => {
@@ -583,14 +613,23 @@ const applyOpenMethod = async (method, { externalOnly = false } = {}) => {
   previewModalError.value = ''
 
   if (method.kind === 'download') {
-    const url = method.url || previewDownloadUrl.value
-    if (!url) {
-      previewModalError.value = '暂无下载地址'
-      return
-    }
     previewDownloading.value = true
     try {
-      await openUrl(url)
+      const item = previewItem.value || {
+        data_id: previewItem.value?.data_id,
+        object_id: previewItem.value?.object_id,
+        name: previewModalTitle.value
+      }
+      if (!previewItem.value?.data_id) {
+        // 仅有 URL 时仍禁止外置打开 downloadData
+        const url = method.url || previewDownloadUrl.value
+        if (url && !/downloadData/i.test(url)) {
+          await openUrl(url)
+          return
+        }
+        throw new Error('缺少资料信息，无法鉴权下载')
+      }
+      await downloadWithSession(previewItem.value)
     } catch (e) {
       previewModalError.value = formatErr(e)
     } finally {
@@ -628,37 +667,17 @@ const toggleOpenMethodMenu = () => {
 }
 
 const handlePreviewDownload = async () => {
-  const m = previewOpenMethods.value.find((x) => x.kind === 'download')
-  if (m) {
-    await applyOpenMethod(m)
+  if (!previewItem.value?.data_id) {
+    previewModalError.value = '暂无下载资料'
     return
   }
-  if (previewDownloadUrl.value) {
-    previewDownloading.value = true
-    try {
-      await openUrl(previewDownloadUrl.value)
-    } catch (e) {
-      previewModalError.value = formatErr(e)
-    } finally {
-      previewDownloading.value = false
-    }
-    return
-  }
-  if (previewItem.value) {
-    previewDownloading.value = true
-    try {
-      const res = await resolveAccess(previewItem.value)
-      const url = String(res?.download_url || '').trim()
-      if (!url) throw new Error('未获取到下载地址')
-      previewDownloadUrl.value = url
-      await openUrl(url)
-    } catch (e) {
-      previewModalError.value = formatErr(e)
-    } finally {
-      previewDownloading.value = false
-    }
-  } else {
-    previewModalError.value = '暂无下载地址'
+  previewDownloading.value = true
+  try {
+    await downloadWithSession(previewItem.value)
+  } catch (e) {
+    previewModalError.value = formatErr(e)
+  } finally {
+    previewDownloading.value = false
   }
 }
 
@@ -812,10 +831,7 @@ const handleDownloadResource = async (item) => {
   error.value = ''
   actingId.value = `d-${item.data_id}`
   try {
-    const res = await resolveAccess(item)
-    const url = String(res?.download_url || item.download_url || '').trim()
-    if (!url) throw new Error('未获取到下载地址')
-    await openUrl(url)
+    await downloadWithSession(item)
   } catch (e) {
     error.value = formatErr(e)
   } finally {

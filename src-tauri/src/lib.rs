@@ -1383,6 +1383,18 @@ pub struct ChaoxingClassResourceAccessRequest {
     pub file_type: Option<String>,
 }
 
+/// 学习通资料鉴权下载（应用内 cookie，避免系统浏览器 403）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassDownloadRequest {
+    pub course_id: String,
+    pub clazz_id: String,
+    pub data_id: String,
+    pub object_id: Option<String>,
+    pub cpi: Option<String>,
+    pub student_id: Option<String>,
+    pub file_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YuketangQrCreateRequest {
     pub student_id: Option<String>,
@@ -6145,6 +6157,92 @@ async fn chaoxing_class_resolve_resource(
     .map_err(|e| e.to_string())
 }
 
+/// 学习通班级：用会话 cookie 下载课件到本机（#358，禁止外置浏览器无 cookie 打开 downloadData）
+#[tauri::command]
+async fn chaoxing_class_download_resource(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    req: ChaoxingClassDownloadRequest,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+    let mut client = state.client.write().await;
+    let (bytes, file_name, source_url) = modules::chaoxing_class::download_resource_bytes(
+        &mut client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.data_id,
+        req.object_id.as_deref(),
+        req.cpi.as_deref(),
+        req.file_name.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
+    if let Ok(dir) = app.path().download_dir() {
+        candidates.push((dir, "download"));
+    }
+    if let Ok(dir) = app.path().document_dir() {
+        candidates.push((dir, "document"));
+    }
+    if let Ok(dir) = app.path().app_data_dir() {
+        candidates.push((dir, "app_data"));
+    }
+    if candidates.is_empty() {
+        return Err("无法定位本机下载/文档目录".into());
+    }
+
+    let mut last_error = String::new();
+    for (base_dir, label) in candidates {
+        let export_dir = base_dir.join("Mini-HBUT-Chaoxing");
+        if let Err(e) = std::fs::create_dir_all(&export_dir) {
+            last_error = format!("创建目录失败({}): {}", label, e);
+            continue;
+        }
+        // 重名追加序号
+        let mut path = export_dir.join(&file_name);
+        if path.exists() {
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("file")
+                .to_string();
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| format!(".{}", s))
+                .unwrap_or_default();
+            for i in 1..50 {
+                let alt = export_dir.join(format!("{} ({}){}", stem, i, ext));
+                if !alt.exists() {
+                    path = alt;
+                    break;
+                }
+            }
+        }
+        match std::fs::write(&path, &bytes) {
+            Ok(_) => {
+                return Ok(serde_json::json!({
+                    "success": true,
+                    "path": path.to_string_lossy(),
+                    "file_name": path.file_name().and_then(|s| s.to_str()).unwrap_or(&file_name),
+                    "bytes": bytes.len(),
+                    "source_url": source_url,
+                    "hint": "已用学习通会话下载到本机（非系统浏览器）",
+                }));
+            }
+            Err(e) => {
+                last_error = format!("写入失败({}): {}", label, e);
+            }
+        }
+    }
+    Err(if last_error.is_empty() {
+        "保存文件失败".into()
+    } else {
+        last_error
+    })
+}
+
 #[tauri::command]
 async fn chaoxing_fetch_courses(
     state: State<'_, AppState>,
@@ -6767,6 +6865,7 @@ pub fn run() {
             chaoxing_class_accept_invite,
             chaoxing_class_list_resources,
             chaoxing_class_resolve_resource,
+            chaoxing_class_download_resource,
             chaoxing_sso_get_diag,
             chaoxing_fetch_courses,
             chaoxing_fetch_course_outline,

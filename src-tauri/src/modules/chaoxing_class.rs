@@ -1498,6 +1498,218 @@ async fn try_fetch_image_data_url(client: &HbutClient, download_url: &str) -> Op
     Some(format!("data:{sniff};base64,{b64}"))
 }
 
+fn sanitize_download_filename(name: &str) -> String {
+    let s: String = name
+        .trim()
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let s = s.trim().trim_matches('.');
+    if s.is_empty() {
+        "download.bin".into()
+    } else if s.len() > 180 {
+        format!("{}…", &s[..160])
+    } else {
+        s.to_string()
+    }
+}
+
+fn filename_from_content_disposition(header: &str) -> Option<String> {
+    let h = header.trim();
+    if h.is_empty() {
+        return None;
+    }
+    // filename*=UTF-8''encoded
+    if let Some(idx) = h.to_ascii_lowercase().find("filename*") {
+        let rest = &h[idx + "filename*".len()..];
+        let rest = rest.trim_start_matches('=').trim();
+        let encoded = rest
+            .trim_matches('"')
+            .split("''")
+            .nth(1)
+            .unwrap_or(rest)
+            .trim_matches('"');
+        if let Ok(decoded) = urlencoding::decode(encoded) {
+            let name = sanitize_download_filename(&decoded);
+            if !name.is_empty() && name != "download.bin" {
+                return Some(name);
+            }
+        }
+    }
+    // filename="..."
+    if let Some(idx) = h.to_ascii_lowercase().find("filename") {
+        let rest = &h[idx + "filename".len()..];
+        let rest = rest.trim_start_matches('*').trim_start_matches('=').trim();
+        let name = rest.trim_matches('"').trim_matches('\'');
+        let name = sanitize_download_filename(name);
+        if !name.is_empty() && name != "download.bin" {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// 用学习通会话鉴权下载课件到内存（勿把 downloadData 链交给无 cookie 的系统浏览器 → 403）
+pub async fn download_resource_bytes(
+    client: &mut HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    data_id: &str,
+    object_id: Option<&str>,
+    cpi: Option<&str>,
+    file_name: Option<&str>,
+) -> Result<(Vec<u8>, String, String), DynError> {
+    let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
+        client,
+        None,
+        crate::modules::chaoxing_sso::EnsureSsoOptions {
+            force: false,
+            allow_silent_relogin: true,
+            preheated: false,
+        },
+    )
+    .await;
+
+    let cpi = cpi.unwrap_or("0").trim();
+    let preferred_name = sanitize_download_filename(file_name.unwrap_or(""));
+    let oid = object_id.map(str::trim).unwrap_or("").to_string();
+
+    // 1) 优先 ananas 直链（部分资源浏览器可开；此处仍用客户端拉取保证一致）
+    let mut try_urls: Vec<String> = Vec::new();
+    if !oid.is_empty() {
+        let status_url = format!(
+            "https://mooc1.chaoxing.com/ananas/status/{}?k=&flag=normal&_={}",
+            urlencoding::encode(&oid),
+            now_ms()
+        );
+        if let Ok(resp) = client
+            .client
+            .get(&status_url)
+            .header(
+                "Referer",
+                "https://mooc1.chaoxing.com/ananas/modules/video/index.html",
+            )
+            .send()
+            .await
+        {
+            if let Ok(text) = resp.text().await {
+                if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                    for key in ["https", "http", "download", "pdf"] {
+                        if let Some(u) = v.get(key).and_then(|x| x.as_str()) {
+                            let n = normalize_url(u);
+                            if !n.is_empty() && !try_urls.iter().any(|x| x == &n) {
+                                try_urls.push(n);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2) 鉴权下载接口（必须在应用内带 cookie，外置浏览器会 403）
+    let download_url = format!(
+        "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
+        urlencoding::encode(data_id.trim()),
+        urlencoding::encode(clazz_id.trim()),
+        urlencoding::encode(cpi),
+        urlencoding::encode(course_id.trim())
+    );
+    try_urls.push(download_url);
+
+    const MAX_BYTES: usize = 200 * 1024 * 1024;
+    let mut last_err = String::from("下载失败");
+
+    for url in try_urls {
+        let resp = match client
+            .client
+            .get(&url)
+            .header("Referer", "https://mooc2-ans.chaoxing.com/")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = format!("请求失败: {}", e);
+                continue;
+            }
+        };
+        let status = resp.status();
+        let final_url = resp.url().to_string();
+        if status.as_u16() == 403 {
+            last_err = "403 Forbidden：会话可能失效，请重新进入学习通后再试".into();
+            continue;
+        }
+        if !status.is_success() {
+            last_err = format!("HTTP {} ({})", status.as_u16(), final_url);
+            continue;
+        }
+        // 登录页 HTML
+        let ctype = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let cd = resp
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let bytes = match resp.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                last_err = format!("读取正文失败: {}", e);
+                continue;
+            }
+        };
+        if bytes.len() < 16 {
+            last_err = "下载内容过小".into();
+            continue;
+        }
+        if bytes.len() > MAX_BYTES {
+            last_err = format!("文件过大（{} MB），暂不支持", bytes.len() / 1024 / 1024);
+            continue;
+        }
+        // 明显是登录/错误 HTML
+        if ctype.contains("text/html") {
+            let head = String::from_utf8_lossy(&bytes[..bytes.len().min(400)]).to_ascii_lowercase();
+            if head.contains("login") || head.contains("passport") || head.contains("403") {
+                last_err = "下载被重定向到登录页，请重新接入学习通会话".into();
+                continue;
+            }
+        }
+
+        let mut name = filename_from_content_disposition(&cd).unwrap_or_default();
+        if name.is_empty() || name == "download.bin" {
+            name = if preferred_name != "download.bin" {
+                preferred_name.clone()
+            } else {
+                format!("chaoxing_{}.bin", data_id.trim())
+            };
+        }
+        name = sanitize_download_filename(&name);
+        println!(
+            "[chaoxing] 鉴权下载成功 bytes={} name={} url={}",
+            bytes.len(),
+            name,
+            final_url
+        );
+        return Ok((bytes.to_vec(), name, final_url));
+    }
+
+    Err(err_box(last_err))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
