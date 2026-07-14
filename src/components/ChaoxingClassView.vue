@@ -1,10 +1,10 @@
 <script setup>
 /**
  * 学习通班级资料 — Nimbus 云盘列表风格
- * - 邀请码/课程由远程配置 chaoxing_class 覆盖（#360），缺省兼容历史固定班
- * - 首次进入未入班 / 退课后：询问是否加入
+ * - 邀请码：内置默认 + 远程 chaoxing_class.invite_code 覆盖并本地缓存
+ * - 课程名/教师/封面：在线 preview，不硬编码
+ * - 教师/学生均可访问资料（后端 ut=s/t）
  * - 门户 CAS → 学习通 SSO（不二次登录）
- * - 文件夹进入 + 官方签名预览内嵌
  */
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
@@ -141,8 +141,8 @@ const loadLastClass = () => {
     const parsed = JSON.parse(raw)
     if (parsed?.course_id && parsed?.clazz_id) {
       const savedInvite = String(parsed.invite_code || '').trim()
-      // 远程 invite 变更后旧缓存失效（#360）
-      if (savedInvite && inviteCode.value && savedInvite !== inviteCode.value) {
+      // 邀请码变更（含旧缓存无 invite 字段）时丢弃历史 last-class
+      if (inviteCode.value && savedInvite !== inviteCode.value) {
         clearLastClassStorageOnly()
         return null
       }
@@ -232,12 +232,16 @@ const isNotJoinedSignal = (resOrMsg) => {
   // 刚入班成功：忽略短暂 not_joined，防止 UI 又退回「已退出」
   if (Date.now() < suppressNotJoinedUntil) return false
   if (resOrMsg && typeof resOrMsg === 'object') {
-    // 权威：backclazzdata 返回 enrolled=false（退课后资料页仍可能是空壳）
+    const m = String(resOrMsg.membership || '').toLowerCase()
+    const role = String(resOrMsg.role || '').toLowerCase()
+    const ut = String(resOrMsg.ut || '').toLowerCase()
+    // 教师账号不在学生课程列表中，但 membership=ok / ut=t 仍可访问
+    if (m === 'ok' || role === 'teacher' || ut === 't') return false
+    if (m === 'not_joined' || m === 'not-joined') return true
+    // 权威：backclazzdata enrolled=false 且非教师 → 未入班/已退课
     if (resOrMsg.enrolled === false || resOrMsg.enrolled === 0 || resOrMsg.enrolled === 'false') {
       return true
     }
-    const m = String(resOrMsg.membership || '').toLowerCase()
-    if (m === 'not_joined' || m === 'not-joined') return true
   }
   const msg = typeof resOrMsg === 'string' ? resOrMsg : formatErr(resOrMsg)
   return /未加入|不在该班|无权限|请先加入|不是该班|未选课|已退课|退班|无权访问/.test(String(msg || ''))
@@ -299,7 +303,12 @@ const fetchPreview = async () => {
   return preview.value
 }
 
-/** 入班/重加成功后刷新资料页状态（避免仍停在「已退班」欢迎态） */
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * 入班/重加成功后：强制回到已入班态，并多次自动刷新资料
+ * （学习通侧入班后 backclazzdata/资料列表常有 1～数秒延迟，一次拉取易仍为空）
+ */
 const refreshAfterJoin = async (cls, statusText = '加入成功') => {
   joinDeclined.value = false
   needsRejoin.value = false
@@ -313,23 +322,52 @@ const refreshAfterJoin = async (cls, statusText = '加入成功') => {
   saveLastClass(cls)
   bootPhase.value = 'ready'
   loadingBoot.value = false
-  statusMsg.value = statusText
-  // 学习通侧入班后资料页偶发仍短暂提示未加入，短时忽略以免立刻退回欢迎页
-  suppressNotJoinedUntil = Date.now() + 12_000
-  await loadResources()
-  // 若仍被误判清缓存，强制恢复已入班态再拉一次
+  statusMsg.value = '正在同步班级资料…'
+  // 入班后短时忽略 not_joined，避免延迟接口把 UI 打回欢迎页
+  suppressNotJoinedUntil = Date.now() + 20_000
+
+  // 立即 1 次 + 退避重试：覆盖「刚加入成功但列表尚未同步」
+  const gapsMs = [0, 500, 1000, 1600, 2500, 3500]
+  for (let i = 0; i < gapsMs.length; i++) {
+    if (gapsMs[i] > 0) {
+      statusMsg.value = `正在刷新资料…（${i}/${gapsMs.length - 1}）`
+      await sleepMs(gapsMs[i])
+    }
+    // 防止重试过程中被误清
+    if (!isJoined.value && cls?.course_id && cls?.clazz_id) {
+      needsRejoin.value = false
+      activeClass.value = cls
+      preview.value = cls
+      saveLastClass(cls)
+      bootPhase.value = 'ready'
+    }
+    try {
+      await loadResources()
+    } catch {
+      /* loadResources 内部已写 error */
+    }
+    if (resources.value.length > 0) {
+      break
+    }
+  }
+
   if (!isJoined.value && cls?.course_id && cls?.clazz_id) {
     needsRejoin.value = false
     activeClass.value = cls
     preview.value = cls
     saveLastClass(cls)
     bootPhase.value = 'ready'
-    statusMsg.value = statusText
-    suppressNotJoinedUntil = Date.now() + 12_000
-    await loadResources()
+    // 最后再拉一次
+    try {
+      await loadResources()
+    } catch {
+      /* ignore */
+    }
   }
-  if (isJoined.value && !error.value) {
+
+  if (isJoined.value) {
     needsRejoin.value = false
+    error.value = ''
     statusMsg.value = resources.value.length
       ? `共 ${resources.value.length} 项`
       : statusText || '已在班级'
@@ -465,7 +503,12 @@ const isTransientListError = (msg) => {
   )
 }
 
-const loadResources = async () => {
+/**
+ * @param {{ rejoinOnNotJoined?: boolean }} [opts]
+ * rejoinOnNotJoined：仅「曾有 last-class 又检测到未在班」为 true；新人探测为 false
+ */
+const loadResources = async (opts = {}) => {
+  const rejoinOnNotJoined = opts.rejoinOnNotJoined === true
   const cls = activeClass.value || preview.value
   if (!cls?.course_id || !cls?.clazz_id) {
     error.value = '尚未加入班级'
@@ -476,7 +519,6 @@ const loadResources = async () => {
     ? { ...currentFolder.value }
     : null
   loadingResources.value = true
-  // 导航导航时不清掉旧列表，避免闪空；仅清错误
   error.value = ''
   const invokeOnce = () =>
     invokeNative('chaoxing_class_list_resources', {
@@ -492,40 +534,39 @@ const loadResources = async () => {
       }
     })
 
+  const handleNotJoined = async () => {
+    if (folderSnap) return false
+    await enterNotJoinedState({
+      openDialog: rejoinOnNotJoined || !joinDeclined.value,
+      rejoin: rejoinOnNotJoined,
+      reason: rejoinOnNotJoined ? '你已不在该班级，请重新加入' : ''
+    })
+    return true
+  }
+
   try {
     let res
     try {
       res = await invokeOnce()
     } catch (e1) {
-      // 前端再补一次：后端已重试，这里覆盖排队竞态/偶发失败
       const msg1 = formatErr(e1)
       if (seq !== loadSeq) return
-      if (isNotJoinedSignal(msg1) && !folderSnap) {
-        // 仅「曾经有 activeClass 缓存」才视为退课后重加
-        await enterNotJoinedState({
-          openDialog: true,
-          rejoin: true,
-          reason: '你已不在该班级，请重新加入'
-        })
-        return
-      }
+      if (isNotJoinedSignal(msg1) && (await handleNotJoined())) return
       if (!isTransientListError(msg1)) throw e1
       await new Promise((r) => setTimeout(r, 200))
       if (seq !== loadSeq) return
       res = await invokeOnce()
     }
     if (seq !== loadSeq) return
-    // 后端 membership 信号：仅在已有本地入班上下文时走「重新加入」
-    if (isNotJoinedSignal(res) && !folderSnap) {
-      await enterNotJoinedState({
-        openDialog: true,
-        rejoin: true,
-        reason: '你已不在该班级，请重新加入'
-      })
-      return
-    }
+    if (isNotJoinedSignal(res) && (await handleNotJoined())) return
     if (res?.cpi && activeClass.value) {
-      activeClass.value = { ...activeClass.value, cpi: String(res.cpi) }
+      activeClass.value = {
+        ...activeClass.value,
+        cpi: String(res.cpi),
+        // 记住角色，便于下载走教师 ut
+        role: String(res.role || activeClass.value.role || ''),
+        ut: String(res.ut || activeClass.value.ut || 's')
+      }
       saveLastClass(activeClass.value)
     }
     const list = Array.isArray(res?.resources) ? res.resources : []
@@ -536,14 +577,7 @@ const loadResources = async () => {
   } catch (e) {
     if (seq !== loadSeq) return
     const msg = formatErr(e)
-    if (isNotJoinedSignal(msg) && !folderSnap) {
-      await enterNotJoinedState({
-        openDialog: true,
-        rejoin: true,
-        reason: '你已不在该班级，请重新加入'
-      })
-      return
-    }
+    if (isNotJoinedSignal(msg) && (await handleNotJoined())) return
     error.value = isTransientListError(msg)
       ? `${msg}（快速进出目录时可能瞬时失败，可点重试）`
       : msg
@@ -1097,11 +1131,11 @@ const metaLine = (item) => {
 }
 
 /**
- * #326 / #360 进入路径：
- * 1) 拉取远程 chaoxing_class 配置
+ * 进入路径：
+ * 1) 远程/缓存邀请码
  * 2) SSO
- * 3) 有本地 last-class → 拉资料；若 not_joined 才进入「重新加入」
- * 4) 新人（无 last-class）→ 永远欢迎入班页，不直连资料库、不展示重加文案
+ * 3) 有 last-class → 拉资料；not_joined 才「重新加入」
+ * 4) 无 last-class：preview 后教师/已在班直进资料，否则欢迎入班
  */
 const boot = async () => {
   loadingBoot.value = true
@@ -1116,7 +1150,6 @@ const boot = async () => {
   loadDeclined()
   const saved = loadLastClass()
 
-  // #351：有本地班级缓存时先露出资料页壳，SSO 在后台完成
   bootPhase.value = 'sso'
   ssoHint.value = '正在连接学习通会话…'
   if (saved) {
@@ -1132,10 +1165,9 @@ const boot = async () => {
     return
   }
 
-  // 有历史入班记录：拉资料；退课则 needsRejoin
   if (saved) {
     try {
-      await loadResources()
+      await loadResources({ rejoinOnNotJoined: true })
     } catch (e) {
       const msg = formatErr(e)
       if (isNotJoinedSignal(msg)) {
@@ -1151,26 +1183,41 @@ const boot = async () => {
     return
   }
 
-  // 新人：固定欢迎页 + 入班确认，绝不静默当「已入班」
+  // 无缓存：解析邀请码 → 教师可直接访问；学生未入班则欢迎
   activeClass.value = null
   resources.value = []
   error.value = ''
   needsRejoin.value = false
-  preview.value = { ...classMeta.value }
-  bootPhase.value = 'ready'
-  loadingBoot.value = false
-
-  if (joinDeclined.value) {
-    statusMsg.value = ''
-    return
-  }
-
+  bootPhase.value = 'preview'
   try {
-    void fetchPreview().catch(() => {})
-    showJoinDialog.value = true
+    const p = await fetchPreview()
+    preview.value = p
+    activeClass.value = { ...p }
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+    await loadResources({ rejoinOnNotJoined: false })
+    if (isJoined.value) {
+      saveLastClass(activeClass.value)
+      statusMsg.value = resources.value.length
+        ? `共 ${resources.value.length} 项`
+        : '已可访问班级资料'
+      return
+    }
+    // 未入班：欢迎/弹层（学生）
+    preview.value = p
+    if (!joinDeclined.value) {
+      showJoinDialog.value = true
+    }
+    bootPhase.value = 'ready'
   } catch (e) {
-    error.value = formatErr(e)
-    bootPhase.value = 'error'
+    activeClass.value = null
+    preview.value = { ...classMeta.value, invite_code: inviteCode.value }
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+    if (!joinDeclined.value) {
+      showJoinDialog.value = true
+    }
+    statusMsg.value = formatErr(e)
   }
 }
 

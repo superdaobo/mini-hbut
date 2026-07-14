@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeEach } from 'vitest'
 
-import { getChaoxingClassConfig, normalizeChaoxingClassConfig, normalizeRemoteConfig } from './remote_config'
+import {
+  DEFAULT_CHAOXING_INVITE_CODE,
+  getChaoxingClassConfig,
+  normalizeChaoxingClassConfig,
+  normalizeRemoteConfig,
+  persistChaoxingInviteCode,
+  resolveChaoxingInviteCode
+} from './remote_config'
 
 const expectedGameOrder = [
   'hecheng_hugongda',
@@ -28,53 +35,55 @@ describe('remote config module center defaults', () => {
   })
 })
 
-describe('remote config chaoxing_class (#360)', () => {
-  it('defaults to historical fixed class when block missing', () => {
-    const config = normalizeRemoteConfig({})
-    expect(config.chaoxing_class).toMatchObject({
-      enabled: true,
-      invite_code: '73202625',
-      course_id: '264356359',
-      clazz_id: '148246853',
-      course_name: '库来西库',
-      teacher_name: '周金阳',
-      cpi: '509967218'
-    })
+describe('remote config chaoxing_class (invite-only)', () => {
+  beforeEach(() => {
+    try {
+      localStorage.removeItem('hbu_chaoxing_invite_code_cache_v1')
+    } catch {
+      /* ignore */
+    }
   })
 
-  it('allows remote invite_code / course override', () => {
+  it('defaults to built-in invite 18853572 without hardcoded course meta', () => {
+    const config = normalizeRemoteConfig({})
+    expect(config.chaoxing_class.invite_code).toBe(DEFAULT_CHAOXING_INVITE_CODE)
+    expect(config.chaoxing_class.invite_code).toBe('18853572')
+    expect(config.chaoxing_class.course_id || '').toBe('')
+    expect(config.chaoxing_class.course_name || '').toBe('')
+  })
+
+  it('accepts remote invite_code only', () => {
     const config = normalizeRemoteConfig({
       chaoxing_class: {
-        invite_code: '99990001',
-        course_id: '111',
-        clazz_id: '222',
-        course_name: '测试班',
-        teacher_name: '张三',
-        cpi: '333'
+        invite_code: '99990001'
       }
     })
     expect(config.chaoxing_class.invite_code).toBe('99990001')
-    expect(config.chaoxing_class.course_id).toBe('111')
-    expect(config.chaoxing_class.clazz_id).toBe('222')
-    expect(config.chaoxing_class.course_name).toBe('测试班')
+    expect(config.chaoxing_class.course_id || '').toBe('')
   })
 
-  it('normalizeChaoxingClassConfig accepts camelCase aliases', () => {
+  it('normalizeChaoxingClassConfig accepts camelCase inviteCode', () => {
     const block = normalizeChaoxingClassConfig({
-      inviteCode: '88880002',
-      courseId: 'c1',
-      clazzId: 'z1'
+      inviteCode: '88880002'
     })
     expect(block.invite_code).toBe('88880002')
-    expect(block.course_id).toBe('c1')
-    expect(block.clazz_id).toBe('z1')
   })
 
-  it('getChaoxingClassConfig reads from provided config object', () => {
+  it('getChaoxingClassConfig reads invite from provided config', () => {
     const got = getChaoxingClassConfig({
-      chaoxing_class: { invite_code: '77770003', course_id: '9', clazz_id: '8' }
+      chaoxing_class: { invite_code: '77770003' }
     })
     expect(got.invite_code).toBe('77770003')
-    expect(got.course_id).toBe('9')
+  })
+
+  it('uses cached invite when remote block empty', () => {
+    persistChaoxingInviteCode('55550001')
+    expect(resolveChaoxingInviteCode({})).toBe('55550001')
+    expect(normalizeChaoxingClassConfig({}).invite_code).toBe('55550001')
+  })
+
+  it('persists explicit invite when requested', () => {
+    normalizeChaoxingClassConfig({ invite_code: '44440001' }, { persistInvite: true })
+    expect(resolveChaoxingInviteCode({})).toBe('44440001')
   })
 })

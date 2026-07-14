@@ -16,24 +16,22 @@ use crate::http_client::HbutClient;
 
 type DynError = Box<dyn Error + Send + Sync>;
 
-/// 产品固定班级（邀请码 → 已知课程/班级元数据）
-/// 当在线中间页解析失败（登录页/已入班跳转）时作兜底。
+/// 内置默认邀请码（与前端 remote_config DEFAULT 一致；课程元数据一律在线解析）
+#[allow(dead_code)]
+const DEFAULT_INVITE_CODE: &str = "18853572";
+
+/// 可选：仅作邀请码列表兜底（无课程名/ID 硬编码；新班必须走在线 preview）
+#[allow(dead_code)]
 struct FixedInviteMeta {
     code: &'static str,
-    course_id: &'static str,
-    clazz_id: &'static str,
-    course_name: &'static str,
-    teacher_name: &'static str,
 }
 
+#[allow(dead_code)]
 const FIXED_INVITES: &[FixedInviteMeta] = &[FixedInviteMeta {
-    code: "73202625",
-    course_id: "264356359",
-    clazz_id: "148246853",
-    course_name: "库来西库",
-    teacher_name: "周金阳",
+    code: DEFAULT_INVITE_CODE,
 }];
 
+#[allow(dead_code)]
 fn fixed_meta(code: &str) -> Option<&'static FixedInviteMeta> {
     FIXED_INVITES.iter().find(|m| m.code == code.trim())
 }
@@ -382,37 +380,35 @@ pub async fn ensure_sso_session(
     .await
     {
         Ok(v) => Ok(v),
-        Err(e) => {
-            // 固定班探测兜底：部分场景课程 API 抖动但资料页仍可用
-            if let Some(meta) = fixed_meta("73202625") {
-                if probe_class_accessible(client, meta.course_id, meta.clazz_id).await {
-                    return Ok(json!({
-                        "success": true,
-                        "sso": true,
-                        "partial": true,
-                        "hint": "学习通会话部分可用（固定班级资料页探测成功）",
-                        "diag": crate::modules::chaoxing_sso::get_sso_diag(),
-                    }));
-                }
-            }
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 
-/// 探测是否已在班（优先课程列表；退课后空壳资料页不能当已入班）
+/// 探测学生/教师是否可访问该班资料（教师用 ut=t，学生用 ut=s + 课程列表）
 async fn probe_class_accessible(client: &HbutClient, course_id: &str, clazz_id: &str) -> bool {
-    // 权威：是否出现在「我的课程」backclazzdata
-    if let Some(enrolled) = is_student_enrolled_in_clazz(client, course_id, clazz_id).await {
-        return enrolled;
+    // 学生：在「我的课程」列表中
+    if let Some(true) = is_student_enrolled_in_clazz(client, course_id, clazz_id).await {
+        return true;
     }
+    // 教师或已入班：资料页可访问（优先学生视角，再教师视角）
+    if probe_datalist_accessible(client, course_id, clazz_id, "s").await {
+        return true;
+    }
+    probe_datalist_accessible(client, course_id, clazz_id, "t").await
+}
 
-    // 课程列表不可用时的 HTML 兜底（更严格，避免退课后空壳误判）
+async fn probe_datalist_accessible(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    ut: &str,
+) -> bool {
     let t = now_ms();
     let list_url = format!(
-        "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi=0&ut=s&t={}",
+        "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi=0&ut={}&t={}",
         urlencoding::encode(course_id),
         urlencoding::encode(clazz_id),
+        urlencoding::encode(ut),
         t
     );
     let Ok(resp) = client
@@ -437,11 +433,12 @@ async fn probe_class_accessible(client: &HbutClient, course_id: &str, clazz_id: 
     if looks_like_not_joined_html(&html) {
         return false;
     }
-    // 必须有真实资料行特征，不能只凭 coursedata 字样
+    // 真实资料行 / 教师课件入口 / 资料区结构
     html.contains("dataBody_td")
         || html.contains("downloadData")
         || html.contains("objectid=")
         || html.contains("教师课件")
+        || html.contains("dataBody")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -537,14 +534,16 @@ fn extract_text_class(html: &str, class: &str) -> String {
         .unwrap_or_default()
 }
 
+#[allow(dead_code)]
 fn preview_from_fixed(code: &str) -> Option<InvitePreview> {
+    // 不再内置课程 ID/名称（班课会换）；仅确认邀请码在内置表时返回空壳，迫使走在线解析
     let meta = fixed_meta(code)?;
     Some(InvitePreview {
         invite_code: meta.code.to_string(),
-        course_id: meta.course_id.to_string(),
-        clazz_id: meta.clazz_id.to_string(),
-        course_name: meta.course_name.to_string(),
-        teacher_name: meta.teacher_name.to_string(),
+        course_id: String::new(),
+        clazz_id: String::new(),
+        course_name: String::new(),
+        teacher_name: String::new(),
         cover_url: String::new(),
         addclz_enc: String::new(),
         addclz_timestamp: String::new(),
@@ -577,41 +576,16 @@ pub async fn preview_invite(
     )
     .await;
 
-    // 1) 在线解析 getInviteCode
+    // 在线解析 getInviteCode（课程元数据不内置，均来自学习通）
     let online = fetch_invite_preview_online(client, code).await;
     match online {
-        Ok(p) if !p.course_id.is_empty() && !p.clazz_id.is_empty() => return Ok(p),
-        Ok(_) => { /* 字段不全，继续兜底 */ }
-        Err(e) => {
-            let msg = e.to_string();
-            // 登录态问题：固定班级仍可返回预览（供 UI 展示），enc 可能为空
-            if msg.contains("登录") || msg.contains("会话") {
-                if let Some(fixed) = preview_from_fixed(code) {
-                    // 若已入班可访问资料，直接当预览成功
-                    if probe_class_accessible(client, &fixed.course_id, &fixed.clazz_id).await {
-                        return Ok(fixed);
-                    }
-                    // 返回固定预览，前端可询问加入；真正加入时再要求会话
-                    return Ok(fixed);
-                }
-                return Err(e);
-            }
-            // 其它错误：固定班级兜底
-            if let Some(fixed) = preview_from_fixed(code) {
-                println!("[学习通] 邀请码在线解析失败，使用固定班级兜底: {}", msg);
-                return Ok(fixed);
-            }
-            return Err(e);
-        }
+        Ok(p) if !p.course_id.is_empty() && !p.clazz_id.is_empty() => Ok(p),
+        Ok(p) => Err(err_box(format!(
+            "邀请码 {} 已识别但未返回完整课程/班级 ID（course={} clazz={}）",
+            code, p.course_id, p.clazz_id
+        ))),
+        Err(e) => Err(e),
     }
-
-    // 2) 固定班级兜底
-    if let Some(fixed) = preview_from_fixed(code) {
-        return Ok(fixed);
-    }
-    Err(err_box(
-        "入班页未解析到课程/班级信息，可能邀请码类型不支持或学习通会话未就绪，请重新登录门户后重试",
-    ))
 }
 
 async fn fetch_invite_preview_online(
@@ -764,26 +738,6 @@ async fn fetch_invite_preview_online(
         addclz_timestamp = extract_js_or_attr(&html, "timeStamp");
     }
 
-    // 已入班场景：中间页可能跳到课程页，hidden 缺失；用固定元数据补全
-    if (course_id.is_empty() || clazz_id.is_empty()) && fixed_meta(code).is_some() {
-        if let Some(fixed) = preview_from_fixed(code) {
-            return Ok(InvitePreview {
-                addclz_enc,
-                addclz_timestamp,
-                cover_url: {
-                    let re = Regex::new(r#"(?i)<img[^>]+src=["']([^"']+)["']"#).ok();
-                    re.and_then(|r| {
-                        r.captures(&html)
-                            .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
-                    })
-                    .unwrap_or_default()
-                },
-                middle_url: middle,
-                ..fixed
-            });
-        }
-    }
-
     if course_id.is_empty() || clazz_id.is_empty() {
         return Err(err_box(format!(
             "入班页未解析到课程/班级信息（page={} html_len={}）。可能已入班跳转或会话无效",
@@ -796,16 +750,9 @@ async fn fetch_invite_preview_online(
     if course_name.is_empty() {
         course_name = extract_text_class(&html, "colorDeep");
     }
-    if course_name.is_empty() {
-        if let Some(m) = fixed_meta(code) {
-            course_name = m.course_name.to_string();
-        }
-    }
     let mut teacher_name = extract_text_class(&html, "name");
     if teacher_name.is_empty() {
-        if let Some(m) = fixed_meta(code) {
-            teacher_name = m.teacher_name.to_string();
-        }
+        teacher_name = extract_text_class(&html, "teacher");
     }
     let cover = {
         let re = Regex::new(r#"(?i)<img[^>]+src=["']([^"']+)["']"#).ok();
@@ -845,12 +792,12 @@ pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result
 
     let preview = preview_invite(client, code).await?;
 
-    // 已可访问资料 → 视为已入班（无需 enc）
+    // 学生已入班 或 教师可访问资料 → 无需再走 participate
     if probe_class_accessible(client, &preview.course_id, &preview.clazz_id).await {
         return Ok(json!({
             "success": true,
             "already_joined": true,
-            "message": "已在该班级",
+            "message": "已可访问该班级资料（学生已入班或教师身份）",
             "preview": preview,
         }));
     }
@@ -1128,7 +1075,6 @@ pub async fn list_resources(
         cpi = "0".into();
     }
     let cpi = cpi.trim().to_string();
-    let t = now_ms();
     let parent_id = opts
         .parent_data_id
         .as_deref()
@@ -1137,74 +1083,229 @@ pub async fn list_resources(
     let data_name = opts.data_name.as_deref().unwrap_or("").trim();
     let parent_chain = opts.parent_chain.as_deref().unwrap_or("").trim();
 
-    let list_url = if let Some(pid) = parent_id {
-        format!(
-            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&dataName={}&dataId={}&type=1&parent={}&clazzid={}&cpi={}&ut=s&t={}",
-            urlencoding::encode(course_id.trim()),
-            urlencoding::encode(data_name),
-            urlencoding::encode(pid),
-            urlencoding::encode(parent_chain),
-            urlencoding::encode(clazz_id.trim()),
-            urlencoding::encode(&cpi),
-            t
-        )
-    } else {
-        format!(
-            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi={}&ut=s&t={}",
-            urlencoding::encode(course_id.trim()),
-            urlencoding::encode(clazz_id.trim()),
-            urlencoding::encode(&cpi),
-            t
-        )
-    };
-
-    let (html, final_url) = get_text_with_retry(
+    // 学生 ut=s 优先；失败或空列表时再试教师 ut=t（教师账号无需入班）
+    let (html, list_url, cpi, ut_used) = fetch_datalist_student_or_teacher(
         client,
-        &list_url,
-        "https://mooc2-ans.chaoxing.com/",
-        "资料列表",
+        course_id,
+        clazz_id,
+        &cpi,
+        parent_id,
+        data_name,
+        parent_chain,
     )
     .await?;
 
-    if looks_like_login_url(&final_url) {
-        return Err(err_box(
-            "资料页跳转登录。请重新登录融合门户以刷新学习通会话（非断网）",
-        ));
-    }
-
-    if looks_like_login_html(&html) {
-        return Err(err_box("资料页为登录页。请重新登录融合门户后再试"));
-    }
-
-    // 页面真实 cpi 优先
-    let page_cpi = extract_cpi_from_html(&html);
-    let cpi = if !page_cpi.is_empty() { page_cpi } else { cpi };
-
     let resources = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi);
+    // 下载链里带上实际 ut，保证教师可下载
+    let resources = rewrite_resources_ut(resources, ut_used);
     let html_membership = infer_list_membership_from_html(&html, resources.len());
-    // 根目录列表时用课程列表校正：退课后 HTML 仍可能是空壳「暂无资料」
     let enrolled = if parent_id.is_none() {
         is_student_enrolled_in_clazz(client, course_id, clazz_id).await
     } else {
         None
     };
-    let membership = resolve_membership(html_membership, enrolled);
+    // 教师 ut=t 可访问时，即使学生列表 enrolled=false 也视为 ok
+    let membership = if ut_used == "t" && !looks_like_not_joined_html(&html) {
+        "ok"
+    } else {
+        resolve_membership(html_membership, enrolled)
+    };
+    let role = if ut_used == "t" {
+        "teacher"
+    } else if enrolled == Some(true) {
+        "student"
+    } else {
+        "unknown"
+    };
 
     Ok(json!({
         "success": true,
         "course_id": course_id,
         "clazz_id": clazz_id,
         "cpi": cpi,
+        "ut": ut_used,
+        "role": role,
         "parent_data_id": parent_id.unwrap_or(""),
         "folder_kind": folder_kind,
         "count": resources.len(),
         "resources": resources,
         "list_url": list_url,
-        // #360：前端据此区分「空资料」与「未入班/已退课」
         "membership": membership,
         "enrolled": enrolled,
         "membership_html": html_membership,
     }))
+}
+
+fn build_stu_datalist_url(
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    parent_id: Option<&str>,
+    data_name: &str,
+    parent_chain: &str,
+    ut: &str,
+) -> String {
+    let t = now_ms();
+    if let Some(pid) = parent_id {
+        format!(
+            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&dataName={}&dataId={}&type=1&parent={}&clazzid={}&cpi={}&ut={}&t={}",
+            urlencoding::encode(course_id.trim()),
+            urlencoding::encode(data_name),
+            urlencoding::encode(pid),
+            urlencoding::encode(parent_chain),
+            urlencoding::encode(clazz_id.trim()),
+            urlencoding::encode(cpi),
+            urlencoding::encode(ut),
+            t
+        )
+    } else {
+        format!(
+            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid={}&clazzid={}&cpi={}&ut={}&t={}",
+            urlencoding::encode(course_id.trim()),
+            urlencoding::encode(clazz_id.trim()),
+            urlencoding::encode(cpi),
+            urlencoding::encode(ut),
+            t
+        )
+    }
+}
+
+/// 学生 ut=s → 教师 ut=t；返回 (html, list_url, cpi, ut)
+async fn fetch_datalist_student_or_teacher(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    parent_id: Option<&str>,
+    data_name: &str,
+    parent_chain: &str,
+) -> Result<(String, String, String, &'static str), DynError> {
+    let mut last_err: Option<DynError> = None;
+    for ut in ["s", "t"] {
+        let list_url = build_stu_datalist_url(
+            course_id,
+            clazz_id,
+            cpi,
+            parent_id,
+            data_name,
+            parent_chain,
+            ut,
+        );
+        match get_text_with_retry(
+            client,
+            &list_url,
+            "https://mooc2-ans.chaoxing.com/",
+            if ut == "t" { "资料列表(教师)" } else { "资料列表" },
+        )
+        .await
+        {
+            Ok((html, final_url)) => {
+                if looks_like_login_url(&final_url) || looks_like_login_html(&html) {
+                    last_err = Some(err_box(
+                        "资料页跳转登录。请重新登录融合门户以刷新学习通会话（非断网）",
+                    ));
+                    continue;
+                }
+                if looks_like_not_joined_html(&html) && ut == "s" {
+                    // 学生视角未加入，继续试教师
+                    last_err = Some(err_box("学生视角未加入该班级"));
+                    continue;
+                }
+                let page_cpi = extract_cpi_from_html(&html);
+                let cpi_out = if !page_cpi.is_empty() {
+                    page_cpi
+                } else {
+                    cpi.to_string()
+                };
+                let parsed = parse_stu_datalist_html(&html, course_id, clazz_id, &cpi_out);
+                // 学生空列表但教师可能有：根目录且 ut=s 空时再试 t
+                if parsed.is_empty()
+                    && ut == "s"
+                    && parent_id.is_none()
+                    && !looks_like_not_joined_html(&html)
+                {
+                    // 先记下学生结果，若教师更好则用教师
+                    let teacher_url = build_stu_datalist_url(
+                        course_id,
+                        clazz_id,
+                        &cpi_out,
+                        parent_id,
+                        data_name,
+                        parent_chain,
+                        "t",
+                    );
+                    if let Ok((html_t, final_t)) = get_text_with_retry(
+                        client,
+                        &teacher_url,
+                        "https://mooc2-ans.chaoxing.com/",
+                        "资料列表(教师)",
+                    )
+                    .await
+                    {
+                        if !looks_like_login_url(&final_t)
+                            && !looks_like_login_html(&html_t)
+                            && !looks_like_not_joined_html(&html_t)
+                        {
+                            let cpi_t = {
+                                let p = extract_cpi_from_html(&html_t);
+                                if p.is_empty() {
+                                    cpi_out.clone()
+                                } else {
+                                    p
+                                }
+                            };
+                            let parsed_t =
+                                parse_stu_datalist_html(&html_t, course_id, clazz_id, &cpi_t);
+                            if !parsed_t.is_empty()
+                                || html_t.contains("dataBody")
+                                || html_t.contains("教师课件")
+                            {
+                                return Ok((html_t, teacher_url, cpi_t, "t"));
+                            }
+                        }
+                    }
+                    return Ok((html, list_url, cpi_out, "s"));
+                }
+                if ut == "t" && looks_like_not_joined_html(&html) && parsed.is_empty() {
+                    last_err = Some(err_box("教师视角也无法访问该班级资料"));
+                    continue;
+                }
+                return Ok((
+                    html,
+                    list_url,
+                    cpi_out,
+                    if ut == "t" { "t" } else { "s" },
+                ));
+            }
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| err_box("资料列表请求失败")))
+}
+
+fn rewrite_resources_ut(mut resources: Vec<ClassResource>, ut: &str) -> Vec<ClassResource> {
+    if ut != "t" {
+        return resources;
+    }
+    for item in &mut resources {
+        if !item.download_url.is_empty() {
+            item.download_url = item
+                .download_url
+                .replace("ut=s", "ut=t")
+                .replace("ut%3Ds", "ut%3Dt");
+            if !item.download_url.contains("ut=") {
+                let sep = if item.download_url.contains('?') {
+                    '&'
+                } else {
+                    '?'
+                };
+                item.download_url = format!("{}{}ut=t", item.download_url, sep);
+            }
+        }
+    }
+    resources
 }
 
 fn parse_stu_datalist_html(
@@ -1477,50 +1578,64 @@ pub async fn resolve_resource_access(
     let is_image = looks_like_image(fname, ftype);
     let is_video = looks_like_video(fname, ftype);
 
-    let download_url = format!(
-        "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut=s",
-        urlencoding::encode(data_id.trim()),
-        urlencoding::encode(clazz_id.trim()),
-        urlencoding::encode(cpi),
-        urlencoding::encode(course_id.trim())
-    );
-
-    // 官方签名预览（与网页 intPreviewDiv 一致；参数名 clazzid/courseid）
-    let probe = format!(
-        "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/get-preview-url?dataId={}&cpi={}&clazzid={}&ut=s&courseid={}",
-        urlencoding::encode(data_id.trim()),
-        urlencoding::encode(cpi),
-        urlencoding::encode(clazz_id.trim()),
-        urlencoding::encode(course_id.trim())
-    );
+    // 学生 ut=s / 教师 ut=t 双试预览与下载
     let mut preview_url = String::new();
     let mut preview_status = false;
     let mut raw_preview = Value::Null;
-    if let Ok(resp) = client
-        .client
-        .get(&probe)
-        .header("Referer", "https://mooc2-ans.chaoxing.com/")
-        .send()
-        .await
-    {
-        if let Ok(text) = resp.text().await {
-            if let Ok(v) = serde_json::from_str::<Value>(&text) {
-                raw_preview = v.clone();
-                preview_status = v.get("status").and_then(|x| x.as_bool()).unwrap_or(false);
-                if let Some(u) = v
-                    .get("url")
-                    .or_else(|| v.get("previewUrl"))
-                    .or_else(|| v.pointer("/data/url"))
-                    .and_then(|x| x.as_str())
-                {
-                    preview_url = normalize_url(u);
+    let mut used_ut = "s";
+    for ut in ["s", "t"] {
+        let probe = format!(
+            "https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/get-preview-url?dataId={}&cpi={}&clazzid={}&ut={}&courseid={}",
+            urlencoding::encode(data_id.trim()),
+            urlencoding::encode(cpi),
+            urlencoding::encode(clazz_id.trim()),
+            urlencoding::encode(ut),
+            urlencoding::encode(course_id.trim())
+        );
+        if let Ok(resp) = client
+            .client
+            .get(&probe)
+            .header("Referer", "https://mooc2-ans.chaoxing.com/")
+            .send()
+            .await
+        {
+            if let Ok(text) = resp.text().await {
+                if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                    let ok = v.get("status").and_then(|x| x.as_bool()).unwrap_or(false);
+                    let u = v
+                        .get("url")
+                        .or_else(|| v.get("previewUrl"))
+                        .or_else(|| v.pointer("/data/url"))
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    if ok && !u.is_empty() {
+                        raw_preview = v;
+                        preview_status = true;
+                        preview_url = normalize_url(&u);
+                        used_ut = ut;
+                        break;
+                    }
+                    if raw_preview.is_null() {
+                        raw_preview = v;
+                    }
+                } else if text.trim().starts_with("http") {
+                    preview_url = normalize_url(text.trim());
+                    preview_status = true;
+                    used_ut = ut;
+                    break;
                 }
-            } else if text.trim().starts_with("http") {
-                preview_url = normalize_url(text.trim());
-                preview_status = true;
             }
         }
     }
+    let download_url = format!(
+        "https://mooc1.chaoxing.com/coursedata/downloadData?dataId={}&classId={}&cpi={}&courseId={}&ut={}",
+        urlencoding::encode(data_id.trim()),
+        urlencoding::encode(clazz_id.trim()),
+        urlencoding::encode(cpi),
+        urlencoding::encode(course_id.trim()),
+        used_ut
+    );
 
     // ananas/status 常返回可直链的 http(s) 字段（图片/视频）
     let mut ananas_http = String::new();
@@ -2212,11 +2327,14 @@ mod tests {
     }
 
     #[test]
-    fn fixed_invite_catalog_has_73202625() {
-        let p = preview_from_fixed("73202625").unwrap();
-        assert_eq!(p.course_id, "264356359");
-        assert_eq!(p.clazz_id, "148246853");
-        assert_eq!(p.course_name, "库来西库");
+    fn default_invite_catalog_has_18853572() {
+        assert!(fixed_meta("18853572").is_some());
+        assert!(fixed_meta("73202625").is_none());
+        let p = preview_from_fixed("18853572").unwrap();
+        assert_eq!(p.invite_code, "18853572");
+        // 不再内置课程 ID/名称，必须在线解析
+        assert!(p.course_id.is_empty());
+        assert!(p.clazz_id.is_empty());
     }
 
     #[test]
