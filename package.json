@@ -56,7 +56,7 @@
     "@vueuse/core": "^14.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "^3.4.11",
+    "dompurify": "^3.4.12",
     "fflate": "^0.8.3",
     "html2canvas": "^1.4.1",
     "marked": "^18.0.5",
