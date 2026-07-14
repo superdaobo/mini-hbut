@@ -562,6 +562,9 @@ pub async fn ensure_chaoxing_sso(
                     at_ms: now_unix_ms(),
                 };
                 mark_ready(diag.clone());
+                if !sid.is_empty() {
+                    client.persist_session_cookies(&sid);
+                }
                 return Ok(json!({
                     "success": true,
                     "sso": true,
@@ -647,6 +650,10 @@ pub async fn ensure_chaoxing_sso(
             at_ms: now_unix_ms(),
         };
         mark_ready(diag.clone());
+        // 桥接成功后落盘全域 cookie（#348 长效会话）
+        if !sid.is_empty() {
+            client.persist_session_cookies(&sid);
+        }
         return Ok(json!({
             "success": true,
             "sso": true,

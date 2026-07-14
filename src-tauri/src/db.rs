@@ -493,6 +493,8 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         3,
         "app_usage_events/sessions/daily_rollup/device_profile",
     )?;
+    migrate_auth_cookie_v2_table(&conn)?;
+    ensure_schema_migration(&conn, 5, "auth_cookie_v2 multi-domain session cookies")?;
     drop(conn);
 
     // 1.4.2→1.4.3 凭据迁移：base64 列迁密钥环（失败保留 base64），修复 KEYRING 空壳可恢复路径
@@ -500,6 +502,181 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
         eprintln!("[db] cred_migrate_v2 失败（不阻断启动）: {}", e);
     }
 
+    Ok(())
+}
+
+/// 多域会话 cookie（#348/#349）：按 student_id + domain 存 JSON 数组。
+fn migrate_auth_cookie_v2_table(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS auth_cookie_v2 (
+            student_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            cookie_json TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+            source TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (student_id, domain)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_auth_cookie_v2_student
+         ON auth_cookie_v2 (student_id, updated_at DESC)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// 单域 cookie 行（name=value 列表的 JSON）。
+#[derive(Debug, Clone)]
+pub struct AuthCookieDomainRow {
+    pub domain: String,
+    pub cookie_json: String,
+    pub source: String,
+}
+
+/// 写入/覆盖某学号某域的 cookie（#349 双写的 v2 侧）。
+pub fn upsert_auth_cookie_domain<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    domain: &str,
+    cookie_json: &str,
+    source: &str,
+) -> Result<()> {
+    let sid = student_id.trim();
+    let dom = domain.trim();
+    if sid.is_empty() || dom.is_empty() {
+        return Ok(());
+    }
+    let conn = open_connection(path)?;
+    migrate_auth_cookie_v2_table(&conn)?;
+    conn.execute(
+        "INSERT INTO auth_cookie_v2 (student_id, domain, cookie_json, updated_at, source)
+         VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, ?4)
+         ON CONFLICT(student_id, domain) DO UPDATE SET
+           cookie_json = excluded.cookie_json,
+           updated_at = CURRENT_TIMESTAMP,
+           source = excluded.source",
+        params![sid, dom, cookie_json, source],
+    )?;
+    Ok(())
+}
+
+/// 批量写入多域 cookie。
+pub fn upsert_auth_cookies_batch<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    rows: &[(String, String)],
+    source: &str,
+) -> Result<()> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return Ok(());
+    }
+    let conn = open_connection(path)?;
+    migrate_auth_cookie_v2_table(&conn)?;
+    let tx = conn.unchecked_transaction()?;
+    for (domain, cookie_json) in rows {
+        let dom = domain.trim();
+        if dom.is_empty() {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO auth_cookie_v2 (student_id, domain, cookie_json, updated_at, source)
+             VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP, ?4)
+             ON CONFLICT(student_id, domain) DO UPDATE SET
+               cookie_json = excluded.cookie_json,
+               updated_at = CURRENT_TIMESTAMP,
+               source = excluded.source",
+            params![sid, dom, cookie_json, source],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// 读取某学号全部域 cookie。
+pub fn load_auth_cookies_for_student<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+) -> Result<Vec<AuthCookieDomainRow>> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return Ok(Vec::new());
+    }
+    let conn = open_connection(path)?;
+    migrate_auth_cookie_v2_table(&conn)?;
+    let mut stmt = conn.prepare(
+        "SELECT domain, cookie_json, source FROM auth_cookie_v2
+         WHERE student_id = ?1 ORDER BY domain",
+    )?;
+    let rows = stmt.query_map(params![sid], |row| {
+        Ok(AuthCookieDomainRow {
+            domain: row.get(0)?,
+            cookie_json: row.get(1)?,
+            source: row.get(2)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows.flatten() {
+        if !r.cookie_json.trim().is_empty() && r.cookie_json.trim() != "[]" {
+            out.push(r);
+        }
+    }
+    Ok(out)
+}
+
+/// 读取最近会话学号的全部域 cookie。
+pub fn load_auth_cookies_for_latest<P: AsRef<Path>>(path: P) -> Result<Vec<AuthCookieDomainRow>> {
+    let path_ref = path.as_ref();
+    let sid = match get_latest_user_session(path_ref)? {
+        Some(s) => s.student_id,
+        None => return Ok(Vec::new()),
+    };
+    load_auth_cookies_for_student(path_ref, &sid)
+}
+
+/// 清除某学号（或全部）auth_cookie_v2。
+pub fn clear_auth_cookies<P: AsRef<Path>>(path: P, student_id: Option<&str>) -> Result<usize> {
+    let conn = open_connection(path)?;
+    migrate_auth_cookie_v2_table(&conn)?;
+    let n = if let Some(sid) = student_id.map(str::trim).filter(|s| !s.is_empty()) {
+        conn.execute(
+            "DELETE FROM auth_cookie_v2 WHERE student_id = ?1",
+            params![sid],
+        )?
+    } else {
+        conn.execute("DELETE FROM auth_cookie_v2", [])?
+    };
+    Ok(n)
+}
+
+/// 仅更新 user_sessions.cookies（不碰密码/电费 token，避免双写误清空）。
+pub fn update_user_session_cookies_only<P: AsRef<Path>>(
+    path: P,
+    student_id: &str,
+    cookies: &str,
+) -> Result<()> {
+    let sid = student_id.trim();
+    if sid.is_empty() {
+        return Ok(());
+    }
+    let conn = open_connection(path)?;
+    ensure_user_session_columns(&conn);
+    let changed = conn.execute(
+        "UPDATE user_sessions SET cookies = ?1, last_login = CURRENT_TIMESTAMP
+         WHERE student_id = ?2",
+        params![cookies, sid],
+    )?;
+    if changed == 0 {
+        // 尚无会话行时建壳，密码/token 置空（与新用户一致）
+        conn.execute(
+            "INSERT INTO user_sessions (
+                student_id, cookies, encrypted_password, one_code_token,
+                electricity_refresh_token, electricity_token_expires_at, last_login
+            ) VALUES (?1, ?2, '', '', '', '', CURRENT_TIMESTAMP)",
+            params![sid, cookies],
+        )?;
+    }
     Ok(())
 }
 
@@ -1432,6 +1609,83 @@ mod cred_migrate_tests {
         }
         let session = get_user_session(&path, sid).unwrap().expect("session");
         assert_eq!(session.password, password);
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod auth_cookie_v2_tests {
+    use super::*;
+    use base64::Engine;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mini_hbut_acv2_{label}_{nanos}.db"))
+    }
+
+    #[test]
+    fn upsert_load_clear_auth_cookie_v2() {
+        let path = temp_db_path("crud");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let sid = "2510231001";
+        let rows = vec![
+            (
+                "passport2.chaoxing.com".to_string(),
+                r#"[{"name":"UID","value":"u1","path":"/"}]"#.to_string(),
+            ),
+            (
+                "auth.hbut.edu.cn".to_string(),
+                r#"[{"name":"CASTGC","value":"TGT-1","path":"/"}]"#.to_string(),
+            ),
+        ];
+        upsert_auth_cookies_batch(&path, sid, &rows, "test").expect("upsert");
+
+        let loaded = load_auth_cookies_for_student(&path, sid).expect("load");
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded.iter().any(|r| r.domain.contains("chaoxing")));
+        assert!(loaded.iter().any(|r| r.domain.contains("hbut")));
+
+        let n = clear_auth_cookies(&path, Some(sid)).expect("clear");
+        assert!(n >= 2);
+        let after = load_auth_cookies_for_student(&path, sid).expect("load2");
+        assert!(after.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cookies_only_update_preserves_token_and_password() {
+        let path = temp_db_path("cookies_only");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let sid = "2510231002";
+        let password = "keep-me";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+        {
+            let conn = open_connection(&path).unwrap();
+            conn.execute(
+                "INSERT INTO user_sessions (
+                    student_id, cookies, encrypted_password, one_code_token,
+                    electricity_refresh_token, electricity_token_expires_at
+                 ) VALUES (?1, 'old=1', ?2, 'tok-abc', 'ref-xyz', '2099-01-01T00:00:00Z')",
+                params![sid, b64],
+            )
+            .unwrap();
+        }
+
+        update_user_session_cookies_only(&path, sid, "Code: a=1 | Auth: b=2").expect("upd");
+
+        let session = get_user_session(&path, sid).unwrap().expect("session");
+        assert_eq!(session.password, password);
+        assert_eq!(session.one_code_token, "tok-abc");
+        assert_eq!(session.refresh_token, "ref-xyz");
+        assert!(session.cookies.contains("Code:"));
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -167,7 +167,10 @@ const markDeclined = () => {
 
 const ensureSso = async () => {
   loadingSso.value = true
-  bootPhase.value = 'sso'
+  // 已有班级壳时不要把整页打回 sso 全屏，只更新顶栏提示
+  if (bootPhase.value === 'init' || bootPhase.value === 'sso') {
+    bootPhase.value = 'sso'
+  }
   ssoHint.value = '正在通过门户会话接入学习通…'
   try {
     if (!hasTauri) {
@@ -180,7 +183,9 @@ const ensureSso = async () => {
     ssoHint.value = ssoReady.value
       ? res?.partial
         ? '门户会话部分可用（已可访问固定班级）'
-        : '门户 SSO 已连接'
+        : res?.from_cache || res?.cookie_reuse
+          ? '学习通会话已复用'
+          : '门户 SSO 已连接'
       : '会话未就绪，请重新登录门户'
     return ssoReady.value
   } catch (e) {
@@ -891,6 +896,16 @@ const boot = async () => {
   error.value = ''
   loadDeclined()
   const saved = loadLastClass()
+
+  // #351：有本地班级缓存时先露出资料页壳，SSO 在后台完成，避免整页卡「接入学习通」
+  bootPhase.value = 'sso'
+  ssoHint.value = '正在连接学习通会话…'
+  if (saved) {
+    activeClass.value = saved
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+  }
+
   const ssoOk = await ensureSso()
   if (!ssoOk) {
     bootPhase.value = 'error'
@@ -904,17 +919,16 @@ const boot = async () => {
     } catch (e) {
       error.value = formatErr(e)
     }
-    loadingBoot.value = false
     return
   }
 
   activeClass.value = { ...FIXED_CLASS_META }
+  bootPhase.value = 'ready'
+  loadingBoot.value = false
   await loadResources()
   if (!error.value) {
     saveLastClass(activeClass.value)
     statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '已在班级'
-    bootPhase.value = 'ready'
-    loadingBoot.value = false
     return
   }
   activeClass.value = null
@@ -923,7 +937,6 @@ const boot = async () => {
   if (joinDeclined.value) {
     preview.value = { ...FIXED_CLASS_META }
     bootPhase.value = 'ready'
-    loadingBoot.value = false
     return
   }
 
@@ -935,8 +948,6 @@ const boot = async () => {
   } catch (e) {
     error.value = formatErr(e)
     bootPhase.value = 'error'
-  } finally {
-    loadingBoot.value = false
   }
 }
 

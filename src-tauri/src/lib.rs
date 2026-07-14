@@ -61,7 +61,7 @@ use modules::usage_stats::commands as usage_stats_cmd;
 
 // ... imports
 
-const DB_FILENAME: &str = "grades.db";
+pub(crate) const DB_FILENAME: &str = "grades.db";
 const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
 pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str =
     "https://mini-hbut-testocr1.hf.space/api/temp/upload";
@@ -1175,6 +1175,8 @@ async fn finalize_chaoxing_login(
         None,
         None,
     );
+    // 全域 cookie 落库（#350）
+    client.persist_session_cookies(&student_id);
 
     Ok(ChaoxingLoginResult {
         success: true,
@@ -1743,17 +1745,7 @@ async fn portal_qr_confirm_login(
     client.user_info = Some(user_info.clone());
     client.last_username = Some(user_info.student_id.clone());
     client.last_password = None;
-    client.save_cookie_snapshot_to_file();
-
-    let _ = db::save_user_session(
-        DB_FILENAME,
-        &user_info.student_id,
-        &client.get_cookies(),
-        "",
-        "",
-        Some(""),
-        Some(""),
-    );
+    client.persist_session_cookies(&user_info.student_id);
 
     let client_arc = Arc::clone(&state.client);
     spawn_electricity_session_warmup(
@@ -3897,19 +3889,11 @@ async fn login(
         user_info.student_id.clone()
     };
 
-    // 先保存 Cookie 会话，一码通 Token 后台预热，不阻塞登录返回。
-    if let Err(e) = db::save_user_session(
-        DB_FILENAME,
-        &session_key,
-        &client.get_cookies(),
-        &password,
-        "",
-        Some(""),
-        Some(""),
-    ) {
-        println!("[璀﹀憡] 保存会话失败: {}", e);
-    }
+    // 先保存 Cookie 会话（v2 全域 + 旧列双写），一码通 Token 后台预热
+    client.set_credentials(session_key.clone(), password.clone());
+    client.persist_session_cookies(&session_key);
     if session_key != username {
+        // 旧客户端可能按登录名查会话
         let _ = db::save_user_session(
             DB_FILENAME,
             &username,
@@ -3919,6 +3903,7 @@ async fn login(
             Some(""),
             Some(""),
         );
+        let _ = client.persist_session_cookies(&username);
     }
     // 密钥环双写：学号键 + 登录用户名键，供静默 SSO 续期
     let _ = credential_store::save_password(&session_key, &password);
@@ -3926,7 +3911,6 @@ async fn login(
         let _ = credential_store::save_password(&username, &password);
     }
     let _ = credential_store::save_remembered_credential(&format!("hbut:{session_key}"), &password);
-    client.set_credentials(session_key.clone(), password.clone());
 
     let client_arc = Arc::clone(&state.client);
     spawn_electricity_session_warmup(client_arc.clone(), session_key.clone(), password);
@@ -3975,6 +3959,9 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
         }
     }
 
+    // 始终先用 auth_cookie_v2 / 文件快照补全域 cookie（旧 cookies 串可能只有 4 域）
+    client.hydrate_session_cookies_from_store(Some(&user_info.student_id));
+
     match session_opt {
         Some(session) => {
             println!(
@@ -4004,20 +3991,14 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
                 client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
                 println!("[调试] Restored one_code_token");
             }
-            let _ = db::save_user_session(
-                DB_FILENAME,
-                &user_info.student_id,
-                &client.get_cookies(),
-                &session.password,
-                &session.one_code_token,
-                Some(session.refresh_token.as_str()),
-                Some(session.token_expires_at.as_str()),
+            client.persist_session_cookies(&user_info.student_id);
+        }
+        None => {
+            println!(
+                "[调试] No saved credentials found for user: {}",
+                user_info.student_id
             );
         }
-        None => println!(
-            "[调试] No saved credentials found for user: {}",
-            user_info.student_id
-        ),
     }
 
     Ok(user_info)
@@ -6514,7 +6495,7 @@ pub fn run() {
 
             // 统一改为前端跨平台通知监控（Capacitor/Tauri 共用），
             // 这里不再启动 Rust 侧后台循环，避免桌面端重复通知。
-            // 启动时尝试加载最近一′话凭?
+            // 启动时尝试加载最近会话凭据 + auth_cookie_v2 全域 cookie（#348）
             let mut restored_any = false;
             let mut token_loaded = false;
             if let Ok(Some(session)) = db::get_latest_user_session(DB_FILENAME) {
@@ -6535,18 +6516,24 @@ pub fn run() {
                     code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some();
                 let should_set_credentials = !password.is_empty();
                 let should_set_token = !token.is_empty();
+                // 即使旧 cookies 列为空，也要尝试 v2 / 文件快照
+                let has_v2 = db::load_auth_cookies_for_student(DB_FILENAME, &student_id)
+                    .map(|rows| !rows.is_empty())
+                    .unwrap_or(false);
 
-                if should_restore {
+                if should_restore || has_v2 {
                     restored_any = true;
                 }
                 if should_set_token {
                     token_loaded = true;
                 }
 
-                if should_restore || should_set_credentials || should_set_token {
+                if should_restore || should_set_credentials || should_set_token || has_v2 {
                     let state = app.state::<AppState>();
                     tauri::async_runtime::block_on(async {
                         let mut client = state.client.write().await;
+                        // 优先 auth_cookie_v2 全域恢复（#348）
+                        client.hydrate_session_cookies_from_store(Some(&student_id));
                         if should_restore {
                             let _ = client.restore_cookie_snapshot(
                                 code_cookie,
@@ -6555,7 +6542,7 @@ pub fn run() {
                             );
                         }
                         if should_set_credentials {
-                            client.set_credentials(student_id, password);
+                            client.set_credentials(student_id.clone(), password);
                         }
                         if should_set_token {
                             let expires_at =
@@ -6571,6 +6558,13 @@ pub fn run() {
                         }
                     });
                 }
+            } else {
+                // 无 user_sessions 行时仍尝试 v2 / 文件快照
+                let state = app.state::<AppState>();
+                tauri::async_runtime::block_on(async {
+                    let mut client = state.client.write().await;
+                    client.hydrate_session_cookies_from_store(None);
+                });
             }
             if !restored_any {
                 if let Some(path) = find_file_in_parents("rust_backend_session.json", 6) {

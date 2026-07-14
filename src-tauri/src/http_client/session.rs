@@ -624,103 +624,308 @@ impl HbutClient {
         Ok(user_info)
     }
 
-    /// 获取当前 Cookie（用于前端存储/调试）
-    pub fn get_cookies(&self) -> String {
-        let code_url = "https://code.hbut.edu.cn".parse().unwrap();
-        let auth_url = "https://auth.hbut.edu.cn".parse().unwrap();
-        let jwxt_url = "https://jwxt.hbut.edu.cn".parse().unwrap();
-        let chaoxing_jwxt_url = "https://hbut.jw.chaoxing.com".parse().unwrap();
+    /// 会话相关域（#348/#350）：门户 + 学习通长效 cookie 全量。
+    /// (snapshot_key, origin_url, Domain= attribute)
+    pub fn session_cookie_domains() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[
+            ("code", "https://code.hbut.edu.cn", ".hbut.edu.cn"),
+            ("auth", "https://auth.hbut.edu.cn", ".hbut.edu.cn"),
+            ("portal", "https://e.hbut.edu.cn", ".hbut.edu.cn"),
+            ("jwxt", "https://jwxt.hbut.edu.cn", ".hbut.edu.cn"),
+            (
+                "chaoxing_jwxt",
+                "https://hbut.jw.chaoxing.com",
+                ".chaoxing.com",
+            ),
+            (
+                "passport",
+                "https://passport2.chaoxing.com",
+                ".chaoxing.com",
+            ),
+            ("i_chaoxing", "https://i.chaoxing.com", ".chaoxing.com"),
+            ("mooc1", "https://mooc1.chaoxing.com", ".chaoxing.com"),
+            ("mooc2_ans", "https://mooc2-ans.chaoxing.com", ".chaoxing.com"),
+            ("pan_yz", "https://pan-yz.chaoxing.com", ".chaoxing.com"),
+            (
+                "mobilelearn",
+                "https://mobilelearn.chaoxing.com",
+                ".chaoxing.com",
+            ),
+            ("fysso", "https://fysso.chaoxing.com", ".chaoxing.com"),
+        ]
+    }
 
+    fn cookie_header_for_origin(&self, origin: &str) -> String {
+        let Ok(url) = Url::parse(origin) else {
+            return String::new();
+        };
+        self.cookie_jar
+            .cookies(&url)
+            .and_then(|c| c.to_str().ok().map(|s| s.to_string()))
+            .unwrap_or_default()
+    }
+
+    /// 获取当前 Cookie（用于前端存储/调试；保留旧 Code/Auth/Jwxt/ChaoxingJwxt 标签兼容）
+    pub fn get_cookies(&self) -> String {
         let mut all_cookies = Vec::new();
-        if let Some(c) = self.cookie_jar.cookies(&code_url) {
-            all_cookies.push(format!("Code: {}", c.to_str().unwrap_or_default()));
+        // 旧标签（兼容 restore_session / 前端）
+        let code = self.cookie_header_for_origin("https://code.hbut.edu.cn");
+        let auth = self.cookie_header_for_origin("https://auth.hbut.edu.cn");
+        let jwxt = self.cookie_header_for_origin("https://jwxt.hbut.edu.cn");
+        let cx_jw = self.cookie_header_for_origin("https://hbut.jw.chaoxing.com");
+        if !code.is_empty() {
+            all_cookies.push(format!("Code: {}", code));
         }
-        if let Some(c) = self.cookie_jar.cookies(&auth_url) {
-            all_cookies.push(format!("Auth: {}", c.to_str().unwrap_or_default()));
+        if !auth.is_empty() {
+            all_cookies.push(format!("Auth: {}", auth));
         }
-        if let Some(c) = self.cookie_jar.cookies(&jwxt_url) {
-            all_cookies.push(format!("Jwxt: {}", c.to_str().unwrap_or_default()));
+        if !jwxt.is_empty() {
+            all_cookies.push(format!("Jwxt: {}", jwxt));
         }
-        if let Some(c) = self.cookie_jar.cookies(&chaoxing_jwxt_url) {
-            all_cookies.push(format!("ChaoxingJwxt: {}", c.to_str().unwrap_or_default()));
+        if !cx_jw.is_empty() {
+            all_cookies.push(format!("ChaoxingJwxt: {}", cx_jw));
+        }
+        // 扩展域（新标签，restore_session 可识别 Key:）
+        for (key, origin, _) in Self::session_cookie_domains() {
+            if matches!(
+                *key,
+                "code" | "auth" | "jwxt" | "chaoxing_jwxt"
+            ) {
+                continue;
+            }
+            let raw = self.cookie_header_for_origin(origin);
+            if !raw.is_empty() {
+                all_cookies.push(format!("{}: {}", key, raw));
+            }
         }
         all_cookies.join(" | ")
     }
 
-    /// 导出 Cookie 快照（不带前缀，适合外部缓存/导入）
-    /// 获取当前 Cookie 快照（结构化 JSON）
+    /// 结构化快照：含全部会话域 + 旧字段兼容
     pub fn get_cookie_snapshot(&self) -> serde_json::Value {
-        let code_url: Url = "https://code.hbut.edu.cn".parse().unwrap();
-        let auth_url: Url = "https://auth.hbut.edu.cn".parse().unwrap();
-        let jwxt_url: Url = "https://jwxt.hbut.edu.cn".parse().unwrap();
-        let chaoxing_jwxt_url: Url = "https://hbut.jw.chaoxing.com".parse().unwrap();
+        let mut map = serde_json::Map::new();
+        for (key, origin, _) in Self::session_cookie_domains() {
+            let raw = self.cookie_header_for_origin(origin);
+            map.insert(key.to_string(), serde_json::Value::String(raw));
+        }
+        // 旧键名别名
+        map.insert(
+            "chaoxing_jwxt".to_string(),
+            map.get("chaoxing_jwxt").cloned().unwrap_or_default(),
+        );
+        serde_json::Value::Object(map)
+    }
 
-        let code = self
-            .cookie_jar
-            .cookies(&code_url)
-            .map(|c| c.to_str().unwrap_or_default().to_string())
-            .unwrap_or_default();
-        let auth = self
-            .cookie_jar
-            .cookies(&auth_url)
-            .map(|c| c.to_str().unwrap_or_default().to_string())
-            .unwrap_or_default();
-        let jwxt = self
-            .cookie_jar
-            .cookies(&jwxt_url)
-            .map(|c| c.to_str().unwrap_or_default().to_string())
-            .unwrap_or_default();
-        let chaoxing_jwxt = self
-            .cookie_jar
-            .cookies(&chaoxing_jwxt_url)
-            .map(|c| c.to_str().unwrap_or_default().to_string())
-            .unwrap_or_default();
+    /// 导出 (domain_host, cookie_header) 供 auth_cookie_v2 落库
+    pub fn export_domain_cookie_rows(&self) -> Vec<(String, String)> {
+        let mut rows = Vec::new();
+        for (key, origin, _) in Self::session_cookie_domains() {
+            let raw = self.cookie_header_for_origin(origin);
+            if raw.trim().is_empty() {
+                continue;
+            }
+            // cookie_json: 存为 name=value 对数组
+            let pairs = parse_cookie_pairs(&raw);
+            if pairs.is_empty() {
+                continue;
+            }
+            let arr: Vec<serde_json::Value> = pairs
+                .into_iter()
+                .map(|(n, v)| {
+                    serde_json::json!({
+                        "name": n,
+                        "value": v,
+                        "path": "/",
+                    })
+                })
+                .collect();
+            let json = serde_json::to_string(&arr).unwrap_or_else(|_| "[]".into());
+            // 用 origin host 作 domain 主键，便于 hydrate
+            let host = origin
+                .trim_start_matches("https://")
+                .trim_start_matches("http://")
+                .to_string();
+            rows.push((host, json));
+            let _ = key;
+        }
+        rows
+    }
 
-        serde_json::json!({
-            "code": code,
-            "auth": auth,
-            "jwxt": jwxt,
-            "chaoxing_jwxt": chaoxing_jwxt
-        })
+    /// 将当前 jar 持久化到 DB v2 + 旧 user_sessions.cookies + 文件快照（#349/#350）
+    pub fn persist_session_cookies(&self, student_id: &str) {
+        let sid = student_id.trim();
+        if sid.is_empty() {
+            return;
+        }
+        let rows = self.export_domain_cookie_rows();
+        if !rows.is_empty() {
+            if let Err(e) =
+                crate::db::upsert_auth_cookies_batch(crate::DB_FILENAME, sid, &rows, "jar")
+            {
+                eprintln!("[session] auth_cookie_v2 写入失败: {}", e);
+            }
+        }
+        // 旧列双写：只改 cookies，避免 save_user_session 空 token 抹掉电费会话
+        let legacy = self.get_cookies();
+        if !legacy.trim().is_empty() {
+            if let Err(e) =
+                crate::db::update_user_session_cookies_only(crate::DB_FILENAME, sid, &legacy)
+            {
+                eprintln!("[session] user_sessions.cookies 双写失败: {}", e);
+            }
+        }
+        self.save_cookie_snapshot_to_file();
+    }
+
+    /// 冷启动：优先 auth_cookie_v2，再文件快照（#348）
+    pub fn hydrate_session_cookies_from_store(&mut self, student_id: Option<&str>) {
+        let sid = student_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                crate::db::get_latest_user_session(crate::DB_FILENAME)
+                    .ok()
+                    .flatten()
+                    .map(|s| s.student_id)
+            });
+
+        let mut restored = false;
+        if let Some(ref sid) = sid {
+            if let Ok(rows) = crate::db::load_auth_cookies_for_student(crate::DB_FILENAME, sid) {
+                if !rows.is_empty() {
+                    self.restore_auth_cookie_v2_rows(&rows);
+                    restored = true;
+                    println!(
+                        "[session] 已从 auth_cookie_v2 恢复 {} 个域 cookie student={}",
+                        rows.len(),
+                        sid
+                    );
+                }
+            }
+        }
+        if !restored {
+            self.load_cookie_snapshot_from_file();
+        }
+    }
+
+    fn restore_auth_cookie_v2_rows(&mut self, rows: &[crate::db::AuthCookieDomainRow]) {
+        for row in rows {
+            let host = row.domain.trim();
+            if host.is_empty() {
+                continue;
+            }
+            let origin = if host.starts_with("http") {
+                host.to_string()
+            } else {
+                format!("https://{}", host)
+            };
+            let Ok(url) = Url::parse(&origin) else {
+                continue;
+            };
+            let domain_attr = if host.contains("chaoxing.com") {
+                ".chaoxing.com"
+            } else if host.contains("hbut.edu.cn") {
+                ".hbut.edu.cn"
+            } else {
+                host
+            };
+            // cookie_json 可能是数组或裸 cookie 串
+            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(&row.cookie_json) {
+                for item in arr {
+                    let name = item
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    let value = item
+                        .get("value")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if name.is_empty() || value.is_empty() {
+                        continue;
+                    }
+                    let path = item
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("/");
+                    self.cookie_jar.add_cookie_str(
+                        &format!(
+                            "{}={}; Domain={}; Path={}",
+                            name, value, domain_attr, path
+                        ),
+                        &url,
+                    );
+                }
+            } else {
+                for (name, value) in parse_cookie_pairs(&row.cookie_json) {
+                    self.cookie_jar.add_cookie_str(
+                        &format!("{}={}; Domain={}; Path=/", name, value, domain_attr),
+                        &url,
+                    );
+                }
+            }
+            if host.contains("chaoxing.com") {
+                self.prefer_chaoxing_jwxt = true;
+            }
+        }
     }
 
     /// 从 Cookie 快照恢复（仅写入 Cookie，不做登录校验）
-    /// 从结构化 Cookie 快照恢复会话
+    /// 从结构化 Cookie 快照恢复会话（旧 API：三参，兼容）
     pub fn restore_cookie_snapshot(
         &mut self,
         code: Option<String>,
         auth: Option<String>,
         jwxt: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.restore_cookie_snapshot_extended(code, auth, jwxt, None)
+    }
+
+    /// 扩展恢复：含 chaoxing_jwxt 与其它域
+    pub fn restore_cookie_snapshot_extended(
+        &mut self,
+        code: Option<String>,
+        auth: Option<String>,
+        jwxt: Option<String>,
+        chaoxing_jwxt: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let code_url: Url = "https://code.hbut.edu.cn".parse()?;
         let auth_url: Url = "https://auth.hbut.edu.cn".parse()?;
         let jwxt_url: Url = "https://jwxt.hbut.edu.cn".parse()?;
+        let cx_url: Url = "https://hbut.jw.chaoxing.com".parse()?;
+
+        let add = |jar: &Arc<Jar>, url: &Url, domain: &str, raw: &str| {
+            for (name, value) in parse_cookie_pairs(raw) {
+                jar.add_cookie_str(
+                    &format!("{}={}; Domain={}; Path=/", name, value, domain),
+                    url,
+                );
+            }
+        };
 
         if let Some(raw) = code {
-            for (name, value) in parse_cookie_pairs(&raw) {
-                self.cookie_jar.add_cookie_str(
-                    &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
-                    &code_url,
-                );
+            if !raw.trim().is_empty() {
+                add(&self.cookie_jar, &code_url, ".hbut.edu.cn", &raw);
             }
         }
         if let Some(raw) = auth {
-            for (name, value) in parse_cookie_pairs(&raw) {
-                self.cookie_jar.add_cookie_str(
-                    &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
-                    &auth_url,
-                );
+            if !raw.trim().is_empty() {
+                add(&self.cookie_jar, &auth_url, ".hbut.edu.cn", &raw);
             }
         }
         if let Some(raw) = jwxt {
-            for (name, value) in parse_cookie_pairs(&raw) {
-                self.cookie_jar.add_cookie_str(
-                    &format!("{}={}; Domain=.hbut.edu.cn; Path=/", name, value),
-                    &jwxt_url,
-                );
+            if !raw.trim().is_empty() {
+                add(&self.cookie_jar, &jwxt_url, ".hbut.edu.cn", &raw);
             }
         }
-
+        if let Some(raw) = chaoxing_jwxt {
+            if !raw.trim().is_empty() {
+                add(&self.cookie_jar, &cx_url, ".chaoxing.com", &raw);
+                self.prefer_chaoxing_jwxt = true;
+            }
+        }
         Ok(())
     }
 
@@ -781,63 +986,37 @@ impl HbutClient {
             Err(_) => return,
         };
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            let raw_code = json
-                .get("code")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let raw_auth = json
-                .get("auth")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let raw_jwxt = json
-                .get("jwxt")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let raw_chaoxing_jwxt = json
+            // 新格式：按 session_cookie_domains 的 key 存
+            for (key, origin, domain_attr) in Self::session_cookie_domains() {
+                let raw = json
+                    .get(*key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if raw.is_empty() {
+                    continue;
+                }
+                if let Ok(url) = Url::parse(origin) {
+                    for (name, value) in parse_cookie_pairs(raw) {
+                        self.cookie_jar.add_cookie_str(
+                            &format!("{}={}; Domain={}; Path=/", name, value, domain_attr),
+                            &url,
+                        );
+                    }
+                    if domain_attr.contains("chaoxing") {
+                        self.prefer_chaoxing_jwxt = true;
+                    }
+                }
+            }
+            // 旧格式兜底
+            let code = json.get("code").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let auth = json.get("auth").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let jwxt = json.get("jwxt").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let cx = json
                 .get("chaoxing_jwxt")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-
-            let extract_segment = |raw: Option<String>, label: &str| -> Option<String> {
-                let raw = raw.unwrap_or_default();
-                if raw.trim().is_empty() {
-                    return None;
-                }
-                if !(raw.contains("Code:") || raw.contains("Auth:") || raw.contains("Jwxt:")) {
-                    return Some(raw);
-                }
-                let marker = format!("{}:", label);
-                let Some(pos) = raw.find(&marker) else {
-                    return None;
-                };
-                let after = &raw[pos + marker.len()..];
-                let end = after.find('|').unwrap_or(after.len());
-                let segment = after[..end].trim();
-                if segment.is_empty() {
-                    None
-                } else {
-                    Some(segment.to_string())
-                }
-            };
-
-            let code = extract_segment(raw_code, "Code");
-            let auth = extract_segment(raw_auth, "Auth");
-            let jwxt = extract_segment(raw_jwxt, "Jwxt");
-            let _ = self.restore_cookie_snapshot(code, auth, jwxt);
-            if let Some(raw) = raw_chaoxing_jwxt {
-                let trimmed = raw.trim();
-                if !trimmed.is_empty() {
-                    if let Ok(chaoxing_url) = Url::parse("https://hbut.jw.chaoxing.com") {
-                        for (name, value) in parse_cookie_pairs(trimmed) {
-                            self.cookie_jar.add_cookie_str(
-                                &format!("{}={}; Domain=.chaoxing.com; Path=/", name, value),
-                                &chaoxing_url,
-                            );
-                        }
-                    }
-                    self.prefer_chaoxing_jwxt = true;
-                }
-            }
+            let _ = self.restore_cookie_snapshot_extended(code, auth, jwxt, cx);
         }
     }
 
@@ -872,6 +1051,11 @@ impl HbutClient {
 
     /// 清理会话缓存与用户信息
     pub fn clear_session(&mut self) {
+        let sid = self
+            .user_info
+            .as_ref()
+            .map(|u| u.student_id.clone())
+            .or_else(|| self.last_username.clone());
         self.reset_http_state();
         self.is_logged_in = false;
         self.user_info = None;
@@ -882,5 +1066,13 @@ impl HbutClient {
         self.electricity_token_at = None;
         self.electricity_refresh_token = None;
         self.electricity_token_expires_at = None;
+        // 登出清 cookie 持久化（#353）；记住密码仍保留在密钥环/DB 密码列
+        if let Some(sid) = sid {
+            let _ = crate::db::clear_auth_cookies(crate::DB_FILENAME, Some(&sid));
+            let _ = crate::db::update_user_session_cookies_only(crate::DB_FILENAME, &sid, "");
+        }
+        if let Some(path) = Self::cookie_snapshot_path() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
