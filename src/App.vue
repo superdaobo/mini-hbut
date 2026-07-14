@@ -428,7 +428,12 @@ const showWorkspaceLayoutEditor = ref(false)
 const workspaceLayoutEditorTab = ref('home')
 const isLoading = ref(false)
 const showLoginPrompt = ref(false)
-const showSplash = ref(useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot)
+// 开发态默认不再叠第二层 Vue Splash（index.html 已有原生启动页；双层易造成“永远加载”）
+const showSplash = ref(
+  import.meta.env.DEV
+    ? false
+    : useUiSettings().splashEnabled !== false && !skipSplashForFastScheduleBoot
+)
 const HOME_LAYOUT_DEBUG_HIDDEN_KEY = 'hbu_home_layout_debug_hidden'
 const HOME_LAYOUT_DEBUG_FORCE_KEY = 'hbu_home_layout_debug_enabled'
 const homeLayoutDebugForced = (() => {
@@ -476,6 +481,10 @@ const homeScrollSnapshot = ref(0)
 const jwxtMaintenanceMode = ref(false)
 const jwxtMaintenanceHint = ref('')
 const jwxtLastCheckTime = ref('')
+/** idle | recovering | failed | need_login | maintenance */
+const jwxtRecoveryPhase = ref('idle')
+const jwxtMaintenanceDetail = ref('')
+const jwxtSessionLastError = ref('')
 
 const SESSION_COOKIE_KEY = 'hbu_session_cookies'
 const SESSION_COOKIE_TIME_KEY = 'hbu_session_cookie_time'
@@ -492,6 +501,8 @@ const TEMP_SESSION_EXPIRED_REASON = 'temp_session_expired'
 const JWXT_MAINTENANCE_KEY = 'hbu_jwxt_maintenance'
 const JWXT_MAINTENANCE_TIME_KEY = 'hbu_jwxt_maintenance_time'
 const JWXT_MAINTENANCE_HINT_KEY = 'hbu_jwxt_maintenance_hint'
+const JWXT_MAINTENANCE_DETAIL_KEY = 'hbu_jwxt_maintenance_detail'
+const JWXT_MAINTENANCE_PHASE_KEY = 'hbu_jwxt_maintenance_phase'
 const JWXT_MAINTENANCE_EVENT = 'hbu-jwxt-maintenance'
 const REMOTE_CONFIG_MODE_EVENT = 'hbu-remote-config-mode-changed'
 const SESSION_REFRESH_INTERVAL = 20 * 60 * 1000
@@ -1752,17 +1763,32 @@ const formatCheckTime = (ts = Date.now()) => {
   }
 }
 
-const markJwxtMaintenance = (hint = '') => {
-  if (!studentId.value) return
+const normalizeRecoveryPhase = (phase, fallback = 'maintenance') => {
+  const p = String(phase || '').trim()
+  if (['idle', 'recovering', 'failed', 'need_login', 'maintenance'].includes(p)) return p
+  return fallback
+}
+
+const markJwxtMaintenance = (hint = '', options = {}) => {
+  if (!studentId.value && !options.force) return
+  const detail = String(options.detail || jwxtSessionLastError.value || '').trim()
+  const phase = normalizeRecoveryPhase(options.phase, detail ? 'failed' : 'maintenance')
   jwxtMaintenanceMode.value = true
   jwxtLastCheckTime.value = formatCheckTime()
   jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
+  jwxtMaintenanceDetail.value = detail
+  jwxtRecoveryPhase.value = phase
+  if (detail) jwxtSessionLastError.value = detail
   try {
     localStorage.setItem(JWXT_MAINTENANCE_KEY, '1')
     localStorage.setItem(JWXT_MAINTENANCE_TIME_KEY, String(Date.now()))
     if (jwxtMaintenanceHint.value) {
       localStorage.setItem(JWXT_MAINTENANCE_HINT_KEY, jwxtMaintenanceHint.value)
     }
+    if (detail) {
+      localStorage.setItem(JWXT_MAINTENANCE_DETAIL_KEY, detail.slice(0, 800))
+    }
+    localStorage.setItem(JWXT_MAINTENANCE_PHASE_KEY, phase)
   } catch {
     // ignore
   }
@@ -1772,10 +1798,15 @@ const clearJwxtMaintenance = () => {
   jwxtMaintenanceMode.value = false
   jwxtMaintenanceHint.value = ''
   jwxtLastCheckTime.value = ''
+  jwxtMaintenanceDetail.value = ''
+  jwxtSessionLastError.value = ''
+  jwxtRecoveryPhase.value = 'idle'
   try {
     localStorage.removeItem(JWXT_MAINTENANCE_KEY)
     localStorage.removeItem(JWXT_MAINTENANCE_TIME_KEY)
     localStorage.removeItem(JWXT_MAINTENANCE_HINT_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_DETAIL_KEY)
+    localStorage.removeItem(JWXT_MAINTENANCE_PHASE_KEY)
   } catch {
     // ignore
   }
@@ -1798,12 +1829,19 @@ const syncJwxtMaintenanceFromStorage = () => {
     jwxtMaintenanceMode.value = false
     jwxtMaintenanceHint.value = ''
     jwxtLastCheckTime.value = ''
+    jwxtMaintenanceDetail.value = ''
+    jwxtRecoveryPhase.value = 'idle'
     return
   }
 
   jwxtMaintenanceMode.value = true
   const hint = String(localStorage.getItem(JWXT_MAINTENANCE_HINT_KEY) || '').trim()
   jwxtMaintenanceHint.value = hint || '教务系统正在维护或暂时不可用，当前为缓存数据。'
+  jwxtMaintenanceDetail.value = String(localStorage.getItem(JWXT_MAINTENANCE_DETAIL_KEY) || '').trim()
+  jwxtRecoveryPhase.value = normalizeRecoveryPhase(
+    localStorage.getItem(JWXT_MAINTENANCE_PHASE_KEY),
+    'maintenance'
+  )
   const ts = Number(localStorage.getItem(JWXT_MAINTENANCE_TIME_KEY) || Date.now())
   jwxtLastCheckTime.value = formatCheckTime(ts)
 }
@@ -1812,7 +1850,10 @@ const handleJwxtMaintenanceEvent = (event) => {
   const detail = event?.detail || {}
   if (detail.active) {
     const hint = String(detail.hint || '').trim()
-    markJwxtMaintenance(hint)
+    markJwxtMaintenance(hint, {
+      detail: detail.detail || detail.error || '',
+      phase: detail.phase || 'maintenance'
+    })
     if (studentId.value && !isManualLogout()) {
       startJwxtRecoveryPolling()
     }
@@ -1820,6 +1861,51 @@ const handleJwxtMaintenanceEvent = (event) => {
   }
   clearJwxtMaintenance()
   stopJwxtRecoveryPolling()
+}
+
+const formatSessionError = (err) => {
+  const raw = String(err?.message || err || '').trim()
+  if (!raw) return ''
+  // 截断过长堆栈，保留用户可读摘要
+  const firstLine = raw.split(/[\r\n]/)[0] || raw
+  return firstLine.length > 280 ? `${firstLine.slice(0, 280)}…` : firstLine
+}
+
+const handleRetrySessionRecovery = async () => {
+  if (isManualLogout() || !studentId.value) {
+    handleRequireLogin?.()
+    return
+  }
+  jwxtRecoveryPhase.value = 'recovering'
+  markJwxtMaintenance('正在后台恢复会话…', {
+    phase: 'recovering',
+    detail: jwxtSessionLastError.value || ''
+  })
+  try {
+    const ok = await attemptOnlineRecovery({ silent: false })
+    if (!ok) {
+      const hasPortal = !!(await getStoredPassword().catch(() => null))
+      const hasCx = !!(await getStoredChaoxingPassword().catch(() => null))
+      if (!hasPortal && !hasCx) {
+        markJwxtMaintenance('会话已过期，本地未保存密码，请手动登录融合门户。', {
+          phase: 'need_login',
+          detail: jwxtSessionLastError.value || '无可用记住密码'
+        })
+      } else {
+        markJwxtMaintenance('自动登录未成功，将继续在后台重试。当前展示缓存数据。', {
+          phase: 'failed',
+          detail: jwxtSessionLastError.value || '恢复失败'
+        })
+        startJwxtRecoveryPolling()
+      }
+    }
+  } catch (e) {
+    jwxtSessionLastError.value = formatSessionError(e)
+    markJwxtMaintenance('恢复会话时出错，请稍后重试或手动登录。', {
+      phase: 'failed',
+      detail: jwxtSessionLastError.value
+    })
+  }
 }
 
 const restoreCachedIdentityFromLocal = async () => {
@@ -1860,6 +1946,9 @@ const attemptOnlineRecovery = async (options = {}) => {
   if (!hasTauri || isManualLogout()) return false
   if (jwxtRecoveryInFlight) return false
   jwxtRecoveryInFlight = true
+  if (!options.silent) {
+    jwxtRecoveryPhase.value = 'recovering'
+  }
   try {
     let restored = await tryRestoreSession()
     if (!restored) {
@@ -1884,7 +1973,7 @@ const attemptOnlineRecovery = async (options = {}) => {
       notifySessionOnline(relogged ? 'auto-relogin' : 'session-restore')
       // 后台恢复/重登录成功后自动上传成绩和设置到云端（不含自定义课程）
       if (relogged && studentId.value) {
-        resetCloudSyncCooldownForSession(studentId.value)
+        resetCloudSyncDataForSession(studentId.value)
         runAutoCloudSyncAfterLogin({
           studentId: studentId.value,
           latestGrades: []
@@ -1893,9 +1982,21 @@ const attemptOnlineRecovery = async (options = {}) => {
         })
       }
     } else if (!options.silent) {
-      markJwxtMaintenance()
+      markJwxtMaintenance('会话暂不可用，当前展示缓存数据。', {
+        phase: 'failed',
+        detail: jwxtSessionLastError.value || '恢复未成功'
+      })
     }
     return success
+  } catch (e) {
+    jwxtSessionLastError.value = formatSessionError(e)
+    if (!options.silent) {
+      markJwxtMaintenance('恢复会话失败', {
+        phase: 'failed',
+        detail: jwxtSessionLastError.value
+      })
+    }
+    return false
   } finally {
     jwxtRecoveryInFlight = false
   }
@@ -1906,9 +2007,19 @@ const startJwxtRecoveryPolling = () => {
   if (isManualLogout() || !studentId.value) return
   stopJwxtRecoveryPolling()
   jwxtRecoveryTimer = setInterval(() => {
-    attemptOnlineRecovery().catch((e) => {
+    attemptOnlineRecovery({ silent: true }).then((ok) => {
+      if (ok) return
+      markJwxtMaintenance('后台自动登录仍未成功，将继续重试。', {
+        phase: 'failed',
+        detail: jwxtSessionLastError.value || '恢复失败'
+      })
+    }).catch((e) => {
       console.warn('[Session] 教务恢复轮询失败:', e)
-      markJwxtMaintenance()
+      jwxtSessionLastError.value = formatSessionError(e)
+      markJwxtMaintenance('后台恢复异常', {
+        phase: 'failed',
+        detail: jwxtSessionLastError.value
+      })
     })
   }, JWXT_RECOVERY_INTERVAL)
 }
@@ -2187,12 +2298,23 @@ const handleSplashDismissed = () => {
   }
 }
 
-const dismissSplash = () => {
+/** 关闭启动页：必须立刻摘掉 v-if，不能只靠子组件动画回调（否则会永远卡在加载） */
+const dismissSplash = (reason = '') => {
   if (!showSplash.value) {
     handleSplashDismissed()
     return
   }
-  splashRef.value?.dismiss()
+  try {
+    splashRef.value?.dismiss?.()
+  } catch (e) {
+    console.warn('[Boot] splashRef.dismiss 失败:', e)
+  }
+  // 立即隐藏：子组件 emit 可能因 ref 未挂载 / 动画被打断而不触发
+  showSplash.value = false
+  handleSplashDismissed()
+  if (reason) {
+    console.info('[Boot] dismissSplash:', reason)
+  }
 }
 
 // 自动检查更新（尊重用户频道：默认 stable，开启 dev 后才查 beta）
@@ -2404,6 +2526,7 @@ const tryRestoreSession = async () => {
       })
       return false
     }
+    jwxtSessionLastError.value = formatSessionError(e)
     console.warn('[Session] 恢复会话失败，保留本地缓存以便离线展示:', e)
     // 仅在明确手动退出时清理；教务系统维护期间需要保留 cookies + 缓存兜底。
     if (isManualLogout()) {
@@ -2482,13 +2605,17 @@ const attemptAutoRelogin = async () => {
       await persistSessionCookies()
       return true
     } catch (e) {
+      jwxtSessionLastError.value = formatSessionError(e)
       console.warn('[Session] 学习通自动登录失败:', e)
       return false
     }
   }
 
   const creds = await getStoredPassword()
-  if (!creds) return false
+  if (!creds) {
+    jwxtSessionLastError.value = '本地未找到融合门户记住密码'
+    return false
+  }
 
   const doLogin = async () => {
     const userInfo = await invokeNative('login', {
@@ -2517,16 +2644,23 @@ const attemptAutoRelogin = async () => {
       const waitSec = parseInt(cooldownMatch[1], 10)
       if (waitSec > 0 && waitSec <= 120) {
         console.info(`[Session] 登录冷却中，${waitSec}秒后重试...`)
+        jwxtSessionLastError.value = `登录冷却中，${waitSec} 秒后重试`
+        markJwxtMaintenance(`登录冷却，${waitSec} 秒后自动重试…`, {
+          phase: 'recovering',
+          detail: jwxtSessionLastError.value
+        })
         await new Promise(r => setTimeout(r, (waitSec + 2) * 1000))
         try {
           await doLogin()
           return true
         } catch (e2) {
+          jwxtSessionLastError.value = formatSessionError(e2)
           console.warn('[Session] 冷却后重试仍失败:', e2)
           return false
         }
       }
     }
+    jwxtSessionLastError.value = formatSessionError(e)
     console.warn('[Session] 自动登录失败:', e)
     return false
   }
@@ -2551,11 +2685,19 @@ const refreshSessionSilently = async () => {
       })
       return
     }
+    jwxtSessionLastError.value = formatSessionError(e)
     console.warn('[Session] 会话刷新失败，尝试自动登录:', e)
+    markJwxtMaintenance('会话失效，正在后台自动登录…', {
+      phase: 'recovering',
+      detail: jwxtSessionLastError.value
+    })
     const relogged = await attemptAutoRelogin()
     if (!relogged) {
       stopSessionKeepAlive()
-      markJwxtMaintenance()
+      markJwxtMaintenance('后台自动登录未成功，将定时重试。当前为缓存数据。', {
+        phase: 'failed',
+        detail: jwxtSessionLastError.value
+      })
       startJwxtRecoveryPolling()
     } else {
       clearJwxtMaintenance()
@@ -2770,6 +2912,18 @@ watch(currentView, () => {
 onMounted(async () => {
   console.time('[Boot] total')
   console.time('[Boot] to-splash-dismiss')
+  // 启动页硬超时 2.5s：绝不因网络/会话卡在加载遮罩
+  const splashFailsafeTimer = window.setTimeout(() => {
+    if (!showSplash.value) return
+    console.warn('[Boot] splash failsafe 2.5s：强制进入应用')
+    splashStatusText.value = '准备就绪'
+    dismissSplash('failsafe-2.5s')
+    if (!appBootstrapped) {
+      appBootstrapped = true
+      replaceHistorySnapshot(currentView.value)
+      ensureConfigAccess()
+    }
+  }, 2500)
   document.addEventListener('click', handleGlobalLinkClick, true)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('popstate', handlePopState)
@@ -2791,38 +2945,49 @@ onMounted(async () => {
 
   // ── 阶段 1：本地身份恢复（纯 localStorage，极快） ──
   console.time('[Boot] local-identity')
-  const bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
+  let bootstrappedCachedIdentity = false
+  try {
+    bootstrappedCachedIdentity = await restoreCachedIdentityFromLocal()
+  } catch (e) {
+    console.warn('[Boot] local-identity 失败:', e)
+  }
   console.timeEnd('[Boot] local-identity')
   markBootMetric('identity_restored', {
     restored: !!bootstrappedCachedIdentity,
     student_id: String(studentId.value || '').trim()
   })
 
-  // ── 阶段 2：有缓存身份则立刻进入主界面（使用离线缓存数据） ──
-  if (bootstrappedCachedIdentity || skipSplashForFastScheduleBoot) {
+  // ── 阶段 2：尽快进入主界面（不阻塞会话恢复） ──
+  try {
     await syncFromHash({ scrollToTop: false })
-    if (!window.location.hash) {
-      pendingScrollToTopOnViewChange = false
-      const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
-      if (ensureProtectedViewAccess(startupPage, {
-        push: false,
-        redirectToFallback: true,
-        fallbackView: 'home'
-      })) {
-        applyViewState(startupPage)
-      }
-    }
-    splashStatusText.value = '准备就绪'
-    dismissSplash()
-    console.timeEnd('[Boot] to-splash-dismiss')
-    appBootstrapped = true
-    handleSplashDismissed()
-    replaceHistorySnapshot(currentView.value)
-    ensureConfigAccess()
+  } catch (e) {
+    console.warn('[Boot] syncFromHash 失败:', e)
   }
+  if (!window.location.hash) {
+    pendingScrollToTopOnViewChange = false
+    const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
+    if (ensureProtectedViewAccess(startupPage, {
+      push: false,
+      redirectToFallback: true,
+      fallbackView: 'home'
+    })) {
+      applyViewState(startupPage)
+    }
+  }
+  splashStatusText.value = bootstrappedCachedIdentity ? '准备就绪' : '正在进入…'
+  dismissSplash(bootstrappedCachedIdentity ? 'cached-identity' : 'enter-ui-first')
+  console.timeEnd('[Boot] to-splash-dismiss')
+  appBootstrapped = true
+  replaceHistorySnapshot(currentView.value)
+  ensureConfigAccess()
+  window.clearTimeout(splashFailsafeTimer)
 
-  // ── 阶段 3：后台并行执行所有网络任务 ──
+  // ── 阶段 3：后台并行执行网络任务（不再挡住启动页） ──
   console.time('[Boot] background-tasks')
+  if (bootstrappedCachedIdentity && studentId.value && !isTestAccountSession()) {
+    // 仅更新状态点/内部 phase，不弹整页文案（首页圆点负责展示）
+    jwxtRecoveryPhase.value = 'recovering'
+  }
   const sessionRestoreTask = (async () => {
     console.time('[Boot] session-restore')
     let restored = false
@@ -2837,15 +3002,42 @@ onMounted(async () => {
       restored = await tryRestoreLatestSession()
     }
     if (!restored && !isTemporaryLoginSession()) {
+      jwxtRecoveryPhase.value = 'recovering'
       relogged = await attemptAutoRelogin()
     }
     console.timeEnd('[Boot] session-restore')
     return { restored, relogged }
   })()
 
-  const remoteConfigTask = (async () => {
+  void sessionRestoreTask
+    .then((result) => {
+      if (!result?.restored && !result?.relogged) {
+        if (bootstrappedCachedIdentity && studentId.value) {
+          // 后台恢复失败：标记红点，不强制踢登录
+          markJwxtMaintenance('会话未恢复，可点击状态点查看详情', {
+            phase: 'failed',
+            detail: jwxtSessionLastError.value || '自动登录未成功'
+          })
+        }
+        return
+      }
+      clearJwxtMaintenance()
+      if (isTestAccountSession()) return
+      startSessionKeepAlive()
+      startElectricityKeepAlive()
+      if (studentId.value) {
+        markLoginSessionToken()
+        startNotificationMonitor({ studentId: studentId.value }).catch(() => {})
+      }
+      notifySessionOnline(result.relogged ? 'boot-auto-relogin' : 'boot-session-restore')
+    })
+    .catch((e) => console.warn('[Boot] session-restore late fail:', e))
+
+  void (async () => {
     console.time('[Boot] remote-config')
-    try { await applyRemoteConfig() } catch (e) {
+    try {
+      await applyRemoteConfig()
+    } catch (e) {
       console.warn('[Config] 远程配置后台加载失败:', e)
     } finally {
       startRemoteConfigRefresh()
@@ -2853,46 +3045,31 @@ onMounted(async () => {
     }
   })()
 
-  const infraTask = (async () => {
-    await Promise.all([
-      primeOcrEndpointFromCache(),
-      installCloseInterceptor()
-    ])
-  })()
+  void Promise.all([primeOcrEndpointFromCache(), installCloseInterceptor()]).catch((e) => {
+    console.warn('[Boot] infra 后台任务失败:', e)
+  })
 
-  // 等待所有后台任务完成
-  const [sessionResult] = await Promise.all([sessionRestoreTask, remoteConfigTask, infraTask])
-  const { restored, relogged } = sessionResult
-  const onlineReady = restored || relogged
+  // 非阻塞：仅用于阶段 5 的 onlineReady 判断（最多等 3s）
+  const sessionResult = await Promise.race([
+    sessionRestoreTask,
+    new Promise((resolve) => {
+      window.setTimeout(() => resolve({ restored: false, relogged: false, timedOut: true }), 3000)
+    })
+  ])
+  const { restored, relogged } = sessionResult || {}
+  const onlineReady = !!(restored || relogged)
   console.timeEnd('[Boot] background-tasks')
   markBootMetric('session_restore_finished', {
     restored: !!restored,
     relogged: !!relogged,
     online_ready: !!onlineReady,
-    student_id: String(studentId.value || '').trim()
+    student_id: String(studentId.value || '').trim(),
+    timed_out: !!(sessionResult && sessionResult.timedOut)
   })
 
-  // ── 阶段 4：如果没有缓存身份（首次登录/已登出），现在才 dismiss ──
-  if (!bootstrappedCachedIdentity && !skipSplashForFastScheduleBoot) {
-    await syncFromHash({ scrollToTop: false })
-    if (restored && !window.location.hash) {
-      pendingScrollToTopOnViewChange = false
-      const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
-      if (ensureProtectedViewAccess(startupPage, {
-        push: false,
-        redirectToFallback: true,
-        fallbackView: 'home'
-      })) {
-        applyViewState(startupPage)
-      }
-    }
-    splashStatusText.value = onlineReady ? '准备就绪' : '离线模式'
-    dismissSplash()
-    console.timeEnd('[Boot] to-splash-dismiss')
-    appBootstrapped = true
-    handleSplashDismissed()
-    replaceHistorySnapshot(currentView.value)
-    ensureConfigAccess()
+  // 再兜底一次（防止任何路径漏关）
+  if (showSplash.value) {
+    dismissSplash('post-boot-guard')
   }
 
   if (currentView.value === 'more_module_host') {
@@ -2922,42 +3099,46 @@ onMounted(async () => {
       notifySessionOnline(relogged ? 'boot-auto-relogin' : 'boot-session-restore')
     }
   } else if (!isTestAccountSession() && (bootstrappedCachedIdentity || studentId.value)) {
-    // 假在线收敛：cookie 恢复与静默重登均失败，且本地无可用密码 → 强制进入登录（不设 manual_logout，保留记住密码回填）
-    let forceReauth = false
+    // #355：长闲/会话失效时保留首页缓存身份，后台静默恢复；禁止强制踢回登录页
+    let hasCreds = false
     try {
       const portalCreds = await getStoredPassword()
       const cxCreds = await getStoredChaoxingPassword()
-      forceReauth = !portalCreds && !cxCreds
+      hasCreds = !!(portalCreds || cxCreds)
     } catch (e) {
       console.warn('[Session] 检查本地凭据失败:', e)
-      forceReauth = true
+      hasCreds = false
     }
 
-    if (forceReauth) {
-      console.warn('[Session] 会话失效且无可用于静默重登的密码，引导重新登录（#345）')
-      await handleLogout({
-        manual: false,
-        reason: 'session_reauth_required',
-        notice:
-          '登录状态已失效，且本地未找到可用密码（可能与 1.4.3 凭据迁移有关）。请使用融合门户学号重新登录以同步成绩。'
+    if (hasCreds) {
+      markJwxtMaintenance('会话需恢复，正在后台自动登录…', {
+        phase: 'recovering',
+        detail: jwxtSessionLastError.value || 'cookie 已失效，使用记住密码重登'
       })
-    } else {
       startJwxtRecoveryPolling()
       attemptOnlineRecovery({ silent: true }).then((ok) => {
-        if (!ok) {
-          setTimeout(() => {
-            if (!jwxtMaintenanceMode.value) {
-              markJwxtMaintenance()
-            }
-          }, 6000)
-        }
-      }).catch(() => {
-        setTimeout(() => {
-          if (!jwxtMaintenanceMode.value) {
-            markJwxtMaintenance()
-          }
-        }, 6000)
+        if (ok) return
+        markJwxtMaintenance('自动登录未成功，将继续后台重试。当前展示缓存数据。', {
+          phase: 'failed',
+          detail: jwxtSessionLastError.value || '恢复失败'
+        })
+      }).catch((e) => {
+        jwxtSessionLastError.value = formatSessionError(e)
+        markJwxtMaintenance('后台恢复异常，将定时重试。', {
+          phase: 'failed',
+          detail: jwxtSessionLastError.value
+        })
       })
+    } else {
+      // 无密码：不踢出，首页维护窗提示手动登录（保留缓存成绩/课表）
+      console.warn('[Session] 会话失效且无记住密码，首页提示手动登录（#355，不再强制 logout）')
+      markJwxtMaintenance(
+        '登录状态已失效，本地未找到可用密码。请手动登录融合门户以同步最新数据；此前缓存仍可查看。',
+        {
+          phase: 'need_login',
+          detail: jwxtSessionLastError.value || '无记住密码，无法后台自动登录'
+        }
+      )
     }
   }
 
@@ -3086,6 +3267,8 @@ onBeforeUnmount(() => {
         :is-logged-in="isLoggedIn"
         :jwxt-maintenance="jwxtMaintenanceMode"
         :jwxt-maintenance-hint="jwxtMaintenanceHint"
+        :jwxt-maintenance-detail="jwxtMaintenanceDetail"
+        :jwxt-recovery-phase="jwxtRecoveryPhase"
         :jwxt-last-check-time="jwxtLastCheckTime"
         :ticker-notices="announcementData.ticker"
         :pinned-notices="announcementData.pinned"
@@ -3093,6 +3276,7 @@ onBeforeUnmount(() => {
         @navigate="handleNavigate"
         @logout="handleLogout"
         @require-login="handleRequireLogin"
+        @retry-session-recovery="handleRetrySessionRecovery"
         @open-notice="openAnnouncement"
         @openSettings="openWorkspaceLayoutEditor('home')"
       />

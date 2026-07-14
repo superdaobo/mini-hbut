@@ -28,9 +28,18 @@ function collectIcons() {
 
   for (const f of files) {
     const content = readFileSync(f, 'utf8')
-    // Hardcoded: <span class="material-symbols-outlined ...">ICON</span>
-    for (const m of content.matchAll(/material-symbols-outlined[^>]*>([a-z_]+)<\/span>/g)) {
+    // Hardcoded: <span class="material-symbols-outlined ...">ICON</span>（允许空白/换行）
+    for (const m of content.matchAll(
+      /material-symbols-outlined[^>]*>\s*([a-z][a-z0-9_]*)\s*<\/span>/g
+    )) {
       if (m[1] && !m[1].startsWith('fa-')) icons.add(m[1])
+    }
+    // 三元表达式内图标：? 'download' : 'progress_activity'
+    for (const m of content.matchAll(
+      /material-symbols-outlined[\s\S]{0,120}?\?\s*'([a-z][a-z0-9_]*)'\s*:\s*'([a-z][a-z0-9_]*)'/g
+    )) {
+      if (m[1]) icons.add(m[1])
+      if (m[2]) icons.add(m[2])
     }
     // Data-driven: icon: 'ICON'
     for (const m of content.matchAll(/icon\s*:\s*'([a-z_]+)'/g)) {
@@ -50,6 +59,26 @@ function collectIcons() {
 
   // Weather icons from Rust backend
   for (const name of ['sunny', 'partly_cloudy_day', 'cloud', 'mist', 'rainy', 'thunderstorm', 'cloudy_snowing']) {
+    icons.add(name)
+  }
+
+  // 学习通预览底栏等常用图标（防止子集过期漏扫）
+  for (const name of [
+    'swap_horiz',
+    'open_in_browser',
+    'progress_activity',
+    'expand_less',
+    'expand_more',
+    'preview',
+    'visibility',
+    'visibility_off',
+    'download',
+    'close',
+    'error',
+    'check',
+    'image',
+    'movie'
+  ]) {
     icons.add(name)
   }
 
@@ -76,7 +105,8 @@ font = TTFont(r'''${FONT_SRC.replace(/\\/g, '/')}''')
 text = ${JSON.stringify(icons.join(''))}
 
 options = Options()
-options.layout_features = ['rclt', 'rlig']
+# liga/clig/calt：Material Symbols 用图标名连字渲染（缺了会显示英文 icon name）
+options.layout_features = ['rclt', 'rlig', 'liga', 'clig', 'calt', 'dlig']
 options.drop_tables = ['DSIG', 'fvar', 'gvar', 'STAT', 'avar', 'MVAR']
 options.notdef_outline = True
 options.name_IDs = [1, 2]

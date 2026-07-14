@@ -41,6 +41,11 @@ const defaultConfig = {
     secret_ref: 'kv1-main',
     timeout_ms: 12000,
     cooldown_seconds: 180
+  },
+  // 学习通资料库：远程配置只需邀请码；课程信息由客户端在线解析
+  chaoxing_class: {
+    enabled: true,
+    invite_code: '18853572'
   }
 }
 
@@ -98,6 +103,22 @@ const ensureStruct = () => {
   config.value.cloud_sync.secret_ref = String(
     config.value.cloud_sync.secret_ref || defaultConfig.cloud_sync.secret_ref
   ).trim()
+  if (!config.value.chaoxing_class || typeof config.value.chaoxing_class !== 'object') {
+    config.value.chaoxing_class = { ...defaultConfig.chaoxing_class }
+  }
+  const cx = config.value.chaoxing_class
+  cx.enabled = cx.enabled !== false
+  cx.invite_code = String(cx.invite_code || cx.inviteCode || defaultConfig.chaoxing_class.invite_code).trim()
+  // 远程只需邀请码：清理历史导出里可能残留的课程元数据字段（可选保留为空）
+  delete cx.course_id
+  delete cx.clazz_id
+  delete cx.course_name
+  delete cx.teacher_name
+  delete cx.cpi
+  delete cx.courseId
+  delete cx.clazzId
+  delete cx.courseName
+  delete cx.teacherName
 }
 
 const addNotice = () => {
@@ -122,6 +143,13 @@ const loadRemoteConfig = async () => {
 
 const exportJson = async () => {
   ensureStruct()
+  const invite = String(config.value.chaoxing_class?.invite_code || '').trim()
+  if (!invite) {
+    jsonError.value = '学习通邀请码不能为空'
+    showToast('请填写学习通邀请码后再导出', 'error')
+    return
+  }
+  jsonError.value = ''
   const data = JSON.stringify(config.value, null, 2)
   rawJson.value = data
   try {
@@ -248,6 +276,24 @@ onMounted(() => {
         <label>
           同步冷却（秒）
           <input v-model.number="config.cloud_sync.cooldown_seconds" type="number" min="30" max="3600" step="10" />
+        </label>
+      </div>
+    </section>
+
+    <section class="editor-card">
+      <h3>学习通资料库</h3>
+      <p class="hint">
+        只需填写邀请码。导出并推送到远程配置后，客户端会下载并缓存该邀请码；课程名、教师、封面等由 App
+        根据邀请码在线解析。远程不可达时使用本地缓存/内置默认邀请码。
+      </p>
+      <div class="form-grid">
+        <label class="toggle">
+          <input v-model="config.chaoxing_class.enabled" type="checkbox" />
+          启用学习通资料库
+        </label>
+        <label>
+          邀请码（必填）
+          <input v-model="config.chaoxing_class.invite_code" placeholder="18853572" />
         </label>
       </div>
     </section>
@@ -381,6 +427,13 @@ onMounted(() => {
 .editor-card h3 {
   margin: 0 0 10px;
   color: #0f172a;
+}
+
+.editor-card .hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
 }
 
 .form-grid {

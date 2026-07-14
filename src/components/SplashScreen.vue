@@ -62,7 +62,17 @@ onBeforeUnmount(() => {
 
 <template>
   <Transition name="splash-leave">
-    <div v-if="show" class="splash-root" :class="{ 'splash-fade-out': fadeOut }">
+    <div
+      v-if="show"
+      class="splash-root"
+      :class="{ 'splash-fade-out': fadeOut }"
+      role="button"
+      tabindex="0"
+      title="点击跳过"
+      @click="dismiss"
+      @keydown.enter.prevent="dismiss"
+      @keydown.space.prevent="dismiss"
+    >
       <!-- 背景层 -->
       <div class="splash-bg">
         <div class="splash-bg-image" />

@@ -10,7 +10,11 @@
   "scripts": {
     "prebuild": "node scripts/prepare_dist.mjs",
     "prebuild:web": "node scripts/prepare_dist.mjs",
-    "dev": "vite",
+    "dev": "node scripts/vite_run.mjs",
+    "dev:lowmem": "node scripts/vite_dev_lowmem.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:lowmem": "node scripts/tauri_dev_lowmem.mjs",
+    "tauri:dev:static": "node scripts/tauri_dev_static.mjs",
     "build": "vite build",
     "build:web": "vite build",
     "build:hot-bundle": "node scripts/build_hot_bundle.mjs",

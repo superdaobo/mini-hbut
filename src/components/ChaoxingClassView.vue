@@ -1,30 +1,42 @@
 <script setup>
 /**
  * 学习通班级资料 — Nimbus 云盘列表风格
- * - 固定邀请码 73202625（库来西库）
- * - 首次进入未入班：先询问是否加入
+ * - 邀请码：内置默认 + 远程 chaoxing_class.invite_code 覆盖并本地缓存
+ * - 课程名/教师/封面：在线 preview，不硬编码
+ * - 教师/学生均可访问资料（后端 ut=s/t）
  * - 门户 CAS → 学习通 SSO（不二次登录）
- * - 文件夹进入 + 官方签名预览内嵌
  */
 import { computed, onMounted, ref } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
+import { platformBridge } from '../platform'
 import { openExternal } from '../utils/external_link'
+import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_config'
+import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
 
-/** 固定班级邀请码（产品约定，不开放自填） */
-const FIXED_INVITE_CODE = '73202625'
-/** 与后端固定元数据一致：邀请码 → 课程/班级 */
-const FIXED_CLASS_META = Object.freeze({
-  invite_code: FIXED_INVITE_CODE,
-  course_id: '264356359',
-  clazz_id: '148246853',
-  course_name: '库来西库',
-  teacher_name: '周金阳',
-  cover_url: '',
-  cpi: '509967218'
-})
 const LAST_CLASS_KEY = 'hbu_chaoxing_class_last_v1'
 const JOIN_DECLINED_KEY = 'hbu_chaoxing_class_declined_v1'
+
+/** 当前生效的远程/默认班级配置（#360） */
+const classConfig = ref(getChaoxingClassConfig())
+
+const inviteCode = computed(() => String(classConfig.value?.invite_code || '').trim())
+
+/** 与远程配置一致：邀请码 → 课程/班级元数据（预填展示） */
+const classMeta = computed(() => {
+  const c = classConfig.value || {}
+  return {
+    invite_code: String(c.invite_code || '').trim(),
+    course_id: String(c.course_id || '').trim(),
+    clazz_id: String(c.clazz_id || '').trim(),
+    course_name: String(c.course_name || '').trim(),
+    teacher_name: String(c.teacher_name || '').trim(),
+    cover_url: '',
+    cpi: String(c.cpi || '0').trim() || '0'
+  }
+})
+
+const defaultCpi = () => classMeta.value.cpi || '0'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -46,6 +58,11 @@ const resources = ref([])
 const activeClass = ref(null)
 const showJoinDialog = ref(false)
 const joinDeclined = ref(false)
+/**
+ * 仅当「本地曾有入班记录 + 检测到已不在班」为 true。
+ * 新人首次进入永远走欢迎入班页，不展示「重新加入」文案。
+ */
+const needsRejoin = ref(false)
 const bootPhase = ref('init') // init | sso | preview | ready | error
 /** 文件夹导航栈：{ name, parent_data_id, folder_kind, data_name, parent_chain } */
 const folderStack = ref([])
@@ -78,6 +95,8 @@ const filterChip = ref('all')
 const thumbFailed = ref({})
 /** 目录导航请求序号：只应用最新一次结果，避免快速进出时陈旧失败覆盖 */
 let loadSeq = 0
+/** 入班成功后短时忽略 not_joined，避免学习通侧延迟导致刚加入又被清缓存 */
+let suppressNotJoinedUntil = 0
 
 const hasTauri = isTauriRuntime()
 
@@ -121,14 +140,20 @@ const loadLastClass = () => {
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (parsed?.course_id && parsed?.clazz_id) {
+      const savedInvite = String(parsed.invite_code || '').trim()
+      // 邀请码变更（含旧缓存无 invite 字段）时丢弃历史 last-class
+      if (inviteCode.value && savedInvite !== inviteCode.value) {
+        clearLastClassStorageOnly()
+        return null
+      }
       activeClass.value = {
-        invite_code: FIXED_INVITE_CODE,
+        invite_code: savedInvite || inviteCode.value,
         course_id: String(parsed.course_id),
         clazz_id: String(parsed.clazz_id),
         course_name: String(parsed.course_name || ''),
         teacher_name: String(parsed.teacher_name || ''),
         cover_url: String(parsed.cover_url || ''),
-        cpi: String(parsed.cpi || FIXED_CLASS_META.cpi || '0')
+        cpi: String(parsed.cpi || defaultCpi())
       }
       return activeClass.value
     }
@@ -136,6 +161,21 @@ const loadLastClass = () => {
     /* ignore */
   }
   return null
+}
+
+const clearLastClassStorageOnly = () => {
+  try {
+    localStorage.removeItem(LAST_CLASS_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+const clearLastClass = () => {
+  clearLastClassStorageOnly()
+  activeClass.value = null
+  resources.value = []
+  folderStack.value = []
 }
 
 const saveLastClass = (cls) => {
@@ -149,7 +189,7 @@ const saveLastClass = (cls) => {
 
 const loadDeclined = () => {
   try {
-    joinDeclined.value = localStorage.getItem(JOIN_DECLINED_KEY) === FIXED_INVITE_CODE
+    joinDeclined.value = localStorage.getItem(JOIN_DECLINED_KEY) === inviteCode.value
   } catch {
     joinDeclined.value = false
   }
@@ -159,15 +199,60 @@ const markDeclined = () => {
   joinDeclined.value = true
   showJoinDialog.value = false
   try {
-    localStorage.setItem(JOIN_DECLINED_KEY, FIXED_INVITE_CODE)
+    localStorage.setItem(JOIN_DECLINED_KEY, inviteCode.value)
   } catch {
     /* ignore */
   }
 }
 
+/**
+ * 进入未入班欢迎页。
+ * @param {{ openDialog?: boolean, reason?: string, rejoin?: boolean }} opts
+ * rejoin=true 仅用于「曾有 last-class 且识别到已退班」
+ */
+const enterNotJoinedState = async ({ openDialog = false, reason = '', rejoin = false } = {}) => {
+  clearLastClass()
+  needsRejoin.value = !!rejoin
+  error.value = ''
+  statusMsg.value = rejoin ? reason || '你已不在该班级，请重新加入' : ''
+  preview.value = { ...classMeta.value }
+  bootPhase.value = 'ready'
+  loadingBoot.value = false
+  if (openDialog && !joinDeclined.value) {
+    try {
+      void fetchPreview().catch(() => {})
+      showJoinDialog.value = true
+    } catch {
+      showJoinDialog.value = true
+    }
+  }
+}
+
+const isNotJoinedSignal = (resOrMsg) => {
+  // 刚入班成功：忽略短暂 not_joined，防止 UI 又退回「已退出」
+  if (Date.now() < suppressNotJoinedUntil) return false
+  if (resOrMsg && typeof resOrMsg === 'object') {
+    const m = String(resOrMsg.membership || '').toLowerCase()
+    const role = String(resOrMsg.role || '').toLowerCase()
+    const ut = String(resOrMsg.ut || '').toLowerCase()
+    // 教师账号不在学生课程列表中，但 membership=ok / ut=t 仍可访问
+    if (m === 'ok' || role === 'teacher' || ut === 't') return false
+    if (m === 'not_joined' || m === 'not-joined') return true
+    // 权威：backclazzdata enrolled=false 且非教师 → 未入班/已退课
+    if (resOrMsg.enrolled === false || resOrMsg.enrolled === 0 || resOrMsg.enrolled === 'false') {
+      return true
+    }
+  }
+  const msg = typeof resOrMsg === 'string' ? resOrMsg : formatErr(resOrMsg)
+  return /未加入|不在该班|无权限|请先加入|不是该班|未选课|已退课|退班|无权访问/.test(String(msg || ''))
+}
+
 const ensureSso = async () => {
   loadingSso.value = true
-  bootPhase.value = 'sso'
+  // 已有班级壳时不要把整页打回 sso 全屏，只更新顶栏提示
+  if (bootPhase.value === 'init' || bootPhase.value === 'sso') {
+    bootPhase.value = 'sso'
+  }
   ssoHint.value = '正在通过门户会话接入学习通…'
   try {
     if (!hasTauri) {
@@ -180,7 +265,9 @@ const ensureSso = async () => {
     ssoHint.value = ssoReady.value
       ? res?.partial
         ? '门户会话部分可用（已可访问固定班级）'
-        : '门户 SSO 已连接'
+        : res?.from_cache || res?.cookie_reuse
+          ? '学习通会话已复用'
+          : '门户 SSO 已连接'
       : '会话未就绪，请重新登录门户'
     return ssoReady.value
   } catch (e) {
@@ -199,19 +286,92 @@ const ensureSso = async () => {
 
 const fetchPreview = async () => {
   bootPhase.value = 'preview'
+  const code = inviteCode.value
+  if (!code) throw new Error('未配置学习通邀请码')
   const res = await invokeNative('chaoxing_class_preview_invite', {
-    req: { invite_code: FIXED_INVITE_CODE, ...studentPayload() }
+    req: { invite_code: code, ...studentPayload() }
   })
   preview.value = {
-    invite_code: FIXED_INVITE_CODE,
-    course_id: String(res.course_id || ''),
-    clazz_id: String(res.clazz_id || ''),
-    course_name: String(res.course_name || '班级'),
-    teacher_name: String(res.teacher_name || ''),
+    invite_code: code,
+    course_id: String(res.course_id || classMeta.value.course_id || ''),
+    clazz_id: String(res.clazz_id || classMeta.value.clazz_id || ''),
+    course_name: String(res.course_name || classMeta.value.course_name || '班级'),
+    teacher_name: String(res.teacher_name || classMeta.value.teacher_name || ''),
     cover_url: String(res.cover_url || ''),
-    cpi: String(res.cpi || FIXED_CLASS_META.cpi || '0')
+    cpi: String(res.cpi || defaultCpi())
   }
   return preview.value
+}
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * 入班/重加成功后：强制回到已入班态，并多次自动刷新资料
+ * （学习通侧入班后 backclazzdata/资料列表常有 1～数秒延迟，一次拉取易仍为空）
+ */
+const refreshAfterJoin = async (cls, statusText = '加入成功') => {
+  joinDeclined.value = false
+  needsRejoin.value = false
+  showJoinDialog.value = false
+  folderStack.value = []
+  resources.value = []
+  filterChip.value = 'all'
+  error.value = ''
+  preview.value = cls
+  activeClass.value = cls
+  saveLastClass(cls)
+  bootPhase.value = 'ready'
+  loadingBoot.value = false
+  statusMsg.value = '正在同步班级资料…'
+  // 入班后短时忽略 not_joined，避免延迟接口把 UI 打回欢迎页
+  suppressNotJoinedUntil = Date.now() + 20_000
+
+  // 立即 1 次 + 退避重试：覆盖「刚加入成功但列表尚未同步」
+  const gapsMs = [0, 500, 1000, 1600, 2500, 3500]
+  for (let i = 0; i < gapsMs.length; i++) {
+    if (gapsMs[i] > 0) {
+      statusMsg.value = `正在刷新资料…（${i}/${gapsMs.length - 1}）`
+      await sleepMs(gapsMs[i])
+    }
+    // 防止重试过程中被误清
+    if (!isJoined.value && cls?.course_id && cls?.clazz_id) {
+      needsRejoin.value = false
+      activeClass.value = cls
+      preview.value = cls
+      saveLastClass(cls)
+      bootPhase.value = 'ready'
+    }
+    try {
+      await loadResources()
+    } catch {
+      /* loadResources 内部已写 error */
+    }
+    if (resources.value.length > 0) {
+      break
+    }
+  }
+
+  if (!isJoined.value && cls?.course_id && cls?.clazz_id) {
+    needsRejoin.value = false
+    activeClass.value = cls
+    preview.value = cls
+    saveLastClass(cls)
+    bootPhase.value = 'ready'
+    // 最后再拉一次
+    try {
+      await loadResources()
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (isJoined.value) {
+    needsRejoin.value = false
+    error.value = ''
+    statusMsg.value = resources.value.length
+      ? `共 ${resources.value.length} 项`
+      : statusText || '已在班级'
+  }
 }
 
 const handleJoinConfirm = async () => {
@@ -219,41 +379,41 @@ const handleJoinConfirm = async () => {
   error.value = ''
   statusMsg.value = ''
   try {
+    const code = inviteCode.value
+    if (!code) throw new Error('未配置学习通邀请码')
     const res = await invokeNative('chaoxing_class_accept_invite', {
-      req: { invite_code: FIXED_INVITE_CODE, ...studentPayload() }
+      req: { invite_code: code, ...studentPayload() }
     })
     const p = res?.preview || preview.value || {}
     const cls = {
-      invite_code: FIXED_INVITE_CODE,
-      course_id: String(p.course_id || preview.value?.course_id || ''),
-      clazz_id: String(p.clazz_id || preview.value?.clazz_id || ''),
-      course_name: String(p.course_name || preview.value?.course_name || ''),
-      teacher_name: String(p.teacher_name || preview.value?.teacher_name || ''),
+      invite_code: code,
+      course_id: String(p.course_id || preview.value?.course_id || classMeta.value.course_id || ''),
+      clazz_id: String(p.clazz_id || preview.value?.clazz_id || classMeta.value.clazz_id || ''),
+      course_name: String(p.course_name || preview.value?.course_name || classMeta.value.course_name || ''),
+      teacher_name: String(
+        p.teacher_name || preview.value?.teacher_name || classMeta.value.teacher_name || ''
+      ),
       cover_url: String(p.cover_url || preview.value?.cover_url || ''),
-      cpi: String(p.cpi || preview.value?.cpi || FIXED_CLASS_META.cpi || '0')
+      cpi: String(p.cpi || preview.value?.cpi || defaultCpi())
     }
     if (!cls.course_id || !cls.clazz_id) {
       throw new Error('入班成功但未返回课程信息')
     }
-    preview.value = cls
-    activeClass.value = cls
-    saveLastClass(cls)
-    showJoinDialog.value = false
-    joinDeclined.value = false
-    statusMsg.value = res?.already_joined ? '你已在该班级' : '加入成功'
-    await loadResources()
+    await refreshAfterJoin(cls, res?.already_joined ? '你已在该班级' : '加入成功')
   } catch (e) {
     const msg = formatErr(e)
     if (msg.includes('已') && (msg.includes('加入') || msg.includes('在'))) {
-      if (preview.value?.course_id) {
-        activeClass.value = {
-          ...preview.value,
-          invite_code: FIXED_INVITE_CODE,
-          cpi: String(preview.value.cpi || FIXED_CLASS_META.cpi || '0')
-        }
-        saveLastClass(activeClass.value)
-        showJoinDialog.value = false
-        await loadResources()
+      const fallback = preview.value?.course_id
+        ? {
+            ...preview.value,
+            invite_code: inviteCode.value,
+            cpi: String(preview.value.cpi || defaultCpi())
+          }
+        : classMeta.value.course_id
+          ? { ...classMeta.value }
+          : null
+      if (fallback?.course_id && fallback?.clazz_id) {
+        await refreshAfterJoin(fallback, '你已在该班级')
         return
       }
     }
@@ -271,10 +431,15 @@ const reopenJoinDialog = async () => {
   } catch {
     /* ignore */
   }
+  // 主动重加：清本地已入班缓存，避免脏 course 锁死
+  clearLastClass()
+  preview.value = { ...classMeta.value }
   try {
-    if (!preview.value) await fetchPreview()
+    if (!preview.value?.course_id) await fetchPreview()
     showJoinDialog.value = true
   } catch (e) {
+    preview.value = { ...classMeta.value }
+    showJoinDialog.value = true
     error.value = formatErr(e)
   }
 }
@@ -338,7 +503,12 @@ const isTransientListError = (msg) => {
   )
 }
 
-const loadResources = async () => {
+/**
+ * @param {{ rejoinOnNotJoined?: boolean }} [opts]
+ * rejoinOnNotJoined：仅「曾有 last-class 又检测到未在班」为 true；新人探测为 false
+ */
+const loadResources = async (opts = {}) => {
+  const rejoinOnNotJoined = opts.rejoinOnNotJoined === true
   const cls = activeClass.value || preview.value
   if (!cls?.course_id || !cls?.clazz_id) {
     error.value = '尚未加入班级'
@@ -349,14 +519,13 @@ const loadResources = async () => {
     ? { ...currentFolder.value }
     : null
   loadingResources.value = true
-  // 导航导航时不清掉旧列表，避免闪空；仅清错误
   error.value = ''
   const invokeOnce = () =>
     invokeNative('chaoxing_class_list_resources', {
       req: {
         course_id: cls.course_id,
         clazz_id: cls.clazz_id,
-        cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+        cpi: cls.cpi || defaultCpi(),
         parent_data_id: folderSnap?.parent_data_id || null,
         data_name: folderSnap?.data_name || null,
         parent_chain: folderSnap?.parent_chain || null,
@@ -365,22 +534,39 @@ const loadResources = async () => {
       }
     })
 
+  const handleNotJoined = async () => {
+    if (folderSnap) return false
+    await enterNotJoinedState({
+      openDialog: rejoinOnNotJoined || !joinDeclined.value,
+      rejoin: rejoinOnNotJoined,
+      reason: rejoinOnNotJoined ? '你已不在该班级，请重新加入' : ''
+    })
+    return true
+  }
+
   try {
     let res
     try {
       res = await invokeOnce()
     } catch (e1) {
-      // 前端再补一次：后端已重试，这里覆盖排队竞态/偶发失败
       const msg1 = formatErr(e1)
       if (seq !== loadSeq) return
+      if (isNotJoinedSignal(msg1) && (await handleNotJoined())) return
       if (!isTransientListError(msg1)) throw e1
       await new Promise((r) => setTimeout(r, 200))
       if (seq !== loadSeq) return
       res = await invokeOnce()
     }
     if (seq !== loadSeq) return
+    if (isNotJoinedSignal(res) && (await handleNotJoined())) return
     if (res?.cpi && activeClass.value) {
-      activeClass.value = { ...activeClass.value, cpi: String(res.cpi) }
+      activeClass.value = {
+        ...activeClass.value,
+        cpi: String(res.cpi),
+        // 记住角色，便于下载走教师 ut
+        role: String(res.role || activeClass.value.role || ''),
+        ut: String(res.ut || activeClass.value.ut || 's')
+      }
       saveLastClass(activeClass.value)
     }
     const list = Array.isArray(res?.resources) ? res.resources : []
@@ -391,6 +577,7 @@ const loadResources = async () => {
   } catch (e) {
     if (seq !== loadSeq) return
     const msg = formatErr(e)
+    if (isNotJoinedSignal(msg) && (await handleNotJoined())) return
     error.value = isTransientListError(msg)
       ? `${msg}（快速进出目录时可能瞬时失败，可点重试）`
       : msg
@@ -407,6 +594,10 @@ const openUrl = async (url) => {
     error.value = '链接为空'
     return
   }
+  // downloadData 依赖学习通 cookie，系统浏览器会 403（#358）
+  if (/coursedata\/downloadData/i.test(href) || /mooc1\.chaoxing\.com\/coursedata\/download/i.test(href)) {
+    throw new Error('该下载链接需登录会话，请使用应用内「下载」而非浏览器打开')
+  }
   await openExternal(href)
 }
 
@@ -419,12 +610,85 @@ const resolveAccess = async (item) => {
       clazz_id: cls.clazz_id,
       data_id: item.data_id,
       object_id: item.object_id || null,
-      cpi: cls.cpi || FIXED_CLASS_META.cpi || '0',
+      cpi: cls.cpi || defaultCpi(),
       file_name: item.name || null,
       file_type: item.file_type || null,
       ...studentPayload()
     }
   })
+}
+
+const isMobileClient = () => {
+  if (typeof navigator === 'undefined') return false
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')) return true
+  try {
+    // Capacitor WebView
+    return !!(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.())
+  } catch {
+    return false
+  }
+}
+
+/** 应用内鉴权下载（重试/续传在 Rust）；移动端成功后弹系统分享（#359 方案 A） */
+const downloadWithSession = async (item, { retries = 2 } = {}) => {
+  const cls = activeClass.value || preview.value
+  if (!cls) throw new Error('尚未加入班级')
+  if (!hasTauri) {
+    throw new Error('请在客户端内下载（浏览器环境无法携带学习通会话）')
+  }
+
+  let lastErr = null
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await invokeNative('chaoxing_class_download_resource', {
+        req: {
+          course_id: cls.course_id,
+          clazz_id: cls.clazz_id,
+          data_id: item.data_id,
+          object_id: item.object_id || null,
+          cpi: cls.cpi || defaultCpi(),
+          file_name: item.name || null,
+          ...studentPayload()
+        }
+      })
+      const path = String(res?.path || '').trim()
+      const fileUri = String(res?.file_uri || '').trim()
+      const name = String(res?.file_name || item.name || '文件').trim()
+      if (!path) throw new Error('下载完成但未返回保存路径')
+
+      const mobile = !!(res?.mobile_share || isMobileClient())
+      if (mobile) {
+        showToast('下载完成，请选择保存位置或分享…', 'success', 2400)
+        const shareTarget = fileUri || path
+        try {
+          const ok = await platformBridge.shareLinkOrFile(
+            shareTarget,
+            `保存或分享：${name}`
+          )
+          if (!ok) {
+            showToast(`已保存，可到文件管理中查看：${name}`, 'info', 4000)
+          }
+        } catch (shareErr) {
+          console.warn('[chaoxing] share failed:', shareErr)
+          showToast(`已下载：${name}（分享面板打开失败时可到文件中查找）`, 'warning', 4200)
+        }
+      } else {
+        showToast(`已保存：${name}`, 'success', 3600)
+      }
+      return res
+    } catch (e) {
+      lastErr = e
+      const msg = formatErr(e)
+      // 可恢复错误：前端再点一次；这里自动多试
+      if (i < retries) {
+        showToast(`下载失败，正在重试（${i + 1}/${retries}）…`, 'warning', 2000)
+        await new Promise((r) => setTimeout(r, 600 * (i + 1)))
+        continue
+      }
+      throw new Error(msg || '下载失败')
+    }
+  }
+  throw lastErr || new Error('下载失败')
 }
 
 const closePreviewModal = () => {
@@ -578,14 +842,23 @@ const applyOpenMethod = async (method, { externalOnly = false } = {}) => {
   previewModalError.value = ''
 
   if (method.kind === 'download') {
-    const url = method.url || previewDownloadUrl.value
-    if (!url) {
-      previewModalError.value = '暂无下载地址'
-      return
-    }
     previewDownloading.value = true
     try {
-      await openUrl(url)
+      const item = previewItem.value || {
+        data_id: previewItem.value?.data_id,
+        object_id: previewItem.value?.object_id,
+        name: previewModalTitle.value
+      }
+      if (!previewItem.value?.data_id) {
+        // 仅有 URL 时仍禁止外置打开 downloadData
+        const url = method.url || previewDownloadUrl.value
+        if (url && !/downloadData/i.test(url)) {
+          await openUrl(url)
+          return
+        }
+        throw new Error('缺少资料信息，无法鉴权下载')
+      }
+      await downloadWithSession(previewItem.value)
     } catch (e) {
       previewModalError.value = formatErr(e)
     } finally {
@@ -623,37 +896,17 @@ const toggleOpenMethodMenu = () => {
 }
 
 const handlePreviewDownload = async () => {
-  const m = previewOpenMethods.value.find((x) => x.kind === 'download')
-  if (m) {
-    await applyOpenMethod(m)
+  if (!previewItem.value?.data_id) {
+    previewModalError.value = '暂无下载资料'
     return
   }
-  if (previewDownloadUrl.value) {
-    previewDownloading.value = true
-    try {
-      await openUrl(previewDownloadUrl.value)
-    } catch (e) {
-      previewModalError.value = formatErr(e)
-    } finally {
-      previewDownloading.value = false
-    }
-    return
-  }
-  if (previewItem.value) {
-    previewDownloading.value = true
-    try {
-      const res = await resolveAccess(previewItem.value)
-      const url = String(res?.download_url || '').trim()
-      if (!url) throw new Error('未获取到下载地址')
-      previewDownloadUrl.value = url
-      await openUrl(url)
-    } catch (e) {
-      previewModalError.value = formatErr(e)
-    } finally {
-      previewDownloading.value = false
-    }
-  } else {
-    previewModalError.value = '暂无下载地址'
+  previewDownloading.value = true
+  try {
+    await downloadWithSession(previewItem.value)
+  } catch (e) {
+    previewModalError.value = formatErr(e)
+  } finally {
+    previewDownloading.value = false
   }
 }
 
@@ -807,10 +1060,7 @@ const handleDownloadResource = async (item) => {
   error.value = ''
   actingId.value = `d-${item.data_id}`
   try {
-    const res = await resolveAccess(item)
-    const url = String(res?.download_url || item.download_url || '').trim()
-    if (!url) throw new Error('未获取到下载地址')
-    await openUrl(url)
+    await downloadWithSession(item)
   } catch (e) {
     error.value = formatErr(e)
   } finally {
@@ -881,16 +1131,33 @@ const metaLine = (item) => {
 }
 
 /**
- * #326 进入路径简化：
- * 1) SSO（缓存优先）
- * 2) 本地已入班 / 固定班可拉资料 → 直接资料库
- * 3) 否则最多一次入班确认
+ * 进入路径：
+ * 1) 远程/缓存邀请码
+ * 2) SSO
+ * 3) 有 last-class → 拉资料；not_joined 才「重新加入」
+ * 4) 无 last-class：preview 后教师/已在班直进资料，否则欢迎入班
  */
 const boot = async () => {
   loadingBoot.value = true
   error.value = ''
+  needsRejoin.value = false
+  try {
+    const remote = await fetchRemoteConfig({ force: false }).catch(() => null)
+    classConfig.value = getChaoxingClassConfig(remote || undefined)
+  } catch {
+    classConfig.value = getChaoxingClassConfig()
+  }
   loadDeclined()
   const saved = loadLastClass()
+
+  bootPhase.value = 'sso'
+  ssoHint.value = '正在连接学习通会话…'
+  if (saved) {
+    activeClass.value = saved
+    bootPhase.value = 'ready'
+    loadingBoot.value = false
+  }
+
   const ssoOk = await ensureSso()
   if (!ssoOk) {
     bootPhase.value = 'error'
@@ -900,43 +1167,57 @@ const boot = async () => {
 
   if (saved) {
     try {
-      await loadResources()
+      await loadResources({ rejoinOnNotJoined: true })
     } catch (e) {
-      error.value = formatErr(e)
+      const msg = formatErr(e)
+      if (isNotJoinedSignal(msg)) {
+        await enterNotJoinedState({
+          openDialog: true,
+          rejoin: true,
+          reason: '你已不在该班级，请重新加入'
+        })
+      } else {
+        error.value = msg
+      }
     }
-    loadingBoot.value = false
     return
   }
 
-  activeClass.value = { ...FIXED_CLASS_META }
-  await loadResources()
-  if (!error.value) {
-    saveLastClass(activeClass.value)
-    statusMsg.value = resources.value.length ? `共 ${resources.value.length} 项` : '已在班级'
-    bootPhase.value = 'ready'
-    loadingBoot.value = false
-    return
-  }
+  // 无缓存：解析邀请码 → 教师可直接访问；学生未入班则欢迎
   activeClass.value = null
+  resources.value = []
   error.value = ''
-
-  if (joinDeclined.value) {
-    preview.value = { ...FIXED_CLASS_META }
+  needsRejoin.value = false
+  bootPhase.value = 'preview'
+  try {
+    const p = await fetchPreview()
+    preview.value = p
+    activeClass.value = { ...p }
     bootPhase.value = 'ready'
     loadingBoot.value = false
-    return
-  }
-
-  try {
-    preview.value = { ...FIXED_CLASS_META }
-    void fetchPreview().catch(() => {})
-    showJoinDialog.value = true
+    await loadResources({ rejoinOnNotJoined: false })
+    if (isJoined.value) {
+      saveLastClass(activeClass.value)
+      statusMsg.value = resources.value.length
+        ? `共 ${resources.value.length} 项`
+        : '已可访问班级资料'
+      return
+    }
+    // 未入班：欢迎/弹层（学生）
+    preview.value = p
+    if (!joinDeclined.value) {
+      showJoinDialog.value = true
+    }
     bootPhase.value = 'ready'
   } catch (e) {
-    error.value = formatErr(e)
-    bootPhase.value = 'error'
-  } finally {
+    activeClass.value = null
+    preview.value = { ...classMeta.value, invite_code: inviteCode.value }
+    bootPhase.value = 'ready'
     loadingBoot.value = false
+    if (!joinDeclined.value) {
+      showJoinDialog.value = true
+    }
+    statusMsg.value = formatErr(e)
   }
 }
 
@@ -1162,7 +1443,7 @@ onMounted(() => {
       <template v-else>
         <section class="cx-welcome">
           <div class="cx-welcome-card">
-            <div class="cx-welcome-badge">固定班级</div>
+            <div class="cx-welcome-badge">班级资料库</div>
             <div v-if="coverUrl" class="cx-welcome-cover">
               <img :src="coverUrl" alt="" />
             </div>
@@ -1172,14 +1453,17 @@ onMounted(() => {
             <h2>{{ courseTitle || '学习通班级' }}</h2>
             <p v-if="teacherName" class="cx-welcome-teacher">任课教师 · {{ teacherName }}</p>
             <p class="cx-welcome-desc">
-              本模块提供班级课件与资料的预览、下载。首次使用需加入班级（邀请码已内置，无需手动填写）。
+              本模块提供班级课件与资料的预览、下载。邀请码由管理员远程配置，加入时无需手填。
             </p>
             <div class="cx-welcome-actions">
               <button type="button" class="cx-btn primary lg" @click="reopenJoinDialog">
-                加入班级并查看资料
+                {{ needsRejoin ? '重新加入班级' : '加入班级并查看资料' }}
               </button>
             </div>
-            <p v-if="joinDeclined" class="cx-welcome-note">你之前选择了暂不加入，可随时再次加入。</p>
+            <p v-if="needsRejoin" class="cx-welcome-note">
+              {{ statusMsg || '检测到你已不在该班级，可重新加入后查看资料。' }}
+            </p>
+            <p v-else-if="joinDeclined" class="cx-welcome-note">你之前选择了暂不加入，可随时再次加入。</p>
           </div>
         </section>
       </template>
@@ -1381,7 +1665,7 @@ onMounted(() => {
             <img v-if="coverUrl" :src="coverUrl" alt="" />
             <span v-else class="material-symbols-outlined fill">menu_book</span>
           </div>
-          <p class="cx-dialog-kicker">首次进入</p>
+          <p class="cx-dialog-kicker">{{ needsRejoin ? '重新加入' : '加入班级' }}</p>
           <h3 id="cx-join-title">是否加入班级？</h3>
           <p class="cx-dialog-course">{{ courseTitle || '班级' }}</p>
           <p v-if="teacherName" class="cx-dialog-teacher">教师 {{ teacherName }}</p>
@@ -1389,12 +1673,17 @@ onMounted(() => {
             加入后可浏览与下载本班资料。认证仅使用校园门户登录态，不会要求学习通密码。
           </p>
           <div class="cx-dialog-actions">
-            <button type="button" class="cx-btn ghost" :disabled="loadingJoin" @click="markDeclined">
+            <button
+              type="button"
+              class="cx-btn dialog-secondary"
+              :disabled="loadingJoin"
+              @click="markDeclined"
+            >
               暂不加入
             </button>
             <button
               type="button"
-              class="cx-btn primary"
+              class="cx-btn dialog-primary"
               :disabled="loadingJoin"
               @click="handleJoinConfirm"
             >
@@ -1408,8 +1697,13 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Nimbus / Lumina Cloud Storage tokens */
-.cx-page {
+/*
+ * 主题 token：页面 + Teleport 弹层（预览 / 入班对话框）共用
+ * 弹层挂在 body 上，必须单独挂变量，否则暗色只剩页面内生效
+ */
+.cx-page,
+.cx-preview-root,
+.cx-dialog-root {
   --cx-bg: #f7f9fb;
   --cx-surface: #ffffff;
   --cx-surface-low: #f2f4f6;
@@ -1422,12 +1716,54 @@ onMounted(() => {
   --cx-primary: #004ac6;
   --cx-primary-soft: #2563eb;
   --cx-primary-fixed: #dbe1ff;
+  --cx-primary-on: #ffffff;
   --cx-tertiary-fixed: #d3e4fe;
   --cx-error: #ba1a1a;
   --cx-error-container: #ffdad6;
   --cx-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.05);
+  --cx-scrim: rgba(15, 23, 42, 0.48);
   --cx-radius: 0.5rem;
   --cx-radius-lg: 1rem;
+  --cx-ios-label: #1c1c1e;
+  --cx-ios-secondary: rgba(60, 60, 67, 0.55);
+  --cx-ios-separator: rgba(60, 60, 67, 0.22);
+  --cx-ios-fill: rgba(120, 120, 128, 0.14);
+  --cx-ios-blue: #007aff;
+  --cx-glass: rgba(242, 242, 247, 0.78);
+  --cx-glass-border: rgba(255, 255, 255, 0.55);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-page,
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-root,
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-dialog-root {
+  --cx-bg: #0e1012;
+  --cx-surface: #1a1d21;
+  --cx-surface-low: #22262b;
+  --cx-surface-high: #2c3136;
+  --cx-surface-highest: #383e44;
+  --cx-on: #f0f2f4;
+  --cx-on-var: #c4c8d4;
+  --cx-outline: #9aa0b0;
+  --cx-outline-var: #3d424a;
+  --cx-primary: #aec1ff;
+  --cx-primary-soft: #8aa4ff;
+  --cx-primary-fixed: #1e2f5c;
+  --cx-primary-on: #0b1224;
+  --cx-tertiary-fixed: #1e2a3a;
+  --cx-error: #ffb4ab;
+  --cx-error-container: #7a0f14;
+  --cx-shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --cx-scrim: rgba(0, 0, 0, 0.62);
+  --cx-ios-label: #f5f5f7;
+  --cx-ios-secondary: rgba(235, 235, 245, 0.5);
+  --cx-ios-separator: rgba(84, 84, 88, 0.65);
+  --cx-ios-fill: rgba(120, 120, 128, 0.28);
+  --cx-ios-blue: #0a84ff;
+  --cx-glass: rgba(44, 44, 46, 0.72);
+  --cx-glass-border: rgba(255, 255, 255, 0.14);
+}
+
+.cx-page {
   position: relative;
   min-height: 100%;
   max-width: 760px;
@@ -1436,25 +1772,6 @@ onMounted(() => {
   color: var(--cx-on);
   background: var(--cx-bg);
   font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
-}
-
-:global(html.dark) .cx-page {
-  --cx-bg: #121416;
-  --cx-surface: #1c1f22;
-  --cx-surface-low: #23272a;
-  --cx-surface-high: #2d3133;
-  --cx-surface-highest: #363a3d;
-  --cx-on: #eff1f3;
-  --cx-on-var: #c3c6d7;
-  --cx-outline: #8d90a0;
-  --cx-outline-var: #434655;
-  --cx-primary: #b4c5ff;
-  --cx-primary-soft: #8aa4ff;
-  --cx-primary-fixed: #1a2f66;
-  --cx-tertiary-fixed: #243246;
-  --cx-error: #ffb4ab;
-  --cx-error-container: #93000a;
-  --cx-shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 .cx-icon-btn {
@@ -1673,7 +1990,7 @@ onMounted(() => {
   color: var(--cx-bg);
 }
 
-:global(html.dark) .cx-chip.active {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip.active {
   background: var(--cx-primary-fixed);
   color: var(--cx-primary);
 }
@@ -1813,10 +2130,10 @@ onMounted(() => {
   background: color-mix(in srgb, var(--cx-primary) 12%, var(--cx-tertiary-fixed));
 }
 
-:global(html.dark) .cx-thumb[data-kind='video'] {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-thumb[data-kind='video'] {
   color: #c4b5fd;
 }
-:global(html.dark) .cx-thumb[data-kind='image'] {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-thumb[data-kind='image'] {
   color: #7dd3fc;
 }
 
@@ -1989,12 +2306,12 @@ onMounted(() => {
 
 .cx-btn.primary {
   background: var(--cx-primary);
-  color: #fff;
+  color: var(--cx-primary-on);
 }
 
-:global(html.dark) .cx-btn.primary {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.primary {
   background: var(--cx-primary-soft);
-  color: #0b1c3a;
+  color: var(--cx-primary-on);
 }
 
 .cx-btn.primary:hover:not(:disabled) {
@@ -2135,8 +2452,9 @@ onMounted(() => {
 .cx-preview-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(12px);
+  background: var(--cx-scrim);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .cx-preview-sheet {
@@ -2295,12 +2613,12 @@ onMounted(() => {
   padding: 8px 12px;
   border: none;
   background: var(--cx-primary);
-  color: #fff;
+  color: var(--cx-primary-on);
 }
 
-:global(html.dark) .cx-toolbar-btn.download {
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.download {
   background: var(--cx-primary-soft);
-  color: #0b1c3a;
+  color: var(--cx-primary-on);
 }
 
 .cx-toolbar-btn.download:hover:not(:disabled) {
@@ -2312,9 +2630,16 @@ onMounted(() => {
   background: var(--cx-surface-high);
 }
 
-.cx-toolbar-btn .material-symbols-outlined {
+.cx-toolbar-btn .material-symbols-outlined,
+.cx-preview-root .material-symbols-outlined {
+  font-family: 'Material Symbols Outlined', sans-serif !important;
+  font-weight: normal !important;
   font-size: 22px;
+  line-height: 1;
   flex-shrink: 0;
+  text-transform: none !important;
+  font-feature-settings: 'liga' 1, 'clig' 1;
+  -webkit-font-feature-settings: 'liga' 1;
 }
 
 .cx-toolbar-btn-text {
@@ -2352,61 +2677,102 @@ onMounted(() => {
   margin-left: auto;
 }
 
+/* iOS 风格毛玻璃菜单（Context Menu / Action Sheet） */
 .cx-open-method-menu {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 10px);
   max-height: min(52vh, 360px);
   overflow: auto;
-  background: var(--cx-surface);
-  border: 1px solid var(--cx-outline-var);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
-  padding: 8px;
-  z-index: 5;
+  z-index: 30;
+  isolation: isolate;
+  padding: 4px 0 6px;
+  border-radius: 14px;
+  background: var(--cx-glass);
+  border: 0.5px solid var(--cx-glass-border);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.16),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.45);
+  -webkit-backdrop-filter: saturate(180%) blur(40px);
+  backdrop-filter: saturate(180%) blur(40px);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-open-method-menu {
+  box-shadow:
+    0 14px 44px rgba(0, 0, 0, 0.48),
+    0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .cx-open-method-menu {
+    background: color-mix(in srgb, var(--cx-surface) 96%, transparent);
+  }
 }
 
 .cx-open-method-menu-title {
-  margin: 0 8px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--cx-outline);
-  text-transform: uppercase;
+  margin: 8px 16px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--cx-ios-secondary);
+  text-transform: none;
 }
 
 .cx-open-method-item {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   border: none;
-  background: transparent;
-  border-radius: 10px;
-  padding: 10px 10px;
+  border-radius: 0;
+  padding: 12px 16px;
+  margin: 0;
   cursor: pointer;
   text-align: left;
-  color: var(--cx-on);
+  color: var(--cx-ios-label);
+  background: transparent;
+  transition: background 0.12s ease;
 }
 
-.cx-open-method-item:hover {
-  background: var(--cx-surface-low);
+/* iOS 分组列表分割线 */
+.cx-open-method-item + .cx-open-method-item::before {
+  content: '';
+  position: absolute;
+  left: 52px;
+  right: 0;
+  top: 0;
+  height: 0.5px;
+  background: var(--cx-ios-separator);
+  pointer-events: none;
+}
+
+.cx-open-method-item:hover,
+.cx-open-method-item:focus-visible {
+  background: var(--cx-ios-fill);
+  outline: none;
+}
+
+.cx-open-method-item:active {
+  background: color-mix(in srgb, var(--cx-ios-fill) 140%, transparent);
 }
 
 .cx-open-method-item.active {
-  background: color-mix(in srgb, var(--cx-primary) 10%, var(--cx-surface-low));
+  background: color-mix(in srgb, var(--cx-ios-blue) 16%, transparent);
 }
 
 .cx-open-method-item .material-symbols-outlined {
   font-size: 22px;
-  color: var(--cx-primary);
+  color: var(--cx-ios-blue);
   flex-shrink: 0;
 }
 
 .cx-open-method-item .check {
   margin-left: auto;
-  color: var(--cx-primary);
+  color: var(--cx-ios-blue);
   font-size: 20px;
 }
 
@@ -2418,14 +2784,16 @@ onMounted(() => {
 }
 
 .cx-open-method-item-text .name {
-  font-size: 14px;
-  font-weight: 650;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--cx-ios-label);
 }
 
 .cx-open-method-item-text .desc {
-  font-size: 11px;
-  color: var(--cx-outline);
-  font-weight: 500;
+  font-size: 12px;
+  color: var(--cx-ios-secondary);
+  font-weight: 400;
 }
 
 .cx-preview-state {
@@ -2477,7 +2845,7 @@ onMounted(() => {
   object-fit: contain;
   border-radius: 8px;
   box-shadow: var(--cx-shadow-soft);
-  background: #fff;
+  background: var(--cx-surface);
 }
 
 .cx-preview-video {
@@ -2502,8 +2870,9 @@ onMounted(() => {
 .cx-dialog-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(12px);
+  background: var(--cx-scrim);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .cx-dialog {
@@ -2513,9 +2882,13 @@ onMounted(() => {
   border: 1px solid var(--cx-outline-var);
   border-radius: var(--cx-radius-lg);
   padding: 22px 20px 18px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--cx-shadow-soft), 0 20px 50px rgba(0, 0, 0, 0.18);
   color: var(--cx-on);
   text-align: center;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-dialog {
+  box-shadow: var(--cx-shadow-soft), 0 24px 56px rgba(0, 0, 0, 0.5);
 }
 
 .cx-dialog-cover {
@@ -2584,5 +2957,345 @@ onMounted(() => {
 
 .cx-dialog-actions .cx-btn {
   flex: 1;
+  min-height: 44px;
+  border-radius: 10px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* 弹层双按钮：实心底，避免透明「悬浮」难认成按钮 */
+.cx-btn.dialog-secondary {
+  background: var(--cx-surface-high);
+  color: var(--cx-on);
+  border: 1px solid var(--cx-outline-var);
+}
+
+.cx-btn.dialog-secondary:hover:not(:disabled) {
+  background: var(--cx-surface-highest);
+}
+
+.cx-btn.dialog-primary {
+  background: var(--cx-primary);
+  color: var(--cx-primary-on);
+  border: 1px solid transparent;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.dialog-primary {
+  background: var(--cx-primary-soft);
+  color: var(--cx-primary-on);
+}
+
+.cx-btn.dialog-primary:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-btn.dialog-secondary {
+  background: var(--cx-surface-high);
+  color: var(--cx-on);
+  border-color: var(--cx-outline-var);
+}
+
+/* —— 暗色模式：列表/欢迎页/状态条等细节补强 —— */
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-nimbus-head {
+  background: color-mix(in srgb, var(--cx-bg) 88%, transparent);
+  border-bottom-color: var(--cx-outline-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-row:hover {
+  background: var(--cx-surface-low);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-row:active {
+  background: var(--cx-surface-high);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-welcome-card {
+  background: var(--cx-surface);
+  border-color: var(--cx-outline-var);
+  box-shadow: var(--cx-shadow-soft);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-welcome-badge {
+  background: var(--cx-primary-fixed);
+  color: var(--cx-primary);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-sso-chip.ok {
+  background: color-mix(in srgb, #16a34a 18%, var(--cx-surface-low));
+  border-color: color-mix(in srgb, #16a34a 40%, var(--cx-outline-var));
+  color: #86efac;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-sso-chip.bad {
+  background: var(--cx-error-container);
+  color: var(--cx-error);
+  border-color: color-mix(in srgb, var(--cx-error) 35%, var(--cx-outline-var));
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-alert {
+  background: var(--cx-error-container);
+  color: var(--cx-error);
+  border: 1px solid color-mix(in srgb, var(--cx-error) 30%, transparent);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-sheet {
+  background: var(--cx-surface);
+  border-color: var(--cx-outline-var);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-head {
+  background: var(--cx-bg);
+  border-bottom-color: var(--cx-outline-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-body {
+  background: #0b0d10;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-preview-toolbar {
+  background: var(--cx-surface);
+  border-top-color: var(--cx-outline-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn {
+  background: var(--cx-surface-low);
+  border-color: var(--cx-outline-var);
+  color: var(--cx-on);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.method.open {
+  border-color: color-mix(in srgb, var(--cx-primary) 50%, var(--cx-outline-var));
+  background: color-mix(in srgb, var(--cx-primary) 14%, var(--cx-surface));
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.browser:hover:not(:disabled),
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-toolbar-btn.method:hover:not(:disabled) {
+  background: var(--cx-surface-high);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip {
+  background: var(--cx-surface-high);
+  color: var(--cx-on-var);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-chip.active {
+  background: var(--cx-primary-fixed);
+  color: var(--cx-primary);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-skeleton-row {
+  background: linear-gradient(
+    90deg,
+    var(--cx-surface-low) 25%,
+    var(--cx-surface-high) 50%,
+    var(--cx-surface-low) 75%
+  );
+  background-size: 200% 100%;
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-empty {
+  color: var(--cx-outline);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-secure-note {
+  color: var(--cx-outline);
+}
+
+:global(html:is(.dark, [data-theme='graphite_night'])) .cx-trail-btn:hover:not(:disabled) {
+  background: var(--cx-surface-high);
+  color: var(--cx-primary);
+}
+</style>
+
+<!--
+  非 scoped：与全局主题桥 html[data-theme] 对齐。
+  应用真实暗色是 graphite_night，不是 html.dark；Teleport 弹层也必须吃到变量。
+-->
+<style>
+html[data-theme='graphite_night'] .cx-page,
+html[data-theme='graphite_night'] .cx-preview-root,
+html[data-theme='graphite_night'] .cx-dialog-root,
+html.dark .cx-page,
+html.dark .cx-preview-root,
+html.dark .cx-dialog-root {
+  --cx-bg: #0e1012;
+  --cx-surface: #1a1d21;
+  --cx-surface-low: #22262b;
+  --cx-surface-high: #2c3136;
+  --cx-surface-highest: #383e44;
+  --cx-on: #f0f2f4;
+  --cx-on-var: #c4c8d4;
+  --cx-outline: #9aa0b0;
+  --cx-outline-var: #3d424a;
+  --cx-primary: #aec1ff;
+  --cx-primary-soft: #8aa4ff;
+  --cx-primary-fixed: #1e2f5c;
+  --cx-primary-on: #0b1224;
+  --cx-tertiary-fixed: #1e2a3a;
+  --cx-error: #ffb4ab;
+  --cx-error-container: #7a0f14;
+  --cx-shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.45);
+  --cx-scrim: rgba(0, 0, 0, 0.62);
+  --cx-ios-label: #f5f5f7;
+  --cx-ios-secondary: rgba(235, 235, 245, 0.5);
+  --cx-ios-separator: rgba(84, 84, 88, 0.65);
+  --cx-ios-fill: rgba(120, 120, 128, 0.28);
+  --cx-ios-blue: #0a84ff;
+  --cx-glass: rgba(44, 44, 46, 0.72);
+  --cx-glass-border: rgba(255, 255, 255, 0.14);
+  color-scheme: dark;
+}
+
+html[data-theme='graphite_night'] .cx-page,
+html.dark .cx-page {
+  background: #0e1012 !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-nimbus-head,
+html.dark .cx-nimbus-head {
+  background: rgba(14, 16, 18, 0.92) !important;
+  border-bottom-color: #3d424a !important;
+}
+
+html[data-theme='graphite_night'] .cx-welcome-card,
+html.dark .cx-welcome-card {
+  background: #1a1d21 !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-row,
+html.dark .cx-row {
+  color: #f0f2f4;
+  border-bottom-color: #2c3136 !important;
+}
+
+html[data-theme='graphite_night'] .cx-row-name,
+html.dark .cx-row-name {
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-row-meta,
+html[data-theme='graphite_night'] .cx-nimbus-sub,
+html[data-theme='graphite_night'] .cx-toolbar-meta,
+html[data-theme='graphite_night'] .cx-empty,
+html[data-theme='graphite_night'] .cx-empty .sub,
+html.dark .cx-row-meta,
+html.dark .cx-nimbus-sub,
+html.dark .cx-toolbar-meta,
+html.dark .cx-empty,
+html.dark .cx-empty .sub {
+  color: #9aa0b0 !important;
+}
+
+html[data-theme='graphite_night'] .cx-chip,
+html.dark .cx-chip {
+  background: #2c3136 !important;
+  color: #c4c8d4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-chip.active,
+html.dark .cx-chip.active {
+  background: #1e2f5c !important;
+  color: #aec1ff !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-sheet,
+html.dark .cx-preview-root .cx-preview-sheet {
+  background: #1a1d21 !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-head,
+html.dark .cx-preview-root .cx-preview-head {
+  background: #0e1012 !important;
+  border-bottom-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-body,
+html.dark .cx-preview-root .cx-preview-body {
+  background: #0b0d10 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-preview-toolbar,
+html.dark .cx-preview-root .cx-preview-toolbar {
+  background: #1a1d21 !important;
+  border-top-color: #3d424a !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-toolbar-btn,
+html.dark .cx-preview-root .cx-toolbar-btn {
+  background: #22262b !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-toolbar-btn.download,
+html.dark .cx-preview-root .cx-toolbar-btn.download {
+  background: #8aa4ff !important;
+  color: #0b1224 !important;
+  border-color: transparent !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-menu,
+html.dark .cx-preview-root .cx-open-method-menu {
+  background: rgba(44, 44, 46, 0.82) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: #f5f5f7 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-item,
+html.dark .cx-preview-root .cx-open-method-item {
+  color: #f5f5f7 !important;
+}
+
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-item .desc,
+html[data-theme='graphite_night'] .cx-preview-root .cx-open-method-menu-title,
+html.dark .cx-preview-root .cx-open-method-item .desc,
+html.dark .cx-preview-root .cx-open-method-menu-title {
+  color: rgba(235, 235, 245, 0.55) !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-dialog,
+html.dark .cx-dialog-root .cx-dialog {
+  background: #1a1d21 !important;
+  border-color: #3d424a !important;
+  color: #f0f2f4 !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-dialog-desc,
+html[data-theme='graphite_night'] .cx-dialog-root .cx-dialog-teacher,
+html.dark .cx-dialog-root .cx-dialog-desc,
+html.dark .cx-dialog-root .cx-dialog-teacher {
+  color: #9aa0b0 !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-btn.dialog-secondary,
+html.dark .cx-dialog-root .cx-btn.dialog-secondary {
+  background: #2c3136 !important;
+  color: #f0f2f4 !important;
+  border-color: #3d424a !important;
+}
+
+html[data-theme='graphite_night'] .cx-dialog-root .cx-btn.dialog-primary,
+html.dark .cx-dialog-root .cx-btn.dialog-primary {
+  background: #8aa4ff !important;
+  color: #0b1224 !important;
+}
+
+html[data-theme='graphite_night'] .cx-btn.primary,
+html.dark .cx-btn.primary {
+  background: #8aa4ff !important;
+  color: #0b1224 !important;
+}
+
+html[data-theme='graphite_night'] .cx-skeleton-row,
+html.dark .cx-skeleton-row {
+  background: linear-gradient(90deg, #22262b 25%, #2c3136 50%, #22262b 75%) !important;
+  background-size: 200% 100% !important;
 }
 </style>

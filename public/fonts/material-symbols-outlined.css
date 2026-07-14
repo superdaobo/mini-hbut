@@ -7,18 +7,28 @@
 }
 
 .material-symbols-outlined {
-  font-family: 'Material Symbols Outlined';
-  font-weight: normal;
+  font-family: 'Material Symbols Outlined', sans-serif !important;
+  font-weight: normal !important;
   font-style: normal;
   font-size: 24px;
   line-height: 1;
   letter-spacing: normal;
-  text-transform: none;
+  text-transform: none !important;
   display: inline-block;
   white-space: nowrap;
   word-wrap: normal;
   direction: ltr;
+  font-feature-settings: 'liga' 1, 'clig' 1, 'calt' 1;
+  -webkit-font-feature-settings: 'liga' 1, 'clig' 1;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  /* 防止父级 button 的 font-weight/size 把图标名当普通文字排版 */
+  font-synthesis: none;
+  user-select: none;
+}
+
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }

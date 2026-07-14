@@ -361,20 +361,23 @@ const looksLikeMaintenanceIssue = (message) => {
   )
 }
 
-const emitMaintenanceEvent = (active, hint = '') => {
+const emitMaintenanceEvent = (active, hint = '', extra = {}) => {
   if (typeof window === 'undefined') return
   window.dispatchEvent(
     new CustomEvent(JWXT_MAINTENANCE_EVENT, {
       detail: {
         active: !!active,
         hint: hint || '',
+        detail: extra.detail || '',
+        phase: extra.phase || (active ? 'maintenance' : 'idle'),
+        error: extra.error || extra.detail || '',
         at: Date.now()
       }
     })
   )
 }
 
-const setMaintenanceFlag = (hint = '') => {
+const setMaintenanceFlag = (hint = '', extra = {}) => {
   try {
     localStorage.setItem(JWXT_MAINTENANCE_KEY, '1')
     localStorage.setItem(JWXT_MAINTENANCE_TIME_KEY, String(Date.now()))
@@ -384,7 +387,11 @@ const setMaintenanceFlag = (hint = '') => {
   } catch {
     // ignore
   }
-  emitMaintenanceEvent(true, hint || '教务系统正在维护或暂不可用，当前展示缓存数据。')
+  emitMaintenanceEvent(
+    true,
+    hint || '教务系统正在维护或暂不可用，当前展示缓存数据。',
+    { phase: extra.phase || 'maintenance', detail: extra.detail || extra.error || '' }
+  )
 }
 
 const clearMaintenanceFlag = () => {

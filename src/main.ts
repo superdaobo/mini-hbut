@@ -13,10 +13,32 @@ import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 import { invokeNative, isTauriRuntime } from './platform/native'
 
+const removeNativeSplash = () => {
+  try {
+    const w = window as Window & { __removeNativeSplash?: (reason?: string) => void }
+    if (typeof w.__removeNativeSplash === 'function') {
+      w.__removeNativeSplash('vue-mount')
+      return
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    document.getElementById('native-splash')?.remove()
+  } catch {
+    // ignore
+  }
+}
+
 const mountApp = () => {
   const app = createApp(App)
   app.component('IOSSelect', IOSSelect)
   app.mount('#app')
+  // Vue 挂载后立刻清掉 index.html 原生启动页（若 mount 替换未生效也能兜底）
+  removeNativeSplash()
+  // 再兜底一次：部分 WebView 时序下 #app 内节点会短暂残留
+  window.setTimeout(removeNativeSplash, 0)
+  window.setTimeout(removeNativeSplash, 500)
 }
 
 const loadLocalIconFonts = () => {
@@ -112,5 +134,17 @@ try {
   bootstrap()
 } catch (error) {
   console.error('[Bootstrap] failed:', error)
-  mountApp()
+  try {
+    mountApp()
+  } catch (e2) {
+    console.error('[Bootstrap] mountApp failed:', e2)
+    removeNativeSplash()
+  }
+}
+
+// 全局兜底：无论 Vue 是否挂载成功，最多 4s 必须去掉原生启动页
+if (typeof window !== 'undefined') {
+  window.setTimeout(() => {
+    removeNativeSplash()
+  }, 4000)
 }

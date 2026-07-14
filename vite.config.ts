@@ -71,6 +71,21 @@ export default defineConfig({
     legalComments: 'none',
     drop: isReleaseProfile ? ['console', 'debugger'] : []
   },
+  // 禁止 esbuild 自动全盘 discovery（monorepo 下 website/android 等可吃掉数 GB～20GB）
+  optimizeDeps: {
+    noDiscovery: true,
+    entries: ['index.html', 'src/main.ts'],
+    include: [
+      'vue',
+      'vue-router',
+      'pinia',
+      'axios',
+      'marked',
+      'dompurify',
+      'ajv',
+      'ajv/dist/2020.js'
+    ]
+  },
   build: {
     minify: isDevFastProfile ? false : 'esbuild',
     cssMinify: !isDevFastProfile,
@@ -89,8 +104,28 @@ export default defineConfig({
     port: TAURI_DEV_VITE_PORT,
     strictPort: true,
     host: '127.0.0.1',
+    // 不要在首屏预热全站模块（会触发 esbuild 大批量编译）
+    preTransformRequests: false,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // 与历史配置一致：主工程热更新；额外忽略 monorepo 巨目录，避免 chokidar/esbuild 扫爆内存
+      ignored: [
+        '**/src-tauri/**',
+        '**/website/**',
+        '**/android/**',
+        '**/ios/**',
+        '**/dist/**',
+        '**/dist-dev-packages/**',
+        '**/forum-backend/**',
+        '**/terminals/**',
+        '**/mcps/**',
+        '**/agent-tools/**',
+        '**/node_modules/**',
+        '**/.git/**'
+      ]
+    },
+    fs: {
+      strict: true,
+      deny: ['**/website/**', '**/android/**', '**/ios/**', '**/src-tauri/target/**']
     },
     proxy: {
       '/bridge': {

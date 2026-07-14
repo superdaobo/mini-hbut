@@ -61,7 +61,7 @@ use modules::usage_stats::commands as usage_stats_cmd;
 
 // ... imports
 
-const DB_FILENAME: &str = "grades.db";
+pub(crate) const DB_FILENAME: &str = "grades.db";
 const GRADE_TEACHER_CACHE_TABLE: &str = "grade_teacher_cache";
 pub(crate) const DEFAULT_TEMP_UPLOAD_ENDPOINT: &str =
     "https://mini-hbut-testocr1.hf.space/api/temp/upload";
@@ -1175,6 +1175,8 @@ async fn finalize_chaoxing_login(
         None,
         None,
     );
+    // 全域 cookie 落库（#350）
+    client.persist_session_cookies(&student_id);
 
     Ok(ChaoxingLoginResult {
         success: true,
@@ -1379,6 +1381,18 @@ pub struct ChaoxingClassResourceAccessRequest {
     /// 用于判断图片/视频预览模式
     pub file_name: Option<String>,
     pub file_type: Option<String>,
+}
+
+/// 学习通资料鉴权下载（应用内 cookie，避免系统浏览器 403）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingClassDownloadRequest {
+    pub course_id: String,
+    pub clazz_id: String,
+    pub data_id: String,
+    pub object_id: Option<String>,
+    pub cpi: Option<String>,
+    pub student_id: Option<String>,
+    pub file_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1743,17 +1757,7 @@ async fn portal_qr_confirm_login(
     client.user_info = Some(user_info.clone());
     client.last_username = Some(user_info.student_id.clone());
     client.last_password = None;
-    client.save_cookie_snapshot_to_file();
-
-    let _ = db::save_user_session(
-        DB_FILENAME,
-        &user_info.student_id,
-        &client.get_cookies(),
-        "",
-        "",
-        Some(""),
-        Some(""),
-    );
+    client.persist_session_cookies(&user_info.student_id);
 
     let client_arc = Arc::clone(&state.client);
     spawn_electricity_session_warmup(
@@ -3897,19 +3901,11 @@ async fn login(
         user_info.student_id.clone()
     };
 
-    // 先保存 Cookie 会话，一码通 Token 后台预热，不阻塞登录返回。
-    if let Err(e) = db::save_user_session(
-        DB_FILENAME,
-        &session_key,
-        &client.get_cookies(),
-        &password,
-        "",
-        Some(""),
-        Some(""),
-    ) {
-        println!("[璀﹀憡] 保存会话失败: {}", e);
-    }
+    // 先保存 Cookie 会话（v2 全域 + 旧列双写），一码通 Token 后台预热
+    client.set_credentials(session_key.clone(), password.clone());
+    client.persist_session_cookies(&session_key);
     if session_key != username {
+        // 旧客户端可能按登录名查会话
         let _ = db::save_user_session(
             DB_FILENAME,
             &username,
@@ -3919,6 +3915,7 @@ async fn login(
             Some(""),
             Some(""),
         );
+        let _ = client.persist_session_cookies(&username);
     }
     // 密钥环双写：学号键 + 登录用户名键，供静默 SSO 续期
     let _ = credential_store::save_password(&session_key, &password);
@@ -3926,7 +3923,6 @@ async fn login(
         let _ = credential_store::save_password(&username, &password);
     }
     let _ = credential_store::save_remembered_credential(&format!("hbut:{session_key}"), &password);
-    client.set_credentials(session_key.clone(), password.clone());
 
     let client_arc = Arc::clone(&state.client);
     spawn_electricity_session_warmup(client_arc.clone(), session_key.clone(), password);
@@ -3975,6 +3971,9 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
         }
     }
 
+    // 始终先用 auth_cookie_v2 / 文件快照补全域 cookie（旧 cookies 串可能只有 4 域）
+    client.hydrate_session_cookies_from_store(Some(&user_info.student_id));
+
     match session_opt {
         Some(session) => {
             println!(
@@ -4004,20 +4003,14 @@ async fn restore_session(state: State<'_, AppState>, cookies: String) -> Result<
                 client.set_electricity_session(session.one_code_token.clone(), refresh, expires_at);
                 println!("[调试] Restored one_code_token");
             }
-            let _ = db::save_user_session(
-                DB_FILENAME,
-                &user_info.student_id,
-                &client.get_cookies(),
-                &session.password,
-                &session.one_code_token,
-                Some(session.refresh_token.as_str()),
-                Some(session.token_expires_at.as_str()),
+            client.persist_session_cookies(&user_info.student_id);
+        }
+        None => {
+            println!(
+                "[调试] No saved credentials found for user: {}",
+                user_info.student_id
             );
         }
-        None => println!(
-            "[调试] No saved credentials found for user: {}",
-            user_info.student_id
-        ),
     }
 
     Ok(user_info)
@@ -6164,6 +6157,123 @@ async fn chaoxing_class_resolve_resource(
     .map_err(|e| e.to_string())
 }
 
+/// 学习通班级：用会话 cookie 下载课件到本机（#358/#359）
+/// - 鉴权拉取 + 重试 + Range 续传/多分片
+/// - 移动端优先缓存目录，前端再调系统分享（方案 A）
+#[tauri::command]
+async fn chaoxing_class_download_resource(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    req: ChaoxingClassDownloadRequest,
+) -> Result<serde_json::Value, String> {
+    use tauri::Manager;
+
+    // 选落盘根目录：移动优先 cache/app_data（再分享）；桌面优先 Downloads
+    let is_mobile = cfg!(target_os = "android") || cfg!(target_os = "ios");
+    let mut candidates: Vec<(std::path::PathBuf, &'static str)> = Vec::new();
+    if is_mobile {
+        if let Ok(dir) = app.path().app_cache_dir() {
+            candidates.push((dir, "cache"));
+        }
+        if let Ok(dir) = app.path().app_data_dir() {
+            candidates.push((dir, "app_data"));
+        }
+        if let Ok(dir) = app.path().download_dir() {
+            candidates.push((dir, "download"));
+        }
+    } else {
+        if let Ok(dir) = app.path().download_dir() {
+            candidates.push((dir, "download"));
+        }
+        if let Ok(dir) = app.path().document_dir() {
+            candidates.push((dir, "document"));
+        }
+        if let Ok(dir) = app.path().app_data_dir() {
+            candidates.push((dir, "app_data"));
+        }
+    }
+    if candidates.is_empty() {
+        return Err("无法定位本机可写目录".into());
+    }
+
+    let (base_dir, dir_label) = &candidates[0];
+    let export_dir = base_dir.join("Mini-HBUT-Chaoxing");
+    std::fs::create_dir_all(&export_dir)
+        .map_err(|e| format!("创建目录失败({}): {}", dir_label, e))?;
+
+    // 续传 part：按 data_id 固定名，避免多文件冲突
+    let part_name = format!(".part_{}.download", req.data_id.trim());
+    let part_path = export_dir.join(&part_name);
+
+    let mut client = state.client.write().await;
+    let (bytes, file_name, source_url) =
+        modules::chaoxing_class::download_resource_bytes_with_part(
+            &mut client,
+            &req.course_id,
+            &req.clazz_id,
+            &req.data_id,
+            req.object_id.as_deref(),
+            req.cpi.as_deref(),
+            req.file_name.as_deref(),
+            Some(part_path.as_path()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    drop(client);
+
+    // 成功后清理 part
+    let _ = std::fs::remove_file(&part_path);
+
+    // 重名追加序号
+    let mut path = export_dir.join(&file_name);
+    if path.exists() {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("file")
+            .to_string();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| format!(".{}", s))
+            .unwrap_or_default();
+        for i in 1..50 {
+            let alt = export_dir.join(format!("{} ({}){}", stem, i, ext));
+            if !alt.exists() {
+                path = alt;
+                break;
+            }
+        }
+    }
+
+    // 先写 part 再 rename，便于中断后续传（完整文件）
+    let tmp = export_dir.join(format!("{}.writing", part_name));
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("写入失败: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("重命名失败: {}", e))?;
+
+    let path_str = path.to_string_lossy().to_string();
+    let file_uri = if path_str.starts_with("file:") {
+        path_str.clone()
+    } else {
+        format!("file:///{}", path_str.replace('\\', "/"))
+    };
+
+    Ok(serde_json::json!({
+        "success": true,
+        "path": path_str,
+        "file_uri": file_uri,
+        "file_name": path.file_name().and_then(|s| s.to_str()).unwrap_or(&file_name),
+        "bytes": bytes.len(),
+        "source_url": source_url,
+        "mobile_share": is_mobile,
+        "hint": if is_mobile {
+            "已下载，请在系统分享面板中保存或发给好友"
+        } else {
+            "已用学习通会话下载到本机（非系统浏览器）"
+        },
+    }))
+}
+
 #[tauri::command]
 async fn chaoxing_fetch_courses(
     state: State<'_, AppState>,
@@ -6514,7 +6624,7 @@ pub fn run() {
 
             // 统一改为前端跨平台通知监控（Capacitor/Tauri 共用），
             // 这里不再启动 Rust 侧后台循环，避免桌面端重复通知。
-            // 启动时尝试加载最近一′话凭?
+            // 启动时尝试加载最近会话凭据 + auth_cookie_v2 全域 cookie（#348）
             let mut restored_any = false;
             let mut token_loaded = false;
             if let Ok(Some(session)) = db::get_latest_user_session(DB_FILENAME) {
@@ -6535,18 +6645,24 @@ pub fn run() {
                     code_cookie.is_some() || auth_cookie.is_some() || jwxt_cookie.is_some();
                 let should_set_credentials = !password.is_empty();
                 let should_set_token = !token.is_empty();
+                // 即使旧 cookies 列为空，也要尝试 v2 / 文件快照
+                let has_v2 = db::load_auth_cookies_for_student(DB_FILENAME, &student_id)
+                    .map(|rows| !rows.is_empty())
+                    .unwrap_or(false);
 
-                if should_restore {
+                if should_restore || has_v2 {
                     restored_any = true;
                 }
                 if should_set_token {
                     token_loaded = true;
                 }
 
-                if should_restore || should_set_credentials || should_set_token {
+                if should_restore || should_set_credentials || should_set_token || has_v2 {
                     let state = app.state::<AppState>();
                     tauri::async_runtime::block_on(async {
                         let mut client = state.client.write().await;
+                        // 优先 auth_cookie_v2 全域恢复（#348）
+                        client.hydrate_session_cookies_from_store(Some(&student_id));
                         if should_restore {
                             let _ = client.restore_cookie_snapshot(
                                 code_cookie,
@@ -6555,7 +6671,7 @@ pub fn run() {
                             );
                         }
                         if should_set_credentials {
-                            client.set_credentials(student_id, password);
+                            client.set_credentials(student_id.clone(), password);
                         }
                         if should_set_token {
                             let expires_at =
@@ -6571,6 +6687,13 @@ pub fn run() {
                         }
                     });
                 }
+            } else {
+                // 无 user_sessions 行时仍尝试 v2 / 文件快照
+                let state = app.state::<AppState>();
+                tauri::async_runtime::block_on(async {
+                    let mut client = state.client.write().await;
+                    client.hydrate_session_cookies_from_store(None);
+                });
             }
             if !restored_any {
                 if let Some(path) = find_file_in_parents("rust_backend_session.json", 6) {
@@ -6773,6 +6896,7 @@ pub fn run() {
             chaoxing_class_accept_invite,
             chaoxing_class_list_resources,
             chaoxing_class_resolve_resource,
+            chaoxing_class_download_resource,
             chaoxing_sso_get_diag,
             chaoxing_fetch_courses,
             chaoxing_fetch_course_outline,

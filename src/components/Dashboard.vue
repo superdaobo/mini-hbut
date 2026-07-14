@@ -28,13 +28,105 @@ const props = defineProps({
   isLoggedIn: { type: Boolean, default: false },
   jwxtMaintenance: { type: Boolean, default: false },
   jwxtMaintenanceHint: { type: String, default: '' },
+  jwxtMaintenanceDetail: { type: String, default: '' },
+  jwxtRecoveryPhase: { type: String, default: 'idle' },
   jwxtLastCheckTime: { type: String, default: '' },
   tickerNotices: { type: Array, default: () => [] },
   pinnedNotices: { type: Array, default: () => [] },
   noticeList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice', 'openSettings'])
+const emit = defineEmits([
+  'navigate',
+  'logout',
+  'require-login',
+  'retry-session-recovery',
+  'open-notice',
+  'openSettings'
+])
+
+const maintenanceTitle = computed(() => {
+  const phase = String(props.jwxtRecoveryPhase || '')
+  if (phase === 'recovering') return '正在后台恢复登录'
+  if (phase === 'need_login') return '需要重新登录'
+  if (phase === 'failed') return '会话恢复未成功'
+  return '教务系统正在维护'
+})
+
+const maintenancePhaseLabel = computed(() => {
+  const phase = String(props.jwxtRecoveryPhase || '')
+  if (phase === 'recovering') return '后台自动登录中'
+  if (phase === 'need_login') return '请手动登录'
+  if (phase === 'failed') return '将定时重试'
+  if (phase === 'maintenance') return '教务暂不可用'
+  return '状态未知'
+})
+
+const maintenanceNotices = computed(() => {
+  const pick = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((n) => ({
+        id: n?.id || n?.key || n?.title || '',
+        title: String(n?.title || n?.name || stripMarkdown(n?.content || n?.body || '') || '').trim(),
+        raw: n
+      }))
+      .filter((n) => n.title)
+  const pinned = pick(props.pinnedNotices).slice(0, 3)
+  if (pinned.length) return pinned
+  const ticker = pick(props.tickerNotices).slice(0, 3)
+  if (ticker.length) return ticker
+  return pick(props.noticeList).slice(0, 3)
+})
+
+/**
+ * 会话状态点（仅圆点，无文字）：
+ * - red：未登录 / 失败 / 需登录 / 维护
+ * - blink：后台重连中
+ * - green：已连接
+ * 注意：不要在 onMounted 人为先红后绿（进出模块会 remount，会闪红点）。
+ * 详情仅点击非绿点时展开。
+ */
+const sessionDetailOpen = ref(false)
+
+const sessionStatusVisual = computed(() => {
+  if (!props.isLoggedIn) return 'red'
+  const phase = String(props.jwxtRecoveryPhase || 'idle')
+  if (phase === 'recovering') return 'blink'
+  if (phase === 'failed' || phase === 'need_login' || phase === 'maintenance') {
+    return 'red'
+  }
+  // maintenance 布尔为 true 但 phase 已 idle：视为仍异常
+  if (props.jwxtMaintenance && phase !== 'idle') return 'red'
+  if (props.jwxtMaintenance && phase === 'idle') return 'red'
+  return 'green'
+})
+
+const sessionStatusAria = computed(() => {
+  const v = sessionStatusVisual.value
+  if (v === 'green') return '会话已连接'
+  if (v === 'blink') return '正在重连会话，点击查看详情'
+  return '会话异常或未连接，点击查看详情'
+})
+
+const onSessionStatusClick = (event) => {
+  event?.stopPropagation?.()
+  event?.preventDefault?.()
+  if (sessionStatusVisual.value === 'green') {
+    sessionDetailOpen.value = false
+    return
+  }
+  sessionDetailOpen.value = !sessionDetailOpen.value
+}
+
+watch(
+  () => [props.jwxtMaintenance, props.jwxtRecoveryPhase, props.isLoggedIn],
+  () => {
+    // 连上后自动收起详情，避免绿点还挂着维护卡
+    if (sessionStatusVisual.value === 'green') {
+      sessionDetailOpen.value = false
+    }
+  }
+)
 
 const uiSettings = useUiSettings()
 
@@ -1078,9 +1170,14 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
     <!-- Header -->
     <header class="flex items-center justify-between px-4 pt-4 pb-4">
       <div class="flex items-center space-x-2">
-        <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center overflow-hidden">
-          <img src="/splash/app_icon.png" class="w-6 h-6 object-contain" alt="HBUT" />
-        </div>
+        <!-- 与「通知 / 我的」一致：整图圆形裁切，避免圆底里再嵌方框图标 -->
+        <img
+          class="home-logo-img"
+          src="/splash/app_icon.png"
+          alt="HBUT"
+          width="32"
+          height="32"
+        />
         <span class="font-bold text-lg tracking-wide text-gray-800">Mini-HBUT</span>
       </div>
       <div class="flex items-center space-x-3 flex-1 ml-4">
@@ -1119,26 +1216,108 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         </div>
       </div>
 
-      <!-- User Profile Card -->
-      <div class="bg-white rounded-2xl p-4 flex items-center card-shadow" @click="handleProfileClick">
-        <div class="flex items-center space-x-4">
-          <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500">
+      <!-- User Profile Card + 会话状态点（红/闪/绿，点开才看维护详情） -->
+      <div class="bg-white rounded-2xl p-4 flex items-center justify-between gap-3 card-shadow">
+        <div class="flex items-center space-x-4 min-w-0 flex-1 cursor-pointer" @click="handleProfileClick">
+          <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center text-blue-500 shrink-0">
             <i class="fas fa-user-graduate text-2xl"></i>
           </div>
-          <div>
+          <div class="min-w-0">
             <div class="flex items-center space-x-2">
-              <h2 class="font-bold text-lg text-gray-800">{{ studentId || '未登录' }}</h2>
-              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm">本科生</span>
+              <h2 class="font-bold text-lg text-gray-800 truncate">{{ studentId || '未登录' }}</h2>
+              <span class="bg-gray-100 text-gray-500 text-[10px] px-2 py-0.5 rounded-sm shrink-0">本科生</span>
             </div>
-            <p class="text-xs text-gray-500 mt-1">{{ userCollegeInfo }}</p>
+            <p class="text-xs text-gray-500 mt-1 truncate">{{ userCollegeInfo }}</p>
           </div>
         </div>
+
+        <button
+          type="button"
+          class="session-status-btn shrink-0 flex items-center justify-center p-2 rounded-lg active:opacity-80"
+          :aria-label="sessionStatusAria"
+          :title="sessionStatusAria"
+          @click="onSessionStatusClick"
+        >
+          <span
+            class="session-status-dot"
+            :class="{
+              'is-green': sessionStatusVisual === 'green',
+              'is-red': sessionStatusVisual === 'red',
+              'is-blink': sessionStatusVisual === 'blink'
+            }"
+          />
+        </button>
       </div>
 
-      <!-- Maintenance Banner -->
-      <div v-if="jwxtMaintenance" class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow">
-        <div class="font-bold text-orange-700 text-sm">教务系统正在维护</div>
-        <div class="text-xs text-orange-600 mt-1">{{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}</div>
+      <!-- 仅用户点击状态点后展开：维护/错误/通知（不在启动时自动弹出） -->
+      <div
+        v-if="sessionDetailOpen && sessionStatusVisual !== 'green'"
+        class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-bold text-orange-800 text-sm">{{ maintenanceTitle }}</div>
+            <div class="text-[11px] text-orange-500 mt-0.5">{{ maintenancePhaseLabel }}</div>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 text-[11px] text-orange-500 px-2 py-0.5"
+            @click="sessionDetailOpen = false"
+          >收起</button>
+        </div>
+
+        <div class="text-xs text-orange-700 mt-2 leading-relaxed">
+          {{ jwxtMaintenanceHint || (sessionStatusVisual === 'blink'
+            ? '正在后台恢复登录会话，请稍候…'
+            : '当前可能无法同步最新教务数据，可查看下方详情或重试。') }}
+        </div>
+
+        <div
+          v-if="jwxtMaintenanceDetail"
+          class="mt-2 text-[11px] text-orange-900/80 bg-white/60 border border-orange-100 rounded-xl px-2.5 py-2 break-words"
+        >
+          <span class="font-medium text-orange-800">详情：</span>{{ jwxtMaintenanceDetail }}
+        </div>
+
+        <div v-if="jwxtLastCheckTime" class="mt-2 text-[10px] text-orange-500">
+          最近检查：{{ jwxtLastCheckTime }}
+        </div>
+
+        <div v-if="maintenanceNotices.length" class="mt-3 pt-2 border-t border-orange-100">
+          <div class="text-[11px] font-semibold text-orange-800 mb-1.5">相关通知</div>
+          <button
+            v-for="(n, idx) in maintenanceNotices"
+            :key="n.id || idx"
+            type="button"
+            class="w-full text-left text-[11px] text-orange-700 py-1 flex items-start gap-1.5 hover:text-orange-900"
+            @click="$emit('open-notice', n.raw)"
+          >
+            <span class="text-orange-400 shrink-0">•</span>
+            <span class="line-clamp-2">{{ n.title }}</span>
+          </button>
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            v-if="jwxtRecoveryPhase !== 'need_login'"
+            type="button"
+            class="text-xs px-3 py-1.5 rounded-full bg-orange-600 text-white font-medium active:opacity-90"
+            :disabled="jwxtRecoveryPhase === 'recovering'"
+            @click="$emit('retry-session-recovery')"
+          >
+            {{ jwxtRecoveryPhase === 'recovering' ? '正在恢复…' : '立即重试' }}
+          </button>
+          <button
+            v-if="jwxtRecoveryPhase === 'need_login' || jwxtRecoveryPhase === 'failed' || sessionStatusVisual === 'red'"
+            type="button"
+            class="text-xs px-3 py-1.5 rounded-full bg-white border border-orange-300 text-orange-800 font-medium"
+            @click="$emit('require-login')"
+          >
+            去登录
+          </button>
+        </div>
       </div>
 
       <!-- Today's Schedule -->
@@ -1538,6 +1717,16 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* 与 NotificationView / MeView 的 .logo-img 一致：圆形裁切整图 */
+.home-logo-img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
+}
+
 .today-empty-icon {
   display: block;
   width: 80px;
@@ -1563,6 +1752,45 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   opacity: 0.3;
   mix-blend-mode: overlay;
   pointer-events: none;
+}
+
+.session-status-btn {
+  min-width: 2rem;
+  min-height: 2rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.session-status-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+}
+
+.session-status-dot.is-green {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
+
+.session-status-dot.is-red {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16);
+}
+
+.session-status-dot.is-blink {
+  animation: session-status-blink 0.9s ease-in-out infinite;
+}
+
+@keyframes session-status-blink {
+  0%,
+  100% {
+    background: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22);
+  }
 }
 
 .card-shadow {

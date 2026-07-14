@@ -73,9 +73,21 @@ const DEFAULT_CONFIG = {
     channel: DEFAULT_MODULE_CENTER.channel,
     modules: [...DEFAULT_MODULE_CENTER.modules]
   },
+  // #360 学习通资料库：远程只需 invite_code；课程名/教师/ID 由邀请码在线解析
+  chaoxing_class: {
+    enabled: true,
+    invite_code: '18853572'
+  },
   ai_models: [],
   config_admin_ids: []
 }
+
+/** 内置默认邀请码（远程不可达时的最终兜底） */
+export const DEFAULT_CHAOXING_INVITE_CODE = '18853572'
+/** 成功拉取远程后落盘的邀请码缓存（离线/拉取失败时优先于内置默认） */
+const CHAOXING_INVITE_CACHE_KEY = 'hbu_chaoxing_invite_code_cache_v1'
+/** 内存层缓存：与 localStorage 同步，便于测试/无 storage 环境 */
+let chaoxingInviteMemory = ''
 const REMOTE_CONFIG_KEYS = [
   'announcements',
   'announcement',
@@ -88,6 +100,7 @@ const REMOTE_CONFIG_KEYS = [
   'cloud_sync',
   'module_center',
   'more_modules',
+  'chaoxing_class',
   'ai_models',
   'config_admin_ids'
 ]
@@ -539,9 +552,119 @@ export function normalizeRemoteConfig(raw) {
       )
     },
     module_center: resolveModuleCenter(cfg),
+    chaoxing_class: normalizeChaoxingClassConfig(cfg.chaoxing_class || cfg.chaoxingClass, {
+      // 远程 payload 里有 invite 时写入本地缓存（断网可复用）
+      persistInvite: !!(cfg.chaoxing_class || cfg.chaoxingClass)
+    }),
     ai_models: toArray(cfg.ai_models),
     config_admin_ids: toArray(cfg.config_admin_ids)
   }
+}
+
+const readCachedChaoxingInvite = () => {
+  if (chaoxingInviteMemory) return chaoxingInviteMemory
+  try {
+    const fromStore = toString(localStorage.getItem(CHAOXING_INVITE_CACHE_KEY)).trim()
+    if (fromStore) chaoxingInviteMemory = fromStore
+    return fromStore
+  } catch {
+    return chaoxingInviteMemory || ''
+  }
+}
+
+/**
+ * 远程成功下发邀请码后写入本地缓存，断网时仍可用上一版邀请码
+ * @param {string} code
+ */
+export function persistChaoxingInviteCode(code) {
+  const invite = toString(code).trim()
+  if (!invite) return
+  chaoxingInviteMemory = invite
+  try {
+    localStorage.setItem(CHAOXING_INVITE_CACHE_KEY, invite)
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * 解析当前应使用的邀请码：显式配置 → 本地缓存 → 内置默认
+ * @param {unknown} [rawBlock]
+ */
+export function resolveChaoxingInviteCode(rawBlock) {
+  const src = rawBlock && typeof rawBlock === 'object' ? rawBlock : {}
+  return (
+    firstNonEmpty(
+      src.invite_code,
+      src.inviteCode,
+      src.invite,
+      readCachedChaoxingInvite(),
+      DEFAULT_CHAOXING_INVITE_CODE
+    ) || DEFAULT_CHAOXING_INVITE_CODE
+  )
+}
+
+/**
+ * 归一化学习通资料库配置（#360）
+ * 远程只需 invite_code；course/teacher 等可选，默认空（由在线 preview 填充）
+ * @param {unknown} raw
+ * @param {{ persistInvite?: boolean }} [options]
+ */
+export function normalizeChaoxingClassConfig(raw, options = {}) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const invite = resolveChaoxingInviteCode(src)
+  if (options.persistInvite && invite) {
+    // 仅当 raw 显式带来 invite 时落盘，避免用默认码覆盖已缓存的远程码
+    const explicit = firstNonEmpty(src.invite_code, src.inviteCode, src.invite)
+    if (explicit) persistChaoxingInviteCode(explicit)
+  }
+  return {
+    enabled: src.enabled !== false,
+    invite_code: invite,
+    // 可选元数据：有则用，无则空（禁止回落到已废弃的旧班信息）
+    course_id: firstNonEmpty(src.course_id, src.courseId),
+    clazz_id: firstNonEmpty(src.clazz_id, src.clazzId, src.class_id),
+    course_name: firstNonEmpty(src.course_name, src.courseName),
+    teacher_name: firstNonEmpty(src.teacher_name, src.teacherName),
+    cpi: firstNonEmpty(src.cpi),
+    cover_url: firstNonEmpty(src.cover_url, src.coverUrl)
+  }
+}
+
+/**
+ * 读取当前生效的学习通班级配置
+ * 优先级：传入 config → 内存/远程快照 → 邀请码本地缓存 → 内置 18853572
+ * @param {object} [config] 可选已归一化/原始 remote config
+ */
+export function getChaoxingClassConfig(config) {
+  if (config && typeof config === 'object') {
+    const block = config.chaoxing_class || config.chaoxingClass
+    if (block && typeof block === 'object') {
+      return normalizeChaoxingClassConfig(block)
+    }
+    return normalizeRemoteConfig(config).chaoxing_class
+  }
+  const mem = readMemoryConfig()
+  if (mem?.chaoxing_class) {
+    // 合并本地邀请码缓存：远程快照可能较旧
+    const cached = readCachedChaoxingInvite()
+    if (cached && cached !== mem.chaoxing_class.invite_code) {
+      // 缓存更新时间由 persist 保证；若快照无 invite 而缓存有，用缓存
+      if (!mem.chaoxing_class.invite_code) {
+        return { ...mem.chaoxing_class, invite_code: cached }
+      }
+    }
+    return mem.chaoxing_class
+  }
+  try {
+    const raw = localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
+    if (raw) {
+      return normalizeRemoteConfig(JSON.parse(raw)).chaoxing_class
+    }
+  } catch {
+    /* ignore */
+  }
+  return normalizeChaoxingClassConfig({ invite_code: resolveChaoxingInviteCode({}) })
 }
 
 const saveSnapshot = (config) => {

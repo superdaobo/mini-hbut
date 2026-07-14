@@ -196,11 +196,33 @@ export const capacitorBridge: PlatformBridge = {
   async shareLinkOrFile(target: string, title?: string) {
     const share = getPlugin<any>('Share')
     if (share?.share) {
+      const t = String(target || '').trim()
+      const titleText = title || 'Mini-HBUT'
+      // 本地文件：走 files[]（iOS/Android 系统分享面板），勿当 url 打开
+      const isLocalFile =
+        /^file:\/\//i.test(t) ||
+        (/^[a-zA-Z]:[\\/]/.test(t) || t.startsWith('/')) &&
+          !/^https?:\/\//i.test(t)
       try {
+        if (isLocalFile) {
+          const fileUrl = t.startsWith('file:')
+            ? t
+            : t.startsWith('/')
+              ? `file://${t}`
+              : `file:///${t.replace(/\\/g, '/')}`
+          await share.share({
+            title: titleText,
+            dialogTitle: titleText || '保存或分享课件',
+            files: [fileUrl],
+            url: fileUrl
+          })
+          return true
+        }
         await share.share({
-          title: title || 'Mini-HBUT',
-          text: title || 'Mini-HBUT 文件分享',
-          url: target
+          title: titleText,
+          text: titleText,
+          url: t,
+          dialogTitle: titleText
         })
         return true
       } catch {
