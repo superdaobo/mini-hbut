@@ -12,7 +12,7 @@
     "prebuild:web": "node scripts/prepare_dist.mjs",
     "dev": "vite",
     "dev:lowmem": "node scripts/vite_dev_lowmem.mjs",
-    "tauri:dev": "node scripts/tauri_dev_lowmem.mjs",
+    "tauri:dev": "tauri dev",
     "tauri:dev:lowmem": "node scripts/tauri_dev_lowmem.mjs",
     "tauri:dev:static": "node scripts/tauri_dev_static.mjs",
     "build": "vite build",
