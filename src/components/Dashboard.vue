@@ -28,13 +28,55 @@ const props = defineProps({
   isLoggedIn: { type: Boolean, default: false },
   jwxtMaintenance: { type: Boolean, default: false },
   jwxtMaintenanceHint: { type: String, default: '' },
+  jwxtMaintenanceDetail: { type: String, default: '' },
+  jwxtRecoveryPhase: { type: String, default: 'idle' },
   jwxtLastCheckTime: { type: String, default: '' },
   tickerNotices: { type: Array, default: () => [] },
   pinnedNotices: { type: Array, default: () => [] },
   noticeList: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['navigate', 'logout', 'require-login', 'open-notice', 'openSettings'])
+const emit = defineEmits([
+  'navigate',
+  'logout',
+  'require-login',
+  'retry-session-recovery',
+  'open-notice',
+  'openSettings'
+])
+
+const maintenanceTitle = computed(() => {
+  const phase = String(props.jwxtRecoveryPhase || '')
+  if (phase === 'recovering') return '正在后台恢复登录'
+  if (phase === 'need_login') return '需要重新登录'
+  if (phase === 'failed') return '会话恢复未成功'
+  return '教务系统正在维护'
+})
+
+const maintenancePhaseLabel = computed(() => {
+  const phase = String(props.jwxtRecoveryPhase || '')
+  if (phase === 'recovering') return '后台自动登录中'
+  if (phase === 'need_login') return '请手动登录'
+  if (phase === 'failed') return '将定时重试'
+  if (phase === 'maintenance') return '教务暂不可用'
+  return '状态未知'
+})
+
+const maintenanceNotices = computed(() => {
+  const pick = (list) =>
+    (Array.isArray(list) ? list : [])
+      .map((n) => ({
+        id: n?.id || n?.key || n?.title || '',
+        title: String(n?.title || n?.name || stripMarkdown(n?.content || n?.body || '') || '').trim(),
+        raw: n
+      }))
+      .filter((n) => n.title)
+  const pinned = pick(props.pinnedNotices).slice(0, 3)
+  if (pinned.length) return pinned
+  const ticker = pick(props.tickerNotices).slice(0, 3)
+  if (ticker.length) return ticker
+  return pick(props.noticeList).slice(0, 3)
+})
 
 const uiSettings = useUiSettings()
 
@@ -1135,10 +1177,76 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
         </div>
       </div>
 
-      <!-- Maintenance Banner -->
-      <div v-if="jwxtMaintenance" class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow">
-        <div class="font-bold text-orange-700 text-sm">教务系统正在维护</div>
-        <div class="text-xs text-orange-600 mt-1">{{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}</div>
+      <!-- 会话/教务状态窗：错误、恢复进度、通知摘要集中在此（#356） -->
+      <div
+        v-if="jwxtMaintenance"
+        class="bg-orange-50 border border-orange-200 rounded-2xl p-4 card-shadow"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-bold text-orange-800 text-sm">{{ maintenanceTitle }}</div>
+            <div class="text-[11px] text-orange-500 mt-0.5">{{ maintenancePhaseLabel }}</div>
+          </div>
+          <span
+            v-if="jwxtRecoveryPhase === 'recovering'"
+            class="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200"
+          >恢复中</span>
+          <span
+            v-else-if="jwxtRecoveryPhase === 'need_login'"
+            class="shrink-0 text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-100"
+          >需登录</span>
+        </div>
+
+        <div class="text-xs text-orange-700 mt-2 leading-relaxed">
+          {{ jwxtMaintenanceHint || '当前展示缓存数据，系统恢复后将自动同步。' }}
+        </div>
+
+        <div
+          v-if="jwxtMaintenanceDetail"
+          class="mt-2 text-[11px] text-orange-900/80 bg-white/60 border border-orange-100 rounded-xl px-2.5 py-2 break-words"
+        >
+          <span class="font-medium text-orange-800">详情：</span>{{ jwxtMaintenanceDetail }}
+        </div>
+
+        <div v-if="jwxtLastCheckTime" class="mt-2 text-[10px] text-orange-500">
+          最近检查：{{ jwxtLastCheckTime }}
+        </div>
+
+        <div v-if="maintenanceNotices.length" class="mt-3 pt-2 border-t border-orange-100">
+          <div class="text-[11px] font-semibold text-orange-800 mb-1.5">相关通知</div>
+          <button
+            v-for="(n, idx) in maintenanceNotices"
+            :key="n.id || idx"
+            type="button"
+            class="w-full text-left text-[11px] text-orange-700 py-1 flex items-start gap-1.5 hover:text-orange-900"
+            @click="$emit('open-notice', n.raw)"
+          >
+            <span class="text-orange-400 shrink-0">•</span>
+            <span class="line-clamp-2">{{ n.title }}</span>
+          </button>
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            v-if="jwxtRecoveryPhase !== 'need_login'"
+            type="button"
+            class="text-xs px-3 py-1.5 rounded-full bg-orange-600 text-white font-medium active:opacity-90"
+            :disabled="jwxtRecoveryPhase === 'recovering'"
+            @click="$emit('retry-session-recovery')"
+          >
+            {{ jwxtRecoveryPhase === 'recovering' ? '正在恢复…' : '立即重试' }}
+          </button>
+          <button
+            v-if="jwxtRecoveryPhase === 'need_login' || jwxtRecoveryPhase === 'failed'"
+            type="button"
+            class="text-xs px-3 py-1.5 rounded-full bg-white border border-orange-300 text-orange-800 font-medium"
+            @click="$emit('require-login')"
+          >
+            去登录
+          </button>
+        </div>
       </div>
 
       <!-- Today's Schedule -->
