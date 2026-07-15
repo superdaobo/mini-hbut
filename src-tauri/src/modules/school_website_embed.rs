@@ -243,7 +243,10 @@ fn close_embed_if_exists(app: &AppHandle) {
     if closed_any {
         println!("[SchoolWebsite] embed closed label={}", EMBED_LABEL);
     } else {
-        println!("[SchoolWebsite] embed close: no webview found for {}", EMBED_LABEL);
+        println!(
+            "[SchoolWebsite] embed close: no webview found for {}",
+            EMBED_LABEL
+        );
     }
 }
 
