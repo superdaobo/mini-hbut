@@ -3,6 +3,7 @@ import { detectRuntime } from '../platform/runtime'
 import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_center'
 import { isTestAccountSession } from './test_account.js'
+import { isAppStoreBuild } from '../config/app_store_policy'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
@@ -561,6 +562,50 @@ export function normalizeRemoteConfig(raw) {
   }
 }
 
+/**
+ * 合规构建：仍返回已拉取的配置，但锁死高风险能力（远程 true 无法打开）。
+ * 非合规构建原样返回。
+ */
+export function applyAppStoreRemoteConfigClamp(config) {
+  if (!isAppStoreBuild() || !config || typeof config !== 'object') return config
+  const next = { ...config }
+  // 公告 / force_update / OCR HTTPS 端点可保留
+  next.module_center = {
+    channel: firstNonEmpty(config.module_center?.channel, 'main'),
+    modules: []
+  }
+  next.resource_share = {
+    ...(config.resource_share || {}),
+    enabled: false
+  }
+  next.forum = {
+    ...(config.forum || {}),
+    enabled: false
+  }
+  next.chaoxing_class = {
+    ...(config.chaoxing_class || {}),
+    enabled: false
+  }
+  next.ai_models = []
+  next.config_admin_ids = []
+  // 禁用 HTTP OCR fallback（仅保留 https）
+  const ocr = { ...(config.ocr || {}) }
+  const httpsOnly = (list) =>
+    toArray(list).filter((u) => /^https:\/\//i.test(String(u || '').trim()))
+  ocr.local_fallback_endpoints = httpsOnly(ocr.local_fallback_endpoints)
+  ocr.endpoints = httpsOnly(ocr.endpoints).length
+    ? httpsOnly(ocr.endpoints)
+    : httpsOnly([ocr.endpoint])
+  if (ocr.endpoints[0]) ocr.endpoint = ocr.endpoints[0]
+  next.ocr = ocr
+  // 远程不得强制打开云同步；用户侧另有默认关策略
+  next.cloud_sync = {
+    ...(config.cloud_sync || {}),
+    enabled: false
+  }
+  return next
+}
+
 const readCachedChaoxingInvite = () => {
   if (chaoxingInviteMemory) return chaoxingInviteMemory
   try {
@@ -835,16 +880,16 @@ export const applyOcrRuntimeConfig = async (configLike) => {
 export async function fetchRemoteConfig(options = {}) {
   const forceRefresh = options?.force === true
   if (isTestAccountSession()) {
-    return normalizeRemoteConfig(DEFAULT_CONFIG)
+    return applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(DEFAULT_CONFIG))
   }
   if (!isRemoteConfigEnabled()) {
-    return buildLocalOnlyConfig()
+    return applyAppStoreRemoteConfigClamp(buildLocalOnlyConfig())
   }
 
   if (!forceRefresh) {
     const memory = readMemoryConfig()
     if (memory) {
-      return memory
+      return applyAppStoreRemoteConfigClamp(memory)
     }
     if (remoteConfigInFlight) {
       return remoteConfigInFlight
@@ -857,7 +902,7 @@ export async function fetchRemoteConfig(options = {}) {
       if (!isLikelyRemoteConfigPayload(raw)) {
         throw new Error('invalid remote config payload')
       }
-      const normalized = normalizeRemoteConfig(raw)
+      const normalized = applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(raw))
       // 远程返回即视为有效配置（即使公告为空/关闭 OCR），避免被旧快照反向覆盖。
       saveSnapshot(normalized)
       return normalized
@@ -867,11 +912,11 @@ export async function fetchRemoteConfig(options = {}) {
 
     const snapshot = loadSnapshot()
     if (snapshot) {
-      const normalized = normalizeRemoteConfig(snapshot)
+      const normalized = applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(snapshot))
       saveSnapshot(normalized)
       return normalized
     }
-    const fallback = normalizeRemoteConfig(DEFAULT_CONFIG)
+    const fallback = applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(DEFAULT_CONFIG))
     saveSnapshot(fallback)
     return fallback
   })()

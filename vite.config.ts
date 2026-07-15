@@ -9,6 +9,9 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 const buildProfile = process.env.MINI_HBUT_BUILD_PROFILE || 'standard'
 const isReleaseProfile = buildProfile === 'release'
 const isDevFastProfile = buildProfile === 'dev-fast'
+// 仅当环境变量显式为 1 时开启（ios-testflight.yml）。默认 release/dev/本地 build 保持全功能。
+const appStoreBuildFlag = process.env.VITE_APP_STORE_BUILD === '1' ? '1' : ''
+
 const toPosix = (value: string) => value.replace(/\\/g, '/')
 
 const manualChunks = (id: string) => {
@@ -59,7 +62,8 @@ export default defineConfig({
   plugins: [vue()],
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
-    'import.meta.env.VITE_BUILD_PROFILE': JSON.stringify(buildProfile)
+    'import.meta.env.VITE_BUILD_PROFILE': JSON.stringify(buildProfile),
+    'import.meta.env.VITE_APP_STORE_BUILD': JSON.stringify(appStoreBuildFlag)
   },
   resolve: {
     alias: {

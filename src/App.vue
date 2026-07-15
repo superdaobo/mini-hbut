@@ -4,6 +4,7 @@ import axios from 'axios'
 import UpdateDialog from './components/UpdateDialog.vue'
 import Toast from './components/Toast.vue'
 import SplashScreen from './components/SplashScreen.vue'
+import DemoModeBanner from './components/DemoModeBanner.vue'
 import WorkspaceLayoutEditor from './components/WorkspaceLayoutEditor.vue'
 import { fetchWithCache, getStaleCachedData, setCachedData, clearUserScopedCaches, clearCacheByPrefix } from './utils/api.js'
 import {
@@ -76,6 +77,7 @@ import {
   isLoginRequiredView,
   normalizeViewName
 } from './navigation/app_navigation.ts'
+import { isViewAllowed } from './config/app_store_policy'
 import {
   exitNativeApp,
   getCurrentNativeWindow,
@@ -114,6 +116,7 @@ const loadFeedbackView = () => import('./components/FeedbackView.vue')
 const loadNotificationView = () => import('./components/NotificationView.vue')
 const loadConfigEditorView = () => import('./components/ConfigEditor.vue')
 const loadSettingsView = () => import('./components/SettingsView.vue')
+const loadPrivacyDataView = () => import('./components/PrivacyDataView.vue')
 const loadExportCenterView = () => import('./components/ExportCenterView.vue')
 const loadServiceStatsView = () => import('./components/ServiceStatsView.vue')
 const loadSchoolWebsiteView = () => import('./components/SchoolWebsiteView.vue')
@@ -157,6 +160,7 @@ const FeedbackView = createAsyncPage(loadFeedbackView)
 const NotificationView = createAsyncPage(loadNotificationView)
 const ConfigEditor = createAsyncPage(loadConfigEditorView)
 const SettingsView = createAsyncPage(loadSettingsView)
+const PrivacyDataView = createAsyncPage(loadPrivacyDataView)
 const ExportCenterView = createAsyncPage(loadExportCenterView)
 const ServiceStatsView = createAsyncPage(loadServiceStatsView)
 const SchoolWebsiteView = createAsyncPage(loadSchoolWebsiteView)
@@ -224,6 +228,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   feedback: loadFeedbackView,
   config: loadConfigEditorView,
   settings: loadSettingsView,
+  privacy_data: loadPrivacyDataView,
   export_center: loadExportCenterView,
   service_stats: loadServiceStatsView,
   school_website: loadSchoolWebsiteView,
@@ -1440,6 +1445,14 @@ const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => 
 
 const goToView = (view, { push = true, restoreScroll = false } = {}) => {
   const normalized = normalizeViewName(view)
+  // App Store 合规：统一拒绝已禁用 view（宫格/深链/通知/历史恢复共用）
+  if (!isViewAllowed(normalized)) {
+    showToast('当前版本不可用该功能')
+    if (normalized !== 'home' && isViewAllowed('home')) {
+      goToViewInternal('home', { push: false, restoreScroll: true })
+    }
+    return false
+  }
   if (!ensureLoginRequiredViewAccess(normalized)) {
     return false
   }
@@ -3269,6 +3282,7 @@ onBeforeUnmount(() => {
     }"
     ref="appShellRef"
   >
+    <DemoModeBanner v-if="isLoggedIn && isTestAccountSession()" />
     <Transition name="module-fade" mode="out-in">
       <div :key="`${currentView}:${viewRenderNonce}`" class="view-transition-root">
       <!-- 首页 -->
@@ -3366,6 +3380,13 @@ onBeforeUnmount(() => {
         v-else-if="currentView === 'settings'"
         @back="handleBackToMe"
         @openWorkspaceLayout="openWorkspaceLayoutEditor"
+      />
+
+      <PrivacyDataView
+        v-else-if="currentView === 'privacy_data'"
+        @back="handleBackToMe"
+        @logout="handleLogout"
+        @cleared="handleLogout"
       />
 
       <ExportCenterView

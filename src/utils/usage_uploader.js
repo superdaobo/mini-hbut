@@ -5,6 +5,8 @@ import {
   clearWebUsagePendingQueues,
   getWebUsagePendingQueues
 } from './usage_tracker'
+import { isAppStoreBuild } from '../config/app_store_policy'
+import { isTestAccountSession } from './test_account.js'
 
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
 const USAGE_UPLOAD_LAST_SUCCESS_PREFIX = 'hbu_usage_upload_last_success:'
@@ -189,6 +191,9 @@ export const runUsageStatsUpload = async ({
   reason = 'manual',
   force = false
 } = {}) => {
+  if (isAppStoreBuild() || isTestAccountSession()) {
+    return { success: false, error: 'usage 上传已在当前构建/演示会话禁用' }
+  }
   const sid = toSafeText(studentId)
   if (!isValidStudentId(sid)) {
     return { success: false, error: '学号无效，跳过 usage 上传' }
