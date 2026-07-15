@@ -194,6 +194,58 @@ fn is_invite_session_error_message(msg: &str) -> bool {
         || m.contains("登录页")
         || m.contains("<!doctype")
         || m.contains("<html")
+        || m.contains("mooc1")
+        || m.contains("getinvitecode")
+        || m.contains("[邀请码")
+}
+
+/// 截断响应片段供日志/UI（去换行，防刷屏）
+fn clip_for_log(s: &str, max_chars: usize) -> String {
+    s.chars()
+        .take(max_chars)
+        .collect::<String>()
+        .replace(['\r', '\n', '\t'], " ")
+        .trim()
+        .to_string()
+}
+
+/// 会话诊断（不输出 cookie 明文，只输出是否有关键字段）
+fn invite_session_diag(client: &HbutClient) -> String {
+    let i = chaoxing_i_cookie_header(client);
+    let mooc = chaoxing_mooc_cookie_header(client);
+    let blob = format!("{};{}", i, mooc);
+    let has_uid = blob.contains("UID=") || blob.contains("_uid=");
+    let has_token = blob.contains("cx_p_token=")
+        || blob.contains("p_auth_token=")
+        || blob.contains("xxtenc=")
+        || blob.contains("uf=");
+    let has_jw = blob.contains("jw_uf=");
+    format!(
+        "has_uid={} has_token={} has_jw={} i_cookie_len={} mooc_cookie_len={} is_logged_in={}",
+        has_uid,
+        has_token,
+        has_jw,
+        i.len(),
+        mooc.len(),
+        client.is_logged_in
+    )
+}
+
+/// 统一邀请码错误：路径 + 原因 + 诊断 + 用户指引（#376 详细日志）
+fn invite_err(path: &str, reason: &str, client: &HbutClient, extra: Option<&str>) -> DynError {
+    let diag = invite_session_diag(client);
+    let extra = extra.unwrap_or("").trim();
+    let msg = if extra.is_empty() {
+        format!(
+            "[{path}] {reason} | 诊断: {diag} | 说明: 融合门户/教务已登录 ≠ 学习通 i 站 Web 会话；App 会优先走 mooc1 入班中间页。请重登融合门户或核对邀请码。不是断网。"
+        )
+    } else {
+        format!(
+            "[{path}] {reason} | {extra} | 诊断: {diag} | 说明: 融合门户/教务已登录 ≠ 学习通 i 站 Web 会话；App 会优先走 mooc1 入班中间页。请重登融合门户或核对邀请码。不是断网。"
+        )
+    };
+    println!("[chaoxing][invite-error] {}", msg);
+    err_box(msg)
 }
 
 fn looks_like_login_url(url: &str) -> bool {
@@ -721,31 +773,67 @@ async fn fetch_invite_via_icode_api(
         ))
         .send()
         .await
-        .map_err(|e| err_box(format!("解析邀请码网络失败（请检查网络）：{}", e)))?;
+        .map_err(|e| {
+            invite_err(
+                "邀请码/i站getInviteCode",
+                "网络请求失败",
+                client,
+                Some(&format!("err={}", e)),
+            )
+        })?;
 
+    let status = resp.status();
     let final_url = resp.url().to_string();
     if looks_like_login_url(&final_url) {
-        return Err(err_box(
-            "学习通会话未就绪（邀请码接口跳转登录页）。请重新登录融合门户后再试，并非断网",
+        return Err(invite_err(
+            "邀请码/i站getInviteCode",
+            "接口最终跳转到学习通登录页（i 站无有效会话）",
+            client,
+            Some(&format!(
+                "http_status={} final_url={}",
+                status,
+                clip_for_log(&final_url, 100)
+            )),
         ));
     }
 
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| err_box(format!("解析邀请码响应失败: {}", e)))?;
+    let body = resp.text().await.map_err(|e| {
+        invite_err(
+            "邀请码/i站getInviteCode",
+            "读取响应正文失败",
+            client,
+            Some(&format!("err={}", e)),
+        )
+    })?;
 
     if looks_like_login_html(&body) || looks_like_html_document(&body) {
-        return Err(err_box(
-            "学习通会话未就绪（邀请码接口返回 HTML/登录页）。请重新登录融合门户后再试",
+        return Err(invite_err(
+            "邀请码/i站getInviteCode",
+            "接口返回 HTML 而非 JSON（常见：门户 FYSSO 后 i.chaoxing.com 无 Web 会话）",
+            client,
+            Some(&format!(
+                "http_status={} final_url={} body_len={} body_snip={}",
+                status,
+                clip_for_log(&final_url, 80),
+                body.len(),
+                clip_for_log(&body, 100)
+            )),
         ));
     }
 
-    let payload: Value = serde_json::from_str(body.trim()).map_err(|_| {
-        err_box(format!(
-            "邀请码响应异常（非 JSON，可能未登录学习通）。片段: {}",
-            body.chars().take(120).collect::<String>()
-        ))
+    let payload: Value = serde_json::from_str(body.trim()).map_err(|e| {
+        invite_err(
+            "邀请码/i站getInviteCode",
+            "响应无法解析为 JSON",
+            client,
+            Some(&format!(
+                "parse_err={} http_status={} body_len={} body_snip={}",
+                e,
+                status,
+                body.len(),
+                clip_for_log(&body, 100)
+            )),
+        )
     })?;
 
     if !payload
@@ -758,7 +846,18 @@ async fn fetch_invite_via_icode_api(
             .or_else(|| payload.get("message"))
             .and_then(|v| v.as_str())
             .unwrap_or("邀请码无效或已过期");
-        return Err(err_box(msg));
+        return Err(invite_err(
+            "邀请码/i站getInviteCode",
+            "业务 status=false",
+            client,
+            Some(&format!(
+                "msg={} payload_keys={:?}",
+                msg,
+                payload
+                    .as_object()
+                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            )),
+        ));
     }
 
     let middle = payload
@@ -766,7 +865,17 @@ async fn fetch_invite_via_icode_api(
         .and_then(|v| v.as_str())
         .map(normalize_url)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| err_box("邀请码返回缺少中间页 url"))?;
+        .ok_or_else(|| {
+            invite_err(
+                "邀请码/i站getInviteCode",
+                "JSON 成功但缺少中间页 url 字段",
+                client,
+                Some(&format!(
+                    "payload={}",
+                    clip_for_log(&payload.to_string(), 160)
+                )),
+            )
+        })?;
 
     fetch_and_parse_middle_page(client, code, &middle, "https://i.chaoxing.com/").await
 }
@@ -810,30 +919,76 @@ async fn fetch_and_parse_middle_page(
     if !cookie.is_empty() {
         req = req.header("Cookie", cookie);
     }
-    let page = req
-        .send()
-        .await
-        .map_err(|e| err_box(format!("打开入班页失败: {}", e)))?;
+    let path_tag = if middle.contains("mooc1.chaoxing.com") {
+        "邀请码/mooc1中间页"
+    } else {
+        "邀请码/入班中间页"
+    };
+    let page = req.send().await.map_err(|e| {
+        invite_err(
+            path_tag,
+            "打开入班中间页网络失败",
+            client,
+            Some(&format!("url={} err={}", clip_for_log(middle, 100), e)),
+        )
+    })?;
 
+    let http_status = page.status();
     let page_url = page.url().to_string();
     if looks_like_login_url(&page_url) {
-        return Err(err_box(
-            "入班页跳转到学习通登录。门户 SSO 可能未完成，请重新登录门户",
+        return Err(invite_err(
+            path_tag,
+            "入班中间页跳转到学习通登录（门户 SSO 未完成到学习通域）",
+            client,
+            Some(&format!(
+                "http_status={} final_url={} request_url={}",
+                http_status,
+                clip_for_log(&page_url, 100),
+                clip_for_log(middle, 100)
+            )),
         ));
     }
 
-    let html = page
-        .text()
-        .await
-        .map_err(|e| err_box(format!("读取入班页失败: {}", e)))?;
+    let html = page.text().await.map_err(|e| {
+        invite_err(
+            path_tag,
+            "读取入班中间页正文失败",
+            client,
+            Some(&format!("err={}", e)),
+        )
+    })?;
 
     if looks_like_login_html(&html) {
-        return Err(err_box(
-            "入班页为登录页。请重新登录融合门户以刷新学习通会话",
+        return Err(invite_err(
+            path_tag,
+            "入班中间页 HTML 为登录页",
+            client,
+            Some(&format!(
+                "http_status={} final_url={} body_len={} body_snip={}",
+                http_status,
+                clip_for_log(&page_url, 80),
+                html.len(),
+                clip_for_log(&html, 100)
+            )),
         ));
     }
 
-    parse_invite_middle_html(code, middle, &page_url, &html)
+    parse_invite_middle_html(code, middle, &page_url, &html).map_err(|e| {
+        // 保留 parse 错误并叠加诊断
+        let base = e.to_string();
+        invite_err(
+            path_tag,
+            "入班中间页解析失败（未拿到 courseId/clazzId）",
+            client,
+            Some(&format!(
+                "parse={} http_status={} final_url={} body_len={}",
+                base,
+                http_status,
+                clip_for_log(&page_url, 80),
+                html.len()
+            )),
+        )
+    })
 }
 
 fn parse_invite_middle_html(
@@ -940,29 +1095,37 @@ async fn fetch_invite_preview_online(
 ) -> Result<InvitePreview, DynError> {
     // #376：优先 mooc1 中间页（门户 FYSSO 后可用）；i 站 getInviteCode 作补充
     // FYSSO 故意不碰 i.chaoxing.com/base，故 getInviteCode 常回 HTML
-    match fetch_invite_via_mooc_middleview(client, code).await {
+    let mooc_err = match fetch_invite_via_mooc_middleview(client, code).await {
         Ok(p) if !p.course_id.is_empty() && !p.clazz_id.is_empty() => {
             println!("[chaoxing] 邀请码 mooc1 中间页成功 course={}", p.course_id);
             return Ok(p);
         }
-        Ok(_) | Err(_) => {
-            println!("[chaoxing] mooc1 中间页未完整解析，尝试 i.chaoxing.com getInviteCode");
-        }
-    }
+        Ok(p) => format!(
+            "mooc1 返回不完整 course={} clazz={}",
+            p.course_id, p.clazz_id
+        ),
+        Err(e) => e.to_string(),
+    };
+    println!(
+        "[chaoxing] mooc1 中间页失败，尝试 i.chaoxing.com getInviteCode | {}",
+        clip_for_log(&mooc_err, 200)
+    );
     match fetch_invite_via_icode_api(client, code).await {
         Ok(p) => Ok(p),
         Err(e_api) => {
-            // 双路径都失败：带回更可操作的说明
-            let msg = e_api.to_string();
-            if let Ok(p2) = fetch_invite_via_mooc_middleview(client, code).await {
-                if !p2.course_id.is_empty() && !p2.clazz_id.is_empty() {
-                    return Ok(p2);
-                }
-            }
-            Err(err_box(format!(
-                "{}（若刚登录门户仍失败：学习通 i 站会话与教务会话不同，请再试一次或检查邀请码）",
-                msg
-            )))
+            let api_err = e_api.to_string();
+            // 双路径失败：合并两条路径的详细错误，便于用户反馈 / 调试面板
+            Err(invite_err(
+                "邀请码/双路径失败",
+                "mooc1 中间页与 i 站 getInviteCode 均未成功",
+                client,
+                Some(&format!(
+                    "invite_code_len={} mooc_path_err={} | icode_path_err={}",
+                    code.len(),
+                    clip_for_log(&mooc_err, 220),
+                    clip_for_log(&api_err, 220)
+                )),
+            ))
         }
     }
 }

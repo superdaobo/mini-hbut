@@ -112,6 +112,13 @@ describe('chaoxing_class home integration contract', () => {
     expect(classRs).toContain('pcqrcodemiddleview')
     const sessionRs = read('src-tauri/src/http_client/session.rs')
     expect(sessionRs).toContain('勿假成功')
+    // 详细错误日志
+    expect(classRs).toContain('invite_err')
+    expect(classRs).toContain('invite_session_diag')
+    expect(classRs).toContain('邀请码/i站getInviteCode')
+    expect(classRs).toContain('邀请码/双路径失败')
+    expect(classRs).toContain('has_uid={} has_token={} has_jw={}')
+    expect(view).toContain("pushDebugLog('ChaoxingInvite'")
     expect(protocol).toContain('getInviteCode')
     expect(protocol).toContain('participateCls')
     expect(protocol).toContain('stu-datalist')
