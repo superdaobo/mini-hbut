@@ -150,17 +150,34 @@ const handleRetryEmbed = () => {
 const handleBack = async () => {
   if (leaving.value) return
   leaving.value = true
+  // 同步抑制 + 立即关闭：不把 close 拖到 emit 之后
+  try {
+    await forceCloseSchoolWebsiteEmbed()
+  } catch {
+    // ignore
+  }
   try {
     await cleanupEmbed()
+  } catch {
+    // ignore
+  }
+  try {
     await forceCloseSchoolWebsiteEmbed()
   } catch {
     // ignore
   }
   emit('back')
+  // emit 后再兜底关一次（App 切页后子 WebView 仍可能残留）
+  window.setTimeout(() => {
+    void forceCloseSchoolWebsiteEmbed()
+  }, 0)
+  window.setTimeout(() => {
+    void forceCloseSchoolWebsiteEmbed()
+  }, 120)
 }
 
 const handleVisibilityForEmbed = () => {
-  if (document.hidden) return
+  if (document.hidden || leaving.value) return
   // 仅在已有错误或 proxy 模式时自动恢复，避免无意义重载
   if (loadError.value || embedMode.value === 'proxy-iframe') {
     void remountAfterResume()
@@ -168,8 +185,10 @@ const handleVisibilityForEmbed = () => {
 }
 
 const handleAppEmbedResumeEvent = (event) => {
+  if (leaving.value) return
+  // 必须明确是 school_website：空 detail 时禁止 remount（会把已关闭的子 WebView 又拉起来）
   const view = String(event?.detail?.view || '')
-  if (view && view !== 'school_website') return
+  if (view !== 'school_website') return
   void remountAfterResume()
 }
 
