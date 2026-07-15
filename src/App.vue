@@ -79,6 +79,10 @@ import {
 } from './navigation/app_navigation.ts'
 import { isViewAllowed } from './config/app_store_policy'
 import {
+  resolvePolicySafeSnapshotView,
+  resolvePolicySafeView
+} from './config/accessible_view'
+import {
   exitNativeApp,
   getCurrentNativeWindow,
   invokeNative,
@@ -267,7 +271,8 @@ const prefetchViewComponent = (view) => {
 }
 
 const resolveInitialAccessibleView = (view) => {
-  const normalized = normalizeViewName(view)
+  // 合规构建：hash/启动页不得落到被禁 view（与 goToView 同一策略）
+  const normalized = resolvePolicySafeView(view, 'home')
   if (isProtectedView(normalized) && !hasDailyAccessGrant()) {
     return 'home'
   }
@@ -997,16 +1002,17 @@ const collectCurrentViewSnapshot = () => ({
 
 const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) => {
   const resolved = snapshot || collectCurrentViewSnapshot()
-  const targetViewRaw = normalizeViewName(
-    resolved?.view || resolved?.module || resolved?.tab || currentView.value
-  )
+  // 先按合规策略收敛，再处理 more_module_host 预览修复
+  let targetViewRaw = resolvePolicySafeSnapshotView(resolved, currentView.value, 'home')
   if (targetViewRaw === 'more_module_host') {
     moduleHostSession.value = await repairModuleHostSession(readModuleHostSession())
   }
-  const targetView =
+  let targetView =
     targetViewRaw === 'more_module_host' && !moduleHostSession.value.preview_url
-      ? 'more'
+      ? resolvePolicySafeView('more', 'home')
       : targetViewRaw
+  // more 在合规构建下也可能被禁 → 再收敛一次
+  targetView = resolvePolicySafeView(targetView, 'home')
   if (resolved?.sid) {
     studentId.value = String(resolved.sid || '').trim()
     try {
@@ -1503,7 +1509,9 @@ const syncFromHash = async ({ scrollToTop = false } = {}) => {
 
   studentId.value = route.sid
   localStorage.setItem('hbu_username', route.sid)
-  if (!ensureProtectedViewAccess(route.view, {
+  // hash 深链：#/{sid}/campus_code 等在合规构建下必须落到 home，不能 applyViewState 绕过
+  const safeView = resolvePolicySafeView(route.view, 'home')
+  if (!ensureProtectedViewAccess(safeView, {
     push: false,
     redirectToFallback: true,
     fallbackView: 'home'
@@ -1511,9 +1519,9 @@ const syncFromHash = async ({ scrollToTop = false } = {}) => {
     return
   }
   pendingScrollToTopOnViewChange = scrollToTop
-  applyViewState(route.view)
+  applyViewState(safeView)
 
-  if (route.view === 'grades' && gradeData.value.length === 0) {
+  if (safeView === 'grades' && gradeData.value.length === 0) {
     void loadGradesForCurrentView()
   }
 }
@@ -2990,7 +2998,7 @@ onMounted(async () => {
   }
   if (!window.location.hash) {
     pendingScrollToTopOnViewChange = false
-    const startupPage = normalizeViewName(useUiSettings().startupPage || 'home')
+    const startupPage = resolvePolicySafeView(useUiSettings().startupPage || 'home', 'home')
     if (ensureProtectedViewAccess(startupPage, {
       push: false,
       redirectToFallback: true,
@@ -3101,7 +3109,10 @@ onMounted(async () => {
     moduleHostSession.value = await repairModuleHostSession(moduleHostSession.value)
     if (!moduleHostSession.value.preview_url) {
       pendingScrollToTopOnViewChange = false
-      applyViewState('more')
+      applyViewState(resolvePolicySafeView('more', 'home'))
+    } else if (!isViewAllowed('more_module_host')) {
+      pendingScrollToTopOnViewChange = false
+      applyViewState('home')
     }
   }
 

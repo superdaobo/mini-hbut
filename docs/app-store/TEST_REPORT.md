@@ -19,7 +19,7 @@ npm run build
 
 | Item | Result |
 |------|--------|
-| Policy + domains + remote clamp unit tests | **9/9 passed** (`app-store-policy-tests.log`) |
+| Policy + accessible_view + domains + remote clamp + campus-network gates | **14/14 passed** (`app-store-policy-tests.log`) |
 | Flagged frontend build ×2 | **passed** (`app-store-build-1.log`, `app-store-build-2.log`) |
 | Default frontend build (no flag) | **passed** (`default-build.log`) |
 | Workflow grep TestFlight-only flag | Only `ios-testflight.yml` contains `VITE_APP_STORE_BUILD` |
