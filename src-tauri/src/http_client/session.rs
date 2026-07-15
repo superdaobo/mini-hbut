@@ -458,9 +458,22 @@ impl HbutClient {
         // 将这些关键 cookies 显式种到 mooc1 域以确保章节页面可正常访问。
         if has_uid {
             self.propagate_chaoxing_cookies_to_mooc();
+            // 用 mooc 课程接口激活 jar（不碰 i.chaoxing.com/base，避免清 cookie）
+            let _ = self
+                .client
+                .get("https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Referer", "https://mooc1.chaoxing.com/")
+                .send()
+                .await;
         }
 
-        has_uid || has_jw
+        // #376：仅有 jw_uf 不算学习通会话就绪（邀请码/i 站接口会回 HTML）
+        if !has_uid {
+            println!("[调试] CAS→超星桥接: 未拿到 UID，视为失败（勿假成功）");
+            return false;
+        }
+        true
     }
 
     /// 将关键学习通 cookies 从 passport2/i 域传播到 mooc1 域
