@@ -83,9 +83,12 @@ describe('campus network navigation contract', () => {
     expect(navSource).toMatch(/LOGIN_REQUIRED_ME_VIEWS\s*=\s*\[[\s\S]*'campus_network'/)
   })
 
-  it('shows campus network entry only when logged in', () => {
+  it('shows campus network entry only when logged in and policy allows', () => {
     const meSource = readFileSync(resolve(process.cwd(), 'src/components/MeView.vue'), 'utf8')
-    expect(meSource).toContain('v-if="isLoggedIn" class="grid-item" @click="handleOpenCampusNetwork"')
+    // App Store 策略：showCampusNetwork = isLoggedIn && isViewAllowed('campus_network')
+    expect(meSource).toContain('showCampusNetwork')
+    expect(meSource).toContain('v-if="showCampusNetwork"')
+    expect(meSource).toContain('@click="handleOpenCampusNetwork"')
     const appSource = readFileSync(resolve(process.cwd(), 'src/App.vue'), 'utf8')
     expect(appSource).toContain("currentView === 'campus_network' && isLoggedIn")
   })

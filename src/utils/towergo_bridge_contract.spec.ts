@@ -36,13 +36,17 @@ describe('towergo bridge and location permission contract', () => {
     expect(bridge).toContain('HBUT_HTTP_BRIDGE_ENABLED')
   })
 
-  it('declares platform location permissions so geolocation can request the system prompt', () => {
+  it('declares Android location permissions; iOS App Store candidate omits location usage string', () => {
     const androidManifest = read('android/app/src/main/AndroidManifest.xml')
     const iosPlist = read('ios/App/App/Info.plist')
+    const policy = read('src/config/app_store_policy.ts')
 
+    // Android 全功能包仍保留定位权限（小塔等）
     expect(androidManifest).toContain('android.permission.ACCESS_FINE_LOCATION')
     expect(androidManifest).toContain('android.permission.ACCESS_COARSE_LOCATION')
-    expect(iosPlist).toContain('NSLocationWhenInUseUsageDescription')
-    expect(iosPlist).toContain('小塔出行')
+    // iOS 1.4.3 App Store 候选：不声明定位（小塔在合规构建中关闭）
+    expect(iosPlist).not.toContain('NSLocationWhenInUseUsageDescription')
+    expect(policy).toContain('liveMobilityLocation')
+    expect(policy).toContain("towergo")
   })
 })
