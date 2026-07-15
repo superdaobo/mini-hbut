@@ -11,6 +11,7 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { platformBridge } from '../platform'
 import { openExternal } from '../utils/external_link'
 import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_config'
+import { loadPortalRememberedPassword } from '../utils/credential_storage'
 import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
 
@@ -132,6 +133,19 @@ const formatErr = (e) => {
 const studentPayload = () => {
   const sid = String(props.studentId || '').trim()
   return sid ? { student_id: sid } : { student_id: null }
+}
+
+/** 学习通 SSO：附带前端本地备份的门户密码（iOS 密钥环常空，#367） */
+const ssoPayload = async () => {
+  const base = studentPayload()
+  const sid = String(props.studentId || '').trim()
+  if (!sid) return { ...base, portal_password: null }
+  try {
+    const pwd = String((await loadPortalRememberedPassword(sid)) || '').trim()
+    return { ...base, portal_password: pwd || null }
+  } catch {
+    return { ...base, portal_password: null }
+  }
 }
 
 const loadLastClass = () => {
@@ -258,25 +272,28 @@ const ensureSso = async () => {
     if (!hasTauri) {
       throw new Error('请在客户端内使用本功能')
     }
-    const res = await invokeNative('chaoxing_class_ensure_sso', {
-      req: studentPayload()
-    })
+    // #367：把 Web 加密备份的门户密码注入 native，供静默重登
+    const req = await ssoPayload()
+    const res = await invokeNative('chaoxing_class_ensure_sso', { req })
     ssoReady.value = !!(res?.success ?? res?.sso)
     ssoHint.value = ssoReady.value
       ? res?.partial
         ? '门户会话部分可用（已可访问固定班级）'
         : res?.from_cache || res?.cookie_reuse
           ? '学习通会话已复用'
-          : '门户 SSO 已连接'
+          : res?.silent_relogin
+            ? '已静默续期并接入学习通'
+            : '门户 SSO 已连接'
       : '会话未就绪，请重新登录门户'
     return ssoReady.value
   } catch (e) {
     ssoReady.value = false
     const msg = formatErr(e)
     ssoHint.value = msg
+    // 绿灯教务可用 ≠ 学习通可用：文案区分，避免用户以为“断网”
     error.value =
-      msg.includes('过期') || msg.includes('登录')
-        ? `${msg}（接口可达，属于会话失效，不是客户端断网）`
+      msg.includes('过期') || msg.includes('登录') || msg.includes('密码')
+        ? `${msg}（教务会话可能仍可用；学习通需门户 CAS 票据或记住密码以静默续期）`
         : msg
     return false
   } finally {

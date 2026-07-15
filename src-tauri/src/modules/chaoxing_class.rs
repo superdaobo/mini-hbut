@@ -361,9 +361,11 @@ async fn is_student_enrolled_in_clazz(
 }
 
 /// 确保门户 SSO → 学习通会话可用（走统一会话层，可静默续期，禁止 force 全量课程）。
+/// `portal_password`：前端 Web 加密备份密码（#367 移动端密钥环空）
 pub async fn ensure_sso_session(
     client: &mut HbutClient,
     student_id: Option<&str>,
+    portal_password: Option<&str>,
 ) -> Result<Value, DynError> {
     use crate::modules::chaoxing_sso::{ensure_chaoxing_sso, EnsureSsoOptions};
 
@@ -374,6 +376,10 @@ pub async fn ensure_sso_session(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
+            portal_password: portal_password
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
         },
     )
     .await
@@ -571,6 +577,7 @@ pub async fn preview_invite(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
+            portal_password: None,
         },
     )
     .await;
@@ -785,6 +792,7 @@ pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result
             force: false,
             allow_silent_relogin: true,
             preheated: false,
+            portal_password: None,
         },
     )
     .await;
@@ -1047,6 +1055,7 @@ pub async fn list_resources(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
+            portal_password: None,
         },
     )
     .await;
@@ -1565,6 +1574,7 @@ pub async fn resolve_resource_access(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
+            portal_password: None,
         },
     )
     .await;
@@ -1880,6 +1890,7 @@ async fn ensure_sso_for_download(client: &mut HbutClient) {
             force: false,
             allow_silent_relogin: true,
             preheated: false,
+            portal_password: None,
         },
     )
     .await;

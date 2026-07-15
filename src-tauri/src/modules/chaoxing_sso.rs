@@ -528,6 +528,8 @@ pub struct EnsureSsoOptions {
     pub force: bool,
     pub allow_silent_relogin: bool,
     pub preheated: bool,
+    /// 前端 localStorage 加密备份读到的门户密码（移动端密钥环常空）
+    pub portal_password: Option<String>,
 }
 
 /// 统一确保：缓存命中 → 桥接 →（可选）静默重登 → 再桥接
@@ -560,6 +562,42 @@ pub async fn ensure_chaoxing_sso(
     if sid.is_empty() {
         if let Ok(Some(latest)) = crate::db::get_latest_user_session(crate::DB_FILENAME) {
             sid = latest.student_id.clone();
+        }
+    }
+
+    // 冷启动：先恢复多域 cookie（含 .chaoxing.com），否则只有教务 jw_uf 时学习通必挂
+    client.hydrate_session_cookies_from_store(if sid.is_empty() {
+        None
+    } else {
+        Some(sid.as_str())
+    });
+
+    // 前端传入的门户密码优先（iOS 密钥环空时 Web 加密备份仍有）
+    if let Some(pwd) = opts
+        .portal_password
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        let user = if !sid.is_empty() {
+            sid.clone()
+        } else {
+            client
+                .last_username
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| sid.clone())
+        };
+        if !user.is_empty() {
+            client.set_credentials(user.clone(), pwd.clone());
+            let _ = crate::credential_store::save_password(&user, &pwd);
+            let _ =
+                crate::credential_store::save_remembered_credential(&format!("hbut:{user}"), &pwd);
+            println!(
+                "[SSO] 已注入前端提供的门户密码 user={} pwd_len={}",
+                user,
+                pwd.len()
+            );
         }
     }
 
@@ -804,6 +842,7 @@ pub async fn preheat_after_portal_login(client: &mut HbutClient, student_id: &st
             force: true,
             allow_silent_relogin: false,
             preheated: true,
+            portal_password: None,
         },
     )
     .await

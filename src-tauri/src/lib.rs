@@ -1348,6 +1348,9 @@ pub struct ChaoxingLaunchUrlRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingClassSsoRequest {
     pub student_id: Option<String>,
+    /// 前端本地加密备份的门户密码（移动端密钥环常空，#367）
+    #[serde(default)]
+    pub portal_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6076,9 +6079,13 @@ async fn chaoxing_class_ensure_sso(
     req: ChaoxingClassSsoRequest,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
-    modules::chaoxing_class::ensure_sso_session(&mut client, req.student_id.as_deref())
-        .await
-        .map_err(|e| e.to_string())
+    modules::chaoxing_class::ensure_sso_session(
+        &mut client,
+        req.student_id.as_deref(),
+        req.portal_password.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// 学习通班级：预览邀请码（不入班）
