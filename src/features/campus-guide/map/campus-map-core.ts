@@ -31,6 +31,8 @@ export class CampusMapCore {
   private customLayer: TencentLayer | null = null
   private customLayerReady = false
   private customLayerRetries = 0
+  /** 含尺寸未就绪的调度次数上限，避免容器长期 0 尺寸时无限 timer */
+  private customLayerScheduleCount = 0
   private spotMap = new Map<string, CampusSpot>()
   private lastSpots: CampusSpot[] = []
   private lastSelectedSpotId?: string | number
@@ -121,9 +123,11 @@ export class CampusMapCore {
   }
 
   private scheduleCustomLayerRetry() {
-    if (this.customLayerReady || this.customLayerRetries >= 4) return
+    if (this.customLayerReady) return
+    if (this.customLayerRetries >= 4 || this.customLayerScheduleCount >= 10) return
     if (this.customLayerRetryTimer) clearTimeout(this.customLayerRetryTimer)
-    const delay = 400 + this.customLayerRetries * 500
+    this.customLayerScheduleCount += 1
+    const delay = 400 + Math.min(this.customLayerScheduleCount, 6) * 350
     this.customLayerRetryTimer = setTimeout(() => {
       this.customLayerRetryTimer = null
       void this.mountCustomLayer()
@@ -136,6 +140,7 @@ export class CampusMapCore {
     const layerId = CAMPUS_GUIDE_CONFIG.customLayerId
     const w = this.container?.clientWidth || 0
     const h = this.container?.clientHeight || 0
+    let attempt = this.customLayerRetries
     try {
       // 尺寸为 0 时创建的自定义层在 iOS WKWebView 上常不可见（不计入失败次数）
       if (w < 8 || h < 8) {
@@ -148,7 +153,7 @@ export class CampusMapCore {
         return
       }
       this.customLayerRetries += 1
-      const attempt = this.customLayerRetries
+      attempt = this.customLayerRetries
       // 仅触发 SDK resize，避免递归 schedule
       const map = this.map as { resize?: () => void } | null
       map?.resize?.()
@@ -385,6 +390,7 @@ export class CampusMapCore {
     this.customLayer = null
     this.customLayerReady = false
     this.customLayerRetries = 0
+    this.customLayerScheduleCount = 0
     this.map = null
     this.TMap = null
     this.spotMap.clear()
