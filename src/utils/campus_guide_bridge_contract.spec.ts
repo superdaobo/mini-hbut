@@ -50,6 +50,16 @@ describe('campus guide bridge contract', () => {
     expect(home).toContain('NoticeBar')
     expect(home).toContain('openYunyou')
     expect(home).toContain('openPunch')
+    // #369：手绘层重试 + POI 暗色/安全区
+    const core = read('src/features/campus-guide/map/campus-map-core.ts')
+    expect(core).toContain('mountCustomLayer')
+    expect(core).toContain('scheduleCustomLayerRetry')
+    expect(core).toContain('pushDebugLog')
+    expect(core).toContain("features: ['base']")
+    const theme = read('src/features/campus-guide/map/map-theme.css')
+    expect(theme).toContain('--app-safe-bottom')
+    expect(theme).toContain("html[data-theme='graphite_night'] .campus-poi-card")
+    expect(theme).toContain('html.dark .campus-poi-head h3')
   })
 
   it('resolves campus-guide API base: iOS/desktop loopback, Android without 127.0.0.1', () => {

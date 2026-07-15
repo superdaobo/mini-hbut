@@ -1,3 +1,4 @@
+import { pushDebugLog } from '../../../utils/debug_logger'
 import { CAMPUS_GUIDE_CONFIG } from '../config'
 import type { CampusSpot, GeoPoint } from '../types'
 import { applyMarkerDodge, visibleDodgedSpots } from './marker-dodge'
@@ -28,11 +29,16 @@ export class CampusMapCore {
   private locationLayer: TencentLayer | null = null
   private polylineLayer: TencentLayer | null = null
   private customLayer: TencentLayer | null = null
+  private customLayerReady = false
+  private customLayerRetries = 0
+  /** 含尺寸未就绪的调度次数上限，避免容器长期 0 尺寸时无限 timer */
+  private customLayerScheduleCount = 0
   private spotMap = new Map<string, CampusSpot>()
   private lastSpots: CampusSpot[] = []
   private lastSelectedSpotId?: string | number
   private lastSpotSignature = ''
   private zoomRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  private customLayerRetryTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(container: HTMLElement, options: CampusMapCoreOptions) {
     this.container = container
@@ -54,13 +60,16 @@ export class CampusMapCore {
       draggable: true,
       scrollable: true,
       doubleClickZoom: true,
+      // 手绘层优先：减少 2D 楼块/兴趣点遮挡自定义瓦片（#369 iOS）
       baseMap: {
         type: 'vector',
-        features: ['base', 'building2d', 'point']
+        features: ['base']
       }
     })
 
+    // 首帧 container 在 iOS 上常为 0 尺寸，延后 + 重试挂载手绘层
     await this.mountCustomLayer()
+    this.scheduleCustomLayerRetry()
     this.renderAoi()
     this.bindZoomRefresh()
     return this.map
@@ -113,20 +122,89 @@ export class CampusMapCore {
     })
   }
 
+  private scheduleCustomLayerRetry() {
+    if (this.customLayerReady) return
+    if (this.customLayerRetries >= 4 || this.customLayerScheduleCount >= 10) return
+    if (this.customLayerRetryTimer) clearTimeout(this.customLayerRetryTimer)
+    this.customLayerScheduleCount += 1
+    const delay = 400 + Math.min(this.customLayerScheduleCount, 6) * 350
+    this.customLayerRetryTimer = setTimeout(() => {
+      this.customLayerRetryTimer = null
+      void this.mountCustomLayer()
+      this.scheduleCustomLayerRetry()
+    }, delay)
+  }
+
   private async mountCustomLayer() {
-    if (!this.TMap || !this.map) return
+    if (!this.TMap || !this.map || this.customLayerReady) return
+    const layerId = CAMPUS_GUIDE_CONFIG.customLayerId
+    const w = this.container?.clientWidth || 0
+    const h = this.container?.clientHeight || 0
+    let attempt = this.customLayerRetries
     try {
-      const layer = await this.TMap.ImageTileLayer.createCustomLayer({
-        layerId: CAMPUS_GUIDE_CONFIG.customLayerId,
+      // 尺寸为 0 时创建的自定义层在 iOS WKWebView 上常不可见（不计入失败次数）
+      if (w < 8 || h < 8) {
+        pushDebugLog(
+          'CampusGuide',
+          `手绘层延后挂载（容器未就绪） size=${w}x${h}`,
+          'warn',
+          { layerId, size: `${w}x${h}` }
+        )
+        return
+      }
+      this.customLayerRetries += 1
+      attempt = this.customLayerRetries
+      // 仅触发 SDK resize，避免递归 schedule
+      const map = this.map as { resize?: () => void } | null
+      map?.resize?.()
+      const create = this.TMap.ImageTileLayer?.createCustomLayer
+      if (typeof create !== 'function') {
+        pushDebugLog('CampusGuide', 'ImageTileLayer.createCustomLayer 不可用', 'error', { layerId })
+        return
+      }
+      // 销毁半成品层再挂，避免 iOS 重复创建失败
+      if (this.customLayer) {
+        try {
+          this.customLayer.setMap?.(null)
+          this.customLayer.destroy?.()
+        } catch {
+          // ignore
+        }
+        this.customLayer = null
+      }
+      const layer = await create({
+        layerId,
         map: this.map,
         minZoom: CAMPUS_GUIDE_CONFIG.minZoom,
         maxZoom: CAMPUS_GUIDE_CONFIG.maxZoom,
-        zIndex: 1,
+        zIndex: 2,
         opacity: 1
       })
-      if (layer) this.customLayer = layer
-    } catch {
-      // 手绘图层鉴权失败时保留标准底图
+      if (layer) {
+        this.customLayer = layer
+        this.customLayerReady = true
+        pushDebugLog(
+          'CampusGuide',
+          `手绘层挂载成功 attempt=${attempt} layerId=${layerId}`,
+          'info',
+          { layerId, attempt, size: `${w}x${h}` }
+        )
+        return
+      }
+      pushDebugLog(
+        'CampusGuide',
+        `手绘层返回空 attempt=${attempt} layerId=${layerId}`,
+        'warn',
+        { layerId, attempt }
+      )
+    } catch (err) {
+      pushDebugLog(
+        'CampusGuide',
+        `手绘层挂载失败 attempt=${attempt}: ${(err as Error)?.message || err}`,
+        'error',
+        { layerId, attempt, err }
+      )
+      // 手绘图层鉴权/瓦片失败时保留标准底图
     }
   }
 
@@ -275,6 +353,8 @@ export class CampusMapCore {
   resize() {
     const map = this.map as { resize?: () => void } | null
     map?.resize?.()
+    // iOS 首屏旋转/壳层高度变化后补挂手绘层
+    if (!this.customLayerReady) this.scheduleCustomLayerRetry()
   }
 
   fitPoints(points: GeoPoint[]) {
@@ -293,6 +373,10 @@ export class CampusMapCore {
       clearTimeout(this.zoomRefreshTimer)
       this.zoomRefreshTimer = null
     }
+    if (this.customLayerRetryTimer) {
+      clearTimeout(this.customLayerRetryTimer)
+      this.customLayerRetryTimer = null
+    }
     this.markerLayer?.destroy?.()
     this.aoiLayer?.destroy?.()
     this.locationLayer?.destroy?.()
@@ -304,6 +388,9 @@ export class CampusMapCore {
     this.locationLayer = null
     this.polylineLayer = null
     this.customLayer = null
+    this.customLayerReady = false
+    this.customLayerRetries = 0
+    this.customLayerScheduleCount = 0
     this.map = null
     this.TMap = null
     this.spotMap.clear()

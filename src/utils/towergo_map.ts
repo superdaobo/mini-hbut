@@ -1,3 +1,5 @@
+import { pushDebugLog } from './debug_logger'
+
 export interface TowerGoPoint {
   name?: string
   latitude: number
@@ -25,18 +27,20 @@ export const HBUT_LOCATION: TowerGoPoint = {
   longitude: 114.313
 }
 
-/** 默认网格间距（米）。越大请求越少；附近优先策略下再配合 maxScanPoints。 */
-export const SCAN_GRID_SPACING_METERS = 180
+/** 默认网格间距（米）。#370 略加密以减少漏扫，仍远低于全校无界网格。 */
+export const SCAN_GRID_SPACING_METERS = 150
 /** 并发拉取车辆上限，避免 WebView 主线程与网络打满。 */
-export const SCAN_CONCURRENCY = 3
+export const SCAN_CONCURRENCY = 4
 /** 单次请求间隔（ms）。 */
-export const SCAN_REQUEST_DELAY_MS = 80
+export const SCAN_REQUEST_DELAY_MS = 60
 /** 单次扫描最多探测点数（含原点/中心）。超出时保留距用户最近的点。 */
-export const SCAN_MAX_POINTS = 36
+export const SCAN_MAX_POINTS = 48
 /** 定时刷新间隔（ms）：仅刷新附近/当前视野，不整区打爆。 */
 export const SCAN_REFRESH_INTERVAL_MS = 180_000
 /** 视口扫描防抖（ms）。 */
 export const SCAN_VIEWPORT_DEBOUNCE_MS = 400
+/** 冷启动附近扫描半径（米） */
+export const SCAN_NEARBY_RADIUS_METERS = 1200
 
 export type ScanBounds = {
   minLat: number
@@ -63,29 +67,111 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(num) ? num : NaN
 }
 
+/**
+ * 纠偏：部分接口把 lat/lng 写反（lat≈114、lng≈30）。
+ * 中国大陆大致 lat 18–54、lng 73–135。
+ */
+export const coerceChinaLatLng = (lat: number, lng: number): { latitude: number; longitude: number } | null => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  let a = lat
+  let b = lng
+  const latLooksLikeLng = a > 70 && a < 140 && b > 15 && b < 55
+  if (latLooksLikeLng) {
+    const tmp = a
+    a = b
+    b = tmp
+  }
+  // 明显不在中国附近的坐标丢弃（避免标到海里/赤道）
+  if (a < 15 || a > 55 || b < 70 || b > 140) return null
+  return { latitude: a, longitude: b }
+}
+
 const firstArray = (data: unknown): unknown[] => {
   if (Array.isArray(data)) return data
   if (!data || typeof data !== 'object') return []
   const obj = data as Record<string, unknown>
-  for (const key of ['list', 'records', 'rows', 'data', 'items']) {
+  for (const key of [
+    'list',
+    'records',
+    'rows',
+    'data',
+    'items',
+    'deviceList',
+    'device_list',
+    'carList',
+    'car_list',
+    'ebikeList',
+    'eBikeList',
+    'nearList',
+    'bikeList',
+    'vehicles'
+  ]) {
     if (Array.isArray(obj[key])) return obj[key] as unknown[]
   }
+  // 再下钻一层常见包装
+  for (const key of ['data', 'result', 'payload']) {
+    const nested = obj[key]
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const inner = firstArray(nested)
+      if (inner.length) return inner
+    }
+  }
   return []
+}
+
+const readLatLngFromObject = (obj: Record<string, unknown>): { latitude: number; longitude: number } | null => {
+  // 嵌套 location / pos / coordinate
+  for (const nestKey of ['location', 'pos', 'position', 'coordinate', 'coord', 'gps', 'point']) {
+    const nested = obj[nestKey]
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const fromNested = readLatLngFromObject(nested as Record<string, unknown>)
+      if (fromNested) return fromNested
+    }
+    if (Array.isArray(nested) && nested.length >= 2) {
+      const coerced = coerceChinaLatLng(toNumber(nested[1]), toNumber(nested[0]))
+      // 数组默认 [lng, lat]
+      if (coerced) return coerced
+      const swapped = coerceChinaLatLng(toNumber(nested[0]), toNumber(nested[1]))
+      if (swapped) return swapped
+    }
+  }
+
+  const lat = toNumber(
+    obj.lat ??
+      obj.latitude ??
+      obj.carLat ??
+      obj.car_lat ??
+      obj.posLat ??
+      obj.pos_lat ??
+      obj.centerLat ??
+      obj.latY ??
+      obj.y
+  )
+  const lng = toNumber(
+    obj.lng ??
+      obj.lon ??
+      obj.longitude ??
+      obj.carLng ??
+      obj.car_lng ??
+      obj.posLng ??
+      obj.pos_lng ??
+      obj.centerLng ??
+      obj.lngX ??
+      obj.x
+  )
+  return coerceChinaLatLng(lat, lng)
 }
 
 export const normalizePoint = (point: unknown): TowerGoPoint | null => {
   if (!point) return null
   if (Array.isArray(point)) {
-    const lng = toNumber(point[0])
-    const lat = toNumber(point[1])
-    return Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null
+    // GeoJSON / 业务侧常见 [lng, lat]
+    const asLngLat = coerceChinaLatLng(toNumber(point[1]), toNumber(point[0]))
+    if (asLngLat) return asLngLat
+    return coerceChinaLatLng(toNumber(point[0]), toNumber(point[1]))
   }
   if (typeof point !== 'object') return null
-  const obj = point as Record<string, unknown>
-  const lat = toNumber(obj.lat ?? obj.latitude ?? obj.centerLat ?? obj.y)
-  const lng = toNumber(obj.lng ?? obj.longitude ?? obj.centerLng ?? obj.x)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  return { latitude: lat, longitude: lng }
+  return readLatLngFromObject(point as Record<string, unknown>)
 }
 
 const parsePolygonText = (raw: string): TowerGoPoint[] => {
@@ -217,8 +303,8 @@ export const createServiceAreaScanPoints = ({
   origin = HBUT_LOCATION,
   spacingMeters = SCAN_GRID_SPACING_METERS,
   maxPoints = SCAN_MAX_POINTS,
-  /** 仅扫描用户附近半径（米）；默认 900m 附近优先，避免整区打爆。有 bounds 时忽略。 */
-  nearbyRadiusMeters = 900,
+  /** 仅扫描用户附近半径（米）；默认 1200m 附近优先，避免整区打爆。有 bounds 时忽略。 */
+  nearbyRadiusMeters = SCAN_NEARBY_RADIUS_METERS,
   /** 地图视口外包矩形：与服务区求交后网格扫描（动态加载） */
   bounds
 }: {
@@ -326,24 +412,37 @@ export const normalizeVehicles = (data: unknown, origin: TowerGoPoint = HBUT_LOC
   return firstArray(data)
     .map((item) => {
       const obj = (item || {}) as Record<string, unknown>
-      const lat = toNumber(obj.lat ?? obj.latitude)
-      const lng = toNumber(obj.lng ?? obj.longitude)
-      const rawDistance = toNumber(obj.distance)
+      const coords = readLatLngFromObject(obj)
+      if (!coords) return null
+      const { latitude: lat, longitude: lng } = coords
+      const rawDistance = toNumber(obj.distance ?? obj.dist ?? obj.meters)
+      // 部分接口 distance 为 km
+      let distance = Number.isFinite(rawDistance) ? rawDistance : distanceMeters(loc.latitude, loc.longitude, lat, lng)
+      if (Number.isFinite(rawDistance) && rawDistance > 0 && rawDistance < 30 && distanceMeters(loc.latitude, loc.longitude, lat, lng) > 200) {
+        // 像 km 又像 m：若原始值很小但直线距离很大，按 km→m
+        if (rawDistance * 1000 > 50) distance = rawDistance * 1000
+      }
       return {
-        id: String(obj.carId || obj.id || obj.imei || ''),
-        imei: String(obj.imei || ''),
+        id: String(obj.carId || obj.car_id || obj.id || obj.imei || obj.deviceId || ''),
+        imei: String(obj.imei || obj.deviceId || ''),
         latitude: lat,
         longitude: lng,
-        battery: obj.restBattery as number | string ?? obj.battery as number | string ?? obj.power as number | string ?? 0,
-        distance: Number.isFinite(rawDistance) ? rawDistance : distanceMeters(loc.latitude, loc.longitude, lat, lng),
-        mileage: obj.restMileage as string | number ?? obj.mileage as string | number ?? '',
-        lastUsedTime: String(obj.lastUsedTime || ''),
+        battery:
+          (obj.restBattery as number | string) ??
+          (obj.battery as number | string) ??
+          (obj.power as number | string) ??
+          (obj.soc as number | string) ??
+          0,
+        distance,
+        mileage: (obj.restMileage as string | number) ?? (obj.mileage as string | number) ?? '',
+        lastUsedTime: String(obj.lastUsedTime || obj.last_used_time || ''),
         hasReward: obj.hasReward,
         raw: item
-      }
+      } as TowerGoVehicle
     })
-    .filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
-    .sort((a, b) => Number(a.distance || 0) - Number(b.distance || 0))
+    .filter(Boolean)
+    .filter((item) => Number.isFinite(item!.latitude) && Number.isFinite(item!.longitude))
+    .sort((a, b) => Number(a!.distance || 0) - Number(b!.distance || 0)) as TowerGoVehicle[]
 }
 
 export const dedupeVehicles = (vehicles: TowerGoVehicle[], origin: TowerGoPoint = HBUT_LOCATION) => {
@@ -379,31 +478,62 @@ export const resolveTowerGoLocation = async ({
   maximumAge?: number
 } = {}): Promise<TowerGoPoint> => {
   if (!geolocation?.getCurrentPosition) {
-    return { ...fallback, source: 'fallback' }
+    const point = { ...fallback, source: 'fallback' as const }
+    pushDebugLog(
+      'TowerGo',
+      `定位不可用，回退校区 lat=${point.latitude} lng=${point.longitude}`,
+      'warn',
+      point
+    )
+    return point
   }
+  pushDebugLog('TowerGo', `定位请求开始 timeout=${timeoutMs}ms maximumAge=${maximumAge}`, 'debug', {
+    timeoutMs,
+    maximumAge
+  })
   return new Promise((resolve) => {
     try {
       geolocation.getCurrentPosition(
         (position) => {
           const lat = position.coords.latitude
           const lng = position.coords.longitude
+          const accuracy = position.coords.accuracy || 0
           // 系统定位可能偏移到校外几公里（桌面端/室内/VPN），超阈值则回退到校区坐标，
           // 避免用偏移坐标查服务区识别成别的校区
           const drift = distanceMeters(fallback.latitude, fallback.longitude, lat, lng)
           if (Number.isFinite(drift) && drift > maxDriftMeters) {
-            resolve({ ...fallback, source: 'fallback' })
+            const point = { ...fallback, source: 'fallback' as const, accuracy }
+            pushDebugLog(
+              'TowerGo',
+              `定位漂移 ${Math.round(drift)}m > ${maxDriftMeters}m，回退校区 lat=${point.latitude} lng=${point.longitude}`,
+              'warn',
+              { lat, lng, accuracy, drift, ...point }
+            )
+            resolve(point)
             return
           }
-          resolve({
+          const point = {
             name: '当前位置',
             latitude: lat,
             longitude: lng,
-            accuracy: position.coords.accuracy || 0,
-            source: 'system'
-          })
+            accuracy,
+            source: 'system' as const
+          }
+          pushDebugLog(
+            'TowerGo',
+            `定位成功 lat=${lat.toFixed(6)} lng=${lng.toFixed(6)} ±${Math.round(accuracy)}m`,
+            'info',
+            point
+          )
+          resolve(point)
         },
-        () => {
-          resolve({ ...fallback, source: 'fallback' })
+        (err) => {
+          const point = { ...fallback, source: 'fallback' as const }
+          pushDebugLog('TowerGo', `定位失败，回退校区: ${err?.message || err}`, 'error', {
+            ...point,
+            code: err?.code
+          })
+          resolve(point)
         },
         {
           timeout: timeoutMs,
@@ -411,8 +541,15 @@ export const resolveTowerGoLocation = async ({
           maximumAge: Math.max(0, Number(maximumAge) || 0)
         }
       )
-    } catch {
-      resolve({ ...fallback, source: 'fallback' })
+    } catch (err) {
+      const point = { ...fallback, source: 'fallback' as const }
+      pushDebugLog(
+        'TowerGo',
+        `定位异常，回退校区: ${(err as Error)?.message || err}`,
+        'error',
+        point
+      )
+      resolve(point)
     }
   })
 }

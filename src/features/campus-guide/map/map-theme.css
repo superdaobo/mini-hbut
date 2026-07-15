@@ -248,25 +248,40 @@
 .campus-guide-entrance-floating {
   position: absolute;
   right: 14px;
-  bottom: 180px;
+  /* 高于 POI 详情层，避免与底部卡片重叠 */
+  bottom: calc(200px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)));
   width: 220px;
 }
 
+/* #369：抬高详情层，避开 iOS Home 指示条 / 壳层底栏 */
 .campus-guide-poi-layer {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 12px;
+  bottom: calc(16px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + 52px);
   z-index: 40;
+  max-height: min(44vh, 340px);
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.campus-guide-poi-layer > * {
+  pointer-events: auto;
 }
 
 .campus-poi-card {
   position: relative;
   padding: 14px 14px 12px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--ui-surface, rgba(255, 255, 255, 0.98));
+  color: var(--ui-text, #0f172a);
+  border: 1px solid var(--ui-surface-border, rgba(15, 23, 42, 0.08));
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
   backdrop-filter: blur(8px);
+  max-height: inherit;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .campus-poi-close {
@@ -276,7 +291,7 @@
   border: none;
   background: transparent;
   font-size: 22px;
-  color: #94a3b8;
+  color: var(--ui-muted, #94a3b8);
   cursor: pointer;
 }
 
@@ -285,23 +300,25 @@
   justify-content: space-between;
   gap: 12px;
   align-items: baseline;
+  padding-right: 28px;
 }
 
 .campus-poi-head h3 {
   margin: 0;
   font-size: 18px;
-  color: #0f172a;
+  color: var(--ui-text, #0f172a);
 }
 
 .campus-poi-head span {
-  color: #0074cf;
+  color: var(--ui-primary, #0074cf);
   font-size: 13px;
   font-weight: 600;
+  flex-shrink: 0;
 }
 
 .campus-poi-desc {
   margin: 8px 0 0;
-  color: #64748b;
+  color: var(--ui-muted, #64748b);
   font-size: 13px;
   line-height: 1.5;
   display: -webkit-box;
@@ -318,19 +335,19 @@
 }
 
 .campus-poi-actions button {
-  border: 1px solid rgba(0, 116, 207, 0.18);
+  border: 1px solid color-mix(in oklab, var(--ui-primary, #0074cf) 22%, transparent);
   border-radius: 12px;
   padding: 8px 6px;
-  background: #fff;
-  color: #0074cf;
+  background: var(--ui-surface, #fff);
+  color: var(--ui-primary, #0074cf);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .campus-poi-actions button.primary {
-  background: #0074cf;
-  border-color: #0074cf;
+  background: var(--ui-primary, #0074cf);
+  border-color: var(--ui-primary, #0074cf);
   color: #fff;
 }
 
@@ -619,19 +636,86 @@
   border: 1px solid var(--ui-surface-border, rgba(15, 23, 42, 0.08));
 }
 
+/* #369：系统暗色 + 应用 graphite_night / html.dark 统一可读对比度 */
 @media (prefers-color-scheme: dark) {
   .campus-guide-fab,
   .campus-guide-search,
   .campus-notice-bar,
   .campus-guide-tabs button,
   .campus-entrance-menu button,
-  .campus-guide-entrance-floating button,
-  .campus-poi-card {
+  .campus-guide-entrance-floating button {
     background: rgba(15, 23, 42, 0.9);
     color: #e2e8f0;
   }
 
-  .campus-poi-actions button {
-    background: rgba(15, 23, 42, 0.7);
+  .campus-poi-card {
+    background: rgba(30, 41, 59, 0.96);
+    color: #f1f5f9;
+    border-color: rgba(148, 163, 184, 0.22);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   }
+
+  .campus-poi-head h3 {
+    color: #f8fafc;
+  }
+
+  .campus-poi-head span {
+    color: #7dd3fc;
+  }
+
+  .campus-poi-desc {
+    color: #cbd5e1;
+  }
+
+  .campus-poi-close {
+    color: #94a3b8;
+  }
+
+  .campus-poi-actions button {
+    background: rgba(15, 23, 42, 0.85);
+    color: #e0f2fe;
+    border-color: rgba(125, 211, 252, 0.35);
+  }
+
+  .campus-poi-actions button.primary {
+    background: #0284c7;
+    border-color: #0284c7;
+    color: #fff;
+  }
+}
+
+html.dark .campus-poi-card,
+html[data-theme='graphite_night'] .campus-poi-card {
+  background: rgba(30, 41, 59, 0.96);
+  color: #f1f5f9;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+html.dark .campus-poi-head h3,
+html[data-theme='graphite_night'] .campus-poi-head h3 {
+  color: #f8fafc;
+}
+
+html.dark .campus-poi-head span,
+html[data-theme='graphite_night'] .campus-poi-head span {
+  color: #7dd3fc;
+}
+
+html.dark .campus-poi-desc,
+html[data-theme='graphite_night'] .campus-poi-desc {
+  color: #cbd5e1;
+}
+
+html.dark .campus-poi-actions button,
+html[data-theme='graphite_night'] .campus-poi-actions button {
+  background: rgba(15, 23, 42, 0.85);
+  color: #e0f2fe;
+  border-color: rgba(125, 211, 252, 0.35);
+}
+
+html.dark .campus-poi-actions button.primary,
+html[data-theme='graphite_night'] .campus-poi-actions button.primary {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #fff;
 }

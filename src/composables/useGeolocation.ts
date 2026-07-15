@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { pushDebugLog } from '../utils/debug_logger'
 
 export interface GeoPosition {
   latitude: number
@@ -24,11 +25,16 @@ export function useGeolocation() {
   async function getCurrentPosition(timeout = 10000, maximumAge = 5000): Promise<GeoPosition> {
     if (!available.value) {
       lastError.value = '当前设备不支持定位'
+      pushDebugLog('Geo', lastError.value, 'warn', { available: false })
       throw new Error(lastError.value)
     }
 
     loading.value = true
     lastError.value = ''
+    pushDebugLog('Geo', `定位请求开始 timeout=${timeout}ms maximumAge=${maximumAge}`, 'debug', {
+      timeout,
+      maximumAge
+    })
 
     return new Promise<GeoPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
@@ -40,6 +46,18 @@ export function useGeolocation() {
           }
           lastPosition.value = result
           loading.value = false
+          // #370：写入设置调试信息
+          pushDebugLog(
+            'Geo',
+            `定位成功 lat=${result.latitude.toFixed(6)} lng=${result.longitude.toFixed(6)} ±${Math.round(result.accuracy || 0)}m`,
+            'info',
+            {
+              latitude: result.latitude,
+              longitude: result.longitude,
+              accuracy: result.accuracy,
+              source: 'system'
+            }
+          )
           resolve(result)
         },
         (err) => {
@@ -57,6 +75,10 @@ export function useGeolocation() {
             default:
               lastError.value = '定位失败'
           }
+          pushDebugLog('Geo', `定位失败: ${lastError.value}`, 'error', {
+            code: err.code,
+            message: err.message
+          })
           reject(new Error(lastError.value))
         },
         {
