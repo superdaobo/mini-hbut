@@ -509,18 +509,19 @@ async fn try_silent_portal_relogin(
     Ok(false)
 }
 
-/// 轻量探测：UID cookie 或课程 API 任一可用即认为学习通可用
+/// 轻量探测：必须有学习通 UID，且优先探针 API
 async fn probe_chaoxing_ready(client: &mut HbutClient) -> bool {
-    let (has_uid, has_jw) = cookie_flags(client);
-    if has_uid || has_jw {
-        // 再确认课程 API（不 force 全量业务缓存逻辑）
-        if online_learning::chaoxing_session_probe_ready(client).await {
-            return true;
-        }
-        // cookie 有但 API 失败：仍可能是瞬时问题，has_uid 时部分能力可用
-        return has_uid;
+    let (has_uid, _has_jw) = cookie_flags(client);
+    // 仅教务 jw_uf 不算学习通就绪（#375）
+    if !has_uid {
+        return false;
     }
-    false
+    // 再确认课程 API（不 force 全量业务缓存逻辑）
+    if online_learning::chaoxing_session_probe_ready(client).await {
+        return true;
+    }
+    // cookie 有但 API 失败：仍可能是瞬时问题，has_uid 时部分能力可用
+    has_uid
 }
 
 #[derive(Debug, Clone, Default)]
@@ -606,14 +607,15 @@ pub async fn ensure_chaoxing_sso(
 
     if !opts.force {
         if let Some(mut hit) = cache_hit() {
-            // 缓存命中仍做极轻 cookie 校验
+            // #375：仅当有学习通 UID 才允许进程缓存命中。
+            // 仅 jw_uf（教务）会误报「会话已复用」，随后 getInviteCode 返回 HTML。
             let (has_uid, has_jw) = cookie_flags(client);
-            if has_uid || has_jw {
+            if has_uid {
                 hit.has_uid = has_uid;
                 hit.has_jw = has_jw;
                 hit.from_cache = true;
                 // 短票可能已过 2h：缓存命中时后台轻量续 jw_uf（不阻塞返回）
-                if has_uid && !has_jw {
+                if !has_jw {
                     let _ = client.ensure_chaoxing_academic_session().await;
                 }
                 return Ok(json!({
@@ -624,13 +626,18 @@ pub async fn ensure_chaoxing_sso(
                     "hint": "复用学习通 SSO 缓存",
                 }));
             }
+            // 仅有教务 cookie：作废假阳性缓存，继续走桥接
+            if has_jw && !has_uid {
+                println!("[SSO] 缓存命中但缺少学习通 UID，忽略缓存并重桥接");
+                invalidate_sso_cache();
+            }
         }
 
         // 7 天长效票在 jar 中：优先复用，跳过 CAS
         let (has_uid, has_jw) = cookie_flags(client);
         if has_uid {
             let long_lived = has_long_lived_chaoxing_ticket(client);
-            // 近期探针成功 + 长效票 → 零网络秒开
+            // 近期探针成功 + 长效票 → 零网络秒开（必须真有 token，不能仅 UID）
             let trust_without_probe = long_lived && recent_cookie_probe_ok();
             let probe_ok = if trust_without_probe {
                 true
@@ -674,6 +681,9 @@ pub async fn ensure_chaoxing_sso(
                     },
                 }));
             }
+            // UID 在但探针失败：清缓存继续 CAS 桥接
+            println!("[SSO] 有 UID 但学习通探针失败，尝试重新桥接");
+            invalidate_sso_cache();
         }
     }
 

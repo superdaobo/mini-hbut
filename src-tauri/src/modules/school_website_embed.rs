@@ -200,8 +200,53 @@ fn open_external(app: &AppHandle, target: &str) {
 
 #[cfg(desktop)]
 fn close_embed_if_exists(app: &AppHandle) {
+    // #373：子 WebView 关闭必须足够狠——仅 get_webview+close 在部分桌面端会静默失败，
+    // 导致返回「我的」后官网仍盖住下方内容。
+    let mut closed_any = false;
+
+    // 1) 按 label 直接取
     if let Some(webview) = app.get_webview(EMBED_LABEL) {
-        let _ = webview.close();
+        // 先藏到屏外，避免 close 异步期间仍遮挡
+        let _ = webview.set_position(LogicalPosition::new(-10_000.0, -10_000.0));
+        let _ = webview.set_size(LogicalSize::new(1.0, 1.0));
+        if webview.close().is_ok() {
+            closed_any = true;
+        }
+    }
+
+    // 2) 遍历 App 全部 webview（防止 label 查找不一致）
+    for (label, webview) in app.webviews() {
+        if label.as_str() != EMBED_LABEL {
+            continue;
+        }
+        let _ = webview.set_position(LogicalPosition::new(-10_000.0, -10_000.0));
+        let _ = webview.set_size(LogicalSize::new(1.0, 1.0));
+        if webview.close().is_ok() {
+            closed_any = true;
+        }
+    }
+
+    // 3) 主窗口子 webview 兜底
+    if let Some(window) = app.get_window("main") {
+        for webview in window.webviews() {
+            if webview.label() != EMBED_LABEL {
+                continue;
+            }
+            let _ = webview.set_position(LogicalPosition::new(-10_000.0, -10_000.0));
+            let _ = webview.set_size(LogicalSize::new(1.0, 1.0));
+            if webview.close().is_ok() {
+                closed_any = true;
+            }
+        }
+    }
+
+    if closed_any {
+        println!("[SchoolWebsite] embed closed label={}", EMBED_LABEL);
+    } else {
+        println!(
+            "[SchoolWebsite] embed close: no webview found for {}",
+            EMBED_LABEL
+        );
     }
 }
 
@@ -262,6 +307,14 @@ pub async fn school_website_embed_resize(
     app: AppHandle,
     bounds: EmbedBounds,
 ) -> Result<(), String> {
+    // 宽高过小视为无效（返回卸载期容器已塌缩），拒绝放大遮挡
+    if bounds.width < 8.0 || bounds.height < 8.0 {
+        return Err("invalid embed bounds".to_string());
+    }
+    // 位置异常（屏外）不 resize 回来
+    if bounds.x < -100.0 || bounds.y < -100.0 {
+        return Err("invalid embed position".to_string());
+    }
     let webview = app
         .get_webview(EMBED_LABEL)
         .ok_or_else(|| "学校官网内嵌未打开".to_string())?;

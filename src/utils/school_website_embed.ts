@@ -104,9 +104,9 @@ export const measureSchoolWebsiteEmbedBounds = async (
   if (canUseTauriEmbeddedWebview()) {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window')
-      const window = getCurrentWindow()
-      const scaleFactor = await window.scaleFactor()
-      const innerSize = await window.innerSize()
+      const win = getCurrentWindow()
+      const scaleFactor = await win.scaleFactor()
+      const innerSize = await win.innerSize()
       const innerLogical = innerSize.toLogical(scaleFactor)
       const bottomPadding = 12
 
@@ -115,16 +115,59 @@ export const measureSchoolWebsiteEmbedBounds = async (
         top = Math.max(0, Math.round(parentRect.top + (rect.top - parentRect.top)))
       }
 
-      width = Math.max(1, Math.round(rect.width || innerLogical.width - left * 2))
-      const heightFromWindow = Math.max(1, Math.round(innerLogical.height - top - bottomPadding))
-      const minExpected = Math.round(innerLogical.height * 0.45)
-      height = height >= minExpected ? height : heightFromWindow
+      // #373：以 DOM 容器为准。旧逻辑在 height < 45% 窗口时强行撑满，
+      // 返回过渡期会把子 WebView 放大成「无返回键全屏」。
+      if (width < 8) {
+        width = Math.max(1, Math.round(innerLogical.width - left * 2))
+      }
+      if (height < 8) {
+        height = Math.max(1, Math.round(innerLogical.height - top - bottomPadding))
+      }
     } catch {
       // 保留 DOM 测量结果
     }
   }
 
   return { x: left, y: top, width, height }
+}
+
+/** 进程内标记：关闭后禁止任何 resize（防止竞态把子 WebView 又拉回可视区） */
+let schoolWebsiteEmbedSuppressed = false
+
+export const isSchoolWebsiteEmbedSuppressed = () => schoolWebsiteEmbedSuppressed
+
+export const suppressSchoolWebsiteEmbed = () => {
+  schoolWebsiteEmbedSuppressed = true
+}
+
+export const allowSchoolWebsiteEmbed = () => {
+  schoolWebsiteEmbedSuppressed = false
+}
+
+/**
+ * 强制关闭桌面子 WebView（返回/卸载/切页兜底）。
+ * 不依赖 isTauriDesktopRuntime：只要是 Tauri 就 invoke close，避免 UA 误判导致关不掉。
+ */
+export const forceCloseSchoolWebsiteEmbed = async () => {
+  suppressSchoolWebsiteEmbed()
+  if (!isTauriRuntime()) return
+  try {
+    const { pushDebugLog } = await import('./debug_logger')
+    pushDebugLog('SchoolWebsite', 'forceClose school_website_embed_close', 'info')
+  } catch {
+    // ignore
+  }
+  try {
+    await invokeNative('school_website_embed_close')
+  } catch {
+    // ignore — 移动端命令可能 no-op
+  }
+  // 再关一次，覆盖 close 竞态
+  try {
+    await invokeNative('school_website_embed_close')
+  } catch {
+    // ignore
+  }
 }
 
 type MountOptions = {
@@ -145,7 +188,11 @@ const invokeNative = async <T = unknown>(command: string, args?: Record<string, 
 }
 
 const syncNativeEmbedBounds = async (container: HTMLElement) => {
+  if (schoolWebsiteEmbedSuppressed) return
+  if (!container.isConnected) return
   const bounds = await measureSchoolWebsiteEmbedBounds(container)
+  if (schoolWebsiteEmbedSuppressed) return
+  if (bounds.width < 8 || bounds.height < 8) return
   await invokeNative('school_website_embed_resize', { bounds })
 }
 
@@ -164,11 +211,36 @@ export const mountSchoolWebsiteEmbed = async ({
     }
   }
 
+  // 重新进入模块：允许创建
+  allowSchoolWebsiteEmbed()
+  let closed = false
   try {
     const bounds = await measureSchoolWebsiteEmbedBounds(container)
+    if (closed || schoolWebsiteEmbedSuppressed) {
+      return { mode, cleanup: async () => {} }
+    }
     await invokeNative('school_website_embed_open', { bounds })
+    if (schoolWebsiteEmbedSuppressed) {
+      // 打开过程中用户已返回：立刻关掉
+      try {
+        await invokeNative('school_website_embed_close')
+      } catch {
+        // ignore
+      }
+      return {
+        mode,
+        cleanup: async () => {
+          closed = true
+        }
+      }
+    }
 
     const resizeObserver = new ResizeObserver(() => {
+      if (closed) return
+      // 容器已离开布局树时勿再 resize（返回卸载竞态）
+      if (!container.isConnected) return
+      const r = container.getBoundingClientRect()
+      if (r.width < 8 || r.height < 8) return
       void syncNativeEmbedBounds(container).catch(() => {})
     })
     resizeObserver.observe(container)
@@ -176,15 +248,14 @@ export const mountSchoolWebsiteEmbed = async ({
       resizeObserver.observe(container.parentElement)
     }
 
-    let closed = false
     const handleWindowResize = () => {
-      if (closed) return
+      if (closed || !container.isConnected) return
       void syncNativeEmbedBounds(container).catch(() => {})
     }
     window.addEventListener('resize', handleWindowResize)
 
     const layoutTimer = window.setInterval(() => {
-      if (closed) return
+      if (closed || !container.isConnected) return
       void syncNativeEmbedBounds(container).catch(() => {})
     }, 300)
     window.setTimeout(() => {
@@ -198,6 +269,7 @@ export const mountSchoolWebsiteEmbed = async ({
       cleanup: async () => {
         if (closed) return
         closed = true
+        suppressSchoolWebsiteEmbed()
         window.clearInterval(layoutTimer)
         resizeObserver.disconnect()
         window.removeEventListener('resize', handleWindowResize)
@@ -206,9 +278,21 @@ export const mountSchoolWebsiteEmbed = async ({
         } catch {
           // ignore cleanup failure
         }
+        try {
+          await invokeNative('school_website_embed_close')
+        } catch {
+          // ignore
+        }
       }
     }
   } catch (error) {
+    closed = true
+    suppressSchoolWebsiteEmbed()
+    try {
+      await invokeNative('school_website_embed_close')
+    } catch {
+      // ignore
+    }
     const message = error instanceof Error ? error.message : '创建学校官网内嵌视图失败'
     onError?.(message)
     throw error

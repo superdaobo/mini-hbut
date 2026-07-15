@@ -305,8 +305,14 @@ const fetchPreview = async () => {
   bootPhase.value = 'preview'
   const code = inviteCode.value
   if (!code) throw new Error('未配置学习通邀请码')
+  // #375：邀请码接口可能因假 SSO 复用失败，附带门户密码供静默重桥接
+  const ssoReq = await ssoPayload()
   const res = await invokeNative('chaoxing_class_preview_invite', {
-    req: { invite_code: code, ...studentPayload() }
+    req: {
+      invite_code: code,
+      student_id: ssoReq.student_id ?? null,
+      portal_password: ssoReq.portal_password ?? null
+    }
   })
   preview.value = {
     invite_code: code,
@@ -398,8 +404,13 @@ const handleJoinConfirm = async () => {
   try {
     const code = inviteCode.value
     if (!code) throw new Error('未配置学习通邀请码')
+    const ssoReq = await ssoPayload()
     const res = await invokeNative('chaoxing_class_accept_invite', {
-      req: { invite_code: code, ...studentPayload() }
+      req: {
+        invite_code: code,
+        student_id: ssoReq.student_id ?? null,
+        portal_password: ssoReq.portal_password ?? null
+      }
     })
     const p = res?.preview || preview.value || {}
     const cls = {

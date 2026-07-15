@@ -175,6 +175,26 @@ fn looks_like_login_html(html: &str) -> bool {
             && !h.contains("courseid"))
 }
 
+/// getInviteCode 等接口应返回 JSON；HTML 文档视为会话失效（#375）
+fn looks_like_html_document(body: &str) -> bool {
+    let t = body.trim_start();
+    let lower = t.to_ascii_lowercase();
+    lower.starts_with("<!doctype")
+        || lower.starts_with("<html")
+        || lower.starts_with("<head")
+        || (lower.starts_with('<') && lower.contains("<html"))
+}
+
+fn is_invite_session_error_message(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("非 json")
+        || m.contains("未登录")
+        || m.contains("会话未就绪")
+        || m.contains("登录页")
+        || m.contains("<!doctype")
+        || m.contains("<html")
+}
+
 fn looks_like_login_url(url: &str) -> bool {
     let u = url.to_ascii_lowercase();
     u.contains("passport2.chaoxing.com")
@@ -560,16 +580,23 @@ fn preview_from_fixed(code: &str) -> Option<InvitePreview> {
 }
 
 /// 解析邀请码 → 课程/班级预览（不入班）
+/// `portal_password`：#375 会话假复用后静默重桥接
 pub async fn preview_invite(
     client: &mut HbutClient,
     invite_code: &str,
+    portal_password: Option<&str>,
 ) -> Result<InvitePreview, DynError> {
     let code = invite_code.trim();
     if code.is_empty() {
         return Err(err_box("请输入邀请码"));
     }
 
-    // 统一会话层：缓存命中则跳过重复 FYSSO
+    let pwd = portal_password
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    // 统一会话层：必须真有学习通会话，不可仅凭教务 jw 假复用
     let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
         client,
         None,
@@ -577,7 +604,7 @@ pub async fn preview_invite(
             force: false,
             allow_silent_relogin: true,
             preheated: false,
-            portal_password: None,
+            portal_password: pwd.clone(),
         },
     )
     .await;
@@ -590,7 +617,37 @@ pub async fn preview_invite(
             "邀请码 {} 已识别但未返回完整课程/班级 ID（course={} clazz={}）",
             code, p.course_id, p.clazz_id
         ))),
-        Err(e) => Err(e),
+        Err(e) => {
+            let msg = e.to_string();
+            if !is_invite_session_error_message(&msg) {
+                return Err(e);
+            }
+            // #375：假「会话已复用」后接口回 HTML → 作废缓存、强制重桥接再试一次
+            println!("[chaoxing] 邀请码会话失效，强制 SSO 后重试: {}", msg);
+            crate::modules::chaoxing_sso::invalidate_sso_cache();
+            let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
+                client,
+                None,
+                crate::modules::chaoxing_sso::EnsureSsoOptions {
+                    force: true,
+                    allow_silent_relogin: true,
+                    preheated: false,
+                    portal_password: pwd,
+                },
+            )
+            .await;
+            match fetch_invite_preview_online(client, code).await {
+                Ok(p) if !p.course_id.is_empty() && !p.clazz_id.is_empty() => Ok(p),
+                Ok(p) => Err(err_box(format!(
+                    "邀请码 {} 重试后仍未返回完整课程/班级 ID（course={} clazz={}）",
+                    code, p.course_id, p.clazz_id
+                ))),
+                Err(e2) => Err(err_box(format!(
+                    "学习通会话失效且重试仍失败：{}（请重新登录融合门户后重试，不是断网）",
+                    e2
+                ))),
+            }
+        }
     }
 }
 
@@ -630,9 +687,9 @@ async fn fetch_invite_preview_online(
         .await
         .map_err(|e| err_box(format!("解析邀请码响应失败: {}", e)))?;
 
-    if looks_like_login_html(&body) {
+    if looks_like_login_html(&body) || looks_like_html_document(&body) {
         return Err(err_box(
-            "学习通会话未就绪（邀请码接口返回登录页）。请重新登录融合门户后再试",
+            "学习通会话未就绪（邀请码接口返回 HTML/登录页）。请重新登录融合门户后再试",
         ));
     }
 
@@ -783,21 +840,13 @@ async fn fetch_invite_preview_online(
 }
 
 /// 接受邀请入班
-pub async fn accept_invite(client: &mut HbutClient, invite_code: &str) -> Result<Value, DynError> {
+pub async fn accept_invite(
+    client: &mut HbutClient,
+    invite_code: &str,
+    portal_password: Option<&str>,
+) -> Result<Value, DynError> {
     let code = invite_code.trim();
-    let _ = crate::modules::chaoxing_sso::ensure_chaoxing_sso(
-        client,
-        None,
-        crate::modules::chaoxing_sso::EnsureSsoOptions {
-            force: false,
-            allow_silent_relogin: true,
-            preheated: false,
-            portal_password: None,
-        },
-    )
-    .await;
-
-    let preview = preview_invite(client, code).await?;
+    let preview = preview_invite(client, code, portal_password).await?;
 
     // 学生已入班 或 教师可访问资料 → 无需再走 participate
     if probe_class_accessible(client, &preview.course_id, &preview.clazz_id).await {

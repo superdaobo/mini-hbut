@@ -452,8 +452,14 @@ const homeLayoutDebugHidden = ref(
 const homeLayoutDebugExpanded = ref(false)
 const homeLayoutDebugReport = ref('')
 prefetchViewComponent(initialView)
-watch(currentView, (view) => {
+watch(currentView, (view, prev) => {
   prefetchViewComponent(view)
+  // #373：离开学校官网时强制关掉桌面子 WebView，避免盖住「我的」等内容区
+  if (prev === 'school_website' && view !== 'school_website') {
+    void import('./utils/school_website_embed').then((mod) => {
+      void mod.forceCloseSchoolWebsiteEmbed?.()
+    }).catch(() => {})
+  }
 })
 if (skipSplashForFastScheduleBoot && !hasBootMetric('splash_dismissed')) {
   markBootMetric('splash_dismissed', {
@@ -2241,6 +2247,12 @@ const handleOpenOfficial = () => {
 }
 
 const handleBackToMe = () => {
+  // 从学校官网等内嵌页返回时，确保桌面子 WebView 已关
+  if (currentView.value === 'school_website') {
+    void import('./utils/school_website_embed').then((mod) => {
+      void mod.forceCloseSchoolWebsiteEmbed?.()
+    }).catch(() => {})
+  }
   goToView('me')
 }
 

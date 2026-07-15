@@ -685,16 +685,19 @@ const applyMeta = (meta, requestedSemester = '') => {
 const applySchedulePayload = (payload, requestedSemester = '', options = {}) => {
   if (!payload?.success) return false
   const rawData = Array.isArray(payload?.data) ? payload.data : []
-  // 已登录且非强制展示：成功在线结果清除离线条；仅 payload.offline 且无「静默秒开」时提示
+  // #372：SWR/stale 缓存会经 withOfflineMeta 强制 offline=true，不等于教务不可用。
+  // 已登录：成功 payload 默认不亮横幅；仅显式 forceOfflineBanner（真实失败回退）才展示。
   const silentCachePaint = options?.silentCachePaint === true
-  if (payload.offline) {
-    if (!silentCachePaint) {
-      offline.value = true
-      // 已登录：勿误报「登录恢复」；首页绿灯时更常见是缓存命中/教务抖动
-      offlineHint.value = String(props.studentId || '').trim()
-        ? '当前显示为缓存课表，教务暂不可用。'
-        : '当前显示为离线数据，登录恢复后自动刷新。'
-    }
+  const forceOfflineBanner = options?.forceOfflineBanner === true
+  const loggedIn = !!String(props.studentId || '').trim()
+  if (forceOfflineBanner || (payload.offline && !silentCachePaint && !loggedIn)) {
+    offline.value = true
+    offlineHint.value = String(
+      options?.offlineHint ||
+        (loggedIn
+          ? '当前显示为缓存课表，教务暂不可用。'
+          : '当前显示为离线数据，登录恢复后自动刷新。')
+    ).trim()
   } else {
     offline.value = false
     offlineHint.value = ''
@@ -727,6 +730,47 @@ const applyCachedScheduleImmediately = (targetSemester = '', options = {}) => {
     syncTime.value = new Date(snapshot.timestamp).toISOString()
   }
   return applied
+}
+
+/** 后台真源刷新：只在明确失败时亮离线条，避免 SWR offline 标记误导 */
+let onlineRevalidateToken = 0
+const revalidateScheduleOnline = async (targetSemester = '') => {
+  const sid = String(props.studentId || '').trim()
+  const sem = String(targetSemester || semester.value || semesterDraft.value || '').trim()
+  if (!sid) return false
+  const token = ++onlineRevalidateToken
+  const cacheKey = sem ? `schedule:${sid}:${sem}` : `schedule:${sid}`
+  try {
+    const { data } = await fetchWithCache(
+      cacheKey,
+      async () => {
+        const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
+          student_id: sid,
+          semester: sem || undefined
+        })
+        return res.data
+      },
+      undefined,
+      { forceRemote: true, priority: 'background', staleWhileRevalidate: false }
+    )
+    if (token !== onlineRevalidateToken) return false
+    if (data?.success && !data?.offline) {
+      applySchedulePayload(data, sem, { silentCachePaint: false })
+      offline.value = false
+      offlineHint.value = ''
+      persistScheduleRenderSnapshot('online-revalidate')
+      return true
+    }
+    if (data?.need_login && (remoteScheduleData.value.length || customScheduleData.value.length)) {
+      offline.value = true
+      offlineHint.value = '当前为缓存课表，登录恢复后自动刷新。'
+    }
+    return false
+  } catch {
+    if (token !== onlineRevalidateToken) return false
+    // 保持静默：有缓存就不恐吓；用户可手动刷新
+    return false
+  }
 }
 
 const applyStoredScheduleRenderSnapshot = (targetSemester = '', options = {}) => {
@@ -789,7 +833,7 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
     const cacheKey = requestedSemester
       ? `schedule:${props.studentId}:${requestedSemester}`
       : `schedule:${props.studentId}`
-    const { data } = await fetchWithCache(cacheKey, async () => {
+    const { data, fromCache, stale } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/schedule/query`, {
         student_id: props.studentId,
         semester: requestedSemester || undefined
@@ -798,11 +842,18 @@ const fetchSchedule = async (targetSemester = '', options = {}) => {
     }, undefined, DEFAULT_SWR_OPTIONS)
 
     if (data?.success) {
-      applySchedulePayload(data, requestedSemester)
-      await loadCustomCourses(requestedSemester || semester.value)
-      if (offline.value && String(props.studentId || '').trim()) {
-        offlineHint.value = '当前显示为缓存课表，教务暂不可用。'
+      // 登录态 + 缓存/SWR 命中（含 offline 标记）：静默秒开，不误报「教务暂不可用」
+      const treatAsSilentCache =
+        !!String(props.studentId || '').trim() &&
+        (!!fromCache || !!data?.offline || !!stale)
+      applySchedulePayload(data, requestedSemester, {
+        silentCachePaint: treatAsSilentCache
+      })
+      // 若本次是陈旧/离线标记缓存，后台再拉一次真源（不阻塞、失败路径才亮条）
+      if (treatAsSilentCache && data?.offline) {
+        void revalidateScheduleOnline(requestedSemester || semester.value)
       }
+      await loadCustomCourses(requestedSemester || semester.value)
       if (!remoteScheduleData.value.length && customScheduleData.value.length > 0) {
         errorMsg.value = ''
       }
