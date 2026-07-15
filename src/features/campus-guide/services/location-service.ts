@@ -1,4 +1,5 @@
 import { useGeolocation } from '../../../composables/useGeolocation'
+import { pushDebugLog } from '../../../utils/debug_logger'
 import { HBUT_LOCATION, normalizePoint } from '../../../utils/towergo_map'
 import type { GeoPoint } from '../types'
 import { isPointInAoi } from '../utils/geo'
@@ -25,20 +26,43 @@ export const writeMockLocation = (point: GeoPoint | null) => {
 
 export const resolveCampusLocation = async (): Promise<GeoPoint> => {
   const mock = readMockLocation()
-  if (mock) return { ...mock, name: mock.name || '模拟定位' }
+  if (mock) {
+    const point = { ...mock, name: mock.name || '模拟定位' }
+    pushDebugLog(
+      'CampusGuide',
+      `定位结果 source=mock lat=${point.latitude} lng=${point.longitude}`,
+      'info',
+      point
+    )
+    return point
+  }
 
   const geo = useGeolocation()
   try {
     // 缩短 maximumAge：避免 iOS 把缓存的旧坐标（校外）当成当前
     const position = await geo.getCurrentPosition(12000, 0)
-    return {
+    const point = {
       latitude: position.latitude,
       longitude: position.longitude,
       accuracy: position.accuracy,
       name: '当前位置'
     }
-  } catch {
-    return { ...HBUT_LOCATION, name: HBUT_LOCATION.name || '湖北工业大学' }
+    pushDebugLog(
+      'CampusGuide',
+      `定位结果 source=system lat=${point.latitude.toFixed(6)} lng=${point.longitude.toFixed(6)} ±${Math.round(point.accuracy || 0)}m`,
+      'info',
+      { ...point, source: 'system' }
+    )
+    return point
+  } catch (err) {
+    const fallback = { ...HBUT_LOCATION, name: HBUT_LOCATION.name || '湖北工业大学' }
+    pushDebugLog(
+      'CampusGuide',
+      `定位回退校区中心: ${(err as Error)?.message || err}`,
+      'warn',
+      { ...fallback, source: 'fallback' }
+    )
+    return fallback
   }
 }
 

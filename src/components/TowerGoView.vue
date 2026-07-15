@@ -21,6 +21,7 @@ import {
   type TowerGoPoint,
   type TowerGoVehicle
 } from '../utils/towergo_map'
+import { pushDebugLog } from '../utils/debug_logger'
 import { loadTencentMap, toTencentLatLng } from '../utils/tencent_map_loader'
 
 defineProps({
@@ -170,13 +171,26 @@ const toTMapLatLng = (point: TowerGoPoint) => {
   return toTencentLatLng(TMap, { latitude: point.latitude, longitude: point.longitude })
 }
 
-/** Apple Maps 风格：用户蓝点 + 车辆青绿 pin（SVG data URL → MarkerStyle） */
+/** 用户蓝点 / 车辆 pin：iOS WKWebView 对 charset=UTF-8 的 SVG data URL 常不渲染，改用 base64 */
+const svgToDataUrl = (svg: string) => {
+  try {
+    const encoded =
+      typeof btoa === 'function'
+        ? btoa(unescape(encodeURIComponent(svg)))
+        : ''
+    if (encoded) return `data:image/svg+xml;base64,${encoded}`
+  } catch {
+    // fall through
+  }
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
 const appleUserDotSvg = () => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
     <circle cx="22" cy="22" r="10" fill="#007AFF" stroke="#ffffff" stroke-width="3"/>
     <circle cx="22" cy="22" r="18" fill="none" stroke="#007AFF" stroke-opacity="0.28" stroke-width="4"/>
   </svg>`
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+  return svgToDataUrl(svg)
 }
 
 const appleVehiclePinSvg = (active = false) => {
@@ -186,7 +200,7 @@ const appleVehiclePinSvg = (active = false) => {
     <circle cx="20" cy="17" r="7" fill="#fff"/>
     <path d="M14 18h12l-1.2-4.2a3 3 0 0 0-2.9-2.3h-3.8a3 3 0 0 0-2.9 2.3L14 18zm1.5 1.5h9v2.2a1.2 1.2 0 0 1-1.2 1.2h-6.6a1.2 1.2 0 0 1-1.2-1.2v-2.2z" fill="${fill}"/>
   </svg>`
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+  return svgToDataUrl(svg)
 }
 
 const buildTowerGoMarkerStyles = (TMap: any) => {
@@ -196,9 +210,9 @@ const buildTowerGoMarkerStyles = (TMap: any) => {
       ? (opts: Record<string, unknown>) => new TMap.MarkerStyle(opts)
       : (opts: Record<string, unknown>) => ({ ...opts })
   styles.user = makeStyle({
-    width: 36,
-    height: 36,
-    anchor: { x: 18, y: 18 },
+    width: 40,
+    height: 40,
+    anchor: { x: 20, y: 20 },
     src: appleUserDotSvg()
   })
   styles.vehicle = makeStyle({
@@ -216,31 +230,62 @@ const buildTowerGoMarkerStyles = (TMap: any) => {
   return styles
 }
 
-const initMap = async () => {
+const ensureUserLocationMarker = (point: TowerGoPoint) => {
+  if (!mapInstance.value || !(window as any).TMap) return
+  const TMap = (window as any).TMap
+  const styles = buildTowerGoMarkerStyles(TMap)
+  const center = toTMapLatLng(point)
+  const geometry = {
+    id: 'center',
+    styleId: 'user',
+    position: center,
+    properties: { title: point.name || '当前位置' }
+  }
+  if (!centerMarkerLayer.value) {
+    centerMarkerLayer.value = new TMap.MultiMarker({
+      map: mapInstance.value,
+      styles,
+      geometries: [geometry],
+      zIndex: 200
+    })
+    return
+  }
+  centerMarkerLayer.value.setStyles?.(styles)
+  centerMarkerLayer.value.setGeometries?.([geometry])
+}
+
+const initMap = async (retry = 0): Promise<void> => {
   const container = mapContainerRef.value
   if (!container || mapInstance.value) return
   if (!container.offsetWidth || !container.offsetHeight) {
+    // iOS 首帧容器常为 0：重试而非直接 fallback
+    if (retry < 8) {
+      mapScriptState.value = 'loading'
+      await new Promise((r) => window.setTimeout(r, 120 + retry * 80))
+      return initMap(retry + 1)
+    }
     mapScriptState.value = 'fallback'
+    mapErrors.value = ['地图容器尺寸为 0，请返回后重试']
+    pushDebugLog('TowerGo', '地图初始化失败：容器尺寸为 0', 'error')
     return
   }
   try {
     mapScriptState.value = 'loading'
     const TMap = await loadTencentMap(TOWERGO_CONFIG.qqMapKey)
     const center = toTMapLatLng(currentLocation.value)
-    mapInstance.value = new TMap.Map(container, { center, zoom: 16, viewMode: '2D' })
-    const styles = buildTowerGoMarkerStyles(TMap)
-    centerMarkerLayer.value = new TMap.MultiMarker({
-      map: mapInstance.value,
-      styles,
-      geometries: [{
-        id: 'center',
-        styleId: 'user',
-        position: center,
-        properties: { title: currentLocation.value.name || '当前位置' }
-      }]
-    })
+    mapInstance.value = new TMap.Map(container, { center, zoom: 16, viewMode: '2D', showControl: false })
+    ensureUserLocationMarker(currentLocation.value)
     bindMapViewportScan()
     mapScriptState.value = 'ready'
+    pushDebugLog(
+      'TowerGo',
+      `地图就绪 size=${container.offsetWidth}x${container.offsetHeight}`,
+      'info',
+      {
+        lat: currentLocation.value.latitude,
+        lng: currentLocation.value.longitude
+      }
+    )
     // 地图就绪后主动扫一次当前视野（不依赖 idle 是否触发）
     window.setTimeout(() => {
       void scanViewportVehicles()
@@ -248,6 +293,7 @@ const initMap = async () => {
   } catch (error) {
     mapScriptState.value = 'fallback'
     mapErrors.value = [(error as Error)?.message || '地图加载失败']
+    pushDebugLog('TowerGo', `地图加载失败: ${(error as Error)?.message || error}`, 'error')
   }
 }
 
@@ -256,15 +302,13 @@ const updateMapCenter = (point: TowerGoPoint) => {
   if (!mapInstance.value || !(window as any).TMap) return
   const center = toTMapLatLng(point)
   mapInstance.value.setCenter(center)
-  const TMap = (window as any).TMap
-  const styles = buildTowerGoMarkerStyles(TMap)
-  centerMarkerLayer.value?.setStyles?.(styles)
-  centerMarkerLayer.value?.setGeometries?.([{
-    id: 'center',
-    styleId: 'user',
-    position: center,
-    properties: { title: point.name || '当前位置' }
-  }])
+  ensureUserLocationMarker(point)
+  pushDebugLog(
+    'TowerGo',
+    `地图已更新自身位置 lat=${point.latitude.toFixed(6)} lng=${point.longitude.toFixed(6)} source=${point.source || 'unknown'}`,
+    'info',
+    point
+  )
 }
 
 const renderVehicleMarkers = () => {
@@ -288,13 +332,15 @@ const renderVehicleMarkers = () => {
       map: mapInstance.value,
       styles,
       geometries,
-      zIndex: 80
+      zIndex: 120
     })
     vehicleMarkerLayer.value.on?.('click', (event: any) => {
       const id = event?.geometry?.id
       const item = vehicles.value.find((vehicle) => vehicle.id === id || vehicle.imei === id)
       if (item) selectVehicle(item)
     })
+    // 保证用户蓝点在车辆之上
+    ensureUserLocationMarker(currentLocation.value)
     return
   }
   vehicleMarkerLayer.value.setStyles?.(styles)
@@ -618,11 +664,25 @@ const loadMapData = async (
       .map((item) => item.msg)
     lastScanAt.value = Date.now()
     mapDataReady.value = true
+    const sample = vehicles.value.slice(0, 3).map((v) => ({
+      id: v.id || v.imei,
+      lat: v.latitude,
+      lng: v.longitude,
+      dist: v.distance
+    }))
+    pushDebugLog(
+      'TowerGo',
+      `车辆扫描完成 count=${vehicles.value.length} serviceId=${sid}`,
+      'info',
+      { count: vehicles.value.length, serviceId: sid, sample, origin: point }
+    )
     renderVehicleMarkers()
+    ensureUserLocationMarker(point)
     renderFenceLayers()
   } catch (error) {
     vehicles.value = []
     mapErrors.value = [(error as Error)?.message || '地图数据加载失败']
+    pushDebugLog('TowerGo', `地图数据加载失败: ${(error as Error)?.message || error}`, 'error')
   } finally {
     scanProgress.value = null
     loadingMap.value = false
@@ -785,12 +845,19 @@ onBeforeUnmount(() => {
 
     <!-- 地图全屏 -->
     <section v-show="activeTab === 'map'" class="tg-map-panel tg-map-panel--fs">
-      <div ref="mapContainerRef" class="tg-map tg-map--fs">
-        <div v-if="mapScriptState === 'fallback' || !mapDataReady" class="map-fallback">
-          <span class="material-symbols-outlined">electric_bike</span>
-          <strong>{{ currentLocation.name || '湖北工业大学' }}</strong>
-          <p>{{ mapErrors[0] || '地图加载中，车辆数据会继续刷新。' }}</p>
-        </div>
+      <!-- 地图容器必须独占 DOM，fallback 不可塞进 map 节点内（#370） -->
+      <div ref="mapContainerRef" class="tg-map tg-map--fs" />
+      <div
+        v-if="mapScriptState === 'fallback' || (mapScriptState !== 'ready' && !mapDataReady)"
+        class="map-fallback map-fallback--overlay"
+      >
+        <span class="material-symbols-outlined">electric_bike</span>
+        <strong>{{ currentLocation.name || '湖北工业大学' }}</strong>
+        <p>{{ mapErrors[0] || '地图加载中，车辆数据会继续刷新。' }}</p>
+        <small v-if="currentLocation.latitude">
+          定位 {{ currentLocation.latitude.toFixed(5) }}, {{ currentLocation.longitude.toFixed(5) }}
+          <template v-if="currentLocation.source"> · {{ currentLocation.source }}</template>
+        </small>
       </div>
       <div class="map-toolbar map-toolbar--fs">
         <button :disabled="locating || loadingMap" @click="refreshBySystemLocation">
@@ -1176,14 +1243,27 @@ onBeforeUnmount(() => {
   padding: 24px;
 }
 
+.map-fallback--overlay {
+  z-index: 8;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--ui-surface, #f8fafc) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
 .map-fallback .material-symbols-outlined {
   font-size: 52px;
   color: var(--ui-primary, #2563eb);
 }
 
-.map-fallback p {
+.map-fallback p,
+.map-fallback small {
   margin: 0;
   color: var(--ui-muted, #475569);
+}
+
+.map-fallback small {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .map-toolbar {

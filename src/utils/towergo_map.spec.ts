@@ -53,7 +53,9 @@ describe('towergo map utilities', () => {
       maxDriftMeters: 2000
     })
 
-    expect(drifted).toEqual({ ...HBUT_LOCATION, source: 'fallback' })
+    expect(drifted.source).toBe('fallback')
+    expect(drifted.latitude).toBe(HBUT_LOCATION.latitude)
+    expect(drifted.longitude).toBe(HBUT_LOCATION.longitude)
   })
 
   it('keeps system location when within the campus threshold', async () => {
@@ -111,6 +113,38 @@ describe('towergo map utilities', () => {
     expect(deduped.map((item) => item.id)).toEqual(['A', 'B'])
     expect(deduped[0].battery).toBe(80)
     expect(deduped[0].distance).toBeLessThan(deduped[1].distance)
+  })
+
+  it('#370 swaps inverted lat/lng and reads nested/alias vehicle fields', () => {
+    // 常见写反：lat=114.x lng=30.x
+    expect(normalizePoint({ lat: 114.313, lng: 30.482 })).toEqual({
+      latitude: 30.482,
+      longitude: 114.313
+    })
+    const nested = normalizeVehicles(
+      {
+        data: {
+          deviceList: [
+            {
+              car_id: 'C1',
+              location: { carLat: 30.483, carLng: 114.314 },
+              restBattery: 66
+            },
+            {
+              imei: 'IMEI2',
+              lat: 114.32,
+              lng: 30.485,
+              battery: 40
+            }
+          ]
+        }
+      },
+      HBUT_LOCATION
+    )
+    expect(nested.length).toBe(2)
+    expect(nested[0].latitude).toBeCloseTo(30.483, 3)
+    expect(nested[0].longitude).toBeCloseTo(114.314, 3)
+    expect(nested.some((v) => v.latitude > 70)).toBe(false)
   })
 
   it('reduces scan point count as spacing increases without dropping below minimum coverage', () => {

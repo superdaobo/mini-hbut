@@ -80,7 +80,14 @@ const notifyListeners = () => {
       // ignore
     }
   })
-  window.dispatchEvent(new CustomEvent(LOG_EVENT))
+  // Node/Vitest 无 window（#370 定位日志在单测中调用）
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(new CustomEvent(LOG_EVENT))
+    } catch {
+      // ignore
+    }
+  }
 }
 
 const pushRecord = (level: DebugLevel, args: unknown[]) => {
