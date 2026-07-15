@@ -101,6 +101,12 @@ describe('chaoxing_class home integration contract', () => {
     expect(ssoRs).toContain('portal_password')
     expect(ssoRs).toContain('hydrate_session_cookies_from_store')
     expect(ssoRs).toContain('tgt_expired_no_password')
+    // #375：禁止仅凭教务 jw 假复用；邀请码 HTML 响应重桥接
+    expect(ssoRs).toContain('缺少学习通 UID')
+    expect(classRs).toContain('looks_like_html_document')
+    expect(classRs).toContain('is_invite_session_error_message')
+    expect(classRs).toContain('force: true')
+    expect(view).toContain('portal_password')
     expect(protocol).toContain('getInviteCode')
     expect(protocol).toContain('participateCls')
     expect(protocol).toContain('stu-datalist')

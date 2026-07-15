@@ -210,6 +210,16 @@ jobs:
     name: Android beta APK
     needs: [source, meta, smoke-fast-build]
     runs-on: ubuntu-latest
+    # S1：Android 单独走小体积 profile（Windows 仍用全局 dev-fast thin LTO）
+    # 避免 Dev APK 从 ~24MB 膨胀到 ~30MB
+    env:
+      MINI_HBUT_BUILD_PROFILE: android-size
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+      CARGO_PROFILE_RELEASE_LTO: fat
+      CARGO_PROFILE_RELEASE_DEBUG: 0
+      CARGO_PROFILE_RELEASE_PANIC: abort
+      CARGO_PROFILE_RELEASE_STRIP: symbols
     steps:
       - name: Download source artifact
         uses: actions/download-artifact@v4

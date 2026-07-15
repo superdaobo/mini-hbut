@@ -1357,6 +1357,9 @@ pub struct ChaoxingClassSsoRequest {
 pub struct ChaoxingClassInviteRequest {
     pub invite_code: String,
     pub student_id: Option<String>,
+    /// 前端 Web 备份门户密码，邀请码会话失效时静默重桥接（#375）
+    #[serde(default)]
+    pub portal_password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6095,10 +6098,13 @@ async fn chaoxing_class_preview_invite(
     req: ChaoxingClassInviteRequest,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
-    // 模块内已走统一 SSO 缓存，不再额外 force ensure
-    let preview = modules::chaoxing_class::preview_invite(&mut client, &req.invite_code)
-        .await
-        .map_err(|e| e.to_string())?;
+    let preview = modules::chaoxing_class::preview_invite(
+        &mut client,
+        &req.invite_code,
+        req.portal_password.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(serde_json::to_value(preview).unwrap_or_default())
 }
 
@@ -6109,9 +6115,13 @@ async fn chaoxing_class_accept_invite(
     req: ChaoxingClassInviteRequest,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
-    modules::chaoxing_class::accept_invite(&mut client, &req.invite_code)
-        .await
-        .map_err(|e| e.to_string())
+    modules::chaoxing_class::accept_invite(
+        &mut client,
+        &req.invite_code,
+        req.portal_password.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// 学习通班级：资料列表
