@@ -1,7 +1,15 @@
 <script setup>
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, computed } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
+import {
+  NON_OFFICIAL_DISCLAIMER_EN,
+  NON_OFFICIAL_DISCLAIMER_ZH,
+  PRIVACY_POLICY_URL,
+  isViewAllowed
+} from '../config/app_store_policy'
+import { isTestAccountSession, clearTestAccountSession } from '../utils/test_account.js'
+import { showToast } from '../utils/toast'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -77,7 +85,41 @@ const handleOpenSchoolWebsite = () => emit('navigate', 'school_website')
 const handleOpenQuickLinks = () => emit('navigate', 'quick_links')
 const handleOpenCampusNetwork = () => emit('navigate', 'campus_network')
 const handleOpenMore = () => emit('navigate', 'more')
+const handleOpenPrivacyData = () => emit('navigate', 'privacy_data')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
+
+const showCampusNetwork = computed(() => props.isLoggedIn && isViewAllowed('campus_network'))
+const showSchoolWebsite = computed(() => props.isLoggedIn && isViewAllowed('school_website'))
+const showQuickLinks = computed(() => props.isLoggedIn && isViewAllowed('quick_links'))
+const showServiceStats = computed(() => props.isLoggedIn && isViewAllowed('service_stats'))
+const showMoreModules = computed(() => isViewAllowed('more'))
+const showConfigTool = computed(
+  () => isConfigAdmin() && isViewAllowed('config')
+)
+const isDemoSession = computed(() => isTestAccountSession())
+
+const resetDemoData = () => {
+  if (!isTestAccountSession()) return
+  try {
+    localStorage.removeItem('hbu_demo_banner_dismissed')
+    // 清除演示相关 cache 键，下次进入模块会重新走 fixture
+    const drop = []
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i)
+      if (k && (k.startsWith('cache:') || k.includes('2026000001'))) drop.push(k)
+    }
+    drop.forEach((k) => localStorage.removeItem(k))
+    showToast('已重置演示缓存，请重新打开各模块')
+  } catch {
+    showToast('演示数据重置失败')
+  }
+}
+
+const exitDemoMode = () => {
+  clearTestAccountSession()
+  emit('logout')
+  showToast('已退出演示模式')
+}
 
 const handleFeedback = () => emit('openFeedback')
 
@@ -115,10 +157,15 @@ const handleShowLegal = async (tab) => {
         <span class="material-symbols-outlined avatar-icon">person</span>
       </div>
       <h2 class="profile-student-id">{{ studentId }}</h2>
-      <p class="profile-school">湖北工业大学</p>
+      <p class="profile-school">{{ isDemoSession ? '演示会话（虚构数据）' : '学生工具' }}</p>
       <div class="profile-actions">
         <button class="btn-info" @click="goStudentInfo">个人信息</button>
         <button class="btn-logout" @click="handleLogout">退出登录</button>
+      </div>
+      <div v-if="isDemoSession" class="demo-actions">
+        <p class="demo-hint">当前为审核演示模式：页面使用虚构数据，不连接真实校园服务。</p>
+        <button type="button" class="btn-info" @click="resetDemoData">重置演示数据</button>
+        <button type="button" class="btn-logout" @click="exitDemoMode">退出演示模式</button>
       </div>
     </section>
 
@@ -152,7 +199,7 @@ const handleShowLegal = async (tab) => {
         <div class="grid-icon-box" style="background: #E8F0FE;">
           <span class="material-symbols-outlined" style="color: #1A73E8;">campaign</span>
         </div>
-        <span class="grid-label">官方帖子</span>
+        <span class="grid-label">公告动态</span>
       </button>
       <button class="grid-item" @click="handleOpenSettings">
         <div class="grid-icon-box" style="background: #FCE8E6;">
@@ -160,37 +207,43 @@ const handleShowLegal = async (tab) => {
         </div>
         <span class="grid-label">设置中心</span>
       </button>
+      <button class="grid-item" @click="handleOpenPrivacyData">
+        <div class="grid-icon-box" style="background: #E8F5E9;">
+          <span class="material-symbols-outlined" style="color: #2E7D32;">shield</span>
+        </div>
+        <span class="grid-label">隐私与数据</span>
+      </button>
       <button class="grid-item" @click="handleOpenExport">
         <div class="grid-icon-box" style="background: #E6F4EA;">
           <span class="material-symbols-outlined" style="color: #1E8E3E;">download</span>
         </div>
         <span class="grid-label">导出中心</span>
       </button>
-      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenCampusNetwork">
+      <button v-if="showCampusNetwork" class="grid-item" @click="handleOpenCampusNetwork">
         <div class="grid-icon-box" style="background: #E3F2FD;">
           <span class="material-symbols-outlined" style="color: #1565C0;">wifi</span>
         </div>
         <span class="grid-label">校园网</span>
       </button>
-      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenSchoolWebsite">
+      <button v-if="showSchoolWebsite" class="grid-item" @click="handleOpenSchoolWebsite">
         <div class="grid-icon-box" style="background: #E8EAF6;">
           <span class="material-symbols-outlined" style="color: #3949AB;">language</span>
         </div>
         <span class="grid-label">学校官网</span>
       </button>
-      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenQuickLinks">
+      <button v-if="showQuickLinks" class="grid-item" @click="handleOpenQuickLinks">
         <div class="grid-icon-box" style="background: #E0F7FA;">
           <span class="material-symbols-outlined" style="color: #00838F;">link</span>
         </div>
         <span class="grid-label">快捷链接</span>
       </button>
-      <button v-if="isLoggedIn" class="grid-item" @click="handleOpenServiceStats">
+      <button v-if="showServiceStats" class="grid-item" @click="handleOpenServiceStats">
         <div class="grid-icon-box" style="background: #E0F2F1;">
           <span class="material-symbols-outlined" style="color: #00796B;">monitoring</span>
         </div>
         <span class="grid-label">服务统计</span>
       </button>
-      <button v-if="isConfigAdmin()" class="grid-item" @click="handleOpenConfig">
+      <button v-if="showConfigTool" class="grid-item" @click="handleOpenConfig">
         <div class="grid-icon-box" style="background: #FEF7E0;">
           <span class="material-symbols-outlined" style="color: #F9AB00;">build</span>
         </div>
@@ -220,12 +273,26 @@ const handleShowLegal = async (tab) => {
         </div>
         <span class="grid-label">赞助</span>
       </button>
-      <button class="grid-item" @click="handleOpenMore">
+      <button v-if="showMoreModules" class="grid-item" @click="handleOpenMore">
         <div class="grid-icon-box" style="background: #F3E5F5;">
           <span class="material-symbols-outlined" style="color: #7B1FA2;">apps</span>
         </div>
         <span class="grid-label">更多</span>
       </button>
+    </section>
+
+    <section class="legal-card">
+      <h3 class="legal-title">关于 Mini-HBUT</h3>
+      <div class="legal-content">
+        <p>{{ NON_OFFICIAL_DISCLAIMER_ZH }}</p>
+        <p class="muted-en">{{ NON_OFFICIAL_DISCLAIMER_EN }}</p>
+        <p v-if="isDemoSession">
+          演示模式说明：当前会话使用本地虚构数据，不连接真实校园服务。可在上方重置演示数据或退出演示。
+        </p>
+        <button type="button" class="grid-item privacy-link" @click="openExternal(PRIVACY_POLICY_URL)">
+          打开隐私政策（Safari / 系统浏览器）
+        </button>
+      </div>
     </section>
 
     <!-- Legal Section -->
@@ -249,7 +316,7 @@ const handleShowLegal = async (tab) => {
       </div>
 
       <div v-if="activeLegalTab === 'disclaimer'" class="legal-content">
-        <p>本应用为学习与信息查询工具，非学校官方系统或官方网站。</p>
+        <p>本应用为独立开发的学习与信息查询工具，非任何学校或教育机构的官方系统、官方网站或官方客户端。</p>
         <ul>
           <li>数据来源于学校相关系统接口或公开信息，仅用于展示与查询参考。</li>
           <li>我们会尽力保证展示信息的及时性与准确性，但不对其完整性、准确性、时效性作保证。</li>

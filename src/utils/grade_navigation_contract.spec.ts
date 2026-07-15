@@ -31,7 +31,9 @@ describe('grade navigation contract', () => {
     const source = readSource('src/App.vue')
     const block = extractBlock(source, 'const syncFromHash = async ({ scrollToTop = false } = {}) => {', 'const markLoginSessionToken = () => {')
 
-    expect(block).toContain("if (route.view === 'grades' && gradeData.value.length === 0)")
+    // hash 恢复经 resolvePolicySafeView 后用 safeView 加载成绩
+    expect(block).toContain('resolvePolicySafeView')
+    expect(block).toContain("if (safeView === 'grades' && gradeData.value.length === 0)")
     expect(block).toContain('void loadGradesForCurrentView()')
     expect(block).not.toContain("applyViewState('me')")
     expect(block).not.toContain("replaceHistorySnapshot('me')")

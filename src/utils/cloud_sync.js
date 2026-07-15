@@ -1779,6 +1779,16 @@ export const runAutoCloudSyncAfterLogin = async ({
   reason = 'auto-login',
   skipDownload = false
 } = {}) => {
+  try {
+    const { isAppStoreBuild } = await import('../config/app_store_policy')
+    const { isTestAccountSession } = await import('./test_account.js')
+    if (isAppStoreBuild() || isTestAccountSession()) {
+      pushDebugLog('CloudSync', '跳过自动云同步：App Store 构建或演示会话', 'info')
+      return { success: false, reason: 'app-store-or-demo' }
+    }
+  } catch {
+    // ignore import errors
+  }
   const sid = toSafeText(studentId)
   if (!sid) return { success: false, reason: 'missing-student' }
   if (!isValidStudentId(sid)) {

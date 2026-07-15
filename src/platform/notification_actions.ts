@@ -1,3 +1,5 @@
+import { isViewAllowed } from '../config/app_store_policy'
+
 const DEFAULT_TARGET_VIEW = 'notifications'
 
 const ALLOWED_NOTIFICATION_TARGETS = new Set([
@@ -39,7 +41,10 @@ export const normalizeNotificationTargetView = (value: unknown): string => {
     .split(/[/?#]/)[0]
 
   if (!candidate) return DEFAULT_TARGET_VIEW
-  return ALLOWED_NOTIFICATION_TARGETS.has(candidate) ? candidate : DEFAULT_TARGET_VIEW
+  if (!ALLOWED_NOTIFICATION_TARGETS.has(candidate)) return DEFAULT_TARGET_VIEW
+  // 合规构建下拒绝跳到已禁用模块（如电费）
+  if (!isViewAllowed(candidate)) return DEFAULT_TARGET_VIEW
+  return candidate
 }
 
 export const resolveNotificationActionTarget = (

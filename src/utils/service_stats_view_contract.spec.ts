@@ -15,8 +15,10 @@ describe('service stats frontend contract', () => {
     expect(source).toContain("const handleOpenServiceStats = () => emit('navigate', 'service_stats')")
     expect(source).toContain('@click="handleOpenServiceStats"')
     expect(source).toContain('服务统计')
+    // App Store 策略：showServiceStats = isLoggedIn && isViewAllowed('service_stats')
+    expect(source).toContain('showServiceStats')
     expect(source).toMatch(
-      /<button\s+v-if="isLoggedIn"[\s\S]*?@click="handleOpenServiceStats"[\s\S]*?服务统计[\s\S]*?<\/button>/
+      /<button\s+v-if="showServiceStats"[\s\S]*?@click="handleOpenServiceStats"[\s\S]*?服务统计[\s\S]*?<\/button>/
     )
   })
 

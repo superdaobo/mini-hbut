@@ -21,6 +21,7 @@ import {
 import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../utils/home_search.js'
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
+import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -498,8 +499,11 @@ const baseModules = [
 ]
 
 const modules = computed(() => {
-  if (!isChaoxingMethod(loginMethod.value)) return baseModules
-  return baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
+  const scoped = !isChaoxingMethod(loginMethod.value)
+    ? baseModules
+    : baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
+  // App Store 合规构建：统一过滤高风险模块（与 reviewer 无关）
+  return filterAllowedModules(scoped)
 })
 
 const homeWorkspaceRef = ref(null)
@@ -542,6 +546,10 @@ let homeCollisionFxRaf = 0
 let homeCollisionFxLastTs = 0
 
 const navigateTo = (moduleId) => {
+  if (!isModuleAllowed(moduleId)) {
+    showToast('当前版本不可用该功能')
+    return
+  }
   const module = modules.value.find((m) => m.id === moduleId)
   if (module?.requiresLogin && !props.isLoggedIn) { emit('require-login'); return }
   emit('navigate', moduleId)

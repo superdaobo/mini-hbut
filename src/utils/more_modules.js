@@ -1,5 +1,12 @@
 import { getNativeAppVersion, isCapacitorRuntime, isLikelyAndroidUserAgent, isTauriRuntime, toNativeFileSrc } from '../platform/native'
 import { pushDebugLog } from './debug_logger'
+import { isRemoteModulesAllowed } from '../config/app_store_policy'
+
+const assertRemoteModulesAllowed = () => {
+  if (!isRemoteModulesAllowed()) {
+    throw new Error('App Store 构建已禁用远程模块')
+  }
+}
 
 const DEFAULT_MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
 const GITHUB_REPO = 'superdaobo/mini-hbut'
@@ -830,6 +837,7 @@ const normalizeCatalogModule = (item, channel) => {
 }
 
 export const fetchModuleCatalog = async (inputChannel = '') => {
+  assertRemoteModulesAllowed()
   const tried = []
 
   for (const channel of buildCatalogFetchOrder(inputChannel)) {
@@ -1310,6 +1318,7 @@ export const resolveModuleHostPreviewSource = (payload = {}, options = {}) => {
 }
 
 export const normalizeModuleHostSessionPayload = async (payload = {}, options = {}) => {
+  assertRemoteModulesAllowed()
   const raw = payload && typeof payload === 'object' ? payload : {}
   const moduleId = safeText(raw.module_id || raw.moduleId)
   const localState =
@@ -1476,6 +1485,7 @@ export const normalizeModuleHostSessionPayload = async (payload = {}, options = 
 }
 
 export const prepareModuleBundle = async ({ channel, moduleInfo, manifest }) => {
+  assertRemoteModulesAllowed()
   const moduleId = safeText(moduleInfo?.id || manifest?.module_id)
   const openUrlCandidates = buildOpenUrlCandidates({ manifest, channel })
   const openUrl = safeText(openUrlCandidates[0])

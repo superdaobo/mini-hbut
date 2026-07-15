@@ -44,9 +44,9 @@ const studentInfo = {
   class_name: '软工2601',
   ethnicity: '汉族',
   birth_date: '2006-09-01',
-  phone: '138****2026',
-  email: 'reviewer@example.com',
-  id_number: '4201************26'
+  phone: '000****0000',
+  email: 'demo.reviewer@example.com',
+  id_number: '0000************00'
 }
 
 const studentInfoPayload = success({

@@ -14,8 +14,13 @@ describe('me quick links frontend contract', () => {
 
     expect(source).toContain("const handleOpenSchoolWebsite = () => emit('navigate', 'school_website')")
     expect(source).toContain("const handleOpenQuickLinks = () => emit('navigate', 'quick_links')")
-    expect(source).toContain('v-if="isLoggedIn" class="grid-item" @click="handleOpenSchoolWebsite"')
-    expect(source).toContain('v-if="isLoggedIn" class="grid-item" @click="handleOpenQuickLinks"')
+    // App Store 策略门闩：登录且 isViewAllowed 时才展示（默认全功能构建仍为 true）
+    expect(source).toContain('showSchoolWebsite')
+    expect(source).toContain('showQuickLinks')
+    expect(source).toContain('v-if="showSchoolWebsite"')
+    expect(source).toContain('v-if="showQuickLinks"')
+    expect(source).toContain('@click="handleOpenSchoolWebsite"')
+    expect(source).toContain('@click="handleOpenQuickLinks"')
     expect(source).toContain('学校官网')
     expect(source).toContain('快捷链接')
   })

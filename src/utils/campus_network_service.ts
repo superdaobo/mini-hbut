@@ -14,6 +14,7 @@ import {
   readCampusNetworkSettings,
   writeCampusNetworkSettings
 } from './campus_network_settings'
+import { getFeaturePolicy, isAppStoreBuild } from '../config/app_store_policy'
 
 const FAIL_DEBOUNCE_MS = 10 * 60 * 1000
 const SUCCESS_SKIP_MS = 30 * 60 * 1000
@@ -145,6 +146,10 @@ export const runCampusNetworkAutoLogin = async (options: {
   studentId?: string
   reason?: string
 } = {}): Promise<CampusLoginResult | null> => {
+  // App Store / TestFlight 合规构建：校园网自动认证对所有用户关闭（与 UI 隐藏一致）
+  if (isAppStoreBuild() || !getFeaturePolicy().campusNetwork) {
+    return null
+  }
   const settings = readCampusNetworkSettings()
   if (!settings.auto_login) return null
   if (!isTauriRuntime()) return null

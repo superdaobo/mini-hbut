@@ -8,6 +8,7 @@ import {
   UI_PRESETS
 } from '../config/ui_settings'
 import { isNightModeEnabled, NIGHT_MODE_CHANGED_EVENT } from './night_mode'
+import { isCustomJavaScriptAllowed } from '../config/app_store_policy'
 
 const DARK_UI_TEXT = '#e2e8f0'
 const DARK_UI_MUTED = '#94a3b8'
@@ -184,7 +185,8 @@ const applyCustomCode = (settings) => {
     cssEl?.remove()
   }
 
-  if (settings.customJs) {
+  // 合规构建禁止注入自定义 JS（即使设置/云同步带回 customJs）
+  if (settings.customJs && isCustomJavaScriptAllowed()) {
     jsEl?.remove()
     const scriptEl = document.createElement('script')
     scriptEl.id = jsId

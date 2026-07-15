@@ -1,5 +1,6 @@
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { encryptData, decryptData } from './encryption.js'
+import { isAppStoreBuild } from '../config/app_store_policy'
 
 export const HBUT_CREDENTIAL_PREFIX = 'hbut:'
 export const CHAOXING_CREDENTIAL_PREFIX = 'cx:'
@@ -70,6 +71,22 @@ export async function saveRememberedCredential(accountKey, password) {
     localStorage.removeItem(webStorageKey(key))
     if (key.startsWith(HBUT_CREDENTIAL_PREFIX)) {
       portalPasswordMemory.delete(key.slice(HBUT_CREDENTIAL_PREFIX.length))
+    }
+    return
+  }
+
+  // App Store 合规包：不把密码写入 localStorage 备份；无可靠 Keychain 时仅内存会话。
+  if (isAppStoreBuild()) {
+    if (isTauriRuntime()) {
+      try {
+        await invokeNative('save_remembered_credential', { accountKey: key, password: value })
+      } catch {
+        // Capacitor iOS 可能无 keyring 命令：不回退 localStorage
+      }
+    }
+    localStorage.removeItem(webStorageKey(key))
+    if (key.startsWith(HBUT_CREDENTIAL_PREFIX)) {
+      rememberPortalPasswordInMemory(key.slice(HBUT_CREDENTIAL_PREFIX.length), value)
     }
     return
   }

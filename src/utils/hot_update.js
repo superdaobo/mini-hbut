@@ -17,6 +17,11 @@ const STATE_PATH = 'hot-update/state.json'
 const textEncoder = new TextEncoder()
 
 const ensureEnabled = async () => {
+  // 动态 import 避免循环；合规构建硬关热更（远程无法恢复）
+  const { isHotUpdateAllowed } = await import('../config/app_store_policy')
+  if (!isHotUpdateAllowed()) {
+    throw new Error('App Store 构建已禁用热更新')
+  }
   if (!isTauriRuntime()) {
     throw new Error('当前运行时不支持本地热更新框架')
   }

@@ -23,6 +23,10 @@ import {
   saveRememberedCredential,
   syncPortalRememberCredential
 } from '../utils/credential_storage.js'
+import {
+  NON_OFFICIAL_DISCLAIMER_EN,
+  NON_OFFICIAL_DISCLAIMER_ZH
+} from '../config/app_store_policy'
 
 const props = defineProps({
   loginMode: { type: String, default: 'portal' }
@@ -1196,6 +1200,9 @@ onBeforeUnmount(() => {
         </label>
       </div>
 
+      <p class="non-official-disclaimer">{{ NON_OFFICIAL_DISCLAIMER_ZH }}</p>
+      <p class="non-official-disclaimer non-official-disclaimer--en">{{ NON_OFFICIAL_DISCLAIMER_EN }}</p>
+
       <p
         v-if="statusMsg"
         class="status-msg"
@@ -1621,6 +1628,17 @@ h2 {
 .status-msg.error {
   color: #b91c1c;
   font-weight: 600;
+}
+
+.non-official-disclaimer {
+  margin: 0.55rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #64748b;
+}
+.non-official-disclaimer--en {
+  margin-top: 0.2rem;
+  opacity: 0.9;
 }
 
 .fade-slide-enter-active,

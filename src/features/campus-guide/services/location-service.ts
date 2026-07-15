@@ -3,6 +3,7 @@ import { pushDebugLog } from '../../../utils/debug_logger'
 import { HBUT_LOCATION, normalizePoint } from '../../../utils/towergo_map'
 import type { GeoPoint } from '../types'
 import { isPointInAoi } from '../utils/geo'
+import { isLiveLocationAllowed } from '../../../config/app_store_policy'
 
 const MOCK_LOC_KEY = 'campus_guide_mock_loc'
 
@@ -35,6 +36,13 @@ export const resolveCampusLocation = async (): Promise<GeoPoint> => {
       point
     )
     return point
+  }
+
+  // App Store 合规构建：不请求实时定位，回落校区默认点（POI 浏览仍可用）
+  if (!isLiveLocationAllowed()) {
+    const fallback = { ...HBUT_LOCATION, name: HBUT_LOCATION.name || '校园中心' }
+    pushDebugLog('CampusGuide', 'App Store 构建跳过实时定位，使用默认点', 'info', fallback)
+    return fallback
   }
 
   const geo = useGeolocation()
