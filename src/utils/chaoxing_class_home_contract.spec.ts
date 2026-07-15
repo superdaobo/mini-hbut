@@ -107,6 +107,11 @@ describe('chaoxing_class home integration contract', () => {
     expect(classRs).toContain('is_invite_session_error_message')
     expect(classRs).toContain('force: true')
     expect(view).toContain('portal_password')
+    // #376：FYSSO 后优先 mooc1 中间页，不依赖 i.chaoxing.com Web 会话
+    expect(classRs).toContain('fetch_invite_via_mooc_middleview')
+    expect(classRs).toContain('pcqrcodemiddleview')
+    const sessionRs = read('src-tauri/src/http_client/session.rs')
+    expect(sessionRs).toContain('勿假成功')
     expect(protocol).toContain('getInviteCode')
     expect(protocol).toContain('participateCls')
     expect(protocol).toContain('stu-datalist')

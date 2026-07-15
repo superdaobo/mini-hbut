@@ -7,6 +7,7 @@ use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
+use reqwest::cookie::CookieStore;
 use reqwest::Url;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
@@ -651,21 +652,68 @@ pub async fn preview_invite(
     }
 }
 
-async fn fetch_invite_preview_online(
+/// 合并 passport2 + i.chaoxing.com 的 Cookie，显式带到邀请码请求
+fn chaoxing_i_cookie_header(client: &HbutClient) -> String {
+    let passport = client
+        .cookie_jar
+        .cookies(
+            &Url::parse("https://passport2.chaoxing.com")
+                .unwrap_or_else(|_| Url::parse("https://i.chaoxing.com").unwrap()),
+        )
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let i = client
+        .cookie_jar
+        .cookies(&Url::parse("https://i.chaoxing.com").unwrap())
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    [passport, i]
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn chaoxing_mooc_cookie_header(client: &HbutClient) -> String {
+    let passport = client
+        .cookie_jar
+        .cookies(&Url::parse("https://passport2.chaoxing.com").unwrap())
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let mooc = client
+        .cookie_jar
+        .cookies(&Url::parse("https://mooc1.chaoxing.com").unwrap())
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    [passport, mooc]
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Path A：i.chaoxing.com getInviteCode（需要 i 站 Web 会话，FYSSO 后常失败）
+async fn fetch_invite_via_icode_api(
     client: &mut HbutClient,
     code: &str,
 ) -> Result<InvitePreview, DynError> {
-    let resp = client
+    let cookie = chaoxing_i_cookie_header(client);
+    let mut req = client
         .client
         .post("https://i.chaoxing.com/base/getInviteCode")
         .header("Referer", "https://i.chaoxing.com/")
         .header("Origin", "https://i.chaoxing.com")
         .header("X-Requested-With", "XMLHttpRequest")
+        .header("Accept", "application/json, text/javascript, */*; q=0.01")
         .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
         .header(
             "User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        )
+        );
+    if !cookie.is_empty() {
+        req = req.header("Cookie", &cookie);
+    }
+    let resp = req
         .body(format!(
             "invitecode={}&_t={}",
             urlencoding::encode(code),
@@ -720,14 +768,49 @@ async fn fetch_invite_preview_online(
         .filter(|s| !s.is_empty())
         .ok_or_else(|| err_box("邀请码返回缺少中间页 url"))?;
 
-    let page = client
+    fetch_and_parse_middle_page(client, code, &middle, "https://i.chaoxing.com/").await
+}
+
+/// Path B：直接 mooc1 中间页（门户 FYSSO 后 UID 可用，不依赖 i.chaoxing.com）
+async fn fetch_invite_via_mooc_middleview(
+    client: &mut HbutClient,
+    code: &str,
+) -> Result<InvitePreview, DynError> {
+    let middle = format!(
+        "https://mooc1.chaoxing.com/addcourse/pcqrcodemiddleview?inviteCode={}&checkEnc=1",
+        urlencoding::encode(code)
+    );
+    println!("[chaoxing] 邀请码 mooc1 中间页路径: {}", middle);
+    fetch_and_parse_middle_page(client, code, &middle, "https://mooc1.chaoxing.com/").await
+}
+
+async fn fetch_and_parse_middle_page(
+    client: &mut HbutClient,
+    code: &str,
+    middle: &str,
+    referer: &str,
+) -> Result<InvitePreview, DynError> {
+    let cookie = if middle.contains("mooc1.chaoxing.com") {
+        chaoxing_mooc_cookie_header(client)
+    } else {
+        chaoxing_i_cookie_header(client)
+    };
+    let mut req = client
         .client
-        .get(&middle)
-        .header("Referer", "https://i.chaoxing.com/")
+        .get(middle)
+        .header("Referer", referer)
+        .header(
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        )
         .header(
             "User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        )
+        );
+    if !cookie.is_empty() {
+        req = req.header("Cookie", cookie);
+    }
+    let page = req
         .send()
         .await
         .map_err(|e| err_box(format!("打开入班页失败: {}", e)))?;
@@ -750,55 +833,67 @@ async fn fetch_invite_preview_online(
         ));
     }
 
+    parse_invite_middle_html(code, middle, &page_url, &html)
+}
+
+fn parse_invite_middle_html(
+    code: &str,
+    middle: &str,
+    page_url: &str,
+    html: &str,
+) -> Result<InvitePreview, DynError> {
     // 多策略解析 course / clazz
-    let mut course_id = extract_hidden(&html, "courseId");
+    let mut course_id = extract_hidden(html, "courseId");
     if course_id.is_empty() {
-        course_id = extract_js_or_attr(&html, "courseId");
+        course_id = extract_js_or_attr(html, "courseId");
     }
     if course_id.is_empty() {
-        course_id = extract_js_or_attr(&html, "courseid");
+        course_id = extract_js_or_attr(html, "courseid");
     }
     if course_id.is_empty() {
-        course_id = extract_from_url(&page_url, "courseId");
+        course_id = extract_from_url(page_url, "courseId");
     }
     if course_id.is_empty() {
-        course_id = extract_from_url(&page_url, "courseid");
+        course_id = extract_from_url(page_url, "courseid");
     }
 
-    let mut clazz_id = extract_hidden(&html, "clazzId");
+    let mut clazz_id = extract_hidden(html, "clazzId");
     if clazz_id.is_empty() {
-        clazz_id = extract_hidden(&html, "classId");
+        clazz_id = extract_hidden(html, "classId");
     }
     if clazz_id.is_empty() {
-        clazz_id = extract_js_or_attr(&html, "clazzId");
+        clazz_id = extract_js_or_attr(html, "clazzId");
     }
     if clazz_id.is_empty() {
-        clazz_id = extract_js_or_attr(&html, "classId");
+        clazz_id = extract_js_or_attr(html, "classId");
     }
     if clazz_id.is_empty() {
-        clazz_id = extract_from_url(&page_url, "clazzId");
+        clazz_id = extract_from_url(page_url, "clazzId");
     }
     if clazz_id.is_empty() {
-        clazz_id = extract_from_url(&page_url, "classId");
+        clazz_id = extract_from_url(page_url, "classId");
     }
     if clazz_id.is_empty() {
-        clazz_id = extract_from_url(&page_url, "clazzid");
+        clazz_id = extract_from_url(page_url, "clazzid");
     }
 
-    let mut addclz_enc = extract_hidden(&html, "addclzenc");
+    let mut addclz_enc = extract_hidden(html, "addclzenc");
     if addclz_enc.is_empty() {
-        addclz_enc = extract_js_or_attr(&html, "addclzenc");
+        addclz_enc = extract_js_or_attr(html, "addclzenc");
     }
     if addclz_enc.is_empty() {
-        addclz_enc = extract_from_url(&middle, "enc");
+        addclz_enc = extract_from_url(middle, "enc");
+    }
+    if addclz_enc.is_empty() {
+        addclz_enc = extract_from_url(page_url, "enc");
     }
 
-    let mut addclz_timestamp = extract_hidden(&html, "addclztimeStamp");
+    let mut addclz_timestamp = extract_hidden(html, "addclztimeStamp");
     if addclz_timestamp.is_empty() {
-        addclz_timestamp = extract_js_or_attr(&html, "addclztimeStamp");
+        addclz_timestamp = extract_js_or_attr(html, "addclztimeStamp");
     }
     if addclz_timestamp.is_empty() {
-        addclz_timestamp = extract_js_or_attr(&html, "timeStamp");
+        addclz_timestamp = extract_js_or_attr(html, "timeStamp");
     }
 
     if course_id.is_empty() || clazz_id.is_empty() {
@@ -809,18 +904,18 @@ async fn fetch_invite_preview_online(
         )));
     }
 
-    let mut course_name = extract_text_class(&html, "course-name");
+    let mut course_name = extract_text_class(html, "course-name");
     if course_name.is_empty() {
-        course_name = extract_text_class(&html, "colorDeep");
+        course_name = extract_text_class(html, "colorDeep");
     }
-    let mut teacher_name = extract_text_class(&html, "name");
+    let mut teacher_name = extract_text_class(html, "name");
     if teacher_name.is_empty() {
-        teacher_name = extract_text_class(&html, "teacher");
+        teacher_name = extract_text_class(html, "teacher");
     }
     let cover = {
         let re = Regex::new(r#"(?i)<img[^>]+src=["']([^"']+)["']"#).ok();
         re.and_then(|r| {
-            r.captures(&html)
+            r.captures(html)
                 .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
         })
         .unwrap_or_default()
@@ -835,8 +930,41 @@ async fn fetch_invite_preview_online(
         cover_url: cover,
         addclz_enc,
         addclz_timestamp,
-        middle_url: middle,
+        middle_url: middle.to_string(),
     })
+}
+
+async fn fetch_invite_preview_online(
+    client: &mut HbutClient,
+    code: &str,
+) -> Result<InvitePreview, DynError> {
+    // #376：优先 mooc1 中间页（门户 FYSSO 后可用）；i 站 getInviteCode 作补充
+    // FYSSO 故意不碰 i.chaoxing.com/base，故 getInviteCode 常回 HTML
+    match fetch_invite_via_mooc_middleview(client, code).await {
+        Ok(p) if !p.course_id.is_empty() && !p.clazz_id.is_empty() => {
+            println!("[chaoxing] 邀请码 mooc1 中间页成功 course={}", p.course_id);
+            return Ok(p);
+        }
+        Ok(_) | Err(_) => {
+            println!("[chaoxing] mooc1 中间页未完整解析，尝试 i.chaoxing.com getInviteCode");
+        }
+    }
+    match fetch_invite_via_icode_api(client, code).await {
+        Ok(p) => Ok(p),
+        Err(e_api) => {
+            // 双路径都失败：带回更可操作的说明
+            let msg = e_api.to_string();
+            if let Ok(p2) = fetch_invite_via_mooc_middleview(client, code).await {
+                if !p2.course_id.is_empty() && !p2.clazz_id.is_empty() {
+                    return Ok(p2);
+                }
+            }
+            Err(err_box(format!(
+                "{}（若刚登录门户仍失败：学习通 i 站会话与教务会话不同，请再试一次或检查邀请码）",
+                msg
+            )))
+        }
+    }
 }
 
 /// 接受邀请入班
