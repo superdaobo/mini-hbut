@@ -3,12 +3,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { openExternal } from '../utils/external_link'
 import {
   SCHOOL_WEBSITE_URL,
+  forceCloseSchoolWebsiteEmbed,
   mountSchoolWebsiteEmbed,
   resolveSchoolWebsiteEmbedMode,
   resolveSchoolWebsiteIframeUrl
 } from '../utils/school_website_embed'
 
 const emit = defineEmits(['back'])
+const leaving = ref(false)
 
 const frameShellRef = ref(null)
 const embedMode = ref('direct-iframe')
@@ -144,6 +146,19 @@ const handleRetryEmbed = () => {
   void remountAfterResume()
 }
 
+/** #373：先关子 WebView 再返回，避免卸载竞态把内嵌撑成无返回全屏 */
+const handleBack = async () => {
+  if (leaving.value) return
+  leaving.value = true
+  try {
+    await cleanupEmbed()
+    await forceCloseSchoolWebsiteEmbed()
+  } catch {
+    // ignore
+  }
+  emit('back')
+}
+
 const handleVisibilityForEmbed = () => {
   if (document.hidden) return
   // 仅在已有错误或 proxy 模式时自动恢复，避免无意义重载
@@ -167,7 +182,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityForEmbed)
   window.removeEventListener('hbu-embed-resume', handleAppEmbedResumeEvent)
-  void cleanupEmbed()
+  void cleanupEmbed().finally(() => {
+    void forceCloseSchoolWebsiteEmbed()
+  })
 })
 
 defineExpose({ remountAfterResume })
@@ -176,7 +193,7 @@ defineExpose({ remountAfterResume })
 <template>
   <div class="school-website-view">
     <header class="subpage-header">
-      <button class="back-button" type="button" @click="emit('back')" aria-label="返回">
+      <button class="back-button" type="button" @click="handleBack" aria-label="返回">
         <span class="material-symbols-outlined">arrow_back</span>
       </button>
       <div class="header-copy">
