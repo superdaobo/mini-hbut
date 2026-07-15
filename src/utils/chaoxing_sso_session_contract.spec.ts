@@ -16,13 +16,18 @@ describe('chaoxing SSO session layer contract (#324-#326)', () => {
     expect(sso).toContain('try_silent_portal_relogin')
     expect(sso).toContain('persist_diag')
     expect(sso).toContain('invalidate_sso_cache')
-    expect(sso).not.toContain('password:')
+    // 禁止 diag/JSON 输出明文 password 字段（#367 允许 portal_password 选项字段名）
+    expect(sso).not.toMatch(/"password"\s*:/)
+    expect(sso).toContain('portal_password')
+    expect(sso).toContain('hydrate_session_cookies_from_store')
+    expect(sso).toContain('pwd_len')
 
     // TGT 失效不在 bridge 内立刻清登录，留给统一层静默续期
     expect(session).toContain('交由 chaoxing_sso 统一层尝试静默重登')
 
     // 班级模块走统一层，不再 force 全量课程
     expect(classMod).toContain('ensure_chaoxing_sso')
+    expect(classMod).toContain('portal_password')
     expect(classMod).not.toContain('chaoxing_fetch_courses(client')
   })
 })
