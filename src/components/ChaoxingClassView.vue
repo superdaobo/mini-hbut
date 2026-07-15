@@ -12,6 +12,7 @@ import { platformBridge } from '../platform'
 import { openExternal } from '../utils/external_link'
 import { fetchRemoteConfig, getChaoxingClassConfig } from '../utils/remote_config'
 import { loadPortalRememberedPassword } from '../utils/credential_storage'
+import { pushDebugLog } from '../utils/debug_logger'
 import { showToast } from '../utils/toast'
 import { TPageHeader } from './templates'
 
@@ -127,7 +128,9 @@ const isJoined = computed(() => !!(activeClass.value?.course_id && activeClass.v
 const formatErr = (e) => {
   if (!e) return '未知错误'
   if (typeof e === 'string') return e
-  return e?.message || e?.error || String(e)
+  const msg = e?.message || e?.error || String(e)
+  // 邀请码/SSO 详细诊断日志较长，原样保留便于设置→调试信息与截图反馈
+  return String(msg || '未知错误')
 }
 
 const studentPayload = () => {
@@ -307,23 +310,34 @@ const fetchPreview = async () => {
   if (!code) throw new Error('未配置学习通邀请码')
   // #375：邀请码接口可能因假 SSO 复用失败，附带门户密码供静默重桥接
   const ssoReq = await ssoPayload()
-  const res = await invokeNative('chaoxing_class_preview_invite', {
-    req: {
+  try {
+    const res = await invokeNative('chaoxing_class_preview_invite', {
+      req: {
+        invite_code: code,
+        student_id: ssoReq.student_id ?? null,
+        portal_password: ssoReq.portal_password ?? null
+      }
+    })
+    preview.value = {
       invite_code: code,
-      student_id: ssoReq.student_id ?? null,
-      portal_password: ssoReq.portal_password ?? null
+      course_id: String(res.course_id || classMeta.value.course_id || ''),
+      clazz_id: String(res.clazz_id || classMeta.value.clazz_id || ''),
+      course_name: String(res.course_name || classMeta.value.course_name || '班级'),
+      teacher_name: String(res.teacher_name || classMeta.value.teacher_name || ''),
+      cover_url: String(res.cover_url || ''),
+      cpi: String(res.cpi || defaultCpi())
     }
-  })
-  preview.value = {
-    invite_code: code,
-    course_id: String(res.course_id || classMeta.value.course_id || ''),
-    clazz_id: String(res.clazz_id || classMeta.value.clazz_id || ''),
-    course_name: String(res.course_name || classMeta.value.course_name || '班级'),
-    teacher_name: String(res.teacher_name || classMeta.value.teacher_name || ''),
-    cover_url: String(res.cover_url || ''),
-    cpi: String(res.cpi || defaultCpi())
+    return preview.value
+  } catch (e) {
+    const msg = formatErr(e)
+    // 写入设置→调试信息，便于用户反馈完整诊断行
+    pushDebugLog('ChaoxingInvite', msg, 'error', {
+      invite_code_len: code.length,
+      student_id: ssoReq.student_id || null,
+      has_portal_password: !!ssoReq.portal_password
+    })
+    throw e
   }
-  return preview.value
 }
 
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))
