@@ -96,6 +96,73 @@ pub(super) fn looks_like_academic_login_url(url: &str) -> bool {
         || (lower.contains("/admin/login") && !lower.contains("/admin/login2"))
 }
 
+/// 教务业务域名选择（排名 / 校历等复用）。
+/// 双侧 cookie 时信任 academic_base，避免过期 jwxt cookie 强制走 jwxt（#390/#393）。
+pub(super) fn resolve_ranking_base_url(
+    academic_base: &str,
+    prefer_chaoxing: bool,
+    has_jwxt_cookie: bool,
+    has_chaoxing_cookie: bool,
+) -> &'static str {
+    if prefer_chaoxing && has_chaoxing_cookie {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    if has_chaoxing_cookie && !has_jwxt_cookie {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    if has_jwxt_cookie && !has_chaoxing_cookie {
+        return JWXT_BASE_URL;
+    }
+    if has_chaoxing_cookie && academic_base.contains("chaoxing") {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    if has_jwxt_cookie {
+        return JWXT_BASE_URL;
+    }
+    if has_chaoxing_cookie {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    JWXT_BASE_URL
+}
+
+/// 主域名失败（登录页）时的备选域名顺序。
+pub(super) fn ranking_base_fallback_chain(
+    primary: &'static str,
+    has_jwxt_cookie: bool,
+    has_chaoxing_cookie: bool,
+) -> Vec<&'static str> {
+    let mut chain = vec![primary];
+    if primary == JWXT_BASE_URL && has_chaoxing_cookie {
+        chain.push(CHAOXING_JWXT_BASE_URL);
+    } else if primary == CHAOXING_JWXT_BASE_URL && has_jwxt_cookie {
+        chain.push(JWXT_BASE_URL);
+    }
+    chain
+}
+
+#[cfg(test)]
+mod ranking_domain_tests {
+    use super::*;
+
+    #[test]
+    fn dual_cookies_prefer_false_follows_academic_chaoxing() {
+        let base = resolve_ranking_base_url("https://hbut.jw.chaoxing.com", false, true, true);
+        assert_eq!(base, CHAOXING_JWXT_BASE_URL);
+    }
+
+    #[test]
+    fn dual_cookies_prefer_false_does_not_force_stale_jwxt() {
+        let base = resolve_ranking_base_url(CHAOXING_JWXT_BASE_URL, false, true, true);
+        assert_ne!(base, JWXT_BASE_URL);
+    }
+
+    #[test]
+    fn jwxt_primary_falls_back_to_chaoxing() {
+        let chain = ranking_base_fallback_chain(JWXT_BASE_URL, true, true);
+        assert_eq!(chain, vec![JWXT_BASE_URL, CHAOXING_JWXT_BASE_URL]);
+    }
+}
+
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）
 pub(super) fn get_random_string(length: usize) -> String {
     const CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678";

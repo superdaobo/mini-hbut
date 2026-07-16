@@ -306,34 +306,60 @@ impl HbutClient {
         &self,
         semester: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let calendar_url = format!(
-            "{}/admin/xsd/jcsj/xlgl/getData/{}",
+        // 与排名一致：双侧 cookie 时优先 academic_base_url，失败再换域（#393）
+        let jwxt_url = Url::parse(super::JWXT_BASE_URL)?;
+        let chaoxing_url = Url::parse(super::CHAOXING_JWXT_BASE_URL)?;
+        let has_jwxt = self
+            .cookie_jar
+            .cookies(&jwxt_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let has_cx = self
+            .cookie_jar
+            .cookies(&chaoxing_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let primary = super::resolve_ranking_base_url(
             self.academic_base_url(),
-            semester
+            self.prefer_chaoxing_jwxt,
+            has_jwxt,
+            has_cx,
         );
-        let mut repaired = false;
-        loop {
-            let response = self.client.get(&calendar_url).send().await?;
-            let status = response.status();
-            let final_url = response.url().to_string();
-            if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt
-                    && !repaired
-                    && self.ensure_chaoxing_academic_session().await
-                {
-                    repaired = true;
-                    println!("[调试] 校历请求命中登录页，已补票后重试");
-                    continue;
-                }
-                return Err("会话已过期，请重新登录".into());
-            }
-            if !status.is_success() {
-                return Err(format!("请求失败: {}", status).into());
-            }
+        let bases = super::ranking_base_fallback_chain(primary, has_jwxt, has_cx);
+        let mut last_err = String::from("会话已过期，请重新登录");
 
-            let data: serde_json::Value = response.json().await?;
-            return Ok(data);
+        for base in bases {
+            let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", base, semester);
+            let mut repaired = false;
+            loop {
+                println!("[调试] 获取校历：{}", calendar_url);
+                let response = self.client.get(&calendar_url).send().await?;
+                let status = response.status();
+                let final_url = response.url().to_string();
+                println!("[调试] 校历响应状态: {}, 地址: {}", status, final_url);
+                if super::looks_like_academic_login_url(&final_url) {
+                    // 有超星 cookie 或 prefer 时均可补票，不再只认 prefer_chaoxing_jwxt
+                    if !repaired && has_cx && self.ensure_chaoxing_academic_session().await {
+                        repaired = true;
+                        println!("[调试] 校历请求命中登录页，已补票后重试 base={}", base);
+                        continue;
+                    }
+                    last_err = format!("会话已过期，请重新登录 (calendar base={})", base);
+                    break;
+                }
+                if !status.is_success() {
+                    last_err = format!("请求失败: {}", status);
+                    break;
+                }
+
+                let data: serde_json::Value = response.json().await?;
+                return Ok(data);
+            }
         }
+
+        Err(last_err.into())
     }
 
     async fn fetch_calendar_summary_for_semester(
