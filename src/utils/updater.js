@@ -6,10 +6,18 @@ const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`
 const GH_API_PROXY_PREFIX = 'https://gh-proxy.com/'
 const GH_DOWNLOAD_PROXY_PREFIX = 'https://gh-proxy.org/'
 
-// 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
+// 主 CDN：腾讯云 EdgeOne Pages；备用：GitHub Pages 项目站（/mini-hbut）
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz'
-const STABLE_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/stable-latest.json` : ''
-const DEV_MANIFEST_URL = EDGEONE_CDN_BASE ? `${EDGEONE_CDN_BASE}/releases/dev-latest.json` : ''
+const GITHUB_PAGES_CDN_BASE = 'https://superdaobo.github.io/mini-hbut'
+/** 更新清单 / 安装包 CDN 顺序：EdgeOne 优先，GitHub Pages 备用 */
+const CDN_BASES = Object.freeze(
+  [EDGEONE_CDN_BASE, GITHUB_PAGES_CDN_BASE].filter((base) => String(base || '').trim())
+)
+const STABLE_MANIFEST_URLS = CDN_BASES.map((base) => `${base}/releases/stable-latest.json`)
+const DEV_MANIFEST_URLS = CDN_BASES.map((base) => `${base}/releases/dev-latest.json`)
+// 兼容旧引用
+const STABLE_MANIFEST_URL = STABLE_MANIFEST_URLS[0] || ''
+const DEV_MANIFEST_URL = DEV_MANIFEST_URLS[0] || ''
 const UPDATE_CHANNEL_KEY = 'hbu_update_channel'
 const SKIPPED_VERSION_STABLE_KEY = 'hbu_skipped_version'
 const SKIPPED_VERSION_DEV_KEY = 'hbu_skipped_version_dev'
@@ -72,11 +80,17 @@ const DOWNLOAD_PROXIES = [
 export const isOfficialDownloadUrl = (url) => {
   const value = String(url || '').trim()
   if (!value) return false
-  return Boolean(EDGEONE_CDN_BASE && value.startsWith(`${EDGEONE_CDN_BASE}/releases/`))
+  return CDN_BASES.some((base) => value.startsWith(`${base}/releases/`))
 }
 
 export const describeUpdateDownloadSource = (url, index = 0) => {
   const value = String(url || '').trim()
+  if (EDGEONE_CDN_BASE && value.startsWith(`${EDGEONE_CDN_BASE}/`)) {
+    return { label: 'EdgeOne 主站', tag: 'edgeone' }
+  }
+  if (GITHUB_PAGES_CDN_BASE && value.startsWith(`${GITHUB_PAGES_CDN_BASE}/`)) {
+    return { label: 'GitHub Pages 备用', tag: 'ghpages' }
+  }
   if (value.includes('ghfast.top')) {
     return { label: '代理下载 1', tag: 'proxy1' }
   }
@@ -98,10 +112,21 @@ export const describeUpdateDownloadSource = (url, index = 0) => {
   return { label: `线路 ${index + 1}`, tag: `line${index}` }
 }
 
+/** CDN 安装包直链（EdgeOne 主 + GitHub Pages 备用），用于清单归一化与探测 */
+export const buildCdnReleaseAssetUrls = (downloadDir, filename) => {
+  const dir = String(downloadDir || '').trim().replace(/^\/+|\/+$/g, '')
+  const name = String(filename || '').trim().replace(/^\/+/, '')
+  if (!dir || !name) return []
+  return CDN_BASES.map((base) => `${base}/releases/${dir}/${name}`)
+}
+
 export const buildUpdateDownloadUrls = (tag, filename, primaryUrl = '') => {
+  // 下载列表：GitHub 代理链 + 源站；CDN 官方直链由 isOfficialDownloadUrl 过滤（UI 不重复展示）
+  // 清单阶段已用 EdgeOne → GitHub Pages 双 CDN 探测版本
   const candidates = [
     ...DOWNLOAD_PROXIES.map((fn) => fn(tag, filename)),
-    primaryUrl
+    primaryUrl,
+    ...buildCdnReleaseAssetUrls(tag, filename)
   ]
   return uniqueUrls(candidates).filter((url) => !isOfficialDownloadUrl(url))
 }
@@ -449,18 +474,22 @@ const normalizeReleaseNotesForVersion = (notes, version) => {
   return body
 }
 
-export const normalizeCdnManifestAsRelease = (manifest) => {
+export const normalizeCdnManifestAsRelease = (manifest, cdnBase = EDGEONE_CDN_BASE) => {
   if (!manifest?.tag || !manifest?.assets) return null
   const tag = String(manifest.tag || '').trim()
   const downloadDir = String(manifest.downloadDir || tag).trim() || tag
   const version = String(manifest.version || tag).replace(/^v/, '')
   const rawBody = String(manifest.release_notes || manifest.body || '').trim()
   const body = normalizeReleaseNotesForVersion(rawBody, version || tag)
+  const assetBase = String(cdnBase || EDGEONE_CDN_BASE || GITHUB_PAGES_CDN_BASE || '').replace(/\/+$/, '')
   const assets = Object.values(manifest.assets || {})
     .filter(Boolean)
     .map((filename) => ({
       name: filename,
-      browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`
+      // 资产 URL 绑定实际命中的 CDN；下载时还会追加 GitHub 代理与另一 CDN 候选
+      browser_download_url: assetBase
+        ? `${assetBase}/releases/${downloadDir}/${filename}`
+        : ''
     }))
 
   return {
@@ -475,8 +504,26 @@ export const normalizeCdnManifestAsRelease = (manifest) => {
     channel: String(manifest.channel || '').trim(),
     downloadDir,
     __fromCdnManifest: true,
+    __cdnBase: assetBase,
     __staleReleaseNotes: Boolean(rawBody && !body)
   }
+}
+
+/** 按 CDN 顺序拉取 manifest；返回 { manifest, base } 或 null */
+const fetchFirstCdnManifest = async (urls, timeoutMs = 6000) => {
+  for (const url of urls || []) {
+    const text = String(url || '').trim()
+    if (!text) continue
+    try {
+      const manifest = await fetchJson(text, timeoutMs)
+      if (!manifest?.tag || !manifest?.assets) continue
+      const base = CDN_BASES.find((b) => text.startsWith(`${b}/`)) || EDGEONE_CDN_BASE
+      return { manifest, base }
+    } catch (_) {
+      // try next CDN
+    }
+  }
+  return null
 }
 
 export const mergeCdnReleaseWithApiNotes = (cdnRelease, apiRelease) => {
@@ -498,23 +545,19 @@ export const mergeCdnReleaseWithApiNotes = (cdnRelease, apiRelease) => {
 
 async function fetchStableReleaseInfo(currentVersion) {
   let cdnCandidate = null
-  if (STABLE_MANIFEST_URL) {
-    try {
-      // 稳定频道只读 stable-latest，避免误用 dev alias。
-      const manifest = await fetchJson(STABLE_MANIFEST_URL, 6000)
-      const release = normalizeCdnManifestAsRelease(manifest)
-      if (release && shouldOfferRelease(release, currentVersion, 'stable')) {
-        if (release.__staleReleaseNotes) {
-          cdnCandidate = release
-        } else {
-          return release
-        }
-      } else if (release) {
-        // 即使无需升级也保留 candidate，供 UI 展示 latestVersion
+  // EdgeOne 主站 → GitHub Pages 备用 → GitHub API
+  const hit = await fetchFirstCdnManifest(STABLE_MANIFEST_URLS, 6000)
+  if (hit) {
+    const release = normalizeCdnManifestAsRelease(hit.manifest, hit.base)
+    if (release && shouldOfferRelease(release, currentVersion, 'stable')) {
+      if (release.__staleReleaseNotes) {
         cdnCandidate = release
+      } else {
+        return release
       }
-    } catch (_) {
-      // stable manifest 不可用，继续 fallback
+    } else if (release) {
+      // 即使无需升级也保留 candidate，供 UI 展示 latestVersion
+      cdnCandidate = release
     }
   }
 
@@ -540,22 +583,18 @@ async function fetchStableReleaseInfo(currentVersion) {
 
 async function fetchDevReleaseInfo(currentVersion) {
   let cdnCandidate = null
-  if (DEV_MANIFEST_URL) {
-    try {
-      const manifest = await fetchJson(DEV_MANIFEST_URL, 6000)
-      const release = normalizeCdnManifestAsRelease(manifest)
-      if (release) {
-        // 强制标记为 dev，避免旧 manifest 缺 channel
-        release.channel = release.channel || 'dev'
-        release.prerelease = true
-        if (!release.tag_name) release.tag_name = DEV_RELEASE_TAG
-        cdnCandidate = release
-        if (shouldOfferRelease(release, currentVersion, 'dev') && !release.__staleReleaseNotes) {
-          return release
-        }
+  const hit = await fetchFirstCdnManifest(DEV_MANIFEST_URLS, 6000)
+  if (hit) {
+    const release = normalizeCdnManifestAsRelease(hit.manifest, hit.base)
+    if (release) {
+      // 强制标记为 dev，避免旧 manifest 缺 channel
+      release.channel = release.channel || 'dev'
+      release.prerelease = true
+      if (!release.tag_name) release.tag_name = DEV_RELEASE_TAG
+      cdnCandidate = release
+      if (shouldOfferRelease(release, currentVersion, 'dev') && !release.__staleReleaseNotes) {
+        return release
       }
-    } catch (_) {
-      // dev CDN 不可用，走 GH tag
     }
   }
 

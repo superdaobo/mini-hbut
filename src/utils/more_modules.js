@@ -9,11 +9,13 @@ const assertRemoteModulesAllowed = () => {
 }
 
 const DEFAULT_MODULE_CDN_BASE = 'https://hbut.6661111.xyz/modules'
+/** GitHub Pages 备用模块 CDN（与 EdgeOne 同构 /modules 路径） */
+const GITHUB_PAGES_MODULE_CDN_BASE = 'https://superdaobo.github.io/mini-hbut/modules'
 const GITHUB_REPO = 'superdaobo/mini-hbut'
 const GITHUB_RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}`
 const GITHUB_WEBSITE_BRANCH = 'website-pages'
 const GITHUB_PROXY_PREFIXES = Object.freeze(['https://hk.gh-proxy.org/', 'https://gh-proxy.com/', ''])
-const MODULE_PUBLIC_REPO_PATH = 'dist/modules'
+const MODULE_PUBLIC_REPO_PATH = 'modules'
 const MODULE_CDN_OVERRIDE_STORAGE_KEY = 'hbu_debug_module_cdn_base'
 const MODULE_STATE_STORAGE_KEY = 'hbu_more_module_state_v1'
 const MODULE_CATALOG_CACHE_STORAGE_KEY = 'hbu_more_module_catalog_cache_v1'
@@ -429,7 +431,14 @@ const extractModuleRelativePath = (inputUrl) => {
 const buildGithubRawUrl = (relativePath) => {
   const safePath = safeText(relativePath).replace(/^\/+/, '')
   if (!safePath) return ''
+  // website-pages 分支根目录即静态站（modules/ 在根下，兼容历史 dist/modules）
   return `${GITHUB_RAW_BASE}/${GITHUB_WEBSITE_BRANCH}/${MODULE_PUBLIC_REPO_PATH}/${safePath}`
+}
+
+const buildGithubPagesModuleUrl = (relativePath) => {
+  const safePath = safeText(relativePath).replace(/^\/+/, '')
+  if (!safePath) return ''
+  return `${GITHUB_PAGES_MODULE_CDN_BASE.replace(/\/+$/, '')}/${safePath}`
 }
 
 const buildCurrentBaseUrl = (relativePath) => {
@@ -503,13 +512,15 @@ const buildRemoteUrlCandidates = (inputUrl, preferredChannel = '', purpose = 're
       ? relativePath.replace(new RegExp(`^${channelHint}/`), `${normalizeChannel(preferredChannel)}/`)
       : relativePath
   const currentBaseUrl = buildCurrentBaseUrl(normalizedRelativePath)
+  const githubPagesUrl = buildGithubPagesModuleUrl(normalizedRelativePath)
   const rawUrl = buildGithubRawUrl(normalizedRelativePath)
+  // raw.githubusercontent 可走代理；GitHub Pages 备用站可直接嵌入（无 X-Frame 代理问题）
   const githubCandidates = buildMirrorCandidateUrls(rawUrl)
   const primaryCandidates = isModuleCdnOverrideActive()
     ? [currentBaseUrl]
-    : [currentBaseUrl, absolute]
+    : [currentBaseUrl, githubPagesUrl, absolute]
   return finalizeRemoteCandidates(
-    toUniqueTextList([...primaryCandidates, ...githubCandidates]),
+    toUniqueTextList([...primaryCandidates, githubPagesUrl, ...githubCandidates]),
     purpose,
     normalizedRelativePath
   )

@@ -4,13 +4,10 @@ on:
   push:
     branches:
       - main
+    # 文档-only 变更可跳过；网站源码 / 发布脚本 / 本 workflow 变更必须触发双部署
     paths-ignore:
       - "**.md"
-      - "website/**"
-      - "scripts/build_website_modules.mjs"
-      - "scripts/build_release_manifests.mjs"
-      - ".github/workflows/website-modules.yml"
-      - ".github/workflows/sync-website.yml"
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
