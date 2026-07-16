@@ -95,30 +95,45 @@ const PHASE_RANGES: Array<{ phase: ScrollPhase; start: number; end: number }> = 
   { phase: 'cta', start: 0.92, end: 1 },
 ];
 
+/**
+ * 产品展示镜头轨：首屏即见手机 → 推进点亮 → 侧向环绕 → 正视 UI → 拉远 CTA
+ * （旧轨 y≈11/z≈14 过远，机身几乎不可见，像扁平截图）
+ */
 const CAMERA_KEYFRAMES: CameraKeyframe[] = [
-  { position: { x: 0, y: 10.8, z: 13.6 }, lookAt: { x: 0, y: -0.72, z: 0 }, fov: 58 },
-  { position: { x: 0.03, y: 10.2, z: 12.8 }, lookAt: { x: 0, y: -0.62, z: 0 }, fov: 57 },
-  { position: { x: 0.06, y: 9.6, z: 12.0 }, lookAt: { x: 0, y: -0.48, z: 0 }, fov: 56 },
-  { position: { x: 0.08, y: 9.1, z: 11.4 }, lookAt: { x: 0, y: -0.32, z: 0 }, fov: 55 },
-  { position: { x: 0.1, y: 8.8, z: 11.0 }, lookAt: { x: 0, y: -0.14, z: 0 }, fov: 54 },
-  { position: { x: 0.1, y: 8.7, z: 10.9 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 53 },
-  { position: { x: 0.08, y: 8.7, z: 10.9 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 53 },
-  { position: { x: 0.06, y: 8.8, z: 11.0 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 53 },
-  { position: { x: 0.04, y: 8.9, z: 11.1 }, lookAt: { x: 0, y: -0.02, z: 0 }, fov: 54 },
-  { position: { x: 0, y: 9.6, z: 12.2 }, lookAt: { x: 0, y: -0.2, z: 0 }, fov: 56 },
+  // intro：3/4 侧前，手机占据主视觉
+  { position: { x: 1.15, y: 0.55, z: 2.85 }, lookAt: { x: 0.05, y: 0.05, z: 0 }, fov: 38 },
+  // ignite：略推进 + 点亮
+  { position: { x: 0.85, y: 0.42, z: 2.45 }, lookAt: { x: 0.02, y: 0.06, z: 0 }, fov: 36 },
+  // lift：抬到更正视
+  { position: { x: 0.45, y: 0.28, z: 2.15 }, lookAt: { x: 0, y: 0.08, z: 0 }, fov: 34 },
+  // dive：贴近屏幕，看清 App UI
+  { position: { x: 0.12, y: 0.12, z: 1.72 }, lookAt: { x: 0, y: 0.1, z: 0 }, fov: 32 },
+  // schedule：微侧，露出机身厚度
+  { position: { x: -0.55, y: 0.18, z: 1.95 }, lookAt: { x: 0.02, y: 0.08, z: 0 }, fov: 33 },
+  // grades：另一侧环绕
+  { position: { x: 0.7, y: 0.22, z: 1.88 }, lookAt: { x: -0.02, y: 0.06, z: 0 }, fov: 33 },
+  // tunnel：更戏剧的仰视
+  { position: { x: 0.25, y: -0.05, z: 2.05 }, lookAt: { x: 0, y: 0.12, z: 0 }, fov: 35 },
+  // return：回正
+  { position: { x: 0.35, y: 0.25, z: 2.25 }, lookAt: { x: 0, y: 0.05, z: 0 }, fov: 36 },
+  // pre-cta
+  { position: { x: 0.9, y: 0.4, z: 2.55 }, lookAt: { x: 0, y: 0, z: 0 }, fov: 37 },
+  // cta：稍远产品定妆
+  { position: { x: 1.05, y: 0.48, z: 2.75 }, lookAt: { x: 0, y: 0.02, z: 0 }, fov: 38 },
 ];
 
+/** 手机始终大致立起、足够大；亮度从首帧就点亮 */
 const PHONE_KEYFRAMES: PhoneKeyframe[] = [
-  { position: { x: 0, y: -0.52, z: 0 }, rotation: { x: -1.08, y: 0.1, z: 0 }, scale: 0.48, screenBrightness: 0.02, float: 0 },
-  { position: { x: 0, y: -0.42, z: 0.01 }, rotation: { x: -0.88, y: 0.08, z: 0 }, scale: 0.52, screenBrightness: 0.3, float: 0.006 },
-  { position: { x: 0, y: -0.3, z: 0.015 }, rotation: { x: -0.62, y: 0.06, z: 0 }, scale: 0.56, screenBrightness: 0.65, float: 0.01 },
-  { position: { x: 0, y: -0.16, z: 0.02 }, rotation: { x: -0.34, y: 0.04, z: 0 }, scale: 0.58, screenBrightness: 0.9, float: 0.014 },
-  { position: { x: 0, y: -0.06, z: 0.022 }, rotation: { x: -0.1, y: 0.02, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.018 },
-  { position: { x: 0, y: 0, z: 0.024 }, rotation: { x: 0, y: 0.01, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.02 },
-  { position: { x: 0, y: 0.01, z: 0.024 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.02 },
-  { position: { x: 0, y: 0.01, z: 0.022 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.6, screenBrightness: 1, float: 0.02 },
-  { position: { x: 0, y: 0, z: 0.02 }, rotation: { x: 0, y: -0.01, z: 0 }, scale: 0.59, screenBrightness: 1, float: 0.018 },
-  { position: { x: 0, y: 0.02, z: 0.018 }, rotation: { x: 0, y: 0, z: 0 }, scale: 0.58, screenBrightness: 1, float: 0.016 },
+  { position: { x: 0.08, y: 0.02, z: 0 }, rotation: { x: -0.12, y: 0.42, z: 0.04 }, scale: 1.05, screenBrightness: 0.95, float: 0.02 },
+  { position: { x: 0.06, y: 0.04, z: 0.02 }, rotation: { x: -0.08, y: 0.28, z: 0.02 }, scale: 1.08, screenBrightness: 1, float: 0.024 },
+  { position: { x: 0.02, y: 0.06, z: 0.03 }, rotation: { x: -0.04, y: 0.12, z: 0 }, scale: 1.12, screenBrightness: 1, float: 0.028 },
+  { position: { x: 0, y: 0.05, z: 0.04 }, rotation: { x: -0.02, y: 0.02, z: 0 }, scale: 1.18, screenBrightness: 1, float: 0.03 },
+  { position: { x: 0.04, y: 0.04, z: 0.03 }, rotation: { x: -0.03, y: -0.28, z: -0.02 }, scale: 1.12, screenBrightness: 1, float: 0.028 },
+  { position: { x: -0.02, y: 0.05, z: 0.03 }, rotation: { x: -0.02, y: 0.32, z: 0.02 }, scale: 1.1, screenBrightness: 1, float: 0.026 },
+  { position: { x: 0, y: 0.08, z: 0.02 }, rotation: { x: 0.06, y: 0.08, z: 0 }, scale: 1.08, screenBrightness: 1, float: 0.024 },
+  { position: { x: 0.03, y: 0.04, z: 0.02 }, rotation: { x: -0.04, y: 0.15, z: 0.01 }, scale: 1.06, screenBrightness: 1, float: 0.022 },
+  { position: { x: 0.06, y: 0.03, z: 0.01 }, rotation: { x: -0.08, y: 0.28, z: 0.02 }, scale: 1.04, screenBrightness: 1, float: 0.02 },
+  { position: { x: 0.08, y: 0.02, z: 0 }, rotation: { x: -0.1, y: 0.36, z: 0.03 }, scale: 1.02, screenBrightness: 0.98, float: 0.018 },
 ];
 
 export function clamp01(value: number): number {

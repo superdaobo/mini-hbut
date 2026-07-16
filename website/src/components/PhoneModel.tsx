@@ -87,21 +87,24 @@ export default function PhoneModel() {
   useFrame((state) => {
     if (!groupRef.current) return;
     const t = state.clock.elapsedTime;
-    const floatY = Math.sin(t * 1.2) * sample.phone.float * 0.08;
-    const parallaxX = reducedMotion ? 0 : pointer.x * 0.08;
-    const parallaxY = reducedMotion ? 0 : pointer.y * 0.05;
+    const floatY = Math.sin(t * 1.15) * sample.phone.float * 0.12;
+    const parallaxX = reducedMotion ? 0 : pointer.x * 0.1;
+    const parallaxY = reducedMotion ? 0 : pointer.y * 0.06;
+    // 与 DOM 产品框错位：3D 机身略偏左后，作景深与光影，UI 由前景 chrome 呈现
+    const stageOffsetX = -0.55;
+    const stageOffsetZ = -0.35;
 
     groupRef.current.position.set(
-      sample.phone.position.x + parallaxX,
+      sample.phone.position.x + parallaxX + stageOffsetX,
       sample.phone.position.y + floatY + parallaxY,
-      sample.phone.position.z,
+      sample.phone.position.z + stageOffsetZ,
     );
     groupRef.current.rotation.set(
-      sample.phone.rotation.x,
-      sample.phone.rotation.y + parallaxX * 0.15,
+      sample.phone.rotation.x * 0.85,
+      sample.phone.rotation.y + 0.55 + parallaxX * 0.2,
       sample.phone.rotation.z,
     );
-    groupRef.current.scale.setScalar(sample.phone.scale);
+    groupRef.current.scale.setScalar(sample.phone.scale * 0.92);
   });
 
   const deskOpacity = 1 - Math.min(1, sample.globalProgress * 4);
@@ -178,16 +181,20 @@ export default function PhoneModel() {
         </mesh>
       ))}
 
-      {/* 发光屏幕平面（UI 由 PhoneScreenOverlay DOM 叠层渲染） */}
+      {/* 发光屏幕（具体 App UI 由前景产品框 PhoneScreenOverlay 呈现） */}
       <mesh position={[0, 0, zFront + 0.003]}>
         <planeGeometry args={[SCREEN_WIDTH, SCREEN_HEIGHT]} />
         <meshStandardMaterial
-          color="#0a1628"
+          color="#0c1a2e"
           emissive="#38bdf8"
-          emissiveIntensity={sample.phone.screenBrightness * 0.35}
-          transparent
-          opacity={0.15 + sample.phone.screenBrightness * 0.85}
+          emissiveIntensity={0.25 + sample.phone.screenBrightness * 0.85}
+          metalness={0.1}
+          roughness={0.2}
         />
+      </mesh>
+      <mesh position={[0, 0, zFront + 0.004]}>
+        <planeGeometry args={[SCREEN_WIDTH * 0.92, SCREEN_HEIGHT * 0.55]} />
+        <meshBasicMaterial color="#67e8f9" transparent opacity={0.06 + sample.phone.screenBrightness * 0.08} />
       </mesh>
     </group>
   );
