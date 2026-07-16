@@ -110,7 +110,8 @@ auth.hbut.edu.cn (CASTGC / TGT)
 |------|------|
 | 学习通 7 天票 | `ensure_chaoxing_sso`：jar 有 UID+token 则 `cookie_reuse`；进程内 7 天 SSO 缓存；30 分钟内跳过网络探针 |
 | 教务 jw_uf 2h | `ensure_chaoxing_academic_session`：90 分钟 soft TTL；过期先 `getMenuList` 探针，失败再 xxtlogin 续期 |
-| keep-alive | `refresh_session` 成功后顺带补 jw 短票并 `persist_session_cookies` |
+| keep-alive | 前端约 20 分钟 `refresh_session`：门户信息刷新 + jw 短票 + **后台 `ensure_chaoxing_sso` 补票**（#351，失败不阻断） |
+| 进页 | 有 last-class 时先进壳并行拉资料；登录后 `spawn_chaoxing_sso_warmup` 预热（#351） |
 
 关键 cookie 名：
 

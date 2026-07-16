@@ -75,6 +75,12 @@ describe('chaoxing_class home integration contract', () => {
     expect(classRs).toContain('resolve_membership')
     expect(view).toContain('loadSeq')
     expect(view).toContain('重试加载')
+    // #351：热路径 last-class 秒开壳 + 并行 SSO；冷路径明确 loading；keep-alive 补票
+    expect(view).toContain('ssoPromise')
+    expect(view).toContain('正在加载资料')
+    expect(view).toContain('首次进入需完成门户 SSO')
+    expect(rustLib).toContain('keep-alive 学习通补票')
+    expect(rustLib).toContain('spawn_chaoxing_sso_warmup')
     const remote = read('src/utils/remote_config.js')
     expect(remote).toContain('chaoxing_class')
     expect(remote).toContain('getChaoxingClassConfig')

@@ -4078,8 +4078,32 @@ async fn get_cookies(state: State<'_, AppState>) -> Result<String, String> {
 
 #[tauri::command]
 async fn refresh_session(state: State<'_, AppState>) -> Result<UserInfo, String> {
-    let mut client = state.client.write().await;
-    client.refresh_session().await.map_err(|e| e.to_string())
+    let info = {
+        let mut client = state.client.write().await;
+        client.refresh_session().await.map_err(|e| e.to_string())?
+    };
+    // #351：keep-alive（约 20min）顺带后台轻量学习通补票；不阻塞本次返回
+    let client_arc = state.client.clone();
+    let sid = info.student_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut client = client_arc.write().await;
+        match modules::chaoxing_sso::ensure_chaoxing_sso(
+            &mut client,
+            Some(&sid),
+            modules::chaoxing_sso::EnsureSsoOptions {
+                force: false,
+                allow_silent_relogin: true,
+                preheated: false,
+                portal_password: None,
+            },
+        )
+        .await
+        {
+            Ok(v) => println!("[session] keep-alive 学习通补票: {}", v),
+            Err(e) => println!("[session] keep-alive 学习通补票失败（不阻断）: {}", e),
+        }
+    });
+    Ok(info)
 }
 
 #[tauri::command]
