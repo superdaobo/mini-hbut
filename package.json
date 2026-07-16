@@ -80,7 +80,7 @@
     "autoprefixer": "^10.5.0",
     "esbuild": "^0.28.1",
     "fast-check": "^4",
-    "material-symbols": "^0.45.5",
+    "material-symbols": "^0.45.8",
     "postcss": "^8.5.14",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.3.0",
