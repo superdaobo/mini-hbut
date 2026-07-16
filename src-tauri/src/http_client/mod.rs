@@ -96,6 +96,110 @@ pub(super) fn looks_like_academic_login_url(url: &str) -> bool {
         || (lower.contains("/admin/login") && !lower.contains("/admin/login2"))
 }
 
+/// 绩点排名接口主域名选择。
+///
+/// 历史 bug：`prefer_chaoxing=false` 且 jar 里仍有**过期** jwxt cookie 时，
+/// 会强制走 `jwxt.hbut.edu.cn`，即使用户实际会话在 `hbut.jw.chaoxing.com`。
+/// 结果 200 跳转到 `/admin/login`，上层回退 offline 缓存。
+///
+/// 规则：
+/// 1. 显式学习通教务优先且有 cx cookie → chaoxing
+/// 2. 仅一侧 cookie → 该侧
+/// 3. 双侧都有 → 信任 `academic_base_url`（通常因 cx cookie 已选 chaoxing）
+pub(super) fn resolve_ranking_base_url(
+    academic_base: &str,
+    prefer_chaoxing: bool,
+    has_jwxt_cookie: bool,
+    has_chaoxing_cookie: bool,
+) -> &'static str {
+    if prefer_chaoxing && has_chaoxing_cookie {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    if has_chaoxing_cookie && !has_jwxt_cookie {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    if has_jwxt_cookie && !has_chaoxing_cookie {
+        return JWXT_BASE_URL;
+    }
+    if has_chaoxing_cookie && academic_base.contains("chaoxing") {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    if has_jwxt_cookie {
+        return JWXT_BASE_URL;
+    }
+    if has_chaoxing_cookie {
+        return CHAOXING_JWXT_BASE_URL;
+    }
+    JWXT_BASE_URL
+}
+
+/// 主域名失败（登录页）时的备选域名顺序。
+pub(super) fn ranking_base_fallback_chain(
+    primary: &'static str,
+    has_jwxt_cookie: bool,
+    has_chaoxing_cookie: bool,
+) -> Vec<&'static str> {
+    let mut chain = vec![primary];
+    if primary == JWXT_BASE_URL && has_chaoxing_cookie {
+        chain.push(CHAOXING_JWXT_BASE_URL);
+    } else if primary == CHAOXING_JWXT_BASE_URL && has_jwxt_cookie {
+        chain.push(JWXT_BASE_URL);
+    }
+    chain
+}
+
+#[cfg(test)]
+mod ranking_domain_tests {
+    use super::*;
+
+    #[test]
+    fn dual_cookies_prefer_false_follows_academic_chaoxing() {
+        // 复现用户日志：prefer=false，双侧 cookie，academic 已选 chaoxing
+        let base = resolve_ranking_base_url(
+            "https://hbut.jw.chaoxing.com",
+            false,
+            true,
+            true,
+        );
+        assert_eq!(base, CHAOXING_JWXT_BASE_URL);
+    }
+
+    #[test]
+    fn dual_cookies_prefer_false_does_not_force_stale_jwxt() {
+        // 旧逻辑会选 jwxt；新逻辑不得在 academic=chaoxing 时强制 jwxt
+        let base = resolve_ranking_base_url(CHAOXING_JWXT_BASE_URL, false, true, true);
+        assert_ne!(base, JWXT_BASE_URL);
+    }
+
+    #[test]
+    fn only_jwxt_cookie_uses_jwxt() {
+        let base = resolve_ranking_base_url(JWXT_BASE_URL, false, true, false);
+        assert_eq!(base, JWXT_BASE_URL);
+    }
+
+    #[test]
+    fn prefer_chaoxing_uses_chaoxing() {
+        let base = resolve_ranking_base_url(JWXT_BASE_URL, true, true, true);
+        assert_eq!(base, CHAOXING_JWXT_BASE_URL);
+    }
+
+    #[test]
+    fn jwxt_primary_falls_back_to_chaoxing() {
+        let chain = ranking_base_fallback_chain(JWXT_BASE_URL, true, true);
+        assert_eq!(chain, vec![JWXT_BASE_URL, CHAOXING_JWXT_BASE_URL]);
+    }
+
+    #[test]
+    fn login_url_detection_covers_admin_login() {
+        assert!(looks_like_academic_login_url(
+            "https://jwxt.hbut.edu.cn/admin/login"
+        ));
+        assert!(looks_like_academic_login_url(
+            "https://hbut.jw.chaoxing.com/admin/login?service=x"
+        ));
+    }
+}
+
 /// 生成随机字符串（与学校 CAS 前端相同的字符集）
 pub(super) fn get_random_string(length: usize) -> String {
     const CHARS: &[u8] = b"ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678";
