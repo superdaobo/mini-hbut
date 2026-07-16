@@ -1173,11 +1173,10 @@ const metaLine = (item) => {
 }
 
 /**
- * 进入路径：
+ * 进入路径（#351）：
  * 1) 远程/缓存邀请码
- * 2) SSO
- * 3) 有 last-class → 拉资料；not_joined 才「重新加入」
- * 4) 无 last-class：preview 后教师/已在班直进资料，否则欢迎入班
+ * 2) 有 last-class → 立刻出壳 + 并行拉资料（list_resources 内 ensure）；SSO hint 不阻塞首屏
+ * 3) 无 last-class → SSO → preview → 资料；冷路径展示明确 loading 文案
  */
 const boot = async () => {
   loadingBoot.value = true
@@ -1192,22 +1191,15 @@ const boot = async () => {
   loadDeclined()
   const saved = loadLastClass()
 
-  bootPhase.value = 'sso'
-  ssoHint.value = '正在连接学习通会话…'
+  // 热路径：本地已有班级缓存 → 秒开壳层，资料与 SSO 并行
   if (saved) {
     activeClass.value = saved
     bootPhase.value = 'ready'
     loadingBoot.value = false
-  }
-
-  const ssoOk = await ensureSso()
-  if (!ssoOk) {
-    bootPhase.value = 'error'
-    loadingBoot.value = false
-    return
-  }
-
-  if (saved) {
+    ssoHint.value = '正在连接学习通会话…'
+    statusMsg.value = '正在加载资料…'
+    // list_resources 后端已 ensure_chaoxing_sso；前端 ensure 只更新顶栏 hint
+    const ssoPromise = ensureSso()
     try {
       await loadResources({ rejoinOnNotJoined: true })
     } catch (e) {
@@ -1222,6 +1214,24 @@ const boot = async () => {
         error.value = msg
       }
     }
+    const ssoOk = await ssoPromise
+    // 列表与 SSO 均失败：升级错误态（有资料则仍可浏览缓存结果）
+    if (!ssoOk && resources.value.length === 0) {
+      bootPhase.value = 'error'
+      if (!error.value && ssoHint.value) {
+        error.value = ssoHint.value
+      }
+    }
+    return
+  }
+
+  // 冷路径：无 last-class，需先 SSO 再解析邀请码
+  bootPhase.value = 'sso'
+  ssoHint.value = '正在连接学习通会话…'
+  const ssoOk = await ensureSso()
+  if (!ssoOk) {
+    bootPhase.value = 'error'
+    loadingBoot.value = false
     return
   }
 
@@ -1284,16 +1294,16 @@ onMounted(() => {
       </template>
     </TPageHeader>
 
-    <!-- 启动中 -->
+    <!-- 启动中（冷路径全屏；热路径有 last-class 时直接出列表壳，不挡在此） -->
     <div v-if="loadingBoot" class="cx-boot">
       <div class="cx-spinner" />
       <p class="cx-boot-text">
         {{
           bootPhase === 'sso'
-            ? '正在连接学习通…'
+            ? '正在连接学习通会话…'
             : bootPhase === 'preview'
               ? '正在获取班级信息…'
-              : '加载中…'
+              : '首次进入需完成门户 SSO，请稍候…'
         }}
       </p>
       <p class="cx-boot-sub">通过校园门户 SSO 接入，无需学习通密码</p>
