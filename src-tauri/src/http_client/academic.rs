@@ -1874,9 +1874,8 @@ impl HbutClient {
         );
 
         // 走超星教务时，前端 student_id 可能是手机号；从 cookie username 回落学号。
-        let use_chaoxing_primary = primary_base.contains("chaoxing")
-            || self.prefer_chaoxing_jwxt
-            || has_chaoxing_cookie;
+        let use_chaoxing_primary =
+            primary_base.contains("chaoxing") || self.prefer_chaoxing_jwxt || has_chaoxing_cookie;
         if use_chaoxing_primary
             && xh.starts_with('1')
             && xh.len() == 11
@@ -1970,14 +1969,9 @@ impl HbutClient {
                 }
 
                 if super::looks_like_academic_login_url(&final_url) {
-                    last_login_error = Some(format!(
-                        "排名会话失效 base={} final={}",
-                        base, final_url
-                    ));
-                    println!(
-                        "[调试] 排名域名 {} 仍为登录页，尝试下一候选（若有）",
-                        base
-                    );
+                    last_login_error =
+                        Some(format!("排名会话失效 base={} final={}", base, final_url));
+                    println!("[调试] 排名域名 {} 仍为登录页，尝试下一候选（若有）", base);
                     continue;
                 }
             }
