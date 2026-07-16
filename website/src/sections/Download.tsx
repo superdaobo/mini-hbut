@@ -92,9 +92,14 @@ const downloadProxyPrefixes = [
   'https://ghproxy.net/',
 ] as const;
 
-// 腾讯云 EdgeOne Pages CDN 域名（部署后填写实际域名，留空则跳过 CDN 优先逻辑）
+// 腾讯云 EdgeOne Pages CDN 域名；GitHub Pages 作备用；同源 /releases 优先避免 CORS
 const EDGEONE_CDN_BASE = 'https://hbut.6661111.xyz';
-const STABLE_MANIFEST_JSON = `${EDGEONE_CDN_BASE}/releases/stable-latest.json`;
+const GITHUB_PAGES_CDN_BASE = 'https://superdaobo.github.io/mini-hbut';
+const STABLE_MANIFEST_CANDIDATES = [
+  '/releases/stable-latest.json',
+  `${EDGEONE_CDN_BASE}/releases/stable-latest.json`,
+  `${GITHUB_PAGES_CDN_BASE}/releases/stable-latest.json`,
+] as const;
 
 const uniqueUrls = (list: string[]): string[] => {
   const seen = new Set<string>();
@@ -404,36 +409,34 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 12000): Promise<T
 }
 
 async function fetchLatestReleaseJson(): Promise<LatestRelease> {
-  if (EDGEONE_CDN_BASE) {
+  // 首页下载入口只允许稳定版；同源 → EdgeOne → GitHub Pages → GitHub API
+  for (const manifestUrl of STABLE_MANIFEST_CANDIDATES) {
     try {
-      // 首页下载入口只允许稳定版，避免 dev alias 污染主站展示与下载。
-      const resp = await withTimeout(
-        fetch(STABLE_MANIFEST_JSON, { cache: 'no-store' }),
-        8000
-      );
-      if (resp.ok) {
-        const manifest = (await resp.json()) as ReleaseManifest;
-        if (manifest?.tag && manifest?.assets) {
-          const tag = manifest.tag;
-          const downloadDir = String(manifest.downloadDir || tag).trim() || tag;
-          const assets: ReleaseAsset[] = Object.values(manifest.assets)
-            .filter(Boolean)
-            .map((filename) => ({
-              name: filename as string,
-              browser_download_url: `${EDGEONE_CDN_BASE}/releases/${downloadDir}/${filename}`,
-              download_count: 0,
-            }));
-          return {
-            tag_name: tag,
-            version: manifest.version,
-            channel: normalizeReleaseChannel(manifest.channel),
-            source: 'stable-manifest',
-            assets,
-          };
-        }
-      }
+      const resp = await withTimeout(fetch(manifestUrl, { cache: 'no-store' }), 8000);
+      if (!resp.ok) continue;
+      const manifest = (await resp.json()) as ReleaseManifest;
+      if (!manifest?.tag || !manifest?.assets) continue;
+      const tag = manifest.tag;
+      const downloadDir = String(manifest.downloadDir || tag).trim() || tag;
+      const assetBase = manifestUrl.startsWith('http')
+        ? manifestUrl.replace(/\/releases\/stable-latest\.json$/i, '')
+        : EDGEONE_CDN_BASE;
+      const assets: ReleaseAsset[] = Object.values(manifest.assets)
+        .filter(Boolean)
+        .map((filename) => ({
+          name: filename as string,
+          browser_download_url: `${assetBase}/releases/${downloadDir}/${filename}`,
+          download_count: 0,
+        }));
+      return {
+        tag_name: tag,
+        version: manifest.version,
+        channel: normalizeReleaseChannel(manifest.channel),
+        source: 'stable-manifest',
+        assets,
+      };
     } catch {
-      // stable manifest 失败，回退到 GitHub API
+      // try next candidate
     }
   }
 

@@ -2,6 +2,7 @@
 
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
 
@@ -18,62 +19,62 @@ const FEATURE_CARDS: FeatureCard[] = [
   {
     id: 'schedule',
     title: '课表',
-    subtitle: '知道下一步该去哪里',
+    subtitle: '下一步去哪',
     color: '#38bdf8',
-    basePosition: [-1.4, 0.2, -2.2],
+    basePosition: [-1.55, 0.55, -0.6],
     phase: 'schedule',
   },
   {
     id: 'grades',
     title: '成绩',
-    subtitle: '绩点与进度一眼看清',
+    subtitle: '绩点一眼清',
     color: '#a78bfa',
-    basePosition: [1.3, 0.35, -2.4],
+    basePosition: [1.45, 0.7, -0.5],
     phase: 'grades',
   },
   {
     id: 'exam',
     title: '考试',
-    subtitle: '倒计时与时间轴',
+    subtitle: '倒计时提醒',
     color: '#f472b6',
-    basePosition: [0, -0.3, -2.8],
+    basePosition: [-1.35, -0.15, -0.9],
     phase: 'grades',
   },
   {
     id: 'notify',
     title: '通知',
-    subtitle: '聚合校园提醒',
+    subtitle: '校园消息',
     color: '#34d399',
-    basePosition: [-1.8, -0.1, -3.6],
+    basePosition: [1.5, -0.05, -1.0],
     phase: 'tunnel',
   },
   {
     id: 'campus',
-    title: '校园服务',
-    subtitle: '工具与快捷入口',
+    title: '电费',
+    subtitle: '宿舍余额',
     color: '#fbbf24',
-    basePosition: [1.6, 0.1, -3.8],
+    basePosition: [-0.2, 1.05, -1.2],
     phase: 'tunnel',
   },
   {
-    id: 'community',
-    title: '交流',
-    subtitle: '连接校园生活',
-    color: '#60a5fa',
-    basePosition: [0.2, 0.5, -4.2],
+    id: 'room',
+    title: '空教室',
+    subtitle: '自习找位',
+    color: '#fb923c',
+    basePosition: [0.15, -0.75, -0.8],
     phase: 'tunnel',
   },
 ];
 
-function phaseWeight(cardPhase: FeatureCard['phase'], spread: number): number {
+function phaseWeight(cardPhase: FeatureCard['phase'], progress: number): number {
   const phaseMap: Record<string, number> = {
-    schedule: 0.42,
-    grades: 0.6,
-    tunnel: 0.71,
+    schedule: 0.38,
+    grades: 0.52,
+    tunnel: 0.68,
   };
   const center = phaseMap[cardPhase] ?? 0.5;
-  const dist = Math.abs(spread - center);
-  return Math.max(0, 1 - dist * 3.5);
+  const dist = Math.abs(progress - center);
+  return Math.max(0, 1 - dist * 3.2);
 }
 
 export default function FloatingFeatureCards() {
@@ -85,25 +86,30 @@ export default function FloatingFeatureCards() {
     const t = state.clock.elapsedTime;
     groupRef.current.children.forEach((child, i) => {
       const card = FEATURE_CARDS[i];
-      const weight = phaseWeight(card.phase, sample.globalProgress) * sample.cardSpread;
+      const weight =
+        Math.max(sample.cardSpread, sample.globalProgress > 0.18 ? 0.35 : 0) *
+        Math.max(0.25, phaseWeight(card.phase, sample.globalProgress));
       const group = child as THREE.Group;
-      group.visible = weight > 0.05;
-      const parallaxX = reducedMotion ? 0 : pointer.x * 0.12;
-      const parallaxY = reducedMotion ? 0 : pointer.y * 0.08;
+      group.visible = weight > 0.08;
+      const parallaxX = reducedMotion ? 0 : pointer.x * 0.14;
+      const parallaxY = reducedMotion ? 0 : pointer.y * 0.1;
       group.position.set(
-        card.basePosition[0] + parallaxX + Math.sin(t * 0.8 + i) * 0.06 * weight,
-        card.basePosition[1] + parallaxY + Math.cos(t * 0.7 + i) * 0.05 * weight,
-        card.basePosition[2] - (1 - weight) * 1.5,
+        card.basePosition[0] + parallaxX + Math.sin(t * 0.85 + i) * 0.08 * weight,
+        card.basePosition[1] + parallaxY + Math.cos(t * 0.75 + i) * 0.06 * weight,
+        card.basePosition[2] - (1 - weight) * 0.8,
       );
       group.rotation.set(
-        -0.1 + parallaxY * 0.2,
-        parallaxX * 0.25,
-        Math.sin(t * 0.5 + i) * 0.05,
+        -0.08 + parallaxY * 0.15,
+        parallaxX * 0.2,
+        Math.sin(t * 0.55 + i) * 0.06,
       );
+      group.scale.setScalar(0.85 + weight * 0.25);
       const mesh = group.children[0] as THREE.Mesh;
-      const mat = mesh.material as THREE.MeshPhysicalMaterial;
-      mat.opacity = weight * 0.85;
-      mat.emissiveIntensity = 0.2 + weight * 0.5;
+      if (mesh?.material && 'opacity' in mesh.material) {
+        const mat = mesh.material as THREE.MeshPhysicalMaterial;
+        mat.opacity = weight * 0.75;
+        mat.emissiveIntensity = 0.25 + weight * 0.65;
+      }
     });
   });
 
@@ -112,19 +118,36 @@ export default function FloatingFeatureCards() {
       {FEATURE_CARDS.map((card) => (
         <group key={card.id} position={card.basePosition}>
           <mesh>
-            <boxGeometry args={[1.1, 0.62, 0.04]} />
+            <planeGeometry args={[0.95, 0.52]} />
             <meshPhysicalMaterial
               color={card.color}
-              metalness={0.2}
-              roughness={0.15}
-              transmission={0.55}
-              thickness={0.3}
+              metalness={0.15}
+              roughness={0.2}
+              transmission={0.35}
+              thickness={0.25}
               transparent
               opacity={0}
               emissive={card.color}
-              emissiveIntensity={0.3}
+              emissiveIntensity={0.4}
             />
           </mesh>
+          <Html
+            center
+            distanceFactor={2.8}
+            style={{ pointerEvents: 'none', userSelect: 'none' }}
+            zIndexRange={[5, 0]}
+          >
+            <div
+              className="min-w-[92px] rounded-xl border border-white/15 px-3 py-2 text-center shadow-lg backdrop-blur-md"
+              style={{
+                background: `linear-gradient(145deg, ${card.color}33, rgba(3,6,13,0.82))`,
+                boxShadow: `0 0 24px ${card.color}44`,
+              }}
+            >
+              <div className="text-[11px] font-bold text-white">{card.title}</div>
+              <div className="text-[9px] text-white/70">{card.subtitle}</div>
+            </div>
+          </Html>
         </group>
       ))}
     </group>
