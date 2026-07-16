@@ -306,34 +306,60 @@ impl HbutClient {
         &self,
         semester: &str,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        let calendar_url = format!(
-            "{}/admin/xsd/jcsj/xlgl/getData/{}",
+        // 与排名一致：双侧 cookie 时优先 academic_base_url，失败再换域（#393）
+        let jwxt_url = Url::parse(super::JWXT_BASE_URL)?;
+        let chaoxing_url = Url::parse(super::CHAOXING_JWXT_BASE_URL)?;
+        let has_jwxt = self
+            .cookie_jar
+            .cookies(&jwxt_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let has_cx = self
+            .cookie_jar
+            .cookies(&chaoxing_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let primary = super::resolve_ranking_base_url(
             self.academic_base_url(),
-            semester
+            self.prefer_chaoxing_jwxt,
+            has_jwxt,
+            has_cx,
         );
-        let mut repaired = false;
-        loop {
-            let response = self.client.get(&calendar_url).send().await?;
-            let status = response.status();
-            let final_url = response.url().to_string();
-            if super::looks_like_academic_login_url(&final_url) {
-                if self.prefer_chaoxing_jwxt
-                    && !repaired
-                    && self.ensure_chaoxing_academic_session().await
-                {
-                    repaired = true;
-                    println!("[调试] 校历请求命中登录页，已补票后重试");
-                    continue;
-                }
-                return Err("会话已过期，请重新登录".into());
-            }
-            if !status.is_success() {
-                return Err(format!("请求失败: {}", status).into());
-            }
+        let bases = super::ranking_base_fallback_chain(primary, has_jwxt, has_cx);
+        let mut last_err = String::from("会话已过期，请重新登录");
 
-            let data: serde_json::Value = response.json().await?;
-            return Ok(data);
+        for base in bases {
+            let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", base, semester);
+            let mut repaired = false;
+            loop {
+                println!("[调试] 获取校历：{}", calendar_url);
+                let response = self.client.get(&calendar_url).send().await?;
+                let status = response.status();
+                let final_url = response.url().to_string();
+                println!("[调试] 校历响应状态: {}, 地址: {}", status, final_url);
+                if super::looks_like_academic_login_url(&final_url) {
+                    // 有超星 cookie 或 prefer 时均可补票，不再只认 prefer_chaoxing_jwxt
+                    if !repaired && has_cx && self.ensure_chaoxing_academic_session().await {
+                        repaired = true;
+                        println!("[调试] 校历请求命中登录页，已补票后重试 base={}", base);
+                        continue;
+                    }
+                    last_err = format!("会话已过期，请重新登录 (calendar base={})", base);
+                    break;
+                }
+                if !status.is_success() {
+                    last_err = format!("请求失败: {}", status);
+                    break;
+                }
+
+                let data: serde_json::Value = response.json().await?;
+                return Ok(data);
+            }
         }
+
+        Err(last_err.into())
     }
 
     async fn fetch_calendar_summary_for_semester(
@@ -1807,7 +1833,6 @@ impl HbutClient {
         student_id: Option<&str>,
         semester: Option<&str>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // 获取﹀彿
         let mut xh = student_id
             .map(|s| s.to_string())
             .or_else(|| self.user_info.as_ref().map(|u| u.student_id.clone()))
@@ -1817,31 +1842,56 @@ impl HbutClient {
             return Err("未提供学号".into());
         }
 
-        // 学习通账号登录时，前端 student_id 可能是手机号；优先回落到教务域 cookie 的 username。
-        if self.prefer_chaoxing_jwxt
+        let jwxt_url = Url::parse(super::JWXT_BASE_URL)?;
+        let chaoxing_jwxt_url = Url::parse(super::CHAOXING_JWXT_BASE_URL)?;
+        let jwxt_cookie = self
+            .cookie_jar
+            .cookies(&jwxt_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+        let chaoxing_cookie = self
+            .cookie_jar
+            .cookies(&chaoxing_jwxt_url)
+            .map(|v| v.to_str().unwrap_or_default().to_string())
+            .unwrap_or_default();
+        let has_chaoxing_cookie = !chaoxing_cookie.trim().is_empty();
+        let has_jwxt_cookie = !jwxt_cookie.trim().is_empty();
+
+        let academic_base = self.academic_base_url();
+        let primary_base = super::resolve_ranking_base_url(
+            academic_base,
+            self.prefer_chaoxing_jwxt,
+            has_jwxt_cookie,
+            has_chaoxing_cookie,
+        );
+        println!(
+            "[调试] 排名域名决策: academic_base={}, primary={}, prefer_chaoxing={}, cookie_len(jwxt)={}, cookie_len(cx_jwxt)={}",
+            academic_base,
+            primary_base,
+            self.prefer_chaoxing_jwxt,
+            jwxt_cookie.len(),
+            chaoxing_cookie.len()
+        );
+
+        // 走超星教务时，前端 student_id 可能是手机号；从 cookie username 回落学号。
+        let use_chaoxing_primary =
+            primary_base.contains("chaoxing") || self.prefer_chaoxing_jwxt || has_chaoxing_cookie;
+        if use_chaoxing_primary
             && xh.starts_with('1')
             && xh.len() == 11
             && xh.chars().all(|c| c.is_ascii_digit())
         {
-            let chaoxing_jwxt_url = Url::parse("https://hbut.jw.chaoxing.com")?;
-            if let Some(raw_cookie) = self
-                .cookie_jar
-                .cookies(&chaoxing_jwxt_url)
-                .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+            if let Some(cookie_xh) = chaoxing_cookie
+                .split(';')
+                .map(|v| v.trim())
+                .find_map(|pair| pair.strip_prefix("username=").map(|v| v.trim().to_string()))
+                .filter(|v| v.chars().all(|c| c.is_ascii_digit()) && v.len() >= 8)
             {
-                if let Some(cookie_xh) = raw_cookie
-                    .split(';')
-                    .map(|v| v.trim())
-                    .find_map(|pair| pair.strip_prefix("username=").map(|v| v.trim().to_string()))
-                    .filter(|v| v.chars().all(|c| c.is_ascii_digit()) && v.len() >= 8)
-                {
-                    println!("[调试] 排名学号修正: {} -> {}", xh, cookie_xh);
-                    xh = cookie_xh;
-                }
+                println!("[调试] 排名学号修正: {} -> {}", xh, cookie_xh);
+                xh = cookie_xh;
             }
         }
 
-        // 从学号推断年?
         let grade = if xh.len() >= 2 {
             let prefix = &xh[..2];
             if prefix.chars().all(|c| c.is_ascii_digit()) {
@@ -1854,112 +1904,98 @@ impl HbutClient {
         };
 
         let semester_value = semester.unwrap_or("").to_string();
-
         let params = [
             ("xh", xh.as_str()),
             ("sznj", grade.as_str()),
             ("xnxq", semester_value.as_str()),
         ];
 
-        let jwxt_url = Url::parse("https://jwxt.hbut.edu.cn")?;
-        let chaoxing_jwxt_url = Url::parse("https://hbut.jw.chaoxing.com")?;
-        let jwxt_cookie = self
-            .cookie_jar
-            .cookies(&jwxt_url)
-            .map(|v| v.to_str().unwrap_or_default().to_string())
-            .unwrap_or_default();
-        let chaoxing_cookie = self
-            .cookie_jar
-            .cookies(&chaoxing_jwxt_url)
-            .map(|v| v.to_str().unwrap_or_default().to_string())
-            .unwrap_or_default();
+        let bases =
+            super::ranking_base_fallback_chain(primary_base, has_jwxt_cookie, has_chaoxing_cookie);
+        let mut last_login_error: Option<String> = None;
 
-        let mut base = self.academic_base_url().to_string();
-        let has_chaoxing_cookie = !chaoxing_cookie.trim().is_empty();
-        let has_jwxt_cookie = !jwxt_cookie.trim().is_empty();
-        println!(
-            "[调试] 排名域名决策: base={}, prefer_chaoxing={}, cookie_len(jwxt)={}, cookie_len(cx_jwxt)={}",
-            base,
-            self.prefer_chaoxing_jwxt,
-            jwxt_cookie.len(),
-            chaoxing_cookie.len()
-        );
-        if self.prefer_chaoxing_jwxt && has_chaoxing_cookie {
-            base = "https://hbut.jw.chaoxing.com".to_string();
-        } else if !self.prefer_chaoxing_jwxt && has_jwxt_cookie {
-            base = "https://jwxt.hbut.edu.cn".to_string();
-        } else if has_chaoxing_cookie {
-            base = "https://hbut.jw.chaoxing.com".to_string();
-        }
+        for (idx, base) in bases.iter().enumerate() {
+            let ranking_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", base);
+            println!(
+                "[调试] 获取排名[{}/{}]：{} with params: {:?}",
+                idx + 1,
+                bases.len(),
+                ranking_url,
+                params
+            );
 
-        let ranking_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", base);
-        println!("[调试] 获取排名：{} with params: {:?}", ranking_url, params);
-        let response = self
-            .client
-            .get(&ranking_url)
-            .query(&params)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header(
-                "Referer",
-                format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base),
-            )
-            .send()
-            .await?;
-        let mut status = response.status();
-        let mut final_url = response.url().to_string();
-        println!("[调试] 排名响应状态: {}, 地址: {}", status, final_url);
-        let mut html = response.text().await?;
-        if super::looks_like_academic_login_url(&final_url) {
-            // 学习通模式下，先补一次教务入口票据再重试。
-            if base.contains("hbut.jw.chaoxing.com") {
-                println!("[调试] 排名请求命中 auth 登录页，尝试补票后重试");
-                let _ = self.ensure_chaoxing_academic_session().await;
-                let retry_url = format!("{}/admin/cjgl/xscjbbdy/getXscjpm", base);
-                println!(
-                    "[调试] 重新获取排名：{} with params: {:?}",
-                    retry_url, params
-                );
-                let retry_resp = self
-                    .client
-                    .get(&retry_url)
-                    .query(&params)
-                    .header(
-                        "Accept",
-                        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    )
-                    .header(
-                        "Referer",
-                        format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base),
-                    )
-                    .send()
-                    .await?;
-                status = retry_resp.status();
-                final_url = retry_resp.url().to_string();
-                println!("[调试] 排名重试响应状态: {}, 地址: {}", status, final_url);
-                html = retry_resp.text().await?;
+            let response = self
+                .client
+                .get(&ranking_url)
+                .query(&params)
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
+                .header(
+                    "Referer",
+                    format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base),
+                )
+                .send()
+                .await?;
+            let mut status = response.status();
+            let mut final_url = response.url().to_string();
+            println!("[调试] 排名响应状态: {}, 地址: {}", status, final_url);
+            let mut html = response.text().await?;
+
+            // 命中登录页：超星域先补票；jwxt 域则尝试备选域名（链上的下一项）
+            if super::looks_like_academic_login_url(&final_url) {
+                if base.contains("chaoxing") {
+                    println!("[调试] 排名命中超星教务登录页，尝试补票后重试");
+                    let _ = self.ensure_chaoxing_academic_session().await;
+                    let retry_resp = self
+                        .client
+                        .get(&ranking_url)
+                        .query(&params)
+                        .header(
+                            "Accept",
+                            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        )
+                        .header(
+                            "Referer",
+                            format!("{}/admin/cjgl/xscjbbdy/xsgrcjpmlist1", base),
+                        )
+                        .send()
+                        .await?;
+                    status = retry_resp.status();
+                    final_url = retry_resp.url().to_string();
+                    println!("[调试] 排名补票重试状态: {}, 地址: {}", status, final_url);
+                    html = retry_resp.text().await?;
+                }
+
+                if super::looks_like_academic_login_url(&final_url) {
+                    last_login_error =
+                        Some(format!("排名会话失效 base={} final={}", base, final_url));
+                    println!("[调试] 排名域名 {} 仍为登录页，尝试下一候选（若有）", base);
+                    continue;
+                }
             }
-        }
-        if super::looks_like_academic_login_url(&final_url) {
-            return Err("会话已过期，请重新登录".into());
+
+            let html_lower = html.to_lowercase();
+            if html_lower.contains("authserver/login")
+                || html_lower.contains("id=\"casloginform\"")
+                || html_lower.contains("pwdencryptsalt")
+                || html.contains("统一身份认证")
+            {
+                last_login_error = Some("会话已失效，请重新登录后再查询排名".into());
+                continue;
+            }
+            if !status.is_success() {
+                last_login_error = Some(format!("排名接口请求失败: {}", status));
+                continue;
+            }
+
+            return parser::parse_ranking_html(&html, &xh, &semester_value, &grade);
         }
 
-        let html_lower = html.to_lowercase();
-        if html_lower.contains("authserver/login")
-            || html_lower.contains("id=\"casloginform\"")
-            || html_lower.contains("pwdencryptsalt")
-            || html.contains("统一身份认证")
-        {
-            return Err("会话已失效，请重新登录后再查询排名".into());
-        }
-        if !status.is_success() {
-            return Err(format!("排名接口请求失败: {}", status).into());
-        }
-
-        // 解析 HTML
-        parser::parse_ranking_html(&html, &xh, &semester_value, &grade)
+        Err(last_login_error
+            .unwrap_or_else(|| "会话已过期，请重新登录".to_string())
+            .into())
     }
 
     /// ????????
