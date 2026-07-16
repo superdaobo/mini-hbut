@@ -4,6 +4,7 @@ import { isAllowedHttpsUrl, isDangerousUrlScheme } from './allowed_domains'
 describe('allowed_domains', () => {
   it('accepts project https hosts', () => {
     expect(isAllowedHttpsUrl('https://hbut.6661111.xyz/privacy')).toBe(true)
+    expect(isAllowedHttpsUrl('https://superdaobo.github.io/mini-hbut/privacy')).toBe(true)
     expect(isAllowedHttpsUrl('https://github.com/superdaobo/mini-hbut')).toBe(true)
   })
 

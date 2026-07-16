@@ -123,6 +123,12 @@ const SEARCH_INDEX: SearchItem[] = [
     keywords: ['安全', '隐私', 'Cookie', 'token', '权限', '调试桥'],
   },
   {
+    title: '隐私政策',
+    description: '面向终端用户的隐私政策：本地数据、可选云同步与第三方端点说明。',
+    url: '/privacy',
+    keywords: ['隐私政策', 'Privacy', 'GDPR', '数据', '合规', 'App Store'],
+  },
+  {
     title: '参考资料',
     description: 'Tauri API、开发规范、外部集成和实现札记。',
     url: '/docs/reference',

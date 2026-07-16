@@ -8,9 +8,25 @@ export const metadata: Metadata = {
   description: '聚合课表、成绩、考试、通知与日程，把复杂的校园信息变成清晰、高效、好用的移动体验。',
 };
 
+// 与 next.config basePath 一致：GitHub Pages 项目站在 /mini-hbut 下
+const basePath = process.env.GITHUB_PAGES === 'true' ? '/mini-hbut' : '';
+const fontFaceCss = `
+@font-face {
+  font-family: 'SmileySans';
+  src: url('${basePath}/fonts/SmileySans-Oblique.woff2') format('woff2'),
+       url('${basePath}/fonts/SmileySans-Oblique.ttf') format('truetype');
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
+}
+`.trim();
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
+      <head>
+        <style dangerouslySetInnerHTML={{ __html: fontFaceCss }} />
+      </head>
       <body className="bg-[#03060d] text-white antialiased" style={{ margin: 0, backgroundColor: '#03060d', color: '#ffffff' }}>
         <Suspense fallback={null}>
           <RouteScrollManager />

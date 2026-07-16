@@ -24,7 +24,12 @@ describe('update download sources', () => {
       `https://hbut.6661111.xyz/releases/${tag}/${filename}`
     )
 
+    // EdgeOne / GitHub Pages 官方 CDN 直链不出现在代理列表（UI 用 isOfficialDownloadUrl 过滤）
     expect(urls.some((url) => isOfficialDownloadUrl(url))).toBe(false)
+    expect(isOfficialDownloadUrl(`https://hbut.6661111.xyz/releases/${tag}/${filename}`)).toBe(true)
+    expect(
+      isOfficialDownloadUrl(`https://superdaobo.github.io/mini-hbut/releases/${tag}/${filename}`)
+    ).toBe(true)
     expect(urls).toEqual([
       `https://ghfast.top/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
       `https://v4.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
@@ -32,6 +37,17 @@ describe('update download sources', () => {
       `https://cdn.gh-proxy.org/https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`,
       `https://github.com/superdaobo/mini-hbut/releases/download/${tag}/${filename}`
     ])
+  })
+
+  it('labels EdgeOne and GitHub Pages CDN sources', () => {
+    expect(
+      describeUpdateDownloadSource(`https://hbut.6661111.xyz/releases/${tag}/${filename}`)
+    ).toEqual({ label: 'EdgeOne 主站', tag: 'edgeone' })
+    expect(
+      describeUpdateDownloadSource(
+        `https://superdaobo.github.io/mini-hbut/releases/${tag}/${filename}`
+      )
+    ).toEqual({ label: 'GitHub Pages 备用', tag: 'ghpages' })
   })
 
   it('labels proxy URLs as proxies even though they contain github.com in the target URL', () => {
@@ -132,7 +148,10 @@ describe('update download sources', () => {
       assets: []
     })
 
-    expect(merged.assets[0].browser_download_url).toContain('hbut.6661111.xyz/releases/v1.4.0/')
+    expect(merged.assets[0].browser_download_url).toMatch(
+      /hbut\.6661111\.xyz|superdaobo\.github\.io\/mini-hbut/
+    )
+    expect(merged.assets[0].browser_download_url).toContain('/releases/v1.4.0/')
     expect(merged.body).toContain('v1.4.0')
     expect(merged.body).not.toContain('v1.3.6')
   })

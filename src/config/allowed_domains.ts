@@ -5,6 +5,7 @@
 const DEFAULT_ALLOWED_HOST_SUFFIXES = Object.freeze([
   'hbut.6661111.xyz',
   'github.com',
+  'github.io',
   'githubusercontent.com',
   'gitcode.com',
   'jsdelivr.net',

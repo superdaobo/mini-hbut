@@ -1,23 +1,37 @@
 import { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { Github, Heart, ExternalLink, Code2, Terminal } from 'lucide-react';
+import { Github, Heart, ExternalLink, Code2, Terminal, Shield } from 'lucide-react';
 
 gsap.registerPlugin(ScrollTrigger);
 
-const footerLinks = [
+type FooterLink = {
+  name: string;
+  href: string;
+  icon: typeof Github;
+  external?: boolean;
+};
+
+const footerLinks: { title: string; links: FooterLink[] }[] = [
   {
     title: '项目',
     links: [
-      { name: 'GitHub', href: 'https://github.com/superdaobo/mini-hbut', icon: Github },
-      { name: 'Releases', href: 'https://github.com/superdaobo/mini-hbut/releases', icon: ExternalLink },
+      { name: 'GitHub', href: 'https://github.com/superdaobo/mini-hbut', icon: Github, external: true },
+      {
+        name: 'Releases',
+        href: 'https://github.com/superdaobo/mini-hbut/releases',
+        icon: ExternalLink,
+        external: true,
+      },
     ],
   },
   {
     title: '文档',
     links: [
-      { name: 'README', href: 'https://github.com/superdaobo/mini-hbut#readme', icon: Code2 },
-      { name: 'Issues', href: 'https://github.com/superdaobo/mini-hbut/issues', icon: Terminal },
+      { name: 'README', href: 'https://github.com/superdaobo/mini-hbut#readme', icon: Code2, external: true },
+      { name: 'Issues', href: 'https://github.com/superdaobo/mini-hbut/issues', icon: Terminal, external: true },
+      { name: '隐私政策', href: '/privacy', icon: Shield, external: false },
     ],
   },
 ];
@@ -96,17 +110,26 @@ export default function Footer() {
               <ul className="space-y-3">
                 {group.links.map((link) => {
                   const Icon = link.icon;
+                  const className =
+                    'text-gray-400 text-sm font-mono hover:text-cyan transition-colors flex items-center gap-2 group';
                   return (
                     <li key={link.name}>
-                      <a
-                        href={link.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-gray-400 text-sm font-mono hover:text-cyan transition-colors flex items-center gap-2 group"
-                      >
-                        <Icon className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                        {link.name}
-                      </a>
+                      {link.external === false ? (
+                        <Link href={link.href} className={className}>
+                          <Icon className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                          {link.name}
+                        </Link>
+                      ) : (
+                        <a
+                          href={link.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={className}
+                        >
+                          <Icon className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                          {link.name}
+                        </a>
+                      )}
                     </li>
                   );
                 })}
@@ -135,7 +158,21 @@ export default function Footer() {
             >
               GNU General Public License v3.0 (GPL v3) © 2026 Mini-HBUT
             </a>
-            <div>
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+              <Link
+                href="/privacy"
+                className="text-gray-600 hover:text-cyan text-xs font-mono transition-colors"
+              >
+                隐私政策
+              </Link>
+              <a
+                href="https://superdaobo.github.io/mini-hbut/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-600 hover:text-cyan text-xs font-mono transition-colors"
+              >
+                GitHub Pages 备用站
+              </a>
               <a
                 href="https://icp.gov.moe/?keyword=20266111"
                 target="_blank"
