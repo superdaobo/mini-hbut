@@ -11,6 +11,10 @@ const basePath = isGitHubPages ? '/mini-hbut' : '';
 const nextConfig: NextConfig = {
   basePath,
   assetPrefix: basePath || undefined,
+  // 客户端 Navbar 等需要读到 basePath，修复 GH Pages 上 `/#xxx` 丢仓库前缀
+  env: {
+    NEXT_PUBLIC_BASE_PATH: basePath,
+  },
   output: 'export',
   distDir: 'dist',
   images: { unoptimized: true },

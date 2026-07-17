@@ -5,6 +5,7 @@ import { gsap } from 'gsap';
 import { Menu, X, Download } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { homeWithHash } from '@/lib/base-path';
 
 type NavLink = { name: string; href: string; external?: boolean };
 
@@ -89,20 +90,27 @@ export default function Navbar({ variant = 'default', pastHero = false }: Navbar
     e.currentTarget.textContent = e.currentTarget.dataset.text || '';
   };
 
+  /**
+   * 首页内：锚点平滑滚动。
+   * 非首页：走带 basePath 的首页锚点（如 /mini-hbut/#download），禁止写成 `/#download` 丢掉仓库前缀。
+   */
   const scrollToSection = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    if (!isHome && href.startsWith('#')) {
-      setIsMobileMenuOpen(false);
-      return;
-    }
+    if (!href.startsWith('#')) return;
 
-    if (href.startsWith('#')) {
+    if (isHome) {
       e.preventDefault();
       document.querySelector(href)?.scrollIntoView({ behavior: 'smooth' });
-      setIsMobileMenuOpen(false);
     }
+    // 非首页：不 preventDefault，使用 getLinkHref 生成的 /mini-hbut/#xxx 导航
+    setIsMobileMenuOpen(false);
   };
 
-  const getLinkHref = (href: string) => (href.startsWith('#') && !isHome ? `/${href}` : href);
+  /** 锚点链接：首页用 #id；其它页用 /{basePath}/#id */
+  const getLinkHref = (href: string) => {
+    if (!href.startsWith('#')) return href;
+    if (isHome) return href;
+    return homeWithHash(href);
+  };
 
   const renderNavLink = (link: NavLink, index?: number, mobile = false) => {
     const underline = (
