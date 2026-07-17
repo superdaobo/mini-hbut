@@ -197,8 +197,11 @@ function HomeScreen() {
 }
 
 function ScheduleScreen() {
+  // 对齐 ScheduleView：月栏 + 7 日 + 节次轴 + 彩色课程块
   const days = ['一', '二', '三', '四', '五', '六', '日'];
-  const periods = [1, 2, 3, 4, 5, 6, 7, 8];
+  const dayNums = [14, 15, 16, 17, 18, 19, 20];
+  const periods = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const todayIdx = 2;
 
   return (
     <AppShell screen="schedule">
@@ -211,10 +214,11 @@ function ScheduleScreen() {
           </div>
           <div className="phone-schedule-topbar-center">
             <div className="phone-schedule-topbar-title">我的课表</div>
-            <div className="phone-schedule-topbar-sub">2025-2026 第 1 学期</div>
+            <div className="phone-schedule-topbar-sub">2025-2026 · 第 1 学期</div>
           </div>
-          <div className="phone-schedule-week-pill">第 14 周</div>
+          <div className="phone-schedule-week-pill">第 14 周 ▾</div>
         </div>
+
         <div className="phone-schedule-date-header">
           <div className="phone-schedule-month">
             <span className="phone-schedule-month-num">7</span>
@@ -222,24 +226,32 @@ function ScheduleScreen() {
           </div>
           <div className="phone-schedule-days-row">
             {days.map((d, i) => (
-              <div key={d} className={`phone-schedule-day-col ${i === 2 ? 'is-today' : ''}`}>
-                <div className="phone-schedule-day-num">{14 + i}</div>
+              <div key={d} className={`phone-schedule-day-col ${i === todayIdx ? 'is-today' : ''}`}>
+                <div className="phone-schedule-day-num">{dayNums[i]}</div>
                 <div className="phone-schedule-day-label">周{d}</div>
               </div>
             ))}
           </div>
         </div>
+
         <div className="phone-schedule-grid-body">
           <div className="phone-schedule-time-axis">
             {periods.map((p) => (
-              <div key={p} className="phone-schedule-time-slot">
+              <div key={p} className="phone-schedule-time-slot" style={{ height: 22 }}>
                 <span className="period-num">{p}</span>
               </div>
             ))}
           </div>
-          <div className="phone-schedule-courses-grid" style={{ height: 160 }}>
-            {[0, 1, 2, 3, 4].map((dayIdx) => (
-              <div key={dayIdx} className={`phone-schedule-day-column ${dayIdx === 2 ? 'is-today' : ''}`}>
+          <div
+            className="phone-schedule-courses-grid"
+            style={{ height: periods.length * 22, gridTemplateColumns: 'repeat(7, 1fr)' }}
+          >
+            {days.map((_, dayIdx) => (
+              <div
+                key={dayIdx}
+                className={`phone-schedule-day-column ${dayIdx === todayIdx ? 'is-today' : ''}`}
+                style={{ gridTemplateRows: `repeat(${periods.length}, 22px)` }}
+              >
                 {DEMO_SCHEDULE_BLOCKS.filter((b) => b.day === dayIdx + 1).map((block) => (
                   <div
                     key={`${block.day}-${block.period}-${block.name}`}
@@ -263,29 +275,61 @@ function ScheduleScreen() {
 }
 
 function GradesScreen() {
+  // 对齐成绩模块：学期 chip + 绩点横幅 + 课程列表卡
+  const terms = ['全部', '2025-2026-1', '2024-2025-2'];
+  const activeTerm = '2025-2026-1';
+  // Hero 演示固定本学期；chip「全部」仅视觉，列表仍按 activeTerm 过滤
+  const list = DEMO_GRADES.filter((g) => g.term === activeTerm);
+
   return (
     <AppShell screen="grades" showNav={false}>
       <PageHeader title="成绩查询" icon={<GraduationCap className="h-4 w-4 text-indigo-500" />} />
       <div className="phone-feature-body">
-        <div className="phone-gradient-banner phone-gradient-indigo">
-          <p className="phone-banner-label">本学期绩点</p>
-          <p className="phone-banner-value">{DEMO_STUDENT.gpa}</p>
-          <p className="phone-banner-sub">已修学分 {DEMO_STUDENT.credits}</p>
+        <div className="phone-grade-term-row">
+          {terms.map((t) => (
+            <span
+              key={t}
+              className={`phone-grade-term-chip ${t === activeTerm ? 'is-active' : ''}`}
+            >
+              {t === '全部' ? t : t.replace('2025-2026-1', '本学期').replace('2024-2025-2', '上学期')}
+            </span>
+          ))}
         </div>
-        {DEMO_GRADES.map((g) => (
-          <div key={g.name} className="phone-list-item">
+
+        <div className="phone-gradient-banner phone-gradient-indigo">
+          <div className="flex items-end justify-between">
             <div>
-              <p className="phone-list-item-title">{g.name}</p>
-              <p className="phone-list-item-sub">
-                {g.teacher} · {g.term}
-              </p>
+              <p className="phone-banner-label">本学期绩点</p>
+              <p className="phone-banner-value">{DEMO_STUDENT.gpa}</p>
+              <p className="phone-banner-sub">已修学分 {DEMO_STUDENT.credits}</p>
             </div>
-            <div className="phone-list-item-right">
-              <p className="phone-list-item-value">{g.score}</p>
-              <p className="phone-list-item-meta">绩点 {g.point}</p>
+            <div className="text-right text-[9px] opacity-90">
+              <p>专业排名</p>
+              <p className="text-lg font-bold">{DEMO_RANKING.rank}</p>
             </div>
           </div>
-        ))}
+        </div>
+
+        {list.map((g) => {
+          const scoreNum = Number(g.score);
+          const scoreColor = scoreNum >= 90 ? '#16a34a' : scoreNum >= 80 ? '#2563eb' : '#d97706';
+          return (
+            <div key={`${g.name}-${g.term}`} className="phone-grade-course-card">
+              <div className="min-w-0 flex-1">
+                <p className="phone-list-item-title">{g.name}</p>
+                <p className="phone-list-item-sub">
+                  {g.teacher} · {g.term}
+                </p>
+              </div>
+              <div className="phone-grade-score-block">
+                <p className="phone-grade-score" style={{ color: scoreColor }}>
+                  {g.score}
+                </p>
+                <p className="phone-list-item-meta">绩点 {g.point}</p>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </AppShell>
   );

@@ -7,8 +7,8 @@ import PhoneAppScreen from './PhoneAppScreen';
 import './phone-app.css';
 
 /**
- * 唯一产品手机：CSS 3D 机框 + 屏幕内 Dashboard 同源 UI。
- * 不再依赖场景中的空壳 PhoneModel。
+ * 移动端产品手机降级：CSS 机框 + 与桌面同源的 PhoneAppScreen。
+ * 桌面由 R3F PhoneModel（drei Html 贴屏）承担，本组件仅 isMobile 挂载。
  */
 export default function PhoneScreenOverlay() {
   const { sample, reducedMotion, isMobile } = useScrollProgress();

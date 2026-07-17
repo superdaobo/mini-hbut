@@ -29,9 +29,9 @@ export default function HeroText() {
       animate={{ opacity }}
       transition={{ duration: reducedMotion ? 0 : 0.35, ease: 'easeOut' }}
     >
-      <div className="mx-auto flex h-full max-w-7xl flex-col justify-center px-5 pb-16 pt-24 md:px-8 lg:flex-row lg:items-center lg:gap-10 lg:px-10">
-        {/* 左侧文案 — 桌面；移动端置顶 */}
-        <div className="pointer-events-auto max-w-xl lg:w-[42%]">
+      <div className="mx-auto flex h-full max-w-7xl flex-col justify-center px-5 pb-16 pt-24 md:px-8 lg:flex-row lg:items-center lg:gap-8 lg:px-8 xl:px-10">
+        {/* 左侧文案 — 限制宽度，右侧留给 3D 手机与浮卡 */}
+        <div className="pointer-events-auto max-w-xl lg:w-[38%] lg:max-w-md xl:w-[40%]">
           <motion.div
             initial={reducedMotion ? false : { opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
@@ -91,35 +91,26 @@ export default function HeroText() {
           </motion.div>
         </div>
 
-        {/* 右侧：当前屏幕字幕（对齐 3D 手机叙事） */}
-        <div className="pointer-events-none mt-8 hidden flex-1 justify-end lg:mt-0 lg:flex">
+        {/* 右侧字幕贴在文案列底部小条，避免与右栏浮卡争抢 */}
+        <div className="pointer-events-none mt-6 max-w-md lg:absolute lg:bottom-[12vh] lg:left-8 lg:mt-0 lg:w-[min(360px,34vw)] xl:left-10">
           <motion.div
             key={sample.activeScreen}
-            className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/40 p-4 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-md"
-            initial={reducedMotion ? false : { opacity: 0, x: 24 }}
-            animate={{ opacity: Math.min(1, 0.35 + sample.phone.screenBrightness * 0.65), x: 0 }}
-            transition={{ duration: 0.45 }}
+            className="hidden rounded-2xl border border-white/10 bg-black/45 p-3.5 shadow-[0_16px_48px_rgba(0,0,0,0.4)] backdrop-blur-md lg:block"
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: Math.min(1, 0.4 + sample.phone.screenBrightness * 0.6), y: 0 }}
+            transition={{ duration: 0.4 }}
           >
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-1.5 flex items-center gap-2">
               <span
-                className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-950"
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-slate-950"
                 style={{ background: caption.accent }}
               >
                 {caption.label}
               </span>
               <span className="text-[10px] text-white/40">App 界面预览</span>
             </div>
-            <h2 className="text-lg font-semibold text-white">{caption.title}</h2>
-            <p className="mt-1.5 text-sm leading-6 text-white/60">{caption.blurb}</p>
-            <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
-              <motion.div
-                className="h-full rounded-full"
-                style={{ background: caption.accent }}
-                initial={{ width: '0%' }}
-                animate={{ width: `${12 + sample.globalProgress * 88}%` }}
-                transition={{ duration: 0.3 }}
-              />
-            </div>
+            <h2 className="text-base font-semibold text-white">{caption.title}</h2>
+            <p className="mt-1 text-xs leading-5 text-white/60">{caption.blurb}</p>
           </motion.div>
         </div>
       </div>

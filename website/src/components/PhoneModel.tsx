@@ -2,8 +2,11 @@
 
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
+import PhoneAppScreen from './phone-app/PhoneAppScreen';
+import './phone-app/phone-app.css';
 import {
   BEVEL_RADIUS,
   PHONE_DEPTH,
@@ -15,9 +18,17 @@ import {
   phoneExtrudeSettings,
 } from './phone-app/phone-geometry';
 
+/** 屏幕 DOM 像素，配合 distanceFactor 贴合 3D 屏 */
+const SCREEN_DOM_W = 270;
+const SCREEN_DOM_H = 556;
+
+/**
+ * 唯一 3D 产品手机：机身 + 屏幕 Html 贴图（真 App UI）。
+ * 桌面主路径；移动端由 PhoneScreenOverlay DOM 降级。
+ */
 export default function PhoneModel() {
   const groupRef = useRef<THREE.Group>(null);
-  const { sample, pointer, reducedMotion } = useScrollProgress();
+  const { sample, pointer, reducedMotion, isMobile } = useScrollProgress();
 
   const frameGeometry = useMemo(() => {
     const shape = createPhoneProfile(PHONE_WIDTH, PHONE_HEIGHT, BEVEL_RADIUS);
@@ -29,33 +40,9 @@ export default function PhoneModel() {
   const frameMaterial = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        color: '#141a28',
-        metalness: 0.94,
-        roughness: 0.18,
-      }),
-    [],
-  );
-
-  const bezelMaterial = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: '#05080f',
-        metalness: 0.6,
-        roughness: 0.35,
-      }),
-    [],
-  );
-
-  const glassMaterial = useMemo(
-    () =>
-      new THREE.MeshPhysicalMaterial({
-        color: '#0a1628',
-        metalness: 0,
-        roughness: 0.05,
-        transmission: 0.15,
-        thickness: 0.05,
-        transparent: true,
-        opacity: 0.92,
+        color: '#1c2436',
+        metalness: 0.92,
+        roughness: 0.22,
       }),
     [],
   );
@@ -70,131 +57,97 @@ export default function PhoneModel() {
     [],
   );
 
-  const deskMaterial = useMemo(
-    () =>
-      new THREE.MeshPhysicalMaterial({
-        color: '#0d1118',
-        metalness: 0.1,
-        roughness: 0.15,
-        transmission: 0.65,
-        thickness: 0.8,
-        transparent: true,
-        opacity: 0.55,
-      }),
-    [],
-  );
-
   useFrame((state) => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || isMobile) return;
     const t = state.clock.elapsedTime;
-    const floatY = Math.sin(t * 1.15) * sample.phone.float * 0.12;
-    const parallaxX = reducedMotion ? 0 : pointer.x * 0.1;
-    const parallaxY = reducedMotion ? 0 : pointer.y * 0.06;
-    // 与 DOM 产品框错位：3D 机身略偏左后，作景深与光影，UI 由前景 chrome 呈现
-    const stageOffsetX = -0.55;
-    const stageOffsetZ = -0.35;
+    const floatY = Math.sin(t * 1.1) * sample.phone.float * 0.1;
+    const parallaxX = reducedMotion ? 0 : pointer.x * 0.08;
+    const parallaxY = reducedMotion ? 0 : pointer.y * 0.05;
 
+    // 产品位：略偏右，给左侧文案留空（世界坐标）
     groupRef.current.position.set(
-      sample.phone.position.x + parallaxX + stageOffsetX,
-      sample.phone.position.y + floatY + parallaxY,
-      sample.phone.position.z + stageOffsetZ,
+      0.42 + sample.phone.position.x * 0.35 + parallaxX,
+      sample.phone.position.y * 0.5 + floatY + parallaxY,
+      sample.phone.position.z * 0.4,
     );
     groupRef.current.rotation.set(
-      sample.phone.rotation.x * 0.85,
-      sample.phone.rotation.y + 0.55 + parallaxX * 0.2,
+      sample.phone.rotation.x * 0.9,
+      sample.phone.rotation.y * 0.95 + parallaxX * 0.12,
       sample.phone.rotation.z,
     );
-    groupRef.current.scale.setScalar(sample.phone.scale * 0.92);
+    groupRef.current.scale.setScalar(sample.phone.scale * 0.98);
   });
 
-  const deskOpacity = 1 - Math.min(1, sample.globalProgress * 4);
+  if (isMobile) return null;
+
   const zFront = PHONE_DEPTH / 2;
+  // 经验标定：屏世界高度 ≈1.15，DOM 556px
+  const htmlDistanceFactor = 1.58;
 
   return (
     <group ref={groupRef}>
-      {/* 磨砂玻璃桌面 */}
-      <mesh position={[0, -0.42, 0]} rotation={[-Math.PI / 2, 0, 0]} material={deskMaterial}>
-        <planeGeometry args={[4.5, 3.2]} />
-      </mesh>
-      <mesh position={[0, -0.415, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[4.2, 2.9]} />
-        <meshStandardMaterial
-          color="#0ff0fc"
-          transparent
-          opacity={0.04 * deskOpacity}
-          emissive="#0ff0fc"
-          emissiveIntensity={0.15}
-        />
-      </mesh>
-
-      {/* 机身 — 挤出圆角矩形 */}
-      <mesh geometry={frameGeometry} material={frameMaterial} castShadow />
+      <mesh geometry={frameGeometry} material={frameMaterial} castShadow receiveShadow />
 
       {/* 屏幕黑边 */}
       <mesh position={[0, 0, zFront + 0.001]}>
         <planeGeometry args={[SCREEN_WIDTH + 0.02, SCREEN_HEIGHT + 0.02]} />
-        <primitive object={bezelMaterial} attach="material" />
-      </mesh>
-
-      {/* 屏幕玻璃 */}
-      <mesh position={[0, 0, zFront + 0.0025]}>
-        <planeGeometry args={[SCREEN_WIDTH, SCREEN_HEIGHT]} />
-        <primitive object={glassMaterial} attach="material" />
-      </mesh>
-
-      {/* 屏幕反光 */}
-      <mesh position={[0.06, 0.2, zFront + 0.004]} rotation={[0, 0, 0.3]}>
-        <planeGeometry args={[0.14, 0.42]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.06 + sample.phone.screenBrightness * 0.05} />
+        <meshStandardMaterial color="#05080f" metalness={0.5} roughness={0.4} />
       </mesh>
 
       {/* 动态岛 */}
-      <mesh position={[0, PHONE_HEIGHT / 2 - 0.095, zFront + 0.003]}>
+      <mesh position={[0, PHONE_HEIGHT / 2 - 0.095, zFront + 0.004]}>
         <capsuleGeometry args={[0.028, 0.1, 4, 12]} />
         <meshStandardMaterial color="#030508" metalness={0.9} roughness={0.2} />
       </mesh>
-      <mesh position={[-0.022, PHONE_HEIGHT / 2 - 0.095, zFront + 0.004]}>
-        <circleGeometry args={[0.006, 16]} />
-        <meshStandardMaterial color="#111827" metalness={1} roughness={0.1} />
-      </mesh>
 
-      {/* 侧边电源键 */}
+      {/* 侧键 */}
       <mesh position={[PHONE_WIDTH / 2 + 0.003, 0.12, 0]} rotation={[0, 0, Math.PI / 2]}>
         <boxGeometry args={[0.09, 0.01, 0.018]} />
         <primitive object={buttonMaterial} attach="material" />
       </mesh>
-      {/* 音量键 */}
       <mesh position={[-PHONE_WIDTH / 2 - 0.003, 0.2, 0]} rotation={[0, 0, Math.PI / 2]}>
         <boxGeometry args={[0.05, 0.01, 0.018]} />
         <primitive object={buttonMaterial} attach="material" />
       </mesh>
-      <mesh position={[-PHONE_WIDTH / 2 - 0.003, 0.1, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <boxGeometry args={[0.05, 0.01, 0.018]} />
-        <primitive object={buttonMaterial} attach="material" />
-      </mesh>
 
-      {/* 底部扬声器开孔 */}
-      {[-0.06, -0.03, 0, 0.03, 0.06].map((x) => (
-        <mesh key={x} position={[x, -PHONE_HEIGHT / 2 + 0.04, zFront + 0.002]}>
-          <circleGeometry args={[0.004, 8]} />
-          <meshStandardMaterial color="#1a2030" />
-        </mesh>
-      ))}
+      {/* App UI 贴屏 — 唯一屏幕内容源（桌面） */}
+      <Html
+        transform
+        occlude={false}
+        position={[0, 0, zFront + 0.006]}
+        distanceFactor={htmlDistanceFactor}
+        style={{
+          width: SCREEN_DOM_W,
+          height: SCREEN_DOM_H,
+          borderRadius: 22,
+          overflow: 'hidden',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          background: '#f0f4f8',
+        }}
+        zIndexRange={[20, 0]}
+      >
+        <div
+          style={{
+            width: SCREEN_DOM_W,
+            height: SCREEN_DOM_H,
+            overflow: 'hidden',
+            borderRadius: 22,
+            background: '#f0f4f8',
+          }}
+        >
+          <PhoneAppScreen
+            screenFrom={sample.screenFrom}
+            screenTo={sample.screenTo}
+            screenBlend={sample.screenBlend}
+          />
+        </div>
+      </Html>
 
-      {/* 发光屏幕（具体 App UI 由前景产品框 PhoneScreenOverlay 呈现） */}
-      <mesh position={[0, 0, zFront + 0.003]}>
-        <planeGeometry args={[SCREEN_WIDTH, SCREEN_HEIGHT]} />
-        <meshStandardMaterial
-          color="#0c1a2e"
-          emissive="#38bdf8"
-          emissiveIntensity={0.25 + sample.phone.screenBrightness * 0.85}
-          metalness={0.1}
-          roughness={0.2}
-        />
-      </mesh>
-      <mesh position={[0, 0, zFront + 0.004]}>
-        <planeGeometry args={[SCREEN_WIDTH * 0.92, SCREEN_HEIGHT * 0.55]} />
-        <meshBasicMaterial color="#67e8f9" transparent opacity={0.06 + sample.phone.screenBrightness * 0.08} />
+      {/* 玻璃反光（在 Html 之上用半透明 mesh 会挡住点击，此处仅边缘高光 mesh 在屏后即可） */}
+      <mesh position={[0.08, 0.22, zFront + 0.007]} rotation={[0, 0, 0.25]}>
+        <planeGeometry args={[0.12, 0.38]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.05} depthWrite={false} />
       </mesh>
     </group>
   );

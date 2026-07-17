@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { ContactShadows, Grid } from '@react-three/drei';
+import { ContactShadows, Float, Grid } from '@react-three/drei';
 import CameraRig from './CameraRig';
+import PhoneModel from './PhoneModel';
 import ParticleField from './ParticleField';
 import LightRibbons from './LightRibbons';
 import SceneErrorBoundary from './SceneErrorBoundary';
@@ -18,41 +19,47 @@ function supportsWebGL() {
   }
 }
 
-/** 仅氛围 3D：粒子 / 光带 / 地面阴影。产品手机由 DOM 层唯一呈现，不再挂空壳机身。 */
+/** 唯一 3D 产品手机（Html 贴屏）+ 氛围 */
 function SceneContent() {
   return (
     <>
       <color attach="background" args={['#03060d']} />
-      <fog attach="fog" args={['#03060d', 6, 16]} />
+      <fog attach="fog" args={['#03060d', 5.5, 14]} />
 
-      <ambientLight intensity={0.4} />
-      <hemisphereLight args={['#b8e7ff', '#0a1020', 0.55]} />
-      <directionalLight position={[3, 4, 2]} intensity={0.9} color="#d7f3ff" />
-      <directionalLight position={[-3, 2, -1]} intensity={0.4} color="#a78bfa" />
-      <pointLight position={[0.5, 1.2, 1.5]} intensity={0.7} color="#38bdf8" distance={10} />
+      <ambientLight intensity={0.42} />
+      <hemisphereLight args={['#c8ecff', '#0a1020', 0.6]} />
+      <directionalLight position={[2.8, 4.2, 2.4]} intensity={1.15} color="#e8f7ff" castShadow />
+      <directionalLight position={[-3.2, 1.6, -1.2]} intensity={0.5} color="#a78bfa" />
+      <pointLight position={[0.6, 1.1, 1.6]} intensity={0.9} color="#38bdf8" distance={9} />
+      <spotLight position={[1.2, 2.8, 2.2]} angle={0.4} penumbra={0.55} intensity={0.85} color="#7dd3fc" />
 
       <CameraRig />
+
+      <Float speed={1.05} rotationIntensity={0.06} floatIntensity={0.12}>
+        <PhoneModel />
+      </Float>
+
       <ParticleField />
       <LightRibbons />
 
       <ContactShadows
-        position={[0, -1.1, 0]}
-        opacity={0.4}
-        scale={10}
-        blur={2.8}
-        far={5}
+        position={[0, -0.95, 0]}
+        opacity={0.48}
+        scale={9}
+        blur={2.5}
+        far={4.5}
         color="#000000"
       />
 
       <Grid
-        position={[0, -1.12, 0]}
+        position={[0, -0.97, 0]}
         args={[14, 14]}
-        cellSize={0.32}
+        cellSize={0.3}
         cellThickness={0.35}
-        sectionSize={1.4}
-        sectionThickness={0.7}
-        fadeDistance={11}
-        fadeStrength={1.5}
+        sectionSize={1.3}
+        sectionThickness={0.75}
+        fadeDistance={10}
+        fadeStrength={1.45}
         cellColor="#12263d"
         sectionColor="#0e7490"
         infiniteGrid
@@ -89,8 +96,9 @@ export default function SceneCanvas() {
       <SceneErrorBoundary fallback={<CanvasFallback />}>
         <Canvas
           dpr={dpr}
-          camera={{ position: [0.2, 1.2, 4.2], fov: 42, near: 0.1, far: 40 }}
+          camera={{ position: [0.55, 0.35, 2.65], fov: 36, near: 0.05, far: 40 }}
           gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+          shadows
           onCreated={({ gl }) => {
             gl.setClearColor('#03060d');
           }}

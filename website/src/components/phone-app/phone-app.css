@@ -890,6 +890,50 @@
   height: 16px;
 }
 
+/* 成绩页 — 对齐 App 列表层次 */
+.phone-grade-term-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  margin-bottom: 2px;
+}
+.phone-grade-term-chip {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: #fff;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.phone-grade-term-chip.is-active {
+  background: #eef2ff;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+}
+.phone-grade-course-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #fff;
+  border-radius: 14px;
+  padding: 11px 12px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+.phone-grade-score-block {
+  text-align: right;
+  flex-shrink: 0;
+}
+.phone-grade-score {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
 /* Dashboard 今日安排底部统计（对齐 Tauri） */
 .phone-today-stats {
   display: flex;
