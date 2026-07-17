@@ -96,7 +96,7 @@ export default function SceneCanvas() {
       <SceneErrorBoundary fallback={<CanvasFallback />}>
         <Canvas
           dpr={dpr}
-          camera={{ position: [0.55, 0.35, 2.65], fov: 36, near: 0.05, far: 40 }}
+          camera={{ position: [0.55, 0.32, 3.35], fov: 34, near: 0.05, far: 40 }}
           gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
           shadows
           onCreated={({ gl }) => {

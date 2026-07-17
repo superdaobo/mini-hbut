@@ -3,6 +3,8 @@ import { ref, nextTick, watch, computed } from 'vue'
 import { openExternal } from '../utils/external_link'
 import LoginV3 from './LoginV3.vue'
 import {
+  ICP_BEIAN_TEXT,
+  ICP_BEIAN_URL,
   NON_OFFICIAL_DISCLAIMER_EN,
   NON_OFFICIAL_DISCLAIMER_ZH,
   PRIVACY_POLICY_URL,
@@ -129,6 +131,10 @@ const handleOpenSource = () => {
 
 const openGithub = async () => {
     await openExternal('https://github.com/superdaobo/mini-hbut')
+}
+
+const openIcpBeian = async () => {
+  await openExternal(ICP_BEIAN_URL)
 }
 
 const handleShowLegal = async (tab) => {
@@ -337,6 +343,13 @@ const handleShowLegal = async (tab) => {
         <p>继续使用即表示你已阅读并同意本隐私政策。</p>
       </div>
     </section>
+
+    <!-- 工信部 ICP 备案公示（页底） -->
+    <footer class="icp-beian-footer">
+      <button type="button" class="icp-beian-link" @click="openIcpBeian">
+        {{ ICP_BEIAN_TEXT }}
+      </button>
+    </footer>
 
     <!-- 开源说明弹窗 -->
     <div v-if="showOpenSourceModal" class="modal-mask" @click="showOpenSourceModal = false">
@@ -697,6 +710,32 @@ const handleShowLegal = async (tab) => {
 
 .legal-content li {
   margin: 6px 0;
+}
+
+/* ICP 备案号 — 页底次要公示 */
+.icp-beian-footer {
+  display: flex;
+  justify-content: center;
+  padding: 8px 12px 4px;
+  margin-bottom: 8px;
+}
+
+.icp-beian-link {
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: #9ca3af;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.icp-beian-link:active {
+  color: #6b7280;
 }
 
 /* Modal */

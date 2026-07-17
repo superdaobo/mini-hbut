@@ -41,7 +41,7 @@ export default function FeatureTextOverlay() {
       {opacity > 0.05 && (
         <motion.div
           key={copyKey}
-          className="pointer-events-none fixed inset-x-0 bottom-[22vh] z-20 mx-auto max-w-3xl px-6 text-center"
+          className="pointer-events-none fixed inset-x-0 bottom-[18vh] z-20 mx-auto max-w-3xl px-6 text-center lg:hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity, y: 0 }}
           exit={{ opacity: 0, y: -12 }}

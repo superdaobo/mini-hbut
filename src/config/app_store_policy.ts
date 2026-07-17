@@ -265,6 +265,11 @@ export const PROJECT_HOME_URL = 'https://hbut.6661111.xyz'
 export const GITHUB_URL = 'https://github.com/superdaobo/mini-hbut'
 export const FEEDBACK_URL = 'https://docs.qq.com/sheet/DQkdvWHJxQ3RwWlB4?tab=BB08J2'
 
+/** 工信部 ICP 备案号（我的页底部公示） */
+export const ICP_BEIAN_TEXT = '鲁ICP备2026039385号-1A'
+/** 工信部备案查询官网 */
+export const ICP_BEIAN_URL = 'https://beian.miit.gov.cn/'
+
 export const DEMO_MODE_BANNER_ZH =
   '当前为审核演示模式，页面使用虚构数据，不连接真实校园服务。'
 

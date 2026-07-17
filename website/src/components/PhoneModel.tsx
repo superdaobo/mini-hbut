@@ -23,7 +23,7 @@ const SCREEN_DOM_W = 270;
 const SCREEN_DOM_H = 556;
 
 /**
- * 唯一 3D 产品手机：机身 + 屏幕 Html 贴图（真 App UI）。
+ * 唯一 3D 产品手机：居中主视觉 + 屏幕 Html 贴图。
  * 桌面主路径；移动端由 PhoneScreenOverlay DOM 降级。
  */
 export default function PhoneModel() {
@@ -61,46 +61,46 @@ export default function PhoneModel() {
     if (!groupRef.current || isMobile) return;
     const t = state.clock.elapsedTime;
     const floatY = Math.sin(t * 1.1) * sample.phone.float * 0.1;
-    const parallaxX = reducedMotion ? 0 : pointer.x * 0.08;
-    const parallaxY = reducedMotion ? 0 : pointer.y * 0.05;
+    const parallaxX = reducedMotion ? 0 : pointer.x * 0.06;
+    const parallaxY = reducedMotion ? 0 : pointer.y * 0.04;
 
-    // 产品位：略偏右，给左侧文案留空（世界坐标）
+    // 居中主视觉；关键帧只做轻微位移动效，不把机身推到左右栏
     groupRef.current.position.set(
-      0.42 + sample.phone.position.x * 0.35 + parallaxX,
-      sample.phone.position.y * 0.5 + floatY + parallaxY,
-      sample.phone.position.z * 0.4,
+      sample.phone.position.x * 0.12 + parallaxX,
+      sample.phone.position.y * 0.35 + floatY + parallaxY,
+      sample.phone.position.z * 0.2,
     );
     groupRef.current.rotation.set(
       sample.phone.rotation.x * 0.9,
-      sample.phone.rotation.y * 0.95 + parallaxX * 0.12,
+      sample.phone.rotation.y * 0.95 + parallaxX * 0.1,
       sample.phone.rotation.z,
     );
-    groupRef.current.scale.setScalar(sample.phone.scale * 0.98);
+    groupRef.current.scale.setScalar(sample.phone.scale);
   });
 
   if (isMobile) return null;
 
   const zFront = PHONE_DEPTH / 2;
-  // 经验标定：屏世界高度 ≈1.15，DOM 556px
-  const htmlDistanceFactor = 1.58;
+  /**
+   * drei Html(transform) 缩放系数 ≈ distanceFactor/400（越大越大）。
+   * 1.58 会整屏贴脸；0.48 又过小。居中机身 + 中距离镜头下约 1.12 贴合屏平面。
+   */
+  const htmlDistanceFactor = 0.98;
 
   return (
     <group ref={groupRef}>
       <mesh geometry={frameGeometry} material={frameMaterial} castShadow receiveShadow />
 
-      {/* 屏幕黑边 */}
       <mesh position={[0, 0, zFront + 0.001]}>
         <planeGeometry args={[SCREEN_WIDTH + 0.02, SCREEN_HEIGHT + 0.02]} />
         <meshStandardMaterial color="#05080f" metalness={0.5} roughness={0.4} />
       </mesh>
 
-      {/* 动态岛 */}
       <mesh position={[0, PHONE_HEIGHT / 2 - 0.095, zFront + 0.004]}>
         <capsuleGeometry args={[0.028, 0.1, 4, 12]} />
         <meshStandardMaterial color="#030508" metalness={0.9} roughness={0.2} />
       </mesh>
 
-      {/* 侧键 */}
       <mesh position={[PHONE_WIDTH / 2 + 0.003, 0.12, 0]} rotation={[0, 0, Math.PI / 2]}>
         <boxGeometry args={[0.09, 0.01, 0.018]} />
         <primitive object={buttonMaterial} attach="material" />
@@ -110,7 +110,6 @@ export default function PhoneModel() {
         <primitive object={buttonMaterial} attach="material" />
       </mesh>
 
-      {/* App UI 贴屏 — 唯一屏幕内容源（桌面） */}
       <Html
         transform
         occlude={false}
@@ -125,7 +124,7 @@ export default function PhoneModel() {
           userSelect: 'none',
           background: '#f0f4f8',
         }}
-        zIndexRange={[20, 0]}
+        zIndexRange={[12, 0]}
       >
         <div
           style={{
@@ -144,7 +143,6 @@ export default function PhoneModel() {
         </div>
       </Html>
 
-      {/* 玻璃反光（在 Html 之上用半透明 mesh 会挡住点击，此处仅边缘高光 mesh 在屏后即可） */}
       <mesh position={[0.08, 0.22, zFront + 0.007]} rotation={[0, 0, 0.25]}>
         <planeGeometry args={[0.12, 0.38]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0.05} depthWrite={false} />

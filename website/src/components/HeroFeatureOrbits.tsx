@@ -9,41 +9,43 @@ type OrbitCard = {
   id: AppModuleId;
   metric: string;
   screen: AppScreen;
-  /** 仅用右侧/上下安全区，避免侵入左侧 lg:w-[42%] 文案 */
   top: string;
-  right: string;
 };
 
 /**
- * 浮卡全部锚在「手机右侧栏」：
- * 布局用 fixed 右侧轨道，不再用负向 translate 冲进左半屏。
+ * 右侧功能轮询卡：
+ * - 固定右栏，不侵入中间手机与左侧文案
+ * - 随 activeScreen 高亮，形成「功能轮播」感
  */
 const ORBIT_CARDS: OrbitCard[] = [
-  { id: 'grades', metric: 'GPA 3.72', screen: 'grades', top: '18%', right: '4%' },
-  { id: 'classroom', metric: '今 12 间空闲', screen: 'classroom', top: '32%', right: '3%' },
-  { id: 'exams', metric: '倒计时 6 天', screen: 'exams', top: '46%', right: '4.5%' },
-  { id: 'electricity', metric: '余额 ¥28.6', screen: 'electricity', top: '60%', right: '3%' },
-  { id: 'calendar', metric: '第 14 教学周', screen: 'home', top: '74%', right: '5%' },
+  { id: 'grades', metric: 'GPA 3.72', screen: 'grades', top: '18%' },
+  { id: 'classroom', metric: '今 12 间空闲', screen: 'classroom', top: '32%' },
+  { id: 'exams', metric: '倒计时 6 天', screen: 'exams', top: '46%' },
+  { id: 'electricity', metric: '余额 ¥28.6', screen: 'electricity', top: '60%' },
+  { id: 'calendar', metric: '第 14 教学周', screen: 'home', top: '74%' },
 ];
 
 function screenMatches(card: OrbitCard, active: AppScreen) {
   if (card.screen === active) return true;
   if (active === 'all-features') return card.id === 'grades';
   if (active === 'home') return card.id === 'calendar' || card.id === 'grades';
+  if (active === 'schedule') return card.id === 'calendar';
   return false;
 }
 
 export default function HeroFeatureOrbits() {
   const { sample, reducedMotion, isMobile } = useScrollProgress();
-  // 平板以下隐藏；桌面放在右 1/3，绝不进左文案区
   if (isMobile) return null;
 
   return (
     <div
-      className="pointer-events-none fixed inset-y-0 right-0 z-[13] hidden w-[min(280px,28vw)] min-w-[200px] lg:block"
+      className="pointer-events-none fixed inset-y-0 right-0 z-[25] hidden w-[min(260px,24vw)] min-w-[188px] lg:block"
       aria-hidden
     >
-      <div className="relative h-full w-full pr-3 pt-24">
+      <div className="relative h-full w-full pr-4 pt-28">
+        <p className="mb-3 pr-1 text-right text-[10px] font-medium tracking-wide text-white/35">
+          功能速览 · 随界面轮播
+        </p>
         {ORBIT_CARDS.map((card, i) => {
           const mod = APP_MODULES.find((m) => m.id === card.id);
           if (!mod) return null;
@@ -52,28 +54,28 @@ export default function HeroFeatureOrbits() {
           return (
             <motion.div
               key={card.id}
-              className="absolute w-[148px]"
-              style={{ top: card.top, right: card.right }}
-              initial={reducedMotion ? false : { opacity: 0, x: 24 }}
+              className="absolute right-0 w-[156px]"
+              style={{ top: card.top }}
+              initial={reducedMotion ? false : { opacity: 0, x: 28 }}
               animate={{
-                opacity: 0.72 + sample.phone.screenBrightness * 0.28,
+                opacity: active ? 1 : 0.55 + sample.phone.screenBrightness * 0.2,
                 x: 0,
-                scale: active ? 1.05 : 1,
+                scale: active ? 1.06 : 0.98,
               }}
-              transition={{ delay: 0.12 + i * 0.05, duration: 0.4 }}
+              transition={{ delay: 0.1 + i * 0.05, duration: 0.35 }}
             >
               <motion.div
-                className="rounded-2xl border border-white/15 bg-black/50 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
+                className="rounded-2xl border border-white/15 bg-black/55 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
                 style={{
                   boxShadow: active
-                    ? `0 0 0 1px ${mod.color}88, 0 16px 40px rgba(0,0,0,0.5), 0 0 24px ${mod.color}40`
+                    ? `0 0 0 1px ${mod.color}99, 0 16px 40px rgba(0,0,0,0.5), 0 0 28px ${mod.color}45`
                     : undefined,
                 }}
-                animate={reducedMotion ? undefined : { y: [0, i % 2 === 0 ? -4 : 4, 0] }}
+                animate={reducedMotion ? undefined : { y: [0, i % 2 === 0 ? -5 : 5, 0] }}
                 transition={
                   reducedMotion
                     ? undefined
-                    : { duration: 3 + i * 0.2, repeat: Infinity, ease: 'easeInOut' }
+                    : { duration: 3.2 + i * 0.25, repeat: Infinity, ease: 'easeInOut' }
                 }
               >
                 <div className="flex items-center gap-2">
@@ -89,12 +91,11 @@ export default function HeroFeatureOrbits() {
                   </div>
                 </div>
                 <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: active ? '85%' : '45%',
-                      background: mod.color,
-                    }}
+                  <motion.div
+                    className="h-full rounded-full"
+                    style={{ background: mod.color }}
+                    animate={{ width: active ? '88%' : '38%' }}
+                    transition={{ duration: 0.45 }}
                   />
                 </div>
               </motion.div>
