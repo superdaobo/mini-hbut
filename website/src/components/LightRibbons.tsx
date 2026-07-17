@@ -9,7 +9,7 @@ const RIBBON_COUNT = 5;
 
 export default function LightRibbons() {
   const groupRef = useRef<THREE.Group>(null);
-  const { sample, isMobile } = useScrollProgress();
+  const { sampleRef, isMobile } = useScrollProgress();
 
   const ribbons = useMemo(() => {
     return Array.from({ length: isMobile ? 3 : RIBBON_COUNT }, (_, i) => {
@@ -35,7 +35,7 @@ export default function LightRibbons() {
   useFrame((state) => {
     if (!groupRef.current) return;
     const t = state.clock.elapsedTime;
-    const intensity = sample.ribbonIntensity;
+    const intensity = sampleRef.current.ribbonIntensity;
     groupRef.current.visible = intensity > 0.02;
     groupRef.current.children.forEach((child, i) => {
       child.position.z = -2.5 - i * 0.4 + Math.sin(t * 0.5 + ribbons[i].offset) * 0.15 * intensity;

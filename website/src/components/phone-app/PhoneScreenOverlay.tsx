@@ -1,103 +1,76 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
+import { useDisplayScreen } from '@/hooks/use-display-screen';
 import { SCREEN_CAPTIONS } from '@/lib/screen-captions';
 import PhoneAppScreen from './PhoneAppScreen';
 import './phone-app.css';
 
 /**
- * 移动端产品手机降级：CSS 机框 + 与桌面同源的 PhoneAppScreen。
- * 桌面由 R3F PhoneModel（drei Html 贴屏）承担，本组件仅 isMobile 挂载。
+ * 移动端产品手机降级：CSS 机框 + 同源 PhoneAppScreen。
+ * 位置固定、无 spring，避免 progress 连续更新时整机弹跳闪烁。
  */
 export default function PhoneScreenOverlay() {
-  const { sample, reducedMotion, isMobile } = useScrollProgress();
-  const brightness = Math.max(0.85, sample.phone.screenBrightness);
-  const caption = SCREEN_CAPTIONS[sample.activeScreen] ?? SCREEN_CAPTIONS.home;
+  const { sample, isMobile } = useScrollProgress();
+  const display = useDisplayScreen();
+  const caption = SCREEN_CAPTIONS[display.activeScreen] ?? SCREEN_CAPTIONS.home;
 
-  const progress = sample.globalProgress;
-  const phoneScale = sample.phone.scale;
-  const rotY = sample.phone.rotation.y;
-  const rotX = sample.phone.rotation.x;
-
-  const baseScale = isMobile ? 0.82 : 0.96;
-  const scale = baseScale * (0.94 + (phoneScale - 1) * 0.28);
-  const rotateY = rotY * 26;
-  const rotateX = -rotX * 16 + 5;
-  const translateX = isMobile ? 0 : 16 + progress * 3 + sample.phone.position.x * 36;
-  const translateY =
-    (typeof window !== 'undefined' ? window.innerHeight * (isMobile ? 0.18 : 0.12) : 110) +
-    sample.phone.position.y * 64;
+  if (!isMobile) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[12] overflow-hidden" aria-hidden>
-      <motion.div
-        className="absolute left-1/2 top-0"
-        style={{ transformStyle: 'preserve-3d', perspective: 1400 }}
-        initial={false}
-        animate={{
-          opacity: brightness,
-          x: `calc(-50% + ${translateX}%)`,
-          y: translateY,
+    <div
+      className="pointer-events-none fixed inset-x-0 z-[12] flex flex-col items-center"
+      style={{
+        top: 'max(9.5rem, 22vh)',
+        paddingBottom: '1rem',
+      }}
+      aria-hidden
+    >
+      <div
+        className="relative"
+        style={{
+          width: 'min(68vw, 260px)',
+          height: 'min(140vw, 534px)',
+          maxHeight: '52vh',
+          opacity: Math.max(0.9, sample.phone.screenBrightness),
+          transition: 'opacity 0.3s ease',
         }}
-        transition={{ type: 'spring', stiffness: 100, damping: 24, mass: 0.75 }}
       >
         <div
-          className="relative"
+          className="absolute inset-0 rounded-[36px]"
           style={{
-            width: 300,
-            height: 618,
-            transform: `rotateY(${rotateY}deg) rotateX(${rotateX}deg) scale(${scale})`,
-            transformStyle: 'preserve-3d',
-            transition: reducedMotion ? undefined : 'transform 0.5s cubic-bezier(0.22,1,0.36,1)',
+            background:
+              'linear-gradient(155deg, #3d4a63 0%, #1a2233 35%, #0c1018 65%, #243044 100%)',
+            boxShadow:
+              '0 24px 50px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.12)',
           }}
-        >
-          {/* 机身边框 */}
-          <div
-            className="absolute inset-0 rounded-[44px]"
-            style={{
-              background:
-                'linear-gradient(155deg, #3d4a63 0%, #1a2233 35%, #0c1018 65%, #243044 100%)',
-              boxShadow:
-                '0 40px 90px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.12)',
-              transform: 'translateZ(-10px)',
-            }}
-          />
-          <div
-            className="absolute inset-y-10 -left-[1px] w-[3px] rounded-full opacity-60"
-            style={{
-              background: 'linear-gradient(180deg, transparent, #67e8f9aa, transparent)',
-            }}
-          />
+        />
 
-          {/* 屏幕 */}
-          <div className="absolute inset-[10px] overflow-hidden rounded-[36px] bg-[#f0f4f8] ring-1 ring-black/40">
-            <div className="absolute left-1/2 top-2.5 z-20 h-[22px] w-[92px] -translate-x-1/2 rounded-full bg-black" />
-            <div className="absolute inset-0">
-              <PhoneAppScreen
-                screenFrom={sample.screenFrom}
-                screenTo={sample.screenTo}
-                screenBlend={sample.screenBlend}
-              />
-            </div>
-            <div
-              className="pointer-events-none absolute inset-0 z-10"
-              style={{
-                background:
-                  'linear-gradient(118deg, rgba(255,255,255,0.16) 0%, transparent 28%, transparent 70%, rgba(56,189,248,0.06) 100%)',
-              }}
+        <div className="absolute inset-[8px] overflow-hidden rounded-[28px] bg-[#f0f4f8] ring-1 ring-black/40">
+          <div className="absolute left-1/2 top-1.5 z-20 h-[16px] w-[72px] -translate-x-1/2 rounded-full bg-black" />
+          <div className="absolute inset-0">
+            <PhoneAppScreen
+              screenFrom={display.screenFrom}
+              screenTo={display.screenTo}
+              screenBlend={display.screenBlend}
             />
           </div>
-
-          {/* 移动端字幕 */}
-          <div className="absolute -bottom-14 left-1/2 w-[min(280px,85vw)] -translate-x-1/2 rounded-xl border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-md lg:hidden">
-            <p className="text-[10px] font-semibold" style={{ color: caption.accent }}>
-              {caption.label}
-            </p>
-            <p className="text-xs text-white/85">{caption.title}</p>
-          </div>
+          <div
+            className="pointer-events-none absolute inset-0 z-10"
+            style={{
+              background:
+                'linear-gradient(118deg, rgba(255,255,255,0.14) 0%, transparent 28%, transparent 70%, rgba(56,189,248,0.05) 100%)',
+            }}
+          />
         </div>
-      </motion.div>
+      </div>
+
+      <div className="mt-3 w-[min(280px,88vw)] rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-center backdrop-blur-md">
+        <p className="text-[10px] font-semibold" style={{ color: caption.accent }}>
+          {caption.label}
+        </p>
+        <p className="text-xs text-white/85">{caption.title}</p>
+      </div>
     </div>
   );
 }

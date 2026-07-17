@@ -35,7 +35,8 @@ function SceneContent() {
 
       <CameraRig />
 
-      <Float speed={1.05} rotationIntensity={0.06} floatIntensity={0.12}>
+      {/* Float 幅度保持极小，避免与 scroll 插值叠出“乱跳”感 */}
+      <Float speed={0.8} rotationIntensity={0.03} floatIntensity={0.06}>
         <PhoneModel />
       </Float>
 

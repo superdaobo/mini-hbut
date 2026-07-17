@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
+import { useDisplayScreen } from '@/hooks/use-display-screen';
 import { APP_MODULES, type AppModuleId } from '@/components/phone-app/app-modules';
 import type { AppScreen } from '@/lib/scroll-utils';
 
@@ -35,6 +36,7 @@ function screenMatches(card: OrbitCard, active: AppScreen) {
 
 export default function HeroFeatureOrbits() {
   const { sample, reducedMotion, isMobile } = useScrollProgress();
+  const display = useDisplayScreen();
   if (isMobile) return null;
 
   return (
@@ -50,7 +52,7 @@ export default function HeroFeatureOrbits() {
           const mod = APP_MODULES.find((m) => m.id === card.id);
           if (!mod) return null;
           const Icon = mod.icon;
-          const active = screenMatches(card, sample.activeScreen);
+          const active = screenMatches(card, display.activeScreen);
           return (
             <motion.div
               key={card.id}
@@ -60,23 +62,17 @@ export default function HeroFeatureOrbits() {
               animate={{
                 opacity: active ? 1 : 0.55 + sample.phone.screenBrightness * 0.2,
                 x: 0,
-                scale: active ? 1.06 : 0.98,
+                scale: active ? 1.04 : 0.98,
               }}
               transition={{ delay: 0.1 + i * 0.05, duration: 0.35 }}
             >
-              <motion.div
+              <div
                 className="rounded-2xl border border-white/15 bg-black/55 p-2.5 shadow-[0_16px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
                 style={{
                   boxShadow: active
                     ? `0 0 0 1px ${mod.color}99, 0 16px 40px rgba(0,0,0,0.5), 0 0 28px ${mod.color}45`
                     : undefined,
                 }}
-                animate={reducedMotion ? undefined : { y: [0, i % 2 === 0 ? -5 : 5, 0] }}
-                transition={
-                  reducedMotion
-                    ? undefined
-                    : { duration: 3.2 + i * 0.25, repeat: Infinity, ease: 'easeInOut' }
-                }
               >
                 <div className="flex items-center gap-2">
                   <div
@@ -91,14 +87,15 @@ export default function HeroFeatureOrbits() {
                   </div>
                 </div>
                 <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-white/10">
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ background: mod.color }}
-                    animate={{ width: active ? '88%' : '38%' }}
-                    transition={{ duration: 0.45 }}
+                  <div
+                    className="h-full rounded-full transition-[width] duration-400"
+                    style={{
+                      background: mod.color,
+                      width: active ? '88%' : '38%',
+                    }}
                   />
                 </div>
-              </motion.div>
+              </div>
             </motion.div>
           );
         })}
