@@ -7,101 +7,94 @@ import PhoneAppScreen from './PhoneAppScreen';
 import './phone-app.css';
 
 /**
- * 产品手机框：以「设备 chrome + 屏幕」呈现真实 App UI。
- * 与 3D 机身/镜头轨同步缩放与倾斜，避免裸露的扁平后台截图感。
+ * 唯一产品手机：CSS 3D 机框 + 屏幕内 Dashboard 同源 UI。
+ * 不再依赖场景中的空壳 PhoneModel。
  */
 export default function PhoneScreenOverlay() {
   const { sample, reducedMotion, isMobile } = useScrollProgress();
-  const brightness = sample.phone.screenBrightness;
-  if (brightness < 0.05) return null;
+  const brightness = Math.max(0.85, sample.phone.screenBrightness);
+  const caption = SCREEN_CAPTIONS[sample.activeScreen] ?? SCREEN_CAPTIONS.home;
 
   const progress = sample.globalProgress;
   const phoneScale = sample.phone.scale;
   const rotY = sample.phone.rotation.y;
   const rotX = sample.phone.rotation.x;
-  const caption = SCREEN_CAPTIONS[sample.activeScreen] ?? SCREEN_CAPTIONS.home;
 
-  // 桌面偏右给文案留位；移动端居中略下
-  const baseScale = isMobile ? 0.78 : 0.92;
-  const scale = baseScale * (0.92 + (phoneScale - 1) * 0.35);
-  const rotateY = rotY * 28;
-  const rotateX = -rotX * 18 + 6;
-  const translateX = isMobile ? 0 : 18 + progress * 4 + sample.phone.position.x * 40;
+  const baseScale = isMobile ? 0.82 : 0.96;
+  const scale = baseScale * (0.94 + (phoneScale - 1) * 0.28);
+  const rotateY = rotY * 26;
+  const rotateX = -rotX * 16 + 5;
+  const translateX = isMobile ? 0 : 16 + progress * 3 + sample.phone.position.x * 36;
   const translateY =
-    (typeof window !== 'undefined' ? window.innerHeight * (isMobile ? 0.2 : 0.14) : 120) +
-    sample.phone.position.y * 70;
+    (typeof window !== 'undefined' ? window.innerHeight * (isMobile ? 0.18 : 0.12) : 110) +
+    sample.phone.position.y * 64;
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[12] overflow-hidden" aria-hidden>
       <motion.div
         className="absolute left-1/2 top-0"
-        style={{
-          transformStyle: 'preserve-3d',
-          perspective: 1200,
-        }}
+        style={{ transformStyle: 'preserve-3d', perspective: 1400 }}
         initial={false}
         animate={{
-          opacity: 0.15 + brightness * 0.85,
+          opacity: brightness,
           x: `calc(-50% + ${translateX}%)`,
           y: translateY,
         }}
-        transition={{ type: 'spring', stiffness: 90, damping: 22, mass: 0.8 }}
+        transition={{ type: 'spring', stiffness: 100, damping: 24, mass: 0.75 }}
       >
         <div
           className="relative"
           style={{
-            width: 292,
-            height: 600,
+            width: 300,
+            height: 618,
             transform: `rotateY(${rotateY}deg) rotateX(${rotateX}deg) scale(${scale})`,
             transformStyle: 'preserve-3d',
-            transition: reducedMotion ? undefined : 'transform 0.45s cubic-bezier(0.22,1,0.36,1)',
+            transition: reducedMotion ? undefined : 'transform 0.5s cubic-bezier(0.22,1,0.36,1)',
           }}
         >
-          {/* 金属外框 */}
+          {/* 机身边框 */}
           <div
-            className="absolute inset-0 rounded-[42px] shadow-[0_40px_100px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.08)]"
+            className="absolute inset-0 rounded-[44px]"
             style={{
               background:
-                'linear-gradient(145deg, #2a3348 0%, #121722 40%, #0a0e16 70%, #1a2233 100%)',
-              transform: 'translateZ(-8px)',
+                'linear-gradient(155deg, #3d4a63 0%, #1a2233 35%, #0c1018 65%, #243044 100%)',
+              boxShadow:
+                '0 40px 90px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.12)',
+              transform: 'translateZ(-10px)',
             }}
           />
-          {/* 侧边高光 */}
           <div
-            className="absolute inset-y-8 -left-0.5 w-1 rounded-full opacity-50"
+            className="absolute inset-y-10 -left-[1px] w-[3px] rounded-full opacity-60"
             style={{
-              background: 'linear-gradient(180deg, transparent, #67e8f9, transparent)',
-              transform: 'translateZ(-4px)',
+              background: 'linear-gradient(180deg, transparent, #67e8f9aa, transparent)',
             }}
           />
 
-          {/* 内屏玻璃 */}
-          <div className="absolute inset-[9px] overflow-hidden rounded-[34px] bg-black ring-1 ring-white/10">
-            {/* 动态岛 */}
-            <div className="absolute left-1/2 top-2 z-20 h-6 w-[88px] -translate-x-1/2 rounded-full bg-black" />
-            <div className="absolute inset-0 origin-top">
+          {/* 屏幕 */}
+          <div className="absolute inset-[10px] overflow-hidden rounded-[36px] bg-[#f0f4f8] ring-1 ring-black/40">
+            <div className="absolute left-1/2 top-2.5 z-20 h-[22px] w-[92px] -translate-x-1/2 rounded-full bg-black" />
+            <div className="absolute inset-0">
               <PhoneAppScreen
                 screenFrom={sample.screenFrom}
                 screenTo={sample.screenTo}
                 screenBlend={sample.screenBlend}
               />
             </div>
-            {/* 玻璃反光 */}
             <div
               className="pointer-events-none absolute inset-0 z-10"
               style={{
                 background:
-                  'linear-gradient(115deg, rgba(255,255,255,0.14) 0%, transparent 32%, transparent 62%, rgba(56,189,248,0.08) 100%)',
+                  'linear-gradient(118deg, rgba(255,255,255,0.16) 0%, transparent 28%, transparent 70%, rgba(56,189,248,0.06) 100%)',
               }}
             />
           </div>
 
-          {/* 移动端字幕条 */}
-          <div className="absolute -bottom-14 left-1/2 w-[min(280px,80vw)] -translate-x-1/2 rounded-xl border border-white/10 bg-black/50 px-3 py-2 text-center backdrop-blur-md lg:hidden">
+          {/* 移动端字幕 */}
+          <div className="absolute -bottom-14 left-1/2 w-[min(280px,85vw)] -translate-x-1/2 rounded-xl border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-md lg:hidden">
             <p className="text-[10px] font-semibold" style={{ color: caption.accent }}>
               {caption.label}
             </p>
-            <p className="text-xs text-white/80">{caption.title}</p>
+            <p className="text-xs text-white/85">{caption.title}</p>
           </div>
         </div>
       </motion.div>
