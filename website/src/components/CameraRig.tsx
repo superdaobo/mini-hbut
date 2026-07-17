@@ -3,38 +3,53 @@
 import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { applyParallax, vec3ToThree } from '@/lib/scroll-utils';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
 
 /**
- * 氛围镜头：缓慢漂移，服务粒子/光带背景。
- * 产品手机已改为 DOM 层，不再绑定 PhoneModel 关键帧。
+ * 驱动唯一 3D 产品手机的镜头：滚动关键帧 + 首屏 idle 环绕。
  */
 export default function CameraRig() {
   const { camera } = useThree();
-  const { pointer, reducedMotion, progress } = useScrollProgress();
-  const tRef = useRef(0);
-  const look = useRef(new THREE.Vector3(0, 0, 0));
+  const { sample, pointer, reducedMotion, isMobile } = useScrollProgress();
+  const lookAtRef = useRef(new THREE.Vector3());
+  const idlePhase = useRef(0);
 
   useFrame((_, delta) => {
-    tRef.current += delta;
-    const t = tRef.current;
-    const idle = reducedMotion ? 0 : 1;
+    if (isMobile) return;
+    const t = Math.min(0.12, delta);
+    idlePhase.current += delta;
 
-    const baseX = 0.15 + progress * 0.25 + pointer.x * 0.15 * idle;
-    const baseY = 1.15 + Math.sin(t * 0.35) * 0.08 * idle + pointer.y * 0.08 * idle;
-    const baseZ = 4.1 - progress * 0.35;
+    const parallaxStrength = reducedMotion ? 0 : 0.1;
+    let camPos = applyParallax(sample.camera.position, pointer, parallaxStrength);
+    let lookAt = applyParallax(sample.camera.lookAt, pointer, parallaxStrength * 0.4);
 
-    const target = new THREE.Vector3(baseX, baseY, baseZ);
-    const ease = 1 - Math.pow(0.001, Math.min(0.12, delta));
-    camera.position.lerp(target, ease);
+    // 镜头略偏向右侧产品位（与 PhoneModel 0.42 偏移对齐）
+    camPos = { ...camPos, x: camPos.x + 0.35 };
+    lookAt = { ...lookAt, x: lookAt.x + 0.35 };
 
-    look.current.lerp(new THREE.Vector3(pointer.x * 0.2 * idle, 0.1, 0), ease);
-    camera.lookAt(look.current);
+    if (!reducedMotion && sample.globalProgress < 0.1) {
+      const idle = idlePhase.current;
+      const amp = 1 - sample.globalProgress / 0.1;
+      camPos = {
+        x: camPos.x + Math.sin(idle * 0.5) * 0.18 * amp,
+        y: camPos.y + Math.sin(idle * 0.38) * 0.05 * amp,
+        z: camPos.z + Math.cos(idle * 0.5) * 0.08 * amp,
+      };
+    }
+
+    const targetPos = vec3ToThree(camPos);
+    const targetLook = vec3ToThree(lookAt);
+    const ease = 1 - Math.pow(0.0008, t);
+
+    camera.position.lerp(targetPos, ease);
+    lookAtRef.current.lerp(targetLook, ease);
+    camera.lookAt(lookAtRef.current);
 
     if ('fov' in camera) {
-      const p = camera as THREE.PerspectiveCamera;
-      p.fov = THREE.MathUtils.lerp(p.fov, 42 - progress * 2, ease);
-      p.updateProjectionMatrix();
+      const perspective = camera as THREE.PerspectiveCamera;
+      perspective.fov = THREE.MathUtils.lerp(perspective.fov, sample.camera.fov, ease);
+      perspective.updateProjectionMatrix();
     }
   });
 

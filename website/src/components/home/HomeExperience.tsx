@@ -10,7 +10,7 @@ import HomeClassicSections from '@/components/home/HomeClassicSections';
 import PhoneScreenOverlay from '@/components/phone-app/PhoneScreenOverlay';
 import HeroFeatureOrbits from '@/components/HeroFeatureOrbits';
 import SceneErrorBoundary from '@/components/SceneErrorBoundary';
-import { ScrollProgressProvider } from '@/hooks/use-scroll-progress';
+import { ScrollProgressProvider, useScrollProgress } from '@/hooks/use-scroll-progress';
 import { useHeroScrollPhase } from '@/hooks/use-hero-scroll-phase';
 import { useIdleHeroDemo } from '@/hooks/use-idle-hero-demo';
 
@@ -21,6 +21,7 @@ const SceneCanvas = dynamic(() => import('@/components/SceneCanvas'), {
 
 function HomeExperienceInner() {
   const pastHero = useHeroScrollPhase();
+  const { isMobile } = useScrollProgress();
   useIdleHeroDemo(!pastHero);
 
   return (
@@ -31,17 +32,17 @@ function HomeExperienceInner() {
         <div id="download" className="sr-only" aria-hidden />
         <div id="about" className="sr-only" aria-hidden />
 
-        {/* 背景氛围 3D（无手机空壳） */}
+        {/* 桌面：R3F 唯一手机贴屏；移动端场景仅氛围 */}
         <SmoothScrollProvider hideScene={pastHero}>
           <SceneErrorBoundary>
             <SceneCanvas />
           </SceneErrorBoundary>
         </SmoothScrollProvider>
 
-        {/* 唯一产品手机 + 迷你功能卡 */}
         {!pastHero && (
           <>
-            <PhoneScreenOverlay />
+            {/* 移动端 DOM 降级手机；桌面不叠第二台 */}
+            {isMobile && <PhoneScreenOverlay />}
             <HeroFeatureOrbits />
             <HeroText />
             <FeatureTextOverlay />
