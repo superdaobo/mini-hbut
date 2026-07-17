@@ -676,6 +676,14 @@ html.dark .legal-card {
   border: 1px solid rgba(148, 163, 184, 0.15) !important;
 }
 
+html.dark .me-view .icp-beian-link {
+  color: #64748b !important;
+}
+
+html.dark .me-view .icp-beian-link:active {
+  color: #94a3b8 !important;
+}
+
 /* 我的页面 - 功能入口卡片 */
 html.dark .me-view .func-item,
 html.dark .me-view [class*="func-card"],

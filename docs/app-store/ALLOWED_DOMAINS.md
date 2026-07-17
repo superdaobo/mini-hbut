@@ -10,6 +10,7 @@ Helper: `src/config/allowed_domains.ts`.
 - `jsdelivr.net` / `unpkg.com`
 - `docs.qq.com` / `qq.com`
 - `map.qq.com` / `apis.map.qq.com`
+- `miit.gov.cn` / `beian.miit.gov.cn`（工信部备案查询）
 
 ## Forbidden
 

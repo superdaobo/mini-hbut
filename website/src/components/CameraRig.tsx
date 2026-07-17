@@ -7,7 +7,8 @@ import { applyParallax, vec3ToThree } from '@/lib/scroll-utils';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
 
 /**
- * 驱动唯一 3D 产品手机的镜头：滚动关键帧 + 首屏 idle 环绕。
+ * 镜头始终看向「居中手机」，做推进 / 环绕 / 仰视运镜。
+ * 左右栏是 2D UI，不参与 3D 偏移。
  */
 export default function CameraRig() {
   const { camera } = useThree();
@@ -20,21 +21,18 @@ export default function CameraRig() {
     const t = Math.min(0.12, delta);
     idlePhase.current += delta;
 
-    const parallaxStrength = reducedMotion ? 0 : 0.1;
+    const parallaxStrength = reducedMotion ? 0 : 0.08;
     let camPos = applyParallax(sample.camera.position, pointer, parallaxStrength);
-    let lookAt = applyParallax(sample.camera.lookAt, pointer, parallaxStrength * 0.4);
+    let lookAt = applyParallax(sample.camera.lookAt, pointer, parallaxStrength * 0.35);
 
-    // 镜头略偏向右侧产品位（与 PhoneModel 0.42 偏移对齐）
-    camPos = { ...camPos, x: camPos.x + 0.35 };
-    lookAt = { ...lookAt, x: lookAt.x + 0.35 };
-
-    if (!reducedMotion && sample.globalProgress < 0.1) {
+    // 首屏 idle：轻微环绕，体现 3D 厚度
+    if (!reducedMotion && sample.globalProgress < 0.12) {
       const idle = idlePhase.current;
-      const amp = 1 - sample.globalProgress / 0.1;
+      const amp = 1 - sample.globalProgress / 0.12;
       camPos = {
-        x: camPos.x + Math.sin(idle * 0.5) * 0.18 * amp,
-        y: camPos.y + Math.sin(idle * 0.38) * 0.05 * amp,
-        z: camPos.z + Math.cos(idle * 0.5) * 0.08 * amp,
+        x: camPos.x + Math.sin(idle * 0.55) * 0.22 * amp,
+        y: camPos.y + Math.sin(idle * 0.4) * 0.05 * amp,
+        z: camPos.z + Math.cos(idle * 0.55) * 0.1 * amp,
       };
     }
 
