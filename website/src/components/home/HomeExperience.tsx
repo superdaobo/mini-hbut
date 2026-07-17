@@ -21,8 +21,9 @@ const SceneCanvas = dynamic(() => import('@/components/SceneCanvas'), {
 
 function HomeExperienceInner() {
   const pastHero = useHeroScrollPhase();
-  const { isMobile } = useScrollProgress();
-  useIdleHeroDemo(!pastHero);
+  const { isMobile, reducedMotion } = useScrollProgress();
+  // 仅在 Hero 区内做 UI 轮播；绝不改写 scroll progress
+  useIdleHeroDemo(!pastHero, reducedMotion);
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[#03060d] text-white">
@@ -32,36 +33,42 @@ function HomeExperienceInner() {
         <div id="download" className="sr-only" aria-hidden />
         <div id="about" className="sr-only" aria-hidden />
 
-        {/* 桌面：R3F 唯一手机贴屏；移动端场景仅氛围 */}
         <SmoothScrollProvider hideScene={pastHero}>
           <SceneErrorBoundary>
+            {/* 移动端仍挂轻量场景作氛围；手机主体走 DOM 降级 */}
             <SceneCanvas />
           </SceneErrorBoundary>
         </SmoothScrollProvider>
 
-        {!pastHero && (
-          <>
-            {/* 移动端 DOM 降级手机；桌面不叠第二台 */}
-            {isMobile && <PhoneScreenOverlay />}
-            <HeroFeatureOrbits />
-            <HeroText />
-            <FeatureTextOverlay />
-            <CTASection />
-          </>
-        )}
+        {/* 固定层用 opacity 隐藏，避免 pastHero 切换时整树卸载闪一下（勿用 display:contents） */}
+        <div
+          className="pointer-events-none fixed inset-0 z-[20]"
+          style={{
+            opacity: pastHero ? 0 : 1,
+            visibility: pastHero ? 'hidden' : 'visible',
+            transition: 'opacity 0.4s ease',
+          }}
+          aria-hidden={pastHero}
+        >
+          {isMobile && <PhoneScreenOverlay />}
+          <HeroFeatureOrbits />
+          <HeroText />
+          <FeatureTextOverlay />
+          <CTASection />
+        </div>
 
         <HomeClassicSections />
       </main>
 
-      {!pastHero && (
-        <div
-          className="pointer-events-none fixed inset-0 z-[1] opacity-45"
-          style={{
-            background:
-              'radial-gradient(ellipse 65% 50% at 70% 40%, rgba(56,189,248,0.16), transparent 55%), radial-gradient(ellipse 45% 35% at 15% 28%, rgba(167,139,250,0.12), transparent 50%)',
-          }}
-        />
-      )}
+      <div
+        className="pointer-events-none fixed inset-0 z-[1]"
+        style={{
+          opacity: pastHero ? 0 : 0.45,
+          transition: 'opacity 0.45s ease',
+          background:
+            'radial-gradient(ellipse 65% 50% at 70% 40%, rgba(56,189,248,0.16), transparent 55%), radial-gradient(ellipse 45% 35% at 15% 28%, rgba(167,139,250,0.12), transparent 50%)',
+        }}
+      />
     </div>
   );
 }

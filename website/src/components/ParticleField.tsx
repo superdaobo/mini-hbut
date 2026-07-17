@@ -11,8 +11,8 @@ interface ParticleFieldProps {
 
 export default function ParticleField({ count }: ParticleFieldProps) {
   const pointsRef = useRef<THREE.Points>(null);
-  const { sample, isMobile } = useScrollProgress();
-  const particleCount = count ?? (isMobile ? 280 : 720);
+  const { sampleRef, isMobile } = useScrollProgress();
+  const particleCount = count ?? (isMobile ? 160 : 720);
 
   const { positions, speeds } = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
@@ -31,7 +31,8 @@ export default function ParticleField({ count }: ParticleFieldProps) {
     const geo = pointsRef.current.geometry;
     const attr = geo.getAttribute('position') as THREE.BufferAttribute;
     const t = state.clock.elapsedTime;
-    const intensity = sample.particleIntensity;
+    const intensity = sampleRef.current.particleIntensity;
+    const mat = pointsRef.current.material as THREE.PointsMaterial;
 
     for (let i = 0; i < particleCount; i += 1) {
       const yIndex = i * 3 + 1;
@@ -41,6 +42,7 @@ export default function ParticleField({ count }: ParticleFieldProps) {
     }
     attr.needsUpdate = true;
     pointsRef.current.rotation.y = t * 0.02 * intensity;
+    mat.opacity = 0.35 + intensity * 0.45;
   });
 
   return (
@@ -49,10 +51,10 @@ export default function ParticleField({ count }: ParticleFieldProps) {
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
       <pointsMaterial
-        size={0.025}
+        size={isMobile ? 0.02 : 0.025}
         color="#7dd3fc"
         transparent
-        opacity={0.35 + sample.particleIntensity * 0.45}
+        opacity={0.45}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
       />

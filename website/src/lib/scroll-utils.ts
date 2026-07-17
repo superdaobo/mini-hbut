@@ -79,6 +79,20 @@ const PHONE_SCREEN_SEQUENCE: AppScreen[] = [
   'all-features',
 ];
 
+/** 首屏 idle 轮播用（与滚动关键帧解耦，仅切换 UI 预览） */
+export const PHONE_SCREEN_SEQUENCE_FOR_DEMO: AppScreen[] = [
+  'home',
+  'schedule',
+  'grades',
+  'exams',
+  'notifications',
+  'electricity',
+  'classroom',
+];
+
+/** 移动端缩短滚动驱动高度，减少长距离刷屏与误触闪烁 */
+export const SCROLL_DRIVER_VH_MOBILE = 420;
+
 const PHONE_DEMO_START = 0.22;
 const PHONE_DEMO_END = 0.88;
 const SCREEN_FADE_PORTION = 0.28;

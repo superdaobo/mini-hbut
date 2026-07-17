@@ -5,6 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useScrollProgress } from '@/hooks/use-scroll-progress';
+import { useDisplayScreen } from '@/hooks/use-display-screen';
 import PhoneAppScreen from './phone-app/PhoneAppScreen';
 import './phone-app/phone-app.css';
 import {
@@ -28,7 +29,8 @@ const SCREEN_DOM_H = 556;
  */
 export default function PhoneModel() {
   const groupRef = useRef<THREE.Group>(null);
-  const { sample, pointer, reducedMotion, isMobile } = useScrollProgress();
+  const { sampleRef, pointerRef, reducedMotion, isMobile } = useScrollProgress();
+  const display = useDisplayScreen();
 
   const frameGeometry = useMemo(() => {
     const shape = createPhoneProfile(PHONE_WIDTH, PHONE_HEIGHT, BEVEL_RADIUS);
@@ -59,32 +61,29 @@ export default function PhoneModel() {
 
   useFrame((state) => {
     if (!groupRef.current || isMobile) return;
+    const phone = sampleRef.current.phone;
+    const pointer = pointerRef.current;
     const t = state.clock.elapsedTime;
-    const floatY = Math.sin(t * 1.1) * sample.phone.float * 0.1;
+    const floatY = Math.sin(t * 1.1) * phone.float * 0.1;
     const parallaxX = reducedMotion ? 0 : pointer.x * 0.06;
     const parallaxY = reducedMotion ? 0 : pointer.y * 0.04;
 
-    // 居中主视觉；关键帧只做轻微位移动效，不把机身推到左右栏
     groupRef.current.position.set(
-      sample.phone.position.x * 0.12 + parallaxX,
-      sample.phone.position.y * 0.35 + floatY + parallaxY,
-      sample.phone.position.z * 0.2,
+      phone.position.x * 0.12 + parallaxX,
+      phone.position.y * 0.35 + floatY + parallaxY,
+      phone.position.z * 0.2,
     );
     groupRef.current.rotation.set(
-      sample.phone.rotation.x * 0.9,
-      sample.phone.rotation.y * 0.95 + parallaxX * 0.1,
-      sample.phone.rotation.z,
+      phone.rotation.x * 0.9,
+      phone.rotation.y * 0.95 + parallaxX * 0.1,
+      phone.rotation.z,
     );
-    groupRef.current.scale.setScalar(sample.phone.scale);
+    groupRef.current.scale.setScalar(phone.scale);
   });
 
   if (isMobile) return null;
 
   const zFront = PHONE_DEPTH / 2;
-  /**
-   * drei Html(transform) 缩放系数 ≈ distanceFactor/400（越大越大）。
-   * 1.58 会整屏贴脸；0.48 又过小。居中机身 + 中距离镜头下约 1.12 贴合屏平面。
-   */
   const htmlDistanceFactor = 0.98;
 
   return (
@@ -136,9 +135,9 @@ export default function PhoneModel() {
           }}
         >
           <PhoneAppScreen
-            screenFrom={sample.screenFrom}
-            screenTo={sample.screenTo}
-            screenBlend={sample.screenBlend}
+            screenFrom={display.screenFrom}
+            screenTo={display.screenTo}
+            screenBlend={display.screenBlend}
           />
         </div>
       </Html>

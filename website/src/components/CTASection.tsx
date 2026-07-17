@@ -16,8 +16,10 @@ interface MagneticButtonProps {
 function MagneticButton({ href, children, variant = 'ghost', external }: MagneticButtonProps) {
   const ref = useRef<HTMLAnchorElement>(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const { isMobile } = useScrollProgress();
 
   const handleMove = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (isMobile) return;
     const el = ref.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -63,18 +65,22 @@ function MagneticButton({ href, children, variant = 'ghost', external }: Magneti
 }
 
 export default function CTASection() {
-  const { sample } = useScrollProgress();
+  const { sample, isMobile } = useScrollProgress();
   const opacity = sample.ctaOpacity;
 
-  if (opacity <= 0.02) return null;
-
+  // 保持挂载，避免 opacity 阈值附近闪灭
   return (
-    <motion.section
+    <section
       id="download"
-      className="pointer-events-auto fixed inset-x-0 bottom-[8vh] z-30 mx-auto flex max-w-3xl flex-col items-center gap-4 px-6"
-      initial={false}
-      animate={{ opacity, y: (1 - opacity) * 30 }}
-      transition={{ duration: 0.45 }}
+      className={`pointer-events-auto fixed inset-x-0 z-30 mx-auto flex max-w-3xl flex-col items-center gap-4 px-6 ${
+        isMobile ? 'bottom-[6vh]' : 'bottom-[8vh]'
+      }`}
+      style={{
+        opacity: opacity <= 0.02 ? 0 : opacity,
+        visibility: opacity <= 0.02 ? 'hidden' : 'visible',
+        transform: `translateY(${(1 - Math.max(opacity, 0)) * 24}px)`,
+        transition: 'opacity 0.35s ease, transform 0.35s ease',
+      }}
     >
       <div className="flex flex-wrap items-center justify-center gap-3">
         <MagneticButton href="/releases" variant="primary">
@@ -84,13 +90,11 @@ export default function CTASection() {
           <Github size={16} />
           GitHub
         </MagneticButton>
-        <MagneticButton href="/docs">
-          了解功能
-        </MagneticButton>
+        <MagneticButton href="/docs">了解功能</MagneticButton>
       </div>
       <p className="text-center text-xs text-white/45">
         下载 Windows / macOS / Linux / Android / iOS 全平台版本
       </p>
-    </motion.section>
+    </section>
   );
 }
