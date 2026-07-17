@@ -8,6 +8,7 @@ import FeatureTextOverlay from '@/components/FeatureTextOverlay';
 import CTASection from '@/components/CTASection';
 import HomeClassicSections from '@/components/home/HomeClassicSections';
 import PhoneScreenOverlay from '@/components/phone-app/PhoneScreenOverlay';
+import HeroFeatureOrbits from '@/components/HeroFeatureOrbits';
 import SceneErrorBoundary from '@/components/SceneErrorBoundary';
 import { ScrollProgressProvider } from '@/hooks/use-scroll-progress';
 import { useHeroScrollPhase } from '@/hooks/use-hero-scroll-phase';
@@ -29,27 +30,34 @@ function HomeExperienceInner() {
         <div id="features" className="sr-only" aria-hidden />
         <div id="download" className="sr-only" aria-hidden />
         <div id="about" className="sr-only" aria-hidden />
+
+        {/* 背景氛围 3D（无手机空壳） */}
         <SmoothScrollProvider hideScene={pastHero}>
           <SceneErrorBoundary>
             <SceneCanvas />
           </SceneErrorBoundary>
         </SmoothScrollProvider>
+
+        {/* 唯一产品手机 + 迷你功能卡 */}
         {!pastHero && (
           <>
             <PhoneScreenOverlay />
+            <HeroFeatureOrbits />
             <HeroText />
             <FeatureTextOverlay />
             <CTASection />
           </>
         )}
+
         <HomeClassicSections />
       </main>
+
       {!pastHero && (
         <div
-          className="pointer-events-none fixed inset-0 z-[1] opacity-40"
+          className="pointer-events-none fixed inset-0 z-[1] opacity-45"
           style={{
             background:
-              'radial-gradient(ellipse 70% 55% at 72% 42%, rgba(56,189,248,0.14), transparent 55%), radial-gradient(ellipse 50% 40% at 18% 30%, rgba(167,139,250,0.12), transparent 50%), radial-gradient(ellipse 80% 50% at 50% 100%, rgba(14,165,233,0.08), transparent 55%)',
+              'radial-gradient(ellipse 65% 50% at 70% 40%, rgba(56,189,248,0.16), transparent 55%), radial-gradient(ellipse 45% 35% at 15% 28%, rgba(167,139,250,0.12), transparent 50%)',
           }}
         />
       )}

@@ -16,139 +16,243 @@ import {
   DEMO_STUDENT,
   DEMO_TODAY_COURSES,
 } from './demo-data';
-import { Bell, CloudSun, GraduationCap, Search, User } from 'lucide-react';
+import { Bell, CloudSun, GraduationCap, MapPin, Search, User } from 'lucide-react';
 
+/**
+ * 首页视觉对齐 Tauri `Dashboard.vue`：
+ * Header(Logo+搜索) → 问候/天气 → 用户卡 → 今日安排(高亮+时间线) → 快捷入口 5 列 → 所有功能 tabs
+ */
 function HomeScreen() {
-  const quickEntries = APP_MODULES.filter((m) => QUICK_ENTRY_IDS.includes(m.id));
-  const homeModules = APP_MODULES.slice(0, 7);
+  const quickEntries = QUICK_ENTRY_IDS.map((id) => APP_MODULES.find((m) => m.id === id)!).filter(Boolean);
+  const academicMods = modulesByCategory('教务服务').slice(0, 8);
+  const current = DEMO_TODAY_COURSES.find((c) => c.status === 'current') || DEMO_TODAY_COURSES[0];
+  const upcoming = DEMO_TODAY_COURSES.filter((c) => c !== current);
 
   return (
     <AppShell screen="home">
-      <div className="h-full overflow-y-auto px-3 pb-2 pt-2">
-        <header className="mb-3 flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100">
-            <GraduationCap className="h-4 w-4 text-blue-500" />
+      <div className="phone-dashboard">
+        {/* Header — Dashboard: Mini-HBUT logo + 搜索 */}
+        <header className="phone-dashboard-header">
+          <div className="phone-dashboard-brand">
+            <div className="phone-dashboard-logo">M</div>
+            <span className="phone-dashboard-title">Mini-HBUT</span>
           </div>
-          <span className="text-sm font-bold text-gray-800">HBUT 校园助手</span>
-          <div className="relative ml-auto flex-1 max-w-[140px]">
-            <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
-            <div className="rounded-full bg-white py-1 pl-7 pr-2 text-[10px] text-gray-400 shadow-sm">搜索服务/课程</div>
+          <div className="phone-dashboard-search">
+            <Search className="phone-dashboard-search-icon" />
+            搜索服务/课程/资讯
           </div>
         </header>
 
-        <div className="mb-3 flex items-end justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">上午好</h1>
-            <p className="text-[10px] text-gray-500">新的一天，元气满满！</p>
+        <div className="phone-dashboard-body">
+          {/* Greeting & weather */}
+          <div className="phone-dashboard-greeting">
+            <div>
+              <h1>上午好</h1>
+              <p>新的一天，元气满满！</p>
+            </div>
+            <div className="phone-dashboard-weather">
+              <div className="flex items-center gap-1">
+                <CloudSun className="h-3.5 w-3.5 text-amber-500" />
+                <span>18°C</span>
+              </div>
+              <span className="text-[8px] font-normal text-gray-500">多云</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-xs text-gray-700">
-            <CloudSun className="h-4 w-4 text-amber-500" />
-            <span className="font-semibold">18°C</span>
+
+          {/* User profile card */}
+          <div className="phone-card phone-card-shadow">
+            <div className="phone-profile-row">
+              <div className="phone-profile-avatar">
+                <User className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center">
+                  <span className="phone-profile-name">{DEMO_STUDENT.id}</span>
+                  <span className="phone-profile-badge">本科生</span>
+                </div>
+                <p className="phone-profile-college">{DEMO_STUDENT.college}</p>
+              </div>
+              <span className="session-status-dot is-green" title="会话已连接" />
+            </div>
+          </div>
+
+          {/* Today's schedule — 高亮进行中 + 后续课 */}
+          <div className="phone-card phone-card-shadow">
+            <div className="phone-section-head">
+              <h3>今日安排</h3>
+              <a>查看全部 ›</a>
+            </div>
+
+            {current && (
+              <div className="phone-course-highlight mb-2.5">
+                <div className="phone-course-highlight-deco" />
+                <div className="flex w-5 shrink-0 flex-col items-center pt-0.5 relative z-10">
+                  <div className="phone-course-dot" />
+                </div>
+                <div className="phone-course-time-col relative z-10">
+                  <div>{current.start}</div>
+                  <div className="text-[8px] font-medium opacity-80">~ {current.end || '11:10'}</div>
+                </div>
+                <div className="relative z-10 min-w-0 flex-1 pr-1">
+                  <span className="mb-0.5 inline-block rounded bg-white/20 px-1.5 py-0.5 text-[8px]">
+                    进行中
+                  </span>
+                  <p className="phone-course-highlight-title">{current.name}</p>
+                  <p className="mt-0.5 flex items-center text-[8px] opacity-90">
+                    <MapPin className="mr-0.5 h-2.5 w-2.5" /> {current.room}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {upcoming.map((course) => (
+              <div key={course.name} className="phone-course-upcoming">
+                <div className="phone-course-upcoming-dot" />
+                <div className="phone-course-time-col text-gray-700">
+                  <div className="font-semibold">{course.start}</div>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-medium text-gray-800">{course.name}</p>
+                  <p className="text-[8px] text-gray-500">{course.room}</p>
+                </div>
+                <span className="shrink-0 text-[8px] text-gray-400">未开始</span>
+              </div>
+            ))}
+
+            <div className="phone-today-stats">
+              <div className="phone-today-stat">
+                <div className="phone-today-stat-icon phone-today-stat-icon--blue">日</div>
+                <div>
+                  <p className="phone-today-stat-label">今日课程</p>
+                  <p className="phone-today-stat-value">
+                    {DEMO_TODAY_COURSES.length} <span className="text-[8px] font-normal">节</span>
+                  </p>
+                </div>
+              </div>
+              <div className="phone-today-stat-divider" />
+              <div className="phone-today-stat">
+                <div className="phone-today-stat-icon phone-today-stat-icon--teal">✓</div>
+                <div>
+                  <p className="phone-today-stat-label">已完成</p>
+                  <p className="phone-today-stat-value">
+                    33 <span className="text-[8px] font-normal">%</span>
+                  </p>
+                </div>
+              </div>
+              <div className="phone-today-stat-divider" />
+              <div className="phone-today-stat">
+                <div className="phone-today-stat-icon phone-today-stat-icon--orange">时</div>
+                <div>
+                  <p className="phone-today-stat-label">剩余</p>
+                  <p className="phone-today-stat-value">
+                    {upcoming.length + 1} <span className="text-[8px] font-normal">节</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick entry — Dashboard 5 列 */}
+          <div className="phone-card phone-card-shadow">
+            <div className="phone-section-head">
+              <h3>快捷入口</h3>
+            </div>
+            <div className="phone-quick-grid phone-quick-grid--5">
+              {quickEntries.slice(0, 5).map((item) => (
+                <div key={item.id} className="phone-quick-item">
+                  <div className="phone-quick-icon" style={{ backgroundColor: item.color }}>
+                    <item.icon className="h-4 w-4" strokeWidth={2.2} />
+                  </div>
+                  <span className="phone-quick-label">{item.name.replace('查询', '').replace('安排', '')}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* All features — tabs + 4 列网格 */}
+          <div className="phone-card phone-card-shadow">
+            <div className="phone-section-head mb-3">
+              <h3>所有功能</h3>
+              <div className="flex gap-2 text-[9px]">
+                <span className="border-b-2 border-blue-500 pb-0.5 font-bold text-blue-500">教务服务</span>
+                <span className="text-gray-400">一码通</span>
+                <span className="text-gray-400">资源</span>
+              </div>
+            </div>
+            <div className="phone-module-grid">
+              {academicMods.map((mod) => (
+                <div key={mod.id} className="phone-module-item">
+                  <div className="phone-module-icon" style={{ backgroundColor: mod.color }}>
+                    <mod.icon className="phone-module-svg" strokeWidth={2.2} />
+                  </div>
+                  <span className="phone-module-label">{mod.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-
-        <AppCard className="mb-3 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 text-blue-500">
-            <User className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold">{DEMO_STUDENT.id}</span>
-              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[8px] text-gray-500">本科生</span>
-            </div>
-            <p className="text-[9px] text-gray-500">{DEMO_STUDENT.college}</p>
-          </div>
-        </AppCard>
-
-        <AppCard className="mb-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-gray-800">今日安排</h3>
-            <span className="text-[10px] text-blue-500">查看全部 ›</span>
-          </div>
-          {DEMO_TODAY_COURSES.map((course) => (
-            <div key={course.name} className={`mb-2 flex gap-2 ${course.status === 'current' ? '' : 'opacity-60'}`}>
-              <div className="w-10 shrink-0 text-[10px] font-medium text-gray-700">{course.start}</div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-gray-800">{course.name}</p>
-                <p className="text-[9px] text-gray-500">{course.room}</p>
-              </div>
-              {course.status === 'current' && (
-                <span className="shrink-0 rounded-full bg-blue-500 px-2 py-0.5 text-[8px] text-white">进行中</span>
-              )}
-            </div>
-          ))}
-        </AppCard>
-
-        <AppCard className="mb-3">
-          <h3 className="mb-2 text-sm font-bold text-gray-800">快捷入口</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {quickEntries.map((item) => (
-              <div key={item.id} className="flex flex-col items-center">
-                <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-[12px] text-white" style={{ backgroundColor: item.color }}>
-                  <item.icon className="h-4 w-4" />
-                </div>
-                <span className="text-[9px] text-gray-600">{item.name}</span>
-              </div>
-            ))}
-          </div>
-        </AppCard>
-
-        <AppCard>
-          <h3 className="mb-2 text-sm font-bold text-gray-800">所有功能</h3>
-          <div className="grid grid-cols-4 gap-y-3">
-            {homeModules.map((mod) => (
-              <div key={mod.id} className="flex flex-col items-center">
-                <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-2xl text-white shadow-sm" style={{ backgroundColor: mod.color }}>
-                  <mod.icon className="h-4 w-4" />
-                </div>
-                <span className="text-center text-[8px] text-gray-700">{mod.name}</span>
-              </div>
-            ))}
-            <div className="flex flex-col items-center">
-              <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-2xl bg-gray-400 text-white">+</div>
-              <span className="text-[8px] text-gray-700">更多</span>
-            </div>
-          </div>
-        </AppCard>
       </div>
     </AppShell>
   );
 }
 
 function ScheduleScreen() {
-  const days = ['一', '二', '三', '四', '五'];
+  const days = ['一', '二', '三', '四', '五', '六', '日'];
   const periods = [1, 2, 3, 4, 5, 6, 7, 8];
 
   return (
     <AppShell screen="schedule">
-      <PageHeader title="我的课表" />
-      <div className="flex h-[calc(100%-44px)] flex-col overflow-hidden p-2">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-xs font-bold text-gray-800">2025-2026 第 1 学期</span>
-          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[9px] font-medium text-indigo-600">第 14 周</span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-100 bg-white">
-          <div className="grid grid-cols-6 border-b border-gray-100 bg-gray-50 text-center text-[8px] text-gray-500">
-            <div className="py-1" />
-            {days.map((d) => <div key={d} className="py-1 font-medium">周{d}</div>)}
+      <div className="phone-schedule-root">
+        <div className="phone-schedule-topbar">
+          <div className="phone-schedule-menu-btn" aria-hidden>
+            <span className="phone-schedule-menu-bar" />
+            <span className="phone-schedule-menu-bar" />
+            <span className="phone-schedule-menu-bar" />
           </div>
-          <div className="overflow-y-auto" style={{ maxHeight: 'calc(100% - 20px)' }}>
-            {periods.map((period) => (
-              <div key={period} className="grid grid-cols-6 border-b border-gray-50">
-                <div className="flex items-center justify-center py-2 text-[8px] text-gray-400">{period}</div>
-                {days.map((_, dayIdx) => {
-                  const block = DEMO_SCHEDULE_BLOCKS.find((b) => b.day === dayIdx + 1 && b.period === period);
-                  return (
-                    <div key={`${period}-${dayIdx}`} className="min-h-[28px] border-l border-gray-50 p-0.5">
-                      {block && (
-                        <div className="rounded-md p-1 text-[7px] leading-tight text-white" style={{ backgroundColor: block.color }}>
-                          <div className="font-medium">{block.name}</div>
-                          <div className="opacity-80">{block.room}</div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+          <div className="phone-schedule-topbar-center">
+            <div className="phone-schedule-topbar-title">我的课表</div>
+            <div className="phone-schedule-topbar-sub">2025-2026 第 1 学期</div>
+          </div>
+          <div className="phone-schedule-week-pill">第 14 周</div>
+        </div>
+        <div className="phone-schedule-date-header">
+          <div className="phone-schedule-month">
+            <span className="phone-schedule-month-num">7</span>
+            <span className="phone-schedule-month-label">月</span>
+          </div>
+          <div className="phone-schedule-days-row">
+            {days.map((d, i) => (
+              <div key={d} className={`phone-schedule-day-col ${i === 2 ? 'is-today' : ''}`}>
+                <div className="phone-schedule-day-num">{14 + i}</div>
+                <div className="phone-schedule-day-label">周{d}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="phone-schedule-grid-body">
+          <div className="phone-schedule-time-axis">
+            {periods.map((p) => (
+              <div key={p} className="phone-schedule-time-slot">
+                <span className="period-num">{p}</span>
+              </div>
+            ))}
+          </div>
+          <div className="phone-schedule-courses-grid" style={{ height: 160 }}>
+            {[0, 1, 2, 3, 4].map((dayIdx) => (
+              <div key={dayIdx} className={`phone-schedule-day-column ${dayIdx === 2 ? 'is-today' : ''}`}>
+                {DEMO_SCHEDULE_BLOCKS.filter((b) => b.day === dayIdx + 1).map((block) => (
+                  <div
+                    key={`${block.day}-${block.period}-${block.name}`}
+                    className="phone-schedule-course-card"
+                    style={{
+                      backgroundColor: block.color,
+                      gridRow: `${block.period} / span 2`,
+                    }}
+                  >
+                    <div className="phone-schedule-course-name">{block.name}</div>
+                    <div className="phone-schedule-course-room">{block.room}</div>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -162,21 +266,23 @@ function GradesScreen() {
   return (
     <AppShell screen="grades" showNav={false}>
       <PageHeader title="成绩查询" icon={<GraduationCap className="h-4 w-4 text-indigo-500" />} />
-      <div className="overflow-y-auto p-3">
-        <AppCard className="mb-3 bg-gradient-to-r from-indigo-500 to-violet-500 text-white">
-          <p className="text-[10px] opacity-80">本学期绩点</p>
-          <p className="text-2xl font-bold">{DEMO_STUDENT.gpa}</p>
-          <p className="text-[9px] opacity-70">已修学分 {DEMO_STUDENT.credits}</p>
-        </AppCard>
+      <div className="phone-feature-body">
+        <div className="phone-gradient-banner phone-gradient-indigo">
+          <p className="phone-banner-label">本学期绩点</p>
+          <p className="phone-banner-value">{DEMO_STUDENT.gpa}</p>
+          <p className="phone-banner-sub">已修学分 {DEMO_STUDENT.credits}</p>
+        </div>
         {DEMO_GRADES.map((g) => (
-          <div key={g.name} className="mb-2 flex items-center justify-between rounded-xl bg-white p-3 shadow-sm">
+          <div key={g.name} className="phone-list-item">
             <div>
-              <p className="text-xs font-medium text-gray-800">{g.name}</p>
-              <p className="text-[9px] text-gray-500">{g.teacher} · {g.term}</p>
+              <p className="phone-list-item-title">{g.name}</p>
+              <p className="phone-list-item-sub">
+                {g.teacher} · {g.term}
+              </p>
             </div>
-            <div className="text-right">
-              <p className="text-sm font-bold text-indigo-600">{g.score}</p>
-              <p className="text-[9px] text-gray-400">绩点 {g.point}</p>
+            <div className="phone-list-item-right">
+              <p className="phone-list-item-value">{g.score}</p>
+              <p className="phone-list-item-meta">绩点 {g.point}</p>
             </div>
           </div>
         ))}
@@ -189,21 +295,21 @@ function ExamsScreen() {
   return (
     <AppShell screen="exams" showNav={false}>
       <PageHeader title="考试安排" />
-      <div className="space-y-2 overflow-y-auto p-3">
+      <div className="phone-feature-body">
         {DEMO_EXAMS.map((exam) => (
-          <AppCard key={exam.name}>
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-bold text-gray-800">{exam.name}</p>
-                <p className="mt-1 text-[9px] text-gray-500">{exam.date} · {exam.time}</p>
-                <p className="text-[9px] text-gray-500">{exam.room}</p>
-              </div>
-              <div className="rounded-xl bg-rose-50 px-2 py-1 text-center">
-                <p className="text-lg font-bold text-rose-500">{exam.daysLeft}</p>
-                <p className="text-[8px] text-rose-400">天</p>
-              </div>
+          <div key={exam.name} className="phone-list-item">
+            <div>
+              <p className="phone-list-item-title">{exam.name}</p>
+              <p className="phone-list-item-sub">
+                {exam.date} · {exam.time}
+              </p>
+              <p className="phone-list-item-sub">{exam.room}</p>
             </div>
-          </AppCard>
+            <div className="phone-exam-countdown">
+              <p className="phone-exam-days">{exam.daysLeft}</p>
+              <p className="phone-exam-days-label">天</p>
+            </div>
+          </div>
         ))}
       </div>
     </AppShell>
@@ -214,17 +320,17 @@ function NotificationsScreen() {
   return (
     <AppShell screen="notifications">
       <PageHeader title="通知中心" icon={<Bell className="h-4 w-4 text-indigo-500" />} />
-      <div className="space-y-2 overflow-y-auto p-3">
+      <div className="phone-feature-body">
         {DEMO_NOTIFICATIONS.map((n) => (
-          <AppCard key={n.title} className="flex gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white" style={{ backgroundColor: n.color }}>
-              <Bell className="h-4 w-4" />
+          <div key={n.title} className="phone-notify-row">
+            <div className="phone-notify-icon" style={{ backgroundColor: n.color }}>
+              <Bell className="phone-notify-bell" />
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-800">{n.title}</p>
-              <p className="text-[9px] text-gray-500">{n.body}</p>
+              <p className="phone-list-item-title">{n.title}</p>
+              <p className="phone-list-item-sub">{n.body}</p>
             </div>
-          </AppCard>
+          </div>
         ))}
       </div>
     </AppShell>
@@ -236,16 +342,18 @@ function ElectricityScreen() {
   return (
     <AppShell screen="electricity" showNav={false}>
       <PageHeader title="电费查询" />
-      <div className="p-3">
-        <AppCard className="bg-gradient-to-br from-red-500 to-orange-500 text-white">
-          <p className="text-[10px] opacity-80">{e.building} · {e.room}</p>
-          <p className="mt-2 text-3xl font-bold">¥{e.balance}</p>
-          <p className="text-[9px] opacity-70">剩余余额 · 更新于 {e.updatedAt}</p>
-          <div className="mt-3 flex justify-between text-[9px] opacity-80">
+      <div className="phone-feature-body">
+        <div className="phone-gradient-banner phone-gradient-rose">
+          <p className="phone-banner-label">
+            {e.building} · {e.room}
+          </p>
+          <p className="phone-banner-value phone-banner-value-lg">¥{e.balance}</p>
+          <p className="phone-banner-sub">剩余余额 · 更新于 {e.updatedAt}</p>
+          <div className="phone-banner-footer">
             <span>今日用电 {e.usage} 度</span>
             <span>低电量提醒已开启</span>
           </div>
-        </AppCard>
+        </div>
       </div>
     </AppShell>
   );
@@ -255,17 +363,19 @@ function ClassroomScreen() {
   return (
     <AppShell screen="classroom" showNav={false}>
       <PageHeader title="空教室查询" />
-      <div className="space-y-2 p-3">
+      <div className="phone-feature-body">
         {DEMO_CLASSROOMS.map((c) => (
-          <AppCard key={c.room} className="flex items-center justify-between">
+          <div key={c.room} className="phone-list-item">
             <div>
-              <p className="text-xs font-bold text-gray-800">{c.building} {c.room}</p>
-              <p className="text-[9px] text-gray-500">座位 {c.seats}</p>
+              <p className="phone-list-item-title">
+                {c.building} {c.room}
+              </p>
+              <p className="phone-list-item-sub">座位 {c.seats}</p>
             </div>
-            <span className={`rounded-full px-2 py-0.5 text-[9px] ${c.free ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
+            <span className={`phone-status-pill ${c.free ? 'phone-status-pill--free' : 'phone-status-pill--busy'}`}>
               {c.free ? '空闲' : '使用中'}
             </span>
-          </AppCard>
+          </div>
         ))}
       </div>
     </AppShell>
@@ -277,15 +387,24 @@ function RankingScreen() {
   return (
     <AppShell screen="ranking" showNav={false}>
       <PageHeader title="绩点排名" />
-      <div className="p-3">
-        <AppCard className="text-center">
-          <p className="text-[10px] text-gray-500">专业排名</p>
-          <p className="text-3xl font-bold text-amber-500">{r.rank}<span className="text-lg text-gray-400">/{r.total}</span></p>
-          <div className="mt-3 flex justify-around border-t border-gray-100 pt-3">
-            <div><p className="text-[9px] text-gray-400">我的绩点</p><p className="font-bold text-indigo-600">{r.gpa}</p></div>
-            <div><p className="text-[9px] text-gray-400">专业平均</p><p className="font-bold text-gray-600">{r.avg}</p></div>
+      <div className="phone-feature-body">
+        <div className="phone-card phone-ranking-card">
+          <p className="phone-ranking-label">专业排名</p>
+          <p className="phone-ranking-value">
+            {r.rank}
+            <span className="phone-ranking-total">/{r.total}</span>
+          </p>
+          <div className="phone-ranking-stats">
+            <div>
+              <p className="phone-ranking-stat-label">我的绩点</p>
+              <p className="phone-ranking-stat-value phone-ranking-stat-value--primary">{r.gpa}</p>
+            </div>
+            <div>
+              <p className="phone-ranking-stat-label">专业平均</p>
+              <p className="phone-ranking-stat-value">{r.avg}</p>
+            </div>
           </div>
-        </AppCard>
+        </div>
       </div>
     </AppShell>
   );
@@ -295,17 +414,17 @@ function AllFeaturesScreen() {
   return (
     <AppShell screen="all-features" showNav={false}>
       <PageHeader title="所有功能" />
-      <div className="overflow-y-auto p-3">
+      <div className="phone-feature-body">
         {MODULE_CATEGORIES.map((cat) => (
-          <div key={cat} className="mb-4">
-            <h3 className="mb-2 text-xs font-bold text-gray-500">{cat}</h3>
-            <div className="grid grid-cols-4 gap-y-3">
+          <div key={cat} className="phone-feature-category">
+            <h3 className="phone-feature-category-title">{cat}</h3>
+            <div className="phone-module-grid">
               {modulesByCategory(cat).map((mod) => (
-                <div key={mod.id} className="flex flex-col items-center">
-                  <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-2xl text-white shadow-sm" style={{ backgroundColor: mod.color }}>
-                    <mod.icon className="h-4 w-4" />
+                <div key={mod.id} className="phone-module-item">
+                  <div className="phone-module-icon" style={{ backgroundColor: mod.color }}>
+                    <mod.icon className="phone-module-svg" />
                   </div>
-                  <span className="text-center text-[8px] leading-tight text-gray-700">{mod.name}</span>
+                  <span className="phone-module-label">{mod.name}</span>
                 </div>
               ))}
             </div>
@@ -319,18 +438,23 @@ function AllFeaturesScreen() {
 function MeScreen() {
   return (
     <AppShell screen="me">
-      <div className="overflow-y-auto p-3">
-        <AppCard className="mb-3 flex items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100 text-indigo-500">
-            <User className="h-7 w-7" />
+      <div className="phone-feature-body">
+        <div className="phone-card phone-card-shadow">
+          <div className="phone-profile-row">
+            <div className="phone-profile-avatar" style={{ width: 52, height: 52 }}>
+              <User className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="phone-profile-name">{DEMO_STUDENT.id}</p>
+              <p className="phone-profile-college">{DEMO_STUDENT.college}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-bold">{DEMO_STUDENT.id}</p>
-            <p className="text-[9px] text-gray-500">{DEMO_STUDENT.college}</p>
-          </div>
-        </AppCard>
+        </div>
         {['设置中心', '云同步', '导出数据', '关于 Mini-HBUT'].map((item) => (
-          <div key={item} className="mb-2 rounded-xl bg-white px-3 py-2.5 text-xs text-gray-700 shadow-sm">{item}</div>
+          <div key={item} className="phone-list-item">
+            <span className="phone-list-item-title">{item}</span>
+            <span className="text-gray-300">›</span>
+          </div>
         ))}
       </div>
     </AppShell>
@@ -361,53 +485,47 @@ function ScreenLayer({
   translateY?: number;
   scale?: number;
 }) {
-  const Screen = SCREEN_MAP[screen] ?? HomeScreen;
-  if (opacity <= 0.001) return null;
+  const Comp = SCREEN_MAP[screen] || HomeScreen;
   return (
     <div
       className="phone-screen-layer"
       style={{
         opacity,
         transform: `translateY(${translateY}px) scale(${scale})`,
-        pointerEvents: 'none',
+        pointerEvents: opacity > 0.5 ? 'auto' : 'none',
       }}
     >
-      <Screen />
+      <Comp />
     </div>
   );
-}
-
-interface PhoneAppScreenProps {
-  screenFrom: AppScreen;
-  screenTo: AppScreen;
-  screenBlend: number;
 }
 
 export default function PhoneAppScreen({
   screenFrom,
   screenTo,
   screenBlend,
-}: PhoneAppScreenProps) {
-  const blend = Math.min(1, Math.max(0, screenBlend));
-  const same = screenFrom === screenTo;
-
-  if (same) {
-    return (
-      <div className="phone-app-viewport">
-        <ScreenLayer screen={screenTo} opacity={1} />
-      </div>
-    );
-  }
-
-  const fromY = blend * -10;
-  const toY = (1 - blend) * 10;
-  const fromScale = 1 - blend * 0.025;
-  const toScale = 0.975 + blend * 0.025;
+}: {
+  screenFrom: AppScreen;
+  screenTo: AppScreen;
+  screenBlend: number;
+}) {
+  const blending = screenBlend > 0.02 && screenFrom !== screenTo;
 
   return (
-    <div className="phone-app-viewport">
-      <ScreenLayer screen={screenFrom} opacity={1 - blend} translateY={fromY} scale={fromScale} />
-      <ScreenLayer screen={screenTo} opacity={blend} translateY={toY} scale={toScale} />
+    <div className="phone-app-viewport phone-app-root">
+      {blending ? (
+        <>
+          <ScreenLayer screen={screenFrom} opacity={1 - screenBlend} scale={1 - screenBlend * 0.03} />
+          <ScreenLayer
+            screen={screenTo}
+            opacity={screenBlend}
+            translateY={(1 - screenBlend) * 10}
+            scale={0.98 + screenBlend * 0.02}
+          />
+        </>
+      ) : (
+        <ScreenLayer screen={screenTo} opacity={1} />
+      )}
     </div>
   );
 }
