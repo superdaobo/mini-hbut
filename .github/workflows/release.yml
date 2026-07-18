@@ -936,6 +936,16 @@ jobs:
           set -euo pipefail
           node scripts/build_website_modules.mjs
 
+      - name: Install root deps for Hero app demo
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build website Hero app demo (offline Vue)
+        run: |
+          set -euo pipefail
+          npm run build:website-demo
+
       - name: Build website
         run: |
           cd website

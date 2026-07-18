@@ -19,15 +19,15 @@ import { GITHUB_URL, SHOWCASE_STAGES } from '@/data/home-content';
 const META = SHOWCASE_STAGES;
 const N = META.length;
 
-/** 运镜关键帧：每个舞台的相机位 */
+/** 运镜关键帧：水平位移收敛，避免 sticky + overflow 裁切时机身离开视口（#413） */
 const CAMS = [
-  { ry: -8, rx: 4, s: 0.88, x: 96, y: 0 },
-  { ry: -27, rx: 5, s: 1.0, x: -116, y: 0 },
-  { ry: 25, rx: -3, s: 1.02, x: 116, y: 8 },
-  { ry: -15, rx: 9, s: 1.1, x: -104, y: -6 },
-  { ry: 27, rx: 3, s: 0.98, x: 116, y: 6 },
-  { ry: -25, rx: 11, s: 1.06, x: -116, y: -10 },
-  { ry: 15, rx: -5, s: 1.0, x: 116, y: 0 },
+  { ry: -8, rx: 4, s: 0.9, x: 48, y: 0 },
+  { ry: -18, rx: 5, s: 0.96, x: -56, y: 0 },
+  { ry: 16, rx: -3, s: 0.98, x: 56, y: 4 },
+  { ry: -12, rx: 6, s: 1.02, x: -48, y: -4 },
+  { ry: 16, rx: 3, s: 0.96, x: 52, y: 4 },
+  { ry: -14, rx: 7, s: 1.0, x: -52, y: -6 },
+  { ry: 10, rx: -3, s: 0.96, x: 48, y: 0 },
   { ry: 0, rx: 0, s: 0.94, x: 0, y: 0 },
 ];
 
@@ -195,7 +195,8 @@ function ShowcaseScroll() {
       style={{ height: `${N * 100}vh` }}
       aria-label="App 功能滚动演示"
     >
-      <div className="sticky top-0 flex h-screen items-center justify-center overflow-hidden">
+      {/* sticky 自身可用 overflow-x-clip；祖先不得 overflow-x-hidden（见 HomeExperience） */}
+      <div className="sticky top-0 flex h-svh items-center justify-center overflow-x-clip overflow-y-hidden">
         <div className="absolute inset-0 -z-10">
           <div className="absolute inset-0 bg-gradient-to-b from-[#0a0f1a] via-[#050a14] to-[#0a0f1a]" />
           <div className="aurora-blob left-[-8%] top-[5%] h-[420px] w-[420px] bg-cyan-500/[0.09]" />
@@ -212,8 +213,9 @@ function ShowcaseScroll() {
           <p className="mt-1 text-sm text-white/50">滚动，体验真实 App 界面</p>
         </div>
 
-        <div className="phone-scene z-10">
-          <motion.div style={{ transform }} className="phone-3d relative">
+        {/* 机身水平位移由 transform 完成；外层保持视口居中，避免 sticky 失效后机身整块滚出 */}
+        <div className="phone-scene z-10 flex items-center justify-center">
+          <motion.div style={{ transform }} className="phone-3d relative will-change-transform">
             <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[540px] w-[540px] -translate-x-1/2 -translate-y-1/2">
               <div className="animate-spin-slower absolute inset-0 rounded-full border border-dashed border-cyan-400/15" />
               <div className="animate-spin-slower-rev absolute inset-12 rounded-full border border-violet-400/10" />
@@ -224,7 +226,7 @@ function ShowcaseScroll() {
               className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/[0.13] blur-[80px]"
             />
 
-            <div className="relative h-[560px] w-[272px] rounded-[2.75rem] bg-gradient-to-b from-slate-700/80 via-slate-800 to-slate-900 p-[3px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8),0_0_60px_-20px_rgba(34,211,238,0.3)]">
+            <div className="relative h-[min(560px,72svh)] w-[min(272px,72vw)] max-w-[272px] rounded-[2.75rem] bg-gradient-to-b from-slate-700/80 via-slate-800 to-slate-900 p-[3px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8),0_0_60px_-20px_rgba(34,211,238,0.3)]">
               <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[2.6rem] bg-[#0f172a]">
                 <div className="absolute left-1/2 top-2.5 z-20 h-[22px] w-[96px] -translate-x-1/2 rounded-full bg-black shadow-inner" />
                 <div className="z-10 flex items-center justify-between bg-[#f0f4f8] px-6 pb-1 pt-3 text-[9px] font-medium text-slate-600">

@@ -5,7 +5,7 @@ import { BookOpenText, ChevronDown, Download, Github, Sparkles } from 'lucide-re
 import Link from 'next/link';
 import { useRef } from 'react';
 import ParticleBackground from '@/components/ParticleBackground';
-import Phone3D from '@/components/Phone3D';
+import InteractiveAppPhone from '@/components/InteractiveAppPhone';
 import {
   CHIPS,
   EYEBROW,
@@ -15,6 +15,7 @@ import {
   SUB,
   TRUST_ITEMS,
 } from '@/data/home-content';
+
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -154,7 +155,7 @@ export default function HeroSection() {
             transition={{ delay: 0.35, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             className="relative"
           >
-            <Phone3D />
+            <InteractiveAppPhone />
           </motion.div>
         </div>
 

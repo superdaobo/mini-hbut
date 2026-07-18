@@ -21,9 +21,11 @@ export default function HomeExperience() {
   }, []);
 
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-[#03060d] text-white">
+    // 注意：不要在 sticky Showcase 祖先上使用 overflow-x-hidden，
+    // 否则 sticky 会相对该祖先计算，滚动后机身被顶出视口（#413）。
+    <div className="relative min-h-screen bg-[#03060d] text-white">
       <Navbar variant="home" pastHero={scrolled} />
-      <main className="relative">
+      <main className="relative overflow-x-clip">
         <HeroSection />
         <ScrollShowcase />
         <HomeClassicSections />

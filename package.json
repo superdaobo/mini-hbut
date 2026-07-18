@@ -17,7 +17,9 @@
     "tauri:dev:static": "node scripts/tauri_dev_static.mjs",
     "build": "vite build",
     "build:web": "vite build",
+    "build:website-demo": "node scripts/build_website_app_demo.mjs",
     "build:hot-bundle": "node scripts/build_hot_bundle.mjs",
+
     "test": "vitest run",
     "test:ci": "vitest run --config vitest.ci.config.ts",
     "test:pbt": "vitest run -t \"Property\"",
