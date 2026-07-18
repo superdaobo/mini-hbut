@@ -2,21 +2,38 @@
 
 import type { ComponentType } from 'react';
 import type { AppScreen } from '@/lib/scroll-utils';
-import AppShell, { AppCard, PageHeader } from './AppShell';
+import AppShell, { PageHeader } from './AppShell';
 import './phone-app.css';
 import { APP_MODULES, MODULE_CATEGORIES, QUICK_ENTRY_IDS, modulesByCategory } from './app-modules';
 import {
+  DEMO_CALENDAR,
+  DEMO_CAMPUS_CODE,
   DEMO_CLASSROOMS,
   DEMO_ELECTRICITY,
+  DEMO_ELECTRICITY_DUAL,
   DEMO_EXAMS,
   DEMO_GRADES,
+  DEMO_LIBRARY,
   DEMO_NOTIFICATIONS,
   DEMO_RANKING,
   DEMO_SCHEDULE_BLOCKS,
   DEMO_STUDENT,
   DEMO_TODAY_COURSES,
+  DEMO_TRANSACTIONS,
 } from './demo-data';
-import { Bell, CloudSun, GraduationCap, MapPin, Search, User } from 'lucide-react';
+import {
+  Bell,
+  BookOpen,
+  Calendar,
+  CloudSun,
+  GraduationCap,
+  MapPin,
+  QrCode,
+  Search,
+  User,
+  Wallet,
+  Zap,
+} from 'lucide-react';
 
 /**
  * 首页视觉对齐 Tauri `Dashboard.vue`：
@@ -382,22 +399,146 @@ function NotificationsScreen() {
 }
 
 function ElectricityScreen() {
+  const dual = DEMO_ELECTRICITY_DUAL;
   const e = DEMO_ELECTRICITY;
   return (
     <AppShell screen="electricity" showNav={false}>
-      <PageHeader title="电费查询" />
+      <PageHeader title="电费查询" icon={<Zap className="h-4 w-4 text-rose-500" />} />
       <div className="phone-feature-body">
-        <div className="phone-gradient-banner phone-gradient-rose">
-          <p className="phone-banner-label">
-            {e.building} · {e.room}
+        <div className="phone-card phone-card-shadow">
+          <p className="text-[10px] font-medium text-gray-500">
+            {dual.building} · {dual.room}
           </p>
-          <p className="phone-banner-value phone-banner-value-lg">¥{e.balance}</p>
-          <p className="phone-banner-sub">剩余余额 · 更新于 {e.updatedAt}</p>
-          <div className="phone-banner-footer">
-            <span>今日用电 {e.usage} 度</span>
-            <span>低电量提醒已开启</span>
+          <p className="mt-1 text-[9px] text-gray-400">双计费宿舍 · 更新于 {dual.updatedAt}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="phone-gradient-banner phone-gradient-rose !p-3">
+            <p className="phone-banner-label">💡 {dual.light.label}</p>
+            <p className="phone-banner-value !text-xl">¥{dual.light.balance}</p>
+            <p className="phone-banner-sub">{dual.light.kwh} 度</p>
+          </div>
+          <div className="phone-gradient-banner phone-gradient-indigo !p-3">
+            <p className="phone-banner-label">❄️ {dual.ac.label}</p>
+            <p className="phone-banner-value !text-xl">¥{dual.ac.balance}</p>
+            <p className="phone-banner-sub">{dual.ac.kwh} 度</p>
           </div>
         </div>
+        <div className="phone-list-item">
+          <div>
+            <p className="phone-list-item-title">今日用电</p>
+            <p className="phone-list-item-sub">照明 + 空调合计</p>
+          </div>
+          <span className="text-sm font-bold text-rose-500">{e.usage} 度</span>
+        </div>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] text-rose-600">
+          低电量提醒已开启 · 余额低于 10 度将推送通知
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function CampusCodeScreen() {
+  const c = DEMO_CAMPUS_CODE;
+  return (
+    <AppShell screen="campus-code" showNav={false}>
+      <PageHeader title="校园码" icon={<QrCode className="h-4 w-4 text-teal-600" />} />
+      <div className="phone-feature-body">
+        <div className="phone-card phone-card-shadow text-center">
+          <span className="inline-flex rounded-full bg-teal-50 px-2 py-0.5 text-[9px] font-semibold text-teal-700">
+            {c.mode}
+          </span>
+          <div className="mx-auto mt-3 flex h-36 w-36 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 shadow-inner">
+            <div className="grid grid-cols-5 gap-1 p-3">
+              {Array.from({ length: 25 }).map((_, i) => (
+                <span
+                  key={i}
+                  className={`h-2.5 w-2.5 rounded-[2px] ${i % 3 === 0 || i % 7 === 0 ? 'bg-white' : 'bg-white/20'}`}
+                />
+              ))}
+            </div>
+          </div>
+          <p className="mt-3 text-sm font-bold text-gray-800">{c.name}</p>
+          <p className="text-[10px] text-gray-500">学号 {c.serial}</p>
+          <p className="mt-2 text-lg font-bold text-teal-600">¥{c.balance}</p>
+          <p className="mt-1 text-[9px] text-gray-400">{c.hint}</p>
+        </div>
+      </div>
+    </AppShell>
+  );
+}
+
+function TransactionsScreen() {
+  return (
+    <AppShell screen="transactions" showNav={false}>
+      <PageHeader title="交易记录" icon={<Wallet className="h-4 w-4 text-rose-500" />} />
+      <div className="phone-feature-body">
+        {DEMO_TRANSACTIONS.map((t) => (
+          <div key={`${t.title}-${t.time}`} className="phone-list-item">
+            <div>
+              <p className="phone-list-item-title">{t.title}</p>
+              <p className="phone-list-item-sub">
+                {t.type} · {t.time}
+              </p>
+            </div>
+            <span
+              className={`text-sm font-bold ${t.amount.startsWith('+') ? 'text-emerald-600' : 'text-gray-800'}`}
+            >
+              {t.amount}
+            </span>
+          </div>
+        ))}
+      </div>
+    </AppShell>
+  );
+}
+
+function LibraryScreen() {
+  return (
+    <AppShell screen="library" showNav={false}>
+      <PageHeader title="图书查询" icon={<BookOpen className="h-4 w-4 text-teal-700" />} />
+      <div className="phone-feature-body">
+        <div className="phone-dashboard-search mx-0 mb-1 max-w-none">
+          <Search className="phone-dashboard-search-icon" />
+          搜索书名 / ISBN
+        </div>
+        {DEMO_LIBRARY.map((b) => (
+          <div key={b.title} className="phone-list-item">
+            <div className="min-w-0">
+              <p className="phone-list-item-title truncate">{b.title}</p>
+              <p className="phone-list-item-sub">{b.loc}</p>
+            </div>
+            <span
+              className={`phone-status-pill ${b.status === '已借出' ? 'phone-status-pill--busy' : 'phone-status-pill--free'}`}
+            >
+              {b.status}
+            </span>
+          </div>
+        ))}
+      </div>
+    </AppShell>
+  );
+}
+
+function CalendarScreen() {
+  return (
+    <AppShell screen="calendar" showNav={false}>
+      <PageHeader title="校历" icon={<Calendar className="h-4 w-4 text-blue-500" />} />
+      <div className="phone-feature-body">
+        <div className="phone-gradient-banner phone-gradient-indigo">
+          <p className="phone-banner-label">2025-2026 学年 · 第 1 学期</p>
+          <p className="phone-banner-value !text-2xl">第 14 教学周</p>
+          <p className="phone-banner-sub">当前周次</p>
+        </div>
+        {DEMO_CALENDAR.map((w) => (
+          <div key={w.week} className="phone-list-item">
+            <div>
+              <p className="phone-list-item-title">{w.week}</p>
+              <p className="phone-list-item-sub">{w.range}</p>
+            </div>
+            <span className="text-[10px] text-gray-500">{w.note}</span>
+          </div>
+        ))}
       </div>
     </AppShell>
   );
@@ -466,7 +607,7 @@ function AllFeaturesScreen() {
               {modulesByCategory(cat).map((mod) => (
                 <div key={mod.id} className="phone-module-item">
                   <div className="phone-module-icon" style={{ backgroundColor: mod.color }}>
-                    <mod.icon className="phone-module-svg" />
+                    <mod.icon className="phone-module-svg" strokeWidth={2.2} />
                   </div>
                   <span className="phone-module-label">{mod.name}</span>
                 </div>
@@ -474,6 +615,28 @@ function AllFeaturesScreen() {
             </div>
           </div>
         ))}
+        {/* 扩展模块视觉预览（对齐 Tauri 全量入口） */}
+        <div className="phone-feature-category">
+          <h3 className="phone-feature-category-title">生活与扩展</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="phone-card !p-2.5">
+              <p className="text-[10px] font-bold text-gray-800">校园码</p>
+              <p className="text-[8px] text-gray-500">在线 / 高能模式二维码</p>
+            </div>
+            <div className="phone-card !p-2.5">
+              <p className="text-[10px] font-bold text-gray-800">交易记录</p>
+              <p className="text-[8px] text-gray-500">一码通流水筛选</p>
+            </div>
+            <div className="phone-card !p-2.5">
+              <p className="text-[10px] font-bold text-gray-800">图书查询</p>
+              <p className="text-[8px] text-gray-500">馆藏检索与状态</p>
+            </div>
+            <div className="phone-card !p-2.5">
+              <p className="text-[10px] font-bold text-gray-800">校历</p>
+              <p className="text-[8px] text-gray-500">教学周与假期</p>
+            </div>
+          </div>
+        </div>
       </div>
     </AppShell>
   );
@@ -488,13 +651,34 @@ function MeScreen() {
             <div className="phone-profile-avatar" style={{ width: 52, height: 52 }}>
               <User className="h-6 w-6" />
             </div>
-            <div>
-              <p className="phone-profile-name">{DEMO_STUDENT.id}</p>
-              <p className="phone-profile-college">{DEMO_STUDENT.college}</p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <p className="phone-profile-name">{DEMO_STUDENT.id}</p>
+                <span className="phone-profile-badge">本科生</span>
+              </div>
+              <p className="phone-profile-college">湖北工业大学 · {DEMO_STUDENT.college}</p>
             </div>
+            <span className="session-status-dot is-green" title="会话已连接" />
           </div>
         </div>
-        {['设置中心', '云同步', '导出数据', '关于 Mini-HBUT'].map((item) => (
+        <div className="phone-card phone-card-shadow">
+          <div className="phone-section-head">
+            <h3>登录状态</h3>
+            <span className="text-[9px] font-medium text-emerald-600">静默登录已开启</span>
+          </div>
+          <p className="text-[9px] text-gray-500">门户会话本地缓存 · 临时会话自动失效处理</p>
+        </div>
+        <div className="phone-module-grid !grid-cols-4">
+          {['设置中心', '导出中心', '检查更新', '意见反馈'].map((label) => (
+            <div key={label} className="phone-module-item">
+              <div className="phone-module-icon bg-slate-100 !text-slate-600">
+                <span className="text-[10px] font-bold">{label.slice(0, 1)}</span>
+              </div>
+              <span className="phone-module-label">{label}</span>
+            </div>
+          ))}
+        </div>
+        {['云同步', '隐私政策', '开源协议', '关于 Mini-HBUT'].map((item) => (
           <div key={item} className="phone-list-item">
             <span className="phone-list-item-title">{item}</span>
             <span className="text-gray-300">›</span>
@@ -516,6 +700,10 @@ const SCREEN_MAP: Record<AppScreen, ComponentType> = {
   ranking: RankingScreen,
   'all-features': AllFeaturesScreen,
   me: MeScreen,
+  'campus-code': CampusCodeScreen,
+  transactions: TransactionsScreen,
+  library: LibraryScreen,
+  calendar: CalendarScreen,
 };
 
 function ScreenLayer({
@@ -544,27 +732,39 @@ function ScreenLayer({
   );
 }
 
+/** 官网手机演示可用的屏 ID（与 scroll-utils AppScreen 对齐） */
+export type PhoneDemoScreen = AppScreen;
+
 export default function PhoneAppScreen({
   screenFrom,
   screenTo,
-  screenBlend,
+  screenBlend = 1,
+  blend,
 }: {
   screenFrom: AppScreen;
   screenTo: AppScreen;
-  screenBlend: number;
+  /** 兼容旧调用 */
+  screenBlend?: number;
+  /** Hero / Showcase 简写 */
+  blend?: number;
 }) {
-  const blending = screenBlend > 0.02 && screenFrom !== screenTo;
+  const resolvedBlend = blend ?? screenBlend;
+  const blending = resolvedBlend > 0.02 && screenFrom !== screenTo;
 
   return (
     <div className="phone-app-viewport phone-app-root">
       {blending ? (
         <>
-          <ScreenLayer screen={screenFrom} opacity={1 - screenBlend} scale={1 - screenBlend * 0.03} />
+          <ScreenLayer
+            screen={screenFrom}
+            opacity={1 - resolvedBlend}
+            scale={1 - resolvedBlend * 0.03}
+          />
           <ScreenLayer
             screen={screenTo}
-            opacity={screenBlend}
-            translateY={(1 - screenBlend) * 10}
-            scale={0.98 + screenBlend * 0.02}
+            opacity={resolvedBlend}
+            translateY={(1 - resolvedBlend) * 10}
+            scale={0.98 + resolvedBlend * 0.02}
           />
         </>
       ) : (
