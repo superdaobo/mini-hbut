@@ -40,6 +40,7 @@ import {
   getTestAccountGrades,
   seedTestAccountCaches
 } from './utils/test_account_fixtures.js'
+import { isWebsiteDemoBuild } from './utils/website_demo_boot.js'
 import {
   loadChaoxingStoredPassword,
   loadPortalStoredPassword
@@ -2352,6 +2353,8 @@ const dismissSplash = (reason = '') => {
 
 // 自动检查更新（尊重用户频道：默认 stable，开启 dev 后才查 beta）
 const autoCheckUpdate = async () => {
+  // 官网 Hero 离线演示：禁止版本检查外连
+  if (isWebsiteDemoBuild() || isTestAccountSession()) return
   try {
     const { getUpdateChannel, getSkippedVersion } = await import('./utils/updater.js')
     const currentVersion = await getCurrentVersion()
@@ -2394,6 +2397,8 @@ const primeOcrEndpointFromCache = async () => {
 }
 
 const applyRemoteConfig = async () => {
+  // 官网 Hero 离线演示：跳过远程配置拉取
+  if (isWebsiteDemoBuild()) return
   try {
     const config = await fetchRemoteConfig()
     remoteConfig.value = config
@@ -3067,6 +3072,10 @@ onMounted(async () => {
     .catch((e) => console.warn('[Boot] session-restore late fail:', e))
 
   void (async () => {
+    if (isWebsiteDemoBuild()) {
+      console.info('[Boot] website-demo: skip remote-config')
+      return
+    }
     console.time('[Boot] remote-config')
     try {
       await applyRemoteConfig()

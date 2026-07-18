@@ -12,6 +12,11 @@ import { runNotificationCheck } from './utils/notify_center'
 import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 import { invokeNative, isTauriRuntime } from './platform/native'
+import { bootstrapWebsiteDemoIfNeeded } from './utils/website_demo_boot.js'
+
+// 官网 Hero iframe 演示：挂载前写入演示会话 + fixtures（仅 VITE_WEBSITE_DEMO=1）
+bootstrapWebsiteDemoIfNeeded()
+
 
 const removeNativeSplash = () => {
   try {
@@ -44,13 +49,15 @@ const mountApp = () => {
 const loadLocalIconFonts = () => {
   // 图标字体从本地加载（无 CDN 依赖），延迟到首屏之后
   // 按需加载：fontawesome 基础 + solid 图标，避免 brands/regular 等未使用字体
+  // BASE_URL 兼容官网 app-demo 相对路径部署（base: './'）
+  const base = String(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')
   void Promise.all([
     import('@fortawesome/fontawesome-free/css/fontawesome.css'),
     import('@fortawesome/fontawesome-free/css/solid.css'),
     new Promise((resolve, reject) => {
       const link = document.createElement('link')
       link.rel = 'stylesheet'
-      link.href = '/fonts/material-symbols-outlined.css'
+      link.href = `${base}fonts/material-symbols-outlined.css`
       link.onload = resolve
       link.onerror = reject
       document.head.appendChild(link)
