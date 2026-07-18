@@ -62,3 +62,39 @@ export const DEMO_RANKING = {
   gpa: '3.72',
   avg: '3.21',
 };
+
+/** 电费双计费演示（对齐 ElectricityView） */
+export const DEMO_ELECTRICITY_DUAL = {
+  building: '东苑 12栋',
+  room: '312',
+  light: { balance: '23.60', kwh: '42.6', label: '照明' },
+  ac: { balance: '18.20', kwh: '31.4', label: '空调' },
+  updatedAt: '2 分钟前',
+};
+
+export const DEMO_TRANSACTIONS = [
+  { title: '食堂一楼', amount: '-12.50', time: '今天 12:18', type: '消费' },
+  { title: '超市便利店', amount: '-8.00', time: '今天 08:42', type: '消费' },
+  { title: '电费充值', amount: '+50.00', time: '昨天 21:05', type: '充值' },
+  { title: '浴室热水', amount: '-2.00', time: '昨天 19:30', type: '消费' },
+];
+
+export const DEMO_LIBRARY = [
+  { title: '深入理解计算机系统', status: '可借', loc: '逸夫图书馆 3F' },
+  { title: '现代操作系统', status: '在架', loc: '西区图书馆 2F' },
+  { title: '算法导论', status: '已借出', loc: '逸夫图书馆 4F' },
+];
+
+export const DEMO_CALENDAR = [
+  { week: '第 14 周', range: '04.07 - 04.13', note: '正常教学' },
+  { week: '第 15 周', range: '04.14 - 04.20', note: '正常教学' },
+  { week: '第 16 周', range: '04.21 - 04.27', note: '复习周' },
+];
+
+export const DEMO_CAMPUS_CODE = {
+  mode: '在线模式',
+  name: '张同学',
+  serial: '****3456',
+  balance: '86.40',
+  hint: '每 60 秒自动刷新',
+};
