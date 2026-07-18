@@ -65,4 +65,28 @@ export const SCREEN_CAPTIONS: Record<
     blurb: '账号、主题与数据管理',
     accent: '#94a3b8',
   },
+  'campus-code': {
+    label: '校园码',
+    title: '一码通校园码',
+    blurb: '在线 / 高能模式二维码，门口通行即扫即过',
+    accent: '#14b8a6',
+  },
+  transactions: {
+    label: '交易',
+    title: '一码通流水',
+    blurb: '消费与充值记录本地可查',
+    accent: '#f43f5e',
+  },
+  library: {
+    label: '图书',
+    title: '馆藏检索',
+    blurb: '书名 / ISBN 检索与在馆状态',
+    accent: '#0d9488',
+  },
+  calendar: {
+    label: '校历',
+    title: '教学周与假期',
+    blurb: '当前教学周与关键节点一目了然',
+    accent: '#3b82f6',
+  },
 };

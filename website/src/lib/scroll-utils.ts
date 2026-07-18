@@ -25,7 +25,11 @@ export type AppScreen =
   | 'classroom'
   | 'ranking'
   | 'all-features'
-  | 'me';
+  | 'me'
+  | 'campus-code'
+  | 'transactions'
+  | 'library'
+  | 'calendar';
 
 export interface Vec3 {
   x: number;

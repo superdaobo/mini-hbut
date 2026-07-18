@@ -2,7 +2,7 @@
 
 import type { ComponentType } from 'react';
 import type { AppScreen } from '@/lib/scroll-utils';
-import AppShell, { AppCard, PageHeader } from './AppShell';
+import AppShell, { PageHeader } from './AppShell';
 import './phone-app.css';
 import { APP_MODULES, MODULE_CATEGORIES, QUICK_ENTRY_IDS, modulesByCategory } from './app-modules';
 import {
@@ -441,7 +441,7 @@ function ElectricityScreen() {
 function CampusCodeScreen() {
   const c = DEMO_CAMPUS_CODE;
   return (
-    <AppShell screen="home" showNav={false}>
+    <AppShell screen="campus-code" showNav={false}>
       <PageHeader title="校园码" icon={<QrCode className="h-4 w-4 text-teal-600" />} />
       <div className="phone-feature-body">
         <div className="phone-card phone-card-shadow text-center">
@@ -470,7 +470,7 @@ function CampusCodeScreen() {
 
 function TransactionsScreen() {
   return (
-    <AppShell screen="home" showNav={false}>
+    <AppShell screen="transactions" showNav={false}>
       <PageHeader title="交易记录" icon={<Wallet className="h-4 w-4 text-rose-500" />} />
       <div className="phone-feature-body">
         {DEMO_TRANSACTIONS.map((t) => (
@@ -495,7 +495,7 @@ function TransactionsScreen() {
 
 function LibraryScreen() {
   return (
-    <AppShell screen="home" showNav={false}>
+    <AppShell screen="library" showNav={false}>
       <PageHeader title="图书查询" icon={<BookOpen className="h-4 w-4 text-teal-700" />} />
       <div className="phone-feature-body">
         <div className="phone-dashboard-search mx-0 mb-1 max-w-none">
@@ -522,7 +522,7 @@ function LibraryScreen() {
 
 function CalendarScreen() {
   return (
-    <AppShell screen="home" showNav={false}>
+    <AppShell screen="calendar" showNav={false}>
       <PageHeader title="校历" icon={<Calendar className="h-4 w-4 text-blue-500" />} />
       <div className="phone-feature-body">
         <div className="phone-gradient-banner phone-gradient-indigo">
@@ -700,6 +700,10 @@ const SCREEN_MAP: Record<AppScreen, ComponentType> = {
   ranking: RankingScreen,
   'all-features': AllFeaturesScreen,
   me: MeScreen,
+  'campus-code': CampusCodeScreen,
+  transactions: TransactionsScreen,
+  library: LibraryScreen,
+  calendar: CalendarScreen,
 };
 
 function ScreenLayer({

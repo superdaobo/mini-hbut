@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { BellRing, ShieldCheck, Zap } from 'lucide-react';
 import PhoneAppScreen, { type PhoneDemoScreen } from '@/components/phone-app/PhoneAppScreen';
@@ -17,7 +17,6 @@ export default function Phone3D() {
   const [paused, setPaused] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const phoneRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef(0);
   const target = useRef({ rx: 0, ry: 0 });
   const current = useRef({ rx: 0, ry: 0 });
 
@@ -30,20 +29,23 @@ export default function Phone3D() {
     return () => clearInterval(t);
   }, [paused, reduced, screens.length]);
 
-  const animate = useCallback(() => {
-    current.current.rx += (target.current.rx - current.current.rx) * 0.09;
-    current.current.ry += (target.current.ry - current.current.ry) * 0.09;
-    if (phoneRef.current) {
-      phoneRef.current.style.transform = `rotateX(${current.current.rx}deg) rotateY(${current.current.ry}deg)`;
-    }
-    rafRef.current = requestAnimationFrame(animate);
-  }, []);
-
   useEffect(() => {
     if (reduced) return undefined;
-    rafRef.current = requestAnimationFrame(animate);
+    let raf = 0;
+    const tick = () => {
+      current.current.rx += (target.current.rx - current.current.rx) * 0.09;
+      current.current.ry += (target.current.ry - current.current.ry) * 0.09;
+      if (phoneRef.current) {
+        phoneRef.current.style.transform = `rotateX(${current.current.rx}deg) rotateY(${current.current.ry}deg)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
     const el = wrapRef.current;
-    if (!el) return undefined;
+    if (!el) {
+      cancelAnimationFrame(raf);
+      return undefined;
+    }
     const onMove = (e: MouseEvent) => {
       const r = el.getBoundingClientRect();
       const px = (e.clientX - (r.left + r.width / 2)) / r.width;
@@ -58,11 +60,11 @@ export default function Phone3D() {
     window.addEventListener('mousemove', onMove);
     el.addEventListener('mouseleave', onLeave);
     return () => {
-      cancelAnimationFrame(rafRef.current);
+      cancelAnimationFrame(raf);
       window.removeEventListener('mousemove', onMove);
       el.removeEventListener('mouseleave', onLeave);
     };
-  }, [animate, reduced]);
+  }, [reduced]);
 
   return (
     <div ref={wrapRef} className="phone-scene relative mx-auto w-fit select-none">
