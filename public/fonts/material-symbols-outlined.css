@@ -1,15 +1,16 @@
 @font-face {
   font-family: 'Material Symbols Outlined';
   font-style: normal;
-  font-weight: 100 700;
+  /* 单一 weight：避免 100–700 范围在部分浏览器 + 子集字体下 @font-face 失败（详情页图标变英文） */
+  font-weight: 400;
   font-display: block;
-  /* 相对路径：兼容根路径部署与官网 /app-demo/ 子路径（绝对 /fonts 在子路径下 404） */
+  /* 相对路径：兼容根路径与官网 /app-demo/ 子路径 */
   src: url(./material-symbols-outlined.subset.woff2) format('woff2');
 }
 
 .material-symbols-outlined {
   font-family: 'Material Symbols Outlined', sans-serif !important;
-  font-weight: normal !important;
+  font-weight: 400 !important;
   font-style: normal;
   font-size: 24px;
   line-height: 1;
