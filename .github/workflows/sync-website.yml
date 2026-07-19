@@ -14,8 +14,11 @@ permissions:
   contents: write
 
 concurrency:
+  # 与 Website Modules / dev-build / release 共用 website-pages 写入锁。
+  # cancel-in-progress 必须为 false：#415 合并时 Modules 与本 workflow 同秒触发，
+  # 旧配置把本 job cancel 掉 → EdgeOne 可能由 Modules 补上，但 gh-pages 永远不更新。
   group: website-pages-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   sync-website:

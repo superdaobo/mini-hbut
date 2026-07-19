@@ -4,10 +4,14 @@ on:
   push:
     branches:
       - main
+    # 仅模块源/管线变更触发。官网 UI（src/components 等）由 Sync Website 负责，
+    # 禁止与 Sync Website 抢同一 concurrency 组，否则会 cancel 掉 gh-pages 部署（#415 事故）。
     paths:
-      - "website/**"
+      - "website/modules-src/**"
+      - "website/public/modules/**"
       - "scripts/build_website_modules.mjs"
       - "scripts/build_release_manifests.mjs"
+      - "scripts/prune_website_module_versions.mjs"
       - ".github/workflows/website-modules.yml"
   workflow_dispatch:
 
@@ -15,8 +19,10 @@ permissions:
   contents: write
 
 concurrency:
+  # 与 Sync Website 共用 website-pages 写入锁，但禁止 cancel-in-progress：
+  # 否则 main 上并发触发时会把负责 gh-pages 的 Sync Website 杀掉。
   group: website-pages-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy-website-modules:
