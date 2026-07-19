@@ -6,6 +6,17 @@ import { BellRing, MousePointer2, ShieldCheck, Zap } from 'lucide-react';
 import { withBasePath } from '@/lib/base-path';
 
 /**
+ * 机内「设计稿」逻辑像素：贴近真实手机 WebView 宽度。
+ * 外壳更小，用 CSS scale 缩放 iframe，避免 266px 视口把 UI 挤爆。
+ */
+const DESIGN_W = 390;
+const DESIGN_H = 844;
+/** 外壳可视区域（去 status 装饰后的内容区） */
+const SHELL_W = 300;
+const SHELL_H = 620;
+const SCALE = SHELL_W / DESIGN_W;
+
+/**
  * Hero 右侧可交互手机：iframe 嵌入 `public/app-demo`（Vue 客户端 + 演示 fixtures）。
  * 不再自动轮播 mock 屏；用户可像真实软件一样点击底栏与模块。
  */
@@ -20,7 +31,6 @@ export default function InteractiveAppPhone() {
 
   const demoSrc = useMemo(() => {
     // Next trailingSlash:false 下 /app-demo/ 可能 404，显式 index.html 更稳
-    // Vite base:'./' → assets 相对 /app-demo/ 解析
     return withBasePath('/app-demo/index.html');
   }, []);
 
@@ -42,7 +52,7 @@ export default function InteractiveAppPhone() {
       return undefined;
     }
     const onMove = (e: MouseEvent) => {
-      // 指针在机身内时归零 3D，保证 iframe 点击命中与真实软件一致
+      // 指针在机身内时归零 3D，保证 iframe 点击命中
       const phone = phoneRef.current?.getBoundingClientRect();
       if (
         phone &&
@@ -58,8 +68,8 @@ export default function InteractiveAppPhone() {
       const r = el.getBoundingClientRect();
       const px = (e.clientX - (r.left + r.width / 2)) / r.width;
       const py = (e.clientY - (r.top + r.height / 2)) / r.height;
-      target.current.ry = px * 10;
-      target.current.rx = -py * 8;
+      target.current.ry = px * 8;
+      target.current.rx = -py * 6;
     };
     const onLeave = () => {
       target.current.rx = 0;
@@ -76,7 +86,7 @@ export default function InteractiveAppPhone() {
 
   return (
     <div ref={wrapRef} className="phone-scene relative mx-auto w-fit select-none">
-      <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[560px] w-[560px] -translate-x-1/2 -translate-y-1/2">
+      <div className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[620px] w-[620px] -translate-x-1/2 -translate-y-1/2">
         <div className="animate-spin-slower absolute inset-0 rounded-full border border-dashed border-cyan-400/15" />
         <div className="animate-spin-slower-rev absolute inset-10 rounded-full border border-violet-400/10" />
         <div className="absolute inset-24 rounded-full bg-cyan-400/[0.05] blur-2xl" />
@@ -86,20 +96,19 @@ export default function InteractiveAppPhone() {
       <div className="pointer-events-none absolute -bottom-14 left-1/2 h-16 w-[75%] -translate-x-1/2 rounded-[100%] bg-cyan-400/20 blur-2xl" />
 
       <div ref={phoneRef} className="phone-3d relative">
-        <div className="animate-float-slow relative h-[560px] w-[272px] rounded-[2.75rem] bg-gradient-to-b from-slate-700/80 via-slate-800 to-slate-900 p-[3px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8),0_0_60px_-20px_rgba(34,211,238,0.35)]">
+        {/* 外壳：略宽于旧 272，接近真机比例 */}
+        <div
+          className="animate-float-slow relative rounded-[2.75rem] bg-gradient-to-b from-slate-700/80 via-slate-800 to-slate-900 p-[3px] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8),0_0_60px_-20px_rgba(34,211,238,0.35)]"
+          style={{ width: SHELL_W + 6, height: SHELL_H + 6 }}
+        >
           <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[2.6rem] bg-[#0f172a]">
-            <div className="pointer-events-none absolute left-1/2 top-2.5 z-20 h-[22px] w-[96px] -translate-x-1/2 rounded-full bg-black shadow-inner" />
-            <div className="pointer-events-none z-10 flex items-center justify-between bg-[#f0f4f8] px-6 pb-1 pt-3 text-[9px] font-medium text-slate-600">
-              <span className="tabular-nums">09:41</span>
-              <div className="flex items-center gap-1">
-                <span className="inline-block h-1.5 w-3 rounded-[2px] bg-slate-500/70" />
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-500/70" />
-                <span className="inline-block h-2 w-4 rounded-[3px] border border-slate-500/60 p-px">
-                  <span className="block h-full w-3/4 rounded-[1.5px] bg-emerald-500" />
-                </span>
-              </div>
-            </div>
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-[#f0f4f8]">
+            {/* 刘海装饰，不遮挡内容点击 */}
+            <div className="pointer-events-none absolute left-1/2 top-2 z-30 h-[18px] w-[92px] -translate-x-1/2 rounded-full bg-black shadow-inner" />
+            {/* 内容区：设计稿尺寸 + scale，还原 App 布局密度 */}
+            <div
+              className="relative overflow-hidden bg-[#f0f4f8]"
+              style={{ width: SHELL_W, height: SHELL_H }}
+            >
               {!loaded && !failed && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#f0f4f8] text-[11px] text-slate-500">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-cyan-400/30 border-t-cyan-500" />
@@ -112,17 +121,26 @@ export default function InteractiveAppPhone() {
                   <p className="text-[10px] text-slate-400">请运行 npm run build:website-demo</p>
                 </div>
               )}
-              <iframe
-                title="Mini-HBUT 可交互演示（离线预设数据）"
-                src={demoSrc}
-                className="h-full w-full border-0 bg-[#f0f4f8]"
-                // 演示不联网；sandbox 允许同源脚本与同窗导航
-                sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups-to-escape-sandbox"
-                loading="eager"
-                referrerPolicy="no-referrer"
-                onLoad={() => setLoaded(true)}
-                onError={() => setFailed(true)}
-              />
+              <div
+                className="origin-top-left"
+                style={{
+                  width: DESIGN_W,
+                  height: DESIGN_H,
+                  transform: `scale(${SCALE})`,
+                }}
+              >
+                <iframe
+                  title="Mini-HBUT 可交互演示（离线预设数据）"
+                  src={demoSrc}
+                  className="border-0 bg-[#f0f4f8]"
+                  style={{ width: DESIGN_W, height: DESIGN_H }}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups-to-escape-sandbox"
+                  loading="eager"
+                  referrerPolicy="no-referrer"
+                  onLoad={() => setLoaded(true)}
+                  onError={() => setFailed(true)}
+                />
+              </div>
             </div>
           </div>
           <div className="pointer-events-none absolute -right-[2px] top-28 h-14 w-[3px] rounded-r-md bg-slate-600" />

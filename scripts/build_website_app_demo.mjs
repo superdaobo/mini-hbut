@@ -61,6 +61,29 @@ if (!fs.existsSync(indexHtml)) {
   process.exit(1)
 }
 
+// 修复 fonts CSS：绝对 /fonts/... → 同目录相对路径（/app-demo 子路径下绝对路径 404）
+const fontCss = path.join(outDir, 'fonts', 'material-symbols-outlined.css')
+const fontWoff = path.join(outDir, 'fonts', 'material-symbols-outlined.subset.woff2')
+if (!fs.existsSync(fontWoff)) {
+  console.error('[app-demo] ERROR: material-symbols woff2 missing under app-demo/fonts')
+  process.exit(1)
+}
+if (fs.existsSync(fontCss)) {
+  const css = fs.readFileSync(fontCss, 'utf8')
+  const fixed = css
+    .replace(/url\(\s*['"]?\/fonts\/material-symbols-outlined\.subset\.woff2['"]?\s*\)/g, 'url(./material-symbols-outlined.subset.woff2)')
+    .replace(/url\(\s*['"]?\.\/fonts\/material-symbols-outlined\.subset\.woff2['"]?\s*\)/g, 'url(./material-symbols-outlined.subset.woff2)')
+  if (fixed !== css) {
+    fs.writeFileSync(fontCss, fixed, 'utf8')
+    console.log('[app-demo] fixed material-symbols CSS font-face url → relative')
+  }
+  const check = fs.readFileSync(fontCss, 'utf8')
+  if (/url\(\s*['"]?\/fonts\//.test(check)) {
+    console.error('[app-demo] ERROR: material-symbols CSS still has absolute /fonts url')
+    process.exit(1)
+  }
+}
+
 // 轻量 marker，便于验收与 CI 校验
 const marker = {
   name: 'mini-hbut-website-app-demo',
@@ -68,6 +91,7 @@ const marker = {
   demo: true,
   offline: true,
   data: 'test_account_fixtures',
+  designViewport: { width: 390, height: 844 },
 }
 fs.writeFileSync(path.join(outDir, 'demo-manifest.json'), `${JSON.stringify(marker, null, 2)}\n`, 'utf8')
 
