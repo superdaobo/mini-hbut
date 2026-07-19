@@ -13,10 +13,12 @@ import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
 import { invokeNative, isTauriRuntime } from './platform/native'
 import { bootstrapWebsiteDemoIfNeeded } from './utils/website_demo_boot.js'
+import { ensureMaterialSymbolsFont, loadLocalIconFonts } from './utils/icon_fonts'
 
 // 官网 Hero iframe 演示：挂载前写入演示会话 + fixtures（仅 VITE_WEBSITE_DEMO=1）
-bootstrapWebsiteDemoIfNeeded()
-
+const isWebsiteDemo = bootstrapWebsiteDemoIfNeeded()
+// 演示 / 详情页依赖 Material Symbols ligature；尽早 FontFace 加载，避免图标名英文显示
+void ensureMaterialSymbolsFont()
 
 const removeNativeSplash = () => {
   try {
@@ -46,31 +48,10 @@ const mountApp = () => {
   window.setTimeout(removeNativeSplash, 500)
 }
 
-const loadLocalIconFonts = () => {
-  // 图标字体从本地加载（无 CDN 依赖），延迟到首屏之后
-  // 按需加载：fontawesome 基础 + solid 图标，避免 brands/regular 等未使用字体
-  // BASE_URL 兼容官网 app-demo 相对路径部署（base: './'）
-  const base = String(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')
-  void Promise.all([
-    import('@fortawesome/fontawesome-free/css/fontawesome.css'),
-    import('@fortawesome/fontawesome-free/css/solid.css'),
-    new Promise((resolve, reject) => {
-      const link = document.createElement('link')
-      link.rel = 'stylesheet'
-      link.href = `${base}fonts/material-symbols-outlined.css`
-      link.onload = resolve
-      link.onerror = reject
-      document.head.appendChild(link)
-    })
-  ]).catch((e) => {
-    console.warn('[Bootstrap] local icon fonts load failed:', e)
-  })
-}
-
 const runDeferredInitializers = () => {
   const run = () => {
-    // 本地图标字体延迟加载
-    loadLocalIconFonts()
+    // 本地图标字体（含 Material Symbols FontFace，详情页图标依赖）
+    void loadLocalIconFonts()
 
     // 先完成首屏挂载，再异步初始化重任务，避免安卓首次安装时白屏等待。
     void import('./utils/markdown')
@@ -112,6 +93,12 @@ const runDeferredInitializers = () => {
     }).catch((error) => {
       console.warn('[Bootstrap] background fetch init failed:', error)
     })
+  }
+
+  // 官网演示：立即加载字体（详情页一进就要图标）
+  if (isWebsiteDemo) {
+    run()
+    return
   }
 
   if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {

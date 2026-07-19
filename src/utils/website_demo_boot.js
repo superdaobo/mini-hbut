@@ -6,6 +6,7 @@
 import { markTestAccountSession, TEST_ACCOUNT } from './test_account.js'
 import { seedTestAccountCaches } from './test_account_fixtures.js'
 import { setCachedData } from './api.js'
+import { ensureMaterialSymbolsFont } from './icon_fonts'
 
 const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
 
@@ -71,6 +72,9 @@ export function bootstrapWebsiteDemoIfNeeded() {
   } catch {
     // ignore
   }
+
+  // 详情页大量 material-symbols；挂载前启动 FontFace，避免图标名当英文显示
+  void ensureMaterialSymbolsFont()
 
   return true
 }
