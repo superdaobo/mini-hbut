@@ -800,8 +800,9 @@ jobs:
     needs: [create-release, build-android, build-windows, build-macos, build-ios, build-linux]
     runs-on: ubuntu-latest
     concurrency:
+      # 与 Sync Website 共用写入锁；禁止 cancel，避免冲掉完整双部署
       group: website-pages-deploy
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
