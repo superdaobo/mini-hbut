@@ -3,7 +3,8 @@
   font-style: normal;
   font-weight: 100 700;
   font-display: block;
-  src: url(/fonts/material-symbols-outlined.subset.woff2) format('woff2');
+  /* 相对路径：兼容根路径部署与官网 /app-demo/ 子路径（绝对 /fonts 在子路径下 404） */
+  src: url(./material-symbols-outlined.subset.woff2) format('woff2');
 }
 
 .material-symbols-outlined {
