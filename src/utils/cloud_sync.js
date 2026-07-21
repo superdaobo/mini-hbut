@@ -1780,10 +1780,11 @@ export const runAutoCloudSyncAfterLogin = async ({
   skipDownload = false
 } = {}) => {
   try {
-    const { isAppStoreBuild } = await import('../config/app_store_policy')
+    const { shouldApplyAppStoreRestrictions } = await import('../config/app_store_policy')
     const { isTestAccountSession } = await import('./test_account.js')
-    if (isAppStoreBuild() || isTestAccountSession()) {
-      pushDebugLog('CloudSync', '跳过自动云同步：App Store 构建或演示会话', 'info')
+    // 合规 guest/demo 跳过；真实登录允许（与功能树一致）
+    if (shouldApplyAppStoreRestrictions() || isTestAccountSession()) {
+      pushDebugLog('CloudSync', '跳过自动云同步：合规收紧会话或演示会话', 'info')
       return { success: false, reason: 'app-store-or-demo' }
     }
   } catch {

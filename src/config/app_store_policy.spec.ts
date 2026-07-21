@@ -10,17 +10,21 @@ import {
   isRemoteModulesAllowed,
   isSponsorEntryAllowed,
   isViewAllowed,
-  setAppStoreBuildOverrideForTests
+  setAppStoreBuildOverrideForTests,
+  setAppStoreSessionOverrideForTests,
+  shouldApplyAppStoreRestrictions
 } from './app_store_policy'
 
 describe('app_store_policy', () => {
   afterEach(() => {
     setAppStoreBuildOverrideForTests(null)
+    setAppStoreSessionOverrideForTests(null)
   })
 
   it('flag off: allows representative high-risk modules and views', () => {
     setAppStoreBuildOverrideForTests(false)
     expect(isAppStoreBuild()).toBe(false)
+    expect(shouldApplyAppStoreRestrictions()).toBe(false)
     expect(isModuleAllowed('campus_code')).toBe(true)
     expect(isModuleAllowed('course_selection')).toBe(true)
     expect(isModuleAllowed('towergo')).toBe(true)
@@ -33,9 +37,11 @@ describe('app_store_policy', () => {
     expect(getFeaturePolicy().campusWriteOperations).toBe(true)
   })
 
-  it('flag on: blocks high-risk modules for all users (not reviewer-only)', () => {
+  it('flag on + guest: blocks high-risk modules', () => {
     setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: false, isDemoSession: false })
     expect(isAppStoreBuild()).toBe(true)
+    expect(shouldApplyAppStoreRestrictions()).toBe(true)
     const blocked = [
       'campus_code',
       'course_selection',
@@ -64,8 +70,37 @@ describe('app_store_policy', () => {
     }
   })
 
-  it('flag on: keeps core readonly tools', () => {
+  it('flag on + demo session: still blocks high-risk modules', () => {
     setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: true, isDemoSession: true })
+    expect(shouldApplyAppStoreRestrictions()).toBe(true)
+    expect(isModuleAllowed('campus_code')).toBe(false)
+    expect(isModuleAllowed('course_selection')).toBe(false)
+    expect(isViewAllowed('more_module_host')).toBe(false)
+    expect(getFeaturePolicy().remoteCode).toBe(false)
+  })
+
+  it('flag on + real logged-in: unlocks full feature tree', () => {
+    setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: true, isDemoSession: false })
+    expect(shouldApplyAppStoreRestrictions()).toBe(false)
+    expect(isModuleAllowed('campus_code')).toBe(true)
+    expect(isModuleAllowed('course_selection')).toBe(true)
+    expect(isModuleAllowed('towergo')).toBe(true)
+    expect(isModuleAllowed('ranking')).toBe(true)
+    expect(isModuleAllowed('secret_remote_game')).toBe(true)
+    expect(isViewAllowed('more_module_host')).toBe(true)
+    expect(isViewAllowed('school_website')).toBe(true)
+    expect(isHotUpdateAllowed()).toBe(true)
+    expect(isRemoteModulesAllowed()).toBe(true)
+    expect(isCustomJavaScriptAllowed()).toBe(true)
+    expect(getFeaturePolicy().campusWriteOperations).toBe(true)
+    expect(getFeaturePolicy().liveMobilityLocation).toBe(true)
+  })
+
+  it('flag on + guest: keeps core readonly tools', () => {
+    setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: false, isDemoSession: false })
     for (const id of [
       'home',
       'schedule',
@@ -92,9 +127,9 @@ describe('app_store_policy', () => {
     expect(isModuleAllowed('__more__')).toBe(true)
   })
 
-  it('flag on: remote policy bits stay locked even if remote would enable modules', () => {
+  it('flag on + guest: remote policy bits stay locked even if remote would enable modules', () => {
     setAppStoreBuildOverrideForTests(true)
-    // Simulate remote config trying to enable everything — policy must still deny
+    setAppStoreSessionOverrideForTests({ isLoggedIn: false, isDemoSession: false })
     const remoteModules = [
       { id: 'campus_code', enabled: true },
       { id: 'towergo', enabled: true },
@@ -110,8 +145,9 @@ describe('app_store_policy', () => {
     expect(getFeaturePolicy().liveMobilityLocation).toBe(false)
   })
 
-  it('flag on: unknown module ids are denied', () => {
+  it('flag on + guest: unknown module ids are denied', () => {
     setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: false, isDemoSession: false })
     expect(isModuleAllowed('secret_remote_game')).toBe(false)
     expect(isViewAllowed('unknown_view_xyz')).toBe(false)
   })

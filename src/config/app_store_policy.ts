@@ -1,12 +1,15 @@
 /**
  * iOS TestFlight / App Store 合规构建的功能策略中枢。
  *
- * - 仅当编译期 `VITE_APP_STORE_BUILD === '1'` 时收紧（由 ios-testflight.yml 注入）。
+ * - 仅当编译期 `VITE_APP_STORE_BUILD === '1'` 时可能收紧（由 ios-testflight.yml 注入）。
  * - 默认构建 / release / dev / Android / Desktop：全部允许，行为与现网一致。
- * - 模块/视图功能树对合规包全员统一（不因 reviewer 增减模块）；演示账号只换数据源。
- * - 赞助/赞赏入口是唯一会话相关例外（见 isSponsorEntryAllowed）：合规包下 guest/demo 隐藏。
- * - 远程配置不能改写本模块的编译期判定。
+ * - 合规包按**会话**收紧：
+ *   - 未登录 / 演示账号（reviewer）：应用 APP_STORE_POLICY 与模块黑名单（审核路径）
+ *   - 真实教务/学习通等已登录：全功能（与现网一致），含赞助入口
+ * - 远程配置不能在 guest/demo 下改写编译期收紧判定。
  */
+
+import { isTestAccountSession } from '../utils/test_account.js'
 
 /** 编译期注入（见 vite.config.ts define） */
 export const IS_APP_STORE_BUILD: boolean = String(
@@ -16,14 +19,80 @@ export const IS_APP_STORE_BUILD: boolean = String(
 /** 测试用覆盖；生产路径勿调用 */
 let appStoreBuildOverride: boolean | null = null
 
+/** 测试用会话覆盖；生产路径勿调用 */
+let appStoreSessionOverride: { isLoggedIn: boolean; isDemoSession: boolean } | null = null
+
 export function setAppStoreBuildOverrideForTests(value: boolean | null): void {
   appStoreBuildOverride = value
+}
+
+export function setAppStoreSessionOverrideForTests(
+  value: { isLoggedIn: boolean; isDemoSession: boolean } | null
+): void {
+  appStoreSessionOverride = value
 }
 
 /** 当前是否处于 App Store / TestFlight 合规构建 */
 export function isAppStoreBuild(): boolean {
   if (appStoreBuildOverride !== null) return appStoreBuildOverride
   return IS_APP_STORE_BUILD
+}
+
+const readStoredUsername = (): string => {
+  try {
+    return String(globalThis.localStorage?.getItem('hbu_username') || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 解析当前会话（可注入，便于单测；默认读 localStorage + 演示标记）。
+ */
+export function resolveAppStoreSession(session?: {
+  isLoggedIn?: boolean
+  isDemoSession?: boolean
+}): { isLoggedIn: boolean; isDemoSession: boolean } {
+  if (appStoreSessionOverride) {
+    return {
+      isLoggedIn: Boolean(appStoreSessionOverride.isLoggedIn),
+      isDemoSession: Boolean(appStoreSessionOverride.isDemoSession)
+    }
+  }
+  if (session && (session.isLoggedIn !== undefined || session.isDemoSession !== undefined)) {
+    return {
+      isLoggedIn:
+        session.isLoggedIn !== undefined
+          ? Boolean(session.isLoggedIn)
+          : Boolean(readStoredUsername()),
+      isDemoSession:
+        session.isDemoSession !== undefined
+          ? Boolean(session.isDemoSession)
+          : isTestAccountSession()
+    }
+  }
+  return {
+    isLoggedIn: Boolean(readStoredUsername()),
+    isDemoSession: isTestAccountSession()
+  }
+}
+
+/**
+ * 合规包是否应对当前会话应用收紧策略。
+ * - 非合规构建：false
+ * - 合规 + 演示会话：true
+ * - 合规 + 真实已登录：false（全功能）
+ * - 合规 + 未登录：true
+ */
+export function shouldApplyAppStoreRestrictions(session?: {
+  isLoggedIn?: boolean
+  isDemoSession?: boolean
+}): boolean {
+  if (!isAppStoreBuild()) return false
+  const { isLoggedIn, isDemoSession } = resolveAppStoreSession(session)
+  if (isDemoSession) return true
+  if (isLoggedIn) return false
+  return true
 }
 
 /**
@@ -131,8 +200,11 @@ const APP_STORE_POLICY: AppStoreFeaturePolicy = Object.freeze({
   academicReadonly: true
 })
 
-export function getFeaturePolicy(): AppStoreFeaturePolicy {
-  return isAppStoreBuild() ? APP_STORE_POLICY : FULL_POLICY
+export function getFeaturePolicy(session?: {
+  isLoggedIn?: boolean
+  isDemoSession?: boolean
+}): AppStoreFeaturePolicy {
+  return shouldApplyAppStoreRestrictions(session) ? APP_STORE_POLICY : FULL_POLICY
 }
 
 /** 合规构建下禁止的 module / view id（与 Dashboard / App 路由对齐） */
@@ -190,29 +262,36 @@ const normalizeId = (id: unknown): string => String(id ?? '').trim()
 
 /**
  * 模块宫格 / 业务 module id 是否允许展示与打开。
- * 合规关：全部 true。合规开：黑名单拒绝，其余白名单或未列出的默认拒绝高风险未知 id。
+ * 非合规或真实登录：全部 true。
+ * 合规 guest/demo：黑名单拒绝；其余白名单；未知 id 默认拒绝。
  */
-export function isModuleAllowed(moduleId: unknown): boolean {
+export function isModuleAllowed(
+  moduleId: unknown,
+  session?: { isLoggedIn?: boolean; isDemoSession?: boolean }
+): boolean {
   const id = normalizeId(moduleId)
   if (!id) return false
   if (id === '__more__') {
     // 首页「展开更多分类」按钮，不是远程模块中心
     return true
   }
-  if (!isAppStoreBuild()) return true
+  if (!shouldApplyAppStoreRestrictions(session)) return true
   if (APP_STORE_BLOCKED_MODULE_IDS.has(id)) return false
   if (APP_STORE_ALLOWED_CORE_IDS.has(id)) return true
-  // 未知 id 在合规构建默认拒绝，避免远程/缓存注入新入口
+  // 未知 id 在合规收紧会话默认拒绝，避免远程/缓存注入新入口
   return false
 }
 
 /**
  * 应用 view 名是否允许导航（含 Me 子页、深链目标）。
  */
-export function isViewAllowed(view: unknown): boolean {
+export function isViewAllowed(
+  view: unknown,
+  session?: { isLoggedIn?: boolean; isDemoSession?: boolean }
+): boolean {
   const id = normalizeId(view)
   if (!id) return false
-  if (!isAppStoreBuild()) return true
+  if (!shouldApplyAppStoreRestrictions(session)) return true
   if (APP_STORE_BLOCKED_MODULE_IDS.has(id)) return false
   if (APP_STORE_ALLOWED_CORE_IDS.has(id)) return true
   // 主 Tab 等
@@ -220,12 +299,18 @@ export function isViewAllowed(view: unknown): boolean {
   return false
 }
 
-export function isDeepLinkAllowed(viewOrModule: unknown): boolean {
-  return isViewAllowed(viewOrModule) && isModuleAllowed(viewOrModule)
+export function isDeepLinkAllowed(
+  viewOrModule: unknown,
+  session?: { isLoggedIn?: boolean; isDemoSession?: boolean }
+): boolean {
+  return isViewAllowed(viewOrModule, session) && isModuleAllowed(viewOrModule, session)
 }
 
-export function filterAllowedModules<T extends { id?: string }>(modules: T[]): T[] {
-  return (modules || []).filter((m) => isModuleAllowed(m?.id))
+export function filterAllowedModules<T extends { id?: string }>(
+  modules: T[],
+  session?: { isLoggedIn?: boolean; isDemoSession?: boolean }
+): T[] {
+  return (modules || []).filter((m) => isModuleAllowed(m?.id, session))
 }
 
 /** 合规构建下是否允许实时定位 API */
@@ -265,8 +350,11 @@ export function isSponsorEntryAllowed(options: {
   isLoggedIn: boolean
   isDemoSession: boolean
 }): boolean {
-  if (!isAppStoreBuild()) return true
-  return Boolean(options?.isLoggedIn) && !Boolean(options?.isDemoSession)
+  // 与功能树一致：仅合规 guest/demo 隐藏；真实登录与非合规包均允许
+  return !shouldApplyAppStoreRestrictions({
+    isLoggedIn: Boolean(options?.isLoggedIn),
+    isDemoSession: Boolean(options?.isDemoSession)
+  })
 }
 
 /** 非官方声明（UI 复用） */

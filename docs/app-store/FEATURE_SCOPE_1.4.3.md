@@ -2,7 +2,9 @@
 
 Version remains **1.4.3**. Compliance applies only when `VITE_APP_STORE_BUILD=1` (iOS TestFlight workflow).
 
-| Module / capability | iOS App Store (flag on) | Android | Desktop | Demo mode (flag on) |
+**Session model (flag on):** guest and demo (`reviewer`) use the restricted surface below; a **real** school / Chaoxing login unlocks the full feature tree (same as Android/Desktop).
+
+| Module / capability | iOS App Store (flag on, guest/demo) | Android | Desktop | Demo mode (flag on) |
 |---------------------|-------------------------|---------|---------|---------------------|
 | Home | Allowed | Allowed | Allowed | Local fixtures |
 | Schedule | Allowed | Allowed | Allowed | Local fixtures |
@@ -18,7 +20,7 @@ Version remains **1.4.3**. Compliance applies only when `VITE_APP_STORE_BUILD=1`
 | Export center | Allowed | Allowed | Allowed | Local fixtures |
 | Settings / About | Allowed | Allowed | Allowed | Same UI |
 | Privacy & data | Allowed | Allowed | Allowed | Same UI |
-| Sponsor / WeChat tip QR (Me) | **Hidden** for guest + demo; allowed only when real-logged-in | Allowed | Allowed | Hidden (demo path) |
+| Sponsor / WeChat tip QR (Me) | **Hidden** for guest + demo; allowed when real-logged-in | Allowed | Allowed | Hidden (demo path) |
 | Today course widget | Allowed | Allowed | N/A | Demo snapshot |
 | Course selection | **Blocked** | Allowed | Allowed | N/A (hidden) |
 | Ranking | **Blocked** | Allowed | Allowed | N/A |
@@ -43,4 +45,4 @@ Version remains **1.4.3**. Compliance applies only when `VITE_APP_STORE_BUILD=1`
 | Config admin tool | **Blocked** | Allowed | Allowed | N/A |
 | Remote config fetch | **Still fetched** (safe fields) | Fetched | Fetched | Default clamped config |
 
-**Demo vs normal (flag on):** identical feature tree; demo only swaps data source to local fixtures (`reviewer` / `Test2026`).
+**Demo vs real (flag on):** demo keeps the restricted review surface + local fixtures (`reviewer` / `Test2026`). Real login unlocks modules/views that are blocked for guest/demo.
