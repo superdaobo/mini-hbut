@@ -41,6 +41,12 @@ Background fetch / processing identifiers support optional refresh of schedule/e
 
 Free; no ads; no subscriptions; no IAP in this version.
 
+On this App Store candidate build:
+
+- The **Sponsor / WeChat tip QR** entry on **Me** is **not shown** when the user is signed out or signed in with the demo account (`reviewer`).
+- Reviewers following the demo path above will not see in-app tip/sponsorship UI.
+- There is no digital goods purchase flow and no App Store IAP in this version.
+
 ## Support & privacy
 
 - Support / docs: https://hbut.6661111.xyz/docs

@@ -3,7 +3,8 @@
  *
  * - 仅当编译期 `VITE_APP_STORE_BUILD === '1'` 时收紧（由 ios-testflight.yml 注入）。
  * - 默认构建 / release / dev / Android / Desktop：全部允许，行为与现网一致。
- * - 功能可见性不得根据 reviewer 用户名变化；演示账号只换数据源。
+ * - 模块/视图功能树对合规包全员统一（不因 reviewer 增减模块）；演示账号只换数据源。
+ * - 赞助/赞赏入口是唯一会话相关例外（见 isSponsorEntryAllowed）：合规包下 guest/demo 隐藏。
  * - 远程配置不能改写本模块的编译期判定。
  */
 
@@ -249,6 +250,23 @@ export function isHotUpdateAllowed(): boolean {
 
 export function isRemoteModulesAllowed(): boolean {
   return getFeaturePolicy().remoteModules
+}
+
+/**
+ * 赞助 / 微信赞赏码入口是否允许展示。
+ *
+ * - 非合规包：始终允许（与现网一致）。
+ * - 合规包（TestFlight / App Store）：仅「已登录且非演示会话」允许。
+ *   未登录与 reviewer 演示会话隐藏，避免审核路径触 Guideline 3.1.1。
+ *
+ * 调用方传入会话态，避免本模块依赖 localStorage。
+ */
+export function isSponsorEntryAllowed(options: {
+  isLoggedIn: boolean
+  isDemoSession: boolean
+}): boolean {
+  if (!isAppStoreBuild()) return true
+  return Boolean(options?.isLoggedIn) && !Boolean(options?.isDemoSession)
 }
 
 /** 非官方声明（UI 复用） */
