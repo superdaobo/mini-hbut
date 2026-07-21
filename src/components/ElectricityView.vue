@@ -488,24 +488,75 @@ const openElectricityPay = async () => {
   }
 }
 
+const usageLoading = ref(false)
+const usageError = ref('')
+
+const maxWeekUse = computed(() => {
+  const pts = usageStats.value?.points
+  if (!Array.isArray(pts) || !pts.length) return 1
+  let m = 0
+  for (const p of pts) {
+    const n = Number(p?.value ?? p?.dayuse ?? 0)
+    if (Number.isFinite(n) && n > m) m = n
+  }
+  return m > 0 ? m : 1
+})
+
 const loadUsageStats = async () => {
-  if (!isTauriRuntime() || !propsPath.value[3]) return
+  if (!isTauriRuntime()) return
+  if (selectedPath.value.length < 4) return
+  const roomId = String(selectedPath.value[3] || '').trim()
+  if (!roomId) return
+  usageLoading.value = true
+  usageError.value = ''
   try {
+    // rename_all = camelCase：roomPath / roomVerify
     const res = await invokeNative('electricity_usage_stats', {
-      room_path: selectedPath.value
+      roomPath: [...selectedPath.value],
+      roomVerify: roomId
     })
-    if (res?.success !== false) usageStats.value = res
-  } catch {
+    usageStats.value = res || null
+    if (res?.success === false && !(Array.isArray(res?.points) && res.points.length)) {
+      usageError.value = String(res?.message || '用电趋势暂不可用')
+    }
+  } catch (e) {
+    usageError.value = String(e?.message || e || '用电趋势加载失败')
     usageStats.value = null
+  } finally {
+    usageLoading.value = false
   }
 }
 
+const openSmartElectricity = async () => {
+  try {
+    const res = await prepareOneCodeAppOpen({ appCode: 'jSJNLwI3bX', appName: '电量查询' })
+    if (res.openUrl) await openExternal(res.openUrl)
+  } catch (e) {
+    showToast(String(e?.message || e || '打开失败'))
+  }
+}
+
+// 选中宿舍后即拉取智能水电趋势（不依赖余额是否成功）
+watch(
+  () => selectedPath.value.join('|'),
+  (key, prev) => {
+    if (key === prev) return
+    usageStats.value = null
+    usageError.value = ''
+    if (selectedPath.value.length === 4) {
+      void loadUsageStats()
+    }
+  }
+)
+
+// 余额刷新后同步刷新趋势（可能刚完成绑定/充值）
 watch(
   () => balanceData.value,
   (v) => {
-    if (v) void loadUsageStats()
+    if (v && selectedPath.value.length === 4) void loadUsageStats()
   }
 )
+
 </script>
 
 <template>
@@ -808,40 +859,122 @@ watch(
         <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
       </div>
 
-      <!-- 用电量统计摘要（有数据时）#438 -->
-      <section v-if="usageStats?.points?.length" class="glass-card rounded-2xl p-5">
-        <h3 class="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
-          <span class="material-symbols-outlined text-primary">insights</span>
-          用电统计
-        </h3>
-        <p v-if="usageStats.summary" class="font-body-md text-body-md text-on-surface-variant mb-2">
-          {{ usageStats.summary }}
-        </p>
-        <ul class="space-y-1 text-sm text-on-surface-variant">
-          <li v-for="(p, i) in usageStats.points.slice(0, 7)" :key="i">
-            {{ p.label || p.date }}：{{ p.value }}{{ p.unit || ' 度' }}
-          </li>
-        </ul>
-      </section>
-
-      <!-- 缴电费链接 / 二维码 #438 -->
-      <section v-if="showPayPanel && payUrl" class="glass-card rounded-2xl p-5 flex flex-col gap-3">
-        <h3 class="font-headline-sm text-headline-sm text-on-surface">缴电费入口</h3>
-        <p class="font-body-md text-body-md text-on-surface-variant">{{ payHint }}</p>
-        <p class="text-xs break-all text-outline">{{ payUrl }}</p>
-        <img v-if="payQr" :src="payQr" alt="缴电费二维码" class="w-[200px] h-[200px] mx-auto rounded-xl bg-white" />
-        <div class="flex gap-2 flex-wrap">
+      <!-- 智能水电：今日用电 + 近7日趋势（电量查询） -->
+      <section v-if="selectedPath.length === 4" class="glass-card rounded-2xl p-5">
+        <div class="flex items-center justify-between mb-3 gap-2">
+          <h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2 m-0">
+            <span class="material-symbols-outlined text-primary">insights</span>
+            用电趋势
+          </h3>
           <button
             type="button"
-            class="flex-1 bg-primary text-on-primary py-3 rounded-full"
-            @click="openElectricityPay"
+            class="text-sm text-primary font-semibold flex items-center gap-1"
+            @click="openSmartElectricity"
           >
-            打开官方缴纳页
-          </button>
-          <button type="button" class="px-4 py-3 rounded-full border border-primary/30 text-primary" @click="prepareElectricityPay">
-            刷新二维码
+            <span class="material-symbols-outlined text-base">open_in_new</span>
+            官方电量查询
           </button>
         </div>
+
+        <p v-if="usageLoading" class="text-sm text-on-surface-variant">正在加载智能水电数据…</p>
+
+        <div v-else-if="usageError && !usageStats?.points?.length" class="flex flex-col gap-2">
+          <p class="text-sm text-error m-0">{{ usageError }}</p>
+          <button
+            type="button"
+            class="self-start text-sm text-primary font-semibold flex items-center gap-1"
+            @click="loadUsageStats"
+          >
+            <span class="material-symbols-outlined text-base">refresh</span>
+            重新加载趋势
+          </button>
+        </div>
+
+        <template v-else-if="usageStats?.points?.length">
+          <div class="grid grid-cols-3 gap-2 mb-4">
+            <div class="stat-chip">
+              <span>今日用电</span>
+              <strong>{{ usageStats.today_use ?? usageStats.todayUse ?? '—' }}<small> 度</small></strong>
+            </div>
+            <div class="stat-chip">
+              <span>剩余电量</span>
+              <strong>{{ usageStats.quantity ?? balanceData?.quantity ?? '—' }}<small> 度</small></strong>
+            </div>
+            <div class="stat-chip">
+              <span>电价</span>
+              <strong>{{ usageStats.price ?? '—' }}<small> 元/度</small></strong>
+            </div>
+          </div>
+          <p v-if="usageStats.summary" class="text-sm text-on-surface-variant mb-3">{{ usageStats.summary }}</p>
+          <p v-if="usageStats.room_name || usageStats.roomName" class="text-xs text-outline mb-2">
+            {{ usageStats.room_name || usageStats.roomName }}
+            <template v-if="usageStats.line_status || usageStats.lineStatus">
+              · {{ usageStats.line_status || usageStats.lineStatus }}
+            </template>
+          </p>
+
+          <div class="week-chart">
+            <div
+              v-for="(p, i) in usageStats.points.slice(0, 14)"
+              :key="i"
+              class="week-col"
+            >
+              <div class="week-bar-wrap">
+                <div
+                  class="week-bar"
+                  :style="{ height: Math.max(8, (Number(p.value || 0) / maxWeekUse) * 100) + '%' }"
+                />
+              </div>
+              <span class="week-val">{{ p.value }}</span>
+              <span class="week-lab">{{ p.label || p.date }}</span>
+            </div>
+          </div>
+
+          <div v-if="usageStats.month_points?.length || usageStats.monthPoints?.length" class="mt-4">
+            <p class="text-sm font-semibold text-on-surface mb-2">月用电</p>
+            <ul class="text-sm text-on-surface-variant space-y-1">
+              <li
+                v-for="(p, i) in (usageStats.month_points || usageStats.monthPoints || []).slice(0, 8)"
+                :key="'m'+i"
+              >
+                {{ p.label }}：{{ p.value }}{{ p.unit || ' 度' }}
+              </li>
+            </ul>
+          </div>
+        </template>
+
+        <p v-else class="text-sm text-on-surface-variant m-0">
+          暂无趋势数据。若未绑定宿舍，请先在「官方电量查询」完成绑定。
+        </p>
+      </section>
+
+      <!-- 缴电费：官方入口 + 二维码 -->
+      <section class="glass-card rounded-2xl p-5 flex flex-col gap-3">
+        <h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2 m-0">
+          <span class="material-symbols-outlined text-primary">payments</span>
+          缴电费
+        </h3>
+        <p class="text-sm text-on-surface-variant m-0">
+          跳转一码通官方缴电费页（可选金额 10/20/50 元）。缴费时段约 02:00–23:00。
+        </p>
+        <button
+          type="button"
+          class="w-full bg-primary text-on-primary py-3 rounded-full font-semibold"
+          :disabled="payLoading"
+          @click="openElectricityPay"
+        >
+          {{ payLoading ? '准备中…' : '打开缴电费' }}
+        </button>
+        <template v-if="showPayPanel && payUrl">
+          <p class="text-xs break-all text-outline m-0">{{ payUrl }}</p>
+          <img
+            v-if="payQr"
+            :src="payQr"
+            alt="缴电费二维码"
+            class="w-[200px] h-[200px] mx-auto rounded-xl bg-white border border-slate-200"
+          />
+          <p class="text-xs text-outline text-center m-0">{{ payHint }}</p>
+        </template>
       </section>
     </main>
   </div>
@@ -887,5 +1020,76 @@ html.dark .glass-card-info {
 html.dark .glass-card-warning {
   background: color-mix(in oklab, #7f1d1d 28%, #111827);
   border-color: rgba(248, 113, 113, 0.35);
+}
+
+.stat-chip {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-chip span {
+  font-size: 11px;
+  color: #64748b;
+}
+.stat-chip strong {
+  font-size: 16px;
+  color: #0f172a;
+}
+.stat-chip small {
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+}
+.week-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 140px;
+  padding-top: 8px;
+}
+.week-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  gap: 4px;
+}
+.week-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.week-bar {
+  width: 70%;
+  max-width: 28px;
+  border-radius: 6px 6px 2px 2px;
+  background: #0f766e;
+  min-height: 8px;
+}
+.week-val {
+  font-size: 10px;
+  color: #475569;
+}
+.week-lab {
+  font-size: 10px;
+  color: #94a3b8;
+}
+html.dark .stat-chip {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .stat-chip strong {
+  color: #e2e8f0;
+}
+html.dark .week-val {
+  color: #cbd5e1;
 }
 </style>

@@ -1,27 +1,36 @@
 /**
- * 一码通官方应用打开助手（#438）
- * 统一 invoke 参数，避免 missing key `req`
+ * 一码通官方应用打开助手
+ *
+ * Rust 命令使用 rename_all = "camelCase"：
+ * 前端必须传 appCode / appName（不要只传 app_code）。
  */
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { openExternal } from './external_link'
 
 /**
- * @param {{ appCode: string, appName?: string }} opts
- * @returns {Promise<{ success: boolean, openUrl: string, payUrl: string, hint: string, message: string, tid: string }>}
+ * @param {{ appCode?: string, appName?: string, code?: string, name?: string, app_code?: string, app_name?: string }} opts
  */
-export async function prepareOneCodeAppOpen({ appCode, appName = '' } = {}) {
+export async function prepareOneCodeAppOpen(opts = {}) {
   if (!isTauriRuntime()) {
     throw new Error('请在客户端内使用本功能')
   }
-  const code = String(appCode || '').trim()
-  if (!code) throw new Error('缺少应用编码')
+  const code = String(
+    opts.appCode ?? opts.code ?? opts.app_code ?? ''
+  ).trim()
+  if (!code) throw new Error('缺少应用编码 appCode')
+  const name = String(
+    opts.appName ?? opts.name ?? opts.app_name ?? ''
+  ).trim()
 
+  // 只传 camelCase，与 Rust #[tauri::command(rename_all = "camelCase")] 对齐
   const res = await invokeNative('one_code_app_open_prepare', {
-    app_code: code,
-    app_name: String(appName || '').trim()
+    appCode: code,
+    appName: name
   })
 
-  const openUrl = String(res?.open_url || res?.openUrl || res?.pay_url || res?.payUrl || '').trim()
+  const openUrl = String(
+    res?.open_url || res?.openUrl || res?.pay_url || res?.payUrl || ''
+  ).trim()
   const payUrl = String(res?.pay_url || res?.payUrl || openUrl).trim()
   const success = res?.success !== false && !!openUrl
   const message = String(res?.message || '').trim()
@@ -38,8 +47,8 @@ export async function prepareOneCodeAppOpen({ appCode, appName = '' } = {}) {
   }
 }
 
-export async function openOneCodeApp({ appCode, appName = '' } = {}) {
-  const prepared = await prepareOneCodeAppOpen({ appCode, appName })
+export async function openOneCodeApp(opts = {}) {
+  const prepared = await prepareOneCodeAppOpen(opts)
   await openExternal(prepared.openUrl)
   return prepared
 }
