@@ -7,7 +7,7 @@ import QRCode from 'qrcode'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState, TCard } from './templates'
+import { TPageHeader, TEmptyState } from './templates'
 
 const emit = defineEmits(['back'])
 const loading = ref(false)
@@ -49,94 +49,131 @@ onMounted(prepare)
 </script>
 
 <template>
-  <div class="ykt-page">
+  <div class="page-shell">
     <TPageHeader title="教育网网费" icon="wifi" @back="emit('back')" />
-    <div class="ykt-body">
+    <div class="page-body">
       <TEmptyState v-if="loading" type="loading" message="正在准备网费入口…" />
 
-      <TCard v-else-if="error" compact>
+      <section v-else-if="error" class="panel">
         <TEmptyState type="error" :message="error" />
-        <button type="button" class="ykt-btn primary" @click="prepare">重试</button>
-      </TCard>
+        <button type="button" class="btn primary" @click="prepare">重试</button>
+      </section>
 
-      <TCard v-else-if="payUrl" compact>
-        <template #header>
-          <strong>官方缴纳入口</strong>
-          <p class="ykt-muted">{{ hint }}</p>
-        </template>
-        <p class="ykt-url">{{ payUrl }}</p>
-        <div v-if="qrDataUrl" class="ykt-qr">
+      <section v-else-if="payUrl" class="panel">
+        <h2 class="panel-title">
+          <span class="material-symbols-outlined">payments</span>
+          官方缴纳入口
+        </h2>
+        <p class="muted">{{ hint }}</p>
+        <p class="url">{{ payUrl }}</p>
+        <div v-if="qrDataUrl" class="qr">
           <img :src="qrDataUrl" alt="网费缴纳二维码" width="220" height="220" />
-          <p class="ykt-muted">手机扫码打开官方页</p>
+          <p class="muted">手机扫码打开官方页</p>
         </div>
-        <div class="ykt-actions">
-          <button type="button" class="ykt-btn primary" @click="openPay">打开缴纳页</button>
-          <button type="button" class="ykt-btn" :disabled="loading" @click="prepare">重新生成</button>
+        <div class="actions">
+          <button type="button" class="btn primary" @click="openPay">打开缴纳页</button>
+          <button type="button" class="btn" :disabled="loading" @click="prepare">重新生成</button>
         </div>
-        <p class="ykt-note">App 不内嵌支付；结果以官方一码通为准。</p>
-      </TCard>
+        <p class="note">App 不内嵌支付；结果以官方一码通为准。</p>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.ykt-page {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
-  color: var(--ui-text, #0f172a);
+.page-shell {
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+  padding-bottom: 104px;
 }
-.ykt-body {
-  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
+.page-body {
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.ykt-muted,
-.ykt-note {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--ui-muted, #64748b);
+.panel {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 16px;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+  padding: 16px;
 }
-.ykt-url {
+.panel-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.panel-title .material-symbols-outlined {
+  color: #0f766e;
+  font-size: 22px;
+}
+.muted,
+.note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+.url {
   font-size: 12px;
   word-break: break-all;
-  margin: 8px 0 12px;
-  color: var(--ui-text, #0f172a);
+  margin: 10px 0 12px;
+  color: #334155;
 }
-.ykt-qr {
+.qr {
   text-align: center;
   margin: 12px 0;
 }
-.ykt-qr img {
+.qr img {
   width: 220px;
   height: 220px;
   background: #fff;
   border-radius: 12px;
+  border: 1px solid #e2e8f0;
 }
-.ykt-actions {
+.actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 8px;
 }
-.ykt-btn {
-  border: 1px solid color-mix(in oklab, var(--ui-primary, #0891b2) 28%, transparent);
-  background: var(--ui-surface, #fff);
-  color: var(--ui-text, #0f172a);
+.btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
   border-radius: 999px;
   padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;
 }
-.ykt-btn.primary {
-  background: linear-gradient(135deg, var(--ui-primary, #0891b2), var(--ui-secondary, #06b6d4));
-  border-color: transparent;
+.btn.primary {
+  background: #0f766e;
+  border-color: #0f766e;
   color: #fff;
 }
-html.dark .ykt-btn {
-  background: color-mix(in oklab, var(--ui-surface) 90%, #000 10%);
+html.dark .page-shell {
+  background: var(--ui-bg, #0b1220);
+  color: var(--ui-text, #e2e8f0);
 }
-html.dark .ykt-btn.primary {
+html.dark .panel {
+  background: var(--ui-surface, #111827);
+  border-color: #334155;
+}
+html.dark .url,
+html.dark .btn {
+  color: var(--ui-text, #e2e8f0);
+}
+html.dark .btn {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .btn.primary {
+  background: #0d9488;
+  border-color: #0d9488;
   color: #fff;
 }
 </style>

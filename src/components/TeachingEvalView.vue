@@ -250,12 +250,13 @@ onMounted(() => {
 
 <style scoped>
 .te-page {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
-  color: var(--ui-text, #0f172a);
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+  padding-bottom: 104px;
 }
 .te-body {
-  padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
+  padding: 12px 16px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -274,8 +275,8 @@ onMounted(() => {
   font-size: 13px;
 }
 .te-btn.primary {
-  background: var(--ui-primary, #a855f7);
-  border-color: transparent;
+  background: #7c3aed;
+  border-color: #7c3aed;
   color: #fff;
 }
 .te-btn.ghost {
@@ -294,12 +295,13 @@ onMounted(() => {
   font-size: 14px;
 }
 .card-surface {
-  background: var(--ui-surface, #fff);
-  border: 1px solid var(--ui-border, #e2e8f0);
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   border-radius: 14px;
   padding: 12px;
   text-align: left;
   color: inherit;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
 }
 .te-row {
   width: 100%;
@@ -357,6 +359,16 @@ html.dark .te-page {
 }
 html.dark .card-surface {
   background: var(--ui-surface, #111827);
-  border-color: var(--ui-border, #1f2937);
+  border-color: #334155;
+}
+html.dark .te-btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+html.dark .te-btn.primary {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
 }
 </style>

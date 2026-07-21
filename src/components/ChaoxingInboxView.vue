@@ -9,7 +9,7 @@ import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState, TCard } from './templates'
+import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -195,7 +195,7 @@ onMounted(fetchList)
         </button>
       </template>
 
-      <TCard v-else compact class="cx-inbox-detail">
+      <section v-else class="cx-inbox-detail">
         <h3>{{ selected.title }}</h3>
         <p class="cx-inbox-time">{{ formatItemTime(selected.createdAt) }}</p>
         <TEmptyState v-if="detailLoading" type="loading" message="加载详情…" />
@@ -211,19 +211,20 @@ onMounted(fetchList)
             标为已读
           </button>
         </div>
-      </TCard>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
 .cx-inbox-page {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
-  color: var(--ui-text, #0f172a);
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+  padding-bottom: 104px;
 }
 .cx-inbox-body {
-  padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
+  padding: 12px 16px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -248,19 +249,20 @@ onMounted(fetchList)
   color: var(--ui-primary, #2563eb);
 }
 .cx-inbox-btn.primary {
-  background: linear-gradient(135deg, var(--ui-primary, #2563eb), var(--ui-secondary, #4f46e5));
-  border-color: transparent;
+  background: #2563eb;
+  border-color: #2563eb;
   color: #fff;
 }
 .cx-inbox-row {
   width: 100%;
   cursor: pointer;
   text-align: left;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 14%, transparent);
-  background: var(--ui-surface, #fff);
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
   border-radius: 14px;
   padding: 12px;
   color: inherit;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
 }
 .cx-inbox-row-top {
   display: flex;
@@ -280,9 +282,25 @@ onMounted(fetchList)
   color: var(--ui-muted, #64748b);
   margin: 4px 0 0;
 }
+.cx-inbox-detail {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+}
 .cx-inbox-detail h3 {
   margin: 0;
   font-size: 16px;
+}
+html.dark .cx-inbox-page {
+  background: var(--ui-bg, #0b1220);
+  color: var(--ui-text, #e2e8f0);
+}
+html.dark .cx-inbox-row,
+html.dark .cx-inbox-detail {
+  background: var(--ui-surface, #111827);
+  border-color: #334155;
 }
 .cx-inbox-detail-body {
   margin-top: 12px;

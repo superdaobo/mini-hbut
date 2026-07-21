@@ -442,7 +442,7 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
       }
     }
   } finally {
-    if (!errorMsg.value.includes('正在重试')) {
+    if (!String(errorMsg.value || '').includes('正在重试')) {
       loading.value = false
     }
   }
@@ -509,7 +509,7 @@ watch(
 </script>
 
 <template>
-  <div class="bg-surface text-on-surface min-h-screen flex flex-col font-body-md max-w-[448px] mx-auto relative overflow-x-hidden">
+  <div class="electricity-page text-on-surface min-h-screen flex flex-col font-body-md max-w-[448px] mx-auto relative overflow-x-hidden">
     <!-- Header -->
     <TPageHeader icon="bolt" title="电费查询" @back="handleBack" />
 
@@ -848,22 +848,44 @@ watch(
 </template>
 
 <style scoped>
+/* 与成绩查询一致的浅白底，避免透明玻璃在浅色主题下“整页发白看不见” */
+.electricity-page {
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+}
+
 .glass-card {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
 }
 
 .glass-card-warning {
-  background: linear-gradient(135deg, rgba(255, 218, 214, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%);
-  border: 1px solid rgba(255, 218, 214, 0.5);
-  box-shadow: 0 10px 20px rgba(186, 26, 26, 0.1);
+  background: #fff7f6;
+  border: 1px solid rgba(254, 202, 202, 0.9);
+  box-shadow: 0 8px 18px rgba(186, 26, 26, 0.06);
 }
 
 .glass-card-info {
-  background: linear-gradient(135deg, rgba(216, 226, 255, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%);
-  border: 1px solid rgba(216, 226, 255, 0.5);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+}
+
+html.dark .electricity-page {
+  background: var(--ui-bg, #0b1220);
+  color: var(--ui-text, #e2e8f0);
+}
+
+html.dark .glass-card,
+html.dark .glass-card-info {
+  background: var(--ui-surface, #111827);
+  border-color: rgba(51, 65, 85, 0.9);
+}
+
+html.dark .glass-card-warning {
+  background: color-mix(in oklab, #7f1d1d 28%, #111827);
+  border-color: rgba(248, 113, 113, 0.35);
 }
 </style>

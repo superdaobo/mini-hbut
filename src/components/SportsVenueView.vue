@@ -6,7 +6,7 @@ import { onMounted, ref } from 'vue'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState, TCard } from './templates'
+import { TPageHeader, TEmptyState } from './templates'
 
 const emit = defineEmits(['back'])
 const loading = ref(false)
@@ -45,70 +45,110 @@ onMounted(prepare)
 </script>
 
 <template>
-  <div class="ykt-page">
+  <div class="page-shell">
     <TPageHeader title="运动场馆" icon="sports_soccer" @back="emit('back')" />
-    <div class="ykt-body">
+    <div class="page-body">
       <TEmptyState v-if="loading" type="loading" message="正在准备场馆入口…" />
 
-      <TCard v-else-if="error" compact>
+      <section v-else-if="error" class="panel">
         <TEmptyState type="error" :message="error" />
-        <button type="button" class="ykt-btn primary" @click="prepare">重试</button>
-      </TCard>
+        <button type="button" class="btn primary" @click="prepare">重试</button>
+      </section>
 
-      <TCard v-else-if="openUrl" compact>
-        <template #header>
-          <strong>预约系统入口</strong>
-          <p class="ykt-muted">{{ hint }}</p>
-        </template>
-        <p class="ykt-url">{{ openUrl }}</p>
-        <div class="ykt-actions">
-          <button type="button" class="ykt-btn primary" @click="open">打开预约系统</button>
-          <button type="button" class="ykt-btn" :disabled="loading" @click="prepare">重新生成</button>
+      <section v-else-if="openUrl" class="panel">
+        <h2 class="panel-title">
+          <span class="material-symbols-outlined">stadium</span>
+          预约系统入口
+        </h2>
+        <p class="muted">{{ hint }}</p>
+        <p class="url">{{ openUrl }}</p>
+        <div class="actions">
+          <button type="button" class="btn primary" @click="open">打开预约系统</button>
+          <button type="button" class="btn" :disabled="loading" @click="prepare">重新生成</button>
         </div>
-      </TCard>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.ykt-page {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
-  color: var(--ui-text, #0f172a);
+.page-shell {
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+  padding-bottom: 104px;
 }
-.ykt-body {
-  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
+.page-body {
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.ykt-muted {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--ui-muted, #64748b);
+.panel {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 16px;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+  padding: 16px;
 }
-.ykt-url {
+.panel-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
+.panel-title .material-symbols-outlined {
+  color: #15803d;
+  font-size: 22px;
+}
+.muted {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+.url {
   font-size: 12px;
   word-break: break-all;
-  margin: 8px 0 12px;
+  margin: 10px 0 12px;
+  color: #334155;
 }
-.ykt-actions {
+.actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
-.ykt-btn {
-  border: 1px solid color-mix(in oklab, var(--ui-primary, #16a34a) 28%, transparent);
-  background: var(--ui-surface, #fff);
-  color: var(--ui-text, #0f172a);
+.btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
   border-radius: 999px;
   padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;
 }
-.ykt-btn.primary {
-  background: linear-gradient(135deg, var(--ui-primary, #16a34a), var(--ui-secondary, #22c55e));
-  border-color: transparent;
+.btn.primary {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
+html.dark .page-shell {
+  background: var(--ui-bg, #0b1220);
+  color: var(--ui-text, #e2e8f0);
+}
+html.dark .panel {
+  background: var(--ui-surface, #111827);
+  border-color: #334155;
+}
+html.dark .btn {
+  background: #1e293b;
+  border-color: #334155;
+  color: var(--ui-text, #e2e8f0);
+}
+html.dark .btn.primary {
+  background: #16a34a;
+  border-color: #16a34a;
   color: #fff;
 }
 </style>

@@ -14,9 +14,7 @@ import { showToast } from '../utils/toast'
 import {
   TPageHeader,
   TEmptyState,
-  TStatusBadge,
-  TCard,
-  TSection
+  TStatusBadge
 } from './templates'
 
 const props = defineProps({
@@ -41,9 +39,9 @@ const expandedSections = ref({})
 const activeDetailTab = ref('chapters') // chapters | progress | actions
 
 const DETAIL_TABS = [
-  { key: 'chapters', label: '章节任务', icon: '📚' },
-  { key: 'progress', label: '学习进度', icon: '📈' },
-  { key: 'actions', label: '功能', icon: '🛠️' }
+  { key: 'chapters', label: '章节任务', icon: 'account_tree' },
+  { key: 'progress', label: '学习进度', icon: 'trending_up' },
+  { key: 'actions', label: '功能', icon: 'apps' }
 ]
 
 const safeText = (v) => String(v ?? '').trim()
@@ -349,16 +347,14 @@ onMounted(() => {
     <div class="cx-hub__body">
       <!-- ===== 列表态 ===== -->
       <template v-if="viewMode === 'list'">
-        <TCard compact>
-          <template #header>
-            <div class="status-head">
-              <div>
-                <strong>学习通课程</strong>
-                <p>封面、章节与任务点；点进课程可展开三级目录。</p>
-              </div>
-              <TStatusBadge :type="badgeType" :text="badgeText" />
+        <section class="panel">
+          <div class="status-head">
+            <div>
+              <strong>学习通课程</strong>
+              <p>封面、章节与任务点；点进课程可展开三级目录。</p>
             </div>
-          </template>
+            <TStatusBadge :type="badgeType" :text="badgeText" />
+          </div>
           <div class="status-grid">
             <div class="status-chip">
               <span>课程数</span>
@@ -374,7 +370,7 @@ onMounted(() => {
             </div>
           </div>
           <p v-if="error" class="error-text">{{ error }}</p>
-        </TCard>
+        </section>
 
         <div class="search-wrap">
           <span class="material-symbols-outlined search-icon">search</span>
@@ -438,7 +434,7 @@ onMounted(() => {
 
       <!-- ===== 详情态 ===== -->
       <template v-else-if="selected">
-        <TCard compact class="detail-hero">
+        <section class="panel detail-hero">
           <div class="detail-hero__row">
             <div class="detail-cover">
               <img
@@ -471,7 +467,7 @@ onMounted(() => {
             <button type="button" class="primary-btn" @click="openCourse(selected)">打开官方课程</button>
             <button type="button" class="ghost-btn solid" @click="loadDetail(selected.id)">刷新章节</button>
           </div>
-        </TCard>
+        </section>
 
         <div class="detail-tabs">
           <button
@@ -482,7 +478,7 @@ onMounted(() => {
             :class="{ active: activeDetailTab === tab.key }"
             @click="activeDetailTab = tab.key"
           >
-            <span>{{ tab.icon }}</span>
+            <span class="material-symbols-outlined">{{ tab.icon }}</span>
             <span>{{ tab.label }}</span>
           </button>
         </div>
@@ -554,7 +550,7 @@ onMounted(() => {
 
         <!-- 进度 -->
         <template v-else-if="activeDetailTab === 'progress'">
-          <TCard compact>
+          <section class="panel">
             <div class="progress-panel">
               <div class="progress-stat">
                 <span>进度文本</span>
@@ -578,12 +574,16 @@ onMounted(() => {
               </div>
               <p class="helper-text">详细作业/考试状态以官方学习通为准；可在「功能」中打开官方页面。</p>
             </div>
-          </TCard>
+          </section>
         </template>
 
         <!-- 功能 -->
         <template v-else>
-          <TSection title="课程功能" icon="🛠️">
+          <section class="panel">
+            <h3 class="panel-title">
+              <span class="material-symbols-outlined">tune</span>
+              课程功能
+            </h3>
             <div class="action-grid">
               <button type="button" class="action-tile" @click="openCourse(selected)">
                 <span class="material-symbols-outlined">school</span>
@@ -606,13 +606,13 @@ onMounted(() => {
                 <p>全部课程</p>
               </button>
             </div>
-          </TSection>
-          <TCard compact>
+          </section>
+          <section class="panel">
             <p class="helper-text">
               课程 ID：{{ selected.courseId || '—' }} · 班级 ID：{{ selected.clazzId || '—' }}
               <template v-if="selected.cpi"> · cpi：{{ selected.cpi }}</template>
             </p>
-          </TCard>
+          </section>
         </template>
       </template>
     </div>
@@ -621,15 +621,35 @@ onMounted(() => {
 
 <style scoped>
 .cx-hub {
-  min-height: 100vh;
-  background: var(--ui-bg-gradient, var(--ui-bg, #f4f7fb));
-  color: var(--ui-text, #0f172a);
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+  padding-bottom: 104px;
 }
 .cx-hub__body {
-  padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
+  padding: 12px 16px 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.panel {
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 16px;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+  padding: 14px;
+}
+.panel-title {
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.panel-title .material-symbols-outlined {
+  color: #2563eb;
+  font-size: 20px;
 }
 .ghost-btn {
   border: none;
@@ -650,7 +670,7 @@ onMounted(() => {
   padding: 10px 16px;
   font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--ui-primary, #2563eb), var(--ui-secondary, #06b6d4));
+  background: #2563eb;
 }
 .status-head {
   display: flex;
@@ -678,7 +698,8 @@ onMounted(() => {
 .status-chip {
   border-radius: 12px;
   padding: 10px;
-  background: color-mix(in oklab, var(--ui-primary, #2563eb) 8%, var(--ui-surface, #fff));
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -703,10 +724,10 @@ onMounted(() => {
 }
 .search-input {
   width: 100%;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, transparent);
+  border: 1px solid #e2e8f0;
   border-radius: 14px;
   padding: 12px 12px 12px 40px;
-  background: var(--ui-surface, #fff);
+  background: #ffffff;
   color: inherit;
   font-size: 14px;
 }
@@ -722,12 +743,12 @@ onMounted(() => {
   align-items: center;
   width: 100%;
   text-align: left;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 14%, transparent);
+  border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 10px;
-  background: var(--ui-surface, #fff);
+  background: #ffffff;
   color: inherit;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
 }
 .course-cover,
 .detail-cover {
@@ -830,7 +851,8 @@ onMounted(() => {
   gap: 6px;
   padding: 4px;
   border-radius: 14px;
-  background: color-mix(in oklab, var(--ui-surface) 88%, #94a3b8 12%);
+  background: #eef2f7;
+  border: 1px solid #e2e8f0;
 }
 .detail-tab {
   border: none;
@@ -839,15 +861,22 @@ onMounted(() => {
   padding: 10px 4px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--ui-muted);
+  color: #64748b;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
 }
+.detail-tab .material-symbols-outlined {
+  font-size: 20px;
+}
 .detail-tab.active {
-  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
-  color: #fff;
+  background: #ffffff;
+  color: #1e293b;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+.detail-tab.active .material-symbols-outlined {
+  color: #2563eb;
 }
 .outline-tree {
   display: flex;
@@ -856,8 +885,8 @@ onMounted(() => {
 }
 .outline-section {
   border-radius: 14px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 12%, transparent);
-  background: var(--ui-surface, #fff);
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
   overflow: hidden;
 }
 .outline-section__head {
@@ -867,7 +896,7 @@ onMounted(() => {
   gap: 8px;
   padding: 12px;
   border: none;
-  background: color-mix(in oklab, var(--ui-primary) 6%, transparent);
+  background: #f8fafc;
   color: inherit;
   text-align: left;
 }
@@ -953,10 +982,10 @@ onMounted(() => {
   gap: 10px;
 }
 .action-tile {
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, transparent);
+  border: 1px solid #e2e8f0;
   border-radius: 16px;
   padding: 14px 12px;
-  background: var(--ui-surface, #fff);
+  background: #ffffff;
   color: inherit;
   text-align: left;
   display: flex;
@@ -964,18 +993,35 @@ onMounted(() => {
   gap: 4px;
 }
 .action-tile .material-symbols-outlined {
-  color: var(--ui-primary);
+  color: #2563eb;
   font-size: 24px;
 }
 .action-tile p {
   margin: 0;
   font-size: 12px;
-  color: var(--ui-muted);
+  color: #64748b;
+}
+html.dark .cx-hub {
+  background: var(--ui-bg, #0b1220);
+  color: var(--ui-text, #e2e8f0);
 }
 html.dark .course-card,
 html.dark .outline-section,
 html.dark .action-tile,
-html.dark .search-input {
+html.dark .search-input,
+html.dark .panel {
   background: var(--ui-surface, #111827);
+  border-color: #334155;
+}
+html.dark .detail-tabs {
+  background: #1e293b;
+  border-color: #334155;
+}
+html.dark .detail-tab.active {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+html.dark .outline-section__head {
+  background: #1e293b;
 }
 </style>
