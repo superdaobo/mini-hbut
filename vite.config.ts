@@ -87,7 +87,9 @@ export default defineConfig({
       'marked',
       'dompurify',
       'ajv',
-      'ajv/dist/2020.js'
+      'ajv/dist/2020.js',
+      // CJS browser 入口含 require；必须预构建，否则 WebView 报 require is not defined 并白屏
+      'qrcode'
     ]
   },
   build: {
