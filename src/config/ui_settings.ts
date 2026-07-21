@@ -21,10 +21,15 @@ export type HomeModuleKey =
   | 'qxzkb'
   | 'course_selection'
   | 'training'
+  | 'teaching_eval'
   | 'library'
   | 'campus_map'
   | 'resource_share'
   | 'chaoxing_class'
+  | 'chaoxing_hub'
+  | 'chaoxing_inbox'
+  | 'broadband'
+  | 'sports_venue'
   | 'towergo'
   | 'ai'
 export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams' | 'school_inbox'
@@ -84,10 +89,15 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'qxzkb',
   'course_selection',
   'training',
+  'teaching_eval',
+  'chaoxing_hub',
+  'chaoxing_inbox',
+  'chaoxing_class',
+  'broadband',
+  'sports_venue',
   'library',
   'campus_map',
   'resource_share',
-  'chaoxing_class',
   'towergo',
   'ai'
 ] as const satisfies readonly HomeModuleKey[]

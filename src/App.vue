@@ -142,6 +142,11 @@ const loadCampusMapView = () =>
 const loadLibraryView = () => import('./components/LibraryView.vue')
 const loadResourceShareView = () => import('./components/ResourceShareView.vue')
 const loadChaoxingClassView = () => import('./components/ChaoxingClassView.vue')
+const loadChaoxingHubView = () => import('./components/ChaoxingHubView.vue')
+const loadChaoxingInboxView = () => import('./components/ChaoxingInboxView.vue')
+const loadTeachingEvalView = () => import('./components/TeachingEvalView.vue')
+const loadBroadbandView = () => import('./components/BroadbandView.vue')
+const loadSportsVenueView = () => import('./components/SportsVenueView.vue')
 const loadTowerGoView = () => import('./components/TowerGoView.vue')
 
 const Dashboard = createAsyncPage(loadDashboardView)
@@ -181,6 +186,11 @@ const CampusMapView = createAsyncPage(loadCampusMapView)
 const LibraryView = createAsyncPage(loadLibraryView)
 const ResourceShareView = createAsyncPage(loadResourceShareView)
 const ChaoxingClassView = createAsyncPage(loadChaoxingClassView)
+const ChaoxingHubView = createAsyncPage(loadChaoxingHubView)
+const ChaoxingInboxView = createAsyncPage(loadChaoxingInboxView)
+const TeachingEvalView = createAsyncPage(loadTeachingEvalView)
+const BroadbandView = createAsyncPage(loadBroadbandView)
+const SportsVenueView = createAsyncPage(loadSportsVenueView)
 const TowerGoView = createAsyncPage(loadTowerGoView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -261,6 +271,11 @@ const VIEW_PREFETCHERS = Object.freeze({
   library: loadLibraryView,
   resource_share: loadResourceShareView,
   chaoxing_class: loadChaoxingClassView,
+  chaoxing_hub: loadChaoxingHubView,
+  chaoxing_inbox: loadChaoxingInboxView,
+  teaching_eval: loadTeachingEvalView,
+  broadband: loadBroadbandView,
+  sports_venue: loadSportsVenueView,
   towergo: loadTowerGoView
 })
 
@@ -3596,10 +3611,43 @@ onBeforeUnmount(() => {
         @back="handleBackToDashboard"
       />
 
-      <!-- 学习通：邀请码入班 + 班级资料 -->
+      <!-- 资料分享：邀请码入班 + 班级资料 -->
       <ChaoxingClassView
         v-else-if="currentView === 'chaoxing_class'"
         :student-id="studentId"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 学习通：课程中心 -->
+      <ChaoxingHubView
+        v-else-if="currentView === 'chaoxing_hub'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 学习通：收件箱 -->
+      <ChaoxingInboxView
+        v-else-if="currentView === 'chaoxing_inbox'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
+      />
+
+      <!-- 教学评教 -->
+      <TeachingEvalView
+        v-else-if="currentView === 'teaching_eval'"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 教育网网费 -->
+      <BroadbandView
+        v-else-if="currentView === 'broadband'"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 运动场馆 -->
+      <SportsVenueView
+        v-else-if="currentView === 'sports_venue'"
         @back="handleBackToDashboard"
       />
 

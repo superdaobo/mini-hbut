@@ -5052,6 +5052,42 @@ async fn school_inbox_fetch(
 }
 
 #[tauri::command]
+async fn teaching_eval_list(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::teaching_eval::list_evals(&client).await;
+    serde_json::to_value(response).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn teaching_eval_form(
+    state: State<'_, AppState>,
+    eval_id: String,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::teaching_eval::fetch_form(&client, &eval_id).await;
+    serde_json::to_value(response).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn teaching_eval_submit(
+    state: State<'_, AppState>,
+    eval_id: String,
+    answers: Option<Vec<serde_json::Value>>,
+    quick_full_score: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let list = answers.unwrap_or_default();
+    let response = modules::teaching_eval::submit_eval(
+        &client,
+        &eval_id,
+        &list,
+        quick_full_score.unwrap_or(false),
+    )
+    .await;
+    serde_json::to_value(response).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn school_inbox_detail_fetch(
     state: State<'_, AppState>,
     login_mode: Option<String>,
@@ -6968,6 +7004,11 @@ pub fn run() {
             hbut_ai_upload,
             hbut_ai_chat,
             hbut_one_code_token,
+            one_code_app_open_prepare,
+            electricity_usage_stats,
+            teaching_eval_list,
+            teaching_eval_form,
+            teaching_eval_submit,
             write_widget_snapshot,
             clear_widget_snapshot,
             write_widget_theme_color,

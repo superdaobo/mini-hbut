@@ -1,11 +1,15 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
+import QRCode from 'qrcode'
 import { setCachedData, fetchWithCache } from '../utils/api.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
 import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
 import { writeElectricityToWidget } from '../utils/widget_bridge'
+import { invokeNative, isTauriRuntime } from '../platform/native'
+import { openExternal } from '../utils/external_link'
+import { showToast } from '../utils/toast'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -445,6 +449,70 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
 
 const handleBack = () => emit('back')
 const handleLogout = () => emit('logout')
+
+/** 缴电费官方入口（链接 + 二维码），不内嵌支付 — #438 */
+const payLoading = ref(false)
+const payUrl = ref('')
+const payQr = ref('')
+const payHint = ref('')
+const showPayPanel = ref(false)
+const usageStats = ref(null)
+
+const prepareElectricityPay = async () => {
+  payLoading.value = true
+  payHint.value = ''
+  try {
+    if (!isTauriRuntime()) {
+      throw new Error('请在客户端内生成缴纳入口')
+    }
+    const res = await invokeNative('one_code_app_open_prepare', {
+      app_code: 'electric',
+      app_name: '缴电费'
+    })
+    const url = String(res?.open_url || res?.pay_url || '').trim()
+    if (!url) throw new Error(res?.message || '未能生成缴纳链接')
+    payUrl.value = url
+    payHint.value = String(res?.hint || '打开官方一码通完成缴纳；App 不内嵌支付。')
+    payQr.value = await QRCode.toDataURL(url, { margin: 1, width: 200 })
+    showPayPanel.value = true
+  } catch (e) {
+    showToast(String(e?.message || e || '生成失败'))
+  } finally {
+    payLoading.value = false
+  }
+}
+
+const openElectricityPay = async () => {
+  if (!payUrl.value) {
+    await prepareElectricityPay()
+  }
+  if (payUrl.value) {
+    try {
+      await openExternal(payUrl.value)
+    } catch (e) {
+      showToast(String(e?.message || e || '打开失败'))
+    }
+  }
+}
+
+const loadUsageStats = async () => {
+  if (!isTauriRuntime() || !propsPath.value[3]) return
+  try {
+    const res = await invokeNative('electricity_usage_stats', {
+      room_path: selectedPath.value
+    })
+    if (res?.success !== false) usageStats.value = res
+  } catch {
+    usageStats.value = null
+  }
+}
+
+watch(
+  () => balanceData.value,
+  (v) => {
+    if (v) void loadUsageStats()
+  }
+)
 </script>
 
 <template>
@@ -573,15 +641,18 @@ const handleLogout = () => emit('logout')
           </div>
           <div class="mt-5 flex gap-3 relative z-10">
             <button
+              type="button"
               :class="[
                 'flex-1 font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform',
                 parseFloat(balanceData.quantity) < 10
                   ? 'bg-primary text-on-primary shadow-md shadow-primary/20'
                   : 'bg-primary-container/10 text-primary'
               ]"
+              :disabled="payLoading"
+              @click="openElectricityPay"
             >
               <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
-              {{ parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
+              {{ payLoading ? '准备中…' : parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
             </button>
             <button
               class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
@@ -630,9 +701,14 @@ const handleLogout = () => emit('logout')
             </div>
           </div>
           <div class="mt-5 flex gap-3 relative z-10">
-            <button class="flex-1 bg-primary-container/10 text-primary font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform">
+            <button
+              type="button"
+              class="flex-1 bg-primary-container/10 text-primary font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform"
+              :disabled="payLoading"
+              @click="openElectricityPay"
+            >
               <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
-              去充值
+              {{ payLoading ? '准备中…' : '去充值' }}
             </button>
             <button
               class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
@@ -704,15 +780,18 @@ const handleLogout = () => emit('logout')
           </div>
           <div class="mt-5 flex gap-3 relative z-10">
             <button
+              type="button"
               :class="[
                 'flex-1 font-body-lg text-body-lg py-3 rounded-full flex items-center justify-center gap-2 active:scale-95 transition-transform',
                 parseFloat(balanceData.quantity) < 10
                   ? 'bg-primary text-on-primary shadow-md shadow-primary/20'
                   : 'bg-primary-container/10 text-primary'
               ]"
+              :disabled="payLoading"
+              @click="openElectricityPay"
             >
               <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">account_balance_wallet</span>
-              {{ parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
+              {{ payLoading ? '准备中…' : parseFloat(balanceData.quantity) < 10 ? '立即充值' : '去充值' }}
             </button>
             <button
               class="bg-surface-container-lowest text-primary border border-primary/20 rounded-full w-12 h-12 flex items-center justify-center active:scale-95 transition-transform shadow-sm"
@@ -735,6 +814,42 @@ const handleLogout = () => emit('logout')
         <span class="material-symbols-outlined text-4xl text-outline" style="font-variation-settings: 'FILL' 0;">electric_meter</span>
         <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
       </div>
+
+      <!-- 用电量统计摘要（有数据时）#438 -->
+      <section v-if="usageStats?.points?.length" class="glass-card rounded-2xl p-5">
+        <h3 class="font-headline-sm text-headline-sm text-on-surface mb-3 flex items-center gap-2">
+          <span class="material-symbols-outlined text-primary">insights</span>
+          用电统计
+        </h3>
+        <p v-if="usageStats.summary" class="font-body-md text-body-md text-on-surface-variant mb-2">
+          {{ usageStats.summary }}
+        </p>
+        <ul class="space-y-1 text-sm text-on-surface-variant">
+          <li v-for="(p, i) in usageStats.points.slice(0, 7)" :key="i">
+            {{ p.label || p.date }}：{{ p.value }}{{ p.unit || ' 度' }}
+          </li>
+        </ul>
+      </section>
+
+      <!-- 缴电费链接 / 二维码 #438 -->
+      <section v-if="showPayPanel && payUrl" class="glass-card rounded-2xl p-5 flex flex-col gap-3">
+        <h3 class="font-headline-sm text-headline-sm text-on-surface">缴电费入口</h3>
+        <p class="font-body-md text-body-md text-on-surface-variant">{{ payHint }}</p>
+        <p class="text-xs break-all text-outline">{{ payUrl }}</p>
+        <img v-if="payQr" :src="payQr" alt="缴电费二维码" class="w-[200px] h-[200px] mx-auto rounded-xl bg-white" />
+        <div class="flex gap-2 flex-wrap">
+          <button
+            type="button"
+            class="flex-1 bg-primary text-on-primary py-3 rounded-full"
+            @click="openElectricityPay"
+          >
+            打开官方缴纳页
+          </button>
+          <button type="button" class="px-4 py-3 rounded-full border border-primary/30 text-primary" @click="prepareElectricityPay">
+            刷新二维码
+          </button>
+        </div>
+      </section>
     </main>
   </div>
 </template>

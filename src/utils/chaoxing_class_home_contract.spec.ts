@@ -7,7 +7,7 @@ const read = (relativePath: string) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8')
 
 describe('chaoxing_class home integration contract', () => {
-  it('registers 学习通 module in layout, dashboard, app and icon map', () => {
+  it('registers 资料分享 (chaoxing_class) module in layout, dashboard, app and icon map', () => {
     const dashboard = read('src/components/Dashboard.vue')
     const app = read('src/App.vue')
     const icon = read('src/components/icons/ThemeModuleIcon.vue')
@@ -17,11 +17,14 @@ describe('chaoxing_class home integration contract', () => {
     const protocol = read('docs/chaoxing-protocol.md')
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_class')
-    expect(dashboard).toContain("{ id: 'chaoxing_class', name: '学习通'")
+    expect(HOME_MODULE_ORDER_DEFAULT).toContain('chaoxing_hub')
+    expect(dashboard).toContain("{ id: 'chaoxing_class', name: '资料分享'")
+    expect(dashboard).toContain("title: '学习通'")
     expect(dashboard).toContain("'chaoxing_class'")
     expect(app).toContain("const loadChaoxingClassView = () => import('./components/ChaoxingClassView.vue')")
     expect(app).toContain('chaoxing_class: loadChaoxingClassView')
     expect(app).toContain("currentView === 'chaoxing_class'")
+    expect(app).toContain("currentView === 'chaoxing_hub'")
     expect(icon).toContain("chaoxing_class: 'menu_book'")
     expect(view).toContain("chaoxing_class_ensure_sso")
     expect(view).toContain("chaoxing_class_preview_invite")
