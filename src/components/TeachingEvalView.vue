@@ -165,8 +165,8 @@ onMounted(() => {
         <h3 class="te-h">待评（{{ pending.length }}）</h3>
         <TEmptyState
           v-if="!loading && !pending.length"
-          title="暂无待评"
-          description="当前学期若有评教任务会显示在此。"
+          type="empty"
+          message="暂无待评。当前学期若有评教任务会显示在此。"
         />
         <button
           v-for="item in pending"
@@ -216,7 +216,7 @@ onMounted(() => {
             <p v-else class="te-meta">题型：{{ q.kind || '未知' }}</p>
           </div>
         </div>
-        <TEmptyState v-else title="暂无表单详情" description="后端将在协议对接后返回题目结构。" />
+        <TEmptyState v-else type="empty" message="暂无表单详情，后端将在协议对接后返回题目结构。" />
 
         <div class="te-actions">
           <button type="button" class="te-btn" @click="fillFullScore">全部 10 分</button>
@@ -250,12 +250,12 @@ onMounted(() => {
 
 <style scoped>
 .te-page {
-  min-height: 100%;
-  background: var(--ui-bg, #f5f7fb);
+  min-height: 100vh;
+  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
   color: var(--ui-text, #0f172a);
 }
 .te-body {
-  padding: 12px 16px 28px;
+  padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 10px;

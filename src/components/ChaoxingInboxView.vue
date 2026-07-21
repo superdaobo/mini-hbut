@@ -9,7 +9,7 @@ import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState } from './templates'
+import { TPageHeader, TEmptyState, TCard } from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -159,30 +159,32 @@ onMounted(fetchList)
   <div class="cx-inbox-page">
     <TPageHeader
       title="收件箱"
-      :subtitle="unreadCount ? `${unreadCount} 条未读` : '学习通通知'"
+      icon="inbox"
       @back="selected ? closeDetail() : emit('back')"
-    />
+    >
+      <template #actions>
+        <button type="button" class="cx-inbox-btn ghost" :disabled="loading" @click="fetchList">
+          {{ loading ? '刷新中' : '刷新' }}
+        </button>
+      </template>
+    </TPageHeader>
 
     <div class="cx-inbox-body">
-      <div class="cx-inbox-toolbar">
-        <button type="button" class="cx-inbox-btn" :disabled="loading" @click="fetchList">
-          {{ loading ? '刷新中…' : '刷新' }}
-        </button>
-      </div>
-
-      <p v-if="error" class="cx-inbox-error">{{ error }}</p>
+      <p v-if="unreadCount" class="cx-inbox-unread">未读 {{ unreadCount }} 条</p>
+      <TEmptyState v-if="loading && !items.length" type="loading" message="正在加载学习通消息…" />
+      <TEmptyState v-else-if="error && !items.length" type="error" :message="error" />
 
       <template v-if="!selected">
         <TEmptyState
           v-if="!loading && !items.length && !error"
-          title="暂无学习通消息"
-          description="有课程通知时会显示在这里。"
+          type="empty"
+          message="暂无学习通消息。有课程通知时会显示在这里。"
         />
         <button
           v-for="item in items"
           :key="item.id"
           type="button"
-          class="cx-inbox-row card-surface"
+          class="cx-inbox-row"
           @click="openDetail(item)"
         >
           <div class="cx-inbox-row-top">
@@ -193,11 +195,11 @@ onMounted(fetchList)
         </button>
       </template>
 
-      <section v-else class="card-surface cx-inbox-detail">
+      <TCard v-else compact class="cx-inbox-detail">
         <h3>{{ selected.title }}</h3>
         <p class="cx-inbox-time">{{ formatItemTime(selected.createdAt) }}</p>
-        <p v-if="detailLoading" class="cx-inbox-summary">加载详情…</p>
-        <div class="cx-inbox-detail-body" v-html="detailHtml" />
+        <TEmptyState v-if="detailLoading" type="loading" message="加载详情…" />
+        <div v-else class="cx-inbox-detail-body" v-html="detailHtml" />
         <div class="cx-inbox-actions">
           <button type="button" class="cx-inbox-btn" @click="closeDetail">返回列表</button>
           <button
@@ -209,55 +211,56 @@ onMounted(fetchList)
             标为已读
           </button>
         </div>
-      </section>
+      </TCard>
     </div>
   </div>
 </template>
 
 <style scoped>
 .cx-inbox-page {
-  min-height: 100%;
-  background: var(--ui-bg, #f5f7fb);
+  min-height: 100vh;
+  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
   color: var(--ui-text, #0f172a);
 }
 .cx-inbox-body {
-  padding: 12px 16px 28px;
+  padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.cx-inbox-toolbar {
-  display: flex;
-  justify-content: flex-end;
+.cx-inbox-unread {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ui-muted, #64748b);
 }
 .cx-inbox-btn {
-  border: 1px solid var(--ui-border, #d0d7e2);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
   background: var(--ui-surface, #fff);
   color: var(--ui-text, #0f172a);
-  border-radius: 10px;
+  border-radius: 999px;
   padding: 8px 12px;
   font-size: 13px;
+  font-weight: 600;
+}
+.cx-inbox-btn.ghost {
+  border: none;
+  background: transparent;
+  color: var(--ui-primary, #2563eb);
 }
 .cx-inbox-btn.primary {
-  background: var(--ui-primary, #2563eb);
+  background: linear-gradient(135deg, var(--ui-primary, #2563eb), var(--ui-secondary, #4f46e5));
   border-color: transparent;
   color: #fff;
-}
-.cx-inbox-error {
-  color: #dc2626;
-  font-size: 13px;
-}
-.card-surface {
-  background: var(--ui-surface, #fff);
-  border: 1px solid var(--ui-border, #e2e8f0);
-  border-radius: 14px;
-  padding: 12px;
-  text-align: left;
-  color: inherit;
 }
 .cx-inbox-row {
   width: 100%;
   cursor: pointer;
+  text-align: left;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 14%, transparent);
+  background: var(--ui-surface, #fff);
+  border-radius: 14px;
+  padding: 12px;
+  color: inherit;
 }
 .cx-inbox-row-top {
   display: flex;
@@ -294,13 +297,5 @@ onMounted(fetchList)
   display: flex;
   gap: 8px;
   margin-top: 14px;
-}
-html.dark .cx-inbox-page {
-  background: var(--ui-bg, #0b1220);
-  color: var(--ui-text, #e2e8f0);
-}
-html.dark .card-surface {
-  background: var(--ui-surface, #111827);
-  border-color: var(--ui-border, #1f2937);
 }
 </style>

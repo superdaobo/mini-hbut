@@ -1,13 +1,12 @@
 <script setup>
 /**
- * 运动场馆预约 — 一码通第三方入口（可能需校园网）
- * Issue: #438
+ * 运动场馆预约 — 一码通第三方入口
  */
 import { onMounted, ref } from 'vue'
-import { invokeNative, isTauriRuntime } from '../platform/native'
+import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState } from './templates'
+import { TPageHeader, TEmptyState, TCard } from './templates'
 
 const emit = defineEmits(['back'])
 const loading = ref(false)
@@ -19,16 +18,15 @@ const prepare = async () => {
   loading.value = true
   error.value = ''
   try {
-    if (!isTauriRuntime()) throw new Error('请在客户端内使用本功能')
-    const res = await invokeNative('one_code_app_open_prepare', {
-      app_code: 'noQYzEiZ7L',
-      app_name: '运动场馆预约系统'
+    const res = await prepareOneCodeAppOpen({
+      appCode: 'noQYzEiZ7L',
+      appName: '运动场馆预约系统'
     })
-    openUrl.value = String(res?.open_url || res?.pay_url || '').trim()
-    if (res?.hint) hint.value = String(res.hint)
-    if (!openUrl.value) throw new Error(res?.message || '未能生成场馆入口')
+    openUrl.value = res.openUrl
+    if (res.hint) hint.value = res.hint
   } catch (e) {
     error.value = String(e?.message || e || '加载失败')
+    openUrl.value = ''
   } finally {
     loading.value = false
   }
@@ -47,69 +45,70 @@ onMounted(prepare)
 </script>
 
 <template>
-  <div class="sv-page">
-    <TPageHeader title="运动场馆" subtitle="预约入口" @back="emit('back')" />
-    <div class="sv-body">
-      <p v-if="error" class="sv-error">{{ error }}</p>
-      <TEmptyState v-if="loading" title="正在准备入口…" description="经一码通会话跳转官方系统" />
-      <section v-else-if="openUrl" class="card-surface">
-        <p class="sv-hint">{{ hint }}</p>
-        <p class="sv-url">{{ openUrl }}</p>
-        <button type="button" class="sv-btn primary" @click="open">打开预约系统</button>
-        <button type="button" class="sv-btn" :disabled="loading" @click="prepare">重新生成</button>
-      </section>
+  <div class="ykt-page">
+    <TPageHeader title="运动场馆" icon="sports_soccer" @back="emit('back')" />
+    <div class="ykt-body">
+      <TEmptyState v-if="loading" type="loading" message="正在准备场馆入口…" />
+
+      <TCard v-else-if="error" compact>
+        <TEmptyState type="error" :message="error" />
+        <button type="button" class="ykt-btn primary" @click="prepare">重试</button>
+      </TCard>
+
+      <TCard v-else-if="openUrl" compact>
+        <template #header>
+          <strong>预约系统入口</strong>
+          <p class="ykt-muted">{{ hint }}</p>
+        </template>
+        <p class="ykt-url">{{ openUrl }}</p>
+        <div class="ykt-actions">
+          <button type="button" class="ykt-btn primary" @click="open">打开预约系统</button>
+          <button type="button" class="ykt-btn" :disabled="loading" @click="prepare">重新生成</button>
+        </div>
+      </TCard>
     </div>
   </div>
 </template>
 
 <style scoped>
-.sv-page {
-  min-height: 100%;
-  background: var(--ui-bg, #f5f7fb);
+.ykt-page {
+  min-height: 100vh;
+  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
   color: var(--ui-text, #0f172a);
 }
-.sv-body {
-  padding: 12px 16px 28px;
-}
-.card-surface {
-  background: var(--ui-surface, #fff);
-  border: 1px solid var(--ui-border, #e2e8f0);
-  border-radius: 14px;
-  padding: 16px;
+.ykt-body {
+  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
-.sv-error {
-  color: #dc2626;
-}
-.sv-hint {
-  color: var(--ui-muted, #64748b);
+.ykt-muted {
+  margin: 6px 0 0;
   font-size: 13px;
+  color: var(--ui-muted, #64748b);
 }
-.sv-url {
+.ykt-url {
   font-size: 12px;
   word-break: break-all;
+  margin: 8px 0 12px;
 }
-.sv-btn {
-  border: 1px solid var(--ui-border, #d0d7e2);
+.ykt-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ykt-btn {
+  border: 1px solid color-mix(in oklab, var(--ui-primary, #16a34a) 28%, transparent);
   background: var(--ui-surface, #fff);
   color: var(--ui-text, #0f172a);
-  border-radius: 10px;
-  padding: 8px 12px;
-  width: fit-content;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
 }
-.sv-btn.primary {
-  background: var(--ui-primary, #16a34a);
+.ykt-btn.primary {
+  background: linear-gradient(135deg, var(--ui-primary, #16a34a), var(--ui-secondary, #22c55e));
   border-color: transparent;
   color: #fff;
-}
-html.dark .sv-page {
-  background: var(--ui-bg, #0b1220);
-  color: var(--ui-text, #e2e8f0);
-}
-html.dark .card-surface {
-  background: var(--ui-surface, #111827);
-  border-color: var(--ui-border, #1f2937);
 }
 </style>

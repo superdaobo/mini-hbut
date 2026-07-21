@@ -18,13 +18,6 @@ pub struct OneCodeTokenResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct OneCodeAppOpenPrepareRequest {
-    pub app_code: String,
-    #[serde(default)]
-    pub app_name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct OneCodeAppOpenPrepareResponse {
     pub success: bool,
     pub open_url: String,
@@ -76,13 +69,15 @@ fn extract_tid(one_code: &serde_json::Value) -> String {
 }
 
 /// 为缴电费 / 网费 / 场馆等生成可打开的官方 URL（不内嵌支付）。
+/// 参数使用扁平字段，与项目内其它 command 一致：`{ app_code, app_name? }`
 #[tauri::command]
 pub async fn one_code_app_open_prepare(
     state: State<'_, AppState>,
-    req: OneCodeAppOpenPrepareRequest,
+    app_code: String,
+    app_name: Option<String>,
 ) -> Result<OneCodeAppOpenPrepareResponse, String> {
     let mut client = state.client.write().await;
-    let code = req.app_code.trim().to_string();
+    let code = app_code.trim().to_string();
     if code.is_empty() {
         return Ok(OneCodeAppOpenPrepareResponse {
             success: false,
@@ -98,30 +93,41 @@ pub async fn one_code_app_open_prepare(
     // 先确保一码通/电费会话
     if let Err(e) = session_guard::ensure_one_code_electricity(&mut client).await {
         if session_guard::looks_like_auth_failure(&e) {
-            // 再试一次 get_one_code_token
             let _ = client.get_one_code_token().await;
         }
     }
 
-    let one_code = client
-        .get_one_code_token()
-        .await
-        .map_err(|e| e.to_string())?;
+    let one_code = match client.get_one_code_token().await {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(OneCodeAppOpenPrepareResponse {
+                success: false,
+                open_url: String::new(),
+                pay_url: String::new(),
+                app_code: code,
+                hint: String::new(),
+                message: Some(format!("一码通会话不可用：{e}")),
+                tid: None,
+            });
+        }
+    };
     let tid = extract_tid(&one_code);
 
     // 已知第三方落地（来自手机端 appList 抓取）
     let third_redirect = match code.as_str() {
-        // 运动场馆
-        "noQYzEiZ7L" => Some(
-            "http://172.16.54.20:9000/#/home".to_string(),
-        ),
-        // 电量查询第三方（统计）
+        "noQYzEiZ7L" => Some("http://172.16.54.20:9000/#/home".to_string()),
         "jSJNLwI3bX" => Some(
             "https://code.hbut.edu.cn/lightappService/host/docking/geteWayForV8?state=da0c4cbd3f224986a79c5fe376a05ed6"
                 .to_string(),
         ),
         _ => None,
     };
+
+    let display_name = app_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(code.as_str());
 
     let (open_url, hint) = if let Some(redirect) = third_redirect {
         let encoded = urlencoding_lite(&redirect);
@@ -134,20 +140,15 @@ pub async fn one_code_app_open_prepare(
         .to_string();
         (url, hint)
     } else {
-        // 原生应用：落到移动端首页，带 tid（用户点官方「缴电费/网费」）
+        // 原生应用：落到移动端首页，带 tid
         let url = if tid.is_empty() {
             format!("{CODE_BASE}/#/pages_home/home")
         } else {
             format!("{CODE_BASE}/?tid={tid}&orgId=2#/pages_home/home")
         };
-        let name = if req.app_name.trim().is_empty() {
-            code.as_str()
-        } else {
-            req.app_name.trim()
-        };
         (
             url,
-            format!("打开后请在官方一码通中进入「{name}」完成操作；App 不内嵌支付。"),
+            format!("打开后请在官方一码通中进入「{display_name}」完成操作；App 不内嵌支付。"),
         )
     };
 
@@ -162,7 +163,6 @@ pub async fn one_code_app_open_prepare(
     })
 }
 
-/// 极简 URL 编码（仅 redirect 常用字符）
 fn urlencoding_lite(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len() * 3);
     for b in raw.bytes() {
@@ -182,7 +182,6 @@ pub async fn electricity_usage_stats(
     room_path: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let _client = state.client.read().await;
-    // 统计接口依赖电量查询 third 协议；未对接前返回空结构，前端隐藏统计区
     Ok(json!({
         "success": true,
         "summary": null,

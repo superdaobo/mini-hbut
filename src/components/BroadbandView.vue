@@ -1,14 +1,13 @@
 <script setup>
 /**
- * 教育网网费 — 一码通 broadband 官方跳转/二维码
- * Issue: #438
+ * 教育网网费 — 一码通官方跳转/二维码
  */
 import { onMounted, ref } from 'vue'
 import QRCode from 'qrcode'
-import { invokeNative, isTauriRuntime } from '../platform/native'
+import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState } from './templates'
+import { TPageHeader, TEmptyState, TCard } from './templates'
 
 const emit = defineEmits(['back'])
 const loading = ref(false)
@@ -21,20 +20,17 @@ const prepare = async () => {
   loading.value = true
   error.value = ''
   try {
-    if (!isTauriRuntime()) throw new Error('请在客户端内使用本功能')
-    const res = await invokeNative('one_code_app_open_prepare', {
-      app_code: 'broadband',
-      app_name: '缴纳教育网网费'
+    const res = await prepareOneCodeAppOpen({
+      appCode: 'broadband',
+      appName: '缴纳教育网网费'
     })
-    payUrl.value = String(res?.open_url || res?.pay_url || '').trim()
-    hint.value = String(res?.hint || '打开官方页面完成查询与缴纳')
-    if (payUrl.value) {
-      qrDataUrl.value = await QRCode.toDataURL(payUrl.value, { margin: 1, width: 220 })
-    } else {
-      throw new Error(res?.message || '未能生成网费入口')
-    }
+    payUrl.value = res.openUrl
+    hint.value = res.hint
+    qrDataUrl.value = await QRCode.toDataURL(res.openUrl, { margin: 1, width: 220 })
   } catch (e) {
     error.value = String(e?.message || e || '加载失败')
+    payUrl.value = ''
+    qrDataUrl.value = ''
   } finally {
     loading.value = false
   }
@@ -53,90 +49,94 @@ onMounted(prepare)
 </script>
 
 <template>
-  <div class="bb-page">
-    <TPageHeader title="教育网网费" subtitle="一码通官方缴纳入口" @back="emit('back')" />
-    <div class="bb-body">
-      <p v-if="error" class="bb-error">{{ error }}</p>
-      <TEmptyState v-if="loading" title="正在准备入口…" description="使用一码通会话生成跳转链接" />
-      <section v-else-if="payUrl" class="card-surface">
-        <p class="bb-hint">{{ hint }}</p>
-        <p class="bb-url">{{ payUrl }}</p>
-        <div v-if="qrDataUrl" class="bb-qr">
-          <img :src="qrDataUrl" alt="网费缴纳二维码" />
-          <p>可用手机扫码打开官方缴纳页</p>
+  <div class="ykt-page">
+    <TPageHeader title="教育网网费" icon="wifi" @back="emit('back')" />
+    <div class="ykt-body">
+      <TEmptyState v-if="loading" type="loading" message="正在准备网费入口…" />
+
+      <TCard v-else-if="error" compact>
+        <TEmptyState type="error" :message="error" />
+        <button type="button" class="ykt-btn primary" @click="prepare">重试</button>
+      </TCard>
+
+      <TCard v-else-if="payUrl" compact>
+        <template #header>
+          <strong>官方缴纳入口</strong>
+          <p class="ykt-muted">{{ hint }}</p>
+        </template>
+        <p class="ykt-url">{{ payUrl }}</p>
+        <div v-if="qrDataUrl" class="ykt-qr">
+          <img :src="qrDataUrl" alt="网费缴纳二维码" width="220" height="220" />
+          <p class="ykt-muted">手机扫码打开官方页</p>
         </div>
-        <div class="bb-actions">
-          <button type="button" class="bb-btn primary" @click="openPay">打开缴纳页</button>
-          <button type="button" class="bb-btn" :disabled="loading" @click="prepare">重新生成</button>
+        <div class="ykt-actions">
+          <button type="button" class="ykt-btn primary" @click="openPay">打开缴纳页</button>
+          <button type="button" class="ykt-btn" :disabled="loading" @click="prepare">重新生成</button>
         </div>
-        <p class="bb-note">App 不内嵌支付；费用与结果以官方一码通为准。</p>
-      </section>
+        <p class="ykt-note">App 不内嵌支付；结果以官方一码通为准。</p>
+      </TCard>
     </div>
   </div>
 </template>
 
 <style scoped>
-.bb-page {
-  min-height: 100%;
-  background: var(--ui-bg, #f5f7fb);
+.ykt-page {
+  min-height: 100vh;
+  background: var(--ui-bg-gradient, var(--ui-bg, #f5f7fb));
   color: var(--ui-text, #0f172a);
 }
-.bb-body {
-  padding: 12px 16px 28px;
+.ykt-body {
+  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.card-surface {
-  background: var(--ui-surface, #fff);
-  border: 1px solid var(--ui-border, #e2e8f0);
-  border-radius: 14px;
-  padding: 16px;
-}
-.bb-error {
-  color: #dc2626;
-  font-size: 13px;
-}
-.bb-hint,
-.bb-note {
+.ykt-muted,
+.ykt-note {
+  margin: 6px 0 0;
   font-size: 13px;
   color: var(--ui-muted, #64748b);
 }
-.bb-url {
+.ykt-url {
   font-size: 12px;
   word-break: break-all;
   margin: 8px 0 12px;
+  color: var(--ui-text, #0f172a);
 }
-.bb-qr {
+.ykt-qr {
   text-align: center;
   margin: 12px 0;
 }
-.bb-qr img {
+.ykt-qr img {
   width: 220px;
   height: 220px;
   background: #fff;
   border-radius: 12px;
 }
-.bb-actions {
+.ykt-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  margin-top: 8px;
 }
-.bb-btn {
-  border: 1px solid var(--ui-border, #d0d7e2);
+.ykt-btn {
+  border: 1px solid color-mix(in oklab, var(--ui-primary, #0891b2) 28%, transparent);
   background: var(--ui-surface, #fff);
   color: var(--ui-text, #0f172a);
-  border-radius: 10px;
-  padding: 8px 12px;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
 }
-.bb-btn.primary {
-  background: var(--ui-primary, #0891b2);
+.ykt-btn.primary {
+  background: linear-gradient(135deg, var(--ui-primary, #0891b2), var(--ui-secondary, #06b6d4));
   border-color: transparent;
   color: #fff;
 }
-html.dark .bb-page {
-  background: var(--ui-bg, #0b1220);
-  color: var(--ui-text, #e2e8f0);
+html.dark .ykt-btn {
+  background: color-mix(in oklab, var(--ui-surface) 90%, #000 10%);
 }
-html.dark .card-surface {
-  background: var(--ui-surface, #111827);
-  border-color: var(--ui-border, #1f2937);
+html.dark .ykt-btn.primary {
+  color: #fff;
 }
 </style>

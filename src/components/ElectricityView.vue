@@ -9,6 +9,7 @@ import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
 import { writeElectricityToWidget } from '../utils/widget_bridge'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { openExternal } from '../utils/external_link'
+import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { showToast } from '../utils/toast'
 import { TPageHeader, TEmptyState } from './templates'
 
@@ -462,18 +463,10 @@ const prepareElectricityPay = async () => {
   payLoading.value = true
   payHint.value = ''
   try {
-    if (!isTauriRuntime()) {
-      throw new Error('请在客户端内生成缴纳入口')
-    }
-    const res = await invokeNative('one_code_app_open_prepare', {
-      app_code: 'electric',
-      app_name: '缴电费'
-    })
-    const url = String(res?.open_url || res?.pay_url || '').trim()
-    if (!url) throw new Error(res?.message || '未能生成缴纳链接')
-    payUrl.value = url
-    payHint.value = String(res?.hint || '打开官方一码通完成缴纳；App 不内嵌支付。')
-    payQr.value = await QRCode.toDataURL(url, { margin: 1, width: 200 })
+    const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: '缴电费' })
+    payUrl.value = res.openUrl
+    payHint.value = res.hint || '打开官方一码通完成缴纳；App 不内嵌支付。'
+    payQr.value = await QRCode.toDataURL(res.openUrl, { margin: 1, width: 200 })
     showPayPanel.value = true
   } catch (e) {
     showToast(String(e?.message || e || '生成失败'))

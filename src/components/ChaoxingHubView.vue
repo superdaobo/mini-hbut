@@ -1,13 +1,23 @@
 <script setup>
 /**
- * 学习通课程中心 — 复用 /v2/chaoxing/courses 与 outline/progress
- * Issue: #437
+ * 学习通课程中心
+ * - 封面 / 进度 / 教师
+ * - 一级：课程列表
+ * - 二级：章节
+ * - 三级：任务点
+ * - 打开官方课程、刷新会话
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
+import {
+  TPageHeader,
+  TEmptyState,
+  TStatusBadge,
+  TCard,
+  TSection
+} from './templates'
 
 const props = defineProps({
   studentId: { type: String, default: '' }
@@ -15,7 +25,9 @@ const props = defineProps({
 const emit = defineEmits(['back'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
 const loading = ref(true)
+const refreshing = ref(false)
 const detailLoading = ref(false)
 const error = ref('')
 const courses = ref([])
@@ -23,6 +35,16 @@ const selectedId = ref('')
 const outline = ref([])
 const progress = ref({})
 const statusMeta = ref({})
+const searchQuery = ref('')
+const viewMode = ref('list') // list | detail
+const expandedSections = ref({})
+const activeDetailTab = ref('chapters') // chapters | progress | actions
+
+const DETAIL_TABS = [
+  { key: 'chapters', label: '章节任务', icon: '📚' },
+  { key: 'progress', label: '学习进度', icon: '📈' },
+  { key: 'actions', label: '功能', icon: '🛠️' }
+]
 
 const safeText = (v) => String(v ?? '').trim()
 const safeNumber = (v, fb = 0) => {
@@ -38,30 +60,119 @@ const unwrap = (payload) => {
 
 const normalizeCourse = (item = {}) => {
   const raw = item && typeof item === 'object' ? item : {}
+  const courseId = safeText(raw.course_id || raw.courseId || raw.courseid || '')
+  const clazzId = safeText(raw.clazz_id || raw.clazzId || raw.clazzid || '')
+  const cpi = safeText(raw.cpi || '')
   return {
-    id: safeText(raw.id || raw.course_id || raw.courseId || raw.clazzid || raw.cpi),
-    courseId: safeText(raw.course_id || raw.courseId || raw.courseid || ''),
-    clazzId: safeText(raw.clazz_id || raw.clazzId || raw.clazzid || ''),
-    cpi: safeText(raw.cpi || ''),
+    id: safeText(raw.id || `${courseId}:${clazzId}` || cpi),
+    courseId,
+    clazzId,
+    cpi,
     title: safeText(raw.title || raw.name || raw.course_name || raw.courseName || '未命名课程'),
-    teacher: safeText(raw.teacher || raw.teacher_name || raw.teacherName || ''),
-    progressText: safeText(raw.progress_text || raw.progressText || raw.progress || ''),
-    progressRate: safeNumber(raw.progress_rate ?? raw.progressRate ?? raw.progress_percent ?? raw.percent),
-    pendingCount: safeNumber(raw.pending_count ?? raw.pendingCount ?? raw.todo_count),
+    teacher: safeText(raw.teacher || raw.teacher_name || raw.teacherName || raw.teacherfactor || ''),
+    imageUrl: safeText(
+      raw.image_url || raw.imageUrl || raw.imageurl || raw.cover || raw.cover_url || raw.img || ''
+    ),
+    progressText: safeText(
+      raw.progress_text || raw.progressText || raw.progress || raw.schedule_text || ''
+    ),
+    progressRate: safeNumber(
+      raw.progress_rate ?? raw.progressRate ?? raw.progress_percent ?? raw.progressPercent ?? raw.percent
+    ),
+    pendingCount: safeNumber(raw.pending_count ?? raw.pendingCount ?? raw.todo_count ?? 0),
     courseUrl: safeText(raw.url || raw.course_url || raw.courseUrl || ''),
+    roleLabel: safeText(raw.role_label || raw.roleLabel || ''),
     raw
   }
 }
 
+const resolveTaskType = (value) => {
+  const text = safeText(value).toLowerCase()
+  if (/(video|视频)/.test(text)) return { text: '视频', type: 'info' }
+  if (/(audio|音频)/.test(text)) return { text: '音频', type: 'primary' }
+  if (/(ppt|book|阅读|文档|章节)/.test(text)) return { text: '阅读', type: 'warning' }
+  if (/(work|作业|exam|测验|测试)/.test(text)) return { text: '作业', type: 'danger' }
+  if (/(link|链接)/.test(text)) return { text: '链接', type: 'muted' }
+  return { text: safeText(value) || '任务', type: 'muted' }
+}
+
+const normalizeTask = (node = {}) => {
+  const raw = node && typeof node === 'object' ? node : {}
+  const childrenRaw = Array.isArray(raw.tasks)
+    ? raw.tasks
+    : Array.isArray(raw.children)
+      ? raw.children
+      : Array.isArray(raw.points)
+        ? raw.points
+        : Array.isArray(raw.list)
+          ? raw.list
+          : []
+  return {
+    id: safeText(raw.id || raw.task_id || raw.taskId || raw.knowledge_id || raw.knowledgeId || raw.jobid),
+    title: safeText(raw.title || raw.name || raw.label || '未命名任务'),
+    status: safeText(raw.status || raw.state || raw.progress_text || raw.progressText || ''),
+    progress: safeText(raw.progress || ''),
+    typeMeta: resolveTaskType(raw.type || raw.task_type || raw.job_type || raw.label_type || raw.card_type),
+    url: safeText(raw.url || raw.link || raw.href || ''),
+    children: childrenRaw.map(normalizeTask)
+  }
+}
+
+const normalizeSection = (item = {}) => {
+  const raw = item && typeof item === 'object' ? item : {}
+  const taskList = Array.isArray(raw.tasks)
+    ? raw.tasks
+    : Array.isArray(raw.children)
+      ? raw.children
+      : Array.isArray(raw.points)
+        ? raw.points
+        : Array.isArray(raw.list)
+          ? raw.list
+          : []
+  return {
+    id: safeText(raw.id || raw.section_id || raw.sectionId || raw.chapter_id || raw.chapterId),
+    title: safeText(raw.title || raw.name || raw.label || '未命名章节'),
+    tasks: taskList.map(normalizeTask)
+  }
+}
+
 const selected = computed(() => courses.value.find((c) => c.id === selectedId.value) || null)
-const sessionOk = computed(() => {
+
+const filteredCourses = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return courses.value
+  return courses.value.filter(
+    (c) =>
+      c.title.toLowerCase().includes(q) ||
+      c.teacher.toLowerCase().includes(q)
+  )
+})
+
+const sessionConnected = computed(() => {
   if (statusMeta.value?.connected === true) return true
-  const t = safeText(statusMeta.value.status || statusMeta.value.state).toLowerCase()
+  const t = safeText(statusMeta.value.status || statusMeta.value.connection_status || statusMeta.value.state).toLowerCase()
   return /(connected|ready|已连接|可用|success|ok)/.test(t)
 })
 
-const loadList = async () => {
-  loading.value = true
+const badgeType = computed(() => {
+  if (sessionConnected.value) return 'success'
+  if (courses.value.length) return 'warning'
+  return 'muted'
+})
+
+const badgeText = computed(() => {
+  if (sessionConnected.value) return '会话可用'
+  if (courses.value.length) return '缓存/部分可用'
+  return statusMeta.value.status || '未连接'
+})
+
+const totalPending = computed(() =>
+  courses.value.reduce((sum, c) => sum + (c.pendingCount || 0), 0)
+)
+
+const loadList = async ({ silent = false } = {}) => {
+  if (!silent) loading.value = true
+  else refreshing.value = true
   error.value = ''
   try {
     const [statusRes, courseRes] = await Promise.all([
@@ -70,26 +181,37 @@ const loadList = async () => {
     ])
     const statusPayload = statusRes?.data || {}
     const coursePayload = courseRes?.data || {}
-    if (statusPayload?.success === false) throw new Error(statusPayload?.error || '会话状态失败')
-    if (coursePayload?.success === false) throw new Error(coursePayload?.error || '课程列表失败')
+    if (statusPayload?.success === false) {
+      throw new Error(statusPayload?.error || '会话状态失败')
+    }
+    if (coursePayload?.success === false) {
+      throw new Error(coursePayload?.error || '课程列表失败')
+    }
     statusMeta.value = unwrap(statusPayload) || {}
     const data = unwrap(coursePayload)
     const list = Array.isArray(data?.courses) ? data.courses : Array.isArray(data) ? data : []
-    courses.value = list.map(normalizeCourse).filter((c) => c.id)
+    courses.value = list.map(normalizeCourse).filter((c) => c.id && c.courseId)
     if (!selectedId.value && courses.value.length) {
       selectedId.value = courses.value[0].id
+    }
+    if (selectedId.value && viewMode.value === 'detail') {
       await loadDetail(selectedId.value)
     }
   } catch (e) {
     error.value = safeText(e?.message || e) || '加载失败'
   } finally {
     loading.value = false
+    refreshing.value = false
   }
 }
 
 const loadDetail = async (id) => {
   const cur = courses.value.find((c) => c.id === id)
-  if (!cur?.courseId || !cur?.clazzId) return
+  if (!cur?.courseId || !cur?.clazzId) {
+    outline.value = []
+    progress.value = {}
+    return
+  }
   detailLoading.value = true
   try {
     const [outlineRes, progressRes] = await Promise.all([
@@ -109,29 +231,33 @@ const loadDetail = async (id) => {
       })
     ])
     const outlineData = unwrap(outlineRes?.data)
-    const sections = Array.isArray(outlineData?.sections)
+    const sectionList = Array.isArray(outlineData?.sections)
       ? outlineData.sections
       : Array.isArray(outlineData?.outline)
         ? outlineData.outline
         : Array.isArray(outlineData?.nodes)
           ? outlineData.nodes
-          : []
-    outline.value = sections
+          : Array.isArray(outlineData)
+            ? outlineData
+            : []
+    outline.value = sectionList.map(normalizeSection).filter((s) => s.title)
+    // 默认展开前 3 个章节
+    const nextExpand = {}
+    outline.value.slice(0, 3).forEach((s, i) => {
+      nextExpand[s.id || `sec-${i}`] = true
+    })
+    expandedSections.value = nextExpand
     progress.value = unwrap(progressRes?.data) || {}
   } catch (e) {
     showToast(safeText(e?.message || e) || '详情加载失败')
+    outline.value = []
   } finally {
     detailLoading.value = false
   }
 }
 
-const selectCourse = async (id) => {
-  selectedId.value = id
-  await loadDetail(id)
-}
-
-const openCourseWeb = async () => {
-  const cur = selected.value
+const openCourse = async (course) => {
+  const cur = course || selected.value
   if (!cur) return
   try {
     const res = await axios.post(`${API_BASE}/v2/chaoxing/launch_url`, {
@@ -151,191 +277,705 @@ const openCourseWeb = async () => {
   }
 }
 
-onMounted(loadList)
+const openTaskLink = async (task) => {
+  if (task?.url) {
+    try {
+      await openExternal(task.url)
+      return
+    } catch {
+      /* fallthrough */
+    }
+  }
+  await openCourse()
+}
+
+const selectCourse = async (id) => {
+  selectedId.value = id
+  viewMode.value = 'detail'
+  activeDetailTab.value = 'chapters'
+  await loadDetail(id)
+}
+
+const backToList = () => {
+  viewMode.value = 'list'
+}
+
+const toggleSection = (key) => {
+  expandedSections.value = {
+    ...expandedSections.value,
+    [key]: !expandedSections.value[key]
+  }
+}
+
+const onCoverError = (e) => {
+  if (e?.target) {
+    e.target.style.display = 'none'
+    const fallback = e.target.nextElementSibling
+    if (fallback) fallback.style.display = 'flex'
+  }
+}
+
+const handleHeaderBack = () => {
+  if (viewMode.value === 'detail') backToList()
+  else emit('back')
+}
+
+watch(
+  () => props.studentId,
+  () => {
+    void loadList()
+  }
+)
+
+onMounted(() => {
+  void loadList()
+})
 </script>
 
 <template>
-  <div class="cx-hub-page" data-theme="graphite_night">
-    <TPageHeader title="课程中心" subtitle="学习通课程与进度" @back="emit('back')" />
-
-    <div class="cx-hub-body">
-      <div class="cx-hub-toolbar">
-        <TStatusBadge
-          :type="sessionOk ? 'success' : 'warning'"
-          :text="sessionOk ? '会话可用' : '会话待恢复'"
-        />
-        <button type="button" class="cx-hub-btn" :disabled="loading" @click="loadList">
-          {{ loading ? '加载中…' : '刷新' }}
+  <div class="cx-hub">
+    <TPageHeader
+      :title="viewMode === 'detail' && selected ? selected.title : '课程中心'"
+      icon="school"
+      @back="handleHeaderBack"
+    >
+      <template #actions>
+        <button class="ghost-btn" type="button" :disabled="refreshing || loading" @click="loadList({ silent: true })">
+          {{ refreshing ? '刷新中' : '刷新' }}
         </button>
-      </div>
+      </template>
+    </TPageHeader>
 
-      <p v-if="error" class="cx-hub-error">{{ error }}</p>
-
-      <TEmptyState
-        v-if="!loading && !courses.length && !error"
-        title="暂无课程"
-        description="登录融合门户并完成学习通 SSO 后，将显示课程列表。"
-      />
-
-      <div v-else class="cx-hub-layout">
-        <section class="cx-hub-list card-surface">
-          <h3 class="cx-hub-section-title">我的课程</h3>
-          <button
-            v-for="c in courses"
-            :key="c.id"
-            type="button"
-            class="cx-hub-item"
-            :class="{ active: c.id === selectedId }"
-            @click="selectCourse(c.id)"
-          >
-            <div class="cx-hub-item-title">{{ c.title }}</div>
-            <div class="cx-hub-item-meta">
-              <span v-if="c.teacher">{{ c.teacher }}</span>
-              <span v-if="c.progressText">{{ c.progressText }}</span>
-              <span v-if="c.pendingCount">待办 {{ c.pendingCount }}</span>
-            </div>
-          </button>
-        </section>
-
-        <section class="cx-hub-detail card-surface">
-          <template v-if="selected">
-            <div class="cx-hub-detail-head">
+    <div class="cx-hub__body">
+      <!-- ===== 列表态 ===== -->
+      <template v-if="viewMode === 'list'">
+        <TCard compact>
+          <template #header>
+            <div class="status-head">
               <div>
-                <h3>{{ selected.title }}</h3>
-                <p v-if="selected.teacher">{{ selected.teacher }}</p>
+                <strong>学习通课程</strong>
+                <p>封面、章节与任务点；点进课程可展开三级目录。</p>
               </div>
-              <button type="button" class="cx-hub-btn primary" @click="openCourseWeb">打开课程</button>
+              <TStatusBadge :type="badgeType" :text="badgeText" />
             </div>
-            <p v-if="detailLoading" class="cx-hub-muted">正在加载章节…</p>
-            <ul v-else-if="outline.length" class="cx-hub-outline">
-              <li v-for="(sec, idx) in outline.slice(0, 40)" :key="sec.id || idx">
-                {{ sec.title || sec.name || `章节 ${idx + 1}` }}
-              </li>
-            </ul>
-            <p v-else class="cx-hub-muted">暂无章节大纲，可点「打开课程」在学习通查看通知与作业。</p>
           </template>
-          <TEmptyState v-else title="选择课程" description="左侧点选一门课程查看详情。" />
-        </section>
-      </div>
+          <div class="status-grid">
+            <div class="status-chip">
+              <span>课程数</span>
+              <strong>{{ courses.length }}</strong>
+            </div>
+            <div class="status-chip">
+              <span>待办</span>
+              <strong>{{ totalPending }}</strong>
+            </div>
+            <div class="status-chip">
+              <span>数据</span>
+              <strong>{{ statusMeta.offline ? '缓存' : '实时' }}</strong>
+            </div>
+          </div>
+          <p v-if="error" class="error-text">{{ error }}</p>
+        </TCard>
+
+        <div class="search-wrap">
+          <span class="material-symbols-outlined search-icon">search</span>
+          <input
+            v-model="searchQuery"
+            class="search-input"
+            type="search"
+            placeholder="搜索课程名 / 教师"
+          />
+        </div>
+
+        <TEmptyState v-if="loading" type="loading" message="正在读取学习通课程…" />
+
+        <TEmptyState
+          v-else-if="!filteredCourses.length"
+          type="empty"
+          :message="error || (courses.length ? '没有匹配的课程' : '暂无课程，请先登录融合门户并完成学习通 SSO')"
+        />
+
+        <div v-else class="course-grid">
+          <button
+            v-for="course in filteredCourses"
+            :key="course.id"
+            type="button"
+            class="course-card"
+            @click="selectCourse(course.id)"
+          >
+            <div class="course-cover">
+              <img
+                v-if="course.imageUrl"
+                :src="course.imageUrl"
+                :alt="course.title"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                @error="onCoverError"
+              />
+              <div class="course-cover-fallback" :style="course.imageUrl ? { display: 'none' } : undefined">
+                <span class="material-symbols-outlined">menu_book</span>
+              </div>
+              <span v-if="course.pendingCount > 0" class="course-badge">待办 {{ course.pendingCount }}</span>
+            </div>
+            <div class="course-body">
+              <strong class="course-title">{{ course.title }}</strong>
+              <p class="course-teacher">{{ course.teacher || '教师信息暂缺' }}</p>
+              <div class="course-progress-row">
+                <div class="progress-bar">
+                  <div
+                    class="progress-bar__fill"
+                    :style="{ width: Math.max(0, Math.min(100, course.progressRate || 0)) + '%' }"
+                  />
+                </div>
+                <span class="progress-text">
+                  {{ course.progressRate > 0 ? `${course.progressRate}%` : course.progressText || '—' }}
+                </span>
+              </div>
+            </div>
+            <span class="material-symbols-outlined course-chevron">chevron_right</span>
+          </button>
+        </div>
+      </template>
+
+      <!-- ===== 详情态 ===== -->
+      <template v-else-if="selected">
+        <TCard compact class="detail-hero">
+          <div class="detail-hero__row">
+            <div class="detail-cover">
+              <img
+                v-if="selected.imageUrl"
+                :src="selected.imageUrl"
+                :alt="selected.title"
+                referrerpolicy="no-referrer"
+                @error="onCoverError"
+              />
+              <div class="course-cover-fallback" :style="selected.imageUrl ? { display: 'none' } : undefined">
+                <span class="material-symbols-outlined">menu_book</span>
+              </div>
+            </div>
+            <div class="detail-meta">
+              <strong>{{ selected.title }}</strong>
+              <p>{{ selected.teacher || '教师信息暂缺' }}</p>
+              <div class="detail-badges">
+                <TStatusBadge
+                  type="info"
+                  :text="progress.progress_text || progress.summary || selected.progressText || '官方进度'"
+                />
+                <TStatusBadge
+                  :type="selected.pendingCount > 0 ? 'warning' : 'success'"
+                  :text="selected.pendingCount > 0 ? `待办 ${selected.pendingCount}` : '已跟踪'"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="detail-actions">
+            <button type="button" class="primary-btn" @click="openCourse(selected)">打开官方课程</button>
+            <button type="button" class="ghost-btn solid" @click="loadDetail(selected.id)">刷新章节</button>
+          </div>
+        </TCard>
+
+        <div class="detail-tabs">
+          <button
+            v-for="tab in DETAIL_TABS"
+            :key="tab.key"
+            type="button"
+            class="detail-tab"
+            :class="{ active: activeDetailTab === tab.key }"
+            @click="activeDetailTab = tab.key"
+          >
+            <span>{{ tab.icon }}</span>
+            <span>{{ tab.label }}</span>
+          </button>
+        </div>
+
+        <!-- 章节（一/二/三级） -->
+        <template v-if="activeDetailTab === 'chapters'">
+          <TEmptyState v-if="detailLoading" type="loading" message="正在加载章节大纲…" />
+          <TEmptyState
+            v-else-if="!outline.length"
+            type="empty"
+            message="当前课程暂未返回章节。可点「打开官方课程」在学习通网页查看。"
+          />
+          <div v-else class="outline-tree">
+            <!-- 一级：章节 -->
+            <section
+              v-for="(sec, sIdx) in outline"
+              :key="sec.id || sIdx"
+              class="outline-section"
+            >
+              <button
+                type="button"
+                class="outline-section__head"
+                @click="toggleSection(sec.id || `sec-${sIdx}`)"
+              >
+                <span class="material-symbols-outlined expand-icon">
+                  {{ expandedSections[sec.id || `sec-${sIdx}`] ? 'expand_more' : 'chevron_right' }}
+                </span>
+                <strong class="level-1">{{ sec.title }}</strong>
+                <span class="count-chip">{{ sec.tasks.length }} 项</span>
+              </button>
+
+              <div v-show="expandedSections[sec.id || `sec-${sIdx}`]" class="outline-section__body">
+                <!-- 二级：任务 -->
+                <article
+                  v-for="(task, tIdx) in sec.tasks"
+                  :key="task.id || tIdx"
+                  class="task-block"
+                >
+                  <button type="button" class="task-row" @click="openTaskLink(task)">
+                    <div class="task-row__main">
+                      <strong class="level-2">{{ task.title }}</strong>
+                      <p>{{ task.status || task.progress || '点击在官方页面完成' }}</p>
+                    </div>
+                    <div class="task-row__side">
+                      <TStatusBadge :type="task.typeMeta.type" :text="task.typeMeta.text" />
+                      <span class="material-symbols-outlined">open_in_new</span>
+                    </div>
+                  </button>
+
+                  <!-- 三级：子任务点 -->
+                  <div v-if="task.children?.length" class="task-children">
+                    <button
+                      v-for="(child, cIdx) in task.children"
+                      :key="child.id || cIdx"
+                      type="button"
+                      class="child-row"
+                      @click="openTaskLink(child)"
+                    >
+                      <span class="child-dot" />
+                      <span class="level-3">{{ child.title }}</span>
+                      <TStatusBadge :type="child.typeMeta.type" :text="child.typeMeta.text" />
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </template>
+
+        <!-- 进度 -->
+        <template v-else-if="activeDetailTab === 'progress'">
+          <TCard compact>
+            <div class="progress-panel">
+              <div class="progress-stat">
+                <span>进度文本</span>
+                <strong>{{ progress.progress_text || progress.summary || selected.progressText || '暂无' }}</strong>
+              </div>
+              <div class="progress-stat">
+                <span>完成率</span>
+                <strong>{{ selected.progressRate || progress.percent || progress.progress_rate || 0 }}%</strong>
+              </div>
+              <div class="progress-bar large">
+                <div
+                  class="progress-bar__fill"
+                  :style="{
+                    width:
+                      Math.max(
+                        0,
+                        Math.min(100, Number(selected.progressRate || progress.percent || progress.progress_rate || 0))
+                      ) + '%'
+                  }"
+                />
+              </div>
+              <p class="helper-text">详细作业/考试状态以官方学习通为准；可在「功能」中打开官方页面。</p>
+            </div>
+          </TCard>
+        </template>
+
+        <!-- 功能 -->
+        <template v-else>
+          <TSection title="课程功能" icon="🛠️">
+            <div class="action-grid">
+              <button type="button" class="action-tile" @click="openCourse(selected)">
+                <span class="material-symbols-outlined">school</span>
+                <strong>打开课程</strong>
+                <p>学习通官方页面</p>
+              </button>
+              <button type="button" class="action-tile" @click="loadDetail(selected.id)">
+                <span class="material-symbols-outlined">sync</span>
+                <strong>同步章节</strong>
+                <p>重新拉取大纲与进度</p>
+              </button>
+              <button type="button" class="action-tile" @click="activeDetailTab = 'chapters'">
+                <span class="material-symbols-outlined">account_tree</span>
+                <strong>章节目录</strong>
+                <p>一/二/三级任务树</p>
+              </button>
+              <button type="button" class="action-tile" @click="backToList">
+                <span class="material-symbols-outlined">grid_view</span>
+                <strong>返回列表</strong>
+                <p>全部课程</p>
+              </button>
+            </div>
+          </TSection>
+          <TCard compact>
+            <p class="helper-text">
+              课程 ID：{{ selected.courseId || '—' }} · 班级 ID：{{ selected.clazzId || '—' }}
+              <template v-if="selected.cpi"> · cpi：{{ selected.cpi }}</template>
+            </p>
+          </TCard>
+        </template>
+      </template>
     </div>
   </div>
 </template>
 
 <style scoped>
-.cx-hub-page {
-  min-height: 100%;
-  background: var(--ui-bg, #f5f7fb);
+.cx-hub {
+  min-height: 100vh;
+  background: var(--ui-bg-gradient, var(--ui-bg, #f4f7fb));
   color: var(--ui-text, #0f172a);
 }
-.cx-hub-body {
-  padding: 12px 16px 28px;
+.cx-hub__body {
+  padding: 12px 16px calc(96px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.cx-hub-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.cx-hub-btn {
-  border: 1px solid var(--ui-border, #d0d7e2);
-  background: var(--ui-surface, #fff);
-  color: var(--ui-text, #0f172a);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-}
-.cx-hub-btn.primary {
-  background: var(--ui-primary, #2563eb);
-  border-color: transparent;
-  color: #fff;
-}
-.cx-hub-error {
-  color: #dc2626;
-  font-size: 13px;
-}
-.cx-hub-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 12px;
-}
-@media (max-width: 860px) {
-  .cx-hub-layout {
-    grid-template-columns: 1fr;
-  }
-}
-.card-surface {
-  background: var(--ui-surface, #fff);
-  border: 1px solid var(--ui-border, #e2e8f0);
-  border-radius: 14px;
-  padding: 12px;
-}
-.cx-hub-section-title {
-  margin: 0 0 8px;
-  font-size: 14px;
-  font-weight: 700;
-}
-.cx-hub-item {
-  width: 100%;
-  text-align: left;
-  border: 1px solid transparent;
+.ghost-btn {
+  border: none;
   background: transparent;
-  border-radius: 10px;
-  padding: 10px;
-  margin-bottom: 6px;
-  color: inherit;
-  cursor: pointer;
-}
-.cx-hub-item.active,
-.cx-hub-item:hover {
-  background: color-mix(in srgb, var(--ui-primary, #2563eb) 10%, transparent);
-  border-color: color-mix(in srgb, var(--ui-primary, #2563eb) 30%, transparent);
-}
-.cx-hub-item-title {
+  color: var(--ui-primary, #2563eb);
   font-weight: 600;
   font-size: 14px;
+  padding: 8px 10px;
 }
-.cx-hub-item-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--ui-muted, #64748b);
+.ghost-btn.solid {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 30%, transparent);
+  border-radius: 999px;
+  background: var(--ui-surface, #fff);
 }
-.cx-hub-detail-head {
+.primary-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--ui-primary, #2563eb), var(--ui-secondary, #06b6d4));
+}
+.status-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  margin-bottom: 10px;
 }
-.cx-hub-detail-head h3 {
-  margin: 0;
+.status-head p,
+.helper-text,
+.error-text,
+.course-teacher {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ui-muted, #64748b);
+}
+.error-text {
+  color: var(--ui-danger, #dc2626);
+}
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+.status-chip {
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in oklab, var(--ui-primary, #2563eb) 8%, var(--ui-surface, #fff));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.status-chip span {
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+.status-chip strong {
   font-size: 16px;
 }
-.cx-hub-detail-head p,
-.cx-hub-muted {
+.search-wrap {
+  position: relative;
+}
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ui-muted);
+  font-size: 20px;
+}
+.search-input {
+  width: 100%;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, transparent);
+  border-radius: 14px;
+  padding: 12px 12px 12px 40px;
+  background: var(--ui-surface, #fff);
+  color: inherit;
+  font-size: 14px;
+}
+.course-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.course-card {
+  display: grid;
+  grid-template-columns: 72px 1fr 24px;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 14%, transparent);
+  border-radius: 16px;
+  padding: 10px;
+  background: var(--ui-surface, #fff);
+  color: inherit;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+}
+.course-cover,
+.detail-cover {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  background: color-mix(in oklab, var(--ui-primary) 12%, #e2e8f0);
+  flex-shrink: 0;
+}
+.detail-cover {
+  width: 88px;
+  height: 88px;
+}
+.course-cover img,
+.detail-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.course-cover-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-primary, #2563eb);
+}
+.course-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, #f59e0b 90%, #000);
+  color: #fff;
+}
+.course-title,
+.level-1,
+.level-2 {
+  font-size: 14px;
+  line-height: 1.35;
+}
+.course-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.progress-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--ui-primary) 12%, #e2e8f0);
+  overflow: hidden;
+}
+.progress-bar.large {
+  height: 10px;
+  margin-top: 10px;
+}
+.progress-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ui-primary, #2563eb), var(--ui-secondary, #06b6d4));
+}
+.progress-text {
+  font-size: 12px;
+  color: var(--ui-muted);
+  min-width: 36px;
+  text-align: right;
+}
+.course-chevron {
+  color: var(--ui-muted);
+}
+.detail-hero__row {
+  display: flex;
+  gap: 12px;
+}
+.detail-meta {
+  flex: 1;
+  min-width: 0;
+}
+.detail-meta strong {
+  font-size: 16px;
+}
+.detail-badges,
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.detail-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--ui-surface) 88%, #94a3b8 12%);
+}
+.detail-tab {
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.detail-tab.active {
+  background: linear-gradient(135deg, var(--ui-primary), var(--ui-secondary));
+  color: #fff;
+}
+.outline-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.outline-section {
+  border-radius: 14px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 12%, transparent);
+  background: var(--ui-surface, #fff);
+  overflow: hidden;
+}
+.outline-section__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: none;
+  background: color-mix(in oklab, var(--ui-primary) 6%, transparent);
+  color: inherit;
+  text-align: left;
+}
+.expand-icon {
+  font-size: 20px;
+  color: var(--ui-primary);
+}
+.count-chip {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+.task-block {
+  border-top: 1px solid color-mix(in oklab, #94a3b8 20%, transparent);
+}
+.task-row,
+.child-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 12px;
+}
+.task-row__main {
+  min-width: 0;
+  flex: 1;
+}
+.task-row__main p {
   margin: 4px 0 0;
-  color: var(--ui-muted, #64748b);
+  font-size: 12px;
+  color: var(--ui-muted);
+}
+.task-row__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ui-muted);
+}
+.task-children {
+  padding: 0 12px 10px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.child-row {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--ui-primary) 5%, transparent);
+}
+.child-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ui-primary);
+  flex-shrink: 0;
+}
+.level-3 {
+  flex: 1;
   font-size: 13px;
 }
-.cx-hub-outline {
+.progress-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.progress-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.progress-stat span {
+  color: var(--ui-muted);
+}
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.action-tile {
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 16%, transparent);
+  border-radius: 16px;
+  padding: 14px 12px;
+  background: var(--ui-surface, #fff);
+  color: inherit;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.action-tile .material-symbols-outlined {
+  color: var(--ui-primary);
+  font-size: 24px;
+}
+.action-tile p {
   margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  color: var(--ui-muted);
 }
-html.dark .cx-hub-page,
-[data-theme='graphite_night'] .cx-hub-page {
-  background: var(--ui-bg, #0b1220);
-  color: var(--ui-text, #e2e8f0);
-}
-html.dark .card-surface,
-[data-theme='graphite_night'] .card-surface {
+html.dark .course-card,
+html.dark .outline-section,
+html.dark .action-tile,
+html.dark .search-input {
   background: var(--ui-surface, #111827);
-  border-color: var(--ui-border, #1f2937);
 }
 </style>
