@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
-import QRCode from 'qrcode'
 import { setCachedData, fetchWithCache } from '../utils/api.js'
+import { qrToDataURL } from '../utils/qrcode.js'
 import { useAppSettings } from '../utils/app_settings'
 import { formatRelativeTime } from '../utils/time.js'
 import { fetchDormitoryDataset } from '../utils/static_resource_cache.js'
@@ -466,7 +466,7 @@ const prepareElectricityPay = async () => {
     const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: '缴电费' })
     payUrl.value = res.openUrl
     payHint.value = res.hint || '打开官方一码通完成缴纳；App 不内嵌支付。'
-    payQr.value = await QRCode.toDataURL(res.openUrl, { margin: 1, width: 200 })
+    payQr.value = await qrToDataURL(res.openUrl, { width: 200 })
     showPayPanel.value = true
   } catch (e) {
     showToast(String(e?.message || e || '生成失败'))

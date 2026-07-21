@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import axios from 'axios'
-import QRCode from 'qrcode'
+import { qrToDataURL } from '../utils/qrcode.js'
 import { TPageHeader } from './templates'
 
 const props = defineProps({
@@ -98,7 +98,7 @@ const renderQrCode = async () => {
   }
 
   try {
-    qrImageDataUrl.value = await QRCode.toDataURL(qrcodeText.value, {
+    qrImageDataUrl.value = await qrToDataURL(qrcodeText.value, {
       text: qrcodeText.value,
       width: 248,
       margin: 1,

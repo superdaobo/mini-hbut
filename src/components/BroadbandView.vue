@@ -3,8 +3,8 @@
  * 教育网网费 — 一码通官方跳转/二维码
  */
 import { onMounted, ref } from 'vue'
-import QRCode from 'qrcode'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
+import { qrToDataURL } from '../utils/qrcode.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
 import { TPageHeader, TEmptyState } from './templates'
@@ -26,7 +26,7 @@ const prepare = async () => {
     })
     payUrl.value = res.openUrl
     hint.value = res.hint
-    qrDataUrl.value = await QRCode.toDataURL(res.openUrl, { margin: 1, width: 220 })
+    qrDataUrl.value = await qrToDataURL(res.openUrl, { width: 220 })
   } catch (e) {
     error.value = String(e?.message || e || '加载失败')
     payUrl.value = ''
