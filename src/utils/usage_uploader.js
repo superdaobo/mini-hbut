@@ -5,7 +5,7 @@ import {
   clearWebUsagePendingQueues,
   getWebUsagePendingQueues
 } from './usage_tracker'
-import { isAppStoreBuild } from '../config/app_store_policy'
+import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 import { isTestAccountSession } from './test_account.js'
 
 const CLOUD_SYNC_DEVICE_ID_KEY = 'hbu_cloud_sync_device_id'
@@ -191,8 +191,9 @@ export const runUsageStatsUpload = async ({
   reason = 'manual',
   force = false
 } = {}) => {
-  if (isAppStoreBuild() || isTestAccountSession()) {
-    return { success: false, error: 'usage 上传已在当前构建/演示会话禁用' }
+  // 合规 guest/demo 禁用；真实登录允许
+  if (shouldApplyAppStoreRestrictions() || isTestAccountSession()) {
+    return { success: false, error: 'usage 上传已在当前合规收紧会话/演示会话禁用' }
   }
   const sid = toSafeText(studentId)
   if (!isValidStudentId(sid)) {

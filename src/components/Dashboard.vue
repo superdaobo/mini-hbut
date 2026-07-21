@@ -499,11 +499,17 @@ const baseModules = [
 ]
 
 const modules = computed(() => {
+  // 依赖登录态：合规包真实登录后应展开全功能模块列表
+  void props.isLoggedIn
+  void props.studentId
   const scoped = !isChaoxingMethod(loginMethod.value)
     ? baseModules
     : baseModules.filter((mod) => JWXT_MODULE_ALLOWLIST.has(mod.id))
-  // App Store 合规构建：统一过滤高风险模块（与 reviewer 无关）
-  return filterAllowedModules(scoped)
+  // 合规包：仅 guest / 演示会话过滤高风险模块；真实登录不过滤
+  return filterAllowedModules(scoped, {
+    isLoggedIn: props.isLoggedIn,
+    isDemoSession: isTestAccountSession()
+  })
 })
 
 const homeWorkspaceRef = ref(null)
@@ -546,7 +552,12 @@ let homeCollisionFxRaf = 0
 let homeCollisionFxLastTs = 0
 
 const navigateTo = (moduleId) => {
-  if (!isModuleAllowed(moduleId)) {
+  if (
+    !isModuleAllowed(moduleId, {
+      isLoggedIn: props.isLoggedIn,
+      isDemoSession: isTestAccountSession()
+    })
+  ) {
     showToast('当前版本不可用该功能')
     return
   }

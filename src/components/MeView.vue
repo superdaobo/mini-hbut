@@ -114,13 +114,26 @@ const handleOpenMore = () => emit('navigate', 'more')
 const handleOpenPrivacyData = () => emit('navigate', 'privacy_data')
 const isConfigAdmin = () => Array.isArray(props.configAdminIds) && props.configAdminIds.includes(props.studentId)
 
-const showCampusNetwork = computed(() => props.isLoggedIn && isViewAllowed('campus_network'))
-const showSchoolWebsite = computed(() => props.isLoggedIn && isViewAllowed('school_website'))
-const showQuickLinks = computed(() => props.isLoggedIn && isViewAllowed('quick_links'))
-const showServiceStats = computed(() => props.isLoggedIn && isViewAllowed('service_stats'))
-const showMoreModules = computed(() => isViewAllowed('more'))
+const policySession = () => ({
+  isLoggedIn: props.isLoggedIn,
+  isDemoSession: isDemoSession.value
+})
+
+const showCampusNetwork = computed(
+  () => props.isLoggedIn && isViewAllowed('campus_network', policySession())
+)
+const showSchoolWebsite = computed(
+  () => props.isLoggedIn && isViewAllowed('school_website', policySession())
+)
+const showQuickLinks = computed(
+  () => props.isLoggedIn && isViewAllowed('quick_links', policySession())
+)
+const showServiceStats = computed(
+  () => props.isLoggedIn && isViewAllowed('service_stats', policySession())
+)
+const showMoreModules = computed(() => isViewAllowed('more', policySession()))
 const showConfigTool = computed(
-  () => isConfigAdmin() && isViewAllowed('config')
+  () => isConfigAdmin() && isViewAllowed('config', policySession())
 )
 
 const resetDemoData = () => {

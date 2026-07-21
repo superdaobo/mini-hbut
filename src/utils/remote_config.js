@@ -3,7 +3,7 @@ import { detectRuntime } from '../platform/runtime'
 import { DEFAULT_CLOUD_SYNC_ENDPOINT, useAppSettings } from './app_settings'
 import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_center'
 import { isTestAccountSession } from './test_account.js'
-import { isAppStoreBuild } from '../config/app_store_policy'
+import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 
 const CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
@@ -563,11 +563,11 @@ export function normalizeRemoteConfig(raw) {
 }
 
 /**
- * 合规构建：仍返回已拉取的配置，但锁死高风险能力（远程 true 无法打开）。
- * 非合规构建原样返回。
+ * 合规包 guest/demo：仍返回已拉取的配置，但锁死高风险能力（远程 true 无法打开）。
+ * 非合规构建或真实登录：原样返回。
  */
 export function applyAppStoreRemoteConfigClamp(config) {
-  if (!isAppStoreBuild() || !config || typeof config !== 'object') return config
+  if (!shouldApplyAppStoreRestrictions() || !config || typeof config !== 'object') return config
   const next = { ...config }
   // 公告 / force_update / OCR HTTPS 端点可保留
   next.module_center = {
@@ -879,6 +879,7 @@ export const applyOcrRuntimeConfig = async (configLike) => {
 
 export async function fetchRemoteConfig(options = {}) {
   const forceRefresh = options?.force === true
+  // 演示会话：直接用本地默认并按当前会话夹紧（不污染磁盘上的真实配置）
   if (isTestAccountSession()) {
     return applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(DEFAULT_CONFIG))
   }
@@ -889,6 +890,7 @@ export async function fetchRemoteConfig(options = {}) {
   if (!forceRefresh) {
     const memory = readMemoryConfig()
     if (memory) {
+      // 内存/快照存未夹紧原文；按当前会话（guest/demo vs 真实登录）再夹紧
       return applyAppStoreRemoteConfigClamp(memory)
     }
     if (remoteConfigInFlight) {
@@ -902,23 +904,24 @@ export async function fetchRemoteConfig(options = {}) {
       if (!isLikelyRemoteConfigPayload(raw)) {
         throw new Error('invalid remote config payload')
       }
-      const normalized = applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(raw))
+      // 持久化未夹紧配置，避免 guest 阶段夹紧后污染真实登录会话
+      const normalized = normalizeRemoteConfig(raw)
       // 远程返回即视为有效配置（即使公告为空/关闭 OCR），避免被旧快照反向覆盖。
       saveSnapshot(normalized)
-      return normalized
+      return applyAppStoreRemoteConfigClamp(normalized)
     } catch {
       // ignore
     }
 
     const snapshot = loadSnapshot()
     if (snapshot) {
-      const normalized = applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(snapshot))
+      const normalized = normalizeRemoteConfig(snapshot)
       saveSnapshot(normalized)
-      return normalized
+      return applyAppStoreRemoteConfigClamp(normalized)
     }
-    const fallback = applyAppStoreRemoteConfigClamp(normalizeRemoteConfig(DEFAULT_CONFIG))
+    const fallback = normalizeRemoteConfig(DEFAULT_CONFIG)
     saveSnapshot(fallback)
-    return fallback
+    return applyAppStoreRemoteConfigClamp(fallback)
   })()
 
   if (forceRefresh) {

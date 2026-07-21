@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { setAppStoreBuildOverrideForTests } from '../config/app_store_policy'
+import {
+  setAppStoreBuildOverrideForTests,
+  setAppStoreSessionOverrideForTests
+} from '../config/app_store_policy'
 import { applyAppStoreRemoteConfigClamp, normalizeRemoteConfig } from './remote_config.js'
 
 describe('remote_config App Store clamp', () => {
   afterEach(() => {
     setAppStoreBuildOverrideForTests(null)
+    setAppStoreSessionOverrideForTests(null)
   })
 
   it('flag off: does not empty module_center from remote-like payload', () => {
@@ -24,8 +28,9 @@ describe('remote_config App Store clamp', () => {
     expect(clamped.forum.enabled).toBe(true)
   })
 
-  it('flag on: keeps fetch-shaped config but locks dangerous capabilities', () => {
+  it('flag on + guest: keeps fetch-shaped config but locks dangerous capabilities', () => {
     setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: false, isDemoSession: false })
     const normalized = normalizeRemoteConfig({
       announcements: {
         ticker: [{ id: 't1', title: 'ok', summary: 's', content: 'c', updated_at: '2026-01-01' }]
@@ -60,5 +65,23 @@ describe('remote_config App Store clamp', () => {
     expect(clamped.ocr.local_fallback_endpoints.every((u) => String(u).startsWith('https://'))).toBe(
       true
     )
+  })
+
+  it('flag on + real login: does not clamp remote module capabilities', () => {
+    setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: true, isDemoSession: false })
+    const normalized = normalizeRemoteConfig({
+      module_center: {
+        channel: 'main',
+        modules: [{ id: 'jump_out_hbut', name: 'game' }]
+      },
+      resource_share: { enabled: true },
+      forum: { enabled: true },
+      cloud_sync: { enabled: true }
+    })
+    const clamped = applyAppStoreRemoteConfigClamp(normalized)
+    expect(clamped.module_center.modules.length).toBeGreaterThan(0)
+    expect(clamped.resource_share.enabled).toBe(true)
+    expect(clamped.forum.enabled).toBe(true)
   })
 })
