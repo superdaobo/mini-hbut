@@ -8,6 +8,7 @@ import {
   NON_OFFICIAL_DISCLAIMER_EN,
   NON_OFFICIAL_DISCLAIMER_ZH,
   PRIVACY_POLICY_URL,
+  isSponsorEntryAllowed,
   isViewAllowed
 } from '../config/app_store_policy'
 import { isTestAccountSession, clearTestAccountSession } from '../utils/test_account.js'
@@ -42,8 +43,19 @@ const sponsorImageLoading = ref(false)
 const SPONSOR_IMAGE_CACHE_KEY = 'hbu_sponsor_qr_cache'
 const SPONSOR_IMAGE_SRC = 'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/%E8%B5%9E%E8%B5%8F%E7%A0%81.JPG'
 
+const isDemoSession = computed(() => isTestAccountSession())
+
+/** 合规包下 guest/演示会话不展示赞助；非合规包始终展示 */
+const showSponsorEntry = computed(() =>
+  isSponsorEntryAllowed({
+    isLoggedIn: props.isLoggedIn,
+    isDemoSession: isDemoSession.value
+  })
+)
+
 // 加载赞赏码（首次下载，之后缓存）
 const loadSponsorImage = async () => {
+  if (!showSponsorEntry.value) return
   // 检查缓存
   const cached = localStorage.getItem(SPONSOR_IMAGE_CACHE_KEY)
   if (cached) {
@@ -72,7 +84,19 @@ const loadSponsorImage = async () => {
 }
 
 watch(showSponsorModal, (val) => {
-  if (val && !sponsorImageUrl.value) loadSponsorImage()
+  if (!val) return
+  if (!showSponsorEntry.value) {
+    showSponsorModal.value = false
+    return
+  }
+  if (!sponsorImageUrl.value) loadSponsorImage()
+})
+
+// 会话变为 guest/demo 时强制关闭赞赏弹窗，避免残留
+watch(showSponsorEntry, (allowed) => {
+  if (!allowed && showSponsorModal.value) {
+    showSponsorModal.value = false
+  }
 })
 
 const handleLogout = () => emit('logout')
@@ -98,7 +122,6 @@ const showMoreModules = computed(() => isViewAllowed('more'))
 const showConfigTool = computed(
   () => isConfigAdmin() && isViewAllowed('config')
 )
-const isDemoSession = computed(() => isTestAccountSession())
 
 const resetDemoData = () => {
   if (!isTestAccountSession()) return
@@ -273,7 +296,11 @@ const handleShowLegal = async (tab) => {
         </div>
         <span class="grid-label">开源协议</span>
       </button>
-      <button class="grid-item" @click="showSponsorModal = true">
+      <button
+        v-if="showSponsorEntry"
+        class="grid-item"
+        @click="showSponsorModal = true"
+      >
         <div class="grid-icon-box" style="background: #FFF3E0;">
           <span class="material-symbols-outlined" style="color: #E65100;">favorite</span>
         </div>
@@ -384,8 +411,12 @@ const handleShowLegal = async (tab) => {
       </div>
     </div>
 
-    <!-- 赞助弹窗 -->
-    <div v-if="showSponsorModal" class="modal-mask" @click="showSponsorModal = false">
+    <!-- 赞助弹窗（合规包 guest/demo 不挂载） -->
+    <div
+      v-if="showSponsorModal && showSponsorEntry"
+      class="modal-mask"
+      @click="showSponsorModal = false"
+    >
       <div class="modal-card sponsor-modal" @click.stop>
         <h3>❤️ 赞助支持</h3>
         <p class="intro">如果 Mini-HBUT 对你有帮助，欢迎请作者喝杯咖啡 ☕</p>

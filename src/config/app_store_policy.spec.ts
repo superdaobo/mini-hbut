@@ -8,6 +8,7 @@ import {
   isHotUpdateAllowed,
   isModuleAllowed,
   isRemoteModulesAllowed,
+  isSponsorEntryAllowed,
   isViewAllowed,
   setAppStoreBuildOverrideForTests
 } from './app_store_policy'
@@ -113,5 +114,30 @@ describe('app_store_policy', () => {
     setAppStoreBuildOverrideForTests(true)
     expect(isModuleAllowed('secret_remote_game')).toBe(false)
     expect(isViewAllowed('unknown_view_xyz')).toBe(false)
+  })
+
+  describe('isSponsorEntryAllowed', () => {
+    it('flag off: allows sponsor for guest, demo, and real sessions', () => {
+      setAppStoreBuildOverrideForTests(false)
+      expect(isSponsorEntryAllowed({ isLoggedIn: false, isDemoSession: false })).toBe(true)
+      expect(isSponsorEntryAllowed({ isLoggedIn: true, isDemoSession: true })).toBe(true)
+      expect(isSponsorEntryAllowed({ isLoggedIn: true, isDemoSession: false })).toBe(true)
+    })
+
+    it('flag on: hides sponsor for guest (not logged in)', () => {
+      setAppStoreBuildOverrideForTests(true)
+      expect(isSponsorEntryAllowed({ isLoggedIn: false, isDemoSession: false })).toBe(false)
+      expect(isSponsorEntryAllowed({ isLoggedIn: false, isDemoSession: true })).toBe(false)
+    })
+
+    it('flag on: hides sponsor for demo session even if logged in', () => {
+      setAppStoreBuildOverrideForTests(true)
+      expect(isSponsorEntryAllowed({ isLoggedIn: true, isDemoSession: true })).toBe(false)
+    })
+
+    it('flag on: allows sponsor for real logged-in session', () => {
+      setAppStoreBuildOverrideForTests(true)
+      expect(isSponsorEntryAllowed({ isLoggedIn: true, isDemoSession: false })).toBe(true)
+    })
   })
 })

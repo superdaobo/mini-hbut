@@ -18,6 +18,7 @@ Version remains **1.4.3**. Compliance applies only when `VITE_APP_STORE_BUILD=1`
 | Export center | Allowed | Allowed | Allowed | Local fixtures |
 | Settings / About | Allowed | Allowed | Allowed | Same UI |
 | Privacy & data | Allowed | Allowed | Allowed | Same UI |
+| Sponsor / WeChat tip QR (Me) | **Hidden** for guest + demo; allowed only when real-logged-in | Allowed | Allowed | Hidden (demo path) |
 | Today course widget | Allowed | Allowed | N/A | Demo snapshot |
 | Course selection | **Blocked** | Allowed | Allowed | N/A (hidden) |
 | Ranking | **Blocked** | Allowed | Allowed | N/A |
