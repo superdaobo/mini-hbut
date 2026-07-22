@@ -1454,6 +1454,14 @@ pub struct ChaoxingVideoStatusRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingCourseScoreRequest {
+    pub student_id: Option<String>,
+    pub course_id: String,
+    pub clazz_id: String,
+    pub cpi: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingReportProgressRequest {
     pub student_id: Option<String>,
     pub report_url: String,
@@ -6487,6 +6495,22 @@ async fn chaoxing_get_video_status(
 }
 
 #[tauri::command]
+async fn chaoxing_fetch_course_score(
+    state: State<'_, AppState>,
+    req: ChaoxingCourseScoreRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
+    modules::online_learning::chaoxing_fetch_course_score(
+        &client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.cpi,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn chaoxing_report_progress(
     state: State<'_, AppState>,
     req: ChaoxingReportProgressRequest,
@@ -6987,6 +7011,7 @@ pub fn run() {
             yuketang_fetch_course_progress,
             chaoxing_get_knowledge_cards,
             chaoxing_get_video_status,
+            chaoxing_fetch_course_score,
             chaoxing_report_progress,
             yuketang_get_course_chapters,
             yuketang_get_leaf_info,

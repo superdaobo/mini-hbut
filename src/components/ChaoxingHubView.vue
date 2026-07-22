@@ -9,7 +9,6 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
-import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
 import {
   TPageHeader,
@@ -27,21 +26,36 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const loading = ref(true)
 const refreshing = ref(false)
 const detailLoading = ref(false)
+const taskLoading = ref(false)
+const scoreLoading = ref(false)
 const error = ref('')
 const courses = ref([])
 const selectedId = ref('')
 const outline = ref([])
 const progress = ref({})
+const scoreData = ref(null)
 const statusMeta = ref({})
 const searchQuery = ref('')
 const viewMode = ref('list') // list | detail
 const expandedSections = ref({})
-const activeDetailTab = ref('chapters') // chapters | progress | actions
+const activeDetailTab = ref('chapters') // chapters | score | progress
+/** knowledgeId -> { tasks, fid, reportUrl, userid } */
+const knowledgeCache = ref({})
+const activeKnowledgeId = ref('')
+/** 应用内视频播放器 */
+const videoPlayer = ref({
+  open: false,
+  title: '',
+  src: '',
+  poster: '',
+  loading: false,
+  error: ''
+})
 
 const DETAIL_TABS = [
   { key: 'chapters', label: '章节任务', icon: 'account_tree' },
-  { key: 'progress', label: '学习进度', icon: 'trending_up' },
-  { key: 'actions', label: '功能', icon: 'apps' }
+  { key: 'score', label: '成绩组成', icon: 'grade' },
+  { key: 'progress', label: '学习进度', icon: 'trending_up' }
 ]
 
 const safeText = (v) => String(v ?? '').trim()
@@ -96,6 +110,7 @@ const resolveTaskType = (value) => {
 
 const normalizeTask = (node = {}) => {
   const raw = node && typeof node === 'object' ? node : {}
+  const knowledgeId = safeText(raw.knowledge_id || raw.knowledgeId || '')
   const childrenRaw = Array.isArray(raw.tasks)
     ? raw.tasks
     : Array.isArray(raw.children)
@@ -105,20 +120,37 @@ const normalizeTask = (node = {}) => {
         : Array.isArray(raw.list)
           ? raw.list
           : []
+  const typeRaw = raw.type || raw.task_type || raw.job_type || raw.label_type || raw.card_type || ''
+  // knowledge 叶子本身是可展开章节点
+  const isKnowledge = typeRaw === 'knowledge' || (!!knowledgeId && childrenRaw.length === 0 && !raw.objectId && !raw.object_id)
   return {
-    id: safeText(raw.id || raw.task_id || raw.taskId || raw.knowledge_id || raw.knowledgeId || raw.jobid),
+    id: safeText(raw.id || raw.task_id || raw.taskId || knowledgeId || raw.jobid),
     title: safeText(raw.title || raw.name || raw.label || '未命名任务'),
-    status: safeText(raw.status || raw.state || raw.progress_text || raw.progressText || ''),
+    status: safeText(
+      raw.status ||
+        raw.state ||
+        raw.progress_text ||
+        raw.progressText ||
+        (raw.completed || raw.isPassed ? '已完成' : '')
+    ),
     progress: safeText(raw.progress || ''),
-    typeMeta: resolveTaskType(raw.type || raw.task_type || raw.job_type || raw.label_type || raw.card_type),
-    url: safeText(raw.url || raw.link || raw.href || ''),
+    completed: !!(raw.completed || raw.isPassed),
+    knowledgeId,
+    objectId: safeText(raw.objectId || raw.object_id || ''),
+    jobid: safeText(raw.jobid || raw.jobId || ''),
+    typeMeta: isKnowledge
+      ? { text: '章节', type: 'info' }
+      : resolveTaskType(typeRaw),
+    isKnowledge,
+    // 附件任务禁止外链字段
     children: childrenRaw.map(normalizeTask)
   }
 }
 
 const normalizeSection = (item = {}) => {
   const raw = item && typeof item === 'object' ? item : {}
-  const taskList = Array.isArray(raw.tasks)
+  // 后端已返回 { title, tasks: knowledge[] }；若误把 knowledge 当 section，则包一层
+  let taskList = Array.isArray(raw.tasks)
     ? raw.tasks
     : Array.isArray(raw.children)
       ? raw.children
@@ -127,6 +159,10 @@ const normalizeSection = (item = {}) => {
         : Array.isArray(raw.list)
           ? raw.list
           : []
+  // 扁平 nodes：每个 node 是 knowledge 叶子
+  if (!taskList.length && (raw.knowledge_id || raw.knowledgeId || raw.task_type === 'knowledge')) {
+    taskList = [raw]
+  }
   return {
     id: safeText(raw.id || raw.section_id || raw.sectionId || raw.chapter_id || raw.chapterId),
     title: safeText(raw.title || raw.name || raw.label || '未命名章节'),
@@ -211,6 +247,9 @@ const loadDetail = async (id) => {
     return
   }
   detailLoading.value = true
+  knowledgeCache.value = {}
+  activeKnowledgeId.value = ''
+  scoreData.value = null
   try {
     const [outlineRes, progressRes] = await Promise.all([
       axios.post(`${API_BASE}/v2/chaoxing/course_outline`, {
@@ -218,28 +257,29 @@ const loadDetail = async (id) => {
         course_id: cur.courseId,
         clazz_id: cur.clazzId,
         cpi: cur.cpi,
-        course_url: cur.courseUrl || ''
+        course_url: cur.courseUrl || '',
+        force: true
       }),
       axios.post(`${API_BASE}/v2/chaoxing/course_progress`, {
         student_id: props.studentId || '',
         course_id: cur.courseId,
         clazz_id: cur.clazzId,
         cpi: cur.cpi,
-        course_url: cur.courseUrl || ''
+        course_url: cur.courseUrl || '',
+        force: true
       })
     ])
     const outlineData = unwrap(outlineRes?.data)
-    const sectionList = Array.isArray(outlineData?.sections)
+    let sectionList = Array.isArray(outlineData?.sections)
       ? outlineData.sections
       : Array.isArray(outlineData?.outline)
         ? outlineData.outline
-        : Array.isArray(outlineData?.nodes)
-          ? outlineData.nodes
-          : Array.isArray(outlineData)
-            ? outlineData
-            : []
-    outline.value = sectionList.map(normalizeSection).filter((s) => s.title)
-    // 默认展开前 3 个章节
+        : []
+    // 仅有 nodes：整合成一个章节
+    if (!sectionList.length && Array.isArray(outlineData?.nodes)) {
+      sectionList = [{ id: 'all', title: '全部章节', tasks: outlineData.nodes }]
+    }
+    outline.value = sectionList.map(normalizeSection).filter((s) => s.title || s.tasks?.length)
     const nextExpand = {}
     outline.value.slice(0, 3).forEach((s, i) => {
       nextExpand[s.id || `sec-${i}`] = true
@@ -254,66 +294,143 @@ const loadDetail = async (id) => {
   }
 }
 
-const openCourse = async (course) => {
-  const cur = course || selected.value
-  if (!cur) return
+/** 展开知识点：应用内拉取 cards（视频/文档），禁止外链 */
+const loadKnowledgeTasks = async (task) => {
+  const cur = selected.value
+  const kid = task?.knowledgeId || task?.id
+  if (!cur || !kid) return
+  activeKnowledgeId.value = kid
+  if (knowledgeCache.value[kid]?.tasks?.length) return
+  taskLoading.value = true
   try {
-    const res = await axios.post(`${API_BASE}/v2/chaoxing/launch_url`, {
+    const res = await axios.post(`${API_BASE}/v2/chaoxing/knowledge_cards`, {
       student_id: props.studentId || '',
       course_id: cur.courseId,
       clazz_id: cur.clazzId,
-      cpi: cur.cpi,
-      course_url: cur.courseUrl || ''
+      knowledge_id: kid,
+      cpi: cur.cpi || ''
     })
-    const data = unwrap(res?.data)
-    const url = safeText(data?.url || data?.launch_url || cur.courseUrl)
-    if (url) await openExternal(url)
-    else showToast('暂无可用课程链接')
+    const data = unwrap(res?.data) || {}
+    if (data.success === false) throw new Error(data.error || '任务点加载失败')
+    const list = Array.isArray(data.tasks)
+      ? data.tasks
+      : Array.isArray(data.attachments)
+        ? data.attachments
+        : Array.isArray(data.videos)
+          ? data.videos
+          : []
+    knowledgeCache.value = {
+      ...knowledgeCache.value,
+      [kid]: {
+        tasks: list.map(normalizeTask),
+        fid: safeText(data.fid || ''),
+        reportUrl: safeText(data.reportUrl || data.report_url || ''),
+        userid: safeText(data.userid || '')
+      }
+    }
   } catch (e) {
-    if (cur.courseUrl) await openExternal(cur.courseUrl)
-    else showToast(safeText(e?.message || e) || '打开失败')
+    showToast(safeText(e?.message || e) || '任务点加载失败')
+    knowledgeCache.value = {
+      ...knowledgeCache.value,
+      [kid]: { tasks: [], fid: '', reportUrl: '', userid: '' }
+    }
+  } finally {
+    taskLoading.value = false
   }
 }
 
 const openTaskLink = async (task) => {
-  if (task?.url) {
-    try {
-      await openExternal(task.url)
+  // 知识点：展开/收起并拉取子任务
+  if (task?.isKnowledge || task?.typeMeta?.text === '章节') {
+    const kid = task?.knowledgeId || task?.id
+    if (activeKnowledgeId.value === kid) {
+      activeKnowledgeId.value = ''
       return
-    } catch {
-      /* fallthrough */
     }
+    await loadKnowledgeTasks(task)
+    return
   }
-  await openCourse()
+  // 视频：应用内播放
+  if (task?.typeMeta?.text === '视频' || task?.objectId) {
+    await playVideoInApp(task)
+    return
+  }
+  showToast('该任务类型暂仅展示信息，文档预览后续接入')
 }
 
-/** 课程内官方子功能入口（对齐 mooc1/mooc2 路由） */
-const openCourseModule = async (kind) => {
-  const cur = selected.value
-  if (!cur?.courseId || !cur?.clazzId) {
-    showToast('缺少课程参数')
+/** 应用内视频：请求 ananas/status 拿直链，不外跳 */
+const playVideoInApp = async (task) => {
+  const objectId = safeText(task?.objectId || task?.object_id)
+  if (!objectId) {
+    showToast('缺少视频 objectId')
     return
   }
-  const courseId = encodeURIComponent(cur.courseId)
-  const clazzId = encodeURIComponent(cur.clazzId)
-  const cpi = encodeURIComponent(cur.cpi || '0')
-  const map = {
-    work: `https://mooc1.chaoxing.com/mooc-ans/work/list?courseId=${courseId}&classId=${clazzId}&cpi=${cpi}&ut=s`,
-    exam: `https://mooc1.chaoxing.com/exam-ans/exam/test/examList?courseId=${courseId}&classId=${clazzId}&cpi=${cpi}&ut=s`,
-    data: `https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid=${courseId}&clazzid=${clazzId}&cpi=${cpi}&ut=s`,
-    discuss: `https://groupweb.chaoxing.com/course/topic/v3/bbs/${clazzId}/pc?courseId=${courseId}&cpi=${cpi}`,
-    notice: `https://mooc1.chaoxing.com/mooc-ans/coursepages/notice/list?courseid=${courseId}&clazzid=${clazzId}&cpi=${cpi}&ut=s`,
-    stats: `https://stat2-ans.chaoxing.com/study-data/index?courseid=${courseId}&clazzid=${clazzId}&cpi=${cpi}&ut=s`
-  }
-  const url = map[kind]
-  if (!url) {
-    showToast('未知功能')
-    return
+  const kid = activeKnowledgeId.value
+  const meta = knowledgeCache.value[kid] || {}
+  let fid = meta.fid
+  videoPlayer.value = {
+    open: true,
+    title: task.title || '视频',
+    src: '',
+    poster: '',
+    loading: true,
+    error: ''
   }
   try {
-    await openExternal(url)
+    // fid 可能为空，先 cards 再试
+    if (!fid && kid && selected.value) {
+      await loadKnowledgeTasks({ knowledgeId: kid, id: kid, isKnowledge: true })
+      fid = knowledgeCache.value[kid]?.fid || ''
+    }
+    const res = await axios.post(`${API_BASE}/v2/chaoxing/video_status`, {
+      student_id: props.studentId || '',
+      object_id: objectId,
+      fid: fid || '0'
+    })
+    const data = unwrap(res?.data)
+    const st = data?.data || data || {}
+    const src = safeText(st.http || st.hd || st.mp3 || '')
+    if (!src) throw new Error(st.status === 'failed' ? '视频资源不可用' : '未返回播放地址')
+    videoPlayer.value = {
+      open: true,
+      title: task.title || st.filename || '视频',
+      src,
+      poster: safeText(st.screenshot || ''),
+      loading: false,
+      error: ''
+    }
   } catch (e) {
-    showToast(safeText(e?.message || e) || '打开失败')
+    videoPlayer.value = {
+      ...videoPlayer.value,
+      loading: false,
+      error: safeText(e?.message || e) || '视频加载失败'
+    }
+  }
+}
+
+const closeVideo = () => {
+  videoPlayer.value = { open: false, title: '', src: '', poster: '', loading: false, error: '' }
+}
+
+const loadScore = async () => {
+  const cur = selected.value
+  if (!cur?.courseId || !cur?.clazzId) return
+  scoreLoading.value = true
+  try {
+    const res = await axios.post(`${API_BASE}/v2/chaoxing/course_score`, {
+      student_id: props.studentId || '',
+      course_id: cur.courseId,
+      clazz_id: cur.clazzId,
+      cpi: cur.cpi || ''
+    })
+    const data = unwrap(res?.data)
+    if (data?.success === false) throw new Error(data.error || '成绩加载失败')
+    scoreData.value = data
+  } catch (e) {
+    showToast(safeText(e?.message || e) || '成绩加载失败')
+    scoreData.value = null
+  } finally {
+    scoreLoading.value = false
   }
 }
 
@@ -322,6 +439,18 @@ const selectCourse = async (id) => {
   viewMode.value = 'detail'
   activeDetailTab.value = 'chapters'
   await loadDetail(id)
+}
+
+const onDetailTab = async (key) => {
+  activeDetailTab.value = key
+  if (key === 'score' && !scoreData.value) {
+    await loadScore()
+  }
+}
+
+const knowledgeTasksOf = (task) => {
+  const kid = task?.knowledgeId || task?.id
+  return knowledgeCache.value[kid]?.tasks || []
 }
 
 const backToList = () => {
@@ -494,8 +623,8 @@ onMounted(() => {
             </div>
           </div>
           <div class="detail-actions">
-            <button type="button" class="primary-btn" @click="openCourse(selected)">打开官方课程</button>
-            <button type="button" class="ghost-btn solid" @click="loadDetail(selected.id)">刷新章节</button>
+            <button type="button" class="primary-btn" @click="loadDetail(selected.id)">刷新章节</button>
+            <button type="button" class="ghost-btn solid" @click="onDetailTab('score')">成绩组成</button>
           </div>
         </section>
 
@@ -506,23 +635,22 @@ onMounted(() => {
             type="button"
             class="detail-tab"
             :class="{ active: activeDetailTab === tab.key }"
-            @click="activeDetailTab = tab.key"
+            @click="onDetailTab(tab.key)"
           >
             <span class="material-symbols-outlined">{{ tab.icon }}</span>
             <span>{{ tab.label }}</span>
           </button>
         </div>
 
-        <!-- 章节（一/二/三级） -->
+        <!-- 章节（应用内：一级章 → 知识点 → cards 任务点） -->
         <template v-if="activeDetailTab === 'chapters'">
           <TEmptyState v-if="detailLoading" type="loading" message="正在加载章节大纲…" />
           <TEmptyState
             v-else-if="!outline.length"
             type="empty"
-            message="当前课程暂未返回章节。可点「打开官方课程」在学习通网页查看。"
+            message="当前课程暂未返回章节。请确认学习通会话有效后点刷新。"
           />
           <div v-else class="outline-tree">
-            <!-- 一级：章节 -->
             <section
               v-for="(sec, sIdx) in outline"
               :key="sec.id || sIdx"
@@ -541,7 +669,6 @@ onMounted(() => {
               </button>
 
               <div v-show="expandedSections[sec.id || `sec-${sIdx}`]" class="outline-section__body">
-                <!-- 二级：任务 -->
                 <article
                   v-for="(task, tIdx) in sec.tasks"
                   :key="task.id || tIdx"
@@ -550,27 +677,44 @@ onMounted(() => {
                   <button type="button" class="task-row" @click="openTaskLink(task)">
                     <div class="task-row__main">
                       <strong class="level-2">{{ task.title }}</strong>
-                      <p>{{ task.status || task.progress || '点击在官方页面完成' }}</p>
+                      <p>
+                        {{
+                          task.status ||
+                          (task.completed ? '已完成' : '点击展开任务点')
+                        }}
+                      </p>
                     </div>
                     <div class="task-row__side">
                       <TStatusBadge :type="task.typeMeta.type" :text="task.typeMeta.text" />
-                      <span class="material-symbols-outlined">open_in_new</span>
+                      <span class="material-symbols-outlined">
+                        {{ activeKnowledgeId === (task.knowledgeId || task.id) ? 'expand_less' : 'expand_more' }}
+                      </span>
                     </div>
                   </button>
 
-                  <!-- 三级：子任务点 -->
-                  <div v-if="task.children?.length" class="task-children">
-                    <button
-                      v-for="(child, cIdx) in task.children"
-                      :key="child.id || cIdx"
-                      type="button"
-                      class="child-row"
-                      @click="openTaskLink(child)"
-                    >
-                      <span class="child-dot" />
-                      <span class="level-3">{{ child.title }}</span>
-                      <TStatusBadge :type="child.typeMeta.type" :text="child.typeMeta.text" />
-                    </button>
+                  <!-- 知识点下的任务点（视频/文档） -->
+                  <div
+                    v-if="activeKnowledgeId === (task.knowledgeId || task.id)"
+                    class="task-children"
+                  >
+                    <p v-if="taskLoading" class="helper-text">加载任务点…</p>
+                    <template v-else>
+                      <button
+                        v-for="(child, cIdx) in knowledgeTasksOf(task)"
+                        :key="child.id || cIdx"
+                        type="button"
+                        class="child-row"
+                        @click="openTaskLink(child)"
+                      >
+                        <span class="child-dot" />
+                        <span class="level-3">{{ child.title }}</span>
+                        <TStatusBadge :type="child.typeMeta.type" :text="child.typeMeta.text" />
+                      </button>
+                      <p
+                        v-if="!knowledgeTasksOf(task).length"
+                        class="helper-text"
+                      >该节暂无任务点</p>
+                    </template>
                   </div>
                 </article>
               </div>
@@ -578,17 +722,49 @@ onMounted(() => {
           </div>
         </template>
 
+        <!-- 成绩组成（应用内） -->
+        <template v-else-if="activeDetailTab === 'score'">
+          <TEmptyState v-if="scoreLoading" type="loading" message="正在加载成绩组成…" />
+          <section v-else-if="scoreData" class="panel">
+            <div class="score-hero">
+              <span>综合成绩</span>
+              <strong>{{ scoreData.total_score ?? scoreData.score?.score ?? '—' }}</strong>
+            </div>
+            <ul class="score-list">
+              <li
+                v-for="(w, wi) in (scoreData.weight_list || scoreData.weightList || [])"
+                :key="wi"
+              >
+                <span>{{ w.name }}</span>
+                <strong>{{ w.value }}</strong>
+              </li>
+            </ul>
+            <div v-if="scoreData.weight" class="weight-grid">
+              <div class="weight-chip"><span>作业权重</span><b>{{ scoreData.weight.work ?? 0 }}%</b></div>
+              <div class="weight-chip"><span>考试权重</span><b>{{ scoreData.weight.test ?? 0 }}%</b></div>
+              <div class="weight-chip"><span>视频权重</span><b>{{ scoreData.weight.video ?? 0 }}%</b></div>
+              <div class="weight-chip"><span>签到权重</span><b>{{ scoreData.weight.attend ?? 0 }}%</b></div>
+            </div>
+            <p v-if="scoreData.job" class="helper-text">
+              任务点完成率 {{ scoreData.job.jobFinishRate ?? '—' }}%
+              （已完成 {{ scoreData.job.job ?? '—' }} / 发布 {{ scoreData.job.publishJobNum ?? '—' }}）
+            </p>
+            <button type="button" class="ghost-btn solid" @click="loadScore">重新同步成绩</button>
+          </section>
+          <TEmptyState v-else type="empty" message="暂无成绩数据，请点重新同步" />
+        </template>
+
         <!-- 进度 -->
         <template v-else-if="activeDetailTab === 'progress'">
           <section class="panel">
             <div class="progress-panel">
               <div class="progress-stat">
-                <span>进度文本</span>
+                <span>进度</span>
                 <strong>{{ progress.progress_text || progress.summary || selected.progressText || '暂无' }}</strong>
               </div>
               <div class="progress-stat">
                 <span>完成率</span>
-                <strong>{{ selected.progressRate || progress.percent || progress.progress_rate || 0 }}%</strong>
+                <strong>{{ selected.progressRate || progress.percent || progress.progress_rate || progress.progress_percent || 0 }}%</strong>
               </div>
               <div class="progress-bar large">
                 <div
@@ -597,83 +773,40 @@ onMounted(() => {
                     width:
                       Math.max(
                         0,
-                        Math.min(100, Number(selected.progressRate || progress.percent || progress.progress_rate || 0))
+                        Math.min(100, Number(selected.progressRate || progress.percent || progress.progress_rate || progress.progress_percent || 0))
                       ) + '%'
                   }"
                 />
               </div>
-              <p class="helper-text">详细作业/考试状态以官方学习通为准；可在「功能」中打开官方页面。</p>
+              <p class="helper-text">
+                已完成 {{ progress.completed_count ?? '—' }} /
+                共 {{ progress.total_count ?? '—' }} 个知识点
+              </p>
+              <button type="button" class="ghost-btn solid" @click="loadDetail(selected.id)">刷新进度</button>
             </div>
           </section>
         </template>
 
-        <!-- 功能 -->
-        <template v-else>
-          <section class="panel">
-            <h3 class="panel-title">
-              <span class="material-symbols-outlined">tune</span>
-              课程功能
-            </h3>
-            <div class="action-grid">
-              <button type="button" class="action-tile" @click="openCourse(selected)">
-                <span class="material-symbols-outlined">school</span>
-                <strong>打开课程</strong>
-                <p>学习通官方页面</p>
-              </button>
-              <button type="button" class="action-tile" @click="openCourseModule('work')">
-                <span class="material-symbols-outlined">assignment</span>
-                <strong>作业</strong>
-                <p>课程作业列表</p>
-              </button>
-              <button type="button" class="action-tile" @click="openCourseModule('exam')">
-                <span class="material-symbols-outlined">quiz</span>
-                <strong>考试</strong>
-                <p>测验与考试</p>
-              </button>
-              <button type="button" class="action-tile" @click="openCourseModule('data')">
-                <span class="material-symbols-outlined">folder_open</span>
-                <strong>资料</strong>
-                <p>课件与资料库</p>
-              </button>
-              <button type="button" class="action-tile" @click="openCourseModule('discuss')">
-                <span class="material-symbols-outlined">forum</span>
-                <strong>讨论</strong>
-                <p>课程讨论区</p>
-              </button>
-              <button type="button" class="action-tile" @click="openCourseModule('notice')">
-                <span class="material-symbols-outlined">campaign</span>
-                <strong>通知</strong>
-                <p>课程内通知</p>
-              </button>
-              <button type="button" class="action-tile" @click="openCourseModule('stats')">
-                <span class="material-symbols-outlined">analytics</span>
-                <strong>统计</strong>
-                <p>学情数据</p>
-              </button>
-              <button type="button" class="action-tile" @click="loadDetail(selected.id)">
-                <span class="material-symbols-outlined">sync</span>
-                <strong>同步章节</strong>
-                <p>重新拉取大纲与进度</p>
-              </button>
-              <button type="button" class="action-tile" @click="activeDetailTab = 'chapters'">
-                <span class="material-symbols-outlined">account_tree</span>
-                <strong>章节目录</strong>
-                <p>一/二/三级任务树</p>
-              </button>
-              <button type="button" class="action-tile" @click="backToList">
-                <span class="material-symbols-outlined">grid_view</span>
-                <strong>返回列表</strong>
-                <p>全部课程</p>
-              </button>
+        <!-- 应用内视频播放（无外链） -->
+        <div v-if="videoPlayer.open" class="video-mask" @click.self="closeVideo">
+          <div class="video-sheet">
+            <div class="video-sheet__head">
+              <strong>{{ videoPlayer.title }}</strong>
+              <button type="button" class="ghost-btn" @click="closeVideo">关闭</button>
             </div>
-          </section>
-          <section class="panel">
-            <p class="helper-text">
-              课程 ID：{{ selected.courseId || '—' }} · 班级 ID：{{ selected.clazzId || '—' }}
-              <template v-if="selected.cpi"> · cpi：{{ selected.cpi }}</template>
-            </p>
-          </section>
-        </template>
+            <p v-if="videoPlayer.loading" class="helper-text">正在获取播放地址…</p>
+            <p v-else-if="videoPlayer.error" class="error-text">{{ videoPlayer.error }}</p>
+            <video
+              v-else-if="videoPlayer.src"
+              class="video-el"
+              controls
+              playsinline
+              :poster="videoPlayer.poster || undefined"
+              :src="videoPlayer.src"
+            />
+          </div>
+        </div>
+
       </template>
     </div>
   </div>
@@ -1060,6 +1193,99 @@ onMounted(() => {
   margin: 0;
   font-size: 12px;
   color: #64748b;
+}
+.score-hero {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.score-hero span {
+  font-size: 13px;
+  color: #64748b;
+}
+.score-hero strong {
+  font-size: 36px;
+  font-weight: 800;
+  color: #2563eb;
+  letter-spacing: -0.03em;
+}
+.score-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.score-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  font-size: 14px;
+}
+.weight-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.weight-chip {
+  background: #eff6ff;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+.weight-chip b {
+  font-size: 18px;
+  color: #1e40af;
+}
+.video-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+}
+.video-sheet {
+  width: min(520px, 100%);
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 16px;
+  padding: 14px;
+  max-height: 80vh;
+}
+.video-sheet__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.video-el {
+  width: 100%;
+  max-height: 56vh;
+  border-radius: 10px;
+  background: #000;
+}
+.error-text {
+  color: #fca5a5;
+  font-size: 13px;
+}
+html.dark .score-list li {
+  background: #1e293b;
+}
+html.dark .weight-chip {
+  background: #1e293b;
 }
 html.dark .cx-hub {
   background: var(--ui-bg, #0b1220);

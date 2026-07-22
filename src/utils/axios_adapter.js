@@ -1106,6 +1106,20 @@ const adapter = {
                 }
             }
 
+            if (url.includes('/v2/chaoxing/course_score')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/course_score', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_fetch_course_score', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             if (url.includes('/v2/chaoxing/report_progress')) {
                 try {
                     const payloadData = { ...(data || {}) };

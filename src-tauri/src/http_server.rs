@@ -760,6 +760,10 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
             post(chaoxing_get_knowledge_cards),
         )
         .route(
+            "/online_learning/chaoxing/course_score",
+            post(chaoxing_fetch_course_score),
+        )
+        .route(
             "/online_learning/chaoxing/video_status",
             post(chaoxing_get_video_status),
         )
@@ -4376,6 +4380,23 @@ async fn chaoxing_get_video_status(
         .await
         .map(ok)
         .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
+}
+
+async fn chaoxing_fetch_course_score(
+    State(state): State<HttpState>,
+    Json(req): Json<crate::ChaoxingCourseScoreRequest>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    let client = state.client.write().await;
+    crate::modules::online_learning::chaoxing_fetch_course_score(
+        &client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.cpi,
+    )
+    .await
+    .map(ok)
+    .map_err(|e| err(StatusCode::BAD_REQUEST, "业务错误", e.to_string()))
 }
 
 async fn chaoxing_report_progress(

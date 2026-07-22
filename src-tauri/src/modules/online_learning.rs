@@ -1942,119 +1942,210 @@ async fn fetch_chaoxing_outline_remote(
         return Err(err_box("学习通会话已失效，请重新登录"));
     }
 
-    // mooc-ans 页面使用 span.posCatalog_name + onclick="getTeacherAjax()" 结构
-    // 格式: id="cur{knowledgeId}" ... title="章节名" ... onclick="getTeacherAjax('courseId','clazzId','knowledgeId')"
-    let re_chapter = regex::Regex::new(
-        r#"id="cur(\d+)"[\s\S]*?title="([^"]*)"[\s\S]*?onclick="getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
+    // 官方目录：一级 firstLayer（章）+ 二级 id="cur{knowledgeId}" + getTeacherAjax
+    // 实测 title 在 posCatalog_name 上，与 onclick 同标签：
+    //   id="cur100239488" ... title=" 电路模型..." onclick="getTeacherAjax('cid','clazz','kid')"
+    let re_leaf = regex::Regex::new(
+        r#"id="cur(\d+)"[\s\S]{0,1500}?title="\s*([^"]*?)"\s+onclick="getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
     )
-    .expect("regex chapter");
+    .expect("regex leaf");
+    let re_section = regex::Regex::new(
+        r#"posCatalog_select firstLayer"[^>]*id="(\d+)"[\s\S]{0,400}?title="([^"]+)"#,
+    )
+    .expect("regex section");
 
-    let mut nodes = Vec::new();
+    // 收集一级章标题及其在 HTML 中的位置
+    let mut section_marks: Vec<(usize, String, String)> = Vec::new();
+    for cap in re_section.captures_iter(&html) {
+        let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
+        let sid = cap[1].to_string();
+        let title = cap[2].trim().to_string();
+        if !title.is_empty() {
+            section_marks.push((pos, sid, title));
+        }
+    }
+
+    let mut leaves: Vec<(usize, Value)> = Vec::new();
     let mut seen = HashSet::new();
-    for cap in re_chapter.captures_iter(&html) {
+    for cap in re_leaf.captures_iter(&html) {
+        let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
         let cur_id = cap[1].to_string();
         let title = cap[2].trim().to_string();
         let cap_course_id = cap[3].to_string();
         let cap_clazz_id = cap[4].to_string();
         let knowledge_id = cap[5].to_string();
-
-        if title.is_empty() || !seen.insert(cur_id.clone()) {
+        if title.is_empty() || !seen.insert(knowledge_id.clone()) {
             continue;
         }
-
-        // 从匹配位置到下一个 id="cur 之间的块来判断完成状态
-        let start = cap.get(0).unwrap().start();
+        let start = pos;
         let end = html[start + 1..]
             .find(r#"id="cur"#)
-            .map(|pos| start + 1 + pos)
-            .unwrap_or(html.len());
+            .map(|p| start + 1 + p)
+            .unwrap_or((start + 800).min(html.len()));
         let block = &html[start..end];
         let completed = block.contains("icon_Completed") || block.contains("icon_yiwanc");
         let has_unfinished = block.contains("jobUnfinishCount");
+        let label = {
+            // 优先 em.posCatalog_sbar 序号，已在 title 里
+            title.clone()
+        };
+        leaves.push((
+            pos,
+            json!({
+                "id": knowledge_id.clone(),
+                "title": label,
+                "name": label,
+                "course_id": cap_course_id,
+                "clazz_id": cap_clazz_id,
+                "cpi": cpi,
+                "chapter_id": cur_id,
+                "knowledge_id": knowledge_id,
+                "completed": completed && !has_unfinished,
+                "task_type": "knowledge",
+                "type": "knowledge",
+                // 叶子任务：前端展开时再拉 knowledge/cards
+                "children": [],
+                "tasks": []
+            }),
+        ));
+    }
 
-        let launch_url = format!(
-            "https://mooc1.chaoxing.com/mooc-ans/knowledge/cards?clazzid={}&courseid={}&knowledgeid={}&num=0&ut=s&cpi={}&v=20160407-3&mooc2=1",
-            cap_clazz_id, cap_course_id, knowledge_id, cpi
-        );
+    println!(
+        "[调试] 章节解析: sections={} leaves={}",
+        section_marks.len(),
+        leaves.len()
+    );
 
-        nodes.push(json!({
-            "id": knowledge_id,
-            "title": title,
-            "course_id": cap_course_id,
-            "clazz_id": cap_clazz_id,
+    // 兜底：扁平匹配 getTeacherAjax（不依赖 id=cur 顺序）
+    if leaves.is_empty() {
+        let re_ajax = regex::Regex::new(
+            r#"title="\s*([^"]*?)"\s+onclick="getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
+        )
+        .expect("regex ajax");
+        for cap in re_ajax.captures_iter(&html) {
+            let title = cap[1].trim().to_string();
+            let knowledge_id = cap[4].to_string();
+            if title.is_empty() || !seen.insert(knowledge_id.clone()) {
+                continue;
+            }
+            leaves.push((
+                cap.get(0).map(|m| m.start()).unwrap_or(0),
+                json!({
+                    "id": knowledge_id.clone(),
+                    "title": title.clone(),
+                    "name": title,
+                    "course_id": cap[2].to_string(),
+                    "clazz_id": cap[3].to_string(),
+                    "cpi": cpi,
+                    "chapter_id": knowledge_id.clone(),
+                    "knowledge_id": knowledge_id,
+                    "completed": false,
+                    "task_type": "knowledge",
+                    "type": "knowledge",
+                    "children": [],
+                    "tasks": []
+                }),
+            ));
+        }
+        println!("[调试] 章节解析: ajax 兜底 {} 个", leaves.len());
+    }
+
+    if leaves.is_empty() {
+        return Err(err_box("未解析到学习通章节结构"));
+    }
+
+    // 组装 sections：每个一级章挂下属 knowledge 任务
+    let mut sections: Vec<Value> = Vec::new();
+    if section_marks.is_empty() {
+        let tasks: Vec<Value> = leaves.into_iter().map(|(_, v)| v).collect();
+        let total = tasks.len();
+        let done = tasks
+            .iter()
+            .filter(|t| t.get("completed").and_then(|v| v.as_bool()).unwrap_or(false))
+            .count();
+        sections.push(json!({
+            "id": "all",
+            "title": "全部章节",
+            "tasks": tasks,
+            "children": []
+        }));
+        return Ok(json!({
+            "success": true,
+            "sections": sections,
+            "nodes": sections[0]["tasks"].clone(),
+            "total_count": total,
+            "completed_count": done,
+            "pending_count": total.saturating_sub(done),
+            "course_id": course_id,
+            "clazz_id": clazz_id,
             "cpi": cpi,
-            "chapter_id": cur_id,
-            "knowledge_id": knowledge_id,
-            "launch_url": launch_url,
-            "completed": completed && !has_unfinished,
-            "task_type": "chapter",
+            "course_url": target
+        }));
+    }
+
+    for (idx, (pos, sid, title)) in section_marks.iter().enumerate() {
+        let next_pos = section_marks
+            .get(idx + 1)
+            .map(|(p, _, _)| *p)
+            .unwrap_or(usize::MAX);
+        let tasks: Vec<Value> = leaves
+            .iter()
+            .filter(|(p, _)| *p >= *pos && *p < next_pos)
+            .map(|(_, v)| v.clone())
+            .collect();
+        sections.push(json!({
+            "id": sid,
+            "title": title,
+            "tasks": tasks,
             "children": []
         }));
     }
 
-    println!(
-        "[调试] 章节解析: mooc-ans 格式匹配 {} 个知识点",
-        nodes.len()
-    );
-
-    // 兜底：旧格式 a[href*="studentstudy"]
-    if nodes.is_empty() {
-        let doc = Html::parse_document(&html);
-        let link_selector = selector("a[href*=\"studentstudy\"]");
-        for link in doc.select(&link_selector) {
-            let href = link.value().attr("href").unwrap_or("").trim();
-            let title = sanitize_text(&link.text().collect::<Vec<_>>().join(" "));
-            if href.is_empty() || title.is_empty() {
-                continue;
-            }
-            let launch_url = if href.starts_with("http") {
-                href.to_string()
-            } else {
-                format!("https://mooc1.chaoxing.com{}", href)
-            };
-            let chapter_id = parse_href_param(&launch_url, "chapterId");
-            let knowledge_id = parse_href_param(&launch_url, "knowledgeid");
-            let key = format!("{}:{}:{}", chapter_id, knowledge_id, title);
-            if !seen.insert(key) {
-                continue;
-            }
-            let link_html = link.html().to_lowercase();
-            let completed =
-                link_html.contains("icon_completed") || link_html.contains("icon_yiwanc");
-            let has_unfinished = link_html.contains("jobunfinishcount");
-            nodes.push(json!({
-                "id": if !chapter_id.is_empty() { chapter_id.clone() } else if !knowledge_id.is_empty() { knowledge_id.clone() } else { launch_url.clone() },
-                "title": title,
-                "course_id": course_id,
-                "clazz_id": clazz_id,
-                "cpi": cpi,
-                "chapter_id": chapter_id,
-                "knowledge_id": knowledge_id,
-                "launch_url": launch_url,
-                "completed": completed && !has_unfinished,
-                "task_type": "chapter",
-                "children": []
-            }));
-        }
-        println!("[调试] 章节解析: 旧格式兜底匹配 {} 个链接", nodes.len());
-    }
-
-    if nodes.is_empty() {
-        return Err(err_box("未解析到学习通章节结构"));
-    }
-    let total_count = nodes.len();
-    let completed_count = nodes
+    // 章前游离节点
+    let first_pos = section_marks[0].0;
+    let orphan: Vec<Value> = leaves
         .iter()
-        .filter(|item| {
-            item.get("completed")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
+        .filter(|(p, _)| *p < first_pos)
+        .map(|(_, v)| v.clone())
+        .collect();
+    if !orphan.is_empty() {
+        sections.insert(
+            0,
+            json!({
+                "id": "intro",
+                "title": "导学",
+                "tasks": orphan,
+                "children": []
+            }),
+        );
+    }
+
+    let mut total_count = 0usize;
+    let mut completed_count = 0usize;
+    for sec in &sections {
+        if let Some(arr) = sec.get("tasks").and_then(|v| v.as_array()) {
+            total_count += arr.len();
+            completed_count += arr
+                .iter()
+                .filter(|t| t.get("completed").and_then(|v| v.as_bool()).unwrap_or(false))
+                .count();
+        }
+    }
+
+    let nodes: Vec<Value> = sections
+        .iter()
+        .flat_map(|s| {
+            s.get("tasks")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
         })
-        .count();
+        .collect();
+
     Ok(json!({
         "success": true,
+        "sections": sections,
         "nodes": nodes,
-        "sections": nodes,
         "total_count": total_count,
         "completed_count": completed_count,
         "pending_count": total_count.saturating_sub(completed_count),
@@ -2926,19 +3017,33 @@ pub async fn chaoxing_get_knowledge_cards(
         .to_string();
 
     let mut videos = Vec::new();
-    for att in &attachments {
-        let jobid = att.get("jobid").and_then(|v| v.as_str()).unwrap_or("");
-        if jobid.is_empty() {
-            continue;
-        }
+    let mut tasks = Vec::new();
+    for (idx, att) in attachments.iter().enumerate() {
+        let jobid = att
+            .get("jobid")
+            .or_else(|| att.get("jobId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let att_type = att
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let object_id = att
             .get("objectId")
+            .or_else(|| att.pointer("/property/objectid"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
         let name = att
             .get("property")
             .and_then(|p| p.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let module = att
+            .pointer("/property/module")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
@@ -2949,9 +3054,12 @@ pub async fn chaoxing_get_knowledge_cards(
             .to_string();
         let att_duration = att
             .get("attDuration")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0")
-            .to_string();
+            .map(|v| match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                _ => "0".into(),
+            })
+            .unwrap_or_else(|| "0".into());
         let att_duration_enc = att
             .get("attDurationEnc")
             .and_then(|v| v.as_str())
@@ -2968,16 +3076,40 @@ pub async fn chaoxing_get_knowledge_cards(
             .or_else(|| att.get("ispassed").and_then(|v| v.as_bool()))
             .or_else(|| att.get("passed").and_then(|v| v.as_bool()))
             .unwrap_or(false);
-        videos.push(json!({
-            "objectId": object_id,
-            "jobid": jobid,
+
+        let kind = if att_type == "video" || module.contains("video") {
+            "video"
+        } else if att_type == "document" || module.contains("doc") || module.contains("pdf") {
+            "document"
+        } else if att_type.is_empty() {
+            "task"
+        } else {
+            att_type.as_str()
+        };
+
+        let task = json!({
+            "id": if !jobid.is_empty() { jobid.clone() } else { format!("{knowledge_id}-{idx}") },
+            "title": if name.is_empty() { format!("任务 {}", idx + 1) } else { name.clone() },
             "name": name,
+            "type": kind,
+            "task_type": kind,
+            "objectId": object_id.clone(),
+            "object_id": object_id,
+            "jobid": jobid,
+            "module": module,
             "otherInfo": other_info,
             "attDuration": att_duration,
             "attDurationEnc": att_duration_enc,
             "videoFaceCaptureEnc": video_face_capture_enc,
             "isPassed": is_passed,
-        }));
+            "completed": is_passed,
+            "status": if is_passed { "已完成" } else { "未完成" },
+        });
+
+        if kind == "video" {
+            videos.push(task.clone());
+        }
+        tasks.push(task);
     }
 
     Ok(json!({
@@ -2985,14 +3117,100 @@ pub async fn chaoxing_get_knowledge_cards(
         "reportUrl": report_url,
         "report_url": report_url,
         "userid": defaults.get("userid").and_then(|v| v.as_str()).unwrap_or(""),
-        "clazzId": defaults.get("clazzId").and_then(|v| v.as_str()).unwrap_or(clazz_id),
-        "clazz_id": defaults.get("clazzId").and_then(|v| v.as_str()).unwrap_or(clazz_id),
+        "clazzId": defaults.get("clazzId").and_then(|v| v.as_str()).or_else(|| defaults.get("clazzid").and_then(|v| v.as_str())).unwrap_or(clazz_id),
+        "clazz_id": defaults.get("clazzId").and_then(|v| v.as_str()).or_else(|| defaults.get("clazzid").and_then(|v| v.as_str())).unwrap_or(clazz_id),
         "fid": fid,
         "knowledge_id": knowledge_id,
         "course_id": course_id,
         "cpi": cpi,
         "videos": videos,
+        "tasks": tasks,
+        "attachments": tasks,
         "raw_defaults": defaults,
+    }))
+}
+
+/// 课程成绩组成 + 当前得分（stat2 study-data）
+pub async fn chaoxing_fetch_course_score(
+    client: &HbutClient,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+) -> Result<Value, DynError> {
+    if !has_chaoxing_session(client) {
+        return Err(err_box("当前没有可用的学习通会话，请先登录学习通"));
+    }
+    // 先打开统计页拿 pEnc
+    let index_url = format!(
+        "https://stat2-ans.chaoxing.com/study-data/index?courseid={course_id}&clazzid={clazz_id}&cpi={cpi}&ut=s"
+    );
+    let index_html = client
+        .client
+        .get(&index_url)
+        .header("Referer", "https://mooc1.chaoxing.com/")
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let penc = regex::Regex::new(r#"id="pEnc"\s+value="([a-fA-F0-9]{32})""#)
+        .ok()
+        .and_then(|re| re.captures(&index_html))
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+        .unwrap_or_default();
+    if penc.is_empty() {
+        return Err(err_box("未能解析成绩页凭证 pEnc，请确认课程已开通学情统计"));
+    }
+
+    let score_url = format!(
+        "https://stat2-ans.chaoxing.com/stat2/study-data/score?clazzid={clazz_id}&courseid={course_id}&cpi={cpi}&ut=s&pEnc={penc}&fromData=false"
+    );
+    let job_url = format!(
+        "https://stat2-ans.chaoxing.com/stat2/study-data/job?clazzid={clazz_id}&courseid={course_id}&cpi={cpi}&ut=s&pEnc={penc}"
+    );
+
+    let score_resp = client
+        .client
+        .get(&score_url)
+        .header("Referer", &index_url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await?;
+    let score_json = read_json_response(score_resp, "成绩接口失败").await?;
+
+    let job_json = match client
+        .client
+        .get(&job_url)
+        .header("Referer", &index_url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+    {
+        Ok(r) => read_json_response(r, "任务统计失败").await.ok(),
+        Err(_) => None,
+    };
+
+    let data = score_json.get("data").cloned().unwrap_or(score_json.clone());
+    let score = data.get("score").cloned().unwrap_or(json!({}));
+    let weight = data.get("weight").cloned().unwrap_or(json!({}));
+    let weight_list = data
+        .get("weightList")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+
+    Ok(json!({
+        "success": true,
+        "course_id": course_id,
+        "clazz_id": clazz_id,
+        "cpi": cpi,
+        "p_enc": penc,
+        "total_score": score.get("score").cloned().unwrap_or(json!(null)),
+        "user_name": score.get("userName").cloned().unwrap_or(json!(null)),
+        "score": score,
+        "weight": weight,
+        "weight_list": weight_list,
+        "job": job_json.and_then(|v| v.get("data").cloned()),
+        "show_score": data.get("showScore").and_then(|v| v.as_bool()).unwrap_or(true),
     }))
 }
 
