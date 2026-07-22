@@ -621,9 +621,18 @@ const loadUsageStats = async () => {
       selectedPath.value.length === 4
         ? String(selectedPath.value[3] || '').trim()
         : ''
+    // 双计费：同时带上空调表 roomverify，后端主表失败会试空调表
+    let acRoomId = ''
+    if (selectedPath.value.length === 4 && currentLevel.value) {
+      const roomNode = currentLevel.value.children?.find(
+        (r) => r.value === selectedPath.value[3]
+      )
+      acRoomId = String(roomNode?._acRoomValue || '').trim()
+    }
     const res = await invokeNative('electricity_usage_stats', {
       roomPath: selectedPath.value.length ? [...selectedPath.value] : null,
       roomVerify: roomId || null,
+      roomVerifyAlt: acRoomId || null,
       roomLabel: roomLabelText() || null
     })
     usageStats.value = res || null
