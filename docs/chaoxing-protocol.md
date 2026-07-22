@@ -1,5 +1,32 @@
 # Chaoxing Protocol Notes
 
+## 收件箱 / 通知（2026-07-22 jshook 抓包）
+
+```
+GET https://notice.chaoxing.com/apis/other/getNoticeList
+  ?type=2
+  &crossOrigin=true
+  &pageSize=50
+  &lastGetId={上一页 data.notices.lastGetId}   # 首页省略
+```
+
+- `type=2`：我收到的通知  
+- 响应：`{ result: 1, data: { notices: { list: [...], lastGetId } } }`  
+- 分页：用返回的 `lastGetId` 继续请求，直到 `list` 为空或 id 不变  
+- App：`school_inbox` 在 `login_mode=chaoxing` 时多页同步（最多 20 页 ≈ 1000 条）  
+- 注意：学习通收件箱页必须强制 `login_mode=chaoxing`；门户模式只拉教务 tzsjx
+
+课程列表：
+
+```
+POST https://mooc1.chaoxing.com/mooc-ans/visit/courselistdata
+Content-Type: application/x-www-form-urlencoded
+Body: courseType=1&courseFolderId=0&superstarClass=0
+→ HTML 片段（课程卡片）
+```
+
+---
+
 ## Auth（门户 SSO，禁止二次登录）
 
 App 内学习通会话优先：

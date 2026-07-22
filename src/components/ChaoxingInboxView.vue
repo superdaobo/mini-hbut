@@ -21,7 +21,8 @@ const detailLoading = ref(false)
 const error = ref('')
 const items = ref([])
 const selected = ref(null)
-const LOGIN_METHOD_KEY = 'hbu_login_method'
+/** 学习通收件箱必须走 chaoxing 源；门户模式只会拉教务 tzsjx，过滤后恒为空 */
+const CHAOXING_LOGIN_MODE = 'chaoxing'
 
 const unreadCount = computed(() => items.value.filter((i) => !i.isRead).length)
 const detailHtml = computed(() =>
@@ -42,17 +43,10 @@ const normalizeItem = (item) => ({
 const formatItemTime = (value) => {
   const text = String(value || '').trim()
   if (!text) return '未知时间'
+  // 学习通 sendTime 多为 "2026-05-25 17:51:45"
   const parsed = Date.parse(text.replace(/-/g, '/'))
   if (!Number.isFinite(parsed)) return text
   return formatRelativeTime(new Date(parsed).toISOString()) || text
-}
-
-const readLoginMode = () => {
-  try {
-    return String(localStorage.getItem(LOGIN_METHOD_KEY) || 'portal').trim() || 'portal'
-  } catch {
-    return 'portal'
-  }
 }
 
 const fetchList = async () => {
@@ -62,13 +56,18 @@ const fetchList = async () => {
     if (!isTauriRuntime()) {
       throw new Error('请在客户端内使用学习通收件箱')
     }
+    // 强制 chaoxing：不要用 localStorage 的 portal，否则后端只拉教务通知
     const res = await invokeNative('school_inbox_fetch', {
-      login_mode: readLoginMode()
+      loginMode: CHAOXING_LOGIN_MODE,
+      login_mode: CHAOXING_LOGIN_MODE
     })
     const raw = Array.isArray(res?.items) ? res.items : []
     items.value = raw
       .map(normalizeItem)
       .filter((i) => i.source === 'chaoxing' || String(i.id).startsWith('chaoxing:'))
+    if (!items.value.length && res?.error) {
+      error.value = String(res.error)
+    }
   } catch (e) {
     error.value = String(e?.message || e || '加载失败')
   } finally {
@@ -82,7 +81,9 @@ const openDetail = async (item) => {
   try {
     if (!isTauriRuntime()) return
     const res = await invokeNative('school_inbox_detail_fetch', {
-      login_mode: readLoginMode(),
+      loginMode: CHAOXING_LOGIN_MODE,
+      login_mode: CHAOXING_LOGIN_MODE,
+      itemId: item.id,
       item_id: item.id,
       fallback: item
     })
@@ -140,7 +141,9 @@ const markRead = async () => {
   if (!selected.value?.id || selected.value.isRead) return
   try {
     await invokeNative('school_inbox_mark_read', {
-      login_mode: readLoginMode(),
+      loginMode: CHAOXING_LOGIN_MODE,
+      login_mode: CHAOXING_LOGIN_MODE,
+      itemId: selected.value.id,
       item_id: selected.value.id
     })
     selected.value = { ...selected.value, isRead: true }
@@ -178,8 +181,9 @@ onMounted(fetchList)
         <TEmptyState
           v-if="!loading && !items.length && !error"
           type="empty"
-          message="暂无学习通消息。有课程通知时会显示在这里。"
+          message="暂无学习通消息。点刷新同步历史通知。"
         />
+        <p v-else-if="!loading && items.length" class="cx-inbox-count">共 {{ items.length }} 条</p>
         <button
           v-for="item in items"
           :key="item.id"
@@ -228,6 +232,12 @@ onMounted(fetchList)
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.cx-inbox-count {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
 }
 .cx-inbox-unread {
   margin: 0;

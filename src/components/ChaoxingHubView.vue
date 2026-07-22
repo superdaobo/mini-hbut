@@ -287,6 +287,36 @@ const openTaskLink = async (task) => {
   await openCourse()
 }
 
+/** 课程内官方子功能入口（对齐 mooc1/mooc2 路由） */
+const openCourseModule = async (kind) => {
+  const cur = selected.value
+  if (!cur?.courseId || !cur?.clazzId) {
+    showToast('缺少课程参数')
+    return
+  }
+  const courseId = encodeURIComponent(cur.courseId)
+  const clazzId = encodeURIComponent(cur.clazzId)
+  const cpi = encodeURIComponent(cur.cpi || '0')
+  const map = {
+    work: `https://mooc1.chaoxing.com/mooc-ans/work/list?courseId=${courseId}&classId=${clazzId}&cpi=${cpi}&ut=s`,
+    exam: `https://mooc1.chaoxing.com/exam-ans/exam/test/examList?courseId=${courseId}&classId=${clazzId}&cpi=${cpi}&ut=s`,
+    data: `https://mooc2-ans.chaoxing.com/mooc2-ans/coursedata/stu-datalist?courseid=${courseId}&clazzid=${clazzId}&cpi=${cpi}&ut=s`,
+    discuss: `https://groupweb.chaoxing.com/course/topic/v3/bbs/${clazzId}/pc?courseId=${courseId}&cpi=${cpi}`,
+    notice: `https://mooc1.chaoxing.com/mooc-ans/coursepages/notice/list?courseid=${courseId}&clazzid=${clazzId}&cpi=${cpi}&ut=s`,
+    stats: `https://stat2-ans.chaoxing.com/study-data/index?courseid=${courseId}&clazzid=${clazzId}&cpi=${cpi}&ut=s`
+  }
+  const url = map[kind]
+  if (!url) {
+    showToast('未知功能')
+    return
+  }
+  try {
+    await openExternal(url)
+  } catch (e) {
+    showToast(safeText(e?.message || e) || '打开失败')
+  }
+}
+
 const selectCourse = async (id) => {
   selectedId.value = id
   viewMode.value = 'detail'
@@ -589,6 +619,36 @@ onMounted(() => {
                 <span class="material-symbols-outlined">school</span>
                 <strong>打开课程</strong>
                 <p>学习通官方页面</p>
+              </button>
+              <button type="button" class="action-tile" @click="openCourseModule('work')">
+                <span class="material-symbols-outlined">assignment</span>
+                <strong>作业</strong>
+                <p>课程作业列表</p>
+              </button>
+              <button type="button" class="action-tile" @click="openCourseModule('exam')">
+                <span class="material-symbols-outlined">quiz</span>
+                <strong>考试</strong>
+                <p>测验与考试</p>
+              </button>
+              <button type="button" class="action-tile" @click="openCourseModule('data')">
+                <span class="material-symbols-outlined">folder_open</span>
+                <strong>资料</strong>
+                <p>课件与资料库</p>
+              </button>
+              <button type="button" class="action-tile" @click="openCourseModule('discuss')">
+                <span class="material-symbols-outlined">forum</span>
+                <strong>讨论</strong>
+                <p>课程讨论区</p>
+              </button>
+              <button type="button" class="action-tile" @click="openCourseModule('notice')">
+                <span class="material-symbols-outlined">campaign</span>
+                <strong>通知</strong>
+                <p>课程内通知</p>
+              </button>
+              <button type="button" class="action-tile" @click="openCourseModule('stats')">
+                <span class="material-symbols-outlined">analytics</span>
+                <strong>统计</strong>
+                <p>学情数据</p>
               </button>
               <button type="button" class="action-tile" @click="loadDetail(selected.id)">
                 <span class="material-symbols-outlined">sync</span>
