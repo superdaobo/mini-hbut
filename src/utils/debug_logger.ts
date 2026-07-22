@@ -186,14 +186,33 @@ const loadStoredLogs = () => {
 
 let rustPollTimer: ReturnType<typeof setInterval> | null = null
 let lastRustLogId = 0
+/** 防止 pushDebugLog ↔ invoke 互相调用导致栈溢出白屏 */
+let rustBridgeBusy = false
+
+const isTauriWindow = () =>
+  typeof window !== 'undefined' &&
+  !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+
+/** 静默 invoke：不走 invokeNative，避免再打 pushDebugLog 形成死循环 */
+const invokeSilent = async <T = unknown>(
+  command: string,
+  args?: Record<string, unknown>
+): Promise<T | null> => {
+  if (!isTauriWindow()) return null
+  try {
+    const core = await import('@tauri-apps/api/core')
+    return await core.invoke<T>(command, args)
+  } catch {
+    return null
+  }
+}
 
 /** 拉取 Rust runtime_log，合并进前端调试窗 */
 export const pullRuntimeLogsFromRust = async () => {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || rustBridgeBusy) return
+  rustBridgeBusy = true
   try {
-    const { isTauriRuntime, invokeNative } = await import('../platform/native')
-    if (!isTauriRuntime()) return
-    const res = (await invokeNative('get_runtime_logs', {
+    const res = (await invokeSilent('get_runtime_logs', {
       limit: 200,
       sinceId: lastRustLogId || undefined,
       since_id: lastRustLogId || undefined
@@ -206,7 +225,8 @@ export const pullRuntimeLogsFromRust = async () => {
         message?: string
         details?: unknown
       }>
-    }
+    } | null
+    if (!res) return
     const logs = Array.isArray(res?.logs) ? res.logs : []
     for (const item of logs) {
       const id = Number(item.id || 0)
@@ -238,6 +258,8 @@ export const pullRuntimeLogsFromRust = async () => {
     }
   } catch {
     // 非 Tauri / 命令未就绪时忽略
+  } finally {
+    rustBridgeBusy = false
   }
 }
 
@@ -265,23 +287,25 @@ export const pushDebugLog = (
   const prefix = `[${scope || 'APP'}] ${message || ''}`.trim()
   const payload = details === undefined ? [prefix] : [prefix, details]
   pushRecord(level, payload)
-  // 同步写入 Rust runtime_log，便于 HTTP bridge 统一拉取
-  if (typeof window !== 'undefined') {
-    void (async () => {
-      try {
-        const { isTauriRuntime, invokeNative } = await import('../platform/native')
-        if (!isTauriRuntime()) return
-        await invokeNative('push_runtime_log', {
-          scope: scope || 'Frontend',
-          message: message || '',
-          level,
-          details: details === undefined ? null : details
-        })
-      } catch {
-        // ignore
-      }
-    })()
-  }
+
+  // 静默写入 Rust，禁止再走 invokeNative/pushDebugLog（否则会栈溢出白屏）
+  if (typeof window === 'undefined') return
+  if (rustBridgeBusy) return
+  // Native 管道日志不回传，避免环与噪音
+  if (String(scope || '') === 'Native') return
+
+  void (async () => {
+    try {
+      await invokeSilent('push_runtime_log', {
+        scope: scope || 'Frontend',
+        message: message || '',
+        level,
+        details: details === undefined ? null : details
+      })
+    } catch {
+      // ignore
+    }
+  })()
 }
 
 export const getDebugLogs = (limit = MAX_MEMORY_LOGS) => {
