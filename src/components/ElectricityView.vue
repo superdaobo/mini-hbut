@@ -458,13 +458,10 @@ const payQr = ref('')
 const usageStats = ref(null)
 const usageLoading = ref(false)
 const usageError = ref('')
-/** 趋势视图：week | month | range */
+/** 趋势视图：week | month */
 const usageTab = ref('week')
 /** 交互选中的柱 */
 const selectedBarIdx = ref(-1)
-/** 自定义范围（基于已有 points 的起止下标） */
-const rangeStart = ref(0)
-const rangeEnd = ref(0)
 const chartReady = ref(false)
 
 const mapPoints = (pts, short = true) => {
@@ -488,18 +485,9 @@ const monthPoints = computed(() =>
   mapPoints(usageStats.value?.month_points || usageStats.value?.monthPoints, false)
 )
 
-const activePoints = computed(() => {
-  if (usageTab.value === 'range') {
-    const src = weekPoints.value
-    if (!src.length) return []
-    const a = Math.min(rangeStart.value, rangeEnd.value)
-    const b = Math.max(rangeStart.value, rangeEnd.value)
-    return src.slice(a, b + 1)
-  }
-  if (usageTab.value === 'month') return monthPoints.value
-  // 默认展示全部可用日（官方 weekuselist，通常 7 天）
-  return weekPoints.value
-})
+const activePoints = computed(() =>
+  usageTab.value === 'month' ? monthPoints.value : weekPoints.value
+)
 
 const chartMax = computed(() => {
   const vals = activePoints.value.map((p) => p.value)
@@ -517,7 +505,7 @@ const selectedPoint = computed(() => {
   return { ...pts[i], index: i }
 })
 
-const rangeSum = computed(() =>
+const periodSum = computed(() =>
   activePoints.value.reduce((s, p) => s + (Number(p.value) || 0), 0)
 )
 
@@ -525,9 +513,24 @@ const todayUse = computed(
   () => usageStats.value?.today_use ?? usageStats.value?.todayUse ?? null
 )
 
-const boundRoomName = computed(
-  () => usageStats.value?.room_name || usageStats.value?.roomName || ''
-)
+const displayRoomName = computed(() => {
+  const fromApi = usageStats.value?.room_name || usageStats.value?.roomName || ''
+  if (fromApi) return fromApi
+  // 选择器标签
+  if (selectedPath.value.length === 4 && currentLevel.value) {
+    const room = currentLevel.value.children?.find(
+      (r) => r.value === selectedPath.value[3]
+    )
+    const parts = [
+      currentArea.value?.label,
+      currentBuilding.value?.label,
+      currentLevel.value?.label,
+      room?.label
+    ].filter(Boolean)
+    return parts.join(' ')
+  }
+  return ''
+})
 
 const selectBar = (i) => {
   selectedBarIdx.value = i
@@ -536,24 +539,10 @@ const selectBar = (i) => {
 const switchUsageTab = (tab) => {
   usageTab.value = tab
   selectedBarIdx.value = -1
-  if (tab === 'range' && weekPoints.value.length) {
-    rangeStart.value = 0
-    rangeEnd.value = weekPoints.value.length - 1
-  }
-  // 触发柱动画
   chartReady.value = false
   requestAnimationFrame(() => {
     chartReady.value = true
   })
-}
-
-const onRangeStart = (e) => {
-  rangeStart.value = Number(e.target.value) || 0
-  selectedBarIdx.value = -1
-}
-const onRangeEnd = (e) => {
-  rangeEnd.value = Number(e.target.value) || 0
-  selectedBarIdx.value = -1
 }
 
 const openElectricityPay = async () => {
@@ -594,6 +583,21 @@ const togglePayQr = async () => {
   }
 }
 
+const roomLabelText = () => {
+  if (selectedPath.value.length < 4) return ''
+  const room = currentLevel.value?.children?.find(
+    (r) => r.value === selectedPath.value[3]
+  )
+  return [
+    currentArea.value?.label,
+    currentBuilding.value?.label,
+    currentLevel.value?.label,
+    room?.label
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 const loadUsageStats = async () => {
   if (!isTauriRuntime()) return
   usageLoading.value = true
@@ -601,15 +605,20 @@ const loadUsageStats = async () => {
   selectedBarIdx.value = -1
   chartReady.value = false
   try {
-    // 智能水电只用「官方绑定房间」，与宿舍选择器的 room_id 无关
-    const res = await invokeNative('electricity_usage_stats', {})
+    const roomId =
+      selectedPath.value.length === 4
+        ? String(selectedPath.value[3] || '').trim()
+        : ''
+    const res = await invokeNative('electricity_usage_stats', {
+      roomPath: selectedPath.value.length ? [...selectedPath.value] : null,
+      roomVerify: roomId || null,
+      roomLabel: roomLabelText() || null
+    })
     usageStats.value = res || null
     const pts = res?.points
     if (res?.success === false && !(Array.isArray(pts) && pts.length)) {
       usageError.value = String(res?.message || '暂无用电数据')
     } else if (Array.isArray(pts) && pts.length) {
-      rangeStart.value = 0
-      rangeEnd.value = Math.max(0, pts.length - 1)
       requestAnimationFrame(() => {
         chartReady.value = true
       })
@@ -622,15 +631,19 @@ const loadUsageStats = async () => {
   }
 }
 
-// 进入页面即拉绑定房间趋势；切换宿舍只影响余额，不重置用电曲线
+// 进入页加载；切换完整房间后重新拉趋势
 onMounted(() => {
   if (isTauriRuntime()) void loadUsageStats()
 })
 
 watch(
   () => selectedPath.value.join('|'),
-  () => {
+  (key, prev) => {
+    if (key === prev) return
     showPayQr.value = false
+    if (selectedPath.value.length === 4) {
+      void loadUsageStats()
+    }
   }
 )
 
@@ -936,17 +949,16 @@ watch(
         <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
       </div>
 
-      <!-- 用电趋势：绑定房间 + 可交互动画柱图 + 自定义范围 -->
+      <!-- 用电趋势：跟随所选房间 + 日/月动画柱图 -->
       <section class="util-card usage-card">
         <div class="util-card-head">
           <div>
             <h3>用电趋势</h3>
-            <p v-if="boundRoomName" class="bound-tag">绑定 {{ boundRoomName }}</p>
+            <p v-if="displayRoomName" class="bound-tag">{{ displayRoomName }}</p>
           </div>
           <div class="seg">
             <button type="button" :class="{ on: usageTab === 'week' }" @click="switchUsageTab('week')">日</button>
             <button type="button" :class="{ on: usageTab === 'month' }" @click="switchUsageTab('month')">月</button>
-            <button type="button" :class="{ on: usageTab === 'range' }" @click="switchUsageTab('range')">范围</button>
           </div>
         </div>
 
@@ -969,31 +981,8 @@ watch(
             </div>
             <div class="kpi pop">
               <span>合计</span>
-              <strong>{{ rangeSum.toFixed(1) }}<small>度</small></strong>
+              <strong>{{ periodSum.toFixed(1) }}<small>度</small></strong>
             </div>
-          </div>
-
-          <div v-if="usageTab === 'range' && weekPoints.length > 1" class="range-controls">
-            <label>
-              起
-              <input
-                type="range"
-                :min="0"
-                :max="Math.max(0, weekPoints.length - 1)"
-                :value="rangeStart"
-                @input="onRangeStart"
-              />
-            </label>
-            <label>
-              止
-              <input
-                type="range"
-                :min="0"
-                :max="Math.max(0, weekPoints.length - 1)"
-                :value="rangeEnd"
-                @input="onRangeEnd"
-              />
-            </label>
           </div>
 
           <div
@@ -1027,7 +1016,7 @@ watch(
           </div>
         </template>
 
-        <div v-else class="util-muted">暂无绑定房间用电数据</div>
+        <div v-else class="util-muted">暂无用电数据，请先选择宿舍</div>
       </section>
 
       <!-- 充值：直给，无废话 -->
@@ -1203,24 +1192,6 @@ html.dark .glass-card-warning {
 @keyframes kpi-in {
   from { opacity: 0; transform: translateY(6px) scale(0.96); }
   to { opacity: 1; transform: none; }
-}
-.range-controls {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.range-controls label {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #64748b;
-  font-weight: 600;
-}
-.range-controls input[type='range'] {
-  width: 100%;
-  accent-color: #059669;
 }
 .ibar {
   display: flex;
