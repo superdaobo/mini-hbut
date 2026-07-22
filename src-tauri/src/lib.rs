@@ -57,6 +57,7 @@ use modules::ai::*;
 use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
 use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
+use modules::sports_venue::*;
 use modules::usage_stats::commands as usage_stats_cmd;
 
 // ... imports
@@ -7006,6 +7007,13 @@ pub fn run() {
             hbut_one_code_token,
             one_code_app_open_prepare,
             electricity_usage_stats,
+            sports_venue_bootstrap,
+            sports_venue_detail,
+            sports_venue_reserve,
+            sports_venue_orders,
+            sports_venue_records,
+            sports_venue_pay,
+            sports_venue_cancel_pay,
             teaching_eval_list,
             teaching_eval_form,
             teaching_eval_submit,

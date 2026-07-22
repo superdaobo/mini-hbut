@@ -205,10 +205,16 @@ pub async fn one_code_app_open_prepare(
 }
 
 /// 电量查询（智能水电）趋势：weekuselist / monthuselist / todayuse
+///
+/// 重要：智能水电的 `roomverify` 与电费余额接口的 dorm `room_id` **不是同一套编码**。
+/// 切换宿舍选择器时若把 room_id 当 roomverify，会查空。
+/// 趋势数据一律以官方「已绑定房间」为准；余额查询仍跟选择器走 utilities。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn electricity_usage_stats(
     state: State<'_, AppState>,
+    #[allow(unused_variables)]
     room_path: Option<Vec<String>>,
+    #[allow(unused_variables)]
     room_verify: Option<String>,
 ) -> Result<Value, String> {
     let mut client = state.client.write().await;
@@ -219,22 +225,7 @@ pub async fn electricity_usage_stats(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_default();
 
-    let room = room_verify
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            // path 最后一段常是 room id，如 101-7--254-101
-            room_path
-                .as_ref()
-                .and_then(|p| p.last().cloned())
-                .filter(|s| s.contains('-'))
-        })
-        .unwrap_or_else(|| {
-            // 前端 localStorage 可能有
-            String::new()
-        });
-
-    match fetch_smart_electricity_stats(&mut client, &student_id, &room).await {
+    match fetch_smart_electricity_stats(&mut client, &student_id).await {
         Ok(v) => Ok(v),
         Err(e) => Ok(json!({
             "success": false,
@@ -244,7 +235,8 @@ pub async fn electricity_usage_stats(
             "today_use": null,
             "quantity": null,
             "room_name": null,
-            "room_verify": room,
+            "room_verify": null,
+            "source": "bound",
             "message": format!("电量趋势暂不可用：{e}"),
             "open_url": null
         })),
@@ -254,7 +246,6 @@ pub async fn electricity_usage_stats(
 async fn fetch_smart_electricity_stats(
     client: &mut crate::http_client::HbutClient,
     student_id: &str,
-    room_verify: &str,
 ) -> Result<Value, String> {
     let _ = session_guard::ensure_one_code_electricity(client).await;
     let token = client
@@ -281,7 +272,6 @@ async fn fetch_smart_electricity_stats(
     let final_url = resp.url().to_string();
     let body_text = resp.text().await.unwrap_or_default();
 
-    // success:false 的 JSON 表示 token/第三方失败
     if body_text.contains("\"success\":false") {
         return Err("第三方电量服务打开失败，请稍后重试".into());
     }
@@ -304,7 +294,6 @@ async fn fetch_smart_electricity_stats(
         .map_err(|e| e.to_string())?;
 
     let sid = if student_id.trim().is_empty() {
-        // 尝试从 getbindroom 拿
         "0".to_string()
     } else {
         student_id.trim().to_string()
@@ -326,7 +315,7 @@ async fn fetch_smart_electricity_stats(
     )
     .await;
 
-    // 4) getbindroom → roomverify
+    // 4) 始终用 getbindroom 的绑定房间（官方电量查询锁定房间）
     let bind = swae_post(
         client,
         &final_url,
@@ -340,28 +329,23 @@ async fn fetch_smart_electricity_stats(
     .await
     .ok();
 
-    let mut room = room_verify.to_string();
+    let mut room = String::new();
     let mut room_name = String::new();
     if let Some(b) = bind.as_ref() {
         if let Some(body) = parse_swae_body(b) {
             if let Some(rv) = body.get("roomverify").and_then(|v| v.as_str()) {
-                if room.is_empty() {
-                    room = rv.to_string();
-                }
+                room = rv.trim().to_string();
             }
-            if let Some(rn) = body
-                .get("roomfullname")
-                .and_then(|v| v.as_str())
-            {
+            if let Some(rn) = body.get("roomfullname").and_then(|v| v.as_str()) {
                 room_name = rn.to_string();
             }
         }
     }
     if room.is_empty() {
-        return Err("未绑定宿舍房间，请先在官方电量查询中绑定".into());
+        return Err("未在「电量查询」绑定宿舍，请先在官方电量查询完成绑定".into());
     }
 
-    // 5) h5_getstuindexpage — 含 weekuselist / monthuselist / todayuse
+    // 5) h5_getstuindexpage — weekuselist / monthuselist / todayuse
     let index = swae_post(
         client,
         &final_url,
@@ -391,6 +375,106 @@ async fn fetch_smart_electricity_stats(
         .cloned()
         .unwrap_or(json!({}));
 
+    // 若首页 week 为空，尝试备用方法拿日用电
+    let mut week = mod0
+        .get("weekuselist")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if week.is_empty() {
+        for method in ["h5_getweekuselist", "getweekuselist", "h5_getdayuselist"] {
+            if let Ok(extra) = swae_post(
+                client,
+                &final_url,
+                method,
+                json!({
+                    "cmd": method,
+                    "roomverify": room,
+                    "account": sid,
+                    "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
+                }),
+            )
+            .await
+            {
+                if let Some(b) = parse_swae_body(&extra) {
+                    if let Some(arr) = b
+                        .get("weekuselist")
+                        .or_else(|| b.get("list"))
+                        .or_else(|| b.get("dayuselist"))
+                        .and_then(|v| v.as_array())
+                    {
+                        if !arr.is_empty() {
+                            week = arr.clone();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let points: Vec<Value> = week
+        .iter()
+        .map(|p| {
+            json!({
+                "label": p.get("date").or_else(|| p.get("daydate")).cloned().unwrap_or(json!("")),
+                "date": p.get("date").or_else(|| p.get("daydate")).cloned().unwrap_or(json!("")),
+                "value": p.get("dayuse").or_else(|| p.get("use")).cloned().unwrap_or(json!(0)),
+                "unit": "度",
+                "weekday": p.get("weekday").cloned().unwrap_or(json!(""))
+            })
+        })
+        .collect();
+
+    let mut month = mod0
+        .get("monthuselist")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if month.is_empty() {
+        for method in ["h5_getmonthuselist", "getmonthuselist"] {
+            if let Ok(extra) = swae_post(
+                client,
+                &final_url,
+                method,
+                json!({
+                    "cmd": method,
+                    "roomverify": room,
+                    "account": sid,
+                    "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
+                }),
+            )
+            .await
+            {
+                if let Some(b) = parse_swae_body(&extra) {
+                    if let Some(arr) = b
+                        .get("monthuselist")
+                        .or_else(|| b.get("list"))
+                        .and_then(|v| v.as_array())
+                    {
+                        if !arr.is_empty() {
+                            month = arr.clone();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let month_points: Vec<Value> = month
+        .iter()
+        .map(|p| {
+            json!({
+                "label": p.get("yearmonth").or_else(|| p.get("month")).cloned().unwrap_or(json!("")),
+                "value": p.get("monthuse").or_else(|| p.get("use")).cloned().unwrap_or(json!(0)),
+                "unit": "度"
+            })
+        })
+        .collect();
+
     let today_use = mod0.get("todayuse").cloned();
     let quantity = mod0
         .get("odd")
@@ -411,44 +495,17 @@ async fn fetch_smart_electricity_stats(
         .unwrap_or("")
         .to_string();
 
-    let week = mod0
-        .get("weekuselist")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let points: Vec<Value> = week
-        .iter()
-        .map(|p| {
-            json!({
-                "label": p.get("date").or_else(|| p.get("daydate")).cloned().unwrap_or(json!("")),
-                "date": p.get("date").cloned().unwrap_or(json!("")),
-                "value": p.get("dayuse").or_else(|| p.get("use")).cloned().unwrap_or(json!(0)),
-                "unit": "度",
-                "weekday": p.get("weekday").cloned().unwrap_or(json!(""))
-            })
-        })
-        .collect();
-
-    let month = mod0
-        .get("monthuselist")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let month_points: Vec<Value> = month
-        .iter()
-        .map(|p| {
-            json!({
-                "label": p.get("yearmonth").cloned().unwrap_or(json!("")),
-                "value": p.get("monthuse").cloned().unwrap_or(json!(0)),
-                "unit": "度"
-            })
-        })
-        .collect();
-
     let week_sum: f64 = points
         .iter()
-        .filter_map(|p| p.get("value").and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok())))
+        .filter_map(|p| {
+            p.get("value")
+                .and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok()))
+        })
         .sum();
+
+    if points.is_empty() && month_points.is_empty() {
+        return Err("绑定房间暂无用电曲线，请稍后重试".into());
+    }
 
     Ok(json!({
         "success": true,
@@ -462,7 +519,9 @@ async fn fetch_smart_electricity_stats(
         "line_status": line_status,
         "room_name": room_name,
         "room_verify": room,
+        "source": "bound",
         "message": null,
+        "hint": "用电趋势来自智能水电「已绑定房间」，与上方宿舍选择器的余额查询相互独立",
         "open_url": final_url
     }))
 }

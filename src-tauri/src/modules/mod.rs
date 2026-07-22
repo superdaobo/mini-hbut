@@ -23,6 +23,7 @@ pub mod ranking;
 pub mod schedule;
 pub mod school_inbox;
 pub mod session_guard;
+pub mod sports_venue;
 pub mod teaching_eval;
 pub mod school_website_embed;
 pub mod student_info;

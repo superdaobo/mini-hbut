@@ -458,36 +458,48 @@ const payQr = ref('')
 const usageStats = ref(null)
 const usageLoading = ref(false)
 const usageError = ref('')
-/** 趋势视图：week | month */
+/** 趋势视图：week | month | range */
 const usageTab = ref('week')
 /** 交互选中的柱 */
 const selectedBarIdx = ref(-1)
+/** 自定义范围（基于已有 points 的起止下标） */
+const rangeStart = ref(0)
+const rangeEnd = ref(0)
+const chartReady = ref(false)
 
-const weekPoints = computed(() => {
-  const pts = usageStats.value?.points
+const mapPoints = (pts, short = true) => {
   if (!Array.isArray(pts)) return []
-  return pts.slice(-6).map((p) => ({
-    label: String(p?.label || p?.date || '').replace(/^\d{4}-/, '').slice(0, 5) || '—',
-    fullLabel: String(p?.label || p?.date || '—'),
-    value: Number(p?.value ?? p?.dayuse ?? 0) || 0,
-    unit: p?.unit || '度'
-  }))
-})
+  return pts.map((p) => {
+    const full = String(p?.label || p?.date || p?.fullLabel || '—')
+    const label = short
+      ? full.replace(/^\d{4}-?/, '').slice(0, 5) || full
+      : full
+    return {
+      label,
+      fullLabel: full,
+      value: Number(p?.value ?? p?.dayuse ?? 0) || 0,
+      unit: p?.unit || '度'
+    }
+  })
+}
 
-const monthPoints = computed(() => {
-  const pts = usageStats.value?.month_points || usageStats.value?.monthPoints
-  if (!Array.isArray(pts)) return []
-  return pts.slice(-8).map((p) => ({
-    label: String(p?.label || '').replace(/^\d{4}-?/, '') || '—',
-    fullLabel: String(p?.label || '—'),
-    value: Number(p?.value ?? 0) || 0,
-    unit: p?.unit || '度'
-  }))
-})
-
-const activePoints = computed(() =>
-  usageTab.value === 'month' ? monthPoints.value : weekPoints.value
+const weekPoints = computed(() => mapPoints(usageStats.value?.points))
+const monthPoints = computed(() =>
+  mapPoints(usageStats.value?.month_points || usageStats.value?.monthPoints, false)
 )
+
+const activePoints = computed(() => {
+  if (usageTab.value === 'range') {
+    const src = weekPoints.value
+    if (!src.length) return []
+    const a = Math.min(rangeStart.value, rangeEnd.value)
+    const b = Math.max(rangeStart.value, rangeEnd.value)
+    return src.slice(a, b + 1)
+  }
+  if (usageTab.value === 'month') return monthPoints.value
+  // 默认展示全部可用日（官方 weekuselist，通常 7 天）
+  return weekPoints.value
+})
 
 const chartMax = computed(() => {
   const vals = activePoints.value.map((p) => p.value)
@@ -498,14 +510,23 @@ const chartMax = computed(() => {
 const selectedPoint = computed(() => {
   const pts = activePoints.value
   if (!pts.length) return null
-  const i = selectedBarIdx.value >= 0 && selectedBarIdx.value < pts.length
-    ? selectedBarIdx.value
-    : pts.length - 1
+  const i =
+    selectedBarIdx.value >= 0 && selectedBarIdx.value < pts.length
+      ? selectedBarIdx.value
+      : pts.length - 1
   return { ...pts[i], index: i }
 })
 
+const rangeSum = computed(() =>
+  activePoints.value.reduce((s, p) => s + (Number(p.value) || 0), 0)
+)
+
 const todayUse = computed(
   () => usageStats.value?.today_use ?? usageStats.value?.todayUse ?? null
+)
+
+const boundRoomName = computed(
+  () => usageStats.value?.room_name || usageStats.value?.roomName || ''
 )
 
 const selectBar = (i) => {
@@ -514,6 +535,24 @@ const selectBar = (i) => {
 
 const switchUsageTab = (tab) => {
   usageTab.value = tab
+  selectedBarIdx.value = -1
+  if (tab === 'range' && weekPoints.value.length) {
+    rangeStart.value = 0
+    rangeEnd.value = weekPoints.value.length - 1
+  }
+  // 触发柱动画
+  chartReady.value = false
+  requestAnimationFrame(() => {
+    chartReady.value = true
+  })
+}
+
+const onRangeStart = (e) => {
+  rangeStart.value = Number(e.target.value) || 0
+  selectedBarIdx.value = -1
+}
+const onRangeEnd = (e) => {
+  rangeEnd.value = Number(e.target.value) || 0
   selectedBarIdx.value = -1
 }
 
@@ -557,20 +596,23 @@ const togglePayQr = async () => {
 
 const loadUsageStats = async () => {
   if (!isTauriRuntime()) return
-  if (selectedPath.value.length < 4) return
-  const roomId = String(selectedPath.value[3] || '').trim()
-  if (!roomId) return
   usageLoading.value = true
   usageError.value = ''
   selectedBarIdx.value = -1
+  chartReady.value = false
   try {
-    const res = await invokeNative('electricity_usage_stats', {
-      roomPath: [...selectedPath.value],
-      roomVerify: roomId
-    })
+    // 智能水电只用「官方绑定房间」，与宿舍选择器的 room_id 无关
+    const res = await invokeNative('electricity_usage_stats', {})
     usageStats.value = res || null
-    if (res?.success === false && !(Array.isArray(res?.points) && res.points.length)) {
+    const pts = res?.points
+    if (res?.success === false && !(Array.isArray(pts) && pts.length)) {
       usageError.value = String(res?.message || '暂无用电数据')
+    } else if (Array.isArray(pts) && pts.length) {
+      rangeStart.value = 0
+      rangeEnd.value = Math.max(0, pts.length - 1)
+      requestAnimationFrame(() => {
+        chartReady.value = true
+      })
     }
   } catch (e) {
     usageError.value = String(e?.message || e || '加载失败')
@@ -580,22 +622,15 @@ const loadUsageStats = async () => {
   }
 }
 
-watch(
-  () => selectedPath.value.join('|'),
-  (key, prev) => {
-    if (key === prev) return
-    usageStats.value = null
-    usageError.value = ''
-    selectedBarIdx.value = -1
-    showPayQr.value = false
-    if (selectedPath.value.length === 4) void loadUsageStats()
-  }
-)
+// 进入页面即拉绑定房间趋势；切换宿舍只影响余额，不重置用电曲线
+onMounted(() => {
+  if (isTauriRuntime()) void loadUsageStats()
+})
 
 watch(
-  () => balanceData.value,
-  (v) => {
-    if (v && selectedPath.value.length === 4) void loadUsageStats()
+  () => selectedPath.value.join('|'),
+  () => {
+    showPayQr.value = false
   }
 )
 
@@ -901,25 +936,21 @@ watch(
         <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
       </div>
 
-      <!-- 用电趋势：可交互柱图，周/月切换 -->
-      <section v-if="selectedPath.length === 4" class="util-card">
+      <!-- 用电趋势：绑定房间 + 可交互动画柱图 + 自定义范围 -->
+      <section class="util-card usage-card">
         <div class="util-card-head">
-          <h3>用电</h3>
+          <div>
+            <h3>用电趋势</h3>
+            <p v-if="boundRoomName" class="bound-tag">绑定 {{ boundRoomName }}</p>
+          </div>
           <div class="seg">
-            <button
-              type="button"
-              :class="{ on: usageTab === 'week' }"
-              @click="switchUsageTab('week')"
-            >近6日</button>
-            <button
-              type="button"
-              :class="{ on: usageTab === 'month' }"
-              @click="switchUsageTab('month')"
-            >月</button>
+            <button type="button" :class="{ on: usageTab === 'week' }" @click="switchUsageTab('week')">日</button>
+            <button type="button" :class="{ on: usageTab === 'month' }" @click="switchUsageTab('month')">月</button>
+            <button type="button" :class="{ on: usageTab === 'range' }" @click="switchUsageTab('range')">范围</button>
           </div>
         </div>
 
-        <div v-if="usageLoading" class="util-muted">加载中…</div>
+        <div v-if="usageLoading" class="util-muted pulse">加载智能水电…</div>
 
         <div v-else-if="usageError && !activePoints.length" class="util-err-row">
           <span>{{ usageError }}</span>
@@ -928,27 +959,56 @@ watch(
 
         <template v-else-if="activePoints.length">
           <div class="kpi-row">
-            <div class="kpi">
+            <div class="kpi pop">
               <span>今日</span>
               <strong>{{ todayUse ?? '—' }}<small>度</small></strong>
             </div>
-            <div class="kpi focus" v-if="selectedPoint">
+            <div class="kpi focus pop" v-if="selectedPoint">
               <span>{{ selectedPoint.fullLabel }}</span>
               <strong>{{ selectedPoint.value }}<small>{{ selectedPoint.unit }}</small></strong>
             </div>
-            <div class="kpi" v-if="usageStats?.price != null">
-              <span>电价</span>
-              <strong>{{ usageStats.price }}<small>元</small></strong>
+            <div class="kpi pop">
+              <span>合计</span>
+              <strong>{{ rangeSum.toFixed(1) }}<small>度</small></strong>
             </div>
           </div>
 
-          <div class="ibar" role="listbox" :aria-label="usageTab === 'week' ? '近6日用电' : '月用电'">
+          <div v-if="usageTab === 'range' && weekPoints.length > 1" class="range-controls">
+            <label>
+              起
+              <input
+                type="range"
+                :min="0"
+                :max="Math.max(0, weekPoints.length - 1)"
+                :value="rangeStart"
+                @input="onRangeStart"
+              />
+            </label>
+            <label>
+              止
+              <input
+                type="range"
+                :min="0"
+                :max="Math.max(0, weekPoints.length - 1)"
+                :value="rangeEnd"
+                @input="onRangeEnd"
+              />
+            </label>
+          </div>
+
+          <div
+            class="ibar"
+            :class="{ ready: chartReady }"
+            role="listbox"
+            aria-label="用电柱图"
+          >
             <button
               v-for="(p, i) in activePoints"
-              :key="`${usageTab}-${i}`"
+              :key="`${usageTab}-${p.fullLabel}-${i}`"
               type="button"
               class="ibar-col"
               role="option"
+              :style="{ '--i': i }"
               :aria-selected="(selectedBarIdx < 0 ? i === activePoints.length - 1 : selectedBarIdx === i)"
               :class="{ active: selectedBarIdx < 0 ? i === activePoints.length - 1 : selectedBarIdx === i }"
               @click="selectBar(i)"
@@ -956,15 +1016,18 @@ watch(
               <div class="ibar-track">
                 <div
                   class="ibar-fill"
-                  :style="{ height: Math.max(10, (p.value / chartMax) * 100) + '%' }"
+                  :style="{
+                    '--h': Math.max(10, (p.value / chartMax) * 100) + '%'
+                  }"
                 />
               </div>
+              <span class="ibar-val">{{ p.value }}</span>
               <span class="ibar-lab">{{ p.label }}</span>
             </button>
           </div>
         </template>
 
-        <div v-else class="util-muted">暂无数据</div>
+        <div v-else class="util-muted">暂无绑定房间用电数据</div>
       </section>
 
       <!-- 充值：直给，无废话 -->
@@ -1121,11 +1184,49 @@ html.dark .glass-card-warning {
   color: #64748b;
   margin-left: 2px;
 }
+.bound-tag {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #059669;
+  font-weight: 600;
+}
+.pulse {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.kpi.pop {
+  animation: kpi-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes kpi-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.range-controls {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.range-controls label {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+.range-controls input[type='range'] {
+  width: 100%;
+  accent-color: #059669;
+}
 .ibar {
   display: flex;
   align-items: stretch;
   gap: 6px;
-  height: 148px;
+  height: 168px;
   padding-top: 4px;
 }
 .ibar-col {
@@ -1137,9 +1238,18 @@ html.dark .glass-card-warning {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  transform: translateY(10px);
+}
+.ibar.ready .ibar-col {
+  animation: bar-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+@keyframes bar-in {
+  to { opacity: 1; transform: none; }
 }
 .ibar-track {
   flex: 1;
@@ -1150,29 +1260,46 @@ html.dark .glass-card-warning {
   background: #f1f5f9;
   border-radius: 10px 10px 4px 4px;
   padding: 0 4px 0;
-  min-height: 100px;
+  min-height: 110px;
 }
 .ibar-fill {
   width: 72%;
   max-width: 28px;
+  height: 10px;
   min-height: 10px;
   border-radius: 8px 8px 3px 3px;
-  background: #94a3b8;
-  transition: height 0.2s ease, background 0.15s ease, transform 0.15s ease;
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  transform-origin: bottom center;
+  transition: background 0.15s ease, transform 0.15s ease, filter 0.15s ease;
+}
+.ibar.ready .ibar-fill {
+  animation: grow 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 45ms + 40ms);
+}
+@keyframes grow {
+  from { height: 8px; }
+  to { height: var(--h, 40%); }
 }
 .ibar-col.active .ibar-fill {
-  background: #059669;
-  transform: scaleX(1.05);
+  background: linear-gradient(180deg, #6ee7b7 0%, #047857 100%);
+  filter: drop-shadow(0 4px 8px rgba(5, 150, 105, 0.35));
+  transform: scaleX(1.08);
 }
 .ibar-col:active .ibar-fill {
   transform: scale(0.96);
+}
+.ibar-val {
+  font-size: 10px;
+  font-weight: 700;
+  color: #475569;
 }
 .ibar-lab {
   font-size: 10px;
   color: #94a3b8;
   font-weight: 600;
 }
-.ibar-col.active .ibar-lab {
+.ibar-col.active .ibar-lab,
+.ibar-col.active .ibar-val {
   color: #059669;
 }
 .util-muted {
