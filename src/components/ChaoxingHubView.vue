@@ -4,7 +4,7 @@
  * 课程列表 → 章 → 小节 → 任务点 → 视频 / 成绩
  * 全部走 Tauri invoke，禁止外链
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
 import { pushDebugLog } from '../utils/debug_logger'
@@ -319,8 +319,27 @@ const loadList = async ({ silent = false, force = false } = {}) => {
   }
 }
 
+/** 模块内翻页：滚到顶部，不跟首页滚动位置同步 */
+const scrollModuleToTop = () => {
+  nextTick(() => {
+    try {
+      const shell = document.querySelector('.app-shell')
+      if (shell) shell.scrollTop = 0
+      window.scrollTo(0, 0)
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+      // 本组件根节点若可滚也归零
+      const root = document.querySelector('.cx-hub')
+      if (root) root.scrollTop = 0
+    } catch {
+      // ignore
+    }
+  })
+}
+
 const push = (frame) => {
   stack.value = [...stack.value, frame]
+  scrollModuleToTop()
 }
 
 const pop = () => {
@@ -331,6 +350,7 @@ const pop = () => {
   stack.value = stack.value.slice(0, -1)
   videoError.value = ''
   videoSrcIndex.value = 0
+  scrollModuleToTop()
 }
 
 /** 点面包屑跳到某一层 */
@@ -339,6 +359,7 @@ const jumpTo = (index) => {
   stack.value = stack.value.slice(0, index + 1)
   videoError.value = ''
   videoSrcIndex.value = 0
+  scrollModuleToTop()
 }
 
 const openCourse = async (course, { force = false } = {}) => {
@@ -599,6 +620,7 @@ watch(
 )
 
 onMounted(() => {
+  scrollModuleToTop()
   void loadList()
 })
 </script>

@@ -513,10 +513,7 @@ const todayUse = computed(
   () => usageStats.value?.today_use ?? usageStats.value?.todayUse ?? null
 )
 
-const displayRoomName = computed(() => {
-  const fromApi = usageStats.value?.room_name || usageStats.value?.roomName || ''
-  if (fromApi) return fromApi
-  // 选择器标签
+const selectedRoomLabel = computed(() => {
   if (selectedPath.value.length === 4 && currentLevel.value) {
     const room = currentLevel.value.children?.find(
       (r) => r.value === selectedPath.value[3]
@@ -529,6 +526,21 @@ const displayRoomName = computed(() => {
     ].filter(Boolean)
     return parts.join(' ')
   }
+  return ''
+})
+
+const displayRoomName = computed(() => {
+  // 优先展示「当前选择器」房间，避免仍显示绑定 101 造成误解
+  if (selectedRoomLabel.value) return selectedRoomLabel.value
+  return usageStats.value?.room_name || usageStats.value?.roomName || ''
+})
+
+const usageSourceHint = computed(() => {
+  const src = usageStats.value?.source || ''
+  const hint = usageStats.value?.hint || ''
+  if (hint) return hint
+  if (src === 'selected') return '用电趋势：当前所选房间'
+  if (src === 'bound') return '用电趋势：一码通绑定房间'
   return ''
 })
 
@@ -955,6 +967,7 @@ watch(
           <div>
             <h3>用电趋势</h3>
             <p v-if="displayRoomName" class="bound-tag">{{ displayRoomName }}</p>
+            <p v-if="usageSourceHint" class="bound-tag soft">{{ usageSourceHint }}</p>
           </div>
           <div class="seg">
             <button type="button" :class="{ on: usageTab === 'week' }" @click="switchUsageTab('week')">日</button>

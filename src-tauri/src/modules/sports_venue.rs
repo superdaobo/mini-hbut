@@ -92,6 +92,73 @@ fn extract_token_raw(raw: &str) -> Option<String> {
     None
 }
 
+/// 把可能带引号/字符串的整型字段规范成 JSON number，避免 Java `For input string: ""0"`
+fn coerce_json_int(v: &Value, default: i64) -> Value {
+    match v {
+        Value::Number(n) => Value::Number(n.clone()),
+        Value::String(s) => {
+            let t = s
+                .trim()
+                .trim_matches(|c| c == '"' || c == '\'')
+                .trim();
+            if t.is_empty() {
+                return json!(default);
+            }
+            if let Ok(i) = t.parse::<i64>() {
+                json!(i)
+            } else if let Ok(f) = t.parse::<f64>() {
+                json!(f as i64)
+            } else {
+                json!(default)
+            }
+        }
+        Value::Null => json!(default),
+        Value::Bool(b) => json!(if *b { 1 } else { 0 }),
+        other => other.clone(),
+    }
+}
+
+fn normalize_venue_json_body(body: Value) -> Value {
+    let Some(mut obj) = body.as_object().cloned() else {
+        return body;
+    };
+    for key in [
+        "stadiumId",
+        "half",
+        "placeId",
+        "pageNum",
+        "pageSize",
+        "orderId",
+        "price",
+        "totalPrice",
+        "roleId",
+        "followNum",
+    ] {
+        if let Some(v) = obj.get(key) {
+            let def = if key == "pageNum" || key == "pageSize" {
+                1
+            } else {
+                0
+            };
+            obj.insert(key.to_string(), coerce_json_int(v, def));
+        }
+    }
+    // selectDate 必须是纯日期字符串
+    if let Some(Value::String(s)) = obj.get("selectDate").cloned() {
+        let t = s.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+        obj.insert("selectDate".into(), json!(t));
+    }
+    Value::Object(obj)
+}
+
+fn clean_role_id(role_id: Option<&str>) -> Option<String> {
+    let s = role_id?.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    if s.is_empty() {
+        return None;
+    }
+    Some(s.to_string())
+}
+
 /// 场馆 HTTP：自动 SM2 加解密 + token 头
 async fn venue_post(
     client: &reqwest::Client,
@@ -108,18 +175,23 @@ async fn venue_post(
         .header("Origin", VENUE_BASE)
         .header("Referer", format!("{VENUE_BASE}/"));
 
-    if let Some(t) = token.filter(|s| !s.is_empty()) {
+    if let Some(t) = token.map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'')).filter(|s| !s.is_empty()) {
         req = req.header("token", t);
     }
-    if let Some(r) = role_id.filter(|s| !s.is_empty()) {
+    if let Some(r) = clean_role_id(role_id) {
         req = req.header("roleId", r);
     }
 
     let req = if let Some(b) = body {
         let plain = if b.is_string() {
-            b.as_str().unwrap_or("").to_string()
+            b.as_str()
+                .unwrap_or("")
+                .trim()
+                .trim_matches(|c| c == '"' || c == '\'')
+                .to_string()
         } else {
-            serde_json::to_string(&b).map_err(|e| e.to_string())?
+            let normalized = normalize_venue_json_body(b);
+            serde_json::to_string(&normalized).map_err(|e| e.to_string())?
         };
         let cipher = sm2_encrypt_payload(&plain)?;
         // axios 会把 string 再 JSON 序列化成 "\"04..\""
@@ -447,14 +519,30 @@ pub async fn sports_venue_detail(
     role_id: Option<String>,
     stadium_id: Value,
     select_date: String,
-    half: Option<i64>,
+    half: Option<Value>,
 ) -> Result<Value, String> {
     let client = state.client.read().await;
+    let half_n = half
+        .as_ref()
+        .map(|v| coerce_json_int(v, 0))
+        .unwrap_or_else(|| json!(0));
+    let stadium_n = coerce_json_int(&stadium_id, 0);
+    let date = select_date
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_string();
+    if date.is_empty() {
+        return Err("请选择预约日期".into());
+    }
     let body = json!({
-        "stadiumId": stadium_id,
-        "selectDate": select_date,
-        "half": half.unwrap_or(0)
+        "stadiumId": stadium_n,
+        "selectDate": date,
+        "half": half_n
     });
+    crate::runtime_log::log_info(
+        "SportsVenue",
+        format!("detail body={body}"),
+    );
     venue_post(
         &client.client,
         "/reserve/place/detailByStadiumId",

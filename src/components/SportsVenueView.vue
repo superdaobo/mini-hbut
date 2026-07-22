@@ -33,7 +33,9 @@ const pendingOrder = ref(null)
 
 const roleId = computed(() => {
   const r = user.value?.roleId
-  return r == null ? '' : String(r)
+  if (r == null || r === '') return ''
+  // 去掉可能残留的引号，避免后端 NumberFormatException: ""0"
+  return String(r).trim().replace(/^["']+|["']+$/g, '')
 })
 
 const totalPriceFen = computed(() =>
@@ -92,12 +94,13 @@ const loadDetail = async () => {
   acting.value = true
   error.value = ''
   try {
+    const sid = selectedStadium.value?.id ?? selectedStadium.value?.stadiumId
     const res = await invokeNative('sports_venue_detail', {
       token: token.value,
       roleId: roleId.value || null,
-      stadiumId: selectedStadium.value.id,
-      selectDate: selectDate.value || todayStr(),
-      half: half.value
+      stadiumId: Number(sid) || sid,
+      selectDate: String(selectDate.value || todayStr()).trim(),
+      half: Number(half.value) || 0
     })
     const data = res?.data || {}
     weekList.value = Array.isArray(data.weekList) ? data.weekList : []

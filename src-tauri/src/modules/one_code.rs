@@ -283,6 +283,7 @@ pub async fn electricity_usage_stats(
 }
 
 /// 宿舍 room value 是否像 SWAE roomverify：`101-1--174-1101`
+#[allow(dead_code)]
 fn looks_like_roomverify(s: &str) -> bool {
     let s = s.trim();
     s.contains("--") || (s.matches('-').count() >= 2 && s.chars().any(|c| c.is_ascii_digit()))
@@ -389,24 +390,28 @@ async fn fetch_smart_electricity_stats(
         }
     }
 
-    // 候选：所选房间优先，再绑定房间
+    // 用户已选房间：只查该房，绝不静默换成绑定房；未选才用绑定房
     let mut candidates: Vec<(String, &'static str, String)> = Vec::new();
-    if looks_like_roomverify(preferred_room) {
+    let pref = preferred_room.trim();
+    if !pref.is_empty() {
         candidates.push((
-            preferred_room.trim().to_string(),
+            pref.to_string(),
             "selected",
             preferred_label.trim().to_string(),
         ));
-    }
-    if !bound_room.is_empty()
-        && !candidates
-            .iter()
-            .any(|(r, _, _)| r == &bound_room)
-    {
+        crate::runtime_log::log_info(
+            "ElectricityUsage",
+            format!("按所选房间查趋势 roomverify={pref}"),
+        );
+    } else if !bound_room.is_empty() {
         candidates.push((bound_room.clone(), "bound", bound_name.clone()));
+        crate::runtime_log::log_info(
+            "ElectricityUsage",
+            format!("未选房间，使用绑定房 roomverify={bound_room}"),
+        );
     }
     if candidates.is_empty() {
-        return Err("未选择有效房间，且官方电量查询未绑定宿舍".into());
+        return Err("请先在上方选择房间，或到一码通绑定宿舍后再查趋势".into());
     }
 
     // 5) 按候选依次拉 h5_getstuindexpage
@@ -554,9 +559,14 @@ async fn fetch_smart_electricity_stats(
             })
             .collect();
 
-        // 所选房间若完全无数据，继续试绑定房间
+        // 所选房间无数据：直接报错，不再偷偷换成绑定房
         if points.is_empty() && month_points.is_empty() {
             last_err = format!("房间 {room} 暂无用电曲线");
+            if source == "selected" {
+                return Err(format!(
+                    "所选房间（{room_name} / {room}）暂无用电趋势数据，未改用绑定房"
+                ));
+            }
             continue;
         }
 
@@ -605,9 +615,9 @@ async fn fetch_smart_electricity_stats(
             "bound_room_name": if bound_name.is_empty() { Value::Null } else { json!(bound_name) },
             "message": null,
             "hint": if source == "selected" {
-                "用电趋势已跟随当前所选房间"
+                "用电趋势：当前所选房间"
             } else {
-                "所选房间无趋势数据，已显示官方绑定房间"
+                "用电趋势：一码通绑定房间（上方未选房）"
             },
             "open_url": final_url
         }));
