@@ -451,56 +451,109 @@ const fetchBalance = async ({ retryCount = 0, forceNetwork = false } = {}) => {
 const handleBack = () => emit('back')
 const handleLogout = () => emit('logout')
 
-/** 缴电费官方入口（链接 + 二维码），不内嵌支付 — #438 */
+/** 缴电费：每次打开都重新签发未消费 tid（一次性） */
 const payLoading = ref(false)
-const payUrl = ref('')
+const showPayQr = ref(false)
 const payQr = ref('')
-const payHint = ref('')
-const showPayPanel = ref(false)
 const usageStats = ref(null)
+const usageLoading = ref(false)
+const usageError = ref('')
+/** 趋势视图：week | month */
+const usageTab = ref('week')
+/** 交互选中的柱 */
+const selectedBarIdx = ref(-1)
 
-const prepareElectricityPay = async () => {
+const weekPoints = computed(() => {
+  const pts = usageStats.value?.points
+  if (!Array.isArray(pts)) return []
+  return pts.slice(-6).map((p) => ({
+    label: String(p?.label || p?.date || '').replace(/^\d{4}-/, '').slice(0, 5) || '—',
+    fullLabel: String(p?.label || p?.date || '—'),
+    value: Number(p?.value ?? p?.dayuse ?? 0) || 0,
+    unit: p?.unit || '度'
+  }))
+})
+
+const monthPoints = computed(() => {
+  const pts = usageStats.value?.month_points || usageStats.value?.monthPoints
+  if (!Array.isArray(pts)) return []
+  return pts.slice(-8).map((p) => ({
+    label: String(p?.label || '').replace(/^\d{4}-?/, '') || '—',
+    fullLabel: String(p?.label || '—'),
+    value: Number(p?.value ?? 0) || 0,
+    unit: p?.unit || '度'
+  }))
+})
+
+const activePoints = computed(() =>
+  usageTab.value === 'month' ? monthPoints.value : weekPoints.value
+)
+
+const chartMax = computed(() => {
+  const vals = activePoints.value.map((p) => p.value)
+  const m = Math.max(0, ...vals)
+  return m > 0 ? m : 1
+})
+
+const selectedPoint = computed(() => {
+  const pts = activePoints.value
+  if (!pts.length) return null
+  const i = selectedBarIdx.value >= 0 && selectedBarIdx.value < pts.length
+    ? selectedBarIdx.value
+    : pts.length - 1
+  return { ...pts[i], index: i }
+})
+
+const todayUse = computed(
+  () => usageStats.value?.today_use ?? usageStats.value?.todayUse ?? null
+)
+
+const selectBar = (i) => {
+  selectedBarIdx.value = i
+}
+
+const switchUsageTab = (tab) => {
+  usageTab.value = tab
+  selectedBarIdx.value = -1
+}
+
+const openElectricityPay = async () => {
   payLoading.value = true
-  payHint.value = ''
   try {
+    // 每次重新签发：浏览器 tid 用一次即失效
     const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: '缴电费' })
-    payUrl.value = res.openUrl
-    payHint.value = res.hint || '打开官方一码通完成缴纳；App 不内嵌支付。'
-    payQr.value = await qrToDataURL(res.openUrl, { width: 200 })
-    showPayPanel.value = true
+    if (res.openUrl) {
+      await openExternal(res.openUrl)
+      // 可选扫码：同样是新鲜链接
+      try {
+        payQr.value = await qrToDataURL(res.openUrl, { width: 180 })
+      } catch {
+        payQr.value = ''
+      }
+    }
   } catch (e) {
-    showToast(String(e?.message || e || '生成失败'))
+    showToast(String(e?.message || e || '打开失败'))
   } finally {
     payLoading.value = false
   }
 }
 
-const openElectricityPay = async () => {
-  if (!payUrl.value) {
-    await prepareElectricityPay()
+const togglePayQr = async () => {
+  if (showPayQr.value) {
+    showPayQr.value = false
+    return
   }
-  if (payUrl.value) {
-    try {
-      await openExternal(payUrl.value)
-    } catch (e) {
-      showToast(String(e?.message || e || '打开失败'))
-    }
+  payLoading.value = true
+  try {
+    const res = await prepareOneCodeAppOpen({ appCode: 'electric', appName: '缴电费' })
+    payQr.value = await qrToDataURL(res.openUrl, { width: 180 })
+    showPayQr.value = true
+  } catch (e) {
+    showToast(String(e?.message || e || '生成二维码失败'))
+  } finally {
+    payLoading.value = false
   }
 }
-
-const usageLoading = ref(false)
-const usageError = ref('')
-
-const maxWeekUse = computed(() => {
-  const pts = usageStats.value?.points
-  if (!Array.isArray(pts) || !pts.length) return 1
-  let m = 0
-  for (const p of pts) {
-    const n = Number(p?.value ?? p?.dayuse ?? 0)
-    if (Number.isFinite(n) && n > m) m = n
-  }
-  return m > 0 ? m : 1
-})
 
 const loadUsageStats = async () => {
   if (!isTauriRuntime()) return
@@ -509,47 +562,36 @@ const loadUsageStats = async () => {
   if (!roomId) return
   usageLoading.value = true
   usageError.value = ''
+  selectedBarIdx.value = -1
   try {
-    // rename_all = camelCase：roomPath / roomVerify
     const res = await invokeNative('electricity_usage_stats', {
       roomPath: [...selectedPath.value],
       roomVerify: roomId
     })
     usageStats.value = res || null
     if (res?.success === false && !(Array.isArray(res?.points) && res.points.length)) {
-      usageError.value = String(res?.message || '用电趋势暂不可用')
+      usageError.value = String(res?.message || '暂无用电数据')
     }
   } catch (e) {
-    usageError.value = String(e?.message || e || '用电趋势加载失败')
+    usageError.value = String(e?.message || e || '加载失败')
     usageStats.value = null
   } finally {
     usageLoading.value = false
   }
 }
 
-const openSmartElectricity = async () => {
-  try {
-    const res = await prepareOneCodeAppOpen({ appCode: 'jSJNLwI3bX', appName: '电量查询' })
-    if (res.openUrl) await openExternal(res.openUrl)
-  } catch (e) {
-    showToast(String(e?.message || e || '打开失败'))
-  }
-}
-
-// 选中宿舍后即拉取智能水电趋势（不依赖余额是否成功）
 watch(
   () => selectedPath.value.join('|'),
   (key, prev) => {
     if (key === prev) return
     usageStats.value = null
     usageError.value = ''
-    if (selectedPath.value.length === 4) {
-      void loadUsageStats()
-    }
+    selectedBarIdx.value = -1
+    showPayQr.value = false
+    if (selectedPath.value.length === 4) void loadUsageStats()
   }
 )
 
-// 余额刷新后同步刷新趋势（可能刚完成绑定/充值）
 watch(
   () => balanceData.value,
   (v) => {
@@ -859,122 +901,97 @@ watch(
         <p class="font-body-md text-body-md text-on-surface-variant">请先选择宿舍以查询电费</p>
       </div>
 
-      <!-- 智能水电：今日用电 + 近7日趋势（电量查询） -->
-      <section v-if="selectedPath.length === 4" class="glass-card rounded-2xl p-5">
-        <div class="flex items-center justify-between mb-3 gap-2">
-          <h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2 m-0">
-            <span class="material-symbols-outlined text-primary">insights</span>
-            用电趋势
-          </h3>
-          <button
-            type="button"
-            class="text-sm text-primary font-semibold flex items-center gap-1"
-            @click="openSmartElectricity"
-          >
-            <span class="material-symbols-outlined text-base">open_in_new</span>
-            官方电量查询
-          </button>
+      <!-- 用电趋势：可交互柱图，周/月切换 -->
+      <section v-if="selectedPath.length === 4" class="util-card">
+        <div class="util-card-head">
+          <h3>用电</h3>
+          <div class="seg">
+            <button
+              type="button"
+              :class="{ on: usageTab === 'week' }"
+              @click="switchUsageTab('week')"
+            >近6日</button>
+            <button
+              type="button"
+              :class="{ on: usageTab === 'month' }"
+              @click="switchUsageTab('month')"
+            >月</button>
+          </div>
         </div>
 
-        <p v-if="usageLoading" class="text-sm text-on-surface-variant">正在加载智能水电数据…</p>
+        <div v-if="usageLoading" class="util-muted">加载中…</div>
 
-        <div v-else-if="usageError && !usageStats?.points?.length" class="flex flex-col gap-2">
-          <p class="text-sm text-error m-0">{{ usageError }}</p>
-          <button
-            type="button"
-            class="self-start text-sm text-primary font-semibold flex items-center gap-1"
-            @click="loadUsageStats"
-          >
-            <span class="material-symbols-outlined text-base">refresh</span>
-            重新加载趋势
-          </button>
+        <div v-else-if="usageError && !activePoints.length" class="util-err-row">
+          <span>{{ usageError }}</span>
+          <button type="button" class="link-btn" @click="loadUsageStats">重试</button>
         </div>
 
-        <template v-else-if="usageStats?.points?.length">
-          <div class="grid grid-cols-3 gap-2 mb-4">
-            <div class="stat-chip">
-              <span>今日用电</span>
-              <strong>{{ usageStats.today_use ?? usageStats.todayUse ?? '—' }}<small> 度</small></strong>
+        <template v-else-if="activePoints.length">
+          <div class="kpi-row">
+            <div class="kpi">
+              <span>今日</span>
+              <strong>{{ todayUse ?? '—' }}<small>度</small></strong>
             </div>
-            <div class="stat-chip">
-              <span>剩余电量</span>
-              <strong>{{ usageStats.quantity ?? balanceData?.quantity ?? '—' }}<small> 度</small></strong>
+            <div class="kpi focus" v-if="selectedPoint">
+              <span>{{ selectedPoint.fullLabel }}</span>
+              <strong>{{ selectedPoint.value }}<small>{{ selectedPoint.unit }}</small></strong>
             </div>
-            <div class="stat-chip">
+            <div class="kpi" v-if="usageStats?.price != null">
               <span>电价</span>
-              <strong>{{ usageStats.price ?? '—' }}<small> 元/度</small></strong>
+              <strong>{{ usageStats.price }}<small>元</small></strong>
             </div>
           </div>
-          <p v-if="usageStats.summary" class="text-sm text-on-surface-variant mb-3">{{ usageStats.summary }}</p>
-          <p v-if="usageStats.room_name || usageStats.roomName" class="text-xs text-outline mb-2">
-            {{ usageStats.room_name || usageStats.roomName }}
-            <template v-if="usageStats.line_status || usageStats.lineStatus">
-              · {{ usageStats.line_status || usageStats.lineStatus }}
-            </template>
-          </p>
 
-          <div class="week-chart">
-            <div
-              v-for="(p, i) in usageStats.points.slice(0, 14)"
-              :key="i"
-              class="week-col"
+          <div class="ibar" role="listbox" :aria-label="usageTab === 'week' ? '近6日用电' : '月用电'">
+            <button
+              v-for="(p, i) in activePoints"
+              :key="`${usageTab}-${i}`"
+              type="button"
+              class="ibar-col"
+              role="option"
+              :aria-selected="(selectedBarIdx < 0 ? i === activePoints.length - 1 : selectedBarIdx === i)"
+              :class="{ active: selectedBarIdx < 0 ? i === activePoints.length - 1 : selectedBarIdx === i }"
+              @click="selectBar(i)"
             >
-              <div class="week-bar-wrap">
+              <div class="ibar-track">
                 <div
-                  class="week-bar"
-                  :style="{ height: Math.max(8, (Number(p.value || 0) / maxWeekUse) * 100) + '%' }"
+                  class="ibar-fill"
+                  :style="{ height: Math.max(10, (p.value / chartMax) * 100) + '%' }"
                 />
               </div>
-              <span class="week-val">{{ p.value }}</span>
-              <span class="week-lab">{{ p.label || p.date }}</span>
-            </div>
-          </div>
-
-          <div v-if="usageStats.month_points?.length || usageStats.monthPoints?.length" class="mt-4">
-            <p class="text-sm font-semibold text-on-surface mb-2">月用电</p>
-            <ul class="text-sm text-on-surface-variant space-y-1">
-              <li
-                v-for="(p, i) in (usageStats.month_points || usageStats.monthPoints || []).slice(0, 8)"
-                :key="'m'+i"
-              >
-                {{ p.label }}：{{ p.value }}{{ p.unit || ' 度' }}
-              </li>
-            </ul>
+              <span class="ibar-lab">{{ p.label }}</span>
+            </button>
           </div>
         </template>
 
-        <p v-else class="text-sm text-on-surface-variant m-0">
-          暂无趋势数据。若未绑定宿舍，请先在「官方电量查询」完成绑定。
-        </p>
+        <div v-else class="util-muted">暂无数据</div>
       </section>
 
-      <!-- 缴电费：官方入口 + 二维码 -->
-      <section class="glass-card rounded-2xl p-5 flex flex-col gap-3">
-        <h3 class="font-headline-sm text-headline-sm text-on-surface flex items-center gap-2 m-0">
-          <span class="material-symbols-outlined text-primary">payments</span>
-          缴电费
-        </h3>
-        <p class="text-sm text-on-surface-variant m-0">
-          跳转一码通官方缴电费页（可选金额 10/20/50 元）。缴费时段约 02:00–23:00。
-        </p>
-        <button
-          type="button"
-          class="w-full bg-primary text-on-primary py-3 rounded-full font-semibold"
-          :disabled="payLoading"
-          @click="openElectricityPay"
-        >
-          {{ payLoading ? '准备中…' : '打开缴电费' }}
-        </button>
-        <template v-if="showPayPanel && payUrl">
-          <p class="text-xs break-all text-outline m-0">{{ payUrl }}</p>
-          <img
-            v-if="payQr"
-            :src="payQr"
-            alt="缴电费二维码"
-            class="w-[200px] h-[200px] mx-auto rounded-xl bg-white border border-slate-200"
-          />
-          <p class="text-xs text-outline text-center m-0">{{ payHint }}</p>
-        </template>
+      <!-- 充值：直给，无废话 -->
+      <section class="util-card pay-card">
+        <div class="pay-actions">
+          <button
+            type="button"
+            class="pay-main"
+            :disabled="payLoading"
+            @click="openElectricityPay"
+          >
+            <span class="material-symbols-outlined">bolt</span>
+            {{ payLoading ? '打开中…' : '缴电费' }}
+          </button>
+          <button
+            type="button"
+            class="pay-side"
+            :disabled="payLoading"
+            :aria-pressed="showPayQr"
+            @click="togglePayQr"
+          >
+            <span class="material-symbols-outlined">qr_code_2</span>
+          </button>
+        </div>
+        <div v-if="showPayQr && payQr" class="pay-qr">
+          <img :src="payQr" alt="缴电费" width="180" height="180" />
+        </div>
       </section>
     </main>
   </div>
@@ -1022,72 +1039,264 @@ html.dark .glass-card-warning {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
-.stat-chip {
-  background: #f8fafc;
+/* —— 工具页：扁平、可点、少文案 —— */
+.util-card {
+  background: #fff;
   border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px 14px 16px;
+}
+.util-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.util-card-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.seg {
+  display: inline-flex;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  min-height: 32px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.seg button.on {
+  background: #059669;
+  color: #fff;
+}
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.kpi {
+  background: #f8fafc;
   border-radius: 12px;
   padding: 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-height: 56px;
 }
-.stat-chip span {
+.kpi.focus {
+  background: #ecfdf5;
+  outline: 1px solid #a7f3d0;
+}
+.kpi span {
   font-size: 11px;
   color: #64748b;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.stat-chip strong {
-  font-size: 16px;
+.kpi strong {
+  font-size: 18px;
+  font-weight: 700;
   color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
-.stat-chip small {
+.kpi small {
   font-size: 11px;
   font-weight: 500;
   color: #64748b;
+  margin-left: 2px;
 }
-.week-chart {
+.ibar {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 6px;
-  height: 140px;
-  padding-top: 8px;
+  height: 148px;
+  padding-top: 4px;
 }
-.week-col {
+.ibar-col {
   flex: 1;
   min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  height: 100%;
-  gap: 4px;
+  gap: 6px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-.week-bar-wrap {
+.ibar-track {
   flex: 1;
   width: 100%;
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  background: #f1f5f9;
+  border-radius: 10px 10px 4px 4px;
+  padding: 0 4px 0;
+  min-height: 100px;
 }
-.week-bar {
-  width: 70%;
+.ibar-fill {
+  width: 72%;
   max-width: 28px;
-  border-radius: 6px 6px 2px 2px;
-  background: #0f766e;
-  min-height: 8px;
+  min-height: 10px;
+  border-radius: 8px 8px 3px 3px;
+  background: #94a3b8;
+  transition: height 0.2s ease, background 0.15s ease, transform 0.15s ease;
 }
-.week-val {
-  font-size: 10px;
-  color: #475569;
+.ibar-col.active .ibar-fill {
+  background: #059669;
+  transform: scaleX(1.05);
 }
-.week-lab {
+.ibar-col:active .ibar-fill {
+  transform: scale(0.96);
+}
+.ibar-lab {
   font-size: 10px;
   color: #94a3b8;
+  font-weight: 600;
 }
-html.dark .stat-chip {
-  background: #1e293b;
+.ibar-col.active .ibar-lab {
+  color: #059669;
+}
+.util-muted {
+  font-size: 13px;
+  color: #94a3b8;
+  padding: 12px 0 4px;
+}
+.util-err-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: #dc2626;
+}
+.link-btn {
+  border: 0;
+  background: transparent;
+  color: #059669;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  min-height: 40px;
+  padding: 0 8px;
+}
+.pay-card {
+  padding: 12px;
+}
+.pay-actions {
+  display: flex;
+  gap: 8px;
+}
+.pay-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: #059669;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+.pay-main:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.pay-main:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.pay-main .material-symbols-outlined {
+  font-size: 22px;
+}
+.pay-side {
+  width: 48px;
+  min-height: 48px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.pay-side:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.pay-side .material-symbols-outlined {
+  font-size: 24px;
+}
+.pay-qr {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+}
+.pay-qr img {
+  width: 180px;
+  height: 180px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+html.dark .util-card {
+  background: var(--ui-surface, #111827);
   border-color: #334155;
 }
-html.dark .stat-chip strong {
+html.dark .util-card-head h3,
+html.dark .kpi strong {
   color: #e2e8f0;
+}
+html.dark .seg {
+  background: #1e293b;
+}
+html.dark .kpi,
+html.dark .ibar-track {
+  background: #1e293b;
+}
+html.dark .kpi.focus {
+  background: color-mix(in oklab, #059669 22%, #111827);
+  outline-color: #065f46;
+}
+html.dark .pay-side {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+html.dark .ibar-fill {
+  background: #64748b;
+}
+html.dark .ibar-col.active .ibar-fill {
+  background: #10b981;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ibar-fill,
+  .pay-main,
+  .seg button {
+    transition: none;
+  }
 }
 html.dark .week-val {
   color: #cbd5e1;

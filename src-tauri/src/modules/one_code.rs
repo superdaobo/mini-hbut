@@ -58,31 +58,6 @@ pub async fn hbut_one_code_token(
     })
 }
 
-fn extract_tid(one_code: &Value) -> String {
-    one_code
-        .pointer("/resultData/tid")
-        .or_else(|| one_code.get("tid"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string()
-}
-
-fn extract_access_token(one_code: &Value, client_token: Option<&str>) -> String {
-    if let Some(t) = client_token.map(str::trim).filter(|s| !s.is_empty()) {
-        return t.to_string();
-    }
-    one_code
-        .pointer("/resultData/accessToken")
-        .or_else(|| one_code.pointer("/resultData/token"))
-        .or_else(|| one_code.get("accessToken"))
-        .or_else(|| one_code.get("token"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string()
-}
-
 fn urlencoding_lite(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len() * 3);
     for b in raw.bytes() {
@@ -124,25 +99,39 @@ pub async fn one_code_app_open_prepare(
         });
     }
 
+    // 先确保 API 用 accessToken 可用（会消费一枚 tid，这是预期行为）
     let _ = session_guard::ensure_one_code_electricity(&mut client).await;
-    let one_code = match client.get_one_code_token().await {
-        Ok(v) => v,
+    let token = client
+        .ensure_electricity_token()
+        .await
+        .unwrap_or_default();
+
+    // 再单独签发「未消费」的浏览器 tid。
+    // 切勿复用 get_one_code_token() 返回的 tid——那枚已被 getToken 换掉，外链会「无效TID」。
+    let browser_tid = match client.mint_one_code_browser_tid().await {
+        Ok(t) => t,
         Err(e) => {
-            return Ok(OneCodeAppOpenPrepareResponse {
-                success: false,
-                open_url: String::new(),
-                pay_url: String::new(),
-                app_code: code,
-                hint: String::new(),
-                message: Some(format!("一码通会话不可用：{e}")),
-                tid: None,
-            });
+            // 原生缴费页强依赖未消费 tid；第三方仍可用 accessToken
+            let needs_browser_tid = matches!(code.as_str(), "electric" | "broadband")
+                || !matches!(code.as_str(), "noQYzEiZ7L" | "jSJNLwI3bX");
+            if needs_browser_tid {
+                return Ok(OneCodeAppOpenPrepareResponse {
+                    success: false,
+                    open_url: String::new(),
+                    pay_url: String::new(),
+                    app_code: code,
+                    hint: String::new(),
+                    message: Some(format!("无法获取有效登录票：{e}")),
+                    tid: None,
+                });
+            }
+            String::new()
         }
     };
-    let tid = extract_tid(&one_code);
-    let token = {
-        let ensured = client.ensure_electricity_token().await.ok();
-        extract_access_token(&one_code, ensured.as_deref())
+    let tid_q = if browser_tid.is_empty() {
+        String::new()
+    } else {
+        urlencoding_lite(&browser_tid)
     };
 
     let name = if display.is_empty() {
@@ -151,40 +140,31 @@ pub async fn one_code_app_open_prepare(
         display.as_str()
     };
 
+    let spa_entry = |hash_path: &str| -> String {
+        if tid_q.is_empty() {
+            format!("{CODE_BASE}/#{hash_path}")
+        } else {
+            // 官方落地格式：/?tid=...&orgId=2#/pages_...
+            format!("{CODE_BASE}/?tid={tid_q}&orgId=2#{hash_path}")
+        }
+    };
+
     let (open_url, hint) = match code.as_str() {
-        // 缴电费：原生 H5 页（注意官方拼写 electricty）
-        "electric" => {
-            let url = if tid.is_empty() {
-                format!(
-                    "{CODE_BASE}/#/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric"
-                )
-            } else {
-                format!(
-                    "{CODE_BASE}/?tid={tid}&orgId=2#/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric"
-                )
-            };
-            (
-                url,
-                "打开官方缴电费页，选择金额后完成支付（App 不内嵌支付）。".to_string(),
-            )
-        }
+        // 缴电费：原生 H5（官方拼写 electricty）
+        "electric" => (
+            spa_entry(
+                "/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric",
+            ),
+            "在官方页完成缴纳".to_string(),
+        ),
         // 教育网网费
-        "broadband" => {
-            let url = if tid.is_empty() {
-                format!(
-                    "{CODE_BASE}/#/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband"
-                )
-            } else {
-                format!(
-                    "{CODE_BASE}/?tid={tid}&orgId=2#/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband"
-                )
-            };
-            (
-                url,
-                "打开官方网费缴纳页完成充值（App 不内嵌支付）。".to_string(),
-            )
-        }
-        // 运动场馆
+        "broadband" => (
+            spa_entry(
+                "/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband",
+            ),
+            "在官方页完成缴纳".to_string(),
+        ),
+        // 运动场馆（第三方 + accessToken）
         "noQYzEiZ7L" => {
             let redirect = "http://172.16.54.20:9000/#/home";
             let encoded = urlencoding_lite(redirect);
@@ -192,34 +172,21 @@ pub async fn one_code_app_open_prepare(
             if !token.is_empty() {
                 url.push_str(&format!("&accessToken={}", urlencoding_lite(&token)));
             }
-            (
-                url,
-                "场馆系统可能仅校园网可达；若打不开请连接校园网。".to_string(),
-            )
+            (url, "需校园网".to_string())
         }
-        // 电量查询 / 其它第三方
+        // 电量查询 / 智能水电
         "jSJNLwI3bX" => {
             let encoded = urlencoding_lite(LIGHTAPP_REDIRECT);
             let mut url = format!("{CODE_BASE}/server/third/open?redirectUrl={encoded}");
             if !token.is_empty() {
                 url.push_str(&format!("&accessToken={}", urlencoding_lite(&token)));
             }
-            (
-                url,
-                "打开官方电量查询（智能水电）查看趋势与统计。".to_string(),
-            )
+            (url, "官方电量查询".to_string())
         }
-        _ => {
-            let url = if tid.is_empty() {
-                format!("{CODE_BASE}/#/pages_home/home")
-            } else {
-                format!("{CODE_BASE}/?tid={tid}&orgId=2#/pages_home/home")
-            };
-            (
-                url,
-                format!("打开后请在官方一码通中进入「{name}」。"),
-            )
-        }
+        _ => (
+            spa_entry("/pages_home/home"),
+            format!("打开「{name}」"),
+        ),
     };
 
     Ok(OneCodeAppOpenPrepareResponse {
@@ -229,7 +196,11 @@ pub async fn one_code_app_open_prepare(
         app_code: code,
         hint,
         message: None,
-        tid: if tid.is_empty() { None } else { Some(tid) },
+        tid: if browser_tid.is_empty() {
+            None
+        } else {
+            Some(browser_tid)
+        },
     })
 }
 

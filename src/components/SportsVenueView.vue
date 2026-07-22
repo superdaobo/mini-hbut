@@ -1,20 +1,18 @@
 <script setup>
 /**
- * 运动场馆预约 — 一码通第三方入口
+ * 运动场馆 — 直给入口
  */
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { openExternal } from '../utils/external_link'
 import { showToast } from '../utils/toast'
-import { TPageHeader, TEmptyState } from './templates'
+import { TPageHeader } from './templates'
 
 const emit = defineEmits(['back'])
 const loading = ref(false)
 const error = ref('')
-const openUrl = ref('')
-const hint = ref('场馆系统可能仅校园网可达。')
 
-const prepare = async () => {
+const open = async () => {
   loading.value = true
   error.value = ''
   try {
@@ -22,133 +20,87 @@ const prepare = async () => {
       appCode: 'noQYzEiZ7L',
       appName: '运动场馆预约系统'
     })
-    openUrl.value = res.openUrl
-    if (res.hint) hint.value = res.hint
+    await openExternal(res.openUrl)
   } catch (e) {
-    error.value = String(e?.message || e || '加载失败')
-    openUrl.value = ''
+    error.value = String(e?.message || e || '打开失败')
+    showToast(error.value)
   } finally {
     loading.value = false
   }
 }
-
-const open = async () => {
-  if (!openUrl.value) return
-  try {
-    await openExternal(openUrl.value)
-  } catch (e) {
-    showToast(String(e?.message || e || '打开失败，请确认已连校园网'))
-  }
-}
-
-onMounted(prepare)
 </script>
 
 <template>
-  <div class="page-shell">
+  <div class="page">
     <TPageHeader title="运动场馆" icon="sports_soccer" @back="emit('back')" />
-    <div class="page-body">
-      <TEmptyState v-if="loading" type="loading" message="正在准备场馆入口…" />
-
-      <section v-else-if="error" class="panel">
-        <TEmptyState type="error" :message="error" />
-        <button type="button" class="btn primary" @click="prepare">重试</button>
-      </section>
-
-      <section v-else-if="openUrl" class="panel">
-        <h2 class="panel-title">
+    <div class="body">
+      <section class="card">
+        <div v-if="error" class="err">{{ error }}</div>
+        <button type="button" class="main" :disabled="loading" @click="open">
           <span class="material-symbols-outlined">stadium</span>
-          预约系统入口
-        </h2>
-        <p class="muted">{{ hint }}</p>
-        <p class="url">{{ openUrl }}</p>
-        <div class="actions">
-          <button type="button" class="btn primary" @click="open">打开预约系统</button>
-          <button type="button" class="btn" :disabled="loading" @click="prepare">重新生成</button>
-        </div>
+          {{ loading ? '打开中…' : '打开预约' }}
+        </button>
+        <p class="hint">校园网</p>
       </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page-shell {
+.page {
   min-height: 100%;
-  background: #f6fafe;
-  color: #1e293b;
+  background: #f8fafc;
+  color: #0f172a;
   padding-bottom: 104px;
 }
-.page-body {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.panel {
-  background: #ffffff;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  border-radius: 16px;
-  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+.body {
   padding: 16px;
 }
-.panel-title {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px;
+}
+.err {
+  color: #dc2626;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.main {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: #15803d;
+  color: #fff;
   font-size: 16px;
   font-weight: 700;
-}
-.panel-title .material-symbols-outlined {
-  color: #15803d;
-  font-size: 22px;
-}
-.muted {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: #64748b;
-}
-.url {
-  font-size: 12px;
-  word-break: break-all;
-  margin: 10px 0 12px;
-  color: #334155;
-}
-.actions {
   display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
-  flex-wrap: wrap;
+  cursor: pointer;
 }
-.btn {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #0f172a;
-  border-radius: 999px;
-  padding: 10px 16px;
-  font-size: 14px;
+.main:disabled {
+  opacity: 0.65;
+}
+.main:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.hint {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: #94a3b8;
   font-weight: 600;
 }
-.btn.primary {
-  background: #15803d;
-  border-color: #15803d;
-  color: #fff;
-}
-html.dark .page-shell {
+html.dark .page {
   background: var(--ui-bg, #0b1220);
   color: var(--ui-text, #e2e8f0);
 }
-html.dark .panel {
+html.dark .card {
   background: var(--ui-surface, #111827);
   border-color: #334155;
-}
-html.dark .btn {
-  background: #1e293b;
-  border-color: #334155;
-  color: var(--ui-text, #e2e8f0);
-}
-html.dark .btn.primary {
-  background: #16a34a;
-  border-color: #16a34a;
-  color: #fff;
 }
 </style>

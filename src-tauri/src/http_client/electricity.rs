@@ -1351,6 +1351,136 @@ impl HbutClient {
         Err("一码通 getToken 失败".into())
     }
 
+    /// 签发「尚未换票」的一码通 tid，专供系统浏览器打开官方 H5。
+    ///
+    /// `get_one_code_token` 会立刻调用 `getToken` 消费 tid；
+    /// 若把已消费的 tid 塞进外链，一码通会显示「无效TID」。
+    /// 本方法只做 SSO 取票，**绝不**调用 getToken。
+    pub async fn mint_one_code_browser_tid(
+        &mut self,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+
+        // 预热门户与 code SSO cookie（与 get_one_code_token 一致）
+        let portal_service = "https://e.hbut.edu.cn/login";
+        let portal_sso_url = format!(
+            "{}/login?service={}",
+            AUTH_BASE_URL,
+            urlencoding::encode(portal_service)
+        );
+        let code_sso_url = format!(
+            "{}/login?service={}",
+            AUTH_BASE_URL,
+            urlencoding::encode(sso_url)
+        );
+        let _ = self.client.get(&portal_sso_url).send().await;
+        let _ = self.client.get(&code_sso_url).send().await;
+
+        let extract_tid = |raw: &str| -> String {
+            regex::Regex::new(r#"tid=([^&"'#]+)"#)
+                .ok()
+                .and_then(|re| re.captures(raw))
+                .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+                .map(|s| {
+                    // 可能被 URL 编码过
+                    urlencoding::decode(&s)
+                        .map(|c| c.into_owned())
+                        .unwrap_or(s)
+                })
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        };
+
+        // 直连（跟随重定向）
+        if let Ok(resp) = self.client.get(sso_url).send().await {
+            let final_url = resp.url().to_string();
+            let mut tid = extract_tid(&final_url);
+            if tid.is_empty() {
+                let html = resp.text().await.unwrap_or_default();
+                tid = extract_tid(&html);
+            }
+            if !tid.is_empty() {
+                crate::hbut_debug!("[调试] browser_tid 直连成功: {}...", &tid.chars().take(12).collect::<String>());
+                return Ok(tid);
+            }
+        }
+
+        // 手动跟踪重定向（最多 12 跳）
+        let no_redirect_client = Client::builder()
+            .cookie_store(true)
+            .cookie_provider(Arc::clone(&self.cookie_jar))
+            .redirect(reqwest::redirect::Policy::none())
+            .danger_accept_invalid_certs(true)
+            .resolve(
+                "auth.hbut.edu.cn",
+                std::net::SocketAddr::from(([202, 114, 191, 47], 443)),
+            )
+            .resolve(
+                "code.hbut.edu.cn",
+                std::net::SocketAddr::from(([202, 114, 191, 2], 443)),
+            )
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+
+        let mut current_url = sso_url.to_string();
+        for _ in 0..12 {
+            let resp = no_redirect_client
+                .get(&current_url)
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
+                .send()
+                .await?;
+            let status = resp.status();
+            let url_str = resp.url().to_string();
+            let mut tid = extract_tid(&url_str);
+
+            if tid.is_empty() {
+                if let Some(location) = resp.headers().get("Location") {
+                    let location_str = location.to_str().unwrap_or("");
+                    tid = extract_tid(location_str);
+                    if !tid.is_empty() {
+                        return Ok(tid);
+                    }
+                    current_url = if location_str.starts_with("http") {
+                        location_str.to_string()
+                    } else if location_str.starts_with('/') {
+                        let base: Url = url_str.parse().unwrap_or_else(|_| {
+                            "https://code.hbut.edu.cn/".parse().unwrap()
+                        });
+                        format!(
+                            "{}://{}{}",
+                            base.scheme(),
+                            base.host_str().unwrap_or("code.hbut.edu.cn"),
+                            location_str
+                        )
+                    } else {
+                        location_str.to_string()
+                    };
+                    if status.is_redirection() {
+                        continue;
+                    }
+                }
+            } else {
+                return Ok(tid);
+            }
+
+            let body = resp.text().await.unwrap_or_default();
+            tid = extract_tid(&body);
+            if !tid.is_empty() {
+                return Ok(tid);
+            }
+            if !status.is_redirection() {
+                break;
+            }
+        }
+
+        Err("无法签发未消费的一码通 tid（浏览器登录票）".into())
+    }
+
     /// 获取交易记录（带空响应/失效重试）
     pub async fn fetch_transaction_history(
         &mut self,
