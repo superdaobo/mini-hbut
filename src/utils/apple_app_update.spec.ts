@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setAppStoreBuildOverrideForTests } from '../config/app_store_policy'
 import {
+  DEFAULT_APPLE_APP_ID,
   buildAppStoreOpenUrls,
   buildTestFlightOpenUrls,
-  checkAppleStoreUpdate
+  checkAppleStoreUpdate,
+  getConfiguredAppleAppId
 } from './apple_app_update'
 
 describe('apple_app_update', () => {
@@ -20,6 +22,8 @@ describe('apple_app_update', () => {
   })
 
   it('builds App Store and TestFlight open URLs', () => {
+    expect(DEFAULT_APPLE_APP_ID).toBe('6787857278')
+    expect(getConfiguredAppleAppId()).toMatch(/^\d+$/)
     const storeUrls = buildAppStoreOpenUrls({
       trackId: '123',
       trackViewUrl: 'https://apps.apple.com/app/id123'
@@ -27,7 +31,9 @@ describe('apple_app_update', () => {
     expect(storeUrls[0]).toBe('https://apps.apple.com/app/id123')
     expect(storeUrls).toContain('itms-apps://apps.apple.com/app/id123')
     expect(buildTestFlightOpenUrls('123')).toContain('itms-beta://beta.itunes.apple.com/v1/app/123')
-    expect(buildTestFlightOpenUrls()).toContain('itms-beta://')
+    expect(buildTestFlightOpenUrls()).toContain(
+      `itms-beta://beta.itunes.apple.com/v1/app/${DEFAULT_APPLE_APP_ID}`
+    )
   })
 
   it('reports update when store version is newer', async () => {

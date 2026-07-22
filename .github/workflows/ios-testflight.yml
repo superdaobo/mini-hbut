@@ -27,6 +27,8 @@ env:
   MINI_HBUT_BUILD_PROFILE: release
   # App Store / TestFlight 合规编译开关：仅本 workflow 注入。dev-build/release/本地默认 build 不设置。
   VITE_APP_STORE_BUILD: "1"
+  # App Store Connect → App 信息 → Apple ID（公开数字 id，非密钥）
+  VITE_APPLE_APP_ID: "6787857278"
   npm_config_audit: "false"
   npm_config_fund: "false"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"

@@ -10,6 +10,8 @@ import { openExternal, openExternalRaw } from './external_link'
 import { compareVersions } from './updater.js'
 
 export const APPLE_BUNDLE_ID = 'com.hbut.mini'
+/** App Store Connect「Apple ID」；与 Bundle ID 不同，用于打开商店 / TestFlight 深链 */
+export const DEFAULT_APPLE_APP_ID = '6787857278'
 const SKIPPED_APPLE_VERSION_KEY = 'hbu_skipped_apple_store_version'
 const DEFAULT_LOOKUP_URLS = [
   `https://itunes.apple.com/lookup?bundleId=${APPLE_BUNDLE_ID}&country=cn`,
@@ -41,7 +43,7 @@ export function getConfiguredAppleAppId(): string {
   } catch {
     // ignore
   }
-  return ''
+  return DEFAULT_APPLE_APP_ID
 }
 
 export function getSkippedAppleStoreVersion(): string {

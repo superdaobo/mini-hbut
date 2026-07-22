@@ -2,7 +2,7 @@
 
 - [ ] Version strings still `1.4.3` (package.json, tauri.conf.json)
 - [ ] `ios-testflight.yml` has `VITE_APP_STORE_BUILD: "1"`
-- [ ] 合规包更新仅走 App Store Lookup / 商店引导（无 GitHub/CDN IPA）；可选 `VITE_APPLE_APP_ID`
+- [ ] 合规包更新仅走 App Store Lookup / 商店引导（无 GitHub/CDN IPA）；`VITE_APPLE_APP_ID=6787857278`
 - [ ] `dev-build.yml` / `release.yml` do **not** set compliance flag
 - [ ] Default `npm run build` compliance flag off
 - [ ] Policy unit tests green
