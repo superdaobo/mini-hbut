@@ -10,13 +10,33 @@
 //! - OCR 请求使用独立的 `ocr_client`，避免污染主会话
 //! - 这里不直接实现业务接口，业务逻辑在子模块中实现
 
+/// 始终写入 runtime_log + stderr（前端调试窗 / HTTP bridge 可拉取）
 #[macro_export]
 macro_rules! hbut_debug {
-    ($($arg:tt)*) => {
-        if cfg!(debug_assertions) {
-            println!($($arg)*);
-        }
-    };
+    ($($arg:tt)*) => {{
+        let __msg = format!($($arg)*);
+        // 尝试识别 [scope] 前缀
+        let (__scope, __body) = if let Some(rest) = __msg.strip_prefix('[') {
+            if let Some(end) = rest.find(']') {
+                let s = &rest[..end];
+                let b = rest[end + 1..].trim_start();
+                (s.to_string(), if b.is_empty() { __msg.clone() } else { b.to_string() })
+            } else {
+                ("Rust".to_string(), __msg.clone())
+            }
+        } else {
+            ("Rust".to_string(), __msg.clone())
+        };
+        $crate::runtime_log::log_debug(__scope, __body);
+    }};
+}
+
+/// 学习通/一码通重登等关键路径：始终 info 级别，便于用户在调试窗看到
+#[macro_export]
+macro_rules! hbut_session_log {
+    ($scope:expr, $($arg:tt)*) => {{
+        $crate::runtime_log::log_info($scope, format!($($arg)*));
+    }};
 }
 
 use chrono::{DateTime, Utc};

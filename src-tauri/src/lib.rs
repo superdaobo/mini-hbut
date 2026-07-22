@@ -44,6 +44,7 @@ pub mod http_server;
 pub mod modules;
 pub mod parser;
 pub mod qxzkb_options;
+pub mod runtime_log;
 pub mod utils;
 
 use app_state::AppState;
@@ -57,6 +58,7 @@ use modules::ai::*;
 use modules::chaoxing_checkin::commands as chaoxing_checkin_cmd;
 use modules::module_bundle::OpenModuleBundleWindowRequest;
 use modules::one_code::*;
+use modules::sports_venue::*;
 use modules::usage_stats::commands as usage_stats_cmd;
 
 // ... imports
@@ -1439,17 +1441,34 @@ pub struct YuketangCourseProgressRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingKnowledgeCardsRequest {
     pub student_id: Option<String>,
+    #[serde(alias = "clazzId", alias = "classId")]
     pub clazz_id: String,
+    #[serde(alias = "courseId")]
     pub course_id: String,
+    #[serde(alias = "knowledgeId")]
     pub knowledge_id: String,
+    #[serde(default)]
     pub cpi: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingVideoStatusRequest {
     pub student_id: Option<String>,
+    #[serde(alias = "objectId")]
     pub object_id: String,
+    #[serde(default)]
     pub fid: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChaoxingCourseScoreRequest {
+    pub student_id: Option<String>,
+    #[serde(alias = "courseId")]
+    pub course_id: String,
+    #[serde(alias = "clazzId", alias = "classId")]
+    pub clazz_id: String,
+    #[serde(default)]
+    pub cpi: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5040,15 +5059,136 @@ async fn fetch_ranking(
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 async fn school_inbox_fetch(
     state: State<'_, AppState>,
     login_mode: Option<String>,
+    force: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let mut client = state.client.write().await;
     let mode = login_mode.unwrap_or_default();
-    let response = modules::school_inbox::fetch_school_inbox(&mut client, &mode).await?;
+    let force = force.unwrap_or(false);
+    let response = modules::school_inbox::fetch_school_inbox_ex(&mut client, &mode, force).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+async fn get_runtime_logs(
+    limit: Option<u32>,
+    since_id: Option<u64>,
+    scope: Option<String>,
+    level: Option<String>,
+    q: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let logs = runtime_log::query_logs(runtime_log::LogQuery {
+        limit: limit.unwrap_or(300) as usize,
+        since_id,
+        scope_contains: scope,
+        level,
+        message_contains: q,
+    });
+    Ok(serde_json::json!({
+        "success": true,
+        "stats": runtime_log::stats(),
+        "logs": logs,
+    }))
+}
+
+#[tauri::command]
+async fn clear_runtime_logs() -> Result<serde_json::Value, String> {
+    runtime_log::clear_logs();
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+async fn push_runtime_log(
+    scope: Option<String>,
+    message: String,
+    level: Option<String>,
+    details: Option<serde_json::Value>,
+) -> Result<bool, String> {
+    let scope = scope.unwrap_or_else(|| "Frontend".into());
+    let level = level.unwrap_or_else(|| "info".into());
+    if let Some(d) = details {
+        runtime_log::log_with_details(&level, scope, message, d);
+    } else {
+        match level.as_str() {
+            "error" => runtime_log::log_error(scope, message),
+            "warn" => runtime_log::log_warn(scope, message),
+            "debug" => runtime_log::log_debug(scope, message),
+            _ => runtime_log::log_info(scope, message),
+        }
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+async fn get_runtime_diag(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let sid = client
+        .user_info
+        .as_ref()
+        .map(|u| u.student_id.clone())
+        .unwrap_or_default();
+    let logged_in = client.is_logged_in;
+    let has_user = client.user_info.is_some();
+    let cookie_summary = {
+        let blob = client.get_cookies();
+        let keys: Vec<&str> = ["UID", "_uid", "CASTGC", "JSESSIONID", "fid"]
+            .into_iter()
+            .filter(|k| blob.contains(&format!("{k}=")))
+            .collect();
+        serde_json::json!({
+            "length": blob.len(),
+            "has_keys": keys,
+        })
+    };
+    Ok(serde_json::json!({
+        "success": true,
+        "student_id": sid,
+        "is_logged_in": logged_in,
+        "has_user_info": has_user,
+        "cookie": cookie_summary,
+        "runtime_log": runtime_log::stats(),
+        "debug_bridge_tools": true,
+        "time": chrono::Local::now().to_rfc3339(),
+    }))
+}
+
+#[tauri::command]
+async fn teaching_eval_list(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::teaching_eval::list_evals(&client).await;
+    serde_json::to_value(response).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn teaching_eval_form(
+    state: State<'_, AppState>,
+    eval_id: String,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::teaching_eval::fetch_form(&client, &eval_id).await;
+    serde_json::to_value(response).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn teaching_eval_submit(
+    state: State<'_, AppState>,
+    eval_id: String,
+    answers: Option<Vec<serde_json::Value>>,
+    quick_full_score: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let list = answers.unwrap_or_default();
+    let response = modules::teaching_eval::submit_eval(
+        &client,
+        &eval_id,
+        &list,
+        quick_full_score.unwrap_or(false),
+    )
+    .await;
+    serde_json::to_value(response).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -6450,6 +6590,22 @@ async fn chaoxing_get_video_status(
 }
 
 #[tauri::command]
+async fn chaoxing_fetch_course_score(
+    state: State<'_, AppState>,
+    req: ChaoxingCourseScoreRequest,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.write().await;
+    modules::online_learning::chaoxing_fetch_course_score(
+        &client,
+        &req.course_id,
+        &req.clazz_id,
+        &req.cpi,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn chaoxing_report_progress(
     state: State<'_, AppState>,
     req: ChaoxingReportProgressRequest,
@@ -6849,6 +7005,10 @@ pub fn run() {
             debug_bridge::complete_debug_reset_more_modules,
             debug_bridge::complete_debug_state,
             debug_bridge::save_debug_capture_file,
+            get_runtime_logs,
+            clear_runtime_logs,
+            push_runtime_log,
+            get_runtime_diag,
             open_external_url,
             modules::school_website_embed::school_website_embed_open,
             modules::school_website_embed::school_website_embed_resize,
@@ -6950,6 +7110,7 @@ pub fn run() {
             yuketang_fetch_course_progress,
             chaoxing_get_knowledge_cards,
             chaoxing_get_video_status,
+            chaoxing_fetch_course_score,
             chaoxing_report_progress,
             yuketang_get_course_chapters,
             yuketang_get_leaf_info,
@@ -6968,6 +7129,18 @@ pub fn run() {
             hbut_ai_upload,
             hbut_ai_chat,
             hbut_one_code_token,
+            one_code_app_open_prepare,
+            electricity_usage_stats,
+            sports_venue_bootstrap,
+            sports_venue_detail,
+            sports_venue_reserve,
+            sports_venue_orders,
+            sports_venue_records,
+            sports_venue_pay,
+            sports_venue_cancel_pay,
+            teaching_eval_list,
+            teaching_eval_form,
+            teaching_eval_submit,
             write_widget_snapshot,
             clear_widget_snapshot,
             write_widget_theme_color,

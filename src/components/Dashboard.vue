@@ -156,7 +156,8 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
   'grades', 'classroom', 'exams', 'ranking', 'calendar', 'school_inbox', 'academic',
-  'qxzkb', 'course_selection', 'training', 'library', 'campus_map', 'resource_share', 'towergo'
+  'qxzkb', 'course_selection', 'training', 'teaching_eval', 'library', 'campus_map', 'resource_share',
+  'chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'broadband', 'sports_venue', 'towergo'
 ])
 const loginMethod = ref('')
 const isChaoxingMethod = (value) => String(value || '').trim().startsWith('chaoxing')
@@ -490,10 +491,15 @@ const baseModules = [
   { id: 'qxzkb', name: '全校课表', iconKey: 'qxzkb', color: '#6366f1', desc: '查询全校课程与排课', available: true, requiresLogin: true },
   { id: 'course_selection', name: '选课中心', iconKey: 'course_selection', color: '#f59e0b', desc: '通识选课与退课', available: true, requiresLogin: true },
   { id: 'training', name: '培养方案', iconKey: 'training', color: '#0ea5e9', desc: '培养方案与课程设置', available: true, requiresLogin: true },
+  { id: 'teaching_eval', name: '教学评教', iconKey: 'teaching_eval', color: '#a855f7', desc: '待评课程与一键满分提交', available: true, requiresLogin: true },
+  { id: 'chaoxing_hub', name: '课程中心', iconKey: 'chaoxing_hub', color: '#2563eb', desc: '学习通课程、作业与进度', available: true, requiresLogin: true },
+  { id: 'chaoxing_inbox', name: '收件箱', iconKey: 'chaoxing_inbox', color: '#4f46e5', desc: '学习通通知与消息', available: true, requiresLogin: true },
+  { id: 'chaoxing_class', name: '资料分享', iconKey: 'chaoxing_class', color: '#3b82f6', desc: '邀请码入班与班级资料', available: true, requiresLogin: true },
+  { id: 'broadband', name: '教育网网费', iconKey: 'broadband', color: '#0891b2', desc: '校园网费用查询与缴纳入口', available: true, requiresLogin: true },
+  { id: 'sports_venue', name: '运动场馆', iconKey: 'sports_venue', color: '#16a34a', desc: '场馆预约（需校园网）', available: true, requiresLogin: true },
   { id: 'library', name: '图书查询', iconKey: 'library', color: '#0f766e', desc: '馆藏检索与定位', available: true, requiresLogin: false },
   { id: 'campus_map', name: '校园地图', iconKey: 'campus_map', color: '#14b8a6', desc: '校园地图查看', available: true, requiresLogin: false },
-  { id: 'resource_share', name: '资料分享', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
-  { id: 'chaoxing_class', name: '学习通', iconKey: 'chaoxing_class', color: '#3b82f6', desc: '邀请码入班与班级资料', available: true, requiresLogin: true },
+  { id: 'resource_share', name: '资源网盘', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
   { id: 'towergo', name: '小塔出行', iconKey: 'towergo', color: '#22c55e', desc: '校园电单车与骑行服务', available: true, requiresLogin: false },
   { id: 'ai', name: '校园助手', iconKey: 'ai', color: '#94a3b8', desc: '暂不可用', available: true, requiresLogin: true }
 ]
@@ -536,9 +542,10 @@ const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 const homeCollisionFx = ref([])
 
 const moduleCategories = computed(() => [
-  { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'classroom', 'calendar', 'school_inbox'].includes(m.id)) },
-  { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions'].includes(m.id)) },
-  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'chaoxing_class', 'towergo', 'ai'].includes(m.id)) }
+  { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'teaching_eval', 'classroom', 'calendar', 'school_inbox'].includes(m.id)) },
+  { title: '学习通', modules: modules.value.filter(m => ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class'].includes(m.id)) },
+  { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions', 'broadband', 'sports_venue'].includes(m.id)) },
+  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)) }
 ])
 
 const handleCategoryModuleClick = (moduleId) => { showAllModules.value = false; navigateTo(moduleId) }
@@ -901,7 +908,14 @@ const quickEntryMeta = {
   qxzkb: { name: '全校课表', icon: 'fa-table', color: 'bg-violet-50', iconColor: 'text-violet-500' },
   course_selection: { name: '选课中心', icon: 'fa-tasks', color: 'bg-amber-50', iconColor: 'text-amber-500' },
   training: { name: '培养方案', icon: 'fa-sitemap', color: 'bg-sky-50', iconColor: 'text-sky-500' },
+  teaching_eval: { name: '教学评教', icon: 'fa-star', color: 'bg-purple-50', iconColor: 'text-purple-500' },
+  chaoxing_hub: { name: '课程中心', icon: 'fa-graduation-cap', color: 'bg-blue-50', iconColor: 'text-blue-600' },
+  chaoxing_inbox: { name: '收件箱', icon: 'fa-inbox', color: 'bg-indigo-50', iconColor: 'text-indigo-500' },
+  chaoxing_class: { name: '资料分享', icon: 'fa-folder-open', color: 'bg-sky-50', iconColor: 'text-sky-600' },
+  broadband: { name: '教育网网费', icon: 'fa-wifi', color: 'bg-cyan-50', iconColor: 'text-cyan-600' },
+  sports_venue: { name: '运动场馆', icon: 'fa-futbol', color: 'bg-green-50', iconColor: 'text-green-600' },
   library: { name: '图书查询', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
+  resource_share: { name: '资源网盘', icon: 'fa-cloud', color: 'bg-blue-50', iconColor: 'text-blue-500' },
   campus_map: { name: '校园地图', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
   resource_share: { name: '资料分享', icon: 'fa-folder-open', color: 'bg-blue-50', iconColor: 'text-blue-600' },
   towergo: { name: '小塔出行', icon: 'fa-bicycle', color: 'bg-emerald-50', iconColor: 'text-emerald-600' },
@@ -952,8 +966,10 @@ const featureTabModules = computed(() => {
 const featureIconColors = {
   grades: 'bg-blue-500', classroom: 'bg-orange-400', exams: 'bg-teal-500',
   ranking: 'bg-yellow-500', calendar: 'bg-blue-500', school_inbox: 'bg-indigo-500', academic: 'bg-green-500',
-  qxzkb: 'bg-indigo-500', course_selection: 'bg-orange-500', training: 'bg-sky-400',
+  qxzkb: 'bg-indigo-500', course_selection: 'bg-orange-500', training: 'bg-sky-400', teaching_eval: 'bg-purple-500',
   campus_code: 'bg-teal-600', electricity: 'bg-red-500', transactions: 'bg-pink-500',
+  chaoxing_hub: 'bg-blue-600', chaoxing_inbox: 'bg-indigo-600', chaoxing_class: 'bg-sky-500',
+  broadband: 'bg-cyan-600', sports_venue: 'bg-green-600',
   library: 'bg-emerald-600', campus_map: 'bg-teal-500', resource_share: 'bg-blue-500',
   towergo: 'bg-emerald-500',
   ai: 'bg-gray-400'
@@ -962,9 +978,11 @@ const featureIconColors = {
 const featureIcons = {
   grades: 'fa-graduation-cap', classroom: 'fa-door-open', exams: 'fa-calendar-check',
   ranking: 'fa-chart-bar', calendar: 'fa-calendar-alt', school_inbox: 'fa-envelope', academic: 'fa-chart-line',
-  qxzkb: 'fa-table', course_selection: 'fa-tasks', training: 'fa-sitemap',
+  qxzkb: 'fa-table', course_selection: 'fa-tasks', training: 'fa-sitemap', teaching_eval: 'fa-star',
   campus_code: 'fa-qrcode', electricity: 'fa-bolt', transactions: 'fa-wallet',
-  library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-folder-open',
+  chaoxing_hub: 'fa-graduation-cap', chaoxing_inbox: 'fa-inbox', chaoxing_class: 'fa-folder-open',
+  broadband: 'fa-wifi', sports_venue: 'fa-futbol',
+  library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-cloud',
   towergo: 'fa-bicycle',
   ai: 'fa-robot'
 }
@@ -1492,22 +1510,25 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
       </div>
 
       <!-- All Features -->
-      <div class="bg-white rounded-2xl p-5 card-shadow">
-        <div class="flex items-center justify-between mb-6">
+      <div class="bg-white rounded-2xl p-5 card-shadow home-all-features">
+        <div class="home-all-features__head">
           <h3 class="font-bold text-lg text-gray-800">所有功能</h3>
-          <div class="flex overflow-x-auto whitespace-nowrap space-x-4">
-            <button
-              v-for="cat in moduleCategories"
-              :key="cat.title"
-              class="pb-1 px-1 text-sm font-medium transition-all"
-              :class="activeFeatureTab === cat.title ? 'font-bold text-blue-500 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'"
-              @click="setActiveFeatureTab(cat.title)"
-            >
-              {{ cat.title }}
-            </button>
-          </div>
         </div>
-        <div class="grid grid-cols-4 gap-y-6 gap-x-2">
+        <div class="home-feature-tabs" role="tablist" aria-label="功能分类">
+          <button
+            v-for="cat in moduleCategories"
+            :key="cat.title"
+            type="button"
+            class="home-feature-tab"
+            role="tab"
+            :aria-selected="activeFeatureTab === cat.title"
+            :class="activeFeatureTab === cat.title ? 'is-active' : ''"
+            @click="setActiveFeatureTab(cat.title)"
+          >
+            {{ cat.title }}
+          </button>
+        </div>
+        <div class="grid grid-cols-4 gap-y-6 gap-x-2 mt-4">
           <div
             v-for="mod in featureTabModules"
             :key="mod.id"
@@ -1856,5 +1877,47 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* 所有功能：标题独占一行，分类横向滑动，避免与标题挤在一起 */
+.home-all-features__head {
+  margin-bottom: 12px;
+}
+.home-feature-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+  max-width: 100%;
+}
+.home-feature-tabs::-webkit-scrollbar {
+  display: none;
+}
+.home-feature-tab {
+  flex: 0 0 auto;
+  max-width: 7.5rem;
+  scroll-snap-align: start;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.home-feature-tab.is-active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.25);
 }
 </style>

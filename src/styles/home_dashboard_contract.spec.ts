@@ -92,6 +92,9 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('persistHomeFeatureTab()')
     expect(source).toContain('navigateTo(moduleId)')
     expect(source).toContain('@click="setActiveFeatureTab(cat.title)"')
+    // 分类与「所有功能」分两行，横向滑动选择
+    expect(source).toContain('home-feature-tabs')
+    expect(source).toContain('home-feature-tab')
   })
 
   it('restores the home scroll position when returning from a module', () => {
@@ -100,8 +103,18 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('const homeScrollSnapshot = ref(0)')
     expect(source).toContain('const rememberHomeScrollPosition = ()')
     expect(source).toContain('const restoreHomeScrollPosition = ()')
-    expect(source).toContain('rememberHomeScrollPosition()')
+    expect(source).toContain('HOME_SCROLL_STORAGE_KEY')
+    expect(source).toContain('readStoredHomeScrollTop')
+    expect(source).toContain('returningHome')
     expect(source).toContain("goToView('home', { restoreScroll: true })")
     expect(source).toContain('recoverViewportAfterTransition({ scrollToTop: false')
+    // 系统返回键 / popstate：落地首页时必须 scrollToTop:false 并 restore，不可冲掉位置
+    // （非首页落地仍可用 scrollToTop:true 校正视口，故不能用跨语句贪心正则一刀切）
+    expect(source).toMatch(
+      /if \(currentView\.value !== 'home'\) \{\s*recoverViewportAfterTransition\(\{\s*scrollToTop:\s*true/
+    )
+    expect(source).toMatch(
+      /currentView\.value !== 'home'[\s\S]{0,200}?else \{\s*recoverViewportAfterTransition\(\{\s*scrollToTop:\s*false[\s\S]{0,120}?restoreHomeScrollPosition\(\)/
+    )
   })
 })

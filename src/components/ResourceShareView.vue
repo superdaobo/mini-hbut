@@ -1392,7 +1392,7 @@ watch(isViewerFullscreen, () => {
 
 <template>
   <div class="resource-share-view module-page">
-    <TPageHeader icon="folder_shared" title="资料分享" @back="emit('back')">
+    <TPageHeader icon="folder_shared" title="资源网盘" @back="emit('back')">
       <template #actions>
         <button class="header-btn" :disabled="loadingList || loadingConfig" @click="refreshCurrent">刷新</button>
       </template>

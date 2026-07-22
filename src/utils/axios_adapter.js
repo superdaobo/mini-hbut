@@ -978,6 +978,24 @@ const adapter = {
                 }
             }
 
+            // 成绩组成（提前匹配，避免旧构建漏路由）
+            if (
+                url.includes('/v2/chaoxing/course_score') ||
+                url.includes('chaoxing/course_score')
+            ) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/course_score', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_fetch_course_score', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
             if (url.includes('/v2/chaoxing/course_progress')) {
                 try {
                     const payloadData = { ...(data || {}) };
@@ -1100,6 +1118,20 @@ const adapter = {
                         return mockResponse(unwrapBridge(res));
                     }
                     const payload = await invoke('chaoxing_get_video_status', { req: payloadData });
+                    return mockResponse(payload);
+                } catch (err) {
+                    return mockResponse({ success: false, error: err.toString() });
+                }
+            }
+
+            if (url.includes('/v2/chaoxing/course_score')) {
+                try {
+                    const payloadData = { ...(data || {}) };
+                    if (!hasTauri) {
+                        const res = await bridgePost('/online_learning/chaoxing/course_score', payloadData);
+                        return mockResponse(unwrapBridge(res));
+                    }
+                    const payload = await invoke('chaoxing_fetch_course_score', { req: payloadData });
                     return mockResponse(payload);
                 } catch (err) {
                     return mockResponse({ success: false, error: err.toString() });

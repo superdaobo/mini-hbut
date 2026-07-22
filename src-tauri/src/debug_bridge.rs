@@ -58,7 +58,11 @@ pub struct DebugRuntimeConfig {
 impl Default for DebugRuntimeConfig {
     fn default() -> Self {
         Self {
-            enable_bridge_tools: false,
+            // 开发构建默认打开 bridge，方便本机抓日志/截图
+            enable_bridge_tools: cfg!(debug_assertions)
+                || std::env::var("HBUT_DEBUG_ENABLE_BRIDGE_TOOLS")
+                    .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                    .unwrap_or(false),
             enable_hot_update_framework: false,
         }
     }

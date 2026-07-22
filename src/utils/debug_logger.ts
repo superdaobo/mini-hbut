@@ -184,6 +184,85 @@ const loadStoredLogs = () => {
   }
 }
 
+let rustPollTimer: ReturnType<typeof setInterval> | null = null
+let lastRustLogId = 0
+/** 防止 pushDebugLog ↔ invoke 互相调用导致栈溢出白屏 */
+let rustBridgeBusy = false
+
+const isTauriWindow = () =>
+  typeof window !== 'undefined' &&
+  !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+
+/** 静默 invoke：不走 invokeNative，避免再打 pushDebugLog 形成死循环 */
+const invokeSilent = async <T = unknown>(
+  command: string,
+  args?: Record<string, unknown>
+): Promise<T | null> => {
+  if (!isTauriWindow()) return null
+  try {
+    const core = await import('@tauri-apps/api/core')
+    return await core.invoke<T>(command, args)
+  } catch {
+    return null
+  }
+}
+
+/** 拉取 Rust runtime_log，合并进前端调试窗 */
+export const pullRuntimeLogsFromRust = async () => {
+  if (typeof window === 'undefined' || rustBridgeBusy) return
+  rustBridgeBusy = true
+  try {
+    const res = (await invokeSilent('get_runtime_logs', {
+      limit: 200,
+      sinceId: lastRustLogId || undefined,
+      since_id: lastRustLogId || undefined
+    })) as {
+      logs?: Array<{
+        id?: number
+        ts?: number
+        level?: string
+        scope?: string
+        message?: string
+        details?: unknown
+      }>
+    } | null
+    if (!res) return
+    const logs = Array.isArray(res?.logs) ? res.logs : []
+    for (const item of logs) {
+      const id = Number(item.id || 0)
+      if (id > lastRustLogId) lastRustLogId = id
+      const level = (item.level || 'info') as DebugLevel
+      const scope = String(item.scope || 'Rust')
+      const message = String(item.message || '')
+      if (!message) continue
+      // 直接写入 records，避免再 echo 回 Rust
+      const record: DebugLogItem = {
+        id: `rust-${id || Date.now()}-${seq += 1}`,
+        ts: Number(item.ts) || Date.now(),
+        level: ['debug', 'info', 'warn', 'error', 'log'].includes(level) ? level : 'info',
+        scope,
+        message: `[${scope}] ${message}`,
+        details:
+          item.details !== undefined
+            ? asText(item.details)
+            : `[${scope}] ${message}`
+      }
+      records.push(record)
+    }
+    if (logs.length) {
+      if (records.length > MAX_MEMORY_LOGS) {
+        records = records.slice(records.length - MAX_MEMORY_LOGS)
+      }
+      persistLogs()
+      notifyListeners()
+    }
+  } catch {
+    // 非 Tauri / 命令未就绪时忽略
+  } finally {
+    rustBridgeBusy = false
+  }
+}
+
 export const initDebugLogger = () => {
   if (initialized || typeof window === 'undefined') return
   records = loadStoredLogs()
@@ -191,6 +270,12 @@ export const initDebugLogger = () => {
   patchFetch()
   initialized = true
   pushRecord('info', ['[Bootstrap] 调试日志模块已初始化'])
+  // 周期性同步 Rust 侧 runtime_log（含重登 / 课程中心 / 收件箱计时）
+  void pullRuntimeLogsFromRust()
+  if (rustPollTimer) clearInterval(rustPollTimer)
+  rustPollTimer = setInterval(() => {
+    void pullRuntimeLogsFromRust()
+  }, 2000)
 }
 
 export const pushDebugLog = (
@@ -202,6 +287,25 @@ export const pushDebugLog = (
   const prefix = `[${scope || 'APP'}] ${message || ''}`.trim()
   const payload = details === undefined ? [prefix] : [prefix, details]
   pushRecord(level, payload)
+
+  // 静默写入 Rust，禁止再走 invokeNative/pushDebugLog（否则会栈溢出白屏）
+  if (typeof window === 'undefined') return
+  if (rustBridgeBusy) return
+  // Native 管道日志不回传，避免环与噪音
+  if (String(scope || '') === 'Native') return
+
+  void (async () => {
+    try {
+      await invokeSilent('push_runtime_log', {
+        scope: scope || 'Frontend',
+        message: message || '',
+        level,
+        details: details === undefined ? null : details
+      })
+    } catch {
+      // ignore
+    }
+  })()
 }
 
 export const getDebugLogs = (limit = MAX_MEMORY_LOGS) => {

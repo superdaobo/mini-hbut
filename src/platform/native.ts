@@ -27,6 +27,14 @@ export const isTauriDesktopRuntime = () =>
 export const isTauriMobileRuntime = () =>
   isTauriRuntime() && (isLikelyIOSUserAgent() || isLikelyAndroidUserAgent())
 
+/** 调试管道命令：禁止再打 pushDebugLog，否则会与 runtime_log 形成死循环白屏 */
+const SILENT_NATIVE_COMMANDS = new Set([
+  'push_runtime_log',
+  'get_runtime_logs',
+  'clear_runtime_logs',
+  'get_runtime_diag'
+])
+
 /**
  * 统一的原生命令调用入口（当前仅 Tauri 支持 invoke）。
  */
@@ -34,10 +42,13 @@ export const invokeNative = async <T = unknown>(
   command: string,
   args?: InvokeArgs
 ): Promise<T> => {
+  const silent = SILENT_NATIVE_COMMANDS.has(command)
   if (isTestAccountSession()) {
     const testAccountResponse = resolveTestAccountNativeResponse(command, args)
     if (testAccountResponse !== null && testAccountResponse !== undefined) {
-      pushDebugLog('Native', `测试账号 invoke 命中演示数据：${command}`, 'debug', args)
+      if (!silent) {
+        pushDebugLog('Native', `测试账号 invoke 命中演示数据：${command}`, 'debug', args)
+      }
       return testAccountResponse as T
     }
     return {
@@ -47,18 +58,26 @@ export const invokeNative = async <T = unknown>(
     } as T
   }
   if (!isTauriRuntime()) {
-    pushDebugLog('Native', `invoke 调用被拒绝：${command}`, 'warn')
+    if (!silent) {
+      pushDebugLog('Native', `invoke 调用被拒绝：${command}`, 'warn')
+    }
     throw new Error(`当前运行时不支持 invoke: ${command}`)
   }
   const startedAt = Date.now()
-  pushDebugLog('Native', `invoke 开始：${command}`, 'debug', args)
+  if (!silent) {
+    pushDebugLog('Native', `invoke 开始：${command}`, 'debug', args)
+  }
   const core = await import('@tauri-apps/api/core')
   try {
     const result = await core.invoke<T>(command, args)
-    pushDebugLog('Native', `invoke 成功：${command} (${Date.now() - startedAt}ms)`, 'info')
+    if (!silent) {
+      pushDebugLog('Native', `invoke 成功：${command} (${Date.now() - startedAt}ms)`, 'info')
+    }
     return result
   } catch (error) {
-    pushDebugLog('Native', `invoke 失败：${command} (${Date.now() - startedAt}ms)`, 'error', error)
+    if (!silent) {
+      pushDebugLog('Native', `invoke 失败：${command} (${Date.now() - startedAt}ms)`, 'error', error)
+    }
     throw error
   }
 }

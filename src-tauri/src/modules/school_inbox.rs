@@ -8,8 +8,24 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const CHAOXING_NOTICE_LIST_URL: &str =
+/// 学习通收件箱列表（type=2 = 我收到的通知）
+/// 分页：响应 `data.notices.lastGetId`，下一页带 `&lastGetId=`
+const CHAOXING_NOTICE_LIST_BASE: &str =
     "https://notice.chaoxing.com/apis/other/getNoticeList?type=2&crossOrigin=true&pageSize=50";
+/// 最多翻页数（50×20=1000 条，覆盖常见历史）
+const CHAOXING_NOTICE_MAX_PAGES: usize = 20;
+/// 首次/缓存未命中时先拉的页数，避免每次进收件箱等很久
+const CHAOXING_NOTICE_FAST_PAGES: usize = 3;
+/// 内存缓存 TTL（秒）
+const INBOX_CACHE_TTL_SECS: i64 = 180;
+
+static INBOX_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<Option<(i64, String, SchoolInboxResponse)>>,
+> = std::sync::OnceLock::new();
+
+fn inbox_cache() -> &'static std::sync::Mutex<Option<(i64, String, SchoolInboxResponse)>> {
+    INBOX_CACHE.get_or_init(|| std::sync::Mutex::new(None))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -315,54 +331,162 @@ async fn fetch_portal_inbox(client: &HbutClient) -> Result<Vec<SchoolInboxItem>,
 async fn fetch_chaoxing_inbox(
     client: &mut HbutClient,
     student_id: &str,
+    max_pages: usize,
 ) -> Result<Vec<SchoolInboxItem>, String> {
+    let timer = crate::runtime_log::ScopedTimer::start("ChaoxingInbox", "fetch_list");
+    crate::hbut_session_log!(
+        "ChaoxingInbox",
+        "开始拉取收件箱 student_id={} max_pages={}",
+        student_id,
+        max_pages
+    );
     if !online_learning::ensure_chaoxing_session_for_checkin(client, student_id).await {
+        timer.fail("学习通会话未就绪");
         return Err("学习通会话未就绪，请重新登录".into());
     }
+    crate::hbut_session_log!("ChaoxingInbox", "会话就绪，开始分页拉取");
 
-    let response = client
-        .http_client()
-        .get(CHAOXING_NOTICE_LIST_URL)
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Referer", "https://i.chaoxing.com/")
-        .send()
-        .await
-        .map_err(|e| format!("学习通通知请求失败: {e}"))?;
+    let mut all: Vec<SchoolInboxItem> = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut last_get_id: Option<String> = None;
+    let pages = max_pages.clamp(1, CHAOXING_NOTICE_MAX_PAGES);
 
-    if !response.status().is_success() {
-        return Err(format!("学习通通知 HTTP {}", response.status()));
+    for page in 0..pages {
+        let url = match &last_get_id {
+            Some(id) if !id.is_empty() => {
+                format!("{CHAOXING_NOTICE_LIST_BASE}&lastGetId={id}")
+            }
+            _ => CHAOXING_NOTICE_LIST_BASE.to_string(),
+        };
+
+        let response = match client
+            .http_client()
+            .get(&url)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "https://i.chaoxing.com/")
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                timer.fail(format!("请求失败: {e}"));
+                return Err(format!("学习通通知请求失败: {e}"));
+            }
+        };
+
+        if !response.status().is_success() {
+            let st = response.status();
+            timer.fail(format!("HTTP {st}"));
+            return Err(format!("学习通通知 HTTP {st}"));
+        }
+
+        let text = response
+            .text()
+            .await
+            .map_err(|e| format!("学习通通知响应读取失败: {e}"))?;
+        let payload: Value =
+            serde_json::from_str(&text).map_err(|e| format!("学习通通知 JSON 解析失败: {e}"))?;
+
+        let result = json_string(payload.get("result"));
+        if result != "1" {
+            let msg = json_string(payload.get("msg"));
+            // 第一页失败才算错；后续页失败则返回已抓到的历史
+            if all.is_empty() {
+                timer.fail(if msg.is_empty() {
+                    "学习通通知接口返回失败".into()
+                } else {
+                    msg.clone()
+                });
+                return Err(if msg.is_empty() {
+                    "学习通通知接口返回失败".into()
+                } else {
+                    msg
+                });
+            }
+            break;
+        }
+
+        let page_items = parse_chaoxing_notice_payload(&payload);
+        crate::hbut_session_log!(
+            "ChaoxingInbox",
+            "第 {} 页解析 {} 条",
+            page + 1,
+            page_items.len()
+        );
+        if page_items.is_empty() {
+            break;
+        }
+
+        let mut new_count = 0usize;
+        for item in page_items {
+            if seen_ids.insert(item.id.clone()) {
+                all.push(item);
+                new_count += 1;
+            }
+        }
+        if new_count == 0 {
+            break;
+        }
+
+        // 官方分页游标
+        let next = json_string(payload.pointer("/data/notices/lastGetId"));
+        if next.is_empty() || last_get_id.as_ref() == Some(&next) {
+            break;
+        }
+        last_get_id = Some(next);
     }
 
-    let text = response
-        .text()
-        .await
-        .map_err(|e| format!("学习通通知响应读取失败: {e}"))?;
-    let payload: Value =
-        serde_json::from_str(&text).map_err(|e| format!("学习通通知 JSON 解析失败: {e}"))?;
-
-    let result = json_string(payload.get("result"));
-    if result != "1" {
-        let msg = json_string(payload.get("msg"));
-        return Err(if msg.is_empty() {
-            "学习通通知接口返回失败".into()
-        } else {
-            msg
-        });
-    }
-
-    Ok(parse_chaoxing_notice_payload(&payload))
+    timer.finish(Some(serde_json::json!({
+        "count": all.len(),
+        "pages": pages
+    })));
+    Ok(all)
 }
 
 /// 按登录方式抓取学校消息中心并归一化。
+/// `force=true` 时忽略短时缓存并尽量拉全页。
 pub async fn fetch_school_inbox(
     client: &mut HbutClient,
     login_mode: &str,
 ) -> Result<SchoolInboxResponse, String> {
+    fetch_school_inbox_ex(client, login_mode, false).await
+}
+
+pub async fn fetch_school_inbox_ex(
+    client: &mut HbutClient,
+    login_mode: &str,
+    force: bool,
+) -> Result<SchoolInboxResponse, String> {
     let use_chaoxing = is_chaoxing_login_mode(login_mode);
     client.set_chaoxing_login_mode(use_chaoxing);
+    let source = if use_chaoxing { "chaoxing" } else { "portal" };
+    let cache_key = format!(
+        "{source}:{}",
+        client
+            .user_info
+            .as_ref()
+            .map(|u| u.student_id.as_str())
+            .unwrap_or("-")
+    );
+
+    if !force {
+        if let Ok(guard) = inbox_cache().lock() {
+            if let Some((ts, key, cached)) = guard.as_ref() {
+                let age = Local::now().timestamp() - *ts;
+                if key == &cache_key && age >= 0 && age < INBOX_CACHE_TTL_SECS {
+                    crate::hbut_session_log!(
+                        "SchoolInbox",
+                        "命中内存缓存 age={}s count={}",
+                        age,
+                        cached.items.len()
+                    );
+                    return Ok(cached.clone());
+                }
+            }
+        }
+    }
 
     let fetched_at = Local::now().to_rfc3339();
-    let source = if use_chaoxing { "chaoxing" } else { "portal" };
 
     let items = if use_chaoxing {
         let sid = client
@@ -373,17 +497,26 @@ pub async fn fetch_school_inbox(
         if sid.trim().is_empty() {
             return Err("缺少学号，无法检查学习通消息".into());
         }
-        fetch_chaoxing_inbox(client, &sid).await?
+        let pages = if force {
+            CHAOXING_NOTICE_MAX_PAGES
+        } else {
+            CHAOXING_NOTICE_FAST_PAGES
+        };
+        fetch_chaoxing_inbox(client, &sid, pages).await?
     } else {
         fetch_portal_inbox(client).await?
     };
 
-    Ok(SchoolInboxResponse {
+    let resp = SchoolInboxResponse {
         items,
         fetched_at,
         source: source.to_string(),
         error: None,
-    })
+    };
+    if let Ok(mut guard) = inbox_cache().lock() {
+        *guard = Some((Local::now().timestamp(), cache_key, resp.clone()));
+    }
+    Ok(resp)
 }
 
 async fn fetch_portal_detail_body(client: &HbutClient, raw_id: &str) -> Result<String, String> {
