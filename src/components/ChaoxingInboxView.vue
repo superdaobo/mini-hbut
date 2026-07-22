@@ -9,6 +9,7 @@ import { openExternal } from '../utils/external_link'
 import { formatRelativeTime } from '../utils/time.js'
 import { buildSchoolInboxDetailHtml } from '../utils/school_inbox_content.js'
 import { showToast } from '../utils/toast'
+import { pushDebugLog } from '../utils/debug_logger'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -49,9 +50,11 @@ const formatItemTime = (value) => {
   return formatRelativeTime(new Date(parsed).toISOString()) || text
 }
 
-const fetchList = async () => {
+const fetchList = async ({ force = false } = {}) => {
   loading.value = true
   error.value = ''
+  const t0 = Date.now()
+  pushDebugLog('ChaoxingInbox', `加载收件箱 force=${force}`, 'info')
   try {
     if (!isTauriRuntime()) {
       throw new Error('请在客户端内使用学习通收件箱')
@@ -59,7 +62,8 @@ const fetchList = async () => {
     // 强制 chaoxing：不要用 localStorage 的 portal，否则后端只拉教务通知
     const res = await invokeNative('school_inbox_fetch', {
       loginMode: CHAOXING_LOGIN_MODE,
-      login_mode: CHAOXING_LOGIN_MODE
+      login_mode: CHAOXING_LOGIN_MODE,
+      force
     })
     const raw = Array.isArray(res?.items) ? res.items : []
     items.value = raw
@@ -68,8 +72,14 @@ const fetchList = async () => {
     if (!items.value.length && res?.error) {
       error.value = String(res.error)
     }
+    pushDebugLog(
+      'ChaoxingInbox',
+      `收件箱完成 count=${items.value.length} (${Date.now() - t0}ms)`,
+      'info'
+    )
   } catch (e) {
     error.value = String(e?.message || e || '加载失败')
+    pushDebugLog('ChaoxingInbox', `收件箱失败: ${error.value}`, 'error')
   } finally {
     loading.value = false
   }
@@ -166,7 +176,12 @@ onMounted(fetchList)
       @back="selected ? closeDetail() : emit('back')"
     >
       <template #actions>
-        <button type="button" class="cx-inbox-btn ghost" :disabled="loading" @click="fetchList">
+        <button
+          type="button"
+          class="cx-inbox-btn ghost"
+          :disabled="loading"
+          @click="fetchList({ force: true })"
+        >
           {{ loading ? '刷新中' : '刷新' }}
         </button>
       </template>

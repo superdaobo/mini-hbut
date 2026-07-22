@@ -7,6 +7,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
+import { pushDebugLog } from '../utils/debug_logger'
 import { TPageHeader, TEmptyState, TStatusBadge } from './templates'
 
 const props = defineProps({
@@ -265,20 +266,32 @@ const cxInvoke = async (cmd, body = {}) => {
   return invokeNative(cmd, { req: raw })
 }
 
-const loadList = async ({ silent = false } = {}) => {
+const loadList = async ({ silent = false, force = false } = {}) => {
   if (!silent) loading.value = true
   else refreshing.value = true
   error.value = ''
+  const t0 = Date.now()
+  // 首次进入 force=false 走后端缓存；显式刷新 force=true
+  const doForce = force || false
+  pushDebugLog('ChaoxingHub', `加载课程列表 silent=${silent} force=${doForce}`, 'info')
   try {
-    const [statusRes, courseRes] = await Promise.all([
-      cxInvoke('chaoxing_get_session_status', {}),
-      cxInvoke('chaoxing_fetch_courses', { force: !!silent })
-    ])
-    if (statusRes?.success === false) throw new Error(statusRes?.error || '会话失败')
+    // 列表优先拉课程（可缓存）；会话状态并行，不阻塞有缓存时的首屏
+    const coursePromise = cxInvoke('chaoxing_fetch_courses', { force: doForce })
+    const statusPromise = cxInvoke('chaoxing_get_session_status', {}).catch((e) => ({
+      success: false,
+      error: String(e?.message || e)
+    }))
+    const [courseRes, statusRes] = await Promise.all([coursePromise, statusPromise])
     if (courseRes?.success === false) throw new Error(courseRes?.error || '课程列表失败')
     statusMeta.value = statusRes || {}
     const list = Array.isArray(courseRes?.courses) ? courseRes.courses : []
     courses.value = list.map(normalizeCourse).filter((c) => c.courseId && c.clazzId)
+    pushDebugLog(
+      'ChaoxingHub',
+      `课程列表完成 count=${courses.value.length} from_cache=${!!courseRes?.from_cache} (${Date.now() - t0}ms)`,
+      'info',
+      { sync_time: courseRes?.sync_time, platform_status: courseRes?.platform_status }
+    )
 
     const fromApi = Array.isArray(courseRes?.semesters)
       ? courseRes.semesters.map((s) => safeText(s)).filter(Boolean)
@@ -599,7 +612,7 @@ onMounted(() => {
           class="ghost-btn"
           type="button"
           :disabled="refreshing || loading"
-          @click="loadList({ silent: true })"
+          @click="loadList({ silent: true, force: true })"
         >
           {{ refreshing ? '…' : '刷新' }}
         </button>

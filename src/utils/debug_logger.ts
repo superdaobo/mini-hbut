@@ -184,6 +184,63 @@ const loadStoredLogs = () => {
   }
 }
 
+let rustPollTimer: ReturnType<typeof setInterval> | null = null
+let lastRustLogId = 0
+
+/** 拉取 Rust runtime_log，合并进前端调试窗 */
+export const pullRuntimeLogsFromRust = async () => {
+  if (typeof window === 'undefined') return
+  try {
+    const { isTauriRuntime, invokeNative } = await import('../platform/native')
+    if (!isTauriRuntime()) return
+    const res = (await invokeNative('get_runtime_logs', {
+      limit: 200,
+      sinceId: lastRustLogId || undefined,
+      since_id: lastRustLogId || undefined
+    })) as {
+      logs?: Array<{
+        id?: number
+        ts?: number
+        level?: string
+        scope?: string
+        message?: string
+        details?: unknown
+      }>
+    }
+    const logs = Array.isArray(res?.logs) ? res.logs : []
+    for (const item of logs) {
+      const id = Number(item.id || 0)
+      if (id > lastRustLogId) lastRustLogId = id
+      const level = (item.level || 'info') as DebugLevel
+      const scope = String(item.scope || 'Rust')
+      const message = String(item.message || '')
+      if (!message) continue
+      // 直接写入 records，避免再 echo 回 Rust
+      const record: DebugLogItem = {
+        id: `rust-${id || Date.now()}-${seq += 1}`,
+        ts: Number(item.ts) || Date.now(),
+        level: ['debug', 'info', 'warn', 'error', 'log'].includes(level) ? level : 'info',
+        scope,
+        message: `[${scope}] ${message}`,
+        details:
+          item.details !== undefined
+            ? asText(item.details)
+            : `[${scope}] ${message}`
+      }
+      records.push(record)
+    }
+    if (logs.length) {
+      if (records.length > MAX_MEMORY_LOGS) {
+        records = records.slice(records.length - MAX_MEMORY_LOGS)
+      }
+      persistLogs()
+      notifyListeners()
+    }
+  } catch {
+    // 非 Tauri / 命令未就绪时忽略
+  }
+}
+
 export const initDebugLogger = () => {
   if (initialized || typeof window === 'undefined') return
   records = loadStoredLogs()
@@ -191,6 +248,12 @@ export const initDebugLogger = () => {
   patchFetch()
   initialized = true
   pushRecord('info', ['[Bootstrap] 调试日志模块已初始化'])
+  // 周期性同步 Rust 侧 runtime_log（含重登 / 课程中心 / 收件箱计时）
+  void pullRuntimeLogsFromRust()
+  if (rustPollTimer) clearInterval(rustPollTimer)
+  rustPollTimer = setInterval(() => {
+    void pullRuntimeLogsFromRust()
+  }, 2000)
 }
 
 export const pushDebugLog = (
@@ -202,6 +265,23 @@ export const pushDebugLog = (
   const prefix = `[${scope || 'APP'}] ${message || ''}`.trim()
   const payload = details === undefined ? [prefix] : [prefix, details]
   pushRecord(level, payload)
+  // 同步写入 Rust runtime_log，便于 HTTP bridge 统一拉取
+  if (typeof window !== 'undefined') {
+    void (async () => {
+      try {
+        const { isTauriRuntime, invokeNative } = await import('../platform/native')
+        if (!isTauriRuntime()) return
+        await invokeNative('push_runtime_log', {
+          scope: scope || 'Frontend',
+          message: message || '',
+          level,
+          details: details === undefined ? null : details
+        })
+      } catch {
+        // ignore
+      }
+    })()
+  }
 }
 
 export const getDebugLogs = (limit = MAX_MEMORY_LOGS) => {

@@ -696,45 +696,70 @@ async fn try_chaoxing_password_login(
 }
 
 async fn ensure_chaoxing_session_ready(client: &mut HbutClient, student_id: &str) -> bool {
+    let timer = crate::runtime_log::ScopedTimer::start("ChaoxingSession", "ensure_session_ready");
+    crate::hbut_session_log!(
+        "ChaoxingSession",
+        "开始确保学习通会话 student_id={}",
+        student_id
+    );
     try_restore_chaoxing_session(client, student_id);
     if !has_chaoxing_full_session(client) {
         let _ = seed_chaoxing_cookie_from_jwxt(client);
     }
     if check_chaoxing_course_api_ready(client).await {
+        crate::hbut_session_log!("ChaoxingSession", "会话已就绪（API 探测通过）");
+        timer.finish(Some(json!({ "path": "already_ready" })));
         return true;
     }
+    crate::hbut_session_log!("ChaoxingSession", "API 未就绪，尝试补票/桥接/重登…");
     if has_chaoxing_full_session(client) {
+        crate::hbut_session_log!("ChaoxingSession", "有完整 cookie，ensure_chaoxing_academic_session");
         let _ = client.ensure_chaoxing_academic_session().await;
         if check_chaoxing_course_api_ready(client).await {
+            crate::hbut_session_log!("ChaoxingSession", "补票后 API 就绪");
+            timer.finish(Some(json!({ "path": "academic_session" })));
             return true;
         }
     } else if has_chaoxing_bridge_cookie(client) {
+        crate::hbut_session_log!("ChaoxingSession", "仅有教务桥接 cookie，补票中");
         // 仅有教务域 Cookie 时，先执行一次补票，再继续走 CAS 重建。
         let _ = client.ensure_chaoxing_academic_session().await;
         if check_chaoxing_course_api_ready(client).await {
+            crate::hbut_session_log!("ChaoxingSession", "教务桥接补票成功");
+            timer.finish(Some(json!({ "path": "bridge_cookie" })));
             return true;
         }
     }
 
     if client.is_logged_in && client.try_bridge_cas_to_chaoxing().await {
+        crate::hbut_session_log!("ChaoxingSession", "CAS→学习通桥接返回 true，探测 API");
         // 桥接后先直接检查 API —— FYSSO 链已设置 .chaoxing.com 域 UID cookie，
         // 可能不需要 ensure_chaoxing_academic_session（该函数会访问 i.chaoxing.com/base，
         // 在 FYSSO 桥接模式下 i.chaoxing.com 不识别会话会重定向到 passport2 登录页，
         // 可能反而清除好的 cookie）
         if check_chaoxing_course_api_ready(client).await {
+            crate::hbut_session_log!("ChaoxingSession", "CAS 桥接后 API 就绪");
+            timer.finish(Some(json!({ "path": "cas_bridge" })));
             return true;
         }
         let _ = client.ensure_chaoxing_academic_session().await;
         if check_chaoxing_course_api_ready(client).await {
+            crate::hbut_session_log!("ChaoxingSession", "CAS 桥接+补票后 API 就绪");
+            timer.finish(Some(json!({ "path": "cas_bridge_academic" })));
             return true;
         }
     }
 
     if ensure_portal_cas_session_ready(client, student_id).await {
-        println!("[调试] 学习通会话重建：融合门户 CAS 会话可用，重试 CAS→学习通桥接");
+        crate::hbut_session_log!(
+            "ChaoxingSession",
+            "融合门户 CAS 会话可用，重试 CAS→学习通桥接（重新登录路径）"
+        );
         if client.try_bridge_cas_to_chaoxing().await {
             let _ = client.ensure_chaoxing_academic_session().await;
             if check_chaoxing_course_api_ready(client).await {
+                crate::hbut_session_log!("ChaoxingSession", "门户 CAS 重登桥接成功");
+                timer.finish(Some(json!({ "path": "portal_cas_relogin" })));
                 return true;
             }
         }
@@ -742,19 +767,31 @@ async fn ensure_chaoxing_session_ready(client: &mut HbutClient, student_id: &str
 
     let password = resolve_student_password(client, student_id).unwrap_or_default();
 
-    println!("[调试] 学习通会话重建：尝试学习通账号密码补全票据");
+    crate::hbut_session_log!("ChaoxingSession", "尝试学习通账号密码补全票据（静默重登）");
     if password.trim().is_empty() {
-        println!("[调试] 学习通会话重建：缺少本地密码，无法执行学习通账号密码补全");
-        return check_chaoxing_course_api_ready(client).await;
+        crate::hbut_session_log!(
+            "ChaoxingSession",
+            "缺少本地密码，无法执行学习通账号密码补全"
+        );
+        let ok = check_chaoxing_course_api_ready(client).await;
+        timer.finish(Some(json!({ "path": "no_password", "ready": ok })));
+        return ok;
     }
     match try_chaoxing_password_login(client, student_id, &password).await {
         Ok(_) => {
-            println!("[调试] 学习通会话重建：学习通账号密码补全成功");
+            crate::hbut_session_log!("ChaoxingSession", "学习通账号密码补全成功（已重新登录）");
+            timer.finish(Some(json!({ "path": "password_relogin", "ok": true })));
             true
         }
         Err(e) => {
-            println!("[调试] 学习通会话重建：学习通账号密码补全失败: {}", e);
-            check_chaoxing_course_api_ready(client).await
+            crate::hbut_session_log!(
+                "ChaoxingSession",
+                "学习通账号密码补全失败: {}",
+                e
+            );
+            let ok = check_chaoxing_course_api_ready(client).await;
+            timer.finish(Some(json!({ "path": "password_relogin", "ok": false, "ready": ok })));
+            ok
         }
     }
 }
@@ -2041,49 +2078,43 @@ pub async fn chaoxing_fetch_courses(
     student_id: Option<&str>,
     force: bool,
 ) -> Result<Value, DynError> {
+    let timer = crate::runtime_log::ScopedTimer::start("ChaoxingCourses", "fetch_courses");
     let sid = resolve_student_id(client, student_id)?;
-    let session_ready = ensure_chaoxing_session_ready(client, &sid).await;
     let cache_id = cache_key(&sid, "courses");
+
+    // 优先读缓存：避免每次进课程中心都走 ensure_session + 远程拉取
     if !force {
         if let Some((cached, sync_time)) = read_cache(CACHE_CHAOXING_COURSES, &cache_id) {
-            if chaoxing_course_progress_ready(&cached) {
+            let count = cached
+                .get("courses")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            if count > 0 {
+                crate::hbut_session_log!(
+                    "ChaoxingCourses",
+                    "命中缓存 {} 门课 force=false，跳过会话探测与远程拉取",
+                    count
+                );
+                timer.finish(Some(json!({ "from_cache": true, "count": count })));
                 return Ok(crate::attach_sync_time(cached, &sync_time, true));
             }
-            if !session_ready {
-                let cached_courses = cached
-                    .get("courses")
-                    .and_then(|v| v.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-                let (courses, pending_count) = enrich_chaoxing_courses_with_progress(
-                    client,
-                    &sid,
-                    cached_courses,
-                    false,
-                    false,
-                )
-                .await;
-                let refreshed = json!({
-                    "success": true,
-                    "courses": courses,
-                    "pending_count": pending_count,
-                    "platform_status": cached
-                        .get("platform_status")
-                        .cloned()
-                        .unwrap_or_else(|| json!({
-                            "platform": PLATFORM_CHAOXING,
-                            "connected": false,
-                            "status": if has_chaoxing_bridge_cookie(client) { "票据待补全" } else { "未连接" },
-                            "offline": true,
-                            "message": "已加载缓存课程数据"
-                        }))
-                });
-                save_cache(CACHE_CHAOXING_COURSES, &cache_id, &refreshed);
-                return Ok(crate::attach_sync_time(refreshed, &sync_time, true));
-            }
         }
+    } else {
+        crate::hbut_session_log!("ChaoxingCourses", "强制刷新 force=true");
     }
+
+    let session_ready = ensure_chaoxing_session_ready(client, &sid).await;
     if !session_ready {
+        if let Some((cached, sync_time)) = read_cache(CACHE_CHAOXING_COURSES, &cache_id) {
+            crate::hbut_session_log!(
+                "ChaoxingCourses",
+                "会话未就绪，回退缓存课程"
+            );
+            timer.finish(Some(json!({ "from_cache": true, "session_ready": false })));
+            return Ok(crate::attach_sync_time(cached, &sync_time, true));
+        }
+        timer.finish(Some(json!({ "session_ready": false, "empty": true })));
         return Ok(json!({
             "success": true,
             "courses": [],
@@ -2114,6 +2145,7 @@ pub async fn chaoxing_fetch_courses(
             let enriched = json!({
                 "success": true,
                 "courses": courses,
+                "semesters": payload.get("semesters").cloned().unwrap_or(json!([])),
                 "pending_count": pending_count,
                 "platform_status": {
                     "platform": PLATFORM_CHAOXING,
@@ -2124,6 +2156,13 @@ pub async fn chaoxing_fetch_courses(
                 }
             });
             save_cache(CACHE_CHAOXING_COURSES, &cache_id, &enriched);
+            crate::hbut_session_log!(
+                "ChaoxingCourses",
+                "远程拉取完成 count={} pending={}",
+                courses.len(),
+                pending_count
+            );
+            timer.finish(Some(json!({ "from_cache": false, "count": courses.len() })));
             let display_name = client
                 .user_info
                 .as_ref()
@@ -2143,9 +2182,12 @@ pub async fn chaoxing_fetch_courses(
             Ok(crate::attach_sync_time(enriched, &now_sync_time(), false))
         }
         Err(error) => {
+            crate::hbut_session_log!("ChaoxingCourses", "远程拉取失败: {}", error);
             if let Some((cached, sync_time)) = read_cache(CACHE_CHAOXING_COURSES, &cache_id) {
+                timer.finish(Some(json!({ "from_cache": true, "remote_error": true })));
                 return Ok(crate::attach_sync_time(cached, &sync_time, true));
             }
+            timer.fail(error.to_string());
             Err(error)
         }
     }
