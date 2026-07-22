@@ -177,20 +177,30 @@ const activeVideoSrc = computed(() => {
   return urls[Math.min(videoSrcIndex.value, urls.length - 1)] || ''
 })
 
-/** 统一 invoke：直接走 Tauri 命令，绕过 axios 适配器漏路由问题 */
+/**
+ * 统一 invoke：只传 snake_case 字段。
+ * 切勿同时传 clazz_id + clazzId：Rust #[serde(alias)] 会报 duplicate field。
+ */
 const cxInvoke = async (cmd, body = {}) => {
   if (!isTauriRuntime()) throw new Error('请在客户端内使用')
-  const payload = {
-    student_id: props.studentId || '',
-    ...body
+  const raw = { student_id: props.studentId || '', ...body }
+  // 规范化：camelCase → snake_case，并删除 camel 别名，避免重复键
+  const map = [
+    ['courseId', 'course_id'],
+    ['clazzId', 'clazz_id'],
+    ['classId', 'clazz_id'],
+    ['knowledgeId', 'knowledge_id'],
+    ['objectId', 'object_id'],
+    ['courseUrl', 'course_url'],
+    ['studentId', 'student_id']
+  ]
+  for (const [camel, snake] of map) {
+    if (raw[camel] != null && (raw[snake] == null || raw[snake] === '')) {
+      raw[snake] = raw[camel]
+    }
+    delete raw[camel]
   }
-  // 同时提供 camelCase，兼容不同反序列化配置
-  if (payload.course_id != null && payload.courseId == null) payload.courseId = payload.course_id
-  if (payload.clazz_id != null && payload.clazzId == null) payload.clazzId = payload.clazz_id
-  if (payload.knowledge_id != null && payload.knowledgeId == null)
-    payload.knowledgeId = payload.knowledge_id
-  if (payload.object_id != null && payload.objectId == null) payload.objectId = payload.object_id
-  return invokeNative(cmd, { req: payload })
+  return invokeNative(cmd, { req: raw })
 }
 
 const loadList = async ({ silent = false } = {}) => {
@@ -237,15 +247,16 @@ const jumpTo = (index) => {
   videoSrcIndex.value = 0
 }
 
-const openCourse = async (course) => {
+const openCourse = async (course, { force = false } = {}) => {
   pageLoading.value = true
   try {
+    // 默认走缓存；仅点「刷新章节」时 force
     const outlineRes = await cxInvoke('chaoxing_fetch_course_outline', {
       course_id: course.courseId,
       clazz_id: course.clazzId,
       cpi: course.cpi || '',
       course_url: course.courseUrl || '',
-      force: true
+      force: !!force
     })
     if (outlineRes?.success === false) throw new Error(outlineRes?.error || '大纲失败')
 
@@ -255,19 +266,11 @@ const openCourse = async (course) => {
     }
     const sections = sectionList.map(normalizeSection).filter((s) => s.knowledges.length || s.title)
 
-    const progressRes = await cxInvoke('chaoxing_fetch_course_progress', {
-      course_id: course.courseId,
-      clazz_id: course.clazzId,
-      cpi: course.cpi || '',
-      course_url: course.courseUrl || '',
-      force: true
-    }).catch(() => ({}))
-
     const frame = {
       level: 'course',
       course,
       sections,
-      progress: progressRes || {}
+      progress: {}
     }
     // 刷新时替换当前课程层，避免栈叠加
     if (current.value.level === 'course') {
@@ -276,6 +279,23 @@ const openCourse = async (course) => {
     } else {
       push(frame)
     }
+
+    // 进度后台拉取，不阻塞进入章列表
+    void cxInvoke('chaoxing_fetch_course_progress', {
+      course_id: course.courseId,
+      clazz_id: course.clazzId,
+      cpi: course.cpi || '',
+      course_url: course.courseUrl || '',
+      force: false
+    })
+      .then((progressRes) => {
+        const top = stack.value[stack.value.length - 1]
+        if (top?.level === 'course' && top.course?.courseId === course.courseId) {
+          top.progress = progressRes || {}
+          stack.value = [...stack.value.slice(0, -1), { ...top }]
+        }
+      })
+      .catch(() => {})
   } catch (e) {
     showToast(safeText(e?.message || e) || '打开课程失败')
   } finally {
@@ -341,9 +361,10 @@ const openScore = async (course) => {
     }
   } catch (e) {
     const msg = safeText(e?.message || e) || '成绩加载失败'
-    // 兼容旧错误文案
-    if (msg.includes('Unknown POST endpoint') || msg.includes('course_score')) {
-      showToast('成绩接口未就绪，请完全退出应用后重新打开（需新版后端）')
+    if (msg.includes('Unknown POST endpoint')) {
+      showToast('成绩接口未就绪，请完全退出应用后重新打开')
+    } else if (msg.includes('duplicate field')) {
+      showToast('参数冲突已修复，请完全重启应用后再试')
     } else {
       showToast(msg)
     }
@@ -577,16 +598,25 @@ onMounted(() => {
       <!-- 2. 课程 → 章列表 -->
       <template v-else-if="current.level === 'course'">
         <section class="panel course-head">
-          <strong>{{ current.course.title }}</strong>
-          <p>{{ current.course.teacher }}</p>
+          <div class="course-head__top">
+            <div class="course-head__meta">
+              <span class="pill">章节目录</span>
+              <strong>{{ current.course.title }}</strong>
+              <p>{{ current.course.teacher || '教师暂缺' }}</p>
+            </div>
+          </div>
           <div class="btn-row">
             <button type="button" class="chip-btn" @click="openScore(current.course)">
               <span class="material-symbols-outlined">grade</span>
               成绩组成
             </button>
-            <button type="button" class="chip-btn ghost" @click="openCourse(current.course)">
+            <button
+              type="button"
+              class="chip-btn ghost"
+              @click="openCourse(current.course, { force: true })"
+            >
               <span class="material-symbols-outlined">refresh</span>
-              刷新章节
+              刷新
             </button>
           </div>
           <p v-if="current.progress?.progress_text" class="hint">
@@ -594,9 +624,9 @@ onMounted(() => {
           </p>
         </section>
 
-        <div class="level-tag">
-          <span class="material-symbols-outlined">account_tree</span>
-          选择章节（共 {{ current.sections?.length || 0 }} 章）
+        <div class="section-head">
+          <span class="section-head__title">全部章节</span>
+          <span class="section-head__count">{{ current.sections?.length || 0 }} 章</span>
         </div>
 
         <TEmptyState
@@ -605,98 +635,129 @@ onMounted(() => {
           message="暂无章节，请点刷新或检查学习通会话"
         />
 
-        <button
-          v-for="(sec, sIdx) in current.sections"
-          :key="sec.id || sIdx"
-          type="button"
-          class="row-card menu"
-          @click="openSection(current.course, sec)"
-        >
-          <div class="icon-box blue">
-            <span class="idx">{{ sIdx + 1 }}</span>
-          </div>
-          <div class="row-main">
-            <strong>{{ sec.title }}</strong>
-            <p>{{ sec.knowledges.length }} 个小节 · 点进查看</p>
-          </div>
-          <span class="material-symbols-outlined chev">chevron_right</span>
-        </button>
+        <div class="menu-list">
+          <button
+            v-for="(sec, sIdx) in current.sections"
+            :key="sec.id || sIdx"
+            type="button"
+            class="menu-item"
+            @click="openSection(current.course, sec)"
+          >
+            <div class="menu-item__rail">
+              <span class="menu-item__num">{{ String(sIdx + 1).padStart(2, '0') }}</span>
+              <i v-if="sIdx < (current.sections?.length || 0) - 1" class="menu-item__line" />
+            </div>
+            <div class="menu-item__body">
+              <strong>{{ sec.title }}</strong>
+              <div class="menu-item__meta">
+                <span class="dot">{{ sec.knowledges.length }} 个小节</span>
+                <span class="dot soft">继续学习</span>
+              </div>
+            </div>
+            <span class="material-symbols-outlined menu-item__chev">chevron_right</span>
+          </button>
+        </div>
       </template>
 
       <!-- 3. 章 → 小节列表 -->
       <template v-else-if="current.level === 'section'">
-        <div class="level-tag">
-          <span class="material-symbols-outlined">list_alt</span>
-          {{ current.section?.title }} · 选择小节
+        <section class="panel soft-panel">
+          <span class="pill slate">当前章节</span>
+          <strong class="soft-panel__title">{{ current.section?.title }}</strong>
+          <p class="hint">选择小节进入任务点</p>
+        </section>
+
+        <div class="section-head">
+          <span class="section-head__title">小节列表</span>
+          <span class="section-head__count">{{ current.section?.knowledges?.length || 0 }}</span>
         </div>
+
         <TEmptyState
           v-if="!current.section.knowledges?.length"
           type="empty"
           message="该章暂无小节"
         />
-        <button
-          v-for="(k, kIdx) in current.section.knowledges"
-          :key="k.id || kIdx"
-          type="button"
-          class="row-card menu"
-          @click="openKnowledge(current.course, current.section, k)"
-        >
-          <div class="icon-box" :class="k.completed ? 'green' : 'slate'">
-            <span class="material-symbols-outlined">
-              {{ k.completed ? 'check_circle' : 'play_lesson' }}
-            </span>
-          </div>
-          <div class="row-main">
-            <strong>{{ k.title }}</strong>
-            <p>{{ k.completed ? '已完成' : '未完成 · 点进查看任务' }}</p>
-          </div>
-          <span class="material-symbols-outlined chev">chevron_right</span>
-        </button>
+
+        <div class="menu-list">
+          <button
+            v-for="(k, kIdx) in current.section.knowledges"
+            :key="k.id || kIdx"
+            type="button"
+            class="menu-item"
+            :class="{ done: k.completed }"
+            @click="openKnowledge(current.course, current.section, k)"
+          >
+            <div class="menu-item__icon" :class="k.completed ? 'ok' : 'todo'">
+              <span class="material-symbols-outlined">
+                {{ k.completed ? 'check_circle' : 'play_lesson' }}
+              </span>
+            </div>
+            <div class="menu-item__body">
+              <strong>{{ k.title }}</strong>
+              <div class="menu-item__meta">
+                <span class="dot" :class="k.completed ? 'ok' : ''">
+                  {{ k.completed ? '已完成' : '未完成' }}
+                </span>
+              </div>
+            </div>
+            <span class="material-symbols-outlined menu-item__chev">chevron_right</span>
+          </button>
+        </div>
       </template>
 
       <!-- 4. 小节 → 任务点 -->
       <template v-else-if="current.level === 'knowledge'">
-        <div class="level-tag">
-          <span class="material-symbols-outlined">task_alt</span>
-          {{ current.knowledge?.title }} · 任务点
+        <section class="panel soft-panel">
+          <span class="pill violet">任务点</span>
+          <strong class="soft-panel__title">{{ current.knowledge?.title }}</strong>
+          <p class="hint">{{ current.section?.title }}</p>
+        </section>
+
+        <div class="section-head">
+          <span class="section-head__title">本页内容</span>
+          <span class="section-head__count">{{ current.tasks?.length || 0 }} 项</span>
         </div>
+
         <TEmptyState
           v-if="!current.tasks?.length"
           type="empty"
           message="该小节暂无视频/文档任务点"
         />
-        <button
-          v-for="t in current.tasks"
-          :key="t.id"
-          type="button"
-          class="row-card menu"
-          @click="onTaskClick(current, t)"
-        >
-          <div
-            class="icon-box"
-            :class="t.kind === 'video' ? 'violet' : t.kind === 'document' ? 'amber' : 'slate'"
+
+        <div class="menu-list">
+          <button
+            v-for="t in current.tasks"
+            :key="t.id"
+            type="button"
+            class="menu-item task"
+            @click="onTaskClick(current, t)"
           >
-            <span class="material-symbols-outlined">
-              {{
-                t.kind === 'video'
-                  ? 'play_circle'
-                  : t.kind === 'document'
-                    ? 'description'
-                    : 'task'
-              }}
+            <div
+              class="menu-item__icon"
+              :class="t.kind === 'video' ? 'vid' : t.kind === 'document' ? 'doc' : 'todo'"
+            >
+              <span class="material-symbols-outlined">
+                {{
+                  t.kind === 'video'
+                    ? 'play_circle'
+                    : t.kind === 'document'
+                      ? 'description'
+                      : 'task'
+                }}
+              </span>
+            </div>
+            <div class="menu-item__body">
+              <strong>{{ t.title }}</strong>
+              <div class="menu-item__meta">
+                <TStatusBadge :type="t.typeMeta.type" :text="t.typeMeta.text" />
+                <span class="dot">{{ t.status }}</span>
+              </div>
+            </div>
+            <span class="material-symbols-outlined menu-item__chev accent">
+              {{ t.kind === 'video' ? 'play_arrow' : 'chevron_right' }}
             </span>
-          </div>
-          <div class="row-main">
-            <strong>{{ t.title }}</strong>
-            <p>
-              <TStatusBadge :type="t.typeMeta.type" :text="t.typeMeta.text" />
-              · {{ t.status }}
-            </p>
-          </div>
-          <span class="material-symbols-outlined chev">
-            {{ t.kind === 'video' ? 'play_arrow' : 'chevron_right' }}
-          </span>
-        </button>
+          </button>
+        </div>
       </template>
 
       <!-- 5. 成绩组成 -->
@@ -858,18 +919,190 @@ onMounted(() => {
   font-size: 12px;
   color: #64748b;
 }
-.level-tag {
+.section-head {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 2px 0;
+}
+.section-head__title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.02em;
+}
+.section-head__count {
   font-size: 12px;
   font-weight: 700;
-  color: #64748b;
-  padding: 2px 4px;
+  color: #94a3b8;
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 10px;
 }
-.level-tag .material-symbols-outlined {
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #1d4ed8;
+  background: #dbeafe;
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+.pill.slate {
+  color: #475569;
+  background: #e2e8f0;
+}
+.pill.violet {
+  color: #6d28d9;
+  background: #ede9fe;
+}
+.course-head {
+  background: linear-gradient(145deg, #eff6ff 0%, #ffffff 55%);
+  border-color: #bfdbfe;
+}
+.course-head__meta strong {
+  display: block;
+  font-size: 17px;
+  line-height: 1.35;
+}
+.soft-panel {
+  background: linear-gradient(160deg, #f8fafc, #fff);
+}
+.soft-panel__title {
+  display: block;
   font-size: 16px;
-  color: #2563eb;
+  line-height: 1.4;
+}
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+.menu-item {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  padding: 14px 14px 14px 12px;
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+.menu-item:last-child {
+  border-bottom: 0;
+}
+.menu-item:active {
+  background: #f8fafc;
+}
+.menu-item.done .menu-item__body strong {
+  color: #64748b;
+}
+.menu-item__rail {
+  width: 36px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+.menu-item__num {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #2563eb, #3b82f6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.28);
+  z-index: 1;
+}
+.menu-item__line {
+  flex: 1;
+  width: 2px;
+  background: #e2e8f0;
+  margin-top: 4px;
+  min-height: 12px;
+}
+.menu-item__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  align-self: center;
+}
+.menu-item__icon.todo {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.menu-item__icon.ok {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.menu-item__icon.vid {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+.menu-item__icon.doc {
+  background: #fef3c7;
+  color: #d97706;
+}
+.menu-item__body {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+.menu-item__body strong {
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+.menu-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.menu-item__meta .dot {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+.menu-item__meta .dot.soft {
+  color: #94a3b8;
+  font-weight: 500;
+}
+.menu-item__meta .dot.ok {
+  color: #16a34a;
+}
+.menu-item__chev {
+  align-self: center;
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+.menu-item__chev.accent {
+  color: #7c3aed;
 }
 .stat-row {
   display: flex;
@@ -1149,9 +1382,24 @@ html.dark .cx-hub {
 }
 html.dark .panel,
 html.dark .row-card,
-html.dark .search-wrap {
+html.dark .search-wrap,
+html.dark .menu-list {
   background: var(--ui-surface, #111827);
   border-color: #334155;
+}
+html.dark .menu-item {
+  background: var(--ui-surface, #111827);
+  border-bottom-color: #1e293b;
+}
+html.dark .menu-item:active {
+  background: #1e293b;
+}
+html.dark .section-head__title {
+  color: #e2e8f0;
+}
+html.dark .section-head__count {
+  background: #1e293b;
+  color: #94a3b8;
 }
 html.dark .stat,
 html.dark .score-list li {
@@ -1162,5 +1410,10 @@ html.dark .crumb-btn {
 }
 html.dark .crumb-btn.current {
   color: #94a3b8;
+}
+html.dark .course-head,
+html.dark .soft-panel {
+  background: linear-gradient(145deg, #0f172a, #111827);
+  border-color: #334155;
 }
 </style>

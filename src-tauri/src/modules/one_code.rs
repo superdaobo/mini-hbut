@@ -99,34 +99,60 @@ pub async fn one_code_app_open_prepare(
         });
     }
 
-    // 先确保 API 用 accessToken 可用（会消费一枚 tid，这是预期行为）
-    let _ = session_guard::ensure_one_code_electricity(&mut client).await;
-    let token = client
-        .ensure_electricity_token()
-        .await
-        .unwrap_or_default();
+    // 缴电费/网费强依赖「未消费」浏览器 tid。
+    // 重要：先 mint tid，再（可选）换 accessToken，避免 getToken 把会话打乱后拿不到票。
+    let needs_browser_tid = matches!(code.as_str(), "electric" | "broadband")
+        || !matches!(code.as_str(), "noQYzEiZ7L" | "jSJNLwI3bX");
 
-    // 再单独签发「未消费」的浏览器 tid。
-    // 切勿复用 get_one_code_token() 返回的 tid——那枚已被 getToken 换掉，外链会「无效TID」。
-    let browser_tid = match client.mint_one_code_browser_tid().await {
-        Ok(t) => t,
-        Err(e) => {
-            // 原生缴费页强依赖未消费 tid；第三方仍可用 accessToken
-            let needs_browser_tid = matches!(code.as_str(), "electric" | "broadband")
-                || !matches!(code.as_str(), "noQYzEiZ7L" | "jSJNLwI3bX");
-            if needs_browser_tid {
-                return Ok(OneCodeAppOpenPrepareResponse {
-                    success: false,
-                    open_url: String::new(),
-                    pay_url: String::new(),
-                    app_code: code,
-                    hint: String::new(),
-                    message: Some(format!("无法获取有效登录票：{e}")),
-                    tid: None,
-                });
+    let mut browser_tid = String::new();
+    let mut tid_err = String::new();
+    for attempt in 0..2 {
+        match client.mint_one_code_browser_tid().await {
+            Ok(t) if !t.trim().is_empty() => {
+                browser_tid = t;
+                break;
             }
-            String::new()
+            Ok(_) => {
+                tid_err = "签发的 tid 为空".into();
+            }
+            Err(e) => {
+                tid_err = e.to_string();
+            }
         }
+        if attempt == 0 {
+            // 会话掉线：走一次完整 SSO/静默重登后再 mint
+            let _ = session_guard::ensure_one_code_electricity(&mut client).await;
+            let _ = client.get_one_code_token().await;
+        }
+    }
+
+    if needs_browser_tid && browser_tid.is_empty() {
+        return Ok(OneCodeAppOpenPrepareResponse {
+            success: false,
+            open_url: String::new(),
+            pay_url: String::new(),
+            app_code: code,
+            hint: String::new(),
+            message: Some(format!(
+                "无法获取有效登录票（tid）：{tid_err}。请重新登录门户后再试"
+            )),
+            tid: None,
+        });
+    }
+
+    // 第三方应用（场馆/电量）需要 accessToken
+    let token = if matches!(code.as_str(), "noQYzEiZ7L" | "jSJNLwI3bX") || !needs_browser_tid {
+        let _ = session_guard::ensure_one_code_electricity(&mut client).await;
+        client
+            .ensure_electricity_token()
+            .await
+            .unwrap_or_default()
+    } else {
+        // 缴费页不强制 accessToken；有则更好
+        client
+            .ensure_electricity_token()
+            .await
+            .unwrap_or_default()
     };
     let tid_q = if browser_tid.is_empty() {
         String::new()

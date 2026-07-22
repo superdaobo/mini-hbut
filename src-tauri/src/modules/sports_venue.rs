@@ -43,22 +43,53 @@ fn sm2_decrypt_payload(cipher: &str) -> Result<String, String> {
 }
 
 fn extract_query_token(url: &str) -> Option<String> {
-    let u = reqwest::Url::parse(url).ok()?;
-    // ?token= 在 search；也可能在 hash 前
-    if let Some(t) = u.query_pairs().find(|(k, _)| k == "token").map(|(_, v)| v.to_string()) {
-        if !t.is_empty() {
-            return Some(t);
+    if url.trim().is_empty() {
+        return None;
+    }
+    // hash 路由常见：http://host/#/home?token=xxx 或 ?token=xxx#/home
+    if let Ok(u) = reqwest::Url::parse(url) {
+        if let Some(t) = u
+            .query_pairs()
+            .find(|(k, _)| k == "token")
+            .map(|(_, v)| v.to_string())
+        {
+            if !t.is_empty() {
+                return Some(t);
+            }
+        }
+        // fragment 内再挖一层
+        if let Some(frag) = u.fragment() {
+            if let Some(t) = extract_token_raw(frag) {
+                return Some(t);
+            }
         }
     }
-    // 兜底：正则
-    let re = regex::Regex::new(r"[?&#]token=([^&#]+)").ok()?;
-    re.captures(url)
-        .and_then(|c| c.get(1).map(|m| {
-            urlencoding::decode(m.as_str())
-                .map(|c| c.into_owned())
-                .unwrap_or_else(|_| m.as_str().to_string())
-        }))
-        .filter(|s| !s.is_empty())
+    extract_token_raw(url)
+}
+
+fn extract_token_raw(raw: &str) -> Option<String> {
+    let patterns = [
+        r#"[?&#]token=([^&#"'<\s]+)"#,
+        r#""token"\s*:\s*"([^"]+)""#,
+        r#"'token'\s*:\s*'([^']+)'"#,
+        r#"token%3D([A-Za-z0-9._\-%]+)"#,
+    ];
+    for pat in patterns {
+        if let Ok(re) = regex::Regex::new(pat) {
+            if let Some(c) = re.captures(raw) {
+                if let Some(m) = c.get(1) {
+                    let s = urlencoding::decode(m.as_str())
+                        .map(|c| c.into_owned())
+                        .unwrap_or_else(|_| m.as_str().to_string());
+                    let s = s.trim().to_string();
+                    if !s.is_empty() && s.len() >= 8 {
+                        return Some(s);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// 场馆 HTTP：自动 SM2 加解密 + token 头
@@ -156,11 +187,144 @@ async fn venue_post(
 async fn mint_yimatong_access_token(
     client: &mut crate::http_client::HbutClient,
 ) -> Result<String, String> {
-    let _ = session_guard::ensure_one_code_electricity(client).await;
-    client
-        .ensure_electricity_token()
+    // 失败时再走完整 get_one_code_token（含静默重登）
+    match client.ensure_electricity_token().await {
+        Ok(t) if !t.trim().is_empty() => Ok(t),
+        _ => {
+            let _ = session_guard::ensure_one_code_electricity(client).await;
+            match client.ensure_electricity_token().await {
+                Ok(t) if !t.trim().is_empty() => Ok(t),
+                Ok(_) => Err("一码通 accessToken 为空，请重新登录门户".into()),
+                Err(e) => Err(format!("一码通授权失败：{e}")),
+            }
+        }
+    }
+}
+
+/// 手动跟随 third/open 重定向，从 Location / 最终 URL / HTML 抽 token
+async fn fetch_venue_sso_token(
+    client: &crate::http_client::HbutClient,
+    access: &str,
+    redirect_target: &str,
+) -> Result<String, String> {
+    let open_url = format!(
+        "{CODE_BASE}/server/third/open?redirectUrl={}&accessToken={}",
+        url_encode(redirect_target),
+        url_encode(access)
+    );
+
+    // 1) 自动跟随
+    if let Ok(resp) = client
+        .client
+        .get(&open_url)
+        .header("Accept", "text/html,application/json,*/*")
+        .header("Referer", format!("{CODE_BASE}/"))
+        .header("Authorization", access)
+        .header("token", access)
+        .send()
         .await
-        .map_err(|e| e.to_string())
+    {
+        let final_url = resp.url().to_string();
+        let body = resp.text().await.unwrap_or_default();
+        if let Some(t) = extract_query_token(&final_url).or_else(|| extract_query_token(&body)) {
+            return Ok(t);
+        }
+        // JSON 里可能带跳转地址
+        if let Ok(v) = serde_json::from_str::<Value>(&body) {
+            for key in ["url", "redirectUrl", "redirect", "data", "resultData"] {
+                if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+                    if let Some(t) = extract_query_token(s) {
+                        return Ok(t);
+                    }
+                }
+                if let Some(obj) = v.get(key) {
+                    for k2 in ["url", "redirectUrl", "token"] {
+                        if let Some(s) = obj.get(k2).and_then(|x| x.as_str()) {
+                            if k2 == "token" && s.len() >= 8 {
+                                return Ok(s.to_string());
+                            }
+                            if let Some(t) = extract_query_token(s) {
+                                return Ok(t);
+                            }
+                        }
+                    }
+                }
+            }
+            if v.get("success").and_then(|b| b.as_bool()) == Some(false) {
+                let msg = v
+                    .get("message")
+                    .or_else(|| v.get("msg"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("一码通未授权场馆");
+                return Err(msg.to_string());
+            }
+        }
+        if body.contains("\"success\":false") {
+            return Err("一码通未授权场馆应用，请稍后重试".into());
+        }
+    }
+
+    // 2) 手动跟踪 Location（fragment 上的 token 常只出现在中间跳转）
+    let no_redir = reqwest::Client::builder()
+        .cookie_provider(std::sync::Arc::clone(&client.cookie_jar))
+        .redirect(reqwest::redirect::Policy::none())
+        .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut current = open_url;
+    for _ in 0..14 {
+        let resp = no_redir
+            .get(&current)
+            .header("Accept", "text/html,application/json,*/*")
+            .header("Referer", format!("{CODE_BASE}/"))
+            .header("Authorization", access)
+            .header("token", access)
+            .send()
+            .await;
+
+        let resp = match resp {
+            Ok(r) => r,
+            Err(e) => return Err(format!("场馆跳转失败：{e}")),
+        };
+        let status = resp.status();
+        let this_url = resp.url().to_string();
+        if let Some(t) = extract_query_token(&this_url) {
+            return Ok(t);
+        }
+        let loc = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        if let Some(ref location) = loc {
+            if let Some(t) = extract_query_token(location) {
+                return Ok(t);
+            }
+            current = if location.starts_with("http") {
+                location.clone()
+            } else if location.starts_with('/') {
+                format!("{CODE_BASE}{location}")
+            } else {
+                location.clone()
+            };
+            if status.is_redirection() {
+                continue;
+            }
+        }
+        let body = resp.text().await.unwrap_or_default();
+        if let Some(t) = extract_query_token(&body) {
+            return Ok(t);
+        }
+        if !status.is_redirection() {
+            break;
+        }
+    }
+
+    Err(format!(
+        "未能从跳转结果解析场馆 token（目标 {redirect_target}）"
+    ))
 }
 
 /// 一码通 third/open → 场馆 URL 带 token → authentication
@@ -168,33 +332,45 @@ async fn login_venue(
     client: &mut crate::http_client::HbutClient,
 ) -> Result<(String, Value), String> {
     let access = mint_yimatong_access_token(client).await?;
-    let redirect = url_encode(VENUE_HOME);
-    let open_url = format!(
-        "{CODE_BASE}/server/third/open?redirectUrl={redirect}&accessToken={}",
-        url_encode(&access)
-    );
 
-    let resp = client
-        .client
-        .get(&open_url)
-        .header("Accept", "text/html,application/json,*/*")
-        .header("Referer", format!("{CODE_BASE}/"))
-        .send()
-        .await
-        .map_err(|e| format!("一码通跳转场馆失败：{e}"))?;
+    // 多种 redirect 形态：官方 H5 常把 token 挂在 query 或 hash
+    let redirect_targets = [
+        VENUE_HOME,
+        "http://172.16.54.20:9000/",
+        "http://172.16.54.20:9000/#/",
+        "http://172.16.54.20:9000/index.html",
+    ];
 
-    let final_url = resp.url().to_string();
-    let body = resp.text().await.unwrap_or_default();
-
-    let sso_token = extract_query_token(&final_url)
-        .or_else(|| extract_query_token(&body))
-        .ok_or_else(|| {
-            if body.contains("\"success\":false") {
-                "一码通未授权场馆应用，请稍后重试".to_string()
-            } else {
-                format!("未能从跳转结果解析场馆 token（{final_url}）")
+    let mut last_err = String::new();
+    let mut sso_token = None;
+    for target in redirect_targets {
+        match fetch_venue_sso_token(client, &access, target).await {
+            Ok(t) => {
+                sso_token = Some(t);
+                break;
             }
-        })?;
+            Err(e) => last_err = e,
+        }
+    }
+
+    // accessToken 可能过期：强制重新 ensure 再试一次
+    let sso_token = match sso_token {
+        Some(t) => t,
+        None => {
+            let access2 = client
+                .ensure_electricity_token()
+                .await
+                .map_err(|e| format!("刷新一码通 token 失败：{e}"))?;
+            match fetch_venue_sso_token(client, &access2, VENUE_HOME).await {
+                Ok(t) => t,
+                Err(e) => {
+                    return Err(format!(
+                        "{last_err}；重试后仍失败：{e}。请确认已连校园网且门户会话有效"
+                    ));
+                }
+            }
+        }
+    };
 
     // authentication：body 为加密后的 token 字符串
     let auth = venue_post(
