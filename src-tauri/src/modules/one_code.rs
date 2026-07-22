@@ -272,7 +272,7 @@ pub async fn electricity_usage_stats(
 
     // 主房间失败时再试空调表（仍算所选房间，不是绑定房）
     let primary = fetch_smart_electricity_stats(&mut client, &student_id, &preferred, &label).await;
-    match primary {
+    let result = match primary {
         Ok(v) => Ok(v),
         Err(e1) if !alt.is_empty() => {
             crate::runtime_log::log_info(
@@ -289,35 +289,128 @@ pub async fn electricity_usage_stats(
                     }
                     Ok(v)
                 }
-                Err(e2) => Ok(json!({
-                    "success": false,
-                    "summary": null,
-                    "points": [],
-                    "month_points": [],
-                    "today_use": null,
-                    "quantity": null,
-                    "room_name": label,
-                    "room_verify": preferred,
-                    "source": "selected",
-                    "message": format!("电量趋势暂不可用：{e1}；空调表：{e2}"),
-                    "open_url": null
-                })),
+                Err(e2) => Err(format!("{e1}；空调表：{e2}")),
             }
         }
-        Err(e) => Ok(json!({
-            "success": false,
-            "summary": null,
-            "points": [],
-            "month_points": [],
-            "today_use": null,
-            "quantity": null,
-            "room_name": label,
-            "room_verify": if preferred.is_empty() { Value::Null } else { json!(preferred) },
-            "source": if preferred.is_empty() { Value::Null } else { json!("selected") },
-            "message": format!("电量趋势暂不可用：{e}"),
-            "open_url": null
-        })),
+        Err(e) => Err(e),
+    };
+
+    match result {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            // 最后兜底：用一码通 utilities/account 拉所选房余额/剩余电量（非绑定房也能查）
+            if let Some(path) = room_path.as_ref() {
+                if path.len() >= 4 {
+                    if let Ok(snap) =
+                        utilities_room_snapshot(&mut client, path, &label, &preferred).await
+                    {
+                        crate::runtime_log::log_info(
+                            "ElectricityUsage",
+                            format!("SWAE 无曲线，已用 utilities 快照兜底: {e}"),
+                        );
+                        return Ok(snap);
+                    }
+                }
+            }
+            Ok(json!({
+                "success": false,
+                "summary": null,
+                "points": [],
+                "month_points": [],
+                "today_use": null,
+                "quantity": null,
+                "room_name": label,
+                "room_verify": if preferred.is_empty() { Value::Null } else { json!(preferred) },
+                "source": if preferred.is_empty() { Value::Null } else { json!("selected") },
+                "message": format!("电量趋势暂不可用：{e}"),
+                "open_url": null
+            }))
+        }
     }
+}
+
+/// 一码通原生 utilities/account：任意选房可查余额/剩余电量（作趋势失败时的快照）
+async fn utilities_room_snapshot(
+    client: &mut crate::http_client::HbutClient,
+    path: &[String],
+    label: &str,
+    room_verify: &str,
+) -> Result<Value, String> {
+    let area = path.first().map(|s| s.as_str()).unwrap_or("");
+    let building = path.get(1).map(|s| s.as_str()).unwrap_or("");
+    let mut level = path.get(2).map(|s| s.as_str()).unwrap_or("").to_string();
+    let room = path.get(3).map(|s| s.as_str()).unwrap_or(room_verify);
+    // merged_1_light_ac → 取照明 layer
+    if level.starts_with("merged_") {
+        let parts: Vec<&str> = level.split('_').collect();
+        if parts.len() >= 3 && !parts[2].is_empty() {
+            level = parts[2].to_string();
+        }
+    }
+    let payload = json!({
+        "utilityType": "electric",
+        "bigArea": "",
+        "area": area,
+        "building": building,
+        "unit": "",
+        "level": level,
+        "room": room,
+        "subArea": ""
+    });
+    let res = client
+        .query_electricity_account(payload)
+        .await
+        .map_err(|e| e.to_string())?;
+    if !res
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return Err(res
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("utilities 查询失败")
+            .to_string());
+    }
+    let result_data = res.get("resultData").cloned().unwrap_or(json!({}));
+    let mut balance = json!(null);
+    let mut quantity = json!(null);
+    if let Some(list) = result_data.get("templateList").and_then(|v| v.as_array()) {
+        for item in list {
+            let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("");
+            let val = item.get("value").cloned().unwrap_or(json!(null));
+            if code == "balance" {
+                balance = val;
+            } else if code == "quantity" {
+                quantity = val;
+            }
+        }
+    }
+    let status = result_data
+        .get("utilityStatusName")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok(json!({
+        "success": true,
+        "summary": format!("所选房间当前剩余电量 {}", quantity.as_str().unwrap_or("—")),
+        "points": [],
+        "month_points": [],
+        "today_use": null,
+        "quantity": quantity,
+        "balance": balance,
+        "price": null,
+        "device_name": "电表",
+        "line_status": status,
+        "room_name": label,
+        "room_verify": room_verify,
+        "source": "selected",
+        "bound_room_verify": Value::Null,
+        "bound_room_name": Value::Null,
+        "message": "智能水电未返回分日曲线，已显示该房间当前电量/余额快照",
+        "hint": "用电快照：当前所选房间（非绑定房）",
+        "open_url": null
+    }))
 }
 
 /// 宿舍 room value 是否像 SWAE roomverify：`101-1--174-1101`
@@ -428,18 +521,36 @@ async fn fetch_smart_electricity_stats(
         }
     }
 
-    // 用户已选房间：只查该房，绝不静默换成绑定房；未选才用绑定房
+    // 用户已选房间：只查该房（可多候选 roomverify），绝不静默换成绑定房趋势
     let mut candidates: Vec<(String, &'static str, String)> = Vec::new();
     let pref = preferred_room.trim();
+    let label = preferred_label.trim();
+    let room_no = extract_room_number(label, pref);
+
     if !pref.is_empty() {
-        candidates.push((
-            pref.to_string(),
-            "selected",
-            preferred_label.trim().to_string(),
-        ));
+        candidates.push((pref.to_string(), "selected", label.to_string()));
+        // 用绑定房模板改房间号：101-7--254-101 + 102 → 101-7--254-102
+        if !bound_room.is_empty() {
+            if let Some(syn) = synthesize_roomverify_from_bound(&bound_room, &room_no) {
+                if syn != pref {
+                    candidates.push((syn, "selected", label.to_string()));
+                }
+            }
+        }
+        // SWAE 房间树按房号匹配（宿舍数据集 value 可能与智能水电 roomverify 不一致）
+        if let Some(resolved) =
+            resolve_swae_roomverify_by_tree(client, &final_url, &sid, label, &room_no).await
+        {
+            if !candidates.iter().any(|(r, _, _)| r == &resolved) {
+                candidates.push((resolved, "selected", label.to_string()));
+            }
+        }
         crate::runtime_log::log_info(
             "ElectricityUsage",
-            format!("按所选房间查趋势 roomverify={pref}"),
+            format!(
+                "所选房间候选 room_no={room_no} candidates={:?}",
+                candidates.iter().map(|(r, _, _)| r.as_str()).collect::<Vec<_>>()
+            ),
         );
     } else if !bound_room.is_empty() {
         candidates.push((bound_room.clone(), "bound", bound_name.clone()));
@@ -452,7 +563,7 @@ async fn fetch_smart_electricity_stats(
         return Err("请先在上方选择房间，或到一码通绑定宿舍后再查趋势".into());
     }
 
-    // 5) 按候选依次拉趋势（增强：全 modlist + 多接口 + roomverify 变体）
+    // 5) 按候选依次拉趋势
     let mut last_err = String::new();
     for (room, source, room_name) in candidates {
         match fetch_usage_for_room(
@@ -484,6 +595,279 @@ async fn fetch_smart_electricity_stats(
     } else {
         last_err
     })
+}
+
+/// 从标签/value 提取房间号，如「102房间」→ 102
+fn extract_room_number(label: &str, roomverify: &str) -> String {
+    // 标签优先：102房间 / 102
+    if let Some(caps) = regex::Regex::new(r"(\d{2,4})\s*房间")
+        .ok()
+        .and_then(|re| re.captures(label))
+    {
+        return caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+    }
+    if let Some(caps) = regex::Regex::new(r"(\d{2,4})\s*$")
+        .ok()
+        .and_then(|re| re.captures(label.trim()))
+    {
+        let n = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        if !n.is_empty() {
+            return n.to_string();
+        }
+    }
+    // value 末段
+    roomverify
+        .split('-')
+        .last()
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 2)
+        .unwrap_or_default()
+}
+
+/// 绑定房 roomverify 末段换成目标房号
+fn synthesize_roomverify_from_bound(bound: &str, room_no: &str) -> Option<String> {
+    let room_no = room_no.trim();
+    if bound.is_empty() || room_no.is_empty() {
+        return None;
+    }
+    // 处理 `101-7--254-101`：按 `-` 切分，保留空段（对应 --）
+    let mut parts: Vec<String> = bound.split('-').map(|s| s.to_string()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    // 从后往前找第一个纯数字段替换
+    for i in (0..parts.len()).rev() {
+        if !parts[i].is_empty() && parts[i].chars().all(|c| c.is_ascii_digit()) {
+            parts[i] = room_no.to_string();
+            return Some(parts.join("-"));
+        }
+    }
+    None
+}
+
+/// 走 SWAE 区域→楼栋→楼层→房间树，按房号匹配 roomverify
+async fn resolve_swae_roomverify_by_tree(
+    client: &crate::http_client::HbutClient,
+    final_url: &str,
+    sid: &str,
+    label: &str,
+    room_no: &str,
+) -> Option<String> {
+    if room_no.is_empty() {
+        return None;
+    }
+    let ts = || Local::now().format("%Y%m%d%H%M%S%3f").to_string();
+    let building_hint = {
+        // 「东苑公寓7栋」→ 7
+        regex::Regex::new(r"(\d+)\s*栋")
+            .ok()
+            .and_then(|re| re.captures(label))
+            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+            .unwrap_or_default()
+    };
+    let floor_hint = {
+        regex::Regex::new(r"(\d+)\s*层")
+            .ok()
+            .and_then(|re| re.captures(label))
+            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+            .unwrap_or_default()
+    };
+
+    // 常见树接口名
+    let area_methods = ["getarealist", "h5_getarealist", "getarea"];
+    let mut areas: Vec<Value> = Vec::new();
+    for m in area_methods {
+        if let Ok(resp) = swae_post(
+            client,
+            final_url,
+            m,
+            json!({
+                "cmd": m,
+                "account": sid,
+                "timestamp": ts()
+            }),
+        )
+        .await
+        {
+            if let Some(b) = parse_swae_body(&resp) {
+                let list = extract_list_any(&b, &["arealist", "list", "data", "areaList"]);
+                if !list.is_empty() {
+                    areas = list;
+                    break;
+                }
+            }
+            let list = extract_list_any(&resp, &["arealist", "list", "data"]);
+            if !list.is_empty() {
+                areas = list;
+                break;
+            }
+        }
+    }
+    if areas.is_empty() {
+        crate::runtime_log::log_debug("ElectricityUsage", "SWAE 房间树：无区域列表");
+        return None;
+    }
+
+    for area in areas.iter().take(12) {
+        let area_id = json_id(area, &["areaid", "id", "value", "areaId"]);
+        if area_id.is_empty() {
+            continue;
+        }
+        let buildings = swae_child_list(
+            client,
+            final_url,
+            sid,
+            &["getbuildinglist", "h5_getbuildinglist", "getbuilding"],
+            json!({
+                "cmd": "getbuildinglist",
+                "areaid": area_id,
+                "account": sid,
+                "timestamp": ts()
+            }),
+            &["buildinglist", "list", "data", "buildingList"],
+        )
+        .await;
+        for building in buildings.iter().take(20) {
+            let bname = json_name(building);
+            let building_id = json_id(building, &["buildingid", "id", "value", "buildingId"]);
+            if building_id.is_empty() {
+                continue;
+            }
+            if !building_hint.is_empty()
+                && !bname.contains(&building_hint)
+                && !building_id.contains(&building_hint)
+            {
+                // 不硬过滤：部分命名不含栋号
+            }
+            let floors = swae_child_list(
+                client,
+                final_url,
+                sid,
+                &["getfloorlist", "h5_getfloorlist", "getfloor", "getlevellist"],
+                json!({
+                    "cmd": "getfloorlist",
+                    "buildingid": building_id,
+                    "areaid": area_id,
+                    "account": sid,
+                    "timestamp": ts()
+                }),
+                &["floorlist", "levellist", "list", "data", "floorList"],
+            )
+            .await;
+            for floor in floors.iter().take(30) {
+                let fname = json_name(floor);
+                let floor_id = json_id(floor, &["floorid", "levelid", "id", "value", "floorId"]);
+                if floor_id.is_empty() {
+                    continue;
+                }
+                if !floor_hint.is_empty()
+                    && !fname.contains(&floor_hint)
+                    && !floor_id.contains(&floor_hint)
+                {
+                    // 宽松：仍查所有层
+                }
+                let rooms = swae_child_list(
+                    client,
+                    final_url,
+                    sid,
+                    &["getroomlist", "h5_getroomlist", "getroom"],
+                    json!({
+                        "cmd": "getroomlist",
+                        "floorid": floor_id,
+                        "buildingid": building_id,
+                        "areaid": area_id,
+                        "account": sid,
+                        "timestamp": ts()
+                    }),
+                    &["roomlist", "list", "data", "roomList"],
+                )
+                .await;
+                for room in rooms {
+                    let rname = json_name(&room);
+                    let rv = json_id(
+                        &room,
+                        &["roomverify", "roomid", "id", "value", "roomId", "room_verify"],
+                    );
+                    if rv.is_empty() {
+                        continue;
+                    }
+                    let hit = rname.contains(room_no)
+                        || rv.ends_with(room_no)
+                        || rv.split('-').last() == Some(room_no);
+                    if hit {
+                        crate::runtime_log::log_info(
+                            "ElectricityUsage",
+                            format!("SWAE 树命中 room={rname} roomverify={rv}"),
+                        );
+                        return Some(rv);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn json_id(v: &Value, keys: &[&str]) -> String {
+    for k in keys {
+        if let Some(s) = v.get(*k).and_then(|x| x.as_str()) {
+            if !s.trim().is_empty() {
+                return s.trim().to_string();
+            }
+        }
+        if let Some(n) = v.get(*k).and_then(|x| x.as_i64()) {
+            return n.to_string();
+        }
+        if let Some(n) = v.get(*k).and_then(|x| x.as_u64()) {
+            return n.to_string();
+        }
+    }
+    String::new()
+}
+
+fn json_name(v: &Value) -> String {
+    for k in ["name", "label", "roomname", "roomName", "title", "text"] {
+        if let Some(s) = v.get(k).and_then(|x| x.as_str()) {
+            if !s.trim().is_empty() {
+                return s.trim().to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+async fn swae_child_list(
+    client: &crate::http_client::HbutClient,
+    final_url: &str,
+    sid: &str,
+    methods: &[&str],
+    base_param: Value,
+    list_keys: &[&str],
+) -> Vec<Value> {
+    let _ = sid;
+    for m in methods {
+        let mut param = base_param.clone();
+        if let Some(obj) = param.as_object_mut() {
+            obj.insert("cmd".into(), json!(m));
+            obj.insert(
+                "timestamp".into(),
+                json!(Local::now().format("%Y%m%d%H%M%S%3f").to_string()),
+            );
+        }
+        if let Ok(resp) = swae_post(client, final_url, m, param).await {
+            if let Some(b) = parse_swae_body(&resp) {
+                let list = extract_list_any(&b, list_keys);
+                if !list.is_empty() {
+                    return list;
+                }
+            }
+            let list = extract_list_any(&resp, list_keys);
+            if !list.is_empty() {
+                return list;
+            }
+        }
+    }
+    Vec::new()
 }
 
 /// 拉取单房间用电趋势
@@ -592,8 +976,11 @@ async fn fetch_usage_for_room(
                     "h5_getusedetail",
                     "getusedetail",
                     "queryweekuse",
+                    "getmdusedaylist",
+                    "h5_getmdusedaylist",
+                    "getusedaylist",
                 ],
-                &["weekuselist", "dayuselist", "list", "uselist", "data"],
+                &["weekuselist", "dayuselist", "list", "uselist", "data", "mdusedaylist"],
             )
             .await;
         }
@@ -608,10 +995,71 @@ async fn fetch_usage_for_room(
                     "getmonthuselist",
                     "querymonthuse",
                     "h5_getmonthuse",
+                    "getmdusemonthlist",
+                    "h5_getmdusemonthlist",
                 ],
-                &["monthuselist", "list", "uselist", "data"],
+                &["monthuselist", "list", "uselist", "data", "mdusemonthlist"],
             )
             .await;
+        }
+
+        // 电表列表 → 按表拉日用量（非绑定房常见路径）
+        if week.is_empty() {
+            if let Ok(md_resp) = swae_post(
+                client,
+                final_url,
+                "getmdlist",
+                json!({
+                    "cmd": "getmdlist",
+                    "roomverify": rv,
+                    "account": sid,
+                    "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
+                }),
+            )
+            .await
+            {
+                let md_body = parse_swae_body(&md_resp).unwrap_or(md_resp);
+                let meters = extract_list_any(&md_body, &["mdlist", "list", "data", "meterlist"]);
+                for meter in meters.iter().take(4) {
+                    let mdid = json_id(meter, &["mdid", "id", "meterid", "value", "mdId"]);
+                    if mdid.is_empty() {
+                        continue;
+                    }
+                    for method in ["getmdusedaylist", "h5_getmdusedaylist", "getusedaylist"] {
+                        if let Ok(day_resp) = swae_post(
+                            client,
+                            final_url,
+                            method,
+                            json!({
+                                "cmd": method,
+                                "roomverify": rv,
+                                "mdid": mdid,
+                                "account": sid,
+                                "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
+                            }),
+                        )
+                        .await
+                        {
+                            let day_body = parse_swae_body(&day_resp).unwrap_or(day_resp);
+                            let arr = extract_list_any(
+                                &day_body,
+                                &["mdusedaylist", "dayuselist", "weekuselist", "list", "data"],
+                            );
+                            if !arr.is_empty() {
+                                week = arr;
+                                crate::runtime_log::log_info(
+                                    "ElectricityUsage",
+                                    format!("电表日用量命中 mdid={mdid} n={}", week.len()),
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    if !week.is_empty() {
+                        break;
+                    }
+                }
+            }
         }
 
         crate::runtime_log::log_info(
@@ -859,19 +1307,32 @@ async fn fetch_usage_list(
 
 fn map_day_points(week: &[Value]) -> Vec<Value> {
     week.iter()
-        .map(|p| {
+        .enumerate()
+        .map(|(i, p)| {
+            let label = p
+                .get("date")
+                .or_else(|| p.get("daydate"))
+                .or_else(|| p.get("rq"))
+                .or_else(|| p.get("time"))
+                .or_else(|| p.get("day"))
+                .cloned()
+                .unwrap_or_else(|| json!(format!("D{}", i + 1)));
+            let value = p
+                .get("dayuse")
+                .or_else(|| p.get("use"))
+                .or_else(|| p.get("yl"))
+                .or_else(|| p.get("value"))
+                .or_else(|| p.get("used"))
+                .or_else(|| p.get("power"))
+                .cloned()
+                .unwrap_or(json!(0));
             json!({
-                "label": p.get("date").or_else(|| p.get("daydate")).or_else(|| p.get("rq")).cloned().unwrap_or(json!("")),
-                "date": p.get("date").or_else(|| p.get("daydate")).or_else(|| p.get("rq")).cloned().unwrap_or(json!("")),
-                "value": p.get("dayuse").or_else(|| p.get("use")).or_else(|| p.get("yl")).or_else(|| p.get("value")).cloned().unwrap_or(json!(0)),
+                "label": label,
+                "date": label,
+                "value": value,
                 "unit": "度",
                 "weekday": p.get("weekday").cloned().unwrap_or(json!(""))
             })
-        })
-        .filter(|p| {
-            let label = p.get("label").and_then(|v| v.as_str()).unwrap_or("");
-            let val = p.get("value");
-            !label.is_empty() || val.map(|v| !v.is_null()).unwrap_or(false)
         })
         .collect()
 }
@@ -899,24 +1360,53 @@ async fn swae_post(
     method: &str,
     param: Value,
 ) -> Result<Value, String> {
-    let param_str = serde_json::to_string(&param).map_err(|e| e.to_string())?;
-    let body = format!(
-        "param={}&customercode=2&method={}&command=undefined",
-        urlencoding_lite(&param_str),
-        urlencoding_lite(method)
-    );
-    let resp = client
-        .client
-        .post(format!("{SWAE_BASE}/SWAEServlet"))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Origin", CODE_BASE)
-        .header("Referer", referer)
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let json: Value = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(json)
+    // customercode：多数学校为 2；失败时再试 1
+    let mut last_err = String::new();
+    for code in ["2", "1"] {
+        let param_str = serde_json::to_string(&param).map_err(|e| e.to_string())?;
+        let body = format!(
+            "param={}&customercode={code}&method={}&command=undefined",
+            urlencoding_lite(&param_str),
+            urlencoding_lite(method)
+        );
+        match client
+            .client
+            .post(format!("{SWAE_BASE}/SWAEServlet"))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Origin", CODE_BASE)
+            .header("Referer", referer)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+            )
+            .body(body)
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.json::<Value>().await {
+                Ok(json) => {
+                    // 若 body 非空或 ret 成功，直接返回
+                    let body_ok = json
+                        .get("body")
+                        .map(|b| {
+                            b.as_str()
+                                .map(|s| !s.is_empty() && s != "null")
+                                .unwrap_or(!b.is_null())
+                        })
+                        .unwrap_or(false);
+                    if body_ok || code == "1" {
+                        return Ok(json);
+                    }
+                    // body 空时继续试下一个 code
+                    last_err = format!("customercode={code} 返回空 body");
+                }
+                Err(e) => last_err = e.to_string(),
+            },
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(last_err)
 }
 
 fn parse_swae_body(v: &Value) -> Option<Value> {
