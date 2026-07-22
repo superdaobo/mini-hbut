@@ -255,7 +255,7 @@ function parseVersion(version) {
   }
 }
 
-function compareVersions(v1, v2) {
+export function compareVersions(v1, v2) {
   const left = parseVersion(v1)
   const right = parseVersion(v2)
   const len = Math.max(left.core.length, right.core.length)
@@ -725,6 +725,23 @@ const buildUpdateResultFromRelease = (release, currentVersion, channel) => {
 }
 
 export async function checkForUpdates(currentVersion, options = {}) {
+  // 合规 iOS 包禁止 GitHub/CDN 更新；调用方应改走 apple_app_update
+  try {
+    const { allowsInAppGithubUpdater } = await import('../config/app_store_policy')
+    if (!allowsInAppGithubUpdater()) {
+      return {
+        mode: 'apple_storefront',
+        hasUpdate: false,
+        error: false,
+        message: '本安装通过 App Store / TestFlight 分发，请使用苹果更新。',
+        currentVersion,
+        channel: normalizeUpdateChannel(options.channel ?? getUpdateChannel())
+      }
+    }
+  } catch {
+    // 策略模块异常时不阻断非合规路径
+  }
+
   const channel = normalizeUpdateChannel(options.channel ?? getUpdateChannel())
   try {
     const release = await fetchReleaseInfo(currentVersion, channel)
