@@ -103,8 +103,14 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('const homeScrollSnapshot = ref(0)')
     expect(source).toContain('const rememberHomeScrollPosition = ()')
     expect(source).toContain('const restoreHomeScrollPosition = ()')
-    expect(source).toContain('rememberHomeScrollPosition()')
+    expect(source).toContain('HOME_SCROLL_STORAGE_KEY')
+    expect(source).toContain('readStoredHomeScrollTop')
+    expect(source).toContain('returningHome')
     expect(source).toContain("goToView('home', { restoreScroll: true })")
     expect(source).toContain('recoverViewportAfterTransition({ scrollToTop: false')
+    // 系统返回键 / popstate 不得再强制滚到顶部冲掉恢复
+    expect(source).not.toMatch(
+      /const handlePopState = async \(\) => \{[\s\S]*?goToParentView\(\)[\s\S]*?recoverViewportAfterTransition\(\{ scrollToTop: true/
+    )
   })
 })

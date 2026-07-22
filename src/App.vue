@@ -898,22 +898,51 @@ const recoverViewportAfterTransition = ({ scrollToTop = true, blurActive = true 
   })
 }
 
+const HOME_SCROLL_STORAGE_KEY = 'hbu_home_scroll_top'
+
 const getAppShellScrollTop = () => {
   const shell = appShellRef.value
-  const shellTop = Number(shell?.scrollTop || 0)
-  if (Number.isFinite(shellTop) && shellTop > 0) return shellTop
-  const windowTop = Number(window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0)
-  return Number.isFinite(windowTop) && windowTop > 0 ? windowTop : 0
+  // 首页主滚动容器是 .app-shell，优先读它（即使为 0）
+  if (shell && typeof shell.scrollTop === 'number' && Number.isFinite(shell.scrollTop)) {
+    return Math.max(0, shell.scrollTop)
+  }
+  const windowTop = Number(
+    window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0
+  )
+  return Number.isFinite(windowTop) ? Math.max(0, windowTop) : 0
 }
 
 const rememberHomeScrollPosition = () => {
   if (currentView.value !== 'home') return
-  homeScrollSnapshot.value = getAppShellScrollTop()
+  const top = getAppShellScrollTop()
+  homeScrollSnapshot.value = top
+  try {
+    sessionStorage.setItem(HOME_SCROLL_STORAGE_KEY, String(top))
+  } catch {
+    // ignore
+  }
 }
 
+const readStoredHomeScrollTop = () => {
+  const mem = Math.max(0, Number(homeScrollSnapshot.value || 0))
+  if (mem > 0) return mem
+  try {
+    const stored = Number(sessionStorage.getItem(HOME_SCROLL_STORAGE_KEY) || 0)
+    return Number.isFinite(stored) ? Math.max(0, stored) : 0
+  } catch {
+    return 0
+  }
+}
+
+/** 在 Transition out-in 后内容高度才就绪，需多次回写避免被 clamp 成顶部 */
 const restoreHomeScrollPosition = () => {
-  const targetTop = Math.max(0, Number(homeScrollSnapshot.value || 0))
+  const targetTop = readStoredHomeScrollTop()
+  if (targetTop <= 0) return
+
+  let tries = 0
+  const maxTries = 24
   const applyScroll = () => {
+    if (currentView.value !== 'home') return
     try {
       if (appShellRef.value) {
         appShellRef.value.scrollTop = targetTop
@@ -922,12 +951,23 @@ const restoreHomeScrollPosition = () => {
       document.documentElement.scrollTop = targetTop
       document.body.scrollTop = targetTop
     } catch {
-      // ignore scroll restoration failures
+      // ignore
+    }
+    tries += 1
+    const current = getAppShellScrollTop()
+    // 内容未撑开时 scrollTop 会被压到较小值，继续重试
+    if (Math.abs(current - targetTop) > 4 && tries < maxTries) {
+      requestAnimationFrame(applyScroll)
     }
   }
+
   nextTick(() => {
     applyScroll()
     requestAnimationFrame(applyScroll)
+    // 覆盖 module-fade out-in 常见时长
+    ;[50, 120, 200, 320, 480, 700].forEach((ms) => {
+      window.setTimeout(applyScroll, ms)
+    })
   })
 }
 
@@ -1442,13 +1482,19 @@ const ensureLoginRequiredViewAccess = (view) => {
   return false
 }
 
-const goToViewInternal = (view, { push = true, restoreScroll = false } = {}) => {
+const goToViewInternal = (view, { push = true, restoreScroll = false, scrollToTop } = {}) => {
   const normalized = normalizeViewName(view)
   const fromView = currentView.value
-  if (currentView.value === 'home' && normalized !== 'home') {
+  // 离开首页前记住滚动位置
+  if (fromView === 'home' && normalized !== 'home') {
     rememberHomeScrollPosition()
   }
-  const shouldRestoreHomeScroll = normalized === 'home' && restoreScroll
+  // 从任意子页回到首页：默认恢复滚动；仅显式 scrollToTop:true 才置顶
+  const returningHome = normalized === 'home' && fromView !== 'home'
+  const shouldRestoreHomeScroll =
+    normalized === 'home' &&
+    scrollToTop !== true &&
+    (restoreScroll || returningHome)
   pendingScrollToTopOnViewChange = !shouldRestoreHomeScroll
   applyViewState(normalized)
   if (push) {
@@ -2853,16 +2899,34 @@ const hideHomeLayoutDebug = () => {
 
 const handlePopState = async () => {
   if (!isDesktopLike) {
+    const fromView = currentView.value
     const handled = goToParentView()
     if (!handled) {
-      replaceHistorySnapshot('home')
+      // 无父级时回首页并恢复滚动
+      goToViewInternal('home', { push: false, restoreScroll: true })
+      return
     }
-    recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+    // goToParentView 已处理首页恢复；勿再 forceScrollTop 冲掉位置
+    if (currentView.value === 'home' || fromView !== 'home') {
+      // 仅在非首页落地时再校正视口
+      if (currentView.value !== 'home') {
+        recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+      } else {
+        recoverViewportAfterTransition({ scrollToTop: false, blurActive: true })
+        restoreHomeScrollPosition()
+      }
+    }
     return
   }
 
-  await syncFromHash({ scrollToTop: true })
-  recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+  const prev = currentView.value
+  await syncFromHash({ scrollToTop: false })
+  if (currentView.value === 'home' && prev !== 'home') {
+    recoverViewportAfterTransition({ scrollToTop: false, blurActive: true })
+    restoreHomeScrollPosition()
+  } else {
+    recoverViewportAfterTransition({ scrollToTop: true, blurActive: true })
+  }
 }
 
 const installCloseInterceptor = async () => {
@@ -2878,7 +2942,7 @@ const installCloseInterceptor = async () => {
         if ((window.history.length > 1) && (window.location.hash || '#/') !== '#/') {
           window.history.back()
         } else {
-          goToView('home')
+          goToView('home', { restoreScroll: true })
         }
         return
       }
