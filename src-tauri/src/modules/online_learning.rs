@@ -2955,6 +2955,121 @@ fn make_chaoxing_enc(
     format!("{:x}", md5::compute(raw.as_bytes()))
 }
 
+/// 从 HTML 中按括号匹配提取 `mArg = {...};`（非贪婪正则会截断嵌套 JSON）
+fn extract_m_arg_json(html: &str) -> Option<String> {
+    let lower = html;
+    let markers = ["mArg =", "mArg=", "mArg  ="];
+    let mut start_eq = None;
+    for m in markers {
+        if let Some(pos) = lower.find(m) {
+            start_eq = Some(pos + m.len());
+            break;
+        }
+    }
+    let after = start_eq?;
+    let bytes = html.as_bytes();
+    let mut i = after;
+    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b'{' {
+        return None;
+    }
+    let begin = i;
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut escape = false;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if in_str {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+        } else {
+            match c {
+                '"' => in_str = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(html[begin..=i].to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn json_str_field(v: &Value, keys: &[&str]) -> String {
+    for k in keys {
+        if let Some(s) = v.get(*k).and_then(|x| x.as_str()) {
+            if !s.is_empty() {
+                return s.to_string();
+            }
+        }
+        // 数字 id 也兼容
+        if let Some(n) = v.get(*k).and_then(|x| x.as_i64()) {
+            return n.to_string();
+        }
+        if let Some(n) = v.get(*k).and_then(|x| x.as_u64()) {
+            return n.to_string();
+        }
+    }
+    String::new()
+}
+
+fn json_str_pointer(v: &Value, paths: &[&str]) -> String {
+    for p in paths {
+        if let Some(s) = v.pointer(p).and_then(|x| x.as_str()) {
+            if !s.is_empty() {
+                return s.to_string();
+            }
+        }
+        if let Some(n) = v.pointer(p).and_then(|x| x.as_i64()) {
+            return n.to_string();
+        }
+    }
+    String::new()
+}
+
+fn prefer_https_url(url: &str) -> String {
+    let t = url.trim();
+    if t.starts_with("http://") {
+        format!("https://{}", &t[7..])
+    } else {
+        t.to_string()
+    }
+}
+
+fn collect_play_urls(data: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let push = |list: &mut Vec<String>, raw: &str| {
+        let u = prefer_https_url(raw);
+        if u.is_empty() || !u.starts_with("http") {
+            return;
+        }
+        if !list.iter().any(|x| x == &u) {
+            list.push(u);
+        }
+    };
+    // 优先高清 / https 直链
+    for key in [
+        "https", "hd", "http", "download", "play_url", "url", "mp3", "cdn", "sd",
+    ] {
+        if let Some(s) = data.get(key).and_then(|v| v.as_str()) {
+            push(&mut out, s);
+        }
+    }
+    out
+}
+
 /// 获取章节知识卡片（含视频任务列表）
 pub async fn chaoxing_get_knowledge_cards(
     client: &HbutClient,
@@ -2966,92 +3081,121 @@ pub async fn chaoxing_get_knowledge_cards(
     if !has_chaoxing_session(client) {
         return Err(err_box("当前没有可用的学习通会话，请先登录学习通"));
     }
-    let resp = client
-        .client
-        .get("https://mooc1.chaoxing.com/mooc-ans/knowledge/cards")
-        .query(&[
-            ("clazzid", clazz_id),
-            ("courseid", course_id),
-            ("knowledgeid", knowledge_id),
-            ("num", "0"),
-            ("ut", "s"),
-            ("cpi", cpi),
-            ("v", "2025-0424-1038-3"),
-            ("mooc2", "1"),
-            ("isMicroCourse", "false"),
-            ("editorPreview", "0"),
-        ])
-        .header(
-            "Referer",
-            "https://mooc1.chaoxing.com/ananas/modules/video/index.html",
-        )
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await?;
-    let html = resp.text().await?;
-    // 解析 mArg JSON：mArg = {...};
-    let re = regex::Regex::new(r"mArg\s*=\s*(\{[\s\S]*?\});")?;
-    let marg_json = re
-        .captures(&html)
-        .and_then(|cap| cap.get(1))
-        .map(|m| m.as_str())
-        .unwrap_or("{}");
-    let marg: Value = serde_json::from_str(marg_json).unwrap_or_else(|_| json!({}));
 
-    // 从 mArg 提取视频任务
-    let attachments = marg
-        .get("attachments")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let defaults = marg.get("defaults").cloned().unwrap_or_else(|| json!({}));
-    let report_url = defaults
-        .get("reportUrl")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let fid = defaults
-        .get("fid")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let mut all_attachments: Vec<Value> = Vec::new();
+    let mut defaults = json!({});
+    let mut pages_fetched = 0u32;
+
+    // 卡片按 num 分页（一页一个 attachment 槽位）
+    for num in 0..12 {
+        let num_s = num.to_string();
+        let resp = client
+            .client
+            .get("https://mooc1.chaoxing.com/mooc-ans/knowledge/cards")
+            .query(&[
+                ("clazzid", clazz_id),
+                ("courseid", course_id),
+                ("knowledgeid", knowledge_id),
+                ("num", num_s.as_str()),
+                ("ut", "s"),
+                ("cpi", cpi),
+                ("v", "2025-0424-1038-3"),
+                ("mooc2", "1"),
+                ("isMicroCourse", "false"),
+                ("editorPreview", "0"),
+            ])
+            .header(
+                "Referer",
+                format!(
+                    "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudy?chapterId={knowledge_id}&courseId={course_id}&clazzid={clazz_id}&cpi={cpi}"
+                ),
+            )
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await?;
+        let html = resp.text().await?;
+        pages_fetched += 1;
+
+        let Some(marg_json) = extract_m_arg_json(&html) else {
+            if num == 0 {
+                // 首屏无 mArg：尝试备用路径
+                break;
+            }
+            break;
+        };
+        let marg: Value = match serde_json::from_str(&marg_json) {
+            Ok(v) => v,
+            Err(_) => {
+                if num == 0 {
+                    return Err(err_box("章节卡片 mArg 解析失败，请重新登录学习通后重试"));
+                }
+                break;
+            }
+        };
+
+        if num == 0 {
+            defaults = marg.get("defaults").cloned().unwrap_or_else(|| json!({}));
+        }
+        let page_atts = marg
+            .get("attachments")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if page_atts.is_empty() {
+            break;
+        }
+        for att in page_atts {
+            all_attachments.push(att);
+        }
+        // 单页若已带齐多个 attachment，通常无需继续翻页
+        if num == 0 && all_attachments.len() > 1 {
+            // 仍继续翻一页探测是否有更多；若下页为空会 break
+            continue;
+        }
+    }
+
+    let report_url = json_str_field(&defaults, &["reportUrl", "report_url"]);
+    let fid = json_str_field(&defaults, &["fid"]);
+    let userid = json_str_field(&defaults, &["userid", "userId", "uid"]);
+    let clazz_from_def = json_str_field(&defaults, &["clazzId", "clazzid", "classId"]);
+    let clazz_out = if clazz_from_def.is_empty() {
+        clazz_id.to_string()
+    } else {
+        clazz_from_def
+    };
 
     let mut videos = Vec::new();
     let mut tasks = Vec::new();
-    for (idx, att) in attachments.iter().enumerate() {
-        let jobid = att
-            .get("jobid")
-            .or_else(|| att.get("jobId"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let att_type = att
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let object_id = att
-            .get("objectId")
-            .or_else(|| att.pointer("/property/objectid"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let name = att
-            .get("property")
-            .and_then(|p| p.get("name"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let module = att
-            .pointer("/property/module")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let other_info = att
-            .get("otherInfo")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+    for (idx, att) in all_attachments.iter().enumerate() {
+        let jobid = json_str_field(att, &["jobid", "jobId", "job_id"]);
+        let att_type = json_str_field(att, &["type", "attachmentType"]);
+        let object_id = {
+            let a = json_str_field(att, &["objectId", "objectid", "object_id"]);
+            if !a.is_empty() {
+                a
+            } else {
+                json_str_pointer(
+                    att,
+                    &[
+                        "/property/objectid",
+                        "/property/objectId",
+                        "/property/object_id",
+                        "/property/mid",
+                    ],
+                )
+            }
+        };
+        let name = {
+            let n = json_str_pointer(att, &["/property/name", "/property/title"]);
+            if n.is_empty() {
+                json_str_field(att, &["name", "title"])
+            } else {
+                n
+            }
+        };
+        let module = json_str_pointer(att, &["/property/module", "/property/type"]);
+        let other_info = json_str_field(att, &["otherInfo", "other_info"]);
         let att_duration = att
             .get("attDuration")
             .map(|v| match v {
@@ -3060,16 +3204,9 @@ pub async fn chaoxing_get_knowledge_cards(
                 _ => "0".into(),
             })
             .unwrap_or_else(|| "0".into());
-        let att_duration_enc = att
-            .get("attDurationEnc")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let video_face_capture_enc = att
-            .get("videoFaceCaptureEnc")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let att_duration_enc = json_str_field(att, &["attDurationEnc", "att_duration_enc"]);
+        let video_face_capture_enc =
+            json_str_field(att, &["videoFaceCaptureEnc", "video_face_capture_enc"]);
         let is_passed = att
             .get("isPassed")
             .and_then(|v| v.as_bool())
@@ -3077,10 +3214,22 @@ pub async fn chaoxing_get_knowledge_cards(
             .or_else(|| att.get("passed").and_then(|v| v.as_bool()))
             .unwrap_or(false);
 
-        let kind = if att_type == "video" || module.contains("video") {
+        let kind = if att_type == "video"
+            || module.contains("video")
+            || module.eq_ignore_ascii_case("insertvideo")
+        {
             "video"
-        } else if att_type == "document" || module.contains("doc") || module.contains("pdf") {
+        } else if att_type == "document"
+            || module.contains("doc")
+            || module.contains("pdf")
+            || module.contains("book")
+        {
             "document"
+        } else if att_type == "work" || module.contains("work") {
+            "work"
+        } else if att_type.is_empty() && !object_id.is_empty() {
+            // 有 objectId 的未知类型按视频尝试
+            "video"
         } else if att_type.is_empty() {
             "task"
         } else {
@@ -3116,13 +3265,14 @@ pub async fn chaoxing_get_knowledge_cards(
         "success": true,
         "reportUrl": report_url,
         "report_url": report_url,
-        "userid": defaults.get("userid").and_then(|v| v.as_str()).unwrap_or(""),
-        "clazzId": defaults.get("clazzId").and_then(|v| v.as_str()).or_else(|| defaults.get("clazzid").and_then(|v| v.as_str())).unwrap_or(clazz_id),
-        "clazz_id": defaults.get("clazzId").and_then(|v| v.as_str()).or_else(|| defaults.get("clazzid").and_then(|v| v.as_str())).unwrap_or(clazz_id),
+        "userid": userid,
+        "clazzId": clazz_out.clone(),
+        "clazz_id": clazz_out,
         "fid": fid,
         "knowledge_id": knowledge_id,
         "course_id": course_id,
         "cpi": cpi,
+        "pages_fetched": pages_fetched,
         "videos": videos,
         "tasks": tasks,
         "attachments": tasks,
@@ -3140,6 +3290,9 @@ pub async fn chaoxing_fetch_course_score(
     if !has_chaoxing_session(client) {
         return Err(err_box("当前没有可用的学习通会话，请先登录学习通"));
     }
+    if course_id.trim().is_empty() || clazz_id.trim().is_empty() {
+        return Err(err_box("课程参数不完整（courseId/clazzId）"));
+    }
     // 先打开统计页拿 pEnc
     let index_url = format!(
         "https://stat2-ans.chaoxing.com/study-data/index?courseid={course_id}&clazzid={clazz_id}&cpi={cpi}&ut=s"
@@ -3148,18 +3301,43 @@ pub async fn chaoxing_fetch_course_score(
         .client
         .get(&index_url)
         .header("Referer", "https://mooc1.chaoxing.com/")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
         .timeout(Duration::from_secs(20))
         .send()
         .await?
         .text()
         .await?;
-    let penc = regex::Regex::new(r#"id="pEnc"\s+value="([a-fA-F0-9]{32})""#)
-        .ok()
-        .and_then(|re| re.captures(&index_html))
-        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
-        .unwrap_or_default();
+
+    // 多种 pEnc 写法兼容
+    let penc = [
+        r#"id="pEnc"\s+value="([a-fA-F0-9]{32})""#,
+        r#"id='pEnc'\s+value='([a-fA-F0-9]{32})'"#,
+        r#"name="pEnc"\s+value="([a-fA-F0-9]{32})""#,
+        r#"pEnc["']?\s*[:=]\s*["']([a-fA-F0-9]{32})["']"#,
+        r#"pEnc=([a-fA-F0-9]{32})"#,
+    ]
+    .iter()
+    .find_map(|pat| {
+        regex::Regex::new(pat)
+            .ok()
+            .and_then(|re| re.captures(&index_html))
+            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+    })
+    .unwrap_or_default();
+
     if penc.is_empty() {
-        return Err(err_box("未能解析成绩页凭证 pEnc，请确认课程已开通学情统计"));
+        // 无权限时页面可能是登录跳转或空壳
+        let hint = if index_html.contains("login") || index_html.contains("passport") {
+            "成绩页需要重新桥接学习通会话，请退出后重新登录门户"
+        } else if index_html.len() < 80 {
+            "成绩统计页返回为空，课程可能未开通统计"
+        } else {
+            "未能解析成绩页凭证 pEnc，请确认课程已开通学情统计"
+        };
+        return Err(err_box(hint));
     }
 
     let score_url = format!(
@@ -3198,6 +3376,28 @@ pub async fn chaoxing_fetch_course_score(
         .cloned()
         .unwrap_or_else(|| json!([]));
 
+    // weightList 可能为空时，用 weight 对象拼一份
+    let weight_list = if weight_list.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+        let mut list = Vec::new();
+        for (key, label) in [
+            ("work", "作业"),
+            ("test", "考试"),
+            ("video", "视频"),
+            ("attend", "签到"),
+            ("bbs", "讨论"),
+            ("live", "直播"),
+            ("read", "阅读"),
+            ("task", "任务点"),
+        ] {
+            if let Some(v) = weight.get(key) {
+                list.push(json!({ "name": label, "key": key, "value": v }));
+            }
+        }
+        json!(list)
+    } else {
+        weight_list
+    };
+
     Ok(json!({
         "success": true,
         "course_id": course_id,
@@ -3214,7 +3414,7 @@ pub async fn chaoxing_fetch_course_score(
     }))
 }
 
-/// 获取视频文件状态（dtoken、duration等）
+/// 获取视频文件状态（dtoken、duration、播放直链 http/https）
 pub async fn chaoxing_get_video_status(
     client: &HbutClient,
     object_id: &str,
@@ -3223,27 +3423,94 @@ pub async fn chaoxing_get_video_status(
     if !has_chaoxing_session(client) {
         return Err(err_box("当前没有可用的学习通会话，请先登录学习通"));
     }
-    let ts = chrono::Utc::now().timestamp_millis();
-    let resp = client
-        .client
-        .get(&format!(
-            "https://mooc1.chaoxing.com/ananas/status/{}",
-            object_id
-        ))
-        .query(&[("k", fid), ("flag", "normal")])
-        .query(&[("_dc", &ts.to_string())])
-        .header(
-            "Referer",
-            "https://mooc1.chaoxing.com/ananas/modules/video/index.html",
-        )
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await?;
-    let data = read_json_response(resp, "获取视频状态失败").await?;
-    Ok(json!({
-        "success": true,
-        "data": data,
-    }))
+    let oid = object_id.trim();
+    if oid.is_empty() {
+        return Err(err_box("object_id 为空"));
+    }
+    let fid_s = if fid.trim().is_empty() {
+        "0"
+    } else {
+        fid.trim()
+    };
+    let ts = chrono::Utc::now().timestamp_millis().to_string();
+    // 依次尝试不同域名 / 参数，提高成功率
+    let candidates = [
+        format!("https://mooc1.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://mooc1-api.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://mooc1.chaoxing.com/ananas/status/{oid}?flag=normal&_dc={ts}"),
+        format!("https://s1.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://s2.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://noteyd.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+    ];
+    let mut last_err = String::new();
+    for url in candidates {
+        let resp = match client
+            .client
+            .get(&url)
+            .header(
+                "Referer",
+                "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2026-0327-1642",
+            )
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            )
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = e.to_string();
+                continue;
+            }
+        };
+        match read_json_response(resp, "获取视频状态失败").await {
+            Ok(data) => {
+                // status 字段可能是 "success" / "failed"
+                let status = data
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if status == "failed" || status == "error" {
+                    last_err = format!(
+                        "status={status}: {}",
+                        data.get("msg")
+                            .or_else(|| data.get("message"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("视频状态失败")
+                    );
+                    continue;
+                }
+
+                let play_urls = collect_play_urls(&data);
+                let mut out = data.clone();
+                if let Some(obj) = out.as_object_mut() {
+                    if let Some(first) = play_urls.first() {
+                        obj.insert("play_url".into(), json!(first));
+                        // 统一把 http 字段写成 https 优先，方便前端 <video>
+                        obj.insert("http".into(), json!(first));
+                    }
+                    obj.insert("play_urls".into(), json!(play_urls.clone()));
+                }
+                if play_urls.is_empty() && status != "success" && status.is_empty() {
+                    last_err = "响应无播放地址".into();
+                    continue;
+                }
+                return Ok(json!({
+                    "success": true,
+                    "data": out,
+                    "play_url": play_urls.first().cloned().unwrap_or_default(),
+                    "play_urls": play_urls,
+                }));
+            }
+            Err(e) => last_err = e.to_string(),
+        }
+    }
+    Err(err_box(format!("获取视频状态失败：{last_err}")))
 }
 
 /// 上报超星视频观看进度

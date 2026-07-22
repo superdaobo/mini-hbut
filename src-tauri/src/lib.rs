@@ -1440,24 +1440,33 @@ pub struct YuketangCourseProgressRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingKnowledgeCardsRequest {
     pub student_id: Option<String>,
+    #[serde(alias = "clazzId", alias = "classId")]
     pub clazz_id: String,
+    #[serde(alias = "courseId")]
     pub course_id: String,
+    #[serde(alias = "knowledgeId")]
     pub knowledge_id: String,
+    #[serde(default)]
     pub cpi: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingVideoStatusRequest {
     pub student_id: Option<String>,
+    #[serde(alias = "objectId")]
     pub object_id: String,
+    #[serde(default)]
     pub fid: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaoxingCourseScoreRequest {
     pub student_id: Option<String>,
+    #[serde(alias = "courseId")]
     pub course_id: String,
+    #[serde(alias = "clazzId", alias = "classId")]
     pub clazz_id: String,
+    #[serde(default)]
     pub cpi: String,
 }
 
