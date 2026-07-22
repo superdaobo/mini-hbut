@@ -1383,9 +1383,7 @@ impl HbutClient {
                 .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
                 .map(|s| {
                     // 可能被 URL 编码过
-                    urlencoding::decode(&s)
-                        .map(|c| c.into_owned())
-                        .unwrap_or(s)
+                    urlencoding::decode(&s).map(|c| c.into_owned()).unwrap_or(s)
                 })
                 .unwrap_or_default()
                 .trim()
@@ -1401,7 +1399,10 @@ impl HbutClient {
                 tid = extract_tid(&html);
             }
             if !tid.is_empty() {
-                crate::hbut_debug!("[调试] browser_tid 直连成功: {}...", &tid.chars().take(12).collect::<String>());
+                crate::hbut_debug!(
+                    "[调试] browser_tid 直连成功: {}...",
+                    &tid.chars().take(12).collect::<String>()
+                );
                 return Ok(tid);
             }
         }
@@ -1448,9 +1449,9 @@ impl HbutClient {
                     current_url = if location_str.starts_with("http") {
                         location_str.to_string()
                     } else if location_str.starts_with('/') {
-                        let base: Url = url_str.parse().unwrap_or_else(|_| {
-                            "https://code.hbut.edu.cn/".parse().unwrap()
-                        });
+                        let base: Url = url_str
+                            .parse()
+                            .unwrap_or_else(|_| "https://code.hbut.edu.cn/".parse().unwrap());
                         format!(
                             "{}://{}{}",
                             base.scheme(),

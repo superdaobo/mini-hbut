@@ -97,10 +97,7 @@ fn coerce_json_int(v: &Value, default: i64) -> Value {
     match v {
         Value::Number(n) => Value::Number(n.clone()),
         Value::String(s) => {
-            let t = s
-                .trim()
-                .trim_matches(|c| c == '"' || c == '\'')
-                .trim();
+            let t = s.trim().trim_matches(|c| c == '"' || c == '\'').trim();
             if t.is_empty() {
                 return json!(default);
             }
@@ -152,7 +149,10 @@ fn normalize_venue_json_body(body: Value) -> Value {
 }
 
 fn clean_role_id(role_id: Option<&str>) -> Option<String> {
-    let s = role_id?.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    let s = role_id?
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .trim();
     if s.is_empty() {
         return None;
     }
@@ -175,7 +175,10 @@ async fn venue_post(
         .header("Origin", VENUE_BASE)
         .header("Referer", format!("{VENUE_BASE}/"));
 
-    if let Some(t) = token.map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'')).filter(|s| !s.is_empty()) {
+    if let Some(t) = token
+        .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\''))
+        .filter(|s| !s.is_empty())
+    {
         req = req.header("token", t);
     }
     if let Some(r) = clean_role_id(role_id) {
@@ -468,8 +471,11 @@ async fn login_venue(
 }
 
 fn role_id_of(user: &Value) -> Option<String> {
-    user.get("roleId")
-        .and_then(|v| v.as_i64().map(|n| n.to_string()).or_else(|| v.as_str().map(|s| s.to_string())))
+    user.get("roleId").and_then(|v| {
+        v.as_i64()
+            .map(|n| n.to_string())
+            .or_else(|| v.as_str().map(|s| s.to_string()))
+    })
 }
 
 /// 登录并拉取场馆列表
@@ -539,10 +545,7 @@ pub async fn sports_venue_detail(
         "selectDate": date,
         "half": half_n
     });
-    crate::runtime_log::log_info(
-        "SportsVenue",
-        format!("detail body={body}"),
-    );
+    crate::runtime_log::log_info("SportsVenue", format!("detail body={body}"));
     venue_post(
         &client.client,
         "/reserve/place/detailByStadiumId",

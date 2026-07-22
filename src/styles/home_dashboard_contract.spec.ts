@@ -108,9 +108,13 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('returningHome')
     expect(source).toContain("goToView('home', { restoreScroll: true })")
     expect(source).toContain('recoverViewportAfterTransition({ scrollToTop: false')
-    // 系统返回键 / popstate 不得再强制滚到顶部冲掉恢复
-    expect(source).not.toMatch(
-      /const handlePopState = async \(\) => \{[\s\S]*?goToParentView\(\)[\s\S]*?recoverViewportAfterTransition\(\{ scrollToTop: true/
+    // 系统返回键 / popstate：落地首页时必须 scrollToTop:false 并 restore，不可冲掉位置
+    // （非首页落地仍可用 scrollToTop:true 校正视口，故不能用跨语句贪心正则一刀切）
+    expect(source).toMatch(
+      /if \(currentView\.value !== 'home'\) \{\s*recoverViewportAfterTransition\(\{\s*scrollToTop:\s*true/
+    )
+    expect(source).toMatch(
+      /currentView\.value !== 'home'[\s\S]{0,200}?else \{\s*recoverViewportAfterTransition\(\{\s*scrollToTop:\s*false[\s\S]{0,120}?restoreHomeScrollPosition\(\)/
     )
   })
 })

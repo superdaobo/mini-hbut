@@ -713,7 +713,10 @@ async fn ensure_chaoxing_session_ready(client: &mut HbutClient, student_id: &str
     }
     crate::hbut_session_log!("ChaoxingSession", "API 未就绪，尝试补票/桥接/重登…");
     if has_chaoxing_full_session(client) {
-        crate::hbut_session_log!("ChaoxingSession", "有完整 cookie，ensure_chaoxing_academic_session");
+        crate::hbut_session_log!(
+            "ChaoxingSession",
+            "有完整 cookie，ensure_chaoxing_academic_session"
+        );
         let _ = client.ensure_chaoxing_academic_session().await;
         if check_chaoxing_course_api_ready(client).await {
             crate::hbut_session_log!("ChaoxingSession", "补票后 API 就绪");
@@ -784,13 +787,11 @@ async fn ensure_chaoxing_session_ready(client: &mut HbutClient, student_id: &str
             true
         }
         Err(e) => {
-            crate::hbut_session_log!(
-                "ChaoxingSession",
-                "学习通账号密码补全失败: {}",
-                e
-            );
+            crate::hbut_session_log!("ChaoxingSession", "学习通账号密码补全失败: {}", e);
             let ok = check_chaoxing_course_api_ready(client).await;
-            timer.finish(Some(json!({ "path": "password_relogin", "ok": false, "ready": ok })));
+            timer.finish(Some(
+                json!({ "path": "password_relogin", "ok": false, "ready": ok }),
+            ));
             ok
         }
     }
@@ -1471,7 +1472,12 @@ fn guess_semester_label(content: &Value, item: &Value, course_data: Option<&Valu
     let ended = content
         .get("isFiled")
         .and_then(|v| v.as_bool())
-        .or_else(|| content.get("state").and_then(|v| v.as_i64()).map(|n| n == 1))
+        .or_else(|| {
+            content
+                .get("state")
+                .and_then(|v| v.as_i64())
+                .map(|n| n == 1)
+        })
         .unwrap_or(false);
     if ended {
         "历史课程".into()
@@ -1537,14 +1543,20 @@ async fn fetch_chaoxing_folder_courses(
             r#"courseFolderId[=:\s"']+(\d+)[^>]{0,200}?(?:title|data-name|folderName)[=:\s"']+([^"'<]{1,40})"#,
         )
         .ok();
-        let re_folder2 =
-            regex::Regex::new(r#"(?i)(?:folderid|courseFolderId)["'=\s:]+(\d+)"#).ok();
+        let re_folder2 = regex::Regex::new(r#"(?i)(?:folderid|courseFolderId)["'=\s:]+(\d+)"#).ok();
         if let Some(re) = re_folder {
             for cap in re.captures_iter(&html) {
                 let id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
                 let name = sanitize_text(cap.get(2).map(|m| m.as_str()).unwrap_or("历史"));
                 if !id.is_empty() && id != "0" {
-                    folder_ids.push((id, if name.is_empty() { "历史课程".into() } else { name }));
+                    folder_ids.push((
+                        id,
+                        if name.is_empty() {
+                            "历史课程".into()
+                        } else {
+                            name
+                        },
+                    ));
                 }
             }
         }
@@ -1564,9 +1576,7 @@ async fn fetch_chaoxing_folder_courses(
     folder_ids.truncate(12);
 
     for (folder_id, folder_name) in folder_ids {
-        let body = format!(
-            "courseType=1&courseFolderId={folder_id}&superstarClass=0"
-        );
+        let body = format!("courseType=1&courseFolderId={folder_id}&superstarClass=0");
         let resp = match client
             .client
             .post("https://mooc1.chaoxing.com/mooc-ans/visit/courselistdata")
@@ -1592,11 +1602,9 @@ async fn fetch_chaoxing_folder_courses(
             r#"(?i)(?:courseid|courseId)=(\d+)[^"'>\s]{0,80}?(?:clazzid|classId)=(\d+)[^"'>\s]{0,80}?(?:cpi)=(\d+)"#,
         )
         .ok();
-        let re_name = regex::Regex::new(
-            r#"(?i)class="[^"]*course-name[^"]*"[^>]*>([^<]{1,80})<"#,
-        )
-        .ok()
-        .or_else(|| regex::Regex::new(r#"(?i)title="([^"]{2,80})""#).ok());
+        let re_name = regex::Regex::new(r#"(?i)class="[^"]*course-name[^"]*"[^>]*>([^<]{1,80})<"#)
+            .ok()
+            .or_else(|| regex::Regex::new(r#"(?i)title="([^"]{2,80})""#).ok());
 
         let mut names: Vec<String> = Vec::new();
         if let Some(rn) = re_name.as_ref() {
@@ -1854,7 +1862,11 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
 
             let mut semesters: Vec<String> = courses
                 .iter()
-                .filter_map(|c| c.get("semester").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .filter_map(|c| {
+                    c.get("semester")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect();
             semesters.sort();
             semesters.dedup();
@@ -2107,10 +2119,7 @@ pub async fn chaoxing_fetch_courses(
     let session_ready = ensure_chaoxing_session_ready(client, &sid).await;
     if !session_ready {
         if let Some((cached, sync_time)) = read_cache(CACHE_CHAOXING_COURSES, &cache_id) {
-            crate::hbut_session_log!(
-                "ChaoxingCourses",
-                "会话未就绪，回退缓存课程"
-            );
+            crate::hbut_session_log!("ChaoxingCourses", "会话未就绪，回退缓存课程");
             timer.finish(Some(json!({ "from_cache": true, "session_ready": false })));
             return Ok(crate::attach_sync_time(cached, &sync_time, true));
         }
@@ -2350,7 +2359,11 @@ async fn fetch_chaoxing_outline_remote(
         let total = tasks.len();
         let done = tasks
             .iter()
-            .filter(|t| t.get("completed").and_then(|v| v.as_bool()).unwrap_or(false))
+            .filter(|t| {
+                t.get("completed")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            })
             .count();
         sections.push(json!({
             "id": "all",
@@ -2416,7 +2429,11 @@ async fn fetch_chaoxing_outline_remote(
             total_count += arr.len();
             completed_count += arr
                 .iter()
-                .filter(|t| t.get("completed").and_then(|v| v.as_bool()).unwrap_or(false))
+                .filter(|t| {
+                    t.get("completed")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                })
                 .count();
         }
     }
@@ -3320,10 +3337,8 @@ fn scrape_tasks_from_cards_html(html: &str, knowledge_id: &str) -> Vec<Value> {
     let mut tasks = Vec::new();
     let mut seen = HashSet::new();
     // objectid 常见写法
-    let re_oid = regex::Regex::new(
-        r#"(?i)(?:objectid|objectId|object_id)["'\s:=]+([a-f0-9]{16,})"#
-    )
-    .ok();
+    let re_oid =
+        regex::Regex::new(r#"(?i)(?:objectid|objectId|object_id)["'\s:=]+([a-f0-9]{16,})"#).ok();
     let re_job = regex::Regex::new(r#"(?i)(?:jobid|jobId)["'\s:=]+([a-zA-Z0-9_\-]+)"#).ok();
     let re_name = regex::Regex::new(r#""name"\s*:\s*"([^"]{1,120})""#).ok();
 
@@ -3550,7 +3565,9 @@ pub async fn chaoxing_get_knowledge_cards(
                 all_attachments.push(att);
             }
         }
-        if !all_attachments.is_empty() || !defaults.is_null() && defaults.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+        if !all_attachments.is_empty()
+            || !defaults.is_null() && defaults.as_object().map(|o| !o.is_empty()).unwrap_or(false)
+        {
             break 'bases;
         }
     }
@@ -3803,13 +3820,13 @@ pub async fn chaoxing_fetch_course_score(
         Err(_) => None,
     };
 
-    let data = score_json.get("data").cloned().unwrap_or(score_json.clone());
+    let data = score_json
+        .get("data")
+        .cloned()
+        .unwrap_or(score_json.clone());
     let score = data.get("score").cloned().unwrap_or(json!({}));
     let weight = data.get("weight").cloned().unwrap_or(json!({}));
-    let weight_list = data
-        .get("weightList")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
+    let weight_list = data.get("weightList").cloned().unwrap_or_else(|| json!([]));
 
     // weightList 可能为空时，用 weight 对象拼一份
     let weight_list = if weight_list.as_array().map(|a| a.is_empty()).unwrap_or(true) {
@@ -3871,7 +3888,9 @@ pub async fn chaoxing_get_video_status(
     // 依次尝试不同域名 / 参数，提高成功率
     let candidates = [
         format!("https://mooc1.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-        format!("https://mooc1-api.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!(
+            "https://mooc1-api.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"
+        ),
         format!("https://mooc1.chaoxing.com/ananas/status/{oid}?flag=normal&_dc={ts}"),
         format!("https://s1.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
         format!("https://s2.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),

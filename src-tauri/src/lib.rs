@@ -5068,8 +5068,7 @@ async fn school_inbox_fetch(
     let mut client = state.client.write().await;
     let mode = login_mode.unwrap_or_default();
     let force = force.unwrap_or(false);
-    let response =
-        modules::school_inbox::fetch_school_inbox_ex(&mut client, &mode, force).await?;
+    let response = modules::school_inbox::fetch_school_inbox_ex(&mut client, &mode, force).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 

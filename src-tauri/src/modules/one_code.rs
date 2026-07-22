@@ -51,10 +51,7 @@ pub async fn hbut_one_code_token(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        result_data: res
-            .get("resultData")
-            .cloned()
-            .unwrap_or_else(|| json!({})),
+        result_data: res.get("resultData").cloned().unwrap_or_else(|| json!({})),
     })
 }
 
@@ -143,16 +140,10 @@ pub async fn one_code_app_open_prepare(
     // 第三方应用（场馆/电量）需要 accessToken
     let token = if matches!(code.as_str(), "noQYzEiZ7L" | "jSJNLwI3bX") || !needs_browser_tid {
         let _ = session_guard::ensure_one_code_electricity(&mut client).await;
-        client
-            .ensure_electricity_token()
-            .await
-            .unwrap_or_default()
+        client.ensure_electricity_token().await.unwrap_or_default()
     } else {
         // 缴费页不强制 accessToken；有则更好
-        client
-            .ensure_electricity_token()
-            .await
-            .unwrap_or_default()
+        client.ensure_electricity_token().await.unwrap_or_default()
     };
     let tid_q = if browser_tid.is_empty() {
         String::new()
@@ -282,10 +273,7 @@ pub async fn electricity_usage_stats(
             match fetch_smart_electricity_stats(&mut client, &student_id, &alt, &label).await {
                 Ok(mut v) => {
                     if let Some(obj) = v.as_object_mut() {
-                        obj.insert(
-                            "hint".into(),
-                            json!("用电趋势：当前所选房间（空调表）"),
-                        );
+                        obj.insert("hint".into(), json!("用电趋势：当前所选房间（空调表）"));
                     }
                     Ok(v)
                 }
@@ -549,7 +537,10 @@ async fn fetch_smart_electricity_stats(
             "ElectricityUsage",
             format!(
                 "所选房间候选 room_no={room_no} candidates={:?}",
-                candidates.iter().map(|(r, _, _)| r.as_str()).collect::<Vec<_>>()
+                candidates
+                    .iter()
+                    .map(|(r, _, _)| r.as_str())
+                    .collect::<Vec<_>>()
             ),
         );
     } else if !bound_room.is_empty() {
@@ -604,7 +595,10 @@ fn extract_room_number(label: &str, roomverify: &str) -> String {
         .ok()
         .and_then(|re| re.captures(label))
     {
-        return caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+        return caps
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
     }
     if let Some(caps) = regex::Regex::new(r"(\d{2,4})\s*$")
         .ok()
@@ -743,7 +737,12 @@ async fn resolve_swae_roomverify_by_tree(
                 client,
                 final_url,
                 sid,
-                &["getfloorlist", "h5_getfloorlist", "getfloor", "getlevellist"],
+                &[
+                    "getfloorlist",
+                    "h5_getfloorlist",
+                    "getfloor",
+                    "getlevellist",
+                ],
                 json!({
                     "cmd": "getfloorlist",
                     "buildingid": building_id,
@@ -786,7 +785,14 @@ async fn resolve_swae_roomverify_by_tree(
                     let rname = json_name(&room);
                     let rv = json_id(
                         &room,
-                        &["roomverify", "roomid", "id", "value", "roomId", "room_verify"],
+                        &[
+                            "roomverify",
+                            "roomid",
+                            "id",
+                            "value",
+                            "roomId",
+                            "room_verify",
+                        ],
                     );
                     if rv.is_empty() {
                         continue;
@@ -931,7 +937,10 @@ async fn fetch_usage_for_room(
             .unwrap_or("");
         crate::runtime_log::log_debug(
             "ElectricityUsage",
-            format!("index ret={ret} msg={msg} shape={}", describe_swae_shape(&index)),
+            format!(
+                "index ret={ret} msg={msg} shape={}",
+                describe_swae_shape(&index)
+            ),
         );
 
         let body = match parse_swae_body(&index) {
@@ -980,7 +989,14 @@ async fn fetch_usage_for_room(
                     "h5_getmdusedaylist",
                     "getusedaylist",
                 ],
-                &["weekuselist", "dayuselist", "list", "uselist", "data", "mdusedaylist"],
+                &[
+                    "weekuselist",
+                    "dayuselist",
+                    "list",
+                    "uselist",
+                    "data",
+                    "mdusedaylist",
+                ],
             )
             .await;
         }
@@ -1215,10 +1231,7 @@ fn extract_list_any(v: &Value, keys: &[&str]) -> Vec<Value> {
                 return arr.clone();
             }
         }
-        if let Some(arr) = v
-            .pointer(&format!("/data/{k}"))
-            .and_then(|x| x.as_array())
-        {
+        if let Some(arr) = v.pointer(&format!("/data/{k}")).and_then(|x| x.as_array()) {
             if !arr.is_empty() {
                 return arr.clone();
             }

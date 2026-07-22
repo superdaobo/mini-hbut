@@ -460,7 +460,14 @@ pub async fn fetch_school_inbox_ex(
     let use_chaoxing = is_chaoxing_login_mode(login_mode);
     client.set_chaoxing_login_mode(use_chaoxing);
     let source = if use_chaoxing { "chaoxing" } else { "portal" };
-    let cache_key = format!("{source}:{}", client.user_info.as_ref().map(|u| u.student_id.as_str()).unwrap_or("-"));
+    let cache_key = format!(
+        "{source}:{}",
+        client
+            .user_info
+            .as_ref()
+            .map(|u| u.student_id.as_str())
+            .unwrap_or("-")
+    );
 
     if !force {
         if let Ok(guard) = inbox_cache().lock() {

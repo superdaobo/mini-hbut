@@ -41,8 +41,7 @@ pub async fn list_evals(client: &HbutClient) -> TeachingEvalListResponse {
         protocol_ready: false,
         items: vec![],
         message: Some(
-            "评教协议待对接：请在开放评教时段使用官方入口；后续版本将补齐列表与提交。"
-                .to_string(),
+            "评教协议待对接：请在开放评教时段使用官方入口；后续版本将补齐列表与提交。".to_string(),
         ),
     }
 }

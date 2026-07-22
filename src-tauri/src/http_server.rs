@@ -2140,13 +2140,14 @@ async fn debug_chaoxing_session(
         .and_then(|b| b.student_id.clone())
         .or_else(|| client.user_info.as_ref().map(|u| u.student_id.clone()))
         .unwrap_or_default();
-    crate::runtime_log::log_info(
-        "DebugAPI",
-        format!("手动探测学习通会话 student_id={sid}"),
-    );
+    crate::runtime_log::log_info("DebugAPI", format!("手动探测学习通会话 student_id={sid}"));
     let status = crate::modules::online_learning::chaoxing_get_session_status(
         &mut client,
-        if sid.is_empty() { None } else { Some(sid.as_str()) },
+        if sid.is_empty() {
+            None
+        } else {
+            Some(sid.as_str())
+        },
     )
     .await
     .map_err(|e| err(StatusCode::BAD_GATEWAY, "会话探测失败", e.to_string()))?;
@@ -2165,18 +2166,12 @@ async fn debug_chaoxing_courses(
         .as_ref()
         .and_then(|b| b.student_id.clone())
         .or_else(|| client.user_info.as_ref().map(|u| u.student_id.clone()));
-    crate::runtime_log::log_info(
-        "DebugAPI",
-        format!("手动拉取课程 force={force}"),
-    );
+    crate::runtime_log::log_info("DebugAPI", format!("手动拉取课程 force={force}"));
     let started = std::time::Instant::now();
-    let payload = crate::modules::online_learning::chaoxing_fetch_courses(
-        &mut client,
-        sid.as_deref(),
-        force,
-    )
-    .await
-    .map_err(|e| err(StatusCode::BAD_GATEWAY, "课程拉取失败", e.to_string()))?;
+    let payload =
+        crate::modules::online_learning::chaoxing_fetch_courses(&mut client, sid.as_deref(), force)
+            .await
+            .map_err(|e| err(StatusCode::BAD_GATEWAY, "课程拉取失败", e.to_string()))?;
     let ms = started.elapsed().as_millis() as u64;
     Ok(ok(serde_json::json!({
         "elapsed_ms": ms,
@@ -2201,10 +2196,9 @@ async fn debug_inbox_fetch(
         format!("手动拉取收件箱 mode={mode} force={force}"),
     );
     let started = std::time::Instant::now();
-    let payload =
-        crate::modules::school_inbox::fetch_school_inbox_ex(&mut client, &mode, force)
-            .await
-            .map_err(|e| err(StatusCode::BAD_GATEWAY, "收件箱拉取失败", e.to_string()))?;
+    let payload = crate::modules::school_inbox::fetch_school_inbox_ex(&mut client, &mode, force)
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "收件箱拉取失败", e.to_string()))?;
     let ms = started.elapsed().as_millis() as u64;
     Ok(ok(serde_json::json!({
         "elapsed_ms": ms,
