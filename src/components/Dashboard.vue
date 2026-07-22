@@ -1510,22 +1510,25 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
       </div>
 
       <!-- All Features -->
-      <div class="bg-white rounded-2xl p-5 card-shadow">
-        <div class="flex items-center justify-between mb-6">
+      <div class="bg-white rounded-2xl p-5 card-shadow home-all-features">
+        <div class="home-all-features__head">
           <h3 class="font-bold text-lg text-gray-800">所有功能</h3>
-          <div class="flex overflow-x-auto whitespace-nowrap space-x-4">
-            <button
-              v-for="cat in moduleCategories"
-              :key="cat.title"
-              class="pb-1 px-1 text-sm font-medium transition-all"
-              :class="activeFeatureTab === cat.title ? 'font-bold text-blue-500 border-b-2 border-blue-500' : 'text-gray-400 hover:text-gray-600'"
-              @click="setActiveFeatureTab(cat.title)"
-            >
-              {{ cat.title }}
-            </button>
-          </div>
         </div>
-        <div class="grid grid-cols-4 gap-y-6 gap-x-2">
+        <div class="home-feature-tabs" role="tablist" aria-label="功能分类">
+          <button
+            v-for="cat in moduleCategories"
+            :key="cat.title"
+            type="button"
+            class="home-feature-tab"
+            role="tab"
+            :aria-selected="activeFeatureTab === cat.title"
+            :class="activeFeatureTab === cat.title ? 'is-active' : ''"
+            @click="setActiveFeatureTab(cat.title)"
+          >
+            {{ cat.title }}
+          </button>
+        </div>
+        <div class="grid grid-cols-4 gap-y-6 gap-x-2 mt-4">
           <div
             v-for="mod in featureTabModules"
             :key="mod.id"
@@ -1874,5 +1877,47 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* 所有功能：标题独占一行，分类横向滑动，避免与标题挤在一起 */
+.home-all-features__head {
+  margin-bottom: 12px;
+}
+.home-feature-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+  max-width: 100%;
+}
+.home-feature-tabs::-webkit-scrollbar {
+  display: none;
+}
+.home-feature-tab {
+  flex: 0 0 auto;
+  max-width: 7.5rem;
+  scroll-snap-align: start;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.home-feature-tab.is-active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.25);
 }
 </style>

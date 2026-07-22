@@ -7,7 +7,7 @@ use std::time::Duration;
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
 use base64::engine::general_purpose;
 use base64::Engine;
-use chrono::{Local, Utc};
+use chrono::{Datelike, Local, Utc};
 use futures::{SinkExt, StreamExt};
 use qrcode::QrCode;
 use reqwest::cookie::CookieStore;
@@ -1392,6 +1392,232 @@ pub async fn chaoxing_get_session_status(
     Ok(crate::attach_sync_time(payload, &now_sync_time(), false))
 }
 
+/// 从课程字段推断学期标签
+fn guess_semester_label(content: &Value, item: &Value, course_data: Option<&Value>) -> String {
+    // 直接字段
+    for path in [
+        content.get("semester"),
+        content.get("term"),
+        content.get("yearterm"),
+        item.get("semester"),
+        course_data.and_then(|c| c.get("semester")),
+        course_data.and_then(|c| c.get("appinfo")),
+    ] {
+        if let Some(s) = path.and_then(|v| v.as_str()) {
+            let t = s.trim();
+            if !t.is_empty() && t.len() < 40 {
+                // appinfo 可能是 HTML 描述，跳过太长的
+                if t.contains("年") || t.contains("学期") || t.contains("-") {
+                    return sanitize_text(t);
+                }
+            }
+        }
+    }
+    // 起止日期 → 学年学期
+    let date_raw = content
+        .get("begindate")
+        .or_else(|| content.get("startDate"))
+        .or_else(|| content.get("starttime"))
+        .or_else(|| course_data.and_then(|c| c.get("startDate")))
+        .or_else(|| course_data.and_then(|c| c.get("begindate")))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_i64().map(|n| n.to_string()))
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .unwrap_or_default();
+    if let Some(label) = semester_from_date_str(&date_raw) {
+        return label;
+    }
+    // 已结束标记
+    let ended = content
+        .get("isFiled")
+        .and_then(|v| v.as_bool())
+        .or_else(|| content.get("state").and_then(|v| v.as_i64()).map(|n| n == 1))
+        .unwrap_or(false);
+    if ended {
+        "历史课程".into()
+    } else {
+        "本学期".into()
+    }
+}
+
+fn semester_from_date_str(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    // 毫秒时间戳
+    if let Ok(ms) = s.parse::<i64>() {
+        if ms > 1_000_000_000_000 {
+            let secs = ms / 1000;
+            if let Some(dt) = chrono::DateTime::from_timestamp(secs, 0) {
+                let y = dt.year();
+                let m = dt.month();
+                return Some(if m >= 8 || m <= 1 {
+                    format!("{}-{} 第一学期", y, y + 1)
+                } else {
+                    format!("{}-{} 第二学期", y - 1, y)
+                });
+            }
+        }
+    }
+    // YYYY-MM-DD / YYYY/MM
+    let re = regex::Regex::new(r"(\d{4})\D+(\d{1,2})").ok()?;
+    let cap = re.captures(s)?;
+    let y: i32 = cap.get(1)?.as_str().parse().ok()?;
+    let m: u32 = cap.get(2)?.as_str().parse().ok()?;
+    Some(if m >= 8 || m <= 1 {
+        format!("{}-{} 第一学期", y, y + 1)
+    } else {
+        format!("{}-{} 第二学期", y - 1, y)
+    })
+}
+
+/// 从课程文件夹 HTML 补充历史学期课程
+async fn fetch_chaoxing_folder_courses(
+    client: &HbutClient,
+    seen: &mut HashSet<String>,
+) -> Result<Vec<Value>, DynError> {
+    propagate_chaoxing_key_cookies(client);
+    let mut out = Vec::new();
+
+    // 1) 交互页抽 folder id
+    let mut folder_ids: Vec<(String, String)> = vec![("0".into(), "本学期".into())];
+    if let Ok(resp) = client
+        .client
+        .get("https://mooc1.chaoxing.com/mooc-ans/visit/interaction")
+        .header("Accept", "text/html,application/xhtml+xml")
+        .header("Referer", "https://i.chaoxing.com/")
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+    {
+        let html = resp.text().await.unwrap_or_default();
+        // courseFolderId=123 / data-id="123" 课程夹
+        let re_folder = regex::Regex::new(
+            r#"courseFolderId[=:\s"']+(\d+)[^>]{0,200}?(?:title|data-name|folderName)[=:\s"']+([^"'<]{1,40})"#,
+        )
+        .ok();
+        let re_folder2 =
+            regex::Regex::new(r#"(?i)(?:folderid|courseFolderId)["'=\s:]+(\d+)"#).ok();
+        if let Some(re) = re_folder {
+            for cap in re.captures_iter(&html) {
+                let id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+                let name = sanitize_text(cap.get(2).map(|m| m.as_str()).unwrap_or("历史"));
+                if !id.is_empty() && id != "0" {
+                    folder_ids.push((id, if name.is_empty() { "历史课程".into() } else { name }));
+                }
+            }
+        }
+        if let Some(re) = re_folder2 {
+            for cap in re.captures_iter(&html) {
+                let id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+                if !id.is_empty() && !folder_ids.iter().any(|(i, _)| i == &id) {
+                    folder_ids.push((id, "历史课程".into()));
+                }
+            }
+        }
+    }
+
+    // 去重 folder，最多扫 12 个
+    folder_ids.sort_by(|a, b| a.0.cmp(&b.0));
+    folder_ids.dedup_by(|a, b| a.0 == b.0);
+    folder_ids.truncate(12);
+
+    for (folder_id, folder_name) in folder_ids {
+        let body = format!(
+            "courseType=1&courseFolderId={folder_id}&superstarClass=0"
+        );
+        let resp = match client
+            .client
+            .post("https://mooc1.chaoxing.com/mooc-ans/visit/courselistdata")
+            .header("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            .header("Accept", "text/html, */*")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", "https://mooc1.chaoxing.com/visit/interaction")
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            )
+            .body(body)
+            .timeout(Duration::from_secs(15))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let html = resp.text().await.unwrap_or_default();
+        // 课程卡片：courseid / clazzid / cpi
+        let re_card = regex::Regex::new(
+            r#"(?i)(?:courseid|courseId)=(\d+)[^"'>\s]{0,80}?(?:clazzid|classId)=(\d+)[^"'>\s]{0,80}?(?:cpi)=(\d+)"#,
+        )
+        .ok();
+        let re_name = regex::Regex::new(
+            r#"(?i)class="[^"]*course-name[^"]*"[^>]*>([^<]{1,80})<"#,
+        )
+        .ok()
+        .or_else(|| regex::Regex::new(r#"(?i)title="([^"]{2,80})""#).ok());
+
+        let mut names: Vec<String> = Vec::new();
+        if let Some(rn) = re_name.as_ref() {
+            for cap in rn.captures_iter(&html) {
+                let n = sanitize_text(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
+                if !n.is_empty() {
+                    names.push(n);
+                }
+            }
+        }
+
+        if let Some(re) = re_card {
+            for (idx, cap) in re.captures_iter(&html).enumerate() {
+                let course_id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+                let clazz_id = cap.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
+                let cpi = cap.get(3).map(|m| m.as_str()).unwrap_or("").to_string();
+                let key = format!("{course_id}:{clazz_id}");
+                if course_id.is_empty() || clazz_id.is_empty() || !seen.insert(key.clone()) {
+                    continue;
+                }
+                let name = names
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("课程 {course_id}"));
+                let semester = if folder_id == "0" {
+                    "本学期".to_string()
+                } else if folder_name.contains("学期") || folder_name.contains("年") {
+                    folder_name.clone()
+                } else {
+                    folder_name.clone()
+                };
+                let course_url = format!(
+                    "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudycourselist?courseId={course_id}&chapterId=0&clazzid={clazz_id}&cpi={cpi}&mooc2=1&isMicroCourse=false"
+                );
+                out.push(json!({
+                    "id": key,
+                    "course_id": course_id,
+                    "clazz_id": clazz_id,
+                    "cpi": cpi,
+                    "name": name,
+                    "title": name,
+                    "teacher": "",
+                    "image_url": "",
+                    "course_url": course_url,
+                    "role_type": 3,
+                    "role_label": "student",
+                    "auto_supported": true,
+                    "semester": semester,
+                    "folder_id": folder_id,
+                    "source": "courselistdata",
+                }));
+            }
+        }
+    }
+
+    Ok(out)
+}
+
 async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, DynError> {
     let url = "https://mooc1-api.chaoxing.com/mycourse/backclazzdata?view=json&rss=1";
     let resp = client
@@ -1556,18 +1782,24 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                     "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudycourselist?courseId={}&chapterId=0&clazzid={}&cpi={}&mooc2=1&isMicroCourse=false",
                     course_id, clazz_id, cpi
                 );
+                // 学期标签：优先班级时间 / 课程字段
+                let semester = guess_semester_label(content, &item, course_data);
                 courses.push(json!({
                     "id": key,
                     "course_id": course_id,
                     "clazz_id": clazz_id,
                     "cpi": cpi,
                     "name": final_name,
+                    "title": final_name,
                     "teacher": teacher,
                     "image_url": image_url,
                     "course_url": course_url,
                     "role_type": roletype,
                     "role_label": if roletype == 1 { "teacher" } else { "student" },
                     "auto_supported": roletype != 1,
+                    "semester": semester,
+                    "folder_id": 0,
+                    "source": "backclazzdata",
                 }));
             }
             println!(
@@ -1575,12 +1807,26 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
                 list_len,
                 courses.len()
             );
-            for (i, c) in courses.iter().enumerate() {
-                println!(
-                    "[调试] course[{}]: id={} name={}",
-                    i, c["course_id"], c["name"]
-                );
+
+            // 再拉课程文件夹（历史学期），合并去重
+            if let Ok(extra) = fetch_chaoxing_folder_courses(client, &mut seen).await {
+                for c in extra {
+                    courses.push(c);
+                }
             }
+
+            let mut semesters: Vec<String> = courses
+                .iter()
+                .filter_map(|c| c.get("semester").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+            semesters.sort();
+            semesters.dedup();
+            // 本学期优先
+            if let Some(pos) = semesters.iter().position(|s| s == "本学期") {
+                let cur = semesters.remove(pos);
+                semesters.insert(0, cur);
+            }
+
             let pending_count = value
                 .get("pending_count")
                 .and_then(|v| v.as_u64())
@@ -1590,6 +1836,7 @@ async fn fetch_chaoxing_courses_remote(client: &HbutClient) -> Result<Value, Dyn
             return Ok(json!({
                 "success": true,
                 "courses": courses,
+                "semesters": semesters,
                 "pending_count": pending_count
             }));
         }
@@ -2955,18 +3202,8 @@ fn make_chaoxing_enc(
     format!("{:x}", md5::compute(raw.as_bytes()))
 }
 
-/// 从 HTML 中按括号匹配提取 `mArg = {...};`（非贪婪正则会截断嵌套 JSON）
-fn extract_m_arg_json(html: &str) -> Option<String> {
-    let lower = html;
-    let markers = ["mArg =", "mArg=", "mArg  ="];
-    let mut start_eq = None;
-    for m in markers {
-        if let Some(pos) = lower.find(m) {
-            start_eq = Some(pos + m.len());
-            break;
-        }
-    }
-    let after = start_eq?;
+/// 从 HTML 中按括号匹配提取 `mArg = {...}`（非贪婪正则会截断嵌套 JSON）
+fn extract_balanced_object_after(html: &str, after: usize) -> Option<String> {
     let bytes = html.as_bytes();
     let mut i = after;
     while i < bytes.len() && bytes[i].is_ascii_whitespace() {
@@ -3005,6 +3242,89 @@ fn extract_m_arg_json(html: &str) -> Option<String> {
         i += 1;
     }
     None
+}
+
+fn extract_m_arg_json(html: &str) -> Option<String> {
+    // 多处 mArg / AttachmentSetting；跳过注释或残缺片段
+    let keys = ["mArg", "AttachmentSetting", "attachmentSetting"];
+    for key in keys {
+        let mut search_from = 0usize;
+        while let Some(rel) = html[search_from..].find(key) {
+            let pos = search_from + rel;
+            let after_key = pos + key.len();
+            // 允许 mArg = / mArg= / mArg=
+            let rest = html.get(after_key..).unwrap_or("");
+            let trimmed = rest.trim_start();
+            if !trimmed.starts_with('=') {
+                search_from = after_key;
+                continue;
+            }
+            let eq_off = rest.len() - trimmed.len();
+            let after_eq = after_key + eq_off + 1; // skip '='
+            if let Some(obj) = extract_balanced_object_after(html, after_eq) {
+                // 必须像 JSON 对象
+                if obj.contains("attachments") || obj.contains("defaults") || obj.len() > 40 {
+                    return Some(obj);
+                }
+            }
+            search_from = after_key;
+        }
+    }
+    None
+}
+
+/// 从 knowledge/cards HTML 中兜底抠 objectId / jobid
+fn scrape_tasks_from_cards_html(html: &str, knowledge_id: &str) -> Vec<Value> {
+    let mut tasks = Vec::new();
+    let mut seen = HashSet::new();
+    // objectid 常见写法
+    let re_oid = regex::Regex::new(
+        r#"(?i)(?:objectid|objectId|object_id)["'\s:=]+([a-f0-9]{16,})"#
+    )
+    .ok();
+    let re_job = regex::Regex::new(r#"(?i)(?:jobid|jobId)["'\s:=]+([a-zA-Z0-9_\-]+)"#).ok();
+    let re_name = regex::Regex::new(r#""name"\s*:\s*"([^"]{1,120})""#).ok();
+
+    if let Some(re) = re_oid {
+        for (idx, cap) in re.captures_iter(html).enumerate() {
+            let oid = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+            if oid.is_empty() || !seen.insert(oid.clone()) {
+                continue;
+            }
+            let jobid = re_job
+                .as_ref()
+                .and_then(|rj| rj.captures_iter(html).nth(idx))
+                .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+                .unwrap_or_default();
+            let name = re_name
+                .as_ref()
+                .and_then(|rn| rn.captures_iter(html).nth(idx))
+                .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+                .unwrap_or_else(|| format!("视频 {}", idx + 1));
+            tasks.push(json!({
+                "id": if jobid.is_empty() { format!("{knowledge_id}-{idx}") } else { jobid.clone() },
+                "title": name,
+                "name": name,
+                "type": "video",
+                "task_type": "video",
+                "objectId": oid.clone(),
+                "object_id": oid,
+                "jobid": jobid,
+                "module": "insertvideo",
+                "otherInfo": "",
+                "attDuration": "0",
+                "attDurationEnc": "",
+                "videoFaceCaptureEnc": "",
+                "isPassed": false,
+                "completed": false,
+                "status": "未完成",
+            }));
+            if tasks.len() >= 30 {
+                break;
+            }
+        }
+    }
+    tasks
 }
 
 fn json_str_field(v: &Value, keys: &[&str]) -> String {
@@ -3081,77 +3401,115 @@ pub async fn chaoxing_get_knowledge_cards(
     if !has_chaoxing_session(client) {
         return Err(err_box("当前没有可用的学习通会话，请先登录学习通"));
     }
+    if knowledge_id.trim().is_empty() {
+        return Err(err_box("knowledge_id 为空"));
+    }
+
+    // mooc1 域需要从其它域传播 cookie
+    propagate_chaoxing_key_cookies(client);
+
+    let study_referer = format!(
+        "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudy?chapterId={knowledge_id}&courseId={course_id}&clazzid={clazz_id}&cpi={cpi}&mooc2=1"
+    );
+
+    // 预热学生页（部分课程要先打开 studentstudy 才出 mArg）
+    let _ = client
+        .client
+        .get(&study_referer)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Referer", "https://mooc1.chaoxing.com/visit/interaction")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        )
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await;
+
+    let card_bases = [
+        "https://mooc1.chaoxing.com/mooc-ans/knowledge/cards",
+        "https://mooc1.chaoxing.com/knowledge/cards",
+        "https://mooc1-api.chaoxing.com/knowledge/cards",
+    ];
 
     let mut all_attachments: Vec<Value> = Vec::new();
     let mut defaults = json!({});
     let mut pages_fetched = 0u32;
+    let mut last_html = String::new();
+    let mut used_base = card_bases[0].to_string();
 
-    // 卡片按 num 分页（一页一个 attachment 槽位）
-    for num in 0..12 {
-        let num_s = num.to_string();
-        let resp = client
-            .client
-            .get("https://mooc1.chaoxing.com/mooc-ans/knowledge/cards")
-            .query(&[
-                ("clazzid", clazz_id),
-                ("courseid", course_id),
-                ("knowledgeid", knowledge_id),
-                ("num", num_s.as_str()),
-                ("ut", "s"),
-                ("cpi", cpi),
-                ("v", "2025-0424-1038-3"),
-                ("mooc2", "1"),
-                ("isMicroCourse", "false"),
-                ("editorPreview", "0"),
-            ])
-            .header(
-                "Referer",
-                format!(
-                    "https://mooc1.chaoxing.com/mooc-ans/mycourse/studentstudy?chapterId={knowledge_id}&courseId={course_id}&clazzid={clazz_id}&cpi={cpi}"
-                ),
-            )
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-            .timeout(Duration::from_secs(15))
-            .send()
-            .await?;
-        let html = resp.text().await?;
-        pages_fetched += 1;
+    'bases: for base in card_bases {
+        all_attachments.clear();
+        defaults = json!({});
+        for num in 0..16 {
+            let num_s = num.to_string();
+            let resp = match client
+                .client
+                .get(base)
+                .query(&[
+                    ("clazzid", clazz_id),
+                    ("courseid", course_id),
+                    ("knowledgeid", knowledge_id),
+                    ("num", num_s.as_str()),
+                    ("ut", "s"),
+                    ("cpi", cpi),
+                    ("v", "2025-0424-1038-3"),
+                    ("mooc2", "1"),
+                    ("isMicroCourse", "false"),
+                    ("editorPreview", "0"),
+                ])
+                .header("Referer", &study_referer)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                )
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .timeout(Duration::from_secs(15))
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(_) => break,
+            };
+            let html = resp.text().await.unwrap_or_default();
+            pages_fetched += 1;
+            last_html = html.clone();
+            used_base = base.to_string();
 
-        let Some(marg_json) = extract_m_arg_json(&html) else {
-            if num == 0 {
-                // 首屏无 mArg：尝试备用路径
-                break;
-            }
-            break;
-        };
-        let marg: Value = match serde_json::from_str(&marg_json) {
-            Ok(v) => v,
-            Err(_) => {
+            let Some(marg_json) = extract_m_arg_json(&html) else {
                 if num == 0 {
-                    return Err(err_box("章节卡片 mArg 解析失败，请重新登录学习通后重试"));
+                    break; // 换下一个 base
                 }
                 break;
-            }
-        };
+            };
+            let marg: Value = match serde_json::from_str(&marg_json) {
+                Ok(v) => v,
+                Err(_) => {
+                    if num == 0 {
+                        break;
+                    }
+                    break;
+                }
+            };
 
-        if num == 0 {
-            defaults = marg.get("defaults").cloned().unwrap_or_else(|| json!({}));
+            if num == 0 {
+                defaults = marg.get("defaults").cloned().unwrap_or_else(|| json!({}));
+            }
+            let page_atts = marg
+                .get("attachments")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            if page_atts.is_empty() {
+                // num=0 无附件也算成功解析，停止翻页
+                break;
+            }
+            for att in page_atts {
+                all_attachments.push(att);
+            }
         }
-        let page_atts = marg
-            .get("attachments")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-        if page_atts.is_empty() {
-            break;
-        }
-        for att in page_atts {
-            all_attachments.push(att);
-        }
-        // 单页若已带齐多个 attachment，通常无需继续翻页
-        if num == 0 && all_attachments.len() > 1 {
-            // 仍继续翻一页探测是否有更多；若下页为空会 break
-            continue;
+        if !all_attachments.is_empty() || !defaults.is_null() && defaults.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+            break 'bases;
         }
     }
 
@@ -3223,12 +3581,12 @@ pub async fn chaoxing_get_knowledge_cards(
             || module.contains("doc")
             || module.contains("pdf")
             || module.contains("book")
+            || module.contains("insertbook")
         {
             "document"
         } else if att_type == "work" || module.contains("work") {
             "work"
         } else if att_type.is_empty() && !object_id.is_empty() {
-            // 有 objectId 的未知类型按视频尝试
             "video"
         } else if att_type.is_empty() {
             "task"
@@ -3261,6 +3619,40 @@ pub async fn chaoxing_get_knowledge_cards(
         tasks.push(task);
     }
 
+    // mArg 无附件：从 HTML 兜底抠 objectId
+    if tasks.is_empty() && !last_html.is_empty() {
+        let scraped = scrape_tasks_from_cards_html(&last_html, knowledge_id);
+        for t in scraped {
+            if t.get("type").and_then(|v| v.as_str()) == Some("video") {
+                videos.push(t.clone());
+            }
+            tasks.push(t);
+        }
+    }
+
+    // 仍无任务：给一个可读占位，避免前端整页空白
+    if tasks.is_empty() {
+        tasks.push(json!({
+            "id": format!("{knowledge_id}-page"),
+            "title": "本小节暂无视频任务点",
+            "name": "本小节暂无视频任务点",
+            "type": "task",
+            "task_type": "task",
+            "objectId": "",
+            "object_id": "",
+            "jobid": "",
+            "module": "",
+            "otherInfo": "",
+            "attDuration": "0",
+            "attDurationEnc": "",
+            "videoFaceCaptureEnc": "",
+            "isPassed": false,
+            "completed": false,
+            "status": "无可播放任务",
+            "empty_hint": true,
+        }));
+    }
+
     Ok(json!({
         "success": true,
         "reportUrl": report_url,
@@ -3273,6 +3665,7 @@ pub async fn chaoxing_get_knowledge_cards(
         "course_id": course_id,
         "cpi": cpi,
         "pages_fetched": pages_fetched,
+        "card_base": used_base,
         "videos": videos,
         "tasks": tasks,
         "attachments": tasks,

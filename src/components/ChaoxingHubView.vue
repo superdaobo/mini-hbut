@@ -19,10 +19,14 @@ const refreshing = ref(false)
 const pageLoading = ref(false)
 const error = ref('')
 const courses = ref([])
+const semesterTabs = ref(['全部'])
+const activeSemester = ref('全部')
 const searchQuery = ref('')
 const statusMeta = ref({})
 const videoError = ref('')
 const videoSrcIndex = ref(0)
+
+const PIE_COLORS = ['#2563eb', '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#ec4899']
 
 /**
  * 导航栈
@@ -90,7 +94,8 @@ const normalizeCourse = (item = {}) => {
       raw.progress_rate ?? raw.progressRate ?? raw.progress_percent ?? raw.percent
     ),
     pendingCount: safeNumber(raw.pending_count ?? raw.pendingCount ?? 0),
-    courseUrl: safeText(raw.course_url || raw.courseUrl || raw.url || '')
+    courseUrl: safeText(raw.course_url || raw.courseUrl || raw.url || ''),
+    semester: safeText(raw.semester || raw.term || '本学期') || '本学期'
   }
 }
 
@@ -144,16 +149,73 @@ const normalizeTaskItem = (raw = {}) => {
     completed: !!(raw.completed || raw.isPassed),
     status: safeText(raw.status || (raw.completed || raw.isPassed ? '已完成' : '未完成')),
     typeMeta: kind === 'video' ? { text: '视频', type: 'info', kind: 'video' } : meta,
-    kind
+    kind,
+    empty_hint: !!(raw.empty_hint || raw.emptyHint)
   }
 }
 
 const filteredCourses = computed(() => {
+  let list = courses.value
+  if (activeSemester.value && activeSemester.value !== '全部') {
+    list = list.filter((c) => c.semester === activeSemester.value)
+  }
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return courses.value
-  return courses.value.filter(
+  if (!q) return list
+  return list.filter(
     (c) => c.title.toLowerCase().includes(q) || c.teacher.toLowerCase().includes(q)
   )
+})
+
+/** 成绩饼图切片（权重） */
+const scoreSlices = computed(() => {
+  const score = current.value?.score
+  if (!score) return []
+  const list = Array.isArray(score.weight_list) ? score.weight_list : []
+  const raw = []
+  if (list.length) {
+    for (const w of list) {
+      const value = safeNumber(w.value ?? w.score ?? w.weight ?? 0)
+      const name = safeText(w.name || w.key || '项目')
+      if (value > 0) raw.push({ name, value })
+    }
+  } else if (score.weight && typeof score.weight === 'object') {
+    const labels = {
+      work: '作业',
+      test: '考试',
+      video: '视频',
+      attend: '签到',
+      bbs: '讨论',
+      live: '直播',
+      read: '阅读',
+      task: '任务点'
+    }
+    for (const [k, v] of Object.entries(score.weight)) {
+      const value = safeNumber(v)
+      if (value > 0) raw.push({ name: labels[k] || k, value })
+    }
+  }
+  const total = raw.reduce((s, x) => s + x.value, 0) || 1
+  let acc = 0
+  return raw.map((item, i) => {
+    const pct = (item.value / total) * 100
+    const start = acc
+    acc += pct
+    return {
+      ...item,
+      pct,
+      color: PIE_COLORS[i % PIE_COLORS.length],
+      // conic-gradient 用
+      start,
+      end: acc
+    }
+  })
+})
+
+const pieGradient = computed(() => {
+  const slices = scoreSlices.value
+  if (!slices.length) return 'conic-gradient(#e2e8f0 0 100%)'
+  const parts = slices.map((s) => `${s.color} ${s.start}% ${s.end}%`)
+  return `conic-gradient(${parts.join(', ')})`
 })
 
 const totalPending = computed(() =>
@@ -210,13 +272,32 @@ const loadList = async ({ silent = false } = {}) => {
   try {
     const [statusRes, courseRes] = await Promise.all([
       cxInvoke('chaoxing_get_session_status', {}),
-      cxInvoke('chaoxing_fetch_courses', { force: false })
+      cxInvoke('chaoxing_fetch_courses', { force: !!silent })
     ])
     if (statusRes?.success === false) throw new Error(statusRes?.error || '会话失败')
     if (courseRes?.success === false) throw new Error(courseRes?.error || '课程列表失败')
     statusMeta.value = statusRes || {}
     const list = Array.isArray(courseRes?.courses) ? courseRes.courses : []
     courses.value = list.map(normalizeCourse).filter((c) => c.courseId && c.clazzId)
+
+    const fromApi = Array.isArray(courseRes?.semesters)
+      ? courseRes.semesters.map((s) => safeText(s)).filter(Boolean)
+      : []
+    const fromCourses = [...new Set(courses.value.map((c) => c.semester).filter(Boolean))]
+    const merged = []
+    for (const s of [...fromApi, ...fromCourses]) {
+      if (!merged.includes(s)) merged.push(s)
+    }
+    // 本学期优先
+    merged.sort((a, b) => {
+      if (a === '本学期') return -1
+      if (b === '本学期') return 1
+      return String(b).localeCompare(String(a), 'zh')
+    })
+    semesterTabs.value = ['全部', ...merged]
+    if (!semesterTabs.value.includes(activeSemester.value)) {
+      activeSemester.value = '全部'
+    }
   } catch (e) {
     error.value = safeText(e?.message || e) || '加载失败'
   } finally {
@@ -310,11 +391,16 @@ const openSection = (course, section) => {
 const openKnowledge = async (course, section, knowledge) => {
   pageLoading.value = true
   try {
+    // 优先用小节自带 course/clazz（大纲解析结果更准）
+    const courseId = knowledge.courseId || course.courseId
+    const clazzId = knowledge.clazzId || course.clazzId
+    const cpi = knowledge.cpi || course.cpi || ''
+    const kid = knowledge.knowledgeId || knowledge.id
     const res = await cxInvoke('chaoxing_get_knowledge_cards', {
-      course_id: course.courseId,
-      clazz_id: course.clazzId,
-      knowledge_id: knowledge.knowledgeId || knowledge.id,
-      cpi: course.cpi || ''
+      course_id: courseId,
+      clazz_id: clazzId,
+      knowledge_id: kid,
+      cpi
     })
     if (res?.success === false) throw new Error(res?.error || '任务点加载失败')
     const list = Array.isArray(res?.tasks)
@@ -324,12 +410,15 @@ const openKnowledge = async (course, section, knowledge) => {
         : Array.isArray(res?.videos)
           ? res.videos
           : []
+    // 过滤纯占位提示，若仅有占位则仍展示
+    const mapped = list.map(normalizeTaskItem)
+    const real = mapped.filter((t) => !t.empty_hint && (t.objectId || t.kind !== 'task'))
     push({
       level: 'knowledge',
       course,
       section,
       knowledge,
-      tasks: list.map(normalizeTaskItem),
+      tasks: real.length ? real : mapped,
       meta: {
         fid: safeText(res?.fid || ''),
         reportUrl: safeText(res?.reportUrl || res?.report_url || ''),
@@ -460,11 +549,15 @@ const retryVideo = () => {
 }
 
 const onTaskClick = (frame, task) => {
+  if (task.empty_hint || task.status === '无可播放任务') {
+    showToast('该小节没有视频任务点')
+    return
+  }
   if (task.kind === 'video' || task.objectId) {
     void openVideo(frame.course, frame.section, frame.knowledge, task, frame.meta)
     return
   }
-  showToast(`${task.typeMeta?.text || '任务'}：${task.title}（文档预览后续完善）`)
+  showToast(`${task.typeMeta?.text || '任务'}：${task.title}`)
 }
 
 const onCoverError = (e) => {
@@ -541,16 +634,31 @@ onMounted(() => {
           <div class="hero-row">
             <div>
               <strong>我的课程</strong>
-              <p>逐级进入：课程 → 章 → 小节 → 任务 / 视频</p>
+              <p>{{ courses.length }} 门 · {{ semesterTabs.length > 1 ? semesterTabs.length - 1 + ' 个学期' : '本学期' }}</p>
             </div>
             <TStatusBadge :type="badgeType" :text="badgeText" />
           </div>
           <div class="stat-row">
-            <div class="stat"><span>课程</span><b>{{ courses.length }}</b></div>
+            <div class="stat"><span>课程</span><b>{{ filteredCourses.length }}</b></div>
             <div class="stat"><span>待办</span><b>{{ totalPending }}</b></div>
           </div>
           <p v-if="error" class="err">{{ error }}</p>
         </section>
+
+        <div v-if="semesterTabs.length > 1" class="sem-scroll" role="tablist">
+          <button
+            v-for="sem in semesterTabs"
+            :key="sem"
+            type="button"
+            class="sem-chip"
+            :class="{ active: activeSemester === sem }"
+            role="tab"
+            :aria-selected="activeSemester === sem"
+            @click="activeSemester = sem"
+          >
+            {{ sem }}
+          </button>
+        </div>
 
         <div class="search-wrap">
           <span class="material-symbols-outlined">search</span>
@@ -586,7 +694,10 @@ onMounted(() => {
           </div>
           <div class="row-main">
             <strong>{{ c.title }}</strong>
-            <p>{{ c.teacher || '教师暂缺' }}</p>
+            <p>
+              <span v-if="c.semester" class="sem-tag">{{ c.semester }}</span>
+              {{ c.teacher || '教师暂缺' }}
+            </p>
             <div class="mini-bar">
               <i :style="{ width: Math.min(100, c.progressRate || 0) + '%' }" />
             </div>
@@ -664,7 +775,6 @@ onMounted(() => {
         <section class="panel soft-panel">
           <span class="pill slate">当前章节</span>
           <strong class="soft-panel__title">{{ current.section?.title }}</strong>
-          <p class="hint">选择小节进入任务点</p>
         </section>
 
         <div class="section-head">
@@ -721,7 +831,7 @@ onMounted(() => {
         <TEmptyState
           v-if="!current.tasks?.length"
           type="empty"
-          message="该小节暂无视频/文档任务点"
+          message="暂无任务"
         />
 
         <div class="menu-list">
@@ -770,6 +880,22 @@ onMounted(() => {
             </div>
             <strong>{{ current.score?.total_score ?? current.score?.score?.score ?? '—' }}</strong>
           </div>
+
+          <div v-if="scoreSlices.length" class="pie-wrap">
+            <div class="pie" :style="{ background: pieGradient }" aria-hidden="true">
+              <div class="pie-hole">
+                <span>权重</span>
+              </div>
+            </div>
+            <ul class="pie-legend">
+              <li v-for="(s, i) in scoreSlices" :key="i">
+                <i :style="{ background: s.color }" />
+                <span>{{ s.name }}</span>
+                <b>{{ s.value }}%</b>
+              </li>
+            </ul>
+          </div>
+
           <ul v-if="(current.score?.weight_list || []).length" class="score-list">
             <li
               v-for="(w, i) in current.score.weight_list"
@@ -779,11 +905,11 @@ onMounted(() => {
               <b>{{ w.value ?? w.score ?? '—' }}{{ typeof w.value === 'number' ? '%' : '' }}</b>
             </li>
           </ul>
-          <div v-if="current.score?.weight" class="weight-grid">
-            <div class="wchip"><span>作业权</span><b>{{ current.score.weight.work ?? 0 }}%</b></div>
-            <div class="wchip"><span>考试权</span><b>{{ current.score.weight.test ?? 0 }}%</b></div>
-            <div class="wchip"><span>视频权</span><b>{{ current.score.weight.video ?? 0 }}%</b></div>
-            <div class="wchip"><span>签到权</span><b>{{ current.score.weight.attend ?? 0 }}%</b></div>
+          <div v-else-if="current.score?.weight" class="weight-grid">
+            <div class="wchip"><span>作业</span><b>{{ current.score.weight.work ?? 0 }}%</b></div>
+            <div class="wchip"><span>考试</span><b>{{ current.score.weight.test ?? 0 }}%</b></div>
+            <div class="wchip"><span>视频</span><b>{{ current.score.weight.video ?? 0 }}%</b></div>
+            <div class="wchip"><span>签到</span><b>{{ current.score.weight.attend ?? 0 }}%</b></div>
           </div>
           <p v-if="current.score?.job" class="hint">
             任务点完成率 {{ current.score.job.jobFinishRate ?? '—' }}%
@@ -1294,6 +1420,105 @@ onMounted(() => {
   color: #dc2626;
   font-size: 13px;
   margin: 8px 0 0;
+}
+.sem-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+}
+.sem-scroll::-webkit-scrollbar {
+  display: none;
+}
+.sem-chip {
+  flex: 0 0 auto;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #64748b;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sem-chip.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.sem-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin-right: 4px;
+}
+.pie-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 8px 0;
+}
+.pie {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.12);
+}
+.pie-hole {
+  position: absolute;
+  inset: 28px;
+  background: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+}
+.pie-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.pie-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.pie-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.pie-legend span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+}
+.pie-legend b {
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
 }
 .score-total {
   display: flex;

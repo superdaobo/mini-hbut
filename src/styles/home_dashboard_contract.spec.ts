@@ -92,6 +92,9 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('persistHomeFeatureTab()')
     expect(source).toContain('navigateTo(moduleId)')
     expect(source).toContain('@click="setActiveFeatureTab(cat.title)"')
+    // 分类与「所有功能」分两行，横向滑动选择
+    expect(source).toContain('home-feature-tabs')
+    expect(source).toContain('home-feature-tab')
   })
 
   it('restores the home scroll position when returning from a module', () => {
