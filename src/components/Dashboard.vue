@@ -949,9 +949,72 @@ const persistHomeFeatureTab = () => {
     // ignore storage failure
   }
 }
+/** 所有功能宫格列数（与 template grid-cols-4 一致） */
+const FEATURE_GRID_COLS = 4
+
+/**
+ * 各分类模块数不同会导致宫格高度骤变：
+ * 滑到底后从「教务服务」切到「学习通」时内容变矮，滚动被夹断，页面上跳。
+ * 用「最满分类」的行数锁定 min-height，切换时占位稳定。
+ */
+const featureGridMaxRows = computed(() => {
+  const counts = moduleCategories.value.map((c) => (Array.isArray(c.modules) ? c.modules.length : 0))
+  const maxCount = counts.length ? Math.max(...counts) : 1
+  return Math.max(1, Math.ceil(maxCount / FEATURE_GRID_COLS))
+})
+
+/** 单行约 74px（图标+间距+文案），行间距 gap-y-6=24px */
+const featureGridMinHeightPx = computed(() => {
+  const rows = featureGridMaxRows.value
+  const rowBody = 74
+  const rowGap = 24
+  return rows * rowBody + Math.max(0, rows - 1) * rowGap
+})
+
+const featureGridStyle = computed(() => ({
+  minHeight: `${featureGridMinHeightPx.value}px`
+}))
+
+const readHomeShellScrollTop = () => {
+  try {
+    const shell = typeof document !== 'undefined' ? document.querySelector('.app-shell') : null
+    if (shell && typeof shell.scrollTop === 'number' && Number.isFinite(shell.scrollTop)) {
+      return Math.max(0, shell.scrollTop)
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+const restoreHomeShellScrollTop = (top) => {
+  if (top == null || !Number.isFinite(top)) return
+  try {
+    const shell = typeof document !== 'undefined' ? document.querySelector('.app-shell') : null
+    if (!shell) return
+    const maxTop = Math.max(0, (shell.scrollHeight || 0) - (shell.clientHeight || 0))
+    shell.scrollTop = Math.min(Math.max(0, top), maxTop)
+  } catch {
+    // ignore
+  }
+}
+
 const setActiveFeatureTab = (title) => {
+  if (title === activeFeatureTab.value) {
+    persistHomeFeatureTab()
+    return
+  }
+  // 切换前记住滚动，避免高度变化时视口被浏览器夹断上跳
+  const prevTop = readHomeShellScrollTop()
   activeFeatureTab.value = title
   persistHomeFeatureTab()
+  nextTick(() => {
+    restoreHomeShellScrollTop(prevTop)
+    // 再等一帧，等 grid 完成布局
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => restoreHomeShellScrollTop(prevTop))
+    }
+  })
 }
 const navigateFromHome = (moduleId) => {
   persistHomeFeatureTab()
@@ -1528,7 +1591,10 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
             {{ cat.title }}
           </button>
         </div>
-        <div class="grid grid-cols-4 gap-y-6 gap-x-2 mt-4">
+        <div
+          class="grid grid-cols-4 gap-y-6 gap-x-2 mt-4 home-feature-grid"
+          :style="featureGridStyle"
+        >
           <div
             v-for="mod in featureTabModules"
             :key="mod.id"
@@ -1919,5 +1985,10 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
   border-color: #3b82f6;
   color: #fff;
   box-shadow: 0 6px 14px rgba(59, 130, 246, 0.25);
+}
+/* 锁定宫格最小高度，避免分类模块数差异导致滚动跳变 */
+.home-feature-grid {
+  align-content: start;
+  box-sizing: border-box;
 }
 </style>

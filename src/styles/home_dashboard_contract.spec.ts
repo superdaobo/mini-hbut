@@ -97,6 +97,19 @@ describe('home dashboard interaction contract', () => {
     expect(source).toContain('home-feature-tab')
   })
 
+  it('keeps all-features grid min-height by fullest category to avoid scroll jump on tab switch', () => {
+    const source = dashboardVue()
+
+    // 最满分类行数 → min-height，防止「教务」→「学习通」底部内容变矮导致上跳
+    expect(source).toContain('featureGridMaxRows')
+    expect(source).toContain('featureGridMinHeightPx')
+    expect(source).toContain('featureGridStyle')
+    expect(source).toContain('home-feature-grid')
+    expect(source).toContain('readHomeShellScrollTop')
+    expect(source).toContain('restoreHomeShellScrollTop')
+    expect(source).toContain('FEATURE_GRID_COLS')
+  })
+
   it('restores the home scroll position when returning from a module', () => {
     const source = appVue()
 
