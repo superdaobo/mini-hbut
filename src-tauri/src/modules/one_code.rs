@@ -575,8 +575,7 @@ mod tests {
         assert_eq!(plan_fail.effective_bound, "101-7--254-101");
         assert!(plan_fail.query_rooms.iter().any(|r| r.ends_with("102")));
         // 无响应：不更新 bound，仍查 selected
-        let plan_none =
-            apply_room_selection("101-7--254-102", "102房间", "101-7--254-101", None);
+        let plan_none = apply_room_selection("101-7--254-102", "102房间", "101-7--254-101", None);
         assert!(!plan_none.bound_updated);
         assert_eq!(plan_none.effective_bound, "101-7--254-101");
     }
@@ -763,10 +762,7 @@ async fn fetch_smart_electricity_stats(
             }
             // 绑定成功后，把 effective_bound 提到候选最前，保证趋势走绑定房
             if !bound_room.is_empty() && !candidates.iter().any(|(r, _, _)| r == &bound_room) {
-                candidates.insert(
-                    0,
-                    (bound_room.clone(), "selected", label.to_string()),
-                );
+                candidates.insert(0, (bound_room.clone(), "selected", label.to_string()));
             } else if !bound_room.is_empty() {
                 if let Some(pos) = candidates.iter().position(|(r, _, _)| r == &bound_room) {
                     let item = candidates.remove(pos);
