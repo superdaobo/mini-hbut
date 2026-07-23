@@ -537,30 +537,32 @@ mod tests {
 
     #[test]
     fn apply_room_selection_uses_recorded_setbindroom_ok_fixture() {
-        // 与 src-tauri/tests/fixtures/swae_setbindroom_ok.json 同结构
-        let fixture = json!({
-            "ret": 0,
-            "retcode": 0,
-            "msg": "绑定成功",
-            "body": {
-                "ret": 0,
-                "msg": "成功",
-                "roomverify": "101-7--254-102",
-                "roomNumber": "102房间"
-            }
-        });
-        assert!(swae_write_response_ok(&fixture));
+        // 录制 fixture（committed）：src-tauri/tests/fixtures/swae_setbindroom_ok.json
+        // 证明 rebind 成功响应形状，而非多 cmd 猜测
+        let fixture: Value = [
+            "tests/fixtures/swae_setbindroom_ok.json",
+            "../tests/fixtures/swae_setbindroom_ok.json",
+        ]
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .expect("committed setbindroom fixture must load");
+        assert!(
+            swae_write_response_ok(&fixture),
+            "fixture must be recognized as bind OK"
+        );
         let plan = apply_room_selection(
             "101-7--254-102",
             "102房间",
             "101-7--254-101",
             Some(&fixture),
         );
-        assert!(plan.bound_updated);
+        assert!(plan.bound_updated, "OK fixture must flip bound_updated");
         assert_eq!(plan.effective_bound, "101-7--254-102");
         assert_eq!(
             plan.query_rooms.first().map(|s| s.as_str()),
-            Some("101-7--254-102")
+            Some("101-7--254-102"),
+            "query must prefer selected 102, not prior 101"
         );
         // 失败绑定：仍查所选候选，不把 query 偷偷换回 101
         let plan_fail = apply_room_selection(
@@ -572,9 +574,13 @@ mod tests {
         assert!(!plan_fail.bound_updated);
         assert_eq!(plan_fail.effective_bound, "101-7--254-101");
         assert!(plan_fail.query_rooms.iter().any(|r| r.ends_with("102")));
+        // 无响应：不更新 bound，仍查 selected
+        let plan_none =
+            apply_room_selection("101-7--254-102", "102房间", "101-7--254-101", None);
+        assert!(!plan_none.bound_updated);
+        assert_eq!(plan_none.effective_bound, "101-7--254-101");
     }
 }
-
 async fn fetch_smart_electricity_stats(
     client: &mut crate::http_client::HbutClient,
     student_id: &str,

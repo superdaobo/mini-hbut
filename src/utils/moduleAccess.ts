@@ -75,3 +75,20 @@ export function canOpenModule(
 
   return { ok: true }
 }
+
+/**
+ * 首页宫格/分类点击的唯一导航决策（Dashboard.navigateTo 必须调用此函数，禁止旁路 emit）。
+ * 传入 modules 列表（含 available:false），找不到时仍按 id 硬表拦截。
+ */
+export function decideHomeNavigate(
+  moduleId: string,
+  modules: ReadonlyArray<ModuleAccessInput> | null | undefined,
+  session: ModuleAccessSession = {}
+): ModuleAccessResult {
+  const id = String(moduleId || '').trim()
+  if (!id) {
+    return { ok: false, reason: '未知模块' }
+  }
+  const found = (modules || []).find((m) => String(m?.id || '').trim() === id)
+  return canOpenModule(found || { id }, session)
+}

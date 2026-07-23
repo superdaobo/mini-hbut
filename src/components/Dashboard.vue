@@ -22,7 +22,7 @@ import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../util
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
-import { canOpenModule } from '../utils/moduleAccess'
+import { decideHomeNavigate } from '../utils/moduleAccess'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -570,12 +570,11 @@ const navigateTo = (moduleId) => {
     showToast('当前版本不可用该功能')
     return
   }
-  const module = modules.value.find((m) => m.id === moduleId)
-  // 唯一准入：available:false / 硬禁用（sports_venue）/ 需登录 —— 不得只改数据不拦 navigate
-  const access = canOpenModule(
-    module || { id: moduleId },
-    { isLoggedIn: props.isLoggedIn }
-  )
+  // 唯一准入：decideHomeNavigate（available:false / 硬禁用 sports_venue / 需登录）
+  // 禁止只改 baseModules.available 却旁路打开模块
+  const access = decideHomeNavigate(moduleId, modules.value, {
+    isLoggedIn: props.isLoggedIn
+  })
   if (!access.ok) {
     if (access.needLogin) {
       emit('require-login')
