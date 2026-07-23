@@ -403,6 +403,8 @@ struct DebugCustomScheduleCourseInput {
     period: i32,
     djs: i32,
     weeks: Vec<i32>,
+    #[serde(default)]
+    color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1123,6 +1125,7 @@ fn format_custom_weeks_text(weeks: &[i32]) -> String {
 }
 
 fn custom_course_payload(course: &db::CustomScheduleCourseRecord) -> serde_json::Value {
+    let color = db::normalize_course_color(Some(course.color.as_str())).unwrap_or_default();
     serde_json::json!({
         "id": format!("custom:{}", course.id),
         "source_id": course.id,
@@ -1139,6 +1142,7 @@ fn custom_course_payload(course: &db::CustomScheduleCourseRecord) -> serde_json:
         "credit": "",
         "class_name": "自定义课程",
         "semester": course.semester,
+        "color": color,
         "is_custom": true,
         "created_at": course.created_at,
         "updated_at": course.updated_at
@@ -1192,6 +1196,8 @@ fn validate_debug_custom_schedule_course(
         provided_id
     };
     let now = chrono::Local::now().to_rfc3339();
+    let color = db::normalize_course_color(course.color.as_deref())
+        .ok_or_else(|| "颜色格式不合法，请使用 #RRGGBB".to_string())?;
     Ok(db::CustomScheduleCourseRecord {
         id,
         student_id: student_id.to_string(),
@@ -1208,6 +1214,7 @@ fn validate_debug_custom_schedule_course(
         period: course.period,
         djs: course.djs,
         weeks,
+        color,
         created_at: now.clone(),
         updated_at: now,
     })
@@ -1406,6 +1413,13 @@ async fn schedule_custom_add(
             "请至少选择一个上课周次".to_string(),
         ));
     }
+    let color = db::normalize_course_color(req.color.as_deref()).ok_or_else(|| {
+        err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "颜色格式不合法，请使用 #RRGGBB".to_string(),
+        )
+    })?;
 
     let mut rng = rand::thread_rng();
     let id = format!(
@@ -1425,6 +1439,7 @@ async fn schedule_custom_add(
         period: req.period,
         djs: req.djs,
         weeks,
+        color,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -1686,6 +1701,13 @@ async fn schedule_custom_update(
             "学期不匹配，无法修改该课程".to_string(),
         ));
     }
+    let color = db::normalize_course_color(req.color.as_deref()).ok_or_else(|| {
+        err(
+            StatusCode::BAD_REQUEST,
+            "参数错误",
+            "颜色格式不合法，请使用 #RRGGBB".to_string(),
+        )
+    })?;
 
     let record = db::CustomScheduleCourseRecord {
         id: existing.id,
@@ -1698,6 +1720,7 @@ async fn schedule_custom_update(
         period: req.period,
         djs: req.djs,
         weeks,
+        color,
         created_at: existing.created_at,
         updated_at: existing.updated_at,
     };

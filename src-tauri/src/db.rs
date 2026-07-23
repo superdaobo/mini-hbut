@@ -56,6 +56,9 @@ pub struct CustomScheduleCourseRecord {
     pub period: i32,
     pub djs: i32,
     pub weeks: Vec<i32>,
+    /// 用户设定主色（#RRGGBB）；空字符串表示未设定，前端回退自动配色
+    #[serde(default)]
+    pub color: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -100,6 +103,38 @@ fn ensure_user_session_columns(conn: &Connection) {
     );
 }
 
+/// 自定义课程可选颜色列（#470）：旧库幂等 ALTER，新建表 DDL 已含 color。
+fn ensure_custom_schedule_color_column(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE custom_schedule_courses ADD COLUMN color TEXT NOT NULL DEFAULT ''",
+        [],
+    );
+}
+
+/// 规范化用户课程色：空 → ""；合法 hex → #rrggbb；非法 → None。
+/// 无 # 时仅接受 6/8 位，避免 "bad" 等被当成 3 位 hex。
+pub fn normalize_course_color(value: Option<&str>) -> Option<String> {
+    let raw = match value {
+        None => return Some(String::new()),
+        Some(v) => v.trim(),
+    };
+    if raw.is_empty() {
+        return Some(String::new());
+    }
+    let has_hash = raw.starts_with('#');
+    let body = if has_hash { raw[1..].trim() } else { raw };
+    let expanded = if has_hash && body.len() == 3 && body.chars().all(|c| c.is_ascii_hexdigit()) {
+        body.chars().flat_map(|c| [c, c]).collect::<String>()
+    } else if body.len() == 8 && body.chars().all(|c| c.is_ascii_hexdigit()) {
+        body[..6].to_string()
+    } else if body.len() == 6 && body.chars().all(|c| c.is_ascii_hexdigit()) {
+        body.to_string()
+    } else {
+        return None;
+    };
+    Some(format!("#{}", expanded.to_ascii_lowercase()))
+}
+
 fn resolve_db_path<P: AsRef<Path>>(path: P) -> PathBuf {
     if let Ok(raw) = std::env::var("HBUT_DB_PATH") {
         let candidate = PathBuf::from(raw);
@@ -120,6 +155,8 @@ fn open_connection<P: AsRef<Path>>(path: P) -> Result<Connection> {
     let conn = Connection::open(resolved)?;
     // WAL 降低读写锁争用，改善 async 运行时中的同步 SQLite 访问体验
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    // 幂等补列：旧库缺少 color 时不影响后续 custom_schedule CRUD
+    ensure_custom_schedule_color_column(&conn);
     Ok(conn)
 }
 
@@ -426,11 +463,13 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
             period INTEGER NOT NULL,
             djs INTEGER NOT NULL,
             weeks_json TEXT NOT NULL,
+            color TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
             updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )",
         [],
     )?;
+    ensure_custom_schedule_color_column(&conn);
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_custom_schedule_student_semester
          ON custom_schedule_courses (student_id, semester)",
@@ -495,6 +534,8 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     )?;
     migrate_auth_cookie_v2_table(&conn)?;
     ensure_schema_migration(&conn, 5, "auth_cookie_v2 multi-domain session cookies")?;
+    ensure_custom_schedule_color_column(&conn);
+    ensure_schema_migration(&conn, 6, "custom_schedule_courses.color optional user color")?;
     drop(conn);
 
     // 1.4.2→1.4.3 凭据迁移：base64 列迁密钥环（失败保留 base64），修复 KEYRING 空壳可恢复路径
@@ -1041,10 +1082,11 @@ pub fn add_custom_schedule_course<P: AsRef<Path>>(
 ) -> Result<()> {
     let conn = open_connection(path)?;
     let weeks_json = serde_json::to_string(&course.weeks).unwrap_or_else(|_| "[]".to_string());
+    let color = normalize_course_color(Some(course.color.as_str())).unwrap_or_default();
     conn.execute(
         "INSERT OR REPLACE INTO custom_schedule_courses (
-            id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP)",
+            id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, color, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, CURRENT_TIMESTAMP)",
         params![
             course.id,
             course.student_id,
@@ -1055,10 +1097,33 @@ pub fn add_custom_schedule_course<P: AsRef<Path>>(
             course.weekday,
             course.period,
             course.djs,
-            weeks_json
+            weeks_json,
+            color
         ],
     )?;
     Ok(())
+}
+
+fn map_custom_schedule_course_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CustomScheduleCourseRecord> {
+    let weeks_json: String = row.get(9)?;
+    let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
+    let color_raw: String = row.get(10).unwrap_or_default();
+    let color = normalize_course_color(Some(color_raw.as_str())).unwrap_or_default();
+    Ok(CustomScheduleCourseRecord {
+        id: row.get(0)?,
+        student_id: row.get(1)?,
+        semester: row.get(2)?,
+        name: row.get(3)?,
+        teacher: row.get(4)?,
+        room: row.get(5)?,
+        weekday: row.get(6)?,
+        period: row.get(7)?,
+        djs: row.get(8)?,
+        weeks,
+        color,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+    })
 }
 
 pub fn list_custom_schedule_courses<P: AsRef<Path>>(
@@ -1068,7 +1133,7 @@ pub fn list_custom_schedule_courses<P: AsRef<Path>>(
 ) -> Result<Vec<CustomScheduleCourseRecord>> {
     let conn = open_connection(path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, created_at, updated_at
+        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, color, created_at, updated_at
          FROM custom_schedule_courses
          WHERE student_id = ?1 AND semester = ?2
          ORDER BY weekday ASC, period ASC, name ASC",
@@ -1077,22 +1142,7 @@ pub fn list_custom_schedule_courses<P: AsRef<Path>>(
     let mut rows = stmt.query(params![student_id, semester])?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
-        let weeks_json: String = row.get(9)?;
-        let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
-        result.push(CustomScheduleCourseRecord {
-            id: row.get(0)?,
-            student_id: row.get(1)?,
-            semester: row.get(2)?,
-            name: row.get(3)?,
-            teacher: row.get(4)?,
-            room: row.get(5)?,
-            weekday: row.get(6)?,
-            period: row.get(7)?,
-            djs: row.get(8)?,
-            weeks,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-        });
+        result.push(map_custom_schedule_course_row(row)?);
     }
     Ok(result)
 }
@@ -1103,7 +1153,7 @@ pub fn list_all_custom_schedule_courses<P: AsRef<Path>>(
 ) -> Result<Vec<CustomScheduleCourseRecord>> {
     let conn = open_connection(path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, created_at, updated_at
+        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, color, created_at, updated_at
          FROM custom_schedule_courses
          WHERE student_id = ?1
          ORDER BY semester DESC, weekday ASC, period ASC, name ASC",
@@ -1112,22 +1162,7 @@ pub fn list_all_custom_schedule_courses<P: AsRef<Path>>(
     let mut rows = stmt.query(params![student_id])?;
     let mut result = Vec::new();
     while let Some(row) = rows.next()? {
-        let weeks_json: String = row.get(9)?;
-        let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
-        result.push(CustomScheduleCourseRecord {
-            id: row.get(0)?,
-            student_id: row.get(1)?,
-            semester: row.get(2)?,
-            name: row.get(3)?,
-            teacher: row.get(4)?,
-            room: row.get(5)?,
-            weekday: row.get(6)?,
-            period: row.get(7)?,
-            djs: row.get(8)?,
-            weeks,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-        });
+        result.push(map_custom_schedule_course_row(row)?);
     }
     Ok(result)
 }
@@ -1139,29 +1174,12 @@ pub fn get_custom_schedule_course<P: AsRef<Path>>(
 ) -> Result<Option<CustomScheduleCourseRecord>> {
     let conn = open_connection(path)?;
     conn.query_row(
-        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, created_at, updated_at
+        "SELECT id, student_id, semester, name, teacher, room, weekday, period, djs, weeks_json, color, created_at, updated_at
          FROM custom_schedule_courses
          WHERE student_id = ?1 AND id = ?2
          LIMIT 1",
         params![student_id, course_id],
-        |row| {
-            let weeks_json: String = row.get(9)?;
-            let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
-            Ok(CustomScheduleCourseRecord {
-                id: row.get(0)?,
-                student_id: row.get(1)?,
-                semester: row.get(2)?,
-                name: row.get(3)?,
-                teacher: row.get(4)?,
-                room: row.get(5)?,
-                weekday: row.get(6)?,
-                period: row.get(7)?,
-                djs: row.get(8)?,
-                weeks,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
+        map_custom_schedule_course_row,
     )
     .optional()
 }
@@ -1188,6 +1206,7 @@ pub fn update_custom_schedule_course<P: AsRef<Path>>(
 ) -> Result<usize> {
     let conn = open_connection(path)?;
     let weeks_json = serde_json::to_string(&course.weeks).unwrap_or_else(|_| "[]".to_string());
+    let color = normalize_course_color(Some(course.color.as_str())).unwrap_or_default();
     conn.execute(
         "UPDATE custom_schedule_courses
          SET semester = ?3,
@@ -1198,6 +1217,7 @@ pub fn update_custom_schedule_course<P: AsRef<Path>>(
              period = ?8,
              djs = ?9,
              weeks_json = ?10,
+             color = ?11,
              updated_at = CURRENT_TIMESTAMP
          WHERE student_id = ?1 AND id = ?2",
         params![
@@ -1210,7 +1230,8 @@ pub fn update_custom_schedule_course<P: AsRef<Path>>(
             course.weekday,
             course.period,
             course.djs,
-            weeks_json
+            weeks_json,
+            color
         ],
     )
 }
@@ -1686,6 +1707,101 @@ mod auth_cookie_v2_tests {
         assert_eq!(session.one_code_token, "tok-abc");
         assert_eq!(session.refresh_token, "ref-xyz");
         assert!(session.cookies.contains("Code:"));
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod custom_schedule_color_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mini_hbut_ccolor_{label}_{nanos}.db"))
+    }
+
+    #[test]
+    fn normalize_course_color_accepts_and_rejects() {
+        assert_eq!(normalize_course_color(None).as_deref(), Some(""));
+        assert_eq!(normalize_course_color(Some("")).as_deref(), Some(""));
+        assert_eq!(normalize_course_color(Some("  ")).as_deref(), Some(""));
+        assert_eq!(
+            normalize_course_color(Some("#72B9FF")).as_deref(),
+            Some("#72b9ff")
+        );
+        assert_eq!(
+            normalize_course_color(Some("#AbC")).as_deref(),
+            Some("#aabbcc")
+        );
+        assert_eq!(
+            normalize_course_color(Some("72B9FF")).as_deref(),
+            Some("#72b9ff")
+        );
+        assert_eq!(normalize_course_color(Some("bad")), None);
+        assert_eq!(normalize_course_color(Some("#12")), None);
+        assert_eq!(normalize_course_color(Some("not-a-color")), None);
+    }
+
+    #[test]
+    fn custom_schedule_color_persists_roundtrip_and_legacy_empty() {
+        let path = temp_db_path("roundtrip");
+        let _ = std::fs::remove_file(&path);
+        init_db(&path).expect("init");
+
+        let now = "2026-01-01T00:00:00+08:00".to_string();
+        let record = CustomScheduleCourseRecord {
+            id: "c_color_1".to_string(),
+            student_id: "2510231000".to_string(),
+            semester: "2025-2026-1".to_string(),
+            name: "测试课".to_string(),
+            teacher: "张三".to_string(),
+            room: "A101".to_string(),
+            weekday: 1,
+            period: 1,
+            djs: 2,
+            weeks: vec![1, 2, 3],
+            color: "#72B9FF".to_string(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+        };
+        add_custom_schedule_course(&path, &record).expect("add");
+        let loaded = get_custom_schedule_course(&path, "2510231000", "c_color_1")
+            .expect("get")
+            .expect("exists");
+        assert_eq!(loaded.color, "#72b9ff");
+
+        {
+            let conn = open_connection(&path).unwrap();
+            let mut stmt = conn
+                .prepare("PRAGMA table_info(custom_schedule_courses)")
+                .unwrap();
+            let names: Vec<String> = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect();
+            assert!(
+                names.iter().any(|n| n == "color"),
+                "color column missing: {:?}",
+                names
+            );
+        }
+
+        let plain = CustomScheduleCourseRecord {
+            id: "c_color_2".to_string(),
+            color: String::new(),
+            ..record
+        };
+        add_custom_schedule_course(&path, &plain).expect("add plain");
+        let plain_loaded = get_custom_schedule_course(&path, "2510231000", "c_color_2")
+            .expect("get2")
+            .expect("exists2");
+        assert_eq!(plain_loaded.color, "");
+
         let _ = std::fs::remove_file(&path);
     }
 }

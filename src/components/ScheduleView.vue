@@ -31,7 +31,12 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { afterScheduleRefresh } from '../utils/widget_bridge'
 import { isTestAccountSession } from '../utils/test_account.js'
 import CourseColorPicker from './CourseColorPicker.vue'
-import { DEFAULT_COURSE_COLOR, normalizeOptionalCourseColor } from '../utils/course_color'
+import {
+  DEFAULT_COURSE_COLOR,
+  contrastTextForHex,
+  mixHexWithWhite,
+  normalizeOptionalCourseColor,
+} from '../utils/course_color'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -1666,10 +1671,20 @@ const getCourseStyle = (course) => {
 
   const theme = courseThemes[index]
   const isCustom = !!course.is_custom
-  const borderColor = isCustom ? '#111111' : (theme.border || '#cbd5e1')
-  // 传统样式：柔和彩色背景 + 同色系边框 + 深色文字（参考设计稿）
-  const traditionalBackground = isCustom ? '#111111' : theme.bg
-  const traditionalText = isCustom ? '#ffffff' : theme.text
+  // #470：自定义课若有用户色则优先使用，不再强制纯黑
+  const userColor = isCustom ? normalizeOptionalCourseColor(course.color) : null
+  const hasUserColor = !!(userColor && userColor.length)
+  const borderColor = hasUserColor
+    ? userColor
+    : (isCustom ? '#111111' : (theme.border || '#cbd5e1'))
+  // 传统样式：用户色 → 浅底+主色边框+对比字；未设色自定义课仍用黑底白字
+  const traditionalBackground = hasUserColor
+    ? mixHexWithWhite(userColor, 0.22)
+    : (isCustom ? '#111111' : theme.bg)
+  const traditionalText = hasUserColor
+    ? contrastTextForHex(traditionalBackground)
+    : (isCustom ? '#ffffff' : theme.text)
+  const modernText = hasUserColor ? userColor : theme.text
   const modernBackground = 'rgba(255, 255, 255, 0.92)'
   const classBackground = 'rgba(255, 255, 255, 0.94)'
   const normalShadow = isCustom
@@ -1682,7 +1697,7 @@ const getCourseStyle = (course) => {
   
   return {
     '--course-bg': isTraditionalCard ? traditionalBackground : (isClassCard ? classBackground : modernBackground),
-    '--course-text': isTraditionalCard ? traditionalText : theme.text,
+    '--course-text': isTraditionalCard ? traditionalText : modernText,
     '--course-border': borderColor,
     '--course-shadow': isTraditionalCard ? traditionalShadow : (isClassCard ? classShadow : normalShadow),
     '--course-span': String(span),
@@ -2032,6 +2047,7 @@ const submitAddCourse = async () => {
   }
 
   const weeks = normalizeWeeks(addCourseForm.value.weeks)
+  const colorNorm = normalizeOptionalCourseColor(addCourseForm.value.color)
   const payload = {
     student_id: sid,
     semester: sem,
@@ -2041,7 +2057,9 @@ const submitAddCourse = async () => {
     weekday: Number(addCourseForm.value.weekday),
     period: Number(addCourseForm.value.period),
     djs: Number(addCourseForm.value.djs),
-    weeks
+    weeks,
+    // #470：可选用户色；空字符串表示未设定
+    color: colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm
   }
 
   const isEditing = courseDialogMode.value === 'edit'
@@ -2469,7 +2487,8 @@ const toPortableCustomCourse = (course) => {
     weekday: Number(normalized.weekday || 1),
     period: Number(normalized.period || 1),
     djs: Number(normalized.djs || 1),
-    weeks: normalizeWeeks(normalized.weeks)
+    weeks: normalizeWeeks(normalized.weeks),
+    color: normalized.color || DEFAULT_COURSE_COLOR
   }
 }
 
@@ -2513,6 +2532,9 @@ const parseImportedCustomCourse = (item, index) => {
     throw new Error(`第 ${index + 1} 条课程 djs 不合法（最多 ${maxSpan}）`)
   }
   if (!weeksValue.length) throw new Error(`第 ${index + 1} 条课程 weeks 不能为空`)
+  const colorNorm = normalizeOptionalCourseColor(item.color)
+  // 缺 color / 非法 color：导入时按未设定处理，兼容旧 JSON
+  const colorValue = colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm
 
   return {
     source_id: sourceId,
@@ -2520,6 +2542,7 @@ const parseImportedCustomCourse = (item, index) => {
     name: nameValue,
     teacher: teacherValue,
     room: roomValue,
+    color: colorValue,
     weekday: weekdayValue,
     period: periodValue,
     djs: djsValue,
@@ -2692,7 +2715,8 @@ const importCustomCoursesFromText = async (content = '') => {
           weekday: course.weekday,
           period: course.period,
           djs: course.djs,
-          weeks: course.weeks
+          weeks: course.weeks,
+          color: course.color || DEFAULT_COURSE_COLOR
         })
         if (!updateRes.data?.success) {
           throw new Error(updateRes.data?.error || '更新失败')
@@ -2710,7 +2734,8 @@ const importCustomCoursesFromText = async (content = '') => {
         weekday: course.weekday,
         period: course.period,
         djs: course.djs,
-        weeks: course.weeks
+        weeks: course.weeks,
+        color: course.color || DEFAULT_COURSE_COLOR
       })
       if (!addRes.data?.success) {
         throw new Error(addRes.data?.error || '新增失败')
