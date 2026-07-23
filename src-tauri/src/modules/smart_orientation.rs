@@ -23,23 +23,15 @@ const OVERVIEW_PATHS: &[&str] = &[
     "/open/orientation/panels",
 ];
 
-const MESSAGES_PATHS: &[&str] = &[
-    "/api/orientation/messages",
-    "/api/yingxin/notice/list",
-];
+const MESSAGES_PATHS: &[&str] = &["/api/orientation/messages", "/api/yingxin/notice/list"];
 
 const MENTOR_PATHS: &[&str] = &["/api/orientation/mentor", "/api/yingxin/classAdvisor"];
 const COUNSELOR_PATHS: &[&str] = &["/api/orientation/counselor", "/api/yingxin/counselor"];
 const DORM_PATHS: &[&str] = &["/api/orientation/dorm", "/api/yingxin/dormitory"];
-const PROFILE_PATHS: &[&str] = &[
-    "/api/orientation/profile",
-    "/api/yingxin/student/info",
-];
+const PROFILE_PATHS: &[&str] = &["/api/orientation/profile", "/api/yingxin/student/info"];
 
-const FIXTURE_OVERVIEW: &str =
-    include_str!("../../tests/fixtures/smart-orientation/overview.json");
-const FIXTURE_MESSAGES: &str =
-    include_str!("../../tests/fixtures/smart-orientation/messages.json");
+const FIXTURE_OVERVIEW: &str = include_str!("../../tests/fixtures/smart-orientation/overview.json");
+const FIXTURE_MESSAGES: &str = include_str!("../../tests/fixtures/smart-orientation/messages.json");
 const FIXTURE_PROFILE_BLOCKS: &str =
     include_str!("../../tests/fixtures/smart-orientation/profile_blocks.json");
 
@@ -216,8 +208,12 @@ fn has_portal_session_cookie(client: &HbutClient) -> bool {
         return false;
     };
     let jar = &client.cookie_jar;
-    let portal_cookie = jar.cookies(&portal).and_then(|v| v.to_str().ok().map(|s| s.to_string()));
-    let auth_cookie = jar.cookies(&auth).and_then(|v| v.to_str().ok().map(|s| s.to_string()));
+    let portal_cookie = jar
+        .cookies(&portal)
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()));
+    let auth_cookie = jar
+        .cookies(&auth)
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()));
     let joined = format!(
         "{} {}",
         portal_cookie.unwrap_or_default(),
@@ -281,9 +277,7 @@ pub fn parse_messages_fixture(raw: &str) -> Result<OrientationMessagesResponse, 
     Ok(resp)
 }
 
-pub fn parse_profile_blocks_fixture(
-    raw: &str,
-) -> Result<OrientationProfileBlocksResponse, String> {
+pub fn parse_profile_blocks_fixture(raw: &str) -> Result<OrientationProfileBlocksResponse, String> {
     let mut resp: OrientationProfileBlocksResponse =
         serde_json::from_str(raw).map_err(|e| format!("profile_blocks fixture 解析失败: {e}"))?;
     if resp.fetched_at.is_empty() {
@@ -293,16 +287,15 @@ pub fn parse_profile_blocks_fixture(
 }
 
 fn fixture_panels(notice: &str) -> OrientationPanelsResponse {
-    let mut resp = parse_panels_fixture(FIXTURE_OVERVIEW).unwrap_or_else(|_| {
-        OrientationPanelsResponse {
+    let mut resp =
+        parse_panels_fixture(FIXTURE_OVERVIEW).unwrap_or_else(|_| OrientationPanelsResponse {
             panels: vec![],
             fetched_at: now_iso(),
             source: "fixture".into(),
             demo: true,
             notice: Some(notice.to_string()),
             error: None,
-        }
-    });
+        });
     resp.source = "fixture".into();
     resp.demo = true;
     resp.notice = Some(notice.to_string());
@@ -311,16 +304,15 @@ fn fixture_panels(notice: &str) -> OrientationPanelsResponse {
 }
 
 fn fixture_messages(notice: &str) -> OrientationMessagesResponse {
-    let mut resp = parse_messages_fixture(FIXTURE_MESSAGES).unwrap_or_else(|_| {
-        OrientationMessagesResponse {
+    let mut resp =
+        parse_messages_fixture(FIXTURE_MESSAGES).unwrap_or_else(|_| OrientationMessagesResponse {
             items: vec![],
             fetched_at: now_iso(),
             source: "fixture".into(),
             demo: true,
             notice: Some(notice.to_string()),
             error: None,
-        }
-    });
+        });
     resp.source = "fixture".into();
     resp.demo = true;
     resp.notice = Some(notice.to_string());
@@ -583,10 +575,7 @@ fn parse_dorm_live(raw: &Value) -> Option<OrientationDorm> {
         status: opt(&["status", "rzzt"]),
         remark: opt(&["remark", "note"]),
     };
-    if dorm.campus.is_none()
-        && dorm.building.is_none()
-        && dorm.room.is_none()
-        && dorm.bed.is_none()
+    if dorm.campus.is_none() && dorm.building.is_none() && dorm.room.is_none() && dorm.bed.is_none()
     {
         return None;
     }
@@ -664,7 +653,9 @@ pub async fn list_panels(client: &HbutClient) -> Result<OrientationPanelsRespons
             if e.contains("会话已过期") {
                 return Err(e);
             }
-            let mut resp = fixture_panels("未命中真实迎新接口，已展示协议样例（见 docs/protocol/smart-orientation.md）");
+            let mut resp = fixture_panels(
+                "未命中真实迎新接口，已展示协议样例（见 docs/protocol/smart-orientation.md）",
+            );
             resp.error = Some(e);
             Ok(resp)
         }
@@ -779,11 +770,7 @@ pub async fn profile_blocks(
 
     // 部分成功：缺省块用 fixture 补齐，避免 UI 空白
     let fb = fixture_profile_blocks("部分接口为协议样例");
-    let source = if live_hits >= 4 {
-        "live"
-    } else {
-        "mixed"
-    };
+    let source = if live_hits >= 4 { "live" } else { "mixed" };
     Ok(OrientationProfileBlocksResponse {
         mentor: mentor.or(fb.mentor),
         counselor: counselor.or(fb.counselor),
@@ -886,7 +873,9 @@ mod tests {
         assert!(looks_like_login_redirect(
             "https://auth.hbut.edu.cn/authserver/login?service=x"
         ));
-        assert!(!looks_like_login_redirect("https://xg.hbut.edu.cn/api/orientation/overview"));
+        assert!(!looks_like_login_redirect(
+            "https://xg.hbut.edu.cn/api/orientation/overview"
+        ));
     }
 
     #[test]
