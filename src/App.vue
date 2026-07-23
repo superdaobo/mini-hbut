@@ -155,6 +155,7 @@ const loadTeachingEvalView = () => import('./components/TeachingEvalView.vue')
 const loadBroadbandView = () => import('./components/BroadbandView.vue')
 const loadSportsVenueView = () => import('./components/SportsVenueView.vue')
 const loadTowerGoView = () => import('./components/TowerGoView.vue')
+const loadSmartOrientationView = () => import('./components/SmartOrientationView.vue')
 
 const Dashboard = createAsyncPage(loadDashboardView)
 const GradeView = createAsyncPage(loadGradeView)
@@ -199,6 +200,7 @@ const TeachingEvalView = createAsyncPage(loadTeachingEvalView)
 const BroadbandView = createAsyncPage(loadBroadbandView)
 const SportsVenueView = createAsyncPage(loadSportsVenueView)
 const TowerGoView = createAsyncPage(loadTowerGoView)
+const SmartOrientationView = createAsyncPage(loadSmartOrientationView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const GRADE_CACHE_REFRESH_RETRY_MS = 8000
@@ -293,7 +295,8 @@ const VIEW_PREFETCHERS = Object.freeze({
   teaching_eval: loadTeachingEvalView,
   broadband: loadBroadbandView,
   sports_venue: loadSportsVenueView,
-  towergo: loadTowerGoView
+  towergo: loadTowerGoView,
+  smart_orientation: loadSmartOrientationView
 })
 
 const prefetchViewComponent = (view) => {
@@ -3887,6 +3890,14 @@ onBeforeUnmount(() => {
       <SportsVenueView
         v-else-if="currentView === 'sports_venue'"
         @back="handleBackToDashboard"
+      />
+
+      <!-- 智慧迎新 -->
+      <SmartOrientationView
+        v-else-if="currentView === 'smart_orientation'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
       />
 
       <!-- 小塔出行 -->
