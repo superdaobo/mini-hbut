@@ -5,13 +5,19 @@ import { DEFAULT_MODULE_CENTER as DEFAULT_GAME_MODULE_CENTER } from './module_ce
 import { isTestAccountSession } from './test_account.js'
 import { shouldApplyAppStoreRestrictions } from '../config/app_store_policy'
 
-const CONFIG_URLS = [
+/** 真·远端源（GitCode + 代理）；成功且内容变化才写本地快照 */
+const REMOTE_CONFIG_URLS = [
   'https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
-  'https://gh-proxy.com/https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json',
-  '/remote_config.json'
+  'https://gh-proxy.com/https://raw.gitcode.com/superdaobo/mini-hbut-config/raw/main/remote_config.json'
 ]
+/** 打包进应用的兜底 json：仅无快照且远端全失败时使用，不得覆盖已有快照 */
+const PACKAGE_CONFIG_URL = '/remote_config.json'
+/** 兼容旧引用：远端优先，最后才是打包 */
+const CONFIG_URLS = [...REMOTE_CONFIG_URLS, PACKAGE_CONFIG_URL]
 
 const REMOTE_CONFIG_SNAPSHOT_KEY = 'hbu_remote_config_snapshot'
+/** 快照被远端更新后派发，供 App 重新 apply */
+export const REMOTE_CONFIG_UPDATED_EVENT = 'hbu-remote-config-updated'
 const OCR_REMOTE_ENDPOINTS_KEY = 'hbu_ocr_remote_endpoints'
 const OCR_LOCAL_FALLBACK_ENDPOINTS_KEY = 'hbu_ocr_local_fallback_endpoints'
 const OCR_PRIMARY_ENDPOINT_KEY = 'hbu_ocr_endpoint'
@@ -712,14 +718,63 @@ export function getChaoxingClassConfig(config) {
   return normalizeChaoxingClassConfig({ invite_code: resolveChaoxingInviteCode({}) })
 }
 
-const saveSnapshot = (config) => {
+/** 规范化配置的稳定指纹，用于判断远端是否相对快照有变动 */
+export const remoteConfigFingerprint = (config) => {
+  try {
+    const normalized = normalizeRemoteConfig(config || {})
+    return JSON.stringify(normalized)
+  } catch {
+    return ''
+  }
+}
+
+const setMemoryConfig = (config) => {
   remoteConfigMemory = config && typeof config === 'object' ? normalizeRemoteConfig(config) : null
   remoteConfigMemoryAt = remoteConfigMemory ? Date.now() : 0
-  try {
-    localStorage.setItem(REMOTE_CONFIG_SNAPSHOT_KEY, JSON.stringify(config))
-  } catch {
-    // ignore
+}
+
+const saveSnapshot = (config, { emitEvent = false, previousFingerprint = null } = {}) => {
+  const normalized = config && typeof config === 'object' ? normalizeRemoteConfig(config) : null
+  setMemoryConfig(normalized)
+  if (!normalized) return { saved: false, changed: false }
+
+  const nextFp = remoteConfigFingerprint(normalized)
+  const prevFp =
+    previousFingerprint != null
+      ? previousFingerprint
+      : (() => {
+          try {
+            const raw = localStorage.getItem(REMOTE_CONFIG_SNAPSHOT_KEY)
+            return raw ? remoteConfigFingerprint(JSON.parse(raw)) : ''
+          } catch {
+            return ''
+          }
+        })()
+  const changed = nextFp !== prevFp
+
+  if (changed || !prevFp) {
+    try {
+      localStorage.setItem(REMOTE_CONFIG_SNAPSHOT_KEY, JSON.stringify(normalized))
+    } catch {
+      // ignore
+    }
   }
+
+  if (emitEvent && changed) {
+    try {
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(
+          new CustomEvent(REMOTE_CONFIG_UPDATED_EVENT, {
+            detail: { source: 'remote', fingerprint: nextFp }
+          })
+        )
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return { saved: true, changed, fingerprint: nextFp }
 }
 
 const readMemoryConfig = () => {
@@ -740,6 +795,13 @@ const loadSnapshot = () => {
   } catch {
     return null
   }
+}
+
+/** 读取已落盘快照（未夹紧）；无则 null */
+export const readRemoteConfigSnapshot = () => {
+  const raw = loadSnapshot()
+  if (!raw) return null
+  return normalizeRemoteConfig(raw)
 }
 
 const fetchByInvoke = async (url) => {
@@ -818,30 +880,103 @@ const fetchByWeb = async (url) => {
   }
 }
 
-const fetchFromAnyUrl = async () => {
+/**
+ * @param {string[]} baseUrls
+ * @returns {Promise<{ payload: object, sourceUrl: string }>}
+ */
+const fetchFromUrlList = async (baseUrls) => {
   let lastError = ''
-  for (const baseUrl of CONFIG_URLS) {
+  for (const baseUrl of baseUrls || []) {
     const url = withCacheBust(baseUrl)
     if (!url) continue
 
     // 本地相对路径只走 web fetch，不走 native invoke
-    const isLocalUrl = baseUrl.startsWith('/')
+    const isLocalUrl = String(baseUrl).startsWith('/')
     if (!isLocalUrl) {
       const byInvoke = await fetchByInvoke(url)
-      if (byInvoke) return byInvoke
+      if (byInvoke && isLikelyRemoteConfigPayload(byInvoke)) {
+        return { payload: byInvoke, sourceUrl: baseUrl }
+      }
 
       const byCapacitor = await fetchByCapacitor(url)
-      if (byCapacitor) return byCapacitor
+      if (byCapacitor && isLikelyRemoteConfigPayload(byCapacitor)) {
+        return { payload: byCapacitor, sourceUrl: baseUrl }
+      }
     }
 
     try {
       const byWeb = await fetchByWeb(url)
-      if (byWeb && typeof byWeb === 'object') return byWeb
+      if (byWeb && isLikelyRemoteConfigPayload(byWeb)) {
+        return { payload: byWeb, sourceUrl: baseUrl }
+      }
     } catch (e) {
       lastError = e?.message || String(e)
     }
   }
   throw new Error(lastError || 'remote config unavailable')
+}
+
+/** 仅真远端（不含打包 json） */
+const fetchFromRemoteUrls = async () => fetchFromUrlList(REMOTE_CONFIG_URLS)
+
+/** 打包内兜底 */
+const fetchFromPackageUrl = async () => fetchFromUrlList([PACKAGE_CONFIG_URL])
+
+/** 兼容旧行为：远端 + 打包 */
+const fetchFromAnyUrl = async () => {
+  const result = await fetchFromUrlList(CONFIG_URLS)
+  return result.payload
+}
+
+let remoteConfigBackgroundInFlight = null
+
+/**
+ * 拉取真远端；有变动则写快照并派发事件。
+ * @returns {Promise<{ config: object|null, changed: boolean, source: string }>}
+ */
+export async function refreshRemoteConfigFromNetwork(options = {}) {
+  const emitEvent = options?.emitEvent !== false
+  const snapshot = loadSnapshot()
+  const prevFp = snapshot ? remoteConfigFingerprint(snapshot) : ''
+
+  try {
+    const { payload } = await fetchFromRemoteUrls()
+    const normalized = normalizeRemoteConfig(payload)
+    const { changed } = saveSnapshot(normalized, {
+      emitEvent,
+      previousFingerprint: prevFp
+    })
+    return {
+      config: applyAppStoreRemoteConfigClamp(normalized),
+      changed,
+      source: 'remote'
+    }
+  } catch {
+    // 远端失败：保留快照，绝不让打包 json 覆盖
+    if (snapshot) {
+      const normalized = normalizeRemoteConfig(snapshot)
+      setMemoryConfig(normalized)
+      return {
+        config: applyAppStoreRemoteConfigClamp(normalized),
+        changed: false,
+        source: 'snapshot'
+      }
+    }
+    return { config: null, changed: false, source: 'none' }
+  }
+}
+
+const scheduleBackgroundRemoteRefresh = () => {
+  if (remoteConfigBackgroundInFlight) return remoteConfigBackgroundInFlight
+  if (isTestAccountSession()) return null
+  if (!isRemoteConfigEnabled()) return null
+
+  remoteConfigBackgroundInFlight = refreshRemoteConfigFromNetwork({ emitEvent: true })
+    .catch(() => null)
+    .finally(() => {
+      remoteConfigBackgroundInFlight = null
+    })
+  return remoteConfigBackgroundInFlight
 }
 
 export const applyOcrRuntimeConfig = async (configLike) => {
@@ -890,37 +1025,58 @@ export async function fetchRemoteConfig(options = {}) {
   if (!forceRefresh) {
     const memory = readMemoryConfig()
     if (memory) {
-      // 内存/快照存未夹紧原文；按当前会话（guest/demo vs 真实登录）再夹紧
+      // 短时内存命中：后台仍可静默刷新远端
+      scheduleBackgroundRemoteRefresh()
       return applyAppStoreRemoteConfigClamp(memory)
     }
     if (remoteConfigInFlight) {
       return remoteConfigInFlight
     }
+
+    // 冷启动优先：先返回上次远端快照，再后台拉真远端覆盖
+    const snapshot = loadSnapshot()
+    if (snapshot) {
+      const normalized = normalizeRemoteConfig(snapshot)
+      setMemoryConfig(normalized)
+      scheduleBackgroundRemoteRefresh()
+      return applyAppStoreRemoteConfigClamp(normalized)
+    }
   }
 
   const task = (async () => {
+    // force 或无快照：必须等网络
     try {
-      const raw = await fetchFromAnyUrl()
-      if (!isLikelyRemoteConfigPayload(raw)) {
-        throw new Error('invalid remote config payload')
-      }
-      // 持久化未夹紧配置，避免 guest 阶段夹紧后污染真实登录会话
-      const normalized = normalizeRemoteConfig(raw)
-      // 远程返回即视为有效配置（即使公告为空/关闭 OCR），避免被旧快照反向覆盖。
-      saveSnapshot(normalized)
+      const { payload } = await fetchFromRemoteUrls()
+      const normalized = normalizeRemoteConfig(payload)
+      const prev = loadSnapshot()
+      saveSnapshot(normalized, {
+        emitEvent: false,
+        previousFingerprint: prev ? remoteConfigFingerprint(prev) : ''
+      })
       return applyAppStoreRemoteConfigClamp(normalized)
     } catch {
-      // ignore
+      // 真远端失败
     }
 
     const snapshot = loadSnapshot()
     if (snapshot) {
       const normalized = normalizeRemoteConfig(snapshot)
-      saveSnapshot(normalized)
+      setMemoryConfig(normalized)
       return applyAppStoreRemoteConfigClamp(normalized)
     }
+
+    // 零次安装兜底：打包 json → 代码 DEFAULT（可写入快照作为起点）
+    try {
+      const { payload } = await fetchFromPackageUrl()
+      const normalized = normalizeRemoteConfig(payload)
+      saveSnapshot(normalized, { emitEvent: false, previousFingerprint: '' })
+      return applyAppStoreRemoteConfigClamp(normalized)
+    } catch {
+      // ignore
+    }
+
     const fallback = normalizeRemoteConfig(DEFAULT_CONFIG)
-    saveSnapshot(fallback)
+    saveSnapshot(fallback, { emitEvent: false, previousFingerprint: '' })
     return applyAppStoreRemoteConfigClamp(fallback)
   })()
 
