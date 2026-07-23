@@ -535,7 +535,11 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> Result<()> {
     migrate_auth_cookie_v2_table(&conn)?;
     ensure_schema_migration(&conn, 5, "auth_cookie_v2 multi-domain session cookies")?;
     ensure_custom_schedule_color_column(&conn);
-    ensure_schema_migration(&conn, 6, "custom_schedule_courses.color optional user color")?;
+    ensure_schema_migration(
+        &conn,
+        6,
+        "custom_schedule_courses.color optional user color",
+    )?;
     drop(conn);
 
     // 1.4.2→1.4.3 凭据迁移：base64 列迁密钥环（失败保留 base64），修复 KEYRING 空壳可恢复路径
@@ -1104,7 +1108,9 @@ pub fn add_custom_schedule_course<P: AsRef<Path>>(
     Ok(())
 }
 
-fn map_custom_schedule_course_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CustomScheduleCourseRecord> {
+fn map_custom_schedule_course_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<CustomScheduleCourseRecord> {
     let weeks_json: String = row.get(9)?;
     let weeks = serde_json::from_str::<Vec<i32>>(&weeks_json).unwrap_or_default();
     let color_raw: String = row.get(10).unwrap_or_default();
