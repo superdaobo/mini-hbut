@@ -167,4 +167,24 @@ describe('P0 multi-module contracts', () => {
     expect(docs).toContain('iOS')
     expect(docs).toContain('ensure_http_bridge')
   })
+
+  it('wires ensure-then-remount embed resume path (#453)', () => {
+    const app = read('src/App.vue')
+    const embed = read('src/utils/school_website_embed.ts')
+    const school = read('src/components/SchoolWebsiteView.vue')
+    const more = read('src/components/MoreModuleHostView.vue')
+
+    expect(embed).toContain('invokeEnsureHttpBridge')
+    expect(embed).toContain('ensure_http_bridge')
+    expect(embed).toContain('recoverSchoolWebsiteBridgeOnResume')
+    expect(app).toContain('invokeEnsureHttpBridge')
+    expect(app).toContain('forceFallback')
+    expect(school).toContain('recoverSchoolWebsiteBridgeOnResume')
+    expect(school).toContain('forceFallback')
+    // Android 不误导为 HTTP 桥
+    expect(school).toContain('当前环境无法在应用内嵌学校官网')
+    expect(more).toContain('recoverSchoolWebsiteBridgeOnResume')
+    expect(more).toContain('tryCapacitorLocalFallback')
+    expect(more).toContain('模块本地服务暂时不可用')
+  })
 })
