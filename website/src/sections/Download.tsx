@@ -18,6 +18,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  APP_STORE_LINKS,
+  DOWNLOAD_ANDROID_ANCHOR,
+  DOWNLOAD_IOS_ANCHOR,
+  resolveAppStoreOpenUrl,
+} from '@/data/home-content';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -32,6 +38,12 @@ interface Platform {
   secondaryUrl?: string;
   secondaryLabel?: string;
   secondaryCandidates?: string[];
+  /** 稳定锚点：Hero「安卓下载」等可精确定位 */
+  anchorId?: string;
+  /** 主按钮文案覆盖（如 App Store） */
+  primaryLabel?: string;
+  /** 是否走外链打开（商店页）而非 IPA 多 CDN 对话框 */
+  primaryExternal?: boolean;
 }
 
 type LinkPrimaryKey =
@@ -369,15 +381,23 @@ function buildPlatforms(links: ReleaseLinks): Platform[] {
       description: 'Android 8+',
       downloadUrl: links.androidApk || '',
       downloadCandidates: links.androidApkCandidates || [],
+      anchorId: DOWNLOAD_ANDROID_ANCHOR,
     },
     {
       name: 'iOS',
       icon: Smartphone,
-      formats: ['IPA'],
+      formats: ['App Store'],
       color: 'orange',
-      description: 'iOS 15+（NB 助手 / SideStore）',
-      downloadUrl: links.iosIpa || '',
-      downloadCandidates: links.iosIpaCandidates || [],
+      description: '使用 App Store 下载（正式上架）',
+      // 主路径：App Store 网页；侧载 IPA 降为 secondary
+      downloadUrl: APP_STORE_LINKS.https,
+      downloadCandidates: [APP_STORE_LINKS.https],
+      primaryLabel: 'App Store 下载',
+      primaryExternal: true,
+      secondaryUrl: links.iosIpa || '',
+      secondaryLabel: links.iosIpa ? 'IPA 侧载（进阶）' : undefined,
+      secondaryCandidates: links.iosIpaCandidates || [],
+      anchorId: DOWNLOAD_IOS_ANCHOR,
     },
     {
       name: 'Linux',
@@ -669,12 +689,20 @@ export default function DownloadSection() {
             return (
               <div
                 key={platform.name}
+                id={platform.anchorId}
                 ref={(el) => {
                   cardsRef.current[i] = el;
                 }}
                 className={`group relative p-6 rounded-xl border-2 ${colors.border} ${colors.bg} backdrop-blur-sm transition-all duration-300 ${canDownload ? `cursor-pointer hover:scale-105 hover:${colors.glow}` : 'opacity-70 cursor-not-allowed'}`}
                 onClick={() => {
-                  if (canDownload) setSelectedPlatform(platform);
+                  if (!canDownload) return;
+                  if (platform.primaryExternal) {
+                    window.location.href = resolveAppStoreOpenUrl(
+                      typeof navigator !== 'undefined' ? navigator.userAgent : '',
+                    );
+                    return;
+                  }
+                  setSelectedPlatform(platform);
                 }}
               >
                 <div className="absolute top-4 right-4">
@@ -699,13 +727,43 @@ export default function DownloadSection() {
                   ))}
                 </div>
 
-                <div className="mt-4 pt-4 border-t border-gray-700/50">
+                <div className="mt-4 pt-4 border-t border-gray-700/50 space-y-2">
                   <button
+                    type="button"
                     className={`w-full py-2 rounded-lg flex items-center justify-center gap-2 ${colors.bg} ${colors.text} border ${colors.border} hover:bg-opacity-20 transition-all duration-300 text-sm font-mono ${!canDownload ? 'opacity-60' : ''}`}
                   >
                     <Download className="w-4 h-4" />
-                    {canDownload ? '立即下载' : '链接未就绪'}
+                    {canDownload
+                      ? platform.primaryLabel || '立即下载'
+                      : '链接未就绪'}
                   </button>
+                  {platform.name === 'iOS' && platform.secondaryUrl ? (
+                    <button
+                      type="button"
+                      className="w-full py-1.5 rounded-lg text-[11px] font-mono text-gray-400 border border-dashed border-gray-600 hover:text-white hover:border-white/40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPlatform({
+                          ...platform,
+                          downloadUrl: platform.secondaryUrl || '',
+                          downloadCandidates: platform.secondaryCandidates || [],
+                          primaryExternal: false,
+                          primaryLabel: 'IPA 侧载',
+                        });
+                      }}
+                    >
+                      {platform.secondaryLabel || 'IPA 侧载（进阶）'}
+                    </button>
+                  ) : null}
+                  {platform.name === 'iOS' ? (
+                    <a
+                      href={APP_STORE_LINKS.testFlight}
+                      onClick={(e) => e.stopPropagation()}
+                      className="block text-center text-[11px] font-mono text-gray-500 hover:text-gray-300"
+                    >
+                      TestFlight（次要）
+                    </a>
+                  ) : null}
                 </div>
               </div>
             );

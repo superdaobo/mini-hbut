@@ -14,7 +14,12 @@ import {
 import { ArrowDownToLine, Github, MousePointer2 } from 'lucide-react';
 import ParticleBackground from '@/components/ParticleBackground';
 import PhoneAppScreen, { type PhoneDemoScreen } from '@/components/phone-app/PhoneAppScreen';
-import { GITHUB_URL, SHOWCASE_STAGES } from '@/data/home-content';
+import {
+  APP_STORE_LINKS,
+  DOWNLOAD_ANDROID_ANCHOR,
+  GITHUB_URL,
+  SHOWCASE_STAGES,
+} from '@/data/home-content';
 
 const META = SHOWCASE_STAGES;
 const N = META.length;
@@ -139,10 +144,16 @@ function StageCaption({
       {meta.side === 'center' && (
         <div className="mt-5 flex items-center justify-center gap-3">
           <a
-            href="#download"
-            className="btn-shine flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 px-6 py-3 text-sm font-semibold text-slate-950 shadow-[0_10px_36px_-8px_rgba(34,211,238,0.55)] transition-transform hover:scale-[1.04] active:scale-95"
+            href={`#${DOWNLOAD_ANDROID_ANCHOR}`}
+            className="flex items-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white/90 backdrop-blur transition-all hover:border-white/30 hover:bg-white/[0.1]"
           >
-            <ArrowDownToLine className="h-4 w-4" /> 免费下载
+            <ArrowDownToLine className="h-4 w-4" /> 安卓下载
+          </a>
+          <a
+            href={APP_STORE_LINKS.https}
+            className="btn-shine flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#5ac8fa] to-[#007aff] px-6 py-3 text-sm font-semibold text-white shadow-[0_10px_36px_-8px_rgba(0,122,255,0.55)] transition-transform hover:scale-[1.04] active:scale-95"
+          >
+            App Store
           </a>
           <a
             href={GITHUB_URL}

@@ -1,17 +1,20 @@
 'use client';
 
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion';
-import { BookOpenText, ChevronDown, Download, Github, Sparkles } from 'lucide-react';
+import { BookOpenText, ChevronDown, Download, Github, Smartphone, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRef } from 'react';
 import ParticleBackground from '@/components/ParticleBackground';
 import InteractiveAppPhone from '@/components/InteractiveAppPhone';
 import {
+  APP_STORE_LINKS,
   CHIPS,
+  DOWNLOAD_ANDROID_ANCHOR,
   EYEBROW,
   GITHUB_URL,
   H1_A,
   H1_B,
+  resolveAppStoreOpenUrl,
   SUB,
   TRUST_ITEMS,
 } from '@/data/home-content';
@@ -107,19 +110,44 @@ export default function HeroSection() {
               custom={4}
               className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start"
             >
+              {/* 左：安卓下载 → 滚到下载区 Android 卡片（#466） */}
               <a
-                href="#download"
-                className="btn-shine group flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-sky-400 px-6 py-3 text-[15px] font-semibold text-slate-950 shadow-[0_10px_36px_-8px_rgba(34,211,238,0.55)] transition-all hover:scale-[1.04] hover:shadow-[0_14px_44px_-8px_rgba(34,211,238,0.7)] active:scale-95"
+                href={`#${DOWNLOAD_ANDROID_ANCHOR}`}
+                onClick={(e) => {
+                  e.preventDefault()
+                  document.getElementById(DOWNLOAD_ANDROID_ANCHOR)?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                  })
+                }}
+                className="group flex items-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-6 py-3 text-[15px] font-semibold text-white/90 backdrop-blur transition-all hover:border-white/30 hover:bg-white/[0.1] active:scale-95"
               >
                 <Download className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
-                免费下载
+                安卓下载
+              </a>
+              {/* 右：App Store 主路径 — itms-apps / https 备用（#466） */}
+              <a
+                href={APP_STORE_LINKS.https}
+                onClick={(e) => {
+                  e.preventDefault()
+                  const target = resolveAppStoreOpenUrl(
+                    typeof navigator !== 'undefined' ? navigator.userAgent : '',
+                  )
+                  // 桌面直接开 https；移动端尝试 itms-apps，失败仍可由浏览器处理
+                  window.location.href = target
+                }}
+                className="btn-shine group flex items-center gap-2 rounded-xl bg-gradient-to-b from-[#5ac8fa] to-[#007aff] px-6 py-3 text-[15px] font-semibold text-white shadow-[0_10px_36px_-8px_rgba(0,122,255,0.55)] transition-all hover:scale-[1.04] hover:shadow-[0_14px_44px_-8px_rgba(0,122,255,0.65)] active:scale-95"
+                aria-label="使用 App Store 下载 Mini-HBUT"
+              >
+                <Smartphone className="h-4 w-4" />
+                App Store
               </a>
               <Link
                 href="/docs"
-                className="flex items-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-6 py-3 text-[15px] font-medium text-white/80 backdrop-blur transition-all hover:border-white/30 hover:bg-white/[0.08] hover:text-white"
+                className="flex items-center gap-2 rounded-xl border border-white/12 bg-white/[0.04] px-5 py-3 text-[14px] font-medium text-white/75 backdrop-blur transition-all hover:border-white/30 hover:bg-white/[0.08] hover:text-white"
               >
                 <BookOpenText className="h-4 w-4" />
-                查看文档
+                文档
               </Link>
               <a
                 href={GITHUB_URL}

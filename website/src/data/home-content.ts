@@ -20,6 +20,34 @@ export const TRUST_ITEMS = [
 export const GITHUB_URL = 'https://github.com/superdaobo/mini-hbut';
 export const SITE_URL = 'https://hbut.6661111.xyz';
 
+/** App Store / TestFlight 集中配置（#466）— 避免 Hero/Download 散落魔法字符串 */
+export const APP_STORE_APP_ID = '6787857278';
+export const APP_STORE_LINKS = {
+  /** iOS 系统优先打开的 App Store 深链 */
+  itmsApps: `itms-apps://apps.apple.com/app/id${APP_STORE_APP_ID}`,
+  /** 桌面/失败回退的网页商店页 */
+  https: `https://apps.apple.com/app/id${APP_STORE_APP_ID}`,
+  /** 次要：TestFlight（非首页主 CTA） */
+  testFlight: `itms-beta://beta.itunes.apple.com/v1/app/${APP_STORE_APP_ID}`,
+} as const;
+
+/** 下载区锚点：Android / iOS 卡片定位 */
+export const DOWNLOAD_ANDROID_ANCHOR = 'download-android';
+export const DOWNLOAD_IOS_ANCHOR = 'download-ios';
+
+/**
+ * 选择应打开的 App Store URL：iOS/iPadOS 优先 itms-apps，其它环境用 https 网页。
+ * 纯函数，便于单测；不读 secret。
+ */
+export function resolveAppStoreOpenUrl(
+  userAgent: string | null | undefined = typeof navigator !== 'undefined' ? navigator.userAgent : '',
+): string {
+  const ua = String(userAgent || '');
+  const isAppleMobile =
+    /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && /Mobile/i.test(ua));
+  return isAppleMobile ? APP_STORE_LINKS.itmsApps : APP_STORE_LINKS.https;
+}
+
 export type ShowcaseStage = {
   tag: string;
   title: string;
@@ -91,8 +119,8 @@ export const SHOWCASE_STAGES: ShowcaseStage[] = [
   },
   {
     tag: '下载',
-    title: '全平台，免费下载',
-    desc: 'Windows / macOS / Linux / Android / iOS，开源免费，即刻上手。',
+    title: 'App Store 与全平台下载',
+    desc: 'iOS 使用 App Store 正式安装；Windows / macOS / Linux / Android 亦可一键获取。',
     side: 'center',
     screen: 'all-features',
   },
