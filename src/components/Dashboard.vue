@@ -22,6 +22,7 @@ import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../util
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
+import { canOpenModule } from '../utils/moduleAccess'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -570,7 +571,19 @@ const navigateTo = (moduleId) => {
     return
   }
   const module = modules.value.find((m) => m.id === moduleId)
-  if (module?.requiresLogin && !props.isLoggedIn) { emit('require-login'); return }
+  // 唯一准入：available:false / 硬禁用（sports_venue）/ 需登录 —— 不得只改数据不拦 navigate
+  const access = canOpenModule(
+    module || { id: moduleId },
+    { isLoggedIn: props.isLoggedIn }
+  )
+  if (!access.ok) {
+    if (access.needLogin) {
+      emit('require-login')
+      return
+    }
+    showToast(access.reason || '暂不可用')
+    return
+  }
   emit('navigate', moduleId)
 }
 

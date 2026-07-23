@@ -431,54 +431,46 @@ pub fn build_one_code_pay_open_url(app_code: &str, tid: &str) -> String {
     }
 }
 
-/// 尝试将智能水电绑定房改为目标 roomverify（选房即绑定）。
-/// 官方 H5 常见 cmd：setbindroom / bindroom / h5_setbindroom 等，逐个试到成功。
-async fn try_swae_bind_room(
+/// 仅尝试 **fixture 已证明** 的 setbindroom 写接口；成功返回响应 JSON。
+/// 其它 cmd 名不再盲目扩展（避免无证据猜测）。
+async fn try_swae_bind_room_with_response(
     client: &crate::http_client::HbutClient,
     final_url: &str,
     sid: &str,
     roomverify: &str,
-) -> bool {
+) -> Option<Value> {
     let room = roomverify.trim();
     if room.is_empty() {
-        return false;
+        return None;
     }
-    let methods = [
-        "setbindroom",
-        "bindroom",
-        "h5_setbindroom",
-        "h5_bindroom",
-        "savebindroom",
-        "updatebindroom",
-        "setroom",
-        "h5_setroom",
-    ];
-    for method in methods {
-        let ts = Local::now().format("%Y%m%d%H%M%S%3f").to_string();
-        let param = json!({
-            "cmd": method,
-            "roomverify": room,
-            "account": sid,
-            "outid": sid,
-            "timestamp": ts
-        });
-        match swae_post(client, final_url, method, param).await {
-            Ok(resp) => {
-                let ok = swae_write_response_ok(&resp);
-                crate::runtime_log::log_info(
-                    "ElectricityBind",
-                    format!("cmd={method} room={room} ok={ok}"),
-                );
-                if ok {
-                    return true;
-                }
-            }
-            Err(e) => {
-                crate::runtime_log::log_debug("ElectricityBind", format!("cmd={method} err={e}"));
+    // 录制证据：tests/fixtures/swae_setbindroom_ok.json（ret=0 / msg 成功）
+    let method = "setbindroom";
+    let ts = Local::now().format("%Y%m%d%H%M%S%3f").to_string();
+    let param = json!({
+        "cmd": method,
+        "roomverify": room,
+        "account": sid,
+        "outid": sid,
+        "timestamp": ts
+    });
+    match swae_post(client, final_url, method, param).await {
+        Ok(resp) => {
+            let ok = swae_write_response_ok(&resp);
+            crate::runtime_log::log_info(
+                "ElectricityBind",
+                format!("cmd={method} room={room} ok={ok}"),
+            );
+            if ok {
+                Some(resp)
+            } else {
+                None
             }
         }
+        Err(e) => {
+            crate::runtime_log::log_debug("ElectricityBind", format!("cmd={method} err={e}"));
+            None
+        }
     }
-    false
 }
 
 /// 宿舍 room value 是否像 SWAE roomverify：`101-1--174-1101`
@@ -520,7 +512,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn build_selected_roomverify_candidates_prefers_synth() {
         let c = build_selected_roomverify_candidates("101-7--254-102", "101-7--254-101", "102房间");
         assert_eq!(c.first().map(|s| s.as_str()), Some("101-7--254-102"));
@@ -542,6 +533,45 @@ mod tests {
         let net = build_one_code_pay_open_url("broadband", tid);
         assert!(net.contains("networkFees"));
         assert!(net.contains("tid=TEST_TID_ABC"));
+    }
+
+    #[test]
+    fn apply_room_selection_uses_recorded_setbindroom_ok_fixture() {
+        // 与 src-tauri/tests/fixtures/swae_setbindroom_ok.json 同结构
+        let fixture = json!({
+            "ret": 0,
+            "retcode": 0,
+            "msg": "绑定成功",
+            "body": {
+                "ret": 0,
+                "msg": "成功",
+                "roomverify": "101-7--254-102",
+                "roomNumber": "102房间"
+            }
+        });
+        assert!(swae_write_response_ok(&fixture));
+        let plan = apply_room_selection(
+            "101-7--254-102",
+            "102房间",
+            "101-7--254-101",
+            Some(&fixture),
+        );
+        assert!(plan.bound_updated);
+        assert_eq!(plan.effective_bound, "101-7--254-102");
+        assert_eq!(
+            plan.query_rooms.first().map(|s| s.as_str()),
+            Some("101-7--254-102")
+        );
+        // 失败绑定：仍查所选候选，不把 query 偷偷换回 101
+        let plan_fail = apply_room_selection(
+            "101-7--254-102",
+            "102房间",
+            "101-7--254-101",
+            Some(&json!({"ret": 1, "msg": "fail"})),
+        );
+        assert!(!plan_fail.bound_updated);
+        assert_eq!(plan_fail.effective_bound, "101-7--254-101");
+        assert!(plan_fail.query_rooms.iter().any(|r| r.ends_with("102")));
     }
 }
 
@@ -686,37 +716,73 @@ async fn fetch_smart_electricity_stats(
         return Err("请先在上方选择房间，或到一码通绑定宿舍后再查趋势".into());
     }
 
-    // 5) 选房即绑定：先尝试把官方绑定改为所选房间，再拉趋势
+    // 5) 选房即绑定：仅 setbindroom（fixture 已证明），再经 apply_room_selection 统一查询候选
+    let prior_bound = bound_room.clone();
+    let mut bound_updated = false;
     if !pref.is_empty() {
+        let mut bind_resp: Option<Value> = None;
         for (room, _, _) in candidates.iter().take(3) {
-            if try_swae_bind_room(client, &final_url, &sid, room).await {
-                // 刷新绑定信息
-                if let Ok(b) = swae_post(
-                    client,
-                    &final_url,
-                    "getbindroom",
-                    json!({
-                        "cmd": "getbindroom",
-                        "account": sid,
-                        "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
-                    }),
-                )
-                .await
-                {
-                    if let Some(body) = parse_swae_body(&b) {
-                        if let Some(rv) = body.get("roomverify").and_then(|v| v.as_str()) {
-                            bound_room = rv.trim().to_string();
-                        }
-                        if let Some(rn) = body.get("roomfullname").and_then(|v| v.as_str()) {
-                            bound_name = rn.to_string();
-                        }
+            if let Some(resp) =
+                try_swae_bind_room_with_response(client, &final_url, &sid, room).await
+            {
+                bind_resp = Some(resp);
+                break;
+            }
+        }
+        let plan = apply_room_selection(pref, label, &prior_bound, bind_resp.as_ref());
+        bound_updated = plan.bound_updated;
+        if plan.bound_updated {
+            bound_room = plan.effective_bound.clone();
+            // 刷新官方绑定展示名
+            if let Ok(b) = swae_post(
+                client,
+                &final_url,
+                "getbindroom",
+                json!({
+                    "cmd": "getbindroom",
+                    "account": sid,
+                    "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
+                }),
+            )
+            .await
+            {
+                if let Some(body) = parse_swae_body(&b) {
+                    if let Some(rv) = body.get("roomverify").and_then(|v| v.as_str()) {
+                        bound_room = rv.trim().to_string();
+                    }
+                    if let Some(rn) = body.get("roomfullname").and_then(|v| v.as_str()) {
+                        bound_name = rn.to_string();
                     }
                 }
-                crate::runtime_log::log_info(
-                    "ElectricityBind",
-                    format!("绑定已更新 bound={bound_room} name={bound_name}"),
+            }
+            // 绑定成功后，把 effective_bound 提到候选最前，保证趋势走绑定房
+            if !bound_room.is_empty() && !candidates.iter().any(|(r, _, _)| r == &bound_room) {
+                candidates.insert(
+                    0,
+                    (bound_room.clone(), "selected", label.to_string()),
                 );
-                break;
+            } else if !bound_room.is_empty() {
+                if let Some(pos) = candidates.iter().position(|(r, _, _)| r == &bound_room) {
+                    let item = candidates.remove(pos);
+                    candidates.insert(0, item);
+                }
+            }
+            crate::runtime_log::log_info(
+                "ElectricityBind",
+                format!("绑定已更新 bound={bound_room} name={bound_name}"),
+            );
+        } else {
+            crate::runtime_log::log_warn(
+                "ElectricityBind",
+                format!(
+                    "setbindroom 未成功，仍按所选候选查趋势 prior_bound={prior_bound} selected={pref}"
+                ),
+            );
+        }
+        // 查询房间列表以 plan.query_rooms 为准补全（不覆盖树解析得到的额外候选）
+        for rv in plan.query_rooms {
+            if !candidates.iter().any(|(r, _, _)| r == &rv) {
+                candidates.push((rv, "selected", label.to_string()));
             }
         }
     }
@@ -740,8 +806,10 @@ async fn fetch_smart_electricity_stats(
             Ok(mut v) => {
                 // 标注是否已与绑定房对齐
                 if let Some(obj) = v.as_object_mut() {
-                    if !bound_room.is_empty() && bound_room == room {
+                    if bound_updated && !bound_room.is_empty() && bound_room == room {
                         obj.insert("hint".into(), json!("已切换绑定房间，并显示该房用电趋势"));
+                        obj.insert("bound_updated".into(), json!(true));
+                    } else if bound_updated {
                         obj.insert("bound_updated".into(), json!(true));
                     }
                 }
@@ -817,6 +885,42 @@ pub fn build_selected_roomverify_candidates(
         }
     }
     out
+}
+
+/// 选房 + 绑定响应 → 查询候选 / 是否绑定成功（纯函数；生产 try_swae_bind 后必调）
+///
+/// `bind_response`：SWAE setbindroom 等原始 JSON（fixtures/swae_setbindroom_ok.json）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomSelectionPlan {
+    pub query_rooms: Vec<String>,
+    pub bound_updated: bool,
+    pub effective_bound: String,
+}
+
+pub fn apply_room_selection(
+    selected_roomverify: &str,
+    selected_label: &str,
+    prior_bound_room: &str,
+    bind_response: Option<&Value>,
+) -> RoomSelectionPlan {
+    let candidates =
+        build_selected_roomverify_candidates(selected_roomverify, prior_bound_room, selected_label);
+    let bound_updated = bind_response.map(swae_write_response_ok).unwrap_or(false);
+    let selected = selected_roomverify.trim();
+    let effective_bound = if bound_updated {
+        if !selected.is_empty() {
+            selected.to_string()
+        } else {
+            candidates.first().cloned().unwrap_or_default()
+        }
+    } else {
+        prior_bound_room.trim().to_string()
+    };
+    RoomSelectionPlan {
+        query_rooms: candidates,
+        bound_updated,
+        effective_bound,
+    }
 }
 
 /// 绑定房 roomverify 末段换成目标房号

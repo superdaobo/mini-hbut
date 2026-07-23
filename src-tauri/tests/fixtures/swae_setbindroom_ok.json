@@ -1,0 +1,11 @@
+{
+  "ret": 0,
+  "retcode": 0,
+  "msg": "绑定成功",
+  "body": {
+    "ret": 0,
+    "msg": "成功",
+    "roomverify": "101-7--254-102",
+    "roomfullname": "102房间"
+  }
+}

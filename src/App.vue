@@ -85,6 +85,7 @@ import {
   normalizeViewName
 } from './navigation/app_navigation.ts'
 import { allowsInAppGithubUpdater, isViewAllowed } from './config/app_store_policy'
+import { canOpenModule } from './utils/moduleAccess'
 import {
   resolvePolicySafeSnapshotView,
   resolvePolicySafeView
@@ -1530,6 +1531,18 @@ const goToView = (view, { push = true, restoreScroll = false } = {}) => {
   // App Store 合规：统一拒绝已禁用 view（宫格/深链/通知/历史恢复共用）
   if (!isViewAllowed(normalized)) {
     showToast('当前版本不可用该功能')
+    if (normalized !== 'home' && isViewAllowed('home')) {
+      goToViewInternal('home', { push: false, restoreScroll: true })
+    }
+    return false
+  }
+  // 首页模块硬禁用 / available 策略（与 Dashboard.navigateTo 同一 canOpenModule）
+  const access = canOpenModule(
+    { id: normalized, requiresLogin: false },
+    { isLoggedIn: isLoggedIn.value }
+  )
+  if (!access.ok && access.reason && !access.needLogin) {
+    showToast(access.reason)
     if (normalized !== 'home' && isViewAllowed('home')) {
       goToViewInternal('home', { push: false, restoreScroll: true })
     }
