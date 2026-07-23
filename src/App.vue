@@ -23,7 +23,8 @@ import {
   fetchRemoteConfig,
   applyOcrRuntimeConfig,
   getStoredOcrConfig,
-  isRemoteConfigEnabled
+  isRemoteConfigEnabled,
+  REMOTE_CONFIG_UPDATED_EVENT
 } from './utils/remote_config.js'
 import { resetCloudSyncCooldownForSession, runAutoCloudSyncAfterLogin } from './utils/cloud_sync.js'
 import {
@@ -2586,6 +2587,13 @@ const handleRemoteConfigModeChanged = () => {
     })
 }
 
+/** 后台远端配置相对快照有变动时，重新应用到 UI/OCR 等 */
+const handleRemoteConfigUpdated = () => {
+  applyRemoteConfig().catch((e) => {
+    console.warn('[Config] 远端配置变更后重新应用失败:', e)
+  })
+}
+
 const bridgePost = async (path, payload = {}) => {
   const res = await fetch(`${BRIDGE_BASE}${path}`, {
     method: 'POST',
@@ -3099,6 +3107,7 @@ onMounted(async () => {
   window.addEventListener('orientationchange', handleViewportResize)
   window.addEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.addEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
+  window.addEventListener(REMOTE_CONFIG_UPDATED_EVENT, handleRemoteConfigUpdated)
   removeHomeLayoutDiagnosticsErrorCapture = installHomeLayoutDiagnosticsErrorCapture()
   scheduleViewportUpdate()
   installWidgetDeeplinkListeners()
@@ -3367,6 +3376,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('orientationchange', handleViewportResize)
   window.removeEventListener(JWXT_MAINTENANCE_EVENT, handleJwxtMaintenanceEvent)
   window.removeEventListener(REMOTE_CONFIG_MODE_EVENT, handleRemoteConfigModeChanged)
+  window.removeEventListener(REMOTE_CONFIG_UPDATED_EVENT, handleRemoteConfigUpdated)
   if (viewportResizeRaf) {
     window.cancelAnimationFrame(viewportResizeRaf)
     viewportResizeRaf = 0
