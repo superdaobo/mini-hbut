@@ -53,7 +53,11 @@ pub fn apply_full_score_answers(questions: &[Value], comment_template: &str) -> 
                     let max = obj
                         .get("max_score")
                         .and_then(|v| v.as_f64())
-                        .or_else(|| obj.get("max_score").and_then(|v| v.as_i64()).map(|n| n as f64))
+                        .or_else(|| {
+                            obj.get("max_score")
+                                .and_then(|v| v.as_i64())
+                                .map(|n| n as f64)
+                        })
                         .unwrap_or(10.0);
                     if let Some(map) = obj.as_object_mut() {
                         map.insert("value".into(), json!(max));
@@ -87,8 +91,7 @@ pub async fn list_evals(client: &HbutClient) -> TeachingEvalListResponse {
         protocol_ready: false,
         items: vec![],
         message: Some(
-            "评教协议待对接：请在开放评教时段使用官方入口；后续版本将补齐列表与提交。"
-                .to_string(),
+            "评教协议待对接：请在开放评教时段使用官方入口；后续版本将补齐列表与提交。".to_string(),
         ),
     }
 }
@@ -127,9 +130,7 @@ pub async fn submit_eval(
     let _ = (client, eval_id);
     TeachingEvalSubmitResponse {
         success: false,
-        message: Some(
-            "评教提交协议尚未对接，请暂用教管一体化官方「学生评教」。".to_string(),
-        ),
+        message: Some("评教提交协议尚未对接，请暂用教管一体化官方「学生评教」。".to_string()),
     }
 }
 
