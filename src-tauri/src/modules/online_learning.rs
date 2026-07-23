@@ -2468,27 +2468,10 @@ async fn fetch_chaoxing_outline_remote(
     }
 
     if leaves.is_empty() {
-        // 仍失败：至少返回占位章节，避免前端「全 0」且不可点
-        return Ok(json!({
-            "success": true,
-            "sections": [{
-                "id": "empty",
-                "title": "全部章节",
-                "tasks": [],
-                "children": [],
-                "empty_hint": true,
-                "message": "未解析到可展开的小节（可能是章节页结构变更或会话不完整）"
-            }],
-            "nodes": [],
-            "total_count": 0,
-            "completed_count": 0,
-            "pending_count": 0,
-            "course_id": course_id,
-            "clazz_id": clazz_id,
-            "cpi": cpi,
-            "course_url": target,
-            "parse_warning": "outline_empty"
-        }));
+        // 不可返回 success+空任务（前端会显示全 0 空章）；交给调用方 toast/重登
+        return Err(err_box(
+            "未解析到可展开的小节。请尝试刷新章节，或重新登录学习通后再打开该课程",
+        ));
     }
 
     // section 标题兜底（部分课 firstLayer class 变体）
@@ -4039,6 +4022,99 @@ pub async fn chaoxing_fetch_course_score(
     }))
 }
 
+/// 构造 ananas status 候选 URL（纯函数，单测覆盖）
+pub fn chaoxing_video_status_candidate_urls(
+    object_id: &str,
+    fid: &str,
+    ts_ms: &str,
+) -> Vec<String> {
+    let oid = object_id.trim();
+    let fid_s = if fid.trim().is_empty() {
+        "0"
+    } else {
+        fid.trim()
+    };
+    let ts = if ts_ms.trim().is_empty() {
+        "0"
+    } else {
+        ts_ms.trim()
+    };
+    vec![
+        format!("https://mooc1.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!(
+            "https://mooc1-api.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"
+        ),
+        format!("https://mooc1.chaoxing.com/ananas/status/{oid}?flag=normal&_dc={ts}"),
+        format!("https://s1.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://s2.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://s3.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://cloud1-0.cldisk.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://noteyd.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+    ]
+}
+
+/// 从章节页 HTML 提取 knowledge 叶子（纯函数）
+/// 返回 (pos, knowledge_id, title, course_id, clazz_id, chapter_cur_id)
+pub fn extract_chaoxing_catalog_leaves(
+    html: &str,
+) -> Vec<(usize, String, String, String, String, String)> {
+    let re_leaf = regex::Regex::new(
+        r#"id="cur(\d+)"[\s\S]{0,2500}?getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
+    )
+    .expect("regex leaf");
+    let re_leaf_title = regex::Regex::new(r#"title="\s*([^"]*?)\s*""#).expect("regex leaf title");
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for cap in re_leaf.captures_iter(html) {
+        let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
+        let cur_id = cap[1].to_string();
+        let course_id = cap[2].to_string();
+        let clazz_id = cap[3].to_string();
+        let knowledge_id = cap[4].to_string();
+        if !seen.insert(knowledge_id.clone()) {
+            continue;
+        }
+        let end = html[pos + 1..]
+            .find(r#"id="cur"#)
+            .map(|p| pos + 1 + p)
+            .unwrap_or((pos + 1200).min(html.len()));
+        let block = &html[pos..end];
+        let title = re_leaf_title
+            .captures(block)
+            .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| format!("小节 {knowledge_id}"));
+        out.push((pos, knowledge_id, title, course_id, clazz_id, cur_id));
+    }
+    if out.is_empty() {
+        let re_ajax =
+            regex::Regex::new(r#"getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#).expect("ajax");
+        for cap in re_ajax.captures_iter(html) {
+            let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
+            let knowledge_id = cap[3].to_string();
+            if !seen.insert(knowledge_id.clone()) {
+                continue;
+            }
+            let window_start = pos.saturating_sub(400);
+            let window = &html[window_start..pos.min(html.len())];
+            let title = re_leaf_title
+                .captures(window)
+                .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| format!("小节 {knowledge_id}"));
+            out.push((
+                pos,
+                knowledge_id,
+                title,
+                cap[1].to_string(),
+                cap[2].to_string(),
+                String::new(),
+            ));
+        }
+    }
+    out
+}
+
 /// 获取视频文件状态（dtoken、duration、播放直链 http/https）
 pub async fn chaoxing_get_video_status(
     client: &HbutClient,
@@ -4069,18 +4145,7 @@ pub async fn chaoxing_get_video_status(
         .send()
         .await;
 
-    let candidates = [
-        format!("https://mooc1.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-        format!(
-            "https://mooc1-api.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"
-        ),
-        format!("https://mooc1.chaoxing.com/ananas/status/{oid}?flag=normal&_dc={ts}"),
-        format!("https://s1.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-        format!("https://s2.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-        format!("https://s3.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-        format!("https://cloud1-0.cldisk.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-        format!("https://noteyd.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
-    ];
+    let candidates = chaoxing_video_status_candidate_urls(oid, fid_s, &ts);
     let mut last_err = String::new();
     for url in candidates {
         let resp = match client
@@ -4388,4 +4453,42 @@ pub async fn yuketang_send_heartbeat(
         "status_code": status,
         "data": data,
     }))
+}
+
+#[cfg(test)]
+mod catalog_and_video_tests {
+    use super::*;
+
+    #[test]
+    fn extract_leaves_from_realistic_html() {
+        let html = r#"
+        <div class="posCatalog_select firstLayer" id="1" title="第一章 绪论"></div>
+        <div id="cur1001" class="posCatalog_name" title=" 1.1 电路模型" onclick="getTeacherAjax('2288','3399','100239488')"></div>
+        <div id="cur1002" title="1.2 电源" onclick="getTeacherAjax('2288','3399','100239489')"></div>
+        "#;
+        let leaves = extract_chaoxing_catalog_leaves(html);
+        assert!(leaves.len() >= 2, "expected >=2 leaves, got {:?}", leaves);
+        assert!(leaves
+            .iter()
+            .any(|(_, kid, title, _, _, _)| kid == "100239488" && title.contains("电路")));
+        assert!(leaves.iter().any(|(_, kid, _, _, _, _)| kid == "100239489"));
+    }
+
+    #[test]
+    fn empty_html_has_no_leaves() {
+        assert!(extract_chaoxing_catalog_leaves("<html></html>").is_empty());
+    }
+
+    #[test]
+    fn video_status_urls_cover_mooc_and_ananas() {
+        let urls = chaoxing_video_status_candidate_urls("obj123", "16820", "99");
+        assert!(urls.len() >= 5);
+        assert!(urls
+            .iter()
+            .any(|u| u.contains("mooc1.chaoxing.com/ananas/status/obj123")));
+        assert!(urls
+            .iter()
+            .any(|u| u.contains("s1.ananas.chaoxing.com/status/obj123")));
+        assert!(urls.iter().all(|u| u.contains("_dc=99")));
+    }
 }

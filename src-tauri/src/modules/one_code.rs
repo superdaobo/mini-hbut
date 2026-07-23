@@ -401,6 +401,55 @@ async fn utilities_room_snapshot(
     }))
 }
 
+/// 判断 SWAE 绑定/写接口响应是否表示成功（纯函数，单测覆盖）
+pub fn swae_write_response_ok(resp: &Value) -> bool {
+    let body = parse_swae_body(resp).unwrap_or_else(|| resp.clone());
+    let ret = body
+        .get("ret")
+        .or_else(|| body.get("retcode"))
+        .or_else(|| body.get("code"))
+        .or_else(|| resp.get("ret"))
+        .cloned()
+        .unwrap_or(json!(null));
+    let msg = body
+        .get("msg")
+        .or_else(|| body.get("message"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    matches!(
+        ret.as_i64().or_else(|| ret.as_u64().map(|u| u as i64)),
+        Some(0) | Some(200)
+    ) || ret.as_str() == Some("0")
+        || ret.as_str() == Some("success")
+        || msg.contains("成功")
+        || msg.to_ascii_lowercase().contains("success")
+}
+
+/// 官方一码通 H5 打开 URL（与 one_code_app_open_prepare 一致，可单测）
+pub fn build_one_code_pay_open_url(app_code: &str, tid: &str) -> String {
+    let tid_q = if tid.trim().is_empty() {
+        String::new()
+    } else {
+        urlencoding_lite(tid.trim())
+    };
+    let spa = |hash_path: &str| -> String {
+        if tid_q.is_empty() {
+            format!("{CODE_BASE}/#{hash_path}")
+        } else {
+            format!("{CODE_BASE}/?tid={tid_q}&orgId=2#{hash_path}")
+        }
+    };
+    match app_code {
+        "electric" => spa(
+            "/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric",
+        ),
+        "broadband" => spa(
+            "/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband",
+        ),
+        _ => spa("/pages_home/home"),
+    }
+}
+
 /// 尝试将智能水电绑定房改为目标 roomverify（选房即绑定）。
 /// 官方 H5 常见 cmd：setbindroom / bindroom / h5_setbindroom 等，逐个试到成功。
 async fn try_swae_bind_room(
@@ -434,29 +483,10 @@ async fn try_swae_bind_room(
         });
         match swae_post(client, final_url, method, param).await {
             Ok(resp) => {
-                let body = parse_swae_body(&resp).unwrap_or(resp.clone());
-                let ret = body
-                    .get("ret")
-                    .or_else(|| body.get("retcode"))
-                    .or_else(|| body.get("code"))
-                    .or_else(|| resp.get("ret"))
-                    .cloned()
-                    .unwrap_or(json!(null));
-                let msg = body
-                    .get("msg")
-                    .or_else(|| body.get("message"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let ok = matches!(
-                    ret.as_i64().or_else(|| ret.as_u64().map(|u| u as i64)),
-                    Some(0) | Some(200)
-                ) || ret.as_str() == Some("0")
-                    || ret.as_str() == Some("success")
-                    || msg.contains("成功")
-                    || msg.to_ascii_lowercase().contains("success");
+                let ok = swae_write_response_ok(&resp);
                 crate::runtime_log::log_info(
                     "ElectricityBind",
-                    format!("cmd={method} room={room} ret={ret} msg={msg} ok={ok}"),
+                    format!("cmd={method} room={room} ok={ok}"),
                 );
                 if ok {
                     return true;
@@ -498,6 +528,26 @@ mod tests {
     fn extract_room_number_from_label() {
         assert_eq!(extract_room_number("102房间", ""), "102");
         assert_eq!(extract_room_number("东苑7栋1层 1102", ""), "1102");
+    }
+
+    #[test]
+    fn swae_bind_response_ok_on_ret_zero() {
+        let ok = json!({"ret": 0, "msg": "成功"});
+        assert!(swae_write_response_ok(&ok));
+        assert!(swae_write_response_ok(&json!({"retcode": 0})));
+        assert!(!swae_write_response_ok(&json!({"ret": 1, "msg": "fail"})));
+    }
+
+    #[test]
+    fn build_pay_urls_include_tid_and_official_paths() {
+        let tid = "TEST_TID_ABC";
+        let elec = build_one_code_pay_open_url("electric", tid);
+        assert!(elec.contains("tid=TEST_TID_ABC"));
+        assert!(elec.contains("electrictyFees"));
+        assert!(elec.contains("orgId=2"));
+        let net = build_one_code_pay_open_url("broadband", tid);
+        assert!(net.contains("networkFees"));
+        assert!(net.contains("tid=TEST_TID_ABC"));
     }
 }
 
