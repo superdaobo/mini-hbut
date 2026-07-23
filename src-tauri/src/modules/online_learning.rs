@@ -1526,8 +1526,76 @@ async fn fetch_chaoxing_folder_courses(
     propagate_chaoxing_key_cookies(client);
     let mut out = Vec::new();
 
-    // 1) 交互页抽 folder id
+    // 1) 交互页 + API 抽 folder id（多学期依赖课程夹）
     let mut folder_ids: Vec<(String, String)> = vec![("0".into(), "本学期".into())];
+    let mut push_folder = |id: String, name: String| {
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            return;
+        }
+        if folder_ids.iter().any(|(i, _)| i == &id) {
+            return;
+        }
+        let name = sanitize_text(&name);
+        folder_ids.push((
+            id,
+            if name.is_empty() {
+                "历史课程".into()
+            } else {
+                name
+            },
+        ));
+    };
+
+    // API：课程夹列表（比 HTML 正则更稳）
+    for api in [
+        "https://mooc1-api.chaoxing.com/mycourse/getCourseFolders?view=json",
+        "https://mooc1.chaoxing.com/mooc-ans/visit/coursefolders?view=json",
+        "https://mooc1-api.chaoxing.com/gas/folder?view=json",
+    ] {
+        if let Ok(resp) = client
+            .client
+            .get(api)
+            .header("Accept", "application/json, text/plain, */*")
+            .header("Referer", "https://mooc1.chaoxing.com/visit/interaction")
+            .timeout(Duration::from_secs(12))
+            .send()
+            .await
+        {
+            if let Ok(v) = resp.json::<Value>().await {
+                let arr = v
+                    .get("data")
+                    .and_then(|d| d.as_array())
+                    .or_else(|| v.get("channelList").and_then(|d| d.as_array()))
+                    .or_else(|| v.get("folderList").and_then(|d| d.as_array()))
+                    .or_else(|| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                for item in arr {
+                    let id = item
+                        .get("id")
+                        .or_else(|| item.get("folderId"))
+                        .or_else(|| item.get("courseFolderId"))
+                        .or_else(|| item.get("cfid"))
+                        .map(|x| match x {
+                            Value::Number(n) => n.to_string(),
+                            Value::String(s) => s.clone(),
+                            _ => String::new(),
+                        })
+                        .unwrap_or_default();
+                    let name = item
+                        .get("name")
+                        .or_else(|| item.get("folderName"))
+                        .or_else(|| item.get("title"))
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    push_folder(id, name);
+                }
+            }
+        }
+    }
+
     if let Ok(resp) = client
         .client
         .get("https://mooc1.chaoxing.com/mooc-ans/visit/interaction")
@@ -1543,37 +1611,44 @@ async fn fetch_chaoxing_folder_courses(
             r#"courseFolderId[=:\s"']+(\d+)[^>]{0,200}?(?:title|data-name|folderName)[=:\s"']+([^"'<]{1,40})"#,
         )
         .ok();
-        let re_folder2 = regex::Regex::new(r#"(?i)(?:folderid|courseFolderId)["'=\s:]+(\d+)"#).ok();
+        let re_folder2 =
+            regex::Regex::new(r#"(?i)(?:folderid|courseFolderId|cfid)["'=\s:]+(\d+)"#).ok();
+        let re_folder3 = regex::Regex::new(
+            r#"(?i)data-(?:id|folderid|cfid)="(\d+)"[^>]{0,120}?(?:title|data-name)="([^"]{1,40})""#,
+        )
+        .ok();
         if let Some(re) = re_folder {
             for cap in re.captures_iter(&html) {
                 let id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
-                let name = sanitize_text(cap.get(2).map(|m| m.as_str()).unwrap_or("历史"));
-                if !id.is_empty() && id != "0" {
-                    folder_ids.push((
-                        id,
-                        if name.is_empty() {
-                            "历史课程".into()
-                        } else {
-                            name
-                        },
-                    ));
+                let name = cap.get(2).map(|m| m.as_str()).unwrap_or("历史").to_string();
+                if id != "0" {
+                    push_folder(id, name);
                 }
             }
         }
         if let Some(re) = re_folder2 {
             for cap in re.captures_iter(&html) {
                 let id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
-                if !id.is_empty() && !folder_ids.iter().any(|(i, _)| i == &id) {
-                    folder_ids.push((id, "历史课程".into()));
-                }
+                push_folder(id, "历史课程".into());
             }
+        }
+        if let Some(re) = re_folder3 {
+            for cap in re.captures_iter(&html) {
+                let id = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+                let name = cap.get(2).map(|m| m.as_str()).unwrap_or("历史").to_string();
+                push_folder(id, name);
+            }
+        }
+        // 常见：本学期 + 往年夹 1..N 试探（部分账号 HTML 不暴露 id）
+        for probe in 1..=8 {
+            push_folder(probe.to_string(), format!("课程夹 {probe}"));
         }
     }
 
-    // 去重 folder，最多扫 12 个
+    // 去重 folder，最多扫 16 个
     folder_ids.sort_by(|a, b| a.0.cmp(&b.0));
     folder_ids.dedup_by(|a, b| a.0 == b.0);
-    folder_ids.truncate(12);
+    folder_ids.truncate(16);
 
     for (folder_id, folder_name) in folder_ids {
         let body = format!("courseType=1&courseFolderId={folder_id}&superstarClass=0");
@@ -2241,16 +2316,18 @@ async fn fetch_chaoxing_outline_remote(
     }
 
     // 官方目录：一级 firstLayer（章）+ 二级 id="cur{knowledgeId}" + getTeacherAjax
-    // 实测 title 在 posCatalog_name 上，与 onclick 同标签：
-    //   id="cur100239488" ... title=" 电路模型..." onclick="getTeacherAjax('cid','clazz','kid')"
+    // 属性顺序因课而异，放宽正则（title/onclick 可交换、可跨属性）
     let re_leaf = regex::Regex::new(
-        r#"id="cur(\d+)"[\s\S]{0,1500}?title="\s*([^"]*?)"\s+onclick="getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
+        r#"id="cur(\d+)"[\s\S]{0,2500}?getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
     )
     .expect("regex leaf");
+    let re_leaf_title = regex::Regex::new(r#"title="\s*([^"]*?)\s*""#).expect("regex leaf title");
     let re_section = regex::Regex::new(
-        r#"posCatalog_select firstLayer"[^>]*id="(\d+)"[\s\S]{0,400}?title="([^"]+)"#,
+        r#"(?i)(?:posCatalog_select\s+firstLayer|firstLayer)[^>]*id="(\d+)"[\s\S]{0,500}?title="([^"]+)""#,
     )
     .expect("regex section");
+    let re_section_alt =
+        regex::Regex::new(r#"(?i)class="[^"]*catalog_name[^"]*"[^>]*>([^<]{1,80})<"#).ok();
 
     // 收集一级章标题及其在 HTML 中的位置
     let mut section_marks: Vec<(usize, String, String)> = Vec::new();
@@ -2268,31 +2345,31 @@ async fn fetch_chaoxing_outline_remote(
     for cap in re_leaf.captures_iter(&html) {
         let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
         let cur_id = cap[1].to_string();
-        let title = cap[2].trim().to_string();
-        let cap_course_id = cap[3].to_string();
-        let cap_clazz_id = cap[4].to_string();
-        let knowledge_id = cap[5].to_string();
-        if title.is_empty() || !seen.insert(knowledge_id.clone()) {
-            continue;
-        }
+        let cap_course_id = cap[2].to_string();
+        let cap_clazz_id = cap[3].to_string();
+        let knowledge_id = cap[4].to_string();
         let start = pos;
         let end = html[start + 1..]
             .find(r#"id="cur"#)
             .map(|p| start + 1 + p)
-            .unwrap_or((start + 800).min(html.len()));
+            .unwrap_or((start + 1200).min(html.len()));
         let block = &html[start..end];
+        let title = re_leaf_title
+            .captures(block)
+            .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+            .filter(|t| !t.is_empty())
+            .unwrap_or_else(|| format!("小节 {knowledge_id}"));
+        if !seen.insert(knowledge_id.clone()) {
+            continue;
+        }
         let completed = block.contains("icon_Completed") || block.contains("icon_yiwanc");
         let has_unfinished = block.contains("jobUnfinishCount");
-        let label = {
-            // 优先 em.posCatalog_sbar 序号，已在 title 里
-            title.clone()
-        };
         leaves.push((
             pos,
             json!({
                 "id": knowledge_id.clone(),
-                "title": label,
-                "name": label,
+                "title": title.clone(),
+                "name": title,
                 "course_id": cap_course_id,
                 "clazz_id": cap_clazz_id,
                 "cpi": cpi,
@@ -2314,26 +2391,31 @@ async fn fetch_chaoxing_outline_remote(
         leaves.len()
     );
 
-    // 兜底：扁平匹配 getTeacherAjax（不依赖 id=cur 顺序）
+    // 兜底：扁平匹配 getTeacherAjax（不依赖 id=cur 顺序 / title 位置）
     if leaves.is_empty() {
-        let re_ajax = regex::Regex::new(
-            r#"title="\s*([^"]*?)"\s+onclick="getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
-        )
-        .expect("regex ajax");
+        let re_ajax =
+            regex::Regex::new(r#"getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#).expect("regex ajax");
         for cap in re_ajax.captures_iter(&html) {
-            let title = cap[1].trim().to_string();
-            let knowledge_id = cap[4].to_string();
-            if title.is_empty() || !seen.insert(knowledge_id.clone()) {
+            let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
+            let knowledge_id = cap[3].to_string();
+            if !seen.insert(knowledge_id.clone()) {
                 continue;
             }
+            let window_start = pos.saturating_sub(400);
+            let window = &html[window_start..pos.min(html.len())];
+            let title = re_leaf_title
+                .captures(window)
+                .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| format!("小节 {knowledge_id}"));
             leaves.push((
-                cap.get(0).map(|m| m.start()).unwrap_or(0),
+                pos,
                 json!({
                     "id": knowledge_id.clone(),
                     "title": title.clone(),
                     "name": title,
-                    "course_id": cap[2].to_string(),
-                    "clazz_id": cap[3].to_string(),
+                    "course_id": cap[1].to_string(),
+                    "clazz_id": cap[2].to_string(),
                     "cpi": cpi,
                     "chapter_id": knowledge_id.clone(),
                     "knowledge_id": knowledge_id,
@@ -2348,8 +2430,82 @@ async fn fetch_chaoxing_outline_remote(
         println!("[调试] 章节解析: ajax 兜底 {} 个", leaves.len());
     }
 
+    // 再兜底：data-id / chapterId 属性
     if leaves.is_empty() {
-        return Err(err_box("未解析到学习通章节结构"));
+        let re_data = regex::Regex::new(
+            r#"(?i)(?:data-id|data-chapterid|chapterid|knowledgeid)=["']?(\d{5,})["']?"#,
+        )
+        .ok();
+        if let Some(re) = re_data {
+            for (i, cap) in re.captures_iter(&html).enumerate() {
+                if i > 200 {
+                    break;
+                }
+                let knowledge_id = cap[1].to_string();
+                if !seen.insert(knowledge_id.clone()) {
+                    continue;
+                }
+                leaves.push((
+                    cap.get(0).map(|m| m.start()).unwrap_or(0),
+                    json!({
+                        "id": knowledge_id.clone(),
+                        "title": format!("小节 {knowledge_id}"),
+                        "name": format!("小节 {knowledge_id}"),
+                        "course_id": course_id,
+                        "clazz_id": clazz_id,
+                        "cpi": cpi,
+                        "chapter_id": knowledge_id.clone(),
+                        "knowledge_id": knowledge_id,
+                        "completed": false,
+                        "task_type": "knowledge",
+                        "type": "knowledge",
+                        "children": [],
+                        "tasks": []
+                    }),
+                ));
+            }
+        }
+    }
+
+    if leaves.is_empty() {
+        // 仍失败：至少返回占位章节，避免前端「全 0」且不可点
+        return Ok(json!({
+            "success": true,
+            "sections": [{
+                "id": "empty",
+                "title": "全部章节",
+                "tasks": [],
+                "children": [],
+                "empty_hint": true,
+                "message": "未解析到可展开的小节（可能是章节页结构变更或会话不完整）"
+            }],
+            "nodes": [],
+            "total_count": 0,
+            "completed_count": 0,
+            "pending_count": 0,
+            "course_id": course_id,
+            "clazz_id": clazz_id,
+            "cpi": cpi,
+            "course_url": target,
+            "parse_warning": "outline_empty"
+        }));
+    }
+
+    // section 标题兜底（部分课 firstLayer class 变体）
+    if section_marks.is_empty() {
+        if let Some(re) = re_section_alt.as_ref() {
+            for (i, cap) in re.captures_iter(&html).enumerate() {
+                let title = cap[1].trim().to_string();
+                if title.is_empty() {
+                    continue;
+                }
+                section_marks.push((
+                    cap.get(0).map(|m| m.start()).unwrap_or(0),
+                    format!("sec{i}"),
+                    title,
+                ));
+            }
+        }
     }
 
     // 组装 sections：每个一级章挂下属 knowledge 任务
@@ -2403,6 +2559,23 @@ async fn fetch_chaoxing_outline_remote(
         }));
     }
 
+    // 若按章切分后全是空章（位置对齐失败），退回「全部章节」挂载全部叶子
+    let any_tasks = sections.iter().any(|s| {
+        s.get("tasks")
+            .and_then(|t| t.as_array())
+            .map(|a| !a.is_empty())
+            .unwrap_or(false)
+    });
+    if !any_tasks && !leaves.is_empty() {
+        let tasks: Vec<Value> = leaves.iter().map(|(_, v)| v.clone()).collect();
+        sections = vec![json!({
+            "id": "all",
+            "title": "全部章节",
+            "tasks": tasks,
+            "children": []
+        })];
+    }
+
     // 章前游离节点
     let first_pos = section_marks[0].0;
     let orphan: Vec<Value> = leaves
@@ -2410,7 +2583,7 @@ async fn fetch_chaoxing_outline_remote(
         .filter(|(p, _)| *p < first_pos)
         .map(|(_, v)| v.clone())
         .collect();
-    if !orphan.is_empty() {
+    if !orphan.is_empty() && any_tasks {
         sections.insert(
             0,
             json!({
@@ -3886,6 +4059,16 @@ pub async fn chaoxing_get_video_status(
     };
     let ts = chrono::Utc::now().timestamp_millis().to_string();
     // 依次尝试不同域名 / 参数，提高成功率
+    // 预热学习通 cookie 到 ananas/mooc 域
+    propagate_chaoxing_key_cookies(client);
+    let _ = client
+        .client
+        .get("https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2026-0327-1642")
+        .header("Referer", "https://mooc1.chaoxing.com/")
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await;
+
     let candidates = [
         format!("https://mooc1.chaoxing.com/ananas/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
         format!(
@@ -3894,6 +4077,8 @@ pub async fn chaoxing_get_video_status(
         format!("https://mooc1.chaoxing.com/ananas/status/{oid}?flag=normal&_dc={ts}"),
         format!("https://s1.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
         format!("https://s2.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://s3.ananas.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
+        format!("https://cloud1-0.cldisk.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
         format!("https://noteyd.chaoxing.com/status/{oid}?k={fid_s}&flag=normal&_dc={ts}"),
     ];
     let mut last_err = String::new();
@@ -3905,11 +4090,12 @@ pub async fn chaoxing_get_video_status(
                 "Referer",
                 "https://mooc1.chaoxing.com/ananas/modules/video/index.html?v=2026-0327-1642",
             )
+            .header("Origin", "https://mooc1.chaoxing.com")
             .header("Accept", "application/json, text/javascript, */*; q=0.01")
             .header("X-Requested-With", "XMLHttpRequest")
             .header(
                 "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ChaoXingStudy/3.2.0",
             )
             .timeout(Duration::from_secs(15))
             .send()

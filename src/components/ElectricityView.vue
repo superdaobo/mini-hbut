@@ -637,12 +637,23 @@ const loadUsageStats = async () => {
     })
     usageStats.value = res || null
     const pts = res?.points
+    const monthPts = res?.month_points || res?.monthPoints
     if (res?.success === false && !(Array.isArray(pts) && pts.length)) {
       usageError.value = String(res?.message || '暂无用电数据')
     } else if (Array.isArray(pts) && pts.length) {
       requestAnimationFrame(() => {
         chartReady.value = true
       })
+    } else if (Array.isArray(monthPts) && monthPts.length) {
+      // 仅有月曲线时也算成功，避免被快照路径误当成失败
+      requestAnimationFrame(() => {
+        chartReady.value = true
+      })
+    }
+    // 绑定已更新时轻提示（勿当成错误）
+    if (res?.bound_updated || res?.boundUpdated) {
+      const hint = String(res?.hint || '').trim()
+      if (hint) showToast(hint, 'success')
     }
   } catch (e) {
     usageError.value = String(e?.message || e || '加载失败')
