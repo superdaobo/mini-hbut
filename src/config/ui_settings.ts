@@ -30,6 +30,7 @@ export type HomeModuleKey =
   | 'chaoxing_inbox'
   | 'broadband'
   | 'sports_venue'
+  | 'smart_orientation'
   | 'towergo'
   | 'ai'
 export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams' | 'school_inbox'
@@ -95,6 +96,7 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'chaoxing_class',
   'broadband',
   'sports_venue',
+  'smart_orientation',
   'library',
   'campus_map',
   'resource_share',

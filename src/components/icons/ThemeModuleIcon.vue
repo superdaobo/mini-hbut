@@ -32,6 +32,7 @@ const iconMap = {
   teaching_eval: 'rate_review',
   broadband: 'wifi',
   sports_venue: 'sports_soccer',
+  smart_orientation: 'waving_hand',
   towergo: 'electric_bike',
   ai: 'smart_toy',
   more: 'apps',

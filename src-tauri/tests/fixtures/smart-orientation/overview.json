@@ -1,0 +1,48 @@
+{
+  "panels": [
+    {
+      "id": "messages",
+      "title": "迎新消息",
+      "summary": "报到须知与学院通知",
+      "badge": "2",
+      "order": 1,
+      "iconKey": "messages"
+    },
+    {
+      "id": "mentor",
+      "title": "班导师",
+      "summary": "张**（计算机学院）",
+      "badge": null,
+      "order": 2,
+      "iconKey": "mentor"
+    },
+    {
+      "id": "counselor",
+      "title": "辅导员",
+      "summary": "李**（学生工作部）",
+      "badge": null,
+      "order": 3,
+      "iconKey": "counselor"
+    },
+    {
+      "id": "dorm",
+      "title": "宿舍信息",
+      "summary": "西区 · *号楼 · ***室",
+      "badge": null,
+      "order": 4,
+      "iconKey": "dorm"
+    },
+    {
+      "id": "profile",
+      "title": "个人信息",
+      "summary": "迎新侧档案（只读）",
+      "badge": null,
+      "order": 5,
+      "iconKey": "profile"
+    }
+  ],
+  "fetchedAt": "2026-07-23T12:00:00+08:00",
+  "source": "fixture",
+  "demo": true,
+  "notice": "脱敏协议样例，非真实学籍数据"
+}

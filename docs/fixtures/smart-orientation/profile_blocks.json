@@ -1,0 +1,45 @@
+{
+  "mentor": {
+    "name": "张**",
+    "staffId": "T****21",
+    "college": "计算机学院",
+    "phone": "138****0001",
+    "email": "zhang**@hbut.edu.cn",
+    "office": "教*楼 ***",
+    "remark": "班导师（脱敏样例）"
+  },
+  "counselor": {
+    "name": "李**",
+    "staffId": "T****88",
+    "college": "学生工作部",
+    "phone": "139****0002",
+    "email": "li**@hbut.edu.cn",
+    "office": "学工楼 ***",
+    "remark": "辅导员（脱敏样例）"
+  },
+  "dorm": {
+    "campus": "西区",
+    "building": "*号楼",
+    "room": "***",
+    "bed": "下铺",
+    "status": "已分配",
+    "remark": "宿舍信息脱敏样例"
+  },
+  "profile": {
+    "studentId": "2026******",
+    "name": "王**",
+    "gender": "—",
+    "college": "计算机学院",
+    "major": "软件工程",
+    "className": "软工*班",
+    "grade": "2026",
+    "educationLevel": "本科",
+    "idNumber": "4201**********1234",
+    "phone": "137****0003",
+    "orientationStatus": "待报到（样例）"
+  },
+  "fetchedAt": "2026-07-23T12:00:00+08:00",
+  "source": "fixture",
+  "demo": true,
+  "notice": "脱敏协议样例，非真实人员信息"
+}

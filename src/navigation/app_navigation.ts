@@ -31,6 +31,7 @@ export const isLoginRequiredView = (view: unknown): boolean => {
 export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Object.freeze({
   schedule: 'home',
   forum: 'home',
+  smart_orientation: 'home',
   notifications: 'home',
   me: 'home',
   official: 'me',

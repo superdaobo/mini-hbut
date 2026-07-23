@@ -158,7 +158,8 @@ const LOGIN_METHOD_KEY = 'hbu_login_method'
 const JWXT_MODULE_ALLOWLIST = new Set([
   'grades', 'classroom', 'exams', 'ranking', 'calendar', 'school_inbox', 'academic',
   'qxzkb', 'course_selection', 'training', 'teaching_eval', 'library', 'campus_map', 'resource_share',
-  'chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'broadband', 'sports_venue', 'towergo'
+  'chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class', 'broadband', 'sports_venue', 'towergo',
+  'smart_orientation'
 ])
 const loginMethod = ref('')
 const isChaoxingMethod = (value) => String(value || '').trim().startsWith('chaoxing')
@@ -502,6 +503,7 @@ const baseModules = [
   { id: 'library', name: '图书查询', iconKey: 'library', color: '#0f766e', desc: '馆藏检索与定位', available: true, requiresLogin: false },
   { id: 'campus_map', name: '校园地图', iconKey: 'campus_map', color: '#14b8a6', desc: '校园地图查看', available: true, requiresLogin: false },
   { id: 'resource_share', name: '资源网盘', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
+  { id: 'smart_orientation', name: '智慧迎新', iconKey: 'smart_orientation', color: '#f59e0b', desc: '消息/导师/宿舍等只读信息', available: true, requiresLogin: true },
   { id: 'towergo', name: '小塔出行', iconKey: 'towergo', color: '#22c55e', desc: '校园电单车与骑行服务', available: true, requiresLogin: false },
   { id: 'ai', name: '校园助手', iconKey: 'ai', color: '#94a3b8', desc: '暂不可用', available: true, requiresLogin: true }
 ]
@@ -547,7 +549,7 @@ const moduleCategories = computed(() => [
   { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'teaching_eval', 'classroom', 'calendar', 'school_inbox'].includes(m.id)) },
   { title: '学习通', modules: modules.value.filter(m => ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class'].includes(m.id)) },
   { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions', 'broadband', 'sports_venue'].includes(m.id)) },
-  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)) }
+  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'smart_orientation', 'towergo', 'ai'].includes(m.id)) }
 ])
 
 const handleCategoryModuleClick = (moduleId) => { showAllModules.value = false; navigateTo(moduleId) }
@@ -928,6 +930,7 @@ const quickEntryMeta = {
   broadband: { name: '教育网网费', icon: 'fa-wifi', color: 'bg-cyan-50', iconColor: 'text-cyan-600' },
   sports_venue: { name: '运动场馆', icon: 'fa-futbol', color: 'bg-green-50', iconColor: 'text-green-600' },
   library: { name: '图书查询', icon: 'fa-book', color: 'bg-lime-50', iconColor: 'text-lime-600' },
+  smart_orientation: { name: '智慧迎新', icon: 'fa-user-graduate', color: 'bg-amber-50', iconColor: 'text-amber-600' },
   resource_share: { name: '资源网盘', icon: 'fa-cloud', color: 'bg-blue-50', iconColor: 'text-blue-500' },
   campus_map: { name: '校园地图', icon: 'fa-map-marked-alt', color: 'bg-teal-50', iconColor: 'text-teal-600' },
   resource_share: { name: '资料分享', icon: 'fa-folder-open', color: 'bg-blue-50', iconColor: 'text-blue-600' },
@@ -1047,6 +1050,7 @@ const featureIconColors = {
   chaoxing_hub: 'bg-blue-600', chaoxing_inbox: 'bg-indigo-600', chaoxing_class: 'bg-sky-500',
   broadband: 'bg-cyan-600', sports_venue: 'bg-green-600',
   library: 'bg-emerald-600', campus_map: 'bg-teal-500', resource_share: 'bg-blue-500',
+  smart_orientation: 'bg-amber-500',
   towergo: 'bg-emerald-500',
   ai: 'bg-gray-400'
 }
@@ -1059,6 +1063,7 @@ const featureIcons = {
   chaoxing_hub: 'fa-graduation-cap', chaoxing_inbox: 'fa-inbox', chaoxing_class: 'fa-folder-open',
   broadband: 'fa-wifi', sports_venue: 'fa-futbol',
   library: 'fa-book', campus_map: 'fa-map-marked-alt', resource_share: 'fa-cloud',
+  smart_orientation: 'fa-user-graduate',
   towergo: 'fa-bicycle',
   ai: 'fa-robot'
 }

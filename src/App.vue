@@ -154,6 +154,7 @@ const loadChaoxingInboxView = () => import('./components/ChaoxingInboxView.vue')
 const loadTeachingEvalView = () => import('./components/TeachingEvalView.vue')
 const loadBroadbandView = () => import('./components/BroadbandView.vue')
 const loadSportsVenueView = () => import('./components/SportsVenueView.vue')
+const loadSmartOrientationView = () => import('./components/SmartOrientationView.vue')
 const loadTowerGoView = () => import('./components/TowerGoView.vue')
 
 const Dashboard = createAsyncPage(loadDashboardView)
@@ -198,6 +199,7 @@ const ChaoxingInboxView = createAsyncPage(loadChaoxingInboxView)
 const TeachingEvalView = createAsyncPage(loadTeachingEvalView)
 const BroadbandView = createAsyncPage(loadBroadbandView)
 const SportsVenueView = createAsyncPage(loadSportsVenueView)
+const SmartOrientationView = createAsyncPage(loadSmartOrientationView)
 const TowerGoView = createAsyncPage(loadTowerGoView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -283,6 +285,7 @@ const VIEW_PREFETCHERS = Object.freeze({
   teaching_eval: loadTeachingEvalView,
   broadband: loadBroadbandView,
   sports_venue: loadSportsVenueView,
+  smart_orientation: loadSmartOrientationView,
   towergo: loadTowerGoView
 })
 
@@ -3784,6 +3787,12 @@ onBeforeUnmount(() => {
       <!-- 运动场馆 -->
       <SportsVenueView
         v-else-if="currentView === 'sports_venue'"
+        @back="handleBackToDashboard"
+      />
+
+      <!-- 智慧迎新（只读） -->
+      <SmartOrientationView
+        v-else-if="currentView === 'smart_orientation'"
         @back="handleBackToDashboard"
       />
 
