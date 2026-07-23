@@ -145,11 +145,6 @@ pub async fn one_code_app_open_prepare(
         // 缴费页不强制 accessToken；有则更好
         client.ensure_electricity_token().await.unwrap_or_default()
     };
-    let tid_q = if browser_tid.is_empty() {
-        String::new()
-    } else {
-        urlencoding_lite(&browser_tid)
-    };
 
     let name = if display.is_empty() {
         code.as_str()
@@ -157,31 +152,17 @@ pub async fn one_code_app_open_prepare(
         display.as_str()
     };
 
-    let spa_entry = |hash_path: &str| -> String {
-        if tid_q.is_empty() {
-            format!("{CODE_BASE}/#{hash_path}")
-        } else {
-            // 官方落地格式：/?tid=...&orgId=2#/pages_...
-            format!("{CODE_BASE}/?tid={tid_q}&orgId=2#{hash_path}")
-        }
-    };
-
+    // 缴电费/网费：必须走 build_one_code_pay_open_url（与单测/MCP 官方 URL 形状一致）
     let (open_url, hint) = match code.as_str() {
-        // 缴电费：原生 H5（官方拼写 electricty）
         "electric" => (
-            spa_entry(
-                "/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric",
-            ),
+            build_one_code_pay_open_url("electric", &browser_tid),
             "在官方页完成缴纳".to_string(),
         ),
-        // 教育网网费
         "broadband" => (
-            spa_entry(
-                "/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband",
-            ),
+            build_one_code_pay_open_url("broadband", &browser_tid),
             "在官方页完成缴纳".to_string(),
         ),
-        // 运动场馆（第三方 + accessToken）
+        // 运动场馆（第三方 + accessToken，内网）
         "noQYzEiZ7L" => {
             let redirect = "http://172.16.54.20:9000/#/home";
             let encoded = urlencoding_lite(redirect);
@@ -201,7 +182,7 @@ pub async fn one_code_app_open_prepare(
             (url, "官方电量查询".to_string())
         }
         _ => (
-            spa_entry("/pages_home/home"),
+            build_one_code_pay_open_url("home", &browser_tid),
             format!("打开「{name}」"),
         ),
     };
@@ -396,9 +377,100 @@ async fn utilities_room_snapshot(
         "bound_room_verify": Value::Null,
         "bound_room_name": Value::Null,
         "message": "智能水电未返回分日曲线，已显示该房间当前电量/余额快照",
-        "hint": "用电快照：当前所选房间（非绑定房）",
+        "hint": "用电快照：已切换为所选房间；曲线暂无时显示余额/余量",
         "open_url": null
     }))
+}
+
+/// 判断 SWAE 绑定/写接口响应是否表示成功（纯函数，单测覆盖）
+pub fn swae_write_response_ok(resp: &Value) -> bool {
+    let body = parse_swae_body(resp).unwrap_or_else(|| resp.clone());
+    let ret = body
+        .get("ret")
+        .or_else(|| body.get("retcode"))
+        .or_else(|| body.get("code"))
+        .or_else(|| resp.get("ret"))
+        .cloned()
+        .unwrap_or(json!(null));
+    let msg = body
+        .get("msg")
+        .or_else(|| body.get("message"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    matches!(
+        ret.as_i64().or_else(|| ret.as_u64().map(|u| u as i64)),
+        Some(0) | Some(200)
+    ) || ret.as_str() == Some("0")
+        || ret.as_str() == Some("success")
+        || msg.contains("成功")
+        || msg.to_ascii_lowercase().contains("success")
+}
+
+/// 官方一码通 H5 打开 URL（与 one_code_app_open_prepare 一致，可单测）
+pub fn build_one_code_pay_open_url(app_code: &str, tid: &str) -> String {
+    let tid_q = if tid.trim().is_empty() {
+        String::new()
+    } else {
+        urlencoding_lite(tid.trim())
+    };
+    let spa = |hash_path: &str| -> String {
+        if tid_q.is_empty() {
+            format!("{CODE_BASE}/#{hash_path}")
+        } else {
+            format!("{CODE_BASE}/?tid={tid_q}&orgId=2#{hash_path}")
+        }
+    };
+    match app_code {
+        "electric" => spa(
+            "/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric",
+        ),
+        "broadband" => spa(
+            "/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband",
+        ),
+        _ => spa("/pages_home/home"),
+    }
+}
+
+/// 仅尝试 **fixture 已证明** 的 setbindroom 写接口；成功返回响应 JSON。
+/// 其它 cmd 名不再盲目扩展（避免无证据猜测）。
+async fn try_swae_bind_room_with_response(
+    client: &crate::http_client::HbutClient,
+    final_url: &str,
+    sid: &str,
+    roomverify: &str,
+) -> Option<Value> {
+    let room = roomverify.trim();
+    if room.is_empty() {
+        return None;
+    }
+    // 录制证据：tests/fixtures/swae_setbindroom_ok.json（ret=0 / msg 成功）
+    let method = "setbindroom";
+    let ts = Local::now().format("%Y%m%d%H%M%S%3f").to_string();
+    let param = json!({
+        "cmd": method,
+        "roomverify": room,
+        "account": sid,
+        "outid": sid,
+        "timestamp": ts
+    });
+    match swae_post(client, final_url, method, param).await {
+        Ok(resp) => {
+            let ok = swae_write_response_ok(&resp);
+            crate::runtime_log::log_info(
+                "ElectricityBind",
+                format!("cmd={method} room={room} ok={ok}"),
+            );
+            if ok {
+                Some(resp)
+            } else {
+                None
+            }
+        }
+        Err(e) => {
+            crate::runtime_log::log_debug("ElectricityBind", format!("cmd={method} err={e}"));
+            None
+        }
+    }
 }
 
 /// 宿舍 room value 是否像 SWAE roomverify：`101-1--174-1101`
@@ -408,6 +480,106 @@ fn looks_like_roomverify(s: &str) -> bool {
     s.contains("--") || (s.matches('-').count() >= 2 && s.chars().any(|c| c.is_ascii_digit()))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthesize_roomverify_replaces_trailing_room_no() {
+        assert_eq!(
+            synthesize_roomverify_from_bound("101-7--254-101", "102").as_deref(),
+            Some("101-7--254-102")
+        );
+        assert_eq!(
+            synthesize_roomverify_from_bound("101-1--174-1101", "1102").as_deref(),
+            Some("101-1--174-1102")
+        );
+        assert!(synthesize_roomverify_from_bound("", "102").is_none());
+    }
+
+    #[test]
+    fn extract_room_number_from_label() {
+        assert_eq!(extract_room_number("102房间", ""), "102");
+        assert_eq!(extract_room_number("东苑7栋1层 1102", ""), "1102");
+    }
+
+    #[test]
+    fn swae_bind_response_ok_on_ret_zero() {
+        let ok = json!({"ret": 0, "msg": "成功"});
+        assert!(swae_write_response_ok(&ok));
+        assert!(swae_write_response_ok(&json!({"retcode": 0})));
+        assert!(!swae_write_response_ok(&json!({"ret": 1, "msg": "fail"})));
+    }
+
+    #[test]
+    fn build_selected_roomverify_candidates_prefers_synth() {
+        let c = build_selected_roomverify_candidates("101-7--254-102", "101-7--254-101", "102房间");
+        assert_eq!(c.first().map(|s| s.as_str()), Some("101-7--254-102"));
+        // preferred already 102; synth from bound may equal preferred
+        assert!(!c.is_empty());
+        let c2 =
+            build_selected_roomverify_candidates("SOMETHING-ELSE", "101-7--254-101", "102房间");
+        assert!(c2.contains(&"SOMETHING-ELSE".to_string()));
+        assert!(c2.iter().any(|x| x.ends_with("102") || x.contains("102")));
+    }
+
+    #[test]
+    fn build_pay_urls_include_tid_and_official_paths() {
+        let tid = "TEST_TID_ABC";
+        let elec = build_one_code_pay_open_url("electric", tid);
+        assert!(elec.contains("tid=TEST_TID_ABC"));
+        assert!(elec.contains("electrictyFees"));
+        assert!(elec.contains("orgId=2"));
+        let net = build_one_code_pay_open_url("broadband", tid);
+        assert!(net.contains("networkFees"));
+        assert!(net.contains("tid=TEST_TID_ABC"));
+    }
+
+    #[test]
+    fn apply_room_selection_uses_recorded_setbindroom_ok_fixture() {
+        // 录制 fixture（committed）：src-tauri/tests/fixtures/swae_setbindroom_ok.json
+        // 证明 rebind 成功响应形状，而非多 cmd 猜测
+        let fixture: Value = [
+            "tests/fixtures/swae_setbindroom_ok.json",
+            "../tests/fixtures/swae_setbindroom_ok.json",
+        ]
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .expect("committed setbindroom fixture must load");
+        assert!(
+            swae_write_response_ok(&fixture),
+            "fixture must be recognized as bind OK"
+        );
+        let plan = apply_room_selection(
+            "101-7--254-102",
+            "102房间",
+            "101-7--254-101",
+            Some(&fixture),
+        );
+        assert!(plan.bound_updated, "OK fixture must flip bound_updated");
+        assert_eq!(plan.effective_bound, "101-7--254-102");
+        assert_eq!(
+            plan.query_rooms.first().map(|s| s.as_str()),
+            Some("101-7--254-102"),
+            "query must prefer selected 102, not prior 101"
+        );
+        // 失败绑定：仍查所选候选，不把 query 偷偷换回 101
+        let plan_fail = apply_room_selection(
+            "101-7--254-102",
+            "102房间",
+            "101-7--254-101",
+            Some(&json!({"ret": 1, "msg": "fail"})),
+        );
+        assert!(!plan_fail.bound_updated);
+        assert_eq!(plan_fail.effective_bound, "101-7--254-101");
+        assert!(plan_fail.query_rooms.iter().any(|r| r.ends_with("102")));
+        // 无响应：不更新 bound，仍查 selected
+        let plan_none = apply_room_selection("101-7--254-102", "102房间", "101-7--254-101", None);
+        assert!(!plan_none.bound_updated);
+        assert_eq!(plan_none.effective_bound, "101-7--254-101");
+    }
+}
 async fn fetch_smart_electricity_stats(
     client: &mut crate::http_client::HbutClient,
     student_id: &str,
@@ -516,14 +688,9 @@ async fn fetch_smart_electricity_stats(
     let room_no = extract_room_number(label, pref);
 
     if !pref.is_empty() {
-        candidates.push((pref.to_string(), "selected", label.to_string()));
-        // 用绑定房模板改房间号：101-7--254-101 + 102 → 101-7--254-102
-        if !bound_room.is_empty() {
-            if let Some(syn) = synthesize_roomverify_from_bound(&bound_room, &room_no) {
-                if syn != pref {
-                    candidates.push((syn, "selected", label.to_string()));
-                }
-            }
+        // preferred + 绑定模板改房号（与单测 build_selected_roomverify_candidates 一致）
+        for rv in build_selected_roomverify_candidates(pref, &bound_room, label) {
+            candidates.push((rv, "selected", label.to_string()));
         }
         // SWAE 房间树按房号匹配（宿舍数据集 value 可能与智能水电 roomverify 不一致）
         if let Some(resolved) =
@@ -554,7 +721,75 @@ async fn fetch_smart_electricity_stats(
         return Err("请先在上方选择房间，或到一码通绑定宿舍后再查趋势".into());
     }
 
-    // 5) 按候选依次拉趋势
+    // 5) 选房即绑定：仅 setbindroom（fixture 已证明），再经 apply_room_selection 统一查询候选
+    let prior_bound = bound_room.clone();
+    let mut bound_updated = false;
+    if !pref.is_empty() {
+        let mut bind_resp: Option<Value> = None;
+        for (room, _, _) in candidates.iter().take(3) {
+            if let Some(resp) =
+                try_swae_bind_room_with_response(client, &final_url, &sid, room).await
+            {
+                bind_resp = Some(resp);
+                break;
+            }
+        }
+        let plan = apply_room_selection(pref, label, &prior_bound, bind_resp.as_ref());
+        bound_updated = plan.bound_updated;
+        if plan.bound_updated {
+            bound_room = plan.effective_bound.clone();
+            // 刷新官方绑定展示名
+            if let Ok(b) = swae_post(
+                client,
+                &final_url,
+                "getbindroom",
+                json!({
+                    "cmd": "getbindroom",
+                    "account": sid,
+                    "timestamp": Local::now().format("%Y%m%d%H%M%S%3f").to_string()
+                }),
+            )
+            .await
+            {
+                if let Some(body) = parse_swae_body(&b) {
+                    if let Some(rv) = body.get("roomverify").and_then(|v| v.as_str()) {
+                        bound_room = rv.trim().to_string();
+                    }
+                    if let Some(rn) = body.get("roomfullname").and_then(|v| v.as_str()) {
+                        bound_name = rn.to_string();
+                    }
+                }
+            }
+            // 绑定成功后，把 effective_bound 提到候选最前，保证趋势走绑定房
+            if !bound_room.is_empty() && !candidates.iter().any(|(r, _, _)| r == &bound_room) {
+                candidates.insert(0, (bound_room.clone(), "selected", label.to_string()));
+            } else if !bound_room.is_empty() {
+                if let Some(pos) = candidates.iter().position(|(r, _, _)| r == &bound_room) {
+                    let item = candidates.remove(pos);
+                    candidates.insert(0, item);
+                }
+            }
+            crate::runtime_log::log_info(
+                "ElectricityBind",
+                format!("绑定已更新 bound={bound_room} name={bound_name}"),
+            );
+        } else {
+            crate::runtime_log::log_warn(
+                "ElectricityBind",
+                format!(
+                    "setbindroom 未成功，仍按所选候选查趋势 prior_bound={prior_bound} selected={pref}"
+                ),
+            );
+        }
+        // 查询房间列表以 plan.query_rooms 为准补全（不覆盖树解析得到的额外候选）
+        for rv in plan.query_rooms {
+            if !candidates.iter().any(|(r, _, _)| r == &rv) {
+                candidates.push((rv, "selected", label.to_string()));
+            }
+        }
+    }
+
+    // 6) 按候选依次拉趋势
     let mut last_err = String::new();
     for (room, source, room_name) in candidates {
         match fetch_usage_for_room(
@@ -570,7 +805,18 @@ async fn fetch_smart_electricity_stats(
         )
         .await
         {
-            Ok(v) => return Ok(v),
+            Ok(mut v) => {
+                // 标注是否已与绑定房对齐
+                if let Some(obj) = v.as_object_mut() {
+                    if bound_updated && !bound_room.is_empty() && bound_room == room {
+                        obj.insert("hint".into(), json!("已切换绑定房间，并显示该房用电趋势"));
+                        obj.insert("bound_updated".into(), json!(true));
+                    } else if bound_updated {
+                        obj.insert("bound_updated".into(), json!(true));
+                    }
+                }
+                return Ok(v);
+            }
             Err(e) => {
                 last_err = e;
                 crate::runtime_log::log_warn(
@@ -616,6 +862,67 @@ fn extract_room_number(label: &str, roomverify: &str) -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 2)
         .unwrap_or_default()
+}
+
+/// 选房后参与趋势查询的 roomverify 候选（纯函数：preferred + 绑定模板改房号）
+/// 供 electricity_usage_stats 与单测共用，保证「切换房间」路径可测。
+pub fn build_selected_roomverify_candidates(
+    preferred: &str,
+    bound_room: &str,
+    room_label: &str,
+) -> Vec<String> {
+    let pref = preferred.trim();
+    let mut out = Vec::new();
+    if pref.is_empty() {
+        if !bound_room.trim().is_empty() {
+            out.push(bound_room.trim().to_string());
+        }
+        return out;
+    }
+    out.push(pref.to_string());
+    let room_no = extract_room_number(room_label, pref);
+    if let Some(syn) = synthesize_roomverify_from_bound(bound_room, &room_no) {
+        if !out.iter().any(|x| x == &syn) {
+            out.push(syn);
+        }
+    }
+    out
+}
+
+/// 选房 + 绑定响应 → 查询候选 / 是否绑定成功（纯函数；生产 try_swae_bind 后必调）
+///
+/// `bind_response`：SWAE setbindroom 等原始 JSON（fixtures/swae_setbindroom_ok.json）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoomSelectionPlan {
+    pub query_rooms: Vec<String>,
+    pub bound_updated: bool,
+    pub effective_bound: String,
+}
+
+pub fn apply_room_selection(
+    selected_roomverify: &str,
+    selected_label: &str,
+    prior_bound_room: &str,
+    bind_response: Option<&Value>,
+) -> RoomSelectionPlan {
+    let candidates =
+        build_selected_roomverify_candidates(selected_roomverify, prior_bound_room, selected_label);
+    let bound_updated = bind_response.map(swae_write_response_ok).unwrap_or(false);
+    let selected = selected_roomverify.trim();
+    let effective_bound = if bound_updated {
+        if !selected.is_empty() {
+            selected.to_string()
+        } else {
+            candidates.first().cloned().unwrap_or_default()
+        }
+    } else {
+        prior_bound_room.trim().to_string()
+    };
+    RoomSelectionPlan {
+        query_rooms: candidates,
+        bound_updated,
+        effective_bound,
+    }
 }
 
 /// 绑定房 roomverify 末段换成目标房号

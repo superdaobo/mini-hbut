@@ -22,6 +22,7 @@ import { buildHomeSearchSections, buildWeeklyCourseSearchEntries } from '../util
 import { getForecastTemperatureBounds, getTemperatureColor, getTemperatureRangeStyle, getWeatherIconTone } from '../utils/weather_visuals'
 import { isTestAccountSession } from '../utils/test_account.js'
 import { filterAllowedModules, isModuleAllowed } from '../config/app_store_policy'
+import { decideHomeNavigate } from '../utils/moduleAccess'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -496,7 +497,8 @@ const baseModules = [
   { id: 'chaoxing_inbox', name: '收件箱', iconKey: 'chaoxing_inbox', color: '#4f46e5', desc: '学习通通知与消息', available: true, requiresLogin: true },
   { id: 'chaoxing_class', name: '资料分享', iconKey: 'chaoxing_class', color: '#3b82f6', desc: '邀请码入班与班级资料', available: true, requiresLogin: true },
   { id: 'broadband', name: '教育网网费', iconKey: 'broadband', color: '#0891b2', desc: '校园网费用查询与缴纳入口', available: true, requiresLogin: true },
-  { id: 'sports_venue', name: '运动场馆', iconKey: 'sports_venue', color: '#16a34a', desc: '场馆预约（需校园网）', available: true, requiresLogin: true },
+  // 场馆依赖 172.16.54.20 校园网 + accessToken；外网/无校园网时 third/open 无法落地，暂禁用避免死入口
+  { id: 'sports_venue', name: '运动场馆', iconKey: 'sports_venue', color: '#16a34a', desc: '场馆预约需校园网（暂不可用）', available: false, requiresLogin: true },
   { id: 'library', name: '图书查询', iconKey: 'library', color: '#0f766e', desc: '馆藏检索与定位', available: true, requiresLogin: false },
   { id: 'campus_map', name: '校园地图', iconKey: 'campus_map', color: '#14b8a6', desc: '校园地图查看', available: true, requiresLogin: false },
   { id: 'resource_share', name: '资源网盘', iconKey: 'resource_share', color: '#0ea5e9', desc: 'WebDAV 资料浏览与下载', available: true, requiresLogin: false },
@@ -568,8 +570,19 @@ const navigateTo = (moduleId) => {
     showToast('当前版本不可用该功能')
     return
   }
-  const module = modules.value.find((m) => m.id === moduleId)
-  if (module?.requiresLogin && !props.isLoggedIn) { emit('require-login'); return }
+  // 唯一准入：decideHomeNavigate（available:false / 硬禁用 sports_venue / 需登录）
+  // 禁止只改 baseModules.available 却旁路打开模块
+  const access = decideHomeNavigate(moduleId, modules.value, {
+    isLoggedIn: props.isLoggedIn
+  })
+  if (!access.ok) {
+    if (access.needLogin) {
+      emit('require-login')
+      return
+    }
+    showToast(access.reason || '暂不可用')
+    return
+  }
   emit('navigate', moduleId)
 }
 
