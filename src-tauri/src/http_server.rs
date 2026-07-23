@@ -608,6 +608,10 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
         .route("/debug/chaoxing/session", post(debug_chaoxing_session))
         .route("/debug/chaoxing/courses", post(debug_chaoxing_courses))
         .route("/debug/inbox", post(debug_inbox_fetch))
+        .route(
+            "/debug/smart-orientation",
+            post(debug_smart_orientation_fetch),
+        )
         .route("/module_bundle/prepare", post(module_bundle_prepare))
         .route("/module_bundle/open", post(module_bundle_open))
         .route(
@@ -2112,6 +2116,7 @@ async fn debug_routes_list(
             { "method": "POST", "path": "/debug/chaoxing/session", "desc": "探测学习通会话并写日志" },
             { "method": "POST", "path": "/debug/chaoxing/courses", "desc": "拉课程列表并计时 body.force" },
             { "method": "POST", "path": "/debug/inbox", "desc": "拉收件箱 body.login_mode / force" },
+            { "method": "POST", "path": "/debug/smart-orientation", "desc": "智慧迎新只读全量（静默续期 CAS + idaas）" },
             { "method": "GET", "path": "/debug/state", "desc": "前端页面状态" },
             { "method": "POST", "path": "/debug/screenshot", "desc": "原生截图" },
             { "method": "POST", "path": "/debug/navigate", "desc": "导航到视图" },
@@ -2206,6 +2211,19 @@ async fn debug_inbox_fetch(
         "source": payload.source,
         "payload": payload,
     })))
+}
+
+async fn debug_smart_orientation_fetch(
+    State(state): State<HttpState>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiResponse<serde_json::Value>>)>
+{
+    ensure_debug_or_dev(&state)?;
+    let mut client = state.client.write().await;
+    crate::runtime_log::log_info("DebugAPI", "手动拉取智慧迎新只读全量");
+    let payload = crate::modules::smart_orientation::debug_fetch_all(&mut client)
+        .await
+        .map_err(|e| err(StatusCode::BAD_GATEWAY, "智慧迎新拉取失败", e))?;
+    Ok(ok(payload))
 }
 
 async fn debug_state(

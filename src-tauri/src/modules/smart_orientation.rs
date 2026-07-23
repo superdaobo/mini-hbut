@@ -17,12 +17,25 @@ use chrono::Local;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 const MOBILE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 const WELCOME_BASE: &str = "https://stu.hbut.edu.cn";
 const WELCOME_APP: &str = "https://stu.hbut.edu.cn/app/welcome/";
 const CAS_LOGIN: &str = "https://auth.hbut.edu.cn/authserver/login";
 const APP_KEY: &str = "welcome";
+/// 前端并行 invoke 三次时复用同一份 live 结果，避免三连 CAS ticket。
+const BUNDLE_CACHE_TTL: Duration = Duration::from_secs(20);
+
+struct LiveBundleCache {
+    at: Instant,
+    blocks: OrientationProfileBlocksResponse,
+    messages: OrientationMessagesResponse,
+    panels: OrientationPanelsResponse,
+}
+
+static LIVE_BUNDLE_CACHE: Mutex<Option<LiveBundleCache>> = Mutex::new(None);
 
 const FIXTURE_STUDENT: &str =
     include_str!("../../tests/fixtures/smart-orientation/student_myInfo.json");
@@ -440,6 +453,90 @@ fn extract_ticket(url: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+fn resolve_portal_credentials(client: &HbutClient) -> Option<(String, String)> {
+    let username = client
+        .last_username
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            client
+                .user_info
+                .as_ref()
+                .map(|u| u.student_id.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })?;
+    let password = client
+        .last_password
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| crate::credential_store::load_password(&username))
+        .or_else(|| {
+            crate::credential_store::load_remembered_credential(&format!("hbut:{username}"))
+        })
+        .filter(|s| !s.is_empty())?;
+    Some((username, password))
+}
+
+/// CAS 会话过期时用本地密码静默重登（门户默认 service → welcome service）
+async fn silent_refresh_cas(client: &mut HbutClient) -> Result<(), String> {
+    let (username, password) = resolve_portal_credentials(client).ok_or_else(|| {
+        "融合门户会话已过期，且本地无可用密码，请重新登录后再打开智慧迎新".to_string()
+    })?;
+    crate::runtime_log::log_info(
+        "SmartOrientation",
+        format!("CAS 静默重登开始 user={}", username),
+    );
+    // 1) 主登录链路（教务 service）恢复 CAS TGC
+    match client
+        .login(&username, &password, "", "", "")
+        .await
+    {
+        Ok(info) => {
+            client.is_logged_in = true;
+            if !info.student_id.trim().is_empty() {
+                client.user_info = Some(info);
+            }
+            client.set_credentials(username.clone(), password.clone());
+            crate::runtime_log::log_info("SmartOrientation", "CAS 静默重登(login)成功");
+            return Ok(());
+        }
+        Err(e1) => {
+            crate::runtime_log::log_warn(
+                "SmartOrientation",
+                format!("主登录失败，改试 welcome service: {e1}"),
+            );
+            // 2) 直接对智慧迎新 service 登录
+            match client
+                .login_for_service(&username, &password, WELCOME_APP)
+                .await
+            {
+                Ok(info) => {
+                    client.is_logged_in = true;
+                    if !info.student_id.trim().is_empty() {
+                        client.user_info = Some(info);
+                    }
+                    client.set_credentials(username, password);
+                    crate::runtime_log::log_info(
+                        "SmartOrientation",
+                        "CAS 静默重登(login_for_service welcome)成功",
+                    );
+                    Ok(())
+                }
+                Err(e2) => Err(format!("静默重登失败: {e1}; {e2}")),
+            }
+        }
+    }
+}
+
+fn is_cas_session_error(msg: &str) -> bool {
+    msg.contains("会话已过期")
+        || msg.contains("重新登录")
+        || msg.contains("未获取 CAS ticket")
+        || msg.contains("authserver/login")
+}
+
 /// CAS + idaas 换 token（依赖 HbutClient 已有融合门户/CAS cookie）
 async fn mint_welcome_token(client: &HbutClient) -> Result<String, String> {
     let http = client.http_client();
@@ -517,6 +614,22 @@ async fn mint_welcome_token(client: &HbutClient) -> Result<String, String> {
     Ok(token)
 }
 
+/// 换 token：失败且判定 CAS 过期时静默重登后重试一次
+async fn mint_welcome_token_resilient(client: &mut HbutClient) -> Result<String, String> {
+    match mint_welcome_token(client).await {
+        Ok(t) => Ok(t),
+        Err(e) if is_cas_session_error(&e) => {
+            crate::runtime_log::log_warn(
+                "SmartOrientation",
+                format!("mint token 失败，尝试静默续期: {e}"),
+            );
+            silent_refresh_cas(client).await?;
+            mint_welcome_token(client).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
 async fn get_json_with_token(
     client: &HbutClient,
     token: &str,
@@ -550,7 +663,7 @@ async fn get_json_with_token(
 }
 
 async fn fetch_live_bundle(
-    client: &HbutClient,
+    client: &mut HbutClient,
 ) -> Result<
     (
         OrientationProfileBlocksResponse,
@@ -559,7 +672,7 @@ async fn fetch_live_bundle(
     ),
     String,
 > {
-    let token = mint_welcome_token(client).await?;
+    let token = mint_welcome_token_resilient(client).await?;
 
     let student = get_json_with_token(client, &token, "/account/base/student/myInfo").await;
     let teacher = get_json_with_token(client, &token, "/account/base/teacher/myTeacher").await;
@@ -846,87 +959,132 @@ fn fixture_messages() -> OrientationMessagesResponse {
 
 // ─── Public API ─────────────────────────────────────────────
 
-pub async fn list_panels(client: &HbutClient) -> Result<OrientationPanelsResponse, String> {
-    match fetch_live_bundle(client).await {
-        Ok((_, _, panels)) => Ok(panels),
-        Err(e) => {
-            if e.contains("会话已过期") || e.contains("重新登录") {
-                return Err(e);
+async fn fetch_live_bundle_cached(
+    client: &mut HbutClient,
+) -> Result<
+    (
+        OrientationProfileBlocksResponse,
+        OrientationMessagesResponse,
+        OrientationPanelsResponse,
+    ),
+    String,
+> {
+    if let Ok(guard) = LIVE_BUNDLE_CACHE.lock() {
+        if let Some(c) = guard.as_ref() {
+            if c.at.elapsed() < BUNDLE_CACHE_TTL {
+                crate::runtime_log::log_debug("SmartOrientation", "命中 live bundle 缓存");
+                return Ok((c.blocks.clone(), c.messages.clone(), c.panels.clone()));
             }
-            if orientation_demo_allowed() {
-                let blocks = fixture_blocks();
-                let msgs = fixture_messages();
-                return Ok(OrientationPanelsResponse {
-                    panels: vec![
-                        OrientationPanel {
-                            id: "messages".into(),
-                            title: "事项与进度".into(),
-                            summary: format!("{} 条", msgs.items.len()),
-                            badge: Some(msgs.items.len().to_string()),
-                            order: 1,
-                            icon_key: Some("messages".into()),
-                        },
-                        OrientationPanel {
-                            id: "mentor".into(),
-                            title: "班导师".into(),
-                            summary: blocks
-                                .mentor
-                                .as_ref()
-                                .map(|p| p.name.clone())
-                                .unwrap_or_default(),
-                            badge: None,
-                            order: 2,
-                            icon_key: Some("mentor".into()),
-                        },
-                        OrientationPanel {
-                            id: "counselor".into(),
-                            title: "辅导员".into(),
-                            summary: blocks
-                                .counselor
-                                .as_ref()
-                                .map(|p| p.name.clone())
-                                .unwrap_or_default(),
-                            badge: None,
-                            order: 3,
-                            icon_key: Some("counselor".into()),
-                        },
-                        OrientationPanel {
-                            id: "dorm".into(),
-                            title: "宿舍信息".into(),
-                            summary: "样例".into(),
-                            badge: None,
-                            order: 4,
-                            icon_key: Some("dorm".into()),
-                        },
-                        OrientationPanel {
-                            id: "profile".into(),
-                            title: "个人信息".into(),
-                            summary: "样例".into(),
-                            badge: None,
-                            order: 5,
-                            icon_key: Some("profile".into()),
-                        },
-                    ],
-                    fetched_at: now_iso(),
-                    source: "fixture".into(),
-                    demo: true,
-                    notice: Some(format!("live 失败，展示样例：{e}")),
-                    error: Some(e),
-                });
-            }
-            Ok(empty_panels(
-                "暂未获取智慧迎新数据。请使用手机 UA 门户会话，或确认处于迎新相关时段。",
-                Some(&e),
-            ))
         }
+    }
+
+    let started = Instant::now();
+    let (blocks, messages, panels) = fetch_live_bundle(client).await?;
+    crate::runtime_log::log_info(
+        "SmartOrientation",
+        format!(
+            "live bundle 完成 elapsed_ms={} panels={} messages={} has_profile={}",
+            started.elapsed().as_millis(),
+            panels.panels.len(),
+            messages.items.len(),
+            blocks.profile.is_some()
+        ),
+    );
+    if let Ok(mut guard) = LIVE_BUNDLE_CACHE.lock() {
+        *guard = Some(LiveBundleCache {
+            at: Instant::now(),
+            blocks: blocks.clone(),
+            messages: messages.clone(),
+            panels: panels.clone(),
+        });
+    }
+    Ok((blocks, messages, panels))
+}
+
+fn map_live_err_panels(e: String) -> Result<OrientationPanelsResponse, String> {
+    // 无本地密码时的会话错误仍向上抛，前端可提示重新登录
+    if is_cas_session_error(&e) && e.contains("本地无可用密码") {
+        return Err(e);
+    }
+    if orientation_demo_allowed() {
+        let blocks = fixture_blocks();
+        let msgs = fixture_messages();
+        return Ok(OrientationPanelsResponse {
+            panels: vec![
+                OrientationPanel {
+                    id: "messages".into(),
+                    title: "事项与进度".into(),
+                    summary: format!("{} 条", msgs.items.len()),
+                    badge: Some(msgs.items.len().to_string()),
+                    order: 1,
+                    icon_key: Some("messages".into()),
+                },
+                OrientationPanel {
+                    id: "mentor".into(),
+                    title: "班导师".into(),
+                    summary: blocks
+                        .mentor
+                        .as_ref()
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default(),
+                    badge: None,
+                    order: 2,
+                    icon_key: Some("mentor".into()),
+                },
+                OrientationPanel {
+                    id: "counselor".into(),
+                    title: "辅导员".into(),
+                    summary: blocks
+                        .counselor
+                        .as_ref()
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default(),
+                    badge: None,
+                    order: 3,
+                    icon_key: Some("counselor".into()),
+                },
+                OrientationPanel {
+                    id: "dorm".into(),
+                    title: "宿舍信息".into(),
+                    summary: "样例".into(),
+                    badge: None,
+                    order: 4,
+                    icon_key: Some("dorm".into()),
+                },
+                OrientationPanel {
+                    id: "profile".into(),
+                    title: "个人信息".into(),
+                    summary: "样例".into(),
+                    badge: None,
+                    order: 5,
+                    icon_key: Some("profile".into()),
+                },
+            ],
+            fetched_at: now_iso(),
+            source: "fixture".into(),
+            demo: true,
+            notice: Some(format!("live 失败，展示样例：{e}")),
+            error: Some(e),
+        });
+    }
+    Ok(empty_panels(
+        "暂未获取智慧迎新数据。请确认门户会话有效，或处于迎新相关时段。",
+        Some(&e),
+    ))
+}
+
+pub async fn list_panels(client: &mut HbutClient) -> Result<OrientationPanelsResponse, String> {
+    match fetch_live_bundle_cached(client).await {
+        Ok((_, _, panels)) => Ok(panels),
+        Err(e) => map_live_err_panels(e),
     }
 }
 
-pub async fn list_messages(client: &HbutClient) -> Result<OrientationMessagesResponse, String> {
-    match fetch_live_bundle(client).await {
+pub async fn list_messages(client: &mut HbutClient) -> Result<OrientationMessagesResponse, String> {
+    match fetch_live_bundle_cached(client).await {
         Ok((_, msgs, _)) => Ok(msgs),
         Err(e) => {
-            if e.contains("会话已过期") || e.contains("重新登录") {
+            if is_cas_session_error(&e) && e.contains("本地无可用密码") {
                 return Err(e);
             }
             if orientation_demo_allowed() {
@@ -940,12 +1098,12 @@ pub async fn list_messages(client: &HbutClient) -> Result<OrientationMessagesRes
 }
 
 pub async fn profile_blocks(
-    client: &HbutClient,
+    client: &mut HbutClient,
 ) -> Result<OrientationProfileBlocksResponse, String> {
-    match fetch_live_bundle(client).await {
+    match fetch_live_bundle_cached(client).await {
         Ok((blocks, _, _)) => Ok(blocks),
         Err(e) => {
-            if e.contains("会话已过期") || e.contains("重新登录") {
+            if is_cas_session_error(&e) && e.contains("本地无可用密码") {
                 return Err(e);
             }
             if orientation_demo_allowed() {
@@ -955,6 +1113,28 @@ pub async fn profile_blocks(
             }
             Ok(empty_blocks("暂无导师/宿舍/个人信息", Some(&e)))
         }
+    }
+}
+
+/// 调试桥：一次拉齐 panels/messages/blocks（强制刷新缓存）
+pub async fn debug_fetch_all(client: &mut HbutClient) -> Result<Value, String> {
+    if let Ok(mut guard) = LIVE_BUNDLE_CACHE.lock() {
+        *guard = None;
+    }
+    let started = Instant::now();
+    match fetch_live_bundle_cached(client).await {
+        Ok((blocks, messages, panels)) => Ok(json!({
+            "ok": true,
+            "elapsed_ms": started.elapsed().as_millis() as u64,
+            "panels": panels,
+            "messages": messages,
+            "blocks": blocks,
+        })),
+        Err(e) => Ok(json!({
+            "ok": false,
+            "elapsed_ms": started.elapsed().as_millis() as u64,
+            "error": e,
+        })),
     }
 }
 

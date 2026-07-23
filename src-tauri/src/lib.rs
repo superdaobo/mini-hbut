@@ -5231,8 +5231,9 @@ async fn school_inbox_mark_read(
 async fn smart_orientation_list_panels(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.read().await;
-    let response = modules::smart_orientation::list_panels(&client).await?;
+    // write：可能静默续期 CAS
+    let mut client = state.client.write().await;
+    let response = modules::smart_orientation::list_panels(&mut client).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
@@ -5241,8 +5242,8 @@ async fn smart_orientation_list_panels(
 async fn smart_orientation_list_messages(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.read().await;
-    let response = modules::smart_orientation::list_messages(&client).await?;
+    let mut client = state.client.write().await;
+    let response = modules::smart_orientation::list_messages(&mut client).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
@@ -5251,8 +5252,8 @@ async fn smart_orientation_list_messages(
 async fn smart_orientation_profile_blocks(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let client = state.client.read().await;
-    let response = modules::smart_orientation::profile_blocks(&client).await?;
+    let mut client = state.client.write().await;
+    let response = modules::smart_orientation::profile_blocks(&mut client).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
