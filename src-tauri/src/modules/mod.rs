@@ -24,6 +24,7 @@ pub mod schedule;
 pub mod school_inbox;
 pub mod school_website_embed;
 pub mod session_guard;
+pub mod smart_orientation;
 pub mod sports_venue;
 pub mod student_info;
 pub mod teaching_eval;

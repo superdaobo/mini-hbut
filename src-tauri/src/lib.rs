@@ -5226,6 +5226,36 @@ async fn school_inbox_mark_read(
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
+/// 智慧迎新：overview 面板列表（只读）
+#[tauri::command(rename_all = "camelCase")]
+async fn smart_orientation_list_panels(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::smart_orientation::list_panels(&client).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+/// 智慧迎新：消息列表（只读）
+#[tauri::command(rename_all = "camelCase")]
+async fn smart_orientation_list_messages(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::smart_orientation::list_messages(&client).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+/// 智慧迎新：班导师/辅导员/宿舍/个人信息（只读）
+#[tauri::command(rename_all = "camelCase")]
+async fn smart_orientation_profile_blocks(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::smart_orientation::profile_blocks(&client).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
 #[tauri::command]
 async fn fetch_student_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let client = state.client.write().await;
@@ -7063,6 +7093,9 @@ pub fn run() {
             school_inbox_fetch,
             school_inbox_detail_fetch,
             school_inbox_mark_read,
+            smart_orientation_list_panels,
+            smart_orientation_list_messages,
+            smart_orientation_profile_blocks,
             fetch_personal_login_access_info,
             fetch_semesters,
             fetch_classroom_buildings,
