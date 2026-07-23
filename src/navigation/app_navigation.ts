@@ -45,7 +45,8 @@ export const HIERARCHICAL_PARENT_VIEW_MAP: Readonly<Record<string, string>> = Ob
   campus_network: 'me',
   more: 'me',
   more_module_host: 'more',
-  more_chaoxing_checkin: 'more'
+  more_chaoxing_checkin: 'more',
+  smart_orientation: 'home'
 })
 
 export type MainTab = (typeof MAIN_TABS)[number]

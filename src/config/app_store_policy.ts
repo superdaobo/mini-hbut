@@ -161,6 +161,8 @@ export interface AppStoreFeaturePolicy {
   chaoxingClass: boolean
   /** 培养方案 / 学业 / 校历等只读学业 */
   academicReadonly: boolean
+  /** 智慧迎新只读 */
+  smartOrientation: boolean
 }
 
 const FULL_POLICY: AppStoreFeaturePolicy = Object.freeze({
@@ -186,7 +188,8 @@ const FULL_POLICY: AppStoreFeaturePolicy = Object.freeze({
   campusMap: true,
   resourceShare: true,
   chaoxingClass: true,
-  academicReadonly: true
+  academicReadonly: true,
+  smartOrientation: true
 })
 
 const APP_STORE_POLICY: AppStoreFeaturePolicy = Object.freeze({
@@ -212,7 +215,8 @@ const APP_STORE_POLICY: AppStoreFeaturePolicy = Object.freeze({
   campusMap: true,
   resourceShare: false,
   chaoxingClass: false,
-  academicReadonly: true
+  academicReadonly: true,
+  smartOrientation: false
 })
 
 export function getFeaturePolicy(session?: {
@@ -235,6 +239,7 @@ export const APP_STORE_BLOCKED_MODULE_IDS: ReadonlySet<string> = Object.freeze(
     'resource_share',
     'chaoxing_class',
     'towergo',
+    'smart_orientation',
     'ai',
     'forum',
     'more',
