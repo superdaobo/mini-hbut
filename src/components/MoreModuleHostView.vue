@@ -334,13 +334,45 @@ watch(
   { immediate: true }
 )
 
-const handleAppEmbedResumeEvent = (event) => {
+const handleAppEmbedResumeEvent = async (event) => {
   const view = String(event?.detail?.view || '')
   if (view && view !== 'more_module_host') return
-  // 后台恢复：强制换 key remount iframe，并清空错误态
+
+  const detail = event?.detail || {}
+  const usesLoopback = isLocalModuleBridgePreviewUrl(safeText(previewUrl.value))
+  let bridgeOk = detail.bridgeOk !== false
+
+  // #453：loopback 模块在 resume 时先 ensure bridge，再 remount
+  if (usesLoopback && canUseLocalModuleBridgePreview()) {
+    try {
+      const { recoverSchoolWebsiteBridgeOnResume } = await import('../utils/school_website_embed')
+      bridgeOk = await recoverSchoolWebsiteBridgeOnResume()
+    } catch {
+      bridgeOk = false
+    }
+  }
+
   loadError.value = ''
   loadHint.value = ''
+  externalOpenUrl.value = ''
   usedCapacitorLocalFallback.value = false
+
+  if (usesLoopback && !bridgeOk) {
+    // Bridge 仍死：优先 Capacitor 本地降级，否则可操作错误（重试/外开/回更多）
+    if (tryCapacitorLocalFallback()) {
+      return
+    }
+    loading.value = false
+    loadError.value =
+      '模块本地服务暂时不可用。可点右上角重试；或返回更多页重新进入/下载模块。'
+    const raw = safeText(props.session?.open_url || props.session?.preview_url)
+    if (raw && raw.startsWith('http') && !isLocalModuleBridgePreviewUrl(raw)) {
+      externalOpenUrl.value = raw
+    }
+    return
+  }
+
+  // 后台恢复：强制换 key remount iframe
   reloadFrame()
 }
 

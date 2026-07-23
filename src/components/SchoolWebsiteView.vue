@@ -37,11 +37,17 @@ const clearLoadingGuardTimer = () => {
   }
 }
 
-const showBridgeUnavailable = () => {
+const showBridgeUnavailable = (reason = 'bridge') => {
   clearLoadingGuardTimer()
   loading.value = false
   loadHint.value = ''
-  loadError.value = '本地桥接服务不可用，无法在应用内加载学校官网，请点击下方按钮在浏览器中打开。'
+  // Android 等不走 loopback 的路径：避免误导为「HTTP 桥」
+  if (reason === 'external-only' || reason === 'android') {
+    loadError.value = '当前环境无法在应用内嵌学校官网，请点击下方按钮在系统浏览器中打开。'
+    return
+  }
+  loadError.value =
+    '本地桥接服务暂时不可用，无法在应用内加载学校官网。可点「重试加载」；若仍失败请在浏览器中打开。'
 }
 
 const resetIframeState = () => {
@@ -103,7 +109,10 @@ const mountEmbed = async () => {
   embedMode.value = await resolveSchoolWebsiteEmbedMode()
 
   if (embedMode.value === 'external-open') {
-    showBridgeUnavailable()
+    // Tauri Android 固定 external-open：文案不提「桥接」
+    const androidLike =
+      typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '')
+    showBridgeUnavailable(androidLike ? 'android' : 'external-only')
     return
   }
 
@@ -132,18 +141,29 @@ const mountEmbed = async () => {
   resetIframeState()
 }
 
-/** 后台恢复：重新探测 bridge 并 remount iframe / native embed */
-const remountAfterResume = async () => {
+/** 后台恢复：ensure bridge → 再 remount iframe / native embed（#453） */
+const remountAfterResume = async (eventDetail = null) => {
   loading.value = true
   loadError.value = ''
   loadHint.value = ''
+  try {
+    const { recoverSchoolWebsiteBridgeOnResume } = await import('../utils/school_website_embed')
+    await recoverSchoolWebsiteBridgeOnResume()
+  } catch {
+    // ensure 失败仍继续 remount，由 resolveSchoolWebsiteEmbedMode 决定降级
+  }
   await cleanupEmbed()
   await nextTick()
   await mountEmbed()
+  // forceFallback 且仍 external-open：保证用户看到可操作出口（已有重试/外开按钮）
+  if (eventDetail?.forceFallback && embedMode.value === 'external-open' && !loadError.value) {
+    showBridgeUnavailable('bridge')
+  }
 }
 
 const handleRetryEmbed = () => {
-  void remountAfterResume()
+  // 用户主动重试：同样走 ensure + remount
+  void remountAfterResume({ forceFallback: true })
 }
 
 /** #373：先关子 WebView 再返回，避免卸载竞态把内嵌撑成无返回全屏 */
@@ -189,7 +209,7 @@ const handleAppEmbedResumeEvent = (event) => {
   // 必须明确是 school_website：空 detail 时禁止 remount（会把已关闭的子 WebView 又拉起来）
   const view = String(event?.detail?.view || '')
   if (view !== 'school_website') return
-  void remountAfterResume()
+  void remountAfterResume(event?.detail || null)
 }
 
 onMounted(() => {
