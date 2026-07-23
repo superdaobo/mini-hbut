@@ -416,9 +416,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 页级背景对齐成绩查询：中性浅底，避免 --ui-bg-gradient 蓝青全页染色 */
 .training-plan-view {
   min-height: 100vh;
-  background: var(--ui-bg-gradient, #f5f7fa);
+  background: #f6fafe;
   color: var(--ui-text);
 }
 
@@ -427,27 +428,32 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  background: var(--ui-surface);
+  background: rgba(246, 250, 254, 0.86);
   color: var(--ui-text);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .back-btn,
 .logout-btn {
   padding: 8px 16px;
-  border-radius: 8px;
-  border: none;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
   cursor: pointer;
-  background: var(--ui-primary-soft);
+  background: #eff6ff;
   color: var(--ui-primary);
+  font-weight: 700;
 }
 
 .filters {
-  background: var(--ui-surface);
+  background: #ffffff;
   margin: 16px;
   padding: 16px;
-  border-radius: 12px;
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+  animation: training-fade-up 0.28s ease both;
 }
 
 .filter-grid {
@@ -471,10 +477,10 @@ onMounted(async () => {
 .filter-grid select,
 .filter-grid input {
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--ui-surface-border);
   font-size: 13px;
-  background: var(--ui-surface);
+  background: #f0f4f8;
   color: var(--ui-text);
 }
 
@@ -493,7 +499,7 @@ onMounted(async () => {
 
 .filter-actions button {
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: none;
   cursor: pointer;
   font-weight: 600;
@@ -505,12 +511,14 @@ onMounted(async () => {
 }
 
 .filter-actions .ghost {
-  background: var(--ui-primary-soft);
+  background: #eff6ff;
   color: var(--ui-primary);
 }
 
 .content {
   padding: 0 16px 24px;
+  animation: training-fade-up 0.32s ease both;
+  animation-delay: 0.04s;
 }
 
 .state {
@@ -529,24 +537,26 @@ onMounted(async () => {
 }
 
 .course-card {
-  background: var(--ui-surface);
+  background: #ffffff;
   border-radius: 16px;
   padding: 16px;
-  border: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  animation: training-fade-up 0.3s ease both;
 }
 
 .course-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--ui-shadow-strong);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px -8px rgba(15, 23, 42, 0.14);
+  border-color: color-mix(in oklab, var(--ui-primary) 28%, transparent);
 }
 
 .course-title {
   font-size: 16px;
-  font-weight: 700;
-  color: var(--ui-text);
+  font-weight: 800;
+  color: #1e293b;
   margin-bottom: 10px;
 }
 
@@ -561,19 +571,21 @@ onMounted(async () => {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
+  background: #eff6ff;
+  color: #2563eb;
   font-weight: 600;
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, transparent);
 }
 
 .tag.primary {
-  background: var(--ui-primary-soft-strong);
-  color: var(--ui-primary);
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 .tag.ghost {
-  background: color-mix(in oklab, var(--ui-success, #10b981) 14%, transparent);
-  color: var(--ui-success);
+  background: #d1fae5;
+  color: #047857;
+  border-color: color-mix(in oklab, var(--ui-success, #10b981) 28%, transparent);
 }
 
 .course-sub {
@@ -599,9 +611,9 @@ onMounted(async () => {
 
 .pagination button {
   padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--ui-surface-border);
-  background: var(--ui-surface);
+  border-radius: 10px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #ffffff;
   color: var(--ui-text);
   cursor: pointer;
 }
@@ -623,12 +635,13 @@ onMounted(async () => {
 }
 
 .modal-content {
-  background: var(--ui-surface);
-  border-radius: 16px;
+  background: #ffffff;
+  border-radius: 18px;
   width: min(520px, 100%);
   padding: 20px;
-  border: 1px solid var(--ui-surface-border);
+  border: 1px solid rgba(226, 232, 240, 0.9);
   box-shadow: var(--ui-shadow-strong);
+  animation: training-slide-up 0.28s ease;
 }
 
 .modal-header {
@@ -641,7 +654,8 @@ onMounted(async () => {
 .modal-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--ui-text);
+  color: #1e293b;
+  font-weight: 800;
 }
 
 .close-btn {
@@ -649,7 +663,7 @@ onMounted(async () => {
   height: 28px;
   border-radius: 50%;
   border: none;
-  background: var(--ui-primary-soft);
+  background: #eff6ff;
   color: var(--ui-primary);
   font-size: 18px;
   cursor: pointer;
@@ -682,10 +696,49 @@ onMounted(async () => {
 .offline-banner {
   margin: 12px 16px 0;
   padding: 10px 14px;
-  background: color-mix(in oklab, var(--ui-danger, #ef4444) 14%, var(--ui-surface, #fff) 86%);
-  border: 1px solid color-mix(in oklab, var(--ui-danger, #ef4444) 36%, transparent);
-  color: var(--ui-danger, #b91c1c);
+  background: #fef3c7;
+  border: 1px solid color-mix(in oklab, #f59e0b 36%, transparent);
+  color: #b45309;
   border-radius: 12px;
   font-weight: 600;
+}
+
+@keyframes training-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes training-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filters,
+  .content,
+  .course-card,
+  .modal-content {
+    animation: none;
+  }
+
+  .course-card {
+    transition: none;
+  }
+
+  .course-card:hover {
+    transform: none;
+  }
 }
 </style>

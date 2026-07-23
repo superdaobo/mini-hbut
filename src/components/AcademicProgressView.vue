@@ -367,9 +367,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 页级背景对齐成绩查询：中性浅底，避免 --ui-bg-gradient 蓝青全页染色 */
 .progress-view {
   min-height: 100vh;
-  background: var(--ui-bg-gradient, #f5f7fa);
+  background: #f6fafe;
   color: var(--ui-text);
 }
 
@@ -378,9 +379,11 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  background: var(--ui-surface);
-  border-bottom: 1px solid var(--ui-surface-border);
-  box-shadow: var(--ui-shadow-soft);
+  background: rgba(246, 250, 254, 0.86);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.86);
+  box-shadow: none;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .back-btn {
@@ -388,7 +391,7 @@ onMounted(() => {
   padding: 0 12px;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--ui-primary) 26%, transparent);
-  background: var(--ui-primary-soft);
+  background: #eff6ff;
   color: var(--ui-primary);
   font-weight: 700;
   cursor: pointer;
@@ -397,15 +400,17 @@ onMounted(() => {
 .view-header h1 {
   margin: 0;
   font-size: 20px;
+  font-weight: 800;
+  color: #1e293b;
 }
 
 .offline-banner {
   margin: 12px 16px 0;
   padding: 10px 12px;
   border-radius: 12px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, var(--ui-surface, #fff) 86%);
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 36%, transparent);
-  color: var(--ui-danger);
+  background: #fef3c7;
+  border: 1px solid color-mix(in oklab, #f59e0b 36%, transparent);
+  color: #b45309;
   font-weight: 600;
   font-size: 13px;
 }
@@ -414,12 +419,13 @@ onMounted(() => {
   margin: 12px 16px 0;
   padding: 12px;
   border-radius: 14px;
-  border: 1px solid var(--ui-surface-border);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #ffffff;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
   display: flex;
   align-items: center;
   gap: 10px;
+  animation: progress-fade-up 0.28s ease both;
 }
 
 .controls label {
@@ -445,12 +451,14 @@ onMounted(() => {
   padding: 24px 12px;
   color: var(--ui-muted);
   border-radius: 14px;
-  border: 1px solid var(--ui-surface-border);
-  background: var(--ui-surface);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #ffffff;
 }
 
 .content {
   padding: 12px 14px 120px;
+  animation: progress-fade-up 0.32s ease both;
+  animation-delay: 0.04s;
 }
 
 .summary-card {
@@ -460,10 +468,11 @@ onMounted(() => {
 }
 
 .summary-item {
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: var(--ui-surface);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px -4px rgba(15, 23, 42, 0.06);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -477,6 +486,7 @@ onMounted(() => {
 .summary-value {
   font-size: 14px;
   font-weight: 700;
+  color: #1e293b;
 }
 
 .category-section {
@@ -487,11 +497,12 @@ onMounted(() => {
 }
 
 .category-card {
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 14px;
-  padding: 12px;
-  background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-soft);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+  animation: progress-fade-up 0.3s ease both;
 }
 
 .category-header {
@@ -504,6 +515,8 @@ onMounted(() => {
 .category-header h2 {
   margin: 0;
   font-size: 16px;
+  font-weight: 800;
+  color: #1e293b;
 }
 
 .category-path,
@@ -517,8 +530,8 @@ onMounted(() => {
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
-  background: var(--ui-primary-soft);
-  color: var(--ui-primary);
+  background: #eff6ff;
+  color: #2563eb;
   font-size: 12px;
   font-weight: 700;
   display: inline-flex;
@@ -533,10 +546,10 @@ onMounted(() => {
 }
 
 .course-card {
-  border: 1px solid var(--ui-surface-border);
-  border-radius: 10px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 62%, var(--ui-surface, #fff) 38%);
-  padding: 8px 10px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
   text-align: left;
   cursor: pointer;
   width: 100%;
@@ -546,6 +559,13 @@ onMounted(() => {
   align-items: flex-start;
   white-space: normal;
   overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.course-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px -6px rgba(15, 23, 42, 0.12);
+  border-color: color-mix(in oklab, var(--ui-primary) 28%, transparent);
 }
 
 .course-title {
@@ -557,6 +577,7 @@ onMounted(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  color: #1e293b;
 }
 
 .course-meta {
@@ -575,8 +596,9 @@ onMounted(() => {
   min-height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 50%, #fff 50%);
+  background: #eff6ff;
   border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, transparent);
+  color: #334155;
 }
 
 .status-pill {
@@ -586,25 +608,25 @@ onMounted(() => {
 }
 
 .state-done {
-  background: color-mix(in oklab, var(--ui-success, #10b981) 18%, var(--ui-surface, #fff) 82%);
-  color: var(--ui-success, #0f9f6e);
+  background: #d1fae5;
+  color: #047857;
   border-color: color-mix(in oklab, var(--ui-success, #10b981) 40%, transparent);
 }
 
 .state-todo {
-  background: color-mix(in oklab, var(--ui-danger, #ef4444) 16%, var(--ui-surface, #fff) 84%);
-  color: var(--ui-danger, #dc2626);
+  background: #fee2e2;
+  color: #dc2626;
   border-color: color-mix(in oklab, var(--ui-danger, #ef4444) 40%, transparent);
 }
 
 .state-pending {
-  background: color-mix(in oklab, var(--ui-warning, #f59e0b) 18%, var(--ui-surface, #fff) 82%);
-  color: var(--ui-warning, #c26c00);
+  background: #fef3c7;
+  color: #b45309;
   border-color: color-mix(in oklab, var(--ui-warning, #f59e0b) 40%, transparent);
 }
 
 .state-unknown {
-  background: color-mix(in oklab, var(--ui-primary-soft) 55%, var(--ui-surface, #fff) 45%);
+  background: #eff6ff;
   color: var(--ui-primary);
   border-color: color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
@@ -624,11 +646,12 @@ onMounted(() => {
   width: min(920px, 100%);
   max-height: min(86vh, 860px);
   overflow: auto;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 18px;
   box-shadow: var(--ui-shadow-strong);
   padding: 16px;
+  animation: progress-slide-up 0.28s ease;
 }
 
 .modal-close {
@@ -637,7 +660,7 @@ onMounted(() => {
   height: 30px;
   border-radius: 999px;
   border: 1px solid color-mix(in oklab, var(--ui-primary) 22%, transparent);
-  background: var(--ui-primary-soft);
+  background: #eff6ff;
   color: var(--ui-primary);
   font-size: 18px;
   font-weight: 700;
@@ -662,7 +685,7 @@ onMounted(() => {
   min-height: 24px;
   padding: 0 8px;
   border-radius: 999px;
-  background: var(--ui-primary-soft);
+  background: #eff6ff;
   color: var(--ui-primary);
   font-size: 12px;
   display: inline-flex;
@@ -683,10 +706,10 @@ onMounted(() => {
 }
 
 .detail-item {
-  border: 1px solid var(--ui-surface-border);
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 10px;
   padding: 8px 10px;
-  background: color-mix(in oklab, var(--ui-primary-soft) 62%, var(--ui-surface, #fff) 38%);
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -702,6 +725,45 @@ onMounted(() => {
   line-height: 1.35;
   word-break: break-word;
   white-space: pre-wrap;
+}
+
+@keyframes progress-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes progress-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .controls,
+  .content,
+  .category-card,
+  .modal-content {
+    animation: none;
+  }
+
+  .course-card {
+    transition: none;
+  }
+
+  .course-card:hover {
+    transform: none;
+  }
 }
 
 @media (max-width: 760px) {
