@@ -183,7 +183,7 @@ onMounted(load)
 
       <template v-else>
         <section v-if="showMessages && messages.length" class="so-section">
-          <h2 class="so-section-title">消息通知</h2>
+          <h2 class="so-section-title">事项与进度</h2>
           <article
             v-for="m in messages"
             :key="m.id"

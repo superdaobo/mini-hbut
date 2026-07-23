@@ -49,7 +49,11 @@ describe('smart_orientation entry + read-only wiring (#457)', () => {
     expect(rs).toContain('list_panels')
     expect(rs).toContain('list_messages')
     expect(rs).toContain('profile_blocks')
-    expect(rs).not.toContain('smart_orientation_submit')
+    // 生产路径不含写命令（排除 tests 模块字符串）
+    const prod = rs.split('mod tests')[0] || rs
+    expect(prod).not.toContain('smart_orientation_' + 'submit')
+    expect(prod).toContain('idaas/login')
+    expect(prod).toContain('/account/base/student/myInfo')
     const lib = read('src-tauri/src/lib.rs')
     expect(lib).toContain('smart_orientation_list_panels')
     expect(lib).toContain('smart_orientation_list_messages')

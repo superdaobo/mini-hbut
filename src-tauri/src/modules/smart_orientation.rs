@@ -1,39 +1,37 @@
-//! 智慧迎新只读模块（#458）
+//! 智慧迎新只读（#457 / #458）
 //!
-//! - 复用 `HbutClient` CookieJar（融合门户 / CAS 会话）
-//! - 按协议候选 base/path 尝试 live GET；失败回落 fixtures
-//! - **禁止**任何填报/提交/上传写操作
+//! 实测入口（**手机 UA** 融合门户）：
+//! - `e.hbut.edu.cn` 办事大厅 → 综合 → 智慧迎新
+//! - 落地：`https://stu.hbut.edu.cn/app/welcome/#/welcome/index`
+//!
+//! 鉴权：
+//! 1. CAS `auth.hbut.edu.cn/authserver/login?service=https://stu.hbut.edu.cn/app/welcome/`
+//! 2. 带 `ticket` 回跳后 `POST /account/sys/user/idaas/login`
+//!    body: `{ ticket, platform: "welcome", appKey: "welcome", type: 1 }`
+//! 3. 后续请求 Header：`token: <data.token>`
+//!
+//! **禁止** save/update/upload 等写接口。
 
 use crate::http_client::HbutClient;
 use chrono::Local;
-use reqwest::cookie::CookieStore;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
-/// 协议文档候选 base（ASSUMPTION，见 docs/protocol/smart-orientation.md）
-const BASE_CANDIDATES: &[&str] = &[
-    "https://xg.hbut.edu.cn",
-    "https://yx.hbut.edu.cn",
-    "https://e.hbut.edu.cn",
-];
+const MOBILE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
+const WELCOME_BASE: &str = "https://stu.hbut.edu.cn";
+const WELCOME_APP: &str = "https://stu.hbut.edu.cn/app/welcome/";
+const CAS_LOGIN: &str = "https://auth.hbut.edu.cn/authserver/login";
+const APP_KEY: &str = "welcome";
 
-const OVERVIEW_PATHS: &[&str] = &[
-    "/api/orientation/overview",
-    "/api/yingxin/home",
-    "/open/orientation/panels",
-];
-
-const MESSAGES_PATHS: &[&str] = &["/api/orientation/messages", "/api/yingxin/notice/list"];
-
-const MENTOR_PATHS: &[&str] = &["/api/orientation/mentor", "/api/yingxin/classAdvisor"];
-const COUNSELOR_PATHS: &[&str] = &["/api/orientation/counselor", "/api/yingxin/counselor"];
-const DORM_PATHS: &[&str] = &["/api/orientation/dorm", "/api/yingxin/dormitory"];
-const PROFILE_PATHS: &[&str] = &["/api/orientation/profile", "/api/yingxin/student/info"];
-
-const FIXTURE_OVERVIEW: &str = include_str!("../../tests/fixtures/smart-orientation/overview.json");
-const FIXTURE_MESSAGES: &str = include_str!("../../tests/fixtures/smart-orientation/messages.json");
-const FIXTURE_PROFILE_BLOCKS: &str =
-    include_str!("../../tests/fixtures/smart-orientation/profile_blocks.json");
+const FIXTURE_STUDENT: &str =
+    include_str!("../../tests/fixtures/smart-orientation/student_myInfo.json");
+const FIXTURE_TEACHER: &str = include_str!("../../tests/fixtures/smart-orientation/myTeacher.json");
+const FIXTURE_BED: &str = include_str!("../../tests/fixtures/smart-orientation/bed_myInfo.json");
+const FIXTURE_CONFIG: &str =
+    include_str!("../../tests/fixtures/smart-orientation/config_myInfo.json");
+const FIXTURE_FORECAST: &str =
+    include_str!("../../tests/fixtures/smart-orientation/forecast_myInfo.json");
 
 // ─── DTOs ───────────────────────────────────────────────────
 
@@ -179,14 +177,12 @@ pub struct OrientationProfileBlocksResponse {
     pub error: Option<String>,
 }
 
-// ─── Helpers ────────────────────────────────────────────────
-
 fn now_iso() -> String {
     Local::now().to_rfc3339()
 }
 
-fn json_string(value: Option<&Value>) -> String {
-    match value {
+fn json_str(v: Option<&Value>) -> String {
+    match v {
         Some(Value::String(s)) => s.trim().to_string(),
         Some(Value::Number(n)) => n.to_string(),
         Some(Value::Bool(b)) => b.to_string(),
@@ -194,99 +190,222 @@ fn json_string(value: Option<&Value>) -> String {
     }
 }
 
-fn looks_like_login_redirect(url: &str) -> bool {
-    let lower = url.to_lowercase();
-    lower.contains("authserver/login")
-        || (lower.contains("/login") && (lower.contains("cas") || lower.contains("passport")))
+fn data_obj(raw: &Value) -> Option<&Value> {
+    raw.get("data").filter(|d| !d.is_null())
 }
 
-fn has_portal_session_cookie(client: &HbutClient) -> bool {
-    let Ok(portal) = reqwest::Url::parse("https://e.hbut.edu.cn/") else {
-        return false;
-    };
-    let Ok(auth) = reqwest::Url::parse("https://auth.hbut.edu.cn/") else {
-        return false;
-    };
-    let jar = &client.cookie_jar;
-    let portal_cookie = jar
-        .cookies(&portal)
-        .and_then(|v| v.to_str().ok().map(|s| s.to_string()));
-    let auth_cookie = jar
-        .cookies(&auth)
-        .and_then(|v| v.to_str().ok().map(|s| s.to_string()));
-    let joined = format!(
-        "{} {}",
-        portal_cookie.unwrap_or_default(),
-        auth_cookie.unwrap_or_default()
-    );
-    let lower = joined.to_lowercase();
-    !joined.trim().is_empty()
-        && (lower.contains("castgc")
-            || lower.contains("happyvoyage")
-            || lower.contains("wiscpsid")
-            || lower.contains("mod_auth_cas")
-            || lower.contains("route")
-            || client.is_logged_in)
-}
-
-fn unwrap_data_payload(raw: &Value) -> &Value {
-    if let Some(data) = raw.get("data") {
-        return data;
-    }
-    if let Some(result) = raw.get("result") {
-        if result.is_object() || result.is_array() {
-            return result;
-        }
-    }
-    raw
-}
-
-fn is_business_ok(raw: &Value) -> bool {
+fn api_ok(raw: &Value) -> bool {
     match raw.get("code") {
         None => true,
-        Some(Value::Number(n)) => {
-            let v = n.as_i64().unwrap_or(-1);
-            v == 0 || v == 200
+        Some(Value::Number(n)) => n.as_i64() == Some(0) || n.as_i64() == Some(200),
+        Some(Value::String(s)) => s == "0" || s == "200" || s.eq_ignore_ascii_case("ok"),
+        _ => false,
+    }
+}
+
+/// 解析学生档案（`/account/base/student/myInfo`）
+pub fn parse_student_my_info(raw: &Value) -> Option<OrientationProfile> {
+    let d = data_obj(raw)?;
+    let name = json_str(d.get("studentName").or_else(|| d.get("name")));
+    let sid = json_str(
+        d.get("studentId")
+            .or_else(|| d.get("studentNo"))
+            .or_else(|| d.get("username")),
+    );
+    if name.is_empty() && sid.is_empty() {
+        return None;
+    }
+    let phone = json_str(d.get("phoneNumber").or_else(|| d.get("phone")));
+    let idc = json_str(d.get("idCard"));
+    Some(OrientationProfile {
+        student_id: sid,
+        name,
+        gender: non_empty(json_str(d.get("sexName").or_else(|| d.get("sex")))),
+        college: non_empty(json_str(d.get("collegeName"))),
+        major: non_empty(json_str(d.get("majorName"))),
+        class_name: non_empty(json_str(d.get("className"))),
+        grade: non_empty(json_str(d.get("grade").or_else(|| d.get("enrollmentYear")))),
+        education_level: non_empty(json_str(d.get("academicDegreeName"))),
+        id_number: non_empty(mask_id_card(&idc)),
+        phone: non_empty(mask_phone(&phone)),
+        orientation_status: non_empty(json_str(
+            d.get("studentStatusName")
+                .or_else(|| d.get("dormitoryInfo")),
+        )),
+    })
+}
+
+/// 解析辅导员/班导师（`/account/base/teacher/myTeacher`）
+pub fn parse_my_teacher(raw: &Value) -> (Option<OrientationPerson>, Option<OrientationPerson>) {
+    let Some(d) = data_obj(raw) else {
+        return (None, None);
+    };
+    let counselor = d.get("counselor").and_then(parse_person_obj);
+    let mentor = d
+        .get("classTeacher")
+        .or_else(|| d.get("class_teacher"))
+        .and_then(parse_person_obj);
+    (mentor, counselor)
+}
+
+fn parse_person_obj(v: &Value) -> Option<OrientationPerson> {
+    let name = json_str(v.get("name"));
+    if name.is_empty() {
+        return None;
+    }
+    let phone = json_str(v.get("phoneNumber").or_else(|| v.get("phone")));
+    let email = json_str(v.get("dzxx").or_else(|| v.get("email")));
+    let title = json_str(v.get("jszc").or_else(|| v.get("gwmc")));
+    Some(OrientationPerson {
+        name,
+        staff_id: non_empty(json_str(v.get("teacherId"))),
+        college: non_empty(json_str(v.get("orgName"))),
+        phone: non_empty(mask_phone(&phone)),
+        email: non_empty(email),
+        office: non_empty(json_str(v.get("gzdh"))),
+        remark: non_empty(title),
+    })
+}
+
+/// 解析宿舍床位（`/dormitory-accommodation/dormitory/student/bed/myInfo`）
+pub fn parse_bed_my_info(raw: &Value) -> Option<OrientationDorm> {
+    let d = data_obj(raw)?;
+    let building = json_str(d.get("buildingName"));
+    let room = json_str(d.get("houseName"));
+    let bed = json_str(d.get("bedName"));
+    let area = json_str(d.get("areaName"));
+    let campus = json_str(d.get("campusName"));
+    if building.is_empty() && room.is_empty() && bed.is_empty() {
+        return None;
+    }
+    let type_name = json_str(d.get("typeName"));
+    let checkin = json_str(d.get("checkinTime"));
+    let mut remark_parts = Vec::new();
+    if !type_name.is_empty() {
+        remark_parts.push(type_name);
+    }
+    if !checkin.is_empty() {
+        remark_parts.push(format!("入住 {checkin}"));
+    }
+    Some(OrientationDorm {
+        campus: non_empty(if area.is_empty() {
+            campus
+        } else {
+            format!("{campus} {area}").trim().to_string()
+        }),
+        building: non_empty(building),
+        room: non_empty(room),
+        bed: non_empty(bed),
+        status: Some(if d.get("isPublish").and_then(|v| v.as_i64()) == Some(1) {
+            "已分配".into()
+        } else {
+            "未发布".into()
+        }),
+        remark: non_empty(remark_parts.join(" · ")),
+    })
+}
+
+/// 配置步骤 → 消息/状态列表（`/account/base/student/config/myInfo`）
+pub fn parse_config_steps(raw: &Value) -> Vec<OrientationMessage> {
+    let Some(arr) = data_obj(raw).and_then(|d| d.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        let id = json_str(item.get("id").or_else(|| item.get("type")));
+        let title = json_str(item.get("name"));
+        if title.is_empty() {
+            continue;
         }
-        Some(Value::String(s)) => {
-            let t = s.trim();
-            t.is_empty() || t == "0" || t == "200" || t.eq_ignore_ascii_case("ok") || t == "1"
+        let brief = json_str(item.get("brief"));
+        let done = item.get("isComplete").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+        let status = item.get("status").and_then(|v| v.as_i64()).unwrap_or(0);
+        let status_txt = match status {
+            2 if done => "已完成",
+            1 => "进行中",
+            0 => "未开始",
+            _ if done => "已完成",
+            _ => "状态未知",
+        };
+        out.push(OrientationMessage {
+            id: if id.is_empty() {
+                format!("step-{}", out.len() + 1)
+            } else {
+                id
+            },
+            title,
+            summary: format!("{status_txt} · {brief}"),
+            body: brief,
+            published_at: json_str(item.get("endTime")),
+            is_read: done,
+            category: Some("info_step".into()),
+        });
+    }
+    out
+}
+
+/// 预报到事项（`/welcome-forecast/student/forecast/myInfo`）
+pub fn parse_forecast_items(raw: &Value) -> Vec<OrientationMessage> {
+    let Some(arr) = data_obj(raw).and_then(|d| d.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        let id = json_str(item.get("id").or_else(|| item.get("type")));
+        let title = json_str(item.get("name"));
+        if title.is_empty() {
+            continue;
         }
-        _ => true,
+        let brief = json_str(item.get("brief"));
+        let done = json_str(item.get("doneStatus")) == "1";
+        out.push(OrientationMessage {
+            id: if id.is_empty() {
+                format!("fc-{}", out.len() + 1)
+            } else {
+                id
+            },
+            title,
+            summary: format!("{} · {}", if done { "已完成" } else { "未完成" }, brief),
+            body: brief,
+            published_at: json_str(item.get("applyTime")),
+            is_read: done,
+            category: Some("forecast".into()),
+        });
+    }
+    out
+}
+
+fn non_empty(s: String) -> Option<String> {
+    let t = s.trim().to_string();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
     }
 }
 
-// ─── Fixture loaders ────────────────────────────────────────
-
-pub fn parse_panels_fixture(raw: &str) -> Result<OrientationPanelsResponse, String> {
-    let mut resp: OrientationPanelsResponse =
-        serde_json::from_str(raw).map_err(|e| format!("overview fixture 解析失败: {e}"))?;
-    if resp.fetched_at.is_empty() {
-        resp.fetched_at = now_iso();
+fn mask_phone(s: &str) -> String {
+    let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() == 11 {
+        format!("{}****{}", &digits[..3], &digits[7..])
+    } else {
+        s.to_string()
     }
-    resp.panels.sort_by_key(|p| p.order);
-    Ok(resp)
 }
 
-pub fn parse_messages_fixture(raw: &str) -> Result<OrientationMessagesResponse, String> {
-    let mut resp: OrientationMessagesResponse =
-        serde_json::from_str(raw).map_err(|e| format!("messages fixture 解析失败: {e}"))?;
-    if resp.fetched_at.is_empty() {
-        resp.fetched_at = now_iso();
+fn mask_id_card(s: &str) -> String {
+    let t = s.trim();
+    if t.len() >= 15 {
+        format!(
+            "{}**********{}",
+            &t[..4.min(t.len())],
+            &t[t.len().saturating_sub(4)..]
+        )
+    } else {
+        t.to_string()
     }
-    Ok(resp)
 }
 
-pub fn parse_profile_blocks_fixture(raw: &str) -> Result<OrientationProfileBlocksResponse, String> {
-    let mut resp: OrientationProfileBlocksResponse =
-        serde_json::from_str(raw).map_err(|e| format!("profile_blocks fixture 解析失败: {e}"))?;
-    if resp.fetched_at.is_empty() {
-        resp.fetched_at = now_iso();
-    }
-    Ok(resp)
-}
-
-/// 仅当显式开启开发样例时，生产路径才可回落 fixture（默认关闭，避免伪造迎新字段）
 fn orientation_demo_allowed() -> bool {
     match std::env::var("MINI_HBUT_ORIENTATION_DEMO") {
         Ok(v) => {
@@ -297,33 +416,388 @@ fn orientation_demo_allowed() -> bool {
     }
 }
 
-/// 空 overview（无样例人名/宿舍等）
-fn empty_panels(notice: Option<&str>, error: Option<&str>) -> OrientationPanelsResponse {
+// ─── HTTP helpers ───────────────────────────────────────────
+
+fn mobile_headers() -> HeaderMap {
+    let mut h = HeaderMap::new();
+    h.insert(USER_AGENT, HeaderValue::from_static(MOBILE_UA));
+    h.insert(
+        "Accept",
+        HeaderValue::from_static("application/json, text/plain, */*"),
+    );
+    h.insert(
+        "X-Requested-With",
+        HeaderValue::from_static("XMLHttpRequest"),
+    );
+    h
+}
+
+fn extract_ticket(url: &str) -> Option<String> {
+    let u = reqwest::Url::parse(url).ok()?;
+    u.query_pairs()
+        .find(|(k, _)| k == "ticket")
+        .map(|(_, v)| v.to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// CAS + idaas 换 token（依赖 HbutClient 已有融合门户/CAS cookie）
+async fn mint_welcome_token(client: &HbutClient) -> Result<String, String> {
+    let http = client.http_client();
+    let service = WELCOME_APP;
+    let cas_url = format!("{CAS_LOGIN}?service={}", urlencoding::encode(service));
+    let resp = http
+        .get(&cas_url)
+        .headers(mobile_headers())
+        .send()
+        .await
+        .map_err(|e| format!("CAS 跳转失败: {e}"))?;
+    let final_url = resp.url().to_string();
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+
+    let mut ticket = extract_ticket(&final_url);
+    if ticket.is_none() {
+        // 偶发 ticket 在 HTML 重定向链接中
+        if let Ok(re) = regex::Regex::new(r#"ticket=([^&"'\s]+)"#) {
+            if let Some(c) = re.captures(&body) {
+                ticket = c.get(1).map(|m| {
+                    urlencoding::decode(m.as_str())
+                        .map(|c| c.into_owned())
+                        .unwrap_or_else(|_| m.as_str().to_string())
+                });
+            }
+        }
+    }
+    let ticket = ticket.ok_or_else(|| {
+        if final_url.contains("authserver/login") {
+            "融合门户会话已过期，请重新登录后再打开智慧迎新".to_string()
+        } else {
+            format!("未获取 CAS ticket（HTTP {status}）")
+        }
+    })?;
+
+    let payload = json!({
+        "ticket": ticket,
+        "platform": APP_KEY,
+        "appKey": APP_KEY,
+        "type": 1
+    });
+    let login_url = format!("{WELCOME_BASE}/account/sys/user/idaas/login");
+    let login_resp = http
+        .post(&login_url)
+        .headers(mobile_headers())
+        .header("Content-Type", "application/json")
+        .header("Origin", WELCOME_BASE)
+        .header("Referer", WELCOME_APP)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("idaas 登录失败: {e}"))?;
+    let login_json: Value = login_resp
+        .json()
+        .await
+        .map_err(|e| format!("idaas 响应解析失败: {e}"))?;
+    if !api_ok(&login_json) {
+        let msg = json_str(login_json.get("msg").or_else(|| login_json.get("message")));
+        return Err(if msg.is_empty() {
+            "智慧迎新 idaas 登录失败".into()
+        } else {
+            msg
+        });
+    }
+    let token = json_str(
+        login_json
+            .get("data")
+            .and_then(|d| d.get("token"))
+            .or_else(|| login_json.get("token")),
+    );
+    if token.is_empty() {
+        return Err("idaas 未返回 token".into());
+    }
+    Ok(token)
+}
+
+async fn get_json_with_token(
+    client: &HbutClient,
+    token: &str,
+    path: &str,
+) -> Result<Value, String> {
+    let url = if path.starts_with("http") {
+        path.to_string()
+    } else {
+        format!("{WELCOME_BASE}{path}")
+    };
+    let resp = client
+        .http_client()
+        .get(&url)
+        .headers(mobile_headers())
+        .header("token", token)
+        .header("Referer", WELCOME_APP)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败 {path}: {e}"))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if status.as_u16() == 403 || text.contains("token失效") {
+        return Err("会话已过期".into());
+    }
+    serde_json::from_str(&text).map_err(|e| {
+        format!(
+            "JSON 解析失败 {path}: {e}; body={}",
+            text.chars().take(120).collect::<String>()
+        )
+    })
+}
+
+async fn fetch_live_bundle(
+    client: &HbutClient,
+) -> Result<
+    (
+        OrientationProfileBlocksResponse,
+        OrientationMessagesResponse,
+        OrientationPanelsResponse,
+    ),
+    String,
+> {
+    let token = mint_welcome_token(client).await?;
+
+    let student = get_json_with_token(client, &token, "/account/base/student/myInfo").await;
+    let teacher = get_json_with_token(client, &token, "/account/base/teacher/myTeacher").await;
+    let bed = get_json_with_token(
+        client,
+        &token,
+        "/dormitory-accommodation/dormitory/student/bed/myInfo",
+    )
+    .await;
+    let config = get_json_with_token(client, &token, "/account/base/student/config/myInfo").await;
+    let forecast =
+        get_json_with_token(client, &token, "/welcome-forecast/student/forecast/myInfo").await;
+    let test_pass = get_json_with_token(client, &token, "/welcome-forecast/test/isPass").await;
+    let forecast_done = get_json_with_token(
+        client,
+        &token,
+        "/welcome-forecast/student/forecast/isComplete",
+    )
+    .await;
+
+    let mut errors = Vec::new();
+    let profile = match &student {
+        Ok(v) => parse_student_my_info(v),
+        Err(e) => {
+            errors.push(format!("myInfo: {e}"));
+            None
+        }
+    };
+    let (mentor, counselor) = match &teacher {
+        Ok(v) => parse_my_teacher(v),
+        Err(e) => {
+            errors.push(format!("myTeacher: {e}"));
+            (None, None)
+        }
+    };
+    let dorm = match &bed {
+        Ok(v) => parse_bed_my_info(v),
+        Err(e) => {
+            errors.push(format!("bed: {e}"));
+            None
+        }
+    };
+
+    let mut messages = Vec::new();
+    if let Ok(v) = &config {
+        messages.extend(parse_config_steps(v));
+    } else if let Err(e) = &config {
+        errors.push(format!("config: {e}"));
+    }
+    if let Ok(v) = &forecast {
+        messages.extend(parse_forecast_items(v));
+    } else if let Err(e) = &forecast {
+        errors.push(format!("forecast: {e}"));
+    }
+    if let Ok(v) = &test_pass {
+        let pass = json_str(v.get("data").or_else(|| v.get("msg")));
+        if !pass.is_empty() {
+            messages.insert(
+                0,
+                OrientationMessage {
+                    id: "entry-test".into(),
+                    title: "入学测试".into(),
+                    summary: pass.clone(),
+                    body: pass,
+                    published_at: String::new(),
+                    is_read: true,
+                    category: Some("test".into()),
+                },
+            );
+        }
+    }
+    if let Ok(v) = &forecast_done {
+        let s = json_str(v.get("data").or_else(|| v.get("msg")));
+        if !s.is_empty() {
+            messages.insert(
+                0,
+                OrientationMessage {
+                    id: "forecast-complete".into(),
+                    title: "在线预报到".into(),
+                    summary: s.clone(),
+                    body: s,
+                    published_at: String::new(),
+                    is_read: true,
+                    category: Some("forecast".into()),
+                },
+            );
+        }
+    }
+
+    let has_any = profile.is_some()
+        || mentor.is_some()
+        || counselor.is_some()
+        || dorm.is_some()
+        || !messages.is_empty();
+
+    let notice = if has_any {
+        None
+    } else {
+        Some("已登录智慧迎新，但当前无可展示只读数据".into())
+    };
+
+    let blocks = OrientationProfileBlocksResponse {
+        mentor,
+        counselor,
+        dorm,
+        profile: profile.clone(),
+        fetched_at: now_iso(),
+        source: "live".into(),
+        demo: false,
+        notice: notice.clone(),
+        error: if errors.is_empty() {
+            None
+        } else {
+            Some(errors.join("; "))
+        },
+    };
+
+    let msgs = OrientationMessagesResponse {
+        items: messages,
+        fetched_at: now_iso(),
+        source: "live".into(),
+        demo: false,
+        notice: notice.clone(),
+        error: None,
+    };
+
+    let mut panels = vec![
+        OrientationPanel {
+            id: "messages".into(),
+            title: "事项与进度".into(),
+            summary: format!("{} 条", msgs.items.len()),
+            badge: if msgs.items.is_empty() {
+                None
+            } else {
+                Some(msgs.items.len().to_string())
+            },
+            order: 1,
+            icon_key: Some("messages".into()),
+        },
+        OrientationPanel {
+            id: "mentor".into(),
+            title: "班导师".into(),
+            summary: blocks
+                .mentor
+                .as_ref()
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "暂无".into()),
+            badge: None,
+            order: 2,
+            icon_key: Some("mentor".into()),
+        },
+        OrientationPanel {
+            id: "counselor".into(),
+            title: "辅导员".into(),
+            summary: blocks
+                .counselor
+                .as_ref()
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| "暂无".into()),
+            badge: None,
+            order: 3,
+            icon_key: Some("counselor".into()),
+        },
+        OrientationPanel {
+            id: "dorm".into(),
+            title: "宿舍信息".into(),
+            summary: blocks
+                .dorm
+                .as_ref()
+                .map(|d| {
+                    format!(
+                        "{} {} {}",
+                        d.building.clone().unwrap_or_default(),
+                        d.room.clone().unwrap_or_default(),
+                        d.bed.clone().map(|b| format!("{b}床")).unwrap_or_default()
+                    )
+                    .trim()
+                    .to_string()
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "暂无".into()),
+            badge: None,
+            order: 4,
+            icon_key: Some("dorm".into()),
+        },
+        OrientationPanel {
+            id: "profile".into(),
+            title: "个人信息".into(),
+            summary: profile
+                .as_ref()
+                .map(|p| format!("{} · {}", p.name, p.college.clone().unwrap_or_default()))
+                .unwrap_or_else(|| "暂无".into()),
+            badge: None,
+            order: 5,
+            icon_key: Some("profile".into()),
+        },
+    ];
+    panels.sort_by_key(|p| p.order);
+
+    let panels_resp = OrientationPanelsResponse {
+        panels,
+        fetched_at: now_iso(),
+        source: "live".into(),
+        demo: false,
+        notice,
+        error: if errors.is_empty() {
+            None
+        } else {
+            Some(errors.join("; "))
+        },
+    };
+
+    Ok((blocks, msgs, panels_resp))
+}
+
+fn empty_panels(notice: &str, error: Option<&str>) -> OrientationPanelsResponse {
     OrientationPanelsResponse {
         panels: vec![],
         fetched_at: now_iso(),
         source: "empty".into(),
         demo: false,
-        notice: notice.map(|s| s.to_string()),
-        error: error.map(|s| s.to_string()),
+        notice: Some(notice.into()),
+        error: error.map(|s| s.into()),
     }
 }
 
-fn empty_messages(notice: Option<&str>, error: Option<&str>) -> OrientationMessagesResponse {
+fn empty_messages(notice: &str, error: Option<&str>) -> OrientationMessagesResponse {
     OrientationMessagesResponse {
         items: vec![],
         fetched_at: now_iso(),
         source: "empty".into(),
         demo: false,
-        notice: notice.map(|s| s.to_string()),
-        error: error.map(|s| s.to_string()),
+        notice: Some(notice.into()),
+        error: error.map(|s| s.into()),
     }
 }
 
-fn empty_profile_blocks(
-    notice: Option<&str>,
-    error: Option<&str>,
-) -> OrientationProfileBlocksResponse {
+fn empty_blocks(notice: &str, error: Option<&str>) -> OrientationProfileBlocksResponse {
     OrientationProfileBlocksResponse {
         mentor: None,
         counselor: None,
@@ -332,676 +806,236 @@ fn empty_profile_blocks(
         fetched_at: now_iso(),
         source: "empty".into(),
         demo: false,
-        notice: notice.map(|s| s.to_string()),
-        error: error.map(|s| s.to_string()),
+        notice: Some(notice.into()),
+        error: error.map(|s| s.into()),
     }
 }
 
-/// 开发样例（仅 orientation_demo_allowed）
-fn fixture_panels(notice: &str) -> OrientationPanelsResponse {
-    let mut resp =
-        parse_panels_fixture(FIXTURE_OVERVIEW).unwrap_or_else(|_| empty_panels(Some(notice), None));
-    resp.source = "fixture".into();
-    resp.demo = true;
-    resp.notice = Some(notice.to_string());
-    resp.fetched_at = now_iso();
-    resp
-}
-
-fn fixture_messages(notice: &str) -> OrientationMessagesResponse {
-    let mut resp = parse_messages_fixture(FIXTURE_MESSAGES)
-        .unwrap_or_else(|_| empty_messages(Some(notice), None));
-    resp.source = "fixture".into();
-    resp.demo = true;
-    resp.notice = Some(notice.to_string());
-    resp.fetched_at = now_iso();
-    resp
-}
-
-fn fixture_profile_blocks(notice: &str) -> OrientationProfileBlocksResponse {
-    let mut resp = parse_profile_blocks_fixture(FIXTURE_PROFILE_BLOCKS)
-        .unwrap_or_else(|_| empty_profile_blocks(Some(notice), None));
-    resp.source = "fixture".into();
-    resp.demo = true;
-    resp.notice = Some(notice.to_string());
-    resp.fetched_at = now_iso();
-    resp
-}
-
-fn fallback_panels(notice: &str, error: Option<&str>) -> OrientationPanelsResponse {
-    if orientation_demo_allowed() {
-        let mut r = fixture_panels(notice);
-        if let Some(e) = error {
-            r.error = Some(e.to_string());
-        }
-        r
-    } else {
-        empty_panels(Some(notice), error)
+fn fixture_blocks() -> OrientationProfileBlocksResponse {
+    let student: Value = serde_json::from_str(FIXTURE_STUDENT).unwrap_or(json!({}));
+    let teacher: Value = serde_json::from_str(FIXTURE_TEACHER).unwrap_or(json!({}));
+    let bed: Value = serde_json::from_str(FIXTURE_BED).unwrap_or(json!({}));
+    let (mentor, counselor) = parse_my_teacher(&teacher);
+    OrientationProfileBlocksResponse {
+        mentor,
+        counselor,
+        dorm: parse_bed_my_info(&bed),
+        profile: parse_student_my_info(&student),
+        fetched_at: now_iso(),
+        source: "fixture".into(),
+        demo: true,
+        notice: Some("开发样例数据（MINI_HBUT_ORIENTATION_DEMO=1）".into()),
+        error: None,
     }
 }
 
-fn fallback_messages(notice: &str, error: Option<&str>) -> OrientationMessagesResponse {
-    if orientation_demo_allowed() {
-        let mut r = fixture_messages(notice);
-        if let Some(e) = error {
-            r.error = Some(e.to_string());
-        }
-        r
-    } else {
-        empty_messages(Some(notice), error)
+fn fixture_messages() -> OrientationMessagesResponse {
+    let config: Value = serde_json::from_str(FIXTURE_CONFIG).unwrap_or(json!({}));
+    let forecast: Value = serde_json::from_str(FIXTURE_FORECAST).unwrap_or(json!({}));
+    let mut items = parse_config_steps(&config);
+    items.extend(parse_forecast_items(&forecast));
+    OrientationMessagesResponse {
+        items,
+        fetched_at: now_iso(),
+        source: "fixture".into(),
+        demo: true,
+        notice: Some("开发样例数据（MINI_HBUT_ORIENTATION_DEMO=1）".into()),
+        error: None,
     }
-}
-
-fn fallback_profile_blocks(notice: &str, error: Option<&str>) -> OrientationProfileBlocksResponse {
-    if orientation_demo_allowed() {
-        let mut r = fixture_profile_blocks(notice);
-        if let Some(e) = error {
-            r.error = Some(e.to_string());
-        }
-        r
-    } else {
-        empty_profile_blocks(Some(notice), error)
-    }
-}
-
-// ─── Live HTTP (readonly GET only) ──────────────────────────
-
-async fn get_json_first_hit(
-    client: &HbutClient,
-    paths: &[&str],
-) -> Result<(String, Value), String> {
-    let http = client.http_client();
-    let mut last_err = String::from("无可用迎新只读接口");
-
-    for base in BASE_CANDIDATES {
-        for path in paths {
-            let url = format!("{base}{path}");
-            let response = match http
-                .get(&url)
-                .header("Accept", "application/json, text/plain, */*")
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Referer", format!("{base}/"))
-                .send()
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    last_err = format!("请求失败 {url}: {e}");
-                    continue;
-                }
-            };
-
-            let status = response.status();
-            let final_url = response.url().to_string();
-            if looks_like_login_redirect(&final_url) {
-                return Err("迎新会话已过期，请重新登录融合门户".into());
-            }
-            if !status.is_success() {
-                last_err = format!("HTTP {status} @ {url}");
-                continue;
-            }
-
-            let text = match response.text().await {
-                Ok(t) => t,
-                Err(e) => {
-                    last_err = format!("读取响应失败 {url}: {e}");
-                    continue;
-                }
-            };
-            if text.trim().is_empty() || text.trim_start().starts_with('<') {
-                last_err = format!("非 JSON 响应 @ {url}");
-                continue;
-            }
-            let raw: Value = match serde_json::from_str(&text) {
-                Ok(v) => v,
-                Err(e) => {
-                    last_err = format!("JSON 解析失败 {url}: {e}");
-                    continue;
-                }
-            };
-            if !is_business_ok(&raw) {
-                last_err = format!("业务码失败 @ {url}");
-                continue;
-            }
-            return Ok((url, raw));
-        }
-    }
-
-    Err(last_err)
-}
-
-fn parse_panels_live(raw: &Value) -> Option<Vec<OrientationPanel>> {
-    let data = unwrap_data_payload(raw);
-    let arr = data
-        .get("panels")
-        .or_else(|| data.get("list"))
-        .or_else(|| data.as_array().map(|_| data))
-        .and_then(|v| v.as_array())?;
-
-    let mut panels = Vec::new();
-    for (idx, row) in arr.iter().enumerate() {
-        let id = json_string(row.get("id").or_else(|| row.get("code")));
-        if id.is_empty() {
-            continue;
-        }
-        let title = json_string(row.get("title").or_else(|| row.get("name")));
-        let summary = json_string(row.get("summary").or_else(|| row.get("desc")));
-        let badge_raw = json_string(row.get("badge").or_else(|| row.get("unread")));
-        let order = row
-            .get("order")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(idx as i64) as i32;
-        let icon_key = {
-            let s = json_string(row.get("iconKey").or_else(|| row.get("icon")));
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
-        };
-        panels.push(OrientationPanel {
-            id,
-            title: if title.is_empty() {
-                "面板".into()
-            } else {
-                title
-            },
-            summary,
-            badge: if badge_raw.is_empty() {
-                None
-            } else {
-                Some(badge_raw)
-            },
-            order,
-            icon_key,
-        });
-    }
-    if panels.is_empty() {
-        None
-    } else {
-        panels.sort_by_key(|p| p.order);
-        Some(panels)
-    }
-}
-
-fn parse_messages_live(raw: &Value) -> Option<Vec<OrientationMessage>> {
-    let data = unwrap_data_payload(raw);
-    let arr = data
-        .get("items")
-        .or_else(|| data.get("list"))
-        .or_else(|| data.get("records"))
-        .or_else(|| data.as_array().map(|_| data))
-        .and_then(|v| v.as_array())?;
-
-    let mut items = Vec::new();
-    for row in arr {
-        let id = json_string(row.get("id").or_else(|| row.get("noticeId")));
-        if id.is_empty() {
-            continue;
-        }
-        let title = json_string(row.get("title"));
-        let summary = json_string(row.get("summary").or_else(|| row.get("content")));
-        let body = json_string(
-            row.get("body")
-                .or_else(|| row.get("content"))
-                .or_else(|| row.get("rtfContent")),
-        );
-        let published_at = json_string(
-            row.get("publishedAt")
-                .or_else(|| row.get("publishTime"))
-                .or_else(|| row.get("createTime"))
-                .or_else(|| row.get("releaseDate")),
-        );
-        let is_read = match row.get("isRead").or_else(|| row.get("read")) {
-            Some(Value::Bool(b)) => *b,
-            Some(Value::String(s)) => s == "1" || s.eq_ignore_ascii_case("true"),
-            Some(Value::Number(n)) => n.as_i64() == Some(1),
-            _ => false,
-        };
-        let category = {
-            let s = json_string(row.get("category").or_else(|| row.get("type")));
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
-        };
-        items.push(OrientationMessage {
-            id,
-            title: if title.is_empty() {
-                "迎新消息".into()
-            } else {
-                title
-            },
-            summary,
-            body,
-            published_at,
-            is_read,
-            category,
-        });
-    }
-    Some(items)
-}
-
-fn parse_person_live(raw: &Value) -> Option<OrientationPerson> {
-    let data = unwrap_data_payload(raw);
-    let obj = if data.is_object() {
-        data
-    } else {
-        return None;
-    };
-    let name = json_string(obj.get("name").or_else(|| obj.get("xm")));
-    if name.is_empty() {
-        return None;
-    }
-    let opt = |keys: &[&str]| -> Option<String> {
-        for k in keys {
-            let s = json_string(obj.get(*k));
-            if !s.is_empty() {
-                return Some(s);
-            }
-        }
-        None
-    };
-    Some(OrientationPerson {
-        name,
-        staff_id: opt(&["staffId", "gh", "jobNo"]),
-        college: opt(&["college", "xy", "dept"]),
-        phone: opt(&["phone", "mobile", "sjh"]),
-        email: opt(&["email", "yx"]),
-        office: opt(&["office", "bgdd"]),
-        remark: opt(&["remark", "note"]),
-    })
-}
-
-fn parse_dorm_live(raw: &Value) -> Option<OrientationDorm> {
-    let data = unwrap_data_payload(raw);
-    let obj = if data.is_object() {
-        data
-    } else {
-        return None;
-    };
-    let opt = |keys: &[&str]| -> Option<String> {
-        for k in keys {
-            let s = json_string(obj.get(*k));
-            if !s.is_empty() {
-                return Some(s);
-            }
-        }
-        None
-    };
-    let dorm = OrientationDorm {
-        campus: opt(&["campus", "xq"]),
-        building: opt(&["building", "ld", "ssl"]),
-        room: opt(&["room", "fj", "roomNo"]),
-        bed: opt(&["bed", "cwh"]),
-        status: opt(&["status", "rzzt"]),
-        remark: opt(&["remark", "note"]),
-    };
-    if dorm.campus.is_none() && dorm.building.is_none() && dorm.room.is_none() && dorm.bed.is_none()
-    {
-        return None;
-    }
-    Some(dorm)
-}
-
-fn parse_profile_live(raw: &Value) -> Option<OrientationProfile> {
-    let data = unwrap_data_payload(raw);
-    let obj = if data.is_object() {
-        data
-    } else {
-        return None;
-    };
-    let student_id = json_string(
-        obj.get("studentId")
-            .or_else(|| obj.get("xh"))
-            .or_else(|| obj.get("stuNo")),
-    );
-    let name = json_string(obj.get("name").or_else(|| obj.get("xm")));
-    if student_id.is_empty() && name.is_empty() {
-        return None;
-    }
-    let opt = |keys: &[&str]| -> Option<String> {
-        for k in keys {
-            let s = json_string(obj.get(*k));
-            if !s.is_empty() {
-                return Some(s);
-            }
-        }
-        None
-    };
-    Some(OrientationProfile {
-        student_id,
-        name,
-        gender: opt(&["gender", "xb"]),
-        college: opt(&["college", "xy"]),
-        major: opt(&["major", "zy"]),
-        class_name: opt(&["className", "bj", "class"]),
-        grade: opt(&["grade", "nj"]),
-        education_level: opt(&["educationLevel", "pycc"]),
-        id_number: opt(&["idNumber", "sfzh"]),
-        phone: opt(&["phone", "mobile", "sjh"]),
-        orientation_status: opt(&["orientationStatus", "status", "yxzt"]),
-    })
 }
 
 // ─── Public API ─────────────────────────────────────────────
 
-/// 列表 overview 面板（只读）。默认不回落假数据；开发样例需 `MINI_HBUT_ORIENTATION_DEMO=1`。
 pub async fn list_panels(client: &HbutClient) -> Result<OrientationPanelsResponse, String> {
-    if !has_portal_session_cookie(client) {
-        return Ok(fallback_panels(
-            "请先登录融合门户后再查看智慧迎新",
-            Some("请先登录融合门户"),
-        ));
-    }
-
-    match get_json_first_hit(client, OVERVIEW_PATHS).await {
-        Ok((_url, raw)) => {
-            if let Some(panels) = parse_panels_live(&raw) {
+    match fetch_live_bundle(client).await {
+        Ok((_, _, panels)) => Ok(panels),
+        Err(e) => {
+            if e.contains("会话已过期") || e.contains("重新登录") {
+                return Err(e);
+            }
+            if orientation_demo_allowed() {
+                let blocks = fixture_blocks();
+                let msgs = fixture_messages();
                 return Ok(OrientationPanelsResponse {
-                    panels,
+                    panels: vec![
+                        OrientationPanel {
+                            id: "messages".into(),
+                            title: "事项与进度".into(),
+                            summary: format!("{} 条", msgs.items.len()),
+                            badge: Some(msgs.items.len().to_string()),
+                            order: 1,
+                            icon_key: Some("messages".into()),
+                        },
+                        OrientationPanel {
+                            id: "mentor".into(),
+                            title: "班导师".into(),
+                            summary: blocks
+                                .mentor
+                                .as_ref()
+                                .map(|p| p.name.clone())
+                                .unwrap_or_default(),
+                            badge: None,
+                            order: 2,
+                            icon_key: Some("mentor".into()),
+                        },
+                        OrientationPanel {
+                            id: "counselor".into(),
+                            title: "辅导员".into(),
+                            summary: blocks
+                                .counselor
+                                .as_ref()
+                                .map(|p| p.name.clone())
+                                .unwrap_or_default(),
+                            badge: None,
+                            order: 3,
+                            icon_key: Some("counselor".into()),
+                        },
+                        OrientationPanel {
+                            id: "dorm".into(),
+                            title: "宿舍信息".into(),
+                            summary: "样例".into(),
+                            badge: None,
+                            order: 4,
+                            icon_key: Some("dorm".into()),
+                        },
+                        OrientationPanel {
+                            id: "profile".into(),
+                            title: "个人信息".into(),
+                            summary: "样例".into(),
+                            badge: None,
+                            order: 5,
+                            icon_key: Some("profile".into()),
+                        },
+                    ],
                     fetched_at: now_iso(),
-                    source: "live".into(),
-                    demo: false,
-                    notice: None,
-                    error: None,
+                    source: "fixture".into(),
+                    demo: true,
+                    notice: Some(format!("live 失败，展示样例：{e}")),
+                    error: Some(e),
                 });
             }
-            Ok(fallback_panels(
-                "迎新 overview 响应无法解析或为空",
-                Some("overview 解析失败"),
-            ))
-        }
-        Err(e) => {
-            if e.contains("会话已过期") {
-                return Err(e);
-            }
-            Ok(fallback_panels(
-                "暂未获取到迎新概览（可能不在开放时段，或官方接口路径待确认）",
+            Ok(empty_panels(
+                "暂未获取智慧迎新数据。请使用手机 UA 门户会话，或确认处于迎新相关时段。",
                 Some(&e),
             ))
         }
     }
 }
 
-/// 列表迎新消息（只读）
 pub async fn list_messages(client: &HbutClient) -> Result<OrientationMessagesResponse, String> {
-    if !has_portal_session_cookie(client) {
-        return Ok(fallback_messages(
-            "请先登录融合门户后再查看智慧迎新",
-            Some("请先登录融合门户"),
-        ));
-    }
-
-    match get_json_first_hit(client, MESSAGES_PATHS).await {
-        Ok((_url, raw)) => {
-            if let Some(items) = parse_messages_live(&raw) {
-                return Ok(OrientationMessagesResponse {
-                    items,
-                    fetched_at: now_iso(),
-                    source: "live".into(),
-                    demo: false,
-                    notice: None,
-                    error: None,
-                });
-            }
-            Ok(fallback_messages(
-                "迎新消息列表为空或无法解析",
-                Some("messages 解析失败"),
-            ))
-        }
+    match fetch_live_bundle(client).await {
+        Ok((_, msgs, _)) => Ok(msgs),
         Err(e) => {
-            if e.contains("会话已过期") {
+            if e.contains("会话已过期") || e.contains("重新登录") {
                 return Err(e);
             }
-            Ok(fallback_messages(
-                "暂未获取到迎新消息（可能不在开放时段）",
-                Some(&e),
-            ))
+            if orientation_demo_allowed() {
+                let mut m = fixture_messages();
+                m.error = Some(e);
+                return Ok(m);
+            }
+            Ok(empty_messages("暂无事项与进度", Some(&e)))
         }
     }
 }
 
-/// 班导师 / 辅导员 / 宿舍 / 个人信息聚合块（只读）。
-/// 部分成功时 **不** 用 fixture 补齐缺失块，避免展示伪造字段。
 pub async fn profile_blocks(
     client: &HbutClient,
 ) -> Result<OrientationProfileBlocksResponse, String> {
-    if !has_portal_session_cookie(client) {
-        return Ok(fallback_profile_blocks(
-            "请先登录融合门户后再查看智慧迎新",
-            Some("请先登录融合门户"),
-        ));
-    }
-
-    let mut mentor = None;
-    let mut counselor = None;
-    let mut dorm = None;
-    let mut profile = None;
-    let mut errors: Vec<String> = Vec::new();
-    let mut live_hits = 0u8;
-
-    match get_json_first_hit(client, MENTOR_PATHS).await {
-        Ok((_, raw)) => {
-            if let Some(p) = parse_person_live(&raw) {
-                mentor = Some(p);
-                live_hits += 1;
-            }
-        }
+    match fetch_live_bundle(client).await {
+        Ok((blocks, _, _)) => Ok(blocks),
         Err(e) => {
-            if e.contains("会话已过期") {
+            if e.contains("会话已过期") || e.contains("重新登录") {
                 return Err(e);
             }
-            errors.push(format!("mentor: {e}"));
-        }
-    }
-    match get_json_first_hit(client, COUNSELOR_PATHS).await {
-        Ok((_, raw)) => {
-            if let Some(p) = parse_person_live(&raw) {
-                counselor = Some(p);
-                live_hits += 1;
+            if orientation_demo_allowed() {
+                let mut b = fixture_blocks();
+                b.error = Some(e);
+                return Ok(b);
             }
+            Ok(empty_blocks("暂无导师/宿舍/个人信息", Some(&e)))
         }
-        Err(e) => errors.push(format!("counselor: {e}")),
     }
-    match get_json_first_hit(client, DORM_PATHS).await {
-        Ok((_, raw)) => {
-            if let Some(d) = parse_dorm_live(&raw) {
-                dorm = Some(d);
-                live_hits += 1;
-            }
-        }
-        Err(e) => errors.push(format!("dorm: {e}")),
-    }
-    match get_json_first_hit(client, PROFILE_PATHS).await {
-        Ok((_, raw)) => {
-            if let Some(p) = parse_profile_live(&raw) {
-                profile = Some(p);
-                live_hits += 1;
-            }
-        }
-        Err(e) => errors.push(format!("profile: {e}")),
-    }
-
-    if live_hits == 0 {
-        let err = if errors.is_empty() {
-            None
-        } else {
-            Some(errors.join("; "))
-        };
-        return Ok(fallback_profile_blocks(
-            "暂未获取到导师/宿舍/个人信息（可能不在开放时段或接口待确认）",
-            err.as_deref(),
-        ));
-    }
-
-    // 仅返回 live 命中块；缺失保持 None，绝不混入 fixture 假数据
-    Ok(OrientationProfileBlocksResponse {
-        mentor,
-        counselor,
-        dorm,
-        profile,
-        fetched_at: now_iso(),
-        source: "live".into(),
-        demo: false,
-        notice: if live_hits < 4 {
-            Some("部分信息暂不可用".into())
-        } else {
-            None
-        },
-        error: if errors.is_empty() {
-            None
-        } else {
-            Some(errors.join("; "))
-        },
-    })
 }
 
-// ─── Unit tests ─────────────────────────────────────────────
+// ─── Tests ──────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn fixture_overview_parses_and_has_required_panels() {
-        let resp = parse_panels_fixture(FIXTURE_OVERVIEW).expect("parse overview");
-        assert!(resp.panels.len() >= 5);
-        let ids: Vec<_> = resp.panels.iter().map(|p| p.id.as_str()).collect();
-        for need in ["messages", "mentor", "counselor", "dorm", "profile"] {
-            assert!(ids.contains(&need), "missing panel {need}");
-        }
-        assert_eq!(resp.source, "fixture");
-        assert!(resp.demo);
-    }
-
-    #[test]
-    fn fixture_messages_parses() {
-        let resp = parse_messages_fixture(FIXTURE_MESSAGES).expect("parse messages");
-        assert!(!resp.items.is_empty());
-        assert!(!resp.items[0].id.is_empty());
-        assert!(!resp.items[0].title.is_empty());
-    }
-
-    #[test]
-    fn fixture_profile_blocks_parses() {
-        let resp = parse_profile_blocks_fixture(FIXTURE_PROFILE_BLOCKS).expect("parse blocks");
-        let mentor = resp.mentor.expect("mentor");
-        assert!(!mentor.name.is_empty());
-        let counselor = resp.counselor.expect("counselor");
-        assert!(!counselor.name.is_empty());
-        let dorm = resp.dorm.expect("dorm");
-        assert!(dorm.building.is_some() || dorm.room.is_some());
-        let profile = resp.profile.expect("profile");
-        assert!(!profile.student_id.is_empty());
-        // 脱敏：不应出现完整明文手机号形态（11 位纯数字）
-        if let Some(phone) = &profile.phone {
-            assert!(
-                phone.contains('*') || phone.chars().filter(|c| c.is_ascii_digit()).count() < 11,
-                "phone should be desensitized: {phone}"
-            );
+    fn parse_student_fixture() {
+        let raw: Value = serde_json::from_str(FIXTURE_STUDENT).unwrap();
+        let p = parse_student_my_info(&raw).expect("profile");
+        assert!(!p.name.is_empty());
+        assert!(!p.student_id.is_empty());
+        assert!(p.college.as_deref().unwrap_or("").contains("电气"));
+        // 脱敏：手机不应 11 位全数字
+        if let Some(ph) = &p.phone {
+            assert!(ph.contains('*') || ph.chars().filter(|c| c.is_ascii_digit()).count() < 11);
         }
     }
 
     #[test]
-    fn parse_panels_live_from_wrapped_payload() {
-        let raw = serde_json::json!({
-            "code": 0,
-            "data": {
-                "panels": [
-                    {"id": "messages", "title": "消息", "summary": "s", "order": 1}
-                ]
-            }
-        });
-        let panels = parse_panels_live(&raw).expect("panels");
-        assert_eq!(panels.len(), 1);
-        assert_eq!(panels[0].id, "messages");
+    fn parse_teacher_fixture() {
+        let raw: Value = serde_json::from_str(FIXTURE_TEACHER).unwrap();
+        let (mentor, counselor) = parse_my_teacher(&raw);
+        assert!(counselor.is_some());
+        assert!(mentor.is_some());
+        assert!(!counselor.unwrap().name.is_empty());
     }
 
     #[test]
-    fn parse_messages_live_from_list() {
-        let raw = serde_json::json!({
-            "code": "200",
-            "data": {
-                "list": [
-                    {"id": "1", "title": "t", "content": "c", "isRead": "0"}
-                ]
-            }
-        });
-        let items = parse_messages_live(&raw).expect("items");
-        assert_eq!(items.len(), 1);
-        assert!(!items[0].is_read);
+    fn parse_bed_fixture() {
+        let raw: Value = serde_json::from_str(FIXTURE_BED).unwrap();
+        let d = parse_bed_my_info(&raw).expect("dorm");
+        assert_eq!(d.building.as_deref(), Some("东7"));
+        assert_eq!(d.room.as_deref(), Some("101"));
+        assert_eq!(d.bed.as_deref(), Some("3"));
     }
 
     #[test]
-    fn login_redirect_detected() {
-        assert!(looks_like_login_redirect(
-            "https://auth.hbut.edu.cn/authserver/login?service=x"
-        ));
-        assert!(!looks_like_login_redirect(
-            "https://xg.hbut.edu.cn/api/orientation/overview"
-        ));
+    fn parse_config_and_forecast() {
+        let cfg: Value = serde_json::from_str(FIXTURE_CONFIG).unwrap();
+        let steps = parse_config_steps(&cfg);
+        assert!(steps.len() >= 3);
+        let fc: Value = serde_json::from_str(FIXTURE_FORECAST).unwrap();
+        let items = parse_forecast_items(&fc);
+        assert!(!items.is_empty());
     }
 
     #[test]
-    fn no_write_paths_in_readonly_constants() {
-        // 契约：只读 path 不得包含 submit/upload/save/confirm
-        for paths in [
-            OVERVIEW_PATHS,
-            MESSAGES_PATHS,
-            MENTOR_PATHS,
-            COUNSELOR_PATHS,
-            DORM_PATHS,
-            PROFILE_PATHS,
-        ] {
-            for p in paths {
-                let lower = p.to_lowercase();
-                assert!(!lower.contains("submit"), "{p}");
-                assert!(!lower.contains("upload"), "{p}");
-                assert!(!lower.contains("save"), "{p}");
-                assert!(!lower.contains("confirm"), "{p}");
-            }
-        }
+    fn ticket_extract() {
+        assert_eq!(
+            extract_ticket("https://stu.hbut.edu.cn/app/welcome/?ticket=ST-1-abc").as_deref(),
+            Some("ST-1-abc")
+        );
     }
 
     #[test]
-    fn production_fallback_is_empty_without_demo_env() {
-        // 默认不注入样例人名/宿舍
-        std::env::remove_var("MINI_HBUT_ORIENTATION_DEMO");
-        let panels = fallback_panels("n", Some("e"));
-        assert!(!panels.demo);
-        assert!(panels.panels.is_empty());
-        assert_eq!(panels.source, "empty");
-        assert!(panels.error.as_deref() == Some("e"));
-
-        let messages = fallback_messages("n", None);
-        assert!(messages.items.is_empty());
-        assert!(!messages.demo);
-
-        let blocks = fallback_profile_blocks("n", Some("no session"));
-        assert!(blocks.mentor.is_none());
-        assert!(blocks.counselor.is_none());
-        assert!(blocks.dorm.is_none());
-        assert!(blocks.profile.is_none());
-        assert!(!blocks.demo);
-        assert_eq!(blocks.error.as_deref(), Some("no session"));
+    fn no_write_paths_in_readonly_module_source() {
+        let src = include_str!("smart_orientation.rs");
+        // 去掉 tests 模块自身字符串后再断言，避免自引用误报
+        let prod = src.split("mod tests").next().unwrap_or(src);
+        let forbidden = format!("smart_orientation_{}", "submit");
+        assert!(!prod.contains(&forbidden));
+        assert!(!prod.contains(".post(\"/account/base"));
+        assert!(!prod.contains(".post(\"/welcome-forecast"));
+        assert!(!prod.contains(".post(\"/dormitory"));
+        assert!(prod.contains("idaas/login"));
+        assert!(prod.contains("/account/base/student/myInfo"));
+        assert!(prod.contains("/account/base/teacher/myTeacher"));
+        assert!(prod.contains("/dormitory-accommodation/dormitory/student/bed/myInfo"));
     }
 
     #[test]
-    fn fixture_helpers_still_load_desensitized_samples_for_dev_only() {
-        // fixture_* 仅在 orientation_demo_allowed() 时被 fallback 调用；单测直接验样例可解析
-        let panels = fixture_panels("demo notice");
-        assert!(panels.demo);
-        assert!(!panels.panels.is_empty());
-        let blocks = fixture_profile_blocks("demo notice");
-        assert!(blocks.demo);
-        assert!(blocks.mentor.is_some() || blocks.profile.is_some());
-        // 脱敏：样例手机不应为 11 位纯数字
-        if let Some(phone) = blocks.profile.as_ref().and_then(|p| p.phone.as_ref()) {
-            assert!(
-                phone.contains('*') || phone.chars().filter(|c| c.is_ascii_digit()).count() < 11
-            );
-        }
+    fn empty_fallback_not_demo() {
+        let p = empty_panels("n", Some("e"));
+        assert!(!p.demo);
+        assert!(p.panels.is_empty());
+        let b = empty_blocks("n", None);
+        assert!(b.profile.is_none());
+        assert!(!b.demo);
     }
 }
