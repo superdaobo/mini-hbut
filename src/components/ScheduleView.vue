@@ -30,6 +30,8 @@ import { showToast } from '../utils/toast'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { afterScheduleRefresh } from '../utils/widget_bridge'
 import { isTestAccountSession } from '../utils/test_account.js'
+import CourseColorPicker from './CourseColorPicker.vue'
+import { DEFAULT_COURSE_COLOR, normalizeOptionalCourseColor } from '../utils/course_color'
 
 const props = defineProps({
   studentId: { type: String, default: '' },
@@ -113,7 +115,9 @@ const addCourseForm = ref({
   weekday: 1,
   period: 1,
   djs: 1,
-  weeks: []
+  weeks: [],
+  /** 用户设定主色 hex；空字符串表示未设定（#469 本地表单态，#470 再持久化） */
+  color: DEFAULT_COURSE_COLOR
 })
 const returnToDetailAfterCourseSubmit = ref(false)
 const LOGIN_SESSION_TOKEN_KEY = 'hbu_login_session_token'
@@ -431,6 +435,7 @@ const mergeScheduleSources = () => {
 const normalizeCustomCourse = (raw) => {
   if (!raw || typeof raw !== 'object') return null
   const weeks = normalizeWeeks(raw.weeks)
+  const colorNorm = normalizeOptionalCourseColor(raw.color)
   return {
     id: String(raw.id || raw.source_id || ''),
     name: String(raw.name || '').trim(),
@@ -449,6 +454,8 @@ const normalizeCustomCourse = (raw) => {
     source_id: String(raw.source_id || raw.id || ''),
     created_at: String(raw.created_at || ''),
     updated_at: String(raw.updated_at || ''),
+    // 可选用户色；#469 本地表单用，#470 持久化后由后端下发
+    color: colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm,
     is_custom: true
   }
 }
@@ -1838,7 +1845,8 @@ const resetAddCourseForm = () => {
     weekday: 1,
     period: 1,
     djs: 1,
-    weeks: semesterWeekOptions.value.slice()
+    weeks: semesterWeekOptions.value.slice(),
+    color: DEFAULT_COURSE_COLOR
   }
   addCourseError.value = ''
   showWeekPicker.value = false
@@ -1847,6 +1855,7 @@ const resetAddCourseForm = () => {
 const populateCourseForm = (course) => {
   const normalized = normalizeCustomCourse(course)
   if (!normalized) return
+  const colorNorm = normalizeOptionalCourseColor(normalized.color)
   addCourseForm.value = {
     name: String(normalized.name || '').trim(),
     teacher: String(normalized.teacher || '').trim(),
@@ -1854,7 +1863,9 @@ const populateCourseForm = (course) => {
     weekday: Number(normalized.weekday || 1),
     period: Number(normalized.period || 1),
     djs: Math.max(1, Number(normalized.djs || 1)),
-    weeks: normalizeWeeks(normalized.weeks)
+    weeks: normalizeWeeks(normalized.weeks),
+    // #469：回显已有 color；后端未下发时保持空（本地态）
+    color: colorNorm === null ? DEFAULT_COURSE_COLOR : colorNorm
   }
   addCourseError.value = ''
   showWeekPicker.value = false
@@ -3422,6 +3433,9 @@ onBeforeUnmount(() => {
               <button class="week-picker-trigger" @click="showWeekPicker = true">
                 {{ addWeeksCountText }}
               </button>
+            </div>
+            <div class="add-field">
+              <CourseColorPicker v-model="addCourseForm.color" />
             </div>
             <div v-if="addCourseError" class="drawer-error add-course-error">{{ addCourseError }}</div>
           </div>

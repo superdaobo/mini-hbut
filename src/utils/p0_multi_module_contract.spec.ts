@@ -133,4 +133,20 @@ describe('P0 multi-module contracts', () => {
     expect(more).toContain('hbu-embed-resume')
     expect(more).toContain('reloadFrame')
   })
+
+  it('hardens resume against reload loops (#451)', () => {
+    const app = read('src/App.vue')
+    expect(app).toContain('IOS_RESUME_SOFT_REMOUNT_MS')
+    expect(app).toContain('IOS_RESUME_HARD_RELOAD_MS')
+    expect(app).toContain('IOS_HARD_RELOAD_MAX_PER_SESSION')
+    expect(app).toContain('maybeHardReloadAfterResume')
+    expect(app).toContain('iosHardReloadCount')
+    expect(app).toContain('SOFT_REMOUNT_MIN_INTERVAL_MS')
+    // 3 分钟旧阈值与无节流硬 reload 不应再出现
+    expect(app).not.toContain('IOS_RESUME_RELOAD_MS')
+    expect(app).toContain('allowHardReload')
+    // 健康检查更保守
+    expect(app).toContain('v-leave-active')
+    expect(app).toContain('getBoundingClientRect')
+  })
 })
