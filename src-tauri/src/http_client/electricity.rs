@@ -1356,12 +1356,16 @@ impl HbutClient {
     /// `get_one_code_token` 会立刻调用 `getToken` 消费 tid；
     /// 若把已消费的 tid 塞进外链，一码通会显示「无效TID」。
     /// 本方法只做 SSO 取票，**绝不**调用 getToken。
+    ///
+    /// 注意：一码通 H5 要求**手机 UA** 的融合门户 SSO 链路；桌面 UA 常拿不到可用 tid。
     pub async fn mint_one_code_browser_tid(
         &mut self,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let sso_url = "https://code.hbut.edu.cn/server/auth/host/open?host=28&org=2";
+        // 官方一码通 App / 微信内 H5 常用 UA
+        const MOBILE_UA: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1 MicroMessenger/8.0.49";
 
-        // 预热门户与 code SSO cookie（与 get_one_code_token 一致）
+        // 预热门户与 code SSO cookie（与 get_one_code_token 一致，但带手机 UA）
         let portal_service = "https://e.hbut.edu.cn/login";
         let portal_sso_url = format!(
             "{}/login?service={}",
@@ -1373,8 +1377,26 @@ impl HbutClient {
             AUTH_BASE_URL,
             urlencoding::encode(sso_url)
         );
-        let _ = self.client.get(&portal_sso_url).send().await;
-        let _ = self.client.get(&code_sso_url).send().await;
+        let _ = self
+            .client
+            .get(&portal_sso_url)
+            .header("User-Agent", MOBILE_UA)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .send()
+            .await;
+        let _ = self
+            .client
+            .get(&code_sso_url)
+            .header("User-Agent", MOBILE_UA)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .send()
+            .await;
 
         let extract_tid = |raw: &str| -> String {
             regex::Regex::new(r#"tid=([^&"'#]+)"#)
@@ -1390,8 +1412,18 @@ impl HbutClient {
                 .to_string()
         };
 
-        // 直连（跟随重定向）
-        if let Ok(resp) = self.client.get(sso_url).send().await {
+        // 直连（跟随重定向 + 手机 UA）
+        if let Ok(resp) = self
+            .client
+            .get(sso_url)
+            .header("User-Agent", MOBILE_UA)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .send()
+            .await
+        {
             let final_url = resp.url().to_string();
             let mut tid = extract_tid(&final_url);
             if tid.is_empty() {
@@ -1407,7 +1439,7 @@ impl HbutClient {
             }
         }
 
-        // 手动跟踪重定向（最多 12 跳）
+        // 手动跟踪重定向（最多 12 跳，手机 UA）
         let no_redirect_client = Client::builder()
             .cookie_store(true)
             .cookie_provider(Arc::clone(&self.cookie_jar))
@@ -1421,7 +1453,7 @@ impl HbutClient {
                 "code.hbut.edu.cn",
                 std::net::SocketAddr::from(([202, 114, 191, 2], 443)),
             )
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .user_agent(MOBILE_UA)
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
@@ -1429,6 +1461,7 @@ impl HbutClient {
         for _ in 0..12 {
             let resp = no_redirect_client
                 .get(&current_url)
+                .header("User-Agent", MOBILE_UA)
                 .header(
                     "Accept",
                     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

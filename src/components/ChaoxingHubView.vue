@@ -561,7 +561,11 @@ const onVideoError = () => {
     videoError.value = `线路 ${videoSrcIndex.value} 失败，切换备用地址…`
     return
   }
-  videoError.value = '视频播放失败：可能被 CDN 拒绝或会话失效，请重试或重新登录学习通'
+  // 优先展示后端/播放器给出的具体原因，避免永远笼统「CDN/会话」
+  const detail = safeText(e?.message || e || '')
+  videoError.value = detail
+    ? `视频播放失败：${detail}`
+    : '视频播放失败：无法解析播放地址或被 CDN 拒绝。请重试，或重新登录学习通后再打开'
 }
 
 const retryVideo = () => {
