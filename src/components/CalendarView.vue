@@ -372,9 +372,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 页级背景对齐成绩查询：中性浅底，避免 --ui-bg-gradient 蓝青全页染色 */
 .calendar-view {
   min-height: 100vh;
-  background: var(--ui-bg-gradient);
+  background: #f6fafe;
   color: var(--ui-text);
   padding: 16px 14px 120px;
 }
@@ -407,11 +408,12 @@ onMounted(() => {
   flex-direction: column;
   gap: 10px;
   padding: 16px;
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 16px;
-  box-shadow: var(--ui-shadow-soft);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
   margin-bottom: 16px;
+  animation: calendar-fade-up 0.28s ease both;
 }
 
 .controls select {
@@ -419,7 +421,7 @@ onMounted(() => {
   border-radius: 10px;
   border: 1px solid var(--ui-surface-border);
   color: var(--ui-text);
-  background: color-mix(in oklab, var(--ui-surface) 88%, #fff 12%);
+  background: #f0f4f8;
 }
 
 .meta {
@@ -434,9 +436,9 @@ onMounted(() => {
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--ui-primary) 24%, transparent);
-  background: color-mix(in oklab, var(--ui-primary-soft) 70%, #fff 30%);
-  color: var(--ui-text);
+  border: 1px solid color-mix(in oklab, var(--ui-primary) 18%, transparent);
+  background: #eff6ff;
+  color: var(--ui-primary);
   font-size: 12px;
   font-weight: 700;
 }
@@ -445,35 +447,34 @@ onMounted(() => {
   padding: 20px 12px;
   text-align: center;
   color: var(--ui-muted);
-  background: var(--ui-surface);
-  border: 1px solid var(--ui-surface-border);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 14px;
-  box-shadow: var(--ui-shadow-soft);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
   margin-bottom: 16px;
 }
 
 .calendar-table-wrapper {
   padding: 0 0 24px;
   overflow-x: auto;
+  animation: calendar-fade-up 0.32s ease both;
+  animation-delay: 0.04s;
 }
 
 .calendar-table {
   width: 100%;
   min-width: 980px;
   border-collapse: collapse;
-  background: var(--ui-surface);
+  background: #ffffff;
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: var(--ui-shadow-soft);
-  border: 1px solid var(--ui-surface-border);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(226, 232, 240, 0.9);
 }
 
+/* 表头用中性 surface，避免 primary-soft 蓝渐变与死白对比 */
 .calendar-table thead th {
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--ui-primary-soft) 78%, #fff 22%),
-    color-mix(in oklab, var(--ui-secondary) 12%, #fff 88%)
-  );
+  background: #f0f4f8;
   color: var(--ui-text);
   font-weight: 700;
   padding: 12px 8px;
@@ -493,7 +494,8 @@ onMounted(() => {
 }
 
 .calendar-table tbody tr.is-current {
-  background: color-mix(in oklab, var(--ui-primary-soft) 64%, #fff 36%);
+  background: #eff6ff;
+  transition: background-color 0.2s ease;
 }
 
 .month-col, .week-col {
@@ -507,7 +509,7 @@ onMounted(() => {
 .month-cell {
   font-weight: 600;
   color: var(--ui-text);
-  background: color-mix(in oklab, var(--ui-primary-soft) 44%, #fff 56%);
+  background: #f0f4f8;
 }
 
 .week-cell {
@@ -540,7 +542,7 @@ onMounted(() => {
   display: inline-block;
   padding: 2px 6px;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
+  background: color-mix(in oklab, var(--ui-danger) 14%, var(--ui-surface, #fff) 86%);
   color: var(--ui-danger);
   border: 1px solid color-mix(in oklab, var(--ui-danger) 32%, transparent);
   font-weight: 600;
@@ -554,10 +556,32 @@ onMounted(() => {
 .offline-banner {
   margin: 12px 0 0;
   padding: 10px 14px;
-  background: color-mix(in oklab, var(--ui-danger) 14%, #ffffff 86%);
-  border: 1px solid color-mix(in oklab, var(--ui-danger) 40%, transparent);
-  color: var(--ui-danger);
+  background: #fef3c7;
+  border: 1px solid color-mix(in oklab, #f59e0b 40%, transparent);
+  color: #b45309;
   border-radius: 12px;
   font-weight: 600;
+}
+
+@keyframes calendar-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .controls,
+  .calendar-table-wrapper {
+    animation: none;
+  }
+
+  .calendar-table tbody tr.is-current {
+    transition: none;
+  }
 }
 </style>
