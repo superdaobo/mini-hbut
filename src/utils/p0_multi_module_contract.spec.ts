@@ -149,4 +149,22 @@ describe('P0 multi-module contracts', () => {
     expect(app).toContain('v-leave-active')
     expect(app).toContain('getBoundingClientRect')
   })
+
+  it('exposes ensure_http_bridge API for lifecycle resume (#452)', () => {
+    const httpServer = read('src-tauri/src/http_server.rs')
+    const lib = read('src-tauri/src/lib.rs')
+    const docs = read('src-tauri/docs/http_server.md')
+
+    expect(httpServer).toContain('pub fn is_http_bridge_enabled')
+    expect(httpServer).toContain('pub async fn ensure_http_bridge')
+    expect(httpServer).toContain('pub async fn probe_http_bridge_health')
+    expect(httpServer).toContain('EnsureHttpBridgeResult')
+    expect(httpServer).toContain('respawned')
+    expect(httpServer).toContain('with_graceful_shutdown')
+    expect(lib).toContain('http_server::ensure_http_bridge')
+    expect(docs).toContain('平台启停矩阵')
+    expect(docs).toContain('Android')
+    expect(docs).toContain('iOS')
+    expect(docs).toContain('ensure_http_bridge')
+  })
 })

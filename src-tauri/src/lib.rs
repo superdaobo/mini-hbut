@@ -7013,6 +7013,8 @@ pub fn run() {
             modules::school_website_embed::school_website_embed_open,
             modules::school_website_embed::school_website_embed_resize,
             modules::school_website_embed::school_website_embed_close,
+            // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
+            http_server::ensure_http_bridge,
             prepare_module_bundle,
             open_file_with_system,
             open_module_bundle_window,

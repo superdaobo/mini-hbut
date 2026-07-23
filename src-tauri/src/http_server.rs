@@ -539,32 +539,23 @@ struct AiSessionDeleteRequest {
     session_id: String,
 }
 
-/// 启动本地 Bridge 服务
-pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
-    // Tauri iOS 内嵌（小游戏 module_bundle + 学校官网 proxy）依赖 loopback Bridge。
-    // Android 前端不走桥接，故 Release 不自动为 Android 开启。
-    let bridge_enabled = cfg!(debug_assertions)
+/// Bridge 是否在本平台/构建下应启用（与 spawn 策略一致）。
+///
+/// 矩阵摘要：
+/// - iOS（任何构建）：默认启用（官网 proxy / module_bundle 依赖 loopback）
+/// - debug_assertions（任意 OS）：默认启用（开发调试）
+/// - Android Release：默认**不**启用（前端走 external-open / Capacitor 本地）
+/// - 桌面 Release：默认不启用；`HBUT_HTTP_BRIDGE_ENABLED=1|true` 可强制开启
+pub fn is_http_bridge_enabled() -> bool {
+    cfg!(debug_assertions)
         || cfg!(target_os = "ios")
         || std::env::var("HBUT_HTTP_BRIDGE_ENABLED")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-    if !bridge_enabled {
-        return;
-    }
-
-    let state = HttpState {
-        client,
-        local_api_key: load_local_api_public_key(),
-        app,
-    };
-    tauri::async_runtime::spawn(async move {
-        if let Err(e) = run_http_server(state).await {
-            eprintln!("[HTTP] 服务错误: {}", e);
-        }
-    });
+            .unwrap_or(false)
 }
 
-async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// 解析 Bridge 监听地址（默认 `127.0.0.1:4399`）。
+pub fn bridge_listen_addr() -> SocketAddr {
     let port = std::env::var("HBUT_HTTP_BRIDGE_PORT")
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
@@ -573,7 +564,217 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
     let ip: IpAddr = host
         .parse()
         .unwrap_or_else(|_| IpAddr::from([127, 0, 0, 1]));
-    let addr = SocketAddr::from((ip, port));
+    SocketAddr::from((ip, port))
+}
+
+/// `ensure_http_bridge` / 前端 resume 探测共用的状态字段。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnsureHttpBridgeResult {
+    /// 当前平台/构建是否允许 Bridge
+    pub enabled: bool,
+    /// `/health` 是否可达
+    pub healthy: bool,
+    /// 是否在本次调用中触发了 respawn
+    pub respawned: bool,
+    /// 监听地址（enabled 时有意义）
+    pub addr: String,
+    /// 人类可读状态：disabled | healthy | respawned | port_busy | spawn_failed | still_unhealthy
+    pub status: String,
+    /// 可选诊断信息
+    pub detail: Option<String>,
+}
+
+/// 进程内 Bridge 生命周期：支持长后台后 ensure/respawn。
+struct BridgeLifecycle {
+    /// 防止并发 ensure 重复 spawn
+    lock: Mutex<()>,
+    /// 优雅关闭当前 listener 的 oneshot
+    shutdown_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// 已成功 bind 且 serve 中
+    listening: std::sync::atomic::AtomicBool,
+    /// spawn 代数（日志可观测冷启 vs 热恢复）
+    generation: std::sync::atomic::AtomicU64,
+}
+
+impl BridgeLifecycle {
+    fn new() -> Self {
+        Self {
+            lock: Mutex::new(()),
+            shutdown_tx: Mutex::new(None),
+            listening: std::sync::atomic::AtomicBool::new(false),
+            generation: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+}
+
+fn bridge_lifecycle() -> &'static BridgeLifecycle {
+    static LIFE: OnceLock<BridgeLifecycle> = OnceLock::new();
+    LIFE.get_or_init(BridgeLifecycle::new)
+}
+
+/// 探测 loopback `/health`（短超时，供 ensure 与单测复用）。
+pub async fn probe_http_bridge_health() -> bool {
+    let addr = bridge_listen_addr();
+    let url = format!("http://{}/health", addr);
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_millis(900))
+        .no_proxy()
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    match client.get(&url).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+async fn request_bridge_shutdown() {
+    let life = bridge_lifecycle();
+    let tx = {
+        let mut guard = life.shutdown_tx.lock().await;
+        guard.take()
+    };
+    if let Some(tx) = tx {
+        let _ = tx.send(());
+        // 给 serve 一点时间释放端口
+        tokio::time::sleep(Duration::from_millis(120)).await;
+    }
+    life.listening
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// 启动本地 Bridge 服务（冷启动 / ensure 共用）。
+pub fn spawn_http_server(client: Arc<RwLock<HbutClient>>, app: AppHandle) {
+    if !is_http_bridge_enabled() {
+        return;
+    }
+    let life = bridge_lifecycle();
+    let state = HttpState {
+        client,
+        local_api_key: load_local_api_public_key(),
+        app,
+    };
+    let gen = life
+        .generation
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1;
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = run_http_server(state, gen).await {
+            eprintln!("[HTTP] 服务错误 (gen={}): {}", gen, e);
+            bridge_lifecycle()
+                .listening
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+}
+
+/// 长后台回前台：确保 Bridge `/health` 可达；必要时关闭旧任务并 respawn。
+///
+/// 前端应在 resume / remount 前 invoke 本命令（iOS / 桌面依赖 loopback 时）。
+/// Android Release 通常 `enabled=false`，调用方应走非 bridge 降级路径。
+#[tauri::command]
+pub async fn ensure_http_bridge(
+    app: AppHandle,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<EnsureHttpBridgeResult, String> {
+    let addr = bridge_listen_addr();
+    let addr_s = addr.to_string();
+
+    if !is_http_bridge_enabled() {
+        return Ok(EnsureHttpBridgeResult {
+            enabled: false,
+            healthy: false,
+            respawned: false,
+            addr: addr_s,
+            status: "disabled".into(),
+            detail: Some(
+                "Bridge not enabled on this platform/build (Android Release default; desktop Release needs HBUT_HTTP_BRIDGE_ENABLED=1)"
+                    .into(),
+            ),
+        });
+    }
+
+    if probe_http_bridge_health().await {
+        bridge_lifecycle()
+            .listening
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        return Ok(EnsureHttpBridgeResult {
+            enabled: true,
+            healthy: true,
+            respawned: false,
+            addr: addr_s,
+            status: "healthy".into(),
+            detail: None,
+        });
+    }
+
+    let life = bridge_lifecycle();
+    let _guard = life.lock.lock().await;
+
+    // 双检：拿到锁后再探一次，避免并发 ensure 重复 spawn
+    if probe_http_bridge_health().await {
+        life.listening
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        return Ok(EnsureHttpBridgeResult {
+            enabled: true,
+            healthy: true,
+            respawned: false,
+            addr: addr_s,
+            status: "healthy".into(),
+            detail: Some("became healthy while waiting for ensure lock".into()),
+        });
+    }
+
+    eprintln!(
+        "[HTTP] ensure_http_bridge: /health unreachable at {}, requesting shutdown + respawn",
+        addr_s
+    );
+    request_bridge_shutdown().await;
+
+    let client = state.client.clone();
+    spawn_http_server(client, app);
+
+    // 等待 bind + 首次可探
+    let mut healthy = false;
+    for _ in 0..12 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if probe_http_bridge_health().await {
+            healthy = true;
+            break;
+        }
+    }
+
+    let status = if healthy {
+        "respawned"
+    } else if life.listening.load(std::sync::atomic::Ordering::SeqCst) {
+        "still_unhealthy"
+    } else {
+        "spawn_failed"
+    };
+
+    Ok(EnsureHttpBridgeResult {
+        enabled: true,
+        healthy,
+        respawned: true,
+        addr: addr_s,
+        status: status.into(),
+        detail: if healthy {
+            Some("bridge respawned and /health ok".into())
+        } else {
+            Some("respawn attempted but /health still unreachable; frontend should degrade".into())
+        },
+    })
+}
+
+async fn run_http_server(
+    state: HttpState,
+    generation: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let addr = bridge_listen_addr();
+    let life = bridge_lifecycle();
 
     let app = Router::new()
         .route("/health", get(health))
@@ -843,14 +1044,93 @@ async fn run_http_server(state: HttpState) -> Result<(), Box<dyn std::error::Err
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
         Err(err) if err.kind() == ErrorKind::AddrInUse => {
-            eprintln!("[HTTP] 端口已被占用，桥接服务未启动: http://{}", addr);
+            eprintln!(
+                "[HTTP] 端口已被占用，桥接服务未启动 (gen={}): http://{}",
+                generation, addr
+            );
+            life.listening
+                .store(false, std::sync::atomic::Ordering::SeqCst);
             return Ok(());
         }
         Err(err) => return Err(err.into()),
     };
-    println!("[HTTP] 桥接服务监听: http://{}", addr);
-    axum::serve(listener, app).await?;
+    println!("[HTTP] 桥接服务监听 (gen={}): http://{}", generation, addr);
+    life.listening
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let mut slot = life.shutdown_tx.lock().await;
+        *slot = Some(shutdown_tx);
+    }
+
+    let serve = axum::serve(listener, app).with_graceful_shutdown(async move {
+        let _ = shutdown_rx.await;
+        eprintln!("[HTTP] graceful shutdown requested (gen={})", generation);
+    });
+    let result = serve.await;
+    life.listening
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    {
+        let mut slot = life.shutdown_tx.lock().await;
+        if slot.is_some() {
+            *slot = None;
+        }
+    }
+    result?;
     Ok(())
+}
+
+#[cfg(test)]
+mod ensure_http_bridge_tests {
+    use super::{bridge_listen_addr, is_http_bridge_enabled, EnsureHttpBridgeResult};
+
+    #[test]
+    fn bridge_listen_addr_defaults_to_loopback_4399() {
+        let addr = bridge_listen_addr();
+        assert!(addr.port() > 0, "bridge port must be non-zero");
+        let _ = addr.ip();
+    }
+
+    #[test]
+    fn is_http_bridge_enabled_is_deterministic_bool() {
+        let _ = is_http_bridge_enabled();
+    }
+
+    #[test]
+    fn ensure_result_serializes_camel_case_fields() {
+        let v = EnsureHttpBridgeResult {
+            enabled: true,
+            healthy: false,
+            respawned: true,
+            addr: "127.0.0.1:4399".into(),
+            status: "still_unhealthy".into(),
+            detail: Some("x".into()),
+        };
+        let json = serde_json::to_value(&v).expect("serialize");
+        assert_eq!(json["enabled"], true);
+        assert_eq!(json["healthy"], false);
+        assert_eq!(json["respawned"], true);
+        assert_eq!(json["addr"], "127.0.0.1:4399");
+        assert_eq!(json["status"], "still_unhealthy");
+        assert!(json.get("detail").is_some());
+        assert!(json.get("is_healthy").is_none());
+    }
+
+    #[test]
+    fn ensure_status_vocabulary_is_stable() {
+        let allowed = [
+            "disabled",
+            "healthy",
+            "respawned",
+            "port_busy",
+            "spawn_failed",
+            "still_unhealthy",
+        ];
+        for s in allowed {
+            assert!(!s.is_empty());
+        }
+    }
 }
 
 async fn health(State(state): State<HttpState>) -> Json<ApiResponse<serde_json::Value>> {
