@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  allowsInAppGithubUpdater,
   filterAllowedModules,
   getFeaturePolicy,
+  getUpdateCheckMode,
   isAppStoreBuild,
   isCustomJavaScriptAllowed,
   isDeepLinkAllowed,
@@ -19,6 +21,19 @@ describe('app_store_policy', () => {
   afterEach(() => {
     setAppStoreBuildOverrideForTests(null)
     setAppStoreSessionOverrideForTests(null)
+  })
+
+  it('update path: github allowed only when not app-store build (even if logged in)', () => {
+    setAppStoreBuildOverrideForTests(false)
+    expect(allowsInAppGithubUpdater()).toBe(true)
+    expect(getUpdateCheckMode()).toBe('github_cdn')
+
+    setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: true, isDemoSession: false })
+    // 真实登录后 session 收紧关闭，但更新仍走苹果路径
+    expect(shouldApplyAppStoreRestrictions()).toBe(false)
+    expect(allowsInAppGithubUpdater()).toBe(false)
+    expect(getUpdateCheckMode()).toBe('apple_storefront')
   })
 
   it('flag off: allows representative high-risk modules and views', () => {

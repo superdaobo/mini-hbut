@@ -13,6 +13,11 @@ import {
   SCHEDULE_POPUP_PENDING_KEY,
   SCHEDULE_SWITCH_PENDING_KEY
 } from './utils/schedule_prefetch.js'
+import {
+  checkAppleStoreUpdate,
+  getSkippedAppleStoreVersion,
+  openAppStoreUpdatePage
+} from './utils/apple_app_update'
 import { checkForUpdates, getCurrentVersion, toGhProxyUrl } from './utils/updater.js'
 import {
   fetchRemoteConfig,
@@ -78,7 +83,7 @@ import {
   isLoginRequiredView,
   normalizeViewName
 } from './navigation/app_navigation.ts'
-import { isViewAllowed } from './config/app_store_policy'
+import { allowsInAppGithubUpdater, isViewAllowed } from './config/app_store_policy'
 import {
   resolvePolicySafeSnapshotView,
   resolvePolicySafeView
@@ -553,11 +558,19 @@ const showForceUpdate = ref(false)
 const forceUpdateInfo = ref(null)
 const protectedViewPromptTitle = computed(() => getProtectedViewLabel(pendingProtectedView.value?.view))
 const forceUpdateResolvedUrl = computed(() => {
+  // 合规包禁止旁加载 / GitHub 下载链，只走 App Store
+  if (!allowsInAppGithubUpdater()) {
+    const store = String(forceUpdateInfo.value?.store_url || '').trim()
+    return store
+  }
   const raw = String(forceUpdateInfo.value?.download_url || '').trim()
   if (!raw) return ''
   return toGhProxyUrl(raw) || raw
 })
 const forceUpdateDisplayUrl = computed(() => {
+  if (!allowsInAppGithubUpdater() && !forceUpdateResolvedUrl.value) {
+    return '请在 App Store 中更新'
+  }
   const target = String(forceUpdateResolvedUrl.value || '').trim()
   if (!target) return '未提供下载地址'
   return target.length > 68 ? `${target.slice(0, 65)}...` : target
@@ -2412,16 +2425,28 @@ const dismissSplash = (reason = '') => {
   }
 }
 
-// 自动检查更新（尊重用户频道：默认 stable，开启 dev 后才查 beta）
+// 自动检查更新：
+// - 合规 iOS 包：仅 App Store Lookup（无 GitHub/CDN）
+// - 其它构建：尊重用户频道（默认 stable，开启 dev 后才查 beta）
 const autoCheckUpdate = async () => {
   // 官网 Hero 离线演示：禁止版本检查外连
   if (isWebsiteDemoBuild() || isTestAccountSession()) return
   try {
-    const { getUpdateChannel, getSkippedVersion } = await import('./utils/updater.js')
     const currentVersion = await getCurrentVersion()
+
+    if (!allowsInAppGithubUpdater()) {
+      const result = await checkAppleStoreUpdate(currentVersion)
+      const skipped = getSkippedAppleStoreVersion()
+      if (result?.hasUpdate && result.storeVersion && result.storeVersion !== skipped) {
+        showUpdateDialog.value = true
+      }
+      return
+    }
+
+    const { getUpdateChannel, getSkippedVersion } = await import('./utils/updater.js')
     const channel = getUpdateChannel()
     const skippedVersion = getSkippedVersion(channel)
-    
+
     const result = await checkForUpdates(currentVersion, { channel })
     if (result?.hasUpdate && result.latestVersion !== skippedVersion) {
       showUpdateDialog.value = true
@@ -2432,6 +2457,16 @@ const autoCheckUpdate = async () => {
 }
 
 const handleForceUpdate = async () => {
+  if (!allowsInAppGithubUpdater()) {
+    const opened = await openAppStoreUpdatePage({
+      trackViewUrl: forceUpdateInfo.value?.store_url,
+      trackId: forceUpdateInfo.value?.apple_app_id
+    })
+    if (!opened && forceUpdateResolvedUrl.value) {
+      await openExternal(forceUpdateResolvedUrl.value)
+    }
+    return
+  }
   if (forceUpdateResolvedUrl.value) {
     await openExternal(forceUpdateResolvedUrl.value)
     return
@@ -2495,12 +2530,26 @@ const applyRemoteConfig = async () => {
     if (minVersion) {
       const currentVersion = await getCurrentVersion()
       if (compareVersions(currentVersion, minVersion) < 0) {
-        forceUpdateInfo.value = {
-          min_version: minVersion,
-          message: config.force_update?.message || '当前版本过低，请更新后继续使用。',
-          download_url: config.force_update?.download_url || ''
+        if (!allowsInAppGithubUpdater()) {
+          // 合规包：强制更新只引导 App Store，禁止旁加载 download_url
+          forceUpdateInfo.value = {
+            min_version: minVersion,
+            message:
+              config.force_update?.message ||
+              '当前版本过低，请通过 App Store 更新后继续使用。',
+            download_url: '',
+            store_url: '',
+            apple_app_id: ''
+          }
+          showForceUpdate.value = true
+        } else {
+          forceUpdateInfo.value = {
+            min_version: minVersion,
+            message: config.force_update?.message || '当前版本过低，请更新后继续使用。',
+            download_url: config.force_update?.download_url || ''
+          }
+          showForceUpdate.value = true
         }
-        showForceUpdate.value = true
       }
     }
 

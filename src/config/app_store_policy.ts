@@ -38,6 +38,21 @@ export function isAppStoreBuild(): boolean {
   return IS_APP_STORE_BUILD
 }
 
+/**
+ * 是否允许软件内 GitHub / CDN 更新与旁加载安装包。
+ * 必须挂在 isAppStoreBuild()：真实登录后 session 收紧会放开，不能用来关更新。
+ */
+export function allowsInAppGithubUpdater(): boolean {
+  return !isAppStoreBuild()
+}
+
+/** 检查更新路径：合规包走苹果商店，其它构建走 GitHub/CDN */
+export type UpdateCheckMode = 'github_cdn' | 'apple_storefront'
+
+export function getUpdateCheckMode(): UpdateCheckMode {
+  return isAppStoreBuild() ? 'apple_storefront' : 'github_cdn'
+}
+
 const readStoredUsername = (): string => {
   try {
     return String(globalThis.localStorage?.getItem('hbu_username') || '').trim()

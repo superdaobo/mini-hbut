@@ -11,6 +11,8 @@ const isReleaseProfile = buildProfile === 'release'
 const isDevFastProfile = buildProfile === 'dev-fast'
 // 仅当环境变量显式为 1 时开启（ios-testflight.yml）。默认 release/dev/本地 build 保持全功能。
 const appStoreBuildFlag = process.env.VITE_APP_STORE_BUILD === '1' ? '1' : ''
+// App Store 数字 ID（App Store Connect → Apple ID）；合规包打开商店页；也可由 Lookup trackId 回填
+const appleAppId = String(process.env.VITE_APPLE_APP_ID || '6787857278').trim().replace(/^id/i, '')
 
 const toPosix = (value: string) => value.replace(/\\/g, '/')
 
@@ -63,7 +65,8 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
     'import.meta.env.VITE_BUILD_PROFILE': JSON.stringify(buildProfile),
-    'import.meta.env.VITE_APP_STORE_BUILD': JSON.stringify(appStoreBuildFlag)
+    'import.meta.env.VITE_APP_STORE_BUILD': JSON.stringify(appStoreBuildFlag),
+    'import.meta.env.VITE_APPLE_APP_ID': JSON.stringify(appleAppId)
   },
   resolve: {
     alias: {
