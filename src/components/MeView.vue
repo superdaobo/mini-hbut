@@ -327,7 +327,7 @@ const handleShowLegal = async (tab) => {
       </button>
     </section>
 
-    <section class="legal-card">
+    <section class="legal-card about-minihbut-card">
       <h3 class="legal-title">关于 Mini-HBUT</h3>
       <div class="legal-content">
         <p>{{ NON_OFFICIAL_DISCLAIMER_ZH }}</p>
@@ -335,8 +335,19 @@ const handleShowLegal = async (tab) => {
         <p v-if="isDemoSession">
           演示模式说明：当前会话使用本地虚构数据，不连接真实校园服务。可在上方重置演示数据或退出演示。
         </p>
-        <button type="button" class="grid-item privacy-link" @click="openExternal(PRIVACY_POLICY_URL)">
-          打开隐私政策（Safari / 系统浏览器）
+        <button
+          type="button"
+          class="privacy-policy-entry"
+          @click="openExternal(PRIVACY_POLICY_URL)"
+        >
+          <span class="privacy-policy-entry__icon" aria-hidden="true">
+            <span class="material-symbols-outlined">shield</span>
+          </span>
+          <span class="privacy-policy-entry__body">
+            <span class="privacy-policy-entry__title">隐私政策</span>
+            <span class="privacy-policy-entry__desc">在系统浏览器中打开完整政策</span>
+          </span>
+          <span class="privacy-policy-entry__chev material-symbols-outlined" aria-hidden="true">open_in_new</span>
         </button>
       </div>
     </section>
@@ -702,12 +713,13 @@ const handleShowLegal = async (tab) => {
   line-height: 1.3;
 }
 
-/* Legal Section */
+/* Legal Section — token-aligned with GradeView / surface system */
 .legal-card {
-  background: #ffffff;
+  background: var(--ui-surface, #ffffff);
+  border: 1px solid var(--ui-surface-border, rgba(148, 163, 184, 0.22));
   border-radius: 24px;
   padding: 24px 20px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--ui-shadow-soft, 0 2px 12px rgba(0, 0, 0, 0.06));
   margin-bottom: 16px;
 }
 
@@ -715,7 +727,7 @@ const handleShowLegal = async (tab) => {
   margin: 0 0 14px;
   font-size: 17px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--ui-text, #1f2937);
 }
 
 .legal-tabs {
@@ -731,9 +743,9 @@ const handleShowLegal = async (tab) => {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  background: #f3f4f6;
-  color: #6b7280;
-  transition: all 0.2s;
+  background: color-mix(in oklab, var(--ui-primary-soft, #eff6ff) 70%, var(--ui-surface, #fff) 30%);
+  color: var(--ui-muted, #6b7280);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.16s ease;
 }
 
 .legal-tab.active {
@@ -742,9 +754,20 @@ const handleShowLegal = async (tab) => {
 }
 
 .legal-content {
-  color: #4b5563;
+  color: var(--ui-muted, #4b5563);
   line-height: 1.7;
   font-size: 14px;
+}
+
+.legal-content p {
+  margin: 0 0 10px;
+  color: inherit;
+}
+
+.legal-content .muted-en {
+  color: var(--ui-muted, #64748b);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .legal-content ul {
@@ -754,6 +777,84 @@ const handleShowLegal = async (tab) => {
 
 .legal-content li {
   margin: 6px 0;
+}
+
+/* 关于 Mini-HBUT：品牌化隐私政策入口 */
+.privacy-policy-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--ui-surface-border, rgba(148, 163, 184, 0.28));
+  background: color-mix(in oklab, var(--ui-primary-soft, #eff6ff) 55%, var(--ui-surface, #fff) 45%);
+  color: var(--ui-text, #1f2937);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.privacy-policy-entry:active {
+  transform: scale(0.985);
+}
+
+.privacy-policy-entry:hover {
+  border-color: color-mix(in oklab, var(--ui-primary, #2563eb) 30%, transparent);
+  box-shadow: 0 8px 18px color-mix(in oklab, var(--ui-primary, #2563eb) 12%, transparent);
+}
+
+.privacy-policy-entry__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in oklab, var(--ui-primary, #2563eb) 16%, var(--ui-surface, #fff) 84%);
+  color: var(--ui-primary, #2563eb);
+}
+
+.privacy-policy-entry__icon .material-symbols-outlined {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.privacy-policy-entry__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.privacy-policy-entry__title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-text, #1f2937);
+}
+
+.privacy-policy-entry__desc {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ui-muted, #64748b);
+}
+
+.privacy-policy-entry__chev {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ui-muted, #94a3b8);
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .privacy-policy-entry,
+  .legal-tab {
+    transition: none;
+  }
 }
 
 /* ICP 备案号 — 页底次要公示 */
