@@ -266,9 +266,9 @@
 ## 8. 后端降级策略（无凭据 / 探测失败）
 
 1. 若 CookieJar 无门户登录痕迹 → 返回明确错误「请先登录融合门户」。
-2. 若有 cookie 但对全部 base/path 探测失败 → **回落 fixtures**，`source=fixture`，`demo=true`，`notice` 说明「未命中真实接口，展示协议样例」。
-3. 部分成功 → `source=mixed`，成功块 live，失败块可空或 fixture（实现可选；默认空 + notice）。
-4. 单元测试 **只**解析 fixtures，不发起外网请求。
+2. 若有 cookie 但对全部 base/path 探测失败 → **默认空数据**（`source=empty`，`demo=false`，notice/error 说明原因）；**禁止**向用户注入假姓名/宿舍。仅当环境变量 `MINI_HBUT_ORIENTATION_DEMO=1` 时回落 fixtures（`source=fixture`，`demo=true`）。
+3. 部分成功 → 仅返回 live 命中块，缺失为 null；**不用** fixture 补齐。
+4. 单元测试 **只**解析 fixtures / 空回落契约，不发起外网请求。
 
 ---
 

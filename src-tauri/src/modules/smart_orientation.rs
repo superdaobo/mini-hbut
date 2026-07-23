@@ -286,16 +286,61 @@ pub fn parse_profile_blocks_fixture(raw: &str) -> Result<OrientationProfileBlock
     Ok(resp)
 }
 
+/// 仅当显式开启开发样例时，生产路径才可回落 fixture（默认关闭，避免伪造迎新字段）
+fn orientation_demo_allowed() -> bool {
+    match std::env::var("MINI_HBUT_ORIENTATION_DEMO") {
+        Ok(v) => {
+            let t = v.trim().to_ascii_lowercase();
+            t == "1" || t == "true" || t == "yes" || t == "on"
+        }
+        Err(_) => false,
+    }
+}
+
+/// 空 overview（无样例人名/宿舍等）
+fn empty_panels(notice: Option<&str>, error: Option<&str>) -> OrientationPanelsResponse {
+    OrientationPanelsResponse {
+        panels: vec![],
+        fetched_at: now_iso(),
+        source: "empty".into(),
+        demo: false,
+        notice: notice.map(|s| s.to_string()),
+        error: error.map(|s| s.to_string()),
+    }
+}
+
+fn empty_messages(notice: Option<&str>, error: Option<&str>) -> OrientationMessagesResponse {
+    OrientationMessagesResponse {
+        items: vec![],
+        fetched_at: now_iso(),
+        source: "empty".into(),
+        demo: false,
+        notice: notice.map(|s| s.to_string()),
+        error: error.map(|s| s.to_string()),
+    }
+}
+
+fn empty_profile_blocks(
+    notice: Option<&str>,
+    error: Option<&str>,
+) -> OrientationProfileBlocksResponse {
+    OrientationProfileBlocksResponse {
+        mentor: None,
+        counselor: None,
+        dorm: None,
+        profile: None,
+        fetched_at: now_iso(),
+        source: "empty".into(),
+        demo: false,
+        notice: notice.map(|s| s.to_string()),
+        error: error.map(|s| s.to_string()),
+    }
+}
+
+/// 开发样例（仅 orientation_demo_allowed）
 fn fixture_panels(notice: &str) -> OrientationPanelsResponse {
     let mut resp =
-        parse_panels_fixture(FIXTURE_OVERVIEW).unwrap_or_else(|_| OrientationPanelsResponse {
-            panels: vec![],
-            fetched_at: now_iso(),
-            source: "fixture".into(),
-            demo: true,
-            notice: Some(notice.to_string()),
-            error: None,
-        });
+        parse_panels_fixture(FIXTURE_OVERVIEW).unwrap_or_else(|_| empty_panels(Some(notice), None));
     resp.source = "fixture".into();
     resp.demo = true;
     resp.notice = Some(notice.to_string());
@@ -304,15 +349,8 @@ fn fixture_panels(notice: &str) -> OrientationPanelsResponse {
 }
 
 fn fixture_messages(notice: &str) -> OrientationMessagesResponse {
-    let mut resp =
-        parse_messages_fixture(FIXTURE_MESSAGES).unwrap_or_else(|_| OrientationMessagesResponse {
-            items: vec![],
-            fetched_at: now_iso(),
-            source: "fixture".into(),
-            demo: true,
-            notice: Some(notice.to_string()),
-            error: None,
-        });
+    let mut resp = parse_messages_fixture(FIXTURE_MESSAGES)
+        .unwrap_or_else(|_| empty_messages(Some(notice), None));
     resp.source = "fixture".into();
     resp.demo = true;
     resp.notice = Some(notice.to_string());
@@ -321,24 +359,49 @@ fn fixture_messages(notice: &str) -> OrientationMessagesResponse {
 }
 
 fn fixture_profile_blocks(notice: &str) -> OrientationProfileBlocksResponse {
-    let mut resp = parse_profile_blocks_fixture(FIXTURE_PROFILE_BLOCKS).unwrap_or_else(|_| {
-        OrientationProfileBlocksResponse {
-            mentor: None,
-            counselor: None,
-            dorm: None,
-            profile: None,
-            fetched_at: now_iso(),
-            source: "fixture".into(),
-            demo: true,
-            notice: Some(notice.to_string()),
-            error: None,
-        }
-    });
+    let mut resp = parse_profile_blocks_fixture(FIXTURE_PROFILE_BLOCKS)
+        .unwrap_or_else(|_| empty_profile_blocks(Some(notice), None));
     resp.source = "fixture".into();
     resp.demo = true;
     resp.notice = Some(notice.to_string());
     resp.fetched_at = now_iso();
     resp
+}
+
+fn fallback_panels(notice: &str, error: Option<&str>) -> OrientationPanelsResponse {
+    if orientation_demo_allowed() {
+        let mut r = fixture_panels(notice);
+        if let Some(e) = error {
+            r.error = Some(e.to_string());
+        }
+        r
+    } else {
+        empty_panels(Some(notice), error)
+    }
+}
+
+fn fallback_messages(notice: &str, error: Option<&str>) -> OrientationMessagesResponse {
+    if orientation_demo_allowed() {
+        let mut r = fixture_messages(notice);
+        if let Some(e) = error {
+            r.error = Some(e.to_string());
+        }
+        r
+    } else {
+        empty_messages(Some(notice), error)
+    }
+}
+
+fn fallback_profile_blocks(notice: &str, error: Option<&str>) -> OrientationProfileBlocksResponse {
+    if orientation_demo_allowed() {
+        let mut r = fixture_profile_blocks(notice);
+        if let Some(e) = error {
+            r.error = Some(e.to_string());
+        }
+        r
+    } else {
+        empty_profile_blocks(Some(notice), error)
+    }
 }
 
 // ─── Live HTTP (readonly GET only) ──────────────────────────
@@ -624,13 +687,13 @@ fn parse_profile_live(raw: &Value) -> Option<OrientationProfile> {
 
 // ─── Public API ─────────────────────────────────────────────
 
-/// 列表 overview 面板（只读）
+/// 列表 overview 面板（只读）。默认不回落假数据；开发样例需 `MINI_HBUT_ORIENTATION_DEMO=1`。
 pub async fn list_panels(client: &HbutClient) -> Result<OrientationPanelsResponse, String> {
     if !has_portal_session_cookie(client) {
-        // 无会话：返回 fixture + 明确 notice（前端可提示登录）
-        let mut resp = fixture_panels("未检测到融合门户会话，已展示协议样例数据");
-        resp.error = Some("请先登录融合门户".into());
-        return Ok(resp);
+        return Ok(fallback_panels(
+            "请先登录融合门户后再查看智慧迎新",
+            Some("请先登录融合门户"),
+        ));
     }
 
     match get_json_first_hit(client, OVERVIEW_PATHS).await {
@@ -645,19 +708,19 @@ pub async fn list_panels(client: &HbutClient) -> Result<OrientationPanelsRespons
                     error: None,
                 });
             }
-            let mut resp = fixture_panels("真实接口响应无法解析，已回落协议样例");
-            resp.error = Some("overview 解析失败".into());
-            Ok(resp)
+            Ok(fallback_panels(
+                "迎新 overview 响应无法解析或为空",
+                Some("overview 解析失败"),
+            ))
         }
         Err(e) => {
             if e.contains("会话已过期") {
                 return Err(e);
             }
-            let mut resp = fixture_panels(
-                "未命中真实迎新接口，已展示协议样例（见 docs/protocol/smart-orientation.md）",
-            );
-            resp.error = Some(e);
-            Ok(resp)
+            Ok(fallback_panels(
+                "暂未获取到迎新概览（可能不在开放时段，或官方接口路径待确认）",
+                Some(&e),
+            ))
         }
     }
 }
@@ -665,9 +728,10 @@ pub async fn list_panels(client: &HbutClient) -> Result<OrientationPanelsRespons
 /// 列表迎新消息（只读）
 pub async fn list_messages(client: &HbutClient) -> Result<OrientationMessagesResponse, String> {
     if !has_portal_session_cookie(client) {
-        let mut resp = fixture_messages("未检测到融合门户会话，已展示协议样例数据");
-        resp.error = Some("请先登录融合门户".into());
-        return Ok(resp);
+        return Ok(fallback_messages(
+            "请先登录融合门户后再查看智慧迎新",
+            Some("请先登录融合门户"),
+        ));
     }
 
     match get_json_first_hit(client, MESSAGES_PATHS).await {
@@ -682,31 +746,33 @@ pub async fn list_messages(client: &HbutClient) -> Result<OrientationMessagesRes
                     error: None,
                 });
             }
-            let mut resp = fixture_messages("真实接口响应无法解析，已回落协议样例");
-            resp.error = Some("messages 解析失败".into());
-            Ok(resp)
+            Ok(fallback_messages(
+                "迎新消息列表为空或无法解析",
+                Some("messages 解析失败"),
+            ))
         }
         Err(e) => {
             if e.contains("会话已过期") {
                 return Err(e);
             }
-            let mut resp = fixture_messages(
-                "未命中真实迎新消息接口，已展示协议样例（见 docs/protocol/smart-orientation.md）",
-            );
-            resp.error = Some(e);
-            Ok(resp)
+            Ok(fallback_messages(
+                "暂未获取到迎新消息（可能不在开放时段）",
+                Some(&e),
+            ))
         }
     }
 }
 
-/// 班导师 / 辅导员 / 宿舍 / 个人信息聚合块（只读）
+/// 班导师 / 辅导员 / 宿舍 / 个人信息聚合块（只读）。
+/// 部分成功时 **不** 用 fixture 补齐缺失块，避免展示伪造字段。
 pub async fn profile_blocks(
     client: &HbutClient,
 ) -> Result<OrientationProfileBlocksResponse, String> {
     if !has_portal_session_cookie(client) {
-        let mut resp = fixture_profile_blocks("未检测到融合门户会话，已展示协议样例数据");
-        resp.error = Some("请先登录融合门户".into());
-        return Ok(resp);
+        return Ok(fallback_profile_blocks(
+            "请先登录融合门户后再查看智慧迎新",
+            Some("请先登录融合门户"),
+        ));
     }
 
     let mut mentor = None;
@@ -759,28 +825,28 @@ pub async fn profile_blocks(
     }
 
     if live_hits == 0 {
-        let mut resp = fixture_profile_blocks(
-            "未命中真实迎新档案接口，已展示协议样例（见 docs/protocol/smart-orientation.md）",
-        );
-        if !errors.is_empty() {
-            resp.error = Some(errors.join("; "));
-        }
-        return Ok(resp);
+        let err = if errors.is_empty() {
+            None
+        } else {
+            Some(errors.join("; "))
+        };
+        return Ok(fallback_profile_blocks(
+            "暂未获取到导师/宿舍/个人信息（可能不在开放时段或接口待确认）",
+            err.as_deref(),
+        ));
     }
 
-    // 部分成功：缺省块用 fixture 补齐，避免 UI 空白
-    let fb = fixture_profile_blocks("部分接口为协议样例");
-    let source = if live_hits >= 4 { "live" } else { "mixed" };
+    // 仅返回 live 命中块；缺失保持 None，绝不混入 fixture 假数据
     Ok(OrientationProfileBlocksResponse {
-        mentor: mentor.or(fb.mentor),
-        counselor: counselor.or(fb.counselor),
-        dorm: dorm.or(fb.dorm),
-        profile: profile.or(fb.profile),
+        mentor,
+        counselor,
+        dorm,
+        profile,
         fetched_at: now_iso(),
-        source: source.into(),
-        demo: live_hits < 4,
+        source: "live".into(),
+        demo: false,
         notice: if live_hits < 4 {
-            Some("部分数据来自协议样例".into())
+            Some("部分信息暂不可用".into())
         } else {
             None
         },
@@ -896,6 +962,46 @@ mod tests {
                 assert!(!lower.contains("save"), "{p}");
                 assert!(!lower.contains("confirm"), "{p}");
             }
+        }
+    }
+
+    #[test]
+    fn production_fallback_is_empty_without_demo_env() {
+        // 默认不注入样例人名/宿舍
+        std::env::remove_var("MINI_HBUT_ORIENTATION_DEMO");
+        let panels = fallback_panels("n", Some("e"));
+        assert!(!panels.demo);
+        assert!(panels.panels.is_empty());
+        assert_eq!(panels.source, "empty");
+        assert!(panels.error.as_deref() == Some("e"));
+
+        let messages = fallback_messages("n", None);
+        assert!(messages.items.is_empty());
+        assert!(!messages.demo);
+
+        let blocks = fallback_profile_blocks("n", Some("no session"));
+        assert!(blocks.mentor.is_none());
+        assert!(blocks.counselor.is_none());
+        assert!(blocks.dorm.is_none());
+        assert!(blocks.profile.is_none());
+        assert!(!blocks.demo);
+        assert_eq!(blocks.error.as_deref(), Some("no session"));
+    }
+
+    #[test]
+    fn fixture_helpers_still_load_desensitized_samples_for_dev_only() {
+        // fixture_* 仅在 orientation_demo_allowed() 时被 fallback 调用；单测直接验样例可解析
+        let panels = fixture_panels("demo notice");
+        assert!(panels.demo);
+        assert!(!panels.panels.is_empty());
+        let blocks = fixture_profile_blocks("demo notice");
+        assert!(blocks.demo);
+        assert!(blocks.mentor.is_some() || blocks.profile.is_some());
+        // 脱敏：样例手机不应为 11 位纯数字
+        if let Some(phone) = blocks.profile.as_ref().and_then(|p| p.phone.as_ref()) {
+            assert!(
+                phone.contains('*') || phone.chars().filter(|c| c.is_ascii_digit()).count() < 11
+            );
         }
     }
 }
