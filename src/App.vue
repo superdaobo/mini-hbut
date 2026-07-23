@@ -205,7 +205,11 @@ const GRADE_CACHE_REFRESH_RETRY_MS = 8000
 const hasTauri = isTauriRuntime()
 const invoke = invokeNative
 const BRIDGE_BASE = hasTauri ? 'http://127.0.0.1:4399' : '/bridge'
-const IOS_RESUME_RELOAD_MS = 3 * 60 * 1000
+// #451：softRemount 阈值从 3min 提高到 10min，避免中等后台误伤触发整树 remount
+const IOS_RESUME_SOFT_REMOUNT_MS = 10 * 60 * 1000
+// 硬 reload 仅作为末级兜底：idle 更长 + 本会话未用过
+const IOS_RESUME_HARD_RELOAD_MS = 15 * 60 * 1000
+const IOS_RELOAD_MIN_INTERVAL_MS = 60 * 1000
 const isIOSLike = (() => {
   if (typeof window === 'undefined') return false
   const ua = window.navigator.userAgent || ''
@@ -227,6 +231,12 @@ let pendingScrollToTopOnViewChange = false
 let lastResumeHandledAt = 0
 let resumePendingSnapshot = null
 let iosReloadFallbackAt = 0
+/** #451：本会话已执行硬 reload 次数，防止白屏循环 */
+let iosHardReloadCount = 0
+const IOS_HARD_RELOAD_MAX_PER_SESSION = 1
+/** softRemount 节流，避免连续 resume 事件叠 remount */
+let lastSoftRemountAt = 0
+const SOFT_REMOUNT_MIN_INTERVAL_MS = 30 * 1000
 let appBootstrapped = false
 let capacitorAppStateListener = null
 let widgetCrossDayTimer = null
@@ -990,39 +1000,109 @@ const VIEW_HEALTH_SELECTOR_MAP = Object.freeze({
   home: '.dashboard-root',
   schedule: '.schedule-view',
   classroom: '.classroom-view',
-  more_module_host: '.more-module-host-view'
+  more_module_host: '.more-module-host-view',
+  school_website: '.school-website-view',
+  more: '.more-view',
+  me: '.me-view'
 })
 
+/**
+ * #451：更保守的 DOM 健康检查。
+ * - 缺壳/transition 根：不健康
+ * - 有映射 selector：元素存在且具备基本布局尺寸
+ * - 无映射：仅要求至少有一个子节点（不再用恒真的 textContent 条件）
+ * - 过渡动画进行中：视为「暂未可知」，偏向 healthy，避免误判触发 remount/reload
+ */
 const isCurrentViewDomHealthy = (view = currentView.value) => {
-  const root = appShellRef.value || document.querySelector('.app-shell')
-  if (!root) return false
-  const transitionRoot = root.querySelector('.view-transition-root')
-  if (!transitionRoot) return false
-  const expectedSelector = VIEW_HEALTH_SELECTOR_MAP[normalizeViewName(view)]
-  if (expectedSelector) {
-    return !!transitionRoot.querySelector(expectedSelector)
+  try {
+    const root = appShellRef.value || document.querySelector('.app-shell')
+    if (!root) return false
+    const transitionRoot = root.querySelector('.view-transition-root')
+    if (!transitionRoot) return false
+
+    // leave/enter 过渡中子树可能短暂为空，勿判死
+    const leaving = transitionRoot.querySelector('.v-leave-active, .v-enter-active, .module-fade-leave-active, .module-fade-enter-active')
+    if (leaving) return true
+
+    const expectedSelector = VIEW_HEALTH_SELECTOR_MAP[normalizeViewName(view)]
+    if (expectedSelector) {
+      const el = transitionRoot.querySelector(expectedSelector)
+      if (!el) return false
+      // 有节点但完全无布局尺寸时仍可能是半死 WebView
+      try {
+        const rect = el.getBoundingClientRect()
+        if (rect.width <= 0 && rect.height <= 0) return false
+      } catch {
+        // getBoundingClientRect 异常时保守认为「存在即可」
+      }
+      return true
+    }
+    return transitionRoot.childElementCount > 0
+  } catch {
+    // 健康检查自身绝不能抛出导致 resume 崩溃
+    return true
   }
-  return transitionRoot.childElementCount > 0 && String(transitionRoot.textContent || '').trim().length >= 0
 }
 
-const nudgeWebViewPaint = (targetView = currentView.value, { verify = false, allowReload = false } = {}) => {
+/**
+ * #451：硬 reload 末级兜底，强节流 + 每会话上限，避免白屏循环。
+ */
+const maybeHardReloadAfterResume = (targetView, { idleMs = 0 } = {}) => {
+  if (!isIOSLike) return false
+  if (iosHardReloadCount >= IOS_HARD_RELOAD_MAX_PER_SESSION) return false
+  if (idleMs < IOS_RESUME_HARD_RELOAD_MS) return false
+  if (isCurrentViewDomHealthy(targetView)) return false
+  const now = Date.now()
+  if (now - iosReloadFallbackAt < IOS_RELOAD_MIN_INTERVAL_MS) return false
+  iosReloadFallbackAt = now
+  iosHardReloadCount += 1
+  try {
+    console.warn('[Lifecycle#451] hard reload fallback', {
+      view: targetView,
+      idleMs,
+      count: iosHardReloadCount
+    })
+  } catch {
+    // ignore
+  }
+  try {
+    window.location.reload()
+  } catch {
+    // ignore
+  }
+  return true
+}
+
+const nudgeWebViewPaint = (
+  targetView = currentView.value,
+  { verify = false, allowReload = false, idleMs = 0 } = {}
+) => {
   const root = document.getElementById('app')
   if (!root) return
-  root.style.opacity = '0.999'
-  root.style.transform = 'translateZ(0)'
-  requestAnimationFrame(() => {
-    root.style.opacity = '1'
-    root.style.transform = ''
-  })
+  try {
+    root.style.opacity = '0.999'
+    root.style.transform = 'translateZ(0)'
+    requestAnimationFrame(() => {
+      try {
+        root.style.opacity = '1'
+        root.style.transform = ''
+      } catch {
+        // ignore paint nudge failures
+      }
+    })
+  } catch {
+    // ignore
+  }
   if (!verify) return
-  // 仅在恢复场景下做健康检查，避免普通切页被误伤。
+  // 仅在恢复场景下做健康检查；二次确认后再考虑硬 reload（#451）
   setTimeout(() => {
     if (isCurrentViewDomHealthy(targetView)) return
-    if (!allowReload) return
-    const now = Date.now()
-    if (now - iosReloadFallbackAt < 15000) return
-    iosReloadFallbackAt = now
-    window.location.reload()
+    // 再等一帧布局，减少误判
+    setTimeout(() => {
+      if (isCurrentViewDomHealthy(targetView)) return
+      if (!allowReload) return
+      maybeHardReloadAfterResume(targetView, { idleMs })
+    }, 400)
   }, 800)
 }
 
@@ -1071,7 +1151,10 @@ const collectCurrentViewSnapshot = () => ({
       : String(currentModule.value || '').trim()
 })
 
-const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) => {
+const restoreViewFromSnapshot = async (
+  snapshot,
+  { softRemount = false, allowHardReload = false, idleMs = 0 } = {}
+) => {
   const resolved = snapshot || collectCurrentViewSnapshot()
   // 先按合规策略收敛，再处理 more_module_host 预览修复
   let targetViewRaw = resolvePolicySafeSnapshotView(resolved, currentView.value, 'home')
@@ -1102,16 +1185,26 @@ const restoreViewFromSnapshot = async (snapshot, { softRemount = false } = {}) =
   pendingScrollToTopOnViewChange = false
   applyViewState(targetView)
   replaceHistorySnapshot(targetView)
+
+  // #451：softRemount 带节流，避免 focus/visibility/pageshow 连发叠 nonce
+  let didSoftRemount = false
   if (softRemount) {
-    viewRenderNonce.value += 1
+    const now = Date.now()
+    if (now - lastSoftRemountAt >= SOFT_REMOUNT_MIN_INTERVAL_MS) {
+      lastSoftRemountAt = now
+      viewRenderNonce.value += 1
+      didSoftRemount = true
+    }
   }
   await nextTick()
   recoverViewportAfterTransition({ scrollToTop: false, blurActive: false })
-  if (isIOSLike && (softRemount || !isCurrentViewDomHealthy(targetView))) {
+  if (isIOSLike && (didSoftRemount || !isCurrentViewDomHealthy(targetView))) {
     requestAnimationFrame(() => {
       nudgeWebViewPaint(targetView, {
         verify: true,
-        allowReload: softRemount
+        // 仅当确实执行了 softRemount 且允许硬 reload 时才考虑 location.reload
+        allowReload: didSoftRemount && allowHardReload,
+        idleMs
       })
     })
   }
@@ -1340,7 +1433,8 @@ const installNotificationActionListener = () => {
 const handleAppResume = (source = 'visibilitychange') => {
   if (!appBootstrapped || document.hidden) return
   const now = Date.now()
-  if (now - lastResumeHandledAt < 180) return
+  // 合并 visibility/pageshow/focus 连发，降低恢复路径重入
+  if (now - lastResumeHandledAt < 320) return
   lastResumeHandledAt = now
   const idle = hiddenAt ? now - hiddenAt : 0
   hiddenAt = 0
@@ -1348,11 +1442,19 @@ const handleAppResume = (source = 'visibilitychange') => {
   resumePendingSnapshot = null
   scheduleViewportUpdate()
   const targetView = normalizeViewName(snapshot?.view || snapshot?.module || currentView.value)
-  const softRemount = isIOSLike && idle >= IOS_RESUME_RELOAD_MS && !isCurrentViewDomHealthy(targetView)
+  // #451：仅长后台 + DOM 明确不健康时 softRemount；硬 reload 另设更高 idle 门槛
+  const softRemount =
+    isIOSLike && idle >= IOS_RESUME_SOFT_REMOUNT_MS && !isCurrentViewDomHealthy(targetView)
+  const allowHardReload = isIOSLike && idle >= IOS_RESUME_HARD_RELOAD_MS
   if (isIOSLike && !softRemount) {
-    nudgeWebViewPaint(targetView, { verify: false, allowReload: false })
+    nudgeWebViewPaint(targetView, { verify: false, allowReload: false, idleMs: idle })
   }
-  void restoreViewFromSnapshot(snapshot, { softRemount, source })
+  void restoreViewFromSnapshot(snapshot, {
+    softRemount,
+    allowHardReload,
+    idleMs: idle,
+    source
+  })
   // 回前台：探测 loopback bridge，并通知内嵌页恢复（官网/模块）
   void recoverEmbeddedWebAfterResume(targetView, idle)
   // 回前台时重算跨天定时器剩余时间
