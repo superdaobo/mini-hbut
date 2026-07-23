@@ -663,6 +663,60 @@ html.dark .grade-view .semester-header {
   color: #e2e8f0 !important;
 }
 
+/* ─── 隐私与数据页（#464） ─── */
+html.dark .privacy-data-view {
+  background: var(--ui-bg-gradient, linear-gradient(180deg, #0f172a 0%, #1e293b 100%)) !important;
+  color: var(--ui-text, #e2e8f0) !important;
+}
+
+html.dark .privacy-data-view .privacy-card {
+  background: var(--ui-surface, rgba(30, 41, 59, 0.9)) !important;
+  border-color: var(--ui-surface-border, rgba(148, 163, 184, 0.18)) !important;
+  box-shadow: none !important;
+}
+
+html.dark .privacy-data-view .privacy-card h2,
+html.dark .privacy-data-view .privacy-card p {
+  color: var(--ui-text, #e2e8f0) !important;
+}
+
+html.dark .privacy-data-view .muted {
+  color: var(--ui-muted, #94a3b8) !important;
+}
+
+html.dark .privacy-data-view .link-btn,
+html.dark .privacy-data-view .action-btn {
+  background: color-mix(in oklab, #0f172a 55%, #1e293b 45%) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .privacy-data-view .action-btn.danger {
+  background: color-mix(in oklab, #7f1d1d 35%, #1e293b 65%) !important;
+  border-color: color-mix(in oklab, #ef4444 40%, transparent) !important;
+  color: #fca5a5 !important;
+}
+
+html.dark .privacy-data-view .action-btn.danger .action-btn__icon {
+  color: #f87171 !important;
+}
+
+html.dark .privacy-data-view .status {
+  background: color-mix(in oklab, #134e4a 45%, #1e293b 55%) !important;
+  border-color: color-mix(in oklab, #14b8a6 30%, transparent) !important;
+  color: #5eead4 !important;
+}
+
+html.dark .privacy-data-view .privacy-card__icon--policy {
+  background: color-mix(in oklab, #0ea5e9 22%, #0f172a 78%) !important;
+  color: #7dd3fc !important;
+}
+
+html.dark .privacy-data-view .privacy-card__icon--control {
+  background: color-mix(in oklab, #8b5cf6 22%, #0f172a 78%) !important;
+  color: #c4b5fd !important;
+}
+
 /* ─── 我的页面 ─── */
 html.dark .me-view {
   background-color: #0f172a !important;
@@ -674,6 +728,36 @@ html.dark .func-grid,
 html.dark .legal-card {
   background-color: #1e293b !important;
   border: 1px solid rgba(148, 163, 184, 0.15) !important;
+}
+
+html.dark .me-view .privacy-policy-entry {
+  background: color-mix(in oklab, #0f172a 50%, #1e293b 50%) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .me-view .privacy-policy-entry__title {
+  color: #e2e8f0 !important;
+}
+
+html.dark .me-view .privacy-policy-entry__desc,
+html.dark .me-view .privacy-policy-entry__chev {
+  color: #94a3b8 !important;
+}
+
+html.dark .me-view .privacy-policy-entry__icon {
+  background: color-mix(in oklab, #3b82f6 22%, #0f172a 78%) !important;
+  color: #93c5fd !important;
+}
+
+html.dark .me-view .legal-tab:not(.active) {
+  background: #0f172a !important;
+  color: #94a3b8 !important;
+}
+
+html.dark .me-view .legal-content,
+html.dark .me-view .legal-content .muted-en {
+  color: #94a3b8 !important;
 }
 
 html.dark .me-view .icp-beian-link {
@@ -1598,13 +1682,19 @@ html.dark body :is(
   .feedback-view,
   .config-editor,
   .campus-code-view,
-  .calendar-view,
   .more-module-host-view,
   .ai-view
 ) {
   background:
     radial-gradient(120% 90% at 8% 0%, rgba(37, 99, 235, 0.16), transparent 44%),
     linear-gradient(180deg, #07111f 0%, #0f172a 58%, #111c2f 100%) !important;
+  color: #e2e8f0 !important;
+}
+
+/* 校历页级背景对齐成绩查询：中性 slate，去掉蓝径向染色 */
+html.dark body .calendar-view {
+  background: #0f172a !important;
+  background-color: #0f172a !important;
   color: #e2e8f0 !important;
 }
 
@@ -1739,11 +1829,12 @@ html.dark body .campus-code-view .banner.success {
   color: #bbf7d0 !important;
 }
 
-/* 校历 */
-html.dark body .calendar-view :is(.controls, .calendar-table) {
+/* 校历：表面/表头/当前周在暗色下可读，无死白 thead */
+html.dark body .calendar-view :is(.controls, .calendar-table, .loading, .error) {
   background: #1e293b !important;
   border-color: rgba(148, 163, 184, 0.24) !important;
   color: #e2e8f0 !important;
+  box-shadow: none !important;
 }
 
 html.dark body .calendar-view .calendar-table :is(th, td) {
@@ -1762,12 +1853,24 @@ html.dark body .calendar-view .calendar-table tbody tr.is-current :is(td, .month
 }
 
 html.dark body .calendar-view :is(.month-cell, .meta span) {
-  background: rgba(15, 23, 42, 0.72) !important;
+  background: rgba(30, 41, 59, 0.95) !important;
   color: #e2e8f0 !important;
+  border-color: rgba(96, 165, 250, 0.28) !important;
+}
+
+html.dark body .calendar-view .meta span {
+  background: rgba(37, 99, 235, 0.22) !important;
+  color: #bfdbfe !important;
 }
 
 html.dark body .calendar-view :is(.day-lunar, .remark-cell) {
   color: #94a3b8 !important;
+}
+
+html.dark body .calendar-view .offline-banner {
+  background: rgba(120, 53, 15, 0.4) !important;
+  border-color: rgba(251, 191, 36, 0.34) !important;
+  color: #fde68a !important;
 }
 
 /* 更多模块宿主 */
@@ -1864,8 +1967,6 @@ html.dark body .ai-view .rich-text :is(pre, code) {
    ═══════════════════════════════════════════════════════════════ */
 
 html.dark body :is(
-  .progress-view,
-  .training-plan-view,
   .more-shuake-view,
   .resource-share-view,
   .campus-map-view
@@ -1873,6 +1974,13 @@ html.dark body :is(
   background:
     radial-gradient(120% 90% at 8% 0%, rgba(37, 99, 235, 0.14), transparent 44%),
     linear-gradient(180deg, #07111f 0%, #0f172a 58%, #111827 100%) !important;
+  color: #e2e8f0 !important;
+}
+
+/* 学业情况 / 培养方案：页级中性深底，对齐成绩查询 */
+html.dark body :is(.progress-view, .training-plan-view) {
+  background: #0f172a !important;
+  background-color: #0f172a !important;
   color: #e2e8f0 !important;
 }
 
@@ -1890,10 +1998,18 @@ html.dark body :is(.progress-view, .training-plan-view) :is(
   .empty,
   .pagination button
 ) {
-  background: linear-gradient(160deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.88)) !important;
+  background: #1e293b !important;
   border-color: rgba(148, 163, 184, 0.24) !important;
-  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.28) !important;
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28) !important;
   color: #e2e8f0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.dark body :is(.progress-view, .training-plan-view) .offline-banner {
+  background: rgba(120, 53, 15, 0.4) !important;
+  border-color: rgba(251, 191, 36, 0.34) !important;
+  color: #fde68a !important;
 }
 
 html.dark body :is(.progress-view, .training-plan-view) :is(
