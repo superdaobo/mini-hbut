@@ -47,7 +47,7 @@
     "@capacitor/local-notifications": "^6.1.0",
     "@capacitor/preferences": "^6.0.4",
     "@capacitor/share": "^6.0.2",
-    "@fortawesome/fontawesome-free": "^7.3.0",
+    "@fortawesome/fontawesome-free": "^7.3.1",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-autostart": "^2.5.1",
