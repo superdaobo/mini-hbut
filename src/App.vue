@@ -155,6 +155,7 @@ const loadTeachingEvalView = () => import('./components/TeachingEvalView.vue')
 const loadBroadbandView = () => import('./components/BroadbandView.vue')
 const loadSportsVenueView = () => import('./components/SportsVenueView.vue')
 const loadTowerGoView = () => import('./components/TowerGoView.vue')
+const loadSmartOrientationView = () => import('./components/SmartOrientationView.vue')
 
 const Dashboard = createAsyncPage(loadDashboardView)
 const GradeView = createAsyncPage(loadGradeView)
@@ -199,6 +200,7 @@ const TeachingEvalView = createAsyncPage(loadTeachingEvalView)
 const BroadbandView = createAsyncPage(loadBroadbandView)
 const SportsVenueView = createAsyncPage(loadSportsVenueView)
 const TowerGoView = createAsyncPage(loadTowerGoView)
+const SmartOrientationView = createAsyncPage(loadSmartOrientationView)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const GRADE_CACHE_REFRESH_RETRY_MS = 8000
@@ -293,7 +295,8 @@ const VIEW_PREFETCHERS = Object.freeze({
   teaching_eval: loadTeachingEvalView,
   broadband: loadBroadbandView,
   sports_venue: loadSportsVenueView,
-  towergo: loadTowerGoView
+  towergo: loadTowerGoView,
+  smart_orientation: loadSmartOrientationView
 })
 
 const prefetchViewComponent = (view) => {
@@ -1471,12 +1474,31 @@ const handleAppResume = (source = 'visibilitychange') => {
 
 const recoverEmbeddedWebAfterResume = async (targetView, idleMs = 0) => {
   try {
-    const { recoverSchoolWebsiteBridgeOnResume } = await import('./utils/school_website_embed.ts')
+    const {
+      recoverSchoolWebsiteBridgeOnResume,
+      invokeEnsureHttpBridge
+    } = await import('./utils/school_website_embed.ts')
+    // #453：resume 先 ensure bridge，再 remount 内嵌
+    let ensureResult = null
+    try {
+      ensureResult = await invokeEnsureHttpBridge()
+    } catch {
+      ensureResult = null
+    }
     const bridgeOk = await recoverSchoolWebsiteBridgeOnResume()
     // 挂后台超过 8s 或 bridge 曾不可达：对官网 / 模块宿主发自定义事件强制 remount
     if (idleMs >= 8000 || !bridgeOk || targetView === 'school_website' || targetView === 'more_module_host') {
       window.dispatchEvent(new CustomEvent('hbu-embed-resume', {
-        detail: { view: targetView, bridgeOk, idleMs, source: 'app-resume' }
+        detail: {
+          view: targetView,
+          bridgeOk,
+          idleMs,
+          source: 'app-resume',
+          ensureStatus: ensureResult?.status || null,
+          bridgeEnabled: ensureResult?.enabled !== false,
+          // 明确降级信号：bridge 仍不可用时宿主应展示可操作 fallback（重试/外开）
+          forceFallback: !bridgeOk && idleMs >= 8000
+        }
       }))
     }
   } catch {
@@ -3887,6 +3909,14 @@ onBeforeUnmount(() => {
       <SportsVenueView
         v-else-if="currentView === 'sports_venue'"
         @back="handleBackToDashboard"
+      />
+
+      <!-- 智慧迎新 -->
+      <SmartOrientationView
+        v-else-if="currentView === 'smart_orientation'"
+        :student-id="studentId"
+        @back="handleBackToDashboard"
+        @logout="handleLogout"
       />
 
       <!-- 小塔出行 -->

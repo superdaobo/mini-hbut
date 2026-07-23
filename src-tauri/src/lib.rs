@@ -418,6 +418,9 @@ pub struct AddCustomScheduleCourseRequest {
     pub djs: i32,
     pub weeks: Vec<i32>,
     pub room: Option<String>,
+    /// 可选用户主色 #RRGGBB；缺省/空表示未设定
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,6 +444,9 @@ pub struct UpdateCustomScheduleCourseRequest {
     pub djs: i32,
     pub weeks: Vec<i32>,
     pub room: Option<String>,
+    /// 可选用户主色 #RRGGBB；缺省/空表示未设定
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 fn normalize_grade_match_key(value: Option<&str>) -> Option<String> {
@@ -4472,6 +4478,7 @@ pub(crate) fn strip_custom_course_id(value: &str) -> String {
 pub(crate) fn custom_course_to_payload(
     course: &db::CustomScheduleCourseRecord,
 ) -> serde_json::Value {
+    let color = db::normalize_course_color(Some(course.color.as_str())).unwrap_or_default();
     serde_json::json!({
         "id": format!("custom:{}", course.id),
         "source_id": course.id,
@@ -4488,6 +4495,7 @@ pub(crate) fn custom_course_to_payload(
         "credit": "",
         "class_name": "自定义课程",
         "semester": course.semester,
+        "color": color,
         "is_custom": true,
         "created_at": course.created_at,
         "updated_at": course.updated_at
@@ -4567,6 +4575,8 @@ async fn add_custom_schedule_course(
     if weeks.is_empty() {
         return Err("请至少选择一个上课周次".to_string());
     }
+    let color = db::normalize_course_color(req.color.as_deref())
+        .ok_or_else(|| "颜色格式不合法，请使用 #RRGGBB".to_string())?;
 
     let mut rng = rand::thread_rng();
     let id = format!(
@@ -4586,6 +4596,7 @@ async fn add_custom_schedule_course(
         period: req.period,
         djs: req.djs,
         weeks,
+        color,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -4717,6 +4728,8 @@ async fn update_custom_schedule_course(
     if existing.semester != sem {
         return Err("学期不匹配，无法修改该课程".to_string());
     }
+    let color = db::normalize_course_color(req.color.as_deref())
+        .ok_or_else(|| "颜色格式不合法，请使用 #RRGGBB".to_string())?;
 
     let record = db::CustomScheduleCourseRecord {
         id: existing.id,
@@ -4729,6 +4742,7 @@ async fn update_custom_schedule_course(
         period: req.period,
         djs: req.djs,
         weeks,
+        color,
         created_at: existing.created_at,
         updated_at: existing.updated_at,
     };
@@ -5223,6 +5237,36 @@ async fn school_inbox_mark_read(
     let mode = login_mode.unwrap_or_default();
     let response =
         modules::school_inbox::mark_school_inbox_read(&mut client, &mode, &item_id).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+/// 智慧迎新：overview 面板列表（只读）
+#[tauri::command(rename_all = "camelCase")]
+async fn smart_orientation_list_panels(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::smart_orientation::list_panels(&client).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+/// 智慧迎新：消息列表（只读）
+#[tauri::command(rename_all = "camelCase")]
+async fn smart_orientation_list_messages(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::smart_orientation::list_messages(&client).await?;
+    Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
+}
+
+/// 智慧迎新：班导师/辅导员/宿舍/个人信息（只读）
+#[tauri::command(rename_all = "camelCase")]
+async fn smart_orientation_profile_blocks(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let client = state.client.read().await;
+    let response = modules::smart_orientation::profile_blocks(&client).await?;
     Ok(serde_json::to_value(response).map_err(|e| e.to_string())?)
 }
 
@@ -7013,6 +7057,8 @@ pub fn run() {
             modules::school_website_embed::school_website_embed_open,
             modules::school_website_embed::school_website_embed_resize,
             modules::school_website_embed::school_website_embed_close,
+            // #452：长后台回前台 ensure/respawn loopback HTTP Bridge
+            http_server::ensure_http_bridge,
             prepare_module_bundle,
             open_file_with_system,
             open_module_bundle_window,
@@ -7063,6 +7109,9 @@ pub fn run() {
             school_inbox_fetch,
             school_inbox_detail_fetch,
             school_inbox_mark_read,
+            smart_orientation_list_panels,
+            smart_orientation_list_messages,
+            smart_orientation_profile_blocks,
             fetch_personal_login_access_info,
             fetch_semesters,
             fetch_classroom_buildings,

@@ -56,13 +56,46 @@ export const probeSchoolWebsiteProxyReachable = async () => {
   }
 }
 
+export type EnsureHttpBridgeResult = {
+  enabled?: boolean
+  healthy?: boolean
+  respawned?: boolean
+  addr?: string
+  status?: string
+  detail?: string | null
+}
+
 /**
- * 前台恢复时探测 bridge；供 App resume / 官网页 remount 使用。
+ * 调用原生 ensure_http_bridge（#452）：/health 不可达时尝试 respawn。
+ * 非 Tauri / 命令不可用 / Android 不依赖 loopback 时返回 null。
+ */
+export const invokeEnsureHttpBridge = async (): Promise<EnsureHttpBridgeResult | null> => {
+  if (!isTauriRuntime()) return null
+  // Android Release 默认不启 4399；不在此路径强依赖 bridge
+  if (isLikelyAndroidUserAgent()) {
+    return { enabled: false, healthy: false, respawned: false, status: 'disabled' }
+  }
+  try {
+    const result = await invokeNative<EnsureHttpBridgeResult>('ensure_http_bridge')
+    return result && typeof result === 'object' ? result : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 前台恢复时 ensure + 探测 bridge；供 App resume / 官网页 remount 使用。
  * 返回 true 表示 loopback 可用。
  */
 export const recoverSchoolWebsiteBridgeOnResume = async (): Promise<boolean> => {
   if (!isTauriRuntime()) return false
   if (isLikelyAndroidUserAgent()) return false
+
+  // #452/#453：先让原生 ensure/respawn，再做前端 /health 探测
+  const ensured = await invokeEnsureHttpBridge()
+  if (ensured?.healthy === true) return true
+  if (ensured?.enabled === false) return false
+
   return probeSchoolWebsiteProxyReachable()
 }
 

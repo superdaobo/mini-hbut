@@ -1,6 +1,26 @@
 # 本地调试 Bridge API
 
-应用启动后会在本机拉起 HTTP Bridge（默认 `http://127.0.0.1:4399`）。
+应用在 **Bridge 启用平台** 上会在本机拉起 HTTP Bridge（默认 `http://127.0.0.1:4399`）。
+
+## 平台启停矩阵
+
+| 平台 | Debug | Release | 备注 |
+|------|-------|---------|------|
+| iOS | 启 | 启 | 官网 proxy / module_bundle 依赖 |
+| Android | 启 | **默认不启** | 不静默依赖 4399 |
+| 桌面 | 启 | 默认不启 | `HBUT_HTTP_BRIDGE_ENABLED=1` 强制 |
+
+详见 [`src-tauri/docs/http_server.md`](../src-tauri/docs/http_server.md)。
+
+## 长后台恢复（#452）
+
+前端回前台可 invoke Tauri 命令 **`ensure_http_bridge`**：
+
+1. 探测 `GET /health`
+2. 不可达则 graceful shutdown + respawn
+3. 返回 `{ enabled, healthy, respawned, addr, status, detail }`
+
+冷启动仍由 setup 一次性 `spawn_http_server`；ensure 仅在健康失败时二次拉起。
 
 开发构建（`debug_assertions`）下调试接口默认可用；正式包需：
 

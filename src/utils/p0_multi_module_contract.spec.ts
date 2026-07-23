@@ -149,4 +149,42 @@ describe('P0 multi-module contracts', () => {
     expect(app).toContain('v-leave-active')
     expect(app).toContain('getBoundingClientRect')
   })
+
+  it('exposes ensure_http_bridge API for lifecycle resume (#452)', () => {
+    const httpServer = read('src-tauri/src/http_server.rs')
+    const lib = read('src-tauri/src/lib.rs')
+    const docs = read('src-tauri/docs/http_server.md')
+
+    expect(httpServer).toContain('pub fn is_http_bridge_enabled')
+    expect(httpServer).toContain('pub async fn ensure_http_bridge')
+    expect(httpServer).toContain('pub async fn probe_http_bridge_health')
+    expect(httpServer).toContain('EnsureHttpBridgeResult')
+    expect(httpServer).toContain('respawned')
+    expect(httpServer).toContain('with_graceful_shutdown')
+    expect(lib).toContain('http_server::ensure_http_bridge')
+    expect(docs).toContain('平台启停矩阵')
+    expect(docs).toContain('Android')
+    expect(docs).toContain('iOS')
+    expect(docs).toContain('ensure_http_bridge')
+  })
+
+  it('wires ensure-then-remount embed resume path (#453)', () => {
+    const app = read('src/App.vue')
+    const embed = read('src/utils/school_website_embed.ts')
+    const school = read('src/components/SchoolWebsiteView.vue')
+    const more = read('src/components/MoreModuleHostView.vue')
+
+    expect(embed).toContain('invokeEnsureHttpBridge')
+    expect(embed).toContain('ensure_http_bridge')
+    expect(embed).toContain('recoverSchoolWebsiteBridgeOnResume')
+    expect(app).toContain('invokeEnsureHttpBridge')
+    expect(app).toContain('forceFallback')
+    expect(school).toContain('recoverSchoolWebsiteBridgeOnResume')
+    expect(school).toContain('forceFallback')
+    // Android 不误导为 HTTP 桥
+    expect(school).toContain('当前环境无法在应用内嵌学校官网')
+    expect(more).toContain('recoverSchoolWebsiteBridgeOnResume')
+    expect(more).toContain('tryCapacitorLocalFallback')
+    expect(more).toContain('模块本地服务暂时不可用')
+  })
 })
