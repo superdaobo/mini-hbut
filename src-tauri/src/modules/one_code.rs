@@ -145,11 +145,6 @@ pub async fn one_code_app_open_prepare(
         // 缴费页不强制 accessToken；有则更好
         client.ensure_electricity_token().await.unwrap_or_default()
     };
-    let tid_q = if browser_tid.is_empty() {
-        String::new()
-    } else {
-        urlencoding_lite(&browser_tid)
-    };
 
     let name = if display.is_empty() {
         code.as_str()
@@ -157,31 +152,17 @@ pub async fn one_code_app_open_prepare(
         display.as_str()
     };
 
-    let spa_entry = |hash_path: &str| -> String {
-        if tid_q.is_empty() {
-            format!("{CODE_BASE}/#{hash_path}")
-        } else {
-            // 官方落地格式：/?tid=...&orgId=2#/pages_...
-            format!("{CODE_BASE}/?tid={tid_q}&orgId=2#{hash_path}")
-        }
-    };
-
+    // 缴电费/网费：必须走 build_one_code_pay_open_url（与单测/MCP 官方 URL 形状一致）
     let (open_url, hint) = match code.as_str() {
-        // 缴电费：原生 H5（官方拼写 electricty）
         "electric" => (
-            spa_entry(
-                "/pages_payment/electrictyFees/electrictyFees?navbarTitle=%E7%BC%B4%E7%94%B5%E8%B4%B9&type=electric",
-            ),
+            build_one_code_pay_open_url("electric", &browser_tid),
             "在官方页完成缴纳".to_string(),
         ),
-        // 教育网网费
         "broadband" => (
-            spa_entry(
-                "/pages_payment/networkFees/networkFees?navbarTitle=%E7%BC%B4%E7%BA%B3%E6%95%99%E8%82%B2%E7%BD%91%E7%BD%91%E8%B4%B9&type=broadband",
-            ),
+            build_one_code_pay_open_url("broadband", &browser_tid),
             "在官方页完成缴纳".to_string(),
         ),
-        // 运动场馆（第三方 + accessToken）
+        // 运动场馆（第三方 + accessToken，内网）
         "noQYzEiZ7L" => {
             let redirect = "http://172.16.54.20:9000/#/home";
             let encoded = urlencoding_lite(redirect);
@@ -201,7 +182,7 @@ pub async fn one_code_app_open_prepare(
             (url, "官方电量查询".to_string())
         }
         _ => (
-            spa_entry("/pages_home/home"),
+            build_one_code_pay_open_url("home", &browser_tid),
             format!("打开「{name}」"),
         ),
     };
@@ -539,6 +520,19 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn build_selected_roomverify_candidates_prefers_synth() {
+        let c = build_selected_roomverify_candidates("101-7--254-102", "101-7--254-101", "102房间");
+        assert_eq!(c.first().map(|s| s.as_str()), Some("101-7--254-102"));
+        // preferred already 102; synth from bound may equal preferred
+        assert!(!c.is_empty());
+        let c2 =
+            build_selected_roomverify_candidates("SOMETHING-ELSE", "101-7--254-101", "102房间");
+        assert!(c2.contains(&"SOMETHING-ELSE".to_string()));
+        assert!(c2.iter().any(|x| x.ends_with("102") || x.contains("102")));
+    }
+
+    #[test]
     fn build_pay_urls_include_tid_and_official_paths() {
         let tid = "TEST_TID_ABC";
         let elec = build_one_code_pay_open_url("electric", tid);
@@ -659,14 +653,9 @@ async fn fetch_smart_electricity_stats(
     let room_no = extract_room_number(label, pref);
 
     if !pref.is_empty() {
-        candidates.push((pref.to_string(), "selected", label.to_string()));
-        // 用绑定房模板改房间号：101-7--254-101 + 102 → 101-7--254-102
-        if !bound_room.is_empty() {
-            if let Some(syn) = synthesize_roomverify_from_bound(&bound_room, &room_no) {
-                if syn != pref {
-                    candidates.push((syn, "selected", label.to_string()));
-                }
-            }
+        // preferred + 绑定模板改房号（与单测 build_selected_roomverify_candidates 一致）
+        for rv in build_selected_roomverify_candidates(pref, &bound_room, label) {
+            candidates.push((rv, "selected", label.to_string()));
         }
         // SWAE 房间树按房号匹配（宿舍数据集 value 可能与智能水电 roomverify 不一致）
         if let Some(resolved) =
@@ -803,6 +792,31 @@ fn extract_room_number(label: &str, roomverify: &str) -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 2)
         .unwrap_or_default()
+}
+
+/// 选房后参与趋势查询的 roomverify 候选（纯函数：preferred + 绑定模板改房号）
+/// 供 electricity_usage_stats 与单测共用，保证「切换房间」路径可测。
+pub fn build_selected_roomverify_candidates(
+    preferred: &str,
+    bound_room: &str,
+    room_label: &str,
+) -> Vec<String> {
+    let pref = preferred.trim();
+    let mut out = Vec::new();
+    if pref.is_empty() {
+        if !bound_room.trim().is_empty() {
+            out.push(bound_room.trim().to_string());
+        }
+        return out;
+    }
+    out.push(pref.to_string());
+    let room_no = extract_room_number(room_label, pref);
+    if let Some(syn) = synthesize_roomverify_from_bound(bound_room, &room_no) {
+        if !out.iter().any(|x| x == &syn) {
+            out.push(syn);
+        }
+    }
+    out
 }
 
 /// 绑定房 roomverify 末段换成目标房号

@@ -2315,13 +2315,18 @@ async fn fetch_chaoxing_outline_remote(
         return Err(err_box("学习通会话已失效，请重新登录"));
     }
 
-    // 官方目录：一级 firstLayer（章）+ 二级 id="cur{knowledgeId}" + getTeacherAjax
-    // 属性顺序因课而异，放宽正则（title/onclick 可交换、可跨属性）
-    let re_leaf = regex::Regex::new(
-        r#"id="cur(\d+)"[\s\S]{0,2500}?getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#,
-    )
-    .expect("regex leaf");
-    let re_leaf_title = regex::Regex::new(r#"title="\s*([^"]*?)\s*""#).expect("regex leaf title");
+    // 生产路径：与单测共用 assemble_chaoxing_outline_from_html / extract_chaoxing_catalog_leaves
+    assemble_chaoxing_outline_from_html(&html, course_id, clazz_id, cpi, &target)
+}
+
+/// 从章节 HTML 组装大纲（生产 fetch_chaoxing_outline_remote + 单测共用）
+pub fn assemble_chaoxing_outline_from_html(
+    html: &str,
+    course_id: &str,
+    clazz_id: &str,
+    cpi: &str,
+    course_url: &str,
+) -> Result<Value, DynError> {
     let re_section = regex::Regex::new(
         r#"(?i)(?:posCatalog_select\s+firstLayer|firstLayer)[^>]*id="(\d+)"[\s\S]{0,500}?title="([^"]+)""#,
     )
@@ -2329,9 +2334,8 @@ async fn fetch_chaoxing_outline_remote(
     let re_section_alt =
         regex::Regex::new(r#"(?i)class="[^"]*catalog_name[^"]*"[^>]*>([^<]{1,80})<"#).ok();
 
-    // 收集一级章标题及其在 HTML 中的位置
     let mut section_marks: Vec<(usize, String, String)> = Vec::new();
-    for cap in re_section.captures_iter(&html) {
+    for cap in re_section.captures_iter(html) {
         let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
         let sid = cap[1].to_string();
         let title = cap[2].trim().to_string();
@@ -2339,145 +2343,9 @@ async fn fetch_chaoxing_outline_remote(
             section_marks.push((pos, sid, title));
         }
     }
-
-    let mut leaves: Vec<(usize, Value)> = Vec::new();
-    let mut seen = HashSet::new();
-    for cap in re_leaf.captures_iter(&html) {
-        let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
-        let cur_id = cap[1].to_string();
-        let cap_course_id = cap[2].to_string();
-        let cap_clazz_id = cap[3].to_string();
-        let knowledge_id = cap[4].to_string();
-        let start = pos;
-        let end = html[start + 1..]
-            .find(r#"id="cur"#)
-            .map(|p| start + 1 + p)
-            .unwrap_or((start + 1200).min(html.len()));
-        let block = &html[start..end];
-        let title = re_leaf_title
-            .captures(block)
-            .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
-            .filter(|t| !t.is_empty())
-            .unwrap_or_else(|| format!("小节 {knowledge_id}"));
-        if !seen.insert(knowledge_id.clone()) {
-            continue;
-        }
-        let completed = block.contains("icon_Completed") || block.contains("icon_yiwanc");
-        let has_unfinished = block.contains("jobUnfinishCount");
-        leaves.push((
-            pos,
-            json!({
-                "id": knowledge_id.clone(),
-                "title": title.clone(),
-                "name": title,
-                "course_id": cap_course_id,
-                "clazz_id": cap_clazz_id,
-                "cpi": cpi,
-                "chapter_id": cur_id,
-                "knowledge_id": knowledge_id,
-                "completed": completed && !has_unfinished,
-                "task_type": "knowledge",
-                "type": "knowledge",
-                // 叶子任务：前端展开时再拉 knowledge/cards
-                "children": [],
-                "tasks": []
-            }),
-        ));
-    }
-
-    println!(
-        "[调试] 章节解析: sections={} leaves={}",
-        section_marks.len(),
-        leaves.len()
-    );
-
-    // 兜底：扁平匹配 getTeacherAjax（不依赖 id=cur 顺序 / title 位置）
-    if leaves.is_empty() {
-        let re_ajax =
-            regex::Regex::new(r#"getTeacherAjax\('(\d+)','(\d+)','(\d+)'\)"#).expect("regex ajax");
-        for cap in re_ajax.captures_iter(&html) {
-            let pos = cap.get(0).map(|m| m.start()).unwrap_or(0);
-            let knowledge_id = cap[3].to_string();
-            if !seen.insert(knowledge_id.clone()) {
-                continue;
-            }
-            let window_start = pos.saturating_sub(400);
-            let window = &html[window_start..pos.min(html.len())];
-            let title = re_leaf_title
-                .captures(window)
-                .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
-                .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| format!("小节 {knowledge_id}"));
-            leaves.push((
-                pos,
-                json!({
-                    "id": knowledge_id.clone(),
-                    "title": title.clone(),
-                    "name": title,
-                    "course_id": cap[1].to_string(),
-                    "clazz_id": cap[2].to_string(),
-                    "cpi": cpi,
-                    "chapter_id": knowledge_id.clone(),
-                    "knowledge_id": knowledge_id,
-                    "completed": false,
-                    "task_type": "knowledge",
-                    "type": "knowledge",
-                    "children": [],
-                    "tasks": []
-                }),
-            ));
-        }
-        println!("[调试] 章节解析: ajax 兜底 {} 个", leaves.len());
-    }
-
-    // 再兜底：data-id / chapterId 属性
-    if leaves.is_empty() {
-        let re_data = regex::Regex::new(
-            r#"(?i)(?:data-id|data-chapterid|chapterid|knowledgeid)=["']?(\d{5,})["']?"#,
-        )
-        .ok();
-        if let Some(re) = re_data {
-            for (i, cap) in re.captures_iter(&html).enumerate() {
-                if i > 200 {
-                    break;
-                }
-                let knowledge_id = cap[1].to_string();
-                if !seen.insert(knowledge_id.clone()) {
-                    continue;
-                }
-                leaves.push((
-                    cap.get(0).map(|m| m.start()).unwrap_or(0),
-                    json!({
-                        "id": knowledge_id.clone(),
-                        "title": format!("小节 {knowledge_id}"),
-                        "name": format!("小节 {knowledge_id}"),
-                        "course_id": course_id,
-                        "clazz_id": clazz_id,
-                        "cpi": cpi,
-                        "chapter_id": knowledge_id.clone(),
-                        "knowledge_id": knowledge_id,
-                        "completed": false,
-                        "task_type": "knowledge",
-                        "type": "knowledge",
-                        "children": [],
-                        "tasks": []
-                    }),
-                ));
-            }
-        }
-    }
-
-    if leaves.is_empty() {
-        // 不可返回 success+空任务（前端会显示全 0 空章）；交给调用方 toast/重登
-        return Err(err_box(
-            "未解析到可展开的小节。请尝试刷新章节，或重新登录学习通后再打开该课程",
-        ));
-    }
-
-    // section 标题兜底（部分课 firstLayer class 变体）
     if section_marks.is_empty() {
         if let Some(re) = re_section_alt.as_ref() {
-            for (i, cap) in re.captures_iter(&html).enumerate() {
+            for (i, cap) in re.captures_iter(html).enumerate() {
                 let title = cap[1].trim().to_string();
                 if title.is_empty() {
                     continue;
@@ -2491,19 +2359,60 @@ async fn fetch_chaoxing_outline_remote(
         }
     }
 
-    // 组装 sections：每个一级章挂下属 knowledge 任务
+    let raw_leaves = extract_chaoxing_catalog_leaves(html);
+    let mut leaves: Vec<(usize, Value)> = Vec::new();
+    for (pos, knowledge_id, title, cap_course_id, cap_clazz_id, cur_id) in raw_leaves {
+        let chapter_id = if cur_id.is_empty() {
+            knowledge_id.clone()
+        } else {
+            cur_id
+        };
+        let cid = if cap_course_id.is_empty() {
+            course_id.to_string()
+        } else {
+            cap_course_id
+        };
+        let clz = if cap_clazz_id.is_empty() {
+            clazz_id.to_string()
+        } else {
+            cap_clazz_id
+        };
+        leaves.push((
+            pos,
+            json!({
+                "id": knowledge_id.clone(),
+                "title": title.clone(),
+                "name": title,
+                "course_id": cid,
+                "clazz_id": clz,
+                "cpi": cpi,
+                "chapter_id": chapter_id,
+                "knowledge_id": knowledge_id,
+                "completed": false,
+                "task_type": "knowledge",
+                "type": "knowledge",
+                "children": [],
+                "tasks": []
+            }),
+        ));
+    }
+
+    println!(
+        "[调试] 章节解析: sections={} leaves={}",
+        section_marks.len(),
+        leaves.len()
+    );
+
+    if leaves.is_empty() {
+        return Err(err_box(
+            "未解析到可展开的小节。请尝试刷新章节，或重新登录学习通后再打开该课程",
+        ));
+    }
+
     let mut sections: Vec<Value> = Vec::new();
     if section_marks.is_empty() {
         let tasks: Vec<Value> = leaves.into_iter().map(|(_, v)| v).collect();
         let total = tasks.len();
-        let done = tasks
-            .iter()
-            .filter(|t| {
-                t.get("completed")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-            })
-            .count();
         sections.push(json!({
             "id": "all",
             "title": "全部章节",
@@ -2515,12 +2424,12 @@ async fn fetch_chaoxing_outline_remote(
             "sections": sections,
             "nodes": sections[0]["tasks"].clone(),
             "total_count": total,
-            "completed_count": done,
-            "pending_count": total.saturating_sub(done),
+            "completed_count": 0,
+            "pending_count": total,
             "course_id": course_id,
             "clazz_id": clazz_id,
             "cpi": cpi,
-            "course_url": target
+            "course_url": course_url
         }));
     }
 
@@ -2542,7 +2451,6 @@ async fn fetch_chaoxing_outline_remote(
         }));
     }
 
-    // 若按章切分后全是空章（位置对齐失败），退回「全部章节」挂载全部叶子
     let any_tasks = sections.iter().any(|s| {
         s.get("tasks")
             .and_then(|t| t.as_array())
@@ -2557,64 +2465,47 @@ async fn fetch_chaoxing_outline_remote(
             "tasks": tasks,
             "children": []
         })];
-    }
-
-    // 章前游离节点
-    let first_pos = section_marks[0].0;
-    let orphan: Vec<Value> = leaves
-        .iter()
-        .filter(|(p, _)| *p < first_pos)
-        .map(|(_, v)| v.clone())
-        .collect();
-    if !orphan.is_empty() && any_tasks {
-        sections.insert(
-            0,
-            json!({
-                "id": "intro",
-                "title": "导学",
-                "tasks": orphan,
-                "children": []
-            }),
-        );
-    }
-
-    let mut total_count = 0usize;
-    let mut completed_count = 0usize;
-    for sec in &sections {
-        if let Some(arr) = sec.get("tasks").and_then(|v| v.as_array()) {
-            total_count += arr.len();
-            completed_count += arr
-                .iter()
-                .filter(|t| {
-                    t.get("completed")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false)
-                })
-                .count();
+    } else if any_tasks {
+        let first_pos = section_marks[0].0;
+        let orphan: Vec<Value> = leaves
+            .iter()
+            .filter(|(p, _)| *p < first_pos)
+            .map(|(_, v)| v.clone())
+            .collect();
+        if !orphan.is_empty() {
+            sections.insert(
+                0,
+                json!({
+                    "id": "intro",
+                    "title": "导学",
+                    "tasks": orphan,
+                    "children": []
+                }),
+            );
         }
     }
 
-    let nodes: Vec<Value> = sections
-        .iter()
-        .flat_map(|s| {
-            s.get("tasks")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default()
-        })
-        .collect();
+    let mut total_count = 0usize;
+    for sec in &sections {
+        if let Some(arr) = sec.get("tasks").and_then(|v| v.as_array()) {
+            total_count += arr.len();
+        }
+    }
 
     Ok(json!({
         "success": true,
         "sections": sections,
-        "nodes": nodes,
+        "nodes": sections
+            .iter()
+            .flat_map(|s| s.get("tasks").and_then(|t| t.as_array()).cloned().unwrap_or_default())
+            .collect::<Vec<_>>(),
         "total_count": total_count,
-        "completed_count": completed_count,
-        "pending_count": total_count.saturating_sub(completed_count),
+        "completed_count": 0,
+        "pending_count": total_count,
         "course_id": course_id,
         "clazz_id": clazz_id,
         "cpi": cpi,
-        "course_url": target
+        "course_url": course_url
     }))
 }
 
@@ -4477,6 +4368,28 @@ mod catalog_and_video_tests {
     #[test]
     fn empty_html_has_no_leaves() {
         assert!(extract_chaoxing_catalog_leaves("<html></html>").is_empty());
+    }
+
+    #[test]
+    fn assemble_outline_drives_extract_leaves() {
+        let html = r#"
+        <div class="posCatalog_select firstLayer" id="1" title="第一章 绪论"></div>
+        <div id="cur1001" title=" 1.1 电路模型" onclick="getTeacherAjax('2288','3399','100239488')"></div>
+        <div id="cur1002" title="1.2 电源" onclick="getTeacherAjax('2288','3399','100239489')"></div>
+        "#;
+        let out = assemble_chaoxing_outline_from_html(
+            html,
+            "2288",
+            "3399",
+            "1",
+            "https://example/course",
+        )
+        .expect("outline");
+        assert_eq!(out["success"], true);
+        let total = out["total_count"].as_u64().unwrap_or(0);
+        assert!(total >= 2, "total={total} out={out}");
+        let leaves = extract_chaoxing_catalog_leaves(html);
+        assert_eq!(leaves.len() as u64, total);
     }
 
     #[test]

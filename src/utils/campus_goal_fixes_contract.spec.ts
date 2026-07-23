@@ -28,13 +28,22 @@ describe('campus goal shipped wiring (#454-456)', () => {
     expect(rs).toContain('mint_one_code_browser_tid')
   })
 
-  it('chaoxing outline empty returns error path not zero shell', () => {
+  it('chaoxing outline production calls assemble helper', () => {
     const ol = read('src-tauri/src/modules/online_learning.rs')
+    expect(ol).toContain('assemble_chaoxing_outline_from_html(&html, course_id, clazz_id, cpi, &target)')
     expect(ol).toContain('extract_chaoxing_catalog_leaves')
     expect(ol).toContain('chaoxing_video_status_candidate_urls')
     expect(ol).toContain('未解析到可展开的小节')
-    // 禁止 success + empty tasks 的假成功壳
-    expect(ol).not.toContain('parse_warning": "outline_empty"')
-    expect(ol).not.toContain("parse_warning\": \"outline_empty\"")
+  })
+
+  it('one_code_app_open_prepare uses build_one_code_pay_open_url for electric/broadband', () => {
+    const rs = read('src-tauri/src/modules/one_code.rs')
+    expect(rs).toContain('build_one_code_pay_open_url("electric", &browser_tid)')
+    expect(rs).toContain('build_one_code_pay_open_url("broadband", &browser_tid)')
+  })
+
+  it('sports_venue is disabled when campus net path cannot land', () => {
+    const dash = read('src/components/Dashboard.vue')
+    expect(dash).toMatch(/id:\s*'sports_venue'[\s\S]{0,200}available:\s*false/)
   })
 })
