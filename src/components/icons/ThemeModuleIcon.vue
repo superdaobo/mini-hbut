@@ -33,6 +33,7 @@ const iconMap = {
   broadband: 'wifi',
   sports_venue: 'sports_soccer',
   towergo: 'electric_bike',
+  smart_orientation: 'school',
   ai: 'smart_toy',
   more: 'apps',
   home: 'home',
