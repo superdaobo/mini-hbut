@@ -98,11 +98,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh_download_retry() {
+            local tag="$1" dir="$2"
+            local attempt=1
+            local max=5
+            while [ "$attempt" -le "$max" ]; do
+              echo "gh release download tag=$tag dir=$dir attempt=$attempt/$max"
+              if gh release download "$tag" --dir "$dir" --pattern "Mini-HBUT_*" --clobber; then
+                return 0
+              fi
+              echo "download failed, sleep $((attempt * 8))s then retry"
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
           TAG="${{ steps.release.outputs.TAG }}"
           DEST="website/public/releases/${TAG}"
           rm -rf "$DEST"
           mkdir -p "$DEST"
-          gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
+          gh_download_retry "$TAG" "$DEST"
           # EdgeOne Pages 单文件限制 25MB，删除超限文件（走 GitHub 代理下载）
           find "$DEST" -size +25M -delete
           echo "Assets for CDN (<=25MB):"
@@ -113,15 +129,36 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh_download_retry() {
+            local tag="$1" dir="$2"
+            local attempt=1
+            local max=5
+            while [ "$attempt" -le "$max" ]; do
+              echo "gh release download tag=$tag dir=$dir attempt=$attempt/$max"
+              if gh release download "$tag" --dir "$dir" --pattern "Mini-HBUT_*" --clobber; then
+                return 0
+              fi
+              echo "download failed, sleep $((attempt * 8))s then retry"
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
           if gh release view dev-latest --json tagName -q .tagName >/dev/null 2>&1; then
             DEST="website/public/releases/dev-latest"
             rm -rf "$DEST"
             mkdir -p "$DEST"
-            gh release download dev-latest --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
-            find "$DEST" -size +25M -delete
-            echo "Dev assets for CDN (<=25MB):"
-            ls -lh "$DEST"
-            echo "HAS_DEV=true" >> "$GITHUB_OUTPUT"
+            if gh_download_retry dev-latest "$DEST"; then
+              find "$DEST" -size +25M -delete
+              echo "Dev assets for CDN (<=25MB):"
+              ls -lh "$DEST"
+              echo "HAS_DEV=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "WARN: dev-latest download failed after retries; continue without dev channel assets"
+              rm -rf "$DEST"
+              echo "HAS_DEV=false" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "No dev-latest release found, skip"
             echo "HAS_DEV=false" >> "$GITHUB_OUTPUT"

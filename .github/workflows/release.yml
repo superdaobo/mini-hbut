@@ -56,11 +56,26 @@ jobs:
           set -euo pipefail
           git fetch --force --tags
 
-          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+          # 仅使用稳定 semver 标签作基线（排除 dev-latest 等频道标签，避免体积对比下错包）
+          PREVIOUS_TAG=""
+          while IFS= read -r t; do
+            [ -z "$t" ] && continue
+            [ "$t" = "$CURRENT_TAG" ] && continue
+            # 仅 vX.Y.Z
+            if [[ ! "$t" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              continue
+            fi
+            if git merge-base --is-ancestor "$t" "${GITHUB_SHA}" 2>/dev/null; then
+              PREVIOUS_TAG="$t"
+              break
+            fi
+          done < <(git tag -l 'v*' --sort=-v:refname)
+
           COMPARE_URL=""
           if [ -n "$PREVIOUS_TAG" ]; then
             COMPARE_URL="$REPO_URL/compare/$PREVIOUS_TAG...$CURRENT_TAG"
           fi
+          echo "Resolved previous stable tag: ${PREVIOUS_TAG:-<none>}"
 
           NOTES_FILE="$RUNNER_TEMP/release-notes.md"
           {
@@ -863,11 +878,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh_download_retry() {
+            local tag="$1" dir="$2"
+            local attempt=1
+            local max=5
+            while [ "$attempt" -le "$max" ]; do
+              echo "gh release download tag=$tag dir=$dir attempt=$attempt/$max"
+              if gh release download "$tag" --dir "$dir" --pattern "Mini-HBUT_*" --clobber; then
+                return 0
+              fi
+              echo "download failed, sleep $((attempt * 8))s then retry"
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
           TAG="${GITHUB_REF_NAME}"
           DEST="website/public/releases/${TAG}"
           rm -rf "$DEST"
           mkdir -p "$DEST"
-          gh release download "$TAG" --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
+          gh_download_retry "$TAG" "$DEST"
           # EdgeOne Pages 单文件限制 25MB，删除超限文件（走 GitHub 代理下载）
           find "$DEST" -size +25M -delete
           echo "Assets for CDN (<=25MB):"
@@ -880,8 +911,36 @@ jobs:
           PREVIOUS_TAG: ${{ needs.create-release.outputs.previous_tag }}
         run: |
           set -euo pipefail
+          # 频道标签（dev-latest 等）不作稳定基线
+          if [[ ! "$PREVIOUS_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skip baseline: previous_tag='$PREVIOUS_TAG' is not stable semver"
+            echo "HAS_BASELINE=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          gh_download_retry() {
+            local tag="$1" dir="$2"
+            local attempt=1
+            local max=5
+            while [ "$attempt" -le "$max" ]; do
+              echo "gh release download tag=$tag dir=$dir attempt=$attempt/$max"
+              if gh release download "$tag" --dir "$dir" --pattern "Mini-HBUT_*" --clobber; then
+                return 0
+              fi
+              echo "download failed, sleep $((attempt * 8))s then retry"
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
           mkdir -p baseline-assets
-          gh release download "$PREVIOUS_TAG" --dir baseline-assets --pattern "Mini-HBUT_*" --clobber
+          if gh_download_retry "$PREVIOUS_TAG" baseline-assets; then
+            echo "HAS_BASELINE=true" >> "$GITHUB_ENV"
+          else
+            echo "WARN: baseline download failed after retries; continue deploy without size compare"
+            echo "HAS_BASELINE=false" >> "$GITHUB_ENV"
+          fi
 
       - name: Compare current release asset sizes against previous stable
         if: ${{ needs.create-release.outputs.previous_tag != '' }}
@@ -889,6 +948,14 @@ jobs:
           CURRENT_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          if [ "${HAS_BASELINE:-false}" != "true" ]; then
+            echo "Skip size compare (no baseline assets)"
+            exit 0
+          fi
+          if [ ! -d baseline-assets ] || [ -z "$(ls -A baseline-assets 2>/dev/null || true)" ]; then
+            echo "Skip size compare (baseline-assets empty)"
+            exit 0
+          fi
           BUNDLE_ROOT="website/public/releases/${CURRENT_TAG}" BASELINE_DIR="baseline-assets" node scripts/report_bundle_sizes.mjs
 
       - name: Download dev-latest release assets
@@ -896,15 +963,36 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          gh_download_retry() {
+            local tag="$1" dir="$2"
+            local attempt=1
+            local max=5
+            while [ "$attempt" -le "$max" ]; do
+              echo "gh release download tag=$tag dir=$dir attempt=$attempt/$max"
+              if gh release download "$tag" --dir "$dir" --pattern "Mini-HBUT_*" --clobber; then
+                return 0
+              fi
+              echo "download failed, sleep $((attempt * 8))s then retry"
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
           if gh release view dev-latest --json tagName -q .tagName >/dev/null 2>&1; then
             DEST="website/public/releases/dev-latest"
             rm -rf "$DEST"
             mkdir -p "$DEST"
-            gh release download dev-latest --dir "$DEST" --pattern "Mini-HBUT_*" --clobber
-            find "$DEST" -size +25M -delete
-            echo "Dev assets for CDN (<=25MB):"
-            ls -lh "$DEST"
-            echo "HAS_DEV=true" >> "$GITHUB_ENV"
+            if gh_download_retry dev-latest "$DEST"; then
+              find "$DEST" -size +25M -delete
+              echo "Dev assets for CDN (<=25MB):"
+              ls -lh "$DEST"
+              echo "HAS_DEV=true" >> "$GITHUB_ENV"
+            else
+              echo "WARN: dev-latest download failed after retries; continue without dev channel assets"
+              rm -rf "$DEST"
+              echo "HAS_DEV=false" >> "$GITHUB_ENV"
+            fi
           else
             echo "No dev-latest release found, skip"
             echo "HAS_DEV=false" >> "$GITHUB_ENV"
