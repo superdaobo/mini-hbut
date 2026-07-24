@@ -1,0 +1,1 @@
+import{M as n}from"./runtime-bridge-DhKvzAZB.js";import"./more-modules-WAlYiTAS.js";import"./vue-core-C6MHpGVE.js";async function i(e){await n("plugin:keep-screen-on|keep_screen_on",{enable:e})}export{i as keepScreenOn};
