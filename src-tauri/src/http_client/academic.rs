@@ -330,6 +330,15 @@ impl HbutClient {
         let bases = super::ranking_base_fallback_chain(primary, has_jwxt, has_cx);
         let mut last_err = String::from("会话已过期，请重新登录");
 
+        // #489：拉校历前主动探测/补票，降低首包 303→登录 的概率；命中登录页时仍保留一次补票重试
+        if has_cx {
+            if self.ensure_chaoxing_academic_session().await {
+                println!("[调试] 校历请求前已完成教务会话探测/补票");
+            } else {
+                println!("[调试] 校历请求前补票未就绪，仍将尝试 getData（可能 303 登录页）");
+            }
+        }
+
         for base in bases {
             let calendar_url = format!("{}/admin/xsd/jcsj/xlgl/getData/{}", base, semester);
             let mut repaired = false;
