@@ -11,6 +11,10 @@ import { invokeNative, isTauriRuntime } from '../platform/native'
 import { openExternal } from '../utils/external_link'
 import { prepareOneCodeAppOpen } from '../utils/one_code_open.js'
 import { showToast } from '../utils/toast'
+import {
+  isUsageSnapshotOnly,
+  resolveUsageEmptyText
+} from '../utils/electricity_usage_ui'
 import { TPageHeader, TEmptyState } from './templates'
 
 const props = defineProps({
@@ -544,6 +548,37 @@ const usageSourceHint = computed(() => {
   return ''
 })
 
+/** 四级宿舍已齐（换房后趋势以所选房为准） */
+const hasSelectedRoom = computed(() => selectedPath.value.length === 4)
+
+/**
+ * 换房后智能水电常只回快照（余额/余量、无分日曲线）。
+ * 必须与「未选房」空态区分，避免误导文案「请先选择宿舍」。
+ */
+const usageSnapshotOnly = computed(() => isUsageSnapshotOnly(usageStats.value))
+
+const usageEmptyText = computed(() =>
+  resolveUsageEmptyText({
+    hasSelectedRoom: hasSelectedRoom.value,
+    stats: usageStats.value
+  })
+)
+
+const usageSnapshotQuantity = computed(() => {
+  const q = usageStats.value?.quantity
+  if (q == null || String(q).trim() === '') return ''
+  return String(q)
+})
+
+const usageSnapshotBalance = computed(() => {
+  const b = usageStats.value?.balance
+  if (b == null || String(b).trim() === '') return ''
+  return String(b)
+})
+
+/** 换房竞态：只应用最后一次 electricity_usage_stats 结果 */
+let usageRequestSeq = 0
+
 const selectBar = (i) => {
   selectedBarIdx.value = i
 }
@@ -612,6 +647,7 @@ const roomLabelText = () => {
 
 const loadUsageStats = async () => {
   if (!isTauriRuntime()) return
+  const reqId = ++usageRequestSeq
   usageLoading.value = true
   usageError.value = ''
   selectedBarIdx.value = -1
@@ -629,25 +665,30 @@ const loadUsageStats = async () => {
       )
       acRoomId = String(roomNode?._acRoomValue || '').trim()
     }
+    // 换房：始终把所选 roomverify 交给后端；后端会 setbindroom + 按候选拉趋势
     const res = await invokeNative('electricity_usage_stats', {
       roomPath: selectedPath.value.length ? [...selectedPath.value] : null,
       roomVerify: roomId || null,
       roomVerifyAlt: acRoomId || null,
       roomLabel: roomLabelText() || null
     })
+    // 过期响应丢弃（快速连切房间）
+    if (reqId !== usageRequestSeq) return
     usageStats.value = res || null
     const pts = res?.points
     const monthPts = res?.month_points || res?.monthPoints
-    if (res?.success === false && !(Array.isArray(pts) && pts.length)) {
-      usageError.value = String(res?.message || '暂无用电数据')
-    } else if (Array.isArray(pts) && pts.length) {
+    const hasPts = Array.isArray(pts) && pts.length
+    const hasMonth = Array.isArray(monthPts) && monthPts.length
+    if (res?.success === false && !hasPts && !hasMonth) {
+      // 已选房时避免后端/兜底文案回落成「请先选择宿舍」
+      const raw = String(res?.message || '暂无用电数据')
+      usageError.value =
+        hasSelectedRoom.value && /请先选择宿舍/.test(raw)
+          ? '该房间暂无用电趋势数据，可重试或查看上方电费余额'
+          : raw
+    } else if (hasPts || hasMonth) {
       requestAnimationFrame(() => {
-        chartReady.value = true
-      })
-    } else if (Array.isArray(monthPts) && monthPts.length) {
-      // 仅有月曲线时也算成功，避免被快照路径误当成失败
-      requestAnimationFrame(() => {
-        chartReady.value = true
+        if (reqId === usageRequestSeq) chartReady.value = true
       })
     }
     // 绑定已更新时轻提示（勿当成错误）
@@ -656,10 +697,13 @@ const loadUsageStats = async () => {
       if (hint) showToast(hint, 'success')
     }
   } catch (e) {
+    if (reqId !== usageRequestSeq) return
     usageError.value = String(e?.message || e || '加载失败')
     usageStats.value = null
   } finally {
-    usageLoading.value = false
+    if (reqId === usageRequestSeq) {
+      usageLoading.value = false
+    }
   }
 }
 
@@ -674,7 +718,15 @@ watch(
     if (key === prev) return
     showPayQr.value = false
     if (selectedPath.value.length === 4) {
+      // 选齐四级：按新房拉趋势（后端 setbindroom + usage）
       void loadUsageStats()
+    } else {
+      // 改选中间级：清空旧房曲线，空态回到「请先选择宿舍…」
+      usageRequestSeq += 1
+      usageStats.value = null
+      usageError.value = ''
+      chartReady.value = false
+      usageLoading.value = false
     }
   }
 )
@@ -1049,7 +1101,29 @@ watch(
           </div>
         </template>
 
-        <div v-else class="util-muted">暂无用电数据，请先选择宿舍</div>
+        <!-- 已选房但无曲线：展示快照说明，禁止「请先选择宿舍」 -->
+        <div v-else-if="usageSnapshotOnly" class="usage-snapshot">
+          <p class="util-muted">
+            {{
+              usageStats?.message ||
+              usageStats?.summary ||
+              '该房间暂无分日/分月用电曲线'
+            }}
+          </p>
+          <div v-if="usageSnapshotQuantity || usageSnapshotBalance" class="kpi-row snapshot-kpi">
+            <div v-if="usageSnapshotQuantity" class="kpi pop">
+              <span>剩余电量</span>
+              <strong>{{ usageSnapshotQuantity }}<small>度</small></strong>
+            </div>
+            <div v-if="usageSnapshotBalance" class="kpi pop">
+              <span>余额</span>
+              <strong>{{ usageSnapshotBalance }}<small>元</small></strong>
+            </div>
+          </div>
+          <button type="button" class="link-btn" @click="loadUsageStats">重新拉取趋势</button>
+        </div>
+
+        <div v-else class="util-muted">{{ usageEmptyText }}</div>
       </section>
 
       <!-- 充值：直给，无废话 -->
@@ -1310,6 +1384,20 @@ html.dark .glass-card-warning {
   font-size: 13px;
   color: #94a3b8;
   padding: 12px 0 4px;
+}
+/* 已选房无曲线：快照说明区（#488） */
+.usage-snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.usage-snapshot .snapshot-kpi {
+  margin-top: 4px;
+}
+.usage-snapshot .link-btn {
+  align-self: flex-start;
+  padding-left: 0;
 }
 .util-err-row {
   display: flex;
