@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
+import { invokeNative, isTauriRuntime } from '../platform/native'
 import { TPageHeader, TEmptyState } from './templates'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -18,6 +19,13 @@ const accessLoading = ref(false)
 const error = ref('')
 const infoError = ref('')
 const accessError = ref('')
+const orientationError = ref('')
+const orientationNotice = ref('')
+const orientationLoading = ref(false)
+const orientationSource = ref('')
+const mentor = ref(null)
+const counselor = ref(null)
+const dorm = ref(null)
 const activeTab = ref('basic')
 const info = ref(null)
 const offline = ref(false)
@@ -223,13 +231,79 @@ const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSi
   }
 }
 
+/** 班导师 / 辅导员 / 宿舍：智慧迎新只读块（#485，非阻断） */
+const fetchOrientationBlocks = async () => {
+  orientationLoading.value = true
+  orientationError.value = ''
+  orientationNotice.value = ''
+  try {
+    if (!isTauriRuntime()) {
+      // Web/HTTP 桥可选：不阻断个人信息
+      orientationNotice.value = '客户端内可同步班导师/辅导员/宿舍'
+      return null
+    }
+    const res = await invokeNative('smart_orientation_profile_blocks', {})
+    mentor.value = res?.mentor || null
+    counselor.value = res?.counselor || null
+    dorm.value = res?.dorm || null
+    orientationSource.value = String(res?.source || '')
+    orientationNotice.value = String(res?.notice || '').trim()
+    if (res?.error) {
+      orientationError.value = String(res.error)
+    }
+    return res
+  } catch (e) {
+    mentor.value = null
+    counselor.value = null
+    dorm.value = null
+    orientationError.value = String(e?.message || e || '迎新附属信息暂不可用')
+    return null
+  } finally {
+    orientationLoading.value = false
+  }
+}
+
+const personKvRows = (person) => {
+  if (!person) return []
+  return [
+    { label: '姓名', value: person.name },
+    { label: '工号', value: person.staffId || person.staff_id },
+    { label: '学院', value: person.college },
+    { label: '电话', value: person.phone },
+    { label: '邮箱', value: person.email },
+    { label: '办公室', value: person.office },
+    { label: '备注', value: person.remark }
+  ].filter((x) => x.value && String(x.value).trim() && String(x.value).trim() !== '-')
+}
+
+const dormKvRows = computed(() => {
+  const d = dorm.value || {}
+  return [
+    { label: '校区', value: d.campus },
+    { label: '楼栋', value: d.building },
+    { label: '房间', value: d.room },
+    { label: '床位', value: d.bed },
+    { label: '状态', value: d.status },
+    { label: '备注', value: d.remark }
+  ].filter((x) => x.value && String(x.value).trim() && String(x.value).trim() !== '-')
+})
+
+const hasOrientationBlocks = computed(
+  () =>
+    !!mentor.value ||
+    !!counselor.value ||
+    !!dorm.value ||
+    dormKvRows.value.length > 0
+)
+
 const refreshData = async () => {
   loading.value = true
   error.value = ''
 
   const [basicRes, accessRes] = await Promise.all([
     fetchStudentInfo(),
-    fetchLoginAccess(1, accessPageSize.value, { showLoading: false })
+    fetchLoginAccess(1, accessPageSize.value, { showLoading: false }),
+    fetchOrientationBlocks()
   ])
 
   offline.value = !!(basicRes?.offline || accessRes?.offline)
@@ -408,6 +482,63 @@ onMounted(() => {
               </span>
               <span class="field-value">{{ row.value }}</span>
             </article>
+          </div>
+
+          <!-- #485 班导师 / 辅导员 / 宿舍（智慧迎新只读，非阻断） -->
+          <div class="orientation-blocks">
+            <div class="orientation-head">
+              <h3 class="card-section-title orientation-title">学工附属信息</h3>
+              <span v-if="orientationSource" class="orientation-pill">{{ orientationSource }}</span>
+              <span v-if="orientationLoading" class="orientation-pill muted">同步中</span>
+            </div>
+            <p v-if="orientationNotice" class="orientation-hint">{{ orientationNotice }}</p>
+            <p v-if="orientationError && !hasOrientationBlocks" class="inline-error">{{ orientationError }}</p>
+
+            <template v-if="mentor && personKvRows(mentor).length">
+              <h4 class="orientation-sub">班导师</h4>
+              <div class="info-grid">
+                <article v-for="(row, i) in personKvRows(mentor)" :key="'mt-' + i" class="info-field">
+                  <span class="field-label">
+                    <span class="material-symbols-outlined field-icon">person</span>
+                    {{ row.label }}
+                  </span>
+                  <span class="field-value">{{ row.value }}</span>
+                </article>
+              </div>
+            </template>
+
+            <template v-if="counselor && personKvRows(counselor).length">
+              <h4 class="orientation-sub">辅导员</h4>
+              <div class="info-grid">
+                <article v-for="(row, i) in personKvRows(counselor)" :key="'cs-' + i" class="info-field">
+                  <span class="field-label">
+                    <span class="material-symbols-outlined field-icon">support_agent</span>
+                    {{ row.label }}
+                  </span>
+                  <span class="field-value">{{ row.value }}</span>
+                </article>
+              </div>
+            </template>
+
+            <template v-if="dormKvRows.length">
+              <h4 class="orientation-sub">宿舍信息</h4>
+              <div class="info-grid">
+                <article v-for="(row, i) in dormKvRows" :key="'dm-' + i" class="info-field">
+                  <span class="field-label">
+                    <span class="material-symbols-outlined field-icon">apartment</span>
+                    {{ row.label }}
+                  </span>
+                  <span class="field-value">{{ row.value }}</span>
+                </article>
+              </div>
+            </template>
+
+            <p
+              v-if="!orientationLoading && !hasOrientationBlocks && !orientationError"
+              class="orientation-hint"
+            >
+              暂无班导师/辅导员/宿舍信息（可能不在迎新开放时段）
+            </p>
           </div>
         </section>
 
@@ -711,6 +842,55 @@ onMounted(() => {
   margin: 0 0 1rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--md-sys-color-surface-variant, #dfe3e7);
+}
+
+.orientation-blocks {
+  margin-top: 1.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px dashed var(--md-sys-color-outline-variant, #c2c7ce);
+}
+
+.orientation-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.orientation-title {
+  margin-bottom: 0.5rem;
+  border-bottom: none;
+  padding-bottom: 0;
+  flex: 1;
+}
+
+.orientation-pill {
+  font-size: 11px;
+  line-height: 1;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: var(--md-sys-color-secondary-container, #dce2f3);
+  color: var(--md-sys-color-on-secondary-container, #5e6572);
+  font-weight: 600;
+}
+
+.orientation-pill.muted {
+  opacity: 0.75;
+}
+
+.orientation-sub {
+  margin: 1rem 0 0.65rem;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--md-sys-color-on-surface, #171c1f);
+}
+
+.orientation-hint {
+  margin: 0.35rem 0 0.5rem;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--md-sys-color-on-surface-variant, #424754);
 }
 
 /* Info Grid */

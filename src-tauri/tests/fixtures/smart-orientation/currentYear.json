@@ -1,0 +1,20 @@
+{
+  "code": 0,
+  "msg": "成功",
+  "data": [
+    {
+      "childrenList": null,
+      "id": "edbe2b9a31d143d51ebc5364962e66e5",
+      "parentId": "734e3ba6fd342f9065fd3ac876c7f822",
+      "dictKey": "2025",
+      "dictValue": "2025",
+      "type": "currentYear",
+      "description": "",
+      "isDelete": "0",
+      "createId": "647779ba9676007fbbd774cea5a3b8d2",
+      "createTime": "2022-08-01 09:03:29",
+      "updateId": "647779ba9676007fbbd774cea5a3b8d2",
+      "updateTime": "2025-08-12 15:12:51"
+    }
+  ]
+}
