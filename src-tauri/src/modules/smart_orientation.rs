@@ -489,10 +489,7 @@ async fn silent_refresh_cas(client: &mut HbutClient) -> Result<(), String> {
         format!("CAS 静默重登开始 user={}", username),
     );
     // 1) 主登录链路（教务 service）恢复 CAS TGC
-    match client
-        .login(&username, &password, "", "", "")
-        .await
-    {
+    match client.login(&username, &password, "", "", "").await {
         Ok(info) => {
             client.is_logged_in = true;
             if !info.student_id.trim().is_empty() {
