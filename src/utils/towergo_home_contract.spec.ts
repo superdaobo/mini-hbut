@@ -13,9 +13,11 @@ describe('towergo home integration contract', () => {
 
     expect(HOME_MODULE_ORDER_DEFAULT).toContain('towergo')
     expect(dashboard).toContain("{ id: 'towergo', name: '小塔出行'")
-    // 资料分享 (chaoxing_class) 归入「学习通」分类；资源区保留网盘 / 小塔 / AI（#485 已移除智慧迎新独立入口）
-    expect(dashboard).toContain("['library', 'campus_map', 'resource_share', 'towergo', 'ai']")
-    expect(dashboard).not.toContain("id: 'smart_orientation'")
+    // 资料分享 (chaoxing_class) 归入「学习通」分类；资源区含网盘 / 小塔 / 智慧迎新 / AI（#481）
+    expect(dashboard).toContain(
+      "['library', 'campus_map', 'resource_share', 'towergo', 'smart_orientation', 'ai']"
+    )
+    expect(dashboard).toContain("id: 'smart_orientation'")
     expect(dashboard).toContain("id: 'towergo'")
     expect(dashboard).toContain("['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class']")
     expect(app).toContain("const loadTowerGoView = () => import('./components/TowerGoView.vue')")

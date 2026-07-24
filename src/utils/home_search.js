@@ -17,6 +17,7 @@ const SERVICE_ALIASES = Object.freeze({
   resource_share: ['资料', '文件', '分享', '下载'],
   chaoxing_class: ['学习通', '超星', '邀请码', '入班', '班级资料', '课件'],
   towergo: ['小塔', '小塔出行', '出行', '电动车', '电单车', '骑行', '骑车', '单车', '扫码用车'],
+  smart_orientation: ['智慧迎新', '迎新', '班导师', '辅导员', '宿舍', '报到'],
   ai: ['AI', '助手', '校园助手']
 })
 
