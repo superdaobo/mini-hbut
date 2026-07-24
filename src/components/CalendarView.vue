@@ -1,7 +1,7 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
-import { fetchWithCache, EXTRA_LONG_TTL } from '../utils/api.js'
+import { fetchWithCache, getStaleCachedData, setCachedData, EXTRA_LONG_TTL } from '../utils/api.js'
 import { formatRelativeTime } from '../utils/time.js'
 import {
   getPreferredSemesterFast,
@@ -18,14 +18,19 @@ const props = defineProps({
 const emit = defineEmits(['back', 'logout'])
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const CALENDAR_CACHE_REFRESH_RETRY_MS = 8000
 
 const loading = ref(false)
+const refreshing = ref(false)
 const error = ref('')
 const semesters = ref([])
 const selectedSemester = ref('')
 const currentSemester = ref('')
 const calendarData = ref([])
+const displayedCalendarCacheKey = ref('')
 const offline = ref(false)
+/** 会话失效（需重登/补票），与纯网络离线缓存区分 */
+const sessionExpired = ref(false)
 const syncTime = ref('')
 const meta = ref({
   semester: '',
@@ -36,6 +41,74 @@ const meta = ref({
   today: ''
 })
 let calendarRequestSeq = 0
+let calendarRealtimeRetryTimer = null
+
+const resolveCalendarSyncTime = (data) => {
+  const explicit = String(data?.sync_time || data?.updated_at || data?.timestamp || '').trim()
+  if (explicit) return explicit
+  if (data?.offline) return syncTime.value || ''
+  return new Date().toISOString()
+}
+
+const isInitialLoading = computed(() => loading.value && calendarData.value.length === 0)
+
+const applyCalendarPayload = (data, cacheKey = '') => {
+  if (!data?.success) return false
+  calendarData.value = Array.isArray(data.data) ? data.data : []
+  meta.value = data.meta || meta.value
+  if (data.meta?.semester && !selectedSemester.value) {
+    selectedSemester.value = data.meta.semester
+    semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
+  }
+  offline.value = !!data.offline
+  sessionExpired.value = false
+  syncTime.value = resolveCalendarSyncTime(data)
+  displayedCalendarCacheKey.value = cacheKey || displayedCalendarCacheKey.value
+  return true
+}
+
+/** 仅作首屏占位；真正状态由 forceRemote 结果覆盖，避免 SWR 永久假离线 */
+const applyStaleCalendarSnapshot = (cacheKey) => {
+  const stale = getStaleCachedData(cacheKey)
+  const data = stale?.data
+  if (!data?.success || !Array.isArray(data.data) || data.data.length === 0) {
+    return false
+  }
+  calendarData.value = data.data
+  meta.value = data.meta || meta.value
+  offline.value = true
+  sessionExpired.value = false
+  syncTime.value = resolveCalendarSyncTime(data)
+  displayedCalendarCacheKey.value = cacheKey
+  return true
+}
+
+const clearCalendarRealtimeRetry = () => {
+  if (calendarRealtimeRetryTimer) {
+    clearTimeout(calendarRealtimeRetryTimer)
+    calendarRealtimeRetryTimer = null
+  }
+}
+
+const scheduleCalendarRealtimeRetry = () => {
+  clearCalendarRealtimeRetry()
+  // 会话失效不自动重试（需用户重登）；仅网络类离线短间隔再拉
+  if (sessionExpired.value) return
+  calendarRealtimeRetryTimer = setTimeout(() => {
+    calendarRealtimeRetryTimer = null
+    if (offline.value && !sessionExpired.value) {
+      fetchCalendar({ keepOfflineBanner: true }).catch(() => {})
+    }
+  }, CALENDAR_CACHE_REFRESH_RETRY_MS)
+}
+
+const restoreStaleSyncTime = (cacheKey) => {
+  if (syncTime.value) return
+  const stale = getStaleCachedData(cacheKey)
+  if (stale?.data) {
+    syncTime.value = resolveCalendarSyncTime(stale.data)
+  }
+}
 
 const initializeFastSemester = () => {
   const preferred = getPreferredSemesterFast()
@@ -236,6 +309,7 @@ const calendarRows = computed(() => {
 })
 
 const fetchSemesters = async () => {
+  const previousSemester = selectedSemester.value
   try {
     const { data } = await fetchWithCache('semesters', async () => {
       const res = await axios.get(`${API_BASE}/v2/semesters`)
@@ -249,55 +323,109 @@ const fetchSemesters = async () => {
         selectedSemester.value = currentSemester.value || sorted[0] || ''
         semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
       }
+      // 首屏用 current 占位拉过校历时，学期解析后补一次实时请求
+      const shouldRefetchResolvedSemester = !previousSemester && selectedSemester.value
+      if (shouldRefetchResolvedSemester) {
+        fetchCalendar({ keepOfflineBanner: true }).catch(() => {})
+      }
     }
   } catch (e) {
     console.error('获取学期失败', e)
   }
 }
 
-const fetchCalendar = async () => {
+/**
+ * 校历加载：缓存只做首屏占位，前台 forceRemote 负责替换为实时数据。
+ * 避免 staleWhileRevalidate 立刻标 offline 后后台失败导致 sync_time 永久粘滞（#489）。
+ */
+const fetchCalendar = async (options = {}) => {
   const requestSeq = ++calendarRequestSeq
-  loading.value = true
+  const cacheKey = `calendar:${props.studentId}:${selectedSemester.value || 'current'}`
+  const staleApplied = applyStaleCalendarSnapshot(cacheKey)
+  if (!staleApplied && displayedCalendarCacheKey.value && displayedCalendarCacheKey.value !== cacheKey) {
+    calendarData.value = []
+    displayedCalendarCacheKey.value = ''
+  }
+  loading.value = calendarData.value.length === 0
+  refreshing.value = true
   error.value = ''
+  clearCalendarRealtimeRetry()
+  if (!staleApplied || !options.keepOfflineBanner) {
+    offline.value = false
+    sessionExpired.value = false
+    syncTime.value = ''
+  }
+
   try {
-    const cacheKey = `calendar:${props.studentId}:${selectedSemester.value || 'current'}`
     const { data } = await fetchWithCache(cacheKey, async () => {
       const res = await axios.post(`${API_BASE}/v2/calendar`, {
         student_id: props.studentId,
         semester: selectedSemester.value
       })
       return res.data
-    }, EXTRA_LONG_TTL, { staleWhileRevalidate: true, priority: 'foreground' })
+    }, EXTRA_LONG_TTL, { forceRemote: true, priority: 'foreground' })
 
     if (requestSeq !== calendarRequestSeq) return
     if (data?.success) {
-      calendarData.value = data.data || []
-      meta.value = data.meta || meta.value
-      if (data.meta?.semester && !selectedSemester.value) {
-        selectedSemester.value = data.meta.semester
-        semesters.value = mergeSemesterOptions(semesters.value, selectedSemester.value)
+      applyCalendarPayload(data, cacheKey)
+      if (!data.offline) {
+        setCachedData(cacheKey, data)
+        clearCalendarRealtimeRetry()
+      } else {
+        // 后端网络兜底离线：保留缓存展示并稍后重试
+        offline.value = true
+        sessionExpired.value = false
+        scheduleCalendarRealtimeRetry()
       }
-      offline.value = !!data.offline
-      syncTime.value = data.sync_time || ''
-    } else {
-      if (data?.need_login) {
-        const method = String(localStorage.getItem('hbu_login_method') || '').trim()
-        const isTemp = localStorage.getItem('hbu_login_temp') === '1' || method.endsWith('_temp')
-        if (isTemp) {
-          emit('logout')
-          return
-        }
-        error.value = data?.error || '会话已过期，请重新登录'
+      return
+    }
+
+    if (data?.need_login) {
+      const method = String(localStorage.getItem('hbu_login_method') || '').trim()
+      const isTemp = localStorage.getItem('hbu_login_temp') === '1' || method.endsWith('_temp')
+      if (isTemp) {
+        emit('logout')
         return
       }
+      // 有缓存：继续展示，但明确「会话失效」而非「永远假离线」
+      if (calendarData.value.length > 0 || staleApplied) {
+        sessionExpired.value = true
+        offline.value = true
+        restoreStaleSyncTime(cacheKey)
+        error.value = ''
+      } else {
+        sessionExpired.value = false
+        offline.value = false
+        error.value = data?.error || '会话已过期，请重新登录'
+      }
+      return
+    }
+
+    // 其它失败：有缓存则标网络离线，无缓存则错误态
+    if (calendarData.value.length > 0 || staleApplied) {
+      offline.value = true
+      sessionExpired.value = false
+      restoreStaleSyncTime(cacheKey)
+      error.value = ''
+      scheduleCalendarRealtimeRetry()
+    } else {
       error.value = data?.error || '获取校历失败'
     }
   } catch (e) {
     if (requestSeq !== calendarRequestSeq) return
-    error.value = e.response?.data?.error || '网络错误'
+    if (calendarData.value.length > 0 || staleApplied) {
+      offline.value = true
+      sessionExpired.value = false
+      restoreStaleSyncTime(cacheKey)
+      error.value = ''
+      scheduleCalendarRealtimeRetry()
+    } else {
+      error.value = e.response?.data?.error || e.message || '网络错误，请稍后重试'
+    }
   } finally {
     if (requestSeq === calendarRequestSeq) {
       loading.value = false
+      refreshing.value = false
     }
   }
 }
@@ -311,14 +439,42 @@ onMounted(() => {
   fetchCalendar()
   fetchSemesters()
 })
+
+onBeforeUnmount(() => {
+  clearCalendarRealtimeRetry()
+})
 </script>
 
 <template>
   <div class="calendar-view">
-    <TPageHeader title="校历信息" icon="event_note" @back="emit('back')" />
+    <TPageHeader title="校历信息" icon="event_note" @back="emit('back')">
+      <template #actions>
+        <button
+          class="calendar-refresh-btn"
+          type="button"
+          :aria-busy="refreshing || loading"
+          aria-label="刷新校历"
+          @click="fetchCalendar()"
+        >
+          <span
+            class="material-symbols-outlined"
+            :class="{ spinning: refreshing || loading || offline }"
+          >refresh</span>
+        </button>
+      </template>
+    </TPageHeader>
 
-    <div v-if="offline" class="offline-banner">
-      当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+    <div
+      v-if="offline || sessionExpired"
+      class="offline-banner"
+      :class="{ 'session-banner': sessionExpired }"
+    >
+      <template v-if="sessionExpired">
+        教务会话已失效，当前显示缓存校历（更新于{{ formatRelativeTime(syncTime) || '未知' }}）。请重新登录后刷新，而非官网校历接口消失。
+      </template>
+      <template v-else>
+        当前显示为离线数据，更新于{{ formatRelativeTime(syncTime) }}
+      </template>
     </div>
 
     <div class="controls">
@@ -329,13 +485,16 @@ onMounted(() => {
         <span>当前周：第{{ meta.current_week }}周</span>
         <span>学期开始：{{ meta.start_date || '-' }}</span>
         <span>总周数：{{ meta.total_weeks || '-' }}</span>
+        <span v-if="syncTime" class="calendar-updated-at">最新更新：{{ formatRelativeTime(syncTime) }}</span>
       </div>
     </div>
 
-    <TEmptyState v-if="loading" type="loading" />
-    <TEmptyState v-else-if="error" type="error" :message="error" />
+    <TEmptyState v-if="isInitialLoading" type="loading" message="正在获取校历..." />
+    <TEmptyState v-else-if="error" type="error" :message="error">
+      <button class="calendar-retry-btn" type="button" @click="fetchCalendar()">重试</button>
+    </TEmptyState>
 
-    <div v-else class="calendar-table-wrapper">
+    <div v-else-if="calendarData.length > 0" class="calendar-table-wrapper">
       <table class="calendar-table">
         <thead>
           <tr>
@@ -368,6 +527,8 @@ onMounted(() => {
         </tbody>
       </table>
     </div>
+
+    <TEmptyState v-else type="empty" message="暂无校历数据" />
   </div>
 </template>
 
@@ -561,6 +722,52 @@ onMounted(() => {
   color: #b45309;
   border-radius: 12px;
   font-weight: 600;
+}
+
+.offline-banner.session-banner {
+  background: #fee2e2;
+  border-color: color-mix(in oklab, #ef4444 40%, transparent);
+  color: #b91c1c;
+}
+
+.calendar-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ui-primary);
+  cursor: pointer;
+}
+
+.calendar-refresh-btn .spinning {
+  animation: calendar-spin 0.9s linear infinite;
+}
+
+.calendar-retry-btn {
+  margin-top: 12px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: none;
+  background: var(--ui-primary);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.calendar-updated-at {
+  background: #f0f4f8 !important;
+  color: var(--ui-muted) !important;
+  border-color: var(--ui-surface-border) !important;
+}
+
+@keyframes calendar-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes calendar-fade-up {

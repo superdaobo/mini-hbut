@@ -5587,10 +5587,35 @@ async fn fetch_calendar_data(
     let sem_key = semester.clone().unwrap_or_else(|| "current".to_string());
     match client.fetch_calendar_data(semester).await {
         Ok(data) => {
-            let sync_time = chrono::Local::now().to_rfc3339();
-            let payload = attach_sync_time(data, &sync_time, false);
-            let _ = db::save_cache(DB_FILENAME, "calendar_public_cache", &sem_key, &payload);
-            Ok(payload)
+            let success = data
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let need_login = data
+                .get("need_login")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            // 仅成功响应写缓存并刷新 sync_time；失败写缓存会污染离线语义（#489）
+            if success {
+                let sync_time = chrono::Local::now().to_rfc3339();
+                let payload = attach_sync_time(data, &sync_time, false);
+                let _ = db::save_cache(DB_FILENAME, "calendar_public_cache", &sem_key, &payload);
+                return Ok(payload);
+            }
+
+            // 会话失效：透传 need_login，不把失败响应当成功离线数据
+            if need_login {
+                return Ok(data);
+            }
+
+            // 其它业务失败：有缓存则标 offline 返回，便于前端区分网络离线
+            if let Ok(Some((cached_data, sync_time))) =
+                db::get_cache(DB_FILENAME, "calendar_public_cache", &sem_key)
+            {
+                return Ok(attach_sync_time(cached_data, &sync_time, true));
+            }
+            Ok(data)
         }
         Err(e) => {
             if let Ok(Some((cached_data, sync_time))) =
