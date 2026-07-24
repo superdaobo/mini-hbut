@@ -31,7 +31,7 @@ const PIE_COLORS = ['#2563eb', '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b
 
 /**
  * 导航栈
- * list → course → section → knowledge → video | score
+ * list → course → section → knowledge → video | document | score
  */
 const stack = ref([{ level: 'list' }])
 
@@ -50,6 +50,8 @@ const breadcrumbs = computed(() => {
     else if (frame.level === 'score') items.push({ key: 'score', label: '成绩' })
     else if (frame.level === 'video')
       items.push({ key: 'video', label: frame.task?.title || '视频' })
+    else if (frame.level === 'document')
+      items.push({ key: 'document', label: frame.task?.title || '文档' })
   }
   return items
 })
@@ -62,6 +64,7 @@ const pageTitle = computed(() => {
   if (c.level === 'knowledge') return c.knowledge?.title || '任务'
   if (c.level === 'score') return '成绩组成'
   if (c.level === 'video') return c.task?.title || '视频'
+  if (c.level === 'document') return c.task?.title || '文档'
   return '课程中心'
 })
 
@@ -96,17 +99,26 @@ const normalizeCourse = (item = {}) => {
     ),
     pendingCount: safeNumber(raw.pending_count ?? raw.pendingCount ?? 0),
     courseUrl: safeText(raw.course_url || raw.courseUrl || raw.url || ''),
-    semester: safeText(raw.semester || raw.term || '本学期') || '本学期'
+    // 缺省用「未分学期」，避免全量标成「本学期」掩盖多学期问题
+    semester: safeText(raw.semester || raw.term || '未分学期') || '未分学期'
   }
 }
 
 const typeMetaOf = (typeRaw) => {
   const t = safeText(typeRaw).toLowerCase()
   if (t.includes('video') || t === '视频') return { text: '视频', type: 'info', kind: 'video' }
-  if (t.includes('doc') || t.includes('pdf') || t === 'document' || t === '文档')
+  if (
+    t.includes('doc') ||
+    t.includes('pdf') ||
+    t.includes('ppt') ||
+    t.includes('book') ||
+    t === 'document' ||
+    t === '文档'
+  )
     return { text: '文档', type: 'warning', kind: 'document' }
   if (t.includes('work') || t === '作业') return { text: '作业', type: 'danger', kind: 'work' }
   if (t === 'knowledge' || t === '章节') return { text: '小节', type: 'primary', kind: 'knowledge' }
+  if (t === 'unknown' || t === '未知') return { text: '未知类型', type: 'muted', kind: 'unknown' }
   return { text: safeText(typeRaw) || '任务', type: 'muted', kind: 'task' }
 }
 
@@ -135,21 +147,31 @@ const normalizeSection = (raw = {}) => {
 }
 
 const normalizeTaskItem = (raw = {}) => {
-  const typeRaw = raw.type || raw.task_type || ''
-  const meta = typeMetaOf(typeRaw)
+  // 类型以后端 type/task_type 为准，禁止仅凭 objectId 强制 video
+  const typeRaw = raw.type || raw.task_type || raw.module || ''
+  const title = safeText(raw.title || raw.name || '未命名任务')
+  let meta = typeMetaOf(typeRaw)
+  // 后端 unknown/task 时，用文件名扩展名再推断一次（仅前端展示）
+  if (meta.kind === 'task' || meta.kind === 'unknown') {
+    const lower = title.toLowerCase()
+    if (/\.(pdf|ppt|pptx|doc|docx|xls|xlsx|txt)$/i.test(lower) || /课件|讲义|幻灯/.test(title)) {
+      meta = { text: '文档', type: 'warning', kind: 'document' }
+    } else if (/\.(mp4|flv|m3u8|mov|avi|mkv|webm)$/i.test(lower)) {
+      meta = { text: '视频', type: 'info', kind: 'video' }
+    }
+  }
   const objectId = safeText(
     raw.objectId || raw.object_id || raw.property?.objectid || raw.property?.objectId
   )
-  // 有 objectId 且类型未知时按视频处理
-  const kind = meta.kind === 'task' && objectId ? 'video' : meta.kind
+  const kind = meta.kind
   return {
     id: safeText(raw.id || raw.jobid || raw.objectId || raw.object_id || Math.random()),
-    title: safeText(raw.title || raw.name || '未命名任务'),
+    title,
     objectId,
     jobid: safeText(raw.jobid || raw.jobId),
     completed: !!(raw.completed || raw.isPassed),
     status: safeText(raw.status || (raw.completed || raw.isPassed ? '已完成' : '未完成')),
-    typeMeta: kind === 'video' ? { text: '视频', type: 'info', kind: 'video' } : meta,
+    typeMeta: meta,
     kind,
     empty_hint: !!(raw.empty_hint || raw.emptyHint)
   }
@@ -301,16 +323,29 @@ const loadList = async ({ silent = false, force = false } = {}) => {
     for (const s of [...fromApi, ...fromCourses]) {
       if (!merged.includes(s)) merged.push(s)
     }
-    // 本学期优先
+    // 本学期优先，未分学期靠后
     merged.sort((a, b) => {
-      if (a === '本学期') return -1
-      if (b === '本学期') return 1
+      const rank = (s) => {
+        if (s === '本学期') return 0
+        if (String(s).includes('年') || String(s).includes('学期')) return 1
+        if (s === '历史课程') return 2
+        if (s === '未分学期') return 4
+        return 3
+      }
+      const d = rank(a) - rank(b)
+      if (d !== 0) return d
       return String(b).localeCompare(String(a), 'zh')
     })
     semesterTabs.value = ['全部', ...merged]
     if (!semesterTabs.value.includes(activeSemester.value)) {
       activeSemester.value = '全部'
     }
+    pushDebugLog(
+      'ChaoxingHub',
+      `学期列表 count=${merged.length} labels=${merged.join('|') || '(空)'} folder_extra=${courseRes?.folder_extra ?? 'n/a'}`,
+      merged.length <= 1 ? 'warn' : 'info',
+      { semesters: merged, from_api: fromApi, from_courses: fromCourses }
+    )
   } catch (e) {
     error.value = safeText(e?.message || e) || '加载失败'
   } finally {
@@ -512,6 +547,22 @@ const collectPlayUrls = (st = {}, top = {}) => {
   return list
 }
 
+const collectDocUrls = (st = {}, top = {}) => {
+  const list = []
+  const push = (u) => {
+    const https = preferHttps(u)
+    if (!https || !https.startsWith('http')) return
+    if (!list.includes(https)) list.push(https)
+  }
+  if (Array.isArray(top.play_urls)) top.play_urls.forEach(push)
+  if (Array.isArray(st.play_urls)) st.play_urls.forEach(push)
+  ;['https', 'http', 'download', 'pdf', 'url', 'preview', 'previewUrl', 'hd', 'sd'].forEach((k) => {
+    push(st[k])
+    push(top[k])
+  })
+  return list
+}
+
 const openVideo = async (course, section, knowledge, task, meta) => {
   if (!task.objectId) {
     showToast('该任务没有可播放资源')
@@ -528,7 +579,11 @@ const openVideo = async (course, section, knowledge, task, meta) => {
     if (res?.success === false) throw new Error(res?.error || '视频状态失败')
     const st = res?.data && typeof res.data === 'object' ? res.data : res
     const playUrls = collectPlayUrls(st, res || {})
-    if (!playUrls.length) {
+    const playerUrl = preferHttps(
+      safeText(res?.player_url || st.player_url || '') ||
+        `https://mooc1.chaoxing.com/ananas/modules/video/index.html?objectid=${encodeURIComponent(task.objectId)}&fid=${encodeURIComponent(meta?.fid || '0')}&isPhone=true`
+    )
+    if (!playUrls.length && !playerUrl) {
       throw new Error(
         st.status && st.status !== 'success'
           ? `视频不可用（${st.status}）`
@@ -541,8 +596,10 @@ const openVideo = async (course, section, knowledge, task, meta) => {
       section,
       knowledge,
       task,
-      src: playUrls[0],
+      src: playUrls[0] || '',
       playUrls,
+      playerUrl,
+      usePlayer: !playUrls.length,
       poster: preferHttps(safeText(st.screenshot || st.thumb || '')),
       filename: safeText(st.filename || task.title),
       duration: safeNumber(st.duration)
@@ -554,17 +611,86 @@ const openVideo = async (course, section, knowledge, task, meta) => {
   }
 }
 
-const onVideoError = () => {
-  const urls = current.value?.playUrls || []
-  if (videoSrcIndex.value + 1 < urls.length) {
-    videoSrcIndex.value += 1
-    videoError.value = `线路 ${videoSrcIndex.value} 失败，切换备用地址…`
+/** 文档/PPT：走 ananas status 取直链或官方预览页，禁止 openVideo */
+const openDocument = async (course, section, knowledge, task, meta) => {
+  if (!task.objectId) {
+    showToast(`文档「${task.title}」无可预览资源（缺少 objectId）`)
     return
   }
-  // 优先展示后端/播放器给出的具体原因，避免永远笼统「CDN/会话」
-  const detail = safeText(e?.message || e || '')
+  pageLoading.value = true
+  try {
+    const res = await cxInvoke('chaoxing_get_video_status', {
+      object_id: task.objectId,
+      fid: meta?.fid || '0'
+    })
+    if (res?.success === false) throw new Error(res?.error || '文档状态失败')
+    const st = res?.data && typeof res.data === 'object' ? res.data : res
+    const docUrls = collectDocUrls(st, res || {})
+    const filename = safeText(st.filename || task.title)
+    // 官方 PDF/文档模块页（无签名时仍可能依赖会话 cookie）
+    const officialPreview = preferHttps(
+      `https://mooc1.chaoxing.com/ananas/modules/pdf/index.html?objectid=${encodeURIComponent(task.objectId)}&fid=${encodeURIComponent(meta?.fid || '0')}`
+    )
+    const previewUrl = docUrls[0] || officialPreview
+    if (!previewUrl) {
+      showToast(`文档「${filename || task.title}」暂无预览地址，请在学习通网页端打开`)
+      return
+    }
+    push({
+      level: 'document',
+      course,
+      section,
+      knowledge,
+      task,
+      src: previewUrl,
+      candidates: docUrls.length ? docUrls : [officialPreview],
+      filename,
+      fileType: safeText(st.fileType || st.filetype || task.typeMeta?.text || '文档')
+    })
+  } catch (e) {
+    const msg = safeText(e?.message || e) || '文档打开失败'
+    showToast(`文档预览失败：${msg}`)
+  } finally {
+    pageLoading.value = false
+  }
+}
+
+const mediaErrorMessage = (ev) => {
+  try {
+    const el = ev?.target || ev?.currentTarget
+    const code = el?.error?.code
+    // MEDIA_ERR_*: 1=aborted 2=network 3=decode 4=src not supported
+    const map = {
+      1: '加载中止',
+      2: '网络错误（可能被 CDN 拒绝或会话失效）',
+      3: '解码失败',
+      4: '格式不支持或地址无效'
+    }
+    if (code && map[code]) return map[code]
+    if (el?.error?.message) return String(el.error.message)
+  } catch {
+    // ignore
+  }
+  return ''
+}
+
+const onVideoError = (ev) => {
+  const frame = current.value
+  const urls = frame?.playUrls || []
+  if (videoSrcIndex.value + 1 < urls.length) {
+    videoSrcIndex.value += 1
+    videoError.value = `线路 ${videoSrcIndex.value + 1}/${urls.length} 失败，切换备用地址…`
+    return
+  }
+  // 直链耗尽：尝试官方 ananas 播放器页
+  if (frame?.playerUrl && !frame.usePlayer) {
+    frame.usePlayer = true
+    videoError.value = '直链播放失败，已切换学习通官方播放器…'
+    return
+  }
+  const detail = mediaErrorMessage(ev)
   videoError.value = detail
-    ? `视频播放失败：${detail}`
+    ? `视频播放失败：${detail}。请重试、切换线路或重新登录学习通`
     : '视频播放失败：无法解析播放地址或被 CDN 拒绝。请重试，或重新登录学习通后再打开'
 }
 
@@ -588,11 +714,24 @@ const retryVideo = () => {
 
 const onTaskClick = (frame, task) => {
   if (task.empty_hint || task.status === '无可播放任务') {
-    showToast('该小节没有视频任务点')
+    showToast('该小节暂无任务点')
     return
   }
-  if (task.kind === 'video' || task.objectId) {
+  // 严格按 kind 分流：禁止 objectId 一律当视频
+  if (task.kind === 'video') {
     void openVideo(frame.course, frame.section, frame.knowledge, task, frame.meta)
+    return
+  }
+  if (task.kind === 'document') {
+    void openDocument(frame.course, frame.section, frame.knowledge, task, frame.meta)
+    return
+  }
+  if (task.kind === 'work') {
+    showToast(`作业「${task.title}」请在学习通网页端完成`)
+    return
+  }
+  if (task.kind === 'unknown' && task.objectId) {
+    showToast(`未知类型任务「${task.title}」，暂不按视频打开`)
     return
   }
   showToast(`${task.typeMeta?.text || '任务'}：${task.title}`)
@@ -673,7 +812,16 @@ onMounted(() => {
           <div class="hero-row">
             <div>
               <strong>我的课程</strong>
-              <p>{{ courses.length }} 门 · {{ semesterTabs.length > 1 ? semesterTabs.length - 1 + ' 个学期' : '本学期' }}</p>
+              <p>
+                {{ courses.length }} 门 ·
+                {{
+                  semesterTabs.length > 2
+                    ? semesterTabs.length - 1 + ' 个学期'
+                    : semesterTabs.length === 2
+                      ? semesterTabs[1]
+                      : '学期待同步'
+                }}
+              </p>
             </div>
             <TStatusBadge :type="badgeType" :text="badgeText" />
           </div>
@@ -959,13 +1107,23 @@ onMounted(() => {
         </section>
       </template>
 
-      <!-- 6. 应用内视频 -->
+      <!-- 6. 应用内视频（直链优先，失败切 ananas 官方播放器） -->
       <template v-else-if="current.level === 'video'">
         <section class="panel video-panel">
           <p class="crumb">{{ current.knowledge?.title }}</p>
           <h3 class="video-title">{{ current.filename || current.task?.title }}</h3>
           <p v-if="current.duration" class="hint">时长 {{ formatDuration(current.duration) }}</p>
+          <iframe
+            v-if="current.usePlayer && current.playerUrl"
+            :key="'player-' + current.playerUrl"
+            class="video-el doc-frame"
+            :src="current.playerUrl"
+            title="学习通视频播放器"
+            allow="autoplay; fullscreen"
+            referrerpolicy="no-referrer-when-downgrade"
+          />
           <video
+            v-else
             :key="activeVideoSrc"
             class="video-el"
             controls
@@ -983,7 +1141,7 @@ onMounted(() => {
               重新加载
             </button>
             <button
-              v-if="(current.playUrls || []).length > 1"
+              v-if="(current.playUrls || []).length > 1 && !current.usePlayer"
               type="button"
               class="chip-btn ghost light"
               @click="
@@ -993,8 +1151,56 @@ onMounted(() => {
             >
               切换线路 {{ videoSrcIndex + 1 }}/{{ current.playUrls.length }}
             </button>
+            <button
+              v-if="current.playerUrl && !current.usePlayer"
+              type="button"
+              class="chip-btn ghost light"
+              @click="
+                current.usePlayer = true;
+                videoError = ''
+              "
+            >
+              官方播放器
+            </button>
           </div>
-          <p class="hint">播放在应用内完成，不跳转浏览器</p>
+          <p class="hint">
+            {{ current.usePlayer ? '官方 ananas 播放器（应用内）' : '直链播放，失败可切换官方播放器' }}
+          </p>
+        </section>
+      </template>
+
+      <!-- 7. 文档/PPT 预览 -->
+      <template v-else-if="current.level === 'document'">
+        <section class="panel video-panel">
+          <p class="crumb">{{ current.knowledge?.title }}</p>
+          <h3 class="video-title">{{ current.filename || current.task?.title }}</h3>
+          <p class="hint">类型：{{ current.fileType || '文档' }}</p>
+          <iframe
+            v-if="current.src"
+            :key="current.src"
+            class="video-el doc-frame"
+            :src="current.src"
+            title="文档预览"
+            referrerpolicy="no-referrer-when-downgrade"
+          />
+          <p v-else class="video-err">暂无预览地址</p>
+          <div class="btn-row video-actions">
+            <button
+              v-if="(current.candidates || []).length > 1"
+              type="button"
+              class="chip-btn ghost light"
+              @click="
+                (() => {
+                  const list = current.candidates || []
+                  const i = Math.max(0, list.indexOf(current.src))
+                  current.src = list[(i + 1) % list.length]
+                })()
+              "
+            >
+              切换预览源
+            </button>
+          </div>
+          <p class="hint">文档在应用内预览；若空白请确认学习通会话有效</p>
         </section>
       </template>
     </div>
@@ -1627,6 +1833,12 @@ onMounted(() => {
   background: #000;
   max-height: 50vh;
   margin-top: 8px;
+}
+.doc-frame {
+  border: 0;
+  min-height: 55vh;
+  max-height: 70vh;
+  background: #fff;
 }
 .video-err {
   color: #fca5a5;
