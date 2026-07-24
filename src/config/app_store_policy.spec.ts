@@ -68,6 +68,12 @@ describe('app_store_policy', () => {
       'transactions',
       'resource_share',
       'chaoxing_class',
+      // 学习通 / 一码通扩展入口（#493 显式黑名单）
+      'chaoxing_hub',
+      'chaoxing_inbox',
+      'broadband',
+      'sports_venue',
+      'teaching_eval',
       'ai',
       'more',
       'more_module_host',
@@ -93,6 +99,40 @@ describe('app_store_policy', () => {
     expect(isModuleAllowed('course_selection')).toBe(false)
     expect(isViewAllowed('more_module_host')).toBe(false)
     expect(getFeaturePolicy().remoteCode).toBe(false)
+    // 演示账号 reviewer：学习通 / 一码通扩展模块同样不可用
+    for (const id of [
+      'chaoxing_hub',
+      'chaoxing_inbox',
+      'chaoxing_class',
+      'broadband',
+      'sports_venue',
+      'teaching_eval',
+      'electricity',
+      'transactions'
+    ]) {
+      expect(isModuleAllowed(id), id).toBe(false)
+      expect(isDeepLinkAllowed(id), id).toBe(false)
+    }
+  })
+
+  it('flag on + guest: explicit blacklist covers 学习通/一码通 extension ids', () => {
+    setAppStoreBuildOverrideForTests(true)
+    setAppStoreSessionOverrideForTests({ isLoggedIn: false, isDemoSession: false })
+    // 即便未走默认拒绝路径，黑名单也必须显式命中（审核清单可核对）
+    for (const id of [
+      'chaoxing_hub',
+      'chaoxing_inbox',
+      'broadband',
+      'sports_venue',
+      'teaching_eval'
+    ]) {
+      expect(isModuleAllowed(id), `module ${id}`).toBe(false)
+      expect(isViewAllowed(id), `view ${id}`).toBe(false)
+      expect(isDeepLinkAllowed(id), `deeplink ${id}`).toBe(false)
+    }
+    // 默认拒绝边界：完全未知 id 同样 false
+    expect(isModuleAllowed('future_sensitive_module_xyz')).toBe(false)
+    expect(isViewAllowed('future_sensitive_module_xyz')).toBe(false)
   })
 
   it('flag on + real logged-in: unlocks full feature tree', () => {

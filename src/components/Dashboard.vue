@@ -543,12 +543,48 @@ const homeWidgetOrder = computed(() => isHomeLayoutEditing.value ? draftHomeWidg
 const isChaoxingLogin = computed(() => isChaoxingMethod(loginMethod.value))
 const homeCollisionFx = ref([])
 
-const moduleCategories = computed(() => [
-  { title: '教务服务', modules: modules.value.filter(m => ['grades', 'exams', 'ranking', 'academic', 'qxzkb', 'course_selection', 'training', 'teaching_eval', 'classroom', 'calendar', 'school_inbox'].includes(m.id)) },
-  { title: '学习通', modules: modules.value.filter(m => ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class'].includes(m.id)) },
-  { title: '一码通', modules: modules.value.filter(m => ['campus_code', 'electricity', 'transactions', 'broadband', 'sports_venue'].includes(m.id)) },
-  { title: '资源', modules: modules.value.filter(m => ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)) }
-])
+// 合规 guest/demo 下学习通、一码通等整组会被滤空：不渲染空分组标题，避免误导审核员
+const moduleCategories = computed(() => {
+  const cats = [
+    {
+      title: '教务服务',
+      modules: modules.value.filter((m) =>
+        [
+          'grades',
+          'exams',
+          'ranking',
+          'academic',
+          'qxzkb',
+          'course_selection',
+          'training',
+          'teaching_eval',
+          'classroom',
+          'calendar',
+          'school_inbox'
+        ].includes(m.id)
+      )
+    },
+    {
+      title: '学习通',
+      modules: modules.value.filter((m) =>
+        ['chaoxing_hub', 'chaoxing_inbox', 'chaoxing_class'].includes(m.id)
+      )
+    },
+    {
+      title: '一码通',
+      modules: modules.value.filter((m) =>
+        ['campus_code', 'electricity', 'transactions', 'broadband', 'sports_venue'].includes(m.id)
+      )
+    },
+    {
+      title: '资源',
+      modules: modules.value.filter((m) =>
+        ['library', 'campus_map', 'resource_share', 'towergo', 'ai'].includes(m.id)
+      )
+    }
+  ]
+  return cats.filter((c) => Array.isArray(c.modules) && c.modules.length > 0)
+})
 
 const handleCategoryModuleClick = (moduleId) => { showAllModules.value = false; navigateTo(moduleId) }
 
@@ -872,6 +908,12 @@ const QUICK_ENTRY_KEY = 'hbu_quick_entry_modules'
 const HOME_FEATURE_TAB_KEY = 'hbu_home_feature_tab'
 const defaultQuickEntries = ['grades', 'exams', 'classroom', 'electricity', 'ranking']
 
+/** 合规策略会话参数：与 modules / navigateTo 保持一致 */
+const appStoreSessionOpts = () => ({
+  isLoggedIn: props.isLoggedIn,
+  isDemoSession: isTestAccountSession()
+})
+
 const quickEntryIds = ref([...defaultQuickEntries])
 const showQuickEntryEditor = ref(false)
 const draftQuickEntries = ref([...defaultQuickEntries])
@@ -888,18 +930,27 @@ const loadQuickEntries = () => {
 }
 
 const saveQuickEntries = () => {
-  quickEntryIds.value = [...draftQuickEntries.value]
+  const session = appStoreSessionOpts()
+  // 再次过滤：防止草稿残留被禁 id
+  const next = draftQuickEntries.value.filter((id) => isModuleAllowed(id, session))
+  if (next.length !== 5) {
+    showToast('请选择 5 个可用模块')
+    return
+  }
+  quickEntryIds.value = next
   localStorage.setItem(QUICK_ENTRY_KEY, JSON.stringify(quickEntryIds.value))
   showQuickEntryEditor.value = false
   showToast('快捷入口已更新', 'success')
 }
 
 const openQuickEntryEditor = () => {
-  draftQuickEntries.value = [...quickEntryIds.value]
+  const session = appStoreSessionOpts()
+  draftQuickEntries.value = quickEntryIds.value.filter((id) => isModuleAllowed(id, session))
   showQuickEntryEditor.value = true
 }
 
 const toggleDraftEntry = (id) => {
+  if (!isModuleAllowed(id, appStoreSessionOpts())) return
   const idx = draftQuickEntries.value.indexOf(id)
   if (idx >= 0) { draftQuickEntries.value.splice(idx, 1) }
   else if (draftQuickEntries.value.length < 5) { draftQuickEntries.value.push(id) }
@@ -935,8 +986,19 @@ const quickEntryMeta = {
   ai: { name: '校园助手', icon: 'fa-robot', color: 'bg-gray-50', iconColor: 'text-gray-500' }
 }
 
+// 快捷入口也走策略过滤：默认含 electricity/ranking，guest/demo 不得展示被禁模块
 const quickEntryItems = computed(() => {
-  return quickEntryIds.value.map(id => ({ id, ...quickEntryMeta[id] })).filter(item => item.name)
+  return quickEntryIds.value
+    .map((id) => ({ id, ...quickEntryMeta[id] }))
+    .filter((item) => item.name && isModuleAllowed(item.id, appStoreSessionOpts()))
+})
+
+/** 编辑器可选模块：同样隐藏合规收紧会话下的被禁入口 */
+const editableQuickEntryMeta = computed(() => {
+  const session = appStoreSessionOpts()
+  return Object.fromEntries(
+    Object.entries(quickEntryMeta).filter(([id]) => isModuleAllowed(id, session))
+  )
 })
 
 const handleQuickEntryClick = (id) => {
@@ -962,6 +1024,19 @@ const persistHomeFeatureTab = () => {
     // ignore storage failure
   }
 }
+
+// 空分组被滤掉后，若缓存 tab 指向「学习通/一码通」等，回落到首个可见分类
+watch(
+  moduleCategories,
+  (cats) => {
+    if (!cats.length) return
+    if (!cats.some((c) => c.title === activeFeatureTab.value)) {
+      activeFeatureTab.value = cats[0].title
+      persistHomeFeatureTab()
+    }
+  },
+  { immediate: true }
+)
 /** 所有功能宫格列数（与 template grid-cols-4 一致） */
 const FEATURE_GRID_COLS = 4
 
@@ -1797,7 +1872,7 @@ watch(() => [uiSettings.workspaceLayout.home.widgetsOrder.join('|'), uiSettings.
           <p class="text-xs text-gray-500 mb-4">选择 5 个模块作为快捷入口（已选 {{ draftQuickEntries.length }}/5）</p>
           <div class="grid grid-cols-4 gap-3 mb-6">
             <div
-              v-for="(meta, id) in quickEntryMeta"
+              v-for="(meta, id) in editableQuickEntryMeta"
               :key="id"
               class="quick-entry-editor-item flex flex-col items-center p-2 rounded-xl cursor-pointer border-2 transition-all"
               :class="draftQuickEntries.includes(id) ? 'quick-entry-editor-item--selected' : 'border-transparent'"
