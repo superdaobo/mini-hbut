@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-24T11:38:08.324Z",
+  "channel": "latest",
+  "source_channel": "dev",
+  "modules": [
+    {
+      "id": "hecheng_hugongda",
+      "name": "合成湖工大",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hecheng_hugongda/manifest.json",
+      "key_required": false,
+      "order": 1,
+      "icon": "🎮",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "jump_out_hbut",
+      "name": "跳出湖工大",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/jump_out_hbut/manifest.json",
+      "key_required": false,
+      "order": 2,
+      "icon": "🦘",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_2048",
+      "name": "2048 湖工大版",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_2048/manifest.json",
+      "key_required": false,
+      "order": 3,
+      "icon": "🔢",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "clumsy_bird_hbut",
+      "name": "笨鸟先飞",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/clumsy_bird_hbut/manifest.json",
+      "key_required": false,
+      "order": 4,
+      "icon": "🐦",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_monopoly",
+      "name": "湖工大富翁",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_monopoly/manifest.json",
+      "key_required": false,
+      "order": 5,
+      "icon": "🎲",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_miner",
+      "name": "湖工矿工",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_miner/manifest.json",
+      "key_required": false,
+      "order": 6,
+      "icon": "⛏️",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_memory_match",
+      "name": "湖工记忆牌",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_memory_match/manifest.json",
+      "key_required": false,
+      "order": 7,
+      "icon": "🧠",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_gomoku",
+      "name": "湖工五子棋",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_gomoku/manifest.json",
+      "key_required": false,
+      "order": 8,
+      "icon": "◉",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_stack",
+      "name": "湖工叠塔",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_stack/manifest.json",
+      "key_required": false,
+      "order": 9,
+      "icon": "🏗️",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_parking",
+      "name": "湖工挪车",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_parking/manifest.json",
+      "key_required": false,
+      "order": 10,
+      "icon": "🚌",
+      "description": "",
+      "min_compatible_version": ""
+    },
+    {
+      "id": "hbut_match3",
+      "name": "湖工消消乐",
+      "manifest_url": "https://hbut.6661111.xyz/modules/latest/hbut_match3/manifest.json",
+      "key_required": false,
+      "order": 11,
+      "icon": "🍬",
+      "description": "",
+      "min_compatible_version": ""
+    }
+  ]
+}

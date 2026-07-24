@@ -1,0 +1,163 @@
+
+.privacy-data-view[data-v-52c60fef] {
+  min-height: 100vh;
+  background: var(--ui-bg-gradient, #f6fafe);
+  color: var(--ui-text, #1e293b);
+}
+.privacy-data-view__main[data-v-52c60fef] {
+  display: grid;
+  gap: 14px;
+  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
+  max-width: 720px;
+  margin: 0 auto;
+}
+.privacy-card[data-v-52c60fef] {
+  background: var(--ui-surface, rgba(255, 255, 255, 0.92));
+  border: 1px solid var(--ui-surface-border, rgba(148, 163, 184, 0.28));
+  border-radius: 20px;
+  padding: 16px 16px 14px;
+  box-shadow: var(--ui-shadow-soft, 0 10px 30px rgba(15, 23, 42, 0.08));
+}
+.privacy-card--enter[data-v-52c60fef] {
+  animation: privacySlideUp-52c60fef 0.38s ease both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+.privacy-card__head[data-v-52c60fef] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.privacy-card__icon[data-v-52c60fef] {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--ui-primary, #667eea) 14%, var(--ui-surface, #fff) 86%);
+  color: var(--ui-primary, #3b82f6);
+  flex-shrink: 0;
+}
+.privacy-card__icon--policy[data-v-52c60fef] {
+  background: color-mix(in oklab, #0ea5e9 16%, var(--ui-surface, #fff) 84%);
+  color: #0284c7;
+}
+.privacy-card__icon--control[data-v-52c60fef] {
+  background: color-mix(in oklab, #8b5cf6 16%, var(--ui-surface, #fff) 84%);
+  color: #7c3aed;
+}
+.privacy-card__icon .material-symbols-outlined[data-v-52c60fef] {
+  font-size: 20px;
+  line-height: 1;
+}
+.privacy-card h2[data-v-52c60fef] {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ui-text, #1e293b);
+}
+.privacy-card p[data-v-52c60fef] {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ui-text, #1e293b);
+}
+.muted[data-v-52c60fef] {
+  color: var(--ui-muted, #64748b);
+  font-size: 12px !important;
+}
+.privacy-link-list[data-v-52c60fef],
+.privacy-action-list[data-v-52c60fef] {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.link-btn[data-v-52c60fef],
+.action-btn[data-v-52c60fef] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--ui-surface-border, rgba(148, 163, 184, 0.35));
+  background: color-mix(in oklab, var(--ui-surface, #fff) 88%, var(--ui-primary-soft, #eff6ff) 12%);
+  color: var(--ui-text, #1e293b);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.link-btn[data-v-52c60fef]:active,
+.action-btn[data-v-52c60fef]:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.link-btn[data-v-52c60fef]:hover,
+.action-btn[data-v-52c60fef]:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--ui-primary, #3b82f6) 28%, transparent);
+  box-shadow: 0 6px 16px color-mix(in oklab, var(--ui-primary, #3b82f6) 10%, transparent);
+}
+.link-btn__icon[data-v-52c60fef],
+.action-btn__icon[data-v-52c60fef] {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ui-primary, #3b82f6);
+  flex-shrink: 0;
+}
+.link-btn__label[data-v-52c60fef] {
+  flex: 1;
+  min-width: 0;
+}
+.link-btn__chev[data-v-52c60fef] {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ui-muted, #94a3b8);
+  flex-shrink: 0;
+}
+.action-btn[data-v-52c60fef]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.action-btn.danger[data-v-52c60fef] {
+  border-color: color-mix(in oklab, #ef4444 40%, transparent);
+  color: #b91c1c;
+  background: color-mix(in oklab, #fef2f2 70%, var(--ui-surface, #fff) 30%);
+}
+.action-btn.danger .action-btn__icon[data-v-52c60fef] {
+  color: #dc2626;
+}
+.status[data-v-52c60fef] {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f766e;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in oklab, #ccfbf1 55%, var(--ui-surface, #fff) 45%);
+  border: 1px solid color-mix(in oklab, #14b8a6 24%, transparent);
+}
+@keyframes privacySlideUp-52c60fef {
+from {
+    opacity: 0;
+    transform: translateY(14px);
+}
+to {
+    opacity: 1;
+    transform: translateY(0);
+}
+}
+@media (prefers-reduced-motion: reduce) {
+.privacy-card--enter[data-v-52c60fef] {
+    animation: none;
+}
+.link-btn[data-v-52c60fef],
+  .action-btn[data-v-52c60fef] {
+    transition: none;
+}
+}

@@ -1,0 +1,123 @@
+
+.te-page[data-v-10ab82a8] {
+  min-height: 100%;
+  background: #f6fafe;
+  color: #1e293b;
+  padding-bottom: 104px;
+}
+.te-body[data-v-10ab82a8] {
+  padding: 12px 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.te-toolbar[data-v-10ab82a8] {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.te-btn[data-v-10ab82a8] {
+  border: 1px solid var(--ui-border, #d0d7e2);
+  background: var(--ui-surface, #fff);
+  color: var(--ui-text, #0f172a);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.te-btn.primary[data-v-10ab82a8] {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
+.te-btn.ghost[data-v-10ab82a8] {
+  background: transparent;
+}
+.te-error[data-v-10ab82a8] {
+  color: #dc2626;
+  font-size: 13px;
+}
+.te-warn[data-v-10ab82a8] {
+  color: #b45309;
+  font-size: 13px;
+}
+.te-h[data-v-10ab82a8] {
+  margin: 8px 0 4px;
+  font-size: 14px;
+}
+.card-surface[data-v-10ab82a8] {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px;
+  text-align: left;
+  color: inherit;
+  box-shadow: 0 4px 15px rgba(15, 23, 42, 0.04);
+}
+.te-row[data-v-10ab82a8] {
+  width: 100%;
+  cursor: pointer;
+}
+.te-row.muted[data-v-10ab82a8] {
+  opacity: 0.85;
+}
+.te-title[data-v-10ab82a8] {
+  font-weight: 600;
+  font-size: 14px;
+}
+.te-meta[data-v-10ab82a8] {
+  font-size: 12px;
+  color: var(--ui-muted, #64748b);
+  margin-top: 4px;
+}
+.te-form[data-v-10ab82a8] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.te-q-title[data-v-10ab82a8] {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.te-input[data-v-10ab82a8] {
+  width: 100%;
+  border: 1px solid var(--ui-border, #d0d7e2);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--ui-bg, #fff);
+  color: inherit;
+}
+.te-textarea[data-v-10ab82a8] {
+  resize: vertical;
+}
+.te-actions[data-v-10ab82a8] {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.te-check[data-v-10ab82a8] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+html.dark .te-page[data-v-10ab82a8] {
+  background: var(--ui-bg, #0b1220);
+  color: var(--ui-text, #e2e8f0);
+}
+html.dark .card-surface[data-v-10ab82a8] {
+  background: var(--ui-surface, #111827);
+  border-color: #334155;
+}
+html.dark .te-btn[data-v-10ab82a8] {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+html.dark .te-btn.primary[data-v-10ab82a8] {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
