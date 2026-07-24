@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   HBUT_LOCATION,
   SCAN_CONCURRENCY,
-  SCAN_GRID_SPACING_METERS,
   SCAN_MAX_POINTS,
+  batteryLevelTier,
   createServiceAreaScanPoints,
   dedupeVehicles,
   distanceMeters,
@@ -11,7 +11,8 @@ import {
   normalizePoint,
   normalizeVehicles,
   resolveTowerGoLocation,
-  scanCellKey
+  scanCellKey,
+  wgs84ToGcj02
 } from './towergo_map'
 
 describe('towergo map utilities', () => {
@@ -72,7 +73,9 @@ describe('towergo map utilities', () => {
     })
 
     expect(near.source).toBe('system')
-    expect(near.latitude).toBe(30.483)
+    const expected = wgs84ToGcj02(30.483, 114.315)
+    expect(near.latitude).toBeCloseTo(expected.latitude, 6)
+    expect(near.longitude).toBeCloseTo(expected.longitude, 6)
   })
 
   it('detects points inside service polygons and generates bounded scan points', () => {
@@ -88,7 +91,8 @@ describe('towergo map utilities', () => {
     const points = createServiceAreaScanPoints({
       serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
       origin: HBUT_LOCATION,
-      spacingMeters: 250
+      spacingMeters: 250,
+      maxPoints: 20
     })
     expect(points.length).toBeGreaterThan(4)
     expect(points[0]).toMatchObject({ latitude: HBUT_LOCATION.latitude, longitude: HBUT_LOCATION.longitude })
@@ -147,83 +151,34 @@ describe('towergo map utilities', () => {
     expect(nested.some((v) => v.latitude > 70)).toBe(false)
   })
 
-  it('reduces scan point count as spacing increases without dropping below minimum coverage', () => {
-    const polygon = [
-      { latitude: 30.48, longitude: 114.31 },
-      { latitude: 30.48, longitude: 114.316 },
-      { latitude: 30.486, longitude: 114.316 },
-      { latitude: 30.486, longitude: 114.31 }
-    ]
-    const dense = createServiceAreaScanPoints({
-      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
-      origin: HBUT_LOCATION,
-      spacingMeters: 80,
-      maxPoints: 80
-    })
-    const sparse = createServiceAreaScanPoints({
-      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
-      origin: HBUT_LOCATION,
-      spacingMeters: 160,
-      maxPoints: 80
-    })
-    expect(dense.length).toBeGreaterThan(4)
-    expect(sparse.length).toBeGreaterThan(4)
-    expect(sparse.length).toBeLessThanOrEqual(dense.length)
-  })
+  it('#490 center-fetch defaults are single-shot (legacy grid util still callable)', () => {
+    expect(SCAN_CONCURRENCY).toBe(1)
+    expect(SCAN_MAX_POINTS).toBe(1)
+    expect(batteryLevelTier(0)).toBe(0)
+    expect(batteryLevelTier(14)).toBe(10)
+    expect(batteryLevelTier(15)).toBe(20)
+    expect(batteryLevelTier(66)).toBe(70)
+    expect(batteryLevelTier(100)).toBe(100)
 
-  it('caps scan points for nearby-first low-impact scans', () => {
-    expect(SCAN_CONCURRENCY).toBeLessThanOrEqual(4)
-    expect(SCAN_GRID_SPACING_METERS).toBeGreaterThanOrEqual(150)
-    expect(SCAN_MAX_POINTS).toBeLessThanOrEqual(48)
-
+    // 遗留工具可显式传入 maxPoints，主路径不再使用
     const polygon = [
       { latitude: 30.47, longitude: 114.30 },
       { latitude: 30.47, longitude: 114.33 },
       { latitude: 30.50, longitude: 114.33 },
       { latitude: 30.50, longitude: 114.30 }
     ]
-    const points = createServiceAreaScanPoints({
-      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
-      origin: HBUT_LOCATION,
-      spacingMeters: SCAN_GRID_SPACING_METERS,
-      maxPoints: SCAN_MAX_POINTS,
-      nearbyRadiusMeters: 900
-    })
-    expect(points.length).toBeGreaterThanOrEqual(4)
-    expect(points.length).toBeLessThanOrEqual(SCAN_MAX_POINTS)
-    // 最近点应为用户原点
-    expect(points[0].latitude).toBeCloseTo(HBUT_LOCATION.latitude, 4)
-  })
-
-  it('generates scan points from map viewport bounds', () => {
-    const polygon = [
-      { latitude: 30.47, longitude: 114.30 },
-      { latitude: 30.47, longitude: 114.33 },
-      { latitude: 30.50, longitude: 114.33 },
-      { latitude: 30.50, longitude: 114.30 }
-    ]
-    // 视口在服务区北侧，远离默认原点附近
-    const bounds = {
-      minLat: 30.492,
-      maxLat: 30.498,
-      minLng: 114.31,
-      maxLng: 114.32
-    }
     const points = createServiceAreaScanPoints({
       serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
       origin: HBUT_LOCATION,
       spacingMeters: 200,
-      maxPoints: 20,
-      bounds
+      maxPoints: 12,
+      nearbyRadiusMeters: 900
     })
     expect(points.length).toBeGreaterThanOrEqual(1)
-    expect(points.length).toBeLessThanOrEqual(20)
-    // 点应落在视口∩服务区附近，而非全部挤在校区中心
-    const midLat = points.reduce((s, p) => s + p.latitude, 0) / points.length
-    expect(midLat).toBeGreaterThan(30.485)
+    expect(points.length).toBeLessThanOrEqual(12)
   })
 
-  it('builds stable scan cell keys for incremental viewport loading', () => {
+  it('builds stable scan cell keys for legacy incremental helpers', () => {
     const a = scanCellKey({ latitude: 30.4819, longitude: 114.313 }, 180)
     const b = scanCellKey({ latitude: 30.48191, longitude: 114.31301 }, 180)
     const far = scanCellKey({ latitude: 30.495, longitude: 114.32 }, 180)
@@ -231,9 +186,27 @@ describe('towergo map utilities', () => {
     expect(a).not.toBe(far)
   })
 
-  it('requests fresh geolocation with maximumAge 0 by default', async () => {
+  it('converts WGS-84 to GCJ-02 near campus and prefers top-level vehicle lat/lng', async () => {
+    const wgs = { latitude: 30.4819, longitude: 114.313 }
+    const gcj = wgs84ToGcj02(wgs.latitude, wgs.longitude)
+    // 国内偏移应非零但在数百米量级
+    const drift = distanceMeters(wgs.latitude, wgs.longitude, gcj.latitude, gcj.longitude)
+    expect(drift).toBeGreaterThan(50)
+    expect(drift).toBeLessThan(1000)
+
+    const fromTop = normalizeVehicles(
+      {
+        list: [{ carId: 'TOP', lat: 30.482, lng: 114.314, restBattery: 55 }]
+      },
+      HBUT_LOCATION
+    )
+    expect(fromTop[0].latitude).toBeCloseTo(30.482, 5)
+    expect(fromTop[0].longitude).toBeCloseTo(114.314, 5)
+  })
+
+  it('requests fresh geolocation with maximumAge 0 and returns GCJ coordinates', async () => {
     let seenMaximumAge: number | undefined
-    await resolveTowerGoLocation({
+    const resolved = await resolveTowerGoLocation({
       geolocation: {
         getCurrentPosition: (
           success: PositionCallback,
@@ -250,5 +223,9 @@ describe('towergo map utilities', () => {
       fallback: HBUT_LOCATION
     })
     expect(seenMaximumAge).toBe(0)
+    expect(resolved.source).toBe('system')
+    const expected = wgs84ToGcj02(30.483, 114.315)
+    expect(resolved.latitude).toBeCloseTo(expected.latitude, 6)
+    expect(resolved.longitude).toBeCloseTo(expected.longitude, 6)
   })
 })

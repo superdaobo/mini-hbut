@@ -27,20 +27,78 @@ export const HBUT_LOCATION: TowerGoPoint = {
   longitude: 114.313
 }
 
-/** 默认网格间距（米）。#370 略加密以减少漏扫，仍远低于全校无界网格。 */
+/**
+ * #490 对齐小程序：默认只对「地图中心」发起单次 eBikeLocation，不再整区网格打爆。
+ * 下列 SCAN_* 网格常量仅保留给 createServiceAreaScanPoints 遗留工具/测试，主路径勿用。
+ */
 export const SCAN_GRID_SPACING_METERS = 150
-/** 并发拉取车辆上限，避免 WebView 主线程与网络打满。 */
-export const SCAN_CONCURRENCY = 4
-/** 单次请求间隔（ms）。 */
-export const SCAN_REQUEST_DELAY_MS = 60
-/** 单次扫描最多探测点数（含原点/中心）。超出时保留距用户最近的点。 */
-export const SCAN_MAX_POINTS = 48
-/** 定时刷新间隔（ms）：仅刷新附近/当前视野，不整区打爆。 */
+export const SCAN_CONCURRENCY = 1
+export const SCAN_REQUEST_DELAY_MS = 0
+export const SCAN_MAX_POINTS = 1
+/** 定时按当前地图中心刷新附近车（ms） */
 export const SCAN_REFRESH_INTERVAL_MS = 180_000
-/** 视口扫描防抖（ms）。 */
-export const SCAN_VIEWPORT_DEBOUNCE_MS = 400
-/** 冷启动附近扫描半径（米） */
+/** region 拖动/缩放结束后的中心拉车防抖（ms） */
+export const SCAN_VIEWPORT_DEBOUNCE_MS = 280
+/** @deprecated #490 主路径改为中心单次；保留兼容 */
 export const SCAN_NEARBY_RADIUS_METERS = 1200
+/** 中心拉车防抖别名，语义更清晰 */
+export const CENTER_FETCH_DEBOUNCE_MS = SCAN_VIEWPORT_DEBOUNCE_MS
+
+/** 官方小程序电量档：0/10/…/100 */
+export const BATTERY_ICON_TIERS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const
+export type BatteryIconTier = (typeof BATTERY_ICON_TIERS)[number]
+
+/** 将电量归一到小程序 icon_ebike_*_battery{N} 档位 */
+export const batteryLevelTier = (battery: unknown): BatteryIconTier => {
+  const n = Number(battery)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  if (n >= 100) return 100
+  return (Math.round(n / 10) * 10) as BatteryIconTier
+}
+
+/**
+ * WGS-84 → GCJ-02（火星坐标）。
+ * 浏览器/系统定位多为 WGS-84，腾讯图与铁塔接口为 GCJ-02；不转换会导致人/车错位。
+ */
+export const wgs84ToGcj02 = (lat: number, lng: number): { latitude: number; longitude: number } => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { latitude: lat, longitude: lng }
+  // 境外不纠偏
+  if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) {
+    return { latitude: lat, longitude: lng }
+  }
+  const PI = Math.PI
+  const A = 6378245.0
+  const EE = 0.00669342162296594323
+  const transformLat = (x: number, y: number) => {
+    let ret =
+      -100.0 +
+      2.0 * x +
+      3.0 * y +
+      0.2 * y * y +
+      0.1 * x * y +
+      0.2 * Math.sqrt(Math.abs(x))
+    ret += ((20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0) / 3.0
+    ret += ((20.0 * Math.sin(y * PI) + 40.0 * Math.sin((y / 3.0) * PI)) * 2.0) / 3.0
+    ret += ((160.0 * Math.sin((y / 12.0) * PI) + 320 * Math.sin((y * PI) / 30.0)) * 2.0) / 3.0
+    return ret
+  }
+  const transformLng = (x: number, y: number) => {
+    let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x))
+    ret += ((20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0) / 3.0
+    ret += ((20.0 * Math.sin(x * PI) + 40.0 * Math.sin((x / 3.0) * PI)) * 2.0) / 3.0
+    ret += ((150.0 * Math.sin((x / 12.0) * PI) + 300.0 * Math.sin((x / 30.0) * PI)) * 2.0) / 3.0
+    return ret
+  }
+  const dLat = transformLat(lng - 105.0, lat - 35.0)
+  const dLng = transformLng(lng - 105.0, lat - 35.0)
+  const radLat = (lat / 180.0) * PI
+  let magic = Math.sin(radLat)
+  magic = 1 - EE * magic * magic
+  const sqrtMagic = Math.sqrt(magic)
+  const mgLat = lat + (dLat * 180.0) / (((A * (1 - EE)) / (magic * sqrtMagic)) * PI)
+  const mgLng = lng + (dLng * 180.0) / ((A / sqrtMagic) * Math.cos(radLat) * PI)
+  return { latitude: mgLat, longitude: mgLng }
+}
 
 export type ScanBounds = {
   minLat: number
@@ -120,6 +178,33 @@ const firstArray = (data: unknown): unknown[] => {
 }
 
 const readLatLngFromObject = (obj: Record<string, unknown>): { latitude: number; longitude: number } | null => {
+  // #490 对齐小程序：优先顶层 lat/lng（eBikeLocation 直接字段），避免嵌套写反污染
+  const topLat = toNumber(
+    obj.lat ??
+      obj.latitude ??
+      obj.carLat ??
+      obj.car_lat ??
+      obj.posLat ??
+      obj.pos_lat ??
+      obj.centerLat ??
+      obj.latY ??
+      obj.y
+  )
+  const topLng = toNumber(
+    obj.lng ??
+      obj.lon ??
+      obj.longitude ??
+      obj.carLng ??
+      obj.car_lng ??
+      obj.posLng ??
+      obj.pos_lng ??
+      obj.centerLng ??
+      obj.lngX ??
+      obj.x
+  )
+  const top = coerceChinaLatLng(topLat, topLng)
+  if (top) return top
+
   // 嵌套 location / pos / coordinate
   for (const nestKey of ['location', 'pos', 'position', 'coordinate', 'coord', 'gps', 'point']) {
     const nested = obj[nestKey]
@@ -136,30 +221,7 @@ const readLatLngFromObject = (obj: Record<string, unknown>): { latitude: number;
     }
   }
 
-  const lat = toNumber(
-    obj.lat ??
-      obj.latitude ??
-      obj.carLat ??
-      obj.car_lat ??
-      obj.posLat ??
-      obj.pos_lat ??
-      obj.centerLat ??
-      obj.latY ??
-      obj.y
-  )
-  const lng = toNumber(
-    obj.lng ??
-      obj.lon ??
-      obj.longitude ??
-      obj.carLng ??
-      obj.car_lng ??
-      obj.posLng ??
-      obj.pos_lng ??
-      obj.centerLng ??
-      obj.lngX ??
-      obj.x
-  )
-  return coerceChinaLatLng(lat, lng)
+  return null
 }
 
 export const normalizePoint = (point: unknown): TowerGoPoint | null => {
@@ -495,9 +557,13 @@ export const resolveTowerGoLocation = async ({
     try {
       geolocation.getCurrentPosition(
         (position) => {
-          const lat = position.coords.latitude
-          const lng = position.coords.longitude
+          const rawLat = position.coords.latitude
+          const rawLng = position.coords.longitude
           const accuracy = position.coords.accuracy || 0
+          // 系统定位多为 WGS-84，转 GCJ-02 后与腾讯图/铁塔车辆坐标一致
+          const gcj = wgs84ToGcj02(rawLat, rawLng)
+          const lat = gcj.latitude
+          const lng = gcj.longitude
           // 系统定位可能偏移到校外几公里（桌面端/室内/VPN），超阈值则回退到校区坐标，
           // 避免用偏移坐标查服务区识别成别的校区
           const drift = distanceMeters(fallback.latitude, fallback.longitude, lat, lng)
@@ -507,7 +573,7 @@ export const resolveTowerGoLocation = async ({
               'TowerGo',
               `定位漂移 ${Math.round(drift)}m > ${maxDriftMeters}m，回退校区 lat=${point.latitude} lng=${point.longitude}`,
               'warn',
-              { lat, lng, accuracy, drift, ...point }
+              { rawLat, rawLng, lat, lng, accuracy, drift, ...point }
             )
             resolve(point)
             return
@@ -521,9 +587,9 @@ export const resolveTowerGoLocation = async ({
           }
           pushDebugLog(
             'TowerGo',
-            `定位成功 lat=${lat.toFixed(6)} lng=${lng.toFixed(6)} ±${Math.round(accuracy)}m`,
+            `定位成功(GCJ) lat=${lat.toFixed(6)} lng=${lng.toFixed(6)} ±${Math.round(accuracy)}m wgs=${rawLat.toFixed(6)},${rawLng.toFixed(6)}`,
             'info',
-            point
+            { ...point, rawLat, rawLng }
           )
           resolve(point)
         },
