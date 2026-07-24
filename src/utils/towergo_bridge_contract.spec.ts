@@ -13,9 +13,13 @@ describe('towergo bridge and location permission contract', () => {
     expect(mapUtil).toContain('pushDebugLog')
     expect(mapUtil).toContain('coerceChinaLatLng')
     expect(mapUtil).toContain('carLat')
+    expect(mapUtil).toContain('wgs84ToGcj02')
+    expect(mapUtil).toContain('batteryLevelTier')
     expect(view).toContain('ensureUserLocationMarker')
     expect(view).toContain('map-fallback--overlay')
     expect(view).toContain('svgToDataUrl')
+    expect(view).toContain('fetchNearBikesAtCenter')
+    expect(view).toContain('officialVehiclePinSvg')
     // 地图节点必须自闭合独占，fallback 作为兄弟节点
     expect(view).toMatch(/ref="mapContainerRef" class="tg-map tg-map--fs"\s*\/>/)
     expect(geo).toContain("pushDebugLog('Geo'")

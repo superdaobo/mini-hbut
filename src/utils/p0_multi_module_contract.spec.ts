@@ -2,11 +2,11 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  CENTER_FETCH_DEBOUNCE_MS,
   SCAN_CONCURRENCY,
-  SCAN_GRID_SPACING_METERS,
   SCAN_MAX_POINTS,
-  createServiceAreaScanPoints,
-  HBUT_LOCATION
+  SCAN_REFRESH_INTERVAL_MS,
+  batteryLevelTier
 } from './towergo_map'
 import { resolveCampusGuideBaseUrl, CAMPUS_GUIDE_CONFIG } from '../features/campus-guide/config'
 import { resolveInsideScenic } from '../features/campus-guide/services/location-service'
@@ -15,25 +15,20 @@ import type { GeoPoint } from '../features/campus-guide/types'
 const read = (relativePath: string) => readFileSync(path.join(process.cwd(), relativePath), 'utf8')
 
 describe('P0 multi-module contracts', () => {
-  it('downshifts TowerGo scan defaults and nearby-first caps', () => {
-    expect(SCAN_CONCURRENCY).toBeLessThanOrEqual(4)
-    expect(SCAN_GRID_SPACING_METERS).toBeGreaterThanOrEqual(150)
-    // 视口动态扫描允许略高上限，仍远低于全校区无界网格
-    expect(SCAN_MAX_POINTS).toBeLessThanOrEqual(48)
+  it('#490 TowerGo defaults to center single-fetch (no multi-point grid main path)', () => {
+    // 主路径常量：单次拉车
+    expect(SCAN_CONCURRENCY).toBe(1)
+    expect(SCAN_MAX_POINTS).toBe(1)
+    expect(CENTER_FETCH_DEBOUNCE_MS).toBeGreaterThan(0)
+    expect(SCAN_REFRESH_INTERVAL_MS).toBeGreaterThan(60_000)
+    expect(batteryLevelTier(66)).toBe(70)
+    expect(batteryLevelTier(0)).toBe(0)
 
-    const polygon = [
-      { latitude: 30.47, longitude: 114.30 },
-      { latitude: 30.47, longitude: 114.33 },
-      { latitude: 30.50, longitude: 114.33 },
-      { latitude: 30.50, longitude: 114.30 }
-    ]
-    const points = createServiceAreaScanPoints({
-      serviceData: { points: polygon, centerLat: 30.483, centerLng: 114.313 },
-      origin: HBUT_LOCATION,
-      maxPoints: SCAN_MAX_POINTS,
-      nearbyRadiusMeters: 900
-    })
-    expect(points.length).toBeLessThanOrEqual(SCAN_MAX_POINTS)
+    const vue = read('src/components/TowerGoView.vue')
+    expect(vue).toContain('fetchNearBikesAtCenter')
+    expect(vue).toContain('refreshVehiclesAtMapCenter')
+    expect(vue).not.toContain('createServiceAreaScanPoints')
+    expect(vue).not.toContain('runScanPoints')
   })
 
   it('tears down TowerGo runtime on unmount', () => {
@@ -44,14 +39,14 @@ describe('P0 multi-module contracts', () => {
     expect(vue).not.toContain('全区扫描')
   })
 
-  it('uses custom MarkerStyle for Apple-like vehicle and user markers', () => {
+  it('uses battery-tier MarkerStyle for vehicle and user markers', () => {
     const vue = read('src/components/TowerGoView.vue')
     expect(vue).toContain('buildTowerGoMarkerStyles')
     expect(vue).toContain('MarkerStyle')
     expect(vue).toContain('appleUserDotSvg')
-    expect(vue).toContain('appleVehiclePinSvg')
+    expect(vue).toContain('officialVehiclePinSvg')
+    expect(vue).toContain('vehicleStyleId')
     expect(vue).toContain("styleId: 'user'")
-    expect(vue).toContain("styleId: active ? 'vehicleActive' : 'vehicle'")
   })
 
   it('keeps favicon and app-icon SVG under 80KB after slim', () => {

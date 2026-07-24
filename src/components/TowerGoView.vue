@@ -3,21 +3,15 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { fetchWalkingRoute } from '../features/campus-map/services/walking_route_service'
 import { towerGoApi, towerGoStorage, TOWERGO_CONFIG } from '../utils/towergo_api'
 import {
+  BATTERY_ICON_TIERS,
+  CENTER_FETCH_DEBOUNCE_MS,
   HBUT_LOCATION,
-  SCAN_CONCURRENCY,
-  SCAN_GRID_SPACING_METERS,
-  SCAN_MAX_POINTS,
   SCAN_REFRESH_INTERVAL_MS,
-  SCAN_REQUEST_DELAY_MS,
-  SCAN_VIEWPORT_DEBOUNCE_MS,
-  createServiceAreaScanPoints,
-  dedupeVehicles,
+  batteryLevelTier,
   formatDistance,
   normalizePoint,
   normalizeVehicles,
   resolveTowerGoLocation,
-  scanCellKey,
-  type ScanBounds,
   type TowerGoPoint,
   type TowerGoVehicle
 } from '../utils/towergo_map'
@@ -40,10 +34,10 @@ const serviceInfo = ref<Record<string, unknown> | null>(null)
 const parkingInfo = ref<Record<string, unknown> | null>(null)
 const fences = ref<unknown>(null)
 const mapErrors = ref<string[]>([])
-const scanProgress = ref<{ done: number; total: number; unique: number } | null>(null)
 const loadingMap = ref(false)
 const locating = ref(false)
 const lastScanAt = ref(0)
+const lastFetchCenter = ref<TowerGoPoint | null>(null)
 const mapScriptState = ref<'idle' | 'loading' | 'ready' | 'fallback'>('idle')
 const mapInstance = ref<any>(null)
 const centerMarkerLayer = ref<any>(null)
@@ -60,10 +54,9 @@ const filterMinBattery = ref(0)
 let refreshTimer: number | null = null
 let mapErrorHandler: ((e: ErrorEvent) => void) | null = null
 let activeScanToken = 0
-/** 已扫格子 key，视口增量扫描去重 */
-const scannedCellKeys = new Set<string>()
-let viewportScanTimer: number | null = null
-const viewportScanInFlight = ref(false)
+/** region 拖动/缩放结束后的中心拉车防抖 */
+let regionFetchTimer: number | null = null
+const centerFetchInFlight = ref(false)
 
 // ── computed ──────────────────────────────────────────────────────
 const nearestVehicle = computed(() => vehicles.value[0] || null)
@@ -100,13 +93,22 @@ const parkingList = computed(() => {
   return fenceData?.parkings || []
 })
 
+const locationSourceText = computed(() => {
+  if (currentLocation.value.source === 'system') return '系统定位'
+  if (currentLocation.value.source === 'fallback') return '校区兜底'
+  return '地图中心'
+})
+
 const mapSubtitle = computed(() => {
-  if ((loadingMap.value || viewportScanInFlight.value) && scanProgress.value) {
-    return `视口扫描 ${scanProgress.value.done}/${scanProgress.value.total}，已发现 ${scanProgress.value.unique} 辆`
+  if (locating.value) return '正在定位…'
+  if (loadingMap.value || centerFetchInFlight.value) return '正在加载附近车辆…'
+  if (nearestVehicle.value) {
+    return `附近 ${vehicles.value.length} 辆 · 最近 ${formatDistance(nearestVehicle.value.distance)} · ${locationSourceText.value}`
   }
-  if (nearestVehicle.value)
-    return `最近车辆 ${nearestVehicle.value.id || nearestVehicle.value.imei}，${formatDistance(nearestVehicle.value.distance)}`
-  return mapErrors.value[0] || '正在连接小塔出行真实接口'
+  if (currentLocation.value.source === 'fallback' && mapErrors.value[0]) {
+    return `${mapErrors.value[0]}（查车中心：校区兜底）`
+  }
+  return mapErrors.value[0] || `附近暂无车辆 · ${locationSourceText.value}`
 })
 
 const handleBack = (event?: Event) => {
@@ -115,46 +117,36 @@ const handleBack = (event?: Event) => {
   emit('back')
 }
 
-const readMapBounds = (): ScanBounds | null => {
+/** 读取当前地图中心（对齐小程序 getCenterLocation） */
+const readMapCenter = (): TowerGoPoint | null => {
   const map = mapInstance.value
-  if (!map?.getBounds) return null
+  if (!map?.getCenter) return null
   try {
-    const bounds = map.getBounds()
-    if (!bounds) return null
-    const sw = bounds.getSouthWest?.() || bounds.sw
-    const ne = bounds.getNorthEast?.() || bounds.ne
-    const minLat = Number(sw?.getLat?.() ?? sw?.lat)
-    const minLng = Number(sw?.getLng?.() ?? sw?.lng)
-    const maxLat = Number(ne?.getLat?.() ?? ne?.lat)
-    const maxLng = Number(ne?.getLng?.() ?? ne?.lng)
-    if (![minLat, minLng, maxLat, maxLng].every(Number.isFinite)) return null
-    if (minLat > maxLat || minLng > maxLng) return null
-    return { minLat, maxLat, minLng, maxLng }
+    const center = map.getCenter()
+    const latitude = Number(center?.getLat?.() ?? center?.lat)
+    const longitude = Number(center?.getLng?.() ?? center?.lng)
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+    return { name: '地图中心', latitude, longitude }
   } catch {
     return null
   }
 }
 
-const bindMapViewportScan = () => {
+/**
+ * 对齐小程序 regionChange(end)：仅在拖动/缩放结束后按新中心单次拉车。
+ * 不监听拖动过程中的连续视野事件，避免连发请求。
+ */
+const bindMapRegionChange = () => {
   const map = mapInstance.value
   if (!map?.on) return
   const schedule = () => {
-    if (viewportScanTimer) window.clearTimeout(viewportScanTimer)
-    viewportScanTimer = window.setTimeout(() => {
-      viewportScanTimer = null
-      void scanViewportVehicles()
-    }, SCAN_VIEWPORT_DEBOUNCE_MS)
+    if (regionFetchTimer) window.clearTimeout(regionFetchTimer)
+    regionFetchTimer = window.setTimeout(() => {
+      regionFetchTimer = null
+      void refreshVehiclesAtMapCenter()
+    }, CENTER_FETCH_DEBOUNCE_MS)
   }
-  // 腾讯 GL 实际会触发 bounds_changed / center_changed / zoom；idle 可能永不触发
-  for (const eventName of [
-    'bounds_changed',
-    'center_changed',
-    'zoom',
-    'zoom_changed',
-    'dragend',
-    'idle',
-    'zoomend'
-  ]) {
+  for (const eventName of ['dragend', 'zoomend', 'idle']) {
     try {
       map.on(eventName, schedule)
     } catch {
@@ -193,12 +185,27 @@ const appleUserDotSvg = () => {
   return svgToDataUrl(svg)
 }
 
-const appleVehiclePinSvg = (active = false) => {
-  const fill = active ? '#0A84FF' : '#34C759'
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48">
-    <path d="M20 2C11.7 2 5 8.7 5 17c0 11.2 15 29 15 29s15-17.8 15-29C35 8.7 28.3 2 20 2z" fill="${fill}" stroke="#fff" stroke-width="1.5"/>
-    <circle cx="20" cy="17" r="7" fill="#fff"/>
-    <path d="M14 18h12l-1.2-4.2a3 3 0 0 0-2.9-2.3h-3.8a3 3 0 0 0-2.9 2.3L14 18zm1.5 1.5h9v2.2a1.2 1.2 0 0 1-1.2 1.2h-6.6a1.2 1.2 0 0 1-1.2-1.2v-2.2z" fill="${fill}"/>
+/**
+ * 官方小程序风格电量档车辆图标：icon_ebike_*_battery{0|10|…|100}
+ * 无静态资源时用清晰 SVG 等价实现（电量色条 + 百分比）。
+ */
+const officialVehiclePinSvg = (tier: number, active = false, hasReward = false) => {
+  const body = hasReward ? '#FF9F0A' : active ? '#0A84FF' : '#12B76A'
+  const batt =
+    tier <= 0 ? '#98A2B3' : tier < 30 ? '#F04438' : tier < 60 ? '#F79009' : '#12B76A'
+  const label = String(Math.max(0, Math.min(100, tier)))
+  const w = active ? 51 : 36
+  const h = active ? 71 : 51
+  const pinTop = active ? 46 : 34
+  const cx = w / 2
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <path d="M${cx} 2C${cx - 12.5} 2 ${cx - 20} 9.8 ${cx - 20} 19.5c0 12.8 20 31 20 31s20-18.2 20-31C${cx + 20} 9.8 ${cx + 12.5} 2 ${cx} 2z" fill="${body}" stroke="#fff" stroke-width="1.6"/>
+    <circle cx="${cx}" cy="18" r="10.5" fill="#fff"/>
+    <path d="M${cx - 7} 20h14l-1.4-4.8a3.2 3.2 0 0 0-3.1-2.4h-4.4a3.2 3.2 0 0 0-3.1 2.4L${cx - 7} 20zm1.7 1.6h10.6v2.4a1.3 1.3 0 0 1-1.3 1.3h-8a1.3 1.3 0 0 1-1.3-1.3v-2.4z" fill="${body}"/>
+    <rect x="${cx - 9}" y="${pinTop - 12}" width="18" height="9" rx="2" fill="#fff" stroke="${batt}" stroke-width="1.2"/>
+    <rect x="${cx + 9}" y="${pinTop - 9.5}" width="2.2" height="4" rx="0.8" fill="${batt}"/>
+    <rect x="${cx - 7.5}" y="${pinTop - 10.2}" width="${Math.max(1.5, (16 * tier) / 100)}" height="5.4" rx="1" fill="${batt}"/>
+    <text x="${cx}" y="${pinTop + 2}" text-anchor="middle" font-size="7" font-family="system-ui,sans-serif" font-weight="700" fill="#fff">${label}</text>
   </svg>`
   return svgToDataUrl(svg)
 }
@@ -215,19 +222,35 @@ const buildTowerGoMarkerStyles = (TMap: any) => {
     anchor: { x: 20, y: 20 },
     src: appleUserDotSvg()
   })
-  styles.vehicle = makeStyle({
-    width: 34,
-    height: 40,
-    anchor: { x: 17, y: 40 },
-    src: appleVehiclePinSvg(false)
-  })
-  styles.vehicleActive = makeStyle({
-    width: 38,
-    height: 46,
-    anchor: { x: 19, y: 46 },
-    src: appleVehiclePinSvg(true)
-  })
+  // 电量档 × 选中态，对齐小程序多档 marker
+  for (const tier of BATTERY_ICON_TIERS) {
+    styles[`vehicle-${tier}`] = makeStyle({
+      width: 36,
+      height: 51,
+      anchor: { x: 18, y: 51 },
+      src: officialVehiclePinSvg(tier, false, false)
+    })
+    styles[`vehicleActive-${tier}`] = makeStyle({
+      width: 51,
+      height: 71,
+      anchor: { x: 25.5, y: 71 },
+      src: officialVehiclePinSvg(tier, true, false)
+    })
+    styles[`vehicleReward-${tier}`] = makeStyle({
+      width: 36,
+      height: 51,
+      anchor: { x: 18, y: 51 },
+      src: officialVehiclePinSvg(tier, false, true)
+    })
+  }
   return styles
+}
+
+const vehicleStyleId = (vehicle: TowerGoVehicle, active: boolean) => {
+  const tier = batteryLevelTier(vehicle.battery)
+  if (active) return `vehicleActive-${tier}`
+  if (vehicle.hasReward) return `vehicleReward-${tier}`
+  return `vehicle-${tier}`
 }
 
 const ensureUserLocationMarker = (point: TowerGoPoint) => {
@@ -275,7 +298,7 @@ const initMap = async (retry = 0): Promise<void> => {
     const center = toTMapLatLng(currentLocation.value)
     mapInstance.value = new TMap.Map(container, { center, zoom: 16, viewMode: '2D', showControl: false })
     ensureUserLocationMarker(currentLocation.value)
-    bindMapViewportScan()
+    bindMapRegionChange()
     mapScriptState.value = 'ready'
     pushDebugLog(
       'TowerGo',
@@ -286,9 +309,9 @@ const initMap = async (retry = 0): Promise<void> => {
         lng: currentLocation.value.longitude
       }
     )
-    // 地图就绪后主动扫一次当前视野（不依赖 idle 是否触发）
+    // 地图就绪后按中心单次拉车（不依赖 idle）
     window.setTimeout(() => {
-      void scanViewportVehicles()
+      void refreshVehiclesAtMapCenter()
     }, 600)
   } catch (error) {
     mapScriptState.value = 'fallback'
@@ -316,15 +339,18 @@ const renderVehicleMarkers = () => {
   const TMap = (window as any).TMap
   const styles = buildTowerGoMarkerStyles(TMap)
   const selectedId = selectedVehicle.value?.id || selectedVehicle.value?.imei || ''
-  // 地图上最多展示 200 个车辆标记（Apple 风格 pin）
+  // 接口 lat/lng 直接落点（与小程序一致），最多 200 个
   const geometries = vehicles.value.slice(0, 200).map((vehicle, index) => {
     const id = vehicle.id || vehicle.imei || `vehicle-${index}`
     const active = !!selectedId && (id === selectedId)
     return {
       id,
-      styleId: active ? 'vehicleActive' : 'vehicle',
+      styleId: vehicleStyleId(vehicle, active),
       position: new TMap.LatLng(vehicle.latitude, vehicle.longitude),
-      properties: { title: vehicle.id || vehicle.imei || '车辆' }
+      properties: {
+        title: vehicle.id || vehicle.imei || '车辆',
+        battery: vehicle.battery
+      }
     }
   })
   if (!vehicleMarkerLayer.value) {
@@ -501,139 +527,86 @@ const stopNavigateToSelected = () => {
   clearRouteLine()
 }
 
-// ── 车辆扫描 ──────────────────────────────────────────────────────
-const scanNearbyVehicles = async (point: TowerGoPoint, sid: string) => {
-  const result = await towerGoApi.rent.getNearBike(point.latitude, point.longitude, { serviceId: sid })
+// ── 中心单次拉车（对齐小程序 getNearBike） ─────────────────────────
+/** 单次 POST eBikeLocation，参数为地图中心 lat/lng + serviceId */
+const fetchNearBikesAtCenter = async (point: TowerGoPoint, sid: string) => {
+  const result = await towerGoApi.rent.getNearBike(point.latitude, point.longitude, {
+    serviceId: sid
+  })
+  const list = result.ok
+    ? normalizeVehicles(result.data, currentLocation.value)
+    : ([] as TowerGoVehicle[])
+  pushDebugLog(
+    'TowerGo',
+    `中心拉车 center=${point.latitude.toFixed(6)},${point.longitude.toFixed(6)} ok=${result.ok} count=${list.length}`,
+    result.ok ? 'info' : 'warn',
+    {
+      center: point,
+      serviceId: sid,
+      count: list.length,
+      sample: list.slice(0, 3).map((v) => ({
+        id: v.id || v.imei,
+        lat: v.latitude,
+        lng: v.longitude,
+        battery: v.battery
+      })),
+      msg: result.msg
+    }
+  )
   return {
     ok: result.ok,
     msg: result.msg,
-    vehicles: result.ok ? normalizeVehicles(result.data, currentLocation.value) : []
+    vehicles: list
   }
 }
 
-const runScanPoints = async (
-  scanPoints: TowerGoPoint[],
-  sid: string,
-  origin: TowerGoPoint,
-  { mergeExisting = false }: { mergeExisting?: boolean } = {}
-) => {
-  const allVehicles: TowerGoVehicle[] = mergeExisting ? [...vehicles.value] : []
-  const errors: string[] = []
-  let done = 0
-  let cursor = 0
-  scanProgress.value = { done: 0, total: scanPoints.length, unique: allVehicles.length }
-
-  let lastProgressUpdate = 0
-  const token = activeScanToken
-  const concurrency = Math.min(SCAN_CONCURRENCY, Math.max(1, scanPoints.length))
-  const worker = async () => {
-    while (cursor < scanPoints.length) {
-      if (token !== activeScanToken || !mapContainerRef.value) return
-      const scanPoint = scanPoints[cursor++]
-      try {
-        const scanned = await scanNearbyVehicles(scanPoint, sid)
-        if (token !== activeScanToken) return
-        if (scanned.ok) {
-          allVehicles.splice(
-            0,
-            allVehicles.length,
-            ...dedupeVehicles([...allVehicles, ...scanned.vehicles], origin)
-          )
-          scannedCellKeys.add(scanCellKey(scanPoint, SCAN_GRID_SPACING_METERS))
-        } else if (scanned.msg) {
-          errors.push(scanned.msg)
-        }
-      } catch (error) {
-        if (token !== activeScanToken) return
-        errors.push((error as Error)?.message || '扫描失败')
-      }
-      done += 1
-      const now = Date.now()
-      if (now - lastProgressUpdate >= 100 || done === scanPoints.length) {
-        if (token === activeScanToken) {
-          scanProgress.value = { done, total: scanPoints.length, unique: allVehicles.length }
-        }
-        lastProgressUpdate = now
-      }
-      if (SCAN_REQUEST_DELAY_MS) await new Promise((resolve) => window.setTimeout(resolve, SCAN_REQUEST_DELAY_MS))
-    }
-  }
-
-  await Promise.all(Array.from({ length: concurrency }, worker))
-  if (token !== activeScanToken) {
-    return { ok: false, msg: '已取消', scanPoints, errors: ['cancelled'], vehicles: [] as TowerGoVehicle[] }
-  }
-  return {
-    ok: scanPoints.length === 0 || errors.length < scanPoints.length,
-    msg: errors[0] || '成功',
-    scanPoints,
-    errors,
-    vehicles: allVehicles
-  }
-}
-
-const scanServiceAreaVehicles = async (
-  point: TowerGoPoint,
-  sid: string,
-  serviceData: unknown,
-  bounds?: ScanBounds | null
-) => {
-  const scanPoints = createServiceAreaScanPoints({
-    serviceData,
-    origin: point,
-    spacingMeters: SCAN_GRID_SPACING_METERS,
-    maxPoints: SCAN_MAX_POINTS,
-    nearbyRadiusMeters: 900,
-    bounds: bounds || undefined
-  })
-  // 冷启动附近扫：清空格子缓存；视口扫在外层过滤已扫格子
-  if (!bounds) scannedCellKeys.clear()
-  return runScanPoints(scanPoints, sid, point, { mergeExisting: Boolean(bounds) })
-}
-
-/** 地图视野变化：仅扫描未覆盖格子 */
-const scanViewportVehicles = async () => {
-  if (loadingMap.value || viewportScanInFlight.value) return
+/** region 结束 / 定时刷新：仅按当前地图中心替换车辆列表（不网格合并） */
+const refreshVehiclesAtMapCenter = async () => {
+  if (loadingMap.value || centerFetchInFlight.value) return
   const sid = validId(serviceId.value)
-  if (!sid || !serviceInfo.value) return
-  const bounds = readMapBounds()
-  if (!bounds) return
+  if (!sid) return
+  const center = readMapCenter() || currentLocation.value
+  if (!Number.isFinite(center.latitude) || !Number.isFinite(center.longitude)) return
 
-  const rawPoints = createServiceAreaScanPoints({
-    serviceData: serviceInfo.value,
-    origin: currentLocation.value,
-    spacingMeters: SCAN_GRID_SPACING_METERS,
-    maxPoints: SCAN_MAX_POINTS,
-    bounds
-  })
-  const freshPoints = rawPoints.filter(
-    (p) => !scannedCellKeys.has(scanCellKey(p, SCAN_GRID_SPACING_METERS))
-  )
-  if (!freshPoints.length) return
-
-  viewportScanInFlight.value = true
+  centerFetchInFlight.value = true
   activeScanToken += 1
+  const token = activeScanToken
   try {
-    const result = await runScanPoints(freshPoints, sid, currentLocation.value, { mergeExisting: true })
-    if (result.ok || result.vehicles.length) {
+    const result = await fetchNearBikesAtCenter(center, sid)
+    if (token !== activeScanToken) return
+    lastFetchCenter.value = center
+    if (result.ok) {
       vehicles.value = result.vehicles
       lastScanAt.value = Date.now()
+      // 选中车若已离开列表则清除
+      if (selectedVehicle.value) {
+        const key = selectedVehicle.value.id || selectedVehicle.value.imei
+        const still = vehicles.value.some((v) => v.id === key || v.imei === key)
+        if (!still) {
+          selectedVehicle.value = null
+          clearRouteLine()
+        }
+      }
+      mapErrors.value = mapErrors.value.filter((m) => !m.includes('车辆'))
       renderVehicleMarkers()
+    } else if (result.msg) {
+      mapErrors.value = [result.msg]
     }
+  } catch (error) {
+    if (token !== activeScanToken) return
+    mapErrors.value = [(error as Error)?.message || '附近车辆加载失败']
   } finally {
-    viewportScanInFlight.value = false
-    scanProgress.value = null
+    if (token === activeScanToken) centerFetchInFlight.value = false
   }
 }
 
-const loadMapData = async (
-  point: TowerGoPoint = currentLocation.value,
-  { preferViewport = false }: { preferViewport?: boolean } = {}
-) => {
+const loadMapData = async (point: TowerGoPoint = currentLocation.value) => {
   if (loadingMap.value) return
   activeScanToken += 1
+  const token = activeScanToken
   loadingMap.value = true
   selectedVehicle.value = null
+  clearRouteLine()
   mapErrors.value = []
   try {
     // 第一步：按位置查服务区（免登可用），必须拿到 serviceId 才能继续
@@ -648,44 +621,46 @@ const loadMapData = async (
     serviceInfo.value = data
     towerGoStorage.set('serviceId', sid)
 
-    const viewportBounds = preferViewport ? readMapBounds() : null
-    // 第二步：并行扫描车辆 / 取围栏 / 取停车点数（nearParkingNum 免登可能未授权，降级不阻塞）
-    const [scanResult, fenceResult, parkingResult] = await Promise.all([
-      scanServiceAreaVehicles(point, sid, data, viewportBounds),
+    // 第二步：中心单次拉车 + 围栏/停车点（与小程序一致，禁止网格多点）
+    const fetchPoint = readMapCenter() || point
+    const [bikeResult, fenceResult, parkingResult] = await Promise.all([
+      fetchNearBikesAtCenter(fetchPoint, sid),
       towerGoApi.fence.nearFence(point.latitude, point.longitude, { serviceId: sid }),
       towerGoApi.fence.nearParkingNum(point.latitude, point.longitude, { serviceId: sid })
     ])
+    if (token !== activeScanToken) return
 
-    vehicles.value = scanResult.ok ? scanResult.vehicles : []
+    vehicles.value = bikeResult.ok ? bikeResult.vehicles : []
     fences.value = fenceResult.ok ? fenceResult.data : null
     parkingInfo.value = parkingResult.ok ? (parkingResult.data as Record<string, unknown>) : null
-    mapErrors.value = [scanResult, fenceResult]
+    mapErrors.value = [bikeResult, fenceResult]
       .filter((item) => !item.ok)
       .map((item) => item.msg)
     lastScanAt.value = Date.now()
+    lastFetchCenter.value = fetchPoint
     mapDataReady.value = true
-    const sample = vehicles.value.slice(0, 3).map((v) => ({
-      id: v.id || v.imei,
-      lat: v.latitude,
-      lng: v.longitude,
-      dist: v.distance
-    }))
     pushDebugLog(
       'TowerGo',
-      `车辆扫描完成 count=${vehicles.value.length} serviceId=${sid}`,
+      `中心拉车完成 count=${vehicles.value.length} serviceId=${sid}`,
       'info',
-      { count: vehicles.value.length, serviceId: sid, sample, origin: point }
+      {
+        count: vehicles.value.length,
+        serviceId: sid,
+        center: fetchPoint,
+        user: point,
+        locationSource: point.source || 'unknown'
+      }
     )
     renderVehicleMarkers()
     ensureUserLocationMarker(point)
     renderFenceLayers()
   } catch (error) {
+    if (token !== activeScanToken) return
     vehicles.value = []
     mapErrors.value = [(error as Error)?.message || '地图数据加载失败']
     pushDebugLog('TowerGo', `地图数据加载失败: ${(error as Error)?.message || error}`, 'error')
   } finally {
-    scanProgress.value = null
-    loadingMap.value = false
+    if (token === activeScanToken) loadingMap.value = false
   }
 }
 
@@ -694,15 +669,22 @@ const refreshBySystemLocation = async () => {
   try {
     const point = await resolveTowerGoLocation({ maximumAge: 0 })
     updateMapCenter(point)
-    await loadMapData(point, { preferViewport: false })
+    if (point.source === 'fallback') {
+      mapErrors.value = ['定位不可用或偏移过大，已用校区中心查车']
+    }
+    await loadMapData(point)
   } finally {
     locating.value = false
   }
 }
 
 const refreshCurrentArea = async () => {
-  // 手动刷新：优先当前视野
-  await loadMapData(currentLocation.value, { preferViewport: true })
+  // 手动刷新：当前地图中心单次拉车；若尚无 serviceId 则走完整加载
+  if (!validId(serviceId.value)) {
+    await loadMapData(readMapCenter() || currentLocation.value)
+    return
+  }
+  await refreshVehiclesAtMapCenter()
 }
 
 // ── 定时刷新 ──────────────────────────────────────────────────────
@@ -720,20 +702,18 @@ const stopRefreshTimer = () => {
   }
 }
 
-/** 离开模块时必须调用：取消扫描、停 timer、销毁地图，避免返回主页仍卡顿。 */
+/** 离开模块时必须调用：取消拉车、停 timer、销毁地图，避免返回主页仍卡顿。 */
 const teardownTowerGoRuntime = () => {
   activeScanToken += 1
   stopRefreshTimer()
   stopLocationWatch()
   clearRouteLine()
-  if (viewportScanTimer) {
-    window.clearTimeout(viewportScanTimer)
-    viewportScanTimer = null
+  if (regionFetchTimer) {
+    window.clearTimeout(regionFetchTimer)
+    regionFetchTimer = null
   }
-  viewportScanInFlight.value = false
-  scannedCellKeys.clear()
+  centerFetchInFlight.value = false
   loadingMap.value = false
-  scanProgress.value = null
   if (mapErrorHandler) {
     window.removeEventListener('error', mapErrorHandler, true)
     mapErrorHandler = null
@@ -897,8 +877,8 @@ onBeforeUnmount(() => {
           <button :class="{ active: filterMinBattery === 60 }" @click="filterMinBattery = 60">≥60%</button>
         </div>
       </div>
-      <div v-if="loadingMap && !vehicles.length" class="empty-row">正在扫描服务区车辆...</div>
-      <div v-else-if="!loadingMap && !sortedVehicles.length" class="empty-row">{{ mapErrors[0] || '暂无可展示车辆。' }}</div>
+      <div v-if="(loadingMap || centerFetchInFlight) && !vehicles.length" class="empty-row">正在加载附近车辆…</div>
+      <div v-else-if="!loadingMap && !centerFetchInFlight && !sortedVehicles.length" class="empty-row">{{ mapErrors[0] || '暂无可展示车辆。' }}</div>
       <div v-else class="vehicle-scroll-list">
         <button
           v-for="vehicle in sortedVehicles.slice(0, 50)"
@@ -907,7 +887,14 @@ onBeforeUnmount(() => {
           :class="{ active: selectedVehicle?.id === vehicle.id }"
           @click="selectVehicle(vehicle)"
         >
-          <span class="vehicle-icon material-symbols-outlined">electric_bike</span>
+          <span
+            class="vehicle-icon vehicle-icon--batt"
+            :data-tier="batteryLevelTier(vehicle.battery)"
+            :data-low="Number(vehicle.battery) < 30 ? '1' : '0'"
+          >
+            <span class="material-symbols-outlined">electric_bike</span>
+            <em>{{ batteryLevelTier(vehicle.battery) }}</em>
+          </span>
           <span class="vehicle-main">
             <strong>NO.{{ vehicle.id || vehicle.imei || '--' }}</strong>
             <small>{{ formatDistance(vehicle.distance) }} · 电量 {{ vehicle.battery || '--' }}%</small>
@@ -924,12 +911,15 @@ onBeforeUnmount(() => {
         <span>当前服务区</span>
         <strong>{{ serviceName }}</strong>
         <p>serviceId：{{ serviceId || '--' }} · 最近刷新 {{ scanTimeText }}</p>
-        <p>定位：{{ Number(currentLocation.latitude).toFixed(5) }}, {{ Number(currentLocation.longitude).toFixed(5) }}（{{ currentLocation.source === 'system' ? '系统定位' : '校区兜底' }}）</p>
+        <p>自身定位：{{ Number(currentLocation.latitude).toFixed(5) }}, {{ Number(currentLocation.longitude).toFixed(5) }}（{{ locationSourceText }}）</p>
+        <p v-if="lastFetchCenter">
+          最近查车中心：{{ Number(lastFetchCenter.latitude).toFixed(5) }}, {{ Number(lastFetchCenter.longitude).toFixed(5) }}
+        </p>
       </article>
       <article class="tg-area-card">
         <div class="card-head">
           <h3>停车点（{{ parkingList.length }}）</h3>
-          <span v-if="scanProgress" class="progress-chip">{{ scanProgress.done }}/{{ scanProgress.total }}</span>
+          <span v-if="loadingMap || centerFetchInFlight" class="progress-chip">刷新中</span>
         </div>
         <div v-if="!parkingList.length" class="empty-row">暂无停车点数据</div>
         <ul v-else class="parking-list">
@@ -1397,6 +1387,42 @@ onBeforeUnmount(() => {
 .vehicle-row:hover {
   border-color: var(--ui-primary, #2563eb);
   background: var(--ui-primary-soft, rgba(37, 99, 235, 0.12));
+}
+
+.vehicle-icon--batt {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #ecfdf3;
+  color: #12b76a;
+  display: grid;
+  place-items: center;
+}
+
+.vehicle-icon--batt[data-low='1'] {
+  background: #fef3f2;
+  color: #f04438;
+}
+
+.vehicle-icon--batt em {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 18px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #12b76a;
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+.vehicle-icon--batt[data-low='1'] em {
+  background: #f04438;
 }
 
 .vehicle-icon {
