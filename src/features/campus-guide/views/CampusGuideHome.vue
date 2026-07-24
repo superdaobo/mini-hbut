@@ -9,8 +9,8 @@ import { CAMPUS_GUIDE_CONFIG } from '../config'
 import { CampusMapCore } from '../map/campus-map-core'
 import { CAMPUS_GUIDE_VIEWS } from '../navigation'
 import { playCampusSpeech } from '../services/audio-service'
+import { getLastLocationMeta } from '../services/location-service'
 import { resolveNavEndPoint } from '../services/navigation-service'
-import { hasSeenYunyouIntro, readYunyouUser } from '../services/phase2-storage'
 import { useCampusGuideStore } from '../store/campus-guide-store'
 import type { CampusSpot } from '../types'
 
@@ -89,7 +89,16 @@ const handleLocate = async () => {
     const point = await store.refreshLocation()
     mapCore.value?.setCenter(point, CAMPUS_GUIDE_CONFIG.defaultZoom)
     mapCore.value?.renderLocation(point)
-    showToast(store.insideScenic ? '已定位到校园内' : '已定位，当前在校外', 'success', 1800)
+    const meta = getLastLocationMeta()
+    if (meta.source === 'policy') {
+      showToast('当前版本使用默认校区位置', 'warning', 2200)
+    } else if (meta.source === 'fallback') {
+      showToast(meta.error || '定位失败，已使用校区中心', 'warning', 2400)
+    } else if (meta.source === 'mock') {
+      showToast('已使用模拟定位', 'success', 1600)
+    } else {
+      showToast(store.insideScenic ? '已定位到校园内' : '已定位，当前在校外', 'success', 1800)
+    }
   } catch (err) {
     showToast((err as Error)?.message || '定位失败', 'error', 2200)
   } finally {
@@ -103,10 +112,17 @@ const handleTagClick = async (tag: string) => {
     setActivePoi(null)
     const spots = await store.selectTag(tag)
     await refreshMapMarkers()
+    // 分类切换后强制重建 marker 层，避免 setStyles 残留导致有数无点
+    mapCore.value?.refreshMarkers(true)
     fitSpotsOnMap()
-    window.setTimeout(() => mapCore.value?.refreshMarkers(), 280)
+    window.setTimeout(() => {
+      mapCore.value?.resize()
+      mapCore.value?.refreshMarkers(true)
+    }, 280)
     if (!spots.length) {
       showToast('该分类下暂时没有点位', 'warning', 1800)
+    } else if ((mapCore.value?.getLastPaintedMarkerCount() ?? 0) === 0) {
+      showToast('点位数据缺少有效坐标，地图无法标注', 'warning', 2200)
     }
   } catch (err) {
     showToast((err as Error)?.message || '加载分类失败', 'error', 2200)
@@ -137,20 +153,6 @@ const handleFavorite = async () => {
   await store.toggleFavorite(activePoi.value)
   activePoi.value = store.selectedSpot
   showToast(activePoi.value?.is_saved ? '已收藏' : '已取消收藏', 'success', 1500)
-}
-
-const openYunyou = () => {
-  showEntrance.value = false
-  if (hasSeenYunyouIntro() && readYunyouUser()?.nickName) {
-    store.navigateTo(CAMPUS_GUIDE_VIEWS.yunyouDetail)
-    return
-  }
-  store.navigateTo(CAMPUS_GUIDE_VIEWS.yunyouIntro)
-}
-
-const openPunch = () => {
-  showEntrance.value = false
-  store.navigateTo(CAMPUS_GUIDE_VIEWS.punchHome)
 }
 
 const handleAudio = async () => {
@@ -279,14 +281,11 @@ onBeforeUnmount(() => {
         <EntranceMenu
           v-if="showEntrance"
           class="campus-guide-entrance-floating"
-          @hub="store.navigateTo(CAMPUS_GUIDE_VIEWS.hub); showEntrance = false"
           @about="store.navigateTo(CAMPUS_GUIDE_VIEWS.about); showEntrance = false"
           @route="store.navigateTo(CAMPUS_GUIDE_VIEWS.route); showEntrance = false"
           @collect="store.navigateTo(CAMPUS_GUIDE_VIEWS.collect); showEntrance = false"
           @activity="store.navigateTo(CAMPUS_GUIDE_VIEWS.activity); showEntrance = false"
           @bus="store.navigateTo(CAMPUS_GUIDE_VIEWS.bus); showEntrance = false"
-          @yunyou="openYunyou"
-          @punch="openPunch"
           @mock="store.navigateTo(CAMPUS_GUIDE_VIEWS.mockLocation); showEntrance = false"
           @settings="store.navigateTo(CAMPUS_GUIDE_VIEWS.settings); showEntrance = false"
         />

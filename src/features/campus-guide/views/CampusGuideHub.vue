@@ -2,25 +2,18 @@
 import { onMounted } from 'vue'
 import { TPageHeader } from '../../../components/templates'
 import { CAMPUS_GUIDE_VIEWS } from '../navigation'
-import { hasSeenYunyouIntro, readYunyouUser } from '../services/phase2-storage'
 import { useCampusGuideStore } from '../store/campus-guide-store'
 
 const emit = defineEmits(['back'])
 const store = useCampusGuideStore()
 
+// #491：Hub 仅保留导览入口（默认路径已直达 home，此处作兜底）
 const openGuide = () => store.navigateTo(CAMPUS_GUIDE_VIEWS.home)
-const openPunch = () => store.navigateTo(CAMPUS_GUIDE_VIEWS.punchHome)
+
 onMounted(() => {
+  // 默认路径已直达 home；Hub 仅作兜底页，点击进入导览
   if (!store.scenic) void store.bootstrap().catch(() => undefined)
 })
-
-const openYunyou = () => {
-  if (hasSeenYunyouIntro() && readYunyouUser()?.nickName) {
-    store.navigateTo(CAMPUS_GUIDE_VIEWS.yunyouDetail)
-    return
-  }
-  store.navigateTo(CAMPUS_GUIDE_VIEWS.yunyouIntro)
-}
 </script>
 
 <template>
@@ -33,19 +26,11 @@ const openYunyou = () => {
         :style="{ backgroundImage: `url(${store.scenic.screen_url})` }"
       />
       <h2 class="campus-guide-title">{{ store.scenic?.name || '湖北工业大学' }}</h2>
-      <p class="campus-guide-muted">选择导览模式，进入校园地图、校庆打卡或云游文化衫。</p>
+      <p class="campus-guide-muted">正在进入校园导览地图…</p>
       <div class="campus-guide-hub-actions">
         <button type="button" class="campus-guide-hub-card primary" @click="openGuide">
           <strong>校园导览</strong>
           <span>手绘地图 · POI · 导航</span>
-        </button>
-        <button type="button" class="campus-guide-hub-card" @click="openPunch">
-          <strong>校庆打卡</strong>
-          <span>地图打卡 · 明信片 · 校友卡</span>
-        </button>
-        <button type="button" class="campus-guide-hub-card" @click="openYunyou">
-          <strong>云游文化衫</strong>
-          <span>在线报名 · 签名定制</span>
         </button>
       </div>
     </div>

@@ -37,6 +37,8 @@ export class CampusMapCore {
   private lastSpots: CampusSpot[] = []
   private lastSelectedSpotId?: string | number
   private lastSpotSignature = ''
+  /** 最近一次成功写入 MultiMarker 的几何数量（用于 UI 提示有数无点） */
+  private lastPaintedMarkerCount = 0
   private zoomRefreshTimer: ReturnType<typeof setTimeout> | null = null
   private customLayerRetryTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -88,9 +90,21 @@ export class CampusMapCore {
     this.map?.on?.('zoom_changed', refresh)
   }
 
-  refreshMarkers() {
+  /**
+   * 强制刷新 marker。
+   * @param forceRecreate 为 true 时销毁重建 MultiMarker，避免 setStyles 残留导致有数无点
+   */
+  refreshMarkers(forceRecreate = false) {
     if (!this.lastSpots.length) return
+    if (forceRecreate) {
+      this.lastSpotSignature = ''
+      this.destroyMarkerLayer()
+    }
     this.renderSpots(this.lastSpots, this.lastSelectedSpotId)
+  }
+
+  getLastPaintedMarkerCount() {
+    return this.lastPaintedMarkerCount
   }
 
   private destroyMarkerLayer() {
@@ -261,39 +275,79 @@ export class CampusMapCore {
       visibleSpots,
       selected
     )
+    // 过滤掉 styles 中 undefined 条目，避免 MultiMarker 静默不可见
+    const safeStyles: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(styles)) {
+      if (value != null) safeStyles[key] = value
+    }
     const geometries = visibleSpots
       .map((spot, index) => {
         const geometry = spotToMarkerGeometry(spot, index, selected)
         if (!geometry) return null
+        // styleId 必须在 styles 中存在，否则 pin 不显示
+        if (!safeStyles[geometry.styleId]) return null
         const id = String(spot.spot_id || index)
         this.spotMap.set(id, spot)
-        return {
-          ...geometry,
-          position: toLatLng(this.TMap!, geometry.position as GeoPoint)
+        try {
+          return {
+            ...geometry,
+            position: toLatLng(this.TMap!, geometry.position as GeoPoint)
+          }
+        } catch {
+          return null
         }
       })
       .filter(Boolean)
+
+    this.lastPaintedMarkerCount = geometries.length
+    if (spots.length > 0 && geometries.length === 0) {
+      pushDebugLog(
+        'CampusGuide',
+        `renderSpots: ${spots.length} 个点位均无有效几何（坐标/样式失败）`,
+        'warn',
+        { spots: spots.length, visible: visibleSpots.length }
+      )
+    }
 
     const signature = this.buildSpotSignature(spots)
     const categoryChanged = signature !== this.lastSpotSignature
     this.lastSpotSignature = signature
 
-    // 始终写入 geometries（含空数组）以清掉上一分类残留；无有效坐标时不早退
+    // 有数无点常见于 setStyles 未生效：分类切换时强制重建；同分类尝试增量更新
     if (!categoryChanged && this.markerLayer) {
-      this.markerLayer.setStyles?.(styles)
-      this.markerLayer.setGeometries?.(geometries)
-      return
+      try {
+        this.markerLayer.setStyles?.(safeStyles)
+        this.markerLayer.setGeometries?.(geometries)
+        return
+      } catch (err) {
+        pushDebugLog(
+          'CampusGuide',
+          `setStyles/setGeometries 失败，重建 marker 层: ${(err as Error)?.message || err}`,
+          'warn'
+        )
+        this.destroyMarkerLayer()
+      }
     }
 
-    // 分类切换时销毁旧图层，否则残留上一分类标点
+    // 分类切换 / 更新失败时销毁旧图层再挂，避免残留或有数无点
     this.destroyMarkerLayer()
-    this.markerLayer = new this.TMap.MultiMarker({
-      map: this.map,
-      styles,
-      geometries,
-      zIndex: 120
-    })
-    this.bindMarkerClick()
+    try {
+      this.markerLayer = new this.TMap.MultiMarker({
+        map: this.map,
+        styles: safeStyles,
+        geometries,
+        zIndex: 120
+      })
+      this.bindMarkerClick()
+    } catch (err) {
+      this.lastPaintedMarkerCount = 0
+      pushDebugLog(
+        'CampusGuide',
+        `MultiMarker 创建失败: ${(err as Error)?.message || err}`,
+        'error',
+        { count: geometries.length }
+      )
+    }
   }
 
   renderLocation(point: GeoPoint) {
@@ -314,36 +368,68 @@ export class CampusMapCore {
 
   renderPolylines(segments: GeoPoint[][], color = CAMPUS_GUIDE_CONFIG.themeColor) {
     if (!this.TMap || !this.map) return
+    // 过滤非法点，避免 TMap 内部访问 undefined[n] 崩溃（#491 reading '4'）
     const geometries = segments
       .map((segment, index) => {
-        const paths = segment.map((point) => toLatLng(this.TMap!, point))
+        const paths = (segment || [])
+          .filter(
+            (point) =>
+              point &&
+              Number.isFinite(Number(point.latitude)) &&
+              Number.isFinite(Number(point.longitude))
+          )
+          .map((point) => toLatLng(this.TMap!, point))
         return paths.length >= 2 ? { id: `route-${index}`, paths } : null
       })
       .filter(Boolean)
-    const styles = {
-      route: {
-        color,
-        width: 6,
-        borderColor: '#ffffff',
-        borderWidth: 2,
-        lineCap: 'round'
+
+    // 必须用 PolylineStyle；纯对象在部分 GL 版本会触发内部 styles 索引崩溃
+    const styleOpts = {
+      color,
+      width: 6,
+      borderColor: '#ffffff',
+      borderWidth: 2,
+      lineCap: 'round' as const
+    }
+    const routeStyle =
+      typeof this.TMap.PolylineStyle === 'function'
+        ? new this.TMap.PolylineStyle(styleOpts)
+        : { ...styleOpts }
+    const styles = { route: routeStyle }
+    const mapped = geometries.map((item) => ({
+      id: item!.id,
+      styleId: 'route',
+      paths: item!.paths
+    }))
+
+    try {
+      if (!this.polylineLayer) {
+        this.polylineLayer = new this.TMap.MultiPolyline({
+          map: this.map,
+          styles,
+          geometries: mapped
+        })
+        return
       }
+      this.polylineLayer.setStyles?.(styles)
+      this.polylineLayer.setGeometries?.(mapped)
+    } catch (err) {
+      pushDebugLog(
+        'CampusGuide',
+        `renderPolylines 失败: ${(err as Error)?.message || err}`,
+        'error',
+        { segments: segments.length }
+      )
+      // 销毁坏层，避免后续 setGeometries 连环崩
+      try {
+        this.polylineLayer?.setMap?.(null)
+        this.polylineLayer?.destroy?.()
+      } catch {
+        // ignore
+      }
+      this.polylineLayer = null
+      throw err
     }
-    if (!this.polylineLayer) {
-      this.polylineLayer = new this.TMap.MultiPolyline({
-        map: this.map,
-        styles,
-        geometries: geometries.map((item) => ({
-          id: item!.id,
-          styleId: 'route',
-          paths: item!.paths
-        }))
-      })
-      return
-    }
-    this.polylineLayer.setGeometries?.(
-      geometries.map((item) => ({ id: item!.id, styleId: 'route', paths: item!.paths }))
-    )
   }
 
   clearPolylines() {
@@ -395,5 +481,6 @@ export class CampusMapCore {
     this.TMap = null
     this.spotMap.clear()
     this.lastSpotSignature = ''
+    this.lastPaintedMarkerCount = 0
   }
 }

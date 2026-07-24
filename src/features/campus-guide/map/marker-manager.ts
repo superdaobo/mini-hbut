@@ -85,9 +85,16 @@ export const buildSpotMarkerStyles = (
     const id = String(spot.spot_id)
     const active = String(selectedId ?? '') === id
     const styleId = ensureSpotStyle(TMap, spot.name, size, active, spot.marker_type)
-    styles[styleId] = styleCache.get(styleId)
+    const style = styleCache.get(styleId)
+    // 禁止写入 undefined：MultiMarker 遇到缺失 style 会整层不显示
+    if (style != null) styles[styleId] = style
   }
   return styles
+}
+
+/** 测试/热重载时可清空样式缓存 */
+export const clearMarkerStyleCache = () => {
+  styleCache.clear()
 }
 
 export const spotToMarkerGeometry = (
