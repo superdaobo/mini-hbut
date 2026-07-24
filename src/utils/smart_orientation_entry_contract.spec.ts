@@ -6,33 +6,47 @@ const root = resolve(__dirname, '..')
 
 const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8')
 
-describe('smart_orientation entry wiring (#461)', () => {
-  it('Dashboard resource group includes smart_orientation with requiresLogin', () => {
+/**
+ * #485：班导师/辅导员/宿舍并入个人信息，移除首页智慧迎新独立入口与独立页。
+ * 后端 `smart_orientation_profile_blocks` 仍保留。
+ */
+describe('orientation blocks in student info (#485)', () => {
+  it('Dashboard 资源区不再挂 smart_orientation 入口', () => {
     const dash = read('components/Dashboard.vue')
-    expect(dash).toContain("id: 'smart_orientation'")
-    expect(dash).toMatch(/smart_orientation[\s\S]*?requiresLogin:\s*true/)
-    expect(dash).toContain("'smart_orientation'")
-    expect(dash).toMatch(/资源[\s\S]*smart_orientation/)
+    expect(dash).not.toContain("id: 'smart_orientation'")
+    expect(dash).not.toMatch(/title:\s*'资源'[\s\S]{0,220}smart_orientation/)
   })
 
-  it('App.vue lazy-loads SmartOrientationView', () => {
+  it('App.vue 不再懒加载 SmartOrientationView', () => {
     const app = read('App.vue')
-    expect(app).toContain("import('./components/SmartOrientationView.vue')")
-    expect(app).toContain('smart_orientation: loadSmartOrientationView')
-    expect(app).toContain('currentView === \'smart_orientation\'')
-    expect(app).toContain('<SmartOrientationView')
+    expect(app).not.toContain("import('./components/SmartOrientationView.vue')")
+    expect(app).not.toContain('loadSmartOrientationView')
+    expect(app).not.toContain("currentView === 'smart_orientation'")
+    expect(app).not.toContain('<SmartOrientationView')
   })
 
-  it('navigation parent map points home', () => {
+  it('navigation 无 smart_orientation 映射', () => {
     const nav = read('navigation/app_navigation.ts')
-    expect(nav).toContain('smart_orientation: \'home\'')
+    expect(nav).not.toContain('smart_orientation')
   })
 
-  it('policy and ui settings register module id', () => {
-    const policy = read('config/app_store_policy.ts')
+  it('ui_settings 默认模块序无 smart_orientation', () => {
     const ui = read('config/ui_settings.ts')
-    expect(policy).toContain("'smart_orientation'")
-    expect(policy).toContain('smartOrientation')
-    expect(ui).toContain("'smart_orientation'")
+    expect(ui).not.toContain("'smart_orientation'")
+  })
+
+  it('StudentInfoView 拉取 profile_blocks 并展示三项', () => {
+    const view = read('components/StudentInfoView.vue')
+    expect(view).toContain("invokeNative('smart_orientation_profile_blocks'")
+    expect(view).toContain('班导师')
+    expect(view).toContain('辅导员')
+    expect(view).toContain('宿舍信息')
+    expect(view).not.toMatch(/smart_orientation_.*(submit|save|upload)/)
+  })
+
+  it('后端仍注册 profile_blocks 只读命令', () => {
+    const lib = read('../src-tauri/src/lib.rs')
+    expect(lib).toContain('smart_orientation_profile_blocks')
+    expect(lib).not.toContain('smart_orientation_submit')
   })
 })

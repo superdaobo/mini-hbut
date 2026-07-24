@@ -31,7 +31,6 @@ export type HomeModuleKey =
   | 'broadband'
   | 'sports_venue'
   | 'towergo'
-  | 'smart_orientation'
   | 'ai'
 export type NotificationCardKey = 'class_reminder' | 'electricity' | 'grades' | 'exams' | 'school_inbox'
 
@@ -100,7 +99,6 @@ export const HOME_MODULE_ORDER_DEFAULT = [
   'campus_map',
   'resource_share',
   'towergo',
-  'smart_orientation',
   'ai'
 ] as const satisfies readonly HomeModuleKey[]
 export const NOTIFICATION_CARD_ORDER_DEFAULT = [
