@@ -13,32 +13,68 @@
   Access-Control-Allow-Headers: *
   Cache-Control: public, max-age=31536000, immutable
 
+# 滚动 alias / 清单：必须短缓存。具体路径写在通配前，避免被 /releases/* 长缓存盖住。
+/releases/stable-latest.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/latest.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/dev-latest.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/active.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/channels.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/history.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/dev-latest/manifest.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
+/releases/latest/manifest.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, OPTIONS
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  CDN-Cache-Control: no-store
+
 /releases/*
   Access-Control-Allow-Origin: *
   Access-Control-Allow-Methods: GET, OPTIONS
   Access-Control-Allow-Headers: *
   Cache-Control: public, max-age=600, stale-while-revalidate=60
-
-/releases/stable-latest.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/releases/latest.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/releases/dev-latest.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/releases/active.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/releases/channels.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/releases/history.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
-
-/releases/dev-latest/manifest.json
-  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
 
 /modules/*
   Access-Control-Allow-Origin: *

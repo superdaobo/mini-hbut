@@ -13,7 +13,11 @@ const GITHUB_PAGES_CDN_BASE = 'https://superdaobo.github.io/mini-hbut'
 const CDN_BASES = Object.freeze(
   [EDGEONE_CDN_BASE, GITHUB_PAGES_CDN_BASE].filter((base) => String(base || '').trim())
 )
-const STABLE_MANIFEST_URLS = CDN_BASES.map((base) => `${base}/releases/stable-latest.json`)
+// latest.json 在 EdgeOne 上为 max-age=0；stable-latest 曾被标成 immutable 长缓存，优先 latest
+const STABLE_MANIFEST_URLS = CDN_BASES.flatMap((base) => [
+  `${base}/releases/latest.json`,
+  `${base}/releases/stable-latest.json`
+])
 const DEV_MANIFEST_URLS = CDN_BASES.map((base) => `${base}/releases/dev-latest.json`)
 // 兼容旧引用
 const STABLE_MANIFEST_URL = STABLE_MANIFEST_URLS[0] || ''
@@ -509,13 +513,27 @@ export const normalizeCdnManifestAsRelease = (manifest, cdnBase = EDGEONE_CDN_BA
   }
 }
 
+/** 给清单 URL 加缓存破坏参数，避免 EdgeOne 对 alias JSON 错误下发 long-cache */
+const withManifestCacheBust = (url) => {
+  const text = String(url || '').trim()
+  if (!text) return text
+  try {
+    const parsed = new URL(text)
+    parsed.searchParams.set('_cb', String(Date.now()))
+    return parsed.toString()
+  } catch {
+    const join = text.includes('?') ? '&' : '?'
+    return `${text}${join}_cb=${Date.now()}`
+  }
+}
+
 /** 按 CDN 顺序拉取 manifest；返回 { manifest, base } 或 null */
 const fetchFirstCdnManifest = async (urls, timeoutMs = 6000) => {
   for (const url of urls || []) {
     const text = String(url || '').trim()
     if (!text) continue
     try {
-      const manifest = await fetchJson(text, timeoutMs)
+      const manifest = await fetchJson(withManifestCacheBust(text), timeoutMs)
       if (!manifest?.tag || !manifest?.assets) continue
       const base = CDN_BASES.find((b) => text.startsWith(`${b}/`)) || EDGEONE_CDN_BASE
       return { manifest, base }
@@ -530,8 +548,13 @@ export const mergeCdnReleaseWithApiNotes = (cdnRelease, apiRelease) => {
   if (!cdnRelease || !apiRelease) return apiRelease || cdnRelease
   const cdnVersion = String(cdnRelease.version || cdnRelease.tag_name || '').replace(/^v/i, '')
   const apiVersion = String(apiRelease.version || apiRelease.tag_name || '').replace(/^v/i, '')
-  if (!cdnVersion || !apiVersion || compareVersions(cdnVersion, apiVersion) !== 0) {
-    return apiRelease
+  if (!cdnVersion || !apiVersion) {
+    return apiRelease || cdnRelease
+  }
+  const cmp = compareVersions(cdnVersion, apiVersion)
+  // 版本不一致时取更新的一侧，避免旧 API/缓存覆盖 CDN 已发布的正式版
+  if (cmp !== 0) {
+    return cmp > 0 ? cdnRelease : apiRelease
   }
   return {
     ...cdnRelease,

@@ -163,6 +163,10 @@ describe('update channel (stable / dev)', () => {
     expect(app).toContain('getSkippedVersion')
     expect(updater).toContain('DEV_MANIFEST_URL')
     expect(updater).toContain('dev-latest.json')
+    // 正式版优先 latest.json（短缓存），再回落 stable-latest，并带 cache-bust
+    expect(updater).toContain('/releases/latest.json')
+    expect(updater).toContain('/releases/stable-latest.json')
+    expect(updater).toContain('withManifestCacheBust')
     expect(updater).toContain('hbu_update_channel')
     expect(updater).toContain('fetchDevReleaseInfo')
     expect(updater).toContain('app.zip')
