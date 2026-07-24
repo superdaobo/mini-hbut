@@ -1,0 +1,51 @@
+{
+  "code": 0,
+  "msg": "成功",
+  "data": [
+    {
+      "id": "047c7b877a0347db9e20d71d08870af2",
+      "name": "报到行程",
+      "type": "transport",
+      "description": null,
+      "startTime": "2025-08-21 08:00:00",
+      "endTime": "2025-10-31 00:00:00",
+      "url": "/welcome/student/ybd",
+      "brief": "填写您前往学校报到的交通方式",
+      "icon": "baodaoxingcheng",
+      "applyTime": "2025-08-21 08:00:00~2025-10-31 00:00:00",
+      "status": 2,
+      "doneStatus": "1",
+      "isOrNot": 1
+    },
+    {
+      "id": "9b3e9824238e4a2bbdb8580d0020511a",
+      "name": "乘车优惠区间",
+      "type": "travel",
+      "description": null,
+      "startTime": "2025-08-21 08:00:00",
+      "endTime": "2025-10-31 00:00:00",
+      "url": "/welcome/student/travel",
+      "brief": "填写乘车优惠区间",
+      "icon": "zhengbingbaomin",
+      "applyTime": "2025-08-21 08:00:00~2025-10-31 00:00:00",
+      "status": 2,
+      "doneStatus": "1",
+      "isOrNot": 1
+    },
+    {
+      "id": "8a08f8240b944e67ba9038f36a4f8168",
+      "name": "绿色通道",
+      "type": "green",
+      "description": null,
+      "startTime": "2025-08-21 08:00:00",
+      "endTime": "2025-10-31 00:00:00",
+      "url": "/welcome/student/green",
+      "brief": "缓缴学费/助学贷款",
+      "icon": "lvsetongdao",
+      "applyTime": "2025-08-21 08:00:00~2025-10-31 00:00:00",
+      "status": 2,
+      "doneStatus": "1",
+      "isOrNot": 0
+    }
+  ]
+}
