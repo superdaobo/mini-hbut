@@ -226,30 +226,43 @@ export function getFeaturePolicy(session?: {
   return shouldApplyAppStoreRestrictions(session) ? APP_STORE_POLICY : FULL_POLICY
 }
 
-/** 合规构建下禁止的 module / view id（与 Dashboard / App 路由对齐） */
+/**
+ * 合规构建下禁止的 module / view id（与 Dashboard / App 路由对齐）。
+ * 未列入白名单的 id 默认也会拒绝；此处显式列出学习通 / 一码通 / 敏感能力，
+ * 避免新增入口漏过滤，并保证单测与审核清单可逐项核对。
+ */
 export const APP_STORE_BLOCKED_MODULE_IDS: ReadonlySet<string> = Object.freeze(
   new Set([
+    // 教务写入 / 敏感学业
     'course_selection',
     'ranking',
     'qxzkb',
     'school_inbox',
+    'teaching_eval',
+    // 一码通与校园生活写操作
     'campus_code',
     'electricity',
     'transactions',
-    'resource_share',
+    'broadband',
+    'sports_venue',
+    'campus_network',
+    // 学习通（含签到与资料）
+    'chaoxing_hub',
+    'chaoxing_inbox',
     'chaoxing_class',
+    'more_chaoxing_checkin',
+    // 远程代码 / 出行 / 其它高风险
+    'resource_share',
     'towergo',
     'smart_orientation',
     'ai',
     'forum',
     'more',
     'more_module_host',
-    'more_chaoxing_checkin',
     'service_stats',
     'config',
     'school_website',
-    'quick_links',
-    'campus_network'
+    'quick_links'
   ])
 )
 
