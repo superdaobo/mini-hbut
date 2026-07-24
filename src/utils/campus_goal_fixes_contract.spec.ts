@@ -84,3 +84,28 @@ describe('SWAE setbindroom production path (not guessed multi-cmd)', () => {
     expect(fixture.body?.roomverify || '').toMatch(/\d/)
   })
 })
+
+describe('electricity room switch trend empty-state (#488)', () => {
+  it('ElectricityView reloads usage on full path and clears on partial path', () => {
+    const vue = read('src/components/ElectricityView.vue')
+    expect(vue).toContain("invokeNative('electricity_usage_stats'")
+    expect(vue).toContain('roomVerify:')
+    expect(vue).toContain('void loadUsageStats()')
+    // 改选中间级时清空旧房曲线，避免误导
+    expect(vue).toMatch(/selectedPath\.value\.length === 4[\s\S]*loadUsageStats/)
+    expect(vue).toContain('usageStats.value = null')
+    // 空态区分：不得再写死「暂无用电数据，请先选择宿舍」
+    expect(vue).not.toContain('暂无用电数据，请先选择宿舍')
+    expect(vue).toContain('usageEmptyText')
+    expect(vue).toContain('usageSnapshotOnly')
+    expect(vue).toContain('resolveUsageEmptyText')
+    expect(vue).toContain('isUsageSnapshotOnly')
+  })
+
+  it('usage empty helper rejects 请先选择宿舍 when room already selected', () => {
+    const ui = read('src/utils/electricity_usage_ui.ts')
+    expect(ui).toContain('请先选择宿舍查看用电趋势')
+    expect(ui).toContain('该房间暂无分日/分月用电曲线')
+    expect(ui).toContain('!/请先选择宿舍/')
+  })
+})
