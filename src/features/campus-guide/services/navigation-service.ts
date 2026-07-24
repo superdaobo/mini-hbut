@@ -38,23 +38,108 @@ export const resolveNavEndPoint = (
   return isValidGeoPoint(point) ? point : null
 }
 
+/**
+ * 从步行路线 API 响应中提取 polyline 数组。
+ * 兼容：直接数组、{ polyline }、{ routes[0].polyline }、嵌套 list 等。
+ * 禁止对 undefined 做下标访问（历史崩溃 reading '4'）。
+ */
+export const extractWalkPolyline = (raw: unknown): Array<number | string> | null => {
+  if (raw == null) return null
+
+  const asPolylineArray = (value: unknown): Array<number | string> | null => {
+    if (!Array.isArray(value) || value.length < 2) return null
+    // 已是扁平 [lat,lng,delta...] 或微度
+    if (typeof value[0] === 'number' || typeof value[0] === 'string') {
+      return value as Array<number | string>
+    }
+    // [[lat,lng], ...] 展平
+    if (Array.isArray(value[0])) {
+      const flat: Array<number | string> = []
+      for (const pair of value) {
+        if (!Array.isArray(pair) || pair.length < 2) continue
+        flat.push(pair[0] as number | string, pair[1] as number | string)
+      }
+      return flat.length >= 2 ? flat : null
+    }
+    return null
+  }
+
+  const fromObject = (obj: Record<string, unknown>): Array<number | string> | null => {
+    const direct = asPolylineArray(obj.polyline)
+    if (direct) return direct
+
+    // routes / route / paths 等常见嵌套
+    const routes = obj.routes ?? obj.route ?? obj.list ?? obj.paths
+    if (Array.isArray(routes) && routes.length > 0) {
+      const first = routes[0]
+      if (first && typeof first === 'object') {
+        const nested = fromObject(first as Record<string, unknown>)
+        if (nested) return nested
+      }
+      const flat = asPolylineArray(routes)
+      if (flat) return flat
+    }
+
+    // 字符串 polyline："lat,lng;lat,lng" 或 "lat,lng,lat,lng"
+    if (typeof obj.polyline === 'string' && obj.polyline.trim()) {
+      const parts = obj.polyline
+        .split(/[;,\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+      if (parts.length >= 2) return parts
+    }
+    return null
+  }
+
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) return null
+    // [ { polyline: [...] }, ... ]
+    if (raw[0] && typeof raw[0] === 'object' && !Array.isArray(raw[0])) {
+      return fromObject(raw[0] as Record<string, unknown>)
+    }
+    return asPolylineArray(raw)
+  }
+
+  if (typeof raw === 'object') {
+    return fromObject(raw as Record<string, unknown>)
+  }
+
+  return null
+}
+
 export const fetchCampusWalkRoute = async (start: GeoPoint, end: GeoPoint) => {
+  if (!isValidGeoPoint(start) || !isValidGeoPoint(end)) {
+    return {
+      points: [],
+      distance: undefined,
+      duration: undefined,
+      raw: undefined
+    } satisfies WalkNavigationResult
+  }
+
   const raw = await campusGuideApi.getWalkRoute({
     startLng: Number(start.longitude),
     startLat: Number(start.latitude),
     endLng: Number(end.longitude),
     endLat: Number(end.latitude)
   })
-  const data = (Array.isArray(raw) ? raw[0] : raw) as WalkRouteResult
-  const polyline = data?.polyline
+
+  // 兼容 data 为数组 / 单对象 / 再包一层
+  const dataCandidate = Array.isArray(raw) ? raw[0] : raw
+  const data = (dataCandidate && typeof dataCandidate === 'object'
+    ? dataCandidate
+    : {}) as WalkRouteResult & Record<string, unknown>
+
   let points: GeoPoint[] = []
-  if (Array.isArray(polyline)) {
-    try {
-      points = polylineToPoints(polyline)
-    } catch {
-      points = []
+  try {
+    const polyline = extractWalkPolyline(data) ?? extractWalkPolyline(raw)
+    if (polyline) {
+      points = polylineToPoints(polyline).filter(isValidGeoPoint)
     }
+  } catch {
+    points = []
   }
+
   return {
     points,
     distance: data?.distance,

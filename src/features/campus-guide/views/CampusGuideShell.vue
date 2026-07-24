@@ -43,12 +43,12 @@ const activeView = computed(() => store.currentView)
 const isUnknownView = computed(() => !isKnownCampusGuideView(activeView.value))
 
 const handleAppBack = () => {
-  if (activeView.value === CAMPUS_GUIDE_VIEWS.hub) {
+  // #491：主地图直接退出模块，不再回退到三选一 Hub
+  if (
+    activeView.value === CAMPUS_GUIDE_VIEWS.home ||
+    activeView.value === CAMPUS_GUIDE_VIEWS.hub
+  ) {
     emit('back')
-    return
-  }
-  if (activeView.value === CAMPUS_GUIDE_VIEWS.home) {
-    store.navigateTo(CAMPUS_GUIDE_VIEWS.hub)
     return
   }
   store.goBack()

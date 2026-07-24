@@ -9,12 +9,21 @@ const isMicroDegreePolyline = (lat: number, lng: number) =>
 /** 解压腾讯步行路线坐标：兼容微度绝对坐标 + 增量，以及度坐标 + 增量（小程序 translateCoors） */
 export const decodeDeltaPolyline = (raw: Array<number | string>) => {
   if (!Array.isArray(raw) || raw.length < 2) return [] as number[]
-  const coors = raw.map((item) => Number(item))
+  // 防御稀疏数组 / 空洞导致 undefined[n] 类崩溃
+  const coors = raw.map((item) => {
+    const n = Number(item)
+    return Number.isFinite(n) ? n : NaN
+  })
+  if (coors.length < 2) return [] as number[]
 
-  if (isMicroDegreePolyline(coors[0], coors[1])) {
+  const firstLat = coors[0]
+  const firstLng = coors[1]
+  if (!Number.isFinite(firstLat) || !Number.isFinite(firstLng)) return [] as number[]
+
+  if (isMicroDegreePolyline(firstLat, firstLng)) {
     const values: number[] = []
-    let lat = coors[0] / 1_000_000
-    let lng = coors[1] / 1_000_000
+    let lat = firstLat / 1_000_000
+    let lng = firstLng / 1_000_000
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return []
     values.push(lat, lng)
     for (let index = 2; index + 1 < coors.length; index += 2) {
@@ -23,13 +32,13 @@ export const decodeDeltaPolyline = (raw: Array<number | string>) => {
       if (!Number.isFinite(deltaLat) || !Number.isFinite(deltaLng)) continue
       lat += deltaLat / 1_000_000
       lng += deltaLng / 1_000_000
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
       values.push(lat, lng)
     }
     return values
   }
 
-  const values = [...coors]
-  if (!Number.isFinite(values[0]) || !Number.isFinite(values[1])) return []
+  const values = coors.slice()
   for (let index = 2; index < values.length; index += 1) {
     const base = values[index - 2]
     const delta = values[index]

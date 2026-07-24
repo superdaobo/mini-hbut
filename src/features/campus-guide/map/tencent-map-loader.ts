@@ -6,6 +6,7 @@ export type TencentMapNamespace = {
   MultiMarker: new (options: Record<string, unknown>) => TencentLayer
   MultiPolyline: new (options: Record<string, unknown>) => TencentLayer
   MarkerStyle: new (options: Record<string, unknown>) => unknown
+  PolylineStyle?: new (options: Record<string, unknown>) => unknown
   MultiPolygon: new (options: Record<string, unknown>) => TencentLayer
   ImageTileLayer: {
     createCustomLayer: (options: Record<string, unknown>) => Promise<TencentLayer | null>
@@ -23,6 +24,7 @@ export type TencentMapInstance = {
 export type TencentLayer = {
   setMap?: (map: TencentMapInstance | null) => void
   setGeometries?: (geometries: unknown[]) => void
+  setStyles?: (styles: Record<string, unknown>) => void
   on?: (event: string, handler: (...args: unknown[]) => void) => void
   destroy?: () => void
 }

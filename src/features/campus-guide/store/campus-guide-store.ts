@@ -119,7 +119,8 @@ const createCampusGuideStore = (): CampusGuideStore => {
     activities: [] as CampusActivity[],
     notices: [] as ScenicNotice[],
     hotSearch: [] as string[],
-    currentView: CAMPUS_GUIDE_VIEWS.hub as CampusGuideViewId,
+    // #491：进入校园地图直达导览主地图，不再先出三选一 Hub
+    currentView: CAMPUS_GUIDE_VIEWS.home as CampusGuideViewId,
     navParams: {} as CampusGuideNavParams,
     viewStack: [] as CampusGuideViewId[]
   })

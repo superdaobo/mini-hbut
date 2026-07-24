@@ -26,8 +26,9 @@ export const CAMPUS_GUIDE_CONFIG = Object.freeze({
   maxZoom: 20,
   defaultZoom: 16,
   useTencentGuide: true,
-  enableYunyou: true,
-  enablePunch: true,
+  /** #491：产品裁剪，入口层不再暴露云游/校庆打卡 */
+  enableYunyou: false,
+  enablePunch: false,
   /** 桌面端屏幕更大，默认展示全部 POI；小程序仍做点避让 */
   markerDodge: false,
   cdnBase: 'https://industry.map.qq.com/cloud/hugongda/2022/09/05'

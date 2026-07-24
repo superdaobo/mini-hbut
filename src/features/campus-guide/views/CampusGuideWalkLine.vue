@@ -53,24 +53,43 @@ const init = async () => {
   requestAnimationFrame(() => mapCore.value?.resize())
 
   try {
+    if (!isValidGeoPoint(store.userLocation)) {
+      routeText.value = '起点坐标无效，请先定位或使用外部地图'
+      loadingRoute.value = false
+      return
+    }
     const result = await fetchCampusWalkRoute(store.userLocation, end)
-    if (result.points.length) {
-      core.renderPolylines([result.points])
-      core.fitPoints([store.userLocation, ...result.points, end])
-      const distanceText =
-        typeof result.distance === 'number'
-          ? `${Math.round(result.distance)}米`
-          : String(result.distance || '')
-      routeText.value = `${distanceText} ${formatWalkDuration(result.duration)}`.trim()
-      routeReady.value = true
+    if (result.points.length >= 2) {
+      try {
+        core.renderPolylines([result.points])
+        core.fitPoints([store.userLocation, ...result.points, end])
+        const distanceText =
+          typeof result.distance === 'number'
+            ? `${Math.round(result.distance)}米`
+            : String(result.distance || '')
+        routeText.value = `${distanceText} ${formatWalkDuration(result.duration)}`.trim()
+        routeReady.value = true
+      } catch {
+        // 画线崩溃（历史 reading '4'）时降级，不白屏
+        routeText.value = '路线绘制失败，可打开外部地图导航'
+        core.fitPoints([store.userLocation, end])
+        showToast('校内路线绘制失败，请使用外部地图', 'warning', 2400)
+      }
     } else if (store.insideScenic) {
       routeText.value = '未获取到校内步行路线，可尝试外部地图'
+      core.fitPoints([store.userLocation, end])
     } else {
       routeText.value = '当前在校外，建议使用外部地图导航'
+      core.fitPoints([store.userLocation, end])
     }
   } catch (err) {
     routeText.value = (err as Error)?.message || '路线规划失败'
     showToast(routeText.value, 'error', 2200)
+    try {
+      core.fitPoints([store.userLocation, end])
+    } catch {
+      // ignore
+    }
   } finally {
     loadingRoute.value = false
   }

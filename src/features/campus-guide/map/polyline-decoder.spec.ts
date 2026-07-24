@@ -37,4 +37,14 @@ describe('campus guide polyline decoder', () => {
     expect(points.length).toBeGreaterThanOrEqual(1)
     expect(points[0].latitude).toBeCloseTo(30.48, 5)
   })
+
+  it('does not throw on sparse or short arrays (reading index crash guard)', () => {
+    const sparse = [] as Array<number | string>
+    sparse[0] = 30.48
+    // index 1 missing → should return empty, not throw
+    expect(() => decodeDeltaPolyline(sparse)).not.toThrow()
+    expect(decodeDeltaPolyline(sparse)).toEqual([])
+    expect(() => polylineToPoints([30.48] as unknown as Array<number | string>)).not.toThrow()
+    expect(polylineToPoints([30.48] as unknown as Array<number | string>)).toEqual([])
+  })
 })

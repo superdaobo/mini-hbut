@@ -21,8 +21,13 @@ export function useGeolocation() {
    * 获取当前位置。
    * @param timeout 超时 ms
    * @param maximumAge 允许的缓存年龄 ms；0 表示强制刷新（校园导览 iOS 建议 0）
+   * @param enableHighAccuracy 是否启用高精度（部分机型室内高精度会直接失败）
    */
-  async function getCurrentPosition(timeout = 10000, maximumAge = 5000): Promise<GeoPosition> {
+  async function getCurrentPosition(
+    timeout = 10000,
+    maximumAge = 5000,
+    enableHighAccuracy = true
+  ): Promise<GeoPosition> {
     if (!available.value) {
       lastError.value = '当前设备不支持定位'
       pushDebugLog('Geo', lastError.value, 'warn', { available: false })
@@ -31,10 +36,12 @@ export function useGeolocation() {
 
     loading.value = true
     lastError.value = ''
-    pushDebugLog('Geo', `定位请求开始 timeout=${timeout}ms maximumAge=${maximumAge}`, 'debug', {
-      timeout,
-      maximumAge
-    })
+    pushDebugLog(
+      'Geo',
+      `定位请求开始 timeout=${timeout}ms maximumAge=${maximumAge} highAccuracy=${enableHighAccuracy}`,
+      'debug',
+      { timeout, maximumAge, enableHighAccuracy }
+    )
 
     return new Promise<GeoPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
@@ -64,7 +71,7 @@ export function useGeolocation() {
           loading.value = false
           switch (err.code) {
             case err.PERMISSION_DENIED:
-              lastError.value = '定位权限被拒绝'
+              lastError.value = '定位权限被拒绝，请在系统设置中开启位置权限'
               break
             case err.POSITION_UNAVAILABLE:
               lastError.value = '无法获取位置信息'
@@ -77,12 +84,13 @@ export function useGeolocation() {
           }
           pushDebugLog('Geo', `定位失败: ${lastError.value}`, 'error', {
             code: err.code,
-            message: err.message
+            message: err.message,
+            enableHighAccuracy
           })
           reject(new Error(lastError.value))
         },
         {
-          enableHighAccuracy: true,
+          enableHighAccuracy: Boolean(enableHighAccuracy),
           timeout,
           maximumAge: Math.max(0, Number(maximumAge) || 0)
         }

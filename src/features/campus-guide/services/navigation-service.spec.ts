@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CAMPUS_GUIDE_CONFIG } from '../config'
 import {
   buildTencentWalkRouteUrl,
+  extractWalkPolyline,
   isValidGeoPoint,
   openExternalMapNavigation,
   resolveNavEndPoint
@@ -60,5 +61,21 @@ describe('campus guide navigation service', () => {
     await expect(
       openExternalMapNavigation({ latitude: 999, longitude: 114.31 }, '图书馆')
     ).resolves.toBe(false)
+  })
+
+  it('extractWalkPolyline handles nested and empty payloads without throwing', () => {
+    expect(extractWalkPolyline(null)).toBeNull()
+    expect(extractWalkPolyline([])).toBeNull()
+    expect(extractWalkPolyline(undefined)).toBeNull()
+    expect(extractWalkPolyline({ polyline: [30.48, 114.31, 100, 200] })).toEqual([
+      30.48, 114.31, 100, 200
+    ])
+    expect(
+      extractWalkPolyline({ routes: [{ polyline: [30.48, 114.31, 50, -100] }] })
+    ).toEqual([30.48, 114.31, 50, -100])
+    expect(extractWalkPolyline([{ polyline: [30.48, 114.31] }])).toEqual([30.48, 114.31])
+    expect(extractWalkPolyline({ polyline: [[30.48, 114.31], [30.49, 114.32]] })).toEqual([
+      30.48, 114.31, 30.49, 114.32
+    ])
   })
 })
