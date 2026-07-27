@@ -102,6 +102,21 @@ private func configureMiniHbutEdgeToEdgeWebView(_ webview: WKWebView, _ viewCont
     webview.frame = viewController.view.bounds
   }
 }
+
+// 将 iOS 内存告警转发给 Web 层，使课程中心能收缩渲染批量。
+// 不替换 Tauri 的 navigationDelegate，避免影响其原有导航与插件回调。
+private func configureMiniHbutMemoryWarningBridge(_ webview: WKWebView) {
+  NotificationCenter.default.addObserver(
+    forName: UIApplication.didReceiveMemoryWarningNotification,
+    object: nil,
+    queue: .main
+  ) { [weak webview] _ in
+    webview?.evaluateJavaScript(
+      "window.dispatchEvent(new Event('iosMemoryWarning'))",
+      completionHandler: nil
+    )
+  }
+}
 `
 
   const callbackPattern = /(@_cdecl\("on_webview_created"\)\s*func\s+onWebviewCreated\s*\(\s*webview:\s*WKWebView,\s*viewController:\s*UIViewController\s*\)\s*\{)/
@@ -112,7 +127,10 @@ private func configureMiniHbutEdgeToEdgeWebView(_ webview: WKWebView, _ viewCont
     )
   }
 
-  source = source.replace(callbackPattern, `${helper}\n$1\n  configureMiniHbutEdgeToEdgeWebView(webview, viewController)`)
+  source = source.replace(
+    callbackPattern,
+    `${helper}\n$1\n  configureMiniHbutEdgeToEdgeWebView(webview, viewController)\n  configureMiniHbutMemoryWarningBridge(webview)`
+  )
 
   fs.writeFileSync(targetFile, source)
   console.log(`[tauri-ios-edge] 已补丁 Tauri iOS WebView: ${toPosix(path.relative(rootDir, targetFile))}`)

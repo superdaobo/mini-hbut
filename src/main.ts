@@ -11,6 +11,7 @@ import { initBackgroundFetchScheduler } from './utils/background_fetch'
 import { runNotificationCheck } from './utils/notify_center'
 import { runCampusNetworkAutoLogin } from './utils/campus_network_service'
 import { initDebugLogger, pushDebugLog } from './utils/debug_logger'
+import { installGlobalErrorCapture, attachVueErrorCapture } from './utils/crash_reporter'
 import { invokeNative, isTauriRuntime } from './platform/native'
 import { bootstrapWebsiteDemoIfNeeded } from './utils/website_demo_boot.js'
 import { ensureMaterialSymbolsFont, loadLocalIconFonts } from './utils/icon_fonts'
@@ -39,6 +40,8 @@ const removeNativeSplash = () => {
 
 const mountApp = () => {
   const app = createApp(App)
+  // 组件渲染 / 生命周期错误归因（写入调试日志，附组件名）
+  attachVueErrorCapture(app)
   app.component('IOSSelect', IOSSelect)
   app.mount('#app')
   // Vue 挂载后立刻清掉 index.html 原生启动页（若 mount 替换未生效也能兜底）
@@ -115,6 +118,8 @@ const bootstrap = () => {
   initThemeBridge()
 
   initDebugLogger()
+  // 尽早安装全局错误捕获（error / unhandledrejection），用于闪退前 JS 错误事后归因
+  installGlobalErrorCapture()
   pushDebugLog('Bootstrap', '开始初始化应用')
   initUiSettings()
   initAppSettings()

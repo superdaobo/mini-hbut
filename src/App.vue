@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import axios from 'axios'
 import UpdateDialog from './components/UpdateDialog.vue'
@@ -1003,6 +1003,7 @@ const VIEW_HEALTH_SELECTOR_MAP = Object.freeze({
   home: '.dashboard-root',
   schedule: '.schedule-view',
   classroom: '.classroom-view',
+  chaoxing_hub: '.cx-hub',
   more_module_host: '.more-module-host-view',
   school_website: '.school-website-view',
   more: '.more-view',

@@ -4600,10 +4600,7 @@ mod catalog_and_video_tests {
             infer_attachment_kind("", "insertbook", "课件.pptx"),
             "document"
         );
-        assert_eq!(
-            infer_attachment_kind("", "", "第1章 绪论.pdf"),
-            "document"
-        );
+        assert_eq!(infer_attachment_kind("", "", "第1章 绪论.pdf"), "document");
         assert_eq!(
             infer_attachment_kind("", "insertvideo", "讲解.mp4"),
             "video"

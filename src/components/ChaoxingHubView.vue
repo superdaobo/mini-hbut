@@ -4,7 +4,7 @@
  * 课程列表 → 章 → 小节 → 任务点 → 视频 / 成绩
  * 全部走 Tauri invoke，禁止外链
  */
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { invokeNative, isTauriRuntime } from '../platform/native'
 import { showToast } from '../utils/toast'
 import { pushDebugLog } from '../utils/debug_logger'
@@ -28,6 +28,22 @@ const videoError = ref('')
 const videoSrcIndex = ref(0)
 
 const PIE_COLORS = ['#2563eb', '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#ec4899']
+const IOS_SAFE_COURSE_BATCH = 12
+// 课程列表上限：防止异常超大数据一次性 normalize/渲染导致 iOS 内存暴涨
+const MAX_COURSE_LIST_SIZE = 500
+const isIOSLikeDevice = (() => {
+  if (typeof navigator === 'undefined') return false
+  const ua = String(navigator.userAgent || '')
+  const platform = String(navigator.platform || '')
+  const maxTouchPoints = Number(navigator.maxTouchPoints || 0)
+  return /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1)
+})()
+const courseRenderLimit = ref(IOS_SAFE_COURSE_BATCH)
+const shouldRenderRemoteCourseCovers = !isIOSLikeDevice
+
+// 卸载守卫：仅在组件卸载时置位（导航栈 pop/jumpTo 不置位），
+// 防止卸载后仍在途的异步回调继续写入响应式状态
+let disposed = false
 
 /**
  * 导航栈
@@ -189,6 +205,23 @@ const filteredCourses = computed(() => {
   )
 })
 
+const visibleCourses = computed(() => {
+  if (!isIOSLikeDevice) return filteredCourses.value
+  return filteredCourses.value.slice(0, Math.max(IOS_SAFE_COURSE_BATCH, courseRenderLimit.value))
+})
+
+const hasMoreCourses = computed(() =>
+  isIOSLikeDevice && visibleCourses.value.length < filteredCourses.value.length
+)
+
+const resetCourseRenderLimit = () => {
+  courseRenderLimit.value = IOS_SAFE_COURSE_BATCH
+}
+
+const loadMoreCourses = () => {
+  courseRenderLimit.value += IOS_SAFE_COURSE_BATCH
+}
+
 /** 成绩饼图切片（权重） */
 const scoreSlices = computed(() => {
   const score = current.value?.score
@@ -304,9 +337,21 @@ const loadList = async ({ silent = false, force = false } = {}) => {
       error: String(e?.message || e)
     }))
     const [courseRes, statusRes] = await Promise.all([coursePromise, statusPromise])
+    // 组件已卸载则放弃写入任何响应式状态
+    if (disposed) return
     if (courseRes?.success === false) throw new Error(courseRes?.error || '课程列表失败')
     statusMeta.value = statusRes || {}
-    const list = Array.isArray(courseRes?.courses) ? courseRes.courses : []
+    let list = Array.isArray(courseRes?.courses) ? courseRes.courses : []
+    // 数据规模防护：先记录数量摘要，超限截断，避免超大列表拖垮 iOS WebView
+    pushDebugLog('ChaoxingHub', `课程原始数据 count=${list.length}`, 'info')
+    if (list.length > MAX_COURSE_LIST_SIZE) {
+      pushDebugLog(
+        'ChaoxingHub',
+        `课程数量超限 raw=${list.length}，已截断至 ${MAX_COURSE_LIST_SIZE}`,
+        'warn'
+      )
+      list = list.slice(0, MAX_COURSE_LIST_SIZE)
+    }
     courses.value = list.map(normalizeCourse).filter((c) => c.courseId && c.clazzId)
     pushDebugLog(
       'ChaoxingHub',
@@ -347,10 +392,13 @@ const loadList = async ({ silent = false, force = false } = {}) => {
       { semesters: merged, from_api: fromApi, from_courses: fromCourses }
     )
   } catch (e) {
+    if (disposed) return
     error.value = safeText(e?.message || e) || '加载失败'
   } finally {
-    loading.value = false
-    refreshing.value = false
+    if (!disposed) {
+      loading.value = false
+      refreshing.value = false
+    }
   }
 }
 
@@ -377,11 +425,43 @@ const push = (frame) => {
   scrollModuleToTop()
 }
 
+/**
+ * 释放被移出栈帧关联的媒体资源（iOS 内存缓解）：
+ * video 清空 src 并 load()，文档/播放器 iframe 跳转空白页，
+ * 促使 WKWebView 尽快回收解码器与渲染内存
+ */
+const releaseMediaForFrames = (frames = []) => {
+  const needRelease = frames.some((f) => f?.level === 'video' || f?.level === 'document')
+  if (!needRelease) return
+  try {
+    document.querySelectorAll('.cx-hub video.video-el').forEach((v) => {
+      try {
+        v.pause()
+        v.src = ''
+        v.load()
+      } catch {
+        // 静默失败
+      }
+    })
+    document.querySelectorAll('.cx-hub iframe.doc-frame').forEach((f) => {
+      try {
+        f.src = 'about:blank'
+      } catch {
+        // 静默失败
+      }
+    })
+  } catch {
+    // 静默失败
+  }
+}
+
 const pop = () => {
   if (stack.value.length <= 1) {
     emit('back')
     return
   }
+  // 先释放即将被移出层级的媒体资源，再更新栈
+  releaseMediaForFrames([stack.value[stack.value.length - 1]])
   stack.value = stack.value.slice(0, -1)
   videoError.value = ''
   videoSrcIndex.value = 0
@@ -391,6 +471,8 @@ const pop = () => {
 /** 点面包屑跳到某一层 */
 const jumpTo = (index) => {
   if (index < 0 || index >= stack.value.length) return
+  // 先释放被移出层级（video/document）的媒体资源，再更新栈
+  releaseMediaForFrames(stack.value.slice(index + 1))
   stack.value = stack.value.slice(0, index + 1)
   videoError.value = ''
   videoSrcIndex.value = 0
@@ -408,6 +490,7 @@ const openCourse = async (course, { force = false } = {}) => {
       course_url: course.courseUrl || '',
       force: !!force
     })
+    if (disposed) return
     if (outlineRes?.success === false) throw new Error(outlineRes?.error || '大纲失败')
 
     let sectionList = Array.isArray(outlineRes?.sections) ? outlineRes.sections : []
@@ -439,6 +522,8 @@ const openCourse = async (course, { force = false } = {}) => {
       force: false
     })
       .then((progressRes) => {
+        // 组件已卸载则放弃后台进度回填
+        if (disposed) return
         const top = stack.value[stack.value.length - 1]
         if (top?.level === 'course' && top.course?.courseId === course.courseId) {
           top.progress = progressRes || {}
@@ -447,9 +532,10 @@ const openCourse = async (course, { force = false } = {}) => {
       })
       .catch(() => {})
   } catch (e) {
+    if (disposed) return
     showToast(safeText(e?.message || e) || '打开课程失败')
   } finally {
-    pageLoading.value = false
+    if (!disposed) pageLoading.value = false
   }
 }
 
@@ -471,6 +557,7 @@ const openKnowledge = async (course, section, knowledge) => {
       knowledge_id: kid,
       cpi
     })
+    if (disposed) return
     if (res?.success === false) throw new Error(res?.error || '任务点加载失败')
     const list = Array.isArray(res?.tasks)
       ? res.tasks
@@ -495,9 +582,10 @@ const openKnowledge = async (course, section, knowledge) => {
       }
     })
   } catch (e) {
+    if (disposed) return
     showToast(safeText(e?.message || e) || '打开小节失败')
   } finally {
-    pageLoading.value = false
+    if (!disposed) pageLoading.value = false
   }
 }
 
@@ -509,6 +597,7 @@ const openScore = async (course) => {
       clazz_id: course.clazzId,
       cpi: course.cpi || ''
     })
+    if (disposed) return
     if (res?.success === false) throw new Error(res?.error || res?.message || '成绩加载失败')
     // 若已在成绩页则替换，避免栈叠加
     if (current.value.level === 'score') {
@@ -518,6 +607,7 @@ const openScore = async (course) => {
       push({ level: 'score', course, score: res })
     }
   } catch (e) {
+    if (disposed) return
     const msg = safeText(e?.message || e) || '成绩加载失败'
     if (msg.includes('Unknown POST endpoint')) {
       showToast('成绩接口未就绪，请完全退出应用后重新打开')
@@ -527,7 +617,7 @@ const openScore = async (course) => {
       showToast(msg)
     }
   } finally {
-    pageLoading.value = false
+    if (!disposed) pageLoading.value = false
   }
 }
 
@@ -576,6 +666,7 @@ const openVideo = async (course, section, knowledge, task, meta) => {
       object_id: task.objectId,
       fid: meta?.fid || '0'
     })
+    if (disposed) return
     if (res?.success === false) throw new Error(res?.error || '视频状态失败')
     const st = res?.data && typeof res.data === 'object' ? res.data : res
     const playUrls = collectPlayUrls(st, res || {})
@@ -605,9 +696,10 @@ const openVideo = async (course, section, knowledge, task, meta) => {
       duration: safeNumber(st.duration)
     })
   } catch (e) {
+    if (disposed) return
     showToast(safeText(e?.message || e) || '视频打开失败')
   } finally {
-    pageLoading.value = false
+    if (!disposed) pageLoading.value = false
   }
 }
 
@@ -623,6 +715,7 @@ const openDocument = async (course, section, knowledge, task, meta) => {
       object_id: task.objectId,
       fid: meta?.fid || '0'
     })
+    if (disposed) return
     if (res?.success === false) throw new Error(res?.error || '文档状态失败')
     const st = res?.data && typeof res.data === 'object' ? res.data : res
     const docUrls = collectDocUrls(st, res || {})
@@ -648,10 +741,11 @@ const openDocument = async (course, section, knowledge, task, meta) => {
       fileType: safeText(st.fileType || st.filetype || task.typeMeta?.text || '文档')
     })
   } catch (e) {
+    if (disposed) return
     const msg = safeText(e?.message || e) || '文档打开失败'
     showToast(`文档预览失败：${msg}`)
   } finally {
-    pageLoading.value = false
+    if (!disposed) pageLoading.value = false
   }
 }
 
@@ -758,13 +852,32 @@ watch(
   () => props.studentId,
   () => {
     stack.value = [{ level: 'list' }]
+    resetCourseRenderLimit()
     void loadList()
   }
 )
 
+watch([activeSemester, searchQuery], () => {
+  resetCourseRenderLimit()
+})
+
+/** iOS 原生层内存告警：立即收缩课程渲染批量，降低 DOM 与内存压力 */
+const onIosMemoryWarning = () => {
+  courseRenderLimit.value = IOS_SAFE_COURSE_BATCH
+  pushDebugLog('ChaoxingHub', '收到 iOS 内存告警，收缩课程渲染批量', 'warn')
+}
+
 onMounted(() => {
   scrollModuleToTop()
+  // 事件名与原生层契约保持一致：iosMemoryWarning
+  window.addEventListener('iosMemoryWarning', onIosMemoryWarning)
   void loadList()
+})
+
+onUnmounted(() => {
+  // 仅在组件卸载时置位；导航栈内 pop/jumpTo 切换不触发
+  disposed = true
+  window.removeEventListener('iosMemoryWarning', onIosMemoryWarning)
 })
 </script>
 
@@ -830,6 +943,9 @@ onMounted(() => {
             <div class="stat"><span>待办</span><b>{{ totalPending }}</b></div>
           </div>
           <p v-if="error" class="err">{{ error }}</p>
+          <p v-if="isIOSLikeDevice && filteredCourses.length > visibleCourses.length" class="hint">
+            iOS 为降低进入课程中心时的闪退风险，首次仅渲染部分课程，可继续加载其余课程。
+          </p>
         </section>
 
         <div v-if="semesterTabs.length > 1" class="sem-scroll" role="tablist">
@@ -860,7 +976,7 @@ onMounted(() => {
         />
 
         <button
-          v-for="c in filteredCourses"
+          v-for="c in visibleCourses"
           :key="c.id"
           type="button"
           class="row-card course"
@@ -868,14 +984,17 @@ onMounted(() => {
         >
           <div class="cover">
             <img
-              v-if="c.imageUrl"
+              v-if="shouldRenderRemoteCourseCovers && c.imageUrl"
               :src="c.imageUrl"
               alt=""
               loading="lazy"
               referrerpolicy="no-referrer"
               @error="onCoverError"
             />
-            <div class="cover-fb" :style="c.imageUrl ? { display: 'none' } : undefined">
+            <div
+              class="cover-fb"
+              :style="shouldRenderRemoteCourseCovers && c.imageUrl ? { display: 'none' } : undefined"
+            >
               <span class="material-symbols-outlined">menu_book</span>
             </div>
           </div>
@@ -890,6 +1009,18 @@ onMounted(() => {
             </div>
           </div>
           <span class="material-symbols-outlined chev">chevron_right</span>
+        </button>
+        <button
+          v-if="hasMoreCourses"
+          type="button"
+          class="row-card course course-load-more"
+          @click="loadMoreCourses"
+        >
+          <div class="row-main">
+            <strong>继续加载更多课程</strong>
+            <p>剩余 {{ filteredCourses.length - visibleCourses.length }} 门未展示</p>
+          </div>
+          <span class="material-symbols-outlined chev">expand_more</span>
         </button>
       </template>
 
@@ -1529,6 +1660,9 @@ onMounted(() => {
 }
 .row-card:active {
   transform: scale(0.985);
+}
+.course-load-more {
+  justify-content: center;
 }
 .row-card.menu:hover {
   border-color: #93c5fd;

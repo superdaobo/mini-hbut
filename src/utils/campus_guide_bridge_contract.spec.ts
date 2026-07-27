@@ -48,8 +48,10 @@ describe('campus guide bridge contract', () => {
     expect(home).toContain('PoiCard')
     expect(home).toContain('EntranceMenu')
     expect(home).toContain('NoticeBar')
-    expect(home).toContain('openYunyou')
-    expect(home).toContain('openPunch')
+    // #491 已从首页移除云游/打卡入口，避免历史函数重新出现在直达地图页。
+    expect(home).not.toContain('openYunyou')
+    expect(home).not.toContain('openPunch')
+    expect(home).toContain('@route="store.navigateTo(CAMPUS_GUIDE_VIEWS.route)')
     // #369：手绘层重试 + POI 暗色/安全区
     const core = read('src/features/campus-guide/map/campus-map-core.ts')
     expect(core).toContain('mountCustomLayer')

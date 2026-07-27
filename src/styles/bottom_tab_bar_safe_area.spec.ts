@@ -79,6 +79,7 @@ describe('bottom tab bar safe area contract', () => {
   const tauriIosPatcher = () => readSource('scripts/patch_tauri_ios_edge_to_edge.mjs')
   const devWorkflow = () => readSource('.github/workflows/dev-build.yml')
   const releaseWorkflow = () => readSource('.github/workflows/release.yml')
+  const testFlightWorkflow = () => readSource('.github/workflows/ios-testflight.yml')
 
   const expectTauriIosWorkflowOrder = (workflow: string) => {
     const initIndex = workflow.search(/npm (run tauri|exec -- tauri) ios init/)
@@ -198,9 +199,10 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
     expect(patcher).toContain('DispatchQueue.main.asyncAfter')
   })
 
-  it('runs the Tauri iOS edge-to-edge patch after ios init and before xcodebuild', () => {
+  it('runs the Tauri iOS patch after ios init and before xcodebuild in every iOS workflow', () => {
     expectTauriIosWorkflowOrder(devWorkflow())
     expectTauriIosWorkflowOrder(releaseWorkflow())
+    expectTauriIosWorkflowOrder(testFlightWorkflow())
   })
 
   it('patches a generated Tauri iOS Swift bridge file idempotently', () => {
@@ -216,6 +218,9 @@ func onWebviewCreated(webview: WKWebView, viewController: UIViewController) {
       const patched = readFileSync(bridgePath, 'utf8')
       expect(patched.match(/Mini-HBUT iOS edge-to-edge WebView patch/g)).toHaveLength(1)
       expect(patched).toContain('configureMiniHbutEdgeToEdgeWebView(webview, viewController)')
+      expect(patched).toContain('configureMiniHbutMemoryWarningBridge(webview)')
+      expect(patched).toContain('UIApplication.didReceiveMemoryWarningNotification')
+      expect(patched).toContain("window.dispatchEvent(new Event('iosMemoryWarning'))")
       expect(patched).toContain('webview.frame = viewController.view.bounds')
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
