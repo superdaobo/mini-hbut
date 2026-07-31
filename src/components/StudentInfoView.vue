@@ -403,6 +403,30 @@ const getFieldIcon = (label) => {
   return iconMap[label] || 'info'
 }
 
+// 学工附属信息（班导师/辅导员）字段图标：与基本信息同语义字段保持一致
+const personFieldIcons = {
+  '姓名': 'person',
+  '工号': 'badge',
+  '学院': 'school',
+  '电话': 'call',
+  '邮箱': 'mail',
+  '办公室': 'meeting_room',
+  '备注': 'notes'
+}
+
+// 学工附属信息（宿舍）字段图标
+const dormFieldIcons = {
+  '校区': 'map',
+  '楼栋': 'apartment',
+  '房间': 'door_front',
+  '床位': 'bed',
+  '状态': 'verified_user',
+  '备注': 'notes'
+}
+
+const getPersonFieldIcon = (label) => personFieldIcons[label] || 'info'
+const getDormFieldIcon = (label) => dormFieldIcons[label] || 'info'
+
 const setAccessPage = async (page) => {
   const total = accessTotalPages.value
   const nextPage = Math.min(Math.max(1, page), total)
@@ -499,7 +523,7 @@ onMounted(() => {
               <div class="info-grid">
                 <article v-for="(row, i) in personKvRows(mentor)" :key="'mt-' + i" class="info-field">
                   <span class="field-label">
-                    <span class="material-symbols-outlined field-icon">person</span>
+                    <span class="material-symbols-outlined field-icon">{{ getPersonFieldIcon(row.label) }}</span>
                     {{ row.label }}
                   </span>
                   <span class="field-value">{{ row.value }}</span>
@@ -512,7 +536,7 @@ onMounted(() => {
               <div class="info-grid">
                 <article v-for="(row, i) in personKvRows(counselor)" :key="'cs-' + i" class="info-field">
                   <span class="field-label">
-                    <span class="material-symbols-outlined field-icon">support_agent</span>
+                    <span class="material-symbols-outlined field-icon">{{ getPersonFieldIcon(row.label) }}</span>
                     {{ row.label }}
                   </span>
                   <span class="field-value">{{ row.value }}</span>
@@ -525,7 +549,7 @@ onMounted(() => {
               <div class="info-grid">
                 <article v-for="(row, i) in dormKvRows" :key="'dm-' + i" class="info-field">
                   <span class="field-label">
-                    <span class="material-symbols-outlined field-icon">apartment</span>
+                    <span class="material-symbols-outlined field-icon">{{ getDormFieldIcon(row.label) }}</span>
                     {{ row.label }}
                   </span>
                   <span class="field-value">{{ row.value }}</span>
