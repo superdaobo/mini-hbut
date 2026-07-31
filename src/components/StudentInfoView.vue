@@ -30,6 +30,8 @@ const dorm = ref(null)
 const activeTab = ref('basic')
 const info = ref(null)
 const offline = ref(false)
+const accessOffline = ref(false)
+const accessSyncTime = ref('')
 const syncTime = ref('')
 
 const pageSizeOptions = [10, 20, 50]
@@ -225,7 +227,10 @@ const fetchLoginAccess = async (page = accessPage.value, pageSize = accessPageSi
     accessError.value = data?.error || '获取登录访问信息失败'
     return null
   } catch (e) {
-    accessError.value = e.response?.data?.error || '获取登录访问信息失败'
+    accessError.value =
+      e?.response?.data?.error ||
+      (typeof e === 'string' ? e : e?.message) ||
+      '获取登录访问信息失败'
     return null
   } finally {
     if (showLoading) {
@@ -316,15 +321,19 @@ const refreshData = async (options = {}) => {
 
   // 离线判定：仅当数据非缓存回源（本次请求确实失败且无可用缓存）时展示离线横幅，
   // 避免"每次进入都显示离线数据"的误报。
+  // 整页离线状态只由学生基本信息（basic）决定；登录访问记录（login_access）由独立的
+  // 融合门户会话提供，其失败不应把整页拖入"离线数据"状态（#516）。
   const basicOffline = !!basicRes?.offline && !basicRes?._fromCache && !basicRes?._stale
-  const accessOffline = !!accessRes?.offline
-  offline.value = basicOffline || accessOffline
+  const accessCached = !!accessRes?.offline
+  offline.value = basicOffline
+  accessOffline.value = accessCached
+  accessSyncTime.value = accessRes?.sync_time || ''
 
   // sync_time：离线时取离线数据自身的真实更新时间，避免被其他接口的"刚刚"覆盖
   if (offline.value) {
     if (basicOffline && basicRes?.sync_time) {
       syncTime.value = basicRes.sync_time
-    } else if (accessOffline && accessRes?.sync_time) {
+    } else if (accessCached && accessRes?.sync_time) {
       syncTime.value = accessRes.sync_time
     } else {
       syncTime.value = ''
@@ -607,6 +616,9 @@ onMounted(() => {
         <section v-show="activeTab === 'login'" class="info-card">
           <h3 class="card-section-title">联系方式 & 认证</h3>
           <div v-if="accessError" class="inline-error">{{ accessError }}</div>
+          <div v-if="accessOffline && !accessError" class="cache-hint">
+            登录记录暂不可用，当前显示缓存数据（更新于 {{ formatRelativeTime(accessSyncTime) }}）
+          </div>
 
           <div class="contact-list">
             <div class="contact-row">
@@ -650,6 +662,9 @@ onMounted(() => {
 
         <!-- Access Tab -->
         <section v-show="activeTab === 'access'" class="info-card">
+          <div v-if="accessOffline && !accessLoading" class="cache-hint">
+            登录记录暂不可用，当前显示缓存数据（更新于 {{ formatRelativeTime(accessSyncTime) }}）
+          </div>
           <div v-if="accessLoading" class="inline-loading">
             <div class="mini-spinner"></div>
             <span>正在加载访问记录...</span>
@@ -1138,6 +1153,16 @@ onMounted(() => {
   border-radius: 10px;
   background: rgba(239, 68, 68, 0.12);
   color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cache-hint {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #92610a;
   font-size: 13px;
   font-weight: 600;
 }
