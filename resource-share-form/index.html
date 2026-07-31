@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>资源共享</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface: #131313;
+        --surface-low: #1c1b1b;
+        --surface-lowest: #0e0e0e;
+        --surface-container: #201f1f;
+        --surface-high: #2a2a2a;
+        --on-surface: #e5e2e1;
+        --on-surface-variant: #d0c6ab;
+        --outline: #999077;
+        --outline-variant: #4d4732;
+        --primary: #ffd700;
+        --primary-fixed: #e9c400;
+        --primary-soft: #fff6df;
+        --on-primary: #3a3000;
+        --grid-line: rgba(46, 204, 113, 0.04);
+        --border-dim: rgba(46, 204, 113, 0.18);
+        --error: #ffb4ab;
+        --gutter: 16px;
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+
+      body {
+        min-height: 100dvh;
+        background: var(--surface);
+        color: var(--on-surface);
+        font-family: Geist, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        position: relative;
+        overflow-x: hidden;
+      }
+
+      .grid-bg {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image:
+          linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+          linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+
+      .shell {
+        position: relative;
+        z-index: 1;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        padding:
+          calc(12px + var(--safe-top))
+          var(--gutter)
+          calc(20px + var(--safe-bottom));
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 48px;
+        border-bottom: 1px solid var(--outline-variant);
+        margin: 0 calc(-1 * var(--gutter)) 20px;
+        padding: 0 var(--gutter);
+      }
+
+      .brand {
+        font-family: "Playfair Display", Georgia, serif;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+        color: var(--primary-fixed);
+        text-shadow: 0 0 18px rgba(255, 215, 0, 0.18);
+      }
+
+      .brand-tag {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--on-surface-variant);
+      }
+
+      .main {
+        width: min(480px, 100%);
+        margin: 0 auto;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--on-surface-variant);
+      }
+
+      .eyebrow .dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--outline-variant);
+      }
+
+      h1 {
+        margin: 0 0 20px;
+        font-family: "Playfair Display", Georgia, serif;
+        font-weight: 700;
+        font-size: clamp(32px, 8vw, 42px);
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        color: var(--on-surface);
+      }
+
+      h1 em {
+        font-style: normal;
+        color: var(--primary-fixed);
+        text-shadow: 0 0 22px rgba(255, 215, 0, 0.22);
+      }
+
+      .panel {
+        border: 1px solid var(--outline-variant);
+        background: rgba(14, 14, 14, 0.86);
+        backdrop-filter: blur(6px);
+      }
+
+      .panel:focus-within {
+        border-color: rgba(233, 196, 0, 0.55);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--outline-variant);
+        background: rgba(32, 31, 31, 0.55);
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        background: var(--primary);
+        /* 金色底上用近黑字，避免浅色/白色融进方块 */
+        color: #1a1400;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        -webkit-text-fill-color: #1a1400;
+      }
+
+      .panel-head span {
+        font-size: 14px;
+        color: var(--on-surface);
+      }
+
+      form {
+        padding: 14px;
+        display: grid;
+        gap: 14px;
+      }
+
+      .field { display: grid; gap: 6px; }
+
+      label {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--on-surface-variant);
+      }
+
+      label .req {
+        color: var(--primary-fixed);
+        margin-left: 2px;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--outline-variant);
+        border-radius: 0;
+        background: var(--surface-lowest);
+        color: var(--on-surface);
+        font: inherit;
+        font-size: 16px; /* iOS 不缩放 */
+        padding: 12px 12px;
+        outline: none;
+        transition: border-color 0.15s ease, background 0.15s ease;
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      input::placeholder,
+      textarea::placeholder {
+        color: rgba(153, 144, 119, 0.72);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 13px;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: var(--primary-fixed);
+        background: #12110d;
+      }
+
+      textarea {
+        min-height: 72px;
+        resize: vertical;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      @media (min-width: 480px) {
+        :root { --gutter: 24px; }
+        .row { grid-template-columns: 1fr 1fr; }
+        form { padding: 18px; gap: 16px; }
+        .shell { padding-top: calc(16px + var(--safe-top)); }
+      }
+
+      button[type="submit"] {
+        width: 100%;
+        margin-top: 2px;
+        border: 0;
+        border-radius: 0;
+        background: var(--primary);
+        color: #1a1400;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        min-height: 48px;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: filter 0.15s ease, background 0.15s ease;
+        -webkit-text-fill-color: #1a1400;
+      }
+
+      button[type="submit"]:hover { filter: brightness(1.05); }
+      button[type="submit"]:active { filter: brightness(0.96); }
+      button[type="submit"]:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        filter: none;
+      }
+
+      .captcha-box {
+        display: grid;
+        gap: 8px;
+      }
+
+      .captcha-row {
+        display: grid;
+        grid-template-columns: 1fr 44px;
+        gap: 8px;
+        align-items: stretch;
+      }
+
+      .captcha-challenge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        border: 1px solid var(--outline-variant);
+        background:
+          repeating-linear-gradient(
+            -18deg,
+            rgba(233, 196, 0, 0.04),
+            rgba(233, 196, 0, 0.04) 8px,
+            transparent 8px,
+            transparent 16px
+          ),
+          var(--surface-lowest);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        color: var(--primary-fixed);
+        user-select: none;
+      }
+
+      .captcha-refresh {
+        border: 1px solid var(--outline-variant);
+        background: var(--surface-container);
+        color: var(--on-surface-variant);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 18px;
+        cursor: pointer;
+        min-height: 48px;
+        transition: border-color 0.15s ease, color 0.15s ease;
+      }
+
+      .captcha-refresh:hover {
+        border-color: var(--primary-fixed);
+        color: var(--primary-fixed);
+      }
+
+      .form-error {
+        display: none;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 180, 171, 0.45);
+        background: rgba(147, 0, 10, 0.22);
+        color: var(--error);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+
+      .form-error.show { display: block; }
+
+      .foot {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--outline-variant);
+        display: grid;
+        gap: 10px;
+        text-align: center;
+      }
+
+      .foot-title {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: rgba(153, 144, 119, 0.9);
+      }
+
+      .foot-links {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 8px 14px;
+      }
+
+      .foot-links a {
+        color: var(--on-surface-variant);
+        text-decoration: none;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid transparent;
+        transition: color 0.15s ease, border-color 0.15s ease;
+      }
+
+      .foot-links a:hover {
+        color: var(--primary-fixed);
+        border-bottom-color: rgba(233, 196, 0, 0.55);
+      }
+
+      .foot-sep {
+        width: 3px;
+        height: 3px;
+        border-radius: 999px;
+        background: var(--outline-variant);
+      }
+
+      /* 隐藏 honeypot，不占布局 */
+      .hp {
+        position: absolute;
+        left: -10000px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid-bg" aria-hidden="true"></div>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">Mini-HBUT</div>
+        <div class="brand-tag">Resource Share</div>
+      </header>
+
+      <main class="main">
+        <div class="eyebrow">
+          <span>Share</span>
+          <span class="dot"></span>
+          <span>Netlify Forms</span>
+        </div>
+        <h1>资源<em>共享</em></h1>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="chip">Form</span>
+              <span>提交资源</span>
+            </div>
+          </div>
+
+          <!-- 供 Netlify 部署期检测的标准 HTML 表单（勿改 name/字段名） -->
+          <form
+            id="share-form"
+            name="resource-share"
+            method="POST"
+            action="/success.html"
+            data-netlify="true"
+            data-netlify-honeypot="bot-field"
+          >
+            <input type="hidden" name="form-name" value="resource-share" />
+            <input type="hidden" name="form_started_at" id="form_started_at" value="" />
+
+            <!--
+              Netlify 后台列表「标题」规则：
+              取第一个「非 hidden、非 email」的 text input。
+              蜜罐 bot-field 若排在最前且为空，标题就会空白。
+              这里用 CSS 隐藏的 name 字段作为列表标题，提交前写入「资源名称+QQ」。
+            -->
+            <p class="hp" aria-hidden="true">
+              <label>
+                submission title
+                <input
+                  type="text"
+                  name="name"
+                  id="submission_name"
+                  value=""
+                  tabindex="-1"
+                  autocomplete="off"
+                />
+              </label>
+            </p>
+
+            <!-- Netlify honeypot（排在 name 之后，避免抢标题） -->
+            <p class="hp">
+              <label>
+                Don’t fill this out:
+                <input name="bot-field" type="text" tabindex="-1" autocomplete="off" />
+              </label>
+            </p>
+
+            <div id="form-error" class="form-error" role="alert"></div>
+
+            <div class="field">
+              <label for="title">资源名称<span class="req">*</span></label>
+              <input id="title" name="title" type="text" required maxlength="120" placeholder="高等数学期末资料" />
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label for="contact">联系方式<span class="req">*</span></label>
+                <input
+                  id="contact"
+                  name="contact"
+                  type="text"
+                  required
+                  maxlength="80"
+                  placeholder="微信 / 手机 / 邮箱"
+                  autocomplete="tel"
+                />
+              </div>
+              <div class="field">
+                <label for="qq">QQ<span class="req">*</span></label>
+                <input
+                  id="qq"
+                  name="qq"
+                  type="text"
+                  required
+                  inputmode="numeric"
+                  pattern="[0-9]{5,12}"
+                  maxlength="12"
+                  placeholder="123456789"
+                />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="drive_link">网盘链接<span class="req">*</span></label>
+              <input
+                id="drive_link"
+                name="drive_link"
+                type="url"
+                required
+                maxlength="500"
+                placeholder="https://pan.baidu.com/..."
+              />
+            </div>
+
+            <div class="field">
+              <label for="note">备注</label>
+              <textarea id="note" name="note" maxlength="500" placeholder="提取码 / 有效期（可选）"></textarea>
+            </div>
+
+            <div class="field captcha-box">
+              <label for="captcha_answer">验证码<span class="req">*</span></label>
+              <div class="captcha-row">
+                <div class="captcha-challenge" id="captcha_challenge" aria-live="polite">--</div>
+                <button class="captcha-refresh" type="button" id="captcha_refresh" title="换一题" aria-label="换一题">↻</button>
+              </div>
+              <input
+                id="captcha_answer"
+                name="captcha_answer"
+                type="text"
+                inputmode="numeric"
+                required
+                maxlength="4"
+                autocomplete="off"
+                placeholder="输入计算结果"
+              />
+            </div>
+
+            <button type="submit" id="submit_btn">提交</button>
+          </form>
+        </section>
+
+        <footer class="foot">
+          <div class="foot-title">Mini-HBUT · Resource Share</div>
+          <div class="foot-links">
+            <a href="https://hbut.6661111.xyz/" target="_blank" rel="noopener noreferrer">项目官网</a>
+            <span class="foot-sep" aria-hidden="true"></span>
+            <a href="https://github.com/superdaobo/mini-hbut" target="_blank" rel="noopener noreferrer">开源地址</a>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      (() => {
+        // 只拦「毫秒级脚本连点」，不对真人形成负担
+        const MIN_FILL_MS = 800
+        // 同一浏览器极短冷却，防连点；正常用户几乎无感
+        const COOLDOWN_MS = 8_000
+        const COOLDOWN_KEY = 'mh_resource_share_cooldown_until'
+        const form = document.getElementById('share-form')
+        const startedAt = document.getElementById('form_started_at')
+        const challengeEl = document.getElementById('captcha_challenge')
+        const answerEl = document.getElementById('captcha_answer')
+        const refreshBtn = document.getElementById('captcha_refresh')
+        const errorEl = document.getElementById('form-error')
+        const submitBtn = document.getElementById('submit_btn')
+        let expectedAnswer = null
+
+        const now = () => Date.now()
+
+        const showError = (msg) => {
+          errorEl.textContent = msg
+          errorEl.classList.add('show')
+        }
+
+        const clearError = () => {
+          errorEl.textContent = ''
+          errorEl.classList.remove('show')
+        }
+
+        const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
+
+        const newChallenge = () => {
+          const op = Math.random() < 0.55 ? '+' : '-'
+          let a = randInt(3, 19)
+          let b = randInt(1, 12)
+          if (op === '-' && a < b) [a, b] = [b, a]
+          expectedAnswer = op === '+' ? a + b : a - b
+          challengeEl.textContent = `${a} ${op} ${b} = ?`
+          answerEl.value = ''
+        }
+
+        const remainingCooldown = () => {
+          try {
+            const until = Number(localStorage.getItem(COOLDOWN_KEY) || 0)
+            return Math.max(0, until - now())
+          } catch {
+            return 0
+          }
+        }
+
+        const applyCooldownUi = () => {
+          const left = remainingCooldown()
+          if (left <= 0) {
+            submitBtn.disabled = false
+            submitBtn.textContent = '提交'
+            return
+          }
+          submitBtn.disabled = true
+          submitBtn.textContent = `请稍候 ${Math.ceil(left / 1000)}s`
+          window.setTimeout(applyCooldownUi, 1000)
+        }
+
+        const goSuccess = () => {
+          window.location.replace('/success.html')
+        }
+
+        startedAt.value = String(now())
+        newChallenge()
+        applyCooldownUi()
+        refreshBtn.addEventListener('click', () => {
+          newChallenge()
+          clearError()
+          answerEl.focus()
+        })
+
+        form.addEventListener('submit', (event) => {
+          // 始终 JS 接管：POST 只能打到站点根路径（Netlify Forms）。
+          // 旧版 action="/success.html" 会对静态页发 POST，导致 404。
+          event.preventDefault()
+          clearError()
+
+          const left = remainingCooldown()
+          if (left > 0) {
+            showError(`提交过于频繁，请 ${Math.ceil(left / 1000)} 秒后再试`)
+            applyCooldownUi()
+            return
+          }
+
+          const title = String(form.title.value || '').trim()
+          const contact = String(form.contact.value || '').trim()
+          const qq = String(form.qq.value || '').trim()
+          const drive = String(form.drive_link.value || '').trim()
+          const honeypot = String(form.elements.namedItem('bot-field')?.value || '').trim()
+          const answer = String(answerEl.value || '').trim()
+          const started = Number(startedAt.value || 0)
+          const elapsed = now() - started
+
+          if (honeypot) {
+            goSuccess()
+            return
+          }
+
+          if (!title || !contact || !qq || !drive) {
+            showError('请完整填写必填项')
+            return
+          }
+
+          if (!/^[0-9]{5,12}$/.test(qq)) {
+            showError('QQ 格式不正确')
+            return
+          }
+
+          try {
+            const u = new URL(drive)
+            if (!/^https?:$/.test(u.protocol)) throw new Error('bad protocol')
+          } catch {
+            showError('网盘链接需为 http(s) 地址')
+            return
+          }
+
+          if (elapsed < MIN_FILL_MS) {
+            showError('填写太快，请确认内容后再提交')
+            return
+          }
+
+          if (answer === '' || Number(answer) !== expectedAnswer) {
+            showError('验证码错误，请重试')
+            newChallenge()
+            answerEl.focus()
+            return
+          }
+
+          // 后台列表标题：资源名称+QQ（Netlify 取首个非 hidden text 字段）
+          const displayTitle = `${title}+${qq}`
+          const nameInput = form.elements.namedItem('name')
+          if (nameInput) nameInput.value = displayTitle
+
+          try {
+            localStorage.setItem(COOLDOWN_KEY, String(now() + COOLDOWN_MS))
+          } catch {
+            // ignore
+          }
+
+          submitBtn.disabled = true
+          submitBtn.textContent = '提交中…'
+
+          // Netlify Forms AJAX 要求：application/x-www-form-urlencoded，不能 JSON
+          const formData = new FormData(form)
+          if (!formData.get('form-name')) formData.set('form-name', 'resource-share')
+          formData.set('name', displayTitle)
+          const body = new URLSearchParams(formData).toString()
+
+          fetch('/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body
+          })
+            .then(async (res) => {
+              if (res.ok || res.status === 302 || res.status === 303) {
+                goSuccess()
+                return
+              }
+              const text = await res.text().catch(() => '')
+              throw new Error(`HTTP ${res.status} ${text.slice(0, 80)}`)
+            })
+            .catch((err) => {
+              console.error(err)
+              // 兜底：原生 POST（action=/success.html 已在表单上）
+              try {
+                form.submit()
+              } catch {
+                submitBtn.disabled = false
+                submitBtn.textContent = '提交'
+                showError('提交失败，请稍后重试')
+                newChallenge()
+              }
+            })
+        })
+      })()
+    </script>
+  </body>
+</html>

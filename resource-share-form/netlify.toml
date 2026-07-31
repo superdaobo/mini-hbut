@@ -1,0 +1,28 @@
+[build]
+  # 纯静态也给一个空构建，确保走完整 post-processing / form detection
+  command = "echo static-forms"
+  publish = "."
+
+[build.processing]
+  skip_processing = false
+
+[build.processing.html]
+  pretty_urls = true
+
+# 允许外站 iframe 内嵌
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "frame-ancestors *"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Content-Type-Options = "nosniff"
+
+[[redirects]]
+  from = "/embed"
+  to = "/"
+  status = 200
+
+[[redirects]]
+  from = "/success"
+  to = "/success.html"
+  status = 200
