@@ -1825,6 +1825,14 @@ const handleLoginSuccess = (data) => {
   }
   clearJwxtMaintenance()
   stopJwxtRecoveryPolling()
+  // #520：登录成功后主动探测教务会话是否真正恢复（刷新学习通短票/CAS 桥接）。
+  // 若探测失败，refreshSessionSilently 内部会自动进入后台重登 + 定时重试，
+  // 避免用户重新登录后仍长期停留在「会话已过期」状态。
+  if (!isTestAccountSession() && hasTauri) {
+    window.setTimeout(() => {
+      refreshSessionSilently()
+    }, 2500)
+  }
   recoverViewportAfterTransition()
 }
 
@@ -2909,6 +2917,29 @@ const attemptAutoRelogin = async () => {
   if (!creds) {
     jwxtSessionLastError.value = '本地未找到融合门户记住密码'
     return false
+  }
+
+  // #520：前端密钥环无凭据但后端 DB 无条件保存过密码（未勾记住密码也落库），
+  // 直接调用后端 auto_relogin_from_stored 走完整 CAS 登录，立即恢复而非等轮询。
+  if (creds.backendRestorable) {
+    try {
+      const userInfo = await invokeNative('auto_relogin_from_stored', {
+        studentId: creds.username
+      })
+      await persistSessionCookies()
+      const sid = String(
+        userInfo?.student_id || userInfo?.studentId || creds.username || ''
+      ).trim()
+      if (sid) {
+        studentId.value = sid
+        localStorage.setItem('hbu_username', sid)
+      }
+      return true
+    } catch (e) {
+      jwxtSessionLastError.value = formatSessionError(e)
+      console.warn('[Session] 后端存储凭据自动登录失败:', e)
+      return false
+    }
   }
 
   const doLogin = async () => {
