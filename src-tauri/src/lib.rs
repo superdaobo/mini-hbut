@@ -4112,10 +4112,9 @@ fn resolve_stored_portal_password(student_id: &str) -> Option<String> {
 /// 查询本地是否存在可恢复的门户凭据（DB 密码 / 密钥环），供前端消除「未保存密码」误报。
 #[tauri::command]
 async fn has_restorable_credentials(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     student_id: String,
 ) -> Result<bool, String> {
-    let _ = state.client.read().await;
     Ok(resolve_stored_portal_password(&student_id).is_some())
 }
 
